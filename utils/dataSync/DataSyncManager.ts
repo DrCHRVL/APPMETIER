@@ -295,16 +295,31 @@ export class DataSyncManager {
       };
 
     } catch (error) {
+      // Fichier serveur corrompu : on n'écrit rien sur le serveur
+      // pour ne pas écraser les données du collègue
+      if (error instanceof Error && error.name === 'ServerCorruptedError') {
+        console.warn('⚠️ DataSync: Fichier serveur corrompu, sync annulée sans écriture');
+        this.handleSyncFailure(); // Active le backoff pour éviter les tentatives en boucle
+        this.showToast('Fichier serveur illisible (corrompu ou en cours d\'écriture). Réessayez dans quelques instants.', 'error');
+
+        return {
+          success: false,
+          timestamp: new Date().toISOString(),
+          action: 'error',
+          error: 'Fichier serveur corrompu — aucune donnée écrasée'
+        };
+      }
+
       console.error('❌ DataSync: Erreur synchronisation:', error);
       this.handleSyncFailure();
-      
+
       return {
         success: false,
         timestamp: new Date().toISOString(),
         action: 'error',
         error: error instanceof Error ? error.message : 'Erreur inconnue'
       };
-      
+
     } finally {
       this.isSync = false;
       this.notifyStatusChange();
@@ -545,14 +560,16 @@ export class DataSyncManager {
     try {
       return await window.electronAPI.dataSync_pull();
     } catch (error) {
-      // Fichier serveur corrompu ou vide : traiter comme une première sync
-      // plutôt que de faire échouer toute la synchronisation
+      // Fichier serveur corrompu ou vide (JSON tronqué suite à une écriture interrompue)
+      // On relance une erreur identifiable pour que performSync() l'intercepte
+      // sans écraser le serveur (risque de perte des données du collègue)
       if (error instanceof Error && (
         error.message.includes('Unexpected end of JSON') ||
         error.message.includes('Erreur lecture serveur')
       )) {
-        console.warn('⚠️ DataSync: Fichier serveur corrompu ou vide, traité comme première sync');
-        return null;
+        const corruptedError = new Error('SERVEUR_CORROMPU: ' + error.message);
+        corruptedError.name = 'ServerCorruptedError';
+        throw corruptedError;
       }
       throw error;
     }
