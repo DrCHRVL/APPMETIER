@@ -82,9 +82,14 @@ export interface SyncResult {
 }
 
 /**
+ * Action choisie pour un conflit individuel
+ */
+export type ConflictAction = 'merge' | 'skip' | 'keep_local' | 'keep_server';
+
+/**
  * Options de résolution de conflit
  */
-export type ConflictResolution = 
+export type ConflictResolution =
   | 'keep_local'      // Garder les données locales
   | 'keep_server'     // Garder les données serveur
   | 'merge'           // Fusionner intelligemment

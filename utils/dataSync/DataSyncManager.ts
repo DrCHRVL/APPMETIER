@@ -2,13 +2,14 @@
 
 import { ElectronBridge } from '../electronBridge';
 import { DataMergeService } from './DataMergeService';
-import { 
-  SyncData, 
-  SyncStatus, 
-  SyncResult, 
+import {
+  SyncData,
+  SyncStatus,
+  SyncResult,
   SyncMetadata,
   SyncConfig,
-  ConflictResolution
+  ConflictResolution,
+  ConflictAction
 } from '@/types/dataSyncTypes';
 import { APP_CONFIG } from '@/config/constants';
 
