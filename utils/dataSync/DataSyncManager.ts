@@ -542,7 +542,20 @@ export class DataSyncManager {
       throw new Error('API dataSync_pull non disponible');
     }
 
-    return await window.electronAPI.dataSync_pull();
+    try {
+      return await window.electronAPI.dataSync_pull();
+    } catch (error) {
+      // Fichier serveur corrompu ou vide : traiter comme une première sync
+      // plutôt que de faire échouer toute la synchronisation
+      if (error instanceof Error && (
+        error.message.includes('Unexpected end of JSON') ||
+        error.message.includes('Erreur lecture serveur')
+      )) {
+        console.warn('⚠️ DataSync: Fichier serveur corrompu ou vide, traité comme première sync');
+        return null;
+      }
+      throw error;
+    }
   }
 
   private async pushToServer(data: SyncData): Promise<void> {
