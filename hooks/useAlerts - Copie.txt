@@ -1,0 +1,220 @@
+import { useState, useEffect, useCallback } from 'react';
+import { Alert, AlertRule, Enquete } from '@/types/interfaces';
+import { APP_CONFIG } from '@/config/constants';
+import { ElectronBridge } from '@/utils/electronBridge';
+import { AlertManager } from '@/utils/alerts/alertManager';
+import debounce from 'lodash/debounce';
+
+const ALERT_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const DEBOUNCE_DELAY = 1000; // 1 seconde
+
+export const useAlerts = (enquetes: Enquete[]) => {
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Charger les règles d'alerte
+  useEffect(() => {
+    const loadAlertRules = async () => {
+      try {
+        setIsLoading(true);
+        const rules = await ElectronBridge.getData(
+          APP_CONFIG.STORAGE_KEYS.ALERT_RULES,
+          APP_CONFIG.DEFAULT_ALERT_RULES
+        );
+        setAlertRules(Array.isArray(rules) ? rules : APP_CONFIG.DEFAULT_ALERT_RULES);
+      } catch (error) {
+        setAlertRules(APP_CONFIG.DEFAULT_ALERT_RULES);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadAlertRules();
+  }, []);
+
+  // Sauvegarder les règles d'alerte (avec debounce)
+  const debouncedSaveAlertRules = useCallback(
+    debounce(async (rules: AlertRule[]) => {
+      try {
+        await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, rules);
+      } catch (error) {
+        console.error('Erreur lors de la sauvegarde des règles d\'alerte:', error);
+      }
+    }, DEBOUNCE_DELAY),
+    []
+  );
+
+  useEffect(() => {
+    if (!isLoading && alertRules.length > 0) {
+      debouncedSaveAlertRules(alertRules);
+    }
+    return () => debouncedSaveAlertRules.cancel();
+  }, [alertRules, isLoading, debouncedSaveAlertRules]);
+
+  // Mise à jour des alertes
+  const updateAlerts = useCallback(
+    debounce(async () => {
+      try {
+        const existingAlerts = await ElectronBridge.getData('alerts', []);
+        
+        const alertMap = new Map(
+          existingAlerts.map(alert => [
+            `${alert.type}-${alert.enqueteId}`,
+            alert
+          ])
+        );
+
+        const newAlerts: Alert[] = [];
+        for (const enquete of enquetes) {
+          if (enquete.statut === 'en_cours') {
+            const enqueteAlerts = await AlertManager.checkEnquete(enquete, alertRules);
+            for (const alert of enqueteAlerts) {
+              const key = `${alert.type}-${alert.enqueteId}`;
+              const existingAlert = alertMap.get(key);
+              
+              if (existingAlert?.validatedForEnquete) {
+                continue;
+              }
+
+              if (existingAlert?.status === 'snoozed') {
+                const snoozeEndDate = new Date(existingAlert.snoozedUntil!);
+                if (new Date() < snoozeEndDate) {
+                  alert.status = 'snoozed';
+                  alert.snoozedUntil = existingAlert.snoozedUntil;
+                  alert.snoozedCount = existingAlert.snoozedCount;
+                }
+              }
+              
+              newAlerts.push(alert);
+            }
+          }
+        }
+
+        await ElectronBridge.setData('alerts', newAlerts);
+        setAlerts(newAlerts);
+      } catch (error) {
+        console.error('Erreur lors de la mise à jour des alertes:', error);
+      }
+    }, DEBOUNCE_DELAY),
+    [enquetes, alertRules]
+  );
+
+  useEffect(() => {
+    updateAlerts();
+    const interval = setInterval(updateAlerts, ALERT_CHECK_INTERVAL);
+    return () => {
+      clearInterval(interval);
+      updateAlerts.cancel();
+    };
+  }, [updateAlerts]);
+
+  // Gestion des règles d'alerte
+  const handleUpdateAlertRule = useCallback(async (updatedRule: AlertRule) => {
+    setAlertRules(prev => {
+      const newRules = prev.map(rule => 
+        rule.id === updatedRule.id ? updatedRule : rule
+      );
+      if (!prev.find(rule => rule.id === updatedRule.id)) {
+        newRules.push(updatedRule);
+      }
+      return newRules;
+    });
+  }, []);
+
+  // Mise en snooze d'une alerte
+  const handleSnoozeAlert = useCallback(
+    debounce(async (alertId: number) => {
+      const snoozeDate = new Date();
+      snoozeDate.setDate(snoozeDate.getDate() + 7); // Snooze pour 7 jours
+      
+      const updatedAlerts = alerts.map(alert => 
+        alert.id === alertId 
+          ? {
+              ...alert,
+              status: 'snoozed',
+              snoozedUntil: snoozeDate.toISOString(),
+              snoozedCount: (alert.snoozedCount || 0) + 1
+            }
+          : alert
+      );
+      setAlerts(updatedAlerts);
+      await ElectronBridge.setData('alerts', updatedAlerts);
+    }, DEBOUNCE_DELAY),
+    [alerts]
+  );
+
+  // Validation d'une ou plusieurs alertes
+  const handleValidateAlert = useCallback(
+    debounce(async (alertId: number | number[]) => {
+      const updatedAlerts = alerts.map(alert => {
+        if (Array.isArray(alertId) ? alertId.includes(alert.id) : alert.id === alertId) {
+          return {
+            ...alert,
+            status: 'validated',
+            validatedForEnquete: true,
+            validatedAt: new Date().toISOString()
+          };
+        }
+        return alert;
+      });
+      setAlerts(updatedAlerts);
+      await ElectronBridge.setData('alerts', updatedAlerts);
+    }, DEBOUNCE_DELAY),
+    [alerts]
+  );
+
+  // Duplication d'une règle
+  const handleDuplicateRule = useCallback(async (rule: AlertRule) => {
+    const duplicatedRule: AlertRule = {
+      ...rule,
+      id: Date.now(),
+      name: `${rule.name} (copie)`,
+      enabled: true,
+      isSystemRule: false
+    };
+    handleUpdateAlertRule(duplicatedRule);
+  }, [handleUpdateAlertRule]);
+
+  // Suppression d'une règle
+  const handleDeleteRule = useCallback(
+    debounce(async (ruleId: number) => {
+      setAlertRules(prev => {
+        const updatedRules = prev.filter(rule => rule.id !== ruleId);
+        ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, updatedRules);
+        return updatedRules;
+      });
+    }, DEBOUNCE_DELAY),
+    []
+  );
+
+  // Sauvegarde des alertes (avec debounce)
+  const debouncedSaveAlerts = useCallback(
+    debounce(async () => {
+      if (!isLoading) {
+        try {
+          await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERTS, alerts);
+        } catch (error) {
+          console.error('Erreur lors de la sauvegarde des alertes:', error);
+        }
+      }
+    }, DEBOUNCE_DELAY),
+    [alerts, isLoading]
+  );
+
+  useEffect(() => {
+    debouncedSaveAlerts();
+    return () => debouncedSaveAlerts.cancel();
+  }, [alerts, debouncedSaveAlerts]);
+
+  return {
+    alerts: alerts.filter(alert => alert.status === 'active'),
+    alertRules,
+    isLoading,
+    updateAlerts,
+    handleUpdateAlertRule,
+    handleDuplicateRule,
+    handleDeleteRule,
+    handleSnoozeAlert,
+    handleValidateAlert
+  };
+};

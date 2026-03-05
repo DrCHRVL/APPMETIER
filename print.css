@@ -1,0 +1,493 @@
+/* ========================================
+   CSS pour l'impression PDF des statistiques
+   Format : A4 Portrait - VERSION ROBUSTE
+   ======================================== */
+
+@media print {
+  /* ====== Configuration de la page ====== */
+  @page {
+    size: A4 portrait;
+    margin: 12mm 8mm;
+  }
+
+  /* ====== Reset général AGRESSIF ====== */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  html {
+    font-size: 10pt;
+  }
+
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    color: black !important;
+    font-size: 10pt !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* ====== Masquer TOUT ce qui ne doit pas être imprimé ====== */
+  /* Sidebar et navigation */
+  aside,
+  nav,
+  .sidebar,
+  [class*="sidebar"],
+  [class*="SideBar"],
+  header:not(.print-header),
+  footer:not(.print-footer) {
+    display: none !important;
+    visibility: hidden !important;
+    width: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* Boutons et contrôles */
+  button,
+  .no-print,
+  [class*="Button"],
+  input,
+  select,
+  textarea,
+  .tooltip,
+  [role="tooltip"],
+  .alert-badge,
+  [class*="badge"]:not(.badge) {
+    display: none !important;
+  }
+
+  /* Éléments spécifiques de l'interface */
+  [class*="Search"],
+  [class*="Filter"]:not(.pdf-section),
+  .year-selector select,
+  .flex.items-center.gap-4:has(select) {
+    display: none !important;
+  }
+
+  /* ====== Container principal - FORCER la largeur complète ====== */
+  .print-container,
+  .max-w-6xl,
+  .max-w-4xl,
+  .mx-auto {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  main,
+  [role="main"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* ====== En-tête du document ====== */
+  .print-header {
+    display: block !important;
+    text-align: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #2B5746;
+    page-break-after: avoid;
+  }
+
+  .print-header h1 {
+    font-size: 20pt !important;
+    margin: 0 0 8px 0 !important;
+    font-weight: bold !important;
+    color: #2B5746 !important;
+  }
+
+  .print-header .print-date {
+    font-size: 11pt !important;
+    color: #666 !important;
+    margin: 0 !important;
+  }
+
+  /* ====== Sections PDF ====== */
+  .pdf-section {
+    /* Permettre la coupure entre pages */
+    page-break-inside: auto !important;
+    margin-bottom: 20px !important;
+    width: 100%;
+  }
+
+  .pdf-section h3 {
+    font-size: 16pt !important;
+    font-weight: bold !important;
+    margin: 20px 0 12px 0 !important;
+    color: #2B5746 !important;
+    page-break-after: avoid !important;
+    border-bottom: 1px solid #2B5746;
+    padding-bottom: 5px;
+  }
+
+  /* Première section sans marge en haut */
+  .pdf-section:first-of-type h3 {
+    margin-top: 0 !important;
+  }
+
+  /* ====== Cartes (Cards) - NE JAMAIS COUPER ====== */
+  .card,
+  [class*="Card"] {
+    border: 1px solid #ccc !important;
+    border-radius: 4px !important;
+    margin-bottom: 12px !important;
+    background: white !important;
+    box-shadow: none !important;
+    /* NE JAMAIS couper une carte */
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .card-header,
+  [class*="CardHeader"] {
+    background: #f8f8f8 !important;
+    padding: 8px 10px !important;
+    border-bottom: 1px solid #ddd !important;
+    page-break-after: avoid !important;
+  }
+
+  .card-title,
+  [class*="CardTitle"] {
+    font-size: 12pt !important;
+    font-weight: bold !important;
+    margin: 0 !important;
+    color: #2B5746 !important;
+  }
+
+  .card-content,
+  [class*="CardContent"] {
+    padding: 10px !important;
+  }
+
+  /* Description dans les cartes */
+  .card-content p.text-sm {
+    font-size: 9pt !important;
+    margin: 5px 0 !important;
+  }
+
+  /* ====== Grilles - Optimisées pour A4 Portrait ====== */
+  .grid {
+    display: grid !important;
+    gap: 10px !important;
+    width: 100% !important;
+    /* Permettre les sauts de page dans les grilles */
+    page-break-inside: auto !important;
+  }
+
+  /* 2 colonnes max pour A4 portrait */
+  .grid-cols-1,
+  .grid-cols-2,
+  .grid-cols-3,
+  .md\:grid-cols-2,
+  .md\:grid-cols-3,
+  .lg\:grid-cols-2,
+  .lg\:grid-cols-3,
+  .xl\:grid-cols-3 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Une seule colonne pour les grandes cartes */
+  .col-span-full,
+  .col-span-2 {
+    grid-column: 1 / -1 !important;
+  }
+
+  /* Liste de services - affichage optimisé */
+  .flex-wrap {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  .flex-wrap > div {
+    min-width: 45% !important;
+    max-width: 48% !important;
+  }
+
+  /* ====== Graphiques Chart.js - Optimisation critique ====== */
+  canvas {
+    max-height: 200px !important;
+    max-width: 100% !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Containers des graphiques */
+  .h-\[300px\],
+  .h-\[400px\],
+  .h-\[250px\] {
+    height: 200px !important;
+    max-height: 200px !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Graphiques Pie plus petits */
+  .h-\[300px\]:has(canvas),
+  .h-\[400px\]:has(canvas) {
+    height: 180px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  /* Container parent des graphiques */
+  div:has(> canvas) {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Forcer les couleurs des graphiques */
+  canvas {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* ====== Listes et statistiques ====== */
+  .space-y-1 > *,
+  .space-y-2 > *,
+  .space-y-4 > * {
+    margin-bottom: 3px !important;
+  }
+
+  /* Légendes des graphiques */
+  .flex.items-center.gap-2 {
+    margin-bottom: 4px !important;
+  }
+
+  .flex.justify-between {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 3px 0 !important;
+  }
+
+  /* Points de couleur dans les légendes */
+  .w-3.h-3,
+  .rounded-full {
+    width: 10px !important;
+    height: 10px !important;
+    flex-shrink: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* ====== Statistiques numériques ====== */
+  .text-3xl {
+    font-size: 22pt !important;
+    font-weight: bold !important;
+  }
+
+  .text-2xl {
+    font-size: 18pt !important;
+  }
+
+  .text-xl {
+    font-size: 14pt !important;
+  }
+
+  .text-lg {
+    font-size: 12pt !important;
+  }
+
+  .text-sm {
+    font-size: 9pt !important;
+  }
+
+  .text-xs {
+    font-size: 8pt !important;
+  }
+
+  /* ====== Badges et labels ====== */
+  .badge,
+  [class*="Badge"] {
+    padding: 2px 5px !important;
+    font-size: 8pt !important;
+    border: 1px solid #ddd !important;
+    background: #f0f0f0 !important;
+  }
+
+  /* ====== Couleurs d'arrière-plan - Préservées ====== */
+  .bg-gray-50,
+  .bg-gray-100 {
+    background-color: #f9f9f9 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .bg-blue-50 { background-color: #eff6ff !important; }
+  .bg-green-50 { background-color: #f0fdf4 !important; }
+  .bg-yellow-50 { background-color: #fefce8 !important; }
+  .bg-red-50 { background-color: #fef2f2 !important; }
+
+  /* Tous les éléments avec style backgroundColor */
+  [style*="backgroundColor"],
+  [style*="background-color"] {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* ====== Textes et couleurs ====== */
+  .text-gray-500 {
+    color: #6b7280 !important;
+  }
+
+  .text-gray-600 {
+    color: #4b5563 !important;
+  }
+
+  .font-bold,
+  .font-semibold {
+    font-weight: bold !important;
+  }
+
+  .font-medium {
+    font-weight: 500 !important;
+  }
+
+  /* ====== Bordures et séparateurs ====== */
+  .border-t {
+    border-top: 1px solid #ddd !important;
+  }
+
+  .border-b {
+    border-bottom: 1px solid #ddd !important;
+  }
+
+  /* ====== Éviter les ruptures de page ====== */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  .card,
+  .pdf-section > div {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  p, li {
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* Forcer les sauts de page */
+  .print-break-before {
+    page-break-before: always !important;
+  }
+
+  .print-break-after {
+    page-break-after: always !important;
+  }
+
+  .print-no-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* ====== Espacements compacts ====== */
+  .space-y-6 > * {
+    margin-bottom: 10px !important;
+  }
+
+  .space-y-8 > * {
+    margin-bottom: 12px !important;
+  }
+
+  .p-6,
+  .p-4 {
+    padding: 8px !important;
+  }
+
+  .py-4 {
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+  }
+
+  .mb-4,
+  .mb-6 {
+    margin-bottom: 10px !important;
+  }
+
+  .mt-4,
+  .mt-6 {
+    margin-top: 10px !important;
+  }
+
+  /* ====== Masquer les tooltips et overlays ====== */
+  [role="tooltip"],
+  .tooltip-trigger,
+  .tooltip-content,
+  [data-radix-popper-content-wrapper],
+  [data-state="open"] {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* ====== Optimisation pour les longues listes ====== */
+  .overflow-y-auto,
+  .overflow-auto {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* ====== Statistiques mensuelles ====== */
+  .monthly-stats,
+  .space-y-1 {
+    font-size: 9pt !important;
+  }
+
+  /* ====== Classes utilitaires ====== */
+  .print-hide {
+    display: none !important;
+  }
+  
+  .print-show {
+    display: block !important;
+  }
+
+  /* ====== Ajustements spécifiques pour InfractionStats ====== */
+  /* Listes d'infractions */
+  .grid.grid-cols-1.md\:grid-cols-2.gap-4 > div {
+    padding: 4px 6px !important;
+    margin-bottom: 3px !important;
+  }
+
+  /* ====== Footer avec numéro de page ====== */
+  .print-footer {
+    display: none !important;
+  }
+
+  /* ====== Forcer l'affichage en largeur complète ====== */
+  body > div,
+  #__next,
+  [id*="root"] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* ====== Masquer les scrollbars ====== */
+  ::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  /* ====== Amélioration de la netteté ====== */
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* ========================================
+   Fin du CSS d'impression
+   ======================================== */
+

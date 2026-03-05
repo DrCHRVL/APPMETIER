@@ -1,0 +1,352 @@
+// hooks/useEnquetes.ts
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Enquete, CompteRendu, NewEnqueteData } from '../types/interfaces';
+import { ElectronBridge } from '../utils/electronBridge';
+import { APP_CONFIG } from '../config/constants';
+import { useAlerts } from './useAlerts';
+import { AlertManager } from '../utils/alerts/alertManager';
+import throttle from 'lodash/throttle';
+
+// Constantes pour l'optimisation
+const SAVE_DEBOUNCE = 2500; // 2.5 secondes de debounce
+
+// Fonction pour migrer les enquÃªtes existantes qui n'ont pas de champ documents
+const migrateEnqueteDocuments = (enquete: any): Enquete => {
+   if (!enquete.documents || !Array.isArray(enquete.documents)) {
+    enquete.documents = [];
+  }
+  if (!enquete.toDos || !Array.isArray(enquete.toDos)) {
+    enquete.toDos = [];
+  }
+  return enquete as Enquete;
+};
+
+export const useEnquetes = () => {
+  const [enquetes, setEnquetes] = useState<Enquete[]>([]);
+  const [selectedEnquete, setSelectedEnquete] = useState<Enquete | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingCR, setEditingCR] = useState<CompteRendu | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isDataDirty, setIsDataDirty] = useState(false);
+  
+  // RÃ©fÃ©rence pour Ã©viter les re-renders
+  const enquetesRef = useRef<Enquete[]>([]);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Utiliser le hook d'alertes
+  const {
+    alerts,
+    alertRules,
+    updateAlerts,
+    handleUpdateAlertRule,
+    handleValidateAlert,
+    handleSnoozeAlert,
+    handleDuplicateRule,
+    handleDeleteRule
+  } = useAlerts(enquetes);
+
+  // Synchronisation ref -> state pour les Ã©vÃ©nements asynchrones
+  useEffect(() => {
+    enquetesRef.current = enquetes;
+  }, [enquetes]);
+
+  // Fonction de chargement des donnÃ©es rÃ©utilisable
+  const loadEnquetesData = useCallback(async () => {
+    try {
+      console.log('ðŸ”„ Chargement des enquÃªtes...');
+      
+      // Charger les donnÃ©es
+console.log('ðŸ” ClÃ© utilisÃ©e:', APP_CONFIG.STORAGE_KEYS.ENQUETES);
+
+const rawData = await window.electronAPI.getData('enquetes');
+console.log('ðŸ” rawData reÃ§u:', rawData);
+console.log('ðŸ” Type de rawData:', typeof rawData);
+console.log('ðŸ” Est-ce un tableau?', Array.isArray(rawData));
+
+// GÃ©rer les deux formats possibles
+const data = Array.isArray(rawData) ? rawData : (rawData?.data || []);
+console.log('ðŸ” data aprÃ¨s traitement:', data);
+console.log('ðŸ” data.length:', data.length);
+      // Appliquer la migration et valider les donnÃ©es
+      const validData = Array.isArray(data) 
+        ? data
+          .filter(item => item.statut !== 'instruction')  
+          .map(migrateEnqueteDocuments)
+        : [];
+      
+      // Si migration effectuÃ©e, sauvegarder immÃ©diatement
+      const needsMigration = Array.isArray(data) && 
+        data.some(enquete => !enquete.documents || !Array.isArray(enquete.documents));
+      
+      if (needsMigration) {
+        console.log('Migration des documents des enquÃªtes effectuÃ©e');
+        await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ENQUETES, validData);
+      }
+      
+      setEnquetes(validData);
+      enquetesRef.current = validData;
+      console.log('âœ… EnquÃªtes chargÃ©es:', validData.length);
+      
+    } catch (error) {
+      console.error('Error loading enquetes:', error);
+      setEnquetes([]);
+      enquetesRef.current = [];
+    }
+  }, []); // VIDE - pas de dÃ©pendances
+
+  // Chargement initial des donnÃ©es
+  useEffect(() => {
+    const initialize = async () => {
+      setIsLoading(true);
+      await loadEnquetesData();
+      setIsLoading(false);
+    };
+    
+    initialize();
+  }, []);
+
+  // Sauvegarde avec debounce plus long et uniquement si changements
+  const saveEnquetes = useCallback(
+    throttle(async () => {
+      // VÃ©rifier s'il y a des modifications Ã  sauvegarder
+      if (!isDataDirty || isLoading) return;
+      
+      try {
+        // Sauvegarder les donnÃ©es
+        await ElectronBridge.setData(
+          APP_CONFIG.STORAGE_KEYS.ENQUETES, 
+          enquetesRef.current
+        );
+        
+        // RÃ©initialiser le flag de modification
+        setIsDataDirty(false);
+      } catch (error) {
+        console.error('Error saving enquetes:', error);
+      }
+    }, SAVE_DEBOUNCE),
+    [isDataDirty, isLoading]
+  );
+
+  // DÃ©clencher la sauvegarde quand les donnÃ©es changent
+  useEffect(() => {
+    if (isDataDirty && !isLoading) {
+      saveEnquetes();
+    }
+    
+    return () => {
+      saveEnquetes.cancel();
+      
+      // Sauvegarde forcÃ©e lors du dÃ©montage du composant
+      if (isDataDirty && !isLoading) {
+        ElectronBridge.setData(
+          APP_CONFIG.STORAGE_KEYS.ENQUETES, 
+          enquetesRef.current
+        ).catch(error => {
+          console.error('Error during final save:', error);
+        });
+      }
+    };
+  }, [saveEnquetes, isDataDirty, isLoading]);
+
+  // Fonction utilitaire pour mettre Ã  jour les enquÃªtes avec un minimum de re-renders
+  const updateEnquetesList = useCallback((updater: (prev: Enquete[]) => Enquete[]) => {
+    setEnquetes(prev => {
+      const updated = updater(prev);
+      enquetesRef.current = updated;
+      setIsDataDirty(true);
+      return updated;
+    });
+  }, []);
+
+  // Ajout d'un compte rendu
+  const handleAjoutCR = useCallback((cr: Omit<CompteRendu, 'id'>) => {
+    if (!selectedEnquete) return;
+
+    const newCR = {
+      ...cr,
+      id: Date.now(),
+    };
+
+    // Mettre Ã  jour l'enquÃªte sÃ©lectionnÃ©e
+    const updatedEnquete = {
+      ...selectedEnquete,
+      comptesRendus: [newCR, ...selectedEnquete.comptesRendus],
+      dateMiseAJour: new Date().toISOString()
+    };
+
+    // Mettre Ã  jour la liste complÃ¨te des enquÃªtes
+    updateEnquetesList(prev => 
+      prev.map(e => e.id === selectedEnquete.id ? updatedEnquete : e)
+    );
+    
+    // Mettre Ã  jour l'enquÃªte sÃ©lectionnÃ©e
+    setSelectedEnquete(updatedEnquete);
+  }, [selectedEnquete, updateEnquetesList]);
+
+  // Mise Ã  jour d'une enquÃªte
+  const handleUpdateEnquete = useCallback((id: number, updates: Partial<Enquete>) => {
+    // Mettre Ã  jour la liste des enquÃªtes
+    updateEnquetesList(prev => 
+      prev.map(enquete => 
+        enquete.id === id
+          ? { ...enquete, ...updates, dateMiseAJour: new Date().toISOString() }
+          : enquete
+      )
+    );
+
+    // Mettre Ã  jour l'enquÃªte sÃ©lectionnÃ©e si nÃ©cessaire
+    if (selectedEnquete?.id === id) {
+      setSelectedEnquete(prev => 
+        prev ? { ...prev, ...updates, dateMiseAJour: new Date().toISOString() } : null
+      );
+    }
+  }, [updateEnquetesList, selectedEnquete]);
+
+  // Ajout d'une nouvelle enquÃªte avec documents vides par dÃ©faut
+  const handleAddEnquete = useCallback((enqueteData: NewEnqueteData) => {
+    const newEnquete: Enquete = {
+      ...enqueteData,
+      id: Date.now(),
+      dateCreation: new Date().toISOString(),
+      dateMiseAJour: new Date().toISOString(),
+      statut: 'en_cours',
+      comptesRendus: [],
+      actes: [],
+      ecoutes: [],
+      geolocalisations: [],
+      documents: [] // Initialiser avec un tableau vide de documents
+    };
+
+    // Ajouter Ã  la liste des enquÃªtes
+    updateEnquetesList(prev => [...prev, newEnquete]);
+  }, [updateEnquetesList]);
+
+  // Archivage d'une enquÃªte
+  const handleArchiveEnquete = useCallback((id: number) => {
+    updateEnquetesList(prev => 
+      prev.map(enquete =>
+        enquete.id === id 
+          ? { ...enquete, statut: 'archive', dateMiseAJour: new Date().toISOString() } 
+          : enquete
+      )
+    );
+  }, [updateEnquetesList]);
+
+  // Suppression d'une enquÃªte
+  const handleDeleteEnquete = useCallback((id: number) => {
+    updateEnquetesList(prev => prev.filter(enquete => enquete.id !== id));
+  }, [updateEnquetesList]);
+
+  // DÃ©sarchivage d'une enquÃªte
+  const handleUnarchiveEnquete = useCallback((id: number) => {
+    updateEnquetesList(prev => 
+      prev.map(enquete =>
+        enquete.id === id && !enquete.dateAudience 
+          ? { ...enquete, statut: 'en_cours', dateMiseAJour: new Date().toISOString() } 
+          : enquete
+      )
+    );
+  }, [updateEnquetesList]);
+
+  // DÃ©marrage d'une enquÃªte
+  const handleStartEnquete = useCallback((id: number, date: string) => {
+    updateEnquetesList(prev => 
+      prev.map(enquete => {
+        if (enquete.id === id) {
+          const newTags = enquete.tags.filter(tag => tag.value !== 'enquÃªte Ã  venir');
+          return {
+            ...enquete,
+            dateDebut: date,
+            tags: newTags,
+            dateMiseAJour: new Date().toISOString()
+          };
+        }
+        return enquete;
+      })
+    );
+  }, [updateEnquetesList]);
+
+  // CrÃ©ation d'une alerte d'audience
+  const handleCreateAudienceAlert = useCallback((enqueteId: number, date: string) => {
+    const alert = AlertManager.generateAlert(
+      enqueteId,
+      'audience',
+      `Audience prÃ©vue le ${new Date(date).toLocaleDateString()}`,
+      date
+    );
+    
+    // DÃ©clencher la mise Ã  jour des alertes
+    setTimeout(() => {
+      updateAlerts();
+    }, 500);
+  }, [updateAlerts]);
+
+  // Mise Ã  jour d'un compte rendu
+  const handleUpdateCR = useCallback((id: number, updates: Partial<CompteRendu>) => {
+    if (!selectedEnquete) return;
+    
+    const updatedCRs = selectedEnquete.comptesRendus.map(cr =>
+      cr.id === id ? { ...cr, ...updates } : cr
+    );
+    
+    const updatedEnquete = {
+      ...selectedEnquete,
+      comptesRendus: updatedCRs,
+      dateMiseAJour: new Date().toISOString()
+    };
+    
+    updateEnquetesList(prev => 
+      prev.map(e => e.id === selectedEnquete.id ? updatedEnquete : e)
+    );
+    
+    setSelectedEnquete(updatedEnquete);
+  }, [selectedEnquete, updateEnquetesList]);
+
+  // Suppression d'un compte rendu
+  const handleDeleteCR = useCallback((id: number) => {
+    if (!selectedEnquete) return;
+    
+    const updatedCRs = selectedEnquete.comptesRendus.filter(cr => cr.id !== id);
+    
+    const updatedEnquete = {
+      ...selectedEnquete,
+      comptesRendus: updatedCRs,
+      dateMiseAJour: new Date().toISOString()
+    };
+    
+    updateEnquetesList(prev => 
+      prev.map(e => e.id === selectedEnquete.id ? updatedEnquete : e)
+    );
+    
+    setSelectedEnquete(updatedEnquete);
+  }, [selectedEnquete, updateEnquetesList]);
+
+  return {
+    enquetes,
+    selectedEnquete,
+    isEditing,
+    alerts,
+    editingCR,
+    alertRules,
+    isLoading,
+    setSelectedEnquete,
+    setIsEditing,
+    setEditingCR,
+    handleAjoutCR,
+    handleUpdateCR,
+    handleDeleteCR,
+    handleUpdateEnquete,
+    handleAddEnquete,
+    handleArchiveEnquete,
+    handleDeleteEnquete,
+    handleUnarchiveEnquete,
+    handleStartEnquete,
+    handleValidateAlert,
+    handleSnoozeAlert,
+    handleUpdateAlertRule,
+    handleDuplicateRule,
+    handleDeleteRule,
+    updateAlerts,
+    handleCreateAudienceAlert
+  };
+};

@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+ 
+@layer base {
+  :root {
+    --background: 0 0% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 155 30% 26%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222 47% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 155 30% 94%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 155 30% 26%;
+    --radius: 0.5rem;
+  }
+}
+
+.copyright {
+  position: absolute;
+  bottom: 6px;
+  left: 0;
+  width: 100%;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.7);
+  text-align: center;
+  padding: 0 8px;
+}
+
+/* Fix for button icons */
+button svg {
+  @apply text-current;
+}
+
+/* Ghost button icons */
+button[class*="ghost"] svg {
+  @apply text-gray-600 hover:text-gray-900;
+}
+
+/* Action button icons */
+.action-button svg {
+  @apply text-gray-600 hover:text-gray-900;
+}
+
+/* Sidebar button icons */
+.bg-\[\#2B5746\] button[class*="ghost"] svg {
+  @apply text-white;
+}
+
+/* Alert badge styles */
+.alert-badge {
+  @apply absolute -top-1 -right-1 h-4 w-4 bg-red-600 text-white rounded-full flex items-center justify-center text-xs font-bold;
+}
+
+/* Styles d'impression pour les rapports */
+@media print {
+  /* Masquer les éléments inutiles */
+  header, nav, footer, button, .no-print { 
+    display: none !important; 
+  }
+  
+  /* Optimiser pour l'impression */
+  body {
+    background: white !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  /* Améliorer la mise en page */
+  .container, .content {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  
+  /* Forcer les sauts de page */
+  h2 {
+    page-break-before: always;
+  }
+  
+  h2:first-of-type {
+    page-break-before: avoid;
+  }
+  
+  /* Éviter les coupures */
+  .card, table, figure {
+    page-break-inside: avoid;
+  }
+  
+  /* Format du papier et marges */
+  @page {
+    size: A4;
+    margin: 1.5cm;
+  }
+}

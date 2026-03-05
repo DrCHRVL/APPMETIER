@@ -1,0 +1,284 @@
+import { Bell, Search, Cloud, CloudOff } from 'lucide-react';
+import { Input } from "./ui/input";
+import { Button } from "./ui/button";
+import { Alert } from '@/types/interfaces';
+import { AlertBadge } from './AlertBadge';
+import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from './ui/tooltip';
+import { formatDistanceToNow } from 'date-fns';
+import { fr } from 'date-fns/locale';
+import { useMemo, useState, useEffect } from 'react';
+import { DataSyncService, SyncResult } from '@/utils/DataSyncService';
+
+interface HeaderProps {
+  searchTerm: string;
+  onSearch: (term: string) => void;
+  alerts: Alert[];
+  onShowAlerts: () => void;
+  onSave: () => void;
+  isSaving: boolean;
+  lastSaveDate?: string;
+  onSyncSuccess?: () => void; // Callback pour recharger les données après sync
+}
+
+export const Header = ({ 
+  searchTerm, 
+  onSearch, 
+  alerts, 
+  onShowAlerts,
+  onSave,
+  isSaving,
+  lastSaveDate,
+  onSyncSuccess
+}: HeaderProps) => {
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isServerOnline, setIsServerOnline] = useState<boolean | null>(null);
+  const [lastSyncDate, setLastSyncDate] = useState<string | null>(null);
+
+  const activeAlerts = useMemo(() => 
+    alerts.filter(alert => alert.status === 'active'),
+    [alerts]
+  );
+
+  // Vérifier l'état du serveur au chargement
+  useEffect(() => {
+    checkServerStatus();
+  }, []);
+
+  const checkServerStatus = async () => {
+    try {
+      const online = await DataSyncService.isServerAccessible();
+      setIsServerOnline(online);
+    } catch (error) {
+      setIsServerOnline(false);
+    }
+  };
+
+  const handleSaveAndSync = async () => {
+    setIsSaving(true);
+    
+    try {
+      // 1. Sauvegarde locale d'abord
+      await onSave();
+      
+      // 2. Vérifier si le serveur est accessible
+      const serverAccessible = await DataSyncService.isServerAccessible();
+      setIsServerOnline(serverAccessible);
+      
+      if (!serverAccessible) {
+        // Toast d'info : sauvegarde locale OK, serveur inaccessible
+        if (window.showToast) {
+          window.showToast('Sauvegarde locale réussie - Serveur commun inaccessible', 'info');
+        }
+        return;
+      }
+
+      // 3. Synchronisation avec le serveur commun
+      setIsSyncing(true);
+      
+      const syncResult: SyncResult = await DataSyncService.syncWithConflictDetection();
+      
+      if (!syncResult.success) {
+        // Erreur de sync
+        if (window.showToast) {
+          window.showToast(`Erreur synchronisation: ${syncResult.error}`, 'error');
+        }
+        return;
+      }
+
+      // 4. Gérer les résultats selon le type
+      switch (syncResult.action) {
+        case 'first_sync':
+          // Première sync - envoyer nos données
+          await DataSyncService.forcePushToServer();
+          setLastSyncDate(new Date().toISOString());
+          if (window.showToast) {
+            window.showToast('Première synchronisation effectuée', 'success');
+          }
+          break;
+
+        case 'no_conflicts':
+          // Pas de conflits - fusionner automatiquement
+          if (syncResult.serverData) {
+            await DataSyncService.mergeServerData(syncResult.serverData);
+          }
+          await DataSyncService.forcePushToServer();
+          setLastSyncDate(new Date().toISOString());
+          if (window.showToast) {
+            window.showToast('Synchronisation réussie', 'success');
+          }
+          
+          // Recharger les données si callback fourni
+          if (onSyncSuccess) {
+            onSyncSuccess();
+          }
+          break;
+
+        case 'conflicts_detected':
+          // Conflits détectés - demander confirmation
+          const message = DataSyncService.formatConflictsMessage(syncResult.conflicts);
+          
+          const userChoice = window.confirm(message);
+          
+          if (userChoice) {
+            // Utilisateur choisit d'écraser
+            await DataSyncService.forcePushToServer();
+            setLastSyncDate(new Date().toISOString());
+            if (window.showToast) {
+              window.showToast('Synchronisation forcée - vos données écrasent le serveur', 'success');
+            }
+          } else {
+            // Utilisateur annule - fusionner quand même les données serveur
+            if (syncResult.serverData) {
+              await DataSyncService.mergeServerData(syncResult.serverData);
+            }
+            setLastSyncDate(new Date().toISOString());
+            if (window.showToast) {
+              window.showToast('Données serveur intégrées localement', 'info');
+            }
+            
+            // Recharger les données
+            if (onSyncSuccess) {
+              onSyncSuccess();
+            }
+          }
+          break;
+      }
+
+    } catch (error) {
+      console.error('Erreur lors de la sauvegarde/sync:', error);
+      if (window.showToast) {
+        window.showToast('Erreur lors de la synchronisation', 'error');
+      }
+    } finally {
+      setIsSaving(false);
+      setIsSyncing(false);
+    }
+  };
+
+  const lastSaveText = useMemo(() => {
+    if (!lastSaveDate) return "Aucune sauvegarde";
+    try {
+      const date = new Date(lastSaveDate);
+      if (isNaN(date.getTime())) return "Date invalide";
+      return `Dernière sauvegarde ${formatDistanceToNow(date, { 
+        addSuffix: true,
+        locale: fr 
+      })}`;
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return "Erreur de date";
+    }
+  }, [lastSaveDate]);
+
+  const lastSyncText = useMemo(() => {
+    if (!lastSyncDate) return "Aucune synchronisation";
+    try {
+      const date = new Date(lastSyncDate);
+      if (isNaN(date.getTime())) return "Date sync invalide";
+      return `Dernière sync ${formatDistanceToNow(date, { 
+        addSuffix: true,
+        locale: fr 
+      })}`;
+    } catch (error) {
+      return "Erreur date sync";
+    }
+  }, [lastSyncDate]);
+
+  const getSyncIcon = () => {
+    if (isSyncing) {
+      return <Cloud className="h-4 w-4 animate-bounce text-blue-500" />;
+    }
+    
+    if (isServerOnline === false) {
+      return <CloudOff className="h-4 w-4 text-red-500" />;
+    }
+    
+    if (isSaving) {
+      return <Cloud className="h-4 w-4 animate-bounce text-green-500" />;
+    }
+    
+    return <Cloud className="h-4 w-4 text-gray-600" />;
+  };
+
+  const getTooltipContent = () => {
+    const content = [];
+    content.push(lastSaveText);
+    
+    if (isServerOnline === false) {
+      content.push("Serveur commun: ❌ Inaccessible");
+    } else if (isServerOnline === true) {
+      content.push("Serveur commun: ✅ Accessible");
+      if (lastSyncDate) {
+        content.push(lastSyncText);
+      }
+    }
+    
+    if (isSyncing) {
+      content.push("🔄 Synchronisation en cours...");
+    } else if (isSaving) {
+      content.push("💾 Sauvegarde en cours...");
+    } else {
+      content.push("Cliquer: Sauvegarder + Synchroniser");
+    }
+    
+    return content.join('\n');
+  };
+
+  return (
+    <header className="bg-white shadow-sm p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-6">
+          <div className="relative">
+            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Rechercher..."
+              className="w-64 pl-8"
+              value={searchTerm}
+              onChange={(e) => onSearch(e.target.value)}
+            />
+          </div>
+          <h1 className="text-lg font-semibold text-primary">Suivi des enquêtes</h1>
+        </div>
+        
+        <div className="flex items-center space-x-4">
+          <TooltipProvider>
+            <TooltipRoot>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  className="relative"
+                  onClick={handleSaveAndSync}
+                  disabled={isSaving || isSyncing}
+                >
+                  {getSyncIcon()}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="whitespace-pre-line">
+                <p>{getTooltipContent()}</p>
+              </TooltipContent>
+            </TooltipRoot>
+          </TooltipProvider>
+
+          {activeAlerts.length > 0 && (
+            <Button 
+              variant="ghost" 
+              className="relative"
+              onClick={onShowAlerts}
+            >
+              <Bell className="h-4 w-4" />
+              <AlertBadge count={activeAlerts.length} size="sm" />
+            </Button>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+};
+
+// Déclaration globale pour TypeScript
+declare global {
+  interface Window {
+    showToast?: (message: string, type: 'success' | 'error' | 'info') => void;
+  }
+}

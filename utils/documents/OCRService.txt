@@ -1,0 +1,108 @@
+// utils/documents/OCRService.ts
+import { createWorker } from 'tesseract.js';
+
+export class OCRService {
+  private static worker: Tesseract.Worker | null = null;
+
+  /**
+   * Initialise le worker Tesseract (une seule fois)
+   */
+  private static async initWorker(): Promise<Tesseract.Worker> {
+    if (!this.worker) {
+      console.log('🤖 Initialisation OCR Tesseract...');
+      this.worker = await createWorker('fra', 1, {
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            console.log(`🔍 OCR progression: ${Math.round(m.progress * 100)}%`);
+          }
+        }
+      });
+    }
+    return this.worker;
+  }
+
+  /**
+   * Extrait le texte d'un fichier PDF via OCR
+   */
+  static async extractTextFromPDF(file: File): Promise<string> {
+    try {
+      console.log('🤖 Début OCR pour:', file.name);
+      
+      // Convertir le PDF en image (première page)
+      const imageData = await this.convertPDFToImage(file);
+      if (!imageData) {
+        throw new Error('Impossible de convertir le PDF en image');
+      }
+
+      // Initialiser le worker
+      const worker = await this.initWorker();
+      
+      // Reconnaissance de texte
+      console.log('🔍 Reconnaissance de texte en cours...');
+      const { data: { text } } = await worker.recognize(imageData, {
+        rectangle: { top: 0, left: 0, width: 0, height: 0 }
+      });
+      
+      console.log('✅ OCR terminé, longueur texte:', text.length);
+      return text;
+
+    } catch (error) {
+      console.error('❌ Erreur OCR:', error);
+      throw new Error(`Erreur OCR: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
+    }
+  }
+
+  /**
+   * Convertit la première page d'un PDF en image pour l'OCR
+   */
+  private static async convertPDFToImage(file: File): Promise<string | null> {
+    try {
+      // Utiliser PDF.js pour convertir en canvas
+      const pdfjsLib = await import('pdfjs-dist');
+      
+      // Configurer le worker PDF.js
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+      
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      
+      // Prendre la première page
+      const page = await pdf.getPage(1);
+      const viewport = page.getViewport({ scale: 2.0 }); // Haute résolution pour OCR
+      
+      // Créer un canvas
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+      
+      if (!context) {
+        throw new Error('Impossible de créer le contexte canvas');
+      }
+      
+      // Rendre la page
+      await page.render({
+        canvasContext: context,
+        viewport: viewport
+      }).promise;
+      
+      // Convertir en base64
+      return canvas.toDataURL('image/png');
+      
+    } catch (error) {
+      console.error('❌ Erreur conversion PDF→Image:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Nettoie les ressources
+   */
+  static async cleanup(): Promise<void> {
+    if (this.worker) {
+      console.log('🧹 Nettoyage ressources OCR...');
+      await this.worker.terminate();
+      this.worker = null;
+    }
+  }
+}

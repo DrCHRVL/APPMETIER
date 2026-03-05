@@ -1,0 +1,109 @@
+// components/modals/SyncConflictModal.tsx
+
+import React from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Button } from '../ui/button';
+import { SyncConflict } from '@/utils/DataSyncService';
+import { AlertTriangle } from 'lucide-react';
+
+interface SyncConflictModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  conflicts: SyncConflict[];
+  onKeepLocal: () => void;
+  onMergeServer: () => void;
+}
+
+export const SyncConflictModal = ({
+  isOpen,
+  onClose,
+  conflicts,
+  onKeepLocal,
+  onMergeServer
+}: SyncConflictModalProps) => {
+  
+  const totalConflicts = conflicts.reduce((sum, conflict) => sum + conflict.details.length, 0);
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-orange-600">
+            <AlertTriangle className="h-5 w-5" />
+            Conflits de synchronisation détectés
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <p className="text-sm text-yellow-800">
+              <strong>{totalConflicts} modification(s)</strong> conflictuelle(s) détectée(s) 
+              entre vos données locales et celles du serveur commun.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {conflicts.map((conflict, index) => (
+              <div key={index} className="border border-gray-200 rounded-lg p-3">
+                <h4 className="font-semibold text-gray-900 mb-2">
+                  📋 Enquête {conflict.enqueteNumero}
+                  <span className="ml-2 text-xs text-gray-500">
+                    ({conflict.type === 'new' ? 'Nouvelle' : 'Modifiée'})
+                  </span>
+                </h4>
+                
+                <ul className="space-y-1">
+                  {conflict.details.map((detail, detailIndex) => (
+                    <li key={detailIndex} className="text-sm text-gray-700 flex items-start">
+                      <span className="text-blue-500 mr-2">•</span>
+                      {detail}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <h4 className="font-semibold text-blue-900 mb-2">Que souhaitez-vous faire ?</h4>
+            
+            <div className="space-y-2 text-sm text-blue-800">
+              <div>
+                <strong>Garder mes modifications :</strong> 
+                <span className="ml-1">Vos données locales remplaceront celles du serveur</span>
+              </div>
+              <div>
+                <strong>Intégrer les modifications serveur :</strong>
+                <span className="ml-1">Les données serveur seront ajoutées à vos données locales</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <Button 
+              variant="outline" 
+              onClick={onClose}
+            >
+              Annuler
+            </Button>
+            
+            <Button 
+              variant="secondary"
+              onClick={onMergeServer}
+              className="bg-blue-100 hover:bg-blue-200 text-blue-700"
+            >
+              Intégrer serveur
+            </Button>
+            
+            <Button 
+              onClick={onKeepLocal}
+              className="bg-orange-500 hover:bg-orange-600"
+            >
+              Garder mes modifs
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};

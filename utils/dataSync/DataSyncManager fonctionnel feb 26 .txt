@@ -1,0 +1,489 @@
+// utils/dataSync/DataSyncManager.ts
+
+import { ElectronBridge } from '../electronBridge';
+import { DataMergeService } from './DataMergeService';
+import { 
+  SyncData, 
+  SyncStatus, 
+  SyncResult, 
+  SyncMetadata,
+  SyncConfig,
+  ConflictResolution
+} from '@/types/dataSyncTypes';
+import { APP_CONFIG } from '@/config/constants';
+
+/**
+ * Gestionnaire principal de la synchronisation des données
+ * Architecture complètement séparée de la synchronisation des documents
+ */
+export class DataSyncManager {
+  private static instance: DataSyncManager;
+  
+  // État de synchronisation
+  private isSync = false;
+  private isOnline = false;
+  private lastSyncAttempt: string | null = null;
+  private lastSuccessfulSync: string | null = null;
+  private currentUser = 'Utilisateur Inconnu';
+  private computerName = 'Ordinateur Inconnu';
+  
+  // Gestion des échecs
+  private consecutiveFailures = 0;
+  private readonly MAX_FAILURES = 3;
+  private readonly BACKOFF_TIME = 5 * 60 * 1000; // 5 minutes
+  private backoffUntil: Date | null = null;
+  
+  // Configuration
+  private config: SyncConfig = {
+    serverPath: 'P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\GESTION DE SERVICE\\10_App METIER',
+    syncInterval: 5 * 60 * 1000, // 5 minutes
+    autoSync: true,
+    conflictStrategy: 'ask',
+    maxRetries: 3,
+    retryDelay: 2000
+  };
+  
+  // Listeners
+  private statusListeners: Array<(status: SyncStatus) => void> = [];
+  private syncInterval: NodeJS.Timeout | null = null;
+
+  private constructor() {}
+
+  public static getInstance(): DataSyncManager {
+    if (!DataSyncManager.instance) {
+      DataSyncManager.instance = new DataSyncManager();
+    }
+    return DataSyncManager.instance;
+  }
+
+  /**
+   * Initialise le service de synchronisation
+   */
+  public async initialize(): Promise<void> {
+    if (!ElectronBridge.isAvailable()) {
+      console.warn('⚠️ DataSync: Electron API non disponible');
+      return;
+    }
+
+    try {
+      console.log('🚀 DataSync: Initialisation...');
+      
+      // Identifier l'utilisateur
+      await this.identifyUser();
+      
+      // Vérifier l'accès au serveur
+      await this.checkServerAccess();
+      
+      // Synchronisation initiale si serveur accessible
+      if (this.isOnline) {
+        console.log('🔄 DataSync: Synchronisation initiale...');
+        await this.performSync();
+      }
+      
+      // Démarrer la synchronisation automatique
+      if (this.config.autoSync) {
+        this.startAutoSync();
+      }
+      
+      console.log('✅ DataSync: Service initialisé');
+      this.notifyStatusChange();
+      
+    } catch (error) {
+      console.error('❌ DataSync: Erreur initialisation:', error);
+      this.handleSyncFailure();
+    }
+  }
+
+  /**
+   * Arrête le service de synchronisation
+   */
+  public stop(): void {
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval);
+      this.syncInterval = null;
+    }
+    console.log('🛑 DataSync: Service arrêté');
+  }
+
+  /**
+   * Identifie l'utilisateur et l'ordinateur
+   */
+  private async identifyUser(): Promise<void> {
+    try {
+      if (window.electronAPI?.getCurrentUser) {
+        const userInfo = await window.electronAPI.getCurrentUser();
+        this.currentUser = userInfo.displayName;
+        this.computerName = userInfo.computerName;
+        console.log(`🔐 DataSync: Utilisateur identifié: ${this.currentUser} (${this.computerName})`);
+      }
+    } catch (error) {
+      console.warn('⚠️ DataSync: Impossible d\'identifier l\'utilisateur');
+    }
+  }
+
+  /**
+   * Vérifie l'accès au serveur commun
+   */
+  public async checkServerAccess(): Promise<boolean> {
+    try {
+      if (!window.electronAPI?.dataSync_checkAccess) {
+        this.isOnline = false;
+        return false;
+      }
+
+      this.isOnline = await window.electronAPI.dataSync_checkAccess();
+      
+      if (this.isOnline) {
+        console.log('🌐 DataSync: Serveur accessible');
+      } else {
+        console.log('🚫 DataSync: Serveur inaccessible');
+      }
+      
+      this.notifyStatusChange();
+      return this.isOnline;
+      
+    } catch (error) {
+      console.error('❌ DataSync: Erreur vérification serveur:', error);
+      this.isOnline = false;
+      this.notifyStatusChange();
+      return false;
+    }
+  }
+
+  /**
+   * Démarre la synchronisation automatique
+   */
+  private startAutoSync(): void {
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval);
+    }
+
+    this.syncInterval = setInterval(async () => {
+      // Ne pas synchroniser si en backoff
+      if (this.isInBackoff()) {
+        console.log('⏸️ DataSync: Sync ignorée (backoff)');
+        return;
+      }
+
+      // Ne pas synchroniser si déjà en cours
+      if (this.isSync) {
+        return;
+      }
+
+      // Vérifier l'accès serveur
+      if (!this.isOnline) {
+        await this.checkServerAccess();
+      }
+
+      // Synchroniser si serveur accessible
+      if (this.isOnline) {
+        await this.performSync();
+      }
+    }, this.config.syncInterval);
+  }
+
+  /**
+   * Vérifie si on est en période de backoff
+   */
+  private isInBackoff(): boolean {
+    if (!this.backoffUntil) return false;
+    
+    const now = new Date();
+    if (now < this.backoffUntil) {
+      return true;
+    }
+    
+    // Reset backoff
+    this.backoffUntil = null;
+    this.consecutiveFailures = 0;
+    return false;
+  }
+
+  /**
+   * Gère un échec de synchronisation
+   */
+  private handleSyncFailure(): void {
+    this.consecutiveFailures++;
+    
+    if (this.consecutiveFailures >= this.MAX_FAILURES) {
+      this.backoffUntil = new Date(Date.now() + this.BACKOFF_TIME);
+      console.warn(`⏸️ DataSync: Backoff activé jusqu'à ${this.backoffUntil.toLocaleTimeString()}`);
+    }
+    
+    this.notifyStatusChange();
+  }
+
+  /**
+   * Gère un succès de synchronisation
+   */
+  private handleSyncSuccess(): void {
+    if (this.consecutiveFailures > 0) {
+      console.log(`✅ DataSync: Succès après ${this.consecutiveFailures} échec(s)`);
+    }
+    this.consecutiveFailures = 0;
+    this.backoffUntil = null;
+    this.notifyStatusChange();
+  }
+
+  /**
+   * Effectue une synchronisation complète
+   */
+  private async performSync(): Promise<SyncResult> {
+    this.isSync = true;
+    this.lastSyncAttempt = new Date().toISOString();
+    this.notifyStatusChange();
+
+    try {
+      // 1. Récupérer les données locales
+      const localData = await this.getLocalData();
+      
+      // 2. Récupérer les données du serveur
+      const serverResponse = await this.getServerData();
+      
+      // 3. Si pas de données serveur = première sync
+      if (!serverResponse) {
+        console.log('📤 DataSync: Première synchronisation');
+        await this.pushToServer(localData);
+        
+        this.lastSuccessfulSync = new Date().toISOString();
+        this.handleSyncSuccess();
+        
+        return {
+          success: true,
+          timestamp: this.lastSuccessfulSync,
+          action: 'first_sync'
+        };
+      }
+
+      // 4. Détecter les conflits
+      const conflicts = DataMergeService.detectConflicts(localData, serverResponse.data);
+      
+      // 5. Si pas de conflits, fusionner automatiquement
+      if (conflicts.length === 0) {
+        console.log('✅ DataSync: Pas de conflits, fusion automatique');
+        const merged = DataMergeService.mergeWithoutConflicts(localData, serverResponse.data);
+        
+        await this.saveLocalData(merged);
+        await this.pushToServer(merged);
+        
+        this.lastSuccessfulSync = new Date().toISOString();
+        this.handleSyncSuccess();
+        
+        return {
+          success: true,
+          timestamp: this.lastSuccessfulSync,
+          action: 'no_conflicts',
+          serverData: serverResponse.data
+        };
+      }
+
+      // 6. Conflits détectés - retourner pour gestion manuelle
+      console.warn(`⚠️ DataSync: ${conflicts.length} conflit(s) détecté(s)`);
+      
+      return {
+        success: true,
+        timestamp: new Date().toISOString(),
+        action: 'conflicts_detected',
+        conflicts,
+        serverData: serverResponse.data,
+        localData
+      };
+
+    } catch (error) {
+      console.error('❌ DataSync: Erreur synchronisation:', error);
+      this.handleSyncFailure();
+      
+      return {
+        success: false,
+        timestamp: new Date().toISOString(),
+        action: 'error',
+        error: error instanceof Error ? error.message : 'Erreur inconnue'
+      };
+      
+    } finally {
+      this.isSync = false;
+      this.notifyStatusChange();
+    }
+  }
+
+  /**
+   * Déclenche une synchronisation manuelle
+   */
+  public async triggerSync(): Promise<SyncResult> {
+    if (this.isInBackoff()) {
+      return {
+        success: false,
+        timestamp: new Date().toISOString(),
+        action: 'error',
+        error: 'Service temporairement indisponible (trop d\'échecs consécutifs)'
+      };
+    }
+
+    if (this.isSync) {
+      return {
+        success: false,
+        timestamp: new Date().toISOString(),
+        action: 'error',
+        error: 'Synchronisation déjà en cours'
+      };
+    }
+
+    // Vérifier l'accès serveur
+    const serverAccessible = await this.checkServerAccess();
+    if (!serverAccessible) {
+      return {
+        success: false,
+        timestamp: new Date().toISOString(),
+        action: 'error',
+        error: 'Serveur commun inaccessible'
+      };
+    }
+
+    return await this.performSync();
+  }
+
+  /**
+   * Résout un conflit selon la stratégie choisie
+   */
+  public async resolveConflict(
+    resolution: ConflictResolution,
+    localData: SyncData,
+    serverData: SyncData
+  ): Promise<void> {
+    let resolvedData: SyncData;
+
+    switch (resolution) {
+      case 'keep_local':
+        resolvedData = DataMergeService.resolveKeepLocal(localData, serverData);
+        break;
+        
+      case 'keep_server':
+        resolvedData = DataMergeService.resolveKeepServer(localData, serverData);
+        break;
+        
+      case 'merge':
+        resolvedData = DataMergeService.mergeWithoutConflicts(localData, serverData);
+        break;
+        
+      default:
+        throw new Error('Stratégie de résolution invalide');
+    }
+
+    // Sauvegarder localement
+    await this.saveLocalData(resolvedData);
+    
+    // Pousser vers le serveur
+    await this.pushToServer(resolvedData);
+    
+    this.lastSuccessfulSync = new Date().toISOString();
+    this.handleSyncSuccess();
+  }
+
+  /**
+   * Récupère les données locales
+   */
+  private async getLocalData(): Promise<SyncData> {
+    const enquetes = await ElectronBridge.getData('enquetes', []);
+    const audienceResultats = await ElectronBridge.getData('audience_resultats', {});
+    const customTags = await ElectronBridge.getData('customTags', {});
+    const alertRules = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, []);
+
+    return {
+      enquetes: Array.isArray(enquetes) ? enquetes : [],
+      audienceResultats: audienceResultats || {},
+      customTags: customTags || {},
+      alertRules: Array.isArray(alertRules) ? alertRules : [],
+      version: 1
+    };
+  }
+
+  /**
+   * Sauvegarde les données localement
+   */
+  private async saveLocalData(data: SyncData): Promise<void> {
+    await ElectronBridge.setData('enquetes', data.enquetes);
+    await ElectronBridge.setData('audience_resultats', data.audienceResultats);
+    await ElectronBridge.setData('customTags', data.customTags);
+    await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, data.alertRules);
+  }
+
+  /**
+   * Récupère les données du serveur
+   */
+  private async getServerData(): Promise<{ data: SyncData; metadata: SyncMetadata } | null> {
+    if (!window.electronAPI?.dataSync_pull) {
+      throw new Error('API dataSync_pull non disponible');
+    }
+
+    return await window.electronAPI.dataSync_pull();
+  }
+
+  /**
+   * Envoie les données vers le serveur
+   */
+  private async pushToServer(data: SyncData): Promise<void> {
+    if (!window.electronAPI?.dataSync_push) {
+      throw new Error('API dataSync_push non disponible');
+    }
+
+    const metadata: SyncMetadata = {
+      lastModified: new Date().toISOString(),
+      modifiedBy: this.currentUser,
+      computerName: this.computerName,
+      version: data.version
+    };
+
+    const success = await window.electronAPI.dataSync_push(data, metadata);
+    
+    if (!success) {
+      throw new Error('Échec envoi vers serveur');
+    }
+  }
+
+  /**
+   * Retourne le statut actuel de synchronisation
+   */
+  public getStatus(): SyncStatus {
+    return {
+      isOnline: this.isOnline && !this.isInBackoff(),
+      isSync: this.isSync,
+      lastSyncAttempt: this.lastSyncAttempt,
+      lastSuccessfulSync: this.lastSuccessfulSync,
+      currentUser: this.currentUser
+    };
+  }
+
+  /**
+   * Ajoute un listener de statut
+   */
+  public addStatusListener(listener: (status: SyncStatus) => void): void {
+    this.statusListeners.push(listener);
+  }
+
+  /**
+   * Retire un listener de statut
+   */
+  public removeStatusListener(listener: (status: SyncStatus) => void): void {
+    const index = this.statusListeners.indexOf(listener);
+    if (index > -1) {
+      this.statusListeners.splice(index, 1);
+    }
+  }
+
+  /**
+   * Notifie les listeners d'un changement de statut
+   */
+  private notifyStatusChange(): void {
+    const status = this.getStatus();
+    this.statusListeners.forEach(listener => {
+      try {
+        listener(status);
+      } catch (error) {
+        console.error('DataSync: Erreur listener:', error);
+      }
+    });
+  }
+}
+
+// Export de l'instance singleton
+export const dataSyncManager = DataSyncManager.getInstance();

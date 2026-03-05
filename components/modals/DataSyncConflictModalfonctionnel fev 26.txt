@@ -1,0 +1,229 @@
+// components/modals/DataSyncConflictModal.tsx
+
+import React from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Button } from '../ui/button';
+import { SyncConflict } from '@/types/dataSyncTypes';
+import { AlertTriangle, FileWarning, Users, Calendar } from 'lucide-react';
+
+interface DataSyncConflictModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  conflicts: SyncConflict[];
+  onKeepLocal: () => void;
+  onKeepServer: () => void;
+  onMerge?: () => void;
+}
+
+export const DataSyncConflictModal = ({
+  isOpen,
+  onClose,
+  conflicts,
+  onKeepLocal,
+  onKeepServer,
+  onMerge
+}: DataSyncConflictModalProps) => {
+  
+  const totalConflicts = conflicts.reduce((sum, conflict) => sum + conflict.details.length, 0);
+
+  // Grouper les conflits par type
+  const conflictsByType = conflicts.reduce((acc, conflict) => {
+    const type = conflict.type;
+    if (!acc[type]) {
+      acc[type] = [];
+    }
+    acc[type].push(conflict);
+    return acc;
+  }, {} as Record<string, SyncConflict[]>);
+
+  const getConflictTypeLabel = (type: string): string => {
+    const labels: Record<string, string> = {
+      'enquete_modified': '📋 Enquêtes modifiées',
+      'enquete_deleted': '🗑️ Enquêtes supprimées',
+      'enquete_new': '🆕 Nouvelles enquêtes',
+      'audience_modified': '⚖️ Résultats d\'audience modifiés',
+      'tags_modified': '🏷️ Tags modifiés',
+      'rules_modified': '🔔 Règles d\'alertes modifiées'
+    };
+    return labels[type] || '❓ Type inconnu';
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-orange-600">
+            <AlertTriangle className="h-5 w-5" />
+            Conflits de synchronisation détectés
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Résumé des conflits */}
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <FileWarning className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-yellow-900">
+                  {totalConflicts} modification(s) conflictuelle(s) détectée(s)
+                </p>
+                <p className="text-xs text-yellow-800 mt-1">
+                  Vos données locales et celles du serveur commun ont été modifiées simultanément.
+                  Vous devez choisir quelle version conserver.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Liste des conflits par type */}
+          <div className="space-y-3">
+            {Object.entries(conflictsByType).map(([type, typeConflicts]) => (
+              <div key={type} className="border border-gray-200 rounded-lg overflow-hidden">
+                <div className="bg-gray-50 px-4 py-2 border-b">
+                  <h4 className="font-semibold text-gray-900 text-sm">
+                    {getConflictTypeLabel(type)} ({typeConflicts.length})
+                  </h4>
+                </div>
+                
+                <div className="p-3 space-y-2">
+                  {typeConflicts.map((conflict, index) => (
+                    <div key={index} className="bg-white border border-gray-100 rounded p-3">
+                      {conflict.enqueteNumero && (
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-mono bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
+                            {conflict.enqueteNumero}
+                          </span>
+                        </div>
+                      )}
+                      
+                      <ul className="space-y-1">
+                        {conflict.details.map((detail, detailIndex) => (
+                          <li key={detailIndex} className="text-sm text-gray-700 flex items-start">
+                            <span className="text-blue-500 mr-2">•</span>
+                            <span>{detail}</span>
+                          </li>
+                        ))}
+                      </ul>
+
+                      {/* Timestamps si disponibles */}
+                      {(conflict.localTimestamp || conflict.serverTimestamp) && (
+                        <div className="mt-2 pt-2 border-t border-gray-100 flex gap-4 text-xs text-gray-600">
+                          {conflict.localTimestamp && (
+                            <div className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              <span>Local: {new Date(conflict.localTimestamp).toLocaleString('fr-FR')}</span>
+                            </div>
+                          )}
+                          {conflict.serverTimestamp && (
+                            <div className="flex items-center gap-1">
+                              <Users className="h-3 w-3" />
+                              <span>Serveur: {new Date(conflict.serverTimestamp).toLocaleString('fr-FR')}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Explications des options */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <h4 className="font-semibold text-blue-900 mb-3 text-sm">
+              Que souhaitez-vous faire ?
+            </h4>
+            
+            <div className="space-y-3 text-sm text-blue-800">
+              <div className="flex gap-3">
+                <div className="flex-shrink-0 w-6 h-6 bg-orange-500 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                  1
+                </div>
+                <div>
+                  <strong>Garder mes modifications locales :</strong>
+                  <p className="text-xs mt-0.5">
+                    Vos données locales remplaceront celles du serveur. 
+                    Les nouvelles données du serveur seront intégrées.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex gap-3">
+                <div className="flex-shrink-0 w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                  2
+                </div>
+                <div>
+                  <strong>Intégrer les données du serveur :</strong>
+                  <p className="text-xs mt-0.5">
+                    Les données du serveur seront prioritaires. 
+                    Vos nouvelles données locales seront conservées.
+                  </p>
+                </div>
+              </div>
+
+              {onMerge && (
+                <div className="flex gap-3">
+                  <div className="flex-shrink-0 w-6 h-6 bg-green-500 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                    3
+                  </div>
+                  <div>
+                    <strong>Fusionner intelligemment :</strong>
+                    <p className="text-xs mt-0.5">
+                      Tentative de fusion automatique en gardant les versions les plus récentes.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Avertissement */}
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-red-800">
+                <strong>Attention :</strong> Cette action est irréversible. 
+                Assurez-vous de comprendre les implications avant de continuer.
+              </p>
+            </div>
+          </div>
+
+          {/* Boutons d'action */}
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <Button 
+              variant="outline" 
+              onClick={onClose}
+            >
+              Annuler
+            </Button>
+            
+            <Button 
+              variant="secondary"
+              onClick={onKeepServer}
+              className="bg-blue-100 hover:bg-blue-200 text-blue-700"
+            >
+              Intégrer serveur
+            </Button>
+
+            {onMerge && (
+              <Button 
+                onClick={onMerge}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                Fusionner
+              </Button>
+            )}
+            
+            <Button 
+              onClick={onKeepLocal}
+              className="bg-orange-500 hover:bg-orange-600"
+            >
+              Garder mes modifs
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
