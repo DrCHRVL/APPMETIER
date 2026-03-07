@@ -688,6 +688,46 @@ export class DataSyncManager {
     }
   }
 
+  /**
+   * Force l'écriture des données locales sur le serveur, même si le fichier serveur est corrompu.
+   * À utiliser uniquement par la machine qui possède la version correcte des données.
+   */
+  public async repairServerWithLocalData(): Promise<boolean> {
+    if (this.isSync) {
+      console.warn('⚠️ DataSync: Réparation impossible, sync déjà en cours');
+      return false;
+    }
+
+    const serverAccessible = await this.checkServerAccess();
+    if (!serverAccessible) {
+      console.error('❌ DataSync: Serveur inaccessible, réparation impossible');
+      return false;
+    }
+
+    this.isSync = true;
+    this.notifyStatusChange();
+
+    try {
+      console.warn('🔧 DataSync: Réparation forcée du serveur avec les données locales...');
+      const localData = await this.getLocalData();
+      await this.pushToServer(localData);
+
+      this.lastSuccessfulSync = new Date().toISOString();
+      this.consecutiveFailures = 0;
+      this.backoffUntil = null;
+      this.showToast('✅ Serveur réparé avec vos données locales', 'success');
+      console.log('✅ DataSync: Serveur réparé avec succès');
+      return true;
+    } catch (error) {
+      console.error('❌ DataSync: Échec de la réparation du serveur:', error);
+      this.showToast('Échec de la réparation du serveur', 'error');
+      return false;
+    } finally {
+      this.isSync = false;
+      this.notifyStatusChange();
+    }
+  }
+
   public getStatus(): SyncStatus {
     return {
       isOnline: this.isOnline && !this.isInBackoff(),

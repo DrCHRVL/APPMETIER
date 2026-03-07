@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
-import { Download, Upload, Save, RotateCcw, Clock, Shield, AlertTriangle, CheckCircle, FileText } from 'lucide-react';
+import { Download, Upload, Save, RotateCcw, Clock, Shield, AlertTriangle, CheckCircle, FileText, Wrench } from 'lucide-react';
 import { backupManager } from '@/utils/backupManager';
 import { useToast } from '@/contexts/ToastContext';
 import { ConfirmationDialog } from '../ui/confirmation-dialog';
@@ -25,9 +25,12 @@ interface BackupStats {
 
 interface SavePageProps {
   lastSaveDate?: string;
+  onRepairServer?: () => Promise<boolean>;
+  isSyncing?: boolean;
+  syncStatus?: { isOnline: boolean } | null;
 }
 
-export const SavePage = ({ lastSaveDate }: SavePageProps) => {
+export const SavePage = ({ lastSaveDate, onRepairServer, isSyncing, syncStatus }: SavePageProps) => {
   const [backups, setBackups] = useState<string[]>([]);
   const [backupStats, setBackupStats] = useState<BackupStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,6 +42,7 @@ export const SavePage = ({ lastSaveDate }: SavePageProps) => {
     copyingDataJson: false
   });
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showRepairConfirm, setShowRepairConfirm] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState('');
   const [integrityStatus, setIntegrityStatus] = useState<'unknown' | 'good' | 'warning' | 'error'>('unknown');
   const { showToast } = useToast();
@@ -224,6 +228,21 @@ export const SavePage = ({ lastSaveDate }: SavePageProps) => {
     } catch (error) {
       console.error('❌ Error during import process:', error);
       showToast('❌ Erreur lors du processus d\'import', 'error');
+    }
+  };
+
+  const handleRepairServer = async () => {
+    setShowRepairConfirm(false);
+    if (!onRepairServer) return;
+    try {
+      const success = await onRepairServer();
+      if (success) {
+        showToast('✅ Serveur réparé avec vos données locales', 'success');
+      } else {
+        showToast('❌ Échec de la réparation — vérifiez l\'accès au serveur', 'error');
+      }
+    } catch (error) {
+      showToast('❌ Erreur lors de la réparation du serveur', 'error');
     }
   };
 
@@ -453,6 +472,42 @@ export const SavePage = ({ lastSaveDate }: SavePageProps) => {
         </CardContent>
       </Card>
 
+      {/* 🔧 RÉPARATION DU SERVEUR */}
+      {onRepairServer && (
+        <Card className="border-orange-200">
+          <CardHeader>
+            <CardTitle className="flex items-center text-orange-700">
+              <Wrench className="h-5 w-5 mr-2" />
+              Réparation du fichier serveur
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="p-3 bg-orange-50 rounded text-sm text-orange-800">
+              <p className="font-semibold mb-1">⚠️ Réservé à la machine qui possède la version correcte</p>
+              <p>
+                Si le fichier serveur est corrompu et que <strong>vos données locales sont la bonne version</strong>,
+                ce bouton écrase le fichier serveur avec vos données — même si la lecture du serveur échoue.
+              </p>
+              <p className="mt-1">
+                Si c'est votre <strong>collègue</strong> qui a la bonne version, demandez-lui de cliquer ce bouton
+                sur <strong>sa machine</strong>.
+              </p>
+            </div>
+            <Button
+              onClick={() => setShowRepairConfirm(true)}
+              disabled={isSyncing || !syncStatus?.isOnline}
+              className="w-full bg-orange-600 hover:bg-orange-700 text-white"
+            >
+              <Wrench className="h-4 w-4 mr-2" />
+              {isSyncing ? 'Réparation en cours...' : 'Réparer le serveur avec mes données locales'}
+            </Button>
+            {!syncStatus?.isOnline && (
+              <p className="text-xs text-gray-500 text-center">Serveur inaccessible — connexion requise</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* 📥 IMPORT / EXPORT */}
       <Card>
         <CardHeader>
@@ -473,6 +528,17 @@ export const SavePage = ({ lastSaveDate }: SavePageProps) => {
         </CardContent>
       </Card>
       
+      {/* 🔧 DIALOGUE DE CONFIRMATION RÉPARATION SERVEUR */}
+      <ConfirmationDialog
+        isOpen={showRepairConfirm}
+        onClose={() => setShowRepairConfirm(false)}
+        onConfirm={handleRepairServer}
+        title="Réparer le fichier serveur"
+        message={`⚠️ Cette action va écraser le fichier serveur avec VOS données locales.\n\nÀ n'effectuer QUE si vos données locales sont la version correcte.\n\nSi la bonne version est sur la machine d'un collègue, demandez-lui de faire la réparation depuis sa machine.`}
+        confirmLabel="Écraser le serveur avec mes données"
+        cancelLabel="Annuler"
+      />
+
       {/* 🔄 DIALOGUE DE CONFIRMATION */}
       <ConfirmationDialog
         isOpen={showConfirmDialog}
