@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Preview UI Modernisée</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    body { background: #e8ecef; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
+
+    .window {
+      width: 1100px;
+      height: 680px;
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.25), 0 8px 20px rgba(0,0,0,0.15);
+    }
+
+    /* ─── SIDEBAR ─── */
+    .sidebar {
+      width: 220px;
+      flex-shrink: 0;
+      background: linear-gradient(180deg, #2d5f4a 0%, #1e3d2f 100%);
+      display: flex;
+      flex-direction: column;
+      padding: 16px 10px 32px;
+      position: relative;
+    }
+    .sidebar::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      margin-bottom: 2px;
+      color: rgba(255,255,255,0.65);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      position: relative;
+    }
+    .nav-item svg { width: 15px; height: 15px; flex-shrink: 0; opacity: 0.65; }
+    .nav-item:hover { background: rgba(255,255,255,0.08); color: white; }
+    .nav-item:hover svg { opacity: 1; }
+
+    .nav-item.active {
+      background: rgba(255,255,255,0.14);
+      color: white;
+      box-shadow: inset 3px 0 0 rgba(255,255,255,0.6), inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+    .nav-item.active svg { opacity: 1; }
+
+    .badge-count {
+      margin-left: auto;
+      background: #ef4444;
+      color: white;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 10px;
+    }
+
+    .nav-divider {
+      border: none;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      margin: 8px 0;
+    }
+
+    .btn-new {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      color: white;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      background: linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.08) 100%);
+      border: 1px solid rgba(255,255,255,0.2);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .btn-new svg { width: 15px; height: 15px; }
+
+    .copyright {
+      position: absolute;
+      bottom: 8px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 9px;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 0.03em;
+    }
+
+    /* ─── MAIN ─── */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: hsl(210, 20%, 97%);
+      overflow: hidden;
+    }
+
+    /* ─── HEADER ─── */
+    .header {
+      background: white;
+      border-bottom: 1px solid hsl(214, 25%, 88%);
+      box-shadow: 0 1px 8px rgba(0,0,0,0.05);
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .header-left { display: flex; align-items: center; gap: 20px; }
+    .search-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #f3f4f6;
+      border: 1px solid #e5e7eb;
+      border-radius: 9999px;
+      padding: 5px 12px;
+      width: 220px;
+    }
+    .search-pill svg { width: 14px; height: 14px; color: #9ca3af; flex-shrink: 0; }
+    .search-pill span { font-size: 13px; color: #9ca3af; }
+    .header-title { font-size: 14px; font-weight: 600; color: hsl(155, 35%, 24%); letter-spacing: -0.01em; }
+    .header-actions { display: flex; gap: 4px; }
+    .icon-btn {
+      width: 30px; height: 30px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      color: #6b7280;
+      cursor: pointer;
+    }
+    .icon-btn:hover { background: #f3f4f6; }
+    .icon-btn svg { width: 15px; height: 15px; }
+
+    /* ─── FILTERBAR ─── */
+    .filterbar {
+      background: white;
+      border-bottom: 1px solid hsl(214, 25%, 88%);
+      padding: 6px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .filter-btn {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: #6b7280; font-weight: 500;
+      padding: 3px 8px; border-radius: 6px; cursor: pointer;
+    }
+    .filter-btn:hover { background: #f3f4f6; }
+    .filter-btn svg { width: 13px; height: 13px; }
+    .sort-label { font-size: 12px; color: #6b7280; font-weight: 500; }
+    .sort-select {
+      font-size: 12px;
+      border: 1px solid hsl(214, 25%, 88%);
+      border-radius: 6px;
+      padding: 3px 6px;
+      color: #374151;
+      background: white;
+    }
+    .filterbar-right { display: flex; align-items: center; gap: 8px; }
+
+    /* ─── CONTENT ─── */
+    .content {
+      flex: 1;
+      padding: 16px 20px;
+      overflow-y: auto;
+    }
+
+    .section-title { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 12px; letter-spacing: 0.01em; }
+
+    .cards-grid { display: flex; flex-direction: column; gap: 10px; }
+
+    /* ─── CARD ─── */
+    .card {
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px -4px rgba(0,0,0,0.08), 0 2px 8px -2px rgba(0,0,0,0.04);
+    }
+
+    /* Statut : bordure gauche colorée */
+    .card.status-op-active {
+      border-left: 3px solid #ef4444;
+    }
+    .card.status-op-soon {
+      border-left: 3px solid #fb923c;
+    }
+    .card.status-deadline {
+      border-left: 3px solid #dc2626;
+    }
+
+    .card-body { display: flex; justify-content: space-between; padding: 10px 12px 8px; gap: 12px; }
+    .card-left { flex: 1; min-width: 0; max-width: 58%; }
+    .card-right { max-width: 40%; flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+
+    .card-numero {
+      font-size: 14px; font-weight: 700; color: #111827;
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      margin-bottom: 4px;
+    }
+    .todo-dot {
+      background: #8b5cf6; color: white;
+      font-size: 8px; font-weight: 700;
+      border-radius: 50%; width: 16px; height: 16px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .flag { color: #d1d5db; font-size: 11px; }
+    .flag.active { color: #ef4444; }
+
+    .tag-infraction {
+      font-size: 9.5px; background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 4px; padding: 1px 5px;
+      color: #374151; display: inline-block; margin: 0 2px 2px 0;
+    }
+
+    .card-desc {
+      font-size: 11px; color: #6b7280; font-style: italic;
+      line-height: 1.5; margin-bottom: 4px;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .card-meta { font-size: 11px; color: #6b7280; display: flex; align-items: center; gap: 4px; margin-bottom: 2px; }
+    .card-meta svg { width: 11px; height: 11px; flex-shrink: 0; }
+
+    .card-actions { display: flex; gap: 2px; margin-bottom: 6px; }
+    .action-btn {
+      width: 26px; height: 26px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      color: #9ca3af; cursor: pointer;
+    }
+    .action-btn:hover { background: #f3f4f6; color: #374151; }
+    .action-btn svg { width: 12px; height: 12px; }
+
+    .card-date { font-size: 11px; color: #6b7280; display: flex; align-items: center; gap: 4px; }
+    .card-date svg { width: 11px; height: 11px; }
+
+    .cr-badge-normal { font-size: 11px; color: #6b7280; }
+    .cr-badge-alert {
+      font-size: 11px; color: #92400e;
+      background: #fffbeb; border: 1px solid #fde68a;
+      padding: 2px 6px; border-radius: 5px; font-weight: 500;
+    }
+
+    .cr-preview {
+      margin-top: 6px;
+      background: rgba(249,250,251,0.8);
+      border: 1px solid #f3f4f6;
+      border-radius: 6px;
+      padding: 5px 7px;
+      font-size: 9px; color: #6b7280;
+      max-width: 100%;
+      display: flex; gap: 4px; align-items: flex-start;
+    }
+    .cr-preview svg { width: 9px; height: 9px; margin-top: 1px; flex-shrink: 0; }
+
+    .card-footer {
+      border-top: 2px solid #f3f4f6;
+      padding: 6px 12px;
+      display: flex; flex-wrap: wrap; gap: 4px;
+    }
+    .acte-badge {
+      font-size: 9.5px;
+      border-radius: 4px;
+      padding: 2px 7px;
+      display: flex; align-items: center; gap: 3px;
+      font-weight: 500;
+    }
+    .acte-badge.gray { background: #f3f4f6; color: #374151; }
+    .acte-badge.yellow { background: #fef9c3; color: #713f12; }
+    .acte-badge.red { background: #fee2e2; color: #991b1b; }
+    .acte-badge.green { background: #dcfce7; color: #166534; }
+
+    /* SVG icons inline */
+    .i { display: inline-block; }
+  </style>
+</head>
+<body>
+
+<div class="window">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <nav>
+      <!-- Enquêtes préliminaires (active) -->
+      <div class="nav-item active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        Enquêtes préliminaires
+        <span class="badge-count">103</span>
+      </div>
+
+      <div class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22V8M5 12H2a10 10 0 0 0 20 0h-3"/><path d="m8 8 4-4 4 4"/></svg>
+        Instructions judiciaires
+      </div>
+
+      <div class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+        Enquêtes terminées
+      </div>
+
+      <div class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Suivi AIR
+      </div>
+
+      <div class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+        Tags
+      </div>
+
+      <div class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        Alertes
+      </div>
+
+      <div class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        Statistiques
+      </div>
+
+      <div class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        Sauvegardes
+      </div>
+
+      <hr class="nav-divider">
+
+      <div class="btn-new">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Nouvelle enquête
+      </div>
+    </nav>
+
+    <div class="copyright">Propriété de Audran CHEVALIER, Parquet d'AMIENS</div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main">
+
+    <!-- HEADER -->
+    <div class="header">
+      <div class="header-left">
+        <div class="search-pill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>Rechercher...</span>
+        </div>
+        <span class="header-title">Suivi des enquêtes</span>
+      </div>
+      <div class="header-actions">
+        <div class="icon-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        </div>
+        <div class="icon-btn" style="position:relative">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span style="position:absolute;top:3px;right:3px;background:#ef4444;color:white;font-size:8px;font-weight:700;border-radius:50%;width:13px;height:13px;display:flex;align-items:center;justify-content:center;">8</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- FILTERBAR -->
+    <div class="filterbar">
+      <div style="display:flex;gap:4px;align-items:center;">
+        <div class="filter-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          Filtres
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="filter-btn" style="width:28px;height:28px;padding:0;display:flex;align-items:center;justify-content:center;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="2" width="13" height="13"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+        </div>
+      </div>
+      <div class="filterbar-right">
+        <span class="sort-label">Trier par :</span>
+        <select class="sort-select">
+          <option>Date (plus récent)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- CONTENT -->
+    <div class="content">
+      <div class="section-title">SR (2)</div>
+
+      <div class="cards-grid">
+
+        <!-- CARD 1 : OP soon (border orange) -->
+        <div class="card status-op-soon">
+          <div class="card-body">
+            <div class="card-left">
+              <div class="card-numero">
+                2025/1092 VOL BO ROYE GDV
+                <span class="todo-dot">3</span>
+                <span class="flag">⚑</span>
+              </div>
+              <div style="margin-bottom:5px;">
+                <span class="tag-infraction">Vol BD</span>
+              </div>
+              <p class="card-desc">Le 23 août 2025 vers 2h30, la gendarmerie de la Somme intercepte une tentative de vol de fret en bande organisée sur l'autoroute A1 à proximité de Roye. Les suspects opéraient avec un matériel sophistiqué comprenant deux véhicules...</p>
+              <div class="card-meta">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                SR Amiens
+              </div>
+              <div class="card-meta">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <strong>MATEA Alin</strong>, <strong>BURDULEA Ana Maria</strong>, <strong>SCORCEA Marian</strong>...
+              </div>
+            </div>
+            <div class="card-right">
+              <div class="card-actions">
+                <div class="action-btn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </div>
+                <div class="action-btn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+                </div>
+              </div>
+              <div class="card-date">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                Début : 25/08/2025
+              </div>
+              <div class="cr-badge-normal">Dernier CR : 29/12/2025 (DEVILLERS)</div>
+              <div class="cr-preview">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+                Bonjour M. CHEVALIER, j'ai bien reçu votre Soit Transmis pour les faits de Béthune. Je me ferai communiquer la procédure prochainement par les enquêteurs...
+              </div>
+            </div>
+          </div>
+          <div class="card-footer">
+            <span class="acte-badge gray">Captation d'image privé <em>(Terminé)</em></span>
+            <span class="acte-badge gray">drone 10 rue gustave courbet Calais <em>(Terminé)</em></span>
+            <span class="acte-badge yellow">Géoloc 97 24 <strong>(3j)</strong></span>
+            <span class="acte-badge red">Écoute 97 24 <strong>(1j)</strong></span>
+          </div>
+        </div>
+
+        <!-- CARD 2 : deadline critique (border rouge) -->
+        <div class="card status-deadline">
+          <div class="card-body">
+            <div class="card-left">
+              <div class="card-numero">
+                2024/1882 (BMW GAUCHY)
+                <span class="flag active">⚑</span>
+              </div>
+              <div style="margin-bottom:5px;">
+                <span class="tag-infraction">Vol BD</span>
+              </div>
+              <p class="card-desc">Série de cambriolage depuis le camps de gauchy. Faits à MESNIL ST NICAISE le 13/12/2024 + UGNY LE GAY (02) ID CASSIOP crée > 25230000062</p>
+              <div class="card-meta">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                SR Amiens
+              </div>
+              <div class="card-meta">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                <strong>POULAIN Mandy</strong>, <strong>LENFANT Willy</strong>, <strong>MOUFLIER Brian</strong>, <strong>CHATELAIN Jackson</strong>...
+              </div>
+            </div>
+            <div class="card-right">
+              <div class="card-actions">
+                <div class="action-btn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </div>
+              </div>
+              <div class="card-date">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                Début : 19/12/2024
+              </div>
+              <div class="cr-badge-alert">Dernier CR : 16/02/2026 (Moi / D)</div>
+              <div class="cr-preview">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+                les deux téléphones sont bien leur propriété. Bon reçu pour vos instructions si nous obtenons l'article 76 nous ferons les parquisions en leur présence durant les gardes à vue...
+              </div>
+            </div>
+          </div>
+          <div class="card-footer">
+            <span class="acte-badge gray">Captation d'image sur la voie publique <em>(Terminé)</em></span>
+            <span class="acte-badge gray">Captation image VP <em>(Terminé)</em></span>
+            <span class="acte-badge green">⌛ Écoute 55 03 <strong>(en cours prolongation)</strong></span>
+            <span class="acte-badge yellow">Géoloc BMW <strong>(5j)</strong></span>
+            <span class="acte-badge red">Écoute 64 30 <strong>(2j)</strong></span>
+          </div>
+        </div>
+
+        <!-- CARD 3 : normale -->
+        <div class="card">
+          <div class="card-body">
+            <div class="card-left">
+              <div class="card-numero">
+                2025/0734 ESCROQUERIE INTERNET
+              </div>
+              <div style="margin-bottom:5px;">
+                <span class="tag-infraction">Escroquerie</span>
+                <span class="tag-infraction">Cybercriminalité</span>
+              </div>
+              <p class="card-desc">Arnaque au faux investissement ciblant des particuliers de la région amiénoise via un site frauduleux hébergé à l'étranger. Préjudice total estimé à 180 000€ pour 7 victimes identifiées.</p>
+              <div class="card-meta">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                SRPJ Amiens
+              </div>
+              <div class="card-meta">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                <strong>MARTIN Thomas</strong>, <strong>DUBOIS Kevin</strong>
+              </div>
+            </div>
+            <div class="card-right">
+              <div class="card-actions">
+                <div class="action-btn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </div>
+                <div class="action-btn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/></svg>
+                </div>
+              </div>
+              <div class="card-date">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                Début : 03/06/2025
+              </div>
+              <div class="cr-badge-normal">Dernier CR : 28/01/2026 (DUPONT)</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
