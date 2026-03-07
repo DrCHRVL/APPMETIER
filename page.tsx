@@ -37,6 +37,9 @@ import { useInstructions } from './hooks/useInstructions';
 import { useAIR } from './hooks/useAIR';
 import { useCombinedAlerts } from './hooks/useCombinedAlerts';
 import { backupManager } from '@/utils/backupManager';
+import { WeeklyRecapPopup } from './components/modals/WeeklyRecapPopup';
+import { WeeklyPopupConfig } from './types/interfaces';
+import { ElectronBridge } from './utils/electronBridge';
 
 // 🆕 Imports pour la synchronisation des données
 import { useDataSync } from './hooks/useDataSync';
@@ -75,6 +78,9 @@ function AppContent() {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [pendingAction, setPendingAction] = useState<() => void>(() => {});
   const { showToast } = useToast();
+
+  // Popup de récapitulatif hebdomadaire
+  const [showWeeklyPopup, setShowWeeklyPopup] = useState(false);
 
   // 🆕 Hook de synchronisation des données
   const {
@@ -180,6 +186,34 @@ function AppContent() {
 
   useEffect(() => {
     setIsClient(true);
+  }, []);
+
+  // Popup récapitulatif hebdomadaire : vérifié une fois au démarrage
+  useEffect(() => {
+    const checkWeeklyPopup = async () => {
+      try {
+        const cfg = await ElectronBridge.getData<WeeklyPopupConfig>('weekly_popup_config', {
+          enabled: false, dayOfWeek: 1, hour: 9
+        });
+        if (!cfg.enabled) return;
+
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+
+        // Déjà montré aujourd'hui ?
+        if (cfg.lastShownDate === todayStr) return;
+
+        // Bon jour de la semaine et heure atteinte ?
+        if (now.getDay() === cfg.dayOfWeek && now.getHours() >= cfg.hour) {
+          // Mettre à jour lastShownDate pour ne pas le réafficher cette journée
+          await ElectronBridge.setData('weekly_popup_config', { ...cfg, lastShownDate: todayStr });
+          setShowWeeklyPopup(true);
+        }
+      } catch {
+        // Silencieux si stockage non disponible
+      }
+    };
+    checkWeeklyPopup();
   }, []);
 
   // 🆕 Effet pour détecter les conflits et afficher le modal
@@ -884,6 +918,14 @@ return (
     onResolve={handleResolveConflicts}
   />
 )}
+
+      {/* Popup récapitulatif hebdomadaire */}
+      <WeeklyRecapPopup
+        isOpen={showWeeklyPopup}
+        onClose={() => setShowWeeklyPopup(false)}
+        enquetes={enquetes}
+        alertRules={alertRules}
+      />
     </div>
   );
 }

@@ -86,6 +86,17 @@ export const EnquetePreview = ({
     return enquete.toDos?.filter(todo => todo.status === 'active').length || 0;
   }, [enquete.toDos]);
 
+  // Statut OP (opération d'interpellation)
+  const opStatus = useMemo((): 'none' | 'soon' | 'active' => {
+    if (!enquete.dateOP) return 'none';
+    const daysToOP = Math.ceil(
+      (new Date(enquete.dateOP).setHours(0,0,0,0) - new Date().setHours(0,0,0,0)) / (1000 * 60 * 60 * 24)
+    );
+    if (daysToOP < 0) return 'active';  // OP passée, non archivée → rouge
+    if (daysToOP <= 4) return 'soon';   // ≤ 4 jours → orange
+    return 'none';
+  }, [enquete.dateOP]);
+
   // Vérifier s'il y a au moins un acte en échéance critique (≤ 3 jours)
   const hasCriticalDeadline = useMemo(() => {
     return activeActes.some(acte => {
@@ -141,9 +152,15 @@ export const EnquetePreview = ({
 
 return (
     <>
-      <Card 
-        className={`w-full hover:shadow-lg transition-shadow cursor-pointer bg-white ${
-          hasCriticalDeadline ? 'border-2 border-red-600' : 'border border-gray-200'
+      <Card
+        className={`w-full hover:shadow-lg transition-shadow cursor-pointer ${
+          opStatus === 'active'
+            ? 'bg-red-100 border-2 border-red-400'
+            : opStatus === 'soon'
+            ? 'bg-orange-50 border-2 border-orange-300'
+            : hasCriticalDeadline
+            ? 'bg-white border-2 border-red-600'
+            : 'bg-white border border-gray-200'
         }`}
         onClick={onView}
       >

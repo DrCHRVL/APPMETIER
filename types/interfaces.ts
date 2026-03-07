@@ -172,6 +172,7 @@ export interface NewEnqueteData {
   description?: string;
   directeurEnquete?: string;
   numeroParquet?: string;
+  dateOP?: string;          // Date de l'opération d'interpellation
   misEnCause: MisEnCause[];
   geolocalisations?: GeolocData[];
   ecoutes?: EcouteData[];
@@ -243,6 +244,14 @@ export interface AlertValidation {
 
 export interface AlertValidations {
   [key: string]: AlertValidation;
+}
+
+// Configuration du récapitulatif hebdomadaire
+export interface WeeklyPopupConfig {
+  enabled: boolean;
+  dayOfWeek: number;   // 0=Dimanche, 1=Lundi ... 6=Samedi
+  hour: number;        // 0–23
+  lastShownDate?: string; // ISO date, pour éviter d'afficher plusieurs fois le même jour
 }
 
 // Interface pour les règles d'alerte

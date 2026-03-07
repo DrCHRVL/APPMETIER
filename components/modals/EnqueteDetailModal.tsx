@@ -11,8 +11,9 @@ import { MisEnCauseSection } from '../sections/MisEnCauseSection';
 import { DocumentsSection } from '../sections/DocumentsSection';
 import { ToDoSection } from '../sections/ToDoSection';
 import { DeleteEnqueteModal } from './DeleteEnqueteModal';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Siren } from 'lucide-react';
 import { EnqueteHeader } from '../sections/EnqueteHeader';
+import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
 
 interface EnqueteDetailModalProps {
@@ -134,6 +135,28 @@ export const EnqueteDetailModal = ({
                   onUpdate={handleUpdateWithToast}
                   isEditing={isEditing}
                 />
+
+                {/* Date d'OP */}
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Siren className="h-4 w-4 text-orange-500" />
+                    <h3 className="text-sm font-semibold">Date d'OP</h3>
+                  </div>
+                  {isEditing ? (
+                    <Input
+                      type="date"
+                      value={enquete.dateOP || ''}
+                      onChange={(e) => handleUpdateWithToast(enquete.id, { dateOP: e.target.value || undefined })}
+                      className="h-7 text-sm"
+                    />
+                  ) : enquete.dateOP ? (
+                    <p className="text-sm font-medium text-orange-700">
+                      {new Date(enquete.dateOP).toLocaleDateString()}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-400 italic">Non planifiée</p>
+                  )}
+                </div>
 
                 <GeolocSection
                   enquete={enquete}

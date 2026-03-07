@@ -7,23 +7,19 @@ const VALIDATION_CLEANUP_INTERVAL = 30 * 24 * 60 * 60 * 1000; // 30 jours en mil
 
 export const AlertStorage = {
   async saveAlerts(alerts: Alert[]): Promise<void> {
-    const activeAlerts = alerts.filter(alert => alert.status === 'active');
-    const validatedAlerts = alerts.filter(alert => alert.status === 'validated');
-    
-    await Promise.all([
-      ElectronBridge.setData(ALERTS_KEY, activeAlerts),
-      ElectronBridge.setData(VALIDATED_ALERTS_KEY, validatedAlerts)
-    ]);
+    // Sauvegarder uniquement les alertes actives et snoozées.
+    // Les validations sont tracées via le dictionnaire alert_validations (saveValidation).
+    // Ne PAS écrire dans VALIDATED_ALERTS_KEY ici : cela écraserait le dictionnaire de validations.
+    const alertsToSave = alerts.filter(
+      alert => alert.status === 'active' || alert.status === 'snoozed'
+    );
+    await ElectronBridge.setData(ALERTS_KEY, alertsToSave);
   },
 
   async getAlerts(): Promise<Alert[]> {
     try {
-      const activeAlerts = await ElectronBridge.getData<Alert[]>(ALERTS_KEY, []);
-      const validatedAlerts = await ElectronBridge.getData<Alert[]>(VALIDATED_ALERTS_KEY, []);
-      
-      // S'assurer que validatedAlerts est un tableau, sinon utiliser un tableau vide
-      return [...(Array.isArray(activeAlerts) ? activeAlerts : []), 
-              ...(Array.isArray(validatedAlerts) ? validatedAlerts : [])];
+      const alerts = await ElectronBridge.getData<Alert[]>(ALERTS_KEY, []);
+      return Array.isArray(alerts) ? alerts : [];
     } catch (error) {
       console.error('Error getting alerts:', error);
       return [];
