@@ -11,7 +11,8 @@ import { MisEnCauseSection } from '../sections/MisEnCauseSection';
 import { DocumentsSection } from '../sections/DocumentsSection';
 import { ToDoSection } from '../sections/ToDoSection';
 import { DeleteEnqueteModal } from './DeleteEnqueteModal';
-import { Trash2, Siren } from 'lucide-react';
+import { ClotureSummaryModal } from './ClotureSummaryModal';
+import { Trash2, Siren, FileText } from 'lucide-react';
 import { EnqueteHeader } from '../sections/EnqueteHeader';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
@@ -44,6 +45,7 @@ export const EnqueteDetailModal = ({
   onDelete
 }: EnqueteDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showClotureSummary, setShowClotureSummary] = useState(false);
   const { showToast } = useToast();
 
   const handleUpdateWithToast = (id: number, updates: Partial<Enquete>) => {
@@ -181,11 +183,27 @@ export const EnqueteDetailModal = ({
                   onUpdate={handleUpdateWithToast}
                   isEditing={isEditing}
                 />
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-2 text-gray-600 border-gray-300 hover:bg-gray-50"
+                  onClick={() => setShowClotureSummary(true)}
+                >
+                  <FileText className="h-4 w-4" />
+                  Générer récapitulatif de clôture
+                </Button>
               </div>
             </div>
           </div>
         </DialogContent>
       </Dialog>
+
+      <ClotureSummaryModal
+        isOpen={showClotureSummary}
+        onClose={() => setShowClotureSummary(false)}
+        enquete={enquete}
+      />
 
       <DeleteEnqueteModal 
         isOpen={showDeleteModal}
