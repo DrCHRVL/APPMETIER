@@ -24,10 +24,7 @@ interface ElectronAPI {
   clearData: (key: string) => Promise<boolean>;
   getAllKeys: () => Promise<string[]>;
   
-  // API pour les casiers judiciaires
   openFileDialog: (options: any) => Promise<string | null>;
-  saveCasierFile: (sourcePath: string, fileName: string) => Promise<string | null>;
-  deleteCasierFile: (filePath: string) => Promise<boolean>;
   openExternalFile: (filePath: string) => Promise<boolean>;
   
   // API pour la gestion des fichiers de sauvegarde

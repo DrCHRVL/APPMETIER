@@ -133,7 +133,6 @@ export interface MisEnCause {
   nom: string;
   role?: string;
   statut: string;
-  fichierCasier?: string; // Chemin vers le fichier PDF du casier judiciaire (B1)
 }
 
 // Pour le suivi des dossiers d'instruction

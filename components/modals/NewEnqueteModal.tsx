@@ -40,6 +40,7 @@ export const NewEnqueteModal = ({
   });
 
   const [newMecName, setNewMecName] = useState('');
+  const [newMecRole, setNewMecRole] = useState('');
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [isEnqueteAVenir, setIsEnqueteAVenir] = useState(false);
   const { showToast } = useToast();
@@ -61,6 +62,7 @@ export const NewEnqueteModal = ({
       documents: []
     });
     setNewMecName('');
+    setNewMecRole('');
     setSelectedTags([]);
     setIsEnqueteAVenir(false);
   }, [cheminBase]);
@@ -159,15 +161,17 @@ export const NewEnqueteModal = ({
     if (newMecName.trim()) {
       setNewEnqueteData(prev => ({
         ...prev,
-        misEnCause: [...prev.misEnCause, { 
+        misEnCause: [...prev.misEnCause, {
           id: Date.now(),
           nom: newMecName.trim(),
+          role: newMecRole.trim() || undefined,
           statut: 'actif'
         }]
       }));
       setNewMecName('');
+      setNewMecRole('');
     }
-  }, [newMecName]);
+  }, [newMecName, newMecRole]);
 
   const handleRemoveMec = useCallback((index: number) => {
     setNewEnqueteData(prev => {
@@ -344,29 +348,36 @@ export const NewEnqueteModal = ({
 
           <div>
             <label className="text-sm font-medium">Mis en cause</label>
-            <div className="flex gap-2">
-              <Input
-                placeholder="Nom du MEC"
-                value={newMecName}
-                onChange={(e) => setNewMecName(e.target.value)}
-              />
-              <Button 
-                type="button"
-                onClick={handleAddMec}
-              >
-                Ajouter
-              </Button>
+            <div className="space-y-2 mt-1">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Nom du MEC"
+                  value={newMecName}
+                  onChange={(e) => setNewMecName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddMec(); } }}
+                />
+                <Input
+                  placeholder="Rôle (optionnel)"
+                  value={newMecRole}
+                  onChange={(e) => setNewMecRole(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddMec(); } }}
+                />
+                <Button type="button" onClick={handleAddMec} disabled={!newMecName.trim()}>
+                  Ajouter
+                </Button>
+              </div>
             </div>
-            
+
             <div className="mt-2 flex flex-wrap gap-2">
               {newEnqueteData.misEnCause.map((mec, index) => (
-                <Badge key={mec.id} variant="secondary" className="flex items-center">
-                  {mec.nom}
+                <Badge key={mec.id} variant="secondary" className="flex items-center gap-1">
+                  <span className="font-medium">{mec.nom}</span>
+                  {mec.role && <span className="text-xs opacity-70">– {mec.role}</span>}
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-4 w-4 p-0 ml-2"
+                    className="h-4 w-4 p-0 ml-1"
                     onClick={() => handleRemoveMec(index)}
                   >
                     <X className="h-3 w-3" />
