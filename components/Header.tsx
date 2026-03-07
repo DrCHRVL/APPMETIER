@@ -8,7 +8,6 @@ import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useMemo } from 'react';
 
-// 🆕 Imports pour la synchronisation des données
 import { DataSyncIndicator } from './sync/DataSyncIndicator';
 import { SyncStatus } from '@/types/dataSyncTypes';
 
@@ -20,26 +19,24 @@ interface HeaderProps {
   onSave: () => void;
   isSaving: boolean;
   lastSaveDate?: string;
-  // 🆕 Props pour la synchronisation des données
   syncStatus?: SyncStatus | null;
   onSync?: () => void;
   isSyncing?: boolean;
 }
 
-export const Header = ({ 
-  searchTerm, 
-  onSearch, 
-  alerts, 
+export const Header = ({
+  searchTerm,
+  onSearch,
+  alerts,
   onShowAlerts,
   onSave,
   isSaving,
   lastSaveDate,
-  // 🆕 Props de synchronisation
   syncStatus,
   onSync,
   isSyncing
 }: HeaderProps) => {
-  const activeAlerts = useMemo(() => 
+  const activeAlerts = useMemo(() =>
     alerts.filter(alert => alert.status === 'active'),
     [alerts]
   );
@@ -49,9 +46,9 @@ export const Header = ({
     try {
       const date = new Date(lastSaveDate);
       if (isNaN(date.getTime())) return "Date invalide";
-      return `Sauvegarde locale ${formatDistanceToNow(date, { 
+      return `Sauvegarde locale ${formatDistanceToNow(date, {
         addSuffix: true,
-        locale: fr 
+        locale: fr
       })}`;
     } catch (error) {
       console.error('Error formatting date:', error);
@@ -60,34 +57,48 @@ export const Header = ({
   }, [lastSaveDate]);
 
   return (
-    <header className="bg-white shadow-sm p-4">
+    <header
+      className="bg-white p-3 px-5"
+      style={{
+        borderBottom: '1px solid hsl(214 25% 88%)',
+        boxShadow: '0 1px 8px rgba(0,0,0,0.05)',
+      }}
+    >
       <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-6">
+        <div className="flex items-center gap-5">
+          {/* Barre de recherche pill */}
           <div className="relative">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+            <input
               type="search"
               placeholder="Rechercher..."
-              className="w-64 pl-8"
+              className="h-9 w-64 pl-9 pr-3 rounded-full border border-gray-200 bg-gray-50 text-sm
+                focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400
+                focus:bg-white transition-all duration-150 placeholder:text-gray-400"
               value={searchTerm}
               onChange={(e) => onSearch(e.target.value)}
             />
           </div>
-          <h1 className="text-lg font-semibold text-primary">Suivi des enquêtes</h1>
+
+          {/* Titre */}
+          <h1 className="text-base font-semibold tracking-tight" style={{ color: 'hsl(155 35% 24%)' }}>
+            Suivi des enquêtes
+          </h1>
         </div>
-        
-        <div className="flex items-center space-x-2">
+
+        <div className="flex items-center gap-1">
           {/* Sauvegarde locale */}
           <TooltipProvider>
             <TooltipRoot>
               <TooltipTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  className="relative"
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="relative h-8 w-8 p-0 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100"
                   onClick={onSave}
                   disabled={isSaving}
                 >
-                  <Save className={`h-4 w-4 ${isSaving ? 'animate-bounce text-green-500' : ''}`} />
+                  <Save className={`h-4 w-4 ${isSaving ? 'animate-bounce text-emerald-500' : ''}`} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
@@ -96,7 +107,7 @@ export const Header = ({
             </TooltipRoot>
           </TooltipProvider>
 
-          {/* 🆕 Indicateur de synchronisation des données */}
+          {/* Indicateur de synchronisation */}
           {onSync && (
             <DataSyncIndicator
               syncStatus={syncStatus || null}
@@ -107,9 +118,10 @@ export const Header = ({
 
           {/* Alertes */}
           {activeAlerts.length > 0 && (
-            <Button 
-              variant="ghost" 
-              className="relative"
+            <Button
+              variant="ghost"
+              size="sm"
+              className="relative h-8 w-8 p-0 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100"
               onClick={onShowAlerts}
             >
               <Bell className="h-4 w-4" />

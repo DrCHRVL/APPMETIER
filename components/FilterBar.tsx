@@ -30,29 +30,29 @@ export const FilterBar = ({
   const isPrioritaireSelected = selectedTags.some(tag => tag.id === 'prioritaire');
 
   return (
-    <div className="bg-white border-b">
-      <div className="p-2 flex flex-col">
+    <div className="bg-white" style={{ borderBottom: '1px solid hsl(214 25% 88%)' }}>
+      <div className="px-3 py-1.5 flex flex-col">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setIsExpanded(!isExpanded)}
-              className="text-gray-600"
+              className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg text-xs font-medium"
             >
-              <Filter className="h-4 w-4 mr-2" />
+              <Filter className="h-3.5 w-3.5 mr-1.5" />
               Filtres
               {isExpanded ? (
-                <ChevronUp className="h-4 w-4 ml-2" />
+                <ChevronUp className="h-3.5 w-3.5 ml-1.5" />
               ) : (
-                <ChevronDown className="h-4 w-4 ml-2" />
+                <ChevronDown className="h-3.5 w-3.5 ml-1.5" />
               )}
             </Button>
 
             <Button
               variant="ghost"
               size="sm"
-              className={`${isPrioritaireSelected ? 'text-red-500' : 'text-gray-400'}`}
+              className={`h-7 w-7 p-0 rounded-lg transition-colors ${isPrioritaireSelected ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
               onClick={() => {
                 if (isPrioritaireSelected) {
                   onTagRemove('prioritaire');
@@ -65,16 +65,16 @@ export const FilterBar = ({
                 }
               }}
             >
-              <Flag className="h-4 w-4" />
+              <Flag className="h-3.5 w-3.5" />
             </Button>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">Trier par:</span>
+            <span className="text-xs text-gray-500 font-medium">Trier par :</span>
             <Select
               value={sortOrder}
               onChange={(e) => onSortChange(e.target.value)}
-              className="w-48"
+              className="w-44 h-7 text-xs rounded-lg"
             >
               <option value="date-desc">Date (plus récent)</option>
               <option value="date-asc">Date (plus ancien)</option>
@@ -85,16 +85,16 @@ export const FilterBar = ({
         </div>
 
         {selectedTags.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1 px-2">
+          <div className="mt-1.5 flex flex-wrap gap-1 px-1">
             {selectedTags.map(tag => (
               <Badge
                 key={tag.id}
                 variant="secondary"
-                className="h-5 px-1.5 text-[11px] bg-gray-100 flex items-center gap-1"
+                className="h-5 px-1.5 text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1 rounded-full"
               >
                 {tag.value}
                 <button
-                  className="hover:text-gray-700 rounded-full"
+                  className="hover:text-emerald-900 rounded-full"
                   onClick={(e) => {
                     e.preventDefault();
                     onTagRemove(tag.id);
@@ -109,7 +109,7 @@ export const FilterBar = ({
       </div>
 
       {isExpanded && (
-        <div className="px-4 py-2 border-t">
+        <div className="px-4 py-2" style={{ borderTop: '1px solid hsl(214 25% 92%)' }}>
           <TagSelector
             selectedTags={selectedTags}
             onTagSelect={onTagSelect}

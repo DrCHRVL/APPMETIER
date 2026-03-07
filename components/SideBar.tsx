@@ -12,108 +12,93 @@ interface SideBarProps {
   alertCount: number;
 }
 
-export const SideBar = ({ 
-  isOpen, 
-  currentView, 
-  onViewChange, 
+const navItems = [
+  { view: 'enquetes', icon: FileText, label: 'Enquêtes préliminaires' },
+  { view: 'instructions', icon: Scale, label: 'Instructions judiciaires' },
+  { view: 'archives', icon: Archive, label: 'Enquêtes terminées' },
+  { view: 'air', icon: Activity, label: 'Suivi AIR' },
+  { view: 'tags', icon: Tags, label: 'Tags' },
+  { view: 'alertes', icon: Bell, label: 'Alertes' },
+  { view: 'statistiques', icon: BarChart, label: 'Statistiques' },
+  { view: 'sauvegardes', icon: Save, label: 'Sauvegardes' },
+];
+
+export const SideBar = ({
+  isOpen,
+  currentView,
+  onViewChange,
   onNewEnquete,
   alertCount
 }: SideBarProps) => {
   const sidebarWidth = isOpen ? 'w-64' : 'w-16';
 
   return (
-    <div className={`${sidebarWidth} h-screen bg-[#2B5746] shadow-lg transition-all flex flex-col relative`}>
-      <div className="p-4 flex flex-col space-y-4">
-        <div className="relative">
-          <Button 
-            className={`w-full flex items-center justify-start text-white ${currentView === 'enquetes' ? 'bg-[#47725f] hover:bg-[#47725f]/90' : 'hover:bg-white/10'}`}
-            variant="ghost"
-            onClick={() => onViewChange('enquetes')}
-          >
-            <FileText className="h-4 w-4 mr-2" />
-            {isOpen && "Enquêtes préliminaires"}
-          </Button>
-        </div>
+    <div
+      className={`${sidebarWidth} h-screen shadow-xl transition-all duration-300 flex flex-col relative overflow-hidden`}
+      style={{
+        background: 'linear-gradient(180deg, #2d5f4a 0%, #1e3d2f 100%)',
+      }}
+    >
+      {/* Subtle top accent line */}
+      <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)' }} />
 
-        {/* Instructions judiciaires */}
-        <div className="relative">
-          <Button 
-            className={`w-full flex items-center justify-start text-white ${currentView === 'instructions' ? 'bg-[#47725f] hover:bg-[#47725f]/90' : 'hover:bg-white/10'}`}
-            variant="ghost"
-            onClick={() => onViewChange('instructions')}
-          >
-            <Scale className="h-4 w-4 mr-2" />
-            {isOpen && "Instructions judiciaires"}
-          </Button>
-          {alertCount > 0 && currentView === 'instructions' && <AlertBadge count={alertCount} />}
-        </div>
+      <div className="p-3 flex flex-col space-y-0.5 flex-1 pt-4">
+        {navItems.map(({ view, icon: Icon, label }) => {
+          const isActive = currentView === view;
+          const showAlertBadge = view === 'instructions' && alertCount > 0 && isActive;
 
-        <Button 
-          className={`w-full flex items-center justify-start text-white ${currentView === 'archives' ? 'bg-[#47725f] hover:bg-[#47725f]/90' : 'hover:bg-white/10'}`}
-          variant="ghost"
-          onClick={() => onViewChange('archives')}
-        >
-          <Archive className="h-4 w-4 mr-2" />
-          {isOpen && "Enquêtes terminées"}
-        </Button>
-        
+          return (
+            <div key={view} className="relative">
+              <button
+                className={`
+                  w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium
+                  transition-all duration-150 relative group
+                  ${isActive
+                    ? 'bg-white/15 text-white shadow-sm'
+                    : 'text-white/70 hover:bg-white/8 hover:text-white'
+                  }
+                `}
+                style={isActive ? {
+                  boxShadow: 'inset 3px 0 0 rgba(255,255,255,0.6), inset 0 1px 0 rgba(255,255,255,0.1)'
+                } : {}}
+                onClick={() => onViewChange(view)}
+              >
+                <Icon className={`h-4 w-4 flex-shrink-0 transition-colors ${isActive ? 'text-white' : 'text-white/60 group-hover:text-white'}`} />
+                {isOpen && (
+                  <span className="truncate">{label}</span>
+                )}
+              </button>
+              {showAlertBadge && <AlertBadge count={alertCount} />}
+            </div>
+          );
+        })}
 
-        <Button 
-          className={`w-full flex items-center justify-start text-white ${currentView === 'air' ? 'bg-[#47725f] hover:bg-[#47725f]/90' : 'hover:bg-white/10'}`}
-          variant="ghost"
-          onClick={() => onViewChange('air')}
-        >
-          <Activity className="h-4 w-4 mr-2" />
-          {isOpen && "Suivi AIR"}
-        </Button>
-        
-        <Button 
-          className={`w-full flex items-center justify-start text-white ${currentView === 'tags' ? 'bg-[#47725f] hover:bg-[#47725f]/90' : 'hover:bg-white/10'}`}
-          variant="ghost"
-          onClick={() => onViewChange('tags')}
-        >
-          <Tags className="h-4 w-4 mr-2" />
-          {isOpen && "Tags"}
-        </Button>
+        {/* Séparateur */}
+        <div className="my-2 border-t border-white/10" />
 
-        <Button 
-          className={`w-full flex items-center justify-start text-white ${currentView === 'alertes' ? 'bg-[#47725f] hover:bg-[#47725f]/90' : 'hover:bg-white/10'}`}
-          variant="ghost"
-          onClick={() => onViewChange('alertes')}
-        >
-          <Bell className="h-4 w-4 mr-2" />
-          {isOpen && "Alertes"}
-        </Button>
-
-        <Button 
-          className={`w-full flex items-center justify-start text-white ${currentView === 'statistiques' ? 'bg-[#47725f] hover:bg-[#47725f]/90' : 'hover:bg-white/10'}`}
-          variant="ghost"
-          onClick={() => onViewChange('statistiques')}
-        >
-          <BarChart className="h-4 w-4 mr-2" />
-          {isOpen && "Statistiques"}
-        </Button>
-
-        <Button 
-          className={`w-full flex items-center justify-start text-white ${currentView === 'sauvegardes' ? 'bg-[#47725f] hover:bg-[#47725f]/90' : 'hover:bg-white/10'}`}
-          variant="ghost"
-          onClick={() => onViewChange('sauvegardes')}
-        >
-          <Save className="h-4 w-4 mr-2" />
-          {isOpen && "Sauvegardes"}
-        </Button>
-
-        <Button 
-          className="w-full flex items-center justify-start bg-[#1B3D2D] hover:bg-[#1B3D2D]/90 text-white"
+        {/* Bouton nouvelle enquête */}
+        <button
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-semibold
+            transition-all duration-150 text-white
+            hover:brightness-110 active:scale-[0.98]"
+          style={{
+            background: 'linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.08) 100%)',
+            border: '1px solid rgba(255,255,255,0.2)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+          }}
           onClick={onNewEnquete}
         >
-          <Plus className="h-4 w-4 mr-2" />
-          {isOpen && (currentView === 'instructions' ? "Nouveau dossier" : "Nouvelle enquête")}
-        </Button>
+          <Plus className="h-4 w-4 flex-shrink-0" />
+          {isOpen && (
+            <span className="truncate">
+              {currentView === 'instructions' ? 'Nouveau dossier' : 'Nouvelle enquête'}
+            </span>
+          )}
+        </button>
       </div>
 
       <div className="copyright">
-        Propriété de Audran CHEVALIER, Parquet d'AMIENS
+        Propriété de Audran CHEVALIER, Parquet d&apos;AMIENS
       </div>
     </div>
   );
