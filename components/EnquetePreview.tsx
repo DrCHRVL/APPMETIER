@@ -345,10 +345,11 @@ return (
           const isAutorisationPending = acte.statut === 'autorisation_pending';
           const isExpired = daysLeft !== null && daysLeft < 0;
 
+          if (isExpired) return null;
+
           const badgeColor = isPending ? 'bg-green-100 text-green-800' :
             isPosePending ? 'bg-orange-100 text-orange-800' :
             isAutorisationPending ? 'bg-purple-100 text-purple-800' :
-            isExpired ? 'bg-slate-700 text-white' :
             daysLeft !== null && daysLeft <= 3 ? 'bg-red-100 text-red-800' :
             daysLeft !== null && daysLeft <= 7 ? 'bg-yellow-100 text-yellow-800' :
             'bg-gray-100 text-gray-800';
@@ -381,7 +382,7 @@ return (
       {isPending && <Hourglass className="h-2 w-2" />}
       {isPosePending && <ArrowDown className="h-2 w-2" />}
       {isAutorisationPending && <Clock className="h-2 w-2" />}
-      {acteType} {!isPosePending && !isAutorisationPending && (isExpired ? "(Terminé)" : `(${daysLeft}j)`)}
+      {acteType} {!isPosePending && !isAutorisationPending && `(${daysLeft}j)`}
       {isAutorisationPending && "(JLD)"}
     </Badge>
   );
