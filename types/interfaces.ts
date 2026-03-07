@@ -184,6 +184,7 @@ export interface NewEnqueteData {
   documents?: DocumentEnquete[];
   cheminExterne?: string;
   useSubfolderForExternal?: boolean;
+}
 
 // Interface principale pour une enquête
 export interface Enquete extends NewEnqueteData {
