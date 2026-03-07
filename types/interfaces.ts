@@ -11,6 +11,7 @@ export interface CompteRendu {
   date: string;
   enqueteur: string;
   description: string;
+  createdBy?: string; // Identifiant système de l'auteur (Windows username)
 }
 
 // Interface pour les tâches à faire
@@ -132,7 +133,6 @@ export interface MisEnCause {
   nom: string;
   role?: string;
   statut: string;
-  fichierCasier?: string; // Chemin vers le fichier PDF du casier judiciaire (B1)
 }
 
 // Pour le suivi des dossiers d'instruction
@@ -170,6 +170,9 @@ export interface NewEnqueteData {
   dateDebut: string;
   services: string[];
   description?: string;
+  directeurEnquete?: string;
+  numeroParquet?: string;
+  dateOP?: string;          // Date de l'opération d'interpellation
   misEnCause: MisEnCause[];
   geolocalisations?: GeolocData[];
   ecoutes?: EcouteData[];
@@ -241,6 +244,14 @@ export interface AlertValidation {
 
 export interface AlertValidations {
   [key: string]: AlertValidation;
+}
+
+// Configuration du récapitulatif hebdomadaire
+export interface WeeklyPopupConfig {
+  enabled: boolean;
+  dayOfWeek: number;   // 0=Dimanche, 1=Lundi ... 6=Samedi
+  hour: number;        // 0–23
+  lastShownDate?: string; // ISO date, pour éviter d'afficher plusieurs fois le même jour
 }
 
 // Interface pour les règles d'alerte

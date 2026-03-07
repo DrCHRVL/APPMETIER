@@ -1,13 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
-import { AlertRule } from '@/types/interfaces';
+import { AlertRule, WeeklyPopupConfig } from '@/types/interfaces';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Select } from '../ui/select';
 import { Edit2, Save, X, Plus, Copy, Clock } from 'lucide-react';
 import { AlertValidation } from '@/utils/alerts/alertValidation';
+import { ElectronBridge } from '@/utils/electronBridge';
+
+const WEEKLY_POPUP_KEY = 'weekly_popup_config';
+const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 
 interface AlertsPageProps {
   rules: AlertRule[];
@@ -17,6 +21,23 @@ interface AlertsPageProps {
 }
 
 export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule }: AlertsPageProps) => {
+  const [weeklyConfig, setWeeklyConfig] = useState<WeeklyPopupConfig>({
+    enabled: false,
+    dayOfWeek: 1, // Lundi
+    hour: 9
+  });
+
+  useEffect(() => {
+    ElectronBridge.getData<WeeklyPopupConfig>(WEEKLY_POPUP_KEY, {
+      enabled: false, dayOfWeek: 1, hour: 9
+    }).then(cfg => setWeeklyConfig(cfg));
+  }, []);
+
+  const saveWeeklyConfig = (cfg: WeeklyPopupConfig) => {
+    setWeeklyConfig(cfg);
+    ElectronBridge.setData(WEEKLY_POPUP_KEY, cfg);
+  };
+
   const [showNewRuleDialog, setShowNewRuleDialog] = useState(false);
   const [editingRule, setEditingRule] = useState<AlertRule | null>(null);
   const [newRule, setNewRule] = useState<Partial<AlertRule>>({
@@ -179,6 +200,57 @@ export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule 
           Nouvelle alerte
         </Button>
       </div>
+
+      {/* Récapitulatif hebdomadaire */}
+      <Card className="mb-6 border-blue-200 bg-blue-50">
+        <CardHeader className="flex flex-row items-center justify-between py-4">
+          <div>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Clock className="h-5 w-5 text-blue-600" />
+              Récapitulatif hebdomadaire
+            </CardTitle>
+            <p className="text-sm text-gray-500 mt-1">
+              Popup au démarrage qui liste les actes à surveiller et les enquêtes à relancer.
+            </p>
+          </div>
+          <Switch
+            checked={weeklyConfig.enabled}
+            onCheckedChange={(v) => saveWeeklyConfig({ ...weeklyConfig, enabled: v })}
+          />
+        </CardHeader>
+        {weeklyConfig.enabled && (
+          <CardContent className="flex flex-wrap gap-4 items-center pb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">Jour :</span>
+              <Select
+                value={String(weeklyConfig.dayOfWeek)}
+                onChange={(e) => saveWeeklyConfig({ ...weeklyConfig, dayOfWeek: Number(e.target.value) })}
+                className="h-8 text-sm w-36"
+              >
+                {DAYS.map((d, i) => (
+                  <option key={i} value={i}>{d}</option>
+                ))}
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">Heure :</span>
+              <Input
+                type="number"
+                min={0}
+                max={23}
+                value={weeklyConfig.hour}
+                onChange={(e) => saveWeeklyConfig({ ...weeklyConfig, hour: Math.min(23, Math.max(0, Number(e.target.value))) })}
+                className="h-8 text-sm w-20"
+              />
+              <span className="text-sm text-gray-600">h</span>
+            </div>
+            <p className="text-xs text-gray-400 w-full">
+              S'affiche si l'app est ouverte après {weeklyConfig.hour}h00 le {DAYS[weeklyConfig.dayOfWeek]}.
+              Les seuils utilisés sont ceux des règles "Délai compte rendu" et "Expiration acte".
+            </p>
+          </CardContent>
+        )}
+      </Card>
 
       <div className="space-y-4">
         {rules.map(rule => (

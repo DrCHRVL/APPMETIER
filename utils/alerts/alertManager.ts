@@ -7,26 +7,32 @@ export class AlertManager {
   private static ALERTS_KEY = 'alerts';
   private static VALIDATED_ALERTS_KEY = 'alert_validations';
   
-  // Périodes de validation différentes selon le type d'alerte
+  // Périodes de validation différentes selon le type d'alerte.
+  // Une fois validée, l'alerte ne réapparaît pas pendant cette durée
+  // (sauf si la clé change, ex: nouveau CR pour cr_delay).
   private static VALIDATION_PERIODS = {
-    'cr_delay': 72 * 60 * 60 * 1000, // 72h pour les alertes de compte rendu
-    'acte_expiration': 24 * 60 * 60 * 1000, // 24h pour les alertes d'expiration d'acte
-    'enquete_age': 30 * 24 * 60 * 60 * 1000, // 30 jours pour les alertes d'âge d'enquête
-    'prolongation_pending': 24 * 60 * 60 * 1000, // 24h pour les alertes de prolongation
-    'default': 72 * 60 * 60 * 1000 // 72h par défaut
+    'cr_delay': 30 * 24 * 60 * 60 * 1000,          // 30 jours (la clé inclut le dernier CR → reset si nouveau CR)
+    'acte_expiration': 8 * 24 * 60 * 60 * 1000,     // 8 jours (> seuil 7j par défaut)
+    'enquete_age': 30 * 24 * 60 * 60 * 1000,        // 30 jours
+    'prolongation_pending': 24 * 60 * 60 * 1000,    // 24h (statut change vite)
+    'default': 14 * 24 * 60 * 60 * 1000             // 14 jours par défaut
   };
   
   private static HISTORY_CLEANUP_PERIOD = 30 * 24 * 60 * 60 * 1000; // 30 jours
 
-  private static generateAlertKey(enqueteId: number, type: string, acteId?: number): string {
+  private static generateAlertKey(enqueteId: number, type: string, acteId?: number, context?: string): string {
     // Pour les alertes d'âge d'enquête, inclure l'année et le mois actuels dans la clé
     if (type === 'enquete_age') {
       const now = new Date();
       const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       return `${enqueteId}-${type}-${yearMonth}`;
     }
-    
-    return `${enqueteId}-${type}${acteId ? `-${acteId}` : ''}`;
+    // Pour cr_delay, le contexte contient la date du dernier CR.
+    // Ainsi la validation est liée à ce CR : si un nouveau CR est ajouté, la clé change
+    // et l'alerte peut réapparaître après le prochain threshold.
+    let key = `${enqueteId}-${type}${acteId ? `-${acteId}` : ''}`;
+    if (context) key += `-${context}`;
+    return key;
   }
 
   private static async cleanupValidationHistory(): Promise<void> {
@@ -51,9 +57,9 @@ export class AlertManager {
     }
   }
 
-  static async wasRecentlyValidated(enqueteId: number, type: string, acteId?: number): Promise<boolean> {
+  static async wasRecentlyValidated(enqueteId: number, type: string, acteId?: number, context?: string): Promise<boolean> {
     const validations = await AlertStorage.getValidations();
-    const key = this.generateAlertKey(enqueteId, type, acteId);
+    const key = this.generateAlertKey(enqueteId, type, acteId, context);
     const validation = validations[key];
     
     if (!validation) return false;
@@ -78,15 +84,16 @@ export class AlertManager {
       await this.handleRecurrentAlertValidation(alert);
       return;
     }
-    
+
     // Sinon, procédure normale de validation
-    const key = this.generateAlertKey(alert.enqueteId, alert.type, alert.acteId);
+    // Pour cr_delay, le contexte (date dernier CR) est dans alert.context s'il existe
+    const key = this.generateAlertKey(alert.enqueteId, alert.type, alert.acteId, (alert as any).context);
     const validation: AlertValidation = {
       validatedAt: new Date().toISOString(),
       acteId: alert.acteId,
       type: alert.type
     };
-    
+
     await AlertStorage.saveValidation(key, validation);
   }
 
@@ -458,9 +465,10 @@ export class AlertManager {
     // Vérification des CR
     const crRule = enabledRules.find(rule => rule.type === 'cr_delay');
     if (crRule && enquete.comptesRendus.length > 0) {
-      const wasValidated = await this.wasRecentlyValidated(enquete.id, 'cr_delay');
+      const lastCR = enquete.comptesRendus[0];
+      // La clé inclut la date du dernier CR : si un nouveau CR est ajouté, la validation est réinitialisée
+      const wasValidated = await this.wasRecentlyValidated(enquete.id, 'cr_delay', undefined, lastCR.date.split('T')[0]);
       if (!wasValidated) {
-        const lastCR = enquete.comptesRendus[0];
         const daysSinceLastCR = DateUtils.getDaysDifference(new Date(lastCR.date), new Date());
 
         if (daysSinceLastCR >= crRule.threshold) {
@@ -469,6 +477,8 @@ export class AlertManager {
             'cr_delay',
             `Aucun compte rendu depuis ${daysSinceLastCR} jours pour l'enquête ${enquete.numero}`
           );
+          // Stocker le contexte pour que markAlertAsValidated puisse générer la même clé
+          (alert as any).context = lastCR.date.split('T')[0];
           
           // Ajouter les informations de récurrence si la règle est récurrente
           if (crRule.recurrence?.enabled) {
@@ -597,11 +607,12 @@ export class AlertManager {
       }
       
       const wasRecentlyValidated = await this.wasRecentlyValidated(
-        alert.enqueteId, 
-        alert.type, 
-        alert.acteId
+        alert.enqueteId,
+        alert.type,
+        alert.acteId,
+        (alert as any).context
       );
-      
+
       // N'ajouter l'alerte que si elle n'a pas été récemment validée
       if (!wasRecentlyValidated) {
         await this.addAlert(alert);

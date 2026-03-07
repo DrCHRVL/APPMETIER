@@ -33,7 +33,6 @@ export const SideBar = ({
             <FileText className="h-4 w-4 mr-2" />
             {isOpen && "Enquêtes préliminaires"}
           </Button>
-          {alertCount > 0 && currentView === 'enquetes' && <AlertBadge count={alertCount} />}
         </div>
 
         {/* Instructions judiciaires */}
