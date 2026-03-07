@@ -12,7 +12,7 @@ import { DocumentsSection } from '../sections/DocumentsSection';
 import { ToDoSection } from '../sections/ToDoSection';
 import { DeleteEnqueteModal } from './DeleteEnqueteModal';
 import { ClotureSummaryModal } from './ClotureSummaryModal';
-import { Trash2, Siren, FileText } from 'lucide-react';
+import { Trash2, Siren, FileText, Plus, X } from 'lucide-react';
 import { EnqueteHeader } from '../sections/EnqueteHeader';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
@@ -46,6 +46,7 @@ export const EnqueteDetailModal = ({
 }: EnqueteDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showClotureSummary, setShowClotureSummary] = useState(false);
+  const [showDateOPEdit, setShowDateOPEdit] = useState(false);
   const { showToast } = useToast();
 
   const handleUpdateWithToast = (id: number, updates: Partial<Enquete>) => {
@@ -140,9 +141,22 @@ export const EnqueteDetailModal = ({
 
                 {/* Date d'OP */}
                 <div className="bg-gray-50 p-3 rounded-lg">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Siren className="h-4 w-4 text-orange-500" />
-                    <h3 className="text-sm font-semibold">Date d'OP</h3>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <Siren className="h-4 w-4 text-orange-500" />
+                      <h3 className="text-sm font-semibold">Date d'OP</h3>
+                    </div>
+                    {!showDateOPEdit && !isEditing && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0"
+                        title={enquete.dateOP ? "Modifier la date d'OP" : "Planifier une date d'OP"}
+                        onClick={() => setShowDateOPEdit(true)}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                   {isEditing ? (
                     <Input
@@ -151,6 +165,45 @@ export const EnqueteDetailModal = ({
                       onChange={(e) => handleUpdateWithToast(enquete.id, { dateOP: e.target.value || undefined })}
                       className="h-7 text-sm"
                     />
+                  ) : showDateOPEdit ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="date"
+                        defaultValue={enquete.dateOP || ''}
+                        className="h-7 text-sm flex-1"
+                        autoFocus
+                        onChange={(e) => {
+                          handleUpdateWithToast(enquete.id, { dateOP: e.target.value || undefined });
+                          setShowDateOPEdit(false);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setShowDateOPEdit(false);
+                        }}
+                      />
+                      {enquete.dateOP && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 text-gray-400 hover:text-red-500"
+                          title="Supprimer la date d'OP"
+                          onClick={() => {
+                            handleUpdateWithToast(enquete.id, { dateOP: undefined });
+                            setShowDateOPEdit(false);
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-gray-400"
+                        title="Annuler"
+                        onClick={() => setShowDateOPEdit(false)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
                   ) : enquete.dateOP ? (
                     <p className="text-sm font-medium text-orange-700">
                       {new Date(enquete.dateOP).toLocaleDateString()}

@@ -125,6 +125,22 @@ export const useDataSync = () => {
   }, []);
 
   /**
+   * Force l'écriture des données locales sur le serveur corrompu.
+   * À utiliser uniquement depuis la machine qui possède la version correcte.
+   */
+  const repairServer = useCallback(async (): Promise<boolean> => {
+    setIsSyncing(true);
+    try {
+      return await dataSyncManager.repairServerWithLocalData();
+    } catch (error) {
+      console.error('Erreur réparation serveur:', error);
+      return false;
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
+
+  /**
    * Vérifie l'accès au serveur
    */
   const checkServerAccess = useCallback(async (): Promise<boolean> => {
@@ -148,6 +164,7 @@ export const useDataSync = () => {
     triggerSync,
     resolveConflicts,      // 🆕 Nouvelle API avec sélection
     resolveConflict,       // Ancienne API (dépréciée)
+    repairServer,
     checkServerAccess,
     stopSync,
     
