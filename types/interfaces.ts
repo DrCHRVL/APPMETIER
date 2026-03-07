@@ -170,6 +170,8 @@ export interface NewEnqueteData {
   dateDebut: string;
   services: string[];
   description?: string;
+  directeurEnquete?: string;
+  numeroParquet?: string;
   misEnCause: MisEnCause[];
   geolocalisations?: GeolocData[];
   ecoutes?: EcouteData[];

@@ -11,6 +11,8 @@ interface EnqueteHeaderProps {
   services: string[];
   tags: Tag[];
   description?: string;
+  directeurEnquete?: string;
+  numeroParquet?: string;
   isEditing?: boolean;
   onUpdate?: (updates: Partial<any>) => void;
 }
@@ -21,6 +23,8 @@ export const EnqueteHeader = ({
   services,
   tags,
   description,
+  directeurEnquete,
+  numeroParquet,
   isEditing = false,
   onUpdate
 }: EnqueteHeaderProps) => {
@@ -137,6 +141,36 @@ export const EnqueteHeader = ({
             />
           ) : (
             <p className="text-sm">{infractionTags.map(tag => tag.value).join(', ')}</p>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 mt-3">
+        <div>
+          <h3 className="text-xs font-medium text-gray-500">Directeur d'enquête</h3>
+          {isEditing ? (
+            <Input
+              value={directeurEnquete || ''}
+              onChange={(e) => onUpdate?.({ directeurEnquete: e.target.value })}
+              className="h-7 text-sm"
+              placeholder="Nom du directeur d'enquête"
+            />
+          ) : (
+            <p className="text-sm">{directeurEnquete || <span className="text-gray-400 italic">—</span>}</p>
+          )}
+        </div>
+
+        <div>
+          <h3 className="text-xs font-medium text-gray-500">Numéro parquet</h3>
+          {isEditing ? (
+            <Input
+              value={numeroParquet || ''}
+              onChange={(e) => onUpdate?.({ numeroParquet: e.target.value })}
+              className="h-7 text-sm"
+              placeholder="Numéro de parquet"
+            />
+          ) : (
+            <p className="text-sm">{numeroParquet || <span className="text-gray-400 italic">—</span>}</p>
           )}
         </div>
       </div>

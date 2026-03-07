@@ -103,6 +103,8 @@ export const EnqueteDetailModal = ({
               services={enquete.services}
               tags={enquete.tags}
               description={enquete.description}
+              directeurEnquete={enquete.directeurEnquete}
+              numeroParquet={enquete.numeroParquet}
               isEditing={isEditing}
               onUpdate={isEditing ? (updates) => handleUpdateWithToast(enquete.id, updates) : undefined}
             />
@@ -121,7 +123,7 @@ export const EnqueteDetailModal = ({
 
                 <MisEnCauseSection
                   enquete={enquete}
-                  onUpdate={isEditing ? handleUpdateWithToast : undefined}
+                  onUpdate={handleUpdateWithToast}
                   isEditing={isEditing}
                 />
               </div>
