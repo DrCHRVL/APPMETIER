@@ -7,6 +7,7 @@ import { Label } from '../ui/label';
 import { Enquete, CompteRendu, EnqueteInstruction } from '@/types/interfaces';
 import { X, FileText, Calendar, User } from 'lucide-react';
 import { useMemo, useState, useRef, useEffect } from 'react';
+import { DataSyncManager } from '@/utils/dataSync/DataSyncManager';
 
 interface CompteRenduSectionProps {
   enquete: Enquete | EnqueteInstruction;
@@ -70,6 +71,20 @@ const ACTE_TYPES = {
   }
 };
 
+// Convertit le texte markdown simple en HTML pour l'affichage
+const renderFormattedText = (text: string): string => {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return escaped
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.*?)__/g, '<u>$1</u>')
+    .replace(/==(.*?)==/g, '<mark style="background:#fef08a;padding:1px 2px">$1</mark>')
+    .replace(/^- (.*)$/gm, '• $1')
+    .replace(/\n/g, '<br>');
+};
+
 export const CompteRenduSection = ({
   enquete,
   editingCR,
@@ -81,11 +96,26 @@ export const CompteRenduSection = ({
 }: CompteRenduSectionProps) => {
   // Détection si on est dans une instruction
   const isInstruction = 'numeroInstruction' in enquete && 'cabinet' in enquete;
-  
+
   // États pour l'UX
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Utilisateur courant (pour distinguer les CR de l'autre utilisateur)
+  const [currentUser, setCurrentUser] = useState<string>('');
+  useEffect(() => {
+    setCurrentUser(DataSyncManager.getInstance().getStatus().currentUser);
+  }, []);
+
+  // État local pour la zone de texte (évite le lag à la saisie)
+  const [localDescription, setLocalDescription] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Synchronise le texte local quand on ouvre/change de CR
+  useEffect(() => {
+    setLocalDescription(editingCR?.description || '');
+  }, [editingCR?.id]);
 
   // États spécifiques aux instructions
   const [showTypeChoice, setShowTypeChoice] = useState(false);
@@ -106,7 +136,7 @@ export const CompteRenduSection = ({
 
   const handleNewCR = () => {
     setError(null);
-    
+
     if (isInstruction) {
       // Pour les instructions, d'abord demander le type
       setShowTypeChoice(true);
@@ -116,7 +146,8 @@ export const CompteRenduSection = ({
         id: 0,
         date: new Date().toISOString().split('T')[0],
         enqueteur: '',
-        description: ''
+        description: '',
+        createdBy: currentUser
       });
     }
   };
@@ -135,7 +166,8 @@ export const CompteRenduSection = ({
         date: new Date().toISOString().split('T')[0],
         enqueteur: '',
         description: '',
-        type: 'note'
+        type: 'note',
+        createdBy: currentUser
       } as CompteRenduInstruction);
     }
   };
@@ -157,7 +189,8 @@ export const CompteRenduSection = ({
       description: '',
       type: 'synthese',
       acteType: finalActeType,
-      dateActe: acteDate
+      dateActe: acteDate,
+      createdBy: currentUser
     } as CompteRenduInstruction);
 
     setShowActeSelector(false);
@@ -192,8 +225,11 @@ export const CompteRenduSection = ({
   const handleSave = async () => {
     if (!editingCR) return;
 
+    // Fusionner la description locale avant validation/sauvegarde
+    const crToSave = { ...editingCR, description: localDescription };
+
     // Validation
-    const validationError = validateCR(editingCR);
+    const validationError = validateCR(crToSave);
     if (validationError) {
       setError(validationError);
       return;
@@ -203,23 +239,24 @@ export const CompteRenduSection = ({
     setIsSaving(true);
 
     try {
-      if (editingCR.id) {
-        await onUpdateCR(editingCR.id, editingCR);
+      if (crToSave.id) {
+        await onUpdateCR(crToSave.id, crToSave);
       } else {
         await onAddCR({
-          date: editingCR.date,
-          enqueteur: editingCR.enqueteur,
-          description: editingCR.description,
+          date: crToSave.date,
+          enqueteur: crToSave.enqueteur,
+          description: localDescription,
+          createdBy: crToSave.createdBy,
           ...(isInstruction && {
-            type: (editingCR as CompteRenduInstruction).type,
-            acteType: (editingCR as CompteRenduInstruction).acteType,
-            dateActe: (editingCR as CompteRenduInstruction).dateActe
+            type: (crToSave as CompteRenduInstruction).type,
+            acteType: (crToSave as CompteRenduInstruction).acteType,
+            dateActe: (crToSave as CompteRenduInstruction).dateActe
           })
         });
 
         // Pour les synthèses d'instructions, générer l'événement timeline
-        if (isInstruction && (editingCR as CompteRenduInstruction).type === 'synthese') {
-          await generateTimelineEvent(editingCR as CompteRenduInstruction);
+        if (isInstruction && (crToSave as CompteRenduInstruction).type === 'synthese') {
+          await generateTimelineEvent(crToSave as CompteRenduInstruction);
         }
       }
       setEditingCR(null);
@@ -290,10 +327,26 @@ export const CompteRenduSection = ({
     const crInstruction = cr as CompteRenduInstruction;
     const isSynthese = isInstruction && crInstruction.type === 'synthese';
 
+    // CR créé par un autre utilisateur → fond bleuté
+    const isFromColleague =
+      currentUser &&
+      cr.createdBy &&
+      cr.createdBy !== currentUser;
+
+    let bgClass = 'bg-gray-50';
+    let hoverClass = 'hover:bg-gray-100';
+    if (isSynthese) {
+      bgClass = 'bg-blue-50';
+      hoverClass = 'hover:bg-blue-100';
+    } else if (isFromColleague) {
+      bgClass = 'bg-sky-50';
+      hoverClass = 'hover:bg-sky-100';
+    }
+
     return (
-      <div 
-        key={cr.id} 
-        className={`${isSynthese ? 'bg-blue-50 border-l-4 border-l-blue-400' : 'bg-gray-50'} p-4 rounded relative group hover:${isSynthese ? 'bg-blue-100' : 'bg-gray-100'} transition-colors`}
+      <div
+        key={cr.id}
+        className={`${bgClass} ${hoverClass} ${isSynthese ? 'border-l-4 border-l-blue-400' : isFromColleague ? 'border-l-4 border-l-sky-300' : ''} p-4 rounded relative group transition-colors`}
       >
         <div className="flex justify-between items-start">
           <div className="flex-1">
@@ -301,7 +354,15 @@ export const CompteRenduSection = ({
               <p className="font-medium text-sm">
                 {new Date(cr.date).toLocaleDateString()} - {cr.enqueteur}
               </p>
-              
+
+              {/* Indicateur collègue */}
+              {isFromColleague && (
+                <Badge variant="outline" className="text-xs h-5 px-2 bg-sky-100 text-sky-700 border-sky-300">
+                  <User className="h-3 w-3 mr-1" />
+                  {cr.createdBy}
+                </Badge>
+              )}
+
               {/* Badges pour les synthèses d'instructions */}
               {isSynthese && crInstruction.acteType && (
                 <div className="flex items-center gap-1">
@@ -321,13 +382,14 @@ export const CompteRenduSection = ({
                 </div>
               )}
             </div>
-            
-            <p className="text-gray-600 mt-1 text-sm whitespace-pre-wrap break-words" 
-               style={{ wordBreak: 'break-word', hyphens: 'auto' }}>
-              {formatDescription(cr.description)}
-            </p>
+
+            <div
+              className="text-gray-600 mt-1 text-sm break-words"
+              style={{ wordBreak: 'break-word', hyphens: 'auto' }}
+              dangerouslySetInnerHTML={{ __html: renderFormattedText(formatDescription(cr.description)) }}
+            />
           </div>
-          
+
           {isEditing && (
             <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
               <Button
@@ -596,22 +658,92 @@ export const CompteRenduSection = ({
                 }}
               />
               
-              <textarea
-                className="w-full min-h-[200px] p-2 border rounded resize-none whitespace-pre-wrap"
-                placeholder={isInstruction && (editingCR as CompteRenduInstruction).type === 'synthese' 
-                  ? "Synthèse de l'acte procédural..."
-                  : "Description"
-                }
-                value={editingCR.description}
-                onChange={(e) => {
-                  setError(null);
-                  setEditingCR({
-                    ...editingCR,
-                    description: e.target.value
-                  });
-                }}
-                style={{ wordBreak: 'break-word', hyphens: 'auto' }}
-              />
+              {/* Barre de mise en forme */}
+              <div>
+                <div className="flex gap-1 p-1 border border-b-0 rounded-t bg-gray-50">
+                  <button
+                    type="button"
+                    title="Gras (sélectionner du texte)"
+                    className="px-2 py-1 text-sm font-bold hover:bg-gray-200 rounded"
+                    onClick={() => {
+                      const ta = textareaRef.current;
+                      if (!ta) return;
+                      const start = ta.selectionStart;
+                      const end = ta.selectionEnd;
+                      const sel = localDescription.substring(start, end);
+                      const next = localDescription.substring(0, start) + '**' + sel + '**' + localDescription.substring(end);
+                      setLocalDescription(next);
+                      setTimeout(() => { ta.focus(); ta.setSelectionRange(start + 2, end + 2); }, 0);
+                    }}
+                  >
+                    G
+                  </button>
+                  <button
+                    type="button"
+                    title="Souligné (sélectionner du texte)"
+                    className="px-2 py-1 text-sm underline hover:bg-gray-200 rounded"
+                    onClick={() => {
+                      const ta = textareaRef.current;
+                      if (!ta) return;
+                      const start = ta.selectionStart;
+                      const end = ta.selectionEnd;
+                      const sel = localDescription.substring(start, end);
+                      const next = localDescription.substring(0, start) + '__' + sel + '__' + localDescription.substring(end);
+                      setLocalDescription(next);
+                      setTimeout(() => { ta.focus(); ta.setSelectionRange(start + 2, end + 2); }, 0);
+                    }}
+                  >
+                    S
+                  </button>
+                  <button
+                    type="button"
+                    title="Surligner (sélectionner du texte)"
+                    className="px-2 py-1 text-sm hover:bg-gray-200 rounded"
+                    style={{ background: '#fef08a' }}
+                    onClick={() => {
+                      const ta = textareaRef.current;
+                      if (!ta) return;
+                      const start = ta.selectionStart;
+                      const end = ta.selectionEnd;
+                      const sel = localDescription.substring(start, end);
+                      const next = localDescription.substring(0, start) + '==' + sel + '==' + localDescription.substring(end);
+                      setLocalDescription(next);
+                      setTimeout(() => { ta.focus(); ta.setSelectionRange(start + 2, end + 2); }, 0);
+                    }}
+                  >
+                    HL
+                  </button>
+                  <button
+                    type="button"
+                    title="Tiret (début de ligne)"
+                    className="px-2 py-1 text-sm hover:bg-gray-200 rounded font-mono"
+                    onClick={() => {
+                      const ta = textareaRef.current;
+                      if (!ta) return;
+                      const pos = ta.selectionStart;
+                      const lineStart = localDescription.lastIndexOf('\n', pos - 1) + 1;
+                      const next = localDescription.substring(0, lineStart) + '- ' + localDescription.substring(lineStart);
+                      setLocalDescription(next);
+                      setTimeout(() => { ta.focus(); ta.setSelectionRange(pos + 2, pos + 2); }, 0);
+                    }}
+                  >
+                    –
+                  </button>
+                </div>
+                <textarea
+                  ref={textareaRef}
+                  className="w-full min-h-[200px] p-2 border rounded-b rounded-t-none resize-none whitespace-pre-wrap"
+                  placeholder={isInstruction && (editingCR as CompteRenduInstruction).type === 'synthese'
+                    ? "Synthèse de l'acte procédural..."
+                    : "Description"
+                  }
+                  value={localDescription}
+                  onChange={(e) => {
+                    setLocalDescription(e.target.value);
+                  }}
+                  style={{ wordBreak: 'break-word', hyphens: 'auto' }}
+                />
+              </div>
             </div>
 
             <DialogFooter>

@@ -11,6 +11,7 @@ export interface CompteRendu {
   date: string;
   enqueteur: string;
   description: string;
+  createdBy?: string; // Identifiant système de l'auteur (Windows username)
 }
 
 // Interface pour les tâches à faire
