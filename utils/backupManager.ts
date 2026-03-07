@@ -423,7 +423,10 @@ class BackupManager {
       
       const result = {
         totalBackups: backups.length,
-        latestBackup: latestBackup ? new Date(this.extractDateFromFilename(latestBackup) || this.extractDateFromKey(latestBackup) || '').toLocaleString() : null,
+        latestBackup: latestBackup ? (() => {
+          const d = this.extractDateFromFilename(latestBackup) || this.extractDateFromKey(latestBackup);
+          return d ? d.toLocaleString('fr-FR') : latestBackup.replace('backup_', '').replace('.json', '');
+        })() : null,
         totalSize: `${Math.round(totalSize / 1024)} KB`,
         dataTypes,
         dataJsonInfo: {
@@ -626,8 +629,12 @@ class BackupManager {
   private extractDateFromFilename(filename: string): Date | null {
     try {
       const dateStr = filename.replace('backup_', '').replace('data_backup_', '').replace('.json', '');
-      const formattedDate = dateStr.replace(/-/g, ':');
-      return new Date(formattedDate);
+      // Le timestamp a été créé avec .replace(/:/g, '-'), donc seule la partie heure
+      // contient des tirets à restaurer en ':'. La date (YYYY-MM-DD) doit garder ses tirets.
+      // Format attendu : 2026-03-07T19-43-00.000Z
+      const formattedDate = dateStr.replace(/T(\d{2})-(\d{2})-(\d{2})/, 'T$1:$2:$3');
+      const date = new Date(formattedDate);
+      return isNaN(date.getTime()) ? null : date;
     } catch (error) {
       return null;
     }

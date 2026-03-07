@@ -291,7 +291,7 @@ export const SavePage = ({ lastSaveDate }: SavePageProps) => {
                   <p className="text-xl font-bold text-blue-600">{backupStats.totalBackups}</p>
                 </div>
                 <div>
-                  <p className="font-medium text-gray-700">Export (KB)</p>
+                  <p className="font-medium text-gray-700">Données sauvegardées</p>
                   <p className="text-xl font-bold text-blue-600">{backupStats.totalSize}</p>
                 </div>
                 <div>
@@ -338,8 +338,8 @@ export const SavePage = ({ lastSaveDate }: SavePageProps) => {
                     )}
                   </div>
                   {backupStats.comparison && backupStats.comparison.percentage > 10 && (
-                    <div className="mt-2 p-2 bg-yellow-50 rounded text-sm text-yellow-700">
-                      ⚠️ data.json contient {backupStats.comparison.percentage}% de données en plus que les exports
+                    <div className="mt-2 p-2 bg-blue-50 rounded text-sm text-blue-700">
+                      ℹ️ data.json contient également des données système (UI, paramètres Electron) non incluses dans la sauvegarde sélective — c'est normal.
                     </div>
                   )}
                 </div>
