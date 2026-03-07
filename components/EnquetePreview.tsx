@@ -153,14 +153,14 @@ export const EnquetePreview = ({
 return (
     <>
       <Card
-        className={`w-full hover:shadow-lg transition-shadow cursor-pointer ${
+        className={`w-full card-hover cursor-pointer overflow-hidden bg-white ${
           opStatus === 'active'
-            ? 'bg-red-100 border-2 border-red-400'
+            ? 'border-l-[3px] border-l-red-500 border-t border-r border-b border-gray-200'
             : opStatus === 'soon'
-            ? 'bg-orange-50 border-2 border-orange-300'
+            ? 'border-l-[3px] border-l-orange-400 border-t border-r border-b border-gray-200'
             : hasCriticalDeadline
-            ? 'bg-white border-2 border-red-600'
-            : 'bg-white border border-gray-200'
+            ? 'border-l-[3px] border-l-red-600 border-t border-r border-b border-gray-200'
+            : 'border border-gray-200'
         }`}
         onClick={onView}
       >
@@ -312,15 +312,15 @@ return (
               </div>
 
               {lastCR && (
-                <div className={`text-xs text-gray-500 ${hasCRDelayAlert ? 'bg-yellow-100 px-1.5 py-0.5 rounded' : ''}`}>
+                <div className={`text-xs ${hasCRDelayAlert ? 'text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md font-medium' : 'text-gray-500'}`}>
                   Dernier CR: {new Date(lastCR.date).toLocaleDateString()} ({lastCR.enqueteur})
                 </div>
               )}
             </div>
 
             {lastCR?.description && (
-              <div 
-                className="mt-1.5 bg-gray-50 p-1.5 rounded text-[9px] text-gray-600 w-full line-clamp-5"
+              <div
+                className="mt-1.5 bg-gray-50/80 border border-gray-100 p-1.5 rounded-md text-[9px] text-gray-600 w-full line-clamp-5"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex items-start gap-1">
