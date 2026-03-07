@@ -1,6 +1,7 @@
 // hooks/useInstructionAlerts.ts
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { EnqueteInstruction, AlerteInstruction, calculateDPAlert } from '@/types/interfaces';
+import { EnqueteInstruction, AlerteInstruction } from '@/types/interfaces';
+import { calculateDPAlert } from '@/utils/instructionUtils';
 import { ElectronBridge } from '@/utils/electronBridge';
 import throttle from 'lodash/throttle';
 

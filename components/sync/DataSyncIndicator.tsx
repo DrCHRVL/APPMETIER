@@ -43,6 +43,16 @@ export const DataSyncIndicator = ({
     );
   }
 
+  // Bannière d'avertissement affichée pendant une sync active
+  if (syncStatus.isSync && showDetails) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-100 text-amber-800 border border-amber-300">
+        <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+        <span className="text-sm font-semibold">Sync en cours — ne pas fermer</span>
+      </div>
+    );
+  }
+
   // Déterminer l'icône et la couleur selon le statut
   const getStatusIndicator = () => {
     if (syncStatus.isSync) {

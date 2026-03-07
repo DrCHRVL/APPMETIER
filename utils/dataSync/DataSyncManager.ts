@@ -2,13 +2,14 @@
 
 import { ElectronBridge } from '../electronBridge';
 import { DataMergeService } from './DataMergeService';
-import { 
-  SyncData, 
-  SyncStatus, 
-  SyncResult, 
+import {
+  SyncData,
+  SyncStatus,
+  SyncResult,
   SyncMetadata,
   SyncConfig,
-  ConflictResolution
+  ConflictResolution,
+  ConflictAction
 } from '@/types/dataSyncTypes';
 import { APP_CONFIG } from '@/config/constants';
 
@@ -54,7 +55,25 @@ export class DataSyncManager {
   // 🆕 Toast callback
   private toastCallback: ((message: string, type: 'success' | 'info' | 'error') => void) | null = null;
 
-  private constructor() {}
+  // Indique si cette machine est responsable d'une écriture interrompue
+  private selfCausedCorruption = false;
+
+  // Clé de la sentinelle d'écriture en cours (détection de corruption)
+  private static readonly SENTINEL_KEY = 'sync_write_sentinel';
+
+  private constructor() {
+    // Avertir l'utilisateur s'il tente de fermer l'app pendant une sync
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', (e) => {
+        if (this.isSync) {
+          const msg = 'Une synchronisation est en cours. Fermer maintenant peut corrompre le fichier partagé.';
+          e.preventDefault();
+          e.returnValue = msg;
+          return msg;
+        }
+      });
+    }
+  }
 
   public static getInstance(): DataSyncManager {
     if (!DataSyncManager.instance) {
@@ -90,10 +109,14 @@ export class DataSyncManager {
 
     try {
       console.log('🚀 DataSync: Initialisation...');
-      
+
       await this.identifyUser();
+
+      // Vérifier si la dernière écriture de cette machine a été interrompue
+      await this.checkWriteSentinel();
+
       await this.checkServerAccess();
-      
+
       if (this.isOnline) {
         console.log('🔄 DataSync: Synchronisation initiale...');
         await this.performSync();
@@ -130,6 +153,37 @@ export class DataSyncManager {
       }
     } catch (error) {
       console.warn('⚠️ DataSync: Impossible d\'identifier l\'utilisateur');
+    }
+  }
+
+  /**
+   * Vérifie si la dernière écriture de cette machine a été interrompue.
+   * Si oui, la machine est responsable du fichier corrompu sur le serveur.
+   */
+  private async checkWriteSentinel(): Promise<void> {
+    try {
+      const sentinel = await ElectronBridge.getData<{ timestamp: string; user: string } | null>(
+        DataSyncManager.SENTINEL_KEY,
+        null
+      );
+
+      if (sentinel) {
+        console.warn(
+          `⚠️ DataSync: Écriture interrompue détectée (${sentinel.user} à ${sentinel.timestamp}). ` +
+          'Le fichier serveur est peut-être corrompu par cette machine.'
+        );
+        this.showToast(
+          'Attention : la dernière synchronisation a été interrompue. ' +
+          'Le fichier partagé sera réparé automatiquement.',
+          'error'
+        );
+        // Marquer pour que performSync puisse décider d'écraser le serveur en cas de corruption
+        this.selfCausedCorruption = true;
+        // Nettoyer la sentinelle maintenant (elle sera réécrite si on re-push)
+        await ElectronBridge.setData(DataSyncManager.SENTINEL_KEY, null);
+      }
+    } catch {
+      // Pas bloquant
     }
   }
 
@@ -295,16 +349,55 @@ export class DataSyncManager {
       };
 
     } catch (error) {
+      // Fichier serveur corrompu
+      if (error instanceof Error && error.name === 'ServerCorruptedError') {
+        if (this.selfCausedCorruption) {
+          // Cette machine est responsable de la corruption (sentinelle trouvée au démarrage)
+          // On peut réparer en réécrivant depuis les données locales
+          console.warn('⚠️ DataSync: Réparation du fichier serveur (corruption par cette machine)');
+          try {
+            const localData = await this.getLocalData();
+            await this.pushToServer(localData);
+            this.lastSuccessfulSync = new Date().toISOString();
+            this.handleSyncSuccess();
+            this.showToast('Fichier serveur réparé et synchronisé', 'success');
+            return {
+              success: true,
+              timestamp: this.lastSuccessfulSync,
+              action: 'first_sync'
+            };
+          } catch {
+            // La réparation a échoué, continuer vers l'erreur générique
+          }
+        }
+
+        // Un collègue est peut-être responsable, ou la réparation a échoué :
+        // on n'écrit rien pour ne pas écraser ses données
+        console.warn('⚠️ DataSync: Fichier serveur corrompu, sync annulée sans écriture');
+        this.handleSyncFailure();
+        this.showToast(
+          'Fichier serveur illisible (corrompu ou écriture en cours). ' +
+          'Réessayez dans quelques instants.',
+          'error'
+        );
+        return {
+          success: false,
+          timestamp: new Date().toISOString(),
+          action: 'error',
+          error: 'Fichier serveur corrompu — aucune donnée écrasée'
+        };
+      }
+
       console.error('❌ DataSync: Erreur synchronisation:', error);
       this.handleSyncFailure();
-      
+
       return {
         success: false,
         timestamp: new Date().toISOString(),
         action: 'error',
         error: error instanceof Error ? error.message : 'Erreur inconnue'
       };
-      
+
     } finally {
       this.isSync = false;
       this.notifyStatusChange();
@@ -542,7 +635,22 @@ export class DataSyncManager {
       throw new Error('API dataSync_pull non disponible');
     }
 
-    return await window.electronAPI.dataSync_pull();
+    try {
+      return await window.electronAPI.dataSync_pull();
+    } catch (error) {
+      // Fichier serveur corrompu ou vide (JSON tronqué suite à une écriture interrompue)
+      // On relance une erreur identifiable pour que performSync() l'intercepte
+      // sans écraser le serveur (risque de perte des données du collègue)
+      if (error instanceof Error && (
+        error.message.includes('Unexpected end of JSON') ||
+        error.message.includes('Erreur lecture serveur')
+      )) {
+        const corruptedError = new Error('SERVEUR_CORROMPU: ' + error.message);
+        corruptedError.name = 'ServerCorruptedError';
+        throw corruptedError;
+      }
+      throw error;
+    }
   }
 
   private async pushToServer(data: SyncData): Promise<void> {
@@ -550,17 +658,33 @@ export class DataSyncManager {
       throw new Error('API dataSync_push non disponible');
     }
 
-    const metadata: SyncMetadata = {
-      lastModified: new Date().toISOString(),
-      modifiedBy: this.currentUser,
-      computerName: this.computerName,
-      version: data.version
-    };
+    // Poser la sentinelle AVANT d'écrire : si l'app plante pendant l'écriture,
+    // on le saura au prochain démarrage
+    await ElectronBridge.setData(DataSyncManager.SENTINEL_KEY, {
+      timestamp: new Date().toISOString(),
+      user: this.currentUser
+    });
 
-    const success = await window.electronAPI.dataSync_push(data, metadata);
-    
-    if (!success) {
-      throw new Error('Échec envoi vers serveur');
+    try {
+      const metadata: SyncMetadata = {
+        lastModified: new Date().toISOString(),
+        modifiedBy: this.currentUser,
+        computerName: this.computerName,
+        version: data.version
+      };
+
+      const success = await window.electronAPI.dataSync_push(data, metadata);
+
+      if (!success) {
+        throw new Error('Échec envoi vers serveur');
+      }
+
+      // Écriture réussie : lever la sentinelle
+      await ElectronBridge.setData(DataSyncManager.SENTINEL_KEY, null);
+      this.selfCausedCorruption = false;
+    } catch (error) {
+      // La sentinelle reste en place : elle sera détectée au prochain démarrage
+      throw error;
     }
   }
 

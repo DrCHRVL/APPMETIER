@@ -3,10 +3,10 @@
 import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { SyncConflict } from '@/types/dataSyncTypes';
-import { 
-  AlertTriangle, 
-  ChevronDown, 
+import { SyncConflict, ConflictAction } from '@/types/dataSyncTypes';
+import {
+  AlertTriangle,
+  ChevronDown,
   ChevronRight,
   Calendar,
   Users,
@@ -15,8 +15,6 @@ import {
   X
 } from 'lucide-react';
 import { Select } from '../ui/select';
-
-type ConflictAction = 'merge' | 'skip' | 'keep_local' | 'keep_server';
 
 interface ConflictSelection {
   enabled: boolean;

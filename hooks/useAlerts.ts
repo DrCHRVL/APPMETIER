@@ -97,7 +97,8 @@ export const useAlerts = (enquetes: Enquete[]) => {
         let hasChanges = false;
         
         currentEnquetes.forEach(e => {
-          const signature = `${e.id}-${e.statut}-${e.dateMiseAJour}`;
+          // N'inclure que les champs qui affectent les alertes (pas dateMiseAJour ni les CRs)
+          const signature = `${e.id}-${e.statut}-${e.actes?.length || 0}-${e.ecoutes?.length || 0}-${e.geolocalisations?.length || 0}`;
           enqueteSignature[e.id] = signature;
           
           if (lastProcessedEnquetes.current[e.id] !== signature) {

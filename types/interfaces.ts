@@ -5,39 +5,6 @@ export interface Tag {
   category: 'services' | 'infractions' | 'priorite' | 'duree' | 'statut' | 'juge';
 }
 
-// Types pour les condamnations
-export interface CondamnationData {
-  nom?: string;
-  peinePrison: number;
-  sursisProbatoire: number;
-  sursisSimple: number;
-  peineAmende: number;
-  interdictionParaitre?: boolean;
-  typeAudience?: 'CRPC-Def' | 'CI' | 'COPJ' | 'OI' | 'CDD';
-  defere?: boolean;
-}
-
-export interface Confiscations {
-  vehicules: number;
-  immeubles: number;
-  argentTotal: number;
-}
-
-export interface ResultatAudience {
-  enqueteId: number;
-  dateAudience: string;
-  condamnations: CondamnationData[];
-  confiscations: Confiscations;
-  typeInfraction?: string;
-  numeroAudience?: string; // Format: "YYYY-MM-DD-N"
-  isDirectResult?: boolean;
-  isOI?: boolean; // Pour marquer les ouvertures d'information
-  isAudiencePending?: boolean; // Pour marquer les enquêtes en attente d'audience
-  service?: string;
-  dateDefere?: string; // Date de défèrement globale (pour audiences en attente)
-  nombreDeferes?: number; // Nombre de déférés (pour audiences en attente)
-}
-
 // Interface pour les comptes rendus
 export interface CompteRendu {
   id: number;
@@ -362,6 +329,9 @@ export interface AIRImportData {
 }
 
 export type AIRStatus = 'en_cours' | 'termine' | 'echec' | 'reussite';
+
+/** Alias pour AIRImportData - utilisé dans les hooks d'alertes */
+export type AIRMesure = AIRImportData;
 
 // 🆕 TYPES POUR LE GREFFE
 export interface GreffeData {
