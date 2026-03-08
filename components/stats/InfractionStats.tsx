@@ -1,42 +1,18 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Enquete } from '@/types/interfaces';
 import { useTags } from '@/hooks/useTags';
 import { useAudience } from '@/hooks/useAudience';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../ui/tooltip';
-import { Select } from '../ui/select';
 
 interface InfractionStatsProps {
   enquetes: Enquete[];
+  selectedYear: number;
 }
 
-export const InfractionStats = ({ enquetes }: InfractionStatsProps) => {
+export const InfractionStats = ({ enquetes, selectedYear }: InfractionStatsProps) => {
   const { getTagsByCategory } = useTags();
   const { audienceState } = useAudience();
-  const currentYear = new Date().getFullYear();
-  const [selectedYear, setSelectedYear] = useState(currentYear);
-
-  // Générer la liste des années disponibles
-  const availableYears = React.useMemo(() => {
-    const years = new Set<number>();
-    
-    enquetes.forEach(e => {
-      const creationYear = new Date(e.dateCreation).getFullYear();
-      years.add(creationYear);
-      
-      // Ajouter aussi l'année d'audience si elle existe
-      const audienceResult = Object.values(audienceState?.resultats || {})
-        .find(r => r.enqueteId === e.id);
-      if (audienceResult?.dateAudience) {
-        years.add(new Date(audienceResult.dateAudience).getFullYear());
-      }
-    });
-    
-    // Ajouter l'année actuelle si elle n'y est pas
-    years.add(currentYear);
-    
-    return Array.from(years).sort((a, b) => b - a);
-  }, [enquetes, audienceState, currentYear]);
 
   // Récupérer TOUTES les infractions réellement utilisées dans les enquêtes
   const infractions = React.useMemo(() => {
@@ -120,22 +96,6 @@ export const InfractionStats = ({ enquetes }: InfractionStatsProps) => {
 
   return (
     <div className="space-y-6">
-      {/* Sélecteur d'année */}
-      <div className="flex items-center gap-4 bg-white p-4 rounded-lg shadow-sm">
-        <span className="text-sm font-medium text-gray-700">Année :</span>
-        <Select
-          value={selectedYear.toString()}
-          onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-          className="w-32"
-        >
-          {availableYears.map(year => (
-            <option key={year} value={year}>
-              {year}
-            </option>
-          ))}
-        </Select>
-      </div>
-
       {/* Carte Enquêtes en cours */}
       <Card>
         <CardHeader>
