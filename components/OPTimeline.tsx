@@ -12,7 +12,7 @@ interface OPEvent {
   daysFromToday: number;
 }
 
-const DAYS_RANGE = 61; // ~2 mois
+const DAYS_RANGE = 40; // ~6 semaines
 const DAY_LABELS = ['D', 'L', 'M', 'M', 'J', 'V', 'S']; // index par getDay() (0=Dim)
 const MONTHS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
 
@@ -66,12 +66,12 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
   return (
     <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 mb-4 shadow-sm">
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-sm font-semibold text-gray-700">OPs à venir — 2 mois</span>
+        <span className="text-sm font-semibold text-gray-700">OPs à venir — 6 semaines</span>
         <span className="text-xs text-gray-400">(bande colorée = 96h GAV max)</span>
       </div>
 
       <div className="overflow-x-auto">
-        <div style={{ minWidth: `${DAYS_RANGE * 13}px` }}>
+        <div style={{ minWidth: `${DAYS_RANGE * 16}px` }}>
 
           {/* Ligne des initiales LMMJVSD */}
           <div className="flex border-b border-gray-100">
