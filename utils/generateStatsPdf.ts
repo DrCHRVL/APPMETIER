@@ -211,6 +211,16 @@ const CSS_STYLES = `
     border-top: 1px solid #e9ecef;
   }
 
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+  @media print {
+    body { padding: 0; }
+    .page-break { page-break-before: always; }
+    .section-nobreak { page-break-inside: avoid; }
+  }
+
   .legend {
     display: flex;
     gap: 12px;
@@ -672,59 +682,21 @@ ${data.deferementsParMois.length > 0 ? `
 export async function exportStatsPdf(data: PdfExportData): Promise<void> {
   const html = generateStatsPdfHtml(data);
 
-  // Créer un conteneur temporaire hors-écran pour le rendu
-  // On utilise visibility:hidden + overflow:hidden au lieu de left:-9999px
-  // pour que le layout flexbox se calcule correctement dans le viewport
-  const container = document.createElement('div');
-  container.style.position = 'absolute';
-  container.style.left = '0';
-  container.style.top = '0';
-  container.style.width = '190mm'; // Zone utile A4 (210mm - 2x10mm marges)
-  container.style.visibility = 'hidden';
-  container.style.overflow = 'hidden';
-  container.style.zIndex = '-1';
-  container.innerHTML = html
-    .replace(/<!DOCTYPE html>[\s\S]*?<body>/, '')
-    .replace(/<\/body>[\s\S]*$/, '');
-
-  // Injecter les styles dans le conteneur
-  const styleEl = document.createElement('style');
-  styleEl.textContent = CSS_STYLES;
-  container.prepend(styleEl);
-
-  document.body.appendChild(container);
-
-  try {
-    // Import dynamique de html2pdf.js
-    const html2pdf = (await import('html2pdf.js')).default;
-
-    const opt = {
-      margin: [10, 10, 10, 10],
-      filename: `Rapport_Statistiques_${data.selectedYear}.pdf`,
-      image: { type: 'jpeg', quality: 0.95 },
-      html2canvas: {
-        scale: 2,
-        useCORS: true,
-        letterRendering: true,
-        scrollY: 0,
-        windowWidth: 718, // 190mm en px (190 * 96 / 25.4 ≈ 718px)
-      },
-      jsPDF: {
-        unit: 'mm',
-        format: 'a4',
-        orientation: 'portrait',
-      },
-      pagebreak: {
-        mode: ['css', 'legacy'],
-        before: '.page-break',
-        avoid: '.section-nobreak',
-      },
-    };
-
-    await html2pdf().set(opt).from(container).save();
-  } finally {
-    document.body.removeChild(container);
+  const printWindow = window.open('', '_blank', 'width=900,height=700');
+  if (!printWindow) {
+    alert('Veuillez autoriser les popups pour exporter le PDF.');
+    return;
   }
+
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+
+  // Attendre le chargement complet puis déclencher l'impression
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
 }
 
 export type { PdfExportData };
