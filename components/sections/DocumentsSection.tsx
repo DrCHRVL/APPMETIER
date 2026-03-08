@@ -1,13 +1,13 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { 
-  Upload, 
-  FileText, 
-  File, 
-  Image, 
-  Trash2, 
+import {
+  Upload,
+  FileText,
+  File,
+  Image,
+  Trash2,
   FolderOpen,
   Settings,
   AlertCircle,
@@ -23,17 +23,13 @@ import {
   RefreshCw,
   Loader,
   Calendar,
-  Info
+  Copy,
+  X
 } from 'lucide-react';
-import { Enquete, DocumentEnquete, EcouteData } from '@/types/interfaces';
+import { Enquete, DocumentEnquete } from '@/types/interfaces';
 import { useToast } from '@/contexts/ToastContext';
 import { DocumentPathModal } from '../modals/DocumentPathModal';
 import { DocumentSyncManager, SyncResult } from '@/utils/documents/DocumentSyncManager';
-import { JLDOrderAnalyzer, JLDAnalysisResult } from '@/utils/documents/JLDOrderAnalyzer';
-import { JLDConfirmationModal } from '../modals/JLDConfirmationModal';
-import { JLDEcoutesCreationModal } from '../modals/JLDEcoutesCreationModal';
-import { SimpleJLDConfirmationModal } from '../modals/SimpleJLDConfirmationModal';
-import { Alert, AlertDescription } from '../ui/alert';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -51,6 +47,13 @@ interface DocumentZone {
   icon: React.ReactNode;
   description: string;
   color: string;
+}
+
+// Représente un fichier en attente de résolution de conflit
+interface ConflictItem {
+  file: File;
+  category: DocumentCategory;
+  existingDoc: DocumentEnquete;
 }
 
 const DOCUMENT_ZONES: DocumentZone[] = [
@@ -84,85 +87,134 @@ const DOCUMENT_ZONES: DocumentZone[] = [
   }
 ];
 
+// Génère un nom de fichier sans conflit en ajoutant un suffixe numérique
+const resolveNameConflict = (fileName: string, existingNames: string[]): string => {
+  const lastDot = fileName.lastIndexOf('.');
+  const base = lastDot !== -1 ? fileName.slice(0, lastDot) : fileName;
+  const ext = lastDot !== -1 ? fileName.slice(lastDot) : '';
+  let counter = 2;
+  let candidate = `${base} (${counter})${ext}`;
+  while (existingNames.includes(candidate)) {
+    counter++;
+    candidate = `${base} (${counter})${ext}`;
+  }
+  return candidate;
+};
+
 export const DocumentsSection = ({ enquete, onUpdate, isEditing }: DocumentsSectionProps) => {
   const [dragOverZone, setDragOverZone] = useState<DocumentCategory | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showPathModal, setShowPathModal] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null);
-  
-  // Nouveaux états pour la synchronisation
+
+  // États pour la synchronisation
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null);
-  
-  // États pour l'analyse JLD - NOUVEAUX
-  const [showJLDConfirmation, setShowJLDConfirmation] = useState(false);
-  const [showJLDCreation, setShowJLDCreation] = useState(false);
-  const [currentJLDAnalysis, setCurrentJLDAnalysis] = useState<JLDAnalysisResult | null>(null);
-  const [currentJLDFile, setCurrentJLDFile] = useState<File | null>(null);
-  const [isAnalyzingJLD, setIsAnalyzingJLD] = useState(false);
-  
+
+  // États pour la résolution de conflits
+  const [conflictQueue, setConflictQueue] = useState<ConflictItem[]>([]);
+  const [currentConflict, setCurrentConflict] = useState<ConflictItem | null>(null);
+  // Fichiers validés après résolution (nom éventuellement renommé)
+  const pendingUploadRef = useRef<{ file: File; renamedTo?: string; category: DocumentCategory }[]>([]);
+
   const fileInputRefs = useRef<Record<DocumentCategory, HTMLInputElement | null>>({
     geoloc: null,
     ecoutes: null,
     actes: null,
     pv: null
   });
-  
+
   const { showToast } = useToast();
 
-  // Scan automatique des nouveaux documents
+  // Documents par catégorie mémorisés pour éviter les recalculs inutiles
+  const documentsByCategory = useMemo(() => {
+    const categoryMapping: Record<DocumentCategory, string> = {
+      'geoloc': 'Geoloc',
+      'ecoutes': 'Ecoutes',
+      'actes': 'Actes',
+      'pv': 'PV'
+    };
+    const result: Record<DocumentCategory, DocumentEnquete[]> = {
+      geoloc: [],
+      ecoutes: [],
+      actes: [],
+      pv: []
+    };
+    for (const cat of Object.keys(categoryMapping) as DocumentCategory[]) {
+      const prefix = categoryMapping[cat];
+      result[cat] = (enquete.documents || []).filter(doc =>
+        doc.cheminRelatif.startsWith(`${prefix}/`)
+      );
+    }
+    return result;
+  }, [enquete.documents]);
+
+  // Scan automatique avec délai initial pour ne pas bloquer l'ouverture de la modale
   useEffect(() => {
-    // Effectuer un scan automatique au chargement du composant
-    scanForNewDocuments(true);
-    
-    // Configurer un scan périodique toutes les 10 minutes (600000 ms)
+    // Délai de 1,5 s pour laisser le temps à l'UI de s'afficher avant le scan réseau
+    const initialTimer = setTimeout(() => {
+      scanForNewDocuments(true);
+    }, 1500);
+
+    // Scan périodique toutes les 10 minutes
     const intervalId = setInterval(() => {
       scanForNewDocuments(true);
     }, 600000);
-    
-    return () => clearInterval(intervalId);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(intervalId);
+    };
   }, [enquete.id]);
-  
+
+  // Traitement de la file de conflits : afficher le prochain conflit
+  useEffect(() => {
+    if (!currentConflict && conflictQueue.length > 0) {
+      const [next, ...rest] = conflictQueue;
+      setCurrentConflict(next);
+      setConflictQueue(rest);
+    }
+  }, [currentConflict, conflictQueue]);
+
   // Fonction pour scanner les nouveaux documents
   const scanForNewDocuments = async (silent = false) => {
     if (!window.electronAPI) {
       if (!silent) showToast('API Electron non disponible', 'error');
       return;
     }
-    
+
     if (isScanning) return;
-    
+
     setIsScanning(true);
-    
+
     try {
       const existingDocuments = enquete.documents || [];
-      
+
       const scanResult = await DocumentSyncManager.scanForNewDocuments(
         enquete.numero,
         existingDocuments
       );
-      
+
       if (scanResult.errors.length > 0 && !silent) {
         scanResult.errors.forEach(error => {
           console.error('Erreur scan documents:', error);
         });
         showToast('Erreur lors du scan des documents', 'error');
       }
-      
+
       if (scanResult.newDocuments.length > 0) {
-        // Mettre à jour la liste des documents dans l'enquête
         const updatedDocuments = [...existingDocuments, ...scanResult.newDocuments];
         onUpdate(enquete.id, { documents: updatedDocuments });
-        
+
         if (!silent) {
           showToast(`${scanResult.newDocuments.length} nouveaux documents trouvés`, 'success');
         }
       } else if (!silent) {
         showToast('Aucun nouveau document trouvé', 'info');
       }
-      
+
       setLastScanTime(new Date());
     } catch (error) {
       console.error('Erreur lors du scan des documents:', error);
@@ -171,35 +223,35 @@ export const DocumentsSection = ({ enquete, onUpdate, isEditing }: DocumentsSect
       setIsScanning(false);
     }
   };
-  
+
   // Fonction pour synchroniser les documents
   const synchronizeDocuments = async () => {
     if (!window.electronAPI) {
       showToast('API Electron non disponible', 'error');
       return;
     }
-    
+
     if (!enquete.cheminExterne) {
       showToast('Aucun chemin externe configuré', 'warning');
       return;
     }
-    
+
     setIsSyncing(true);
-    
+
     try {
       const syncResult = await DocumentSyncManager.synchronizeDocuments(
         enquete.numero,
         enquete.cheminExterne,
         enquete.useSubfolderForExternal !== false
       );
-      
+
       setLastSyncResult(syncResult);
-      
+
       if (!syncResult.externalAccessible) {
         showToast('Chemin externe inaccessible actuellement', 'warning');
         return;
       }
-      
+
       if (syncResult.errors.length > 0) {
         syncResult.errors.forEach(error => {
           console.error('Erreur synchronisation:', error);
@@ -214,8 +266,7 @@ export const DocumentsSection = ({ enquete, onUpdate, isEditing }: DocumentsSect
             'success'
           );
         }
-        
-        // Si des documents ont été ajoutés en interne, rafraîchir la liste
+
         if (syncResult.addedToInternal.length > 0) {
           scanForNewDocuments(true);
         }
@@ -227,82 +278,7 @@ export const DocumentsSection = ({ enquete, onUpdate, isEditing }: DocumentsSect
       setIsSyncing(false);
     }
   };
-  
-  // === NOUVELLES FONCTIONS JLD ===
-  
-  // Analyse JLD d'un fichier PDF - NOUVELLE
-  const analyzeJLDFile = async (file: File): Promise<void> => {
-    if (file.type !== 'application/pdf') {
-      return;
-    }
 
-    setIsAnalyzingJLD(true);
-    setCurrentJLDFile(file);
-
-   try {
-  console.log('🔍 DÉBUT ANALYSE JLD pour:', file.name, file.type);
-  const analysisResult = await JLDOrderAnalyzer.analyze(file);
-  console.log('📊 RÉSULTAT ANALYSE:', analysisResult);
-      setCurrentJLDAnalysis(analysisResult);
-
-      if (analysisResult.isJLDOrder && analysisResult.phoneNumbers.length > 0) {
-        setShowJLDConfirmation(true);
-      }
-    } catch (error) {
-      console.error('Erreur lors de l\'analyse JLD:', error);
-      showToast('Erreur lors de l\'analyse du document', 'error');
-    } finally {
-      setIsAnalyzingJLD(false);
-    }
-  };
-
-  // Confirmation de création des écoutes JLD - NOUVELLE
-const handleJLDConfirmation = async () => {
-  setShowJLDConfirmation(false);
-  
-  if (currentJLDFile) {
-    console.log('🔍 USER A DIT OUI → ANALYSE JLD...');
-    setIsAnalyzingJLD(true);
-    
-    try {
-      const analysisResult = await JLDOrderAnalyzer.analyze(currentJLDFile);
-      console.log('📊 RÉSULTAT:', analysisResult);
-      setCurrentJLDAnalysis(analysisResult);
-      setShowJLDCreation(true);
-    } catch (error) {
-      console.error('Erreur analyse:', error);
-      showToast('Erreur lors de l\'analyse', 'error');
-    } finally {
-      setIsAnalyzingJLD(false);
-    }
-  }
-};
-  // Création des écoutes depuis l'analyse JLD - NOUVELLE
-  const handleCreateJLDEcoutes = (ecoutes: Partial<EcouteData>[]) => {
-    const newEcoutes: EcouteData[] = ecoutes.map((ecoute, index) => ({
-      id: Date.now() + index,
-      numero: ecoute.numero || '',
-      cible: ecoute.cible,
-      description: ecoute.description,
-      dateDebut: ecoute.dateDebut || '',
-      dateFin: ecoute.dateFin || '',
-      duree: ecoute.duree || '30',
-      datePose: ecoute.datePose,
-      statut: ecoute.statut || 'en_cours'
-    }));
-
-    const updatedEcoutes = [...(enquete.ecoutes || []), ...newEcoutes];
-    onUpdate(enquete.id, { ecoutes: updatedEcoutes });
-
-    setShowJLDCreation(false);
-    setCurrentJLDAnalysis(null);
-    setCurrentJLDFile(null);
-    
-    showToast(`${newEcoutes.length} écoute(s) créée(s) avec succès`, 'success');
-  };
-  
-  // === FIN NOUVELLES FONCTIONS JLD ===
-  
   // Fonction pour obtenir l'icône selon le type de fichier
   const getFileIcon = (type: string, size = 'h-4 w-4') => {
     switch (type) {
@@ -342,13 +318,16 @@ const handleJLDConfirmation = async () => {
       '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
       '.html', '.htm', '.msg'
     ];
-    
+
     const fileName = file.name.toLowerCase();
     return validExtensions.some(ext => fileName.endsWith(ext));
   };
 
-  // Fonction pour traiter les fichiers uploadés dans une catégorie spécifique
-  const handleFiles = async (files: FileList | File[], category: DocumentCategory) => {
+  // Upload effectif d'une liste de fichiers (après résolution de conflits)
+  const uploadFiles = async (
+    filesToUpload: { file: File; renamedTo?: string }[],
+    category: DocumentCategory
+  ) => {
     if (!window.electronAPI) {
       showToast('API Electron non disponible', 'error');
       return;
@@ -356,76 +335,38 @@ const handleJLDConfirmation = async () => {
 
     setIsUploading(true);
     setCopyStatus(null);
-    const validFiles: File[] = [];
-    const invalidFiles: string[] = [];
-
-    // Valider les fichiers
-    Array.from(files).forEach(file => {
-      if (isValidFileType(file)) {
-        validFiles.push(file);
-      } else {
-        invalidFiles.push(file.name);
-      }
-    });
-
-    if (invalidFiles.length > 0) {
-      showToast(`Fichiers non supportés: ${invalidFiles.join(', ')}`, 'error');
-    }
-
-    if (validFiles.length === 0) {
-      setIsUploading(false);
-      return;
-    }
 
     try {
-      // Préparer les données pour l'API Electron
-      const filesData = await Promise.all(
-        validFiles.map(async (file) => ({
-          name: file.name,
-          arrayBuffer: await file.arrayBuffer()
-        }))
-      );
-
-      // Convertir la catégorie pour l'API Electron
-      const categoryMapping = {
+      const categoryMapping: Record<DocumentCategory, string> = {
         'geoloc': 'Geoloc',
-        'ecoutes': 'Ecoutes', 
+        'ecoutes': 'Ecoutes',
         'actes': 'Actes',
         'pv': 'PV'
       };
       const electronCategory = categoryMapping[category];
 
-      // Envoyer vers l'API Electron avec la catégorie
+      const filesData = await Promise.all(
+        filesToUpload.map(async ({ file, renamedTo }) => ({
+          name: renamedTo || file.name,
+          arrayBuffer: await file.arrayBuffer()
+        }))
+      );
+
       const savedFiles = await window.electronAPI.saveDocuments(
-        enquete.numero, 
+        enquete.numero,
         filesData,
         electronCategory
       );
-      
+
       if (savedFiles && savedFiles.length > 0) {
-        // Mettre à jour l'enquête avec les nouveaux documents
         const currentDocuments = enquete.documents || [];
         const updatedDocuments = [...currentDocuments, ...savedFiles];
-        
         onUpdate(enquete.id, { documents: updatedDocuments });
-        showToast(`${savedFiles.length} document(s) ajoutés dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title}`, 'success');
+        showToast(
+          `${savedFiles.length} document(s) ajoutés dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title}`,
+          'success'
+        );
 
-        // === ANALYSE JLD APRÈS UPLOAD - NOUVEAU ===
-
- console.log('🔍 CATÉGORIE:', category, 'validFiles:', validFiles.length);
-
-if (category === 'ecoutes') {
-  console.log('✅ CATÉGORIE ÉCOUTES DÉTECTÉE');
-  const pdfFiles = validFiles.filter(file => file.type === 'application/pdf');
-  console.log('📄 FICHIERS PDF TROUVÉS:', pdfFiles.length, pdfFiles.map(f => f.name));
-  if (pdfFiles.length > 0) {
-    console.log('🚀 OUVERTURE MODAL JLD');
-    setCurrentJLDFile(pdfFiles[0]); // Prendre le premier PDF
-    setShowJLDConfirmation(true);   // Ouvrir directement la modal
-  }
-}               // === FIN ANALYSE JLD ===
-
-        // Essayer de copier vers le chemin externe si configuré
         if (enquete.cheminExterne) {
           try {
             const copySuccess = await window.electronAPI.copyToExternalPath(
@@ -433,7 +374,7 @@ if (category === 'ecoutes') {
               enquete.cheminExterne,
               savedFiles,
               electronCategory,
-              enquete.useSubfolderForExternal ?? true // Passer la préférence utilisateur
+              enquete.useSubfolderForExternal ?? true
             );
             setCopyStatus(copySuccess ? 'success' : 'error');
           } catch (error) {
@@ -452,11 +393,107 @@ if (category === 'ecoutes') {
     }
   };
 
+  // Fonction pour traiter les fichiers uploadés dans une catégorie spécifique
+  const handleFiles = async (files: FileList | File[], category: DocumentCategory) => {
+    if (!window.electronAPI) {
+      showToast('API Electron non disponible', 'error');
+      return;
+    }
+
+    const validFiles: File[] = [];
+    const invalidFiles: string[] = [];
+
+    Array.from(files).forEach(file => {
+      if (isValidFileType(file)) {
+        validFiles.push(file);
+      } else {
+        invalidFiles.push(file.name);
+      }
+    });
+
+    if (invalidFiles.length > 0) {
+      showToast(`Fichiers non supportés: ${invalidFiles.join(', ')}`, 'error');
+    }
+
+    if (validFiles.length === 0) return;
+
+    // Vérification des conflits de noms avec les documents existants de la même catégorie
+    const existingDocsInCategory = documentsByCategory[category];
+    const existingNames = existingDocsInCategory.map(d => d.nomOriginal);
+
+    const noConflict: { file: File; renamedTo?: string }[] = [];
+    const conflicts: ConflictItem[] = [];
+
+    for (const file of validFiles) {
+      const conflict = existingDocsInCategory.find(d => d.nomOriginal === file.name);
+      if (conflict) {
+        conflicts.push({ file, category, existingDoc: conflict });
+      } else {
+        noConflict.push({ file });
+      }
+    }
+
+    // Upload immédiat des fichiers sans conflit
+    if (noConflict.length > 0) {
+      await uploadFiles(noConflict, category);
+    }
+
+    // Mettre les conflits dans la file
+    if (conflicts.length > 0) {
+      setConflictQueue(prev => [...prev, ...conflicts]);
+    }
+  };
+
+  // Action : remplacer le fichier existant
+  const handleConflictReplace = async () => {
+    if (!currentConflict) return;
+    const { file, category } = currentConflict;
+    setCurrentConflict(null);
+
+    // Supprimer l'ancien document puis uploader le nouveau avec le même nom
+    try {
+      const deleted = await window.electronAPI?.deleteDocument(
+        enquete.numero,
+        currentConflict.existingDoc.cheminRelatif,
+        enquete.cheminExterne,
+        enquete.useSubfolderForExternal ?? true
+      );
+      if (deleted) {
+        const updatedDocuments = (enquete.documents || []).filter(
+          d => d.id !== currentConflict.existingDoc.id
+        );
+        onUpdate(enquete.id, { documents: updatedDocuments });
+      }
+    } catch (err) {
+      console.error('Erreur suppression avant remplacement:', err);
+    }
+
+    await uploadFiles([{ file }], category);
+  };
+
+  // Action : renommer automatiquement (style Windows)
+  const handleConflictRename = async () => {
+    if (!currentConflict) return;
+    const { file, category } = currentConflict;
+    setCurrentConflict(null);
+
+    const existingNames = (enquete.documents || []).map(d => d.nomOriginal);
+    const newName = resolveNameConflict(file.name, existingNames);
+    await uploadFiles([{ file, renamedTo: newName }], category);
+    showToast(`Document renommé en "${newName}"`, 'info');
+  };
+
+  // Action : ignorer le fichier
+  const handleConflictSkip = () => {
+    setCurrentConflict(null);
+    showToast(`"${currentConflict?.file.name}" ignoré`, 'info');
+  };
+
   // Gestionnaires pour le glisser-déposer
   const handleDrop = (e: React.DragEvent, category: DocumentCategory) => {
     e.preventDefault();
     setDragOverZone(null);
-    
+
     const files = e.dataTransfer.files;
     if (files.length > 0) {
       handleFiles(files, category);
@@ -479,7 +516,6 @@ if (category === 'ecoutes') {
     if (files && files.length > 0) {
       handleFiles(files, category);
     }
-    // Reset input
     if (fileInputRefs.current[category]) {
       fileInputRefs.current[category]!.value = '';
     }
@@ -516,12 +552,12 @@ if (category === 'ecoutes') {
 
     try {
       const success = await window.electronAPI.deleteDocument(
-        enquete.numero, 
-        document.cheminRelatif, 
+        enquete.numero,
+        document.cheminRelatif,
         enquete.cheminExterne,
-        enquete.useSubfolderForExternal ?? true // Passer la préférence utilisateur
+        enquete.useSubfolderForExternal ?? true
       );
-      
+
       if (success) {
         const updatedDocuments = (enquete.documents || []).filter(doc => doc.id !== document.id);
         onUpdate(enquete.id, { documents: updatedDocuments });
@@ -549,9 +585,9 @@ if (category === 'ecoutes') {
 
     try {
       const success = await window.electronAPI.openExternalFolder(
-        enquete.cheminExterne, 
+        enquete.cheminExterne,
         enquete.numero,
-        enquete.useSubfolderForExternal ?? true // Passer la préférence utilisateur
+        enquete.useSubfolderForExternal ?? true
       );
       if (!success) {
         showToast('Impossible d\'ouvrir le dossier externe', 'error');
@@ -561,22 +597,21 @@ if (category === 'ecoutes') {
       showToast('Erreur lors de l\'ouverture du dossier externe', 'error');
     }
   };
-  
+
   // Fonction pour sauvegarder le nouveau chemin externe
   const handleSaveExternalPath = async (newPath: string, useSubfolder: boolean) => {
     const oldPath = enquete.cheminExterne;
-    const oldUseSubfolder = enquete.useSubfolderForExternal ?? true; // Par défaut true pour rétrocompatibilité
-    
-    // Mettre à jour les deux champs
-    onUpdate(enquete.id, { 
+    const oldUseSubfolder = enquete.useSubfolderForExternal ?? true;
+
+    onUpdate(enquete.id, {
       cheminExterne: newPath,
-      useSubfolderForExternal: useSubfolder 
+      useSubfolderForExternal: useSubfolder
     });
-    
+
     if (oldPath && (oldPath !== newPath || oldUseSubfolder !== useSubfolder)) {
       const oldFinalPath = oldUseSubfolder ? `${oldPath}/${enquete.numero}` : oldPath;
       const newFinalPath = useSubfolder && newPath ? `${newPath}/${enquete.numero}` : newPath;
-      
+
       showToast(
         `Configuration modifiée. Déplacez manuellement les fichiers de "${oldFinalPath}" vers "${newFinalPath}" si nécessaire.`,
         'warning'
@@ -586,25 +621,10 @@ if (category === 'ecoutes') {
     }
   };
 
-  // Fonction pour filtrer les documents par catégorie
-  const getDocumentsByCategory = (category: DocumentCategory): DocumentEnquete[] => {
-    const categoryMapping = {
-      'geoloc': 'Geoloc',
-      'ecoutes': 'Ecoutes', 
-      'actes': 'Actes',
-      'pv': 'PV'
-    };
-    const electronCategory = categoryMapping[category];
-    
-    return (enquete.documents || []).filter(doc => 
-      doc.cheminRelatif.startsWith(`${electronCategory}/`)
-    );
-  };
-
   // Formatage de la date de dernière synchronisation
   const formatLastScanTime = () => {
     if (!lastScanTime) return null;
-    
+
     try {
       return format(lastScanTime, 'dd/MM/yyyy HH:mm:ss', { locale: fr });
     } catch (error) {
@@ -633,15 +653,7 @@ if (category === 'ecoutes') {
                   </span>
                 </div>
               )}
-              
-              {/* NOUVEAU - Indicateur d'analyse JLD */}
-              {isAnalyzingJLD && (
-                <Badge variant="outline" className="bg-blue-50 text-blue-700 animate-pulse">
-                  <Loader className="h-3 w-3 mr-1 animate-spin" />
-                  Analyse JLD...
-                </Badge>
-              )}
-              
+
               {/* Affichage du dernier scan */}
               {lastScanTime && (
                 <div className="flex items-center gap-1 ml-2 text-xs text-gray-500">
@@ -667,7 +679,7 @@ if (category === 'ecoutes') {
                 )}
                 {isScanning ? 'Recherche...' : 'Actualiser'}
               </Button>
-              
+
               {/* Bouton de synchronisation - uniquement visible si un chemin externe est configuré */}
               {enquete.cheminExterne && (
                 <Button
@@ -686,7 +698,7 @@ if (category === 'ecoutes') {
                   {isSyncing ? 'Synchro...' : 'Synchroniser'}
                 </Button>
               )}
-              
+
               {enquete.cheminExterne && (
                 <Button
                   variant="outline"
@@ -712,7 +724,7 @@ if (category === 'ecoutes') {
             </div>
           </div>
         </CardHeader>
-        
+
         <CardContent className="space-y-6">
           {/* Afficher le résultat de synchronisation si disponible */}
           {lastSyncResult && (
@@ -735,21 +747,79 @@ if (category === 'ecoutes') {
               </div>
             </div>
           )}
-          
+
+          {/* Dialogue de résolution de conflit (style Explorateur Windows) */}
+          {currentConflict && (
+            <div className="border-2 border-amber-300 bg-amber-50 rounded-lg p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="font-semibold text-amber-900 text-sm">
+                    Conflit de nom de fichier
+                  </p>
+                  <p className="text-xs text-amber-800 mt-1">
+                    Le fichier <strong>"{currentConflict.file.name}"</strong> existe déjà dans{' '}
+                    <strong>{DOCUMENT_ZONES.find(z => z.category === currentConflict.category)?.title}</strong>.
+                  </p>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    Que souhaitez-vous faire ?
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={handleConflictReplace}
+                  className="flex items-center gap-1 text-xs"
+                  title="Remplacer le fichier existant par le nouveau"
+                >
+                  <XCircle className="h-3 w-3" />
+                  Remplacer
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleConflictRename}
+                  className="flex items-center gap-1 text-xs border-amber-400 text-amber-800 hover:bg-amber-100"
+                  title="Garder les deux en renommant le nouveau fichier"
+                >
+                  <Copy className="h-3 w-3" />
+                  Garder les deux
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleConflictSkip}
+                  className="flex items-center gap-1 text-xs text-gray-600"
+                  title="Ne pas copier ce fichier"
+                >
+                  <X className="h-3 w-3" />
+                  Ignorer
+                </Button>
+              </div>
+              {conflictQueue.length > 0 && (
+                <p className="text-xs text-amber-600">
+                  {conflictQueue.length} autre(s) conflit(s) en attente
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Grille des 4 zones de documents */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {DOCUMENT_ZONES.map((zone) => {
-              const documentsInZone = getDocumentsByCategory(zone.category);
+              const documentsInZone = documentsByCategory[zone.category];
               const isDragOver = dragOverZone === zone.category;
-              
+
               return (
                 <div key={zone.category} className="space-y-3">
                   {/* Zone de glisser-déposer */}
                   <div
                     className={`
                       border-2 border-dashed rounded-lg p-4 text-center transition-all relative
-                      ${isDragOver 
-                        ? `${zone.color} border-solid shadow-md` 
+                      ${isDragOver
+                        ? `${zone.color} border-solid shadow-md`
                         : `border-gray-300 hover:border-gray-400 hover:bg-gray-50`
                       }
                       ${isUploading ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}
@@ -759,15 +829,6 @@ if (category === 'ecoutes') {
                     onDragLeave={handleDragLeave}
                     onClick={() => fileInputRefs.current[zone.category]?.click()}
                   >
-                    {/* NOUVEAU - Indicateur spécial pour écoutes avec analyse JLD */}
-                    {zone.category === 'ecoutes' && (
-                      <div className="absolute top-1 right-1">
-                        <Badge variant="outline" className="text-xs bg-blue-50 text-blue-600 border-blue-200">
-                          Analyse JLD
-                        </Badge>
-                      </div>
-                    )}
-
                     <div className="flex flex-col items-center gap-2">
                       <div className={`p-2 rounded-full ${zone.color.replace('hover:', '')}`}>
                         {zone.icon}
@@ -775,12 +836,6 @@ if (category === 'ecoutes') {
                       <div>
                         <h3 className="font-medium text-sm">{zone.title}</h3>
                         <p className="text-xs text-gray-600 mb-2">{zone.description}</p>
-                        {/* NOUVEAU - Information JLD pour zone écoutes */}
-                        {zone.category === 'ecoutes' && (
-                          <p className="text-xs text-blue-600 mb-1">
-                            📄 Détection automatique d'ordonnances JLD
-                          </p>
-                        )}
                         <p className="text-xs text-gray-500">
                           {isUploading ? 'Upload...' : 'Cliquer ou glisser-déposer'}
                         </p>
@@ -809,7 +864,7 @@ if (category === 'ecoutes') {
                         >
                           <div className="flex items-center gap-2 flex-1 min-w-0">
                             {getFileIcon(document.type, 'h-3 w-3')}
-                            <div 
+                            <div
                               className="flex-1 min-w-0 cursor-pointer"
                               onClick={() => handleOpenDocument(document)}
                               title="Cliquer pour ouvrir le document"
@@ -823,7 +878,7 @@ if (category === 'ecoutes') {
                               </div>
                             </div>
                           </div>
-                          
+
                           {isEditing && (
                             <Button
                               variant="ghost"
@@ -871,22 +926,6 @@ if (category === 'ecoutes') {
               </div>
             )}
 
-            {/* NOUVEAU - Information sur l'analyse JLD */}
-            <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <Info className="h-4 w-4 text-blue-600" />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-blue-800">
-                  Fonctionnalités avancées actives
-                </p>
-                <ul className="text-xs text-blue-700 mt-1 space-y-1">
-                  <li>• Détection automatique de nouveaux documents</li>
-                  <li>• Analyse intelligente des ordonnances JLD (zone écoutes)</li>
-                  <li>• Création automatique d'écoutes depuis les documents PDF</li>
-                  <li>• Synchronisation bidirectionnelle avec dossier externe</li>
-                </ul>
-              </div>
-            </div>
-
             {/* Alerte si API non disponible */}
             {!window.electronAPI && (
               <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -905,7 +944,7 @@ if (category === 'ecoutes') {
             {enquete.cheminExterne && (
               <p><strong>Sauvegarde double :</strong> Documents sauvegardés en interne + copie externe</p>
             )}
-            <p><strong>Analyse JLD :</strong> Les PDF d'ordonnances déposés dans "Écoutes" sont analysés pour créer automatiquement les écoutes</p>
+            <p><strong>Conflits :</strong> En cas de doublon de nom, une boîte de dialogue propose de remplacer, renommer ou ignorer</p>
             <p><strong>Synchronisation :</strong> Cliquez sur "Synchroniser" pour vérifier que tous les documents sont présents aux deux endroits</p>
             <p><strong>Actualisation :</strong> Cliquez sur "Actualiser" pour détecter les documents ajoutés manuellement</p>
           </div>
@@ -921,36 +960,6 @@ if (category === 'ecoutes') {
         onSave={handleSaveExternalPath}
         enqueteNumero={enquete.numero}
       />
-
-      {/* NOUVELLES MODALS JLD */}
-
-{/* Modal simple de confirmation JLD */}
-{currentJLDFile && (
-  <SimpleJLDConfirmationModal
-    isOpen={showJLDConfirmation}
-    onClose={() => {
-      setShowJLDConfirmation(false);
-      setCurrentJLDFile(null);
-    }}
-    onConfirm={handleJLDConfirmation}
-    fileName={currentJLDFile.name}
-  />
-)}
-
-{/* Modal de création des écoutes JLD */}
-{currentJLDAnalysis && currentJLDFile && (
-  <JLDEcoutesCreationModal
-    isOpen={showJLDCreation}
-    onClose={() => {
-      setShowJLDCreation(false);
-      setCurrentJLDAnalysis(null);
-      setCurrentJLDFile(null);
-    }}
-    onCreateEcoutes={handleCreateJLDEcoutes}
-    analysisResult={currentJLDAnalysis}
-    fileName={currentJLDFile.name}
-  />
-)}
     </>
   );
 };
