@@ -71,6 +71,12 @@ function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentView, setCurrentView] = useState('enquetes');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Réinitialise la recherche à chaque changement de vue
+  const handleViewChange = (view: string) => {
+    setSearchTerm('');
+    setCurrentView(view);
+  };
   const [showNewEnqueteModal, setShowNewEnqueteModal] = useState(false);
   const [showNewInstructionModal, setShowNewInstructionModal] = useState(false);
   const [showAlertsModal, setShowAlertsModal] = useState(false);
@@ -509,7 +515,7 @@ return (
         <SideBar 
           isOpen={sidebarOpen}
           currentView={currentView}
-          onViewChange={setCurrentView}
+          onViewChange={handleViewChange}
           onNewEnquete={handleNewEnquete}
           alertCount={activeAlertsCount}
         />
@@ -622,6 +628,8 @@ return (
           {currentView === 'instructions' && (
             <InstructionsPage
               instructions={instructions}
+              searchTerm={searchTerm}
+              onSearchChange={setSearchTerm}
               onUpdateInstruction={handleUpdateInstruction}
               onAddInstruction={handleAddInstruction}
               onDeleteInstruction={handleDeleteInstruction}
