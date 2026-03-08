@@ -12,6 +12,7 @@ export interface SyncData {
   customTags: Record<string, any>;
   alertRules: any[];
   version: number;
+  deletedIds?: number[]; // IDs d'enquêtes supprimées intentionnellement (empêche la resynchronisation)
 }
 
 /**

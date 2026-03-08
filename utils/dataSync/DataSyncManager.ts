@@ -451,11 +451,17 @@ export class DataSyncManager {
     serverData: SyncData
   ): Promise<void> {
     // Construire les données fusionnées en fonction des sélections
+    const mergedDeletedIds = Array.from(new Set([
+      ...(localData.deletedIds || []),
+      ...(serverData.deletedIds || [])
+    ]));
+
     const resolvedData: SyncData = {
       enquetes: [],
       audienceResultats: {},
       customTags: localData.customTags,
       alertRules: localData.alertRules,
+      deletedIds: mergedDeletedIds,
       version: Math.max(localData.version || 0, serverData.version || 0) + 1
     };
 
@@ -613,12 +619,14 @@ export class DataSyncManager {
     const audienceResultats = await ElectronBridge.getData('audience_resultats', {});
     const customTags = await ElectronBridge.getData('customTags', {});
     const alertRules = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, []);
+    const deletedIds = await ElectronBridge.getData<number[]>('deleted_enquete_ids', []);
 
     return {
       enquetes: Array.isArray(enquetes) ? enquetes : [],
       audienceResultats: audienceResultats || {},
       customTags: customTags || {},
       alertRules: Array.isArray(alertRules) ? alertRules : [],
+      deletedIds: Array.isArray(deletedIds) ? deletedIds : [],
       version: 1
     };
   }
@@ -628,6 +636,7 @@ export class DataSyncManager {
     await ElectronBridge.setData('audience_resultats', data.audienceResultats);
     await ElectronBridge.setData('customTags', data.customTags);
     await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, data.alertRules);
+    await ElectronBridge.setData('deleted_enquete_ids', data.deletedIds || []);
   }
 
   private async getServerData(): Promise<{ data: SyncData; metadata: SyncMetadata } | null> {

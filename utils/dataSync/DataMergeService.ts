@@ -28,31 +28,40 @@ export class DataMergeService {
     const conflicts: SyncConflict[] = [];
     const stats = { newFromServer: 0, newFromLocal: 0, merged: 0 };
 
-    // 1. Fusionner les enquêtes intelligemment
-    const { 
-      merged: mergedEnquetes, 
+    // Calculer l'union des IDs supprimés des deux côtés
+    const localDeletedIds = new Set<number>(localData.deletedIds || []);
+    const serverDeletedIds = new Set<number>(serverData.deletedIds || []);
+    const mergedDeletedIds = Array.from(new Set([...localDeletedIds, ...serverDeletedIds]));
+
+    // 1. Fusionner les enquêtes intelligemment (en tenant compte des suppressions)
+    const {
+      merged: mergedEnquetes,
       conflicts: enqueteConflicts,
-      stats: enqueteStats 
-    } = this.intelligentMergeEnquetes(localData.enquetes || [], serverData.enquetes || []);
-    
+      stats: enqueteStats
+    } = this.intelligentMergeEnquetes(
+      localData.enquetes || [],
+      serverData.enquetes || [],
+      localDeletedIds
+    );
+
     conflicts.push(...enqueteConflicts);
     stats.newFromServer += enqueteStats.newFromServer;
     stats.newFromLocal += enqueteStats.newFromLocal;
     stats.merged += enqueteStats.merged;
 
     // 2. Fusionner les résultats d'audience
-    const { 
-      merged: mergedAudience, 
-      conflicts: audienceConflicts 
+    const {
+      merged: mergedAudience,
+      conflicts: audienceConflicts
     } = this.intelligentMergeAudienceResults(
-      localData.audienceResultats || {}, 
+      localData.audienceResultats || {},
       serverData.audienceResultats || {}
     );
     conflicts.push(...audienceConflicts);
 
     // 3. Fusionner les tags (union simple, local prioritaire)
     const mergedTags = { ...serverData.customTags, ...localData.customTags };
-    
+
     // 4. Fusionner les règles d'alertes (union par ID, local prioritaire)
     const mergedRules = this.mergeAlertRules(localData.alertRules || [], serverData.alertRules || []);
 
@@ -62,6 +71,7 @@ export class DataMergeService {
         audienceResultats: mergedAudience,
         customTags: mergedTags,
         alertRules: mergedRules,
+        deletedIds: mergedDeletedIds,
         version: Math.max(localData.version || 0, serverData.version || 0) + 1
       },
       conflicts,
@@ -71,12 +81,14 @@ export class DataMergeService {
 
   /**
    * 🆕 Fusion intelligente des enquêtes
+   * @param localDeletedIds IDs supprimés intentionnellement en local — ne doivent pas être rajoutés depuis le serveur
    */
   private static intelligentMergeEnquetes(
     localEnquetes: Enquete[],
-    serverEnquetes: Enquete[]
-  ): { 
-    merged: Enquete[]; 
+    serverEnquetes: Enquete[],
+    localDeletedIds: Set<number> = new Set()
+  ): {
+    merged: Enquete[];
     conflicts: SyncConflict[];
     stats: { newFromServer: number; newFromLocal: number; merged: number };
   } {
@@ -92,6 +104,12 @@ export class DataMergeService {
       const localEnquete = localMap.get(id);
 
       if (!localEnquete) {
+        // Vérifier si cet ID a été supprimé intentionnellement en local
+        if (localDeletedIds.has(id)) {
+          // ⛔ Supprimée localement → ne pas la rajouter depuis le serveur
+          console.log(`🗑️ DataMerge: Enquête ${id} ignorée (supprimée localement)`);
+          continue;
+        }
         // ✅ Nouvelle enquête serveur → ajout automatique
         merged.set(id, serverEnquete);
         stats.newFromServer++;
@@ -513,16 +531,22 @@ export class DataMergeService {
    * Applique la résolution "keep_local" - garde les données locales
    */
   static resolveKeepLocal(localData: SyncData, serverData: SyncData): SyncData {
-    const serverEnqueteIds = new Set((serverData.enquetes || []).map(e => e.id));
     const localEnqueteIds = new Set((localData.enquetes || []).map(e => e.id));
+    const mergedDeletedIds = Array.from(new Set([
+      ...(localData.deletedIds || []),
+      ...(serverData.deletedIds || [])
+    ]));
 
-    const newServerEnquetes = (serverData.enquetes || []).filter(e => !localEnqueteIds.has(e.id));
+    const newServerEnquetes = (serverData.enquetes || []).filter(
+      e => !localEnqueteIds.has(e.id) && !mergedDeletedIds.includes(e.id)
+    );
 
     return {
       enquetes: [...localData.enquetes, ...newServerEnquetes],
       audienceResultats: { ...serverData.audienceResultats, ...localData.audienceResultats },
       customTags: localData.customTags,
       alertRules: localData.alertRules,
+      deletedIds: mergedDeletedIds,
       version: localData.version + 1
     };
   }
@@ -531,16 +555,22 @@ export class DataMergeService {
    * Applique la résolution "keep_server" - garde les données serveur
    */
   static resolveKeepServer(localData: SyncData, serverData: SyncData): SyncData {
-    const localEnqueteIds = new Set((localData.enquetes || []).map(e => e.id));
     const serverEnqueteIds = new Set((serverData.enquetes || []).map(e => e.id));
+    const mergedDeletedIds = Array.from(new Set([
+      ...(localData.deletedIds || []),
+      ...(serverData.deletedIds || [])
+    ]));
 
-    const newLocalEnquetes = (localData.enquetes || []).filter(e => !serverEnqueteIds.has(e.id));
+    const newLocalEnquetes = (localData.enquetes || []).filter(
+      e => !serverEnqueteIds.has(e.id) && !mergedDeletedIds.includes(e.id)
+    );
 
     return {
       enquetes: [...serverData.enquetes, ...newLocalEnquetes],
       audienceResultats: { ...localData.audienceResultats, ...serverData.audienceResultats },
       customTags: serverData.customTags,
       alertRules: serverData.alertRules,
+      deletedIds: mergedDeletedIds,
       version: serverData.version + 1
     };
   }
