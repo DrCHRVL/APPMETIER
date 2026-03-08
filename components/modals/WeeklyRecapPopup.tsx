@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Enquete, AlertRule } from '@/types/interfaces';
-import { Calendar, FileText, Clock, CheckSquare, Square } from 'lucide-react';
+import { Calendar, FileText, Clock, AlertTriangle } from 'lucide-react';
 
 interface WeeklyRecapPopupProps {
   isOpen: boolean;
@@ -12,21 +12,8 @@ interface WeeklyRecapPopupProps {
   alertRules: AlertRule[];
 }
 
-interface TodoItem {
-  id: string;
-  action: string;
-  detail: string;
-  badge: string;
-  urgency: 'high' | 'medium';
-}
-
 export const WeeklyRecapPopup = ({ isOpen, onClose, enquetes, alertRules }: WeeklyRecapPopupProps) => {
   const today = new Date();
-  const [checked, setChecked] = useState<Record<string, boolean>>({});
-
-  const toggleCheck = (id: string) => {
-    setChecked(prev => ({ ...prev, [id]: !prev[id] }));
-  };
 
   // Règles actives
   const crRule = alertRules.find(r => r.type === 'cr_delay' && r.enabled);
@@ -35,18 +22,7 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, enquetes, alertRules }: Week
   const crThreshold = crRule?.threshold ?? 7;
   const acteThreshold = acteRule?.threshold ?? 7;
 
-  // Enquêtes à relancer (pas de CR depuis crThreshold jours)
-  const enquetesARelancer = enquetes
-    .filter(e => e.statut === 'en_cours' && e.comptesRendus.length > 0)
-    .map(e => {
-      const lastCR = e.comptesRendus[0];
-      const days = Math.floor((today.getTime() - new Date(lastCR.date).getTime()) / (1000 * 60 * 60 * 24));
-      return { enquete: e, days, lastCRDate: lastCR.date };
-    })
-    .filter(({ days }) => days >= crThreshold)
-    .sort((a, b) => b.days - a.days);
-
-  // Actes arrivant à échéance dans acteThreshold jours
+  // Actes / écoutes / géoloc arrivant à échéance
   const actesEcheance = enquetes
     .filter(e => e.statut === 'en_cours')
     .flatMap(e => {
@@ -65,29 +41,31 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, enquetes, alertRules }: Week
     .filter(a => a.daysLeft >= 0 && a.daysLeft <= acteThreshold)
     .sort((a, b) => a.daysLeft - b.daysLeft);
 
-  // Construction de la todo list
-  const actesTodos: TodoItem[] = actesEcheance.map((a, i) => ({
-    id: `acte-${i}`,
-    action: a.daysLeft === 0
-      ? `Renouveler ou clôturer l'autorisation ${a.category.toLowerCase()} — enquête ${a.enqueteNumero}`
-      : `Anticiper le renouvellement de l'autorisation ${a.category.toLowerCase()} — enquête ${a.enqueteNumero}`,
-    detail: a.daysLeft === 0
-      ? "L'autorisation expire aujourd'hui. Agir immédiatement."
-      : `L'autorisation expire dans ${a.daysLeft} jour${a.daysLeft > 1 ? 's' : ''}. Préparer le renouvellement ou prévoir la clôture.`,
-    badge: a.daysLeft === 0 ? "Urgent" : `${a.daysLeft}j restants`,
-    urgency: a.daysLeft <= 2 ? 'high' : 'medium',
-  }));
+  // Écoutes ayant déjà été prolongées une fois — limite légale atteinte (1 mois + 1 prolongation max)
+  const ecoutesLimiteAtteinte = enquetes
+    .filter(e => e.statut === 'en_cours')
+    .flatMap(e =>
+      (e.ecoutes || [])
+        .filter(ec =>
+          ec.statut === 'en_cours' &&
+          ec.prolongationsHistory &&
+          ec.prolongationsHistory.length >= 1
+        )
+        .map(ec => ({ ...ec, enqueteNumero: e.numero }))
+    );
 
-  const relancerTodos: TodoItem[] = enquetesARelancer.map(({ enquete: e, days }) => ({
-    id: `cr-${e.id}`,
-    action: `Rédiger un compte rendu pour l'enquête ${e.numero}`,
-    detail: `Aucun CR depuis ${days} jour${days > 1 ? 's' : ''}. Contacter ou relancer ${e.misEnCause.map(m => m.nom).join(', ')}.`,
-    badge: `${days}j sans CR`,
-    urgency: 'medium',
-  }));
+  // Enquêtes à relancer (pas de CR depuis crThreshold jours)
+  const enquetesARelancer = enquetes
+    .filter(e => e.statut === 'en_cours' && e.comptesRendus.length > 0)
+    .map(e => {
+      const lastCR = e.comptesRendus[0];
+      const days = Math.floor((today.getTime() - new Date(lastCR.date).getTime()) / (1000 * 60 * 60 * 24));
+      return { enquete: e, days };
+    })
+    .filter(({ days }) => days >= crThreshold)
+    .sort((a, b) => b.days - a.days);
 
-  const allTodos = [...actesTodos, ...relancerTodos];
-  const doneCount = allTodos.filter(t => checked[t.id]).length;
+  const totalItems = actesEcheance.length + ecoutesLimiteAtteinte.length + enquetesARelancer.length;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -95,114 +73,109 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, enquetes, alertRules }: Week
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Clock className="h-5 w-5 text-blue-600" />
-            Todo — Semaine du {today.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+            Récapitulatif — {today.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
           </DialogTitle>
-          <p className="text-xs text-gray-500">
-            {allTodos.length === 0
-              ? 'Aucune action requise cette semaine.'
-              : `${doneCount} / ${allTodos.length} tâche${allTodos.length > 1 ? 's' : ''} effectuée${doneCount > 1 ? 's' : ''}`}
-          </p>
         </DialogHeader>
 
-        {allTodos.length === 0 ? (
+        {totalItems === 0 ? (
           <p className="text-sm text-gray-500 py-4 text-center">Aucun élément à signaler cette semaine.</p>
         ) : (
-          <div className="space-y-3 py-2">
+          <div className="space-y-5 py-2">
 
-            {/* Section actes */}
-            {actesTodos.length > 0 && (
+            {/* Échéances d'actes à venir */}
+            {actesEcheance.length > 0 && (
               <div>
                 <h4 className="text-xs font-semibold uppercase tracking-wide text-red-600 flex items-center gap-1 mb-2">
                   <Calendar className="h-3.5 w-3.5" />
-                  Autorisations à traiter ({actesTodos.length})
+                  Échéances d'actes à venir ({actesEcheance.length})
                 </h4>
-                <ul className="space-y-2">
-                  {actesTodos.map(todo => (
-                    <li
-                      key={todo.id}
-                      onClick={() => toggleCheck(todo.id)}
-                      className={`flex items-start gap-3 rounded-lg px-3 py-2.5 cursor-pointer transition-colors ${
-                        checked[todo.id]
-                          ? 'bg-gray-50 opacity-60'
-                          : todo.urgency === 'high'
-                          ? 'bg-red-50 hover:bg-red-100'
-                          : 'bg-yellow-50 hover:bg-yellow-100'
-                      }`}
-                    >
-                      <span className="mt-0.5 shrink-0 text-gray-400">
-                        {checked[todo.id]
-                          ? <CheckSquare className="h-4 w-4 text-green-500" />
-                          : <Square className="h-4 w-4" />}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-medium leading-snug ${checked[todo.id] ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                          {todo.action}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-0.5">{todo.detail}</p>
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className={`shrink-0 text-xs ${
-                          todo.urgency === 'high'
+                <ul className="space-y-1.5">
+                  {actesEcheance.map((a, i) => (
+                    <li key={i} className={`rounded-lg px-3 py-2 text-sm ${a.daysLeft <= 2 ? 'bg-red-50' : 'bg-yellow-50'}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{a.enqueteNumero}</span>
+                        <span className="text-gray-600 flex-1">{a.category} — à prolonger</span>
+                        <Badge
+                          variant="outline"
+                          className={a.daysLeft === 0
                             ? 'bg-red-100 text-red-700 border-red-300'
-                            : 'bg-yellow-100 text-yellow-700 border-yellow-300'
-                        }`}
-                      >
-                        {todo.badge}
-                      </Badge>
+                            : a.daysLeft <= 2
+                            ? 'bg-red-100 text-red-700 border-red-300'
+                            : 'bg-yellow-100 text-yellow-700 border-yellow-300'}
+                        >
+                          {a.daysLeft === 0 ? "Expire aujourd'hui" : `${a.daysLeft}j`}
+                        </Badge>
+                      </div>
                     </li>
                   ))}
                 </ul>
               </div>
             )}
 
-            {/* Section comptes rendus */}
-            {relancerTodos.length > 0 && (
+            {/* Écoutes en limite légale */}
+            {ecoutesLimiteAtteinte.length > 0 && (
               <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-orange-600 flex items-center gap-1 mb-2">
-                  <FileText className="h-3.5 w-3.5" />
-                  Comptes rendus à rédiger ({relancerTodos.length})
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-red-700 flex items-center gap-1 mb-1">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Attention — écoutes ne pouvant plus être prolongées ({ecoutesLimiteAtteinte.length})
                 </h4>
-                <ul className="space-y-2">
-                  {relancerTodos.map(todo => (
-                    <li
-                      key={todo.id}
-                      onClick={() => toggleCheck(todo.id)}
-                      className={`flex items-start gap-3 rounded-lg px-3 py-2.5 cursor-pointer transition-colors ${
-                        checked[todo.id]
-                          ? 'bg-gray-50 opacity-60'
-                          : 'bg-orange-50 hover:bg-orange-100'
-                      }`}
-                    >
-                      <span className="mt-0.5 shrink-0 text-gray-400">
-                        {checked[todo.id]
-                          ? <CheckSquare className="h-4 w-4 text-green-500" />
-                          : <Square className="h-4 w-4" />}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-medium leading-snug ${checked[todo.id] ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                          {todo.action}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-0.5">{todo.detail}</p>
+                <p className="text-xs text-gray-500 mb-2">
+                  Les interceptions suivantes ont déjà été prolongées une fois. La limite légale est atteinte (1 mois + 1 prolongation). Elles ne peuvent pas faire l'objet d'une nouvelle prolongation.
+                </p>
+                <ul className="space-y-1.5">
+                  {ecoutesLimiteAtteinte.map((ec, i) => (
+                    <li key={i} className="rounded-lg px-3 py-2 text-sm bg-red-50 border border-red-200">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{ec.enqueteNumero}</span>
+                        <span className="text-gray-600 flex-1">Écoute {ec.numero}{ec.cible ? ` — ${ec.cible}` : ''}</span>
+                        <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300 shrink-0">
+                          Limite atteinte
+                        </Badge>
                       </div>
-                      <Badge variant="outline" className="shrink-0 text-xs bg-orange-100 text-orange-700 border-orange-300">
-                        {todo.badge}
-                      </Badge>
                     </li>
                   ))}
                 </ul>
               </div>
             )}
+
+            {/* Enquêtes à relancer */}
+            {enquetesARelancer.length > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-orange-600 flex items-center gap-1 mb-1">
+                  <FileText className="h-3.5 w-3.5" />
+                  Enquêtes à relancer ({enquetesARelancer.length})
+                </h4>
+                <p className="text-xs text-gray-500 mb-2">
+                  Envoyer un mail d'actualisation aux directeurs d'enquêtes des enquêtes suivantes :
+                </p>
+                <ul className="space-y-1.5">
+                  {enquetesARelancer.map(({ enquete: e, days }) => (
+                    <li key={e.id} className="rounded-lg px-3 py-2 text-sm bg-orange-50">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <span className="font-medium">{e.numero}</span>
+                          {e.directeurEnquete && (
+                            <span className="text-gray-500 ml-1">({e.directeurEnquete})</span>
+                          )}
+                          <span className="text-xs text-gray-500 block truncate">
+                            {e.misEnCause.map(m => m.nom).join(', ')}
+                          </span>
+                        </div>
+                        <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300 shrink-0">
+                          {days}j sans CR
+                        </Badge>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
           </div>
         )}
 
-        <DialogFooter className="flex items-center justify-between gap-2">
-          {allTodos.length > 0 && (
-            <span className="text-xs text-gray-400">
-              Coche chaque tâche au fur et à mesure
-            </span>
-          )}
-          <Button onClick={onClose} className="ml-auto">Fermer</Button>
+        <DialogFooter>
+          <Button onClick={onClose}>Fermer</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
