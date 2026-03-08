@@ -69,7 +69,7 @@ export const StatsPage = ({ enquetes }: StatsPageProps) => {
               + Ajouter procédure permanence
             </Button>
           </div>
-          <ExportPdfButton selectedYear={selectedYear} />
+          <ExportPdfButton selectedYear={selectedYear} enquetes={enquetes} />
         </div>
 
         {/* En-tête pour l'impression uniquement */}

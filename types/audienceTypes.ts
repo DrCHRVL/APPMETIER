@@ -9,6 +9,7 @@ export interface CondamnationData {
   interdictionParaitre: boolean;
   typeAudience: TypeAudience;
   defere: boolean;
+  dateDefere?: string;
   // Nouveaux champs pour les résultats partiels
   isPending?: boolean;
   dateAudiencePending?: string;
@@ -38,6 +39,8 @@ export interface ResultatAudience {
   service?: string;
   isClassement?: boolean;
   motifClassement?: string; // Nouveau champ pour le motif de classement
+  nombreDeferes?: number;
+  dateDefere?: string;
   // Nouveaux champs pour les résultats partiels
   hasPartialResults?: boolean; // Indique que l'enquête a des résultats partiels
   pendingCondamnations?: PendingCondamnation[]; // Liste des condamnés en attente
@@ -89,4 +92,6 @@ export interface AudienceStats {
   nombreOI: number;
   nombreCDD: number;
   nombreDeferements: number;
+  nombreClassements: number;
+  deferementsParMois: Record<string, number>;
 }
