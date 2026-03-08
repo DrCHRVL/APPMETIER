@@ -14,13 +14,15 @@ interface ArchiveEnqueteModalProps {
   onClose: () => void;
   onArchive: (id: number) => void;
   enqueteId: number;
+  misEnCause?: { id: number; nom: string }[];
 }
 
 export const ArchiveEnqueteModal = ({
   isOpen,
   onClose,
   onArchive,
-  enqueteId
+  enqueteId,
+  misEnCause = []
 }: ArchiveEnqueteModalProps) => {
   const [step, setStep] = useState<'initial' | 'noResults' | 'date'>('initial');
   const [audienceDate, setAudienceDate] = useState('');
@@ -307,6 +309,7 @@ export const ArchiveEnqueteModal = ({
           }}
           enqueteId={enqueteId}
           onSave={handleSaveResults}
+          misEnCause={misEnCause}
         />
       )}
 

@@ -29,6 +29,8 @@ interface EnqueteDetailModalProps {
   onDeleteCR: (id: number) => void;
   setEditingCR: (cr: CompteRendu | null) => void;
   onDelete?: (id: number) => void;
+  /** Noms de tous les MEC connus (cross-dossiers) pour suggestions */
+  allKnownMec?: string[];
 }
 
 export const EnqueteDetailModal = ({
@@ -42,7 +44,8 @@ export const EnqueteDetailModal = ({
   onUpdateCR,
   onDeleteCR,
   setEditingCR,
-  onDelete
+  onDelete,
+  allKnownMec = []
 }: EnqueteDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showClotureSummary, setShowClotureSummary] = useState(false);
@@ -129,6 +132,7 @@ export const EnqueteDetailModal = ({
                   enquete={enquete}
                   onUpdate={handleUpdateWithToast}
                   isEditing={isEditing}
+                  allKnownMec={allKnownMec}
                 />
               </div>
 

@@ -56,6 +56,12 @@ export const ArchivePage = ({
   }, [enquetes, selectedEnquete]);
   
   // Filtrer les enquêtes archivées et appliquer la recherche
+  // Liste dédupliquée de tous les noms de MEC connus (cross-dossiers)
+  const allKnownMec = useMemo(
+    () => [...new Set(enquetes.flatMap(e => e.misEnCause.map(m => m.nom)))].sort(),
+    [enquetes]
+  );
+
   const archivedEnquetes = useMemo(() => {
     const archived = enquetes.filter(e => e.statut === 'archive');
     
@@ -708,7 +714,7 @@ export const ArchivePage = ({
       
       {/* Modales */}
       {selectedEnquete && (
-        <EnqueteDetailModal 
+        <EnqueteDetailModal
           enquete={selectedEnquete}
           isEditing={isEditing}
           editingCR={editingCR}
@@ -720,6 +726,7 @@ export const ArchivePage = ({
           onDeleteCR={(crId) => onDeleteCR(selectedEnquete.id, crId)}
           setEditingCR={setEditingCR}
           onDelete={() => onDeleteEnquete(selectedEnquete.id)}
+          allKnownMec={allKnownMec}
         />
       )}
       
@@ -741,6 +748,7 @@ export const ArchivePage = ({
             audienceState?.resultats?.[showResultModal]?.dateAudience || ''
           }
           initialData={audienceState?.resultats?.[showResultModal]}
+          misEnCause={allArchivedItems.find(e => e.id === showResultModal)?.misEnCause}
         />
       )}
 

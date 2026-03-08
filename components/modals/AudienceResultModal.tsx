@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { MecAutocompleteInput } from '../ui/MecAutocompleteInput';
 import { CondamnationData, Confiscations, ResultatAudience } from '@/types/audienceTypes';
 import { useToast } from '@/contexts/ToastContext';
 import { useTags } from '@/hooks/useTags';
@@ -27,6 +28,7 @@ interface AudienceResultModalProps {
   defaultDate?: string;
   initialData?: ResultatAudience;
   isDirectResult?: boolean;
+  misEnCause?: { id: number; nom: string }[];
 }
 
 export const AudienceResultModal = ({
@@ -35,22 +37,42 @@ export const AudienceResultModal = ({
   onSave,
   enqueteId,
   defaultDate,
-  initialData, 
-  isDirectResult 
+  initialData,
+  isDirectResult,
+  misEnCause = []
 }: AudienceResultModalProps) => {
   // States
   const { getTagsByCategory } = useTags();
   const [dateAudience, setDateAudience] = useState(initialData?.dateAudience || defaultDate || '');
   const [selectedInfraction, setSelectedInfraction] = useState(initialData?.typeInfraction || '');
-  const [nbCondamnes, setNbCondamnes] = useState(initialData?.condamnations.length || 0);
-  const [condamnations, setCondamnations] = useState<ExtendedCondamnationData[]>(
-    initialData?.condamnations.map(c => ({
+
+  // Re-hydrater les pendingCondamnations depuis initialData (résultats partiels)
+  const buildInitialCondamnations = (): ExtendedCondamnationData[] => {
+    const finalized = (initialData?.condamnations || []).map(c => ({
       ...c,
-      isPending: c.isPending || false,
+      isPending: false,
       dateAudiencePending: c.dateAudiencePending || '',
       dateDefere: c.dateDefere || ''
-    })) || []
-  );
+    }));
+    const pending = (initialData?.pendingCondamnations || []).map(p => ({
+      nom: p.nom,
+      peinePrison: 0,
+      sursisProbatoire: 0,
+      sursisSimple: 0,
+      peineAmende: 0,
+      interdictionParaitre: false,
+      typeAudience: 'CRPC-Def' as const,
+      defere: true,
+      dateDefere: '',
+      isPending: true,
+      dateAudiencePending: p.dateAudiencePending || ''
+    }));
+    return [...finalized, ...pending];
+  };
+
+  const initialCondamnations = buildInitialCondamnations();
+  const [nbCondamnes, setNbCondamnes] = useState(initialCondamnations.length || 0);
+  const [condamnations, setCondamnations] = useState<ExtendedCondamnationData[]>(initialCondamnations);
   const [confiscations, setConfiscations] = useState<Confiscations>({
     vehicules: initialData?.confiscations?.vehicules || 0,
     immeubles: initialData?.confiscations?.immeubles || 0,
@@ -93,10 +115,22 @@ export const AudienceResultModal = ({
     const newCondamnations = [...condamnations];
     newCondamnations[index] = {
       ...newCondamnations[index],
-      [field]: field === 'nom' || field === 'dateDefere' ? value : 
-               field === 'interdictionParaitre' || field === 'defere' || field === 'isPending' ? Boolean(value) : 
+      [field]: field === 'nom' || field === 'dateDefere' ? value :
+               field === 'interdictionParaitre' || field === 'defere' || field === 'isPending' ? Boolean(value) :
                field === 'typeAudience' || field === 'dateAudiencePending' ? value :
                (parseInt(value as string) || 0)
+    };
+    setCondamnations(newCondamnations);
+  };
+
+  // Handler spécifique pour le nom : auto-remplit misEnCauseId si le nom correspond à un MEC connu
+  const updateCondamnationNom = (index: number, nom: string) => {
+    const matchedMec = misEnCause.find(m => m.nom.toLowerCase() === nom.toLowerCase());
+    const newCondamnations = [...condamnations];
+    newCondamnations[index] = {
+      ...newCondamnations[index],
+      nom,
+      misEnCauseId: matchedMec ? matchedMec.id : undefined
     };
     setCondamnations(newCondamnations);
   };
@@ -286,11 +320,17 @@ export const AudienceResultModal = ({
               {/* Informations de base */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Nom du condamné</Label>
-                  <Input
-                    type="text"
+                  <Label>
+                    Nom du condamné
+                    {condamnation.misEnCauseId && (
+                      <span className="ml-2 text-xs text-green-600 font-normal">lié au dossier</span>
+                    )}
+                  </Label>
+                  <MecAutocompleteInput
                     value={condamnation.nom || ''}
-                    onChange={(e) => updateCondamnation(index, 'nom', e.target.value)}
+                    onChange={(val) => updateCondamnationNom(index, val)}
+                    suggestions={misEnCause.map(m => m.nom)}
+                    minTriggerLength={2}
                     placeholder="Nom du condamné"
                   />
                 </div>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { MecAutocompleteInput } from '../ui/MecAutocompleteInput';
 import { Edit, X, Plus } from 'lucide-react';
 import { Enquete } from '@/types/interfaces';
 
@@ -8,9 +9,11 @@ interface MisEnCauseSectionProps {
   enquete: Enquete;
   onUpdate?: (id: number, updates: Partial<Enquete>) => void;
   isEditing: boolean;
+  /** Noms de tous les MEC connus (cross-dossiers) pour suggestions */
+  allKnownMec?: string[];
 }
 
-export const MisEnCauseSection = ({ enquete, onUpdate, isEditing }: MisEnCauseSectionProps) => {
+export const MisEnCauseSection = ({ enquete, onUpdate, isEditing, allKnownMec = [] }: MisEnCauseSectionProps) => {
   const [editingMecId, setEditingMecId] = useState<number | null>(null);
   const [editingData, setEditingData] = useState({ nom: '', role: '' });
 
@@ -76,10 +79,11 @@ export const MisEnCauseSection = ({ enquete, onUpdate, isEditing }: MisEnCauseSe
       {/* Formulaire d'ajout rapide */}
       {showAddForm && (
         <div className="space-y-2 mb-3 p-2 bg-white rounded border">
-          <Input
+          <MecAutocompleteInput
             placeholder="Nom du mis en cause"
             value={newMecData.nom}
-            onChange={(e) => setNewMecData(prev => ({ ...prev, nom: e.target.value }))}
+            onChange={(val) => setNewMecData(prev => ({ ...prev, nom: val }))}
+            suggestions={allKnownMec}
             className="text-sm"
             autoFocus
             onKeyDown={(e) => {
@@ -118,9 +122,10 @@ export const MisEnCauseSection = ({ enquete, onUpdate, isEditing }: MisEnCauseSe
           <div key={mec.id} className="bg-white p-2 rounded shadow-sm">
             {editingMecId === mec.id ? (
               <div className="space-y-2">
-                <Input
+                <MecAutocompleteInput
                   value={editingData.nom}
-                  onChange={(e) => setEditingData(prev => ({ ...prev, nom: e.target.value }))}
+                  onChange={(val) => setEditingData(prev => ({ ...prev, nom: val }))}
+                  suggestions={allKnownMec}
                   className="text-sm"
                   placeholder="Nom"
                   autoFocus

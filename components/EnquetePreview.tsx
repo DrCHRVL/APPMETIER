@@ -418,6 +418,7 @@ return (
         onClose={() => setShowArchiveModal(false)}
         enqueteId={enquete.id}
         onArchive={onArchive}
+        misEnCause={enquete.misEnCause}
       />
 
       <ViewAudienceResultModal

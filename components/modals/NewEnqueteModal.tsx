@@ -1,6 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { MecAutocompleteInput } from '@/components/ui/MecAutocompleteInput';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
 import { X, Clock } from 'lucide-react';
@@ -14,13 +15,16 @@ interface NewEnqueteModalProps {
   onClose: () => void;
   onSubmit: (enquete: NewEnqueteData) => void;
   cheminBase: string;
+  /** Noms de tous les MEC connus (cross-dossiers) pour suggestions */
+  allKnownMec?: string[];
 }
 
 export const NewEnqueteModal = ({
   isOpen,
   onClose,
   onSubmit,
-  cheminBase
+  cheminBase,
+  allKnownMec = []
 }: NewEnqueteModalProps) => {
   const { getTagsByCategory, isLoading } = useTags();
   const [newEnqueteData, setNewEnqueteData] = useState<NewEnqueteData>({
@@ -369,10 +373,11 @@ export const NewEnqueteModal = ({
             <label className="text-sm font-medium">Mis en cause</label>
             <div className="space-y-2 mt-1">
               <div className="flex gap-2">
-                <Input
+                <MecAutocompleteInput
                   placeholder="Nom du MEC"
                   value={newMecName}
-                  onChange={(e) => setNewMecName(e.target.value)}
+                  onChange={setNewMecName}
+                  suggestions={allKnownMec}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddMec(); } }}
                 />
                 <Input
