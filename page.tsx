@@ -40,6 +40,7 @@ import { backupManager } from '@/utils/backupManager';
 import { WeeklyRecapPopup } from './components/modals/WeeklyRecapPopup';
 import { WeeklyPopupConfig } from './types/interfaces';
 import { ElectronBridge } from './utils/electronBridge';
+import { OPTimeline } from './components/OPTimeline';
 
 // 🆕 Imports pour la synchronisation des données
 import { useDataSync } from './hooks/useDataSync';
@@ -528,6 +529,7 @@ return (
         <main className="flex-1 overflow-auto p-6">
           {currentView === 'enquetes' && (
             <div className="space-y-6">
+              <OPTimeline enquetes={activeEnquetes} />
               {Object.entries(enquetesByOrganization)
                 .sort(([a], [b]) => getSectionOrder(a) - getSectionOrder(b))
                 .map(([section, sectionEnquetes]) => (
