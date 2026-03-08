@@ -9,25 +9,12 @@ interface OPEvent {
   enqueteId: number;
   numero: string;
   dateOP: Date;
-  dateOPStr: string;
-  dateFin96h: Date;
   daysFromToday: number;
 }
 
-const MONTHS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
 const DAYS_RANGE = 61; // ~2 mois
-
-function formatDateShort(d: Date): string {
-  return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`;
-}
-
-function formatDateFull(d: Date): string {
-  const day = d.getDate().toString().padStart(2, '0');
-  const month = MONTHS_FR[d.getMonth()];
-  const hour = d.getHours().toString().padStart(2, '0');
-  const min = d.getMinutes().toString().padStart(2, '0');
-  return `${day} ${month} ${d.getFullYear()} ${hour}h${min}`;
-}
+const DAY_LABELS = ['D', 'L', 'M', 'M', 'J', 'V', 'S']; // index par getDay() (0=Dim)
+const MONTHS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
 
 export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
   const today = useMemo(() => {
@@ -48,151 +35,147 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
       if (!e.dateOP || e.statut === 'archive') return;
       const dateOP = new Date(e.dateOP);
       dateOP.setHours(0, 0, 0, 0);
-      // Afficher les OP des 2 prochains mois (depuis aujourd'hui)
       if (dateOP < today || dateOP > rangeEnd) return;
-      const dateFin96h = new Date(dateOP);
-      dateFin96h.setHours(dateFin96h.getHours() + 96);
       const daysFromToday = Math.round((dateOP.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-      events.push({
-        enqueteId: e.id,
-        numero: e.numero,
-        dateOP,
-        dateOPStr: e.dateOP,
-        dateFin96h,
-        daysFromToday,
-      });
+      events.push({ enqueteId: e.id, numero: e.numero, dateOP, daysFromToday });
     });
     return events.sort((a, b) => a.dateOP.getTime() - b.dateOP.getTime());
   }, [enquetes, today, rangeEnd]);
 
   if (opEvents.length === 0) return null;
 
-  // Construire les marqueurs de semaines pour l'axe
-  const weekMarkers: { day: number; label: string }[] = [];
-  for (let i = 0; i <= DAYS_RANGE; i++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() + i);
-    // Marqueur chaque lundi (ou jour 0 = aujourd'hui)
-    if (i === 0 || d.getDay() === 1) {
-      weekMarkers.push({ day: i, label: formatDateShort(d) });
-    }
-  }
+  // Colonnes de jours
+  const dayCells = useMemo(() => {
+    return Array.from({ length: DAYS_RANGE }, (_, i) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() + i);
+      const dow = d.getDay(); // 0=Dim, 6=Sam
+      return {
+        offset: i,
+        date: d,
+        label: DAY_LABELS[dow],
+        isWeekend: dow === 0 || dow === 6,
+        isToday: i === 0,
+        monthLabel: d.getDate() === 1 ? MONTHS_FR[d.getMonth()] : null,
+      };
+    });
+  }, [today]);
+
+  const ROW_H = 28; // hauteur par ligne d'événement (px)
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 mb-4 shadow-sm">
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-          OPs à venir — 2 mois
-        </span>
-        <span className="text-[10px] text-gray-400">(barre = 96h garde à vue max)</span>
+        <span className="text-sm font-semibold text-gray-700">OPs à venir — 2 mois</span>
+        <span className="text-xs text-gray-400">(bande colorée = 96h GAV max)</span>
       </div>
 
-      {/* Conteneur timeline */}
-      <div className="relative" style={{ height: `${opEvents.length * 22 + 20}px` }}>
-        {/* Axe horizontal */}
-        <div
-          className="absolute left-0 right-0 bottom-0 border-t border-gray-200"
-          style={{ height: 1 }}
-        />
+      <div className="overflow-x-auto">
+        <div style={{ minWidth: `${DAYS_RANGE * 13}px` }}>
 
-        {/* Marqueurs de dates sur l'axe */}
-        {weekMarkers.map(({ day, label }) => (
-          <div
-            key={day}
-            className="absolute bottom-0 flex flex-col items-center"
-            style={{ left: `${(day / DAYS_RANGE) * 100}%` }}
-          >
-            <div className="w-px h-2 bg-gray-300" />
-            <span className="text-[9px] text-gray-400 mt-0.5 whitespace-nowrap" style={{ transform: 'translateX(-50%)' }}>
-              {label}
-            </span>
-          </div>
-        ))}
-
-        {/* Événements OP */}
-        {opEvents.map((event, idx) => {
-          const leftPct = (event.daysFromToday / DAYS_RANGE) * 100;
-          // La durée 96h en % de la plage totale (DAYS_RANGE jours)
-          const widthPct = (4 / DAYS_RANGE) * 100; // 96h = 4 jours
-
-          const isUrgent = event.daysFromToday <= 3;
-          const isSoon = event.daysFromToday <= 7;
-
-          const barColor = isUrgent
-            ? 'bg-red-400'
-            : isSoon
-            ? 'bg-orange-400'
-            : 'bg-blue-400';
-
-          const dotColor = isUrgent
-            ? 'bg-red-600'
-            : isSoon
-            ? 'bg-orange-500'
-            : 'bg-blue-600';
-
-          const textColor = isUrgent
-            ? 'text-red-700'
-            : isSoon
-            ? 'text-orange-700'
-            : 'text-blue-700';
-
-          // Décalage vertical pour chaque événement (empilés)
-          const topPx = idx * 22;
-
-          return (
-            <div
-              key={event.enqueteId}
-              className="absolute flex items-center"
-              style={{ top: topPx, left: `${leftPct}%`, right: 0 }}
-              title={`OP: ${formatDateFull(event.dateOP)} — Fin GAV max: ${formatDateFull(event.dateFin96h)}`}
-            >
-              {/* Bande 96h */}
+          {/* Ligne des initiales LMMJVSD */}
+          <div className="flex border-b border-gray-100">
+            {dayCells.map(cell => (
               <div
-                className={`absolute h-3 ${barColor} opacity-30 rounded-sm`}
-                style={{
-                  left: 0,
-                  width: `${Math.min(widthPct, 100 - leftPct)}%`,
-                }}
-              />
-
-              {/* Point de départ OP */}
-              <div className={`relative z-10 h-3 w-3 rounded-full ${dotColor} flex-shrink-0 border-2 border-white shadow-sm`} />
-
-              {/* Étiquette */}
-              <span
-                className={`ml-1 text-[10px] font-semibold ${textColor} whitespace-nowrap leading-none`}
+                key={cell.offset}
+                className={`flex-1 text-center text-[9px] font-semibold py-0.5 leading-none select-none ${
+                  cell.isWeekend
+                    ? 'text-gray-300 bg-gray-50'
+                    : cell.isToday
+                    ? 'text-blue-600 bg-blue-50'
+                    : 'text-gray-400'
+                }`}
+                title={cell.date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
               >
-                {event.numero}
-                <span className="font-normal text-gray-500 ml-1">
-                  {event.daysFromToday === 0
-                    ? 'aujourd\'hui'
-                    : event.daysFromToday === 1
-                    ? 'demain'
-                    : `J+${event.daysFromToday}`}
-                </span>
-              </span>
-            </div>
-          );
-        })}
-      </div>
+                {cell.label}
+              </div>
+            ))}
+          </div>
 
-      {/* Légende compacte */}
-      <div className="flex items-center gap-3 mt-1 pt-1 border-t border-gray-100">
-        <div className="flex items-center gap-1">
-          <div className="h-2 w-2 rounded-full bg-red-600" />
-          <span className="text-[9px] text-gray-500">≤ 3j</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="h-2 w-2 rounded-full bg-orange-500" />
-          <span className="text-[9px] text-gray-500">≤ 7j</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="h-2 w-2 rounded-full bg-blue-600" />
-          <span className="text-[9px] text-gray-500">&gt; 7j</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="h-3 w-4 bg-blue-400 opacity-30 rounded-sm" />
-          <span className="text-[9px] text-gray-500">Fenêtre GAV 96h</span>
+          {/* Zone des événements */}
+          <div className="relative flex" style={{ height: `${opEvents.length * ROW_H + 6}px` }}>
+            {/* Fonds de colonnes : weekends grisés, aujourd'hui bleuté */}
+            {dayCells.map(cell => (
+              <div
+                key={cell.offset}
+                className={`flex-1 h-full ${
+                  cell.isWeekend ? 'bg-gray-50' : cell.isToday ? 'bg-blue-50' : ''
+                }`}
+                style={{ borderRight: '1px solid #f3f4f6' }}
+              />
+            ))}
+
+            {/* Barres 96h (positionnées dans le conteneur relatif) */}
+            {opEvents.map((event, idx) => {
+              const leftPct = (event.daysFromToday / DAYS_RANGE) * 100;
+              const barWidthPct = (4 / DAYS_RANGE) * 100;
+              const isUrgent = event.daysFromToday <= 3;
+              const isSoon = event.daysFromToday <= 7;
+              const barBg = isUrgent ? '#fca5a5' : isSoon ? '#fdba74' : '#93c5fd'; // red-300 / orange-300 / blue-300
+              return (
+                <div
+                  key={`bar-${event.enqueteId}`}
+                  className="absolute rounded-sm pointer-events-none"
+                  style={{
+                    left: `${leftPct}%`,
+                    width: `${Math.min(barWidthPct, 100 - leftPct)}%`,
+                    top: idx * ROW_H + 8,
+                    height: 12,
+                    backgroundColor: barBg,
+                    opacity: 0.55,
+                  }}
+                />
+              );
+            })}
+
+            {/* Points + étiquettes */}
+            {opEvents.map((event, idx) => {
+              const leftPct = (event.daysFromToday / DAYS_RANGE) * 100;
+              const isUrgent = event.daysFromToday <= 3;
+              const isSoon = event.daysFromToday <= 7;
+              const dotColor = isUrgent ? 'bg-red-600' : isSoon ? 'bg-orange-500' : 'bg-blue-600';
+              const textColor = isUrgent ? 'text-red-700' : isSoon ? 'text-orange-700' : 'text-blue-700';
+
+              const dayLabel =
+                event.daysFromToday === 0
+                  ? 'auj.'
+                  : event.daysFromToday === 1
+                  ? 'dem.'
+                  : `J+${event.daysFromToday}`;
+
+              return (
+                <div
+                  key={`label-${event.enqueteId}`}
+                  className="absolute flex items-center z-10"
+                  style={{ top: idx * ROW_H + 6, left: `${leftPct}%` }}
+                  title={`OP ${event.numero} — dans ${event.daysFromToday} jour(s)`}
+                >
+                  <div className={`h-4 w-4 rounded-full ${dotColor} border-2 border-white shadow flex-shrink-0`} />
+                  <span className={`ml-1 text-xs font-bold ${textColor} whitespace-nowrap leading-none`}>
+                    {event.numero}
+                    <span className="font-normal text-gray-500 ml-1">{dayLabel}</span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Ligne des noms de mois */}
+          <div className="flex border-t border-gray-100" style={{ height: 14 }}>
+            {dayCells.map(cell => (
+              <div key={cell.offset} className="flex-1 relative overflow-visible">
+                {cell.monthLabel && (
+                  <span
+                    className="absolute text-[9px] text-gray-400 font-medium whitespace-nowrap"
+                    style={{ left: '50%', transform: 'translateX(-50%)', top: 1 }}
+                  >
+                    {cell.monthLabel}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+
         </div>
       </div>
     </div>
