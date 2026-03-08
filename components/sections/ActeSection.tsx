@@ -283,6 +283,8 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
           const isHistoryExpanded = expandedHistoryIds.includes(acte.id);
           const typeConfig = AUTRE_ACTE_TYPES[acte.type as AutreActeTypeKey];
           const hoverTips = typeConfig?.hoverTips ?? [];
+          const nbProlongations = acte.prolongationsHistory?.length ?? 0;
+          const prolongLimitAtteinte = typeConfig !== undefined && typeConfig.maxProlongations >= 0 && nbProlongations >= typeConfig.maxProlongations;
 
           return (
           <div key={acte.id} className="bg-gray-50 p-3 rounded">
@@ -331,11 +333,12 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
                     <ArrowDown className="h-4 w-4 text-yellow-600" />
                   </Button>
                 )}
-                {acte.duree && onUpdate && acte.statut === 'en_cours' && (
-                  <Button 
-                    variant="ghost" 
+                {acte.duree && onUpdate && acte.statut === 'en_cours' && !prolongLimitAtteinte && (
+                  <Button
+                    variant="ghost"
                     size="sm"
                     onClick={() => setProlongationActeId(acte.id)}
+                    title="Prolonger l'acte"
                   >
                     <Clock className="h-4 w-4" />
                   </Button>

@@ -132,14 +132,7 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
   };
 
   const handleProlongationWithCheck = (ecouteId: number) => {
-    const ecoute = enquete.ecoutes?.find(e => e.id === ecouteId);
-    if (ecoute?.prolongationsHistory && ecoute.prolongationsHistory.length >= 1) {
-      if (window.confirm('⚠️ Attention : Cette écoute a déjà été prolongée une fois. Une seconde prolongation est exceptionnelle et nécessite une justification particulière. Voulez-vous continuer ?')) {
-        setProlongationEcouteId(ecouteId);
-      }
-    } else {
-      setProlongationEcouteId(ecouteId);
-    }
+    setProlongationEcouteId(ecouteId);
   };
 
   const handleProlongation = () => {
@@ -331,6 +324,9 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
         {activeEcoutes.map((ecoute) => {
           const hasHistoryEntries = ecoute.prolongationsHistory && ecoute.prolongationsHistory.length > 0;
           const isHistoryExpanded = expandedHistoryIds.includes(ecoute.id);
+          const nbProlongations = ecoute.prolongationsHistory?.length ?? 0;
+          const maxP = ecoute.maxProlongations ?? 1;
+          const prolongLimitAtteinte = maxP >= 0 && nbProlongations >= maxP;
           
           return (
           <div key={ecoute.id} className="bg-gray-50 p-3 rounded">
@@ -365,14 +361,16 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
                 )}
                 {ecoute.duree && onUpdate && ecoute.statut === 'en_cours' && (
                   <div className="flex gap-1">
-                    <Button 
-                      variant="ghost" 
+                    {!prolongLimitAtteinte && (
+                    <Button
+                      variant="ghost"
                       size="sm"
                       onClick={() => handleProlongationWithCheck(ecoute.id)}
                       title="Prolonger l'écoute"
                     >
                       <Clock className="h-4 w-4" />
                     </Button>
+                    )}
                     <Button 
                       variant="ghost" 
                       size="sm"
@@ -424,8 +422,8 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
                 <p>En attente d'autorisation JLD • Durée prévue: {ecoute.duree || 0} jours</p>
               )}
             </div>
-            {ecoute.prolongationsHistory && ecoute.prolongationsHistory.length >= 1 && (
-              <p className="text-xs text-red-600 mt-1">Limite légale de prolongation atteinte</p>
+            {prolongLimitAtteinte && (
+              <p className="text-xs text-red-600 mt-1">Limite légale de prolongation atteinte ({maxP} max)</p>
             )}
             {hasHistoryEntries && (
               <div className="mt-2">
@@ -505,6 +503,9 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
               {terminatedEcoutes.map((ecoute) => {
                 const hasHistoryEntries = ecoute.prolongationsHistory && ecoute.prolongationsHistory.length > 0;
                 const isHistoryExpanded = expandedHistoryIds.includes(ecoute.id);
+                const nbProlongationsT = ecoute.prolongationsHistory?.length ?? 0;
+                const maxPT = ecoute.maxProlongations ?? 1;
+                const prolongLimitAtteinteT = maxPT >= 0 && nbProlongationsT >= maxPT;
                 
                 return (
                 <div key={ecoute.id} className="bg-gray-50 p-3 rounded border border-gray-200">
@@ -563,8 +564,8 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
                     dateFin={ecoute.dateFin}
                     datePose={ecoute.datePose}
                   />
-                  {ecoute.prolongationsHistory && ecoute.prolongationsHistory.length >= 1 && (
-                    <p className="text-xs text-red-600 mt-1">Limite légale de prolongation atteinte</p>
+                  {prolongLimitAtteinteT && (
+                    <p className="text-xs text-red-600 mt-1">Limite légale de prolongation atteinte ({maxPT} max)</p>
                   )}
                   {hasHistoryEntries && (
                     <div className="mt-2">
