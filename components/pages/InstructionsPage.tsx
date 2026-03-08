@@ -10,6 +10,8 @@ import { useToast } from '@/contexts/ToastContext';
 
 interface InstructionsPageProps {
   instructions: EnqueteInstruction[];
+  searchTerm: string;
+  onSearchChange: (term: string) => void;
   onUpdateInstruction: (id: number, updates: Partial<EnqueteInstruction>) => void;
   onAddInstruction: (instruction: Omit<EnqueteInstruction, 'id' | 'dateCreation' | 'dateMiseAJour'>) => void;
   onDeleteInstruction: (id: number) => void;
@@ -17,6 +19,8 @@ interface InstructionsPageProps {
 
 export const InstructionsPage = ({
   instructions,
+  searchTerm,
+  onSearchChange,
   onUpdateInstruction,
   onAddInstruction,
   onDeleteInstruction
@@ -30,7 +34,6 @@ export const InstructionsPage = ({
   const [showFilters, setShowFilters] = useState(false);
   
   // Filtres
-  const [searchTerm, setSearchTerm] = useState('');
   const [selectedCabinet, setSelectedCabinet] = useState<string>('');
   const [selectedEtat, setSelectedEtat] = useState<string>('');
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
@@ -200,7 +203,7 @@ export const InstructionsPage = ({
         {showFilters && (
           <InstructionFilterBar
             searchTerm={searchTerm}
-            onSearchChange={setSearchTerm}
+            onSearchChange={onSearchChange}
             selectedCabinet={selectedCabinet}
             onCabinetChange={setSelectedCabinet}
             selectedEtat={selectedEtat}

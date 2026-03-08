@@ -122,6 +122,9 @@ interface ElectronAPI {
   
   // API pour l'extraction de texte PDF - CORRIGÉE
   extractPDFText: (buffer: Uint8Array) => Promise<string>;
+
+  // Extraction de texte PDF par chemin relatif (utilisé pour la recherche dans les documents)
+  extractPdfText?: (cheminRelatif: string) => Promise<string | null>;
 }
 
 declare global {

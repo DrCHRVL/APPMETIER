@@ -14,6 +14,7 @@ import { SavePage } from './components/pages/SavePage';
 import { StatsPage } from './components/pages/StatsPage';
 import { useEnquetes } from './hooks/useEnquetes';
 import { useFilterSort } from './hooks/useFilterSort';
+import { useDocumentSearch } from './hooks/useDocumentSearch';
 import { NewEnqueteData, Tag, ToDoItem } from './types/interfaces';
 import { StorageManager } from './utils/storage';
 import { useAudience } from './hooks/useAudience';
@@ -71,6 +72,12 @@ function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentView, setCurrentView] = useState('enquetes');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Réinitialise la recherche à chaque changement de vue
+  const handleViewChange = (view: string) => {
+    setSearchTerm('');
+    setCurrentView(view);
+  };
   const [showNewEnqueteModal, setShowNewEnqueteModal] = useState(false);
   const [showNewInstructionModal, setShowNewInstructionModal] = useState(false);
   const [showAlertsModal, setShowAlertsModal] = useState(false);
@@ -441,9 +448,24 @@ function AppContent() {
 
   const filteredAndSortedEnquetes = useFilterSort(enquetes, searchTerm, selectedTags, sortOrder);
 
-  const activeEnquetes = useMemo(() => 
-    filteredAndSortedEnquetes.filter(e => e.statut !== 'archive'),
-    [filteredAndSortedEnquetes]
+  // Recherche dans le contenu des documents (async, avec cache)
+  const { documentMatchIds, isSearchingDocs } = useDocumentSearch(enquetes, searchTerm);
+
+  // Fusion des résultats métadonnées + contenu documents
+  const mergedFilteredEnquetes = useMemo(() => {
+    if (!documentMatchIds.size) return filteredAndSortedEnquetes;
+
+    const metadataIds = new Set(filteredAndSortedEnquetes.map(e => e.id));
+    const docOnlyMatches = enquetes.filter(
+      e => documentMatchIds.has(e.id) && !metadataIds.has(e.id)
+    );
+
+    return [...filteredAndSortedEnquetes, ...docOnlyMatches];
+  }, [filteredAndSortedEnquetes, documentMatchIds, enquetes]);
+
+  const activeEnquetes = useMemo(() =>
+    mergedFilteredEnquetes.filter(e => e.statut !== 'archive'),
+    [mergedFilteredEnquetes]
   );
 
   // Organisation des enquêtes par section
@@ -481,9 +503,9 @@ function AppContent() {
     return organized;
   }, [activeEnquetes, tags]);
 
-  const archivedEnquetes = useMemo(() => 
-    filteredAndSortedEnquetes.filter(e => e.statut === 'archive'),
-    [filteredAndSortedEnquetes]
+  const archivedEnquetes = useMemo(() =>
+    mergedFilteredEnquetes.filter(e => e.statut === 'archive'),
+    [mergedFilteredEnquetes]
   );
 
   // Nombre total d'alertes actives
@@ -509,14 +531,14 @@ return (
         <SideBar 
           isOpen={sidebarOpen}
           currentView={currentView}
-          onViewChange={setCurrentView}
+          onViewChange={handleViewChange}
           onNewEnquete={handleNewEnquete}
           alertCount={activeAlertsCount}
         />
       </div>
       <div className="flex-1 overflow-hidden flex flex-col">
         <div className="no-print">
-          <Header 
+          <Header
             searchTerm={searchTerm}
             onSearch={setSearchTerm}
             alerts={[...alerts.filter(alert => alert.status === 'active'), ...instructionAlerts]}
@@ -527,6 +549,7 @@ return (
             syncStatus={syncStatus}
             onSync={handleManualSync}
             isSyncing={isSyncing}
+            isSearchingDocs={isSearchingDocs}
           />
         </div>
 
@@ -622,6 +645,8 @@ return (
           {currentView === 'instructions' && (
             <InstructionsPage
               instructions={instructions}
+              searchTerm={searchTerm}
+              onSearchChange={setSearchTerm}
               onUpdateInstruction={handleUpdateInstruction}
               onAddInstruction={handleAddInstruction}
               onDeleteInstruction={handleDeleteInstruction}
@@ -662,11 +687,12 @@ return (
           )}
 
           {currentView === 'alertes' && (
-            <AlertsPage 
+            <AlertsPage
               rules={alertRules}
               onUpdateRule={handleUpdateAlertRule}
               onDuplicateRule={handleDuplicateRule}
               onDeleteRule={handleDeleteRule}
+              onShowWeeklyPopup={() => setShowWeeklyPopup(true)}
             />
           )}
 
