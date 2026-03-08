@@ -1,5 +1,16 @@
-import { GeolocData, EcouteData, AutreActe } from '@/types/interfaces';
+import { GeolocData, EcouteData, AutreActe, ActeStatus } from '@/types/interfaces';
 import { DateUtils } from './dateUtils';
+
+export function getStatutBadgeProps(statut: ActeStatus): { label: string; className: string } {
+  switch (statut) {
+    case 'autorisation_pending': return { label: 'Autorisation en attente', className: 'bg-purple-100 text-purple-700 border-purple-200' };
+    case 'pose_pending':         return { label: 'Pose en attente',         className: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+    case 'en_cours':             return { label: 'En cours',                className: 'bg-green-100 text-green-700 border-green-200' };
+    case 'prolongation_pending': return { label: 'Prolongation à valider',  className: 'bg-orange-100 text-orange-700 border-orange-200' };
+    case 'a_renouveler':         return { label: 'À renouveler',            className: 'bg-amber-100 text-amber-700 border-amber-200' };
+    default:                     return { label: 'Terminé',                 className: 'bg-gray-100 text-gray-500 border-gray-200' };
+  }
+}
 
 // Helper : calcule la date de fin selon l'unité de l'acte (jours ou mois calendaires)
 function endDateForActe(startDate: string, duree: string, dureeUnit?: 'jours' | 'mois'): string {

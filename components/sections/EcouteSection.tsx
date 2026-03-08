@@ -7,8 +7,9 @@ import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
 import { AutorisationValidationModal } from '../modals/AutorisationValidationModal';
-import { ActeUtils } from '@/utils/acteUtils';
+import { ActeUtils, getStatutBadgeProps } from '@/utils/acteUtils';
 import { DateUtils } from '@/utils/dateUtils';
+import { Badge } from '@/components/ui/badge';
 import { EcouteModal } from '../modals/EcouteModal';
 import { GeolocModal } from '../modals/GeolocModal';
 
@@ -303,6 +304,17 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
     return new Date(e.dateFin) < now;
   }).sort((a, b) => new Date(b.dateFin).getTime() - new Date(a.dateFin).getTime()) || [];
 
+  const sevenDaysFromNow = new Date(now);
+  sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
+  const nbAutorisationPending = activeEcoutes.filter(e => e.statut === 'autorisation_pending').length;
+  const nbPosePending         = activeEcoutes.filter(e => e.statut === 'pose_pending').length;
+  const nbProlongationPending = activeEcoutes.filter(e => e.statut === 'prolongation_pending').length;
+  const nbExpireSoon          = activeEcoutes.filter(e =>
+    e.statut === 'en_cours' && e.dateFin &&
+    new Date(e.dateFin) <= sevenDaysFromNow && new Date(e.dateFin) >= now
+  ).length;
+  const hasUrgences = nbAutorisationPending + nbPosePending + nbProlongationPending + nbExpireSoon > 0;
+
   return (
     <div>
       <div className="flex justify-between items-center mb-2">
@@ -319,6 +331,17 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
         )}
       </div>
 
+      {/* Bannière urgences */}
+      {hasUrgences && (
+        <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 bg-amber-50 border border-amber-200 rounded px-3 py-2 text-xs text-amber-800">
+          <span className="font-semibold">⚠ Actions en attente :</span>
+          {nbAutorisationPending > 0 && <span>{nbAutorisationPending} autorisation{nbAutorisationPending > 1 ? 's' : ''} en attente</span>}
+          {nbPosePending > 0 && <span>{nbPosePending} pose{nbPosePending > 1 ? 's' : ''} en attente</span>}
+          {nbProlongationPending > 0 && <span>{nbProlongationPending} prolongation{nbProlongationPending > 1 ? 's' : ''} à valider</span>}
+          {nbExpireSoon > 0 && <span className="text-red-700 font-medium">{nbExpireSoon} écoute{nbExpireSoon > 1 ? 's' : ''} expire{nbExpireSoon > 1 ? 'nt' : ''} sous 7 jours</span>}
+        </div>
+      )}
+
       {/* Écoutes actives */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {activeEcoutes.map((ecoute) => {
@@ -327,13 +350,17 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
           const nbProlongations = ecoute.prolongationsHistory?.length ?? 0;
           const maxP = ecoute.maxProlongations ?? 1;
           const prolongLimitAtteinte = maxP >= 0 && nbProlongations >= maxP;
-          
+          const statutBadge = getStatutBadgeProps(ecoute.statut);
+
           return (
           <div key={ecoute.id} className="bg-gray-50 p-3 rounded">
             <div className="flex justify-between items-center mb-2">
               <div>
-                <span className="font-medium">{ecoute.numero}</span>
-                {ecoute.cible && <span className="text-sm text-gray-500 ml-2">({ecoute.cible})</span>}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-medium">{ecoute.numero}</span>
+                  {ecoute.cible && <span className="text-sm text-gray-500">({ecoute.cible})</span>}
+                  <Badge className={`text-xs px-1.5 py-0 border ${statutBadge.className}`}>{statutBadge.label}</Badge>
+                </div>
                 {ecoute.description && (
                   <p className="text-sm text-gray-600 mt-1">{ecoute.description}</p>
                 )}
