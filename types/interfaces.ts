@@ -14,13 +14,20 @@ export interface CompteRendu {
   createdBy?: string; // Identifiant système de l'auteur (Windows username)
 }
 
-// Interface pour les tâches à faire
+// Interface pour les tâches à faire (liées à une enquête)
 export interface ToDoItem {
   id: number;
   text: string;
   status: 'active' | 'completed';
   dateCreation: string;
   dateCompletion?: string;
+}
+
+// Interface pour les tâches générales du tableau de bord (non liées à une enquête)
+export interface GlobalToDoItem {
+  id: number;
+  text: string;
+  dateCreation: string;
 }
 
 export type ActeStatus = 

@@ -41,6 +41,8 @@ import { WeeklyRecapPopup } from './components/modals/WeeklyRecapPopup';
 import { WeeklyPopupConfig } from './types/interfaces';
 import { ElectronBridge } from './utils/electronBridge';
 import { OPTimeline } from './components/OPTimeline';
+import { ToDoDashboard } from './components/ToDoDashboard';
+import { useGlobalTodos } from './hooks/useGlobalTodos';
 
 // 🆕 Imports pour la synchronisation des données
 import { useDataSync } from './hooks/useDataSync';
@@ -170,6 +172,9 @@ function AppContent() {
   } = useCombinedAlerts(enquetes, mesuresAIR);
 
   const { resetResultat } = useAudience();
+
+  // Hook pour les todos généraux du tableau de bord
+  const { todos: globalTodos, addTodo: addGlobalTodo, deleteTodo: deleteGlobalTodo } = useGlobalTodos();
 
   // Hook tags centralisé - simplifié
   const {
@@ -530,6 +535,13 @@ return (
           {currentView === 'enquetes' && (
             <div className="space-y-6">
               <OPTimeline enquetes={activeEnquetes} />
+              <ToDoDashboard
+                enquetes={activeEnquetes}
+                globalTodos={globalTodos}
+                onAddGlobalTodo={addGlobalTodo}
+                onDeleteGlobalTodo={deleteGlobalTodo}
+                onUpdateEnquete={handleUpdateEnquete}
+              />
               {Object.entries(enquetesByOrganization)
                 .sort(([a], [b]) => getSectionOrder(a) - getSectionOrder(b))
                 .map(([section, sectionEnquetes]) => (
