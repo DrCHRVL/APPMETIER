@@ -211,6 +211,16 @@ const CSS_STYLES = `
     border-top: 1px solid #e9ecef;
   }
 
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+  @media print {
+    body { padding: 0; }
+    .page-break { page-break-before: always; }
+    .section-nobreak { page-break-inside: avoid; }
+  }
+
   .legend {
     display: flex;
     gap: 12px;
@@ -672,22 +682,25 @@ ${data.deferementsParMois.length > 0 ? `
 export async function exportStatsPdf(data: PdfExportData): Promise<void> {
   const html = generateStatsPdfHtml(data);
 
-  // Créer un conteneur temporaire hors-écran pour le rendu
-  // On utilise visibility:hidden + overflow:hidden au lieu de left:-9999px
-  // pour que le layout flexbox se calcule correctement dans le viewport
+  // IMPORTANT : html2canvas ne peut PAS rendre visibility:hidden ni display:none.
+  // On utilise opacity:0 + pointerEvents:none — l'élément est composité normalement
+  // par le navigateur (donc capturables), mais totalement transparent pour l'utilisateur.
   const container = document.createElement('div');
-  container.style.position = 'absolute';
-  container.style.left = '0';
-  container.style.top = '0';
-  container.style.width = '190mm'; // Zone utile A4 (210mm - 2x10mm marges)
-  container.style.visibility = 'hidden';
-  container.style.overflow = 'hidden';
-  container.style.zIndex = '-1';
+  Object.assign(container.style, {
+    position: 'fixed',
+    top: '0',
+    left: '0',
+    width: '794px', // A4 à 96dpi (210mm × 96/25.4 ≈ 794px)
+    opacity: '0',
+    pointerEvents: 'none',
+    zIndex: '-9999',
+  });
+
   container.innerHTML = html
-    .replace(/<!DOCTYPE html>[\s\S]*?<body>/, '')
+    .replace(/<!DOCTYPE html>[\s\S]*?<body[^>]*>/, '')
     .replace(/<\/body>[\s\S]*$/, '');
 
-  // Injecter les styles dans le conteneur
+  // Injecter les styles
   const styleEl = document.createElement('style');
   styleEl.textContent = CSS_STYLES;
   container.prepend(styleEl);
@@ -695,7 +708,6 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
   document.body.appendChild(container);
 
   try {
-    // Import dynamique de html2pdf.js
     const html2pdf = (await import('html2pdf.js')).default;
 
     const opt = {
@@ -705,9 +717,10 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
       html2canvas: {
         scale: 2,
         useCORS: true,
-        letterRendering: true,
+        scrollX: 0,
         scrollY: 0,
-        windowWidth: 718, // 190mm en px (190 * 96 / 25.4 ≈ 718px)
+        windowWidth: 794,
+        logging: false,
       },
       jsPDF: {
         unit: 'mm',
