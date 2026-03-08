@@ -51,15 +51,15 @@ export const SideBar = ({
             <div key={view} className="relative">
               <button
                 className={`
-                  w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium
+                  w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm
                   transition-all duration-150 relative group
                   ${isActive
-                    ? 'bg-white/15 text-white shadow-sm'
-                    : 'text-white/70 hover:bg-white/8 hover:text-white'
+                    ? 'bg-white/20 text-white font-semibold shadow-sm'
+                    : 'font-medium text-white/70 hover:bg-white/8 hover:text-white'
                   }
                 `}
                 style={isActive ? {
-                  boxShadow: 'inset 3px 0 0 rgba(255,255,255,0.6), inset 0 1px 0 rgba(255,255,255,0.1)'
+                  boxShadow: 'inset 3px 0 0 rgba(255,255,255,0.85), inset 0 1px 0 rgba(255,255,255,0.1)'
                 } : {}}
                 onClick={() => onViewChange(view)}
               >
