@@ -67,18 +67,17 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
     <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 mb-4 shadow-sm">
       <div className="flex items-center gap-2 mb-2">
         <span className="text-sm font-semibold text-gray-700">OPs à venir — 6 semaines</span>
-        <span className="text-xs text-gray-400">(bande colorée = 96h GAV max)</span>
       </div>
 
       <div className="overflow-x-auto">
         <div style={{ minWidth: `${DAYS_RANGE * 16}px` }}>
 
-          {/* Ligne des initiales LMMJVSD */}
+          {/* Ligne des initiales LMMJVSD + numéro du jour */}
           <div className="flex border-b border-gray-100">
             {dayCells.map(cell => (
               <div
                 key={cell.offset}
-                className={`flex-1 text-center text-[9px] font-semibold py-0.5 leading-none select-none ${
+                className={`flex-1 text-center py-0.5 leading-none select-none flex flex-col items-center ${
                   cell.isWeekend
                     ? 'text-gray-300 bg-gray-50'
                     : cell.isToday
@@ -87,7 +86,10 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
                 }`}
                 title={cell.date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
               >
-                {cell.label}
+                <span className="text-[9px] font-semibold">{cell.label}</span>
+                <span className={`text-[8px] font-medium ${cell.isWeekend ? 'text-gray-300' : cell.isToday ? 'text-blue-500' : 'text-gray-300'}`}>
+                  {cell.date.getDate()}
+                </span>
               </div>
             ))}
           </div>
