@@ -105,9 +105,9 @@ export const ToDoSection = ({ enquete, onUpdate, isEditing }: ToDoSectionProps) 
       </div>
 
       {/* Liste des tâches actives */}
-      <div className="space-y-2 mb-4">
+      <div className="grid grid-cols-5 gap-2 mb-4">
         {activeTodos.map(todo => (
-          <div key={todo.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded group">
+          <div key={todo.id} className="flex items-start gap-2 p-2 bg-gray-50 rounded group">
             <Checkbox
               checked={false}
               onCheckedChange={() => handleToggleTodo(todo.id)}
@@ -115,7 +115,7 @@ export const ToDoSection = ({ enquete, onUpdate, isEditing }: ToDoSectionProps) 
             />
             
             {editingTodoId === todo.id ? (
-              <div className="flex-1 flex items-center gap-2">
+              <div className="flex-1 flex items-center gap-1">
                 <Input
                   value={editingText}
                   onChange={(e) => setEditingText(e.target.value)}
@@ -185,7 +185,7 @@ export const ToDoSection = ({ enquete, onUpdate, isEditing }: ToDoSectionProps) 
 
         {/* Ajout d'une nouvelle tâche - TOUJOURS VISIBLE */}
         {onUpdate && (
-          <div className="flex items-center gap-2 p-2 border-2 border-dashed border-gray-300 rounded">
+          <div className="col-span-5 flex items-center gap-2 p-2 border-2 border-dashed border-gray-300 rounded">
             <Plus className="h-4 w-4 text-gray-400 flex-shrink-0" />
             <Input
               placeholder="Nouvelle tâche..."
@@ -212,7 +212,7 @@ export const ToDoSection = ({ enquete, onUpdate, isEditing }: ToDoSectionProps) 
         )}
 
         {activeTodos.length === 0 && !isEditing && (
-          <div className="text-center py-4 text-gray-500 text-sm">
+          <div className="col-span-5 text-center py-4 text-gray-500 text-sm">
             Aucune tâche en cours
           </div>
         )}
