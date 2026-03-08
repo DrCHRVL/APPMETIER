@@ -405,7 +405,7 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
                 )}
               </div>
             </div>
-            <ProgressBar 
+            <ProgressBar
               dateDebut={ecoute.dateDebut}
               dateFin={ecoute.dateFin}
               datePose={ecoute.datePose}
@@ -415,6 +415,9 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
                 <p>En attente d'autorisation JLD • Durée prévue: {ecoute.duree || 0} jours</p>
               )}
             </div>
+            {ecoute.prolongationsHistory && ecoute.prolongationsHistory.length >= 1 && (
+              <p className="text-xs text-red-600 mt-1">Limite légale de prolongation atteinte</p>
+            )}
             {hasHistoryEntries && (
               <div className="mt-2">
                 <div 
@@ -546,11 +549,14 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
                       )}
                     </div>
                   </div>
-                  <ProgressBar 
+                  <ProgressBar
                     dateDebut={ecoute.dateDebut}
                     dateFin={ecoute.dateFin}
                     datePose={ecoute.datePose}
                   />
+                  {ecoute.prolongationsHistory && ecoute.prolongationsHistory.length >= 1 && (
+                    <p className="text-xs text-red-600 mt-1">Limite légale de prolongation atteinte</p>
+                  )}
                   {hasHistoryEntries && (
                     <div className="mt-2">
                       <div 

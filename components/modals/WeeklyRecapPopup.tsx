@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Enquete, AlertRule } from '@/types/interfaces';
-import { Calendar, FileText, Clock } from 'lucide-react';
+import { Calendar, FileText, Clock, AlertTriangle } from 'lucide-react';
 
 interface WeeklyRecapPopupProps {
   isOpen: boolean;
@@ -22,18 +22,7 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, enquetes, alertRules }: Week
   const crThreshold = crRule?.threshold ?? 7;
   const acteThreshold = acteRule?.threshold ?? 7;
 
-  // Enquêtes à relancer (pas de CR depuis crThreshold jours)
-  const enquetesARelancer = enquetes
-    .filter(e => e.statut === 'en_cours' && e.comptesRendus.length > 0)
-    .map(e => {
-      const lastCR = e.comptesRendus[0];
-      const days = Math.floor((today.getTime() - new Date(lastCR.date).getTime()) / (1000 * 60 * 60 * 24));
-      return { enquete: e, days, lastCRDate: lastCR.date };
-    })
-    .filter(({ days }) => days >= crThreshold)
-    .sort((a, b) => b.days - a.days);
-
-  // Actes arrivant à échéance dans acteThreshold jours
+  // Actes / écoutes / géoloc arrivant à échéance
   const actesEcheance = enquetes
     .filter(e => e.statut === 'en_cours')
     .flatMap(e => {
@@ -52,70 +41,136 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, enquetes, alertRules }: Week
     .filter(a => a.daysLeft >= 0 && a.daysLeft <= acteThreshold)
     .sort((a, b) => a.daysLeft - b.daysLeft);
 
-  const totalItems = enquetesARelancer.length + actesEcheance.length;
+  // Écoutes ayant déjà été prolongées une fois — limite légale atteinte (1 mois + 1 prolongation max)
+  const ecoutesLimiteAtteinte = enquetes
+    .filter(e => e.statut === 'en_cours')
+    .flatMap(e =>
+      (e.ecoutes || [])
+        .filter(ec =>
+          ec.statut === 'en_cours' &&
+          ec.prolongationsHistory &&
+          ec.prolongationsHistory.length >= 1
+        )
+        .map(ec => ({ ...ec, enqueteNumero: e.numero }))
+    );
+
+  // Enquêtes à relancer (pas de CR depuis crThreshold jours)
+  const enquetesARelancer = enquetes
+    .filter(e => e.statut === 'en_cours' && e.comptesRendus.length > 0)
+    .map(e => {
+      const lastCR = e.comptesRendus[0];
+      const days = Math.floor((today.getTime() - new Date(lastCR.date).getTime()) / (1000 * 60 * 60 * 24));
+      return { enquete: e, days };
+    })
+    .filter(({ days }) => days >= crThreshold)
+    .sort((a, b) => b.days - a.days);
+
+  const totalItems = actesEcheance.length + ecoutesLimiteAtteinte.length + enquetesARelancer.length;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Clock className="h-5 w-5 text-blue-600" />
-            Récapitulatif de la semaine
+            Récapitulatif — {today.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
           </DialogTitle>
-          <p className="text-xs text-gray-500">{today.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
         </DialogHeader>
 
         {totalItems === 0 ? (
           <p className="text-sm text-gray-500 py-4 text-center">Aucun élément à signaler cette semaine.</p>
         ) : (
-          <div className="space-y-4 py-2">
+          <div className="space-y-5 py-2">
 
-            {/* Actes à surveiller */}
+            {/* Échéances d'actes à venir */}
             {actesEcheance.length > 0 && (
               <div>
-                <h4 className="text-sm font-semibold flex items-center gap-1 mb-2">
-                  <Calendar className="h-4 w-4 text-red-500" />
-                  Actes arrivant à échéance ({actesEcheance.length})
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-red-600 flex items-center gap-1 mb-2">
+                  <Calendar className="h-3.5 w-3.5" />
+                  Échéances d'actes à venir ({actesEcheance.length})
                 </h4>
-                <div className="space-y-1">
+                <ul className="space-y-1.5">
                   {actesEcheance.map((a, i) => (
-                    <div key={i} className="flex items-center justify-between bg-red-50 rounded px-3 py-1.5 text-sm">
-                      <span className="font-medium">{a.enqueteNumero}</span>
-                      <span className="text-gray-600">{a.category}</span>
-                      <Badge
-                        variant="outline"
-                        className={a.daysLeft <= 2 ? 'bg-red-100 text-red-700 border-red-300' : 'bg-yellow-50 text-yellow-700 border-yellow-300'}
-                      >
-                        {a.daysLeft === 0 ? "Expire aujourd'hui" : `${a.daysLeft}j`}
-                      </Badge>
-                    </div>
+                    <li key={i} className={`rounded-lg px-3 py-2 text-sm ${a.daysLeft <= 2 ? 'bg-red-50' : 'bg-yellow-50'}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{a.enqueteNumero}</span>
+                        <span className="text-gray-600 flex-1">{a.category} — à prolonger</span>
+                        <Badge
+                          variant="outline"
+                          className={a.daysLeft === 0
+                            ? 'bg-red-100 text-red-700 border-red-300'
+                            : a.daysLeft <= 2
+                            ? 'bg-red-100 text-red-700 border-red-300'
+                            : 'bg-yellow-100 text-yellow-700 border-yellow-300'}
+                        >
+                          {a.daysLeft === 0 ? "Expire aujourd'hui" : `${a.daysLeft}j`}
+                        </Badge>
+                      </div>
+                    </li>
                   ))}
-                </div>
+                </ul>
+              </div>
+            )}
+
+            {/* Écoutes en limite légale */}
+            {ecoutesLimiteAtteinte.length > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-red-700 flex items-center gap-1 mb-1">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Attention — écoutes ne pouvant plus être prolongées ({ecoutesLimiteAtteinte.length})
+                </h4>
+                <p className="text-xs text-gray-500 mb-2">
+                  Les interceptions suivantes ont déjà été prolongées une fois. La limite légale est atteinte (1 mois + 1 prolongation). Elles ne peuvent pas faire l'objet d'une nouvelle prolongation.
+                </p>
+                <ul className="space-y-1.5">
+                  {ecoutesLimiteAtteinte.map((ec, i) => (
+                    <li key={i} className="rounded-lg px-3 py-2 text-sm bg-red-50 border border-red-200">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{ec.enqueteNumero}</span>
+                        <span className="text-gray-600 flex-1">Écoute {ec.numero}{ec.cible ? ` — ${ec.cible}` : ''}</span>
+                        <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300 shrink-0">
+                          Limite atteinte
+                        </Badge>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 
             {/* Enquêtes à relancer */}
             {enquetesARelancer.length > 0 && (
               <div>
-                <h4 className="text-sm font-semibold flex items-center gap-1 mb-2">
-                  <FileText className="h-4 w-4 text-orange-500" />
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-orange-600 flex items-center gap-1 mb-1">
+                  <FileText className="h-3.5 w-3.5" />
                   Enquêtes à relancer ({enquetesARelancer.length})
                 </h4>
-                <div className="space-y-1">
+                <p className="text-xs text-gray-500 mb-2">
+                  Envoyer un mail d'actualisation aux directeurs d'enquêtes des enquêtes suivantes :
+                </p>
+                <ul className="space-y-1.5">
                   {enquetesARelancer.map(({ enquete: e, days }) => (
-                    <div key={e.id} className="flex items-center justify-between bg-orange-50 rounded px-3 py-1.5 text-sm">
-                      <span className="font-medium">{e.numero}</span>
-                      <span className="text-xs text-gray-500 truncate max-w-[180px]">
-                        {e.misEnCause.map(m => m.nom).join(', ')}
-                      </span>
-                      <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">
-                        {days}j sans CR
-                      </Badge>
-                    </div>
+                    <li key={e.id} className="rounded-lg px-3 py-2 text-sm bg-orange-50">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <span className="font-medium">{e.numero}</span>
+                          {e.directeurEnquete && (
+                            <span className="text-gray-500 ml-1">({e.directeurEnquete})</span>
+                          )}
+                          <span className="text-xs text-gray-500 block truncate">
+                            {e.misEnCause.map(m => m.nom).join(', ')}
+                          </span>
+                        </div>
+                        <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300 shrink-0">
+                          {days}j sans CR
+                        </Badge>
+                      </div>
+                    </li>
                   ))}
-                </div>
+                </ul>
               </div>
             )}
+
           </div>
         )}
 
