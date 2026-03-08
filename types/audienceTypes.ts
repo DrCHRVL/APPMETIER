@@ -1,7 +1,9 @@
 export type TypeAudience = 'CRPC-Def' | 'CI' | 'COPJ' | 'OI' | 'CDD';
 
 export interface CondamnationData {
-  nom?: string;  
+  nom?: string;
+  /** Lien optionnel vers le MisEnCause correspondant dans l'enquête (pour stats par MEC) */
+  misEnCauseId?: number;
   peinePrison: number;
   sursisProbatoire: number;
   sursisSimple: number;

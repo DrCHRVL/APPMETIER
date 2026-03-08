@@ -448,6 +448,12 @@ function AppContent() {
 
   const filteredAndSortedEnquetes = useFilterSort(enquetes, searchTerm, selectedTags, sortOrder);
 
+  // Liste dédupliquée de tous les noms de MEC connus (cross-dossiers)
+  const allKnownMec = useMemo(
+    () => [...new Set(enquetes.flatMap(e => e.misEnCause.map(m => m.nom)))].sort(),
+    [enquetes]
+  );
+
   // Recherche dans le contenu des documents (async, avec cache)
   const { documentMatchIds, isSearchingDocs } = useDocumentSearch(enquetes, searchTerm);
 
@@ -715,15 +721,16 @@ return (
       </div>
 
       {/* Modales pour enquêtes préliminaires */}
-      <NewEnqueteModal 
+      <NewEnqueteModal
         isOpen={showNewEnqueteModal}
         onClose={() => setShowNewEnqueteModal(false)}
         onSubmit={handleAddEnquete}
         cheminBase={CHEMIN_BASE}
+        allKnownMec={allKnownMec}
       />
 
       {selectedEnquete && (
-        <EnqueteDetailModal 
+        <EnqueteDetailModal
           enquete={selectedEnquete}
           isEditing={isEditing}
           editingCR={editingCR}
@@ -735,6 +742,7 @@ return (
           onDeleteCR={handleDeleteCR}
           setEditingCR={setEditingCR}
           onDelete={handleDeleteEnquete}
+          allKnownMec={allKnownMec}
         />
       )}
 
