@@ -1,13 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { 
-  Upload, 
-  FileText, 
-  File, 
-  Image, 
-  Trash2, 
+import {
+  FileText,
+  File,
+  Image,
+  Trash2,
   FolderOpen,
   Settings,
   AlertCircle,
@@ -23,17 +22,16 @@ import {
   RefreshCw,
   Loader,
   Calendar,
-  Info
+  Copy,
+  X,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
-import { Enquete, DocumentEnquete, EcouteData } from '@/types/interfaces';
+import { Enquete, DocumentEnquete } from '@/types/interfaces';
 import { useToast } from '@/contexts/ToastContext';
 import { DocumentPathModal } from '../modals/DocumentPathModal';
 import { DocumentSyncManager, SyncResult } from '@/utils/documents/DocumentSyncManager';
-import { JLDOrderAnalyzer, JLDAnalysisResult } from '@/utils/documents/JLDOrderAnalyzer';
-import { JLDConfirmationModal } from '../modals/JLDConfirmationModal';
-import { JLDEcoutesCreationModal } from '../modals/JLDEcoutesCreationModal';
-import { SimpleJLDConfirmationModal } from '../modals/SimpleJLDConfirmationModal';
-import { Alert, AlertDescription } from '../ui/alert';
+import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipProvider } from '../ui/tooltip';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -52,6 +50,25 @@ interface DocumentZone {
   description: string;
   color: string;
 }
+
+interface ConflictItem {
+  file: File;
+  category: DocumentCategory;
+  existingDoc: DocumentEnquete;
+}
+
+// Libellés lisibles par type de document (pour le tooltip)
+const TYPE_LABELS: Record<string, string> = {
+  pdf: 'PDF',
+  doc: 'Word',
+  docx: 'Word',
+  odt: 'LibreOffice',
+  image: 'Image',
+  html: 'HTML',
+  msg: 'Email Outlook',
+  txt: 'Texte',
+  autre: 'Fichier'
+};
 
 const DOCUMENT_ZONES: DocumentZone[] = [
   {
@@ -72,7 +89,7 @@ const DOCUMENT_ZONES: DocumentZone[] = [
     category: 'actes',
     title: 'Autres actes',
     icon: <Camera className="h-5 w-5" />,
-    description: 'Documents liés aux autres actes d\'enquête',
+    description: "Documents liés aux autres actes d'enquête",
     color: 'border-purple-300 bg-purple-50 hover:bg-purple-100'
   },
   {
@@ -84,249 +101,189 @@ const DOCUMENT_ZONES: DocumentZone[] = [
   }
 ];
 
+// ─── Singleton module-level : une seule paire timer/interval par enquête ID ───
+// Garantit qu'aucun doublon ne s'accumule quand la modale est ouverte/fermée rapidement.
+const _scanTimers = new Map<number, ReturnType<typeof setTimeout>>();
+const _scanIntervals = new Map<number, ReturnType<typeof setInterval>>();
+
+const resolveNameConflict = (fileName: string, existingNames: string[]): string => {
+  const lastDot = fileName.lastIndexOf('.');
+  const base = lastDot !== -1 ? fileName.slice(0, lastDot) : fileName;
+  const ext = lastDot !== -1 ? fileName.slice(lastDot) : '';
+  let counter = 2;
+  let candidate = `${base} (${counter})${ext}`;
+  while (existingNames.includes(candidate)) {
+    counter++;
+    candidate = `${base} (${counter})${ext}`;
+  }
+  return candidate;
+};
+
 export const DocumentsSection = ({ enquete, onUpdate, isEditing }: DocumentsSectionProps) => {
   const [dragOverZone, setDragOverZone] = useState<DocumentCategory | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showPathModal, setShowPathModal] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null);
-  
-  // Nouveaux états pour la synchronisation
+
+  // Synchronisation
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null);
-  
-  // États pour l'analyse JLD - NOUVEAUX
-  const [showJLDConfirmation, setShowJLDConfirmation] = useState(false);
-  const [showJLDCreation, setShowJLDCreation] = useState(false);
-  const [currentJLDAnalysis, setCurrentJLDAnalysis] = useState<JLDAnalysisResult | null>(null);
-  const [currentJLDFile, setCurrentJLDFile] = useState<File | null>(null);
-  const [isAnalyzingJLD, setIsAnalyzingJLD] = useState(false);
-  
+
+  // Résolution de conflits de noms
+  const [conflictQueue, setConflictQueue] = useState<ConflictItem[]>([]);
+  const [currentConflict, setCurrentConflict] = useState<ConflictItem | null>(null);
+
+  // Vue expandable par catégorie
+  const [expandedCategories, setExpandedCategories] = useState<Set<DocumentCategory>>(new Set());
+
   const fileInputRefs = useRef<Record<DocumentCategory, HTMLInputElement | null>>({
     geoloc: null,
     ecoutes: null,
     actes: null,
     pv: null
   });
-  
+
   const { showToast } = useToast();
 
-  // Scan automatique des nouveaux documents
+  // Documents par catégorie — mémoïsés pour éviter les recalculs inutiles
+  const documentsByCategory = useMemo(() => {
+    const mapping: Record<DocumentCategory, string> = {
+      geoloc: 'Geoloc',
+      ecoutes: 'Ecoutes',
+      actes: 'Actes',
+      pv: 'PV'
+    };
+    const result = {} as Record<DocumentCategory, DocumentEnquete[]>;
+    for (const cat of Object.keys(mapping) as DocumentCategory[]) {
+      const prefix = mapping[cat];
+      result[cat] = (enquete.documents || []).filter(doc =>
+        doc.cheminRelatif.startsWith(`${prefix}/`)
+      );
+    }
+    return result;
+  }, [enquete.documents]);
+
+  // ── useEffect : scan initial (délayé) + scan périodique — singleton par enquête ID ──
   useEffect(() => {
-    // Effectuer un scan automatique au chargement du composant
-    scanForNewDocuments(true);
-    
-    // Configurer un scan périodique toutes les 10 minutes (600000 ms)
-    const intervalId = setInterval(() => {
-      scanForNewDocuments(true);
-    }, 600000);
-    
-    return () => clearInterval(intervalId);
+    // Ne créer un timer/interval que s'il n'en existe pas encore pour cette enquête
+    if (!_scanIntervals.has(enquete.id)) {
+      const timer = setTimeout(() => {
+        scanForNewDocuments(true);
+      }, 1500);
+      _scanTimers.set(enquete.id, timer);
+
+      const interval = setInterval(() => {
+        scanForNewDocuments(true);
+      }, 600000);
+      _scanIntervals.set(enquete.id, interval);
+    }
+
+    return () => {
+      const t = _scanTimers.get(enquete.id);
+      if (t !== undefined) { clearTimeout(t); _scanTimers.delete(enquete.id); }
+      const i = _scanIntervals.get(enquete.id);
+      if (i !== undefined) { clearInterval(i); _scanIntervals.delete(enquete.id); }
+    };
   }, [enquete.id]);
-  
-  // Fonction pour scanner les nouveaux documents
+
+  // Passer au conflit suivant dans la file
+  useEffect(() => {
+    if (!currentConflict && conflictQueue.length > 0) {
+      const [next, ...rest] = conflictQueue;
+      setCurrentConflict(next);
+      setConflictQueue(rest);
+    }
+  }, [currentConflict, conflictQueue]);
+
+  // ── Scan des nouveaux documents ──
   const scanForNewDocuments = async (silent = false) => {
     if (!window.electronAPI) {
       if (!silent) showToast('API Electron non disponible', 'error');
       return;
     }
-    
     if (isScanning) return;
-    
+
     setIsScanning(true);
-    
     try {
-      const existingDocuments = enquete.documents || [];
-      
-      const scanResult = await DocumentSyncManager.scanForNewDocuments(
-        enquete.numero,
-        existingDocuments
-      );
-      
-      if (scanResult.errors.length > 0 && !silent) {
-        scanResult.errors.forEach(error => {
-          console.error('Erreur scan documents:', error);
-        });
+      const existing = enquete.documents || [];
+      const result = await DocumentSyncManager.scanForNewDocuments(enquete.numero, existing);
+
+      if (result.errors.length > 0 && !silent) {
+        result.errors.forEach(e => console.error('Erreur scan:', e));
         showToast('Erreur lors du scan des documents', 'error');
       }
-      
-      if (scanResult.newDocuments.length > 0) {
-        // Mettre à jour la liste des documents dans l'enquête
-        const updatedDocuments = [...existingDocuments, ...scanResult.newDocuments];
-        onUpdate(enquete.id, { documents: updatedDocuments });
-        
-        if (!silent) {
-          showToast(`${scanResult.newDocuments.length} nouveaux documents trouvés`, 'success');
-        }
+
+      if (result.newDocuments.length > 0) {
+        onUpdate(enquete.id, { documents: [...existing, ...result.newDocuments] });
+        if (!silent) showToast(`${result.newDocuments.length} nouveaux documents trouvés`, 'success');
       } else if (!silent) {
         showToast('Aucun nouveau document trouvé', 'info');
       }
-      
+
       setLastScanTime(new Date());
-    } catch (error) {
-      console.error('Erreur lors du scan des documents:', error);
+    } catch (err) {
+      console.error('Erreur scan documents:', err);
       if (!silent) showToast('Erreur lors du scan des documents', 'error');
     } finally {
       setIsScanning(false);
     }
   };
-  
-  // Fonction pour synchroniser les documents
+
+  // ── Synchronisation externe ──
   const synchronizeDocuments = async () => {
-    if (!window.electronAPI) {
-      showToast('API Electron non disponible', 'error');
-      return;
-    }
-    
-    if (!enquete.cheminExterne) {
-      showToast('Aucun chemin externe configuré', 'warning');
-      return;
-    }
-    
+    if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
+    if (!enquete.cheminExterne) { showToast('Aucun chemin externe configuré', 'warning'); return; }
+
     setIsSyncing(true);
-    
     try {
       const syncResult = await DocumentSyncManager.synchronizeDocuments(
         enquete.numero,
         enquete.cheminExterne,
         enquete.useSubfolderForExternal !== false
       );
-      
       setLastSyncResult(syncResult);
-      
+
       if (!syncResult.externalAccessible) {
         showToast('Chemin externe inaccessible actuellement', 'warning');
         return;
       }
-      
       if (syncResult.errors.length > 0) {
-        syncResult.errors.forEach(error => {
-          console.error('Erreur synchronisation:', error);
-        });
+        syncResult.errors.forEach(e => console.error('Erreur sync:', e));
         showToast('Des erreurs sont survenues lors de la synchronisation', 'warning');
       } else {
-        if (syncResult.addedToInternal.length === 0 && syncResult.addedToExternal.length === 0) {
+        const { addedToInternal: ai, addedToExternal: ae } = syncResult;
+        if (ai.length === 0 && ae.length === 0) {
           showToast('Tous les documents sont déjà synchronisés', 'success');
         } else {
-          showToast(
-            `Synchronisation terminée: ${syncResult.addedToInternal.length} ajoutés en interne, ${syncResult.addedToExternal.length} ajoutés en externe`,
-            'success'
-          );
+          showToast(`Synchronisation terminée : ${ai.length} ajoutés en interne, ${ae.length} en externe`, 'success');
         }
-        
-        // Si des documents ont été ajoutés en interne, rafraîchir la liste
-        if (syncResult.addedToInternal.length > 0) {
-          scanForNewDocuments(true);
-        }
+        if (ai.length > 0) scanForNewDocuments(true);
       }
-    } catch (error) {
-      console.error('Erreur lors de la synchronisation des documents:', error);
+    } catch (err) {
+      console.error('Erreur synchronisation:', err);
       showToast('Erreur lors de la synchronisation des documents', 'error');
     } finally {
       setIsSyncing(false);
     }
   };
-  
-  // === NOUVELLES FONCTIONS JLD ===
-  
-  // Analyse JLD d'un fichier PDF - NOUVELLE
-  const analyzeJLDFile = async (file: File): Promise<void> => {
-    if (file.type !== 'application/pdf') {
-      return;
-    }
 
-    setIsAnalyzingJLD(true);
-    setCurrentJLDFile(file);
-
-   try {
-  console.log('🔍 DÉBUT ANALYSE JLD pour:', file.name, file.type);
-  const analysisResult = await JLDOrderAnalyzer.analyze(file);
-  console.log('📊 RÉSULTAT ANALYSE:', analysisResult);
-      setCurrentJLDAnalysis(analysisResult);
-
-      if (analysisResult.isJLDOrder && analysisResult.phoneNumbers.length > 0) {
-        setShowJLDConfirmation(true);
-      }
-    } catch (error) {
-      console.error('Erreur lors de l\'analyse JLD:', error);
-      showToast('Erreur lors de l\'analyse du document', 'error');
-    } finally {
-      setIsAnalyzingJLD(false);
-    }
-  };
-
-  // Confirmation de création des écoutes JLD - NOUVELLE
-const handleJLDConfirmation = async () => {
-  setShowJLDConfirmation(false);
-  
-  if (currentJLDFile) {
-    console.log('🔍 USER A DIT OUI → ANALYSE JLD...');
-    setIsAnalyzingJLD(true);
-    
-    try {
-      const analysisResult = await JLDOrderAnalyzer.analyze(currentJLDFile);
-      console.log('📊 RÉSULTAT:', analysisResult);
-      setCurrentJLDAnalysis(analysisResult);
-      setShowJLDCreation(true);
-    } catch (error) {
-      console.error('Erreur analyse:', error);
-      showToast('Erreur lors de l\'analyse', 'error');
-    } finally {
-      setIsAnalyzingJLD(false);
-    }
-  }
-};
-  // Création des écoutes depuis l'analyse JLD - NOUVELLE
-  const handleCreateJLDEcoutes = (ecoutes: Partial<EcouteData>[]) => {
-    const newEcoutes: EcouteData[] = ecoutes.map((ecoute, index) => ({
-      id: Date.now() + index,
-      numero: ecoute.numero || '',
-      cible: ecoute.cible,
-      description: ecoute.description,
-      dateDebut: ecoute.dateDebut || '',
-      dateFin: ecoute.dateFin || '',
-      duree: ecoute.duree || '30',
-      datePose: ecoute.datePose,
-      statut: ecoute.statut || 'en_cours'
-    }));
-
-    const updatedEcoutes = [...(enquete.ecoutes || []), ...newEcoutes];
-    onUpdate(enquete.id, { ecoutes: updatedEcoutes });
-
-    setShowJLDCreation(false);
-    setCurrentJLDAnalysis(null);
-    setCurrentJLDFile(null);
-    
-    showToast(`${newEcoutes.length} écoute(s) créée(s) avec succès`, 'success');
-  };
-  
-  // === FIN NOUVELLES FONCTIONS JLD ===
-  
-  // Fonction pour obtenir l'icône selon le type de fichier
+  // ── Icône selon type de fichier ──
   const getFileIcon = (type: string, size = 'h-4 w-4') => {
     switch (type) {
-      case 'pdf':
-        return <FileText className={`${size} text-red-500`} />;
+      case 'pdf':   return <FileText className={`${size} text-red-500`} />;
       case 'doc':
-      case 'docx':
-        return <FileText className={`${size} text-blue-500`} />;
-      case 'odt':
-        return <FileText className={`${size} text-green-500`} />;
-      case 'image':
-        return <Image className={`${size} text-purple-500`} />;
-      case 'html':
-        return <FileCode className={`${size} text-orange-500`} />;
-      case 'msg':
-        return <Mail className={`${size} text-blue-600`} />;
-      case 'txt':
-        return <File className={`${size} text-gray-500`} />;
-      default:
-        return <File className={`${size} text-gray-400`} />;
+      case 'docx':  return <FileText className={`${size} text-blue-500`} />;
+      case 'odt':   return <FileText className={`${size} text-green-500`} />;
+      case 'image': return <Image    className={`${size} text-purple-500`} />;
+      case 'html':  return <FileCode className={`${size} text-orange-500`} />;
+      case 'msg':   return <Mail     className={`${size} text-blue-600`} />;
+      case 'txt':   return <File     className={`${size} text-gray-500`} />;
+      default:      return <File     className={`${size} text-gray-400`} />;
     }
   };
 
-  // Fonction pour formater la taille des fichiers
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -335,284 +292,211 @@ const handleJLDConfirmation = async () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  // Fonction pour valider les types de fichiers
   const isValidFileType = (file: File): boolean => {
-    const validExtensions = [
-      '.pdf', '.doc', '.docx', '.odt', '.txt',
-      '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
-      '.html', '.htm', '.msg'
-    ];
-    
-    const fileName = file.name.toLowerCase();
-    return validExtensions.some(ext => fileName.endsWith(ext));
+    const valid = ['.pdf','.doc','.docx','.odt','.txt','.jpg','.jpeg','.png','.gif','.bmp','.webp','.html','.htm','.msg'];
+    return valid.some(ext => file.name.toLowerCase().endsWith(ext));
   };
 
-  // Fonction pour traiter les fichiers uploadés dans une catégorie spécifique
-  const handleFiles = async (files: FileList | File[], category: DocumentCategory) => {
-    if (!window.electronAPI) {
-      showToast('API Electron non disponible', 'error');
-      return;
-    }
+  // ── Upload effectif après résolution de conflits ──
+  const uploadFiles = async (
+    filesToUpload: { file: File; renamedTo?: string }[],
+    category: DocumentCategory
+  ) => {
+    if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
 
     setIsUploading(true);
     setCopyStatus(null);
-    const validFiles: File[] = [];
-    const invalidFiles: string[] = [];
 
-    // Valider les fichiers
-    Array.from(files).forEach(file => {
-      if (isValidFileType(file)) {
-        validFiles.push(file);
-      } else {
-        invalidFiles.push(file.name);
-      }
-    });
-
-    if (invalidFiles.length > 0) {
-      showToast(`Fichiers non supportés: ${invalidFiles.join(', ')}`, 'error');
-    }
-
-    if (validFiles.length === 0) {
-      setIsUploading(false);
-      return;
-    }
+    const categoryMapping: Record<DocumentCategory, string> = {
+      geoloc: 'Geoloc', ecoutes: 'Ecoutes', actes: 'Actes', pv: 'PV'
+    };
+    const electronCategory = categoryMapping[category];
 
     try {
-      // Préparer les données pour l'API Electron
       const filesData = await Promise.all(
-        validFiles.map(async (file) => ({
-          name: file.name,
+        filesToUpload.map(async ({ file, renamedTo }) => ({
+          name: renamedTo || file.name,
           arrayBuffer: await file.arrayBuffer()
         }))
       );
 
-      // Convertir la catégorie pour l'API Electron
-      const categoryMapping = {
-        'geoloc': 'Geoloc',
-        'ecoutes': 'Ecoutes', 
-        'actes': 'Actes',
-        'pv': 'PV'
-      };
-      const electronCategory = categoryMapping[category];
-
-      // Envoyer vers l'API Electron avec la catégorie
       const savedFiles = await window.electronAPI.saveDocuments(
-        enquete.numero, 
-        filesData,
-        electronCategory
+        enquete.numero, filesData, electronCategory
       );
-      
+
       if (savedFiles && savedFiles.length > 0) {
-        // Mettre à jour l'enquête avec les nouveaux documents
-        const currentDocuments = enquete.documents || [];
-        const updatedDocuments = [...currentDocuments, ...savedFiles];
-        
-        onUpdate(enquete.id, { documents: updatedDocuments });
-        showToast(`${savedFiles.length} document(s) ajoutés dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title}`, 'success');
+        onUpdate(enquete.id, { documents: [...(enquete.documents || []), ...savedFiles] });
+        showToast(
+          `${savedFiles.length} document(s) ajoutés dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title}`,
+          'success'
+        );
 
-        // === ANALYSE JLD APRÈS UPLOAD - NOUVEAU ===
-
- console.log('🔍 CATÉGORIE:', category, 'validFiles:', validFiles.length);
-
-if (category === 'ecoutes') {
-  console.log('✅ CATÉGORIE ÉCOUTES DÉTECTÉE');
-  const pdfFiles = validFiles.filter(file => file.type === 'application/pdf');
-  console.log('📄 FICHIERS PDF TROUVÉS:', pdfFiles.length, pdfFiles.map(f => f.name));
-  if (pdfFiles.length > 0) {
-    console.log('🚀 OUVERTURE MODAL JLD');
-    setCurrentJLDFile(pdfFiles[0]); // Prendre le premier PDF
-    setShowJLDConfirmation(true);   // Ouvrir directement la modal
-  }
-}               // === FIN ANALYSE JLD ===
-
-        // Essayer de copier vers le chemin externe si configuré
         if (enquete.cheminExterne) {
           try {
-            const copySuccess = await window.electronAPI.copyToExternalPath(
-              enquete.numero,
-              enquete.cheminExterne,
-              savedFiles,
-              electronCategory,
-              enquete.useSubfolderForExternal ?? true // Passer la préférence utilisateur
+            const ok = await window.electronAPI.copyToExternalPath(
+              enquete.numero, enquete.cheminExterne, savedFiles,
+              electronCategory, enquete.useSubfolderForExternal ?? true
             );
-            setCopyStatus(copySuccess ? 'success' : 'error');
-          } catch (error) {
-            console.error('Erreur copie externe:', error);
+            setCopyStatus(ok ? 'success' : 'error');
+          } catch {
             setCopyStatus('error');
           }
         }
       } else {
         showToast('Erreur lors de la sauvegarde des documents', 'error');
       }
-    } catch (error) {
-      console.error('Erreur lors de l\'upload:', error);
-      showToast('Erreur lors de l\'upload des documents', 'error');
+    } catch (err) {
+      console.error('Erreur upload:', err);
+      showToast("Erreur lors de l'upload des documents", 'error');
     } finally {
       setIsUploading(false);
     }
   };
 
-  // Gestionnaires pour le glisser-déposer
+  // ── Traitement des fichiers (validation + détection conflits) ──
+  const handleFiles = async (files: FileList | File[], category: DocumentCategory) => {
+    if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
+
+    const validFiles: File[] = [];
+    const invalidFiles: string[] = [];
+    Array.from(files).forEach(f => {
+      isValidFileType(f) ? validFiles.push(f) : invalidFiles.push(f.name);
+    });
+
+    if (invalidFiles.length > 0) showToast(`Fichiers non supportés : ${invalidFiles.join(', ')}`, 'error');
+    if (validFiles.length === 0) return;
+
+    const existingInCat = documentsByCategory[category];
+    const noConflict: { file: File }[] = [];
+    const conflicts: ConflictItem[] = [];
+
+    for (const file of validFiles) {
+      const dup = existingInCat.find(d => d.nomOriginal === file.name);
+      dup ? conflicts.push({ file, category, existingDoc: dup }) : noConflict.push({ file });
+    }
+
+    if (noConflict.length > 0) await uploadFiles(noConflict, category);
+    if (conflicts.length > 0) setConflictQueue(prev => [...prev, ...conflicts]);
+  };
+
+  // ── Résolution de conflits ──
+  const handleConflictReplace = async () => {
+    if (!currentConflict) return;
+    const { file, category, existingDoc } = currentConflict;
+    setCurrentConflict(null);
+    try {
+      const deleted = await window.electronAPI?.deleteDocument(
+        enquete.numero, existingDoc.cheminRelatif,
+        enquete.cheminExterne, enquete.useSubfolderForExternal ?? true
+      );
+      if (deleted) {
+        onUpdate(enquete.id, {
+          documents: (enquete.documents || []).filter(d => d.id !== existingDoc.id)
+        });
+      }
+    } catch (err) { console.error('Erreur suppression avant remplacement:', err); }
+    await uploadFiles([{ file }], category);
+  };
+
+  const handleConflictRename = async () => {
+    if (!currentConflict) return;
+    const { file, category } = currentConflict;
+    setCurrentConflict(null);
+    const existingNames = (enquete.documents || []).map(d => d.nomOriginal);
+    const newName = resolveNameConflict(file.name, existingNames);
+    await uploadFiles([{ file, renamedTo: newName }], category);
+    showToast(`Document renommé en "${newName}"`, 'info');
+  };
+
+  const handleConflictSkip = () => {
+    const name = currentConflict?.file.name;
+    setCurrentConflict(null);
+    showToast(`"${name}" ignoré`, 'info');
+  };
+
+  // ── Drag & drop ──
   const handleDrop = (e: React.DragEvent, category: DocumentCategory) => {
     e.preventDefault();
     setDragOverZone(null);
-    
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      handleFiles(files, category);
-    }
+    if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files, category);
   };
-
   const handleDragOver = (e: React.DragEvent, category: DocumentCategory) => {
     e.preventDefault();
     setDragOverZone(category);
   };
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setDragOverZone(null); };
 
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOverZone(null);
-  };
-
-  // Gestionnaire pour le sélecteur de fichiers
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, category: DocumentCategory) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      handleFiles(files, category);
-    }
-    // Reset input
-    if (fileInputRefs.current[category]) {
-      fileInputRefs.current[category]!.value = '';
-    }
+    if (e.target.files?.length) handleFiles(e.target.files, category);
+    if (fileInputRefs.current[category]) fileInputRefs.current[category]!.value = '';
   };
 
-  // Fonction pour ouvrir un document
-  const handleOpenDocument = async (document: DocumentEnquete) => {
-    if (!window.electronAPI) {
-      showToast('API Electron non disponible', 'error');
-      return;
-    }
-
+  // ── Ouvrir / supprimer un document ──
+  const handleOpenDocument = async (doc: DocumentEnquete) => {
+    if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
     try {
-      const success = await window.electronAPI.openDocument(enquete.numero, document.cheminRelatif);
-      if (!success) {
-        showToast(`Impossible d'ouvrir le document "${document.nomOriginal}"`, 'error');
-      }
-    } catch (error) {
-      console.error('Erreur lors de l\'ouverture du document:', error);
-      showToast('Erreur lors de l\'ouverture du document', 'error');
-    }
+      const ok = await window.electronAPI.openDocument(enquete.numero, doc.cheminRelatif);
+      if (!ok) showToast(`Impossible d'ouvrir "${doc.nomOriginal}"`, 'error');
+    } catch { showToast("Erreur lors de l'ouverture du document", 'error'); }
   };
 
-  // Fonction pour supprimer un document
-  const handleDeleteDocument = async (document: DocumentEnquete) => {
-    if (!window.electronAPI) {
-      showToast('API Electron non disponible', 'error');
-      return;
-    }
-
-    if (!confirm(`Êtes-vous sûr de vouloir supprimer le document "${document.nomOriginal}" ?`)) {
-      return;
-    }
-
+  const handleDeleteDocument = async (doc: DocumentEnquete) => {
+    if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
+    if (!confirm(`Êtes-vous sûr de vouloir supprimer "${doc.nomOriginal}" ?`)) return;
     try {
-      const success = await window.electronAPI.deleteDocument(
-        enquete.numero, 
-        document.cheminRelatif, 
-        enquete.cheminExterne,
-        enquete.useSubfolderForExternal ?? true // Passer la préférence utilisateur
+      const ok = await window.electronAPI.deleteDocument(
+        enquete.numero, doc.cheminRelatif,
+        enquete.cheminExterne, enquete.useSubfolderForExternal ?? true
       );
-      
-      if (success) {
-        const updatedDocuments = (enquete.documents || []).filter(doc => doc.id !== document.id);
-        onUpdate(enquete.id, { documents: updatedDocuments });
+      if (ok) {
+        onUpdate(enquete.id, { documents: (enquete.documents || []).filter(d => d.id !== doc.id) });
         showToast('Document supprimé', 'success');
       } else {
-        showToast('Erreur lors de la suppression du document', 'error');
+        showToast('Erreur lors de la suppression', 'error');
       }
-    } catch (error) {
-      console.error('Erreur lors de la suppression:', error);
-      showToast('Erreur lors de la suppression du document', 'error');
-    }
+    } catch { showToast('Erreur lors de la suppression du document', 'error'); }
   };
 
-  // Fonction pour ouvrir le dossier externe
   const handleOpenExternalFolder = async () => {
-    if (!enquete.cheminExterne) {
-      showToast('Aucun chemin externe configuré', 'warning');
-      return;
-    }
-
-    if (!window.electronAPI) {
-      showToast('API Electron non disponible', 'error');
-      return;
-    }
-
+    if (!enquete.cheminExterne) { showToast('Aucun chemin externe configuré', 'warning'); return; }
+    if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
     try {
-      const success = await window.electronAPI.openExternalFolder(
-        enquete.cheminExterne, 
-        enquete.numero,
-        enquete.useSubfolderForExternal ?? true // Passer la préférence utilisateur
+      const ok = await window.electronAPI.openExternalFolder(
+        enquete.cheminExterne, enquete.numero, enquete.useSubfolderForExternal ?? true
       );
-      if (!success) {
-        showToast('Impossible d\'ouvrir le dossier externe', 'error');
-      }
-    } catch (error) {
-      console.error('Erreur ouverture dossier externe:', error);
-      showToast('Erreur lors de l\'ouverture du dossier externe', 'error');
-    }
+      if (!ok) showToast("Impossible d'ouvrir le dossier externe", 'error');
+    } catch { showToast("Erreur lors de l'ouverture du dossier externe", 'error'); }
   };
-  
-  // Fonction pour sauvegarder le nouveau chemin externe
-  const handleSaveExternalPath = async (newPath: string, useSubfolder: boolean) => {
+
+  const handleSaveExternalPath = (newPath: string, useSubfolder: boolean) => {
     const oldPath = enquete.cheminExterne;
-    const oldUseSubfolder = enquete.useSubfolderForExternal ?? true; // Par défaut true pour rétrocompatibilité
-    
-    // Mettre à jour les deux champs
-    onUpdate(enquete.id, { 
-      cheminExterne: newPath,
-      useSubfolderForExternal: useSubfolder 
-    });
-    
-    if (oldPath && (oldPath !== newPath || oldUseSubfolder !== useSubfolder)) {
-      const oldFinalPath = oldUseSubfolder ? `${oldPath}/${enquete.numero}` : oldPath;
-      const newFinalPath = useSubfolder && newPath ? `${newPath}/${enquete.numero}` : newPath;
-      
-      showToast(
-        `Configuration modifiée. Déplacez manuellement les fichiers de "${oldFinalPath}" vers "${newFinalPath}" si nécessaire.`,
-        'warning'
-      );
+    const oldSub = enquete.useSubfolderForExternal ?? true;
+    onUpdate(enquete.id, { cheminExterne: newPath, useSubfolderForExternal: useSubfolder });
+    if (oldPath && (oldPath !== newPath || oldSub !== useSubfolder)) {
+      const from = oldSub ? `${oldPath}/${enquete.numero}` : oldPath;
+      const to   = useSubfolder && newPath ? `${newPath}/${enquete.numero}` : newPath;
+      showToast(`Configuration modifiée. Déplacez manuellement les fichiers de "${from}" vers "${to}" si nécessaire.`, 'warning');
     } else {
       showToast('Chemin externe configuré', 'success');
     }
   };
 
-  // Fonction pour filtrer les documents par catégorie
-  const getDocumentsByCategory = (category: DocumentCategory): DocumentEnquete[] => {
-    const categoryMapping = {
-      'geoloc': 'Geoloc',
-      'ecoutes': 'Ecoutes', 
-      'actes': 'Actes',
-      'pv': 'PV'
-    };
-    const electronCategory = categoryMapping[category];
-    
-    return (enquete.documents || []).filter(doc => 
-      doc.cheminRelatif.startsWith(`${electronCategory}/`)
-    );
+  // ── Vue expandable ──
+  const toggleExpand = (cat: DocumentCategory) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev);
+      next.has(cat) ? next.delete(cat) : next.add(cat);
+      return next;
+    });
   };
 
-  // Formatage de la date de dernière synchronisation
   const formatLastScanTime = () => {
     if (!lastScanTime) return null;
-    
-    try {
-      return format(lastScanTime, 'dd/MM/yyyy HH:mm:ss', { locale: fr });
-    } catch (error) {
-      console.error('Erreur de formatage de date:', error);
-      return lastScanTime.toLocaleString();
-    }
+    try { return format(lastScanTime, 'dd/MM/yyyy HH:mm:ss', { locale: fr }); }
+    catch { return lastScanTime.toLocaleString(); }
   };
 
+  // ─────────────────────────────── JSX ───────────────────────────────
   return (
     <>
       <Card className="w-full">
@@ -621,76 +505,62 @@ if (category === 'ecoutes') {
             <CardTitle className="text-lg font-medium flex items-center gap-2">
               <FileText className="h-5 w-5" />
               Documents ({(enquete.documents || []).length})
+
+              {/* Indicateur de scan silencieux — discret, juste à côté du titre */}
+              {isScanning && (
+                <span className="inline-flex items-center gap-1 text-xs text-gray-400 font-normal ml-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
+                  vérification...
+                </span>
+              )}
+
               {copyStatus && (
                 <div className="flex items-center gap-1">
-                  {copyStatus === 'success' ? (
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  ) : (
-                    <XCircle className="h-4 w-4 text-red-600" />
-                  )}
+                  {copyStatus === 'success'
+                    ? <CheckCircle className="h-4 w-4 text-green-600" />
+                    : <XCircle    className="h-4 w-4 text-red-600" />}
                   <span className="text-xs text-gray-600">
                     {copyStatus === 'success' ? 'Copie externe OK' : 'Erreur copie externe'}
                   </span>
                 </div>
               )}
-              
-              {/* NOUVEAU - Indicateur d'analyse JLD */}
-              {isAnalyzingJLD && (
-                <Badge variant="outline" className="bg-blue-50 text-blue-700 animate-pulse">
-                  <Loader className="h-3 w-3 mr-1 animate-spin" />
-                  Analyse JLD...
-                </Badge>
-              )}
-              
-              {/* Affichage du dernier scan */}
+
               {lastScanTime && (
                 <div className="flex items-center gap-1 ml-2 text-xs text-gray-500">
                   <Calendar className="h-3 w-3" />
-                  <span>Scan: {formatLastScanTime()}</span>
+                  <span>Scan : {formatLastScanTime()}</span>
                 </div>
               )}
             </CardTitle>
+
             <div className="flex flex-wrap items-center gap-2">
-              {/* Bouton de scan des nouveaux documents */}
               <Button
-                variant="outline"
-                size="sm"
+                variant="outline" size="sm"
                 onClick={() => scanForNewDocuments()}
                 disabled={isScanning}
                 className="flex items-center gap-2"
                 title="Rechercher les nouveaux documents ajoutés manuellement"
               >
-                {isScanning ? (
-                  <Loader className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4" />
-                )}
+                {isScanning ? <Loader className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                 {isScanning ? 'Recherche...' : 'Actualiser'}
               </Button>
-              
-              {/* Bouton de synchronisation - uniquement visible si un chemin externe est configuré */}
+
               {enquete.cheminExterne && (
                 <Button
-                  variant="outline"
-                  size="sm"
+                  variant="outline" size="sm"
                   onClick={synchronizeDocuments}
                   disabled={isSyncing}
                   className="flex items-center gap-2"
                   title="Synchroniser les documents entre interne et externe"
                 >
-                  {isSyncing ? (
-                    <Loader className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4" />
-                  )}
+                  {isSyncing ? <Loader className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   {isSyncing ? 'Synchro...' : 'Synchroniser'}
                 </Button>
               )}
-              
+
               {enquete.cheminExterne && (
                 <Button
-                  variant="outline"
-                  size="sm"
+                  variant="outline" size="sm"
                   onClick={handleOpenExternalFolder}
                   className="flex items-center gap-2"
                   title="Ouvrir le dossier externe"
@@ -699,9 +569,9 @@ if (category === 'ecoutes') {
                   Ouvrir dossier
                 </Button>
               )}
+
               <Button
-                variant="outline"
-                size="sm"
+                variant="outline" size="sm"
                 onClick={() => setShowPathModal(true)}
                 className="flex items-center gap-2"
                 title="Configurer le chemin de sauvegarde externe"
@@ -712,46 +582,76 @@ if (category === 'ecoutes') {
             </div>
           </div>
         </CardHeader>
-        
+
         <CardContent className="space-y-6">
-          {/* Afficher le résultat de synchronisation si disponible */}
+          {/* Résultat de la dernière synchronisation */}
           {lastSyncResult && (
-            <div className="bg-blue-50 p-3 rounded-lg border border-blue-200 mb-4">
+            <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
               <h3 className="font-medium text-blue-800 mb-1">Dernière synchronisation</h3>
               <div className="text-xs text-blue-700 space-y-1">
-                <p>Documents internes: {lastSyncResult.totalInternal}</p>
-                <p>Documents externes: {lastSyncResult.totalExternal}</p>
-                {lastSyncResult.addedToInternal.length > 0 && (
-                  <p>Ajoutés en interne: {lastSyncResult.addedToInternal.length}</p>
-                )}
-                {lastSyncResult.addedToExternal.length > 0 && (
-                  <p>Ajoutés en externe: {lastSyncResult.addedToExternal.length}</p>
-                )}
-                {lastSyncResult.errors.length > 0 && (
-                  <div className="text-red-600">
-                    <p>Erreurs: {lastSyncResult.errors.length}</p>
-                  </div>
-                )}
+                <p>Documents internes : {lastSyncResult.totalInternal}</p>
+                <p>Documents externes : {lastSyncResult.totalExternal}</p>
+                {lastSyncResult.addedToInternal.length > 0 && <p>Ajoutés en interne : {lastSyncResult.addedToInternal.length}</p>}
+                {lastSyncResult.addedToExternal.length > 0 && <p>Ajoutés en externe : {lastSyncResult.addedToExternal.length}</p>}
+                {lastSyncResult.errors.length > 0 && <p className="text-red-600">Erreurs : {lastSyncResult.errors.length}</p>}
               </div>
             </div>
           )}
-          
-          {/* Grille des 4 zones de documents */}
+
+          {/* Dialogue de résolution de conflit (style Explorateur Windows) */}
+          {currentConflict && (
+            <div className="border-2 border-amber-300 bg-amber-50 rounded-lg p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="font-semibold text-amber-900 text-sm">Conflit de nom de fichier</p>
+                  <p className="text-xs text-amber-800 mt-1">
+                    Le fichier <strong>"{currentConflict.file.name}"</strong> existe déjà dans{' '}
+                    <strong>{DOCUMENT_ZONES.find(z => z.category === currentConflict.category)?.title}</strong>.
+                  </p>
+                  <p className="text-xs text-amber-700 mt-0.5">Que souhaitez-vous faire ?</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="destructive" onClick={handleConflictReplace}
+                  className="flex items-center gap-1 text-xs" title="Remplacer le fichier existant">
+                  <XCircle className="h-3 w-3" /> Remplacer
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleConflictRename}
+                  className="flex items-center gap-1 text-xs border-amber-400 text-amber-800 hover:bg-amber-100"
+                  title="Garder les deux (renommage automatique)">
+                  <Copy className="h-3 w-3" /> Garder les deux
+                </Button>
+                <Button size="sm" variant="ghost" onClick={handleConflictSkip}
+                  className="flex items-center gap-1 text-xs text-gray-600" title="Ne pas copier ce fichier">
+                  <X className="h-3 w-3" /> Ignorer
+                </Button>
+              </div>
+              {conflictQueue.length > 0 && (
+                <p className="text-xs text-amber-600">{conflictQueue.length} autre(s) conflit(s) en attente</p>
+              )}
+            </div>
+          )}
+
+          {/* Grille des 4 zones */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {DOCUMENT_ZONES.map((zone) => {
-              const documentsInZone = getDocumentsByCategory(zone.category);
+              const docsInZone = documentsByCategory[zone.category];
               const isDragOver = dragOverZone === zone.category;
-              
+              const isExpanded = expandedCategories.has(zone.category);
+              const PREVIEW_COUNT = 3;
+              const visibleDocs = isExpanded ? docsInZone : docsInZone.slice(0, PREVIEW_COUNT);
+              const hiddenCount = docsInZone.length - PREVIEW_COUNT;
+
               return (
                 <div key={zone.category} className="space-y-3">
-                  {/* Zone de glisser-déposer */}
+                  {/* Zone de dépôt */}
                   <div
                     className={`
-                      border-2 border-dashed rounded-lg p-4 text-center transition-all relative
-                      ${isDragOver 
-                        ? `${zone.color} border-solid shadow-md` 
-                        : `border-gray-300 hover:border-gray-400 hover:bg-gray-50`
-                      }
+                      border-2 border-dashed rounded-lg p-4 text-center transition-all
+                      ${isDragOver
+                        ? `${zone.color} border-solid shadow-md`
+                        : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'}
                       ${isUploading ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}
                     `}
                     onDrop={(e) => handleDrop(e, zone.category)}
@@ -759,15 +659,6 @@ if (category === 'ecoutes') {
                     onDragLeave={handleDragLeave}
                     onClick={() => fileInputRefs.current[zone.category]?.click()}
                   >
-                    {/* NOUVEAU - Indicateur spécial pour écoutes avec analyse JLD */}
-                    {zone.category === 'ecoutes' && (
-                      <div className="absolute top-1 right-1">
-                        <Badge variant="outline" className="text-xs bg-blue-50 text-blue-600 border-blue-200">
-                          Analyse JLD
-                        </Badge>
-                      </div>
-                    )}
-
                     <div className="flex flex-col items-center gap-2">
                       <div className={`p-2 rounded-full ${zone.color.replace('hover:', '')}`}>
                         {zone.icon}
@@ -775,68 +666,101 @@ if (category === 'ecoutes') {
                       <div>
                         <h3 className="font-medium text-sm">{zone.title}</h3>
                         <p className="text-xs text-gray-600 mb-2">{zone.description}</p>
-                        {/* NOUVEAU - Information JLD pour zone écoutes */}
-                        {zone.category === 'ecoutes' && (
-                          <p className="text-xs text-blue-600 mb-1">
-                            📄 Détection automatique d'ordonnances JLD
-                          </p>
-                        )}
                         <p className="text-xs text-gray-500">
                           {isUploading ? 'Upload...' : 'Cliquer ou glisser-déposer'}
                         </p>
                         <Badge variant="outline" className="mt-1 text-xs">
-                          {documentsInZone.length} document{documentsInZone.length !== 1 ? 's' : ''}
+                          {docsInZone.length} document{docsInZone.length !== 1 ? 's' : ''}
                         </Badge>
                       </div>
                     </div>
                     <input
-                      ref={(el) => fileInputRefs.current[zone.category] = el}
-                      type="file"
-                      multiple
+                      ref={(el) => { fileInputRefs.current[zone.category] = el; }}
+                      type="file" multiple
                       accept=".pdf,.doc,.docx,.odt,.txt,.jpg,.jpeg,.png,.gif,.bmp,.webp,.html,.htm,.msg"
                       onChange={(e) => handleFileSelect(e, zone.category)}
                       className="hidden"
                     />
                   </div>
 
-                  {/* Liste des documents de cette zone */}
-                  {documentsInZone.length > 0 && (
-                    <div className="space-y-2 max-h-32 overflow-y-auto">
-                      {documentsInZone.map((document) => (
-                        <div
-                          key={document.id}
-                          className="flex items-center justify-between p-2 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors"
-                        >
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            {getFileIcon(document.type, 'h-3 w-3')}
-                            <div 
-                              className="flex-1 min-w-0 cursor-pointer"
-                              onClick={() => handleOpenDocument(document)}
-                              title="Cliquer pour ouvrir le document"
-                            >
-                              <p className="text-xs font-medium text-gray-900 break-words line-clamp-2">
-                                {document.nomOriginal}
-                              </p>
-                              <div className="flex items-center gap-1 text-xs text-gray-500">
-                                <span>{formatFileSize(document.taille)}</span>
-                                <ExternalLink className="h-2 w-2" />
-                              </div>
+                  {/* Liste des documents (expandable) */}
+                  {docsInZone.length > 0 && (
+                    <div className="space-y-1.5">
+                      <TooltipProvider>
+                        {visibleDocs.map((doc) => (
+                          <div
+                            key={doc.id}
+                            className="flex items-center justify-between px-2 py-1.5 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors"
+                          >
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              {getFileIcon(doc.type, 'h-3 w-3')}
+
+                              {/* Zone cliquable avec tooltip au survol */}
+                              <TooltipRoot delayDuration={400}>
+                                <TooltipTrigger asChild>
+                                  <div
+                                    className="flex-1 min-w-0 cursor-pointer"
+                                    onClick={() => handleOpenDocument(doc)}
+                                  >
+                                    <p className="text-xs font-medium text-gray-900 truncate">
+                                      {doc.nomOriginal}
+                                    </p>
+                                    <div className="flex items-center gap-1 text-xs text-gray-500">
+                                      <span>{formatFileSize(doc.taille)}</span>
+                                      <ExternalLink className="h-2 w-2" />
+                                    </div>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent
+                                  side="right"
+                                  className="bg-white text-gray-800 border border-gray-200 shadow-lg p-0 max-w-xs"
+                                >
+                                  <div className="p-2.5 space-y-1">
+                                    <p className="font-semibold text-xs leading-tight break-all">
+                                      {doc.nomOriginal}
+                                    </p>
+                                    <p className="text-xs text-gray-500">
+                                      {TYPE_LABELS[doc.type] ?? 'Fichier'} · {formatFileSize(doc.taille)}
+                                    </p>
+                                    {doc.dateAjout && (
+                                      <p className="text-xs text-gray-400">
+                                        Ajouté le{' '}
+                                        {format(new Date(doc.dateAjout), 'dd/MM/yyyy', { locale: fr })}
+                                      </p>
+                                    )}
+                                    <p className="text-xs text-blue-500 mt-0.5">Cliquer pour ouvrir</p>
+                                  </div>
+                                </TooltipContent>
+                              </TooltipRoot>
                             </div>
+
+                            {isEditing && (
+                              <Button
+                                variant="ghost" size="sm"
+                                className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
+                                onClick={() => handleDeleteDocument(doc)}
+                                title="Supprimer le document"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
                           </div>
-                          
-                          {isEditing && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                              onClick={() => handleDeleteDocument(document)}
-                              title="Supprimer le document"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
+                        ))}
+                      </TooltipProvider>
+
+                      {/* Bouton expand / réduire */}
+                      {docsInZone.length > PREVIEW_COUNT && (
+                        <button
+                          onClick={() => toggleExpand(zone.category)}
+                          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline mt-1 ml-1 transition-colors"
+                        >
+                          {isExpanded ? (
+                            <><ChevronUp className="h-3 w-3" /> Réduire</>
+                          ) : (
+                            <><ChevronDown className="h-3 w-3" /> Voir {hiddenCount} autre{hiddenCount > 1 ? 's' : ''}...</>
                           )}
-                        </div>
-                      ))}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -856,38 +780,19 @@ if (category === 'ecoutes') {
                     {enquete.useSubfolderForExternal !== false && ` / ${enquete.numero}`}
                   </p>
                   <p className="text-xs text-green-600 mt-1">
-                    Mode: {enquete.useSubfolderForExternal !== false ? 'Sous-dossier enquête' : 'Dossier direct'}
+                    Mode : {enquete.useSubfolderForExternal !== false ? 'Sous-dossier enquête' : 'Dossier direct'}
                   </p>
                 </div>
               </div>
             ) : (
               <div className="flex items-center gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                 <AlertCircle className="h-4 w-4 text-yellow-600" />
-                <div className="flex-1">
-                  <p className="text-sm text-yellow-800">
-                    Aucun chemin externe configuré - les documents sont sauvegardés uniquement en interne
-                  </p>
-                </div>
+                <p className="text-sm text-yellow-800">
+                  Aucun chemin externe configuré — documents sauvegardés uniquement en interne
+                </p>
               </div>
             )}
 
-            {/* NOUVEAU - Information sur l'analyse JLD */}
-            <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <Info className="h-4 w-4 text-blue-600" />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-blue-800">
-                  Fonctionnalités avancées actives
-                </p>
-                <ul className="text-xs text-blue-700 mt-1 space-y-1">
-                  <li>• Détection automatique de nouveaux documents</li>
-                  <li>• Analyse intelligente des ordonnances JLD (zone écoutes)</li>
-                  <li>• Création automatique d'écoutes depuis les documents PDF</li>
-                  <li>• Synchronisation bidirectionnelle avec dossier externe</li>
-                </ul>
-              </div>
-            </div>
-
-            {/* Alerte si API non disponible */}
             {!window.electronAPI && (
               <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
                 <XCircle className="h-4 w-4 text-red-600" />
@@ -901,18 +806,18 @@ if (category === 'ecoutes') {
           {/* Aide */}
           <div className="text-xs text-gray-500 space-y-1">
             <p><strong>Formats supportés :</strong> PDF, DOC, DOCX, ODT, TXT, Images, HTML, MSG</p>
-            <p><strong>Organisation :</strong> Les documents sont automatiquement classés dans des dossiers selon leur catégorie</p>
+            <p><strong>Organisation :</strong> Classement automatique dans des dossiers par catégorie</p>
             {enquete.cheminExterne && (
               <p><strong>Sauvegarde double :</strong> Documents sauvegardés en interne + copie externe</p>
             )}
-            <p><strong>Analyse JLD :</strong> Les PDF d'ordonnances déposés dans "Écoutes" sont analysés pour créer automatiquement les écoutes</p>
-            <p><strong>Synchronisation :</strong> Cliquez sur "Synchroniser" pour vérifier que tous les documents sont présents aux deux endroits</p>
-            <p><strong>Actualisation :</strong> Cliquez sur "Actualiser" pour détecter les documents ajoutés manuellement</p>
+            <p><strong>Conflits :</strong> En cas de doublon, une bannière propose de remplacer, renommer ou ignorer</p>
+            <p><strong>Survol :</strong> Passer la souris sur un document affiche ses informations détaillées</p>
+            <p><strong>Synchronisation :</strong> "Synchroniser" vérifie que tous les documents sont présents aux deux endroits</p>
+            <p><strong>Actualisation :</strong> "Actualiser" détecte les documents ajoutés manuellement dans le dossier</p>
           </div>
         </CardContent>
       </Card>
 
-      {/* Modal de configuration du chemin */}
       <DocumentPathModal
         isOpen={showPathModal}
         onClose={() => setShowPathModal(false)}
@@ -921,36 +826,6 @@ if (category === 'ecoutes') {
         onSave={handleSaveExternalPath}
         enqueteNumero={enquete.numero}
       />
-
-      {/* NOUVELLES MODALS JLD */}
-
-{/* Modal simple de confirmation JLD */}
-{currentJLDFile && (
-  <SimpleJLDConfirmationModal
-    isOpen={showJLDConfirmation}
-    onClose={() => {
-      setShowJLDConfirmation(false);
-      setCurrentJLDFile(null);
-    }}
-    onConfirm={handleJLDConfirmation}
-    fileName={currentJLDFile.name}
-  />
-)}
-
-{/* Modal de création des écoutes JLD */}
-{currentJLDAnalysis && currentJLDFile && (
-  <JLDEcoutesCreationModal
-    isOpen={showJLDCreation}
-    onClose={() => {
-      setShowJLDCreation(false);
-      setCurrentJLDAnalysis(null);
-      setCurrentJLDFile(null);
-    }}
-    onCreateEcoutes={handleCreateJLDEcoutes}
-    analysisResult={currentJLDAnalysis}
-    fileName={currentJLDFile.name}
-  />
-)}
     </>
   );
 };
