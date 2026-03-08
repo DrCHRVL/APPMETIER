@@ -193,10 +193,13 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
 
     const updatedEcoutes = enquete.ecoutes.map(ecoute => {
       if (ecoute.id === autorisationEcouteId) {
+        // Pour les écoutes (interceptions logicielles), la pose = date d'autorisation JLD
+        // Pas de pose physique nécessaire → on passe directement en 'en_cours'
+        const poseResult = ActeUtils.setPose({ ...ecoute, dateDebut: date }, date);
         return {
           ...ecoute,
           dateDebut: date,
-          statut: 'pose_pending'
+          ...poseResult // datePose = date, dateFin calculée, statut = 'en_cours'
         };
       }
       return ecoute;
