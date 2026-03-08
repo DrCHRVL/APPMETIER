@@ -41,7 +41,8 @@ export class DataMergeService {
     } = this.intelligentMergeEnquetes(
       localData.enquetes || [],
       serverData.enquetes || [],
-      localDeletedIds
+      localDeletedIds,
+      serverDeletedIds
     );
 
     conflicts.push(...enqueteConflicts);
@@ -81,12 +82,14 @@ export class DataMergeService {
 
   /**
    * 🆕 Fusion intelligente des enquêtes
-   * @param localDeletedIds IDs supprimés intentionnellement en local — ne doivent pas être rajoutés depuis le serveur
+   * @param localDeletedIds IDs supprimés localement — ne doivent pas être rajoutés depuis le serveur
+   * @param serverDeletedIds IDs supprimés par un collègue sur le serveur — ne doivent pas être re-poussés depuis le local
    */
   private static intelligentMergeEnquetes(
     localEnquetes: Enquete[],
     serverEnquetes: Enquete[],
-    localDeletedIds: Set<number> = new Set()
+    localDeletedIds: Set<number> = new Set(),
+    serverDeletedIds: Set<number> = new Set()
   ): {
     merged: Enquete[];
     conflicts: SyncConflict[];
@@ -143,8 +146,13 @@ export class DataMergeService {
     // 2. Traiter les enquêtes locales uniquement
     for (const [id, localEnquete] of localMap) {
       if (!serverMap.has(id)) {
-        // ✅ Enquête locale pas sur serveur → TOUJOURS nouvelle locale
-        // (On ne supprime jamais d'enquête, donc pas de conflit)
+        // Vérifier si un collègue a supprimé cette enquête sur le serveur
+        if (serverDeletedIds.has(id)) {
+          // ⛔ Supprimée par un collègue → ne pas la re-pousser sur le serveur
+          console.log(`🗑️ DataMerge: Enquête ${id} retirée du local (supprimée par un collègue)`);
+          continue;
+        }
+        // ✅ Nouvelle enquête locale → push vers serveur
         merged.set(id, localEnquete);
         stats.newFromLocal++;
       }
