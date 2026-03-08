@@ -682,21 +682,62 @@ ${data.deferementsParMois.length > 0 ? `
 export async function exportStatsPdf(data: PdfExportData): Promise<void> {
   const html = generateStatsPdfHtml(data);
 
-  const printWindow = window.open('', '_blank', 'width=900,height=700');
-  if (!printWindow) {
-    alert('Veuillez autoriser les popups pour exporter le PDF.');
-    return;
+  // IMPORTANT : html2canvas ne peut PAS rendre visibility:hidden ni display:none.
+  // On utilise opacity:0 + pointerEvents:none — l'élément est composité normalement
+  // par le navigateur (donc capturables), mais totalement transparent pour l'utilisateur.
+  const container = document.createElement('div');
+  Object.assign(container.style, {
+    position: 'fixed',
+    top: '0',
+    left: '0',
+    width: '794px', // A4 à 96dpi (210mm × 96/25.4 ≈ 794px)
+    opacity: '0',
+    pointerEvents: 'none',
+    zIndex: '-9999',
+  });
+
+  container.innerHTML = html
+    .replace(/<!DOCTYPE html>[\s\S]*?<body[^>]*>/, '')
+    .replace(/<\/body>[\s\S]*$/, '');
+
+  // Injecter les styles
+  const styleEl = document.createElement('style');
+  styleEl.textContent = CSS_STYLES;
+  container.prepend(styleEl);
+
+  document.body.appendChild(container);
+
+  try {
+    const html2pdf = (await import('html2pdf.js')).default;
+
+    const opt = {
+      margin: [10, 10, 10, 10],
+      filename: `Rapport_Statistiques_${data.selectedYear}.pdf`,
+      image: { type: 'jpeg', quality: 0.95 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: 794,
+        logging: false,
+      },
+      jsPDF: {
+        unit: 'mm',
+        format: 'a4',
+        orientation: 'portrait',
+      },
+      pagebreak: {
+        mode: ['css', 'legacy'],
+        before: '.page-break',
+        avoid: '.section-nobreak',
+      },
+    };
+
+    await html2pdf().set(opt).from(container).save();
+  } finally {
+    document.body.removeChild(container);
   }
-
-  printWindow.document.open();
-  printWindow.document.write(html);
-  printWindow.document.close();
-
-  // Attendre le chargement complet puis déclencher l'impression
-  printWindow.onload = () => {
-    printWindow.focus();
-    printWindow.print();
-  };
 }
 
 export type { PdfExportData };
