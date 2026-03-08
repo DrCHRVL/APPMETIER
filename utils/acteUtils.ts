@@ -1,5 +1,29 @@
-import { GeolocData, EcouteData, AutreActe } from '@/types/interfaces';
+import { GeolocData, EcouteData, AutreActe, ActeStatus } from '@/types/interfaces';
 import { DateUtils } from './dateUtils';
+
+export function getStatutBadgeProps(statut: ActeStatus): { label: string; className: string } {
+  switch (statut) {
+    case 'autorisation_pending': return { label: 'Autorisation en attente', className: 'bg-purple-100 text-purple-700 border-purple-200' };
+    case 'pose_pending':         return { label: 'Pose en attente',         className: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+    case 'en_cours':             return { label: 'En cours',                className: 'bg-green-100 text-green-700 border-green-200' };
+    case 'prolongation_pending': return { label: 'Prolongation à valider',  className: 'bg-orange-100 text-orange-700 border-orange-200' };
+    case 'a_renouveler':         return { label: 'À renouveler',            className: 'bg-amber-100 text-amber-700 border-amber-200' };
+    default:                     return { label: 'Terminé',                 className: 'bg-gray-100 text-gray-500 border-gray-200' };
+  }
+}
+
+// Helper : calcule la date de fin selon l'unité de l'acte (jours ou mois calendaires)
+function endDateForActe(startDate: string, duree: string, dureeUnit?: 'jours' | 'mois'): string {
+  return DateUtils.calculateEndDateWithUnit(startDate, duree, dureeUnit || 'jours');
+}
+
+// Helper : libellé d'une durée pour affichage
+export function formatDuree(value: string, unit?: 'jours' | 'mois'): string {
+  const n = parseInt(value, 10);
+  if (isNaN(n)) return `${value} ${unit === 'mois' ? 'mois' : 'jours'}`;
+  if (unit === 'mois') return n === 1 ? '1 mois' : `${n} mois`;
+  return n === 1 ? '1 jour' : `${n} jours`;
+}
 
 type Acte = GeolocData | EcouteData | AutreActe;
 
@@ -15,36 +39,30 @@ export const ActeUtils = {
   calculateProlongation: (
   acte: Acte,
   prolongationDate: string,
-  prolongationDuration: string
+  prolongationDuration: string,
+  prolongationDureeUnit?: 'jours' | 'mois'
 ): ProlongationResult => {
   try {
-    console.log("1. Entrée calculateProlongation:", {
-      acteDebut: acte.dateDebut,
-      actePose: acte.datePose,
-      acteDuree: acte.duree,
-      prolongationDate,
-      prolongationDuration
-    });
+    const acteDureeUnit = acte.dureeUnit || 'jours';
+    // Unité de la prolongation : celle passée explicitement, sinon celle de l'acte
+    const pUnit = prolongationDureeUnit || acteDureeUnit;
 
     // Calculer la date de fin initiale basée sur la date de pose
-    const initialEndDate = DateUtils.calculateActeEndDate(acte.datePose, acte.duree);
-    console.log("2. Date de fin initiale:", initialEndDate);
+    const initialEndDate = endDateForActe(acte.datePose || acte.dateDebut, acte.duree, acteDureeUnit);
 
     // Vérifier si la date d'autorisation est postérieure à la date de fin initiale
     let warning;
     if (DateUtils.isAfter(prolongationDate, initialEndDate)) {
       warning = "Attention : la date d'autorisation est postérieure à la date de fin initiale de l'acte";
-      console.log("3. Warning détecté:", warning);
     }
 
     // Calculer la nouvelle date de fin à partir de la date de fin initiale
-    const newEndDate = DateUtils.addDays(initialEndDate, parseInt(prolongationDuration));
-    console.log("4. Nouvelle date de fin:", newEndDate);
+    const newEndDate = DateUtils.calculateEndDateWithUnit(initialEndDate, prolongationDuration, pUnit);
 
+    // Durée totale : addition des valeurs (meaningful si même unité)
     const totalDuration = (parseInt(acte.duree) + parseInt(prolongationDuration)).toString();
-    console.log("5. Durée totale:", totalDuration);
 
-    const result: ProlongationResult = {
+    return {
       dateFin: newEndDate,
       duree: totalDuration,
       statut: 'en_cours',
@@ -52,11 +70,8 @@ export const ActeUtils = {
       prolongationData: undefined
     };
 
-    console.log("6. Résultat final:", result);
-    return result;
-
   } catch (error) {
-    console.error('7. Erreur dans calculateProlongation:', error);
+    console.error('Erreur dans calculateProlongation:', error);
     throw error;
   }
 },
@@ -88,11 +103,11 @@ export const ActeUtils = {
         throw new Error('Invalid pose date');
       }
 
-      if (!DateUtils.validateDateRange(acte.dateDebut, poseDate)) {
+      if (acte.dateDebut && !DateUtils.validateDateRange(acte.dateDebut, poseDate)) {
         throw new Error('Pose date must be after start date');
       }
 
-      const newEndDate = DateUtils.calculateActeEndDate(poseDate, acte.duree);
+      const newEndDate = endDateForActe(poseDate, acte.duree, acte.dureeUnit);
       if (!newEndDate) {
         throw new Error('Failed to calculate end date');
       }
@@ -119,7 +134,7 @@ export const ActeUtils = {
 
       let dateFin = '';
       if (withPose && acte.datePose) {
-        dateFin = DateUtils.calculateActeEndDate(acte.datePose, acte.duree);
+        dateFin = endDateForActe(acte.datePose, acte.duree, acte.dureeUnit);
         if (!dateFin) {
           throw new Error('Failed to calculate end date');
         }

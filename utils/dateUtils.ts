@@ -1,4 +1,4 @@
-import { format, differenceInDays, addDays, isBefore, isAfter, parseISO } from 'date-fns';
+import { format, differenceInDays, addDays, addMonths, isBefore, isAfter, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
 export const DateUtils = {
@@ -116,6 +116,35 @@ export const DateUtils = {
       return !isNaN(dateObj.getTime());
     } catch {
       return false;
+    }
+  },
+
+  // Ajoute N mois calendaires à une date (28 fév + 1 mois = 28 mars)
+  addCalendarMonths: (date: Date | string, months: number): string => {
+    try {
+      const dateObj = typeof date === 'string' ? parseISO(date) : date;
+      if (isNaN(dateObj.getTime())) return '';
+      const newDate = addMonths(dateObj, months);
+      return format(newDate, 'yyyy-MM-dd');
+    } catch (error) {
+      console.error('Error adding calendar months:', error);
+      return '';
+    }
+  },
+
+  // Calcule la date de fin selon l'unité : 'jours' (addDays) ou 'mois' (addMonths calendaires)
+  calculateEndDateWithUnit: (startDate: string, value: string, unit: 'jours' | 'mois'): string => {
+    try {
+      if (!startDate || !value) return '';
+      const n = parseInt(value, 10);
+      if (isNaN(n) || n <= 0) return '';
+      if (unit === 'mois') {
+        return DateUtils.addCalendarMonths(startDate, n);
+      }
+      return DateUtils.calculateActeEndDate(startDate, value);
+    } catch (error) {
+      console.error('Error in calculateEndDateWithUnit:', error);
+      return '';
     }
   },
 

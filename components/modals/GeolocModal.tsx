@@ -34,10 +34,11 @@ export const GeolocModal = ({
   
   // Dates
   const [dateDebut, setDateDebut] = useState('');
-  const [duree, setDuree] = useState('15');
+  // 8 jours = régime normal, 15 jours = régime dérogatoire (art. 706-73 / 706-73-1 CPP)
+  const [duree, setDuree] = useState<'8' | '15'>('15');
   const [datePose, setDatePose] = useState('');
   const [hadPoseDate, setHadPoseDate] = useState(false);
-  
+
   // Autorisation JLD
   const [needsJLDAuth, setNeedsJLDAuth] = useState(false);
   
@@ -56,7 +57,7 @@ export const GeolocModal = ({
           description: geoloc.description || ''
         });
         setDateDebut(geoloc.dateDebut || '');
-        setDuree(geoloc.duree || '15');
+        setDuree((geoloc.duree === '8' ? '8' : '15') as '8' | '15');
         setDatePose(geoloc.datePose || '');
         setHadPoseDate(!!geoloc.datePose);
         setNeedsJLDAuth(false);
@@ -67,7 +68,7 @@ export const GeolocModal = ({
           description: initialData.description || ''
         });
         setDateDebut(initialData.dateDebut || '');
-        setDuree(initialData.duree || '15');
+        setDuree((initialData.duree === '8' ? '8' : '15') as '8' | '15');
         setDatePose(initialData.datePose || '');
         setHadPoseDate(false);
         setNeedsJLDAuth(initialData.needsJLDAuth !== undefined ? initialData.needsJLDAuth : false);
@@ -130,7 +131,10 @@ export const GeolocModal = ({
     
     const dates: DateManagerData = {
       dateDebut: needsJLDAuth ? '' : dateDebut,
-      duree,
+      duree,          // '8' ou '15' (jours)
+      dureeUnit: 'jours',
+      // Prolongations en mois (1 mois calendaire, limite 2 ans)
+      maxProlongations: undefined, // pas de limite fixe (2 ans = ~24 renouvellements)
       datePose,
       updatedStatut
     };
@@ -193,10 +197,51 @@ export const GeolocModal = ({
             </div>
           )}
 
+          {/* Sélecteur de durée légale */}
+          <div>
+            <Label>Durée de l'autorisation initiale *</Label>
+            <div className="flex gap-3 mt-1">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="duree"
+                  value="15"
+                  checked={duree === '15'}
+                  onChange={() => setDuree('15')}
+                  className="accent-blue-600"
+                />
+                <span className="text-sm">
+                  <span className="font-medium">15 jours</span>
+                  <span className="text-gray-500 ml-1">(régime dérogatoire art. 706-73/706-73-1)</span>
+                </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="duree"
+                  value="8"
+                  checked={duree === '8'}
+                  onChange={() => setDuree('8')}
+                  className="accent-blue-600"
+                />
+                <span className="text-sm">
+                  <span className="font-medium">8 jours</span>
+                  <span className="text-gray-500 ml-1">(régime normal)</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* Rappel légal prolongation */}
+          <div className="bg-blue-50 p-3 rounded-md text-sm text-blue-900 border border-blue-200">
+            <span className="font-semibold">Prolongation : 1 mois calendaire</span>
+            <span className="text-blue-700"> — Limite légale : 2 ans (renouvelable par mois)</span>
+          </div>
+
           {!needsJLDAuth && (
             <>
               <div>
-                <Label htmlFor="dateDebut">Date de début *</Label>
+                <Label htmlFor="dateDebut">Date de début (autorisation JLD) *</Label>
                 <Input
                   id="dateDebut"
                   type="date"
@@ -205,19 +250,6 @@ export const GeolocModal = ({
                   className={`${errors.dateDebut ? 'border-red-500' : ''} ${initialData?.dateDebut ? 'bg-green-50' : ''}`}
                 />
                 {errors.dateDebut && <p className="text-xs text-red-500 mt-1">{errors.dateDebut}</p>}
-              </div>
-
-              <div>
-                <Label htmlFor="duree">Durée (jours) *</Label>
-                <Input
-                  id="duree"
-                  type="number"
-                  min="1"
-                  value={duree}
-                  onChange={(e) => setDuree(e.target.value)}
-                  className={`${errors.duree ? 'border-red-500' : ''} ${initialData?.duree ? 'bg-green-50' : ''}`}
-                />
-                {errors.duree && <p className="text-xs text-red-500 mt-1">{errors.duree}</p>}
               </div>
 
               <div>
@@ -231,12 +263,11 @@ export const GeolocModal = ({
                   className={errors.datePose ? 'border-red-500' : ''}
                 />
                 {errors.datePose && <p className="text-xs text-red-500 mt-1">{errors.datePose}</p>}
-                
-                {dateDebut && duree && !errors.dateDebut && !errors.duree && (
+
+                {(datePose || dateDebut) && !errors.dateDebut && (
                   <p className="text-xs text-gray-500 mt-1">
-                    Date de fin: {datePose ? 
-                      DateUtils.calculateActeEndDate(datePose, duree) : 
-                      DateUtils.calculateActeEndDate(dateDebut, duree)}
+                    Date de fin ({duree} jours) :{' '}
+                    {DateUtils.calculateActeEndDate(datePose || dateDebut, duree)}
                   </p>
                 )}
               </div>
@@ -244,25 +275,10 @@ export const GeolocModal = ({
           )}
 
           {needsJLDAuth && (
-            <>
-              <div>
-                <Label htmlFor="duree">Durée prévue (jours) *</Label>
-                <Input
-                  id="duree"
-                  type="number"
-                  min="1"
-                  value={duree}
-                  onChange={(e) => setDuree(e.target.value)}
-                  className={`${errors.duree ? 'border-red-500' : ''} ${initialData?.duree ? 'bg-green-50' : ''}`}
-                />
-                {errors.duree && <p className="text-xs text-red-500 mt-1">{errors.duree}</p>}
-              </div>
-              
-              <div className="bg-purple-50 p-3 rounded-md text-sm text-purple-800 border border-purple-200">
-                La géolocalisation sera créée en attente d'autorisation JLD.
-                Vous pourrez valider l'autorisation ultérieurement à partir de la fiche d'enquête.
-              </div>
-            </>
+            <div className="bg-purple-50 p-3 rounded-md text-sm text-purple-800 border border-purple-200">
+              La géolocalisation sera créée en attente d'autorisation JLD.
+              Vous pourrez valider l'autorisation ultérieurement à partir de la fiche d'enquête.
+            </div>
           )}
 
           {geoloc && hadPoseDate && (

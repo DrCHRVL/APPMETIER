@@ -4,18 +4,24 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { Label } from '../ui/label';
-import { Switch } from '../ui/switch';
+import { Select } from '../ui/select';
 import { DateUtils } from '@/utils/dateUtils';
 import { useToast } from '@/contexts/ToastContext';
 import { AutreActe, DateManagerData, ActeStatus } from '@/types/interfaces';
+import {
+  AUTRE_ACTE_TYPE_OPTIONS,
+  AUTRE_ACTE_TYPES,
+  AutreActeTypeKey,
+  AutreActeTypeConfig,
+} from '@/config/acteTypes';
 
 interface ActeModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (acte: Partial<AutreActe>, dates: DateManagerData) => void;
-  acte?: AutreActe; // Fourni en cas de modification
-  title: string; // "Ajouter un acte" ou "Modifier un acte"
-  initialData?: any; // Données pré-remplies depuis l'analyse automatique
+  acte?: AutreActe;
+  title: string;
+  initialData?: any;
 }
 
 export const ActeModal = ({
@@ -26,140 +32,125 @@ export const ActeModal = ({
   title,
   initialData
 }: ActeModalProps) => {
-  // État du formulaire
-  const [formData, setFormData] = useState<Partial<AutreActe>>({
-    type: '',
-    description: ''
-  });
-  
-  // Dates
+  const [selectedTypeKey, setSelectedTypeKey] = useState<AutreActeTypeKey | ''>('');
+  const [description, setDescription] = useState('');
   const [dateDebut, setDateDebut] = useState('');
-  const [duree, setDuree] = useState('');
+  const [customDuree, setCustomDuree] = useState(''); // pour types à durée libre (captation public, infiltration)
   const [datePose, setDatePose] = useState('');
-  const [hadPoseDate, setHadPoseDate] = useState(false);
-  
-  // Options
-  const [needsJLDAuth, setNeedsJLDAuth] = useState(false);
-  const [needsPose, setNeedsPose] = useState(true); // Nouvelle option pour la pose
-  
-  // Erreurs
   const [errors, setErrors] = useState<Record<string, string>>({});
-  
   const { showToast } = useToast();
 
-  // Réinitialiser le formulaire quand le modal s'ouvre
+  const typeConfig: AutreActeTypeConfig | null =
+    selectedTypeKey ? AUTRE_ACTE_TYPES[selectedTypeKey] : null;
+
+  // Durée effective pour calcul de la date de fin
+  const effectiveDuree = typeConfig?.duree !== undefined
+    ? String(typeConfig.duree)
+    : customDuree;
+  const effectiveDureeUnit = typeConfig?.dureeUnit ?? 'jours';
+
   useEffect(() => {
     if (isOpen) {
       if (acte) {
-        // Mode modification
-        setFormData({
-          type: acte.type || '',
-          description: acte.description || ''
-        });
+        // Mode modification — on identifie le type si c'est une clé connue
+        const matchedKey = Object.keys(AUTRE_ACTE_TYPES).find(
+          (k) => k === acte.type
+        ) as AutreActeTypeKey | undefined;
+        setSelectedTypeKey(matchedKey || '');
+        setDescription(acte.description || '');
         setDateDebut(acte.dateDebut || '');
-        setDuree(acte.duree || '');
+        setCustomDuree(acte.duree || '');
         setDatePose(acte.datePose || '');
-        setHadPoseDate(!!acte.datePose);
-        setNeedsJLDAuth(false);
-        setNeedsPose(true); // En modification, on ne change pas cette logique
       } else if (initialData) {
-        // Mode ajout avec données pré-remplies
-        setFormData({
-          type: initialData.type || '',
-          description: initialData.description || ''
-        });
+        setSelectedTypeKey(initialData.type || '');
+        setDescription(initialData.description || '');
         setDateDebut(initialData.dateDebut || '');
-        setDuree(initialData.duree || '');
+        setCustomDuree(initialData.duree || '');
         setDatePose(initialData.datePose || '');
-        setHadPoseDate(false);
-        setNeedsJLDAuth(initialData.needsJLDAuth !== undefined ? initialData.needsJLDAuth : false);
-        setNeedsPose(initialData.needsPose !== undefined ? initialData.needsPose : true);
       } else {
-        // Mode ajout vide
-        setFormData({
-          type: '',
-          description: ''
-        });
+        setSelectedTypeKey('');
+        setDescription('');
         setDateDebut('');
-        setDuree('');
+        setCustomDuree('');
         setDatePose('');
-        setHadPoseDate(false);
-        setNeedsJLDAuth(false);
-        setNeedsPose(true); // Par défaut, on considère qu'un acte nécessite une pose
       }
       setErrors({});
     }
   }, [isOpen, acte, initialData]);
 
+  // Quand on change de type, remettre les champs dépendants à zéro
+  const handleTypeChange = (key: string) => {
+    setSelectedTypeKey(key as AutreActeTypeKey | '');
+    setDateDebut('');
+    setCustomDuree('');
+    setDatePose('');
+    setErrors({});
+  };
+
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
-    
-    if (!formData.type) {
-      newErrors.type = "Le type d'acte est requis";
+    if (!selectedTypeKey) newErrors.type = "Sélectionnez un type d'acte";
+    if (typeConfig?.hasDuree && typeConfig.duree === undefined && !customDuree) {
+      newErrors.duree = 'La durée est requise';
     }
-    
-    if (!needsJLDAuth && !dateDebut) {
-      newErrors.dateDebut = "La date de début est requise";
+    if (typeConfig?.hasDuree && !dateDebut) {
+      newErrors.dateDebut = 'La date de début est requise';
     }
-    
-    if (!needsJLDAuth && !duree) {
-      newErrors.duree = "La durée est requise";
-    }
-    
-    if (dateDebut && datePose) {
-      const debutDate = new Date(dateDebut);
-      const poseDate = new Date(datePose);
-      
-      if (poseDate < debutDate) {
-        newErrors.datePose = "La date de pose doit être postérieure ou égale à la date de début";
-      }
-    }
-    
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateForm()) return;
-    
-    let updatedStatut: ActeStatus | undefined = undefined;
-    
-    if (acte && hadPoseDate && !datePose) {
-      updatedStatut = 'pose_pending';
-    } else if (needsJLDAuth) {
-      updatedStatut = 'autorisation_pending';
-    } else if (!needsPose) {
-      // Si l'acte ne nécessite pas de pose, il est directement en cours
+    if (!validateForm() || !typeConfig) return;
+
+    const needsPose = typeConfig.hasDuree; // les actes sans durée n'ont pas de pose
+    const dureeVal = effectiveDuree;
+
+    let updatedStatut: ActeStatus | undefined;
+    if (!typeConfig.hasDuree) {
+      // Art. 76, pas de durée → directement en cours
       updatedStatut = 'en_cours';
+    } else if (!datePose) {
+      updatedStatut = 'pose_pending';
     }
-    
+
+    const dateFin = (typeConfig.hasDuree && !needsPose && dateDebut && dureeVal)
+      ? DateUtils.calculateEndDateWithUnit(dateDebut, dureeVal, effectiveDureeUnit as 'jours' | 'mois')
+      : undefined;
+
     const dates: DateManagerData = {
-      dateDebut: needsJLDAuth ? '' : dateDebut,
-      duree,
-      datePose: needsPose ? datePose : undefined, // Pas de date de pose si pas nécessaire
-      updatedStatut
+      dateDebut: typeConfig.hasDuree ? dateDebut : '',
+      duree: dureeVal,
+      dureeUnit: effectiveDureeUnit as 'jours' | 'mois',
+      maxProlongations: typeConfig.maxProlongations,
+      datePose: needsPose ? datePose : undefined,
+      updatedStatut,
+      dateFin,
     };
 
-    // Si l'acte ne nécessite pas de pose, calculer directement la date de fin
-    if (!needsPose && !needsJLDAuth && dateDebut && duree) {
-      dates.dateFin = DateUtils.calculateActeEndDate(dateDebut, duree);
-    }
-    
     try {
-      onSave(formData, dates);
+      onSave({ type: selectedTypeKey, description }, dates);
       showToast(`Acte ${acte ? 'modifié' : 'ajouté'} avec succès`, 'success');
+      if (typeConfig.toastOnCreate && !acte) {
+        setTimeout(() => showToast(typeConfig.toastOnCreate!, 'warning'), 600);
+      }
       onClose();
     } catch (error) {
-      console.error('Erreur lors de la sauvegarde de l\'acte:', error);
       showToast(`Erreur lors de la ${acte ? 'modification' : 'création'} de l'acte`, 'error');
     }
   };
 
+  // Preview de la date de fin
+  const previewDateFin = (() => {
+    if (!typeConfig?.hasDuree || !effectiveDuree || !dateDebut) return null;
+    const ref = datePose || dateDebut;
+    return DateUtils.calculateEndDateWithUnit(ref, effectiveDuree, effectiveDureeUnit as 'jours' | 'mois');
+  })();
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {title}
@@ -172,132 +163,137 @@ export const ActeModal = ({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+
+          {/* ── Sélecteur de type ── */}
           <div>
             <Label htmlFor="type">Type d'acte *</Label>
-            <Input
+            <Select
               id="type"
-              value={formData.type}
-              onChange={(e) => setFormData({...formData, type: e.target.value})}
-              className={`${errors.type ? 'border-red-500' : ''} ${initialData?.type ? 'bg-green-50' : ''}`}
-            />
+              value={selectedTypeKey}
+              onChange={(e) => handleTypeChange(e.target.value)}
+              className={errors.type ? 'border-red-500' : ''}
+            >
+              <option value="">— Sélectionner un type —</option>
+              {AUTRE_ACTE_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.key} value={opt.key}>
+                  {opt.label}
+                </option>
+              ))}
+            </Select>
             {errors.type && <p className="text-xs text-red-500 mt-1">{errors.type}</p>}
           </div>
 
-          <div>
-            <Label htmlFor="description">Description</Label>
-            <Textarea
-              id="description"
-              value={formData.description || ''}
-              onChange={(e) => setFormData({...formData, description: e.target.value})}
-              rows={3}
-              className={initialData?.description ? 'bg-green-50' : ''}
-            />
-          </div>
-
-          {!acte && (
-            <div className="space-y-3">
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="needsJLDAuth"
-                  checked={needsJLDAuth}
-                  onCheckedChange={setNeedsJLDAuth}
-                />
-                <Label htmlFor="needsJLDAuth">Nécessite autorisation JLD</Label>
-              </div>
-
-              {!needsJLDAuth && (
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="needsPose"
-                    checked={needsPose}
-                    onCheckedChange={setNeedsPose}
-                  />
-                  <Label htmlFor="needsPose">Nécessite une pose</Label>
-                </div>
-              )}
+          {/* ── Bandeau légal du type sélectionné ── */}
+          {typeConfig?.warningBanner && (
+            <div className="bg-amber-50 border border-amber-300 rounded-md p-3 text-sm text-amber-900">
+              <span className="font-semibold">⚠ Conditions légales : </span>
+              {typeConfig.warningBanner}
             </div>
           )}
 
-          {!needsJLDAuth && (
+          {/* ── Autorisation ── */}
+          {typeConfig && (
+            <div className="text-sm text-gray-600 flex items-center gap-2">
+              <span className="font-medium">Autorisation requise :</span>
+              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                typeConfig.autorisation === 'JLD'
+                  ? 'bg-purple-100 text-purple-800'
+                  : 'bg-green-100 text-green-800'
+              }`}>
+                {typeConfig.autorisation === 'JLD' ? 'JLD (sur requête procureur)' : 'Procureur de la République'}
+              </span>
+            </div>
+          )}
+
+          {/* ── Limite légale ── */}
+          {typeConfig?.limiteLegaleTexte && (
+            <div className="text-xs text-red-700 font-medium bg-red-50 border border-red-200 rounded px-3 py-2">
+              {typeConfig.limiteLegaleTexte}
+            </div>
+          )}
+
+          {/* ── Description / notes ── */}
+          <div>
+            <Label htmlFor="description">Description / notes</Label>
+            <Textarea
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              placeholder="Cible, objet, numéro de réquisition..."
+            />
+          </div>
+
+          {/* ── Champs dates/durée (seulement si le type a une durée) ── */}
+          {typeConfig?.hasDuree && (
             <>
+              {/* Durée : affichage fixe ou champ libre selon le type */}
+              {typeConfig.duree !== undefined ? (
+                <div className="bg-blue-50 border border-blue-200 rounded px-3 py-2 text-sm text-blue-900">
+                  <span className="font-semibold">Durée légale : </span>
+                  {typeConfig.dureeUnit === 'mois'
+                    ? `${typeConfig.duree} mois calendaire${typeConfig.duree > 1 ? 's' : ''}`
+                    : typeConfig.dureeUnit === 'heures'
+                    ? `${typeConfig.duree}h`
+                    : `${typeConfig.duree} jours`}
+                </div>
+              ) : (
+                <div>
+                  <Label htmlFor="duree">
+                    Durée (
+                    {typeConfig.dureeUnit === 'mois' ? 'mois' :
+                     typeConfig.dureeUnit === 'heures' ? 'heures' : 'jours'}
+                    ) *
+                  </Label>
+                  <Input
+                    id="duree"
+                    type="number"
+                    min="1"
+                    value={customDuree}
+                    onChange={(e) => setCustomDuree(e.target.value)}
+                    className={errors.duree ? 'border-red-500' : ''}
+                    placeholder="Durée fixée par le procureur"
+                  />
+                  {errors.duree && <p className="text-xs text-red-500 mt-1">{errors.duree}</p>}
+                </div>
+              )}
+
               <div>
-                <Label htmlFor="dateDebut">Date de début *</Label>
+                <Label htmlFor="dateDebut">Date de début (autorisation) *</Label>
                 <Input
                   id="dateDebut"
                   type="date"
                   value={dateDebut}
                   onChange={(e) => setDateDebut(e.target.value)}
-                  className={`${errors.dateDebut ? 'border-red-500' : ''} ${initialData?.dateDebut ? 'bg-green-50' : ''}`}
+                  className={errors.dateDebut ? 'border-red-500' : ''}
                 />
                 {errors.dateDebut && <p className="text-xs text-red-500 mt-1">{errors.dateDebut}</p>}
               </div>
 
               <div>
-                <Label htmlFor="duree">Durée (jours) *</Label>
+                <Label htmlFor="datePose">Date de pose (optionnelle)</Label>
                 <Input
-                  id="duree"
-                  type="number"
-                  min="1"
-                  value={duree}
-                  onChange={(e) => setDuree(e.target.value)}
-                  className={`${errors.duree ? 'border-red-500' : ''} ${initialData?.duree ? 'bg-green-50' : ''}`}
+                  id="datePose"
+                  type="date"
+                  value={datePose}
+                  onChange={(e) => setDatePose(e.target.value)}
+                  min={dateDebut}
                 />
-                {errors.duree && <p className="text-xs text-red-500 mt-1">{errors.duree}</p>}
               </div>
 
-              {needsPose && (
-                <div>
-                  <Label htmlFor="datePose">Date de pose (optionnelle)</Label>
-                  <Input
-                    id="datePose"
-                    type="date"
-                    value={datePose}
-                    onChange={(e) => setDatePose(e.target.value)}
-                    min={dateDebut}
-                    className={errors.datePose ? 'border-red-500' : ''}
-                  />
-                  {errors.datePose && <p className="text-xs text-red-500 mt-1">{errors.datePose}</p>}
-                </div>
-              )}
-              
-              {dateDebut && duree && !errors.dateDebut && !errors.duree && (
-                <p className="text-xs text-gray-500 mt-1">
-                  Date de fin: {needsPose && datePose ? 
-                    DateUtils.calculateActeEndDate(datePose, duree) : 
-                    DateUtils.calculateActeEndDate(dateDebut, duree)}
+              {previewDateFin && (
+                <p className="text-xs text-gray-500">
+                  Date de fin estimée :{' '}
+                  <span className="font-medium">{previewDateFin}</span>
                 </p>
               )}
             </>
           )}
 
-          {needsJLDAuth && (
-            <div className="bg-purple-50 p-3 rounded-md text-sm text-purple-800 border border-purple-200">
-              L'acte sera créé en attente d'autorisation JLD. 
-              Vous pourrez valider l'autorisation ultérieurement à partir de la fiche d'enquête.
-            </div>
-          )}
-
-          {!needsPose && !needsJLDAuth && (
-            <div className="bg-blue-50 p-3 rounded-md text-sm text-blue-800 border border-blue-200">
-              L'acte sera directement en cours sans nécessiter de pose. 
-              La date de fin sera calculée automatiquement.
-            </div>
-          )}
-
-          {acte && hadPoseDate && (
-            <div className="text-sm text-gray-600">
-              {datePose ? (
-                <p>L'acte a été posé le {datePose}.</p>
-              ) : (
-                <p className="text-amber-600">Attention : En supprimant la date de pose, l'acte sera remis en statut "en attente de pose".</p>
-              )}
-            </div>
-          )}
-
-          {initialData && (
-            <div className="bg-green-50 p-3 rounded-md text-sm text-green-800 border border-green-200">
-              ℹ️ Ce formulaire a été pré-rempli automatiquement à partir de l'analyse du document PDF.
-              Vérifiez les informations avant de valider.
+          {/* ── Message art. 76 — pas de durée ── */}
+          {typeConfig && !typeConfig.hasDuree && (
+            <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-700">
+              Cet acte n'a pas de durée propre — il sera enregistré directement en cours.
             </div>
           )}
 
@@ -305,7 +301,7 @@ export const ActeModal = ({
             <Button type="button" variant="outline" onClick={onClose}>
               Annuler
             </Button>
-            <Button type="submit">
+            <Button type="submit" disabled={!selectedTypeKey}>
               {acte ? 'Modifier' : 'Ajouter'}
             </Button>
           </DialogFooter>

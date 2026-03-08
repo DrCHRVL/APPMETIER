@@ -37,6 +37,8 @@ interface BaseActe {
   dateDebut: string;
   dateFin: string;
   duree: string;
+  dureeUnit?: 'jours' | 'mois'; // Si absent = 'jours' (rétrocompatibilité)
+  maxProlongations?: number;     // Nb max de prolongations légales (undefined = pas de limite fixe)
   datePose?: string;
   statut: ActeStatus;
   prolongationData?: {
@@ -68,9 +70,10 @@ export interface AutreActe extends BaseActe {
 
 // Nouvelle interface pour l'historique des prolongations
 export interface ProlongationHistoryEntry {
-  date: string;         // Date de la prolongation
-  dureeAjoutee: string; // Durée ajoutée en jours
-  dureeInitiale: string; // Durée avant cette prolongation
+  date: string;              // Date de la prolongation
+  dureeAjoutee: string;      // Durée ajoutée (valeur dans l'unité ci-dessous)
+  dureeInitiale: string;     // Durée avant cette prolongation
+  dureeUnit?: 'jours' | 'mois'; // Unité de la prolongation (si absent = 'jours')
 }
 
 // Interface pour les documents attachés à une enquête
@@ -278,7 +281,9 @@ export interface DateManagerData {
   dateFin?: string;
   datePose?: string;
   duree: string;
-  updatedStatut?: ActeStatus; // Ajout pour gérer les mises à jour de statut
+  dureeUnit?: 'jours' | 'mois';
+  maxProlongations?: number;
+  updatedStatut?: ActeStatus;
 }
 
 // --- INTERFACES POUR AIR ---
