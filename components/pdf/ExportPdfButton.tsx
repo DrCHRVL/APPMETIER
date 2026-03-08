@@ -185,13 +185,13 @@ export const ExportPdfButton = ({
 
       const infractionsEnCours = computeInfractionStats(e =>
         e.statut === 'en_cours' && new Date(e.dateCreation).getFullYear() <= selectedYear
-      );
+      ).sort((a, b) => b.count - a.count);
 
       const infractionsTerminees = computeInfractionStats(e => {
         if (e.statut !== 'archive') return false;
         const ar = Object.values(resultats).find(r => r.enqueteId === e.id);
         return ar?.dateAudience ? new Date(ar.dateAudience).getFullYear() === selectedYear : false;
-      });
+      }).sort((a, b) => b.count - a.count);
 
       // Déférements par mois
       const deferementsParMois = months.map(month => {

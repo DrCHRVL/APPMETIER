@@ -64,11 +64,6 @@ const CSS_STYLES = `
     padding: 0;
   }
 
-  @page {
-    size: A4 portrait;
-    margin: 15mm 12mm 15mm 12mm;
-  }
-
   .page-header {
     text-align: center;
     padding: 15px 0 10px;
@@ -86,6 +81,9 @@ const CSS_STYLES = `
   }
 
   .section {
+    margin-bottom: 18px;
+  }
+  .section-nobreak {
     margin-bottom: 18px;
     page-break-inside: avoid;
   }
@@ -201,14 +199,11 @@ const CSS_STYLES = `
   .page-break { page-break-before: always; }
 
   .footer {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
     text-align: center;
     font-size: 8px;
     color: #adb5bd;
-    padding: 5px;
+    padding: 15px 5px 5px;
+    margin-top: 30px;
     border-top: 1px solid #e9ecef;
   }
 
@@ -340,7 +335,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   <div class="subtitle">Annee ${selectedYear} - Genere le ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
 </div>
 
-<div class="section">
+<div class="section-nobreak">
   <div class="section-title">Synthese generale</div>
   <div class="cards-row">
     <div class="card">
@@ -377,7 +372,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 </div>
 
 <!-- Actes d'enquête -->
-<div class="section">
+<div class="section-nobreak">
   <div class="section-title">Actes d'enquete en preliminaire</div>
   <div class="cards-row">
     <div class="card">
@@ -436,7 +431,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 
 <!-- PAGE 2 : ORIENTATION ET RESULTATS D'AUDIENCE -->
 <div class="page-break"></div>
-<div class="section">
+<div class="section-nobreak">
   <div class="section-title">Orientation des procedures</div>
   ${stats ? renderPieSubstitute([
     { label: 'CRPC', value: stats.nombreCRPC, color: ORIENTATION_COLORS['CRPC'] },
@@ -529,7 +524,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 
 <!-- PAGE 3 : PEINES DETAILLEES -->
 <div class="page-break"></div>
-<div class="section">
+<div class="section-nobreak">
   <div class="section-title">Peines de prison</div>
   <div class="cards-row">
     <div class="card">
@@ -586,7 +581,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 </div>
 
 <!-- Confiscations et interdictions -->
-<div class="section">
+<div class="section-nobreak">
   <div class="section-title">Confiscations et interdictions</div>
   <div class="cards-row">
     <div class="card">
@@ -674,11 +669,16 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
   const html = generateStatsPdfHtml(data);
 
   // Créer un conteneur temporaire hors-écran pour le rendu
+  // On utilise visibility:hidden + overflow:hidden au lieu de left:-9999px
+  // pour que le layout flexbox se calcule correctement dans le viewport
   const container = document.createElement('div');
-  container.style.position = 'fixed';
-  container.style.left = '-9999px';
+  container.style.position = 'absolute';
+  container.style.left = '0';
   container.style.top = '0';
   container.style.width = '210mm'; // Largeur A4
+  container.style.visibility = 'hidden';
+  container.style.overflow = 'hidden';
+  container.style.zIndex = '-1';
   container.innerHTML = html
     .replace(/<!DOCTYPE html>[\s\S]*?<body>/, '')
     .replace(/<\/body>[\s\S]*$/, '');
@@ -712,7 +712,7 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
       pagebreak: {
         mode: ['css', 'legacy'],
         before: '.page-break',
-        avoid: '.section',
+        avoid: '.section-nobreak',
       },
     };
 
