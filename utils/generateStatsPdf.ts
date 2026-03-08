@@ -62,6 +62,8 @@ const CSS_STYLES = `
     color: #1a1a1a;
     line-height: 1.4;
     padding: 0;
+    max-width: 100%;
+    overflow-x: hidden;
   }
 
   .page-header {
@@ -133,6 +135,8 @@ const CSS_STYLES = `
     border-collapse: collapse;
     font-size: 10px;
     margin-bottom: 8px;
+    table-layout: fixed;
+    word-wrap: break-word;
   }
   th {
     background: #2c3e50;
@@ -675,7 +679,7 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
   container.style.position = 'absolute';
   container.style.left = '0';
   container.style.top = '0';
-  container.style.width = '210mm'; // Largeur A4
+  container.style.width = '190mm'; // Zone utile A4 (210mm - 2x10mm marges)
   container.style.visibility = 'hidden';
   container.style.overflow = 'hidden';
   container.style.zIndex = '-1';
@@ -703,6 +707,7 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
         useCORS: true,
         letterRendering: true,
         scrollY: 0,
+        windowWidth: 718, // 190mm en px (190 * 96 / 25.4 ≈ 718px)
       },
       jsPDF: {
         unit: 'mm',
