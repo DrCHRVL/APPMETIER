@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Enquete, AlertRule } from '@/types/interfaces';
-import { Calendar, FileText, Clock, AlertTriangle } from 'lucide-react';
+import { Calendar, FileText, Clock } from 'lucide-react';
 
 interface WeeklyRecapPopupProps {
   isOpen: boolean;
@@ -41,19 +41,6 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, enquetes, alertRules }: Week
     .filter(a => a.daysLeft >= 0 && a.daysLeft <= acteThreshold)
     .sort((a, b) => a.daysLeft - b.daysLeft);
 
-  // Écoutes ayant déjà été prolongées une fois — limite légale atteinte (1 mois + 1 prolongation max)
-  const ecoutesLimiteAtteinte = enquetes
-    .filter(e => e.statut === 'en_cours')
-    .flatMap(e =>
-      (e.ecoutes || [])
-        .filter(ec =>
-          ec.statut === 'en_cours' &&
-          ec.prolongationsHistory &&
-          ec.prolongationsHistory.length >= 1
-        )
-        .map(ec => ({ ...ec, enqueteNumero: e.numero }))
-    );
-
   // Enquêtes à relancer (pas de CR depuis crThreshold jours)
   const enquetesARelancer = enquetes
     .filter(e => e.statut === 'en_cours' && e.comptesRendus.length > 0)
@@ -65,7 +52,7 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, enquetes, alertRules }: Week
     .filter(({ days }) => days >= crThreshold)
     .sort((a, b) => b.days - a.days);
 
-  const totalItems = actesEcheance.length + ecoutesLimiteAtteinte.length + enquetesARelancer.length;
+  const totalItems = actesEcheance.length + enquetesARelancer.length;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -104,32 +91,6 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, enquetes, alertRules }: Week
                             : 'bg-yellow-100 text-yellow-700 border-yellow-300'}
                         >
                           {a.daysLeft === 0 ? "Expire aujourd'hui" : `${a.daysLeft}j`}
-                        </Badge>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* Écoutes en limite légale */}
-            {ecoutesLimiteAtteinte.length > 0 && (
-              <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-red-700 flex items-center gap-1 mb-1">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  Attention — écoutes ne pouvant plus être prolongées ({ecoutesLimiteAtteinte.length})
-                </h4>
-                <p className="text-xs text-gray-500 mb-2">
-                  Les interceptions suivantes ont déjà été prolongées une fois. La limite légale est atteinte (1 mois + 1 prolongation). Elles ne peuvent pas faire l'objet d'une nouvelle prolongation.
-                </p>
-                <ul className="space-y-1.5">
-                  {ecoutesLimiteAtteinte.map((ec, i) => (
-                    <li key={i} className="rounded-lg px-3 py-2 text-sm bg-red-50 border border-red-200">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">{ec.enqueteNumero}</span>
-                        <span className="text-gray-600 flex-1">Écoute {ec.numero}{ec.cible ? ` — ${ec.cible}` : ''}</span>
-                        <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300 shrink-0">
-                          Limite atteinte
                         </Badge>
                       </div>
                     </li>
