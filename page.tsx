@@ -14,7 +14,7 @@ import { SavePage } from './components/pages/SavePage';
 import { StatsPage } from './components/pages/StatsPage';
 import { useEnquetes } from './hooks/useEnquetes';
 import { useFilterSort } from './hooks/useFilterSort';
-import { NewEnqueteData, Tag } from './types/interfaces';
+import { NewEnqueteData, Tag, ToDoItem } from './types/interfaces';
 import { StorageManager } from './utils/storage';
 import { useAudience } from './hooks/useAudience';
 import { ConfirmationDialog } from './components/ui/confirmation-dialog';
@@ -41,6 +41,7 @@ import { WeeklyRecapPopup } from './components/modals/WeeklyRecapPopup';
 import { WeeklyPopupConfig } from './types/interfaces';
 import { ElectronBridge } from './utils/electronBridge';
 import { OPTimeline } from './components/OPTimeline';
+import { TodoReminderBar } from './components/TodoReminderBar';
 
 // 🆕 Imports pour la synchronisation des données
 import { useDataSync } from './hooks/useDataSync';
@@ -78,6 +79,7 @@ function AppContent() {
   const [isSaving, setIsSaving] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [pendingAction, setPendingAction] = useState<() => void>(() => {});
+  const [globalTodos, setGlobalTodos] = useState<ToDoItem[]>([]);
   const { showToast } = useToast();
 
   // Popup de récapitulatif hebdomadaire
@@ -189,6 +191,18 @@ function AppContent() {
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  // Chargement des todos généraux au démarrage
+  useEffect(() => {
+    ElectronBridge.getData<ToDoItem[]>('global_todos', []).then(todos => {
+      setGlobalTodos(todos || []);
+    });
+  }, []);
+
+  const handleGlobalTodosChange = (todos: ToDoItem[]) => {
+    setGlobalTodos(todos);
+    ElectronBridge.setData('global_todos', todos);
+  };
 
   // Popup récapitulatif hebdomadaire : vérifié une fois au démarrage
   useEffect(() => {
@@ -530,6 +544,12 @@ return (
           {currentView === 'enquetes' && (
             <div className="space-y-6">
               <OPTimeline enquetes={activeEnquetes} />
+              <TodoReminderBar
+                enquetes={activeEnquetes}
+                globalTodos={globalTodos}
+                onUpdateEnquete={handleUpdateEnquete}
+                onGlobalTodosChange={handleGlobalTodosChange}
+              />
               {Object.entries(enquetesByOrganization)
                 .sort(([a], [b]) => getSectionOrder(a) - getSectionOrder(b))
                 .map(([section, sectionEnquetes]) => (
