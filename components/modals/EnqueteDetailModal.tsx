@@ -145,10 +145,26 @@ export const EnqueteDetailModal = ({
 
                 {/* Date d'OP */}
                 <div className="bg-gray-50 p-3 rounded-lg">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <Siren className="h-4 w-4 text-orange-500" />
-                      <h3 className="text-sm font-semibold">Date d'OP</h3>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 flex-1">
+                      <Siren className="h-4 w-4 text-orange-500 flex-shrink-0" />
+                      {!showDateOPEdit && !isEditing ? (
+                        enquete.dateOP ? (
+                          <span className="text-sm">
+                            <span className="font-semibold">Date d'OP :</span>{' '}
+                            <span className="font-medium text-orange-700">
+                              {new Date(enquete.dateOP).toLocaleDateString('fr-FR')}
+                            </span>
+                          </span>
+                        ) : (
+                          <>
+                            <span className="text-sm font-semibold">Date d'OP</span>
+                            <span className="text-xs text-gray-400 italic ml-1">— Non planifiée</span>
+                          </>
+                        )
+                      ) : (
+                        <h3 className="text-sm font-semibold">Date d'OP</h3>
+                      )}
                     </div>
                     {!showDateOPEdit && !isEditing && (
                       <Button
@@ -167,21 +183,30 @@ export const EnqueteDetailModal = ({
                       type="date"
                       value={enquete.dateOP || ''}
                       onChange={(e) => handleUpdateWithToast(enquete.id, { dateOP: e.target.value || undefined })}
-                      className="h-7 text-sm"
+                      className="h-7 text-sm mt-2"
                     />
                   ) : showDateOPEdit ? (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 mt-2">
                       <Input
                         type="date"
                         defaultValue={enquete.dateOP || ''}
                         className="h-7 text-sm flex-1"
                         autoFocus
-                        onChange={(e) => {
-                          handleUpdateWithToast(enquete.id, { dateOP: e.target.value || undefined });
+                        onBlur={(e) => {
+                          if (e.target.value) {
+                            handleUpdateWithToast(enquete.id, { dateOP: e.target.value });
+                          }
                           setShowDateOPEdit(false);
                         }}
                         onKeyDown={(e) => {
-                          if (e.key === 'Escape') setShowDateOPEdit(false);
+                          if (e.key === 'Escape') {
+                            setShowDateOPEdit(false);
+                          }
+                          if (e.key === 'Enter') {
+                            const input = e.currentTarget as HTMLInputElement;
+                            if (input.value) handleUpdateWithToast(enquete.id, { dateOP: input.value });
+                            setShowDateOPEdit(false);
+                          }
                         }}
                       />
                       {enquete.dateOP && (
@@ -208,13 +233,7 @@ export const EnqueteDetailModal = ({
                         <X className="h-3 w-3" />
                       </Button>
                     </div>
-                  ) : enquete.dateOP ? (
-                    <p className="text-sm font-medium text-orange-700">
-                      {new Date(enquete.dateOP).toLocaleDateString()}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-gray-400 italic">Non planifiée</p>
-                  )}
+                  ) : null}
                 </div>
 
                 <GeolocSection

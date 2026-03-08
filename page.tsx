@@ -583,9 +583,15 @@ return (
                 .sort(([a], [b]) => getSectionOrder(a) - getSectionOrder(b))
                 .map(([section, sectionEnquetes]) => (
                   <div key={section} className="space-y-4">
-                    <h2 className="text-lg font-semibold text-gray-800 border-b pb-2">
-                      {section} ({sectionEnquetes.length})
-                    </h2>
+                    <div className="flex items-center gap-2 border-b border-gray-100 pb-2">
+                      <div className="w-0.5 h-4 rounded-full bg-green-700/50 flex-shrink-0" />
+                      <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                        {section}
+                      </h2>
+                      <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-bold leading-none">
+                        {sectionEnquetes.length}
+                      </span>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 justify-items-center">
                       {sectionEnquetes.map(enquete => (
                         <EnquetePreview

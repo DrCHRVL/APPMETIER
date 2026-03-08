@@ -87,13 +87,14 @@ export const EnquetePreview = ({
   }, [enquete.toDos]);
 
   // Statut OP (opération d'interpellation)
-  const opStatus = useMemo((): 'none' | 'soon' | 'active' => {
+  const opStatus = useMemo((): 'none' | 'upcoming' | 'soon' | 'active' => {
     if (!enquete.dateOP) return 'none';
     const daysToOP = Math.ceil(
       (new Date(enquete.dateOP).setHours(0,0,0,0) - new Date().setHours(0,0,0,0)) / (1000 * 60 * 60 * 24)
     );
-    if (daysToOP < 0) return 'active';  // OP passée, non archivée → rouge
-    if (daysToOP <= 4) return 'soon';   // ≤ 4 jours → orange
+    if (daysToOP < 0) return 'active';   // OP passée, non archivée
+    if (daysToOP <= 4) return 'soon';    // ≤ 4 jours → très proche
+    if (daysToOP <= 7) return 'upcoming'; // 5–7 jours → dans la semaine
     return 'none';
   }, [enquete.dateOP]);
 
@@ -150,18 +151,29 @@ export const EnquetePreview = ({
     }
   };
 
+  // Fond de carte selon la proximité de l'OP (sans masquer les autres indicateurs)
+  const cardBgClass =
+    opStatus === 'active'   ? 'bg-red-50'    :
+    opStatus === 'soon'     ? 'bg-orange-100' :
+    opStatus === 'upcoming' ? 'bg-orange-50'  :
+    'bg-white';
+
+  // Bordure gauche : acte à échéance (rouge) prioritaire sur OP
+  const cardBorderClass =
+    hasCriticalDeadline
+      ? 'border-l-[3px] border-l-red-600 border-t border-r border-b border-gray-200'
+      : opStatus === 'active'
+      ? 'border-l-[3px] border-l-red-500 border-t border-r border-b border-gray-200'
+      : opStatus === 'soon'
+      ? 'border-l-[3px] border-l-orange-400 border-t border-r border-b border-gray-200'
+      : opStatus === 'upcoming'
+      ? 'border-l-[3px] border-l-amber-300 border-t border-r border-b border-gray-200'
+      : 'border border-gray-200';
+
 return (
     <>
       <Card
-        className={`w-full card-hover cursor-pointer overflow-hidden bg-white ${
-          opStatus === 'active'
-            ? 'border-l-[3px] border-l-red-500 border-t border-r border-b border-gray-200'
-            : opStatus === 'soon'
-            ? 'border-l-[3px] border-l-orange-400 border-t border-r border-b border-gray-200'
-            : hasCriticalDeadline
-            ? 'border-l-[3px] border-l-red-600 border-t border-r border-b border-gray-200'
-            : 'border border-gray-200'
-        }`}
+        className={`w-full card-hover cursor-pointer overflow-hidden ${cardBgClass} ${cardBorderClass}`}
         onClick={onView}
       >
         <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 pt-2 px-3">
