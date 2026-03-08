@@ -231,9 +231,6 @@ export interface Alert {
   validatedForEnquete?: boolean;   // Si true, ne plus jamais montrer cette alerte pour cette enquête
   recurrence?: RecurrenceConfig;   // Configuration de récurrence
   lastRecurred?: string;           // Date de la dernière récurrence
-  snoozeUntil?: string;            // Alias pour snoozedUntil pour compatibilité
-  snoozeCount?: number;            // Alias pour snoozedCount pour compatibilité
-  
   // Champs spécifiques pour les alertes AIR
   isAIRAlert?: boolean;            // Indique s'il s'agit d'une alerte AIR
   airIdentite?: string;            // Identité de la personne concernée par la mesure AIR

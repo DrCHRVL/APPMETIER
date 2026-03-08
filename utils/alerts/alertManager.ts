@@ -126,7 +126,7 @@ export class AlertManager {
           return {
             ...a,
             status: 'snoozed',
-            snoozeUntil: nextRecurrenceDate.toISOString(),
+            snoozedUntil: nextRecurrenceDate.toISOString(),
             lastRecurred: now.toISOString(),
             recurrence: {
               ...a.recurrence || {},
@@ -237,8 +237,8 @@ export class AlertManager {
           return {
             ...alert,
             status: 'snoozed',
-            snoozeUntil: snoozeUntil.toISOString(),
-            snoozeCount: (alert.snoozeCount || 0) + 1
+            snoozedUntil: snoozeUntil.toISOString(),
+            snoozedCount: (alert.snoozedCount || 0) + 1
           };
         }
         return alert;
@@ -257,9 +257,9 @@ export class AlertManager {
 
     // Traiter les alertes reportées (snoozed) dont la date de report est passée
     const alertsToProcess = alerts.map(alert => {
-      if (alert.status === 'snoozed' && alert.snoozeUntil) {
-        const snoozeUntilDate = new Date(alert.snoozeUntil);
-        
+      if (alert.status === 'snoozed' && alert.snoozedUntil) {
+        const snoozeUntilDate = new Date(alert.snoozedUntil);
+
         // Si la date de report est passée
         if (snoozeUntilDate <= now) {
           // Si c'est une alerte récurrente, la réactiver
@@ -279,19 +279,11 @@ export class AlertManager {
       }
       
       // Pour les alertes en report, vérifier la date de fin du report
-      if (alert.status === 'snoozed' && alert.snoozeUntil) {
-        const snoozeUntilDate = new Date(alert.snoozeUntil);
+      if (alert.status === 'snoozed' && alert.snoozedUntil) {
+        const snoozeUntilDate = new Date(alert.snoozedUntil);
         return snoozeUntilDate > now;
       }
-      
-      // Pour les alertes validées, les conserver pendant 7 jours
-      if (alert.status === 'validated') {
-        const validationDate = new Date(alert.createdAt);
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        return validationDate > sevenDaysAgo;
-      }
-      
+
       return false;
     });
   }
