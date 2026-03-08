@@ -27,6 +27,7 @@ interface AudienceResultModalProps {
   defaultDate?: string;
   initialData?: ResultatAudience;
   isDirectResult?: boolean;
+  misEnCause?: { id: number; nom: string }[];
 }
 
 export const AudienceResultModal = ({
@@ -35,22 +36,42 @@ export const AudienceResultModal = ({
   onSave,
   enqueteId,
   defaultDate,
-  initialData, 
-  isDirectResult 
+  initialData,
+  isDirectResult,
+  misEnCause = []
 }: AudienceResultModalProps) => {
   // States
   const { getTagsByCategory } = useTags();
   const [dateAudience, setDateAudience] = useState(initialData?.dateAudience || defaultDate || '');
   const [selectedInfraction, setSelectedInfraction] = useState(initialData?.typeInfraction || '');
-  const [nbCondamnes, setNbCondamnes] = useState(initialData?.condamnations.length || 0);
-  const [condamnations, setCondamnations] = useState<ExtendedCondamnationData[]>(
-    initialData?.condamnations.map(c => ({
+
+  // Re-hydrater les pendingCondamnations depuis initialData (résultats partiels)
+  const buildInitialCondamnations = (): ExtendedCondamnationData[] => {
+    const finalized = (initialData?.condamnations || []).map(c => ({
       ...c,
-      isPending: c.isPending || false,
+      isPending: false,
       dateAudiencePending: c.dateAudiencePending || '',
       dateDefere: c.dateDefere || ''
-    })) || []
-  );
+    }));
+    const pending = (initialData?.pendingCondamnations || []).map(p => ({
+      nom: p.nom,
+      peinePrison: 0,
+      sursisProbatoire: 0,
+      sursisSimple: 0,
+      peineAmende: 0,
+      interdictionParaitre: false,
+      typeAudience: 'CRPC-Def' as const,
+      defere: true,
+      dateDefere: '',
+      isPending: true,
+      dateAudiencePending: p.dateAudiencePending || ''
+    }));
+    return [...finalized, ...pending];
+  };
+
+  const initialCondamnations = buildInitialCondamnations();
+  const [nbCondamnes, setNbCondamnes] = useState(initialCondamnations.length || 0);
+  const [condamnations, setCondamnations] = useState<ExtendedCondamnationData[]>(initialCondamnations);
   const [confiscations, setConfiscations] = useState<Confiscations>({
     vehicules: initialData?.confiscations?.vehicules || 0,
     immeubles: initialData?.confiscations?.immeubles || 0,
@@ -287,11 +308,19 @@ export const AudienceResultModal = ({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label>Nom du condamné</Label>
+                  {misEnCause.length > 0 && (
+                    <datalist id={`mec-suggestions-${index}`}>
+                      {misEnCause.map(mec => (
+                        <option key={mec.id} value={mec.nom} />
+                      ))}
+                    </datalist>
+                  )}
                   <Input
                     type="text"
                     value={condamnation.nom || ''}
                     onChange={(e) => updateCondamnation(index, 'nom', e.target.value)}
                     placeholder="Nom du condamné"
+                    list={misEnCause.length > 0 ? `mec-suggestions-${index}` : undefined}
                   />
                 </div>
                 

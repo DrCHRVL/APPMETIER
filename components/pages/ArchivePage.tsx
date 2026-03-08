@@ -741,6 +741,7 @@ export const ArchivePage = ({
             audienceState?.resultats?.[showResultModal]?.dateAudience || ''
           }
           initialData={audienceState?.resultats?.[showResultModal]}
+          misEnCause={allArchivedItems.find(e => e.id === showResultModal)?.misEnCause}
         />
       )}
 

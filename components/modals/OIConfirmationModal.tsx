@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
 import { ResultatAudience } from '@/types/audienceTypes';
 
@@ -18,26 +20,25 @@ export const OIConfirmationModal = ({
   enqueteId
 }: OIConfirmationModalProps) => {
   const { showToast } = useToast();
+  const today = new Date().toISOString().split('T')[0];
+  const [dateOI, setDateOI] = useState(today);
 
   const handleConfirm = () => {
     try {
-      // Créer un résultat avec la date du jour et type OI
-      const today = new Date().toISOString().split('T')[0];
-      
       const oiResultat: ResultatAudience = {
         enqueteId,
-        dateAudience: today,
-        typeInfraction: "OI", // Marque spéciale pour OI
-        condamnations: [],    // Pas de condamnations pour OI
+        dateAudience: dateOI,
+        typeInfraction: "OI",
+        condamnations: [],
         confiscations: {
           vehicules: 0,
           immeubles: 0,
           argentTotal: 0
         },
-        isOI: true, // Nouveau flag pour marquer les OI
+        isOI: true,
         isDirectResult: false
       };
-      
+
       onConfirm(oiResultat);
       onClose();
     } catch (error) {
@@ -51,17 +52,25 @@ export const OIConfirmationModal = ({
         <DialogHeader>
           <DialogTitle>Ouverture d'information ?</DialogTitle>
         </DialogHeader>
-        
-        <div className="py-4">
+
+        <div className="py-4 space-y-4">
           <p>Souhaitez-vous archiver cette enquête en tant qu'ouverture d'information (OI) ?</p>
-          <p className="text-sm text-gray-500 mt-2">
-            L'enquête sera archivée avec la date du jour.
-          </p>
+          <div>
+            <Label>Date de l'OI</Label>
+            <Input
+              type="date"
+              value={dateOI}
+              onChange={(e) => setDateOI(e.target.value)}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Par défaut : aujourd'hui. Modifiez si la saisie est faite en retard.
+            </p>
+          </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Non</Button>
-          <Button onClick={handleConfirm}>Oui</Button>
+          <Button variant="outline" onClick={onClose}>Annuler</Button>
+          <Button onClick={handleConfirm} disabled={!dateOI}>Confirmer</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
