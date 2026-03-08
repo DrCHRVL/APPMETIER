@@ -14,6 +14,7 @@ import { SavePage } from './components/pages/SavePage';
 import { StatsPage } from './components/pages/StatsPage';
 import { useEnquetes } from './hooks/useEnquetes';
 import { useFilterSort } from './hooks/useFilterSort';
+import { useDocumentSearch } from './hooks/useDocumentSearch';
 import { NewEnqueteData, Tag, ToDoItem } from './types/interfaces';
 import { StorageManager } from './utils/storage';
 import { useAudience } from './hooks/useAudience';
@@ -447,9 +448,24 @@ function AppContent() {
 
   const filteredAndSortedEnquetes = useFilterSort(enquetes, searchTerm, selectedTags, sortOrder);
 
-  const activeEnquetes = useMemo(() => 
-    filteredAndSortedEnquetes.filter(e => e.statut !== 'archive'),
-    [filteredAndSortedEnquetes]
+  // Recherche dans le contenu des documents (async, avec cache)
+  const { documentMatchIds, isSearchingDocs } = useDocumentSearch(enquetes, searchTerm);
+
+  // Fusion des résultats métadonnées + contenu documents
+  const mergedFilteredEnquetes = useMemo(() => {
+    if (!documentMatchIds.size) return filteredAndSortedEnquetes;
+
+    const metadataIds = new Set(filteredAndSortedEnquetes.map(e => e.id));
+    const docOnlyMatches = enquetes.filter(
+      e => documentMatchIds.has(e.id) && !metadataIds.has(e.id)
+    );
+
+    return [...filteredAndSortedEnquetes, ...docOnlyMatches];
+  }, [filteredAndSortedEnquetes, documentMatchIds, enquetes]);
+
+  const activeEnquetes = useMemo(() =>
+    mergedFilteredEnquetes.filter(e => e.statut !== 'archive'),
+    [mergedFilteredEnquetes]
   );
 
   // Organisation des enquêtes par section
@@ -487,9 +503,9 @@ function AppContent() {
     return organized;
   }, [activeEnquetes, tags]);
 
-  const archivedEnquetes = useMemo(() => 
-    filteredAndSortedEnquetes.filter(e => e.statut === 'archive'),
-    [filteredAndSortedEnquetes]
+  const archivedEnquetes = useMemo(() =>
+    mergedFilteredEnquetes.filter(e => e.statut === 'archive'),
+    [mergedFilteredEnquetes]
   );
 
   // Nombre total d'alertes actives
@@ -522,7 +538,7 @@ return (
       </div>
       <div className="flex-1 overflow-hidden flex flex-col">
         <div className="no-print">
-          <Header 
+          <Header
             searchTerm={searchTerm}
             onSearch={setSearchTerm}
             alerts={[...alerts.filter(alert => alert.status === 'active'), ...instructionAlerts]}
@@ -533,6 +549,7 @@ return (
             syncStatus={syncStatus}
             onSync={handleManualSync}
             isSyncing={isSyncing}
+            isSearchingDocs={isSearchingDocs}
           />
         </div>
 

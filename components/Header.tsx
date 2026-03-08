@@ -22,6 +22,7 @@ interface HeaderProps {
   syncStatus?: SyncStatus | null;
   onSync?: () => void;
   isSyncing?: boolean;
+  isSearchingDocs?: boolean;
 }
 
 export const Header = ({
@@ -34,7 +35,8 @@ export const Header = ({
   lastSaveDate,
   syncStatus,
   onSync,
-  isSyncing
+  isSyncing,
+  isSearchingDocs = false
 }: HeaderProps) => {
   const activeAlerts = useMemo(() =>
     alerts.filter(alert => alert.status === 'active'),
@@ -72,12 +74,19 @@ export const Header = ({
             <input
               type="search"
               placeholder="Rechercher..."
-              className="h-9 w-64 pl-9 pr-3 rounded-full border border-gray-200 bg-gray-50 text-sm
+              className="h-9 w-64 pl-9 pr-8 rounded-full border border-gray-200 bg-gray-50 text-sm
                 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400
                 focus:bg-white transition-all duration-150 placeholder:text-gray-400"
               value={searchTerm}
               onChange={(e) => onSearch(e.target.value)}
             />
+            {/* Indicateur discret de scan des documents */}
+            {isSearchingDocs && (
+              <span
+                className="absolute right-3 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-emerald-400 animate-pulse"
+                title="Recherche dans les documents..."
+              />
+            )}
           </div>
 
           {/* Titre */}
