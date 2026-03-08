@@ -55,7 +55,9 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
         description: ecouteData.description || '',
         dateDebut: '',
         dateFin: '',
-        duree: dates.duree || '0',
+        duree: dates.duree || '1',
+        dureeUnit: dates.dureeUnit || 'mois',
+        maxProlongations: dates.maxProlongations ?? 1,
         statut: 'autorisation_pending',
         prolongationsHistory: []
       };
@@ -72,6 +74,8 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
           dateDebut: dates.dateDebut,
           dateFin: '',
           duree: dates.duree,
+          dureeUnit: dates.dureeUnit || 'mois',
+          maxProlongations: dates.maxProlongations ?? 1,
           datePose: dates.datePose || '',
           statut: 'pose_pending',
           prolongationsHistory: []
@@ -157,15 +161,20 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
     }, 500);
   };
 
-  const handleValidateProlongation = (date: string, duration: string) => {
+  // Prolongation des écoutes : toujours 1 mois calendaire
+  const ECOUTE_PROLONG_UNIT = 'mois' as const;
+
+  const handleValidateProlongation = (date: string, duration: string, dureeUnit?: 'jours' | 'mois') => {
     if (!onUpdate || !enquete || !validationEcouteId || !enquete.ecoutes) return;
+    const pUnit = dureeUnit || ECOUTE_PROLONG_UNIT;
 
     const updatedEcoutes = enquete.ecoutes.map(ecoute => {
       if (ecoute.id === validationEcouteId) {
         const newHistoryEntry: ProlongationHistoryEntry = {
           date,
           dureeAjoutee: duration,
-          dureeInitiale: ecoute.duree
+          dureeInitiale: ecoute.duree,
+          dureeUnit: pUnit
         };
 
         const prolongationsHistory = ecoute.prolongationsHistory || [];
@@ -173,7 +182,7 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
 
         return {
           ...ecoute,
-          ...ActeUtils.calculateProlongation(ecoute, date, duration),
+          ...ActeUtils.calculateProlongation(ecoute, date, duration, pUnit),
           prolongationDate: date,
           prolongationsHistory: updatedHistory
         };
@@ -582,7 +591,7 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
                               <span className="font-medium">Prolongation {index + 1}: </span>
                               <span>{DateUtils.formatDate(entry.date)}</span>
                               <span className="mx-1">•</span> 
-                              <span>{entry.dureeAjoutee} jours</span>
+                              <span>{entry.dureeAjoutee} {entry.dureeUnit === 'mois' ? 'mois' : 'jours'}</span>
                             </div>
                           ))}
                         </div>
@@ -637,13 +646,16 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
         originalDuration={enquete.ecoutes?.find(e => e.id === prolongationEcouteId)?.duree}
       />
 
-      <ProlongationValidationModal 
+      <ProlongationValidationModal
         isOpen={!!validationEcouteId}
         onClose={() => setValidationEcouteId(null)}
         onValidate={handleValidateProlongation}
         originalStartDate={enquete.ecoutes?.find(e => e.id === validationEcouteId)?.dateDebut}
         originalDuration={enquete.ecoutes?.find(e => e.id === validationEcouteId)?.duree}
+        originalDureeUnit={enquete.ecoutes?.find(e => e.id === validationEcouteId)?.dureeUnit || 'mois'}
         poseDate={enquete.ecoutes?.find(e => e.id === validationEcouteId)?.datePose}
+        prolongationDureeUnit="mois"
+        defaultProlongationDuree="1"
       />
 
       <PoseActeModal

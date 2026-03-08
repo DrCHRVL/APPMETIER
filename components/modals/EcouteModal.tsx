@@ -33,9 +33,10 @@ export const EcouteModal = ({
     description: ''
   });
   
-  // Dates
+  // Dates — écoute = 1 mois calendaire (non modifiable)
   const [dateDebut, setDateDebut] = useState('');
-  const [duree, setDuree] = useState('30');
+  const duree = '1';
+  const dureeUnit: 'mois' = 'mois';
   const [datePose, setDatePose] = useState('');
   const [hadPoseDate, setHadPoseDate] = useState(false);
   
@@ -70,7 +71,7 @@ export const EcouteModal = ({
           description: initialData.description || ''
         });
         setDateDebut(initialData.dateDebut || '');
-        setDuree(initialData.duree || '30');
+        // duree est fixé à '1 mois' — on ignore initialData.duree
         setDatePose(initialData.datePose || '');
         setHadPoseDate(false);
         setNeedsJLDAuth(initialData.needsJLDAuth !== undefined ? initialData.needsJLDAuth : true);
@@ -82,7 +83,6 @@ export const EcouteModal = ({
           description: ''
         });
         setDateDebut('');
-        setDuree('30');
         setDatePose('');
         setHadPoseDate(false);
         setNeedsJLDAuth(true);
@@ -102,10 +102,8 @@ export const EcouteModal = ({
       newErrors.dateDebut = "La date de début est requise";
     }
     
-    if (!duree) {
-      newErrors.duree = "La durée est requise";
-    }
-    
+    // duree est toujours '1 mois' (constante), pas de validation nécessaire
+
     if (dateDebut && datePose) {
       const debutDate = new Date(dateDebut);
       const poseDate = new Date(datePose);
@@ -134,7 +132,9 @@ export const EcouteModal = ({
     
     const dates: DateManagerData = {
       dateDebut: needsJLDAuth ? '' : dateDebut,
-      duree,
+      duree,          // '1' (mois)
+      dureeUnit,      // 'mois'
+      maxProlongations: 1,
       datePose,
       updatedStatut
     };
@@ -207,10 +207,16 @@ export const EcouteModal = ({
             </div>
           )}
 
+          {/* Durée légale fixe — non modifiable */}
+          <div className="bg-blue-50 p-3 rounded-md text-sm text-blue-900 border border-blue-200">
+            <span className="font-semibold">Durée légale : 1 mois calendaire</span>
+            <span className="text-blue-700"> — Limite légale : 1 mois + 1 prolongation maximum</span>
+          </div>
+
           {!needsJLDAuth && (
             <>
               <div>
-                <Label htmlFor="dateDebut">Date de début *</Label>
+                <Label htmlFor="dateDebut">Date de début (autorisation JLD) *</Label>
                 <Input
                   id="dateDebut"
                   type="date"
@@ -219,19 +225,6 @@ export const EcouteModal = ({
                   className={`${errors.dateDebut ? 'border-red-500' : ''} ${initialData?.dateDebut ? 'bg-green-50' : ''}`}
                 />
                 {errors.dateDebut && <p className="text-xs text-red-500 mt-1">{errors.dateDebut}</p>}
-              </div>
-
-              <div>
-                <Label htmlFor="duree">Durée (jours) *</Label>
-                <Input
-                  id="duree"
-                  type="number"
-                  min="1"
-                  value={duree}
-                  onChange={(e) => setDuree(e.target.value)}
-                  className={`${errors.duree ? 'border-red-500' : ''} ${initialData?.duree ? 'bg-green-50' : ''}`}
-                />
-                {errors.duree && <p className="text-xs text-red-500 mt-1">{errors.duree}</p>}
               </div>
 
               <div>
@@ -245,12 +238,11 @@ export const EcouteModal = ({
                   className={errors.datePose ? 'border-red-500' : ''}
                 />
                 {errors.datePose && <p className="text-xs text-red-500 mt-1">{errors.datePose}</p>}
-                
-                {dateDebut && duree && !errors.dateDebut && !errors.duree && (
+
+                {(datePose || dateDebut) && !errors.dateDebut && (
                   <p className="text-xs text-gray-500 mt-1">
-                    Date de fin: {datePose ? 
-                      DateUtils.calculateActeEndDate(datePose, duree) : 
-                      DateUtils.calculateActeEndDate(dateDebut, duree)}
+                    Date de fin (1 mois) :{' '}
+                    {DateUtils.calculateEndDateWithUnit(datePose || dateDebut, '1', 'mois')}
                   </p>
                 )}
               </div>
@@ -258,25 +250,10 @@ export const EcouteModal = ({
           )}
 
           {needsJLDAuth && (
-            <>
-              <div>
-                <Label htmlFor="duree">Durée prévue (jours) *</Label>
-                <Input
-                  id="duree"
-                  type="number"
-                  min="1"
-                  value={duree}
-                  onChange={(e) => setDuree(e.target.value)}
-                  className={`${errors.duree ? 'border-red-500' : ''} ${initialData?.duree ? 'bg-green-50' : ''}`}
-                />
-                {errors.duree && <p className="text-xs text-red-500 mt-1">{errors.duree}</p>}
-              </div>
-              
-              <div className="bg-purple-50 p-3 rounded-md text-sm text-purple-800 border border-purple-200">
-                L'écoute sera créée en attente d'autorisation JLD.
-                Vous pourrez valider l'autorisation ultérieurement à partir de la fiche d'enquête.
-              </div>
-            </>
+            <div className="bg-purple-50 p-3 rounded-md text-sm text-purple-800 border border-purple-200">
+              L'écoute sera créée en attente d'autorisation JLD.
+              Vous pourrez valider l'autorisation ultérieurement à partir de la fiche d'enquête.
+            </div>
           )}
 
           {ecoute && hadPoseDate && (

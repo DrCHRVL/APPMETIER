@@ -140,15 +140,20 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
     }, 500);
   };
 
-  const handleValidateProlongation = (date: string, duration: string) => {
+  // Prolongations géoloc : toujours 1 mois calendaire (quelle que soit la durée initiale 8j/15j)
+  const GEOLOC_PROLONG_UNIT = 'mois' as const;
+
+  const handleValidateProlongation = (date: string, duration: string, dureeUnit?: 'jours' | 'mois') => {
     if (!onUpdate || !enquete || !validationGeolocId || !enquete.geolocalisations) return;
+    const pUnit = dureeUnit || GEOLOC_PROLONG_UNIT;
 
     const updatedGeolocs = enquete.geolocalisations.map(geoloc => {
       if (geoloc.id === validationGeolocId) {
         const newHistoryEntry: ProlongationHistoryEntry = {
           date,
           dureeAjoutee: duration,
-          dureeInitiale: geoloc.duree
+          dureeInitiale: geoloc.duree,
+          dureeUnit: pUnit
         };
 
         const prolongationsHistory = geoloc.prolongationsHistory || [];
@@ -156,7 +161,7 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
 
         return {
           ...geoloc,
-          ...ActeUtils.calculateProlongation(geoloc, date, duration),
+          ...ActeUtils.calculateProlongation(geoloc, date, duration, pUnit),
           prolongationDate: date,
           prolongationsHistory: updatedHistory
         };
@@ -361,9 +366,9 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
                           <span className="font-medium">Prolongation {index + 1}: </span>
                           <span>{DateUtils.formatDate(entry.date)}</span>
                           <span className="mx-1">•</span> 
-                          <span>{entry.dureeAjoutee} jours</span>
+                          <span>{entry.dureeAjoutee} {entry.dureeUnit === 'mois' ? 'mois' : 'jours'}</span>
                           <span className="mx-1">•</span>
-                          <span>Durée précédente: {entry.dureeInitiale} jours</span>
+                          <span>Durée précédente: {entry.dureeInitiale} {entry.dureeUnit === 'mois' ? 'mois' : 'jours'}</span>
                         </div>
                         {isEditing && (
                           <Button
@@ -494,8 +499,8 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
                             <div key={index} className="text-xs text-gray-600 mb-1">
                               <span className="font-medium">Prolongation {index + 1}: </span>
                               <span>{DateUtils.formatDate(entry.date)}</span>
-                              <span className="mx-1">•</span> 
-                              <span>{entry.dureeAjoutee} jours</span>
+                              <span className="mx-1">•</span>
+                              <span>{entry.dureeAjoutee} {entry.dureeUnit === 'mois' ? 'mois' : 'jours'}</span>
                             </div>
                           ))}
                         </div>
@@ -532,13 +537,16 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
         originalDuration={enquete.geolocalisations?.find(g => g.id === prolongationGeolocId)?.duree}
       />
 
-      <ProlongationValidationModal 
+      <ProlongationValidationModal
         isOpen={!!validationGeolocId}
         onClose={() => setValidationGeolocId(null)}
         onValidate={handleValidateProlongation}
         originalStartDate={enquete.geolocalisations?.find(g => g.id === validationGeolocId)?.dateDebut}
         originalDuration={enquete.geolocalisations?.find(g => g.id === validationGeolocId)?.duree}
+        originalDureeUnit={enquete.geolocalisations?.find(g => g.id === validationGeolocId)?.dureeUnit || 'jours'}
         poseDate={enquete.geolocalisations?.find(g => g.id === validationGeolocId)?.datePose}
+        prolongationDureeUnit="mois"
+        defaultProlongationDuree="1"
       />
 
       <PoseActeModal
