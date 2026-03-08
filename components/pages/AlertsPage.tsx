@@ -6,7 +6,7 @@ import { Switch } from '../ui/switch';
 import { AlertRule, WeeklyPopupConfig } from '@/types/interfaces';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Select } from '../ui/select';
-import { Edit2, Save, X, Plus, Copy, Clock } from 'lucide-react';
+import { Edit2, Save, X, Plus, Copy, Clock, RefreshCw } from 'lucide-react';
 import { AlertValidation } from '@/utils/alerts/alertValidation';
 import { ElectronBridge } from '@/utils/electronBridge';
 
@@ -18,9 +18,10 @@ interface AlertsPageProps {
   onUpdateRule: (rule: AlertRule) => void;
   onDuplicateRule: (rule: AlertRule) => void;
   onDeleteRule: (ruleId: number) => void;
+  onShowWeeklyPopup?: () => void;
 }
 
-export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule }: AlertsPageProps) => {
+export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule, onShowWeeklyPopup }: AlertsPageProps) => {
   const [weeklyConfig, setWeeklyConfig] = useState<WeeklyPopupConfig>({
     enabled: false,
     dayOfWeek: 1, // Lundi
@@ -213,10 +214,24 @@ export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule 
               Popup au démarrage qui liste les actes à surveiller et les enquêtes à relancer.
             </p>
           </div>
-          <Switch
-            checked={weeklyConfig.enabled}
-            onCheckedChange={(v) => saveWeeklyConfig({ ...weeklyConfig, enabled: v })}
-          />
+          <div className="flex items-center gap-3">
+            {onShowWeeklyPopup && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
+                onClick={onShowWeeklyPopup}
+                title="Afficher le récapitulatif maintenant"
+              >
+                <RefreshCw className="h-3 w-3 mr-1" />
+                Afficher maintenant
+              </Button>
+            )}
+            <Switch
+              checked={weeklyConfig.enabled}
+              onCheckedChange={(v) => saveWeeklyConfig({ ...weeklyConfig, enabled: v })}
+            />
+          </div>
         </CardHeader>
         {weeklyConfig.enabled && (
           <CardContent className="flex flex-wrap gap-4 items-center pb-4">

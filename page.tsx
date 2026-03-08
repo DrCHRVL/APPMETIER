@@ -687,11 +687,12 @@ return (
           )}
 
           {currentView === 'alertes' && (
-            <AlertsPage 
+            <AlertsPage
               rules={alertRules}
               onUpdateRule={handleUpdateAlertRule}
               onDuplicateRule={handleDuplicateRule}
               onDeleteRule={handleDeleteRule}
+              onShowWeeklyPopup={() => setShowWeeklyPopup(true)}
             />
           )}
 
