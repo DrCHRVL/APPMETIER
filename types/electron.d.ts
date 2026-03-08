@@ -90,6 +90,16 @@ interface ElectronAPI {
     useSubfolder?: boolean
   ) => Promise<boolean>;
   
+  // API POUR SYNCHRONISATION DES DONNÉES (DataSyncManager)
+  // Note : ces méthodes ne sont pas exposées par toutes les versions du preload.
+  // Elles sont toujours appelées avec optional chaining (?.).
+  dataSync_checkAccess?: () => Promise<boolean>;
+  dataSync_pull?: () => Promise<{ data: import('./dataSyncTypes').SyncData; metadata: import('./dataSyncTypes').SyncMetadata } | null>;
+  dataSync_push?: (data: import('./dataSyncTypes').SyncData, metadata: import('./dataSyncTypes').SyncMetadata) => Promise<boolean>;
+  /** Copie le fichier sync serveur actuel vers un fichier backup (écrase le backup précédent). */
+  dataSync_backupServer?: () => Promise<boolean>;
+  getCurrentUser?: () => Promise<{ displayName: string; computerName: string }>;
+
   // NOUVELLES API POUR SYNCHRONISATION
   syncDocuments: (
     enqueteNumero: string,
