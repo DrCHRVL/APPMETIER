@@ -220,8 +220,24 @@ export const useEnquetes = () => {
   }, [updateEnquetesList]);
 
   // Suppression d'une enquête
-  const handleDeleteEnquete = useCallback((id: number) => {
+  const handleDeleteEnquete = useCallback(async (id: number) => {
     updateEnquetesList(prev => prev.filter(enquete => enquete.id !== id));
+    // Mémoriser l'ID supprimé (avec timestamp) pour que le sync ne le rajoute pas depuis le serveur
+    try {
+      const existing = await ElectronBridge.getData<Array<{ id: number; deletedAt: string } | number>>(
+        'deleted_enquete_ids',
+        []
+      );
+      const normalized = (Array.isArray(existing) ? existing : [])
+        .map(e => (typeof e === 'number' ? { id: e, deletedAt: new Date(0).toISOString() } : e))
+        .filter(e => e.id !== id); // éviter les doublons
+      await ElectronBridge.setData('deleted_enquete_ids', [
+        ...normalized,
+        { id, deletedAt: new Date().toISOString() }
+      ]);
+    } catch (error) {
+      console.error('❌ Erreur mémorisation ID supprimé:', error);
+    }
   }, [updateEnquetesList]);
 
   // Désarchivage d'une enquête

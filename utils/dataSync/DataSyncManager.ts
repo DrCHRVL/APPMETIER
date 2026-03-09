@@ -451,11 +451,17 @@ export class DataSyncManager {
     serverData: SyncData
   ): Promise<void> {
     // Construire les données fusionnées en fonction des sélections
+    const mergedDeletedIds = Array.from(new Set([
+      ...(localData.deletedIds || []),
+      ...(serverData.deletedIds || [])
+    ]));
+
     const resolvedData: SyncData = {
       enquetes: [],
       audienceResultats: {},
       customTags: localData.customTags,
       alertRules: localData.alertRules,
+      deletedIds: mergedDeletedIds,
       version: Math.max(localData.version || 0, serverData.version || 0) + 1
     };
 
@@ -608,17 +614,48 @@ export class DataSyncManager {
     this.showToast('Conflit résolu avec succès', 'success');
   }
 
+  // Durée de rétention des IDs supprimés : 90 jours
+  // Après ce délai, tous les collègues ont forcément syncé au moins une fois
+  private static readonly DELETED_IDS_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+
+  /** Lit les entrées supprimées depuis le stockage local (format {id, deletedAt}). */
+  private async loadDeletedEntries(): Promise<Array<{ id: number; deletedAt: string }>> {
+    const raw = await ElectronBridge.getData<Array<{ id: number; deletedAt: string } | number>>(
+      'deleted_enquete_ids',
+      []
+    );
+    if (!Array.isArray(raw)) return [];
+    // Rétrocompatibilité : anciens enregistrements stockés comme simples nombres
+    return raw.map(e => (typeof e === 'number' ? { id: e, deletedAt: new Date(0).toISOString() } : e));
+  }
+
+  /** Sauvegarde les IDs supprimés en associant un timestamp et en purgent les entrées trop anciennes. */
+  private async saveDeletedEntries(ids: number[]): Promise<void> {
+    const pruneThreshold = Date.now() - DataSyncManager.DELETED_IDS_RETENTION_MS;
+    const existing = await this.loadDeletedEntries();
+    const existingMap = new Map(existing.map(e => [e.id, e.deletedAt]));
+    const now = new Date().toISOString();
+
+    const entries = ids
+      .map(id => ({ id, deletedAt: existingMap.get(id) ?? now }))
+      .filter(e => new Date(e.deletedAt).getTime() > pruneThreshold);
+
+    await ElectronBridge.setData('deleted_enquete_ids', entries);
+  }
+
   private async getLocalData(): Promise<SyncData> {
     const enquetes = await ElectronBridge.getData('enquetes', []);
     const audienceResultats = await ElectronBridge.getData('audience_resultats', {});
     const customTags = await ElectronBridge.getData('customTags', {});
     const alertRules = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, []);
+    const deletedEntries = await this.loadDeletedEntries();
 
     return {
       enquetes: Array.isArray(enquetes) ? enquetes : [],
       audienceResultats: audienceResultats || {},
       customTags: customTags || {},
       alertRules: Array.isArray(alertRules) ? alertRules : [],
+      deletedIds: deletedEntries.map(e => e.id),
       version: 1
     };
   }
@@ -628,6 +665,7 @@ export class DataSyncManager {
     await ElectronBridge.setData('audience_resultats', data.audienceResultats);
     await ElectronBridge.setData('customTags', data.customTags);
     await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, data.alertRules);
+    await this.saveDeletedEntries(data.deletedIds || []);
   }
 
   private async getServerData(): Promise<{ data: SyncData; metadata: SyncMetadata } | null> {
@@ -656,6 +694,15 @@ export class DataSyncManager {
   private async pushToServer(data: SyncData): Promise<void> {
     if (!window.electronAPI?.dataSync_push) {
       throw new Error('API dataSync_push non disponible');
+    }
+
+    // Sauvegarder la version actuelle du serveur avant d'écraser (1 seul fichier de backup)
+    // Le main process doit implémenter dataSync_backupServer comme une copie du fichier sync
+    // vers sync_data_backup.json dans le même dossier (écrase le backup précédent)
+    try {
+      await window.electronAPI?.dataSync_backupServer?.();
+    } catch {
+      // Non-bloquant : le backup est une sécurité, pas une condition à l'écriture
     }
 
     // Poser la sentinelle AVANT d'écrire : si l'app plante pendant l'écriture,
