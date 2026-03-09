@@ -79,16 +79,18 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, enquetes, alertRules }: Week
                 <ul className="space-y-1.5">
                   {actesEcheance.map((a, i) => (
                     <li key={i} className={`rounded-lg px-3 py-2 text-sm ${a.daysLeft <= 2 ? 'bg-red-50' : 'bg-yellow-50'}`}>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">{a.enqueteNumero}</span>
-                        <span className="text-gray-600 flex-1">{a.category} — à prolonger</span>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <span className="font-medium break-words">{a.enqueteNumero}</span>
+                          <span className="text-gray-600 ml-1">{a.category} — à prolonger</span>
+                        </div>
                         <Badge
                           variant="outline"
-                          className={a.daysLeft === 0
+                          className={`shrink-0 ${a.daysLeft === 0
                             ? 'bg-red-100 text-red-700 border-red-300'
                             : a.daysLeft <= 2
                             ? 'bg-red-100 text-red-700 border-red-300'
-                            : 'bg-yellow-100 text-yellow-700 border-yellow-300'}
+                            : 'bg-yellow-100 text-yellow-700 border-yellow-300'}`}
                         >
                           {a.daysLeft === 0 ? "Expire aujourd'hui" : `${a.daysLeft}j`}
                         </Badge>
@@ -112,13 +114,13 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, enquetes, alertRules }: Week
                 <ul className="space-y-1.5">
                   {enquetesARelancer.map(({ enquete: e, days }) => (
                     <li key={e.id} className="rounded-lg px-3 py-2 text-sm bg-orange-50">
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
-                          <span className="font-medium">{e.numero}</span>
+                          <span className="font-medium break-words block">{e.numero}</span>
                           {e.directeurEnquete && (
-                            <span className="text-gray-500 ml-1">({e.directeurEnquete})</span>
+                            <span className="text-gray-500 text-xs">({e.directeurEnquete})</span>
                           )}
-                          <span className="text-xs text-gray-500 block truncate">
+                          <span className="text-xs text-gray-500 block break-words">
                             {e.misEnCause.map(m => m.nom).join(', ')}
                           </span>
                         </div>
