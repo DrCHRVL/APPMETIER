@@ -28,6 +28,7 @@ import { PermanencePage } from './components/pages/PermanencePage';
 import { ArchivePage } from './components/pages/ArchivePage';
 import { AIRPage } from './components/pages/AIRPage';
 import { useTags } from './hooks/useTags';
+import { useSections } from './hooks/useSections';
 
 // Imports pour les instructions judiciaires
 import { InstructionsPage } from './components/pages/InstructionsPage';
@@ -51,21 +52,6 @@ import { ConflictResolution, ConflictAction } from '@/types/dataSyncTypes';
 
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
 
-// Ordre fixe des sections (même que dans ServiceOrganizer)
-const SECTIONS_ORDER = [
-  'SR',
-  'DCOS80',
-  'Offices centraux',
-  'Brigade de recherches Peronne',
-  'Brigade de recherches Amiens',
-  'Brigade de recherches Abbeville',
-  'Brigade de recherches Montdidier',
-  'SLPJ Amiens',
-  'Compagnie de Amiens',
-  'Compagnie de Abbeville',
-  'Compagnie de Peronne',
-  'Compagnie de Montdidier'
-];
 
 function AppContent() {
   const [isClient, setIsClient] = useState(false);
@@ -189,6 +175,8 @@ function AppContent() {
     getTagsByCategory
   } = useTags();
 
+  const { sections: savedSections, getSectionOrder } = useSections();
+
   // Initialisation du système de sauvegarde
   useEffect(() => {
     backupManager.initialize();
@@ -265,37 +253,7 @@ function AppContent() {
   const [showProlongationValidationModal, setShowProlongationValidationModal] = useState(false);
   const [selectedActe, setSelectedActe] = useState<{id: number, type: 'acte' | 'ecoute' | 'geoloc', enqueteId?: number} | null>(null);
 
-  // Calculer dynamiquement les sections personnalisées depuis les tags organisés
-  const customSections = useMemo(() => {
-    const allUsedSections = new Set<string>();
-    
-    // Parcourir tous les tags de services pour trouver les sections utilisées
-    tags
-      .filter(tag => tag.category === 'services' && tag.organization?.section)
-      .forEach(tag => {
-        allUsedSections.add(tag.organization!.section);
-      });
-    
-    // Retirer les sections par défaut pour ne garder que les personnalisées
-    const customSectionsArray = Array.from(allUsedSections).filter(
-      section => !SECTIONS_ORDER.includes(section)
-    );
-    
-    return customSectionsArray.sort(); // Tri alphabétique des sections personnalisées
-  }, [tags]);
-
-  // Fonction pour obtenir l'ordre d'une section (même logique que ServiceOrganizer)
-  const getSectionOrder = (sectionName: string) => {
-    const orderIndex = SECTIONS_ORDER.indexOf(sectionName);
-    if (orderIndex !== -1) return orderIndex;
-    
-    const customIndex = customSections.indexOf(sectionName);
-    if (customIndex !== -1) return SECTIONS_ORDER.length + customIndex;
-    
-    if (sectionName === 'AUTRES SERVICES') return 9999; // Toujours en dernier
-    
-    return SECTIONS_ORDER.length + customSections.length; // Autres sections
-  };
+  // getSectionOrder est fourni par useSections()
 
   const handleManualSave = async () => {
     try {

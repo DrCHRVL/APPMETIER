@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { TagDefinition, TagCategory, TagOrganization, DEFAULT_TAGS, getTagsByCategory } from '@/config/tags';
+import { TagDefinition, TagCategory, TagOrganization, getTagsByCategory } from '@/config/tags';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { Tag } from '@/types/interfaces';
@@ -90,7 +90,7 @@ export const useTags = (): UseTagsReturn => {
                       id: createTagId(newValue, category),
                       value: newValue,
                       category: category,
-                      isCustom: true
+  
                     };
                   }
                   return { ...tag, value: newValue };
@@ -174,7 +174,7 @@ export const useTags = (): UseTagsReturn => {
                     id: createTagId(newValue, category),
                     value: newValue,
                     category: category,
-                    isCustom: true
+
                   };
                 }
                 return { ...tag, value: newValue };
@@ -214,13 +214,13 @@ export const useTags = (): UseTagsReturn => {
       try {
         setIsLoading(true);
         
-        const tagsData = await ElectronBridge.getData('tags', DEFAULT_TAGS);
-        const migratedTags = Array.isArray(tagsData) ? tagsData : (tagsData?.data || DEFAULT_TAGS);
+        const tagsData = await ElectronBridge.getData('tags', []);
+        const migratedTags = Array.isArray(tagsData) ? tagsData : (tagsData?.data || []);
         setTags(Array.isArray(migratedTags) ? migratedTags : []);
         
       } catch (error) {
         console.error('Error initializing tags:', error);
-        setTags(DEFAULT_TAGS || []);
+        setTags([]);
       } finally {
         setIsLoading(false);
       }
@@ -357,8 +357,7 @@ export const useTags = (): UseTagsReturn => {
       
       const tagWithId: TagDefinition = {
         ...newTag,
-        id: createTagId(newTag.value, newTag.category),
-        isCustom: true
+        id: createTagId(newTag.value, newTag.category)
       };
       
       setTags(prev => [...prev, tagWithId]);
@@ -396,8 +395,7 @@ export const useTags = (): UseTagsReturn => {
         if (!existing) {
           const success = await addTag({
             value: tagValue,
-            category: category,
-            isCustom: true
+            category: category
           });
           
           if (success) {

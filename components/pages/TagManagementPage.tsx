@@ -180,8 +180,7 @@ export const TagManagementPage = () => {
     try {
       const newTagData = {
         value: tagToAdd,
-        category,
-        isCustom: true
+        category
       };
 
       const success = await addTag(newTagData);
@@ -261,7 +260,6 @@ export const TagManagementPage = () => {
           onDoubleClick={() => editingCategory === category && handleStartTagEdit(tag, category)}
         >
           {tag.value}
-          {!tag.isCustom && <span className="text-xs text-blue-600 ml-1">•</span>}
           {editingCategory === category && (
             <>
               <Button
@@ -284,9 +282,9 @@ export const TagManagementPage = () => {
                   e.stopPropagation();
                   handleRemoveTag(tag.id);
                 }}
-                title={tag.isCustom ? "Supprimer ce tag" : "Supprimer ce tag prédéfini"}
+                title="Supprimer ce tag"
               >
-                <X className={`h-3 w-3 ${tag.isCustom ? 'text-red-600' : 'text-orange-500'}`} />
+                <X className="h-3 w-3 text-red-600" />
               </Button>
             </>
           )}
@@ -381,7 +379,6 @@ export const TagManagementPage = () => {
                   {editingCategory === category && (
                     <p className="text-xs text-gray-500 mt-2">
                       Double-cliquez sur un tag pour le modifier.
-                      <br />• = Tag prédéfini (croix orange = suppression définitive)
                     </p>
                   )}
                 </CardContent>

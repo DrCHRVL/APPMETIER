@@ -4,30 +4,16 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select } from './ui/select';
 import { Badge } from './ui/badge';
-import { Plus, Settings, Save, X } from 'lucide-react';
+import { Plus, Settings, Save, X, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
 import { useTags } from '@/hooks/useTags';
+import { useSections } from '@/hooks/useSections';
 import { useToast } from '@/contexts/ToastContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { TagOrganization } from '@/config/tags';
 
-const SECTIONS_ORDER = [
-  'SR',
-  'DCOS80',
-  'Offices centraux',
-  'Brigade de recherches Peronne',
-  'Brigade de recherches Amiens',
-  'Brigade de recherches Abbeville',
-  'Brigade de recherches Montdidier',
-  'SLPJ Amiens',
-  'Compagnie de Amiens',
-  'Compagnie de Abbeville',
-  'Compagnie de Peronne',
-  'Compagnie de Montdidier'
-];
-
 export const ServiceOrganizer = () => {
   const { showToast } = useToast();
-  
+
   const {
     tags,
     getTagsByCategory,
@@ -35,9 +21,17 @@ export const ServiceOrganizer = () => {
     isLoading
   } = useTags();
 
+  const {
+    sections: savedSections,
+    isLoading: sectionsLoading,
+    addSection,
+    removeSection,
+    reorderSection,
+    getSectionOrder
+  } = useSections();
+
   const [newSectionDialog, setNewSectionDialog] = useState(false);
   const [newSectionName, setNewSectionName] = useState('');
-  const [customSections, setCustomSections] = useState<string[]>([]);
   const [editingTag, setEditingTag] = useState<string | null>(null);
   const [editingOrganization, setEditingOrganization] = useState<TagOrganization | null>(null);
 
@@ -66,25 +60,12 @@ export const ServiceOrganizer = () => {
     return organized;
   }, [serviceTags]);
 
-  // Obtenir toutes les sections disponibles
+  // Obtenir toutes les sections disponibles (sauvegardées + utilisées dans les tags)
   const availableSections = useMemo(() => {
     const usedSections = new Set(Object.keys(tagsBySection).filter(s => s !== 'NON ORGANISÉS'));
-    const allSections = [...new Set([...SECTIONS_ORDER, ...customSections, ...usedSections])];
+    const allSections = [...new Set([...savedSections, ...usedSections])];
     return allSections;
-  }, [tagsBySection, customSections]);
-
-  // Fonction pour obtenir l'ordre d'une section
-  const getSectionOrder = (sectionName: string) => {
-    const orderIndex = SECTIONS_ORDER.indexOf(sectionName);
-    if (orderIndex !== -1) return orderIndex;
-    
-    const customIndex = customSections.indexOf(sectionName);
-    if (customIndex !== -1) return SECTIONS_ORDER.length + customIndex;
-    
-    if (sectionName === 'NON ORGANISÉS') return 9999; // Toujours en dernier
-    
-    return SECTIONS_ORDER.length + customSections.length; // Autres sections
-  };
+  }, [tagsBySection, savedSections]);
 
   const handleStartEditTag = (tag: any) => {
     setEditingTag(tag.id);
@@ -134,13 +115,26 @@ export const ServiceOrganizer = () => {
     }
   };
 
-  const handleCreateSection = () => {
+  const handleCreateSection = async () => {
     if (newSectionName.trim()) {
-      setCustomSections(prev => [...prev, newSectionName.trim()]);
-      showToast(`Section "${newSectionName.trim()}" ajoutée`, 'success');
+      const success = await addSection(newSectionName.trim());
+      if (success) {
+        showToast(`Section "${newSectionName.trim()}" ajoutée`, 'success');
+      } else {
+        showToast('Cette section existe déjà', 'warning');
+      }
       setNewSectionName('');
       setNewSectionDialog(false);
     }
+  };
+
+  const handleRemoveSection = async (sectionName: string) => {
+    await removeSection(sectionName);
+    showToast(`Section "${sectionName}" supprimée`, 'success');
+  };
+
+  const handleReorderSection = async (sectionName: string, direction: 'up' | 'down') => {
+    await reorderSection(sectionName, direction);
   };
 
   const renderTagCard = (tag: any, section: string) => {
@@ -212,7 +206,7 @@ export const ServiceOrganizer = () => {
     );
   };
 
-  if (isLoading) {
+  if (isLoading || sectionsLoading) {
     return <div className="text-center">Chargement...</div>;
   }
 
@@ -238,6 +232,37 @@ export const ServiceOrganizer = () => {
                   <span className={section === 'NON ORGANISÉS' ? 'text-orange-600' : ''}>
                     {section} ({sectionTags.length})
                   </span>
+                  {section !== 'NON ORGANISÉS' && (
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0"
+                        onClick={() => handleReorderSection(section, 'up')}
+                        title="Monter"
+                      >
+                        <ChevronUp className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0"
+                        onClick={() => handleReorderSection(section, 'down')}
+                        title="Descendre"
+                      >
+                        <ChevronDown className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
+                        onClick={() => handleRemoveSection(section)}
+                        title="Supprimer cette section"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
                 </CardTitle>
               </CardHeader>
               
