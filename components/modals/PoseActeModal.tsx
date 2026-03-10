@@ -13,6 +13,7 @@ interface PoseActeModalProps {
   onConfirm: (date: string) => void;
   dateDebut: string;
   duree: string;
+  dureeUnit?: 'jours' | 'mois';
 }
 
 export const PoseActeModal = ({
@@ -20,7 +21,8 @@ export const PoseActeModal = ({
   onClose,
   onConfirm,
   dateDebut,
-  duree
+  duree,
+  dureeUnit = 'jours'
 }: PoseActeModalProps) => {
   const [date, setDate] = useState('');
   const [calculatedEndDate, setCalculatedEndDate] = useState<string | null>(null);
@@ -55,12 +57,10 @@ export const PoseActeModal = ({
 
   // Calcul de la date de fin uniquement à la validation
   const calculateEndDate = (poseDate: string): string | null => {
-    console.log('Calculating end date with:', { poseDate, duree }); // Ajoutez ce log
     try {
       if (!DateUtils.isValidDate(poseDate)) return null;
-      const endDate = DateUtils.calculateActeEndDate(poseDate, duree);
-      console.log('Calculated end date:', endDate); // Ajoutez ce log
-      return endDate;
+      const endDate = DateUtils.calculateEndDateWithUnit(poseDate, duree, dureeUnit);
+      return endDate || null;
     } catch (err) {
       console.error('Error calculating end date:', err);
       return null;
@@ -141,7 +141,7 @@ export const PoseActeModal = ({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="text-sm text-gray-600">
             <p>Date d'autorisation: {DateUtils.formatDate(dateDebut)}</p>
-            <p>Durée: {duree} jours</p>
+            <p>Durée: {duree} {dureeUnit === 'mois' ? 'mois' : 'jours'}</p>
           </div>
 
           <div className="space-y-2">

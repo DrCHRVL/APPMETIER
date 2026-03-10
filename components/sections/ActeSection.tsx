@@ -97,20 +97,38 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
   const handleUpdateActe = (acteData: Partial<AutreActe>, dates: DateManagerData) => {
     if (!onUpdate || !enquete || !editingActeId) return;
 
-    const updatedActes = enquete.actes.map(acte => 
-      acte.id === editingActeId 
-        ? {
-            ...acte,
-            dateDebut: dates.dateDebut || acte.dateDebut,
-            dateFin: dates.dateFin || acte.dateFin,
-            datePose: dates.datePose,
-            duree: dates.duree || acte.duree,
-            type: acteData.type || acte.type,
-            description: acteData.description !== undefined ? acteData.description : acte.description,
-            statut: dates.updatedStatut || acte.statut
-          }
-        : acte
-    );
+    const updatedActes = enquete.actes.map(acte => {
+      if (acte.id !== editingActeId) return acte;
+
+      const newDateDebut = dates.dateDebut || acte.dateDebut;
+      const newDatePose = dates.datePose;
+
+      // Recalculer dateFin en tenant compte des prolongations existantes :
+      // si l'acte a des prolongations, sa durée totale (acte.duree) les inclut déjà ;
+      // on recalcule alors depuis la nouvelle référence avec cette durée totale.
+      let newDateFin = dates.dateFin || acte.dateFin;
+      if (acte.prolongationsHistory && acte.prolongationsHistory.length > 0) {
+        const ref = newDatePose || newDateDebut;
+        if (ref && acte.duree) {
+          newDateFin = DateUtils.calculateEndDateWithUnit(
+            ref,
+            acte.duree, // durée totale incluant les prolongations
+            acte.dureeUnit || 'jours'
+          );
+        }
+      }
+
+      return {
+        ...acte,
+        dateDebut: newDateDebut,
+        dateFin: newDateFin,
+        datePose: newDatePose,
+        duree: dates.duree || acte.duree,
+        type: acteData.type || acte.type,
+        description: acteData.description !== undefined ? acteData.description : acte.description,
+        statut: dates.updatedStatut || acte.statut
+      };
+    });
 
     onUpdate(enquete.id, { actes: updatedActes });
     setEditingActeId(null);
@@ -225,7 +243,7 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
         });
 
         const dateReference = acte.datePose || acte.dateDebut;
-        const nouvelleDateFin = DateUtils.calculateActeEndDate(dateReference, nouvelleDuree);
+        const nouvelleDateFin = DateUtils.calculateEndDateWithUnit(dateReference, nouvelleDuree, acte.dureeUnit || 'jours');
 
         return {
           ...acte,
@@ -632,6 +650,7 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
         onConfirm={handlePose}
         dateDebut={enquete.actes.find(a => a.id === poseActeId)?.dateDebut || ''}
         duree={enquete.actes.find(a => a.id === poseActeId)?.duree || ''}
+        dureeUnit={enquete.actes.find(a => a.id === poseActeId)?.dureeUnit || 'jours'}
       />
 
       <AutorisationValidationModal
