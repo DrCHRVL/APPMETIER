@@ -360,6 +360,14 @@ export class DataSyncManager {
       if (messages.length > 0) {
         this.showToast(`✅ Synchronisation : ${messages.join(', ')}`, 'success');
       }
+
+      // 🆕 Toast séparé si des actes ont été récupérés depuis le serveur
+      if (stats.newActesFromServer > 0) {
+        const detail = stats.acteChanges
+          .map(c => `${c.count} acte(s) → ${c.enqueteNumero}`)
+          .join(' • ');
+        this.showToast(`📋 ${stats.newActesFromServer} acte(s) récupéré(s) du serveur : ${detail}`, 'info');
+      }
       
       return {
         success: true,

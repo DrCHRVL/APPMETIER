@@ -23,10 +23,10 @@ export class DataMergeService {
   static intelligentMerge(localData: SyncData, serverData: SyncData): {
     merged: SyncData;
     conflicts: SyncConflict[];
-    stats: { newFromServer: number; newFromLocal: number; merged: number };
+    stats: { newFromServer: number; newFromLocal: number; merged: number; newActesFromServer: number; acteChanges: Array<{ enqueteNumero: string; count: number }> };
   } {
     const conflicts: SyncConflict[] = [];
-    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0 };
+    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0, newActesFromServer: 0, acteChanges: [] as Array<{ enqueteNumero: string; count: number }> };
 
     // Calculer l'union des IDs supprimés des deux côtés
     const localDeletedIds = new Set<number>(localData.deletedIds || []);
@@ -49,6 +49,8 @@ export class DataMergeService {
     stats.newFromServer += enqueteStats.newFromServer;
     stats.newFromLocal += enqueteStats.newFromLocal;
     stats.merged += enqueteStats.merged;
+    stats.newActesFromServer += enqueteStats.newActesFromServer;
+    stats.acteChanges.push(...enqueteStats.acteChanges);
 
     // 2. Fusionner les résultats d'audience
     const {
@@ -100,11 +102,11 @@ export class DataMergeService {
   ): {
     merged: Enquete[];
     conflicts: SyncConflict[];
-    stats: { newFromServer: number; newFromLocal: number; merged: number };
+    stats: { newFromServer: number; newFromLocal: number; merged: number; newActesFromServer: number; acteChanges: Array<{ enqueteNumero: string; count: number }> };
   } {
     const conflicts: SyncConflict[] = [];
     const merged = new Map<number, Enquete>();
-    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0 };
+    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0, newActesFromServer: 0, acteChanges: [] as Array<{ enqueteNumero: string; count: number }> };
 
     const localMap = new Map(localEnquetes.map(e => [e.id, e]));
     const serverMap = new Map(serverEnquetes.map(e => [e.id, e]));
@@ -147,6 +149,15 @@ export class DataMergeService {
         // ✅ Fusion automatique réussie
         merged.set(id, mergeResult.merged!);
         stats.merged++;
+
+        // Détecter les nouveaux actes/écoutes/géolocs récupérés depuis le serveur
+        const localActeCount = (localEnquete.actes?.length ?? 0) + (localEnquete.ecoutes?.length ?? 0) + (localEnquete.geolocalisations?.length ?? 0);
+        const mergedActeCount = (mergeResult.merged!.actes?.length ?? 0) + (mergeResult.merged!.ecoutes?.length ?? 0) + (mergeResult.merged!.geolocalisations?.length ?? 0);
+        const delta = mergedActeCount - localActeCount;
+        if (delta > 0) {
+          stats.newActesFromServer += delta;
+          stats.acteChanges.push({ enqueteNumero: serverEnquete.numero, count: delta });
+        }
       }
     }
 
