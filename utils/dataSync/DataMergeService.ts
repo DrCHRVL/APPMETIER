@@ -66,12 +66,19 @@ export class DataMergeService {
     // 4. Fusionner les règles d'alertes (union par ID, local prioritaire)
     const mergedRules = this.mergeAlertRules(localData.alertRules || [], serverData.alertRules || []);
 
+    // 5. Fusionner les validations d'alertes (union, la plus récente gagne en cas de conflit sur la même clé)
+    const mergedValidations = this.mergeAlertValidations(
+      localData.alertValidations || {},
+      serverData.alertValidations || {}
+    );
+
     return {
       merged: {
         enquetes: mergedEnquetes,
         audienceResultats: mergedAudience,
         customTags: mergedTags,
         alertRules: mergedRules,
+        alertValidations: mergedValidations,
         deletedIds: mergedDeletedIds,
         version: Math.max(localData.version || 0, serverData.version || 0) + 1
       },
@@ -548,6 +555,32 @@ export class DataMergeService {
   }
 
   /**
+   * Fusionne les validations d'alertes (union, la plus récente gagne en cas de conflit sur la même clé)
+   * Cela permet de propager les actions "reporter/valider" entre tous les postes.
+   */
+  private static mergeAlertValidations(
+    local: Record<string, any>,
+    server: Record<string, any>
+  ): Record<string, any> {
+    const merged: Record<string, any> = { ...server };
+
+    for (const [key, localVal] of Object.entries(local)) {
+      if (!merged[key]) {
+        merged[key] = localVal;
+      } else {
+        // Les deux côtés ont une validation pour cette clé → garder la plus récente
+        const serverDate = new Date(merged[key].validatedAt ?? 0).getTime();
+        const localDate = new Date(localVal.validatedAt ?? 0).getTime();
+        if (localDate > serverDate) {
+          merged[key] = localVal;
+        }
+      }
+    }
+
+    return merged;
+  }
+
+  /**
    * Applique la résolution "keep_local" - garde les données locales
    */
   static resolveKeepLocal(localData: SyncData, serverData: SyncData): SyncData {
@@ -566,6 +599,7 @@ export class DataMergeService {
       audienceResultats: { ...serverData.audienceResultats, ...localData.audienceResultats },
       customTags: localData.customTags,
       alertRules: localData.alertRules,
+      alertValidations: this.mergeAlertValidations(localData.alertValidations || {}, serverData.alertValidations || {}),
       deletedIds: mergedDeletedIds,
       version: localData.version + 1
     };
@@ -590,6 +624,7 @@ export class DataMergeService {
       audienceResultats: { ...localData.audienceResultats, ...serverData.audienceResultats },
       customTags: serverData.customTags,
       alertRules: serverData.alertRules,
+      alertValidations: this.mergeAlertValidations(localData.alertValidations || {}, serverData.alertValidations || {}),
       deletedIds: mergedDeletedIds,
       version: serverData.version + 1
     };

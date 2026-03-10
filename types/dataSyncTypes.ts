@@ -1,6 +1,6 @@
 // types/dataSyncTypes.ts
 
-import { Enquete } from './interfaces';
+import { Enquete, AlertValidation } from './interfaces';
 import { ResultatAudience } from './audienceTypes';
 
 /**
@@ -11,6 +11,7 @@ export interface SyncData {
   audienceResultats: Record<string, ResultatAudience>;
   customTags: Record<string, any>;
   alertRules: any[];
+  alertValidations?: Record<string, AlertValidation>; // Validations d'alertes (reporter/valider) — synchro entre collègues
   version: number;
   deletedIds?: number[]; // IDs d'enquêtes supprimées intentionnellement (empêche la resynchronisation)
 }
