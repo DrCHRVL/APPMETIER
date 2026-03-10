@@ -8,6 +8,7 @@ import {
   SyncResult,
   SyncMetadata,
   SyncConfig,
+  SyncConflict,
   ConflictResolution,
   ConflictAction
 } from '@/types/dataSyncTypes';
@@ -732,6 +733,79 @@ export class DataSyncManager {
     } catch (error) {
       // La sentinelle reste en place : elle sera détectée au prochain démarrage
       throw error;
+    }
+  }
+
+  /**
+   * Restaure les données depuis un fichier backup présent sur le serveur
+   * (ex : app-data-backup-177....xxx.json créé automatiquement avant chaque push).
+   * Écrase les données locales ET remet le fichier serveur principal à l'état du backup.
+   * À utiliser pour récupérer des données après un écrasement accidentel.
+   */
+  public async restoreFromServerBackup(backupFilename: string): Promise<boolean> {
+    if (this.isSync) {
+      console.warn('⚠️ DataSync: Restauration impossible, sync déjà en cours');
+      return false;
+    }
+
+    const serverAccessible = await this.checkServerAccess();
+    if (!serverAccessible) {
+      console.error('❌ DataSync: Serveur inaccessible, restauration impossible');
+      return false;
+    }
+
+    if (!window.electronAPI?.dataSync_readServerBackup) {
+      console.error('❌ DataSync: API dataSync_readServerBackup non disponible');
+      return false;
+    }
+
+    this.isSync = true;
+    this.notifyStatusChange();
+
+    try {
+      console.warn(`🔄 DataSync: Restauration depuis le backup serveur "${backupFilename}"...`);
+
+      const backupContent = await window.electronAPI.dataSync_readServerBackup(backupFilename);
+      if (!backupContent) {
+        console.error('❌ DataSync: Fichier backup introuvable ou vide');
+        this.showToast('Fichier backup introuvable sur le serveur', 'error');
+        return false;
+      }
+
+      const backupData = backupContent.data;
+
+      // Sauvegarder localement
+      await this.saveLocalData(backupData);
+      // Remettre le serveur dans cet état (push avec le backup comme données courantes)
+      await this.pushToServer(backupData);
+
+      this.lastSuccessfulSync = new Date().toISOString();
+      this.consecutiveFailures = 0;
+      this.backoffUntil = null;
+      this.showToast(`✅ Données restaurées depuis "${backupFilename}"`, 'success');
+      console.log('✅ DataSync: Restauration depuis backup serveur réussie');
+      return true;
+    } catch (error) {
+      console.error('❌ DataSync: Échec de la restauration depuis backup serveur:', error);
+      this.showToast('Échec de la restauration depuis le backup serveur', 'error');
+      return false;
+    } finally {
+      this.isSync = false;
+      this.notifyStatusChange();
+    }
+  }
+
+  /**
+   * Liste les fichiers backup disponibles sur le serveur.
+   */
+  public async listServerBackups(): Promise<string[]> {
+    if (!window.electronAPI?.dataSync_listServerBackups) {
+      return [];
+    }
+    try {
+      return await window.electronAPI.dataSync_listServerBackups();
+    } catch {
+      return [];
     }
   }
 

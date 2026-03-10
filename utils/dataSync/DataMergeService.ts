@@ -148,8 +148,20 @@ export class DataMergeService {
       if (!serverMap.has(id)) {
         // Vérifier si un collègue a supprimé cette enquête sur le serveur
         if (serverDeletedIds.has(id)) {
-          // ⛔ Supprimée par un collègue → ne pas la re-pousser sur le serveur
-          console.log(`🗑️ DataMerge: Enquête ${id} retirée du local (supprimée par un collègue)`);
+          // ⚠️ Supprimée par un collègue MAIS présente localement
+          // → CONFLIT OBLIGATOIRE (ne jamais supprimer silencieusement des données locales)
+          console.warn(`⚠️ DataMerge: Conflit suppression enquête ${id} (présente en local, supprimée sur serveur)`);
+          conflicts.push({
+            type: 'enquete_deleted',
+            enqueteId: id,
+            enqueteNumero: localEnquete.numero,
+            details: ['Enquête présente localement mais supprimée sur le serveur par un collègue'],
+            localData: localEnquete,
+            serverData: null,
+            localTimestamp: localEnquete.dateMiseAJour
+          });
+          // En attendant la résolution, conserver la version locale
+          merged.set(id, localEnquete);
           continue;
         }
         // ✅ Nouvelle enquête locale → push vers serveur
