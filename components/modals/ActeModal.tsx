@@ -115,8 +115,10 @@ export const ActeModal = ({
       updatedStatut = 'pose_pending';
     }
 
-    const dateFin = (typeConfig.hasDuree && !needsPose && dateDebut && dureeVal)
-      ? DateUtils.calculateEndDateWithUnit(dateDebut, dureeVal, effectiveDureeUnit as 'jours' | 'mois')
+    // Calculer dateFin depuis la référence disponible (datePose prioritaire, sinon dateDebut)
+    const dateRef = datePose || dateDebut;
+    const dateFin = (typeConfig.hasDuree && dureeVal && dateRef)
+      ? DateUtils.calculateEndDateWithUnit(dateRef, dureeVal, effectiveDureeUnit as 'jours' | 'mois')
       : undefined;
 
     const dates: DateManagerData = {
