@@ -63,12 +63,11 @@ export const useSections = (): UseSectionsReturn => {
     const trimmed = name.trim();
     if (!trimmed) return false;
 
-    setSections(prev => {
-      if (prev.includes(trimmed)) return prev;
-      return [...prev, trimmed];
-    });
+    if (sections.includes(trimmed)) return false;
+
+    setSections(prev => [...prev, trimmed]);
     return true;
-  }, []);
+  }, [sections]);
 
   const removeSection = useCallback(async (name: string): Promise<boolean> => {
     setSections(prev => prev.filter(s => s !== name));

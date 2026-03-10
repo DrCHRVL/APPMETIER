@@ -175,7 +175,7 @@ function AppContent() {
     getTagsByCategory
   } = useTags();
 
-  const { sections: savedSections, getSectionOrder } = useSections();
+  const { getSectionOrder } = useSections();
 
   // Initialisation du système de sauvegarde
   useEffect(() => {

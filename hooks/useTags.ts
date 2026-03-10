@@ -246,7 +246,7 @@ export const useTags = (): UseTagsReturn => {
 
   // Sauvegarder les tags quand ils changent
   useEffect(() => {
-    if (!isLoading && tags.length > 0) {
+    if (!isLoading) {
       debouncedSave(tags);
     }
     
