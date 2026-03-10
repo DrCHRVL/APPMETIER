@@ -55,6 +55,8 @@ export class DataSyncManager {
   
   // 🆕 Toast callback
   private toastCallback: ((message: string, type: 'success' | 'info' | 'error') => void) | null = null;
+  // Callback de sauvegarde forcée avant lecture des données locales (évite la race condition throttle)
+  private static preSyncFlushCallback: (() => Promise<void>) | null = null;
 
   // Indique si cette machine est responsable d'une écriture interrompue
   private selfCausedCorruption = false;
@@ -88,6 +90,14 @@ export class DataSyncManager {
    */
   public setToastCallback(callback: (message: string, type: 'success' | 'info' | 'error') => void): void {
     this.toastCallback = callback;
+  }
+
+  /**
+   * Enregistre un callback appelé avant chaque lecture des données locales.
+   * Permet de forcer la sauvegarde des données React en attente (throttle) avant la sync.
+   */
+  public static registerPreSyncFlush(callback: () => Promise<void>): void {
+    DataSyncManager.preSyncFlushCallback = callback;
   }
 
   /**
@@ -280,6 +290,15 @@ export class DataSyncManager {
     this.notifyStatusChange();
 
     try {
+      // Forcer la sauvegarde des données React en attente (throttle) avant de lire le store
+      if (DataSyncManager.preSyncFlushCallback) {
+        try {
+          await DataSyncManager.preSyncFlushCallback();
+        } catch {
+          // Non-bloquant : si le flush échoue, continuer avec les données du store
+        }
+      }
+
       const localData = await this.getLocalData();
       const serverResponse = await this.getServerData();
       
@@ -555,18 +574,38 @@ export class DataSyncManager {
       }
     });
 
-    // Ajouter toutes les enquêtes non-conflictuelles
-    localData.enquetes?.forEach(enquete => {
-      if (!processedEnqueteIds.has(enquete.id)) {
-        resolvedData.enquetes.push(enquete);
-      }
-    });
+    // Ajouter toutes les enquêtes non-conflictuelles sans créer de doublons
+    // ⚠️ BUG CORRIGÉ : l'ancienne version ajoutait les enquêtes depuis les deux côtés (local ET serveur),
+    // créant des doublons. Lors de la re-sync immédiate, new Map() gardait la version serveur (la dernière),
+    // écrasant les actes enregistrés localement.
+    const nonConflictLocal = new Map(
+      (localData.enquetes ?? [])
+        .filter(e => !processedEnqueteIds.has(e.id))
+        .map(e => [e.id, e])
+    );
+    const nonConflictServer = new Map(
+      (serverData.enquetes ?? [])
+        .filter(e => !processedEnqueteIds.has(e.id))
+        .map(e => [e.id, e])
+    );
 
-    serverData.enquetes?.forEach(enquete => {
-      if (!processedEnqueteIds.has(enquete.id)) {
-        resolvedData.enquetes.push(enquete);
+    for (const [id, serverEnquete] of nonConflictServer) {
+      if (!nonConflictLocal.has(id)) {
+        // Uniquement côté serveur → ajouter
+        resolvedData.enquetes.push(serverEnquete);
       }
-    });
+    }
+    for (const [id, localEnquete] of nonConflictLocal) {
+      const serverEnquete = nonConflictServer.get(id);
+      if (!serverEnquete) {
+        // Uniquement côté local → ajouter
+        resolvedData.enquetes.push(localEnquete);
+      } else {
+        // Présente des deux côtés → fusion intelligente (local prioritaire)
+        const mergeResult = DataMergeService.tryMergeEnquete(localEnquete, serverEnquete);
+        resolvedData.enquetes.push(mergeResult.merged ?? localEnquete);
+      }
+    }
 
     // Fusionner les résultats d'audience non-conflictuels
     Object.entries(localData.audienceResultats || {}).forEach(([id, result]) => {

@@ -49,6 +49,7 @@ import { TodoReminderBar } from './components/TodoReminderBar';
 import { useDataSync } from './hooks/useDataSync';
 import { DataSyncConflictModal } from './components/modals/DataSyncConflictModal';
 import { ConflictResolution, ConflictAction } from '@/types/dataSyncTypes';
+import { DataSyncManager } from './utils/dataSync/DataSyncManager';
 
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
 
@@ -113,7 +114,8 @@ function AppContent() {
     handleDeleteEnquete,
     handleUnarchiveEnquete,
     handleStartEnquete,
-    handleCreateAudienceAlert
+    handleCreateAudienceAlert,
+    flushPendingSave
   } = useEnquetes();
 
   // Hook pour les instructions judiciaires
@@ -188,6 +190,11 @@ function AppContent() {
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  // Enregistrer le flush de sauvegarde pour éviter la race condition sync/throttle
+  useEffect(() => {
+    DataSyncManager.registerPreSyncFlush(flushPendingSave);
+  }, [flushPendingSave]);
 
   // Chargement des todos généraux au démarrage
   useEffect(() => {

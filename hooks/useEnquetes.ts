@@ -108,6 +108,20 @@ export const useEnquetes = () => {
     [isDataDirty, isLoading]
   );
 
+  // Sauvegarde immédiate (bypass throttle) — utilisée par DataSyncManager avant la lecture
+  const flushPendingSave = useCallback(async () => {
+    if (!isDataDirty || isLoading) return;
+    try {
+      await ElectronBridge.setData(
+        APP_CONFIG.STORAGE_KEYS.ENQUETES,
+        enquetesRef.current
+      );
+      setIsDataDirty(false);
+    } catch (error) {
+      console.error('❌ Error during flush save:', error);
+    }
+  }, [isDataDirty, isLoading]);
+
   // Déclencher la sauvegarde quand les données changent
   useEffect(() => {
     if (isDataDirty && !isLoading) {
@@ -349,6 +363,7 @@ export const useEnquetes = () => {
     handleDuplicateRule,
     handleDeleteRule,
     updateAlerts,
-    handleCreateAudienceAlert
+    handleCreateAudienceAlert,
+    flushPendingSave
   };
 };

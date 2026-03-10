@@ -248,7 +248,8 @@ export class DataMergeService {
           description: serverDate > localDate ? server.description : local.description,
           services: serverDate > localDate ? server.services : local.services,
           tags: this.mergeTags(local.tags, server.tags),
-          dateMiseAJour: new Date().toISOString()
+          // Conserver le timestamp réel de la dernière modification (ne pas gonfler à l'heure actuelle)
+          dateMiseAJour: serverDate > localDate ? server.dateMiseAJour : local.dateMiseAJour
         },
         hasConflict: false,
         conflicts: []
