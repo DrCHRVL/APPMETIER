@@ -395,7 +395,9 @@ export class DataSyncManager {
               action: 'first_sync'
             };
           } catch {
-            // La réparation a échoué, continuer vers l'erreur générique
+            // La réparation a échoué — réinitialiser le flag pour ne pas écraser
+            // les données d'un collègue lors d'une prochaine corruption
+            this.selfCausedCorruption = false;
           }
         }
 
@@ -478,6 +480,23 @@ export class DataSyncManager {
     localData: SyncData,
     serverData: SyncData
   ): Promise<void> {
+    this.isSync = true;
+    this.notifyStatusChange();
+
+    try {
+      return await this._resolveConflictsInternal(conflicts, selections, localData, serverData);
+    } finally {
+      this.isSync = false;
+      this.notifyStatusChange();
+    }
+  }
+
+  private async _resolveConflictsInternal(
+    conflicts: SyncConflict[],
+    selections: Map<number, ConflictAction>,
+    localData: SyncData,
+    serverData: SyncData
+  ): Promise<void> {
     // Construire les données fusionnées en fonction des sélections
     const mergedDeletedIds = Array.from(new Set([
       ...(localData.deletedIds || []),
@@ -521,7 +540,11 @@ export class DataSyncManager {
 
         switch (action) {
           case 'skip':
-            // Ne rien faire avec cette enquête
+            // Garder la version locale par sécurité (ne jamais perdre de données silencieusement)
+            const skipLocal = localEnqueteMap.get(enqueteId);
+            if (skipLocal) {
+              resolvedData.enquetes.push(skipLocal);
+            }
             break;
             
           case 'keep_local':
@@ -753,6 +776,9 @@ export class DataSyncManager {
       // sans écraser le serveur (risque de perte des données du collègue)
       if (error instanceof Error && (
         error.message.includes('Unexpected end of JSON') ||
+        error.message.includes('Unexpected token') ||
+        error.message.includes('JSON Parse error') ||
+        error.message.includes('is not valid JSON') ||
         error.message.includes('Erreur lecture serveur')
       )) {
         const corruptedError = new Error('SERVEUR_CORROMPU: ' + error.message);

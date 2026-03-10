@@ -379,10 +379,14 @@ export class DataMergeService {
         // ✅ Progression normale détectée → prendre la version indiquée
         merged.set(serverActe.id, progressionCheck.takeServer ? serverActe : localActe);
       } else {
-        // Pas de progression workflow → utiliser timestamp de l'enquête parente
-        // Le plus récent gagne (pas de conflit)
+        // Pas de progression workflow → vérifier les conflits de champs
+        const fieldConflicts = this.compareActeForConflict(localActe, serverActe);
+        if (fieldConflicts.length > 0) {
+          // ⚠️ Modifications contradictoires détectées → signaler le conflit
+          conflicts.push(...fieldConflicts);
+        }
+        // Utiliser timestamp de l'enquête parente pour déterminer la version par défaut
         if (serverEnqueteTimestamp > localEnqueteTimestamp) {
-          // Enquête serveur plus récente → prendre acte serveur
           merged.set(serverActe.id, serverActe);
         }
         // Sinon garder local (déjà dans merged)
@@ -438,20 +442,20 @@ export class DataMergeService {
       return { isProgression: true, takeServer: false }; // Prendre local (demande pose)
     }
 
-    // Cas 3a: Autorisation en attente → autorisée (serveur plus récent)
+    // Cas 3a: Autorisation demandée en local, serveur pas encore au courant → garder local
     if (
       local.statut === 'autorisation_pending' &&
       server.statut === 'en_cours'
     ) {
-      return { isProgression: true, takeServer: true }; // Prendre serveur (autorisé)
+      return { isProgression: true, takeServer: false }; // Prendre local (demande d'autorisation)
     }
 
-    // Cas 3b: En cours → Autorisation en attente (local plus récent)
+    // Cas 3b: Autorisation demandée sur le serveur (par un collègue), local encore en cours → prendre serveur
     if (
-      server.statut === 'en_cours' &&
-      local.statut === 'autorisation_pending'
+      server.statut === 'autorisation_pending' &&
+      local.statut === 'en_cours'
     ) {
-      return { isProgression: true, takeServer: false }; // Prendre local (demande autorisation)
+      return { isProgression: true, takeServer: true }; // Prendre serveur (demande collègue)
     }
 
     // Cas 4: Ajout de prolongation (durée augmentée)
