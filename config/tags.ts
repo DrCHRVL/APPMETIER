@@ -45,7 +45,6 @@ export const DEFAULT_TAGS: TagDefinition[] = [
   // SLPJ
   { id: 'service-slpj-amiens', value: 'SLPJ Amiens', category: 'services', family: 'slpj', order: 1, isCustom: false },
   { id: 'service-slpj-abbeville', value: 'SLPJ Abbeville', category: 'services', family: 'slpj', order: 2, isCustom: false },
-  { id: 'service-slpj-brigade-stup', value: 'Brigade des stupéfiants', category: 'services', family: 'slpj', order: 3, isCustom: false },
   
   // Offices
   { id: 'service-ocldi', value: 'OCLDI', category: 'services', family: 'offices', order: 1, isCustom: false },
