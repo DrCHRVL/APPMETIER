@@ -8,6 +8,7 @@ import {
   SyncResult,
   SyncMetadata,
   SyncConfig,
+  SyncConflict,
   ConflictResolution,
   ConflictAction
 } from '@/types/dataSyncTypes';
@@ -618,6 +619,9 @@ export class DataSyncManager {
   // Après ce délai, tous les collègues ont forcément syncé au moins une fois
   private static readonly DELETED_IDS_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
+  // Nombre maximum de backups serveur conservés
+  private static readonly MAX_SERVER_BACKUPS = 5;
+
   /** Lit les entrées supprimées depuis le stockage local (format {id, deletedAt}). */
   private async loadDeletedEntries(): Promise<Array<{ id: number; deletedAt: string }>> {
     const raw = await ElectronBridge.getData<Array<{ id: number; deletedAt: string } | number>>(
@@ -691,16 +695,61 @@ export class DataSyncManager {
     }
   }
 
+  /**
+   * Extrait la date depuis un nom de fichier backup serveur.
+   * Format attendu : app-data-backup-2026-03-09T14-30-00.000Z.json
+   */
+  private extractDateFromServerBackupFilename(filename: string): Date | null {
+    const match = filename.match(/(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})/);
+    if (!match) return null;
+    const date = new Date(`${match[1]}T${match[2]}:${match[3]}:${match[4]}`);
+    return isNaN(date.getTime()) ? null : date;
+  }
+
+  /**
+   * Rotation des backups serveur : conserve au plus MAX_SERVER_BACKUPS fichiers.
+   * Règle de protection : ne jamais supprimer le backup le plus récent
+   * qui date d'un jour calendaire différent d'aujourd'hui.
+   */
+  private async rotateServerBackups(): Promise<void> {
+    try {
+      const backups = await this.listServerBackups();
+      if (backups.length <= DataSyncManager.MAX_SERVER_BACKUPS) return;
+
+      // Trier du plus récent au plus ancien (le nom contient le timestamp ISO)
+      const sorted = [...backups].sort().reverse();
+
+      // Identifier le backup le plus récent venant d'un jour précédent (à protéger)
+      const todayStr = new Date().toDateString();
+      const newestPreviousDay = sorted.find(filename => {
+        const date = this.extractDateFromServerBackupFilename(filename);
+        return date !== null && date.toDateString() !== todayStr;
+      });
+
+      // Supprimer les backups au-delà de MAX, sans toucher au backup protégé
+      const toDelete = sorted.slice(DataSyncManager.MAX_SERVER_BACKUPS);
+      for (const filename of toDelete) {
+        if (filename === newestPreviousDay) continue; // protégé
+        await window.electronAPI?.dataSync_deleteServerBackup?.(filename);
+        console.log(`🗑️ DataSync: Backup serveur supprimé (rotation) : ${filename}`);
+      }
+    } catch (error) {
+      console.warn('⚠️ DataSync: Erreur rotation backups serveur:', error);
+      // Non-bloquant
+    }
+  }
+
   private async pushToServer(data: SyncData): Promise<void> {
     if (!window.electronAPI?.dataSync_push) {
       throw new Error('API dataSync_push non disponible');
     }
 
-    // Sauvegarder la version actuelle du serveur avant d'écraser (1 seul fichier de backup)
-    // Le main process doit implémenter dataSync_backupServer comme une copie du fichier sync
-    // vers sync_data_backup.json dans le même dossier (écrase le backup précédent)
+    // Créer un backup daté avant d'écraser, puis effectuer la rotation
     try {
-      await window.electronAPI?.dataSync_backupServer?.();
+      const timestamp = new Date().toISOString().replace(/:/g, '-');
+      const backupFilename = `app-data-backup-${timestamp}.json`;
+      await window.electronAPI?.dataSync_backupServer?.(backupFilename);
+      await this.rotateServerBackups();
     } catch {
       // Non-bloquant : le backup est une sécurité, pas une condition à l'écriture
     }
@@ -732,6 +781,79 @@ export class DataSyncManager {
     } catch (error) {
       // La sentinelle reste en place : elle sera détectée au prochain démarrage
       throw error;
+    }
+  }
+
+  /**
+   * Restaure les données depuis un fichier backup présent sur le serveur
+   * (ex : app-data-backup-177....xxx.json créé automatiquement avant chaque push).
+   * Écrase les données locales ET remet le fichier serveur principal à l'état du backup.
+   * À utiliser pour récupérer des données après un écrasement accidentel.
+   */
+  public async restoreFromServerBackup(backupFilename: string): Promise<boolean> {
+    if (this.isSync) {
+      console.warn('⚠️ DataSync: Restauration impossible, sync déjà en cours');
+      return false;
+    }
+
+    const serverAccessible = await this.checkServerAccess();
+    if (!serverAccessible) {
+      console.error('❌ DataSync: Serveur inaccessible, restauration impossible');
+      return false;
+    }
+
+    if (!window.electronAPI?.dataSync_readServerBackup) {
+      console.error('❌ DataSync: API dataSync_readServerBackup non disponible');
+      return false;
+    }
+
+    this.isSync = true;
+    this.notifyStatusChange();
+
+    try {
+      console.warn(`🔄 DataSync: Restauration depuis le backup serveur "${backupFilename}"...`);
+
+      const backupContent = await window.electronAPI.dataSync_readServerBackup(backupFilename);
+      if (!backupContent) {
+        console.error('❌ DataSync: Fichier backup introuvable ou vide');
+        this.showToast('Fichier backup introuvable sur le serveur', 'error');
+        return false;
+      }
+
+      const backupData = backupContent.data;
+
+      // Sauvegarder localement
+      await this.saveLocalData(backupData);
+      // Remettre le serveur dans cet état (push avec le backup comme données courantes)
+      await this.pushToServer(backupData);
+
+      this.lastSuccessfulSync = new Date().toISOString();
+      this.consecutiveFailures = 0;
+      this.backoffUntil = null;
+      this.showToast(`✅ Données restaurées depuis "${backupFilename}"`, 'success');
+      console.log('✅ DataSync: Restauration depuis backup serveur réussie');
+      return true;
+    } catch (error) {
+      console.error('❌ DataSync: Échec de la restauration depuis backup serveur:', error);
+      this.showToast('Échec de la restauration depuis le backup serveur', 'error');
+      return false;
+    } finally {
+      this.isSync = false;
+      this.notifyStatusChange();
+    }
+  }
+
+  /**
+   * Liste les fichiers backup disponibles sur le serveur.
+   */
+  public async listServerBackups(): Promise<string[]> {
+    if (!window.electronAPI?.dataSync_listServerBackups) {
+      return [];
+    }
+    try {
+      return await window.electronAPI.dataSync_listServerBackups();
+    } catch {
+      return [];
     }
   }
 

@@ -141,6 +141,30 @@ export const useDataSync = () => {
   }, []);
 
   /**
+   * Restaure les données depuis un fichier backup présent sur le serveur
+   * (ex : app-data-backup-177....xxx.json).
+   * Écrase le local ET le serveur avec le contenu du backup.
+   */
+  const restoreFromServerBackup = useCallback(async (backupFilename: string): Promise<boolean> => {
+    setIsSyncing(true);
+    try {
+      return await dataSyncManager.restoreFromServerBackup(backupFilename);
+    } catch (error) {
+      console.error('Erreur restauration backup serveur:', error);
+      return false;
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
+
+  /**
+   * Liste les fichiers backup disponibles sur le serveur.
+   */
+  const listServerBackups = useCallback(async (): Promise<string[]> => {
+    return await dataSyncManager.listServerBackups();
+  }, []);
+
+  /**
    * Vérifie l'accès au serveur
    */
   const checkServerAccess = useCallback(async (): Promise<boolean> => {
@@ -159,15 +183,17 @@ export const useDataSync = () => {
     syncStatus,
     isSyncing,
     lastSyncResult,
-    
+
     // Méthodes
     triggerSync,
-    resolveConflicts,      // 🆕 Nouvelle API avec sélection
-    resolveConflict,       // Ancienne API (dépréciée)
+    resolveConflicts,             // Nouvelle API avec sélection individuelle
+    resolveConflict,              // Ancienne API (dépréciée)
     repairServer,
+    restoreFromServerBackup,      // Restauration depuis backup serveur
+    listServerBackups,            // Liste des backups disponibles sur le serveur
     checkServerAccess,
     stopSync,
-    
+
     // Helpers
     isOnline: syncStatus?.isOnline ?? false,
     hasConflicts: lastSyncResult?.action === 'conflicts_detected',

@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
-import { Download, Upload, Save, RotateCcw, Clock, Shield, AlertTriangle, CheckCircle, FileText, Wrench } from 'lucide-react';
+import { Download, Upload, Save, RotateCcw, Clock, Shield, AlertTriangle, CheckCircle, FileText, Wrench, HardDriveDownload } from 'lucide-react';
 import { backupManager } from '@/utils/backupManager';
 import { useToast } from '@/contexts/ToastContext';
 import { ConfirmationDialog } from '../ui/confirmation-dialog';
@@ -26,11 +26,13 @@ interface BackupStats {
 interface SavePageProps {
   lastSaveDate?: string;
   onRepairServer?: () => Promise<boolean>;
+  onRestoreFromServerBackup?: (filename: string) => Promise<boolean>;
+  onListServerBackups?: () => Promise<string[]>;
   isSyncing?: boolean;
   syncStatus?: { isOnline: boolean } | null;
 }
 
-export const SavePage = ({ lastSaveDate, onRepairServer, isSyncing, syncStatus }: SavePageProps) => {
+export const SavePage = ({ lastSaveDate, onRepairServer, onRestoreFromServerBackup, onListServerBackups, isSyncing, syncStatus }: SavePageProps) => {
   const [backups, setBackups] = useState<string[]>([]);
   const [backupStats, setBackupStats] = useState<BackupStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,11 +41,16 @@ export const SavePage = ({ lastSaveDate, onRepairServer, isSyncing, syncStatus }
     exporting: false,
     checking: false,
     restoring: false,
-    copyingDataJson: false
+    copyingDataJson: false,
+    restoringServerBackup: false
   });
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showRepairConfirm, setShowRepairConfirm] = useState(false);
+  const [showServerRestoreConfirm, setShowServerRestoreConfirm] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState('');
+  const [selectedServerBackup, setSelectedServerBackup] = useState('');
+  const [serverBackups, setServerBackups] = useState<string[]>([]);
+  const [isLoadingServerBackups, setIsLoadingServerBackups] = useState(false);
   const [integrityStatus, setIntegrityStatus] = useState<'unknown' | 'good' | 'warning' | 'error'>('unknown');
   const { showToast } = useToast();
 
@@ -228,6 +235,38 @@ export const SavePage = ({ lastSaveDate, onRepairServer, isSyncing, syncStatus }
     } catch (error) {
       console.error('❌ Error during import process:', error);
       showToast('❌ Erreur lors du processus d\'import', 'error');
+    }
+  };
+
+  const loadServerBackups = async () => {
+    if (!onListServerBackups) return;
+    setIsLoadingServerBackups(true);
+    try {
+      const list = await onListServerBackups();
+      setServerBackups(list);
+    } catch (error) {
+      console.error('Erreur chargement backups serveur:', error);
+    } finally {
+      setIsLoadingServerBackups(false);
+    }
+  };
+
+  const handleRestoreFromServerBackup = async () => {
+    setShowServerRestoreConfirm(false);
+    if (!onRestoreFromServerBackup || !selectedServerBackup) return;
+    setOperations(prev => ({ ...prev, restoringServerBackup: true }));
+    try {
+      const success = await onRestoreFromServerBackup(selectedServerBackup);
+      if (success) {
+        showToast('✅ Données restaurées depuis le backup serveur. Rechargement...', 'success');
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        showToast('❌ Échec de la restauration — vérifiez l\'accès au serveur', 'error');
+      }
+    } catch (error) {
+      showToast('❌ Erreur lors de la restauration depuis le backup serveur', 'error');
+    } finally {
+      setOperations(prev => ({ ...prev, restoringServerBackup: false }));
     }
   };
 
@@ -472,6 +511,82 @@ export const SavePage = ({ lastSaveDate, onRepairServer, isSyncing, syncStatus }
         </CardContent>
       </Card>
 
+      {/* 🔄 RESTAURATION DEPUIS BACKUP SERVEUR */}
+      {onRestoreFromServerBackup && (
+        <Card className="border-blue-300">
+          <CardHeader>
+            <CardTitle className="flex items-center text-blue-700">
+              <HardDriveDownload className="h-5 w-5 mr-2" />
+              Restauration depuis un backup serveur
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="p-3 bg-blue-50 rounded text-sm text-blue-800">
+              <p className="font-semibold mb-1">Récupération après écrasement accidentel</p>
+              <p>
+                Permet de restaurer les données depuis un fichier backup automatique présent sur le
+                serveur partagé (ex&nbsp;: <code className="bg-blue-100 px-1 rounded">app-data-backup-2026-03-09T14-30-00.json</code>).
+              </p>
+              <p className="mt-1">
+                Cette opération <strong>écrase les données locales ET le fichier serveur principal</strong> avec
+                le contenu du backup sélectionné.
+              </p>
+            </div>
+
+            {serverBackups.length === 0 ? (
+              <Button
+                variant="outline"
+                onClick={loadServerBackups}
+                disabled={isLoadingServerBackups || !syncStatus?.isOnline}
+                className="w-full"
+              >
+                <HardDriveDownload className="h-4 w-4 mr-2" />
+                {isLoadingServerBackups ? 'Chargement...' : 'Lister les backups disponibles sur le serveur'}
+              </Button>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-gray-700">
+                    {serverBackups.length} backup(s) trouvé(s) sur le serveur
+                  </p>
+                  <Button variant="ghost" size="sm" onClick={loadServerBackups} disabled={isLoadingServerBackups}>
+                    <RotateCcw className="h-3 w-3 mr-1" />
+                    Actualiser
+                  </Button>
+                </div>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {serverBackups.map(filename => (
+                    <div key={filename} className="flex items-center justify-between p-2 bg-gray-50 rounded border hover:bg-blue-50 transition-colors">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <span className="text-sm font-mono text-gray-700">{filename}</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-blue-700 border-blue-300 hover:bg-blue-100 flex-shrink-0"
+                        disabled={operations.restoringServerBackup}
+                        onClick={() => {
+                          setSelectedServerBackup(filename);
+                          setShowServerRestoreConfirm(true);
+                        }}
+                      >
+                        <HardDriveDownload className="h-3 w-3 mr-1" />
+                        Restaurer
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!syncStatus?.isOnline && (
+              <p className="text-xs text-gray-500 text-center">Serveur inaccessible — connexion requise</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* 🔧 RÉPARATION DU SERVEUR */}
       {onRepairServer && (
         <Card className="border-orange-200">
@@ -528,6 +643,17 @@ export const SavePage = ({ lastSaveDate, onRepairServer, isSyncing, syncStatus }
         </CardContent>
       </Card>
       
+      {/* 🔄 DIALOGUE DE CONFIRMATION RESTAURATION DEPUIS BACKUP SERVEUR */}
+      <ConfirmationDialog
+        isOpen={showServerRestoreConfirm}
+        onClose={() => setShowServerRestoreConfirm(false)}
+        onConfirm={handleRestoreFromServerBackup}
+        title="Restauration depuis backup serveur"
+        message={`⚠️ Cette action va écraser vos données locales ET le fichier serveur principal avec le contenu du backup :\n\n"${selectedServerBackup}"\n\nÀ effectuer depuis la machine de la personne dont les données ont été perdues.`}
+        confirmLabel={operations.restoringServerBackup ? 'Restauration...' : 'Restaurer depuis ce backup'}
+        cancelLabel="Annuler"
+      />
+
       {/* 🔧 DIALOGUE DE CONFIRMATION RÉPARATION SERVEUR */}
       <ConfirmationDialog
         isOpen={showRepairConfirm}

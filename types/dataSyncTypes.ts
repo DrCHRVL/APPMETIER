@@ -69,11 +69,12 @@ export interface SyncConflict {
 export interface SyncResult {
   success: boolean;
   timestamp: string;
-  action: 'first_sync' | 'no_conflicts' | 'conflicts_detected' | 'error';
+  action: 'first_sync' | 'no_conflicts' | 'auto_merged' | 'conflicts_detected' | 'error';
   conflicts?: SyncConflict[];
   serverData?: SyncData;
   localData?: SyncData;
   error?: string;
+  stats?: { newFromServer: number; newFromLocal: number; merged: number };
   changesApplied?: {
     enquetesAdded: number;
     enquetesUpdated: number;

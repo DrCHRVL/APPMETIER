@@ -96,8 +96,14 @@ interface ElectronAPI {
   dataSync_checkAccess?: () => Promise<boolean>;
   dataSync_pull?: () => Promise<{ data: import('./dataSyncTypes').SyncData; metadata: import('./dataSyncTypes').SyncMetadata } | null>;
   dataSync_push?: (data: import('./dataSyncTypes').SyncData, metadata: import('./dataSyncTypes').SyncMetadata) => Promise<boolean>;
-  /** Copie le fichier sync serveur actuel vers un fichier backup (écrase le backup précédent). */
-  dataSync_backupServer?: () => Promise<boolean>;
+  /** Copie le fichier sync serveur actuel vers un fichier backup avec le nom fourni (ou écrase l'unique backup si aucun nom). */
+  dataSync_backupServer?: (filename?: string) => Promise<boolean>;
+  /** Supprime un fichier backup du dossier serveur. */
+  dataSync_deleteServerBackup?: (filename: string) => Promise<boolean>;
+  /** Lit un fichier backup serveur (.json) et retourne son contenu parsé. */
+  dataSync_readServerBackup?: (filename: string) => Promise<{ data: import('./dataSyncTypes').SyncData; metadata: import('./dataSyncTypes').SyncMetadata } | null>;
+  /** Liste les fichiers backup présents dans le dossier serveur (app-data-backup-*.json). */
+  dataSync_listServerBackups?: () => Promise<string[]>;
   getCurrentUser?: () => Promise<{ displayName: string; computerName: string }>;
 
   // NOUVELLES API POUR SYNCHRONISATION

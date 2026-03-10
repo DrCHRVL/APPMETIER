@@ -99,6 +99,8 @@ function AppContent() {
     triggerSync,
     resolveConflicts,
     repairServer,
+    restoreFromServerBackup,
+    listServerBackups,
     lastSyncResult,
     hasConflicts,
     conflicts
@@ -719,6 +721,8 @@ return (
               onManualSave={handleManualSave}
               lastSaveDate={StorageManager.getLastSave()}
               onRepairServer={repairServer}
+              onRestoreFromServerBackup={restoreFromServerBackup}
+              onListServerBackups={listServerBackups}
               isSyncing={isSyncing}
               syncStatus={syncStatus}
             />
