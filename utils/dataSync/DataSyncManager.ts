@@ -658,8 +658,7 @@ export class DataSyncManager {
     this.lastSuccessfulSync = new Date().toISOString();
     this.handleSyncSuccess();
     
-    const mergedCount = Array.from(selections.values()).filter(a => a === 'merge').length;
-    this.showToast(`✅ ${mergedCount} conflit(s) résolu(s)`, 'success');
+    this.showToast(`✅ ${conflicts.length} conflit(s) résolu(s)`, 'success');
   }
 
   /**

@@ -442,6 +442,14 @@ export class DataMergeService {
       return { isProgression: true, takeServer: false }; // Prendre local (demande pose)
     }
 
+    // Cas 2c: Pose demandée par un collègue sur le serveur → prendre serveur
+    if (
+      server.statut === 'pose_pending' &&
+      local.statut === 'en_cours'
+    ) {
+      return { isProgression: true, takeServer: true }; // Prendre serveur (demande collègue)
+    }
+
     // Cas 3a: Autorisation demandée en local, serveur pas encore au courant → garder local
     if (
       local.statut === 'autorisation_pending' &&
@@ -495,10 +503,14 @@ export class DataMergeService {
     // Statuts contradictoires (hors progressions normales)
     if (local.statut !== server.statut) {
       const isContradictory = !(
-        (local.statut === 'en_cours' && server.statut === 'prolongation_pending') ||
+        // Local a une demande en attente, serveur pas encore au courant
         (local.statut === 'prolongation_pending' && server.statut === 'en_cours') ||
-        (local.statut === 'pose_pending' && server.statut === 'en_cours') ||
-        (local.statut === 'autorisation_pending' && server.statut === 'en_cours')
+        (local.statut === 'pose_pending'          && server.statut === 'en_cours') ||
+        (local.statut === 'autorisation_pending'  && server.statut === 'en_cours') ||
+        // Serveur a une demande en attente (collègue), local pas encore au courant
+        (local.statut === 'en_cours' && server.statut === 'prolongation_pending') ||
+        (local.statut === 'en_cours' && server.statut === 'pose_pending')          ||
+        (local.statut === 'en_cours' && server.statut === 'autorisation_pending')
       );
 
       if (isContradictory) {

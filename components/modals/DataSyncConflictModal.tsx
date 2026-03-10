@@ -65,8 +65,8 @@ export const DataSyncConflictModal = ({
       next.set(index, {
         ...current,
         enabled: !current.enabled,
-        // Si on décoche, passer en mode "skip" par défaut
-        action: current.enabled ? 'skip' : 'merge'
+        // Si on décoche, garder la version locale par défaut
+        action: current.enabled ? 'keep_local' : 'merge'
       });
       return next;
     });
@@ -85,7 +85,7 @@ export const DataSyncConflictModal = ({
     setSelections(prev => {
       const next = new Map(prev);
       conflicts.forEach((_, index) => {
-        next.set(index, { enabled, action: enabled ? 'merge' : 'skip' });
+        next.set(index, { enabled, action: enabled ? 'merge' : 'keep_local' });
       });
       return next;
     });
@@ -246,11 +246,10 @@ export const DataSyncConflictModal = ({
                           <Select
                             value={selection.action}
                             onChange={(e) => setAction(index, e.target.value as ConflictAction)}
-                            className="text-xs h-7 w-48"
+                            className="text-xs h-7 w-56"
                           >
-                            <option value="skip">⏭️ Ignorer (ne rien faire)</option>
                             <option value="keep_local">💾 Garder ma version locale</option>
-                            <option value="keep_server">☁️ Prendre version serveur</option>
+                            <option value="keep_server">☁️ Prendre la version serveur</option>
                           </Select>
                         </div>
                       )}
