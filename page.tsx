@@ -28,6 +28,7 @@ import { PermanencePage } from './components/pages/PermanencePage';
 import { ArchivePage } from './components/pages/ArchivePage';
 import { AIRPage } from './components/pages/AIRPage';
 import { useTags } from './hooks/useTags';
+import { useSections } from './hooks/useSections';
 
 // Imports pour les instructions judiciaires
 import { InstructionsPage } from './components/pages/InstructionsPage';
@@ -51,21 +52,6 @@ import { ConflictResolution, ConflictAction } from '@/types/dataSyncTypes';
 
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
 
-// Ordre fixe des sections (même que dans ServiceOrganizer)
-const SECTIONS_ORDER = [
-  'SR',
-  'DCOS80',
-  'Offices centraux',
-  'Brigade de recherches Peronne',
-  'Brigade de recherches Amiens',
-  'Brigade de recherches Abbeville',
-  'Brigade de recherches Montdidier',
-  'SLPJ Amiens',
-  'Compagnie de Amiens',
-  'Compagnie de Abbeville',
-  'Compagnie de Peronne',
-  'Compagnie de Montdidier'
-];
 
 function AppContent() {
   const [isClient, setIsClient] = useState(false);
@@ -189,6 +175,8 @@ function AppContent() {
     getTagsByCategory
   } = useTags();
 
+  const { getSectionOrder } = useSections();
+
   // Initialisation du système de sauvegarde
   useEffect(() => {
     backupManager.initialize();
@@ -265,37 +253,7 @@ function AppContent() {
   const [showProlongationValidationModal, setShowProlongationValidationModal] = useState(false);
   const [selectedActe, setSelectedActe] = useState<{id: number, type: 'acte' | 'ecoute' | 'geoloc', enqueteId?: number} | null>(null);
 
-  // Calculer dynamiquement les sections personnalisées depuis les tags organisés
-  const customSections = useMemo(() => {
-    const allUsedSections = new Set<string>();
-    
-    // Parcourir tous les tags de services pour trouver les sections utilisées
-    tags
-      .filter(tag => tag.category === 'services' && tag.organization?.section)
-      .forEach(tag => {
-        allUsedSections.add(tag.organization!.section);
-      });
-    
-    // Retirer les sections par défaut pour ne garder que les personnalisées
-    const customSectionsArray = Array.from(allUsedSections).filter(
-      section => !SECTIONS_ORDER.includes(section)
-    );
-    
-    return customSectionsArray.sort(); // Tri alphabétique des sections personnalisées
-  }, [tags]);
-
-  // Fonction pour obtenir l'ordre d'une section (même logique que ServiceOrganizer)
-  const getSectionOrder = (sectionName: string) => {
-    const orderIndex = SECTIONS_ORDER.indexOf(sectionName);
-    if (orderIndex !== -1) return orderIndex;
-    
-    const customIndex = customSections.indexOf(sectionName);
-    if (customIndex !== -1) return SECTIONS_ORDER.length + customIndex;
-    
-    if (sectionName === 'AUTRES SERVICES') return 9999; // Toujours en dernier
-    
-    return SECTIONS_ORDER.length + customSections.length; // Autres sections
-  };
+  // getSectionOrder est fourni par useSections()
 
   const handleManualSave = async () => {
     try {
@@ -476,38 +434,37 @@ function AppContent() {
     [mergedFilteredEnquetes]
   );
 
-  // Organisation des enquêtes par section
+  // Organisation des enquêtes par section, puis par service au sein de chaque section
   const enquetesByOrganization = useMemo(() => {
-    const organized: { [section: string]: any[] } = {};
+    // Structure : { [section]: { [serviceName]: enquete[] } }
+    const organized: { [section: string]: { [serviceName: string]: any[] } } = {};
     const fallback: any[] = [];
-    
+
     activeEnquetes.forEach(enquete => {
-      const serviceTag = enquete.tags?.find(tag => tag.category === 'services');
-      
+      const serviceTag = enquete.tags?.find((tag: any) => tag.category === 'services');
+
       if (serviceTag) {
         // Chercher le tag central correspondant pour récupérer l'organization
         const centralTag = tags.find(t => t.value === serviceTag.value && t.category === 'services');
-        
+
         if (centralTag?.organization?.section) {
-          // Enquête organisée
           const section = centralTag.organization.section;
-          if (!organized[section]) organized[section] = [];
-          organized[section].push(enquete);
+          const serviceName = serviceTag.value as string;
+          if (!organized[section]) organized[section] = {};
+          if (!organized[section][serviceName]) organized[section][serviceName] = [];
+          organized[section][serviceName].push(enquete);
         } else {
-          // Enquête non organisée → fallback
           fallback.push(enquete);
         }
       } else {
-        // Enquête sans tag service → fallback
         fallback.push(enquete);
       }
     });
-    
-    // Toujours inclure la section fallback
+
     if (fallback.length > 0) {
-      organized['AUTRES SERVICES'] = fallback;
+      organized['AUTRES SERVICES'] = { '': fallback };
     }
-    
+
     return organized;
   }, [activeEnquetes, tags]);
 
@@ -583,75 +540,112 @@ return (
               />
               {Object.entries(enquetesByOrganization)
                 .sort(([a], [b]) => getSectionOrder(a) - getSectionOrder(b))
-                .map(([section, sectionEnquetes]) => (
-                  <div key={section} className="space-y-4">
-                    <div className="flex items-center gap-2 border-b border-gray-100 pb-2">
-                      <div className="w-0.5 h-4 rounded-full bg-green-700/50 flex-shrink-0" />
-                      <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                        {section}
-                      </h2>
-                      <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-bold leading-none">
-                        {sectionEnquetes.length}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 justify-items-center">
-                      {sectionEnquetes.map(enquete => (
-                        <EnquetePreview
-                          key={enquete.id}
-                          enquete={enquete}
-                          onView={() => {
-                            setSelectedEnquete(enquete);
-                            setIsEditing(false);
-                          }}
-                          onEdit={() => {
-                            setSelectedEnquete(enquete);
-                            setIsEditing(true);
-                          }}
-                          onArchive={handleArchiveEnquete}
-                          onTogglePriority={() => {
-                            const hasPriorityTag = enquete.tags.some(tag => 
-                              tag.category === 'priorite' && tag.value === 'Prioritaire'
-                            );
+                .map(([section, serviceGroups]) => {
+                  const serviceEntries = Object.entries(serviceGroups);
+                  const allEnquetes = serviceEntries.flatMap(([, enqs]) => enqs);
+                  const totalCount = allEnquetes.length;
+                  // Subdivision si plusieurs services nommés dans la même section
+                  const namedServiceEntries = serviceEntries.filter(([name]) => name !== '');
+                  const hasMultipleServices = namedServiceEntries.length > 1;
 
-                            const newTags = hasPriorityTag
-                              ? enquete.tags.filter(tag => !(tag.category === 'priorite' && tag.value === 'Prioritaire'))
-                              : [...enquete.tags, { id: 'prioritaire', value: 'Prioritaire', category: 'priorite' }];
+                  const renderEnqueteCard = (enquete: any) => (
+                    <EnquetePreview
+                      key={enquete.id}
+                      enquete={enquete}
+                      onView={() => {
+                        setSelectedEnquete(enquete);
+                        setIsEditing(false);
+                      }}
+                      onEdit={() => {
+                        setSelectedEnquete(enquete);
+                        setIsEditing(true);
+                      }}
+                      onArchive={handleArchiveEnquete}
+                      onTogglePriority={() => {
+                        const hasPriorityTag = enquete.tags.some((tag: any) =>
+                          tag.category === 'priorite' && tag.value === 'Prioritaire'
+                        );
+                        const newTags = hasPriorityTag
+                          ? enquete.tags.filter((tag: any) => !(tag.category === 'priorite' && tag.value === 'Prioritaire'))
+                          : [...enquete.tags, { id: 'prioritaire', value: 'Prioritaire', category: 'priorite' }];
+                        handleUpdateEnquete(enquete.id, { tags: newTags });
+                      }}
+                      onStartEnquete={handleStartEnquete}
+                      alerts={alerts.filter(alert => !alert.isAIRAlert)}
+                      onValidateAlert={handleValidateAlert}
+                      onSnoozeAlert={handleSnoozeAlert}
+                      onProlongationRequest={(acteId, type) => {
+                        setSelectedActe({ id: acteId, type, enqueteId: enquete.id });
+                        setShowProlongationModal(true);
+                      }}
+                      onPoseRequest={(acteId, type) => {
+                        setSelectedActe({ id: acteId, type, enqueteId: enquete.id });
+                        setShowPoseModal(true);
+                      }}
+                      onValidateProlongationRequest={(acteId, type) => {
+                        setSelectedActe({ id: acteId, type, enqueteId: enquete.id });
+                        setShowProlongationValidationModal(true);
+                      }}
+                      onValidateAutorisationRequest={(acteId, type) => {
+                        handleUpdateEnquete(enquete.id, {
+                          [type === 'acte' ? 'actes' :
+                           type === 'ecoute' ? 'ecoutes' :
+                           'geolocalisations']: enquete[type === 'acte' ? 'actes' :
+                                                        type === 'ecoute' ? 'ecoutes' :
+                                                        'geolocalisations']?.map((a: any) =>
+                            a.id === acteId ? { ...a, statut: 'en_cours' } : a
+                          )
+                        });
+                        showToast('Autorisation validée', 'success');
+                      }}
+                    />
+                  );
 
-                            handleUpdateEnquete(enquete.id, { tags: newTags });
-                          }}
-                          onStartEnquete={handleStartEnquete}
-                          alerts={alerts.filter(alert => !alert.isAIRAlert)}
-                          onValidateAlert={handleValidateAlert}
-                          onSnoozeAlert={handleSnoozeAlert}
-                          onProlongationRequest={(acteId, type) => {
-                            setSelectedActe({ id: acteId, type, enqueteId: enquete.id });
-                            setShowProlongationModal(true);
-                          }}
-                          onPoseRequest={(acteId, type) => {
-                            setSelectedActe({ id: acteId, type, enqueteId: enquete.id });
-                            setShowPoseModal(true);
-                          }}
-                          onValidateProlongationRequest={(acteId, type) => {
-                            setSelectedActe({ id: acteId, type, enqueteId: enquete.id });
-                            setShowProlongationValidationModal(true);
-                          }}
-                          onValidateAutorisationRequest={(acteId, type) => {
-                            handleUpdateEnquete(enquete.id, {
-                              [type === 'acte' ? 'actes' : 
-                               type === 'ecoute' ? 'ecoutes' : 
-                               'geolocalisations']: enquete[type === 'acte' ? 'actes' : 
-                                                            type === 'ecoute' ? 'ecoutes' : 
-                                                            'geolocalisations']?.map(a => 
-                                a.id === acteId ? { ...a, statut: 'en_cours' } : a
-                              )
-                            });
-                            showToast('Autorisation validée', 'success');
-                          }}
-                        />
-                      ))}
+                  return (
+                    <div key={section} className="space-y-4">
+                      <div className="flex items-center gap-2 border-b border-gray-100 pb-2">
+                        <div className="w-0.5 h-4 rounded-full bg-green-700/50 flex-shrink-0" />
+                        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                          {section}
+                        </h2>
+                        <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-bold leading-none">
+                          {totalCount}
+                        </span>
+                      </div>
+
+                      {hasMultipleServices ? (
+                        <div className="space-y-3">
+                          {namedServiceEntries.map(([serviceName, serviceEnquetes]) => (
+                            <div key={serviceName} className="bg-gray-50/80 rounded-lg border border-gray-200/70 px-3 pt-2 pb-3 space-y-3">
+                              <div className="flex items-center gap-2">
+                                <div className="w-0.5 h-3 rounded-full bg-gray-400/70 flex-shrink-0" />
+                                <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                                  {serviceName}
+                                </span>
+                                <span className="text-[10px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full font-bold leading-none">
+                                  {serviceEnquetes.length}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 justify-items-center">
+                                {serviceEnquetes.map(renderEnqueteCard)}
+                              </div>
+                            </div>
+                          ))}
+                          {/* Enquêtes sans service nommé dans cette section */}
+                          {serviceGroups[''] && serviceGroups[''].length > 0 && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 justify-items-center">
+                              {serviceGroups[''].map(renderEnqueteCard)}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 justify-items-center">
+                          {allEnquetes.map(renderEnqueteCard)}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))
+                  );
+                })
               }
             </div>
           )}

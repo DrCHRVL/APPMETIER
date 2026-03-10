@@ -180,8 +180,7 @@ export const TagManagementPage = () => {
     try {
       const newTagData = {
         value: tagToAdd,
-        category,
-        isCustom: true
+        category
       };
 
       const success = await addTag(newTagData);
@@ -261,7 +260,6 @@ export const TagManagementPage = () => {
           onDoubleClick={() => editingCategory === category && handleStartTagEdit(tag, category)}
         >
           {tag.value}
-          {!tag.isCustom && <span className="text-xs text-blue-600 ml-1">•</span>}
           {editingCategory === category && (
             <>
               <Button
@@ -276,20 +274,18 @@ export const TagManagementPage = () => {
               >
                 <Edit2 className="h-3 w-3 text-blue-600" />
               </Button>
-              {tag.isCustom && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-4 w-4 p-0 hover:bg-transparent"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleRemoveTag(tag.id);
-                  }}
-                  title="Supprimer ce tag"
-                >
-                  <X className="h-3 w-3 text-red-600" />
-                </Button>
-              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-4 w-4 p-0 hover:bg-transparent"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveTag(tag.id);
+                }}
+                title="Supprimer ce tag"
+              >
+                <X className="h-3 w-3 text-red-600" />
+              </Button>
             </>
           )}
         </Badge>
@@ -383,7 +379,6 @@ export const TagManagementPage = () => {
                   {editingCategory === category && (
                     <p className="text-xs text-gray-500 mt-2">
                       Double-cliquez sur un tag pour le modifier.
-                      <br />• = Tag prédéfini (non supprimable)
                     </p>
                   )}
                 </CardContent>

@@ -1,14 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { TagDefinition, TagCategory, DEFAULT_TAGS, getTagsByCategory } from '@/config/tags';
+import { TagDefinition, TagCategory, TagOrganization, getTagsByCategory } from '@/config/tags';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { Tag } from '@/types/interfaces';
-
-interface TagOrganization {
-  section: string;
-  subsection?: string;
-  order: number;
-}
 
 interface UseTagsReturn {
   // État
@@ -71,39 +65,63 @@ export const useTags = (): UseTagsReturn => {
           
           // Mettre à jour les tags
           if (enquete.tags && Array.isArray(enquete.tags)) {
-            const updatedTags = enquete.tags.map((tag: any) => {
-              const tagValue = typeof tag === 'string' ? tag : tag.value;
-              const tagCategory = typeof tag === 'string' ? category : tag.category;
-              
-              if (tagCategory === category && tagValue === oldValue) {
-                hasModification = true;
-                if (typeof tag === 'string') {
-                  return {
-                    id: createTagId(newValue, category),
-                    value: newValue,
-                    category: category,
-                    isCustom: true
-                  };
+            let updatedTags;
+            if (newValue === '') {
+              // Suppression : retirer le tag de la liste
+              updatedTags = enquete.tags.filter((tag: any) => {
+                const tagValue = typeof tag === 'string' ? tag : tag.value;
+                const tagCategory = typeof tag === 'string' ? category : tag.category;
+                if (tagCategory === category && tagValue === oldValue) {
+                  hasModification = true;
+                  return false;
                 }
-                return { ...tag, value: newValue };
-              }
-              return tag;
-            });
-            
+                return true;
+              });
+            } else {
+              // Renommage : mettre à jour la valeur
+              updatedTags = enquete.tags.map((tag: any) => {
+                const tagValue = typeof tag === 'string' ? tag : tag.value;
+                const tagCategory = typeof tag === 'string' ? category : tag.category;
+
+                if (tagCategory === category && tagValue === oldValue) {
+                  hasModification = true;
+                  if (typeof tag === 'string') {
+                    return {
+                      id: createTagId(newValue, category),
+                      value: newValue,
+                      category: category,
+  
+                    };
+                  }
+                  return { ...tag, value: newValue };
+                }
+                return tag;
+              });
+            }
+
             if (hasModification) {
               updatedEnquete.tags = updatedTags;
             }
           }
-          
+
           // Nettoyer services[] si c'est un service (pour éviter la désync)
           if (category === 'services' && enquete.services && Array.isArray(enquete.services)) {
-            const updatedServices = enquete.services.map((service: string) => 
-              service === oldValue ? newValue : service
-            );
-            
-            if (JSON.stringify(updatedServices) !== JSON.stringify(enquete.services)) {
-              updatedEnquete.services = updatedServices;
-              hasModification = true;
+            if (newValue === '') {
+              // Suppression
+              const filteredServices = enquete.services.filter((service: string) => service !== oldValue);
+              if (filteredServices.length !== enquete.services.length) {
+                updatedEnquete.services = filteredServices;
+                hasModification = true;
+              }
+            } else {
+              // Renommage
+              const updatedServices = enquete.services.map((service: string) =>
+                service === oldValue ? newValue : service
+              );
+              if (JSON.stringify(updatedServices) !== JSON.stringify(enquete.services)) {
+                updatedEnquete.services = updatedServices;
+                hasModification = true;
+              }
             }
           }
           
@@ -128,28 +146,44 @@ export const useTags = (): UseTagsReturn => {
         
         const updatedInstructions = instructions.map((instruction: any) => {
           if (!instruction.tags || !Array.isArray(instruction.tags)) return instruction;
-          
+
           let hasModification = false;
-          const updatedTags = instruction.tags.map((tag: any) => {
-            const tagValue = typeof tag === 'string' ? tag : tag.value;
-            const tagCategory = typeof tag === 'string' ? category : tag.category;
-            
-            if (tagCategory === category && tagValue === oldValue) {
-              hasModification = true;
-              if (typeof tag === 'string') {
-                return {
-                  id: createTagId(newValue, category),
-                  value: newValue,
-                  category: category,
-                  isCustom: true
-                };
+          let updatedTags;
+
+          if (newValue === '') {
+            // Suppression : retirer le tag de la liste
+            updatedTags = instruction.tags.filter((tag: any) => {
+              const tagValue = typeof tag === 'string' ? tag : tag.value;
+              const tagCategory = typeof tag === 'string' ? category : tag.category;
+              if (tagCategory === category && tagValue === oldValue) {
+                hasModification = true;
+                return false;
               }
-              return { ...tag, value: newValue };
-            }
-            
-            return tag;
-          });
-          
+              return true;
+            });
+          } else {
+            // Renommage : mettre à jour la valeur
+            updatedTags = instruction.tags.map((tag: any) => {
+              const tagValue = typeof tag === 'string' ? tag : tag.value;
+              const tagCategory = typeof tag === 'string' ? category : tag.category;
+
+              if (tagCategory === category && tagValue === oldValue) {
+                hasModification = true;
+                if (typeof tag === 'string') {
+                  return {
+                    id: createTagId(newValue, category),
+                    value: newValue,
+                    category: category,
+
+                  };
+                }
+                return { ...tag, value: newValue };
+              }
+
+              return tag;
+            });
+          }
+
           if (hasModification) {
             modifiedCount++;
             return {
@@ -158,7 +192,7 @@ export const useTags = (): UseTagsReturn => {
               dateMiseAJour: new Date().toISOString()
             };
           }
-          
+
           return instruction;
         });
         
@@ -180,13 +214,13 @@ export const useTags = (): UseTagsReturn => {
       try {
         setIsLoading(true);
         
-        const tagsData = await ElectronBridge.getData('tags', DEFAULT_TAGS);
-        const migratedTags = Array.isArray(tagsData) ? tagsData : (tagsData?.data || DEFAULT_TAGS);
+        const tagsData = await ElectronBridge.getData('tags', []);
+        const migratedTags = Array.isArray(tagsData) ? tagsData : (tagsData?.data || []);
         setTags(Array.isArray(migratedTags) ? migratedTags : []);
         
       } catch (error) {
         console.error('Error initializing tags:', error);
-        setTags(DEFAULT_TAGS || []);
+        setTags([]);
       } finally {
         setIsLoading(false);
       }
@@ -212,7 +246,7 @@ export const useTags = (): UseTagsReturn => {
 
   // Sauvegarder les tags quand ils changent
   useEffect(() => {
-    if (!isLoading && tags.length > 0) {
+    if (!isLoading) {
       debouncedSave(tags);
     }
     
@@ -323,8 +357,7 @@ export const useTags = (): UseTagsReturn => {
       
       const tagWithId: TagDefinition = {
         ...newTag,
-        id: createTagId(newTag.value, newTag.category),
-        isCustom: true
+        id: createTagId(newTag.value, newTag.category)
       };
       
       setTags(prev => [...prev, tagWithId]);
@@ -362,8 +395,7 @@ export const useTags = (): UseTagsReturn => {
         if (!existing) {
           const success = await addTag({
             value: tagValue,
-            category: category,
-            isCustom: true
+            category: category
           });
           
           if (success) {
