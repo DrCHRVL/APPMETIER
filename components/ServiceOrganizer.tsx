@@ -8,12 +8,7 @@ import { Plus, Settings, Save, X } from 'lucide-react';
 import { useTags } from '@/hooks/useTags';
 import { useToast } from '@/contexts/ToastContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
-
-interface TagOrganization {
-  section: string;
-  subsection?: string;
-  order: number;
-}
+import { TagOrganization } from '@/config/tags';
 
 const SECTIONS_ORDER = [
   'SR',
