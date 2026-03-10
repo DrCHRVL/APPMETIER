@@ -457,11 +457,24 @@ export class DataSyncManager {
       ...(serverData.deletedIds || [])
     ]));
 
+    // Fusionner les validations d'alertes (union, la plus récente gagne)
+    const mergedValidations: Record<string, any> = { ...(serverData.alertValidations || {}) };
+    for (const [key, localVal] of Object.entries(localData.alertValidations || {})) {
+      if (!mergedValidations[key]) {
+        mergedValidations[key] = localVal;
+      } else {
+        const serverDate = new Date(mergedValidations[key].validatedAt ?? 0).getTime();
+        const localDate = new Date(localVal.validatedAt ?? 0).getTime();
+        if (localDate > serverDate) mergedValidations[key] = localVal;
+      }
+    }
+
     const resolvedData: SyncData = {
       enquetes: [],
       audienceResultats: {},
       customTags: localData.customTags,
       alertRules: localData.alertRules,
+      alertValidations: mergedValidations,
       deletedIds: mergedDeletedIds,
       version: Math.max(localData.version || 0, serverData.version || 0) + 1
     };
@@ -652,6 +665,7 @@ export class DataSyncManager {
     const audienceResultats = await ElectronBridge.getData('audience_resultats', {});
     const customTags = await ElectronBridge.getData('customTags', {});
     const alertRules = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, []);
+    const alertValidations = await ElectronBridge.getData<Record<string, any>>('alert_validations', {});
     const deletedEntries = await this.loadDeletedEntries();
 
     return {
@@ -659,6 +673,7 @@ export class DataSyncManager {
       audienceResultats: audienceResultats || {},
       customTags: customTags || {},
       alertRules: Array.isArray(alertRules) ? alertRules : [],
+      alertValidations: alertValidations || {},
       deletedIds: deletedEntries.map(e => e.id),
       version: 1
     };
@@ -669,6 +684,12 @@ export class DataSyncManager {
     await ElectronBridge.setData('audience_resultats', data.audienceResultats);
     await ElectronBridge.setData('customTags', data.customTags);
     await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, data.alertRules);
+    if (data.alertValidations) {
+      // Fusionner avec les validations locales existantes : on ne perd jamais une validation déjà posée
+      const localValidations = await ElectronBridge.getData<Record<string, any>>('alert_validations', {});
+      const merged = { ...localValidations, ...data.alertValidations };
+      await ElectronBridge.setData('alert_validations', merged);
+    }
     await this.saveDeletedEntries(data.deletedIds || []);
   }
 
