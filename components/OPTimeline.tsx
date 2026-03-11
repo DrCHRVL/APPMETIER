@@ -42,9 +42,7 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
     return events.sort((a, b) => a.dateOP.getTime() - b.dateOP.getTime());
   }, [enquetes, today, rangeEnd]);
 
-  if (opEvents.length === 0) return null;
-
-  // Colonnes de jours
+  // Colonnes de jours (doit être avant le return anticipé pour respecter les règles des hooks)
   const dayCells = useMemo(() => {
     return Array.from({ length: DAYS_RANGE }, (_, i) => {
       const d = new Date(today);
@@ -60,6 +58,8 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
       };
     });
   }, [today]);
+
+  if (opEvents.length === 0) return null;
 
   const ROW_H = 28; // hauteur par ligne d'événement (px)
 
