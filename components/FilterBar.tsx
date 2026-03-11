@@ -5,7 +5,7 @@ import { TagSelector } from './TagSelector';
 import { Select } from './ui/select';
 import { Tag } from '@/types/interfaces';
 import { Button } from './ui/button';
-import { Filter, ChevronDown, ChevronUp, X, Flag, Columns3 } from 'lucide-react';
+import { Filter, ChevronDown, ChevronUp, X, Flag, LayoutGrid } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { useTags } from '@/hooks/useTags';
 import { useSections } from '@/hooks/useSections';
@@ -81,7 +81,7 @@ export const FilterBar = ({
               onClick={() => setShowSectionOrder(true)}
               title="Réordonner les colonnes"
             >
-              <Columns3 className="h-3.5 w-3.5 mr-1" />
+              <LayoutGrid className="h-3.5 w-3.5 mr-1" />
               <span className="hidden sm:inline">Colonnes</span>
             </Button>
           </div>
