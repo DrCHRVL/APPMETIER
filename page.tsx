@@ -532,6 +532,7 @@ return (
             onTagRemove={(tagId) => setSelectedTags(selectedTags.filter(t => t.id !== tagId))}
             sortOrder={sortOrder}
             onSortChange={setSortOrder}
+            activeSections={Object.keys(enquetesByOrganization)}
           />
         )}
 

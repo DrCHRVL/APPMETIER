@@ -5,9 +5,11 @@ import { TagSelector } from './TagSelector';
 import { Select } from './ui/select';
 import { Tag } from '@/types/interfaces';
 import { Button } from './ui/button';
-import { Filter, ChevronDown, ChevronUp, X, Flag } from 'lucide-react';
+import { Filter, ChevronDown, ChevronUp, X, Flag, Columns3 } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { useTags } from '@/hooks/useTags';
+import { useSections } from '@/hooks/useSections';
+import { SectionOrderModal } from './modals/SectionOrderModal';
 
 interface FilterBarProps {
   selectedTags: Tag[];
@@ -15,6 +17,7 @@ interface FilterBarProps {
   onTagRemove: (tagId: string) => void;
   sortOrder: string;
   onSortChange: (order: string) => void;
+  activeSections?: string[];
 }
 
 export const FilterBar = ({
@@ -22,11 +25,14 @@ export const FilterBar = ({
   onTagSelect,
   onTagRemove,
   sortOrder,
-  onSortChange
+  onSortChange,
+  activeSections = []
 }: FilterBarProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showSectionOrder, setShowSectionOrder] = useState(false);
   const { getTagsByCategory } = useTags();
-  
+  const { sections, reorderSection, addSection } = useSections();
+
   const isPrioritaireSelected = selectedTags.some(tag => tag.id === 'prioritaire');
 
   return (
@@ -66,6 +72,17 @@ export const FilterBar = ({
               }}
             >
               <Flag className="h-3.5 w-3.5" />
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg text-xs"
+              onClick={() => setShowSectionOrder(true)}
+              title="Réordonner les colonnes"
+            >
+              <Columns3 className="h-3.5 w-3.5 mr-1" />
+              <span className="hidden sm:inline">Colonnes</span>
             </Button>
           </div>
 
@@ -117,6 +134,15 @@ export const FilterBar = ({
           />
         </div>
       )}
+
+      <SectionOrderModal
+        isOpen={showSectionOrder}
+        onClose={() => setShowSectionOrder(false)}
+        sections={sections}
+        activeSections={activeSections}
+        onReorder={reorderSection}
+        onAddSection={addSection}
+      />
     </div>
   );
 };
