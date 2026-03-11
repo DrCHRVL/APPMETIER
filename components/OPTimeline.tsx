@@ -13,6 +13,7 @@ interface OPEvent {
 }
 
 const DAYS_RANGE = 40; // ~6 semaines
+const OP_DURATION_DAYS = 4; // 96h
 const DAY_LABELS = ['D', 'L', 'M', 'M', 'J', 'V', 'S']; // index par getDay() (0=Dim)
 const MONTHS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
 
@@ -35,7 +36,9 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
       if (!e.dateOP || e.statut === 'archive') return;
       const dateOP = new Date(e.dateOP);
       dateOP.setHours(0, 0, 0, 0);
-      if (dateOP < today || dateOP > rangeEnd) return;
+      const opEndDate = new Date(dateOP);
+      opEndDate.setDate(opEndDate.getDate() + OP_DURATION_DAYS);
+      if (opEndDate < today || dateOP > rangeEnd) return;
       const daysFromToday = Math.round((dateOP.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       events.push({ enqueteId: e.id, numero: e.numero, dateOP, daysFromToday });
     });
@@ -110,7 +113,8 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
             {/* Barres 96h (positionnées dans le conteneur relatif) */}
             {opEvents.map((event, idx) => {
               const leftPct = (event.daysFromToday / DAYS_RANGE) * 100;
-              const barWidthPct = (4 / DAYS_RANGE) * 100;
+              const clampedLeft = Math.max(0, leftPct);
+              const barWidthPct = ((OP_DURATION_DAYS + Math.min(0, event.daysFromToday)) / DAYS_RANGE) * 100;
               const isUrgent = event.daysFromToday <= 3;
               const isSoon = event.daysFromToday <= 7;
               const barBg = isUrgent ? '#fca5a5' : isSoon ? '#fdba74' : '#93c5fd'; // red-300 / orange-300 / blue-300
@@ -119,8 +123,8 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
                   key={`bar-${event.enqueteId}`}
                   className="absolute rounded-sm pointer-events-none"
                   style={{
-                    left: `${leftPct}%`,
-                    width: `${Math.min(barWidthPct, 100 - leftPct)}%`,
+                    left: `${clampedLeft}%`,
+                    width: `${Math.min(barWidthPct, 100 - clampedLeft)}%`,
                     top: idx * ROW_H + 8,
                     height: 12,
                     backgroundColor: barBg,
@@ -133,6 +137,7 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
             {/* Points + étiquettes */}
             {opEvents.map((event, idx) => {
               const leftPct = (event.daysFromToday / DAYS_RANGE) * 100;
+              const clampedLeft = Math.max(0, leftPct);
               const isUrgent = event.daysFromToday <= 3;
               const isSoon = event.daysFromToday <= 7;
               const dotColor = isUrgent ? 'bg-red-600' : isSoon ? 'bg-orange-500' : 'bg-blue-600';
@@ -143,13 +148,15 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
                   ? 'auj.'
                   : event.daysFromToday === 1
                   ? 'dem.'
+                  : event.daysFromToday < 0
+                  ? 'en cours'
                   : `J+${event.daysFromToday}`;
 
               return (
                 <div
                   key={`label-${event.enqueteId}`}
                   className="absolute flex items-center z-10"
-                  style={{ top: idx * ROW_H + 6, left: `${leftPct}%` }}
+                  style={{ top: idx * ROW_H + 6, left: `${clampedLeft}%` }}
                   title={`OP ${event.numero} — dans ${event.daysFromToday} jour(s)`}
                 >
                   <div className={`h-4 w-4 rounded-full ${dotColor} border-2 border-white shadow flex-shrink-0`} />
