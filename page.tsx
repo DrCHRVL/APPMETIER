@@ -177,7 +177,7 @@ function AppContent() {
     getTagsByCategory
   } = useTags();
 
-  const { getSectionOrder } = useSections();
+  const { getSectionOrder, sections: sectionsList, reorderSection, addSection: addSectionFn } = useSections();
 
   // Initialisation du système de sauvegarde
   useEffect(() => {
@@ -533,6 +533,9 @@ return (
             sortOrder={sortOrder}
             onSortChange={setSortOrder}
             activeSections={Object.keys(enquetesByOrganization)}
+            sections={sectionsList}
+            onReorder={reorderSection}
+            onAddSection={addSectionFn}
           />
         )}
 
