@@ -8,7 +8,6 @@ import { Button } from './ui/button';
 import { Filter, ChevronDown, ChevronUp, X, Flag, LayoutGrid } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { useTags } from '@/hooks/useTags';
-import { useSections } from '@/hooks/useSections';
 import { SectionOrderModal } from './modals/SectionOrderModal';
 
 interface FilterBarProps {
@@ -18,6 +17,9 @@ interface FilterBarProps {
   sortOrder: string;
   onSortChange: (order: string) => void;
   activeSections?: string[];
+  sections?: string[];
+  onReorder?: (name: string, direction: 'up' | 'down') => Promise<boolean>;
+  onAddSection?: (name: string) => Promise<boolean>;
 }
 
 export const FilterBar = ({
@@ -26,12 +28,14 @@ export const FilterBar = ({
   onTagRemove,
   sortOrder,
   onSortChange,
-  activeSections = []
+  activeSections = [],
+  sections = [],
+  onReorder,
+  onAddSection
 }: FilterBarProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSectionOrder, setShowSectionOrder] = useState(false);
   const { getTagsByCategory } = useTags();
-  const { sections, reorderSection, addSection } = useSections();
 
   const isPrioritaireSelected = selectedTags.some(tag => tag.id === 'prioritaire');
 
@@ -140,8 +144,8 @@ export const FilterBar = ({
         onClose={() => setShowSectionOrder(false)}
         sections={sections}
         activeSections={activeSections}
-        onReorder={reorderSection}
-        onAddSection={addSection}
+        onReorder={onReorder ?? (async () => false)}
+        onAddSection={onAddSection ?? (async () => false)}
       />
     </div>
   );
