@@ -55,6 +55,8 @@ export class DataSyncManager {
   
   // 🆕 Toast callback
   private toastCallback: ((message: string, type: 'success' | 'info' | 'error') => void) | null = null;
+  // Callback de sauvegarde forcée avant lecture des données locales (évite la race condition throttle)
+  private static preSyncFlushCallback: (() => Promise<void>) | null = null;
 
   // Indique si cette machine est responsable d'une écriture interrompue
   private selfCausedCorruption = false;
@@ -88,6 +90,14 @@ export class DataSyncManager {
    */
   public setToastCallback(callback: (message: string, type: 'success' | 'info' | 'error') => void): void {
     this.toastCallback = callback;
+  }
+
+  /**
+   * Enregistre un callback appelé avant chaque lecture des données locales.
+   * Permet de forcer la sauvegarde des données React en attente (throttle) avant la sync.
+   */
+  public static registerPreSyncFlush(callback: () => Promise<void>): void {
+    DataSyncManager.preSyncFlushCallback = callback;
   }
 
   /**
@@ -280,6 +290,15 @@ export class DataSyncManager {
     this.notifyStatusChange();
 
     try {
+      // Forcer la sauvegarde des données React en attente (throttle) avant de lire le store
+      if (DataSyncManager.preSyncFlushCallback) {
+        try {
+          await DataSyncManager.preSyncFlushCallback();
+        } catch {
+          // Non-bloquant : si le flush échoue, continuer avec les données du store
+        }
+      }
+
       const localData = await this.getLocalData();
       const serverResponse = await this.getServerData();
       
@@ -341,6 +360,14 @@ export class DataSyncManager {
       if (messages.length > 0) {
         this.showToast(`✅ Synchronisation : ${messages.join(', ')}`, 'success');
       }
+
+      // 🆕 Toast séparé si des actes ont été récupérés depuis le serveur
+      if (stats.newActesFromServer > 0) {
+        const detail = stats.acteChanges
+          .map(c => `${c.count} acte(s) → ${c.enqueteNumero}`)
+          .join(' • ');
+        this.showToast(`📋 ${stats.newActesFromServer} acte(s) récupéré(s) du serveur : ${detail}`, 'info');
+      }
       
       return {
         success: true,
@@ -368,7 +395,9 @@ export class DataSyncManager {
               action: 'first_sync'
             };
           } catch {
-            // La réparation a échoué, continuer vers l'erreur générique
+            // La réparation a échoué — réinitialiser le flag pour ne pas écraser
+            // les données d'un collègue lors d'une prochaine corruption
+            this.selfCausedCorruption = false;
           }
         }
 
@@ -451,6 +480,23 @@ export class DataSyncManager {
     localData: SyncData,
     serverData: SyncData
   ): Promise<void> {
+    this.isSync = true;
+    this.notifyStatusChange();
+
+    try {
+      return await this._resolveConflictsInternal(conflicts, selections, localData, serverData);
+    } finally {
+      this.isSync = false;
+      this.notifyStatusChange();
+    }
+  }
+
+  private async _resolveConflictsInternal(
+    conflicts: SyncConflict[],
+    selections: Map<number, ConflictAction>,
+    localData: SyncData,
+    serverData: SyncData
+  ): Promise<void> {
     // Construire les données fusionnées en fonction des sélections
     const mergedDeletedIds = Array.from(new Set([
       ...(localData.deletedIds || []),
@@ -494,7 +540,11 @@ export class DataSyncManager {
 
         switch (action) {
           case 'skip':
-            // Ne rien faire avec cette enquête
+            // Garder la version locale par sécurité (ne jamais perdre de données silencieusement)
+            const skipLocal = localEnqueteMap.get(enqueteId);
+            if (skipLocal) {
+              resolvedData.enquetes.push(skipLocal);
+            }
             break;
             
           case 'keep_local':
@@ -555,18 +605,38 @@ export class DataSyncManager {
       }
     });
 
-    // Ajouter toutes les enquêtes non-conflictuelles
-    localData.enquetes?.forEach(enquete => {
-      if (!processedEnqueteIds.has(enquete.id)) {
-        resolvedData.enquetes.push(enquete);
-      }
-    });
+    // Ajouter toutes les enquêtes non-conflictuelles sans créer de doublons
+    // ⚠️ BUG CORRIGÉ : l'ancienne version ajoutait les enquêtes depuis les deux côtés (local ET serveur),
+    // créant des doublons. Lors de la re-sync immédiate, new Map() gardait la version serveur (la dernière),
+    // écrasant les actes enregistrés localement.
+    const nonConflictLocal = new Map(
+      (localData.enquetes ?? [])
+        .filter(e => !processedEnqueteIds.has(e.id))
+        .map(e => [e.id, e])
+    );
+    const nonConflictServer = new Map(
+      (serverData.enquetes ?? [])
+        .filter(e => !processedEnqueteIds.has(e.id))
+        .map(e => [e.id, e])
+    );
 
-    serverData.enquetes?.forEach(enquete => {
-      if (!processedEnqueteIds.has(enquete.id)) {
-        resolvedData.enquetes.push(enquete);
+    for (const [id, serverEnquete] of nonConflictServer) {
+      if (!nonConflictLocal.has(id)) {
+        // Uniquement côté serveur → ajouter
+        resolvedData.enquetes.push(serverEnquete);
       }
-    });
+    }
+    for (const [id, localEnquete] of nonConflictLocal) {
+      const serverEnquete = nonConflictServer.get(id);
+      if (!serverEnquete) {
+        // Uniquement côté local → ajouter
+        resolvedData.enquetes.push(localEnquete);
+      } else {
+        // Présente des deux côtés → fusion intelligente (local prioritaire)
+        const mergeResult = DataMergeService.tryMergeEnquete(localEnquete, serverEnquete);
+        resolvedData.enquetes.push(mergeResult.merged ?? localEnquete);
+      }
+    }
 
     // Fusionner les résultats d'audience non-conflictuels
     Object.entries(localData.audienceResultats || {}).forEach(([id, result]) => {
@@ -588,8 +658,7 @@ export class DataSyncManager {
     this.lastSuccessfulSync = new Date().toISOString();
     this.handleSyncSuccess();
     
-    const mergedCount = Array.from(selections.values()).filter(a => a === 'merge').length;
-    this.showToast(`✅ ${mergedCount} conflit(s) résolu(s)`, 'success');
+    this.showToast(`✅ ${conflicts.length} conflit(s) résolu(s)`, 'success');
   }
 
   /**
@@ -706,6 +775,9 @@ export class DataSyncManager {
       // sans écraser le serveur (risque de perte des données du collègue)
       if (error instanceof Error && (
         error.message.includes('Unexpected end of JSON') ||
+        error.message.includes('Unexpected token') ||
+        error.message.includes('JSON Parse error') ||
+        error.message.includes('is not valid JSON') ||
         error.message.includes('Erreur lecture serveur')
       )) {
         const corruptedError = new Error('SERVEUR_CORROMPU: ' + error.message);

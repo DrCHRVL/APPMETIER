@@ -84,10 +84,13 @@ export const useDataSync = () => {
         lastSyncResult.localData,
         lastSyncResult.serverData
       );
-      
-      // Déclencher une nouvelle sync pour vérifier
-      const newResult = await dataSyncManager.triggerSync();
-      setLastSyncResult(newResult);
+
+      // Réinitialiser le résultat (les conflits sont résolus, pas besoin de re-push)
+      setLastSyncResult({
+        success: true,
+        timestamp: new Date().toISOString(),
+        action: 'auto_merged'
+      });
     } catch (error) {
       console.error('Erreur résolution conflits:', error);
       throw error;

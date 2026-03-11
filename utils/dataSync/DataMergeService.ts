@@ -23,10 +23,10 @@ export class DataMergeService {
   static intelligentMerge(localData: SyncData, serverData: SyncData): {
     merged: SyncData;
     conflicts: SyncConflict[];
-    stats: { newFromServer: number; newFromLocal: number; merged: number };
+    stats: { newFromServer: number; newFromLocal: number; merged: number; newActesFromServer: number; acteChanges: Array<{ enqueteNumero: string; count: number }> };
   } {
     const conflicts: SyncConflict[] = [];
-    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0 };
+    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0, newActesFromServer: 0, acteChanges: [] as Array<{ enqueteNumero: string; count: number }> };
 
     // Calculer l'union des IDs supprimés des deux côtés
     const localDeletedIds = new Set<number>(localData.deletedIds || []);
@@ -49,6 +49,8 @@ export class DataMergeService {
     stats.newFromServer += enqueteStats.newFromServer;
     stats.newFromLocal += enqueteStats.newFromLocal;
     stats.merged += enqueteStats.merged;
+    stats.newActesFromServer += enqueteStats.newActesFromServer;
+    stats.acteChanges.push(...enqueteStats.acteChanges);
 
     // 2. Fusionner les résultats d'audience
     const {
@@ -100,11 +102,11 @@ export class DataMergeService {
   ): {
     merged: Enquete[];
     conflicts: SyncConflict[];
-    stats: { newFromServer: number; newFromLocal: number; merged: number };
+    stats: { newFromServer: number; newFromLocal: number; merged: number; newActesFromServer: number; acteChanges: Array<{ enqueteNumero: string; count: number }> };
   } {
     const conflicts: SyncConflict[] = [];
     const merged = new Map<number, Enquete>();
-    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0 };
+    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0, newActesFromServer: 0, acteChanges: [] as Array<{ enqueteNumero: string; count: number }> };
 
     const localMap = new Map(localEnquetes.map(e => [e.id, e]));
     const serverMap = new Map(serverEnquetes.map(e => [e.id, e]));
@@ -147,6 +149,15 @@ export class DataMergeService {
         // ✅ Fusion automatique réussie
         merged.set(id, mergeResult.merged!);
         stats.merged++;
+
+        // Détecter les nouveaux actes/écoutes/géolocs récupérés depuis le serveur
+        const localActeCount = (localEnquete.actes?.length ?? 0) + (localEnquete.ecoutes?.length ?? 0) + (localEnquete.geolocalisations?.length ?? 0);
+        const mergedActeCount = (mergeResult.merged!.actes?.length ?? 0) + (mergeResult.merged!.ecoutes?.length ?? 0) + (mergeResult.merged!.geolocalisations?.length ?? 0);
+        const delta = mergedActeCount - localActeCount;
+        if (delta > 0) {
+          stats.newActesFromServer += delta;
+          stats.acteChanges.push({ enqueteNumero: serverEnquete.numero, count: delta });
+        }
       }
     }
 
@@ -248,7 +259,8 @@ export class DataMergeService {
           description: serverDate > localDate ? server.description : local.description,
           services: serverDate > localDate ? server.services : local.services,
           tags: this.mergeTags(local.tags, server.tags),
-          dateMiseAJour: new Date().toISOString()
+          // Conserver le timestamp réel de la dernière modification (ne pas gonfler à l'heure actuelle)
+          dateMiseAJour: serverDate > localDate ? server.dateMiseAJour : local.dateMiseAJour
         },
         hasConflict: false,
         conflicts: []
@@ -367,10 +379,14 @@ export class DataMergeService {
         // ✅ Progression normale détectée → prendre la version indiquée
         merged.set(serverActe.id, progressionCheck.takeServer ? serverActe : localActe);
       } else {
-        // Pas de progression workflow → utiliser timestamp de l'enquête parente
-        // Le plus récent gagne (pas de conflit)
+        // Pas de progression workflow → vérifier les conflits de champs
+        const fieldConflicts = this.compareActeForConflict(localActe, serverActe);
+        if (fieldConflicts.length > 0) {
+          // ⚠️ Modifications contradictoires détectées → signaler le conflit
+          conflicts.push(...fieldConflicts);
+        }
+        // Utiliser timestamp de l'enquête parente pour déterminer la version par défaut
         if (serverEnqueteTimestamp > localEnqueteTimestamp) {
-          // Enquête serveur plus récente → prendre acte serveur
           merged.set(serverActe.id, serverActe);
         }
         // Sinon garder local (déjà dans merged)
@@ -426,20 +442,28 @@ export class DataMergeService {
       return { isProgression: true, takeServer: false }; // Prendre local (demande pose)
     }
 
-    // Cas 3a: Autorisation en attente → autorisée (serveur plus récent)
+    // Cas 2c: Pose demandée par un collègue sur le serveur → prendre serveur
+    if (
+      server.statut === 'pose_pending' &&
+      local.statut === 'en_cours'
+    ) {
+      return { isProgression: true, takeServer: true }; // Prendre serveur (demande collègue)
+    }
+
+    // Cas 3a: Autorisation demandée en local, serveur pas encore au courant → garder local
     if (
       local.statut === 'autorisation_pending' &&
       server.statut === 'en_cours'
     ) {
-      return { isProgression: true, takeServer: true }; // Prendre serveur (autorisé)
+      return { isProgression: true, takeServer: false }; // Prendre local (demande d'autorisation)
     }
 
-    // Cas 3b: En cours → Autorisation en attente (local plus récent)
+    // Cas 3b: Autorisation demandée sur le serveur (par un collègue), local encore en cours → prendre serveur
     if (
-      server.statut === 'en_cours' &&
-      local.statut === 'autorisation_pending'
+      server.statut === 'autorisation_pending' &&
+      local.statut === 'en_cours'
     ) {
-      return { isProgression: true, takeServer: false }; // Prendre local (demande autorisation)
+      return { isProgression: true, takeServer: true }; // Prendre serveur (demande collègue)
     }
 
     // Cas 4: Ajout de prolongation (durée augmentée)
@@ -479,10 +503,14 @@ export class DataMergeService {
     // Statuts contradictoires (hors progressions normales)
     if (local.statut !== server.statut) {
       const isContradictory = !(
-        (local.statut === 'en_cours' && server.statut === 'prolongation_pending') ||
+        // Local a une demande en attente, serveur pas encore au courant
         (local.statut === 'prolongation_pending' && server.statut === 'en_cours') ||
-        (local.statut === 'pose_pending' && server.statut === 'en_cours') ||
-        (local.statut === 'autorisation_pending' && server.statut === 'en_cours')
+        (local.statut === 'pose_pending'          && server.statut === 'en_cours') ||
+        (local.statut === 'autorisation_pending'  && server.statut === 'en_cours') ||
+        // Serveur a une demande en attente (collègue), local pas encore au courant
+        (local.statut === 'en_cours' && server.statut === 'prolongation_pending') ||
+        (local.statut === 'en_cours' && server.statut === 'pose_pending')          ||
+        (local.statut === 'en_cours' && server.statut === 'autorisation_pending')
       );
 
       if (isContradictory) {
