@@ -47,7 +47,8 @@ export class DataMergeService {
       localData.enquetes || [],
       serverData.enquetes || [],
       localDeletedIds,
-      serverDeletedIds
+      serverDeletedIds,
+      localDeletedActeIds
     );
 
     conflicts.push(...enqueteConflicts);
@@ -104,7 +105,8 @@ export class DataMergeService {
     localEnquetes: Enquete[],
     serverEnquetes: Enquete[],
     localDeletedIds: Set<number> = new Set(),
-    serverDeletedIds: Set<number> = new Set()
+    serverDeletedIds: Set<number> = new Set(),
+    localDeletedActeIds: Set<number> = new Set()
   ): {
     merged: Enquete[];
     conflicts: SyncConflict[];
