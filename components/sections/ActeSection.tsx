@@ -103,19 +103,24 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
       const newDateDebut = dates.dateDebut || acte.dateDebut;
       const newDatePose = dates.datePose;
 
-      // Recalculer dateFin en tenant compte des prolongations existantes :
-      // si l'acte a des prolongations, sa durée totale (acte.duree) les inclut déjà ;
-      // on recalcule alors depuis la nouvelle référence avec cette durée totale.
+      const hasProlongations = acte.prolongationsHistory && acte.prolongationsHistory.length > 0;
+
+      // Si des prolongations existent, recalculer dateFin via replayDateFin
       let newDateFin = dates.dateFin || acte.dateFin;
-      if (acte.prolongationsHistory && acte.prolongationsHistory.length > 0) {
+      let newDuree = acte.duree;
+      if (hasProlongations) {
         const ref = newDatePose || newDateDebut;
-        if (ref && acte.duree) {
-          newDateFin = DateUtils.calculateEndDateWithUnit(
+        const dureeInitiale = acte.prolongationsHistory![0]?.dureeInitiale || acte.duree;
+        if (ref) {
+          newDateFin = ActeUtils.replayDateFin(
             ref,
-            acte.duree, // durée totale incluant les prolongations
-            acte.dureeUnit || 'jours'
+            dureeInitiale,
+            acte.dureeUnit || 'jours',
+            acte.prolongationsHistory!.map(e => ({ dureeAjoutee: e.dureeAjoutee, dureeUnit: e.dureeUnit }))
           );
         }
+      } else {
+        newDuree = dates.duree || acte.duree;
       }
 
       return {
@@ -123,7 +128,7 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
         dateDebut: newDateDebut,
         dateFin: newDateFin,
         datePose: newDatePose,
-        duree: dates.duree || acte.duree,
+        duree: newDuree,
         type: acteData.type || acte.type,
         description: acteData.description !== undefined ? acteData.description : acte.description,
         statut: dates.updatedStatut || acte.statut
@@ -188,11 +193,13 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
     const updatedActes = enquete.actes.map(acte => {
       if (acte.id === validationActeId) {
         const pUnit = dureeUnit || acte.dureeUnit || 'jours';
+        const dureeInitiale = acte.prolongationsHistory?.[0]?.dureeInitiale || acte.duree;
         const newHistoryEntry: ProlongationHistoryEntry = {
           date,
           dureeAjoutee: duration,
-          dureeInitiale: acte.duree,
-          dureeUnit: pUnit
+          dureeInitiale: dureeInitiale,
+          dureeUnit: pUnit,
+          dureeInitialeUnit: acte.dureeUnit || 'jours'
         };
 
         const prolongationsHistory = acte.prolongationsHistory || [];
@@ -200,7 +207,7 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
 
         return {
           ...acte,
-          ...ActeUtils.calculateProlongation(acte, date, duration, pUnit),
+          ...ActeUtils.calculateProlongation(acte, date, duration, pUnit, updatedHistory.map(e => ({ dureeAjoutee: e.dureeAjoutee, dureeUnit: e.dureeUnit }))),
           prolongationDate: date,
           prolongationsHistory: updatedHistory
         };

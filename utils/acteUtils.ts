@@ -83,33 +83,39 @@ export const ActeUtils = {
   acte: Acte,
   prolongationDate: string,
   prolongationDuration: string,
-  prolongationDureeUnit?: 'jours' | 'mois'
+  prolongationDureeUnit?: 'jours' | 'mois',
+  updatedHistory?: Array<{ dureeAjoutee: string; dureeUnit?: 'jours' | 'mois' }>
 ): ProlongationResult => {
   try {
     const acteDureeUnit = acte.dureeUnit || 'jours';
-    // Unité de la prolongation : celle passée explicitement, sinon celle de l'acte
     const pUnit = prolongationDureeUnit || acteDureeUnit;
 
-    // Utiliser la dateFin actuelle de l'acte (qui intègre déjà les prolongations précédentes)
-    // au lieu de recalculer depuis datePose + duree (qui mélange les unités)
-    const currentEndDate = acte.dateFin || endDateForActe(acte.datePose || acte.dateDebut, acte.duree, acteDureeUnit);
+    // Durée initiale = celle stockée dans le premier historique, ou celle de l'acte
+    const dureeInitiale = acte.prolongationsHistory?.[0]?.dureeInitiale || acte.duree;
+
+    // Toujours recalculer dateFin en rejouant la chaîne complète
+    // (datePose + durée initiale + toutes les prolongations)
+    const dateReference = acte.datePose || acte.dateDebut;
+    const newEndDate = ActeUtils.replayDateFin(
+      dateReference,
+      dureeInitiale,
+      acteDureeUnit,
+      updatedHistory || [
+        ...(acte.prolongationsHistory || []).map(e => ({ dureeAjoutee: e.dureeAjoutee, dureeUnit: e.dureeUnit })),
+        { dureeAjoutee: prolongationDuration, dureeUnit: pUnit }
+      ]
+    );
 
     // Vérifier si la date d'autorisation est postérieure à la date de fin actuelle
     let warning;
+    const currentEndDate = acte.dateFin || endDateForActe(dateReference, dureeInitiale, acteDureeUnit);
     if (DateUtils.isAfter(prolongationDate, currentEndDate)) {
       warning = "Attention : la date d'autorisation est postérieure à la date de fin actuelle de l'acte";
     }
 
-    // Calculer la nouvelle date de fin à partir de la date de fin actuelle
-    const newEndDate = DateUtils.calculateEndDateWithUnit(currentEndDate, prolongationDuration, pUnit);
-
-    // La durée stockée n'a plus de sens quand les unités sont mixtes.
-    // On garde la valeur pour rétrocompatibilité, mais dateFin fait foi.
-    const totalDuration = (parseInt(acte.duree) + parseInt(prolongationDuration)).toString();
-
     return {
       dateFin: newEndDate,
-      duree: totalDuration,
+      duree: dureeInitiale, // Ne plus accumuler : garder la durée initiale
       statut: 'en_cours',
       warning,
       prolongationData: undefined
