@@ -25,11 +25,13 @@ import {
   Copy,
   X,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Search
 } from 'lucide-react';
 import { Enquete, DocumentEnquete } from '@/types/interfaces';
 import { useToast } from '@/contexts/ToastContext';
 import { DocumentPathModal } from '../modals/DocumentPathModal';
+import { AnalyseDocumentsModal } from '../modals/AnalyseDocumentsModal';
 import { DocumentSyncManager, SyncResult } from '@/utils/documents/DocumentSyncManager';
 import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipProvider } from '../ui/tooltip';
 import { format } from 'date-fns';
@@ -123,6 +125,7 @@ export const DocumentsSection = ({ enquete, onUpdate, isEditing }: DocumentsSect
   const [dragOverZone, setDragOverZone] = useState<DocumentCategory | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showPathModal, setShowPathModal] = useState(false);
+  const [showAnalyseModal, setShowAnalyseModal] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null);
 
   // Synchronisation
@@ -561,6 +564,18 @@ export const DocumentsSection = ({ enquete, onUpdate, isEditing }: DocumentsSect
               {enquete.cheminExterne && (
                 <Button
                   variant="outline" size="sm"
+                  onClick={() => setShowAnalyseModal(true)}
+                  className="flex items-center gap-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                  title="Analyser les PDF du serveur pour détecter et créer automatiquement les actes"
+                >
+                  <Search className="h-4 w-4" />
+                  Analyser actes
+                </Button>
+              )}
+
+              {enquete.cheminExterne && (
+                <Button
+                  variant="outline" size="sm"
                   onClick={handleOpenExternalFolder}
                   className="flex items-center gap-2"
                   title="Ouvrir le dossier externe"
@@ -825,6 +840,13 @@ export const DocumentsSection = ({ enquete, onUpdate, isEditing }: DocumentsSect
         currentUseSubfolder={enquete.useSubfolderForExternal ?? true}
         onSave={handleSaveExternalPath}
         enqueteNumero={enquete.numero}
+      />
+
+      <AnalyseDocumentsModal
+        isOpen={showAnalyseModal}
+        onClose={() => setShowAnalyseModal(false)}
+        enquete={enquete}
+        onApplyActes={(updates) => onUpdate(enquete.id, updates)}
       />
     </>
   );

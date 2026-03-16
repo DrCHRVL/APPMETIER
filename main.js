@@ -1150,6 +1150,139 @@ function setupIpcHandlers() {
     }
   });
 
+  // === SCAN DES DOCUMENTS PDF DU CHEMIN EXTERNE POUR ANALYSE AUTOMATIQUE ===
+  ipcMain.handle('documents:scan-external-pdfs', async (event, externalPath, enqueteNumero, useSubfolder = true) => {
+    try {
+      const result = {
+        documents: [],
+        errors: [],
+        foldersScanned: []
+      };
+
+      if (!externalPath) {
+        result.errors.push('Aucun chemin externe configuré');
+        return result;
+      }
+
+      const basePath = buildExternalPath(externalPath, enqueteNumero, useSubfolder);
+
+      if (!fs.existsSync(basePath)) {
+        result.errors.push(`Chemin inaccessible : ${basePath}`);
+        return result;
+      }
+
+      // Scanner toutes les sous-pochettes (Geoloc, Géoloc, Ecoutes, Actes, PV, etc.)
+      // Gérer les doublons de dossiers (Geoloc et Géoloc)
+      const entries = fs.readdirSync(basePath, { withFileTypes: true });
+      const foldersToScan = [];
+
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          foldersToScan.push(entry.name);
+        }
+      }
+
+      result.foldersScanned = foldersToScan;
+
+      // Set pour détecter les fichiers en double (même nom dans Geoloc et Géoloc par ex)
+      const processedFiles = new Set();
+
+      for (const folder of foldersToScan) {
+        const folderPath = path.join(basePath, folder);
+
+        try {
+          const files = listFilesRecursively(folderPath);
+
+          for (const relFile of files) {
+            const fullPath = path.join(folderPath, relFile);
+            const ext = path.extname(relFile).toLowerCase();
+
+            // Ne traiter que les PDF
+            if (ext !== '.pdf') continue;
+
+            const fileName = path.basename(relFile);
+
+            // Vérifier si déjà traité (dossiers en double : Geoloc / Géoloc)
+            // On normalise le nom du dossier pour la déduplication
+            const normalizedFolder = folder
+              .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Retirer accents
+              .toLowerCase();
+            const fileKey = `${normalizedFolder}/${fileName.toLowerCase()}`;
+
+            if (processedFiles.has(fileKey)) {
+              continue; // Fichier en double → ignorer
+            }
+            processedFiles.add(fileKey);
+
+            try {
+              // Vérifier la taille du fichier
+              const stats = fs.statSync(fullPath);
+              if (stats.size > 10 * 1024 * 1024) {
+                result.errors.push(`Fichier trop volumineux (${fileName}), ignoré`);
+                continue;
+              }
+
+              // Lire le fichier PDF
+              const fileBuffer = fs.readFileSync(fullPath);
+
+              // Extraire le texte
+              let textContent = '';
+              try {
+                const pdfData = await pdfParse(fileBuffer);
+                textContent = pdfData.text.trim();
+
+                // Si texte insuffisant, essayer OCR
+                if (textContent.length <= 50) {
+                  const tessdataPath = path.join(__dirname, 'tessdata');
+                  const fraPath = path.join(tessdataPath, 'fra.traineddata');
+
+                  if (fs.existsSync(fraPath)) {
+                    try {
+                      const worker = await tesseract.createWorker('fra', 1, {
+                        langPath: tessdataPath,
+                        cachePath: tessdataPath,
+                      });
+                      const { data: { text: ocrText } } = await worker.recognize(fileBuffer);
+                      await worker.terminate();
+                      if (ocrText.length > 20) textContent = ocrText;
+                    } catch (ocrErr) {
+                      console.error(`OCR échoué pour ${fileName}:`, ocrErr.message);
+                    }
+                  }
+                }
+              } catch (pdfErr) {
+                result.errors.push(`Erreur extraction texte ${fileName}: ${pdfErr.message}`);
+                continue;
+              }
+
+              if (textContent.length > 50) {
+                result.documents.push({
+                  filePath: fullPath,
+                  fileName: fileName,
+                  sourceFolder: folder,
+                  textContent: textContent
+                });
+              }
+            } catch (readErr) {
+              result.errors.push(`Erreur lecture ${fileName}: ${readErr.message}`);
+            }
+          }
+        } catch (folderErr) {
+          result.errors.push(`Erreur scan dossier ${folder}: ${folderErr.message}`);
+        }
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Erreur scan PDFs externe:', error);
+      return {
+        documents: [],
+        errors: [`Erreur globale: ${error.message}`],
+        foldersScanned: []
+      };
+    }
+  });
+
   // === EXTRACTION DE TEXTE PDF POUR JLD AVEC OCR (100% OFFLINE) ===
   ipcMain.handle('pdf:extractText', async (event, buffer) => {
     try {

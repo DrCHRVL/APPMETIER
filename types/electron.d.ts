@@ -141,6 +141,22 @@ interface ElectronAPI {
 
   // Extraction de texte PDF par chemin relatif (utilisé pour la recherche dans les documents)
   extractPdfText?: (cheminRelatif: string) => Promise<string | null>;
+
+  // API pour le scan et analyse des PDFs du chemin externe
+  scanExternalPDFs?: (
+    externalPath: string,
+    enqueteNumero: string,
+    useSubfolder?: boolean
+  ) => Promise<{
+    documents: Array<{
+      filePath: string;
+      fileName: string;
+      sourceFolder: string;
+      textContent: string;
+    }>;
+    errors: string[];
+    foldersScanned: string[];
+  }>;
 }
 
 declare global {
