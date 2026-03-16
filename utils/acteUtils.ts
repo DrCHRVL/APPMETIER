@@ -1,5 +1,28 @@
 import { GeolocData, EcouteData, AutreActe, ActeStatus } from '@/types/interfaces';
 import { DateUtils } from './dateUtils';
+import { ElectronBridge } from './electronBridge';
+
+const DELETED_ACTE_IDS_KEY = 'deleted_acte_ids';
+
+/**
+ * Mémorise l'ID d'un acte/écoute/géoloc supprimé pour empêcher la resynchronisation.
+ * Même pattern que deleted_enquete_ids.
+ */
+export async function trackDeletedActeId(id: number): Promise<void> {
+  try {
+    const existing = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(
+      DELETED_ACTE_IDS_KEY,
+      []
+    );
+    const normalized = (Array.isArray(existing) ? existing : []).filter(e => e.id !== id);
+    await ElectronBridge.setData(DELETED_ACTE_IDS_KEY, [
+      ...normalized,
+      { id, deletedAt: new Date().toISOString() }
+    ]);
+  } catch (error) {
+    console.error('❌ Erreur mémorisation ID acte supprimé:', error);
+  }
+}
 
 export function getStatutBadgeProps(statut: ActeStatus): { label: string; className: string } {
   switch (statut) {
@@ -36,6 +59,26 @@ interface ProlongationResult {
 }
 
 export const ActeUtils = {
+  /**
+   * Recalcule la dateFin en rejouant la chaîne : datePose + durée initiale (jours) + chaque prolongation (mois/jours).
+   * Utilisé par calculateProlongation et handleDeleteProlongation pour éviter le mélange d'unités.
+   */
+  replayDateFin: (
+    datePose: string,
+    dureeInitiale: string,
+    dureeInitialeUnit: 'jours' | 'mois',
+    prolongations: Array<{ dureeAjoutee: string; dureeUnit?: 'jours' | 'mois' }>
+  ): string => {
+    // Date de fin après la durée initiale
+    let dateFin = endDateForActe(datePose, dureeInitiale, dureeInitialeUnit);
+    // Ajouter chaque prolongation successivement
+    for (const p of prolongations) {
+      const pUnit = p.dureeUnit || 'jours';
+      dateFin = DateUtils.calculateEndDateWithUnit(dateFin, p.dureeAjoutee, pUnit);
+    }
+    return dateFin;
+  },
+
   calculateProlongation: (
   acte: Acte,
   prolongationDate: string,
@@ -47,19 +90,21 @@ export const ActeUtils = {
     // Unité de la prolongation : celle passée explicitement, sinon celle de l'acte
     const pUnit = prolongationDureeUnit || acteDureeUnit;
 
-    // Calculer la date de fin initiale basée sur la date de pose
-    const initialEndDate = endDateForActe(acte.datePose || acte.dateDebut, acte.duree, acteDureeUnit);
+    // Utiliser la dateFin actuelle de l'acte (qui intègre déjà les prolongations précédentes)
+    // au lieu de recalculer depuis datePose + duree (qui mélange les unités)
+    const currentEndDate = acte.dateFin || endDateForActe(acte.datePose || acte.dateDebut, acte.duree, acteDureeUnit);
 
-    // Vérifier si la date d'autorisation est postérieure à la date de fin initiale
+    // Vérifier si la date d'autorisation est postérieure à la date de fin actuelle
     let warning;
-    if (DateUtils.isAfter(prolongationDate, initialEndDate)) {
-      warning = "Attention : la date d'autorisation est postérieure à la date de fin initiale de l'acte";
+    if (DateUtils.isAfter(prolongationDate, currentEndDate)) {
+      warning = "Attention : la date d'autorisation est postérieure à la date de fin actuelle de l'acte";
     }
 
-    // Calculer la nouvelle date de fin à partir de la date de fin initiale
-    const newEndDate = DateUtils.calculateEndDateWithUnit(initialEndDate, prolongationDuration, pUnit);
+    // Calculer la nouvelle date de fin à partir de la date de fin actuelle
+    const newEndDate = DateUtils.calculateEndDateWithUnit(currentEndDate, prolongationDuration, pUnit);
 
-    // Durée totale : addition des valeurs (meaningful si même unité)
+    // La durée stockée n'a plus de sens quand les unités sont mixtes.
+    // On garde la valeur pour rétrocompatibilité, mais dateFin fait foi.
     const totalDuration = (parseInt(acte.duree) + parseInt(prolongationDuration)).toString();
 
     return {

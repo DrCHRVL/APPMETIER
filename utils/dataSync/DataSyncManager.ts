@@ -502,6 +502,10 @@ export class DataSyncManager {
       ...(localData.deletedIds || []),
       ...(serverData.deletedIds || [])
     ]));
+    const mergedDeletedActeIds = Array.from(new Set([
+      ...(localData.deletedActeIds || []),
+      ...(serverData.deletedActeIds || [])
+    ]));
 
     // Fusionner les validations d'alertes (union, la plus récente gagne)
     const mergedValidations: Record<string, any> = { ...(serverData.alertValidations || {}) };
@@ -522,6 +526,7 @@ export class DataSyncManager {
       alertRules: localData.alertRules,
       alertValidations: mergedValidations,
       deletedIds: mergedDeletedIds,
+      deletedActeIds: mergedDeletedActeIds,
       version: Math.max(localData.version || 0, serverData.version || 0) + 1
     };
 
@@ -729,6 +734,30 @@ export class DataSyncManager {
     await ElectronBridge.setData('deleted_enquete_ids', entries);
   }
 
+  /** Lit les IDs d'actes/écoutes/géolocs supprimés. */
+  private async loadDeletedActeEntries(): Promise<Array<{ id: number; deletedAt: string }>> {
+    const raw = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(
+      'deleted_acte_ids',
+      []
+    );
+    if (!Array.isArray(raw)) return [];
+    return raw;
+  }
+
+  /** Sauvegarde les IDs d'actes supprimés avec purge des anciennes entrées. */
+  private async saveDeletedActeEntries(ids: number[]): Promise<void> {
+    const pruneThreshold = Date.now() - DataSyncManager.DELETED_IDS_RETENTION_MS;
+    const existing = await this.loadDeletedActeEntries();
+    const existingMap = new Map(existing.map(e => [e.id, e.deletedAt]));
+    const now = new Date().toISOString();
+
+    const entries = ids
+      .map(id => ({ id, deletedAt: existingMap.get(id) ?? now }))
+      .filter(e => new Date(e.deletedAt).getTime() > pruneThreshold);
+
+    await ElectronBridge.setData('deleted_acte_ids', entries);
+  }
+
   private async getLocalData(): Promise<SyncData> {
     const enquetes = await ElectronBridge.getData('enquetes', []);
     const audienceResultats = await ElectronBridge.getData('audience_resultats', {});
@@ -736,6 +765,7 @@ export class DataSyncManager {
     const alertRules = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, []);
     const alertValidations = await ElectronBridge.getData<Record<string, any>>('alert_validations', {});
     const deletedEntries = await this.loadDeletedEntries();
+    const deletedActeEntries = await this.loadDeletedActeEntries();
 
     return {
       enquetes: Array.isArray(enquetes) ? enquetes : [],
@@ -744,6 +774,7 @@ export class DataSyncManager {
       alertRules: Array.isArray(alertRules) ? alertRules : [],
       alertValidations: alertValidations || {},
       deletedIds: deletedEntries.map(e => e.id),
+      deletedActeIds: deletedActeEntries.map(e => e.id),
       version: 1
     };
   }
@@ -760,6 +791,7 @@ export class DataSyncManager {
       await ElectronBridge.setData('alert_validations', merged);
     }
     await this.saveDeletedEntries(data.deletedIds || []);
+    await this.saveDeletedActeEntries(data.deletedActeIds || []);
   }
 
   private async getServerData(): Promise<{ data: SyncData; metadata: SyncMetadata } | null> {

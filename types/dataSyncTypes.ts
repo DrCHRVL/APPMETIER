@@ -14,6 +14,7 @@ export interface SyncData {
   alertValidations?: Record<string, AlertValidation>; // Validations d'alertes (reporter/valider) — synchro entre collègues
   version: number;
   deletedIds?: number[]; // IDs d'enquêtes supprimées intentionnellement (empêche la resynchronisation)
+  deletedActeIds?: number[]; // IDs d'actes/écoutes/géolocs supprimés (empêche la resynchronisation depuis le serveur)
 }
 
 /**

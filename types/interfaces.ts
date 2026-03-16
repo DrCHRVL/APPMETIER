@@ -74,6 +74,7 @@ export interface ProlongationHistoryEntry {
   dureeAjoutee: string;      // Durée ajoutée (valeur dans l'unité ci-dessous)
   dureeInitiale: string;     // Durée avant cette prolongation
   dureeUnit?: 'jours' | 'mois'; // Unité de la prolongation (si absent = 'jours')
+  dureeInitialeUnit?: 'jours' | 'mois'; // Unité de la durée initiale (si absent = celle de l'acte)
 }
 
 // Interface pour les documents attachés à une enquête

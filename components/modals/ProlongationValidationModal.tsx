@@ -15,6 +15,8 @@ interface ProlongationValidationModalProps {
   originalDuration?: string;
   originalDureeUnit?: 'jours' | 'mois';
   poseDate?: string;
+  // Date de fin actuelle de l'acte (inclut les prolongations déjà validées)
+  currentDateFin?: string;
   // Unité de la prolongation (peut différer de l'acte initial — ex: géoloc 15j puis prolongations 1 mois)
   prolongationDureeUnit?: 'jours' | 'mois';
   defaultProlongationDuree?: string;
@@ -28,6 +30,7 @@ export const ProlongationValidationModal = ({
   originalDuration,
   originalDureeUnit = 'jours',
   poseDate,
+  currentDateFin,
   prolongationDureeUnit = 'jours',
   defaultProlongationDuree,
 }: ProlongationValidationModalProps) => {
@@ -48,8 +51,10 @@ export const ProlongationValidationModal = ({
     }
   }, [isOpen, defaultDuration]);
 
-  // Date de fin initiale de l'acte selon son unité
+  // Date de fin actuelle de l'acte : utiliser currentDateFin (qui inclut les prolongations)
+  // ou recalculer depuis les données initiales si non fournie
   const initialEndDate = (() => {
+    if (currentDateFin) return currentDateFin;
     const ref = poseDate || originalStartDate;
     if (!ref || !originalDuration) return null;
     return DateUtils.calculateEndDateWithUnit(ref, originalDuration, originalDureeUnit);

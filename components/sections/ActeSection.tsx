@@ -7,7 +7,7 @@ import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
 import { AutorisationValidationModal } from '../modals/AutorisationValidationModal';
-import { ActeUtils, getStatutBadgeProps } from '@/utils/acteUtils';
+import { ActeUtils, getStatutBadgeProps, trackDeletedActeId } from '@/utils/acteUtils';
 import { DateUtils } from '@/utils/dateUtils';
 import { Badge } from '@/components/ui/badge';
 import { ActeModal } from '../modals/ActeModal';
@@ -236,14 +236,22 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
     const updatedActes = enquete.actes.map(acte => {
       if (acte.id === acteId && acte.prolongationsHistory) {
         const updatedHistory = acte.prolongationsHistory.filter((_, index) => index !== prolongationIndex);
-        
-        let nouvelleDuree = acte.prolongationsHistory[0]?.dureeInitiale || acte.duree;
+
+        const dureeInitiale = acte.prolongationsHistory[0]?.dureeInitiale || acte.duree;
+        const dureeInitialeUnit = acte.dureeUnit || 'jours';
+
+        let nouvelleDuree = dureeInitiale;
         updatedHistory.forEach(entry => {
           nouvelleDuree = (parseInt(nouvelleDuree) + parseInt(entry.dureeAjoutee)).toString();
         });
 
         const dateReference = acte.datePose || acte.dateDebut;
-        const nouvelleDateFin = DateUtils.calculateEndDateWithUnit(dateReference, nouvelleDuree, acte.dureeUnit || 'jours');
+        const nouvelleDateFin = ActeUtils.replayDateFin(
+          dateReference,
+          dureeInitiale,
+          dureeInitialeUnit,
+          updatedHistory.map(e => ({ dureeAjoutee: e.dureeAjoutee, dureeUnit: e.dureeUnit }))
+        );
 
         return {
           ...acte,
@@ -261,9 +269,10 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
 
   const handleDeleteActe = (id: number) => {
     if (!onUpdate || !enquete) return;
-    
+
     const updatedActes = enquete.actes.filter(acte => acte.id !== id);
     onUpdate(enquete.id, { actes: updatedActes });
+    trackDeletedActeId(id);
   };
 
   const now = new Date();
@@ -638,6 +647,7 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
             originalDuration={acteToValidate?.duree}
             originalDureeUnit={acteToValidate?.dureeUnit || 'jours'}
             poseDate={acteToValidate?.datePose}
+            currentDateFin={acteToValidate?.dateFin}
             prolongationDureeUnit={pUnit}
             defaultProlongationDuree={pDuree}
           />

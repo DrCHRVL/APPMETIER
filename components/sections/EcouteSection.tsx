@@ -7,7 +7,7 @@ import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
 import { AutorisationValidationModal } from '../modals/AutorisationValidationModal';
-import { ActeUtils, getStatutBadgeProps } from '@/utils/acteUtils';
+import { ActeUtils, getStatutBadgeProps, trackDeletedActeId } from '@/utils/acteUtils';
 import { DateUtils } from '@/utils/dateUtils';
 import { Badge } from '@/components/ui/badge';
 import { EcouteModal } from '../modals/EcouteModal';
@@ -263,14 +263,22 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
     const updatedEcoutes = enquete.ecoutes.map(ecoute => {
       if (ecoute.id === ecouteId && ecoute.prolongationsHistory) {
         const updatedHistory = ecoute.prolongationsHistory.filter((_, index) => index !== prolongationIndex);
-        
-        let nouvelleDuree = ecoute.prolongationsHistory[0]?.dureeInitiale || ecoute.duree;
+
+        const dureeInitiale = ecoute.prolongationsHistory[0]?.dureeInitiale || ecoute.duree;
+        const dureeInitialeUnit = ecoute.dureeUnit || 'jours';
+
+        let nouvelleDuree = dureeInitiale;
         updatedHistory.forEach(entry => {
           nouvelleDuree = (parseInt(nouvelleDuree) + parseInt(entry.dureeAjoutee)).toString();
         });
 
         const dateReference = ecoute.datePose || ecoute.dateDebut;
-        const nouvelleDateFin = DateUtils.calculateActeEndDate(dateReference, nouvelleDuree);
+        const nouvelleDateFin = ActeUtils.replayDateFin(
+          dateReference,
+          dureeInitiale,
+          dureeInitialeUnit,
+          updatedHistory.map(e => ({ dureeAjoutee: e.dureeAjoutee, dureeUnit: e.dureeUnit }))
+        );
 
         return {
           ...ecoute,
@@ -290,6 +298,7 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
     if (!onUpdate || !enquete || !enquete.ecoutes) return;
     const updatedEcoutes = enquete.ecoutes.filter(ecoute => ecoute.id !== id);
     onUpdate(enquete.id, { ecoutes: updatedEcoutes });
+    trackDeletedActeId(id);
   };
 
   const now = new Date();
@@ -682,6 +691,7 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
         originalDuration={enquete.ecoutes?.find(e => e.id === validationEcouteId)?.duree}
         originalDureeUnit={enquete.ecoutes?.find(e => e.id === validationEcouteId)?.dureeUnit || 'mois'}
         poseDate={enquete.ecoutes?.find(e => e.id === validationEcouteId)?.datePose}
+        currentDateFin={enquete.ecoutes?.find(e => e.id === validationEcouteId)?.dateFin}
         prolongationDureeUnit="mois"
         defaultProlongationDuree="1"
       />

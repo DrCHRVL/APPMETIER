@@ -7,7 +7,7 @@ import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
 import { AutorisationValidationModal } from '../modals/AutorisationValidationModal';
-import { ActeUtils, getStatutBadgeProps } from '@/utils/acteUtils';
+import { ActeUtils, getStatutBadgeProps, trackDeletedActeId } from '@/utils/acteUtils';
 import { DateUtils } from '@/utils/dateUtils';
 import { Badge } from '@/components/ui/badge';
 import { GeolocModal } from '../modals/GeolocModal';
@@ -154,7 +154,8 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
           date,
           dureeAjoutee: duration,
           dureeInitiale: geoloc.duree,
-          dureeUnit: pUnit
+          dureeUnit: pUnit,
+          dureeInitialeUnit: geoloc.dureeUnit || 'jours'
         };
 
         const prolongationsHistory = geoloc.prolongationsHistory || [];
@@ -198,14 +199,25 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
     const updatedGeolocs = enquete.geolocalisations.map(geoloc => {
       if (geoloc.id === geolocId && geoloc.prolongationsHistory) {
         const updatedHistory = geoloc.prolongationsHistory.filter((_, index) => index !== prolongationIndex);
-        
-        let nouvelleDuree = geoloc.prolongationsHistory[0]?.dureeInitiale || geoloc.duree;
+
+        // Retrouver la durée initiale (celle de l'acte avant toute prolongation)
+        const dureeInitiale = geoloc.prolongationsHistory[0]?.dureeInitiale || geoloc.duree;
+        const dureeInitialeUnit = geoloc.dureeUnit || 'jours';
+
+        // Recalculer la durée totale (pour rétrocompatibilité, même si mixte)
+        let nouvelleDuree = dureeInitiale;
         updatedHistory.forEach(entry => {
           nouvelleDuree = (parseInt(nouvelleDuree) + parseInt(entry.dureeAjoutee)).toString();
         });
 
+        // Rejouer la chaîne datePose + durée initiale + chaque prolongation
         const dateReference = geoloc.datePose || geoloc.dateDebut;
-        const nouvelleDateFin = DateUtils.calculateActeEndDate(dateReference, nouvelleDuree);
+        const nouvelleDateFin = ActeUtils.replayDateFin(
+          dateReference,
+          dureeInitiale,
+          dureeInitialeUnit,
+          updatedHistory.map(e => ({ dureeAjoutee: e.dureeAjoutee, dureeUnit: e.dureeUnit }))
+        );
 
         return {
           ...geoloc,
@@ -223,9 +235,11 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
 
   const handleDeleteGeoloc = (id: number) => {
     if (!onUpdate || !enquete || !enquete.geolocalisations) return;
-    
+
     const updatedGeolocs = enquete.geolocalisations.filter(geoloc => geoloc.id !== id);
     onUpdate(enquete.id, { geolocalisations: updatedGeolocs });
+    // Mémoriser l'ID supprimé pour que la sync ne le rajoute pas depuis le serveur
+    trackDeletedActeId(id);
   };
 
   const now = new Date();
@@ -395,7 +409,7 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
                           <span className="mx-1">•</span> 
                           <span>{entry.dureeAjoutee} {entry.dureeUnit === 'mois' ? 'mois' : 'jours'}</span>
                           <span className="mx-1">•</span>
-                          <span>Durée précédente: {entry.dureeInitiale} {entry.dureeUnit === 'mois' ? 'mois' : 'jours'}</span>
+                          <span>Durée précédente: {entry.dureeInitiale} {(entry.dureeInitialeUnit || entry.dureeUnit || 'jours') === 'mois' ? 'mois' : 'jours'}</span>
                         </div>
                         {isEditing && (
                           <Button
@@ -572,6 +586,7 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
         originalDuration={enquete.geolocalisations?.find(g => g.id === validationGeolocId)?.duree}
         originalDureeUnit={enquete.geolocalisations?.find(g => g.id === validationGeolocId)?.dureeUnit || 'jours'}
         poseDate={enquete.geolocalisations?.find(g => g.id === validationGeolocId)?.datePose}
+        currentDateFin={enquete.geolocalisations?.find(g => g.id === validationGeolocId)?.dateFin}
         prolongationDureeUnit="mois"
         defaultProlongationDuree="1"
       />

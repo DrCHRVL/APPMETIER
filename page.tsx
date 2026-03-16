@@ -937,7 +937,9 @@ return (
                     }
 
                     const nouvelleDuree = (parseInt(acte.duree) + parseInt(duration)).toString();
-                    const dateFinCalculee = DateUtils.calculateActeEndDate(acte.datePose || acte.dateDebut, nouvelleDuree);
+                    // Utiliser dateFin actuelle comme base (intègre les prolongations précédentes)
+                    const currentEndDate = acte.dateFin || DateUtils.calculateActeEndDate(acte.datePose || acte.dateDebut, acte.duree);
+                    const dateFinCalculee = DateUtils.addCalendarMonths(currentEndDate, parseInt(duration));
 
                     handleUpdateEnquete(enquete.id, {
                       [selectedActe.type === 'acte' ? 'actes' : 
@@ -979,10 +981,17 @@ return (
             }
             poseDate={
               selectedActe && selectedActe.enqueteId && enquetes.find(e => e.id === selectedActe.enqueteId)?.[
-                selectedActe.type === 'acte' ? 'actes' : 
-                selectedActe.type === 'ecoute' ? 'ecoutes' : 
+                selectedActe.type === 'acte' ? 'actes' :
+                selectedActe.type === 'ecoute' ? 'ecoutes' :
                 'geolocalisations'
               ]?.find(a => a.id === selectedActe.id)?.datePose
+            }
+            currentDateFin={
+              selectedActe && selectedActe.enqueteId && enquetes.find(e => e.id === selectedActe.enqueteId)?.[
+                selectedActe.type === 'acte' ? 'actes' :
+                selectedActe.type === 'ecoute' ? 'ecoutes' :
+                'geolocalisations'
+              ]?.find(a => a.id === selectedActe.id)?.dateFin
             }
           />
         </>
