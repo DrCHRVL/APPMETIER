@@ -33,6 +33,11 @@ export class DataMergeService {
     const serverDeletedIds = new Set<number>(serverData.deletedIds || []);
     const mergedDeletedIds = Array.from(new Set([...localDeletedIds, ...serverDeletedIds]));
 
+    // Union des IDs d'actes/écoutes/géolocs supprimés
+    const localDeletedActeIds = new Set<number>(localData.deletedActeIds || []);
+    const serverDeletedActeIds = new Set<number>(serverData.deletedActeIds || []);
+    const mergedDeletedActeIds = Array.from(new Set([...localDeletedActeIds, ...serverDeletedActeIds]));
+
     // 1. Fusionner les enquêtes intelligemment (en tenant compte des suppressions)
     const {
       merged: mergedEnquetes,
@@ -82,6 +87,7 @@ export class DataMergeService {
         alertRules: mergedRules,
         alertValidations: mergedValidations,
         deletedIds: mergedDeletedIds,
+        deletedActeIds: mergedDeletedActeIds,
         version: Math.max(localData.version || 0, serverData.version || 0) + 1
       },
       conflicts,
@@ -129,7 +135,7 @@ export class DataMergeService {
       }
 
       // Enquête existe des deux côtés → tenter fusion intelligente
-      const mergeResult = this.tryMergeEnquete(localEnquete, serverEnquete);
+      const mergeResult = this.tryMergeEnquete(localEnquete, serverEnquete, localDeletedActeIds);
 
       if (mergeResult.hasConflict) {
         // ⚠️ Conflit détecté → nécessite intervention
@@ -195,12 +201,13 @@ export class DataMergeService {
    * 🆕 Tente de fusionner deux versions d'une même enquête intelligemment
    * (PUBLIQUE pour usage dans DataSyncManager)
    */
-  public static tryMergeEnquete(local: Enquete, server: Enquete): {
+  public static tryMergeEnquete(local: Enquete, server: Enquete, deletedActeIds?: Set<number>): {
     merged?: Enquete;
     hasConflict: boolean;
     conflicts: string[];
   } {
     const conflicts: string[] = [];
+    const deletedIds = deletedActeIds || new Set<number>();
 
     // 1. Fusionner les comptes-rendus (union par ID)
     const { merged: mergedCRs, conflicts: crConflicts } = this.mergeCRs(
@@ -219,12 +226,13 @@ export class DataMergeService {
     // 3. Fusionner les actes (intelligent avec timestamps enquête)
     const localDate = new Date(local.dateMiseAJour).getTime();
     const serverDate = new Date(server.dateMiseAJour).getTime();
-    
+
     const { merged: mergedActes, conflicts: actesConflicts } = this.mergeActes(
       local.actes || [],
       server.actes || [],
       localDate,
-      serverDate
+      serverDate,
+      deletedIds
     );
     conflicts.push(...actesConflicts.map(c => `Actes: ${c}`));
 
@@ -232,7 +240,8 @@ export class DataMergeService {
       local.ecoutes || [],
       server.ecoutes || [],
       localDate,
-      serverDate
+      serverDate,
+      deletedIds
     );
     conflicts.push(...ecoutesConflicts.map(c => `Écoutes: ${c}`));
 
@@ -240,7 +249,8 @@ export class DataMergeService {
       local.geolocalisations || [],
       server.geolocalisations || [],
       localDate,
-      serverDate
+      serverDate,
+      deletedIds
     );
     conflicts.push(...geolocConflicts.map(c => `Géolocalisations: ${c}`));
 
@@ -350,10 +360,11 @@ export class DataMergeService {
    * 🆕 Fusionne les actes intelligemment (logique spéciale prolongations/poses)
    */
   private static mergeActes(
-    local: any[], 
+    local: any[],
     server: any[],
     localEnqueteTimestamp: number,
-    serverEnqueteTimestamp: number
+    serverEnqueteTimestamp: number,
+    deletedActeIds: Set<number> = new Set()
   ): {
     merged: any[];
     conflicts: string[];
@@ -367,6 +378,11 @@ export class DataMergeService {
       const localActe = merged.get(serverActe.id);
 
       if (!localActe) {
+        // Vérifier si cet acte a été supprimé intentionnellement en local
+        if (deletedActeIds.has(serverActe.id)) {
+          console.log(`🗑️ DataMerge: Acte ${serverActe.id} ignoré (supprimé localement)`);
+          return;
+        }
         // ✅ Nouvel acte serveur → ajout
         merged.set(serverActe.id, serverActe);
         return;
@@ -617,6 +633,10 @@ export class DataMergeService {
       ...(localData.deletedIds || []),
       ...(serverData.deletedIds || [])
     ]));
+    const mergedDeletedActeIds = Array.from(new Set([
+      ...(localData.deletedActeIds || []),
+      ...(serverData.deletedActeIds || [])
+    ]));
 
     const newServerEnquetes = (serverData.enquetes || []).filter(
       e => !localEnqueteIds.has(e.id) && !mergedDeletedIds.includes(e.id)
@@ -629,6 +649,7 @@ export class DataMergeService {
       alertRules: localData.alertRules,
       alertValidations: this.mergeAlertValidations(localData.alertValidations || {}, serverData.alertValidations || {}),
       deletedIds: mergedDeletedIds,
+      deletedActeIds: mergedDeletedActeIds,
       version: localData.version + 1
     };
   }
@@ -642,6 +663,10 @@ export class DataMergeService {
       ...(localData.deletedIds || []),
       ...(serverData.deletedIds || [])
     ]));
+    const mergedDeletedActeIds = Array.from(new Set([
+      ...(localData.deletedActeIds || []),
+      ...(serverData.deletedActeIds || [])
+    ]));
 
     const newLocalEnquetes = (localData.enquetes || []).filter(
       e => !serverEnqueteIds.has(e.id) && !mergedDeletedIds.includes(e.id)
@@ -654,6 +679,7 @@ export class DataMergeService {
       alertRules: serverData.alertRules,
       alertValidations: this.mergeAlertValidations(localData.alertValidations || {}, serverData.alertValidations || {}),
       deletedIds: mergedDeletedIds,
+      deletedActeIds: mergedDeletedActeIds,
       version: serverData.version + 1
     };
   }
