@@ -5,6 +5,7 @@ import { ElectronBridge } from '../utils/electronBridge';
 import { APP_CONFIG } from '../config/constants';
 import { useAlerts } from './useAlerts';
 import { AlertManager } from '../utils/alerts/alertManager';
+import { ActeUtils } from '../utils/acteUtils';
 import throttle from 'lodash/throttle';
 
 // Constantes pour l'optimisation
@@ -19,6 +20,50 @@ const migrateEnqueteDocuments = (enquete: any): Enquete => {
     enquete.toDos = [];
   }
   return enquete as Enquete;
+};
+
+/**
+ * Migration : recalcule dateFin pour les actes/écoutes/géolocs dont la durée
+ * a été corrompue par le mélange d'unités jours/mois dans les prolongations.
+ * Retourne true si au moins un acte a été corrigé.
+ */
+const migrateActeDateFin = (enquete: Enquete): boolean => {
+  let modified = false;
+
+  const fixActeArray = (actes: any[] | undefined): any[] | undefined => {
+    if (!actes) return actes;
+    return actes.map((acte: any) => {
+      if (!acte.prolongationsHistory || acte.prolongationsHistory.length === 0) return acte;
+      if (!acte.datePose && !acte.dateDebut) return acte;
+
+      const dureeInitiale = acte.prolongationsHistory[0]?.dureeInitiale || acte.duree;
+      const dureeInitialeUnit = acte.dureeUnit || 'jours';
+      const dateReference = acte.datePose || acte.dateDebut;
+
+      const correctDateFin = ActeUtils.replayDateFin(
+        dateReference,
+        dureeInitiale,
+        dureeInitialeUnit,
+        acte.prolongationsHistory.map((e: any) => ({
+          dureeAjoutee: e.dureeAjoutee,
+          dureeUnit: e.dureeUnit
+        }))
+      );
+
+      if (correctDateFin && correctDateFin !== acte.dateFin) {
+        console.log(`🔧 Migration dateFin: acte ${acte.id} (${acte.objet || acte.numero || acte.type || ''}) : ${acte.dateFin} → ${correctDateFin}`);
+        modified = true;
+        return { ...acte, dateFin: correctDateFin };
+      }
+      return acte;
+    });
+  };
+
+  enquete.geolocalisations = fixActeArray(enquete.geolocalisations) as any;
+  enquete.ecoutes = fixActeArray(enquete.ecoutes) as any;
+  enquete.actes = fixActeArray(enquete.actes) as any;
+
+  return modified;
 };
 
 export const useEnquetes = () => {
@@ -50,18 +95,33 @@ export const useEnquetes = () => {
       );
       
       // Appliquer la migration et valider les données
-      const validData = Array.isArray(data) 
+      const validData = Array.isArray(data)
         ? data
-          .filter(item => item.statut !== 'instruction')  
+          .filter(item => item.statut !== 'instruction')
           .map(migrateEnqueteDocuments)
         : [];
-      
+
       // Si migration effectuée, sauvegarder immédiatement
-      const needsMigration = Array.isArray(data) && 
+      let needsMigration = Array.isArray(data) &&
         data.some(enquete => !enquete.documents || !Array.isArray(enquete.documents));
-      
+
       if (needsMigration) {
         console.log('📦 Migration des documents des enquêtes effectuée');
+      }
+
+      // Migration dateFin : recalcule les dates corrompues par le mélange d'unités
+      let dateFinMigrated = false;
+      validData.forEach(enquete => {
+        if (migrateActeDateFin(enquete)) {
+          dateFinMigrated = true;
+        }
+      });
+      if (dateFinMigrated) {
+        console.log('📦 Migration dateFin des actes effectuée (correction mélange jours/mois)');
+        needsMigration = true;
+      }
+
+      if (needsMigration) {
         await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ENQUETES, validData);
       }
       
