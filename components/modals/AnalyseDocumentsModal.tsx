@@ -449,6 +449,7 @@ export const AnalyseDocumentsModal = ({
                       {expandedDetails.has(index) && (
                         <div className="mt-3 ml-7 space-y-2 text-xs border-t pt-2">
                           <p><span className="font-medium">Fichier :</span> {acte.source.fileName}</p>
+                          <p><span className="font-medium">Chemin :</span> <span className="text-muted-foreground break-all">{acte.source.filePath}</span></p>
                           <p><span className="font-medium">Dossier :</span> {acte.source.sourceFolder}</p>
                           {acte.numeroPV && <p><span className="font-medium">N° PV :</span> {acte.numeroPV}</p>}
                           {acte.objetDescription && <p><span className="font-medium">Objet :</span> {acte.objetDescription}</p>}
