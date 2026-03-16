@@ -63,7 +63,7 @@ export const TodoReminderBar = ({
   };
 
   return (
-    <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-2 mb-4 shadow-sm">
+    <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-2 shadow-sm">
       <div className="flex flex-wrap gap-1.5 items-center">
         {/* Label */}
         <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">

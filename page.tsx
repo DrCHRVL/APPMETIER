@@ -44,6 +44,7 @@ import { WeeklyPopupConfig } from './types/interfaces';
 import { ElectronBridge } from './utils/electronBridge';
 import { OPTimeline } from './components/OPTimeline';
 import { TodoReminderBar } from './components/TodoReminderBar';
+import { PendingActsJLD } from './components/PendingActsJLD';
 
 // 🆕 Imports pour la synchronisation des données
 import { useDataSync } from './hooks/useDataSync';
@@ -543,12 +544,15 @@ return (
           {currentView === 'enquetes' && (
             <div className="space-y-6">
               <OPTimeline enquetes={activeEnquetes} />
-              <TodoReminderBar
-                enquetes={activeEnquetes}
-                globalTodos={globalTodos}
-                onUpdateEnquete={handleUpdateEnquete}
-                onGlobalTodosChange={handleGlobalTodosChange}
-              />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <TodoReminderBar
+                  enquetes={activeEnquetes}
+                  globalTodos={globalTodos}
+                  onUpdateEnquete={handleUpdateEnquete}
+                  onGlobalTodosChange={handleGlobalTodosChange}
+                />
+                <PendingActsJLD enquetes={activeEnquetes} />
+              </div>
               {Object.entries(enquetesByOrganization)
                 .sort(([a], [b]) => getSectionOrder(a) - getSectionOrder(b))
                 .map(([section, serviceGroups]) => {
