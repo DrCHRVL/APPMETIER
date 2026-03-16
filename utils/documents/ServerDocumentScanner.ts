@@ -394,12 +394,12 @@ export class ServerDocumentScanner {
       // (o/O confondu avec 0, l/I confondu avec 1)
       const D = '[0-9oOlI]'; // "digit" tolérant OCR
       const phonePatterns = [
-        // Format avec points : 07.45.40.86.12 (ou o7.49.03.14.21 avec erreur OCR)
-        new RegExp(`(?:N°|n°|La\\s+ligne|ligne)\\s*:?\\s*(${D}{2}[.\\s]?${D}{2}[.\\s]?${D}{2}[.\\s]?${D}{2}[.\\s]?${D}{2})`, 'gi'),
-        // Format bullet : • N° 07.45.40.86.12
-        new RegExp(`[•\\-]\\s*N°?\\s*(${D}{2}[.\\s]?${D}{2}[.\\s]?${D}{2}[.\\s]?${D}{2}[.\\s]?${D}{2})`, 'gi'),
-        // Format direct dans le dispositif
-        new RegExp(`(${D}{2}\\.${D}{2}\\.${D}{2}\\.${D}{2}\\.${D}{2})`, 'g')
+        // Format avec points/tirets/espaces : 07.45.40.86.12, 07-49-03-14-21, etc.
+        new RegExp(`(?:N°|n°|La\\s+ligne|ligne)\\s*:?\\s*(${D}{2}[.\\s-]?${D}{2}[.\\s-]?${D}{2}[.\\s-]?${D}{2}[.\\s-]?${D}{2})`, 'gi'),
+        // Format bullet : • N° 07.45.40.86.12 ou 07-49-03-14-21
+        new RegExp(`[•\\-]\\s*N°?\\s*(${D}{2}[.\\s-]?${D}{2}[.\\s-]?${D}{2}[.\\s-]?${D}{2}[.\\s-]?${D}{2})`, 'gi'),
+        // Format direct dans le dispositif (points ou tirets)
+        new RegExp(`(${D}{2}[.\\-]${D}{2}[.\\-]${D}{2}[.\\-]${D}{2}[.\\-]${D}{2})`, 'g')
       ];
 
       for (const pattern of phonePatterns) {
@@ -443,7 +443,7 @@ export class ServerDocumentScanner {
 
       // Aussi chercher les lignes téléphoniques pour géoloc sur ligne
       const DG = '[0-9oOlI]'; // digit tolérant OCR
-      const phoneGeoloc = new RegExp(`ligne\\s+t[ée]l[ée]phonique\\s+suivante\\s*:\\s*[•\\-\\s]*(?:N°?\\s*)?(${DG}{2}[.\\s]?${DG}{2}[.\\s]?${DG}{2}[.\\s]?${DG}{2}[.\\s]?${DG}{2})`, 'gi');
+      const phoneGeoloc = new RegExp(`ligne\\s+t[ée]l[ée]phonique\\s+suivante\\s*:\\s*[•\\-\\s]*(?:N°?\\s*)?(${DG}{2}[.\\s-]?${DG}{2}[.\\s-]?${DG}{2}[.\\s-]?${DG}{2}[.\\s-]?${DG}{2})`, 'gi');
       let match;
       while ((match = phoneGeoloc.exec(text)) !== null) {
         const normalized = this.normalizePhoneNumber(match[1]);
@@ -628,7 +628,7 @@ export class ServerDocumentScanner {
 
     // Ligne téléphonique pour géoloc
     const lineMatch = text.match(
-      /ligne\s+t[ée]l[ée]phonique\s+suivante\s*:\s*[•\-\s]*(?:N°?\s*)?(\d{2}[.\s]?\d{2}[.\s]?\d{2}[.\s]?\d{2}[.\s]?\d{2})/i
+      /ligne\s+t[ée]l[ée]phonique\s+suivante\s*:\s*[•\-\s]*(?:N°?\s*)?(\d{2}[.\s-]?\d{2}[.\s-]?\d{2}[.\s-]?\d{2}[.\s-]?\d{2})/i
     );
     if (lineMatch) {
       const normalized = this.normalizePhoneNumber(lineMatch[1]);
