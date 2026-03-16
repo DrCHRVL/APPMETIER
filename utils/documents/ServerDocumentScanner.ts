@@ -390,13 +390,16 @@ export class ServerDocumentScanner {
 
     if (type.includes('ecoute') || type.includes('requete_ecoute')) {
       // Extraire les numéros de téléphone
+      // Utiliser [0-9oOlI] au lieu de \d pour tolérer les erreurs OCR courantes
+      // (o/O confondu avec 0, l/I confondu avec 1)
+      const D = '[0-9oOlI]'; // "digit" tolérant OCR
       const phonePatterns = [
-        // Format avec points : 07.45.40.86.12
-        /(?:N°|n°|La\s+ligne|ligne)\s*:?\s*(\d{2}[.\s]?\d{2}[.\s]?\d{2}[.\s]?\d{2}[.\s]?\d{2})/gi,
+        // Format avec points : 07.45.40.86.12 (ou o7.49.03.14.21 avec erreur OCR)
+        new RegExp(`(?:N°|n°|La\\s+ligne|ligne)\\s*:?\\s*(${D}{2}[.\\s]?${D}{2}[.\\s]?${D}{2}[.\\s]?${D}{2}[.\\s]?${D}{2})`, 'gi'),
         // Format bullet : • N° 07.45.40.86.12
-        /[•\-]\s*N°?\s*(\d{2}[.\s]?\d{2}[.\s]?\d{2}[.\s]?\d{2}[.\s]?\d{2})/gi,
+        new RegExp(`[•\\-]\\s*N°?\\s*(${D}{2}[.\\s]?${D}{2}[.\\s]?${D}{2}[.\\s]?${D}{2}[.\\s]?${D}{2})`, 'gi'),
         // Format direct dans le dispositif
-        /(\d{2}\.\d{2}\.\d{2}\.\d{2}\.\d{2})/g
+        new RegExp(`(${D}{2}\\.${D}{2}\\.${D}{2}\\.${D}{2}\\.${D}{2})`, 'g')
       ];
 
       for (const pattern of phonePatterns) {
@@ -439,7 +442,8 @@ export class ServerDocumentScanner {
       }
 
       // Aussi chercher les lignes téléphoniques pour géoloc sur ligne
-      const phoneGeoloc = /ligne\s+t[ée]l[ée]phonique\s+suivante\s*:\s*[•\-\s]*(?:N°?\s*)?(\d{2}[.\s]?\d{2}[.\s]?\d{2}[.\s]?\d{2}[.\s]?\d{2})/gi;
+      const DG = '[0-9oOlI]'; // digit tolérant OCR
+      const phoneGeoloc = new RegExp(`ligne\\s+t[ée]l[ée]phonique\\s+suivante\\s*:\\s*[•\\-\\s]*(?:N°?\\s*)?(${DG}{2}[.\\s]?${DG}{2}[.\\s]?${DG}{2}[.\\s]?${DG}{2}[.\\s]?${DG}{2})`, 'gi');
       let match;
       while ((match = phoneGeoloc.exec(text)) !== null) {
         const normalized = this.normalizePhoneNumber(match[1]);
@@ -1010,9 +1014,23 @@ export class ServerDocumentScanner {
   // UTILITAIRES
   // ════════════════════════════════════════════════════════════
 
+  /**
+   * Corrige les confusions OCR courantes dans les contextes numériques.
+   * Ex: 'o'/'O' → '0', 'l'/'I' → '1', 'S' → '5', 'B' → '8'
+   */
+  private static fixOcrDigits(input: string): string {
+    return input
+      .replace(/[oO]/g, '0')
+      .replace(/[lI]/g, '1')
+      .replace(/S/g, '5')
+      .replace(/B/g, '8');
+  }
+
   private static normalizePhoneNumber(input: string): string {
     if (!input) return '';
-    const digits = input.replace(/\D/g, '');
+    // Appliquer la correction OCR avant de normaliser
+    const fixed = this.fixOcrDigits(input);
+    const digits = fixed.replace(/\D/g, '');
     if (digits.length === 10) {
       return `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4, 6)}.${digits.slice(6, 8)}.${digits.slice(8, 10)}`;
     }
