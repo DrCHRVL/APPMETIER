@@ -73,19 +73,34 @@ export const AnalyseDocumentsModal = ({
 
       if (scanResult.errors.length > 0) {
         console.warn('Erreurs de scan:', scanResult.errors);
+        // Afficher les erreurs de scan non-bloquantes en toast
+        if (scanResult.documents.length > 0) {
+          showToast(
+            `${scanResult.errors.length} erreur(s) lors du scan, mais ${scanResult.documents.length} PDF ont pu être lus`,
+            'warning'
+          );
+        }
       }
 
       if (scanResult.documents.length === 0) {
-        setScanError(
-          `Aucun PDF trouvé dans les dossiers scannés (${scanResult.foldersScanned.join(', ') || 'aucun dossier'}).` +
-          (scanResult.errors.length > 0 ? `\n${scanResult.errors.join('\n')}` : '')
-        );
+        const foldersList = scanResult.foldersScanned.join(', ') || 'aucun dossier trouvé';
+        let errorMsg = `Aucun PDF exploitable trouvé.\n\nDossiers scannés : ${foldersList}`;
+
+        if (scanResult.foldersScanned.length === 0) {
+          errorMsg += '\n\nLe chemin externe ne contient aucun sous-dossier. Vérifiez que le chemin pointe vers le bon dossier d\'enquête.';
+        }
+
+        if (scanResult.errors.length > 0) {
+          errorMsg += `\n\nErreurs rencontrées :\n• ${scanResult.errors.join('\n• ')}`;
+        }
+
+        setScanError(errorMsg);
         setPhase('idle');
         return;
       }
 
       setPhase('analyzing');
-      setProgress(`Analyse de ${scanResult.documents.length} PDF...`);
+      setProgress(`Analyse de ${scanResult.documents.length} PDF en cours...`);
 
       // 2. Analyser les documents
       const scannedDocs: ScannedDocument[] = scanResult.documents;
@@ -97,7 +112,7 @@ export const AnalyseDocumentsModal = ({
       // Ajouter les infos de dossiers scannés
       analysisResult.stats.foldersScanned = scanResult.foldersScanned;
 
-      // Pré-sélectionner les actes avec haute confiance
+      // Pré-sélectionner les actes avec haute confiance et sans erreurs
       const preSelected = new Set<number>();
       analysisResult.actesDetectes.forEach((acte, index) => {
         if (acte.confidence >= 0.6 && acte.errors.length === 0) {
@@ -109,9 +124,33 @@ export const AnalyseDocumentsModal = ({
       setResult(analysisResult);
       setPhase('results');
 
+      // Toast récapitulatif
+      if (analysisResult.actesDetectes.length > 0) {
+        showToast(
+          `${analysisResult.actesDetectes.length} acte(s) détecté(s) sur ${scanResult.documents.length} PDF. ` +
+          `${preSelected.size} pré-sélectionné(s). Vérifiez et validez.`,
+          'success'
+        );
+      } else if (analysisResult.stats.totalDoublons > 0) {
+        showToast(
+          `Tous les actes détectés sont des doublons (${analysisResult.stats.totalDoublons}). Aucun nouvel acte à créer.`,
+          'info'
+        );
+      } else {
+        showToast(
+          `Aucun acte reconnu dans les ${scanResult.documents.length} PDF analysés.`,
+          'info'
+        );
+      }
+
     } catch (error) {
       console.error('Erreur analyse:', error);
-      setScanError(`Erreur lors de l'analyse : ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
+      const msg = error instanceof Error ? error.message : 'Erreur inconnue';
+      setScanError(
+        `Erreur lors de l'analyse :\n${msg}\n\n` +
+        `Si le problème persiste, vérifiez que le chemin externe est accessible et que les PDF ne sont pas corrompus.`
+      );
+      showToast('Erreur lors de l\'analyse des documents', 'error');
       setPhase('idle');
     }
   }, [enquete]);
@@ -138,14 +177,33 @@ export const AnalyseDocumentsModal = ({
     const nbEcoutes = (updates.ecoutes?.length || 0) - (enquete.ecoutes?.length || 0);
     const nbGeolocs = (updates.geolocalisations?.length || 0) - (enquete.geolocalisations?.length || 0);
 
+    // Compter les prolongations (actes mis à jour vs créés)
+    const nbProlongations = selected.filter(a => a.type.startsWith('prolongation_')).length;
+    const nbNouvelles = selected.length - nbProlongations;
+
     const parts = [];
     if (nbEcoutes > 0) parts.push(`${nbEcoutes} écoute(s)`);
     if (nbGeolocs > 0) parts.push(`${nbGeolocs} géolocalisation(s)`);
 
-    showToast(
-      `${parts.join(' et ')} créée(s) / mise(s) à jour avec succès`,
-      'success'
-    );
+    let detail = '';
+    if (nbNouvelles > 0 && nbProlongations > 0) {
+      detail = ` (${nbNouvelles} nouveau(x), ${nbProlongations} prolongation(s))`;
+    }
+
+    // Vérifier si des actes sélectionnés avaient des warnings
+    const actesAvecWarnings = selected.filter(a => a.warnings.length > 0);
+    if (actesAvecWarnings.length > 0) {
+      showToast(
+        `${parts.join(' et ')} créée(s)${detail}. ` +
+        `${actesAvecWarnings.length} acte(s) avec avertissements — vérifiez les dates et durées.`,
+        'warning'
+      );
+    } else {
+      showToast(
+        `${parts.join(' et ')} créée(s) / mise(s) à jour avec succès${detail}`,
+        'success'
+      );
+    }
     onClose();
   }, [result, selectedActes, enquete, onApplyActes, onClose, showToast]);
 

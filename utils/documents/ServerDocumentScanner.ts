@@ -112,6 +112,24 @@ const NOMBRES_FR: Record<string, number> = {
 
 export class ServerDocumentScanner {
 
+  /**
+   * Normalise le texte pour absorber les artefacts OCR courants :
+   * - Espaces insécables → espaces normaux
+   * - Ligatures ff/fi/fl cassées
+   * - Multiples espaces → un seul
+   * - Retours chariot Windows
+   */
+  private static normalizeOCRText(text: string): string {
+    return text
+      .replace(/\u00A0/g, ' ')           // espace insécable → espace normal
+      .replace(/\u202F/g, ' ')           // espace fine insécable
+      .replace(/\uFB00/g, 'ff')          // ligature ff
+      .replace(/\uFB01/g, 'fi')          // ligature fi
+      .replace(/\uFB02/g, 'fl')          // ligature fl
+      .replace(/\r\n/g, '\n')            // Windows → Unix
+      .replace(/[ \t]{2,}/g, ' ');        // multiples espaces → un seul
+  }
+
   // ════════════════════════════════════════════════════════════
   // 1. SCAN DES DOSSIERS
   // ════════════════════════════════════════════════════════════
@@ -175,7 +193,7 @@ export class ServerDocumentScanner {
   // ════════════════════════════════════════════════════════════
 
   static parseDocument(doc: ScannedDocument): ParsedActe | null {
-    const text = doc.textContent;
+    const text = this.normalizeOCRText(doc.textContent);
     if (!text || text.length < 100) return null;
 
     const errors: string[] = [];
@@ -209,6 +227,28 @@ export class ServerDocumentScanner {
       const initiale = this.extractInfoInitiale(text);
       dateAutorisationInitiale = initiale.date;
       dureeInitiale = initiale.duree;
+
+      // Warnings de chaînage
+      if (!dateAutorisationInitiale) {
+        warnings.push(
+          'Date de l\'autorisation initiale non trouvée dans le document. ' +
+          'Le chaînage avec l\'acte initial pourrait être imprécis — vérifiez manuellement.'
+        );
+      }
+      if (!dureeInitiale) {
+        warnings.push(
+          'Durée de l\'autorisation initiale non détectée. ' +
+          'Une valeur par défaut sera utilisée si l\'acte initial n\'existe pas dans l\'enquête.'
+        );
+      }
+    }
+
+    // Warning si pas de dispositif trouvé
+    if (!dispositif) {
+      warnings.push(
+        'Section "Par conséquent" / "PAR CES MOTIFS" non isolée. ' +
+        'Les données ont été extraites du texte complet — risque de faux positifs.'
+      );
     }
 
     // Validation
@@ -417,40 +457,55 @@ export class ServerDocumentScanner {
   // ════════════════════════════════════════════════════════════
 
   private static extractDuree(text: string): { duree: string; dureeUnit: 'jours' | 'mois' } {
-    // Durée en mois (mots)
-    const moisMotMatch = text.match(/dur[ée]e\s+(?:maximale?\s+)?d[''']?(un|une)\s+mois/i);
+    // Note : \s* au lieu de \s+ pour absorber les mots collés par l'OCR ("quinzejours")
+
+    // Durée en mois (mots) — "d'un mois", "d'unmois"
+    const moisMotMatch = text.match(/dur[ée]e\s*(?:maximale?\s*)?d[''']?\s*(un|une)\s*mois/i);
     if (moisMotMatch) return { duree: '1', dureeUnit: 'mois' };
 
-    // Durée en mois (chiffre)
-    const moisNumMatch = text.match(/dur[ée]e\s+(?:maximale?\s+)?(?:de\s+)?(\d+)\s+mois/i);
+    // Durée en mois (chiffre) — "de 2 mois", "de2mois"
+    const moisNumMatch = text.match(/dur[ée]e\s*(?:maximale?\s*)?(?:de\s*)?(\d+)\s*mois/i);
     if (moisNumMatch) return { duree: moisNumMatch[1], dureeUnit: 'mois' };
 
     // "pour une durée maximale d'un mois"
-    const pourMoisMatch = text.match(/pour\s+une?\s+dur[ée]e\s+(?:maximale?\s+)?d[''']?(un|une)\s+mois/i);
+    const pourMoisMatch = text.match(/pour\s+une?\s+dur[ée]e\s*(?:maximale?\s*)?d[''']?\s*(un|une)\s*mois/i);
     if (pourMoisMatch) return { duree: '1', dureeUnit: 'mois' };
 
-    // Durée en jours (mots)
-    const joursMotMatch = text.match(/dur[ée]e\s+(?:de\s+)?(\w+)\s+jours?/i);
+    // Durée en jours (mots) — "de quinze jours", "dequinzejours", "quinze jours"
+    const joursMotMatch = text.match(/dur[ée]e\s*(?:de\s*)?(\w+)\s*jours?/i);
     if (joursMotMatch) {
       const nombre = NOMBRES_FR[joursMotMatch[1].toLowerCase()];
       if (nombre) return { duree: nombre.toString(), dureeUnit: 'jours' };
     }
 
-    // Durée en jours (chiffre)
-    const joursNumMatch = text.match(/dur[ée]e\s+(?:de\s+)?(\d+)\s+jours?/i);
+    // Durée en jours (chiffre) — "de 15 jours", "15jours"
+    const joursNumMatch = text.match(/dur[ée]e\s*(?:de\s*)?(\d+)\s*jours?/i);
     if (joursNumMatch) return { duree: joursNumMatch[1], dureeUnit: 'jours' };
 
-    // "quinze jours" "un mois" dans le dispositif
-    const quinzeJours = text.match(/(\w+)\s+jours?\s*[,.]?\s*(?:à\s+compter|renouvelable)/i);
+    // "quinze jours" / "quinzejours" isolé dans le dispositif (avant "à compter" ou ponctuation)
+    const quinzeJours = text.match(/(\w+)\s*jours?\s*[,.]?\s*(?:[àa]\s*compter|renouvelable)/i);
     if (quinzeJours) {
       const nombre = NOMBRES_FR[quinzeJours[1].toLowerCase()];
       if (nombre) return { duree: nombre.toString(), dureeUnit: 'jours' };
     }
 
+    // Fallback : chercher un nombre en lettres suivi de "jours" n'importe où
+    // Utile si l'OCR a collé les mots : "quinzejours"
+    for (const [mot, valeur] of Object.entries(NOMBRES_FR)) {
+      const regex = new RegExp(`${mot}\\s*jours?`, 'i');
+      if (regex.test(text)) return { duree: valeur.toString(), dureeUnit: 'jours' };
+    }
+
+    // Même chose pour mois
+    for (const [mot, valeur] of Object.entries(NOMBRES_FR)) {
+      const regex = new RegExp(`${mot}\\s*mois`, 'i');
+      if (regex.test(text)) return { duree: valeur.toString(), dureeUnit: 'mois' };
+    }
+
     // 48 heures (IMSI)
     const heuresMatch = text.match(/(\d+)\s*(?:h|heures?)/i);
     if (heuresMatch && parseInt(heuresMatch[1]) <= 48) {
-      return { duree: heuresMatch[1], dureeUnit: 'jours' }; // On garde en heures mais unité jours pour simplifier
+      return { duree: heuresMatch[1], dureeUnit: 'jours' };
     }
 
     // Défaut : si procureur géoloc → 15 jours, sinon 1 mois
