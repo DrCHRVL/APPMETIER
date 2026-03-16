@@ -1225,30 +1225,15 @@ function setupIpcHandlers() {
               // Lire le fichier PDF
               const fileBuffer = fs.readFileSync(fullPath);
 
-              // Extraire le texte
+              // Extraire le texte via pdf-parse (pas d'OCR : les PDF doivent être déjà OCRisés)
               let textContent = '';
               try {
                 const pdfData = await pdfParse(fileBuffer);
                 textContent = pdfData.text.trim();
 
-                // Si texte insuffisant, essayer OCR
                 if (textContent.length <= 50) {
-                  const tessdataPath = path.join(__dirname, 'tessdata');
-                  const fraPath = path.join(tessdataPath, 'fra.traineddata');
-
-                  if (fs.existsSync(fraPath)) {
-                    try {
-                      const worker = await tesseract.createWorker('fra', 1, {
-                        langPath: tessdataPath,
-                        cachePath: tessdataPath,
-                      });
-                      const { data: { text: ocrText } } = await worker.recognize(fileBuffer);
-                      await worker.terminate();
-                      if (ocrText.length > 20) textContent = ocrText;
-                    } catch (ocrErr) {
-                      console.error(`OCR échoué pour ${fileName}:`, ocrErr.message);
-                    }
-                  }
+                  result.errors.push(`${fileName} : texte insuffisant (PDF non OCRisé ou image scannée). Ignoré.`);
+                  continue;
                 }
               } catch (pdfErr) {
                 result.errors.push(`Erreur extraction texte ${fileName}: ${pdfErr.message}`);
