@@ -72,6 +72,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // API pour l'extraction de texte PDF
   extractPDFText: (buffer) => ipcRenderer.invoke('pdf:extractText', buffer),
 
+  // API pour le scan et analyse des PDFs du chemin externe
+  scanExternalPDFs: (externalPath, enqueteNumero, useSubfolder = true) =>
+    ipcRenderer.invoke('documents:scan-external-pdfs', externalPath, enqueteNumero, useSubfolder),
+
   // ========================================================================
   // APIS POUR LA SYNCHRONISATION DES DONNÉES (DataSyncManager)
   // ========================================================================
