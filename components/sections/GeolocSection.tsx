@@ -53,6 +53,7 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
         dateDebut: '',
         dateFin: '',
         duree: dates.duree || '0',
+        dureeUnit: dates.dureeUnit || 'jours',
         statut: 'autorisation_pending',
         prolongationsHistory: []
       };
@@ -68,6 +69,7 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
           dateDebut: dates.dateDebut,
           dateFin: '',
           duree: dates.duree,
+          dureeUnit: dates.dureeUnit || 'jours',
           datePose: dates.datePose || '',
           statut: 'pose_pending',
           prolongationsHistory: []
@@ -86,20 +88,28 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
   const handleUpdateGeoloc = (geolocData: Partial<GeolocData>, dates: DateManagerData) => {
     if (!onUpdate || !enquete || !editingGeolocId || !enquete.geolocalisations) return;
 
-    const updatedGeolocs = enquete.geolocalisations.map(geoloc => 
-      geoloc.id === editingGeolocId 
-        ? {
-            ...geoloc,
-            dateDebut: dates.dateDebut || geoloc.dateDebut,
-            dateFin: dates.dateFin || geoloc.dateFin,
-            datePose: dates.datePose,
-            duree: dates.duree || geoloc.duree,
-            objet: geolocData.objet || geoloc.objet,
-            description: geolocData.description !== undefined ? geolocData.description : geoloc.description,
-            statut: dates.updatedStatut || geoloc.statut
-          }
-        : geoloc
-    );
+    const updatedGeolocs = enquete.geolocalisations.map(geoloc => {
+      if (geoloc.id !== editingGeolocId) return geoloc;
+
+      const hasProlongations = geoloc.prolongationsHistory && geoloc.prolongationsHistory.length > 0;
+      const updated: GeolocData = {
+        ...geoloc,
+        dateDebut: dates.dateDebut || geoloc.dateDebut,
+        datePose: dates.datePose,
+        objet: geolocData.objet || geoloc.objet,
+        description: geolocData.description !== undefined ? geolocData.description : geoloc.description,
+        statut: dates.updatedStatut || geoloc.statut
+      };
+
+      // Ne pas écraser duree/dateFin si des prolongations existent déjà
+      if (!hasProlongations) {
+        updated.duree = dates.duree || geoloc.duree;
+        updated.dureeUnit = dates.dureeUnit || geoloc.dureeUnit;
+        updated.dateFin = dates.dateFin || geoloc.dateFin;
+      }
+
+      return updated;
+    });
 
     onUpdate(enquete.id, { geolocalisations: updatedGeolocs });
     setEditingGeolocId(null);
@@ -150,10 +160,11 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
 
     const updatedGeolocs = enquete.geolocalisations.map(geoloc => {
       if (geoloc.id === validationGeolocId) {
+        const dureeInitiale = geoloc.prolongationsHistory?.[0]?.dureeInitiale || geoloc.duree;
         const newHistoryEntry: ProlongationHistoryEntry = {
           date,
           dureeAjoutee: duration,
-          dureeInitiale: geoloc.duree,
+          dureeInitiale: dureeInitiale,
           dureeUnit: pUnit,
           dureeInitialeUnit: geoloc.dureeUnit || 'jours'
         };
@@ -163,7 +174,7 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
 
         return {
           ...geoloc,
-          ...ActeUtils.calculateProlongation(geoloc, date, duration, pUnit),
+          ...ActeUtils.calculateProlongation(geoloc, date, duration, pUnit, updatedHistory.map(e => ({ dureeAjoutee: e.dureeAjoutee, dureeUnit: e.dureeUnit }))),
           prolongationDate: date,
           prolongationsHistory: updatedHistory
         };
@@ -409,7 +420,7 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
                           <span className="mx-1">•</span> 
                           <span>{entry.dureeAjoutee} {entry.dureeUnit === 'mois' ? 'mois' : 'jours'}</span>
                           <span className="mx-1">•</span>
-                          <span>Durée précédente: {entry.dureeInitiale} {(entry.dureeInitialeUnit || entry.dureeUnit || 'jours') === 'mois' ? 'mois' : 'jours'}</span>
+                          <span>Durée précédente: {entry.dureeInitiale} {(entry.dureeInitialeUnit || 'jours') === 'mois' ? 'mois' : 'jours'}</span>
                         </div>
                         {isEditing && (
                           <Button

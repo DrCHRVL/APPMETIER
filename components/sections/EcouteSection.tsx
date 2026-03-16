@@ -95,21 +95,29 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
   const handleUpdateEcoute = (ecouteData: Partial<EcouteData>, dates: DateManagerData) => {
     if (!onUpdate || !enquete || !editingEcouteId || !enquete.ecoutes) return;
 
-    const updatedEcoutes = enquete.ecoutes.map(ecoute => 
-      ecoute.id === editingEcouteId 
-        ? {
-            ...ecoute,
-            dateDebut: dates.dateDebut || ecoute.dateDebut,
-            dateFin: dates.dateFin || ecoute.dateFin,
-            datePose: dates.datePose,
-            duree: dates.duree || ecoute.duree,
-            numero: ecouteData.numero || ecoute.numero,
-            cible: ecouteData.cible !== undefined ? ecouteData.cible : ecoute.cible,
-            description: ecouteData.description !== undefined ? ecouteData.description : ecoute.description,
-            statut: dates.updatedStatut || ecoute.statut
-          }
-        : ecoute
-    );
+    const updatedEcoutes = enquete.ecoutes.map(ecoute => {
+      if (ecoute.id !== editingEcouteId) return ecoute;
+
+      const hasProlongations = ecoute.prolongationsHistory && ecoute.prolongationsHistory.length > 0;
+      const updated: EcouteData = {
+        ...ecoute,
+        dateDebut: dates.dateDebut || ecoute.dateDebut,
+        datePose: dates.datePose,
+        numero: ecouteData.numero || ecoute.numero,
+        cible: ecouteData.cible !== undefined ? ecouteData.cible : ecoute.cible,
+        description: ecouteData.description !== undefined ? ecouteData.description : ecoute.description,
+        statut: dates.updatedStatut || ecoute.statut
+      };
+
+      // Ne pas écraser duree/dateFin si des prolongations existent déjà
+      if (!hasProlongations) {
+        updated.duree = dates.duree || ecoute.duree;
+        updated.dureeUnit = dates.dureeUnit || ecoute.dureeUnit;
+        updated.dateFin = dates.dateFin || ecoute.dateFin;
+      }
+
+      return updated;
+    });
 
     onUpdate(enquete.id, { ecoutes: updatedEcoutes });
     setEditingEcouteId(null);
@@ -164,11 +172,13 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
 
     const updatedEcoutes = enquete.ecoutes.map(ecoute => {
       if (ecoute.id === validationEcouteId) {
+        const dureeInitiale = ecoute.prolongationsHistory?.[0]?.dureeInitiale || ecoute.duree;
         const newHistoryEntry: ProlongationHistoryEntry = {
           date,
           dureeAjoutee: duration,
-          dureeInitiale: ecoute.duree,
-          dureeUnit: pUnit
+          dureeInitiale: dureeInitiale,
+          dureeUnit: pUnit,
+          dureeInitialeUnit: ecoute.dureeUnit || 'mois'
         };
 
         const prolongationsHistory = ecoute.prolongationsHistory || [];
@@ -176,7 +186,7 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
 
         return {
           ...ecoute,
-          ...ActeUtils.calculateProlongation(ecoute, date, duration, pUnit),
+          ...ActeUtils.calculateProlongation(ecoute, date, duration, pUnit, updatedHistory.map(e => ({ dureeAjoutee: e.dureeAjoutee, dureeUnit: e.dureeUnit }))),
           prolongationDate: date,
           prolongationsHistory: updatedHistory
         };
