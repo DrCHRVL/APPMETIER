@@ -415,24 +415,41 @@ export class DuplicateDetectionService {
     }
 
     // Divergence d'objet : enrichissement de la description géoloc
-    // Ex: objet existant "14 21 NIAKATE" → parsé "07.49.03.14.21 utilisé par NIAKATE Mamadou"
-    if (bestCibleDetail && bestCibleDetail.matchType === 'partial') {
-      const existingLen = this.extractAllDigits(geoloc.objet).length;
-      const parsedCible = parsed.cibles.reduce((best, c) => {
-        const d = this.extractAllDigits(c);
-        return d.length > best.length ? c : best;
+    // Cas 1 : numéro partiel (ex: "14 21" → "07.49.03.14.21")
+    // Cas 2 : véhicule sans plaque (ex: "Renault Clio" → "Renault Clio CF-554-GE")
+    // Cas 3 : plaque seule (ex: "CF554GE" → "FORD Fiesta CF-554-GE")
+    if (bestCibleDetail && cibleScore > 0 && cibleScore < 1.0) {
+      // Trouver la cible parsée la plus informative
+      const bestParsedCible = parsed.cibles.reduce((best, c) => {
+        return c.length > best.length ? c : best;
       }, '');
-      const parsedLen = this.extractAllDigits(parsedCible).length;
 
-      if (parsedLen > existingLen && parsedCible.length > geoloc.objet.length) {
-        divergences.push({
-          field: 'objet',
-          label: 'Objet / cible',
-          existingValue: geoloc.objet,
-          parsedValue: parsedCible,
-          recommendation: 'use_parsed',
-          reason: `L'objet enregistré (${geoloc.objet}) est partiel. Le document contient une description plus complète (${parsedCible}).`,
-        });
+      if (bestParsedCible.length > geoloc.objet.length) {
+        // Le document contient plus d'information que l'objet existant
+        // Vérifier que c'est bien un enrichissement et pas juste du bruit
+        const existingPlate = this.extractPlate(geoloc.objet);
+        const parsedPlate = this.extractPlate(bestParsedCible);
+        const existingDigits = this.extractAllDigits(geoloc.objet);
+        const parsedDigits = this.extractAllDigits(bestParsedCible);
+
+        const isEnrichment =
+          // Plus de chiffres (numéro de téléphone plus complet)
+          (parsedDigits.length > existingDigits.length && parsedDigits.endsWith(existingDigits)) ||
+          // Plaque ajoutée (existant n'a pas de plaque, parsé en a une)
+          (!existingPlate && parsedPlate) ||
+          // Description plus complète (existant = juste plaque, parsé = plaque + modèle)
+          (existingPlate && parsedPlate && bestParsedCible.length > geoloc.objet.length + 3);
+
+        if (isEnrichment) {
+          divergences.push({
+            field: 'objet',
+            label: 'Objet / cible',
+            existingValue: geoloc.objet,
+            parsedValue: bestParsedCible,
+            recommendation: 'use_parsed',
+            reason: `L'objet enregistré (${geoloc.objet}) peut être enrichi avec les informations du document (${bestParsedCible}).`,
+          });
+        }
       }
     }
 

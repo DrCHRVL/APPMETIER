@@ -7,7 +7,7 @@ import {
   FileText, ChevronDown, ChevronUp, Eye, EyeOff, ArrowRight, Info, Shield
 } from 'lucide-react';
 import { Enquete } from '@/types/interfaces';
-import { ServerDocumentScanner, ParsedActe, AnalysisResult, ScannedDocument } from '@/utils/documents/ServerDocumentScanner';
+import { ServerDocumentScanner, ParsedActe, AnalysisResult, ScannedDocument, AlerteDocumentManquant } from '@/utils/documents/ServerDocumentScanner';
 import { VerificationDoublonsModal } from './VerificationDoublonsModal';
 import { useToast } from '@/contexts/ToastContext';
 
@@ -33,6 +33,7 @@ export const AnalyseDocumentsModal = ({
   const [expandedDetails, setExpandedDetails] = useState<Set<number>>(new Set());
   const [showDoublons, setShowDoublons] = useState(false);
   const [showNonReconnus, setShowNonReconnus] = useState(false);
+  const [showAlertes, setShowAlertes] = useState(true);
   const [scanError, setScanError] = useState<string | null>(null);
   const [showVerification, setShowVerification] = useState(false);
 
@@ -557,6 +558,64 @@ export const AnalyseDocumentsModal = ({
                         {raison}
                       </p>
                     ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Alertes documents manquants */}
+            {result.alertes && result.alertes.length > 0 && (
+              <div className="space-y-1">
+                <button
+                  className="flex items-center gap-2 text-sm text-orange-700 hover:text-orange-900 font-medium"
+                  onClick={() => setShowAlertes(!showAlertes)}
+                >
+                  {showAlertes ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                  <AlertTriangle className="h-4 w-4" />
+                  {result.alertes.length} document(s) manquant(s) dans la chaîne légale
+                </button>
+                {showAlertes && (
+                  <div className="ml-5 space-y-1 text-xs bg-orange-50 border border-orange-200 rounded-lg p-3">
+                    <p className="text-orange-800 font-medium mb-2">
+                      Documents attendus non trouvés dans le dossier scanné :
+                    </p>
+                    {/* Grouper par acte */}
+                    {(() => {
+                      const groupes = new Map<string, AlerteDocumentManquant[]>();
+                      for (const alerte of result.alertes) {
+                        const key = `${alerte.acteType}_${alerte.acteIndex}`;
+                        if (!groupes.has(key)) groupes.set(key, []);
+                        groupes.get(key)!.push(alerte);
+                      }
+                      return Array.from(groupes.entries()).map(([key, alertes]) => (
+                        <div key={key} className="mb-2 last:mb-0">
+                          <p className="font-medium text-orange-900 flex items-center gap-1">
+                            {alertes[0].acteType === 'ecoute'
+                              ? <Phone className="h-3 w-3" />
+                              : <MapPin className="h-3 w-3" />
+                            }
+                            {alertes[0].acteLabel}
+                          </p>
+                          <ul className="ml-5 mt-1 space-y-0.5">
+                            {alertes.map((a, i) => (
+                              <li key={i} className={`flex items-center gap-1 ${
+                                a.severite === 'error' ? 'text-red-700' : 'text-orange-700'
+                              }`}>
+                                {a.severite === 'error'
+                                  ? <XCircle className="h-3 w-3 flex-shrink-0" />
+                                  : <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                                }
+                                {a.documentManquant}
+                                {a.severite === 'error'
+                                  ? <span className="text-red-500 text-[10px] ml-1">(obligatoire)</span>
+                                  : <span className="text-orange-500 text-[10px] ml-1">(recommandé)</span>
+                                }
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ));
+                    })()}
                   </div>
                 )}
               </div>
