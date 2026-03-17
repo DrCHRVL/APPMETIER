@@ -160,8 +160,9 @@ export class DuplicateDetectionService {
     let bestMatch: DuplicateMatch | null = null;
     let bestScore = 0;
 
-    // Comparer avec les écoutes existantes
-    if (parsed.type.includes('ecoute') && !parsed.type.startsWith('requete_')) {
+    // Comparer avec les écoutes existantes (y compris les requêtes — une requête JLD
+    // pour un numéro déjà en écoute est le document d'autorisation initiale, pas un nouvel acte)
+    if (parsed.type.includes('ecoute')) {
       for (let i = 0; i < (enquete.ecoutes || []).length; i++) {
         const ecoute = enquete.ecoutes![i];
         const match = this.compareWithEcoute(parsed, ecoute, i);
@@ -172,8 +173,8 @@ export class DuplicateDetectionService {
       }
     }
 
-    // Comparer avec les géolocs existantes
-    if (parsed.type.includes('geoloc') && !parsed.type.startsWith('requete_')) {
+    // Comparer avec les géolocs existantes (idem pour les requêtes géoloc)
+    if (parsed.type.includes('geoloc')) {
       for (let i = 0; i < (enquete.geolocalisations || []).length; i++) {
         const geoloc = enquete.geolocalisations![i];
         const match = this.compareWithGeoloc(parsed, geoloc, i);
@@ -226,6 +227,29 @@ export class DuplicateDetectionService {
 
     // Si aucune correspondance de cible du tout, pas la peine de continuer
     if (cibleScore === 0) return null;
+
+    // ── Divergence numéro : le document a un numéro plus complet que l'existant ──
+    if (bestCibleDetail && bestCibleDetail.matchType !== 'exact' && bestCibleDetail.score >= 0.5) {
+      // Vérifier si le document fournit un numéro plus complet (ex: "14 21" → "07.49.03.14.21")
+      const parsedDigits = this.extractAllDigits(bestCibleDetail.parsedValue);
+      const existingDigits = this.extractAllDigits(ecoute.numero);
+
+      if (parsedDigits.length > existingDigits.length) {
+        // Le document a plus de chiffres → proposer l'enrichissement
+        const parsedFull = this.extractFullPhone(bestCibleDetail.parsedValue);
+        if (parsedFull) {
+          const formatted = parsedFull.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1.$2.$3.$4.$5');
+          divergences.push({
+            field: 'numero',
+            label: 'Numéro de téléphone',
+            existingValue: ecoute.numero,
+            parsedValue: formatted,
+            recommendation: 'use_parsed',
+            reason: `Le numéro enregistré (${ecoute.numero}) est partiel. Le document contient le numéro complet : ${formatted}.`,
+          });
+        }
+      }
+    }
 
     // ── Score type ──
     const typeScore = this.compareActeTypes(parsed.type, 'ecoute', ecoute);
@@ -357,6 +381,21 @@ export class DuplicateDetectionService {
 
     // Si aucune correspondance de cible, pas de match possible
     if (cibleScore === 0) return null;
+
+    // ── Divergence objet : le document a une description plus complète ──
+    if (bestCibleDetail && bestCibleDetail.matchType !== 'exact' && bestCibleDetail.score >= 0.5) {
+      const parsedDesc = parsed.objetDescription || parsed.cibles.join(', ');
+      if (parsedDesc && parsedDesc.length > geoloc.objet.length) {
+        divergences.push({
+          field: 'objet',
+          label: 'Description / objet',
+          existingValue: geoloc.objet,
+          parsedValue: parsedDesc,
+          recommendation: 'use_parsed',
+          reason: `La description enregistrée (${geoloc.objet}) est moins complète que celle du document (${parsedDesc}).`,
+        });
+      }
+    }
 
     // ── Score type ──
     const typeScore = this.compareActeTypes(parsed.type, 'geoloc', geoloc);
@@ -738,7 +777,7 @@ export class DuplicateDetectionService {
   private static compareActeTypes(
     parsedType: string,
     existingCategory: 'ecoute' | 'geoloc',
-    _existingData: EcouteData | GeolocData
+    existingData: EcouteData | GeolocData
   ): number {
     // Match parfait
     if (parsedType === `autorisation_initiale_${existingCategory}`) return 1.0;
@@ -746,8 +785,24 @@ export class DuplicateDetectionService {
     // Prolongation pour la même catégorie → match partiel (c'est lié mais pas le même acte)
     if (parsedType === `prolongation_${existingCategory}`) return 0.6;
 
-    // Requête pour la même catégorie → match faible
-    if (parsedType === `requete_${existingCategory}`) return 0.3;
+    // Requête pour la même catégorie
+    if (parsedType === `requete_${existingCategory}`) {
+      // Si l'acte existant est déjà en_cours, terminé, ou a des prolongations,
+      // alors la requête JLD est forcément le document d'autorisation initiale.
+      // Le schéma est : requête → autorisation JLD → écoute active → prolongation.
+      // Si on est déjà au stade "écoute active", la requête ne peut pas être un nouvel acte.
+      const statut = existingData.statut;
+      const hasProlongations = (existingData.prolongationsHistory || []).length > 0;
+
+      if (statut === 'en_cours' || statut === 'termine' || hasProlongations) {
+        return 0.9; // Quasi-certain : c'est le document d'autorisation de cet acte
+      }
+      if (statut === 'a_renouveler' || statut === 'prolongation_pending' || statut === 'pose_pending') {
+        return 0.8; // Très probable : acte actif à un stade avancé
+      }
+      // Acte en attente d'autorisation → la requête pourrait être le document en cours
+      return 0.5;
+    }
 
     // Catégorie différente
     return 0;

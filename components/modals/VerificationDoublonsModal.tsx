@@ -99,6 +99,8 @@ export const VerificationDoublonsModal = ({
           const ecoute = { ...newEcoutes[correction.acteIndex] };
           if (div.field === 'dateDebut') {
             ecoute.dateDebut = div.parsedValue;
+          } else if (div.field === 'numero') {
+            ecoute.numero = div.parsedValue;
           }
           newEcoutes[correction.acteIndex] = ecoute;
           nbCorrections++;
@@ -106,6 +108,8 @@ export const VerificationDoublonsModal = ({
           const geoloc = { ...newGeolocs[correction.acteIndex] };
           if (div.field === 'dateDebut') {
             geoloc.dateDebut = div.parsedValue;
+          } else if (div.field === 'objet') {
+            geoloc.objet = div.parsedValue;
           }
           newGeolocs[correction.acteIndex] = geoloc;
           nbCorrections++;
