@@ -2,6 +2,7 @@
 // Service d'analyse automatique des PDF du serveur pour créer des actes
 
 import { Enquete, EcouteData, GeolocData, ProlongationHistoryEntry } from '@/types/interfaces';
+import { DuplicateDetectionService, VerificationResult } from './DuplicateDetectionService';
 
 // ─── Types pour l'analyse ───
 
@@ -662,93 +663,90 @@ export class ServerDocumentScanner {
   }
 
   // ════════════════════════════════════════════════════════════
-  // 14. DÉTECTION DES DOUBLONS
+  // 14. DÉTECTION DES DOUBLONS (avec matching flou)
   // ════════════════════════════════════════════════════════════
 
   /**
    * Vérifie si un acte analysé est un doublon d'un acte existant.
-   * Signature : type + cible + date d'autorisation
+   * Utilise le DuplicateDetectionService pour le matching flou :
+   * - Numéros de téléphone : "76 90", "76.90", "0773157690" = même numéro
+   * - Plaques : "CF554GE", "CF-554-GE", "CF 554 GE" = même plaque
+   * - Dates : tolérance ±3 jours (réception vs autorisation)
    */
   static detectDoublon(
     parsed: ParsedActe,
     enquete: Enquete,
     dejaDetectes: ParsedActe[]
   ): string | null {
-    // Vérifier doublons dans les actes déjà détectés dans cette analyse
+    // 1. Vérifier doublons dans les actes déjà détectés dans cette analyse
     for (const existant of dejaDetectes) {
       if (this.isSameActe(parsed, existant)) {
         return `Doublon avec un autre document analysé : ${existant.source.fileName}`;
       }
     }
 
-    // Vérifier doublons avec les écoutes existantes
-    if (parsed.type.includes('ecoute') && !parsed.type.startsWith('requete_')) {
+    // 2. Utiliser le DuplicateDetectionService pour matching flou avec les actes existants
+    const match = DuplicateDetectionService.findBestMatch(parsed, enquete);
+
+    if (match) {
+      if (match.suggestion === 'doublon_exact') {
+        const label = match.existingType === 'ecoute'
+          ? `Écoute existante : ${(match.existingData as EcouteData).numero}`
+          : `Géoloc existante : ${(match.existingData as GeolocData).objet}`;
+        const dateInfo = match.existingData.dateDebut
+          ? ` (date: ${match.existingData.dateDebut})`
+          : '';
+        const similarityPct = Math.round(match.similarity * 100);
+        return `${label}${dateInfo} — similarité ${similarityPct}%`;
+      }
+
+      if (match.suggestion === 'doublon_probable' || match.suggestion === 'correction_possible') {
+        // Pour les doublons probables, on les marque mais on laisse l'utilisateur décider
+        const label = match.existingType === 'ecoute'
+          ? `Probable doublon avec écoute : ${(match.existingData as EcouteData).numero}`
+          : `Probable doublon avec géoloc : ${(match.existingData as GeolocData).objet}`;
+        const similarityPct = Math.round(match.similarity * 100);
+        const divergences = match.divergences.length > 0
+          ? ` (${match.divergences.length} différence(s) détectée(s) — vérification recommandée)`
+          : '';
+        return `${label} — similarité ${similarityPct}%${divergences}`;
+      }
+    }
+
+    // 3. Vérifier aussi les prolongations existantes (le service ne couvre pas l'historique)
+    if (parsed.type === 'prolongation_ecoute') {
       for (const ecoute of (enquete.ecoutes || [])) {
         for (const cible of parsed.cibles) {
-          const normalizedCible = this.normalizePhoneNumber(cible);
-          const normalizedEcoute = this.normalizePhoneNumber(ecoute.numero);
-
-          if (normalizedCible && normalizedEcoute && normalizedCible === normalizedEcoute) {
-            // Même numéro → vérifier si c'est la même date
-            if (parsed.type === 'autorisation_initiale_ecoute') {
-              if (ecoute.dateDebut === parsed.dateAutorisation ||
-                  ecoute.datePose === parsed.dateAutorisation) {
-                return `Écoute déjà existante : ${ecoute.numero} (créée le ${ecoute.dateDebut})`;
-              }
-            }
-            if (parsed.type === 'prolongation_ecoute') {
-              // Vérifier dans l'historique des prolongations
-              const dejaProlong = (ecoute.prolongationsHistory || []).some(
-                p => p.date === parsed.dateAutorisation
+          const phoneMatch = DuplicateDetectionService.comparePhoneNumbers(cible, ecoute.numero);
+          if (phoneMatch.score >= 0.5) {
+            const dejaProlong = (ecoute.prolongationsHistory || []).some(p => {
+              const dateDet = DuplicateDetectionService.compareDates(
+                parsed.dateAutorisation, p.date, 'date prolongation'
               );
-              if (dejaProlong) {
-                return `Prolongation déjà enregistrée pour ${ecoute.numero} le ${parsed.dateAutorisation}`;
-              }
+              return dateDet.score >= 0.7;
+            });
+            if (dejaProlong) {
+              return `Prolongation déjà enregistrée pour ${ecoute.numero} (date ~${parsed.dateAutorisation})`;
             }
           }
         }
       }
     }
 
-    // Vérifier doublons avec les géolocs existantes
-    if (parsed.type.includes('geoloc') && !parsed.type.startsWith('requete_')) {
+    if (parsed.type === 'prolongation_geoloc') {
       for (const geoloc of (enquete.geolocalisations || [])) {
         for (const cible of parsed.cibles) {
-          // Comparer les plaques ou descriptions
-          const cibleNorm = cible.toUpperCase().replace(/\s/g, '');
-          const geolocNorm = geoloc.objet.toUpperCase().replace(/\s/g, '');
-
-          // Vérifier si la plaque est contenue dans l'objet existant
-          const plaqueMatch = cible.match(/([A-Z]{2}[- ]?\d{3}[- ]?[A-Z]{2})/);
-          const existingPlaqueMatch = geoloc.objet.match(/([A-Z]{2}[- ]?\d{3}[- ]?[A-Z]{2})/);
-
-          if (plaqueMatch && existingPlaqueMatch) {
-            const p1 = plaqueMatch[1].replace(/[- ]/g, '');
-            const p2 = existingPlaqueMatch[1].replace(/[- ]/g, '');
-
-            if (p1 === p2) {
-              if (parsed.type === 'autorisation_initiale_geoloc') {
-                if (geoloc.dateDebut === parsed.dateAutorisation) {
-                  return `Géolocalisation déjà existante : ${geoloc.objet} (créée le ${geoloc.dateDebut})`;
-                }
-              }
-              if (parsed.type === 'prolongation_geoloc') {
-                const dejaProlong = (geoloc.prolongationsHistory || []).some(
-                  p => p.date === parsed.dateAutorisation
-                );
-                if (dejaProlong) {
-                  return `Prolongation déjà enregistrée pour ${geoloc.objet} le ${parsed.dateAutorisation}`;
-                }
-              }
-            }
-          }
-
-          // Comparer les numéros de téléphone pour géoloc sur ligne
-          const phoneCible = this.normalizePhoneNumber(cible);
-          const phoneGeoloc = this.normalizePhoneNumber(geoloc.objet);
-          if (phoneCible && phoneGeoloc && phoneCible === phoneGeoloc) {
-            if (parsed.type === 'autorisation_initiale_geoloc' && geoloc.dateDebut === parsed.dateAutorisation) {
-              return `Géolocalisation déjà existante : ${geoloc.objet}`;
+          const plateMatch = DuplicateDetectionService.comparePlates(cible, geoloc.objet);
+          const phoneMatch = DuplicateDetectionService.comparePhoneNumbers(cible, geoloc.objet);
+          if (plateMatch.score >= 0.5 || phoneMatch.score >= 0.5) {
+            const dejaProlong = (geoloc.prolongationsHistory || []).some(p => {
+              const dateDet = DuplicateDetectionService.compareDates(
+                parsed.dateAutorisation, p.date, 'date prolongation'
+              );
+              return dateDet.score >= 0.7;
+            });
+            if (dejaProlong) {
+              return `Prolongation déjà enregistrée pour ${geoloc.objet} (date ~${parsed.dateAutorisation})`;
             }
           }
         }
@@ -761,19 +759,50 @@ export class ServerDocumentScanner {
   /** Vérifie si deux ParsedActe représentent le même document */
   private static isSameActe(a: ParsedActe, b: ParsedActe): boolean {
     if (a.type !== b.type) return false;
-    if (a.dateAutorisation !== b.dateAutorisation) return false;
 
-    // Au moins une cible en commun
+    // Tolérance de date ±3 jours
+    const dateMatch = DuplicateDetectionService.compareDates(
+      a.dateAutorisation, b.dateAutorisation, 'date'
+    );
+    if (dateMatch.score < 0.5) return false;
+
+    // Au moins une cible en commun (avec matching flou)
     for (const ca of a.cibles) {
       for (const cb of b.cibles) {
+        // Match exact
         if (ca === cb) return true;
-        // Comparer les numéros normalisés
+
+        // Match normalisé téléphone
         const na = this.normalizePhoneNumber(ca);
         const nb = this.normalizePhoneNumber(cb);
         if (na && nb && na === nb) return true;
+
+        // Match flou téléphone
+        const phoneMatch = DuplicateDetectionService.comparePhoneNumbers(ca, cb);
+        if (phoneMatch.score >= 0.7) return true;
+
+        // Match flou plaque
+        const plateMatch = DuplicateDetectionService.comparePlates(ca, cb);
+        if (plateMatch.score >= 0.7) return true;
       }
     }
     return false;
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // 14b. VÉRIFICATION COMPLÈTE (doublons + corrections)
+  // ════════════════════════════════════════════════════════════
+
+  /**
+   * Effectue une vérification complète des actes parsés contre les actes existants.
+   * Retourne un résultat classé avec doublons, probables, corrections et nouveaux.
+   * Utilisé par le modal de vérification.
+   */
+  static verifyActes(
+    parsedActes: ParsedActe[],
+    enquete: Enquete
+  ): VerificationResult {
+    return DuplicateDetectionService.verifyAgainstExisting(parsedActes, enquete);
   }
 
   // ════════════════════════════════════════════════════════════
