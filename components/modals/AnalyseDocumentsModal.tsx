@@ -678,7 +678,7 @@ export const AnalyseDocumentsModal = ({
               >
                 Relancer
               </Button>
-              {result && result.actesDetectes.length > 0 && (
+              {result && (result.actesDetectes.length > 0 || result.doublonsIgnores.length > 0) && (
                 <>
                   <Button
                     variant="outline"
