@@ -160,8 +160,9 @@ export class DuplicateDetectionService {
     let bestMatch: DuplicateMatch | null = null;
     let bestScore = 0;
 
-    // Comparer avec les écoutes existantes
-    if (parsed.type.includes('ecoute') && !parsed.type.startsWith('requete_')) {
+    // Comparer avec les écoutes existantes (y compris requêtes — une requête JLD
+    // sur un acte déjà en cours/terminé est le document d'autorisation initiale, pas un nouvel acte)
+    if (parsed.type.includes('ecoute')) {
       for (let i = 0; i < (enquete.ecoutes || []).length; i++) {
         const ecoute = enquete.ecoutes![i];
         const match = this.compareWithEcoute(parsed, ecoute, i);
@@ -172,8 +173,8 @@ export class DuplicateDetectionService {
       }
     }
 
-    // Comparer avec les géolocs existantes
-    if (parsed.type.includes('geoloc') && !parsed.type.startsWith('requete_')) {
+    // Comparer avec les géolocs existantes (y compris requêtes — même logique)
+    if (parsed.type.includes('geoloc')) {
       for (let i = 0; i < (enquete.geolocalisations || []).length; i++) {
         const geoloc = enquete.geolocalisations![i];
         const match = this.compareWithGeoloc(parsed, geoloc, i);
@@ -255,6 +256,32 @@ export class DuplicateDetectionService {
       });
     }
 
+    // Divergence de numéro : enrichissement du numéro partiel vers le complet
+    // Ex: "14 21" (existant) → "07.49.03.14.21" (parsé depuis le PDF)
+    if (bestCibleDetail && bestCibleDetail.matchType === 'partial') {
+      const existingDigits = this.extractAllDigits(ecoute.numero);
+      const parsedDigits = parsed.cibles.reduce((best, c) => {
+        const d = this.extractAllDigits(c);
+        return d.length > best.length ? d : best;
+      }, '');
+
+      if (parsedDigits.length > existingDigits.length) {
+        // Le document contient un numéro plus complet que l'existant → proposer l'enrichissement
+        const fullParsedPhone = this.extractFullPhone(parsed.cibles.find(c =>
+          this.extractAllDigits(c).length === parsedDigits.length
+        ) || '') || parsedDigits;
+
+        divergences.push({
+          field: 'numero',
+          label: 'Numéro de téléphone',
+          existingValue: ecoute.numero,
+          parsedValue: fullParsedPhone,
+          recommendation: 'use_parsed',
+          reason: `Le numéro enregistré (${ecoute.numero}) est partiel. Le document contient le numéro complet (${fullParsedPhone}).`,
+        });
+      }
+    }
+
     // ── Score détails ──
     let detailScore = 0.5; // Base
     if (parsed.tribunal && ecoute.description?.toUpperCase().includes(parsed.tribunal.toUpperCase())) {
@@ -282,7 +309,9 @@ export class DuplicateDetectionService {
     // ── Déterminer la suggestion ──
     let suggestion: DuplicateMatch['suggestion'];
     if (similarity >= THRESHOLDS.DOUBLON_EXACT) {
-      suggestion = 'doublon_exact';
+      // Même en doublon exact, s'il y a des corrections possibles (ex: enrichir le numéro),
+      // on propose correction_possible plutôt que de simplement ignorer
+      suggestion = divergences.length > 0 ? 'correction_possible' : 'doublon_exact';
     } else if (similarity >= THRESHOLDS.DOUBLON_PROBABLE) {
       suggestion = divergences.length > 0 ? 'correction_possible' : 'doublon_probable';
     } else if (cibleScore >= 0.5) {
@@ -385,6 +414,45 @@ export class DuplicateDetectionService {
       });
     }
 
+    // Divergence d'objet : enrichissement de la description géoloc
+    // Cas 1 : numéro partiel (ex: "14 21" → "07.49.03.14.21")
+    // Cas 2 : véhicule sans plaque (ex: "Renault Clio" → "Renault Clio CF-554-GE")
+    // Cas 3 : plaque seule (ex: "CF554GE" → "FORD Fiesta CF-554-GE")
+    if (bestCibleDetail && cibleScore > 0 && cibleScore < 1.0) {
+      // Trouver la cible parsée la plus informative
+      const bestParsedCible = parsed.cibles.reduce((best, c) => {
+        return c.length > best.length ? c : best;
+      }, '');
+
+      if (bestParsedCible.length > geoloc.objet.length) {
+        // Le document contient plus d'information que l'objet existant
+        // Vérifier que c'est bien un enrichissement et pas juste du bruit
+        const existingPlate = this.extractPlate(geoloc.objet);
+        const parsedPlate = this.extractPlate(bestParsedCible);
+        const existingDigits = this.extractAllDigits(geoloc.objet);
+        const parsedDigits = this.extractAllDigits(bestParsedCible);
+
+        const isEnrichment =
+          // Plus de chiffres (numéro de téléphone plus complet)
+          (parsedDigits.length > existingDigits.length && parsedDigits.endsWith(existingDigits)) ||
+          // Plaque ajoutée (existant n'a pas de plaque, parsé en a une)
+          (!existingPlate && parsedPlate) ||
+          // Description plus complète (existant = juste plaque, parsé = plaque + modèle)
+          (existingPlate && parsedPlate && bestParsedCible.length > geoloc.objet.length + 3);
+
+        if (isEnrichment) {
+          divergences.push({
+            field: 'objet',
+            label: 'Objet / cible',
+            existingValue: geoloc.objet,
+            parsedValue: bestParsedCible,
+            recommendation: 'use_parsed',
+            reason: `L'objet enregistré (${geoloc.objet}) peut être enrichi avec les informations du document (${bestParsedCible}).`,
+          });
+        }
+      }
+    }
+
     // ── Score détails ──
     let detailScore = 0.5;
     if (parsed.duree === geoloc.duree) detailScore += 0.25;
@@ -408,7 +476,7 @@ export class DuplicateDetectionService {
 
     let suggestion: DuplicateMatch['suggestion'];
     if (similarity >= THRESHOLDS.DOUBLON_EXACT) {
-      suggestion = 'doublon_exact';
+      suggestion = divergences.length > 0 ? 'correction_possible' : 'doublon_exact';
     } else if (similarity >= THRESHOLDS.DOUBLON_PROBABLE) {
       suggestion = divergences.length > 0 ? 'correction_possible' : 'doublon_probable';
     } else if (cibleScore >= 0.5) {
@@ -738,7 +806,7 @@ export class DuplicateDetectionService {
   private static compareActeTypes(
     parsedType: string,
     existingCategory: 'ecoute' | 'geoloc',
-    _existingData: EcouteData | GeolocData
+    existingData: EcouteData | GeolocData
   ): number {
     // Match parfait
     if (parsedType === `autorisation_initiale_${existingCategory}`) return 1.0;
@@ -746,8 +814,23 @@ export class DuplicateDetectionService {
     // Prolongation pour la même catégorie → match partiel (c'est lié mais pas le même acte)
     if (parsedType === `prolongation_${existingCategory}`) return 0.6;
 
-    // Requête pour la même catégorie → match faible
-    if (parsedType === `requete_${existingCategory}`) return 0.3;
+    // Requête pour la même catégorie
+    if (parsedType === `requete_${existingCategory}`) {
+      // Si l'acte existant est déjà en_cours/terminé/a_renouveler (ou a des prolongations),
+      // alors la requête JLD est forcément le document d'autorisation initiale.
+      // Le cycle est : requête → autorisation JLD → écoute/géoloc active → requête prolongation → etc.
+      // Si l'acte est déjà actif/terminé, on a déjà passé le stade de la requête.
+      const isAlreadyActive = ['en_cours', 'termine', 'a_renouveler'].includes(existingData.statut);
+      const hasProlongations = (existingData.prolongationsHistory || []).length > 0;
+
+      if (isAlreadyActive || hasProlongations) {
+        // C'est clairement le même acte — la requête est le document d'autorisation initiale
+        return 0.9;
+      }
+
+      // Sinon match faible (l'acte est peut-être en attente d'autorisation)
+      return 0.3;
+    }
 
     // Catégorie différente
     return 0;

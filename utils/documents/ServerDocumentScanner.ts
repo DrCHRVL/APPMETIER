@@ -71,6 +71,19 @@ export interface ParsedActe {
   warnings: string[];
 }
 
+export interface AlerteDocumentManquant {
+  /** Type d'acte concerné */
+  acteType: 'ecoute' | 'geoloc';
+  /** Index de l'acte dans l'enquête */
+  acteIndex: number;
+  /** Label lisible de l'acte (ex: "Écoute 07.49.03.14.21") */
+  acteLabel: string;
+  /** Type de document manquant */
+  documentManquant: string;
+  /** Sévérité : 'warning' pour recommandé, 'error' pour obligatoire */
+  severite: 'warning' | 'error';
+}
+
 export interface AnalysisResult {
   /** Actes détectés prêts à être validés */
   actesDetectes: ParsedActe[];
@@ -78,6 +91,8 @@ export interface AnalysisResult {
   doublonsIgnores: { acte: ParsedActe; raison: string }[];
   /** Documents non reconnus */
   nonReconnus: ScannedDocument[];
+  /** Alertes de documents manquants dans la chaîne légale */
+  alertes: AlerteDocumentManquant[];
   /** Erreurs globales */
   errors: string[];
   /** Statistiques */
@@ -147,6 +162,7 @@ export class ServerDocumentScanner {
       actesDetectes: [],
       doublonsIgnores: [],
       nonReconnus: [],
+      alertes: [],
       errors: [],
       stats: {
         totalDocumentsScanned: scannedDocuments.length,
@@ -185,6 +201,13 @@ export class ServerDocumentScanner {
         result.stats.totalErrors++;
       }
     }
+
+    // Vérifier les documents manquants dans la chaîne légale
+    const allParsedDocuments = [
+      ...result.actesDetectes,
+      ...result.doublonsIgnores.map(d => d.acte),
+    ];
+    result.alertes = this.checkMissingDocuments(enquete, allParsedDocuments);
 
     return result;
   }
@@ -790,7 +813,172 @@ export class ServerDocumentScanner {
   }
 
   // ════════════════════════════════════════════════════════════
-  // 14b. VÉRIFICATION COMPLÈTE (doublons + corrections)
+  // 14b. VÉRIFICATION DE LA CHAÎNE LÉGALE (documents manquants)
+  // ════════════════════════════════════════════════════════════
+
+  /**
+   * Vérifie pour chaque acte existant si tous les documents légaux attendus
+   * sont présents dans les documents scannés.
+   *
+   * Chaîne légale écoutes :
+   *   Requête → Autorisation JLD initiale → [Requête prolongation → Autorisation prolongation] × N
+   *
+   * Chaîne légale géolocs :
+   *   Autorisation procureur initiale → [Requête JLD prolongation → Autorisation JLD prolongation] × N
+   */
+  private static checkMissingDocuments(
+    enquete: Enquete,
+    allParsedDocuments: ParsedActe[]
+  ): AlerteDocumentManquant[] {
+    const alertes: AlerteDocumentManquant[] = [];
+
+    // ── Helper : vérifier si un document de type donné existe pour un acte ──
+    const hasDocument = (
+      acteType: 'ecoute' | 'geoloc',
+      acteIdentifier: string, // numéro pour écoute, objet pour géoloc
+      docType: DocumentType,
+      targetDate?: string // date attendue (pour les prolongations)
+    ): boolean => {
+      return allParsedDocuments.some(doc => {
+        if (doc.type !== docType) return false;
+
+        // Vérifier que la cible correspond
+        let cibleMatch = false;
+        for (const cible of doc.cibles) {
+          if (acteType === 'ecoute') {
+            const phoneMatch = DuplicateDetectionService.comparePhoneNumbers(cible, acteIdentifier);
+            if (phoneMatch.score >= 0.5) { cibleMatch = true; break; }
+          } else {
+            const plateMatch = DuplicateDetectionService.comparePlates(cible, acteIdentifier);
+            if (plateMatch.score >= 0.5) { cibleMatch = true; break; }
+            const phoneMatch = DuplicateDetectionService.comparePhoneNumbers(cible, acteIdentifier);
+            if (phoneMatch.score >= 0.5) { cibleMatch = true; break; }
+            const vehicleMatch = DuplicateDetectionService.compareVehicleDescriptions(cible, acteIdentifier);
+            if (vehicleMatch.score >= 0.4) { cibleMatch = true; break; }
+          }
+        }
+        if (!cibleMatch) return false;
+
+        // Si une date cible est spécifiée, vérifier la proximité
+        if (targetDate) {
+          const dateMatch = DuplicateDetectionService.compareDates(
+            doc.dateAutorisation, targetDate, 'date'
+          );
+          return dateMatch.score >= 0.5;
+        }
+
+        return true;
+      });
+    };
+
+    // ── Vérifier les écoutes ──
+    for (let i = 0; i < (enquete.ecoutes || []).length; i++) {
+      const ecoute = enquete.ecoutes![i];
+      const label = `Écoute ${ecoute.numero}${ecoute.cible ? ` (${ecoute.cible})` : ''}`;
+
+      // 1. Requête initiale (requete_ecoute)
+      if (!hasDocument('ecoute', ecoute.numero, 'requete_ecoute', ecoute.dateDebut)) {
+        alertes.push({
+          acteType: 'ecoute',
+          acteIndex: i,
+          acteLabel: label,
+          documentManquant: 'Requête initiale au JLD',
+          severite: 'warning',
+        });
+      }
+
+      // 2. Autorisation initiale JLD (autorisation_initiale_ecoute)
+      if (!hasDocument('ecoute', ecoute.numero, 'autorisation_initiale_ecoute', ecoute.dateDebut)) {
+        alertes.push({
+          acteType: 'ecoute',
+          acteIndex: i,
+          acteLabel: label,
+          documentManquant: 'Autorisation JLD initiale',
+          severite: 'error',
+        });
+      }
+
+      // 3. Pour chaque prolongation enregistrée
+      const prolongations = ecoute.prolongationsHistory || [];
+      for (let p = 0; p < prolongations.length; p++) {
+        const prolong = prolongations[p];
+        const prolongLabel = `Prolongation ${p + 1} (${prolong.date})`;
+
+        // Requête de prolongation
+        if (!hasDocument('ecoute', ecoute.numero, 'requete_ecoute', prolong.date)) {
+          alertes.push({
+            acteType: 'ecoute',
+            acteIndex: i,
+            acteLabel: label,
+            documentManquant: `Requête de ${prolongLabel}`,
+            severite: 'warning',
+          });
+        }
+
+        // Autorisation de prolongation
+        if (!hasDocument('ecoute', ecoute.numero, 'prolongation_ecoute', prolong.date)) {
+          alertes.push({
+            acteType: 'ecoute',
+            acteIndex: i,
+            acteLabel: label,
+            documentManquant: `Autorisation JLD de ${prolongLabel}`,
+            severite: 'error',
+          });
+        }
+      }
+    }
+
+    // ── Vérifier les géolocs ──
+    for (let i = 0; i < (enquete.geolocalisations || []).length; i++) {
+      const geoloc = enquete.geolocalisations![i];
+      const label = `Géoloc ${geoloc.objet}`;
+
+      // 1. Autorisation initiale procureur (autorisation_initiale_geoloc)
+      if (!hasDocument('geoloc', geoloc.objet, 'autorisation_initiale_geoloc', geoloc.dateDebut)) {
+        alertes.push({
+          acteType: 'geoloc',
+          acteIndex: i,
+          acteLabel: label,
+          documentManquant: 'Autorisation initiale du procureur',
+          severite: 'error',
+        });
+      }
+
+      // 2. Pour chaque prolongation enregistrée
+      const prolongations = geoloc.prolongationsHistory || [];
+      for (let p = 0; p < prolongations.length; p++) {
+        const prolong = prolongations[p];
+        const prolongLabel = `Prolongation ${p + 1} (${prolong.date})`;
+
+        // Requête au JLD pour prolongation
+        if (!hasDocument('geoloc', geoloc.objet, 'requete_geoloc', prolong.date)) {
+          alertes.push({
+            acteType: 'geoloc',
+            acteIndex: i,
+            acteLabel: label,
+            documentManquant: `Requête JLD de ${prolongLabel}`,
+            severite: 'warning',
+          });
+        }
+
+        // Autorisation JLD de prolongation
+        if (!hasDocument('geoloc', geoloc.objet, 'prolongation_geoloc', prolong.date)) {
+          alertes.push({
+            acteType: 'geoloc',
+            acteIndex: i,
+            acteLabel: label,
+            documentManquant: `Autorisation JLD de ${prolongLabel}`,
+            severite: 'error',
+          });
+        }
+      }
+    }
+
+    return alertes;
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // 14c. VÉRIFICATION COMPLÈTE (doublons + corrections)
   // ════════════════════════════════════════════════════════════
 
   /**
