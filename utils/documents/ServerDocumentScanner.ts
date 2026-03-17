@@ -69,6 +69,8 @@ export interface ParsedActe {
   errors: string[];
   /** Avertissements */
   warnings: string[];
+  /** Ce document correspond à un acte existant avec des divergences — à vérifier via "Vérifier doublons" */
+  correctionPossible?: boolean;
 }
 
 export interface AlerteDocumentManquant {
@@ -739,6 +741,8 @@ export class ServerDocumentScanner {
         // Corrections possibles : le document matche un acte existant mais avec des divergences
         // (ex: numéro partiel vs complet). On le laisse passer dans actesDetectes pour que
         // le modal de vérification puisse proposer les corrections via verifyAgainstExisting().
+        // On le marque pour que l'UI l'affiche dans une section dédiée.
+        parsed.correctionPossible = true;
         return null;
       }
     }
