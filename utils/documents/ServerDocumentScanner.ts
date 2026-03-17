@@ -723,8 +723,8 @@ export class ServerDocumentScanner {
         return `${label}${dateInfo} — similarité ${similarityPct}%`;
       }
 
-      if (match.suggestion === 'doublon_probable' || match.suggestion === 'correction_possible') {
-        // Pour les doublons probables, on les marque mais on laisse l'utilisateur décider
+      if (match.suggestion === 'doublon_probable') {
+        // Pour les doublons probables sans correction, on les marque comme doublons ignorés
         const label = match.existingType === 'ecoute'
           ? `Probable doublon avec écoute : ${(match.existingData as EcouteData).numero}`
           : `Probable doublon avec géoloc : ${(match.existingData as GeolocData).objet}`;
@@ -733,6 +733,13 @@ export class ServerDocumentScanner {
           ? ` (${match.divergences.length} différence(s) détectée(s) — vérification recommandée)`
           : '';
         return `${label} — similarité ${similarityPct}%${divergences}`;
+      }
+
+      if (match.suggestion === 'correction_possible') {
+        // Corrections possibles : le document matche un acte existant mais avec des divergences
+        // (ex: numéro partiel vs complet). On le laisse passer dans actesDetectes pour que
+        // le modal de vérification puisse proposer les corrections via verifyAgainstExisting().
+        return null;
       }
     }
 
