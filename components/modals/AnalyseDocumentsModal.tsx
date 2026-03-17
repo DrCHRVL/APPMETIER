@@ -4,10 +4,11 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import {
   Search, Loader, CheckCircle, XCircle, AlertTriangle, Phone, MapPin,
-  FileText, ChevronDown, ChevronUp, Eye, EyeOff, ArrowRight, Info
+  FileText, ChevronDown, ChevronUp, Eye, EyeOff, ArrowRight, Info, Shield
 } from 'lucide-react';
 import { Enquete } from '@/types/interfaces';
 import { ServerDocumentScanner, ParsedActe, AnalysisResult, ScannedDocument } from '@/utils/documents/ServerDocumentScanner';
+import { VerificationDoublonsModal } from './VerificationDoublonsModal';
 import { useToast } from '@/contexts/ToastContext';
 
 interface AnalyseDocumentsModalProps {
@@ -33,6 +34,7 @@ export const AnalyseDocumentsModal = ({
   const [showDoublons, setShowDoublons] = useState(false);
   const [showNonReconnus, setShowNonReconnus] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [showVerification, setShowVerification] = useState(false);
 
   const { showToast } = useToast();
 
@@ -618,19 +620,59 @@ export const AnalyseDocumentsModal = ({
                 Relancer
               </Button>
               {result && result.actesDetectes.length > 0 && (
-                <Button
-                  onClick={handleApply}
-                  disabled={selectedActes.size === 0}
-                  className="flex items-center gap-2"
-                >
-                  <CheckCircle className="h-4 w-4" />
-                  Créer {selectedActes.size} acte(s)
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowVerification(true)}
+                    className="flex items-center gap-2"
+                    title="Vérifier les doublons avec les actes existants et suggérer des corrections"
+                  >
+                    <Shield className="h-4 w-4" />
+                    Vérifier doublons
+                  </Button>
+                  <Button
+                    onClick={handleApply}
+                    disabled={selectedActes.size === 0}
+                    className="flex items-center gap-2"
+                  >
+                    <CheckCircle className="h-4 w-4" />
+                    Créer {selectedActes.size} acte(s)
+                  </Button>
+                </>
               )}
             </>
           )}
         </DialogFooter>
       </DialogContent>
+
+      {/* Modal de vérification des doublons */}
+      {result && (
+        <VerificationDoublonsModal
+          isOpen={showVerification}
+          onClose={() => setShowVerification(false)}
+          enquete={enquete}
+          parsedActes={result.actesDetectes}
+          onApplyCorrections={(updates) => {
+            onApplyActes(updates);
+            showToast('Corrections appliquées aux actes existants', 'success');
+          }}
+          onContinueWithNew={(newActes) => {
+            // Mettre à jour la sélection pour ne garder que les actes validés comme nouveaux
+            const newSelectedSet = new Set<number>();
+            result.actesDetectes.forEach((acte, index) => {
+              if (newActes.includes(acte)) {
+                newSelectedSet.add(index);
+              }
+            });
+            setSelectedActes(newSelectedSet);
+            setShowVerification(false);
+            showToast(
+              `${newSelectedSet.size} acte(s) validé(s) pour création. ${result.actesDetectes.length - newSelectedSet.size} doublon(s) retiré(s).`,
+              'info'
+            );
+          }}
+        />
+      )}
     </Dialog>
   );
 };
