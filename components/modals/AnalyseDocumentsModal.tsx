@@ -115,10 +115,10 @@ export const AnalyseDocumentsModal = ({
       // Ajouter les infos de dossiers scannés
       analysisResult.stats.foldersScanned = scanResult.foldersScanned;
 
-      // Pré-sélectionner les actes avec haute confiance et sans erreurs
+      // Pré-sélectionner les actes avec haute confiance, sans erreurs, et qui ne sont pas des corrections
       const preSelected = new Set<number>();
       analysisResult.actesDetectes.forEach((acte, index) => {
-        if (acte.confidence >= 0.6 && acte.errors.length === 0) {
+        if (acte.confidence >= 0.6 && acte.errors.length === 0 && !acte.correctionPossible) {
           preSelected.add(index);
         }
       });
@@ -221,10 +221,16 @@ export const AnalyseDocumentsModal = ({
 
   const toggleAllSelection = () => {
     if (!result) return;
-    if (selectedActes.size === result.actesDetectes.length) {
+    // Seuls les vrais nouveaux actes (non correction) sont concernés
+    const nouveauxIndices = result.actesDetectes
+      .map((a, i) => ({ a, i }))
+      .filter(({ a }) => !a.correctionPossible)
+      .map(({ i }) => i);
+    const allSelected = nouveauxIndices.every(i => selectedActes.has(i));
+    if (allSelected) {
       setSelectedActes(new Set());
     } else {
-      setSelectedActes(new Set(result.actesDetectes.map((_, i) => i)));
+      setSelectedActes(new Set(nouveauxIndices));
     }
   };
 
@@ -269,6 +275,20 @@ export const AnalyseDocumentsModal = ({
     if (type.includes('requete')) return 'bg-purple-100 text-purple-700 border-purple-200';
     return 'bg-gray-100 text-gray-600';
   };
+
+  // ─── Dérivés ───
+  // Après vérification, les corrections validées comme "nouveaux" passent dans selectedActes
+  // → elles quittent alors la section corrections pour rejoindre les nouveaux
+  const nouveauxActes = result
+    ? result.actesDetectes
+        .map((acte, idx) => ({ acte, idx }))
+        .filter(({ acte, idx }) => !acte.correctionPossible || selectedActes.has(idx))
+    : [];
+  const correctionActes = result
+    ? result.actesDetectes
+        .map((acte, idx) => ({ acte, idx }))
+        .filter(({ acte, idx }) => acte.correctionPossible && !selectedActes.has(idx))
+    : [];
 
   // ─── Rendu ───
 
@@ -349,16 +369,16 @@ export const AnalyseDocumentsModal = ({
                 <p className="text-xs text-blue-600">PDF scannés</p>
               </div>
               <div className="bg-green-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-green-700">{result.stats.totalReconnus}</p>
-                <p className="text-xs text-green-600">Actes détectés</p>
+                <p className="text-2xl font-bold text-green-700">{nouveauxActes.length}</p>
+                <p className="text-xs text-green-600">Nouveaux actes</p>
               </div>
               <div className="bg-amber-50 rounded-lg p-3 text-center">
                 <p className="text-2xl font-bold text-amber-700">{result.stats.totalDoublons}</p>
                 <p className="text-xs text-amber-600">Doublons ignorés</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-gray-700">{result.stats.totalNonReconnus}</p>
-                <p className="text-xs text-gray-600">Non reconnus</p>
+              <div className="bg-orange-50 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-orange-700">{correctionActes.length}</p>
+                <p className="text-xs text-orange-600">Corrections possibles</p>
               </div>
             </div>
 
@@ -367,25 +387,25 @@ export const AnalyseDocumentsModal = ({
               Dossiers scannés : {result.stats.foldersScanned.join(', ')}
             </p>
 
-            {/* Actes détectés */}
-            {result.actesDetectes.length > 0 && (
+            {/* ─── 1. Nouveaux actes détectés ─── */}
+            {nouveauxActes.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-medium text-sm flex items-center gap-2">
+                  <h3 className="font-semibold text-sm flex items-center gap-2 text-green-700">
                     <CheckCircle className="h-4 w-4 text-green-600" />
-                    Actes détectés ({result.actesDetectes.length})
+                    Nouveaux actes détectés ({nouveauxActes.length})
                   </h3>
                   <Button
                     variant="ghost" size="sm"
                     onClick={toggleAllSelection}
                     className="text-xs"
                   >
-                    {selectedActes.size === result.actesDetectes.length ? 'Tout désélectionner' : 'Tout sélectionner'}
+                    {nouveauxActes.every(({ idx }) => selectedActes.has(idx)) ? 'Tout désélectionner' : 'Tout sélectionner'}
                   </Button>
                 </div>
 
                 <div className="space-y-2 max-h-[40vh] overflow-y-auto">
-                  {result.actesDetectes.map((acte, index) => (
+                  {nouveauxActes.map(({ acte, idx: index }) => (
                     <div
                       key={index}
                       className={`border rounded-lg p-3 transition-colors ${
@@ -394,7 +414,6 @@ export const AnalyseDocumentsModal = ({
                           : 'border-gray-200 bg-white'
                       }`}
                     >
-                      {/* Ligne principale */}
                       <div className="flex items-center gap-3">
                         <input
                           type="checkbox"
@@ -402,9 +421,7 @@ export const AnalyseDocumentsModal = ({
                           onChange={() => toggleSelection(index)}
                           className="h-4 w-4 rounded border-gray-300 text-blue-600 flex-shrink-0"
                         />
-
                         {typeIcon(acte.type)}
-
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <Badge className={`text-xs ${typeBadgeColor(acte.type)}`}>
@@ -415,40 +432,28 @@ export const AnalyseDocumentsModal = ({
                             </Badge>
                             {confidenceBadge(acte.confidence)}
                           </div>
-
                           <div className="mt-1 text-sm">
                             <span className="font-medium">
                               {acte.cibles.join(', ') || 'Cible non détectée'}
                             </span>
                             {acte.titulaire && (
-                              <span className="text-gray-500 text-xs ml-2">
-                                (tit. {acte.titulaire})
-                              </span>
+                              <span className="text-gray-500 text-xs ml-2">(tit. {acte.titulaire})</span>
                             )}
                             {acte.utilisateur && (
-                              <span className="text-gray-500 text-xs ml-2">
-                                (util. {acte.utilisateur})
-                              </span>
+                              <span className="text-gray-500 text-xs ml-2">(util. {acte.utilisateur})</span>
                             )}
                           </div>
-
                           <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
                             <span>Durée : {acte.duree} {acte.dureeUnit}</span>
                             <span>Date : {acte.dateAutorisation}</span>
                             <span>Tribunal : {acte.tribunal}</span>
                           </div>
                         </div>
-
-                        <Button
-                          variant="ghost" size="sm"
-                          onClick={() => toggleDetails(index)}
-                          className="flex-shrink-0"
-                        >
+                        <Button variant="ghost" size="sm" onClick={() => toggleDetails(index)} className="flex-shrink-0">
                           {expandedDetails.has(index) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                         </Button>
                       </div>
 
-                      {/* Détails expandés */}
                       {expandedDetails.has(index) && (
                         <div className="mt-3 ml-7 space-y-2 text-xs border-t pt-2">
                           <p><span className="font-medium">Fichier :</span> {acte.source.fileName}</p>
@@ -459,39 +464,27 @@ export const AnalyseDocumentsModal = ({
                           {acte.dateAutorisationInitiale && (
                             <p><span className="font-medium">Autorisation initiale :</span> {acte.dateAutorisationInitiale}</p>
                           )}
-
                           {acte.errors.length > 0 && (
                             <div className="bg-red-50 rounded p-2 mt-1">
                               <p className="font-medium text-red-700">Erreurs :</p>
-                              {acte.errors.map((err, i) => (
-                                <p key={i} className="text-red-600">{err}</p>
-                              ))}
+                              {acte.errors.map((err, i) => <p key={i} className="text-red-600">{err}</p>)}
                             </div>
                           )}
-
                           {acte.warnings.length > 0 && (
                             <div className="bg-yellow-50 rounded p-2 mt-1">
                               <p className="font-medium text-yellow-700">Avertissements :</p>
-                              {acte.warnings.map((warn, i) => (
-                                <p key={i} className="text-yellow-600">{warn}</p>
-                              ))}
+                              {acte.warnings.map((warn, i) => <p key={i} className="text-yellow-600">{warn}</p>)}
                             </div>
                           )}
-
-                          {/* Info chaînage pour prolongations */}
                           {acte.type.startsWith('prolongation_') && (
                             <div className="bg-blue-50 rounded p-2 mt-1">
                               <p className="font-medium text-blue-700">Chaînage :</p>
                               {(() => {
-                                // Chercher l'acte initial correspondant
                                 const cible = acte.cibles[0];
                                 let acteInitialTrouve = false;
-
                                 if (acte.type === 'prolongation_ecoute') {
                                   const normalized = cible?.replace(/\D/g, '');
-                                  acteInitialTrouve = (enquete.ecoutes || []).some(e =>
-                                    e.numero.replace(/\D/g, '') === normalized
-                                  );
+                                  acteInitialTrouve = (enquete.ecoutes || []).some(e => e.numero.replace(/\D/g, '') === normalized);
                                 } else if (acte.type === 'prolongation_geoloc') {
                                   const plaqueMatch = cible?.match(/([A-Z]{2}[- ]?\d{3}[- ]?[A-Z]{2})/);
                                   if (plaqueMatch) {
@@ -502,7 +495,6 @@ export const AnalyseDocumentsModal = ({
                                     });
                                   }
                                 }
-
                                 return acteInitialTrouve ? (
                                   <p className="text-blue-600 flex items-center gap-1">
                                     <CheckCircle className="h-3 w-3" /> Acte initial trouvé dans l&apos;enquête
@@ -525,8 +517,8 @@ export const AnalyseDocumentsModal = ({
               </div>
             )}
 
-            {/* Aucun acte détecté */}
-            {result.actesDetectes.length === 0 && (
+            {/* Aucun acte du tout */}
+            {nouveauxActes.length === 0 && correctionActes.length === 0 && (
               <div className="text-center py-6 text-gray-500">
                 <FileText className="h-8 w-8 mx-auto mb-2 text-gray-400" />
                 <p className="text-sm">Aucun nouvel acte détecté dans les documents.</p>
@@ -538,19 +530,100 @@ export const AnalyseDocumentsModal = ({
               </div>
             )}
 
-            {/* Doublons ignorés */}
+            {/* ─── 2. Corrections possibles ─── */}
+            {correctionActes.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-sm flex items-center gap-2 text-orange-700">
+                    <AlertTriangle className="h-4 w-4 text-orange-500" />
+                    Corrections possibles ({correctionActes.length})
+                  </h3>
+                  <Button
+                    variant="outline" size="sm"
+                    onClick={() => setShowVerification(true)}
+                    className="text-xs gap-1 border-orange-300 text-orange-700 hover:bg-orange-50"
+                  >
+                    <Shield className="h-3 w-3" />
+                    Vérifier et corriger
+                  </Button>
+                </div>
+                <p className="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded-lg p-2">
+                  Ces documents correspondent à des actes existants avec des divergences. Ils ne peuvent pas être créés comme nouveaux actes — utilisez <strong>Vérifier et corriger</strong> pour examiner et appliquer les corrections.
+                </p>
+                <div className="space-y-2 max-h-[35vh] overflow-y-auto">
+                  {correctionActes.map(({ acte, idx: index }) => (
+                    <div
+                      key={index}
+                      className="border border-orange-300 bg-orange-50/40 rounded-lg p-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <AlertTriangle className="h-4 w-4 text-orange-500 flex-shrink-0" />
+                        {typeIcon(acte.type)}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge className={`text-xs ${typeBadgeColor(acte.type)}`}>
+                              {typeLabel(acte.type)}
+                            </Badge>
+                            <Badge variant="outline" className="text-xs">
+                              {autoriteLabel(acte.autorite)}
+                            </Badge>
+                            <Badge className="text-xs bg-orange-100 text-orange-700 border border-orange-300">
+                              Correction suggérée
+                            </Badge>
+                            {confidenceBadge(acte.confidence)}
+                          </div>
+                          <div className="mt-1 text-sm">
+                            <span className="font-medium">
+                              {acte.cibles.join(', ') || 'Cible non détectée'}
+                            </span>
+                            {acte.titulaire && (
+                              <span className="text-gray-500 text-xs ml-2">(tit. {acte.titulaire})</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
+                            <span>Durée : {acte.duree} {acte.dureeUnit}</span>
+                            <span>Date : {acte.dateAutorisation}</span>
+                            <span>Tribunal : {acte.tribunal}</span>
+                          </div>
+                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => toggleDetails(index)} className="flex-shrink-0">
+                          {expandedDetails.has(index) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </Button>
+                      </div>
+
+                      {expandedDetails.has(index) && (
+                        <div className="mt-3 ml-7 space-y-2 text-xs border-t border-orange-200 pt-2">
+                          <p><span className="font-medium">Fichier :</span> {acte.source.fileName}</p>
+                          <p><span className="font-medium">Chemin :</span> <span className="text-muted-foreground break-all">{acte.source.filePath}</span></p>
+                          {acte.numeroPV && <p><span className="font-medium">N° PV :</span> {acte.numeroPV}</p>}
+                          {acte.objetDescription && <p><span className="font-medium">Objet :</span> {acte.objetDescription}</p>}
+                          {acte.warnings.length > 0 && (
+                            <div className="bg-yellow-50 rounded p-2 mt-1">
+                              <p className="font-medium text-yellow-700">Avertissements :</p>
+                              {acte.warnings.map((warn, i) => <p key={i} className="text-yellow-600">{warn}</p>)}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ─── 3. Doublons ignorés ─── */}
             {result.doublonsIgnores.length > 0 && (
               <div className="space-y-1">
                 <button
-                  className="flex items-center gap-2 text-sm text-amber-700 hover:text-amber-900"
+                  className="flex items-center gap-2 text-sm text-amber-700 hover:text-amber-900 font-medium"
                   onClick={() => setShowDoublons(!showDoublons)}
                 >
                   {showDoublons ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                   <AlertTriangle className="h-3 w-3" />
-                  {result.doublonsIgnores.length} doublon(s) ignoré(s)
+                  {result.doublonsIgnores.length} doublon(s) ignoré(s) — déjà dans l&apos;enquête
                 </button>
                 {showDoublons && (
-                  <div className="ml-5 space-y-1 text-xs text-amber-700 bg-amber-50 rounded p-2">
+                  <div className="ml-5 space-y-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
                     {result.doublonsIgnores.map(({ acte, raison }, i) => (
                       <p key={i}>
                         <span className="font-medium">{acte.source.fileName}</span>
@@ -563,7 +636,7 @@ export const AnalyseDocumentsModal = ({
               </div>
             )}
 
-            {/* Alertes documents manquants */}
+            {/* ─── 4. Documents manquants dans la chaîne légale ─── */}
             {result.alertes && result.alertes.length > 0 && (
               <div className="space-y-1">
                 <button
@@ -579,7 +652,6 @@ export const AnalyseDocumentsModal = ({
                     <p className="text-orange-800 font-medium mb-2">
                       Documents attendus non trouvés dans le dossier scanné :
                     </p>
-                    {/* Grouper par acte */}
                     {(() => {
                       const groupes = new Map<string, AlerteDocumentManquant[]>();
                       for (const alerte of result.alertes) {
@@ -621,7 +693,7 @@ export const AnalyseDocumentsModal = ({
               </div>
             )}
 
-            {/* Non reconnus */}
+            {/* ─── 5. Documents non reconnus ─── */}
             {result.nonReconnus.length > 0 && (
               <div className="space-y-1">
                 <button
@@ -629,10 +701,11 @@ export const AnalyseDocumentsModal = ({
                   onClick={() => setShowNonReconnus(!showNonReconnus)}
                 >
                   {showNonReconnus ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                  <FileText className="h-3 w-3" />
                   {result.nonReconnus.length} document(s) non reconnu(s)
                 </button>
                 {showNonReconnus && (
-                  <div className="ml-5 space-y-1 text-xs text-gray-600 bg-gray-50 rounded p-2">
+                  <div className="ml-5 space-y-1 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded p-2">
                     {result.nonReconnus.map((doc, i) => (
                       <p key={i}>{doc.sourceFolder}/{doc.fileName}</p>
                     ))}
@@ -680,15 +753,27 @@ export const AnalyseDocumentsModal = ({
               </Button>
               {result && (result.actesDetectes.length > 0 || result.doublonsIgnores.length > 0) && (
                 <>
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowVerification(true)}
-                    className="flex items-center gap-2"
-                    title="Vérifier les doublons avec les actes existants et suggérer des corrections"
-                  >
-                    <Shield className="h-4 w-4" />
-                    Vérifier doublons
-                  </Button>
+                  {/* Bouton "Vérifier" visible si des corrections ou des doublons existent */}
+                  {(correctionActes.length > 0 || result.doublonsIgnores.length > 0) && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowVerification(true)}
+                      className={`flex items-center gap-2 ${
+                        correctionActes.length > 0
+                          ? 'border-orange-400 text-orange-700 hover:bg-orange-50'
+                          : ''
+                      }`}
+                      title="Vérifier les doublons avec les actes existants et suggérer des corrections"
+                    >
+                      <Shield className="h-4 w-4" />
+                      Vérifier doublons
+                      {correctionActes.length > 0 && (
+                        <Badge className="ml-1 bg-orange-500 text-white text-[10px] px-1">
+                          {correctionActes.length}
+                        </Badge>
+                      )}
+                    </Button>
+                  )}
                   <Button
                     onClick={handleApply}
                     disabled={selectedActes.size === 0}
