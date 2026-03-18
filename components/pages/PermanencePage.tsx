@@ -9,8 +9,7 @@ import { AudienceResultModal } from '../modals/AudienceResultModal';
 import { FileText, Plus, Archive, Timer, Tags, Bell, Save, BarChart } from 'lucide-react';
 
 export const PermanencePage = () => {
-  const { audienceState } = useAudience();
-  const { saveResultat } = useAudience();
+  const { audienceState, saveResultat } = useAudience();
   const { showToast } = useToast();
   const [showDirectResultModal, setShowDirectResultModal] = useState(false);
   const [viewResultat, setViewResultat] = useState<ResultatAudience | null>(null);
@@ -45,7 +44,7 @@ export const PermanencePage = () => {
     const directResultat = {
       ...resultat,
       isDirectResult: true,
-      enqueteId: Date.now() // Génère un ID unique
+      enqueteId: Math.floor(Math.random() * 1e15) + Date.now()
     };
     
     await saveResultat(directResultat);

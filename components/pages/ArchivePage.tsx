@@ -392,7 +392,7 @@ export const ArchivePage = ({
       const directResultat = {
         ...resultat,
         isDirectResult: true,
-        enqueteId: Date.now() // Génère un ID unique
+        enqueteId: Math.floor(Math.random() * 1e15) + Date.now()
       };
       
       await saveResultat(directResultat);

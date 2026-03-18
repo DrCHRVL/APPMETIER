@@ -33,7 +33,7 @@ export const StatsPage = ({ enquetes }: StatsPageProps) => {
       const directResultat = {
         ...resultat,
         isDirectResult: true,
-        enqueteId: Date.now()
+        enqueteId: Math.floor(Math.random() * 1e15) + Date.now()
       };
 
       await saveResultat(directResultat);
