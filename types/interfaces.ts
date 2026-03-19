@@ -23,13 +23,14 @@ export interface ToDoItem {
   dateCompletion?: string;
 }
 
-export type ActeStatus = 
-  | 'en_cours' 
-  | 'termine' 
-  | 'a_renouveler' 
+export type ActeStatus =
+  | 'en_cours'
+  | 'termine'
+  | 'a_renouveler'
   | 'prolongation_pending'
   | 'pose_pending'
-  | 'autorisation_pending';
+  | 'autorisation_pending'
+  | 'refuse';
 
 // Interface de base pour tous les actes
 interface BaseActe {

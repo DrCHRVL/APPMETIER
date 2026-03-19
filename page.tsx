@@ -559,7 +559,10 @@ return (
                   onUpdateEnquete={handleUpdateEnquete}
                   onGlobalTodosChange={handleGlobalTodosChange}
                 />
-                <PendingActsJLD enquetes={activeEnquetes} />
+                <PendingActsJLD
+                  enquetes={activeEnquetes}
+                  onOpenEnquete={(e) => { setSelectedEnquete(e); setIsEditing(false); }}
+                />
               </div>
               {Object.entries(enquetesByOrganization)
                 .sort(([a], [b]) => getSectionOrder(a) - getSectionOrder(b))
