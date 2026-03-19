@@ -7,6 +7,7 @@ interface TodoReminderBarProps {
   globalTodos: ToDoItem[];
   onUpdateEnquete: (id: number, updates: Partial<Enquete>) => void;
   onGlobalTodosChange: (todos: ToDoItem[]) => void;
+  onOpenEnquete?: (enquete: Enquete) => void;
 }
 
 export const TodoReminderBar = ({
@@ -14,6 +15,7 @@ export const TodoReminderBar = ({
   globalTodos,
   onUpdateEnquete,
   onGlobalTodosChange,
+  onOpenEnquete,
 }: TodoReminderBarProps) => {
   const [newText, setNewText] = useState('');
   const [showInput, setShowInput] = useState(false);
@@ -78,30 +80,40 @@ export const TodoReminderBar = ({
         )}
 
         {/* Pills todos — toutes visibles, wrap automatique */}
-        {allActive.map(todo => (
-          <div
-            key={`${todo.enqueteId ?? 'g'}-${todo.id}`}
-            className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5 group hover:border-violet-300 transition-colors"
-          >
-            <button
-              onClick={() =>
-                todo.enqueteId !== null
-                  ? handleCheckEnquete(todo.enqueteId, todo.id)
-                  : handleCheckGlobal(todo.id)
-              }
-              className="w-3 h-3 rounded-sm border border-gray-400 flex-shrink-0 hover:border-violet-500 hover:bg-violet-100 transition-colors"
-              title="Marquer comme fait"
-            />
-            <span className="text-[11px] text-gray-700 whitespace-nowrap select-none">
-              {todo.text}
-              {todo.enqueteNumero && (
-                <span className="text-gray-400 ml-1 text-[10px]">
-                  ({todo.enqueteNumero})
-                </span>
-              )}
-            </span>
-          </div>
-        ))}
+        {allActive.map(todo => {
+          const linkedEnquete = todo.enqueteId !== null
+            ? enquetes.find(e => e.id === todo.enqueteId)
+            : undefined;
+          return (
+            <div
+              key={`${todo.enqueteId ?? 'g'}-${todo.id}`}
+              className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5 group hover:border-violet-300 transition-colors"
+            >
+              <button
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  todo.enqueteId !== null
+                    ? handleCheckEnquete(todo.enqueteId, todo.id)
+                    : handleCheckGlobal(todo.id);
+                }}
+                className="w-3 h-3 rounded-sm border border-gray-400 flex-shrink-0 hover:border-violet-500 hover:bg-violet-100 transition-colors"
+                title="Marquer comme fait"
+              />
+              <span
+                className={`text-[11px] text-gray-700 whitespace-nowrap select-none ${linkedEnquete && onOpenEnquete ? 'cursor-pointer hover:text-violet-700 hover:underline' : ''}`}
+                onClick={linkedEnquete && onOpenEnquete ? () => onOpenEnquete(linkedEnquete) : undefined}
+                title={linkedEnquete && onOpenEnquete ? `Ouvrir l'enquête ${todo.enqueteNumero}` : undefined}
+              >
+                {todo.text}
+                {todo.enqueteNumero && (
+                  <span className="text-gray-400 ml-1 text-[10px]">
+                    ({todo.enqueteNumero})
+                  </span>
+                )}
+              </span>
+            </div>
+          );
+        })}
 
         {/* Input ajout todo général */}
         {showInput ? (

@@ -558,6 +558,7 @@ return (
                   globalTodos={globalTodos}
                   onUpdateEnquete={handleUpdateEnquete}
                   onGlobalTodosChange={handleGlobalTodosChange}
+                  onOpenEnquete={(e) => { setSelectedEnquete(e); setIsEditing(false); }}
                 />
                 <PendingActsJLD
                   enquetes={activeEnquetes}
