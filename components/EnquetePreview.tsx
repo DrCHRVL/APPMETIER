@@ -151,9 +151,10 @@ export const EnquetePreview = ({
     }
   };
 
-  // Fond de carte selon la proximité de l'OP (sans masquer les autres indicateurs)
+  // Fond de carte selon la proximité de l'OP ou échéance critique
   const cardBgClass =
-    opStatus === 'active'   ? 'bg-red-50'    :
+    hasCriticalDeadline     ? 'bg-red-50'     :
+    opStatus === 'active'   ? 'bg-red-50'     :
     opStatus === 'soon'     ? 'bg-orange-100' :
     opStatus === 'upcoming' ? 'bg-orange-50'  :
     'bg-white';
@@ -161,13 +162,13 @@ export const EnquetePreview = ({
   // Bordure gauche : acte à échéance (rouge) prioritaire sur OP
   const cardBorderClass =
     hasCriticalDeadline
-      ? 'border-l-[3px] border-l-red-600 border-t border-r border-b border-gray-200'
+      ? 'border-l-4 border-l-red-600 border-t border-r border-b border-gray-200'
       : opStatus === 'active'
-      ? 'border-l-[3px] border-l-red-500 border-t border-r border-b border-gray-200'
+      ? 'border-l-4 border-l-red-500 border-t border-r border-b border-gray-200'
       : opStatus === 'soon'
-      ? 'border-l-[3px] border-l-orange-400 border-t border-r border-b border-gray-200'
+      ? 'border-l-4 border-l-orange-400 border-t border-r border-b border-gray-200'
       : opStatus === 'upcoming'
-      ? 'border-l-[3px] border-l-amber-300 border-t border-r border-b border-gray-200'
+      ? 'border-l-4 border-l-amber-300 border-t border-r border-b border-gray-200'
       : 'border border-gray-200';
 
 return (
