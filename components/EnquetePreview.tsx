@@ -151,24 +151,24 @@ export const EnquetePreview = ({
     }
   };
 
-  // Fond de carte selon la proximité de l'OP ou échéance critique
+  // Fond de carte : OP prime sur échéance critique
   const cardBgClass =
-    hasCriticalDeadline     ? 'bg-red-50'     :
     opStatus === 'active'   ? 'bg-red-50'     :
     opStatus === 'soon'     ? 'bg-orange-100' :
     opStatus === 'upcoming' ? 'bg-orange-50'  :
+    hasCriticalDeadline     ? 'bg-red-50'     :
     'bg-white';
 
-  // Bordure gauche : acte à échéance (rouge) prioritaire sur OP
+  // Bordure gauche : OP prime sur acte à échéance critique
   const cardBorderClass =
-    hasCriticalDeadline
-      ? 'border-l-4 border-l-red-600 border-t border-r border-b border-gray-200'
-      : opStatus === 'active'
+    opStatus === 'active'
       ? 'border-l-4 border-l-red-500 border-t border-r border-b border-gray-200'
       : opStatus === 'soon'
       ? 'border-l-4 border-l-orange-400 border-t border-r border-b border-gray-200'
       : opStatus === 'upcoming'
       ? 'border-l-4 border-l-amber-300 border-t border-r border-b border-gray-200'
+      : hasCriticalDeadline
+      ? 'border-l-4 border-l-red-600 border-t border-r border-b border-gray-200'
       : 'border border-gray-200';
 
 return (
