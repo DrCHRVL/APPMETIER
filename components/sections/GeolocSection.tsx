@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Enquete, GeolocData, DateManagerData, ProlongationHistoryEntry } from '@/types/interfaces';
 import ProgressBar from '../ProgressBar';
-import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp } from 'lucide-react';
+import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp, Ban } from 'lucide-react';
 import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
@@ -253,6 +253,14 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
     trackDeletedActeId(id);
   };
 
+  const handleRefuseJLD = (id: number) => {
+    if (!onUpdate || !enquete || !enquete.geolocalisations) return;
+    const updatedGeolocs = enquete.geolocalisations.map(geoloc =>
+      geoloc.id === id ? { ...geoloc, statut: 'refuse' as const } : geoloc
+    );
+    onUpdate(enquete.id, { geolocalisations: updatedGeolocs });
+  };
+
   const now = new Date();
   
   const activeGeolocs = enquete.geolocalisations?.filter(g => {
@@ -324,14 +332,24 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
               </div>
               <div className="flex gap-2">
                 {geoloc.statut === 'autorisation_pending' && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setAutorisationGeolocId(geoloc.id)}
-                    title="Définir la date d'autorisation JLD"
-                  >
-                    <FileText className="h-4 w-4 text-purple-600" />
-                  </Button>
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setAutorisationGeolocId(geoloc.id)}
+                      title="Définir la date d'autorisation JLD"
+                    >
+                      <FileText className="h-4 w-4 text-purple-600" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRefuseJLD(geoloc.id)}
+                      title="Refus JLD — géolocalisation non autorisée"
+                    >
+                      <Ban className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </>
                 )}
                 {geoloc.statut === 'pose_pending' && (
                   <Button

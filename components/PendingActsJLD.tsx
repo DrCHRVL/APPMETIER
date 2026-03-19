@@ -4,15 +4,16 @@ import { Enquete } from '@/types/interfaces';
 
 interface PendingActsJLDProps {
   enquetes: Enquete[];
+  onOpenEnquete?: (enquete: Enquete) => void;
 }
 
 interface PendingActeItem {
   acteType: string;
-  enqueteNumero: string;
+  enquete: Enquete;
   daysSince: number;
 }
 
-export const PendingActsJLD = ({ enquetes }: PendingActsJLDProps) => {
+export const PendingActsJLD = ({ enquetes, onOpenEnquete }: PendingActsJLDProps) => {
   const now = new Date();
 
   const pendingActes: PendingActeItem[] = enquetes.flatMap(e => {
@@ -22,7 +23,7 @@ export const PendingActsJLD = ({ enquetes }: PendingActsJLDProps) => {
       if (a.statut === 'autorisation_pending') {
         items.push({
           acteType: a.type || 'Acte',
-          enqueteNumero: e.numero,
+          enquete: e,
           daysSince: Math.floor((now.getTime() - new Date(a.dateDebut).getTime()) / (1000 * 60 * 60 * 24)),
         });
       }
@@ -32,7 +33,7 @@ export const PendingActsJLD = ({ enquetes }: PendingActsJLDProps) => {
       if (a.statut === 'autorisation_pending') {
         items.push({
           acteType: `Écoute ${a.numero}`,
-          enqueteNumero: e.numero,
+          enquete: e,
           daysSince: Math.floor((now.getTime() - new Date(a.dateDebut).getTime()) / (1000 * 60 * 60 * 24)),
         });
       }
@@ -42,7 +43,7 @@ export const PendingActsJLD = ({ enquetes }: PendingActsJLDProps) => {
       if (a.statut === 'autorisation_pending') {
         items.push({
           acteType: `Géoloc ${a.objet}`,
-          enqueteNumero: e.numero,
+          enquete: e,
           daysSince: Math.floor((now.getTime() - new Date(a.dateDebut).getTime()) / (1000 * 60 * 60 * 24)),
         });
       }
@@ -70,12 +71,14 @@ export const PendingActsJLD = ({ enquetes }: PendingActsJLDProps) => {
         {pendingActes.map((item, idx) => (
           <div
             key={idx}
-            className="flex items-center gap-1 bg-white border border-purple-200 rounded-full px-2 py-0.5 group"
+            className={`flex items-center gap-1 bg-white border border-purple-200 rounded-full px-2 py-0.5 group ${onOpenEnquete ? 'cursor-pointer hover:bg-purple-50 hover:border-purple-400 transition-colors' : ''}`}
+            onClick={() => onOpenEnquete?.(item.enquete)}
+            title={onOpenEnquete ? `Ouvrir l'enquête ${item.enquete.numero}` : undefined}
           >
             <span className="text-[11px] text-gray-700 whitespace-nowrap select-none">
               {item.acteType}
               <span className="text-gray-400 ml-1 text-[10px]">
-                ({item.enqueteNumero})
+                ({item.enquete.numero})
               </span>
             </span>
             <span className={`text-[10px] font-semibold whitespace-nowrap ${

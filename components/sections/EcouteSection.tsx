@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Enquete, EcouteData, GeolocData, DateManagerData, ProlongationHistoryEntry } from '@/types/interfaces';
 import ProgressBar from '../ProgressBar';
-import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp, Copy } from 'lucide-react';
+import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp, Copy, Ban } from 'lucide-react';
 import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
@@ -311,6 +311,14 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
     trackDeletedActeId(id);
   };
 
+  const handleRefuseJLD = (id: number) => {
+    if (!onUpdate || !enquete || !enquete.ecoutes) return;
+    const updatedEcoutes = enquete.ecoutes.map(ecoute =>
+      ecoute.id === id ? { ...ecoute, statut: 'refuse' as const } : ecoute
+    );
+    onUpdate(enquete.id, { ecoutes: updatedEcoutes });
+  };
+
   const now = new Date();
   
   const activeEcoutes = enquete.ecoutes?.filter(e => {
@@ -386,14 +394,24 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
               </div>
               <div className="flex gap-2">
                 {ecoute.statut === 'autorisation_pending' && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setAutorisationEcouteId(ecoute.id)}
-                    title="Définir la date d'autorisation JLD"
-                  >
-                    <FileText className="h-4 w-4 text-purple-600" />
-                  </Button>
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setAutorisationEcouteId(ecoute.id)}
+                      title="Définir la date d'autorisation JLD"
+                    >
+                      <FileText className="h-4 w-4 text-purple-600" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRefuseJLD(ecoute.id)}
+                      title="Refus JLD — écoute non autorisée"
+                    >
+                      <Ban className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </>
                 )}
                 {ecoute.statut === 'pose_pending' && (
                   <Button

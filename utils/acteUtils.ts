@@ -31,6 +31,7 @@ export function getStatutBadgeProps(statut: ActeStatus): { label: string; classN
     case 'en_cours':             return { label: 'En cours',                className: 'bg-green-100 text-green-700 border-green-200' };
     case 'prolongation_pending': return { label: 'Prolongation à valider',  className: 'bg-orange-100 text-orange-700 border-orange-200' };
     case 'a_renouveler':         return { label: 'À renouveler',            className: 'bg-amber-100 text-amber-700 border-amber-200' };
+    case 'refuse':               return { label: 'Refusé JLD',              className: 'bg-red-100 text-red-700 border-red-200' };
     default:                     return { label: 'Terminé',                 className: 'bg-gray-100 text-gray-500 border-gray-200' };
   }
 }

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Enquete, AutreActe, DateManagerData, ProlongationHistoryEntry } from '@/types/interfaces';
 import ProgressBar from '../ProgressBar';
-import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp, Info } from 'lucide-react';
+import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp, Info, Ban } from 'lucide-react';
 import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
@@ -282,6 +282,14 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
     trackDeletedActeId(id);
   };
 
+  const handleRefuseJLD = (id: number) => {
+    if (!onUpdate || !enquete) return;
+    const updatedActes = enquete.actes.map(acte =>
+      acte.id === id ? { ...acte, statut: 'refuse' as const } : acte
+    );
+    onUpdate(enquete.id, { actes: updatedActes });
+  };
+
   const now = new Date();
   
   const activeActes = enquete.actes?.filter(a => {
@@ -373,14 +381,24 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
               </div>
               <div className="flex gap-2">
                 {acte.statut === 'autorisation_pending' && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setAutorisationActeId(acte.id)}
-                    title="Définir la date d'autorisation JLD"
-                  >
-                    <FileText className="h-4 w-4 text-purple-600" />
-                  </Button>
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setAutorisationActeId(acte.id)}
+                      title="Définir la date d'autorisation JLD"
+                    >
+                      <FileText className="h-4 w-4 text-purple-600" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRefuseJLD(acte.id)}
+                      title="Refus JLD — acte non autorisé"
+                    >
+                      <Ban className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </>
                 )}
                 {acte.statut === 'pose_pending' && (
                   <Button
