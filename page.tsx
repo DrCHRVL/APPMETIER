@@ -17,9 +17,9 @@ import { useFilterSort } from './hooks/useFilterSort';
 import { useDocumentSearch } from './hooks/useDocumentSearch';
 import { NewEnqueteData, Tag, ToDoItem } from './types/interfaces';
 import { StorageManager } from './utils/storage';
-import { useAudience } from './hooks/useAudience';
 import { ConfirmationDialog } from './components/ui/confirmation-dialog';
 import { ToastProvider, useToast } from './contexts/ToastContext';
+import { AudienceProvider } from './contexts/AudienceContext';
 import { ProlongationModal } from './components/modals/ProlongationModal';
 import { PoseActeModal } from './components/modals/PoseActeModal';
 import { ProlongationValidationModal } from './components/modals/ProlongationValidationModal';
@@ -169,7 +169,6 @@ function AppContent() {
     handleValidateAlert
   } = useCombinedAlerts(enquetes, mesuresAIR);
 
-  const { resetResultat } = useAudience();
 
   // Hook tags centralisé - simplifié
   const {
@@ -1021,7 +1020,9 @@ return (
 export default function App() {
   return (
     <ToastProvider>
-      <AppContent />
+      <AudienceProvider>
+        <AppContent />
+      </AudienceProvider>
     </ToastProvider>
   );
 }

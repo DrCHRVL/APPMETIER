@@ -407,9 +407,10 @@ export const cleanupAudienceResults = (
       return;
     }
 
-    // Pour les résultats standards
-    const enquete = enquetes.find(e => e.id === resultat.enqueteId);
-    if (enquete && enquete.statut === 'archive' && resultat.dateAudience && resultat.dateAudience !== '') {
+    // Pour les résultats standards : conserver si le résultat a une date d'audience valide.
+    // On ne filtre plus par statut car certaines enquêtes passent en instruction
+    // et ne sont plus dans la liste locale, mais leur résultat reste valide.
+    if (resultat.dateAudience && resultat.dateAudience !== '') {
       cleanedResultats[id] = resultat;
     }
   });
