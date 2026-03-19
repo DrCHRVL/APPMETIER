@@ -3,15 +3,386 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
-import { AlertRule, WeeklyPopupConfig } from '@/types/interfaces';
+import { AlertRule, WeeklyPopupConfig, VisualAlertRule, VisualAlertTrigger, VisualAlertMode, VisualAlertColorKey } from '@/types/interfaces';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Select } from '../ui/select';
-import { Edit2, Save, X, Plus, Copy, Clock, RefreshCw } from 'lucide-react';
+import { Edit2, Save, X, Plus, Copy, Clock, RefreshCw, Eye, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
 import { AlertValidation } from '@/utils/alerts/alertValidation';
 import { ElectronBridge } from '@/utils/electronBridge';
+import { VISUAL_ALERT_COLOR_PALETTE, VISUAL_ALERT_COLOR_KEYS, VISUAL_ALERT_TRIGGER_LABELS } from '@/config/constants';
 
 const WEEKLY_POPUP_KEY = 'weekly_popup_config';
 const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+
+// Composant pastille de couleur cliquable
+const ColorDot = ({ colorKey, selected, onClick }: { colorKey: VisualAlertColorKey; selected: boolean; onClick: () => void }) => {
+  const color = VISUAL_ALERT_COLOR_PALETTE[colorKey];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-6 h-6 rounded-full ${color.dot} transition-all ${selected ? 'ring-2 ring-offset-2 ring-gray-800 scale-110' : 'hover:scale-110'}`}
+      title={color.label}
+    />
+  );
+};
+
+// Aperçu visuel d'une règle
+const VisualRulePreview = ({ rule }: { rule: VisualAlertRule }) => {
+  const fondColor = VISUAL_ALERT_COLOR_PALETTE[rule.fondColor];
+  const bordureColor = VISUAL_ALERT_COLOR_PALETTE[rule.bordureColor];
+  const showFond = rule.mode === 'fond' || rule.mode === 'fond_bordure';
+  const showBordure = rule.mode === 'bordure' || rule.mode === 'fond_bordure';
+
+  return (
+    <div
+      className={`w-24 h-8 rounded border ${showFond ? fondColor.fond : 'bg-white'} ${showBordure ? `border-l-4 ${bordureColor.bordureLeft} border-t border-r border-b border-gray-200` : 'border-gray-200'} flex items-center justify-center`}
+    >
+      <span className="text-[9px] text-gray-500">Aperçu</span>
+    </div>
+  );
+};
+
+// ====== Composant section alertes visuelles ======
+const VisualAlertsSection = ({
+  rules,
+  onUpdateRule,
+  onDeleteRule,
+  onReorderRules,
+}: {
+  rules: VisualAlertRule[];
+  onUpdateRule: (rule: VisualAlertRule) => void;
+  onDeleteRule?: (ruleId: number) => void;
+  onReorderRules?: (rules: VisualAlertRule[]) => void;
+}) => {
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState<VisualAlertRule | null>(null);
+  const [showNewDialog, setShowNewDialog] = useState(false);
+  const [newRule, setNewRule] = useState<Partial<VisualAlertRule>>({
+    trigger: 'acte_critique',
+    label: '',
+    seuil: 7,
+    mode: 'fond_bordure',
+    fondColor: 'orange',
+    bordureColor: 'orange',
+    enabled: true,
+  });
+
+  const sortedRules = [...rules].sort((a, b) => a.priority - b.priority);
+
+  const startEdit = (rule: VisualAlertRule) => {
+    setEditingId(rule.id);
+    setEditDraft({ ...rule });
+  };
+
+  const saveEdit = () => {
+    if (editDraft) {
+      onUpdateRule(editDraft);
+      setEditingId(null);
+      setEditDraft(null);
+    }
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditDraft(null);
+  };
+
+  const moveRule = (ruleId: number, direction: 'up' | 'down') => {
+    const idx = sortedRules.findIndex(r => r.id === ruleId);
+    if ((direction === 'up' && idx === 0) || (direction === 'down' && idx === sortedRules.length - 1)) return;
+    const newRules = [...sortedRules];
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    [newRules[idx], newRules[swapIdx]] = [newRules[swapIdx], newRules[idx]];
+    onReorderRules?.(newRules);
+  };
+
+  const handleCreateRule = () => {
+    if (!newRule.trigger || !newRule.seuil) return;
+    const maxPriority = rules.length > 0 ? Math.max(...rules.map(r => r.priority)) : 0;
+    const rule: VisualAlertRule = {
+      id: Date.now(),
+      trigger: newRule.trigger as VisualAlertTrigger,
+      label: newRule.label || VISUAL_ALERT_TRIGGER_LABELS[newRule.trigger] || '',
+      seuil: newRule.seuil,
+      mode: newRule.mode as VisualAlertMode || 'fond_bordure',
+      fondColor: newRule.fondColor as VisualAlertColorKey || 'orange',
+      bordureColor: newRule.bordureColor as VisualAlertColorKey || 'orange',
+      enabled: true,
+      priority: maxPriority + 1,
+    };
+    onUpdateRule(rule);
+    setShowNewDialog(false);
+    setNewRule({ trigger: 'acte_critique', label: '', seuil: 7, mode: 'fond_bordure', fondColor: 'orange', bordureColor: 'orange', enabled: true });
+  };
+
+  const seuilLabel = (trigger: string) => {
+    switch (trigger) {
+      case 'op_active': return null; // pas de seuil, c'est "date dépassée"
+      case 'op_proche': return 'OP dans';
+      case 'acte_critique': return 'Expire dans';
+      case 'cr_retard': return 'Retard de';
+      case 'prolongation_pending': return 'En attente depuis';
+      default: return 'Seuil';
+    }
+  };
+
+  return (
+    <Card className="mb-6 border-purple-200 bg-purple-50/30">
+      <CardHeader className="flex flex-row items-center justify-between py-4">
+        <div>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Eye className="h-5 w-5 text-purple-600" />
+            Alertes visuelles
+          </CardTitle>
+          <p className="text-sm text-gray-500 mt-1">
+            Couleur et bordure sur les cartes enquêtes. Le fond ne peut afficher qu'une couleur (priorité haute gagne). Les bordures se cumulent (gauche + droite).
+          </p>
+        </div>
+        <Button size="sm" onClick={() => setShowNewDialog(true)}>
+          <Plus className="h-4 w-4 mr-1" />
+          Ajouter
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-2 pb-4">
+        {sortedRules.map((rule, idx) => (
+          <div key={rule.id} className={`flex items-center gap-3 p-2.5 rounded-lg border ${rule.enabled ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-100 opacity-60'}`}>
+            {/* Flèches priorité */}
+            <div className="flex flex-col gap-0.5">
+              <button
+                onClick={() => moveRule(rule.id, 'up')}
+                disabled={idx === 0}
+                className="text-gray-400 hover:text-gray-700 disabled:opacity-20"
+              >
+                <ChevronUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => moveRule(rule.id, 'down')}
+                disabled={idx === sortedRules.length - 1}
+                className="text-gray-400 hover:text-gray-700 disabled:opacity-20"
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            {/* Numéro priorité */}
+            <span className="text-xs text-gray-400 w-4 text-center font-mono">{idx + 1}</span>
+
+            {/* Aperçu */}
+            <VisualRulePreview rule={editingId === rule.id && editDraft ? editDraft : rule} />
+
+            {/* Contenu */}
+            {editingId === rule.id && editDraft ? (
+              /* MODE ÉDITION */
+              <div className="flex-1 space-y-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Input
+                    value={editDraft.label}
+                    onChange={(e) => setEditDraft({ ...editDraft, label: e.target.value })}
+                    className="h-7 text-sm w-48"
+                    placeholder="Nom de la règle"
+                  />
+                  <Select
+                    value={editDraft.trigger}
+                    onChange={(e) => setEditDraft({ ...editDraft, trigger: e.target.value as VisualAlertTrigger })}
+                    className="h-7 text-sm w-48"
+                  >
+                    {Object.entries(VISUAL_ALERT_TRIGGER_LABELS).map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </Select>
+                  {seuilLabel(editDraft.trigger) && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-gray-500">{seuilLabel(editDraft.trigger)}</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={editDraft.seuil}
+                        onChange={(e) => setEditDraft({ ...editDraft, seuil: Math.max(0, parseInt(e.target.value) || 0) })}
+                        className="h-7 text-sm w-16"
+                      />
+                      <span className="text-xs text-gray-500">jours</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Select
+                    value={editDraft.mode}
+                    onChange={(e) => setEditDraft({ ...editDraft, mode: e.target.value as VisualAlertMode })}
+                    className="h-7 text-sm w-40"
+                  >
+                    <option value="fond">Fond uniquement</option>
+                    <option value="bordure">Bordure uniquement</option>
+                    <option value="fond_bordure">Fond + Bordure</option>
+                  </Select>
+
+                  {(editDraft.mode === 'fond' || editDraft.mode === 'fond_bordure') && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-gray-500">Fond:</span>
+                      <div className="flex gap-1">
+                        {VISUAL_ALERT_COLOR_KEYS.map(ck => (
+                          <ColorDot key={ck} colorKey={ck} selected={editDraft.fondColor === ck} onClick={() => setEditDraft({ ...editDraft, fondColor: ck })} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {(editDraft.mode === 'bordure' || editDraft.mode === 'fond_bordure') && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-gray-500">Bordure:</span>
+                      <div className="flex gap-1">
+                        {VISUAL_ALERT_COLOR_KEYS.map(ck => (
+                          <ColorDot key={ck} colorKey={ck} selected={editDraft.bordureColor === ck} onClick={() => setEditDraft({ ...editDraft, bordureColor: ck })} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* MODE LECTURE */
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium truncate">{rule.label}</span>
+                  {rule.isSystemRule && (
+                    <span className="text-[10px] bg-green-100 text-green-800 px-1.5 py-0.5 rounded">Système</span>
+                  )}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {VISUAL_ALERT_TRIGGER_LABELS[rule.trigger] || rule.trigger}
+                  {seuilLabel(rule.trigger) ? ` — ${seuilLabel(rule.trigger)} ${rule.seuil}j` : ''}
+                  {' — '}
+                  {rule.mode === 'fond' ? 'Fond' : rule.mode === 'bordure' ? 'Bordure' : 'Fond + Bordure'}
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <Switch
+                checked={rule.enabled}
+                onCheckedChange={() => onUpdateRule({ ...rule, enabled: !rule.enabled })}
+              />
+              {editingId === rule.id ? (
+                <>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={saveEdit}>
+                    <Save className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={cancelEdit}>
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => startEdit(rule)}>
+                    <Edit2 className="h-3.5 w-3.5" />
+                  </Button>
+                  {!rule.isSystemRule && onDeleteRule && (
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={() => onDeleteRule(rule.id)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {sortedRules.length === 0 && (
+          <p className="text-sm text-gray-400 text-center py-4">Aucune règle visuelle configurée.</p>
+        )}
+      </CardContent>
+
+      {/* Dialog nouvelle règle visuelle */}
+      <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nouvelle alerte visuelle</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Déclencheur</label>
+              <Select
+                value={newRule.trigger}
+                onChange={(e) => setNewRule(prev => ({ ...prev, trigger: e.target.value as VisualAlertTrigger }))}
+              >
+                {Object.entries(VISUAL_ALERT_TRIGGER_LABELS).map(([key, label]) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
+              </Select>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Nom (optionnel)</label>
+              <Input
+                value={newRule.label || ''}
+                onChange={(e) => setNewRule(prev => ({ ...prev, label: e.target.value }))}
+                placeholder={VISUAL_ALERT_TRIGGER_LABELS[newRule.trigger || 'acte_critique']}
+              />
+            </div>
+
+            {newRule.trigger !== 'op_active' && (
+              <div>
+                <label className="text-sm font-medium">Seuil (jours)</label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={newRule.seuil}
+                  onChange={(e) => setNewRule(prev => ({ ...prev, seuil: Math.max(0, parseInt(e.target.value) || 0) }))}
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="text-sm font-medium">Mode d'affichage</label>
+              <Select
+                value={newRule.mode}
+                onChange={(e) => setNewRule(prev => ({ ...prev, mode: e.target.value as VisualAlertMode }))}
+              >
+                <option value="fond">Fond uniquement</option>
+                <option value="bordure">Bordure uniquement</option>
+                <option value="fond_bordure">Fond + Bordure</option>
+              </Select>
+            </div>
+
+            {(newRule.mode === 'fond' || newRule.mode === 'fond_bordure') && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">Couleur du fond</label>
+                <div className="flex gap-2">
+                  {VISUAL_ALERT_COLOR_KEYS.map(ck => (
+                    <ColorDot key={ck} colorKey={ck} selected={newRule.fondColor === ck} onClick={() => setNewRule(prev => ({ ...prev, fondColor: ck }))} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(newRule.mode === 'bordure' || newRule.mode === 'fond_bordure') && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">Couleur de la bordure</label>
+                <div className="flex gap-2">
+                  {VISUAL_ALERT_COLOR_KEYS.map(ck => (
+                    <ColorDot key={ck} colorKey={ck} selected={newRule.bordureColor === ck} onClick={() => setNewRule(prev => ({ ...prev, bordureColor: ck }))} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Aperçu */}
+            <div className="border-t pt-3">
+              <label className="text-sm font-medium mb-2 block">Aperçu</label>
+              <VisualRulePreview rule={newRule as VisualAlertRule} />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewDialog(false)}>Annuler</Button>
+            <Button onClick={handleCreateRule}>Créer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+};
 
 interface AlertsPageProps {
   rules: AlertRule[];
@@ -19,9 +390,14 @@ interface AlertsPageProps {
   onDuplicateRule: (rule: AlertRule) => void;
   onDeleteRule: (ruleId: number) => void;
   onShowWeeklyPopup?: () => void;
+  // Props pour les alertes visuelles
+  visualAlertRules?: VisualAlertRule[];
+  onUpdateVisualAlertRule?: (rule: VisualAlertRule) => void;
+  onDeleteVisualAlertRule?: (ruleId: number) => void;
+  onReorderVisualAlertRules?: (rules: VisualAlertRule[]) => void;
 }
 
-export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule, onShowWeeklyPopup }: AlertsPageProps) => {
+export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule, onShowWeeklyPopup, visualAlertRules = [], onUpdateVisualAlertRule, onDeleteVisualAlertRule, onReorderVisualAlertRules }: AlertsPageProps) => {
   const [weeklyConfig, setWeeklyConfig] = useState<WeeklyPopupConfig>({
     enabled: false,
     dayOfWeek: 1, // Lundi
@@ -267,6 +643,17 @@ export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule,
         )}
       </Card>
 
+      {/* ====== SECTION ALERTES VISUELLES ====== */}
+      {onUpdateVisualAlertRule && (
+        <VisualAlertsSection
+          rules={visualAlertRules}
+          onUpdateRule={onUpdateVisualAlertRule}
+          onDeleteRule={onDeleteVisualAlertRule}
+          onReorderRules={onReorderVisualAlertRules}
+        />
+      )}
+
+      {/* ====== SECTION RÈGLES D'ALERTE CLASSIQUES ====== */}
       <div className="space-y-4">
         {rules.map(rule => (
           <Card key={rule.id} className={`shadow-sm ${rule.isSystemRule ? 'border-green-200' : ''}`}>

@@ -3,7 +3,8 @@ import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Archive, Edit, Trash, RotateCcw, Users, Building2, FileText, Calendar, Flag, Clock, Hourglass, Gavel, ArrowDown } from 'lucide-react';
-import { Enquete, Alert } from '@/types/interfaces';
+import { Enquete, Alert, VisualAlertRule } from '@/types/interfaces';
+import { VISUAL_ALERT_COLOR_PALETTE } from '@/config/constants';
 import { StartEnqueteModal } from './modals/StartEnqueteModal';
 import { AlertsModal } from './modals/AlertsModal';
 import { ArchiveEnqueteModal } from './modals/ArchiveEnqueteModal';
@@ -34,6 +35,7 @@ interface EnquetePreviewProps {
   onPoseRequest?: (acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
   onValidateProlongationRequest?: (acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
   onValidateAutorisationRequest?: (acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
+  visualAlertRules?: VisualAlertRule[];
 }
 
 export const EnquetePreview = ({
@@ -52,7 +54,8 @@ export const EnquetePreview = ({
   onProlongationRequest, 
   onPoseRequest, 
   onValidateProlongationRequest,
-  onValidateAutorisationRequest
+  onValidateAutorisationRequest,
+  visualAlertRules = []
 }: EnquetePreviewProps) => {
   // États pour les modales
   const [showStartModal, setShowStartModal] = useState(false);
@@ -86,42 +89,99 @@ export const EnquetePreview = ({
     return enquete.toDos?.filter(todo => todo.status === 'active').length || 0;
   }, [enquete.toDos]);
 
-  // Statut OP (opération d'interpellation)
-  const opStatus = useMemo((): 'none' | 'upcoming' | 'soon' | 'active' => {
-    if (!enquete.dateOP) return 'none';
-    const daysToOP = Math.ceil(
+  // Calcul des jours vers OP (réutilisé dans l'évaluation des règles visuelles)
+  const daysToOP = useMemo(() => {
+    if (!enquete.dateOP) return null;
+    return Math.ceil(
       (new Date(enquete.dateOP).setHours(0,0,0,0) - new Date().setHours(0,0,0,0)) / (1000 * 60 * 60 * 24)
     );
-    if (daysToOP < 0) return 'active';   // OP passée, non archivée
-    if (daysToOP <= 4) return 'soon';    // ≤ 4 jours → très proche
-    if (daysToOP <= 7) return 'upcoming'; // 5–7 jours → dans la semaine
-    return 'none';
   }, [enquete.dateOP]);
 
-  // Vérifier s'il y a au moins un acte en échéance critique (≤ 3 jours)
-  const hasCriticalDeadline = useMemo(() => {
-    return activeActes.some(acte => {
-      if (!acte.dateFin) return false;
-      const daysLeft = Math.ceil((new Date(acte.dateFin).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-      return daysLeft <= 3 && daysLeft >= 0; // 3 jours ou moins, mais pas encore expiré
-    });
-  }, [activeActes]);
-
-  const isPrioritaire = enquete.tags.some(tag => 
+  const isPrioritaire = enquete.tags.some(tag =>
     tag.category === 'priorite' && tag.value === 'Prioritaire'
   );
 
   const enqueteAlerts = alerts.filter(alert => alert.enqueteId === enquete.id && alert.status === 'active');
   const hasCRDelayAlert = enqueteAlerts.some(alert => alert.type === 'cr_delay');
 
-  const descriptionPreview = enquete.description 
+  const descriptionPreview = enquete.description
     ? enquete.description.length > 400
-      ? `${enquete.description.substring(0, 400)}...` 
+      ? `${enquete.description.substring(0, 400)}...`
       : enquete.description
     : null;
 
   // Services dérivés depuis les tags
   const displayServices = getServicesFromTags(enquete.tags);
+
+  // Évaluation des règles d'alerte visuelles (triées par priorité)
+  const matchingVisualRules = useMemo(() => {
+    if (visualAlertRules.length === 0) return [];
+
+    return visualAlertRules
+      .filter(rule => rule.enabled)
+      .filter(rule => {
+        switch (rule.trigger) {
+          case 'op_active':
+            return daysToOP !== null && daysToOP < 0;
+          case 'op_proche':
+            return daysToOP !== null && daysToOP >= 0 && daysToOP <= rule.seuil;
+          case 'acte_critique':
+            return activeActes.some(acte => {
+              if (!acte.dateFin) return false;
+              const daysLeft = Math.ceil((new Date(acte.dateFin).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+              return daysLeft <= rule.seuil && daysLeft >= 0;
+            });
+          case 'cr_retard': {
+            const cr = enquete.comptesRendus[0];
+            if (!cr) return false;
+            const daysSinceCR = Math.ceil((new Date().getTime() - new Date(cr.date).getTime()) / (1000 * 60 * 60 * 24));
+            return daysSinceCR >= rule.seuil;
+          }
+          case 'prolongation_pending':
+            return activeActes.some(acte => {
+              if (acte.statut !== 'prolongation_pending') return false;
+              if (!acte.prolongationDate) return true; // pas de date = toujours matcher
+              const daysSince = Math.ceil((new Date().getTime() - new Date(acte.prolongationDate).getTime()) / (1000 * 60 * 60 * 24));
+              return daysSince >= rule.seuil;
+            });
+          default:
+            return false;
+        }
+      })
+      .sort((a, b) => a.priority - b.priority);
+  }, [visualAlertRules, daysToOP, activeActes, enquete.comptesRendus]);
+
+  // Calcul des classes CSS depuis les règles visuelles
+  const { cardBgClass, cardBorderClass } = useMemo(() => {
+    if (matchingVisualRules.length === 0) {
+      return { cardBgClass: 'bg-white', cardBorderClass: 'border border-gray-200' };
+    }
+
+    // Fond : première règle avec fond activé
+    const fondRule = matchingVisualRules.find(r => r.mode === 'fond' || r.mode === 'fond_bordure');
+    const bgClass = fondRule ? (VISUAL_ALERT_COLOR_PALETTE[fondRule.fondColor]?.fond || 'bg-white') : 'bg-white';
+
+    // Bordures : jusqu'à 2 règles (gauche + droite)
+    const bordureRules = matchingVisualRules.filter(r => r.mode === 'bordure' || r.mode === 'fond_bordure');
+    const leftRule = bordureRules[0];
+    const rightRule = bordureRules[1];
+
+    if (!leftRule) {
+      return { cardBgClass: bgClass, cardBorderClass: 'border border-gray-200' };
+    }
+
+    const leftColor = VISUAL_ALERT_COLOR_PALETTE[leftRule.bordureColor]?.bordureLeft || 'border-l-red-500';
+    let borderClass = `border-l-4 ${leftColor} border-t border-b border-gray-200`;
+
+    if (rightRule) {
+      const rightColor = VISUAL_ALERT_COLOR_PALETTE[rightRule.bordureColor]?.bordureRight || 'border-r-orange-400';
+      borderClass += ` border-r-4 ${rightColor}`;
+    } else {
+      borderClass += ' border-r border-gray-200';
+    }
+
+    return { cardBgClass: bgClass, cardBorderClass: borderClass };
+  }, [matchingVisualRules]);
 
   // Handlers
   const handleUnarchive = async () => {
@@ -141,7 +201,7 @@ export const EnquetePreview = ({
       showToast('Erreur lors du désarchivage', 'error');
     }
   };
-  
+
   const handleValidateAutorisation = (date: string) => {
     if (selectedActe && onValidateAutorisationRequest) {
       onValidateAutorisationRequest(selectedActe.id, selectedActe.type);
@@ -150,26 +210,6 @@ export const EnquetePreview = ({
       setShowAutorisationModal(false);
     }
   };
-
-  // Fond de carte : OP prime sur échéance critique
-  const cardBgClass =
-    opStatus === 'active'   ? 'bg-red-50'     :
-    opStatus === 'soon'     ? 'bg-orange-100' :
-    opStatus === 'upcoming' ? 'bg-orange-50'  :
-    hasCriticalDeadline     ? 'bg-red-50'     :
-    'bg-white';
-
-  // Bordure gauche : OP prime sur acte à échéance critique
-  const cardBorderClass =
-    opStatus === 'active'
-      ? 'border-l-4 border-l-red-500 border-t border-r border-b border-gray-200'
-      : opStatus === 'soon'
-      ? 'border-l-4 border-l-orange-400 border-t border-r border-b border-gray-200'
-      : opStatus === 'upcoming'
-      ? 'border-l-4 border-l-amber-300 border-t border-r border-b border-gray-200'
-      : hasCriticalDeadline
-      ? 'border-l-4 border-l-red-600 border-t border-r border-b border-gray-200'
-      : 'border border-gray-200';
 
 return (
     <>

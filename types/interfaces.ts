@@ -256,6 +256,31 @@ export interface WeeklyPopupConfig {
   lastShownDate?: string; // ISO date, pour éviter d'afficher plusieurs fois le même jour
 }
 
+// Types pour les alertes visuelles sur EnquetePreview
+export type VisualAlertTrigger =
+  | 'op_active'            // OP date dépassée
+  | 'op_proche'            // OP dans X jours
+  | 'acte_critique'        // Acte expire dans X jours
+  | 'cr_retard'            // CR en retard depuis X jours
+  | 'prolongation_pending'; // Prolongation en attente depuis X jours
+
+export type VisualAlertMode = 'fond' | 'bordure' | 'fond_bordure';
+
+export type VisualAlertColorKey = 'red' | 'red-dark' | 'orange' | 'amber' | 'yellow' | 'green' | 'blue' | 'purple' | 'gray';
+
+export interface VisualAlertRule {
+  id: number;
+  trigger: VisualAlertTrigger;
+  label: string;
+  seuil: number;            // nombre de jours (0 pour op_active = dépassée)
+  mode: VisualAlertMode;
+  fondColor: VisualAlertColorKey;
+  bordureColor: VisualAlertColorKey;
+  enabled: boolean;
+  priority: number;         // ordre de priorité (1 = plus important)
+  isSystemRule?: boolean;
+}
+
 // Interface pour les règles d'alerte
 export interface AlertRule {
   id: number;
