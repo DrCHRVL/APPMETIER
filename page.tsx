@@ -38,6 +38,7 @@ import { useInstructions } from './hooks/useInstructions';
 
 import { useAIR } from './hooks/useAIR';
 import { useCombinedAlerts } from './hooks/useCombinedAlerts';
+import { useVisualAlerts } from './hooks/useVisualAlerts';
 import { backupManager } from '@/utils/backupManager';
 import { WeeklyRecapPopup } from './components/modals/WeeklyRecapPopup';
 import { WeeklyPopupConfig } from './types/interfaces';
@@ -178,6 +179,14 @@ function AppContent() {
   } = useTags();
 
   const { getSectionOrder, sections: sectionsList, reorderSection, addSection: addSectionFn } = useSections();
+
+  // Hook alertes visuelles
+  const {
+    visualAlertRules,
+    updateVisualAlertRule,
+    deleteVisualAlertRule,
+    reorderVisualAlertRules,
+  } = useVisualAlerts();
 
   // Initialisation du système de sauvegarde
   useEffect(() => {
@@ -612,6 +621,7 @@ return (
                         });
                         showToast('Autorisation validée', 'success');
                       }}
+                      visualAlertRules={visualAlertRules}
                     />
                   );
 
@@ -715,6 +725,10 @@ return (
               onDuplicateRule={handleDuplicateRule}
               onDeleteRule={handleDeleteRule}
               onShowWeeklyPopup={() => setShowWeeklyPopup(true)}
+              visualAlertRules={visualAlertRules}
+              onUpdateVisualAlertRule={updateVisualAlertRule}
+              onDeleteVisualAlertRule={deleteVisualAlertRule}
+              onReorderVisualAlertRules={reorderVisualAlertRules}
             />
           )}
 

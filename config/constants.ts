@@ -1,4 +1,4 @@
-import { AlertRule } from '@/types/interfaces';
+import { AlertRule, VisualAlertRule, VisualAlertColorKey } from '@/types/interfaces';
 
 export const APP_CONFIG = {
   ALERT_CHECK_INTERVAL: 3600000, // 1 hour in milliseconds
@@ -80,7 +80,8 @@ export const APP_CONFIG = {
     LAST_SAVE: 'lastSave',
     AIR_MESURES: 'air_mesures',
     ALERTS: 'alerts',
-    ALERT_VALIDATIONS: 'alert_validations'
+    ALERT_VALIDATIONS: 'alert_validations',
+    VISUAL_ALERT_RULES: 'visualAlertRules'
   },
 
   // 🆕 CONFIGURATION DES SAUVEGARDES
@@ -95,6 +96,47 @@ export const APP_CONFIG = {
   ALERT_CHECK_INTERVAL: 5 * 60 * 1000, // 5 minutes
   MAX_SAVE_HISTORY: 20 // Nombre maximum d'entrées dans l'historique
 };
+
+// Palette de couleurs pour les alertes visuelles
+// IMPORTANT: toutes les classes Tailwind sont écrites en dur pour la purge CSS
+export const VISUAL_ALERT_COLOR_PALETTE: Record<VisualAlertColorKey, {
+  fond: string;
+  bordureLeft: string;
+  bordureRight: string;
+  dot: string;
+  label: string;
+}> = {
+  'red':      { fond: 'bg-red-50',     bordureLeft: 'border-l-red-500',    bordureRight: 'border-r-red-500',    dot: 'bg-red-500',    label: 'Rouge' },
+  'red-dark': { fond: 'bg-red-100',    bordureLeft: 'border-l-red-600',    bordureRight: 'border-r-red-600',    dot: 'bg-red-600',    label: 'Rouge foncé' },
+  'orange':   { fond: 'bg-orange-100', bordureLeft: 'border-l-orange-400', bordureRight: 'border-r-orange-400', dot: 'bg-orange-400', label: 'Orange' },
+  'amber':    { fond: 'bg-amber-50',   bordureLeft: 'border-l-amber-300',  bordureRight: 'border-r-amber-300',  dot: 'bg-amber-400',  label: 'Ambre' },
+  'yellow':   { fond: 'bg-yellow-50',  bordureLeft: 'border-l-yellow-400', bordureRight: 'border-r-yellow-400', dot: 'bg-yellow-400', label: 'Jaune' },
+  'green':    { fond: 'bg-green-50',   bordureLeft: 'border-l-green-500',  bordureRight: 'border-r-green-500',  dot: 'bg-green-500',  label: 'Vert' },
+  'blue':     { fond: 'bg-blue-50',    bordureLeft: 'border-l-blue-500',   bordureRight: 'border-r-blue-500',   dot: 'bg-blue-500',   label: 'Bleu' },
+  'purple':   { fond: 'bg-purple-50',  bordureLeft: 'border-l-purple-500', bordureRight: 'border-r-purple-500', dot: 'bg-purple-500', label: 'Violet' },
+  'gray':     { fond: 'bg-gray-100',   bordureLeft: 'border-l-gray-400',   bordureRight: 'border-r-gray-400',   dot: 'bg-gray-400',   label: 'Gris' },
+};
+
+export const VISUAL_ALERT_COLOR_KEYS: VisualAlertColorKey[] = [
+  'red', 'red-dark', 'orange', 'amber', 'yellow', 'green', 'blue', 'purple', 'gray'
+];
+
+export const VISUAL_ALERT_TRIGGER_LABELS: Record<string, string> = {
+  'op_active': 'OP en cours (date dépassée)',
+  'op_proche': 'OP proche',
+  'acte_critique': 'Acte critique',
+  'cr_retard': 'CR en retard',
+  'prolongation_pending': 'Prolongation en attente',
+};
+
+export const DEFAULT_VISUAL_ALERT_RULES: VisualAlertRule[] = [
+  { id: 1, trigger: 'op_active',    label: 'OP en cours',           seuil: 0,  mode: 'fond_bordure', fondColor: 'red',    bordureColor: 'red',    enabled: true, priority: 1, isSystemRule: true },
+  { id: 2, trigger: 'op_proche',    label: 'OP très proche (≤4j)',  seuil: 4,  mode: 'fond_bordure', fondColor: 'orange', bordureColor: 'orange', enabled: true, priority: 2, isSystemRule: true },
+  { id: 3, trigger: 'op_proche',    label: 'OP dans la semaine',    seuil: 7,  mode: 'fond_bordure', fondColor: 'amber',  bordureColor: 'amber',  enabled: true, priority: 3, isSystemRule: true },
+  { id: 4, trigger: 'acte_critique', label: 'Acte expire (≤3j)',    seuil: 3,  mode: 'fond_bordure', fondColor: 'red',    bordureColor: 'red-dark', enabled: true, priority: 4, isSystemRule: true },
+  { id: 5, trigger: 'cr_retard',    label: 'CR en retard (≥7j)',    seuil: 7,  mode: 'bordure',      fondColor: 'amber',  bordureColor: 'amber',  enabled: false, priority: 5, isSystemRule: true },
+  { id: 6, trigger: 'prolongation_pending', label: 'Prolongation en attente (≥2j)', seuil: 2, mode: 'bordure', fondColor: 'purple', bordureColor: 'purple', enabled: false, priority: 6, isSystemRule: true },
+];
 
 export const DATE_FORMAT = {
   DISPLAY: 'dd/MM/yyyy',
