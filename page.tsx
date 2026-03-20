@@ -99,6 +99,11 @@ function AppContent() {
   // 🆕 État pour le modal de conflits
   const [showConflictModal, setShowConflictModal] = useState(false);
 
+  // Mise à jour de l'application
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updateCommits, setUpdateCommits] = useState(0);
+  const [isUpdating, setIsUpdating] = useState(false);
+
   // Hook pour les enquêtes préliminaires
   const {
     enquetes,
@@ -252,6 +257,39 @@ function AppContent() {
       setShowConflictModal(true);
     }
   }, [hasConflicts, lastSyncResult]);
+
+  // Vérification des mises à jour au démarrage (puis toutes les 30 min)
+  useEffect(() => {
+    const checkUpdate = async () => {
+      try {
+        const result = await window.electronAPI.checkAppUpdate?.();
+        if (result && result.hasUpdate) {
+          setUpdateAvailable(true);
+          setUpdateCommits(result.commits);
+        }
+      } catch {
+        // Silencieux si pas de connexion
+      }
+    };
+    checkUpdate();
+    const interval = setInterval(checkUpdate, 30 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleApplyUpdate = async () => {
+    setIsUpdating(true);
+    try {
+      const result = await window.electronAPI.applyAppUpdate?.();
+      if (result && !result.success) {
+        showToast(`Erreur de mise à jour : ${result.error}`, 'error');
+        setIsUpdating(false);
+      }
+      // Si succès, l'app redémarre → pas besoin de reset l'état
+    } catch {
+      showToast('Impossible de mettre à jour l\'application', 'error');
+      setIsUpdating(false);
+    }
+  };
 
   const handleResolveConflicts = async (selections: Map<number, ConflictAction>) => {
   try {
@@ -532,6 +570,10 @@ return (
             onSync={handleManualSync}
             isSyncing={isSyncing}
             isSearchingDocs={isSearchingDocs}
+            updateAvailable={updateAvailable}
+            updateCommits={updateCommits}
+            onApplyUpdate={handleApplyUpdate}
+            isUpdating={isUpdating}
           />
         </div>
 

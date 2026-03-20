@@ -1,6 +1,7 @@
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
+const { exec } = require('child_process')
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
 // Ajout pour l'extraction PDF
 const pdfParse = require('pdf-parse')
@@ -1351,6 +1352,38 @@ function setupIpcHandlers() {
         console.log('💡 Conseil: Téléchargez fra.traineddata et placez-le dans ./tessdata/');
       }
       throw new Error(`Erreur extraction PDF: ${error.message}`);
+    }
+  });
+
+  // === MISE À JOUR DE L'APPLICATION (GitHub) ===
+  function runGit(cmd) {
+    return new Promise((resolve, reject) => {
+      exec(cmd, { cwd: __dirname, timeout: 30000 }, (err, stdout, stderr) => {
+        if (err) reject(new Error(stderr || err.message));
+        else resolve(stdout.trim());
+      });
+    });
+  }
+
+  ipcMain.handle('app:checkUpdate', async () => {
+    try {
+      await runGit('git fetch origin master');
+      const count = await runGit('git rev-list HEAD..origin/master --count');
+      const commits = parseInt(count, 10) || 0;
+      return { hasUpdate: commits > 0, commits };
+    } catch (error) {
+      return { hasUpdate: false, commits: 0, error: error.message };
+    }
+  });
+
+  ipcMain.handle('app:applyUpdate', async () => {
+    try {
+      await runGit('git pull origin master');
+      app.relaunch();
+      app.exit(0);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
     }
   });
 }

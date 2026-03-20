@@ -111,5 +111,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('dataSync:readServerBackup', filename),
 
   getCurrentUser: () =>
-    ipcRenderer.invoke('system:getCurrentUser')
+    ipcRenderer.invoke('system:getCurrentUser'),
+
+  // === MISE À JOUR DE L'APPLICATION ===
+  checkAppUpdate: () =>
+    ipcRenderer.invoke('app:checkUpdate'),
+
+  applyAppUpdate: () =>
+    ipcRenderer.invoke('app:applyUpdate'),
 })
