@@ -11,6 +11,7 @@ interface PendingActeItem {
   acteType: string;
   enquete: Enquete;
   daysSince: number;
+  kind: 'autorisation' | 'prolongation';
 }
 
 export const PendingActsJLD = ({ enquetes, onOpenEnquete }: PendingActsJLDProps) => {
@@ -25,6 +26,15 @@ export const PendingActsJLD = ({ enquetes, onOpenEnquete }: PendingActsJLDProps)
           acteType: a.type || 'Acte',
           enquete: e,
           daysSince: Math.floor((now.getTime() - new Date(a.dateDebut).getTime()) / (1000 * 60 * 60 * 24)),
+          kind: 'autorisation',
+        });
+      } else if (a.statut === 'prolongation_pending') {
+        const refDate = a.prolongationDate || a.dateDebut;
+        items.push({
+          acteType: a.type || 'Acte',
+          enquete: e,
+          daysSince: Math.floor((now.getTime() - new Date(refDate).getTime()) / (1000 * 60 * 60 * 24)),
+          kind: 'prolongation',
         });
       }
     });
@@ -35,6 +45,15 @@ export const PendingActsJLD = ({ enquetes, onOpenEnquete }: PendingActsJLDProps)
           acteType: `Écoute ${a.numero}`,
           enquete: e,
           daysSince: Math.floor((now.getTime() - new Date(a.dateDebut).getTime()) / (1000 * 60 * 60 * 24)),
+          kind: 'autorisation',
+        });
+      } else if (a.statut === 'prolongation_pending') {
+        const refDate = a.prolongationDate || a.dateDebut;
+        items.push({
+          acteType: `Écoute ${a.numero}`,
+          enquete: e,
+          daysSince: Math.floor((now.getTime() - new Date(refDate).getTime()) / (1000 * 60 * 60 * 24)),
+          kind: 'prolongation',
         });
       }
     });
@@ -45,6 +64,15 @@ export const PendingActsJLD = ({ enquetes, onOpenEnquete }: PendingActsJLDProps)
           acteType: `Géoloc ${a.objet}`,
           enquete: e,
           daysSince: Math.floor((now.getTime() - new Date(a.dateDebut).getTime()) / (1000 * 60 * 60 * 24)),
+          kind: 'autorisation',
+        });
+      } else if (a.statut === 'prolongation_pending') {
+        const refDate = a.prolongationDate || a.dateDebut;
+        items.push({
+          acteType: `Géoloc ${a.objet}`,
+          enquete: e,
+          daysSince: Math.floor((now.getTime() - new Date(refDate).getTime()) / (1000 * 60 * 60 * 24)),
+          kind: 'prolongation',
         });
       }
     });
@@ -75,6 +103,9 @@ export const PendingActsJLD = ({ enquetes, onOpenEnquete }: PendingActsJLDProps)
             onClick={() => onOpenEnquete?.(item.enquete)}
             title={onOpenEnquete ? `Ouvrir l'enquête ${item.enquete.numero}` : undefined}
           >
+            <span className={`text-[9px] font-semibold px-1 py-0.5 rounded leading-none ${item.kind === 'prolongation' ? 'bg-indigo-100 text-indigo-700' : 'bg-purple-100 text-purple-700'}`}>
+              {item.kind === 'prolongation' ? 'Prolong.' : 'Autor.'}
+            </span>
             <span className="text-[11px] text-gray-700 whitespace-nowrap select-none">
               {item.acteType}
               <span className="text-gray-400 ml-1 text-[10px]">

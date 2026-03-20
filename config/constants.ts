@@ -127,6 +127,8 @@ export const VISUAL_ALERT_TRIGGER_LABELS: Record<string, string> = {
   'acte_critique': 'Acte critique',
   'cr_retard': 'CR en retard',
   'prolongation_pending': 'Prolongation en attente',
+  'autorisation_pending': 'Autorisation JLD en attente',
+  'jld_pending': 'JLD en attente (autorisation ou prolongation)',
 };
 
 export const DEFAULT_VISUAL_ALERT_RULES: VisualAlertRule[] = [
@@ -135,7 +137,9 @@ export const DEFAULT_VISUAL_ALERT_RULES: VisualAlertRule[] = [
   { id: 3, trigger: 'op_proche',    label: 'OP dans la semaine',    seuil: 7,  mode: 'fond_bordure', fondColor: 'amber',  bordureColor: 'amber',  enabled: true, priority: 3, isSystemRule: true },
   { id: 4, trigger: 'acte_critique', label: 'Acte expire (≤3j)',    seuil: 3,  mode: 'fond_bordure', fondColor: 'red',    bordureColor: 'red-dark', enabled: true, priority: 4, isSystemRule: true },
   { id: 5, trigger: 'cr_retard',    label: 'CR en retard (≥7j)',    seuil: 7,  mode: 'bordure',      fondColor: 'amber',  bordureColor: 'amber',  enabled: false, priority: 5, isSystemRule: true },
-  { id: 6, trigger: 'prolongation_pending', label: 'Prolongation en attente (≥2j)', seuil: 2, mode: 'bordure', fondColor: 'purple', bordureColor: 'purple', enabled: false, priority: 6, isSystemRule: true },
+  { id: 6, trigger: 'prolongation_pending',  label: 'Prolongation en attente (≥2j)',        seuil: 2, mode: 'bordure', fondColor: 'purple', bordureColor: 'purple', enabled: false, priority: 6, isSystemRule: true },
+  { id: 7, trigger: 'autorisation_pending',  label: 'Autorisation JLD en attente (≥1j)',    seuil: 1, mode: 'bordure', fondColor: 'purple', bordureColor: 'purple', enabled: false, priority: 7, isSystemRule: true },
+  { id: 8, trigger: 'jld_pending',           label: 'JLD en attente — autorisation ou prolong. (≥1j)', seuil: 1, mode: 'bordure', fondColor: 'purple', bordureColor: 'purple', enabled: false, priority: 8, isSystemRule: true },
 ];
 
 export const DATE_FORMAT = {

@@ -144,6 +144,26 @@ export const EnquetePreview = ({
               const daysSince = Math.ceil((new Date().getTime() - new Date(acte.prolongationDate).getTime()) / (1000 * 60 * 60 * 24));
               return daysSince >= rule.seuil;
             });
+          case 'autorisation_pending':
+            return activeActes.some(acte => {
+              if (acte.statut !== 'autorisation_pending') return false;
+              const daysSince = Math.ceil((new Date().getTime() - new Date(acte.dateDebut).getTime()) / (1000 * 60 * 60 * 24));
+              return daysSince >= rule.seuil;
+            });
+          case 'jld_pending':
+            return activeActes.some(acte => {
+              if (acte.statut === 'autorisation_pending') {
+                const daysSince = Math.ceil((new Date().getTime() - new Date(acte.dateDebut).getTime()) / (1000 * 60 * 60 * 24));
+                return daysSince >= rule.seuil;
+              }
+              if (acte.statut === 'prolongation_pending') {
+                const refDate = acte.prolongationDate || acte.dateDebut;
+                if (!refDate) return true;
+                const daysSince = Math.ceil((new Date().getTime() - new Date(refDate).getTime()) / (1000 * 60 * 60 * 24));
+                return daysSince >= rule.seuil;
+              }
+              return false;
+            });
           default:
             return false;
         }

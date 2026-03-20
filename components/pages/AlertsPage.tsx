@@ -123,6 +123,8 @@ const VisualAlertsSection = ({
       case 'acte_critique': return 'Expire dans';
       case 'cr_retard': return 'Retard de';
       case 'prolongation_pending': return 'En attente depuis';
+      case 'autorisation_pending': return 'En attente depuis';
+      case 'jld_pending': return 'En attente depuis';
       default: return 'Seuil';
     }
   };
