@@ -571,16 +571,16 @@ export class DataMergeService {
       } else {
         // Résultat existe des deux côtés
         if (JSON.stringify(localResult) !== JSON.stringify(serverResult)) {
-          // ⚠️ Résultats différents → CONFLIT
-          conflicts.push({
-            type: 'audience_modified',
-            enqueteId: parseInt(enqueteId),
-            details: ['Résultat d\'audience modifié des deux côtés'],
-            localData: localResult,
-            serverData: serverResult
-          });
-          // Garder version locale en attendant
-          merged[enqueteId] = localResult;
+          const localDate = new Date(localResult.modifiedAt ?? 0).getTime();
+          const serverDate = new Date(serverResult.modifiedAt ?? 0).getTime();
+
+          if (localDate >= serverDate) {
+            // Version locale plus récente (ou égale) → elle gagne silencieusement
+            merged[enqueteId] = localResult;
+          } else {
+            // Version serveur plus récente → on la prend sans conflit
+            merged[enqueteId] = serverResult;
+          }
         }
       }
     }

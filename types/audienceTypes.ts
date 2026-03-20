@@ -31,6 +31,7 @@ export interface PendingCondamnation {
 export interface ResultatAudience {
   enqueteId: number;
   dateAudience: string;
+  modifiedAt?: string; // Horodatage de la dernière modification (pour résolution automatique des conflits de sync)
   condamnations: CondamnationData[];
   confiscations: Confiscations;
   typeInfraction?: string;
