@@ -36,7 +36,7 @@ const VisualRulePreview = ({ rule }: { rule: VisualAlertRule }) => {
 
   return (
     <div
-      className={`w-24 h-8 rounded border ${showFond ? fondColor.fond : 'bg-white'} ${showBordure ? `border-l-4 ${bordureColor.bordureLeft} border-t border-r border-b border-gray-200` : 'border-gray-200'} flex items-center justify-center`}
+      className={`w-24 h-8 rounded border ${showFond ? fondColor.fond : 'bg-white'} ${showBordure ? `border-l-4 ${bordureColor.bordureLeft} border-t border-t-gray-200 border-r border-r-gray-200 border-b border-b-gray-200` : 'border-gray-200'} flex items-center justify-center`}
     >
       <span className="text-[9px] text-gray-500">Aperçu</span>
     </div>

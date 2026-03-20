@@ -171,13 +171,13 @@ export const EnquetePreview = ({
     }
 
     const leftColor = VISUAL_ALERT_COLOR_PALETTE[leftRule.bordureColor]?.bordureLeft || 'border-l-red-500';
-    let borderClass = `border-l-4 ${leftColor} border-t border-b border-gray-200`;
+    let borderClass = `border-l-4 ${leftColor} border-t border-t-gray-200 border-b border-b-gray-200`;
 
     if (rightRule) {
       const rightColor = VISUAL_ALERT_COLOR_PALETTE[rightRule.bordureColor]?.bordureRight || 'border-r-orange-400';
       borderClass += ` border-r-4 ${rightColor}`;
     } else {
-      borderClass += ' border-r border-gray-200';
+      borderClass += ' border-r border-r-gray-200';
     }
 
     return { cardBgClass: bgClass, cardBorderClass: borderClass };
