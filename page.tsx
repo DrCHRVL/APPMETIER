@@ -233,8 +233,9 @@ function AppContent() {
         // Déjà montré aujourd'hui ?
         if (cfg.lastShownDate === todayStr) return;
 
-        // Bon jour de la semaine et heure atteinte ?
-        if (now.getDay() === cfg.dayOfWeek && now.getHours() >= cfg.hour) {
+        // Bon jour de la semaine et heure atteinte ? (7 = chaque jour)
+        const isRightDay = cfg.dayOfWeek === 7 || now.getDay() === cfg.dayOfWeek;
+        if (isRightDay && now.getHours() >= cfg.hour) {
           // Mettre à jour lastShownDate pour ne pas le réafficher cette journée
           await ElectronBridge.setData('weekly_popup_config', { ...cfg, lastShownDate: todayStr });
           setShowWeeklyPopup(true);
