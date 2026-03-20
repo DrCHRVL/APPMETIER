@@ -245,14 +245,14 @@ class BackupManager {
   }
 
   // SAUVEGARDE SÉLECTIVE (comme avant)
-  public async createBackup(): Promise<boolean> {
+  public async createBackup(force: boolean = false): Promise<boolean> {
     if (this.isBackupInProgress) {
       console.log('💾 Backup already in progress, skipping');
       return false;
     }
-    
+
     const now = Date.now();
-    if (this.lastBackupTime > 0 && (now - this.lastBackupTime < 12 * 60 * 60 * 1000)) {
+    if (!force && this.lastBackupTime > 0 && (now - this.lastBackupTime < 12 * 60 * 60 * 1000)) {
       console.log('💾 Recent backup exists, skipping');
       return false;
     }

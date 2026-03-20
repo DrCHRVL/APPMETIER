@@ -620,6 +620,7 @@ export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule,
                 onChange={(e) => saveWeeklyConfig({ ...weeklyConfig, dayOfWeek: Number(e.target.value) })}
                 className="h-8 text-sm w-36"
               >
+                <option value={7}>Chaque jour</option>
                 {DAYS.map((d, i) => (
                   <option key={i} value={i}>{d}</option>
                 ))}
@@ -638,7 +639,7 @@ export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule,
               <span className="text-sm text-gray-600">h</span>
             </div>
             <p className="text-xs text-gray-400 w-full">
-              S'affiche si l'app est ouverte après {weeklyConfig.hour}h00 le {DAYS[weeklyConfig.dayOfWeek]}.
+              S'affiche si l'app est ouverte après {weeklyConfig.hour}h00 {weeklyConfig.dayOfWeek === 7 ? 'chaque jour' : `le ${DAYS[weeklyConfig.dayOfWeek]}`}.
               Les seuils utilisés sont ceux des règles "Délai compte rendu" et "Expiration acte".
             </p>
           </CardContent>
