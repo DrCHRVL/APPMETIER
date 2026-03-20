@@ -277,7 +277,7 @@ function AppContent() {
       setIsSaving(true);
       await StorageManager.addManualSaveToHistory();
       
-      const backupSuccess = await backupManager.createBackup();
+      const backupSuccess = await backupManager.createBackup(true);
       if (backupSuccess) {
         showToast('Sauvegarde et backup créés avec succès', 'success');
       } else {
