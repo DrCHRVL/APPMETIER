@@ -101,7 +101,7 @@ export const AudienceProvider = ({ children }: { children: React.ReactNode }) =>
 
     const newResultats = {
       ...freshResultats,
-      [resultat.enqueteId]: resultat
+      [resultat.enqueteId]: { ...resultat, modifiedAt: new Date().toISOString() }
     };
 
     if (DEBUG_MODE) console.log('Saving resultat:', resultat);

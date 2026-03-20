@@ -13,8 +13,10 @@ export interface SyncData {
   alertRules: any[];
   alertValidations?: Record<string, AlertValidation>; // Validations d'alertes (reporter/valider) — synchro entre collègues
   version: number;
-  deletedIds?: number[]; // IDs d'enquêtes supprimées intentionnellement (empêche la resynchronisation)
-  deletedActeIds?: number[]; // IDs d'actes/écoutes/géolocs supprimés (empêche la resynchronisation depuis le serveur)
+  deletedIds?: number[];     // IDs d'enquêtes supprimées (empêche la re-sync)
+  deletedActeIds?: number[]; // IDs d'actes/écoutes/géolocs supprimés
+  deletedCRIds?: number[];   // IDs de comptes rendus supprimés
+  deletedMECIds?: number[];  // IDs de mis en cause supprimés
 }
 
 /**
@@ -42,14 +44,11 @@ export interface SyncStatus {
 
 /**
  * Types de conflits détectés
+ * Seul enquete_deleted nécessite encore une intervention utilisateur.
+ * Les autres cas sont résolus automatiquement (le plus récent gagne).
  */
-export type ConflictType = 
-  | 'enquete_modified'    // Enquête modifiée des 2 côtés
-  | 'enquete_deleted'     // Enquête supprimée d'un côté
-  | 'enquete_new'         // Nouvelle enquête des 2 côtés avec même ID
-  | 'audience_modified'   // Résultat audience modifié
-  | 'tags_modified'       // Tags modifiés
-  | 'rules_modified';     // Règles d'alertes modifiées
+export type ConflictType =
+  | 'enquete_deleted';     // Enquête supprimée par un collègue
 
 /**
  * Détails d'un conflit
@@ -90,14 +89,6 @@ export interface SyncResult {
  */
 export type ConflictAction = 'merge' | 'skip' | 'keep_local' | 'keep_server';
 
-/**
- * Options de résolution de conflit
- */
-export type ConflictResolution =
-  | 'keep_local'      // Garder les données locales
-  | 'keep_server'     // Garder les données serveur
-  | 'merge'           // Fusionner intelligemment
-  | 'cancel';         // Annuler la synchronisation
 
 /**
  * Notification de changement détecté

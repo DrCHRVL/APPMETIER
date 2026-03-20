@@ -1,54 +1,61 @@
 // utils/dataSync/DataMergeService.ts
 
-import { Enquete, CompteRendu, MisEnCause } from '@/types/interfaces';
+import { Enquete } from '@/types/interfaces';
 import { ResultatAudience } from '@/types/audienceTypes';
-import { SyncData, SyncConflict, ConflictType } from '@/types/dataSyncTypes';
+import { SyncData, SyncConflict } from '@/types/dataSyncTypes';
 
 /**
- * Service de fusion intelligente et détection de conflits pour la synchronisation des données
- * 
- * LOGIQUE DE FUSION INTELLIGENTE :
- * ✅ Ajouts automatiques (nouveaux CR, MEC, actes) → pas de conflit
- * ✅ Changements de statut normaux (prolongations, poses) → pas de conflit
- * ✅ Nouvelles enquêtes → fusion automatique
- * ⚠️ Modifications contradictoires → conflit
- * ⚠️ TOUTE suppression d'enquête → conflit obligatoire
+ * Service de fusion des données pour la synchronisation
+ *
+ * PRINCIPE UNIQUE : "le plus récent gagne"
+ * - Les sous-éléments (CR, MEC, actes…) sont unis par ID (rien ne se perd)
+ * - Pour un même ID modifié des deux côtés, la version issue de l'enquête la plus récente l'emporte
+ * - Seul conflit restant : suppression d'une enquête par un collègue (choix irréversible → demande à l'utilisateur)
  */
 export class DataMergeService {
-  
-  /**
-   * 🆕 FUSION INTELLIGENTE - Fusionne automatiquement ce qui peut l'être
-   * Retourne uniquement les vrais conflits nécessitant intervention utilisateur
-   */
+
+  // ─── POINT D'ENTRÉE PRINCIPAL ─────────────────────────────────────────────
+
   static intelligentMerge(localData: SyncData, serverData: SyncData): {
     merged: SyncData;
     conflicts: SyncConflict[];
     stats: { newFromServer: number; newFromLocal: number; merged: number; newActesFromServer: number; acteChanges: Array<{ enqueteNumero: string; count: number }> };
+    hasLocalChanges: boolean;   // local a des données plus récentes → push nécessaire
+    hasServerChanges: boolean;  // serveur a des données plus récentes → saveLocal nécessaire
   } {
     const conflicts: SyncConflict[] = [];
     const stats = { newFromServer: 0, newFromLocal: 0, merged: 0, newActesFromServer: 0, acteChanges: [] as Array<{ enqueteNumero: string; count: number }> };
 
-    // Calculer l'union des IDs supprimés des deux côtés
+    // Union des IDs supprimés
     const localDeletedIds = new Set<number>(localData.deletedIds || []);
     const serverDeletedIds = new Set<number>(serverData.deletedIds || []);
     const mergedDeletedIds = Array.from(new Set([...localDeletedIds, ...serverDeletedIds]));
 
-    // Union des IDs d'actes/écoutes/géolocs supprimés
     const localDeletedActeIds = new Set<number>(localData.deletedActeIds || []);
     const serverDeletedActeIds = new Set<number>(serverData.deletedActeIds || []);
     const mergedDeletedActeIds = Array.from(new Set([...localDeletedActeIds, ...serverDeletedActeIds]));
 
-    // 1. Fusionner les enquêtes intelligemment (en tenant compte des suppressions)
+    const localDeletedCRIds = new Set<number>(localData.deletedCRIds || []);
+    const serverDeletedCRIds = new Set<number>(serverData.deletedCRIds || []);
+    const mergedDeletedCRIds = Array.from(new Set([...localDeletedCRIds, ...serverDeletedCRIds]));
+
+    const localDeletedMECIds = new Set<number>(localData.deletedMECIds || []);
+    const serverDeletedMECIds = new Set<number>(serverData.deletedMECIds || []);
+    const mergedDeletedMECIds = Array.from(new Set([...localDeletedMECIds, ...serverDeletedMECIds]));
+
+    // 1. Fusionner les enquêtes
     const {
       merged: mergedEnquetes,
       conflicts: enqueteConflicts,
       stats: enqueteStats
-    } = this.intelligentMergeEnquetes(
+    } = this.mergeEnquetes(
       localData.enquetes || [],
       serverData.enquetes || [],
       localDeletedIds,
       serverDeletedIds,
-      localDeletedActeIds
+      localDeletedActeIds,
+      localDeletedCRIds,
+      localDeletedMECIds
     );
 
     conflicts.push(...enqueteConflicts);
@@ -58,26 +65,48 @@ export class DataMergeService {
     stats.newActesFromServer += enqueteStats.newActesFromServer;
     stats.acteChanges.push(...enqueteStats.acteChanges);
 
-    // 2. Fusionner les résultats d'audience
-    const {
-      merged: mergedAudience,
-      conflicts: audienceConflicts
-    } = this.intelligentMergeAudienceResults(
-      localData.audienceResultats || {},
-      serverData.audienceResultats || {}
-    );
-    conflicts.push(...audienceConflicts);
+    // Détecter si des changements réels existent dans chaque direction
+    const serverDeletedSet = new Set([
+      ...(serverData.deletedIds || []),
+      ...(serverData.deletedActeIds || []),
+      ...(serverData.deletedCRIds || []),
+      ...(serverData.deletedMECIds || []),
+    ]);
+    const localDeletedHasNew = [
+      ...(localData.deletedIds || []),
+      ...(localData.deletedActeIds || []),
+      ...(localData.deletedCRIds || []),
+      ...(localData.deletedMECIds || []),
+    ].some(id => !serverDeletedSet.has(id));
 
-    // 3. Fusionner les tags (union simple, local prioritaire)
+    const hasLocalChanges =
+      enqueteStats.newFromLocal > 0 ||
+      enqueteStats.localHasNewer ||
+      localDeletedHasNew;
+
+    const hasServerChanges =
+      enqueteStats.newFromServer > 0 ||
+      enqueteStats.serverHasNewer ||
+      enqueteStats.newActesFromServer > 0;
+
+    // 2. Fusionner les résultats d'audience (timestamp-based)
+    const mergedAudience = this.mergeByTimestamp(
+      localData.audienceResultats || {},
+      serverData.audienceResultats || {},
+      r => r.modifiedAt
+    );
+
+    // 3. Tags (union simple, local prioritaire)
     const mergedTags = { ...serverData.customTags, ...localData.customTags };
 
-    // 4. Fusionner les règles d'alertes (union par ID, local prioritaire)
-    const mergedRules = this.mergeAlertRules(localData.alertRules || [], serverData.alertRules || []);
+    // 4. Règles d'alertes (union par ID, local prioritaire)
+    const mergedRules = this.mergeArrayById(localData.alertRules || [], serverData.alertRules || []);
 
-    // 5. Fusionner les validations d'alertes (union, la plus récente gagne en cas de conflit sur la même clé)
-    const mergedValidations = this.mergeAlertValidations(
+    // 5. Validations d'alertes (union, le plus récent gagne)
+    const mergedValidations = this.mergeByTimestamp(
       localData.alertValidations || {},
-      serverData.alertValidations || {}
+      serverData.alertValidations || {},
+      v => v.validatedAt
     );
 
     return {
@@ -89,94 +118,79 @@ export class DataMergeService {
         alertValidations: mergedValidations,
         deletedIds: mergedDeletedIds,
         deletedActeIds: mergedDeletedActeIds,
+        deletedCRIds: mergedDeletedCRIds,
+        deletedMECIds: mergedDeletedMECIds,
         version: Math.max(localData.version || 0, serverData.version || 0) + 1
       },
       conflicts,
-      stats
+      stats,
+      hasLocalChanges,
+      hasServerChanges
     };
   }
 
-  /**
-   * 🆕 Fusion intelligente des enquêtes
-   * @param localDeletedIds IDs supprimés localement — ne doivent pas être rajoutés depuis le serveur
-   * @param serverDeletedIds IDs supprimés par un collègue sur le serveur — ne doivent pas être re-poussés depuis le local
-   */
-  private static intelligentMergeEnquetes(
+  // ─── ENQUÊTES ─────────────────────────────────────────────────────────────
+
+  private static mergeEnquetes(
     localEnquetes: Enquete[],
     serverEnquetes: Enquete[],
-    localDeletedIds: Set<number> = new Set(),
-    serverDeletedIds: Set<number> = new Set(),
-    localDeletedActeIds: Set<number> = new Set()
+    localDeletedIds: Set<number>,
+    serverDeletedIds: Set<number>,
+    localDeletedActeIds: Set<number>,
+    localDeletedCRIds: Set<number> = new Set(),
+    localDeletedMECIds: Set<number> = new Set()
   ): {
     merged: Enquete[];
     conflicts: SyncConflict[];
-    stats: { newFromServer: number; newFromLocal: number; merged: number; newActesFromServer: number; acteChanges: Array<{ enqueteNumero: string; count: number }> };
+    stats: { newFromServer: number; newFromLocal: number; merged: number; newActesFromServer: number; acteChanges: Array<{ enqueteNumero: string; count: number }>; localHasNewer: boolean; serverHasNewer: boolean };
   } {
     const conflicts: SyncConflict[] = [];
     const merged = new Map<number, Enquete>();
-    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0, newActesFromServer: 0, acteChanges: [] as Array<{ enqueteNumero: string; count: number }> };
+    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0, newActesFromServer: 0, acteChanges: [] as Array<{ enqueteNumero: string; count: number }>, localHasNewer: false, serverHasNewer: false };
 
     const localMap = new Map(localEnquetes.map(e => [e.id, e]));
     const serverMap = new Map(serverEnquetes.map(e => [e.id, e]));
 
-    // 1. Traiter les enquêtes serveur
+    // 1. Enquêtes serveur
     for (const [id, serverEnquete] of serverMap) {
       const localEnquete = localMap.get(id);
 
       if (!localEnquete) {
-        // Vérifier si cet ID a été supprimé intentionnellement en local
         if (localDeletedIds.has(id)) {
-          // ⛔ Supprimée localement → ne pas la rajouter depuis le serveur
-          console.log(`🗑️ DataMerge: Enquête ${id} ignorée (supprimée localement)`);
+          // Supprimée localement → ne pas re-ajouter
           continue;
         }
-        // ✅ Nouvelle enquête serveur → ajout automatique
+        // Nouvelle enquête serveur
         merged.set(id, serverEnquete);
         stats.newFromServer++;
         continue;
       }
 
-      // Enquête existe des deux côtés → tenter fusion intelligente
-      const mergeResult = this.tryMergeEnquete(localEnquete, serverEnquete, localDeletedActeIds);
+      // Existe des deux côtés → fusion automatique
+      const mergeResult = this.mergeEnquete(localEnquete, serverEnquete, localDeletedActeIds, localDeletedCRIds, localDeletedMECIds);
+      merged.set(id, mergeResult.merged);
+      stats.merged++;
 
-      if (mergeResult.hasConflict) {
-        // ⚠️ Conflit détecté → nécessite intervention
-        conflicts.push({
-          type: 'enquete_modified',
-          enqueteId: id,
-          enqueteNumero: serverEnquete.numero,
-          details: mergeResult.conflicts,
-          localData: localEnquete,
-          serverData: serverEnquete,
-          localTimestamp: localEnquete.dateMiseAJour,
-          serverTimestamp: serverEnquete.dateMiseAJour
-        });
-        // En attendant résolution, garder version locale
-        merged.set(id, localEnquete);
-      } else {
-        // ✅ Fusion automatique réussie
-        merged.set(id, mergeResult.merged!);
-        stats.merged++;
+      const localTs  = new Date(localEnquete.dateMiseAJour).getTime();
+      const serverTs = new Date(serverEnquete.dateMiseAJour).getTime();
+      if (localTs  > serverTs) stats.localHasNewer  = true;
+      if (serverTs > localTs)  stats.serverHasNewer = true;
 
-        // Détecter les nouveaux actes/écoutes/géolocs récupérés depuis le serveur
-        const localActeCount = (localEnquete.actes?.length ?? 0) + (localEnquete.ecoutes?.length ?? 0) + (localEnquete.geolocalisations?.length ?? 0);
-        const mergedActeCount = (mergeResult.merged!.actes?.length ?? 0) + (mergeResult.merged!.ecoutes?.length ?? 0) + (mergeResult.merged!.geolocalisations?.length ?? 0);
-        const delta = mergedActeCount - localActeCount;
-        if (delta > 0) {
-          stats.newActesFromServer += delta;
-          stats.acteChanges.push({ enqueteNumero: serverEnquete.numero, count: delta });
-        }
+      // Compter les nouveaux actes récupérés
+      const localActeCount = (localEnquete.actes?.length ?? 0) + (localEnquete.ecoutes?.length ?? 0) + (localEnquete.geolocalisations?.length ?? 0);
+      const mergedActeCount = (mergeResult.merged.actes?.length ?? 0) + (mergeResult.merged.ecoutes?.length ?? 0) + (mergeResult.merged.geolocalisations?.length ?? 0);
+      const delta = mergedActeCount - localActeCount;
+      if (delta > 0) {
+        stats.newActesFromServer += delta;
+        stats.acteChanges.push({ enqueteNumero: serverEnquete.numero, count: delta });
       }
     }
 
-    // 2. Traiter les enquêtes locales uniquement
+    // 2. Enquêtes locales uniquement
     for (const [id, localEnquete] of localMap) {
       if (!serverMap.has(id)) {
-        // Vérifier si un collègue a supprimé cette enquête sur le serveur
         if (serverDeletedIds.has(id)) {
-          // ⚠️ Supprimée par un collègue MAIS présente localement
-          // → CONFLIT OBLIGATOIRE (ne jamais supprimer silencieusement des données locales)
-          console.warn(`⚠️ DataMerge: Conflit suppression enquête ${id} (présente en local, supprimée sur serveur)`);
+          // Supprimée par un collègue → CONFLIT (seul cas restant)
           conflicts.push({
             type: 'enquete_deleted',
             enqueteId: id,
@@ -186,11 +200,10 @@ export class DataMergeService {
             serverData: null,
             localTimestamp: localEnquete.dateMiseAJour
           });
-          // En attendant la résolution, conserver la version locale
           merged.set(id, localEnquete);
           continue;
         }
-        // ✅ Nouvelle enquête locale → push vers serveur
+        // Nouvelle enquête locale
         merged.set(id, localEnquete);
         stats.newFromLocal++;
       }
@@ -200,425 +213,115 @@ export class DataMergeService {
   }
 
   /**
-   * 🆕 Tente de fusionner deux versions d'une même enquête intelligemment
-   * (PUBLIQUE pour usage dans DataSyncManager)
+   * Fusionne deux versions d'une même enquête.
+   * Principe : union des sous-éléments par ID, le plus récent gagne pour les doublons.
+   * Ne retourne jamais de conflit.
    */
-  public static tryMergeEnquete(local: Enquete, server: Enquete, deletedActeIds?: Set<number>): {
-    merged?: Enquete;
-    hasConflict: boolean;
-    conflicts: string[];
-  } {
-    const conflicts: string[] = [];
-    const deletedIds = deletedActeIds || new Set<number>();
+  public static mergeEnquete(
+    local: Enquete,
+    server: Enquete,
+    deletedActeIds?: Set<number>,
+    deletedCRIds?: Set<number>,
+    deletedMECIds?: Set<number>
+  ): { merged: Enquete; } {
+    const deletedIds    = deletedActeIds || new Set<number>();
+    const deletedCRs    = deletedCRIds   || new Set<number>();
+    const deletedMECs   = deletedMECIds  || new Set<number>();
+    const localIsNewer = new Date(local.dateMiseAJour).getTime() >= new Date(server.dateMiseAJour).getTime();
+    const newer = localIsNewer ? local : server;
+    const older = localIsNewer ? server : local;
 
-    // 1. Fusionner les comptes-rendus (union par ID)
-    const { merged: mergedCRs, conflicts: crConflicts } = this.mergeCRs(
-      local.comptesRendus,
-      server.comptesRendus
-    );
-    conflicts.push(...crConflicts);
-
-    // 2. Fusionner les mis en cause (union par ID)
-    const { merged: mergedMECs, conflicts: mecConflicts } = this.mergeMECs(
-      local.misEnCause,
-      server.misEnCause
-    );
-    conflicts.push(...mecConflicts);
-
-    // 3. Fusionner les actes (intelligent avec timestamps enquête)
-    const localDate = new Date(local.dateMiseAJour).getTime();
-    const serverDate = new Date(server.dateMiseAJour).getTime();
-
-    const { merged: mergedActes, conflicts: actesConflicts } = this.mergeActes(
-      local.actes || [],
-      server.actes || [],
-      localDate,
-      serverDate,
-      deletedIds
-    );
-    conflicts.push(...actesConflicts.map(c => `Actes: ${c}`));
-
-    const { merged: mergedEcoutes, conflicts: ecoutesConflicts } = this.mergeActes(
-      local.ecoutes || [],
-      server.ecoutes || [],
-      localDate,
-      serverDate,
-      deletedIds
-    );
-    conflicts.push(...ecoutesConflicts.map(c => `Écoutes: ${c}`));
-
-    const { merged: mergedGeoloc, conflicts: geolocConflicts } = this.mergeActes(
-      local.geolocalisations || [],
-      server.geolocalisations || [],
-      localDate,
-      serverDate,
-      deletedIds
-    );
-    conflicts.push(...geolocConflicts.map(c => `Géolocalisations: ${c}`));
-
-    // Si aucun conflit → fusion réussie
-    if (conflicts.length === 0) {
-      return {
-        merged: {
-          ...local,
-          comptesRendus: mergedCRs,
-          misEnCause: mergedMECs,
-          actes: mergedActes,
-          ecoutes: mergedEcoutes,
-          geolocalisations: mergedGeoloc,
-          // Prendre les champs du plus récent (timestamp)
-          numero: serverDate > localDate ? server.numero : local.numero,
-          description: serverDate > localDate ? server.description : local.description,
-          services: serverDate > localDate ? server.services : local.services,
-          tags: this.mergeTags(local.tags, server.tags),
-          // Conserver le timestamp réel de la dernière modification (ne pas gonfler à l'heure actuelle)
-          dateMiseAJour: serverDate > localDate ? server.dateMiseAJour : local.dateMiseAJour
-        },
-        hasConflict: false,
-        conflicts: []
-      };
-    }
-
-    // Sinon, retourner les conflits
     return {
-      hasConflict: true,
-      conflicts
+      merged: {
+        ...newer,
+        // Union des sous-éléments par ID (on ne perd rien, les suppressions intentionnelles sont respectées)
+        comptesRendus: this.unionById(
+          local.comptesRendus.filter(cr => !deletedCRs.has(cr.id)),
+          server.comptesRendus.filter(cr => !deletedCRs.has(cr.id)),
+          localIsNewer
+        ),
+        misEnCause: this.unionById(
+          local.misEnCause.filter(m => !deletedMECs.has(m.id)),
+          server.misEnCause.filter(m => !deletedMECs.has(m.id)),
+          localIsNewer
+        ),
+        actes: this.unionById(
+          (local.actes || []).filter(a => !deletedIds.has(a.id)),
+          (server.actes || []).filter(a => !deletedIds.has(a.id)),
+          localIsNewer
+        ),
+        ecoutes: this.unionById(
+          (local.ecoutes || []).filter(a => !deletedIds.has(a.id)),
+          (server.ecoutes || []).filter(a => !deletedIds.has(a.id)),
+          localIsNewer
+        ),
+        geolocalisations: this.unionById(
+          (local.geolocalisations || []).filter(a => !deletedIds.has(a.id)),
+          (server.geolocalisations || []).filter(a => !deletedIds.has(a.id)),
+          localIsNewer
+        ),
+        tags: this.unionById(local.tags || [], server.tags || [], localIsNewer),
+        // Suivi, communications, etc. : prendre la version la plus récente
+        suivi: newer.suivi || older.suivi,
+        communications: newer.communications || older.communications,
+        checklist: newer.checklist || older.checklist,
+        documents: this.unionById(newer.documents || [], older.documents || [], true),
+        toDos: newer.toDos || older.toDos,
+        // Timestamp : garder le réel (ne pas gonfler)
+        dateMiseAJour: newer.dateMiseAJour
+      }
     };
   }
 
-  /**
-   * 🆕 Fusionne les comptes-rendus intelligemment
-   */
-  private static mergeCRs(local: CompteRendu[], server: CompteRendu[]): {
-    merged: CompteRendu[];
-    conflicts: string[];
-  } {
-    const conflicts: string[] = [];
-    const merged = new Map<number, CompteRendu>();
-
-    // Ajouter tous les CR locaux
-    local.forEach(cr => merged.set(cr.id, cr));
-
-    // Ajouter les CR serveur
-    server.forEach(serverCR => {
-      const localCR = merged.get(serverCR.id);
-
-      if (!localCR) {
-        // ✅ Nouveau CR serveur → ajout
-        merged.set(serverCR.id, serverCR);
-      } else {
-        // CR existe des deux côtés
-        if (
-          localCR.date !== serverCR.date ||
-          localCR.description !== serverCR.description ||
-          localCR.enqueteur !== serverCR.enqueteur
-        ) {
-          // ⚠️ Même CR modifié différemment → CONFLIT
-          conflicts.push(`CR du ${localCR.date} modifié des deux côtés`);
-        }
-        // Garder version locale en attendant
-      }
-    });
-
-    return { merged: Array.from(merged.values()), conflicts };
-  }
+  // ─── UTILITAIRES GÉNÉRIQUES ───────────────────────────────────────────────
 
   /**
-   * 🆕 Fusionne les mis en cause intelligemment
+   * Union de deux tableaux par ID. Pour les doublons, `localIsNewer` détermine quelle version garder.
    */
-  private static mergeMECs(local: MisEnCause[], server: MisEnCause[]): {
-    merged: MisEnCause[];
-    conflicts: string[];
-  } {
-    const conflicts: string[] = [];
-    const merged = new Map<number, MisEnCause>();
+  private static unionById<T extends { id: number }>(local: T[], server: T[], localIsNewer: boolean): T[] {
+    const merged = new Map<number, T>();
 
-    local.forEach(mec => merged.set(mec.id, mec));
+    // D'abord la version "perdante", puis la "gagnante" qui écrase les doublons
+    const first = localIsNewer ? server : local;
+    const second = localIsNewer ? local : server;
 
-    server.forEach(serverMEC => {
-      const localMEC = merged.get(serverMEC.id);
-
-      if (!localMEC) {
-        // ✅ Nouveau MEC serveur → ajout
-        merged.set(serverMEC.id, serverMEC);
-      } else {
-        // MEC existe des deux côtés
-        if (
-          localMEC.nom !== serverMEC.nom ||
-          localMEC.role !== serverMEC.role ||
-          localMEC.statut !== serverMEC.statut
-        ) {
-          // ⚠️ Même MEC modifié différemment → CONFLIT
-          conflicts.push(`MEC "${localMEC.nom}" modifié des deux côtés`);
-        }
-        // Garder version locale en attendant
-      }
-    });
-
-    return { merged: Array.from(merged.values()), conflicts };
-  }
-
-  /**
-   * 🆕 Fusionne les actes intelligemment (logique spéciale prolongations/poses)
-   */
-  private static mergeActes(
-    local: any[],
-    server: any[],
-    localEnqueteTimestamp: number,
-    serverEnqueteTimestamp: number,
-    deletedActeIds: Set<number> = new Set()
-  ): {
-    merged: any[];
-    conflicts: string[];
-  } {
-    const conflicts: string[] = [];
-    const merged = new Map<number, any>();
-
-    local.forEach(acte => merged.set(acte.id, acte));
-
-    server.forEach(serverActe => {
-      const localActe = merged.get(serverActe.id);
-
-      if (!localActe) {
-        // Vérifier si cet acte a été supprimé intentionnellement en local
-        if (deletedActeIds.has(serverActe.id)) {
-          console.log(`🗑️ DataMerge: Acte ${serverActe.id} ignoré (supprimé localement)`);
-          return;
-        }
-        // ✅ Nouvel acte serveur → ajout
-        merged.set(serverActe.id, serverActe);
-        return;
-      }
-
-      // Acte existe des deux côtés → vérifier si c'est une progression normale
-      const progressionCheck = this.checkActeProgression(localActe, serverActe);
-
-      if (progressionCheck.isProgression) {
-        // ✅ Progression normale détectée → prendre la version indiquée
-        merged.set(serverActe.id, progressionCheck.takeServer ? serverActe : localActe);
-      } else {
-        // Pas de progression workflow → vérifier les conflits de champs
-        const fieldConflicts = this.compareActeForConflict(localActe, serverActe);
-        if (fieldConflicts.length > 0) {
-          // ⚠️ Modifications contradictoires détectées → signaler le conflit
-          conflicts.push(...fieldConflicts);
-        }
-        // Utiliser timestamp de l'enquête parente pour déterminer la version par défaut
-        if (serverEnqueteTimestamp > localEnqueteTimestamp) {
-          merged.set(serverActe.id, serverActe);
-        }
-        // Sinon garder local (déjà dans merged)
-      }
-    });
-
-    return { merged: Array.from(merged.values()), conflicts };
-  }
-
-  /**
-   * 🆕 Vérifie si c'est une progression normale d'un acte et indique quelle version prendre
-   */
-  private static checkActeProgression(local: any, server: any): {
-    isProgression: boolean;
-    takeServer: boolean;
-  } {
-    // Cas 1a: Prolongation demandée → prolongation validée (serveur plus récent)
-    if (
-      local.statut === 'prolongation_pending' &&
-      server.statut === 'en_cours' &&
-      server.prolongationDate &&
-      !local.prolongationDate
-    ) {
-      return { isProgression: true, takeServer: true }; // Prendre serveur (validé)
-    }
-
-    // Cas 1b: En cours → Prolongation demandée (local plus récent)
-    if (
-      server.statut === 'en_cours' &&
-      local.statut === 'prolongation_pending' &&
-      !server.prolongationDate &&
-      !local.prolongationDate
-    ) {
-      return { isProgression: true, takeServer: false }; // Prendre local (demande)
-    }
-
-    // Cas 2a: Pose en attente → pose effectuée (serveur plus récent)
-    if (
-      local.statut === 'pose_pending' &&
-      server.statut === 'en_cours' &&
-      server.datePose &&
-      !local.datePose
-    ) {
-      return { isProgression: true, takeServer: true }; // Prendre serveur (posé)
-    }
-
-    // Cas 2b: En cours → Pose en attente (local plus récent)
-    if (
-      server.statut === 'en_cours' &&
-      local.statut === 'pose_pending' &&
-      !local.datePose
-    ) {
-      return { isProgression: true, takeServer: false }; // Prendre local (demande pose)
-    }
-
-    // Cas 2c: Pose demandée par un collègue sur le serveur → prendre serveur
-    if (
-      server.statut === 'pose_pending' &&
-      local.statut === 'en_cours'
-    ) {
-      return { isProgression: true, takeServer: true }; // Prendre serveur (demande collègue)
-    }
-
-    // Cas 3a: Autorisation demandée en local, serveur pas encore au courant → garder local
-    if (
-      local.statut === 'autorisation_pending' &&
-      server.statut === 'en_cours'
-    ) {
-      return { isProgression: true, takeServer: false }; // Prendre local (demande d'autorisation)
-    }
-
-    // Cas 3b: Autorisation demandée sur le serveur (par un collègue), local encore en cours → prendre serveur
-    if (
-      server.statut === 'autorisation_pending' &&
-      local.statut === 'en_cours'
-    ) {
-      return { isProgression: true, takeServer: true }; // Prendre serveur (demande collègue)
-    }
-
-    // Cas 4: Ajout de prolongation (durée augmentée)
-    if (
-      !local.prolongationDate &&
-      server.prolongationDate &&
-      parseInt(server.duree) > parseInt(local.duree)
-    ) {
-      return { isProgression: true, takeServer: true }; // Prendre serveur (prolongé)
-    }
-
-    return { isProgression: false, takeServer: false };
-  }
-
-  /**
-   * 🆕 Compare deux actes pour détecter conflits réels
-   */
-  private static compareActeForConflict(local: any, server: any): string[] {
-    const diffs: string[] = [];
-
-    // Dates de début différentes (hors ajout de pose)
-    if (local.dateDebut !== server.dateDebut) {
-      diffs.push('date début différente');
-    }
-
-    // Dates de fin contradictoires (pas juste prolongation)
-    if (local.dateFin !== server.dateFin) {
-      const localDuree = parseInt(local.duree);
-      const serverDuree = parseInt(server.duree);
-      
-      // Si les durées sont identiques mais dates fin différentes → conflit
-      if (localDuree === serverDuree) {
-        diffs.push('date fin différente');
-      }
-    }
-
-    // Statuts contradictoires (hors progressions normales)
-    if (local.statut !== server.statut) {
-      const isContradictory = !(
-        // Local a une demande en attente, serveur pas encore au courant
-        (local.statut === 'prolongation_pending' && server.statut === 'en_cours') ||
-        (local.statut === 'pose_pending'          && server.statut === 'en_cours') ||
-        (local.statut === 'autorisation_pending'  && server.statut === 'en_cours') ||
-        // Serveur a une demande en attente (collègue), local pas encore au courant
-        (local.statut === 'en_cours' && server.statut === 'prolongation_pending') ||
-        (local.statut === 'en_cours' && server.statut === 'pose_pending')          ||
-        (local.statut === 'en_cours' && server.statut === 'autorisation_pending')
-      );
-
-      if (isContradictory) {
-        diffs.push(`statut: ${local.statut} vs ${server.statut}`);
-      }
-    }
-
-    return diffs;
-  }
-
-  /**
-   * Fusionne les tags (union simple)
-   */
-  private static mergeTags(local: any[], server: any[]): any[] {
-    const merged = new Map();
-    
-    server.forEach(tag => merged.set(tag.id, tag));
-    local.forEach(tag => merged.set(tag.id, tag));
-    
-    return Array.from(merged.values());
-  }
-
-  /**
-   * Fusionne les résultats d'audience
-   */
-  private static intelligentMergeAudienceResults(
-    local: Record<string, ResultatAudience>,
-    server: Record<string, ResultatAudience>
-  ): { merged: Record<string, ResultatAudience>; conflicts: SyncConflict[] } {
-    const conflicts: SyncConflict[] = [];
-    const merged: Record<string, ResultatAudience> = { ...server };
-
-    // Pour chaque résultat local
-    for (const [enqueteId, localResult] of Object.entries(local)) {
-      const serverResult = server[enqueteId];
-
-      if (!serverResult) {
-        // ✅ Nouveau résultat local → ajout
-        merged[enqueteId] = localResult;
-      } else {
-        // Résultat existe des deux côtés
-        if (JSON.stringify(localResult) !== JSON.stringify(serverResult)) {
-          // ⚠️ Résultats différents → CONFLIT
-          conflicts.push({
-            type: 'audience_modified',
-            enqueteId: parseInt(enqueteId),
-            details: ['Résultat d\'audience modifié des deux côtés'],
-            localData: localResult,
-            serverData: serverResult
-          });
-          // Garder version locale en attendant
-          merged[enqueteId] = localResult;
-        }
-      }
-    }
-
-    return { merged, conflicts };
-  }
-
-  /**
-   * Fusionne les règles d'alertes (union par ID, local prioritaire)
-   */
-  private static mergeAlertRules(local: any[], server: any[]): any[] {
-    const merged = new Map();
-
-    server.forEach(rule => merged.set(rule.id, rule));
-    local.forEach(rule => merged.set(rule.id, rule));
+    first.forEach(item => merged.set(item.id, item));
+    second.forEach(item => merged.set(item.id, item));
 
     return Array.from(merged.values());
   }
 
   /**
-   * Fusionne les validations d'alertes (union, la plus récente gagne en cas de conflit sur la même clé)
-   * Cela permet de propager les actions "reporter/valider" entre tous les postes.
+   * Union de deux tableaux par ID (local prioritaire). Utilisé pour les règles d'alertes.
    */
-  private static mergeAlertValidations(
-    local: Record<string, any>,
-    server: Record<string, any>
-  ): Record<string, any> {
-    const merged: Record<string, any> = { ...server };
+  private static mergeArrayById<T extends { id: number | string }>(local: T[], server: T[]): T[] {
+    const merged = new Map<number | string, T>();
+    server.forEach(item => merged.set(item.id, item));
+    local.forEach(item => merged.set(item.id, item));
+    return Array.from(merged.values());
+  }
 
-    for (const [key, localVal] of Object.entries(local)) {
-      if (!merged[key]) {
-        merged[key] = localVal;
+  /**
+   * Fusionne deux Record<string, T> en prenant la version la plus récente pour chaque clé.
+   * Si un élément n'a pas de timestamp, la version locale est préférée.
+   */
+  private static mergeByTimestamp<T>(
+    local: Record<string, T>,
+    server: Record<string, T>,
+    getTimestamp: (item: T) => string | undefined
+  ): Record<string, T> {
+    const merged: Record<string, T> = { ...server };
+
+    for (const [key, localItem] of Object.entries(local)) {
+      const serverItem = merged[key];
+
+      if (!serverItem) {
+        merged[key] = localItem;
       } else {
-        // Les deux côtés ont une validation pour cette clé → garder la plus récente
-        const serverDate = new Date(merged[key].validatedAt ?? 0).getTime();
-        const localDate = new Date(localVal.validatedAt ?? 0).getTime();
-        if (localDate > serverDate) {
-          merged[key] = localVal;
+        const localDate = new Date(getTimestamp(localItem) ?? 0).getTime();
+        const serverDate = new Date(getTimestamp(serverItem) ?? 0).getTime();
+        if (localDate >= serverDate) {
+          merged[key] = localItem;
         }
       }
     }
@@ -626,79 +329,12 @@ export class DataMergeService {
     return merged;
   }
 
-  /**
-   * Applique la résolution "keep_local" - garde les données locales
-   */
-  static resolveKeepLocal(localData: SyncData, serverData: SyncData): SyncData {
-    const localEnqueteIds = new Set((localData.enquetes || []).map(e => e.id));
-    const mergedDeletedIds = Array.from(new Set([
-      ...(localData.deletedIds || []),
-      ...(serverData.deletedIds || [])
-    ]));
-    const mergedDeletedActeIds = Array.from(new Set([
-      ...(localData.deletedActeIds || []),
-      ...(serverData.deletedActeIds || [])
-    ]));
+  // ─── LABELS ───────────────────────────────────────────────────────────────
 
-    const newServerEnquetes = (serverData.enquetes || []).filter(
-      e => !localEnqueteIds.has(e.id) && !mergedDeletedIds.includes(e.id)
-    );
-
-    return {
-      enquetes: [...localData.enquetes, ...newServerEnquetes],
-      audienceResultats: { ...serverData.audienceResultats, ...localData.audienceResultats },
-      customTags: localData.customTags,
-      alertRules: localData.alertRules,
-      alertValidations: this.mergeAlertValidations(localData.alertValidations || {}, serverData.alertValidations || {}),
-      deletedIds: mergedDeletedIds,
-      deletedActeIds: mergedDeletedActeIds,
-      version: localData.version + 1
-    };
-  }
-
-  /**
-   * Applique la résolution "keep_server" - garde les données serveur
-   */
-  static resolveKeepServer(localData: SyncData, serverData: SyncData): SyncData {
-    const serverEnqueteIds = new Set((serverData.enquetes || []).map(e => e.id));
-    const mergedDeletedIds = Array.from(new Set([
-      ...(localData.deletedIds || []),
-      ...(serverData.deletedIds || [])
-    ]));
-    const mergedDeletedActeIds = Array.from(new Set([
-      ...(localData.deletedActeIds || []),
-      ...(serverData.deletedActeIds || [])
-    ]));
-
-    const newLocalEnquetes = (localData.enquetes || []).filter(
-      e => !serverEnqueteIds.has(e.id) && !mergedDeletedIds.includes(e.id)
-    );
-
-    return {
-      enquetes: [...serverData.enquetes, ...newLocalEnquetes],
-      audienceResultats: { ...localData.audienceResultats, ...serverData.audienceResultats },
-      customTags: serverData.customTags,
-      alertRules: serverData.alertRules,
-      alertValidations: this.mergeAlertValidations(localData.alertValidations || {}, serverData.alertValidations || {}),
-      deletedIds: mergedDeletedIds,
-      deletedActeIds: mergedDeletedActeIds,
-      version: serverData.version + 1
-    };
-  }
-
-  /**
-   * Retourne le libellé d'un type de conflit
-   */
-  static getConflictTypeLabel(type: ConflictType): string {
-    const labels: Record<ConflictType, string> = {
-      'enquete_modified': 'Enquête modifiée',
+  static getConflictTypeLabel(type: string): string {
+    const labels: Record<string, string> = {
       'enquete_deleted': 'Enquête supprimée sur le serveur',
-      'enquete_new': 'Nouvelle enquête',
-      'audience_modified': 'Résultat d\'audience modifié',
-      'tags_modified': 'Tags modifiés',
-      'rules_modified': 'Règles d\'alertes modifiées'
     };
-
     return labels[type] || 'Conflit';
   }
 }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { dataSyncManager } from '@/utils/dataSync/DataSyncManager';
-import { SyncStatus, SyncResult, ConflictResolution, ConflictAction } from '@/types/dataSyncTypes';
+import { SyncStatus, SyncResult, ConflictAction } from '@/types/dataSyncTypes';
 
 /**
  * Hook personnalisé pour gérer la synchronisation des données
@@ -100,34 +100,6 @@ export const useDataSync = () => {
   }, [lastSyncResult]);
 
   /**
-   * @deprecated Utilisez resolveConflicts() à la place
-   * Résout un conflit avec la stratégie choisie (ancienne API)
-   */
-  const resolveConflict = useCallback(async (
-    resolution: ConflictResolution,
-    result: SyncResult
-  ): Promise<void> => {
-    if (!result.localData || !result.serverData) {
-      throw new Error('Données manquantes pour résoudre le conflit');
-    }
-
-    setIsSyncing(true);
-
-    try {
-      await dataSyncManager.resolveConflict(resolution, result.localData, result.serverData);
-      
-      // Déclencher une nouvelle sync pour vérifier
-      const newResult = await dataSyncManager.triggerSync();
-      setLastSyncResult(newResult);
-    } catch (error) {
-      console.error('Erreur résolution conflit:', error);
-      throw error;
-    } finally {
-      setIsSyncing(false);
-    }
-  }, []);
-
-  /**
    * Force l'écriture des données locales sur le serveur corrompu.
    * À utiliser uniquement depuis la machine qui possède la version correcte.
    */
@@ -189,8 +161,7 @@ export const useDataSync = () => {
 
     // Méthodes
     triggerSync,
-    resolveConflicts,             // Nouvelle API avec sélection individuelle
-    resolveConflict,              // Ancienne API (dépréciée)
+    resolveConflicts,
     repairServer,
     restoreFromServerBackup,      // Restauration depuis backup serveur
     listServerBackups,            // Liste des backups disponibles sur le serveur

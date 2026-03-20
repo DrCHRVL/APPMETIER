@@ -51,7 +51,7 @@ import { PendingActsJLD } from './components/PendingActsJLD';
 // 🆕 Imports pour la synchronisation des données
 import { useDataSync } from './hooks/useDataSync';
 import { DataSyncConflictModal } from './components/modals/DataSyncConflictModal';
-import { ConflictResolution, ConflictAction } from '@/types/dataSyncTypes';
+import { ConflictAction } from '@/types/dataSyncTypes';
 import { DataSyncManager } from './utils/dataSync/DataSyncManager';
 
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
@@ -309,28 +309,6 @@ function AppContent() {
     } catch (error) {
       console.error('Erreur sync:', error);
       showToast('Erreur lors de la synchronisation', 'error');
-    }
-  };
-
-  // 🆕 Gestionnaire de résolution de conflit
-  const handleConflictResolution = async (resolution: ConflictResolution) => {
-    if (!lastSyncResult || !lastSyncResult.localData || !lastSyncResult.serverData) {
-      showToast('Données manquantes pour résoudre le conflit', 'error');
-      return;
-    }
-
-    try {
-      showToast('Résolution des conflits en cours...', 'info');
-      await resolveConflicts(resolution, lastSyncResult);
-      setShowConflictModal(false);
-      showToast('Conflits résolus avec succès', 'success');
-      
-      setTimeout(() => {
-        window.location.reload();
-      }, 500);
-    } catch (error) {
-      console.error('Erreur résolution:', error);
-      showToast('Erreur lors de la résolution des conflits', 'error');
     }
   };
 
