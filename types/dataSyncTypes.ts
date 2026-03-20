@@ -42,14 +42,11 @@ export interface SyncStatus {
 
 /**
  * Types de conflits détectés
+ * Seul enquete_deleted nécessite encore une intervention utilisateur.
+ * Les autres cas sont résolus automatiquement (le plus récent gagne).
  */
-export type ConflictType = 
-  | 'enquete_modified'    // Enquête modifiée des 2 côtés
-  | 'enquete_deleted'     // Enquête supprimée d'un côté
-  | 'enquete_new'         // Nouvelle enquête des 2 côtés avec même ID
-  | 'audience_modified'   // Résultat audience modifié
-  | 'tags_modified'       // Tags modifiés
-  | 'rules_modified';     // Règles d'alertes modifiées
+export type ConflictType =
+  | 'enquete_deleted';     // Enquête supprimée par un collègue
 
 /**
  * Détails d'un conflit
@@ -90,14 +87,6 @@ export interface SyncResult {
  */
 export type ConflictAction = 'merge' | 'skip' | 'keep_local' | 'keep_server';
 
-/**
- * Options de résolution de conflit
- */
-export type ConflictResolution =
-  | 'keep_local'      // Garder les données locales
-  | 'keep_server'     // Garder les données serveur
-  | 'merge'           // Fusionner intelligemment
-  | 'cancel';         // Annuler la synchronisation
 
 /**
  * Notification de changement détecté

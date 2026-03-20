@@ -105,9 +105,7 @@ export const DataSyncConflictModal = ({
 
   const getConflictTypeLabel = (type: string): string => {
     const labels: Record<string, string> = {
-      'enquete_modified': 'Enquête modifiée',
       'enquete_deleted': 'Enquête supprimée sur le serveur',
-      'audience_modified': 'Résultat d\'audience modifié'
     };
     return labels[type] || 'Conflit';
   };

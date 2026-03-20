@@ -9,7 +9,6 @@ import {
   SyncMetadata,
   SyncConfig,
   SyncConflict,
-  ConflictResolution,
   ConflictAction
 } from '@/types/dataSyncTypes';
 import { APP_CONFIG } from '@/config/constants';
@@ -497,210 +496,36 @@ export class DataSyncManager {
     localData: SyncData,
     serverData: SyncData
   ): Promise<void> {
-    // Construire les données fusionnées en fonction des sélections
-    const mergedDeletedIds = Array.from(new Set([
-      ...(localData.deletedIds || []),
-      ...(serverData.deletedIds || [])
-    ]));
-    const mergedDeletedActeIds = Array.from(new Set([
-      ...(localData.deletedActeIds || []),
-      ...(serverData.deletedActeIds || [])
-    ]));
+    // D'abord, faire une fusion automatique complète (le plus récent gagne)
+    const { merged: resolvedData } = DataMergeService.intelligentMerge(localData, serverData);
 
-    // Fusionner les validations d'alertes (union, la plus récente gagne)
-    const mergedValidations: Record<string, any> = { ...(serverData.alertValidations || {}) };
-    for (const [key, localVal] of Object.entries(localData.alertValidations || {})) {
-      if (!mergedValidations[key]) {
-        mergedValidations[key] = localVal;
-      } else {
-        const serverDate = new Date(mergedValidations[key].validatedAt ?? 0).getTime();
-        const localDate = new Date(localVal.validatedAt ?? 0).getTime();
-        if (localDate > serverDate) mergedValidations[key] = localVal;
-      }
-    }
-
-    const resolvedData: SyncData = {
-      enquetes: [],
-      audienceResultats: {},
-      customTags: localData.customTags,
-      alertRules: localData.alertRules,
-      alertValidations: mergedValidations,
-      deletedIds: mergedDeletedIds,
-      deletedActeIds: mergedDeletedActeIds,
-      version: Math.max(localData.version || 0, serverData.version || 0) + 1
-    };
-
-    // Maps pour faciliter la recherche
+    // Ensuite, appliquer les décisions utilisateur pour les suppressions
     const localEnqueteMap = new Map((localData.enquetes || []).map(e => [e.id, e]));
-    const serverEnqueteMap = new Map((serverData.enquetes || []).map(e => [e.id, e]));
-    const processedEnqueteIds = new Set<number>();
 
-    // Traiter chaque conflit selon la sélection
     conflicts.forEach((conflict, index) => {
       const action = selections.get(index) || 'merge';
-      
-      if (conflict.type === 'enquete_modified' || conflict.type === 'enquete_deleted') {
-        const enqueteId = conflict.enqueteId!;
-        processedEnqueteIds.add(enqueteId);
 
-        switch (action) {
-          case 'skip':
-            // Garder la version locale par sécurité (ne jamais perdre de données silencieusement)
-            const skipLocal = localEnqueteMap.get(enqueteId);
-            if (skipLocal) {
-              resolvedData.enquetes.push(skipLocal);
-            }
-            break;
-            
-          case 'keep_local':
-            const localEnquete = localEnqueteMap.get(enqueteId);
-            if (localEnquete) {
-              resolvedData.enquetes.push(localEnquete);
-            }
-            break;
-            
-          case 'keep_server':
-            const serverEnquete = serverEnqueteMap.get(enqueteId);
-            if (serverEnquete) {
-              resolvedData.enquetes.push(serverEnquete);
-            }
-            break;
-            
-          case 'merge':
-            // Fusion intelligente pour cette enquête
-            const local = localEnqueteMap.get(enqueteId);
-            const server = serverEnqueteMap.get(enqueteId);
-            
-            if (local && server) {
-              const mergeResult = DataMergeService.tryMergeEnquete(local, server);
-              resolvedData.enquetes.push(mergeResult.merged || local);
-            } else if (local) {
-              resolvedData.enquetes.push(local);
-            } else if (server) {
-              resolvedData.enquetes.push(server);
-            }
-            break;
+      if (conflict.type === 'enquete_deleted' && conflict.enqueteId) {
+        const enqueteId = conflict.enqueteId;
+
+        if (action === 'keep_server' || action === 'skip') {
+          // L'utilisateur accepte la suppression → retirer l'enquête du résultat
+          resolvedData.enquetes = resolvedData.enquetes.filter(e => e.id !== enqueteId);
         }
-      }
-      
-      // Gérer les résultats d'audience
-      if (conflict.type === 'audience_modified' && conflict.enqueteId) {
-        const enqueteId = conflict.enqueteId.toString();
-        const action = selections.get(index) || 'merge';
-        
-        switch (action) {
-          case 'skip':
-            break;
-          case 'keep_local':
-            if (localData.audienceResultats[enqueteId]) {
-              resolvedData.audienceResultats[enqueteId] = localData.audienceResultats[enqueteId];
-            }
-            break;
-          case 'keep_server':
-            if (serverData.audienceResultats[enqueteId]) {
-              resolvedData.audienceResultats[enqueteId] = serverData.audienceResultats[enqueteId];
-            }
-            break;
-          case 'merge':
-            // Pour les résultats d'audience, prendre le local par défaut
-            resolvedData.audienceResultats[enqueteId] = 
-              localData.audienceResultats[enqueteId] || serverData.audienceResultats[enqueteId];
-            break;
-        }
-      }
-    });
-
-    // Ajouter toutes les enquêtes non-conflictuelles sans créer de doublons
-    // ⚠️ BUG CORRIGÉ : l'ancienne version ajoutait les enquêtes depuis les deux côtés (local ET serveur),
-    // créant des doublons. Lors de la re-sync immédiate, new Map() gardait la version serveur (la dernière),
-    // écrasant les actes enregistrés localement.
-    const nonConflictLocal = new Map(
-      (localData.enquetes ?? [])
-        .filter(e => !processedEnqueteIds.has(e.id))
-        .map(e => [e.id, e])
-    );
-    const nonConflictServer = new Map(
-      (serverData.enquetes ?? [])
-        .filter(e => !processedEnqueteIds.has(e.id))
-        .map(e => [e.id, e])
-    );
-
-    for (const [id, serverEnquete] of nonConflictServer) {
-      if (!nonConflictLocal.has(id)) {
-        // Uniquement côté serveur → ajouter
-        resolvedData.enquetes.push(serverEnquete);
-      }
-    }
-    for (const [id, localEnquete] of nonConflictLocal) {
-      const serverEnquete = nonConflictServer.get(id);
-      if (!serverEnquete) {
-        // Uniquement côté local → ajouter
-        resolvedData.enquetes.push(localEnquete);
-      } else {
-        // Présente des deux côtés → fusion intelligente (local prioritaire)
-        const mergeResult = DataMergeService.tryMergeEnquete(localEnquete, serverEnquete);
-        resolvedData.enquetes.push(mergeResult.merged ?? localEnquete);
-      }
-    }
-
-    // Fusionner les résultats d'audience non-conflictuels
-    Object.entries(localData.audienceResultats || {}).forEach(([id, result]) => {
-      if (!resolvedData.audienceResultats[id]) {
-        resolvedData.audienceResultats[id] = result;
-      }
-    });
-
-    Object.entries(serverData.audienceResultats || {}).forEach(([id, result]) => {
-      if (!resolvedData.audienceResultats[id]) {
-        resolvedData.audienceResultats[id] = result;
+        // 'keep_local' ou 'merge' → l'enquête est déjà dans resolvedData (ajoutée par mergeEnquetes)
       }
     });
 
     // Sauvegarder et synchroniser
     await this.saveLocalData(resolvedData);
     await this.pushToServer(resolvedData);
-    
+
     this.lastSuccessfulSync = new Date().toISOString();
     this.handleSyncSuccess();
-    
+
     this.showToast(`✅ ${conflicts.length} conflit(s) résolu(s)`, 'success');
   }
 
-  /**
-   * @deprecated Utilisez resolveConflicts() à la place
-   */
-  public async resolveConflict(
-    resolution: ConflictResolution,
-    localData: SyncData,
-    serverData: SyncData
-  ): Promise<void> {
-    let resolvedData: SyncData;
-
-    switch (resolution) {
-      case 'keep_local':
-        resolvedData = DataMergeService.resolveKeepLocal(localData, serverData);
-        break;
-        
-      case 'keep_server':
-        resolvedData = DataMergeService.resolveKeepServer(localData, serverData);
-        break;
-        
-      case 'merge':
-        const { merged } = DataMergeService.intelligentMerge(localData, serverData);
-        resolvedData = merged;
-        break;
-        
-      default:
-        throw new Error('Stratégie de résolution invalide');
-    }
-
-    await this.saveLocalData(resolvedData);
-    await this.pushToServer(resolvedData);
-    
-    this.lastSuccessfulSync = new Date().toISOString();
-    this.handleSyncSuccess();
-    this.showToast('Conflit résolu avec succès', 'success');
-  }
 
   // Durée de rétention des IDs supprimés : 90 jours
   // Après ce délai, tous les collègues ont forcément syncé au moins une fois
