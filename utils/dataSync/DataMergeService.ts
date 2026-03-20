@@ -20,6 +20,8 @@ export class DataMergeService {
     merged: SyncData;
     conflicts: SyncConflict[];
     stats: { newFromServer: number; newFromLocal: number; merged: number; newActesFromServer: number; acteChanges: Array<{ enqueteNumero: string; count: number }> };
+    hasLocalChanges: boolean;   // local a des données plus récentes → push nécessaire
+    hasServerChanges: boolean;  // serveur a des données plus récentes → saveLocal nécessaire
   } {
     const conflicts: SyncConflict[] = [];
     const stats = { newFromServer: 0, newFromLocal: 0, merged: 0, newActesFromServer: 0, acteChanges: [] as Array<{ enqueteNumero: string; count: number }> };
@@ -63,6 +65,30 @@ export class DataMergeService {
     stats.newActesFromServer += enqueteStats.newActesFromServer;
     stats.acteChanges.push(...enqueteStats.acteChanges);
 
+    // Détecter si des changements réels existent dans chaque direction
+    const serverDeletedSet = new Set([
+      ...(serverData.deletedIds || []),
+      ...(serverData.deletedActeIds || []),
+      ...(serverData.deletedCRIds || []),
+      ...(serverData.deletedMECIds || []),
+    ]);
+    const localDeletedHasNew = [
+      ...(localData.deletedIds || []),
+      ...(localData.deletedActeIds || []),
+      ...(localData.deletedCRIds || []),
+      ...(localData.deletedMECIds || []),
+    ].some(id => !serverDeletedSet.has(id));
+
+    const hasLocalChanges =
+      enqueteStats.newFromLocal > 0 ||
+      enqueteStats.localHasNewer ||
+      localDeletedHasNew;
+
+    const hasServerChanges =
+      enqueteStats.newFromServer > 0 ||
+      enqueteStats.serverHasNewer ||
+      enqueteStats.newActesFromServer > 0;
+
     // 2. Fusionner les résultats d'audience (timestamp-based)
     const mergedAudience = this.mergeByTimestamp(
       localData.audienceResultats || {},
@@ -97,7 +123,9 @@ export class DataMergeService {
         version: Math.max(localData.version || 0, serverData.version || 0) + 1
       },
       conflicts,
-      stats
+      stats,
+      hasLocalChanges,
+      hasServerChanges
     };
   }
 
@@ -114,11 +142,11 @@ export class DataMergeService {
   ): {
     merged: Enquete[];
     conflicts: SyncConflict[];
-    stats: { newFromServer: number; newFromLocal: number; merged: number; newActesFromServer: number; acteChanges: Array<{ enqueteNumero: string; count: number }> };
+    stats: { newFromServer: number; newFromLocal: number; merged: number; newActesFromServer: number; acteChanges: Array<{ enqueteNumero: string; count: number }>; localHasNewer: boolean; serverHasNewer: boolean };
   } {
     const conflicts: SyncConflict[] = [];
     const merged = new Map<number, Enquete>();
-    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0, newActesFromServer: 0, acteChanges: [] as Array<{ enqueteNumero: string; count: number }> };
+    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0, newActesFromServer: 0, acteChanges: [] as Array<{ enqueteNumero: string; count: number }>, localHasNewer: false, serverHasNewer: false };
 
     const localMap = new Map(localEnquetes.map(e => [e.id, e]));
     const serverMap = new Map(serverEnquetes.map(e => [e.id, e]));
@@ -142,6 +170,11 @@ export class DataMergeService {
       const mergeResult = this.mergeEnquete(localEnquete, serverEnquete, localDeletedActeIds, localDeletedCRIds, localDeletedMECIds);
       merged.set(id, mergeResult.merged);
       stats.merged++;
+
+      const localTs  = new Date(localEnquete.dateMiseAJour).getTime();
+      const serverTs = new Date(serverEnquete.dateMiseAJour).getTime();
+      if (localTs  > serverTs) stats.localHasNewer  = true;
+      if (serverTs > localTs)  stats.serverHasNewer = true;
 
       // Compter les nouveaux actes récupérés
       const localActeCount = (localEnquete.actes?.length ?? 0) + (localEnquete.ecoutes?.length ?? 0) + (localEnquete.geolocalisations?.length ?? 0);

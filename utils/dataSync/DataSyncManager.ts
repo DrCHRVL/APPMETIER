@@ -41,7 +41,7 @@ export class DataSyncManager {
   // Configuration
   private config: SyncConfig = {
     serverPath: 'P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\GESTION DE SERVICE\\10_App METIER',
-    syncInterval: 5 * 60 * 1000, // 5 minutes
+    syncInterval: 30 * 1000, // 30 secondes
     autoSync: true,
     conflictStrategy: 'ask',
     maxRetries: 3,
@@ -337,7 +337,7 @@ export class DataSyncManager {
       }
 
       // 🆕 FUSION INTELLIGENTE
-      const { merged, conflicts, stats } = DataMergeService.intelligentMerge(
+      const { merged, conflicts, stats, hasLocalChanges, hasServerChanges } = DataMergeService.intelligentMerge(
         localData,
         serverResponse.data
       );
@@ -345,7 +345,7 @@ export class DataSyncManager {
       // Si conflits détectés → modal
       if (conflicts.length > 0) {
         console.warn(`⚠️ DataSync: ${conflicts.length} conflit(s) nécessitent intervention`);
-        
+
         return {
           success: true,
           timestamp: new Date().toISOString(),
@@ -356,9 +356,26 @@ export class DataSyncManager {
         };
       }
 
-      // Fusion automatique réussie
-      await this.saveLocalData(merged);
-      await this.pushToServer(merged);
+      // Rien à faire → sync silencieuse (lecture seule)
+      if (!hasLocalChanges && !hasServerChanges) {
+        this.lastSuccessfulSync = new Date().toISOString();
+        this.handleSyncSuccess();
+        return {
+          success: true,
+          timestamp: this.lastSuccessfulSync,
+          action: 'no_conflicts',
+          stats
+        };
+      }
+
+      // Écrire localement seulement si le serveur a apporté des nouveautés
+      if (hasServerChanges) {
+        await this.saveLocalData(merged);
+      }
+      // Pusher sur le serveur seulement si le local a des changements à propager
+      if (hasLocalChanges) {
+        await this.pushToServer(merged);
+      }
       
       this.lastSuccessfulSync = new Date().toISOString();
       this.handleSyncSuccess();
