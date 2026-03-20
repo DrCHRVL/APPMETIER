@@ -263,7 +263,9 @@ export type VisualAlertTrigger =
   | 'op_proche'            // OP dans X jours
   | 'acte_critique'        // Acte expire dans X jours
   | 'cr_retard'            // CR en retard depuis X jours
-  | 'prolongation_pending'; // Prolongation en attente depuis X jours
+  | 'prolongation_pending' // Prolongation en attente depuis X jours
+  | 'autorisation_pending' // Autorisation JLD initiale en attente depuis X jours
+  | 'jld_pending';         // JLD en attente : autorisation OU prolongation depuis X jours
 
 export type VisualAlertMode = 'fond' | 'bordure' | 'fond_bordure';
 
