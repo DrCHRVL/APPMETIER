@@ -3,24 +3,39 @@ import { DateUtils } from './dateUtils';
 import { ElectronBridge } from './electronBridge';
 
 const DELETED_ACTE_IDS_KEY = 'deleted_acte_ids';
+const DELETED_CR_IDS_KEY   = 'deleted_cr_ids';
+const DELETED_MEC_IDS_KEY  = 'deleted_mec_ids';
 
-/**
- * Mémorise l'ID d'un acte/écoute/géoloc supprimé pour empêcher la resynchronisation.
- * Même pattern que deleted_enquete_ids.
- */
+/** Mémorise l'ID d'un acte/écoute/géoloc supprimé pour empêcher la resynchronisation. */
 export async function trackDeletedActeId(id: number): Promise<void> {
   try {
-    const existing = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(
-      DELETED_ACTE_IDS_KEY,
-      []
-    );
+    const existing = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(DELETED_ACTE_IDS_KEY, []);
     const normalized = (Array.isArray(existing) ? existing : []).filter(e => e.id !== id);
-    await ElectronBridge.setData(DELETED_ACTE_IDS_KEY, [
-      ...normalized,
-      { id, deletedAt: new Date().toISOString() }
-    ]);
+    await ElectronBridge.setData(DELETED_ACTE_IDS_KEY, [...normalized, { id, deletedAt: new Date().toISOString() }]);
   } catch (error) {
     console.error('❌ Erreur mémorisation ID acte supprimé:', error);
+  }
+}
+
+/** Mémorise l'ID d'un compte rendu supprimé pour empêcher la resynchronisation. */
+export async function trackDeletedCRId(id: number): Promise<void> {
+  try {
+    const existing = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(DELETED_CR_IDS_KEY, []);
+    const normalized = (Array.isArray(existing) ? existing : []).filter(e => e.id !== id);
+    await ElectronBridge.setData(DELETED_CR_IDS_KEY, [...normalized, { id, deletedAt: new Date().toISOString() }]);
+  } catch (error) {
+    console.error('❌ Erreur mémorisation ID CR supprimé:', error);
+  }
+}
+
+/** Mémorise l'ID d'un mis en cause supprimé pour empêcher la resynchronisation. */
+export async function trackDeletedMECId(id: number): Promise<void> {
+  try {
+    const existing = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(DELETED_MEC_IDS_KEY, []);
+    const normalized = (Array.isArray(existing) ? existing : []).filter(e => e.id !== id);
+    await ElectronBridge.setData(DELETED_MEC_IDS_KEY, [...normalized, { id, deletedAt: new Date().toISOString() }]);
+  } catch (error) {
+    console.error('❌ Erreur mémorisation ID MEC supprimé:', error);
   }
 }
 

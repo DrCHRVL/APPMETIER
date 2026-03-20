@@ -33,6 +33,14 @@ export class DataMergeService {
     const serverDeletedActeIds = new Set<number>(serverData.deletedActeIds || []);
     const mergedDeletedActeIds = Array.from(new Set([...localDeletedActeIds, ...serverDeletedActeIds]));
 
+    const localDeletedCRIds = new Set<number>(localData.deletedCRIds || []);
+    const serverDeletedCRIds = new Set<number>(serverData.deletedCRIds || []);
+    const mergedDeletedCRIds = Array.from(new Set([...localDeletedCRIds, ...serverDeletedCRIds]));
+
+    const localDeletedMECIds = new Set<number>(localData.deletedMECIds || []);
+    const serverDeletedMECIds = new Set<number>(serverData.deletedMECIds || []);
+    const mergedDeletedMECIds = Array.from(new Set([...localDeletedMECIds, ...serverDeletedMECIds]));
+
     // 1. Fusionner les enquêtes
     const {
       merged: mergedEnquetes,
@@ -43,7 +51,9 @@ export class DataMergeService {
       serverData.enquetes || [],
       localDeletedIds,
       serverDeletedIds,
-      localDeletedActeIds
+      localDeletedActeIds,
+      localDeletedCRIds,
+      localDeletedMECIds
     );
 
     conflicts.push(...enqueteConflicts);
@@ -82,6 +92,8 @@ export class DataMergeService {
         alertValidations: mergedValidations,
         deletedIds: mergedDeletedIds,
         deletedActeIds: mergedDeletedActeIds,
+        deletedCRIds: mergedDeletedCRIds,
+        deletedMECIds: mergedDeletedMECIds,
         version: Math.max(localData.version || 0, serverData.version || 0) + 1
       },
       conflicts,
@@ -96,7 +108,9 @@ export class DataMergeService {
     serverEnquetes: Enquete[],
     localDeletedIds: Set<number>,
     serverDeletedIds: Set<number>,
-    localDeletedActeIds: Set<number>
+    localDeletedActeIds: Set<number>,
+    localDeletedCRIds: Set<number> = new Set(),
+    localDeletedMECIds: Set<number> = new Set()
   ): {
     merged: Enquete[];
     conflicts: SyncConflict[];
@@ -125,7 +139,7 @@ export class DataMergeService {
       }
 
       // Existe des deux côtés → fusion automatique
-      const mergeResult = this.mergeEnquete(localEnquete, serverEnquete, localDeletedActeIds);
+      const mergeResult = this.mergeEnquete(localEnquete, serverEnquete, localDeletedActeIds, localDeletedCRIds, localDeletedMECIds);
       merged.set(id, mergeResult.merged);
       stats.merged++;
 
@@ -170,10 +184,16 @@ export class DataMergeService {
    * Principe : union des sous-éléments par ID, le plus récent gagne pour les doublons.
    * Ne retourne jamais de conflit.
    */
-  public static mergeEnquete(local: Enquete, server: Enquete, deletedActeIds?: Set<number>): {
-    merged: Enquete;
-  } {
-    const deletedIds = deletedActeIds || new Set<number>();
+  public static mergeEnquete(
+    local: Enquete,
+    server: Enquete,
+    deletedActeIds?: Set<number>,
+    deletedCRIds?: Set<number>,
+    deletedMECIds?: Set<number>
+  ): { merged: Enquete; } {
+    const deletedIds    = deletedActeIds || new Set<number>();
+    const deletedCRs    = deletedCRIds   || new Set<number>();
+    const deletedMECs   = deletedMECIds  || new Set<number>();
     const localIsNewer = new Date(local.dateMiseAJour).getTime() >= new Date(server.dateMiseAJour).getTime();
     const newer = localIsNewer ? local : server;
     const older = localIsNewer ? server : local;
@@ -181,9 +201,17 @@ export class DataMergeService {
     return {
       merged: {
         ...newer,
-        // Union des sous-éléments par ID (on ne perd rien)
-        comptesRendus: this.unionById(local.comptesRendus, server.comptesRendus, localIsNewer),
-        misEnCause: this.unionById(local.misEnCause, server.misEnCause, localIsNewer),
+        // Union des sous-éléments par ID (on ne perd rien, les suppressions intentionnelles sont respectées)
+        comptesRendus: this.unionById(
+          local.comptesRendus.filter(cr => !deletedCRs.has(cr.id)),
+          server.comptesRendus.filter(cr => !deletedCRs.has(cr.id)),
+          localIsNewer
+        ),
+        misEnCause: this.unionById(
+          local.misEnCause.filter(m => !deletedMECs.has(m.id)),
+          server.misEnCause.filter(m => !deletedMECs.has(m.id)),
+          localIsNewer
+        ),
         actes: this.unionById(
           (local.actes || []).filter(a => !deletedIds.has(a.id)),
           (server.actes || []).filter(a => !deletedIds.has(a.id)),

@@ -13,8 +13,10 @@ export interface SyncData {
   alertRules: any[];
   alertValidations?: Record<string, AlertValidation>; // Validations d'alertes (reporter/valider) — synchro entre collègues
   version: number;
-  deletedIds?: number[]; // IDs d'enquêtes supprimées intentionnellement (empêche la resynchronisation)
-  deletedActeIds?: number[]; // IDs d'actes/écoutes/géolocs supprimés (empêche la resynchronisation depuis le serveur)
+  deletedIds?: number[];     // IDs d'enquêtes supprimées (empêche la re-sync)
+  deletedActeIds?: number[]; // IDs d'actes/écoutes/géolocs supprimés
+  deletedCRIds?: number[];   // IDs de comptes rendus supprimés
+  deletedMECIds?: number[];  // IDs de mis en cause supprimés
 }
 
 /**

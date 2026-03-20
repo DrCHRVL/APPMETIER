@@ -8,6 +8,7 @@ import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
 import { AutorisationValidationModal } from '../modals/AutorisationValidationModal';
 import { ActeUtils, getStatutBadgeProps, trackDeletedActeId } from '@/utils/acteUtils';
+import { useToast } from '@/contexts/ToastContext';
 import { DateUtils } from '@/utils/dateUtils';
 import { Badge } from '@/components/ui/badge';
 import { GeolocModal } from '../modals/GeolocModal';
@@ -19,6 +20,7 @@ interface GeolocSectionProps {
 }
 
 export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionProps) => {
+  const { showToast } = useToast();
   const [editingGeolocId, setEditingGeolocId] = useState<number | null>(null);
   const [prolongationGeolocId, setProlongationGeolocId] = useState<number | null>(null);
   const [validationGeolocId, setValidationGeolocId] = useState<number | null>(null);
@@ -83,6 +85,7 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
         throw error;
       }
     }
+    showToast('Géolocalisation créée', 'success');
   };
 
   const handleUpdateGeoloc = (geolocData: Partial<GeolocData>, dates: DateManagerData) => {
@@ -249,8 +252,8 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
 
     const updatedGeolocs = enquete.geolocalisations.filter(geoloc => geoloc.id !== id);
     onUpdate(enquete.id, { geolocalisations: updatedGeolocs });
-    // Mémoriser l'ID supprimé pour que la sync ne le rajoute pas depuis le serveur
     trackDeletedActeId(id);
+    showToast('Géolocalisation supprimée', 'success');
   };
 
   const handleRefuseJLD = (id: number) => {

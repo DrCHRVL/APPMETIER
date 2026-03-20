@@ -5,6 +5,9 @@ import { ElectronBridge } from '../utils/electronBridge';
 import { APP_CONFIG } from '../config/constants';
 import { useAlerts } from './useAlerts';
 import { AlertManager } from '../utils/alerts/alertManager';
+import { trackDeletedCRId } from '../utils/acteUtils';
+import { dataSyncManager } from '../utils/dataSync/DataSyncManager';
+import { useToast } from '../contexts/ToastContext';
 import throttle from 'lodash/throttle';
 
 // Constantes pour l'optimisation
@@ -97,10 +100,11 @@ export const useEnquetes = () => {
       
       try {
         await ElectronBridge.setData(
-          APP_CONFIG.STORAGE_KEYS.ENQUETES, 
+          APP_CONFIG.STORAGE_KEYS.ENQUETES,
           enquetesRef.current
         );
         setIsDataDirty(false);
+        dataSyncManager.triggerPostSaveSync();
       } catch (error) {
         console.error('❌ Error saving enquetes:', error);
       }
@@ -117,6 +121,7 @@ export const useEnquetes = () => {
         enquetesRef.current
       );
       setIsDataDirty(false);
+      dataSyncManager.triggerPostSaveSync();
     } catch (error) {
       console.error('❌ Error during flush save:', error);
     }
@@ -142,6 +147,8 @@ export const useEnquetes = () => {
       }
     };
   }, [saveEnquetes, isDataDirty, isLoading]);
+
+  const { showToast } = useToast();
 
   // ✅ CORRECTION 3: Utiliser le hook d'alertes APRÈS le chargement
   const {
@@ -180,12 +187,13 @@ export const useEnquetes = () => {
       dateMiseAJour: new Date().toISOString()
     };
 
-    updateEnquetesList(prev => 
+    updateEnquetesList(prev =>
       prev.map(e => e.id === selectedEnquete.id ? updatedEnquete : e)
     );
-    
+
     setSelectedEnquete(updatedEnquete);
-  }, [selectedEnquete, updateEnquetesList]);
+    showToast('Compte rendu ajouté', 'success');
+  }, [selectedEnquete, updateEnquetesList, showToast]);
 
   // Mise à jour d'une enquête
   const handleUpdateEnquete = useCallback((id: number, updates: Partial<Enquete>) => {
@@ -220,18 +228,20 @@ export const useEnquetes = () => {
     };
 
     updateEnquetesList(prev => [...prev, newEnquete]);
-  }, [updateEnquetesList]);
+    showToast('Enquête créée', 'success');
+  }, [updateEnquetesList, showToast]);
 
   // Archivage d'une enquête
   const handleArchiveEnquete = useCallback((id: number) => {
-    updateEnquetesList(prev => 
+    updateEnquetesList(prev =>
       prev.map(enquete =>
-        enquete.id === id 
-          ? { ...enquete, statut: 'archive', dateMiseAJour: new Date().toISOString() } 
+        enquete.id === id
+          ? { ...enquete, statut: 'archive', dateMiseAJour: new Date().toISOString() }
           : enquete
       )
     );
-  }, [updateEnquetesList]);
+    showToast('Enquête archivée', 'success');
+  }, [updateEnquetesList, showToast]);
 
   // Suppression d'une enquête
   const handleDeleteEnquete = useCallback(async (id: number) => {
@@ -321,21 +331,23 @@ export const useEnquetes = () => {
   // Suppression d'un compte rendu
   const handleDeleteCR = useCallback((id: number) => {
     if (!selectedEnquete) return;
-    
+
     const updatedCRs = selectedEnquete.comptesRendus.filter(cr => cr.id !== id);
-    
+
     const updatedEnquete = {
       ...selectedEnquete,
       comptesRendus: updatedCRs,
       dateMiseAJour: new Date().toISOString()
     };
-    
-    updateEnquetesList(prev => 
+
+    updateEnquetesList(prev =>
       prev.map(e => e.id === selectedEnquete.id ? updatedEnquete : e)
     );
-    
+
     setSelectedEnquete(updatedEnquete);
-  }, [selectedEnquete, updateEnquetesList]);
+    trackDeletedCRId(id);
+    showToast('Compte rendu supprimé', 'success');
+  }, [selectedEnquete, updateEnquetesList, showToast]);
 
   return {
     enquetes,

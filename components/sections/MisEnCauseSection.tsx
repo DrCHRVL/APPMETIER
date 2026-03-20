@@ -4,6 +4,8 @@ import { Input } from '../ui/input';
 import { MecAutocompleteInput } from '../ui/MecAutocompleteInput';
 import { Edit, X, Plus } from 'lucide-react';
 import { Enquete } from '@/types/interfaces';
+import { trackDeletedMECId } from '@/utils/acteUtils';
+import { useToast } from '@/contexts/ToastContext';
 
 interface MisEnCauseSectionProps {
   enquete: Enquete;
@@ -14,6 +16,7 @@ interface MisEnCauseSectionProps {
 }
 
 export const MisEnCauseSection = ({ enquete, onUpdate, isEditing, allKnownMec = [] }: MisEnCauseSectionProps) => {
+  const { showToast } = useToast();
   const [editingMecId, setEditingMecId] = useState<number | null>(null);
   const [editingData, setEditingData] = useState({ nom: '', role: '' });
 
@@ -35,6 +38,7 @@ export const MisEnCauseSection = ({ enquete, onUpdate, isEditing, allKnownMec = 
 
     setNewMecData({ nom: '', role: '' });
     setShowAddForm(false);
+    showToast('Mis en cause ajouté', 'success');
   };
 
   const handleUpdateMec = (id: number) => {
@@ -56,6 +60,8 @@ export const MisEnCauseSection = ({ enquete, onUpdate, isEditing, allKnownMec = 
     onUpdate(enquete.id, {
       misEnCause: enquete.misEnCause.filter(mec => mec.id !== id)
     });
+    trackDeletedMECId(id);
+    showToast('Mis en cause supprimé', 'success');
   };
 
   return (

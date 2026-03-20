@@ -60,6 +60,10 @@ export class DataSyncManager {
   // Indique si cette machine est responsable d'une écriture interrompue
   private selfCausedCorruption = false;
 
+  // Debounce pour le push post-save
+  private postSaveDebounceTimer: NodeJS.Timeout | null = null;
+  private readonly POST_SAVE_DEBOUNCE_MS = 5000;
+
   // Clé de la sentinelle d'écriture en cours (détection de corruption)
   private static readonly SENTINEL_KEY = 'sync_write_sentinel';
 
@@ -82,6 +86,21 @@ export class DataSyncManager {
       DataSyncManager.instance = new DataSyncManager();
     }
     return DataSyncManager.instance;
+  }
+
+  /**
+   * Déclenche une synchronisation différée (5s debounce) après chaque sauvegarde.
+   * Annule et repart si une nouvelle sauvegarde arrive avant la fin du délai.
+   */
+  public triggerPostSaveSync(): void {
+    if (this.postSaveDebounceTimer) {
+      clearTimeout(this.postSaveDebounceTimer);
+    }
+    this.postSaveDebounceTimer = setTimeout(async () => {
+      this.postSaveDebounceTimer = null;
+      if (!this.isOnline || this.isSync || this.isInBackoff()) return;
+      await this.performSync();
+    }, this.POST_SAVE_DEBOUNCE_MS);
   }
 
   /**
@@ -559,29 +578,29 @@ export class DataSyncManager {
     await ElectronBridge.setData('deleted_enquete_ids', entries);
   }
 
-  /** Lit les IDs d'actes/écoutes/géolocs supprimés. */
-  private async loadDeletedActeEntries(): Promise<Array<{ id: number; deletedAt: string }>> {
-    const raw = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(
-      'deleted_acte_ids',
-      []
-    );
-    if (!Array.isArray(raw)) return [];
-    return raw;
+  /** Lecture/écriture générique d'une liste d'IDs supprimés avec purge des anciennes entrées. */
+  private async loadDeletedIdEntries(key: string): Promise<Array<{ id: number; deletedAt: string }>> {
+    const raw = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(key, []);
+    return Array.isArray(raw) ? raw : [];
   }
 
-  /** Sauvegarde les IDs d'actes supprimés avec purge des anciennes entrées. */
-  private async saveDeletedActeEntries(ids: number[]): Promise<void> {
+  private async saveDeletedIdEntries(key: string, ids: number[]): Promise<void> {
     const pruneThreshold = Date.now() - DataSyncManager.DELETED_IDS_RETENTION_MS;
-    const existing = await this.loadDeletedActeEntries();
+    const existing = await this.loadDeletedIdEntries(key);
     const existingMap = new Map(existing.map(e => [e.id, e.deletedAt]));
     const now = new Date().toISOString();
-
     const entries = ids
       .map(id => ({ id, deletedAt: existingMap.get(id) ?? now }))
       .filter(e => new Date(e.deletedAt).getTime() > pruneThreshold);
-
-    await ElectronBridge.setData('deleted_acte_ids', entries);
+    await ElectronBridge.setData(key, entries);
   }
+
+  private async loadDeletedActeEntries()     { return this.loadDeletedIdEntries('deleted_acte_ids'); }
+  private async saveDeletedActeEntries(ids: number[]) { return this.saveDeletedIdEntries('deleted_acte_ids', ids); }
+  private async loadDeletedCREntries()        { return this.loadDeletedIdEntries('deleted_cr_ids'); }
+  private async saveDeletedCREntries(ids: number[])   { return this.saveDeletedIdEntries('deleted_cr_ids', ids); }
+  private async loadDeletedMECEntries()       { return this.loadDeletedIdEntries('deleted_mec_ids'); }
+  private async saveDeletedMECEntries(ids: number[])  { return this.saveDeletedIdEntries('deleted_mec_ids', ids); }
 
   private async getLocalData(): Promise<SyncData> {
     const enquetes = await ElectronBridge.getData('enquetes', []);
@@ -589,8 +608,10 @@ export class DataSyncManager {
     const customTags = await ElectronBridge.getData('customTags', {});
     const alertRules = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, []);
     const alertValidations = await ElectronBridge.getData<Record<string, any>>('alert_validations', {});
-    const deletedEntries = await this.loadDeletedEntries();
-    const deletedActeEntries = await this.loadDeletedActeEntries();
+    const deletedEntries      = await this.loadDeletedEntries();
+    const deletedActeEntries  = await this.loadDeletedActeEntries();
+    const deletedCREntries    = await this.loadDeletedCREntries();
+    const deletedMECEntries   = await this.loadDeletedMECEntries();
 
     return {
       enquetes: Array.isArray(enquetes) ? enquetes : [],
@@ -598,8 +619,10 @@ export class DataSyncManager {
       customTags: customTags || {},
       alertRules: Array.isArray(alertRules) ? alertRules : [],
       alertValidations: alertValidations || {},
-      deletedIds: deletedEntries.map(e => e.id),
+      deletedIds:     deletedEntries.map(e => e.id),
       deletedActeIds: deletedActeEntries.map(e => e.id),
+      deletedCRIds:   deletedCREntries.map(e => e.id),
+      deletedMECIds:  deletedMECEntries.map(e => e.id),
       version: 1
     };
   }
@@ -617,6 +640,8 @@ export class DataSyncManager {
     }
     await this.saveDeletedEntries(data.deletedIds || []);
     await this.saveDeletedActeEntries(data.deletedActeIds || []);
+    await this.saveDeletedCREntries(data.deletedCRIds || []);
+    await this.saveDeletedMECEntries(data.deletedMECIds || []);
   }
 
   private async getServerData(): Promise<{ data: SyncData; metadata: SyncMetadata } | null> {

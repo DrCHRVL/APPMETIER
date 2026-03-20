@@ -92,6 +92,7 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
         throw error;
       }
     }
+    showToast('Acte créé', 'success');
   };
 
   const handleUpdateActe = (acteData: Partial<AutreActe>, dates: DateManagerData) => {
@@ -280,6 +281,7 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
     const updatedActes = enquete.actes.filter(acte => acte.id !== id);
     onUpdate(enquete.id, { actes: updatedActes });
     trackDeletedActeId(id);
+    showToast('Acte supprimé', 'success');
   };
 
   const handleRefuseJLD = (id: number) => {

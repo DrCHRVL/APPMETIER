@@ -8,6 +8,7 @@ import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
 import { AutorisationValidationModal } from '../modals/AutorisationValidationModal';
 import { ActeUtils, getStatutBadgeProps, trackDeletedActeId } from '@/utils/acteUtils';
+import { useToast } from '@/contexts/ToastContext';
 import { DateUtils } from '@/utils/dateUtils';
 import { Badge } from '@/components/ui/badge';
 import { EcouteModal } from '../modals/EcouteModal';
@@ -20,6 +21,7 @@ interface EcouteSectionProps {
 }
 
 export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionProps) => {
+  const { showToast } = useToast();
   const [editingEcouteId, setEditingEcouteId] = useState<number | null>(null);
   const [prolongationEcouteId, setProlongationEcouteId] = useState<number | null>(null);
   const [validationEcouteId, setValidationEcouteId] = useState<number | null>(null);
@@ -90,6 +92,7 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
         throw error;
       }
     }
+    showToast('Écoute créée', 'success');
   };
 
   const handleUpdateEcoute = (ecouteData: Partial<EcouteData>, dates: DateManagerData) => {
@@ -309,6 +312,7 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
     const updatedEcoutes = enquete.ecoutes.filter(ecoute => ecoute.id !== id);
     onUpdate(enquete.id, { ecoutes: updatedEcoutes });
     trackDeletedActeId(id);
+    showToast('Écoute supprimée', 'success');
   };
 
   const handleRefuseJLD = (id: number) => {
