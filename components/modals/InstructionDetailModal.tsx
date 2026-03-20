@@ -5,6 +5,7 @@ import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import { Select } from '../ui/select';
 import { EnqueteInstruction, CompteRendu, CABINET_COLORS, MisEnExamen, DebatParquet } from '@/types/interfaces';
+import { ActesInstructionSection } from '../instruction/ActesInstructionSection';
 import { CompteRenduSection } from '../sections/CompteRenduSection';
 import { MisEnExamenSection } from '../instruction/MisEnExamenSection';
 import { DocumentsSection } from '../sections/DocumentsSection';
@@ -40,7 +41,7 @@ export const InstructionDetailModal = ({
   onDelete
 }: InstructionDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'general' | 'mesures' | 'documents'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'suivi' | 'documents'>('general');
   const [editingCR, setEditingCR] = useState<CompteRendu | null>(null);
   const [showDMLModal, setShowDMLModal] = useState(false);
   const [showDebatModal, setShowDebatModal] = useState(false);
@@ -300,6 +301,7 @@ export const InstructionDetailModal = ({
 
   const tabs = [
     { id: 'general', label: 'Général', icon: FileText },
+    { id: 'suivi', label: 'Suivi CO', icon: Clock },
     { id: 'documents', label: 'Documents', icon: Users }
   ];
 
@@ -1090,6 +1092,16 @@ onBlur={(e) => {
                     isEditing={isEditing}
                   />
                 </div>
+              </div>
+            )}
+
+            {/* Onglet Suivi CO */}
+            {activeTab === 'suivi' && (
+              <div className="max-w-2xl mx-auto">
+                <ActesInstructionSection
+                  instruction={localInstruction}
+                  onUpdate={handleUpdateWithToast}
+                />
               </div>
             )}
 
