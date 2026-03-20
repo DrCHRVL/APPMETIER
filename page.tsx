@@ -24,6 +24,7 @@ import { ProlongationModal } from './components/modals/ProlongationModal';
 import { PoseActeModal } from './components/modals/PoseActeModal';
 import { ProlongationValidationModal } from './components/modals/ProlongationValidationModal';
 import { DateUtils } from '@/utils/dateUtils';
+import { ActeUtils } from '@/utils/acteUtils';
 import { PermanencePage } from './components/pages/PermanencePage';
 import { ArchivePage } from './components/pages/ArchivePage';
 import { AIRPage } from './components/pages/AIRPage';
@@ -909,7 +910,7 @@ return (
                      'geolocalisations']: enquete[selectedActe.type === 'acte' ? 'actes' : 
                                                   selectedActe.type === 'ecoute' ? 'ecoutes' : 
                                                   'geolocalisations']?.map(a => 
-                      a.id === selectedActe.id ? { ...a, datePose: date, statut: 'en_cours' } : a
+                      a.id === selectedActe.id ? { ...a, ...ActeUtils.setPose(a, date) } : a
                     )
                   });
                 }

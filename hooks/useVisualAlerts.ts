@@ -13,9 +13,24 @@ export const useVisualAlerts = () => {
     ElectronBridge.getData<VisualAlertRule[]>(STORAGE_KEY, DEFAULT_VISUAL_ALERT_RULES)
       .then(saved => {
         // Fusionner : garder les règles sauvegardées + ajouter les nouvelles règles système par défaut
+        const defaultById = new Map(DEFAULT_VISUAL_ALERT_RULES.map(d => [d.id, d]));
         const savedIds = new Set(saved.map(r => r.id));
         const missingDefaults = DEFAULT_VISUAL_ALERT_RULES.filter(d => !savedIds.has(d.id));
-        setRules([...saved, ...missingDefaults]);
+
+        // Pour les règles système sauvegardées, s'assurer que les champs ajoutés ultérieurement
+        // (ex: seuil) sont présents - sinon les comparaisons comme `daysLeft <= undefined` échouent
+        const mergedSaved = saved.map(savedRule => {
+          const defaultRule = defaultById.get(savedRule.id);
+          if (!defaultRule?.isSystemRule) return savedRule;
+          // Appliquer les valeurs par défaut pour tout champ manquant (undefined)
+          const withDefaults = { ...defaultRule };
+          for (const key of Object.keys(savedRule) as (keyof VisualAlertRule)[]) {
+            if (savedRule[key] !== undefined) (withDefaults as any)[key] = savedRule[key];
+          }
+          return withDefaults;
+        });
+
+        setRules([...mergedSaved, ...missingDefaults]);
         setIsLoading(false);
       });
   }, []);
