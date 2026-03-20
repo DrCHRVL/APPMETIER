@@ -515,12 +515,10 @@ export class DataSyncManager {
     localData: SyncData,
     serverData: SyncData
   ): Promise<void> {
-    // D'abord, faire une fusion automatique complète (le plus récent gagne)
+    // Fusion automatique complète (le plus récent gagne)
     const { merged: resolvedData } = DataMergeService.intelligentMerge(localData, serverData);
 
-    // Ensuite, appliquer les décisions utilisateur pour les suppressions
-    const localEnqueteMap = new Map((localData.enquetes || []).map(e => [e.id, e]));
-
+    // Appliquer les décisions utilisateur pour les suppressions
     conflicts.forEach((conflict, index) => {
       const action = selections.get(index) || 'merge';
 
@@ -535,7 +533,6 @@ export class DataSyncManager {
       }
     });
 
-    // Sauvegarder et synchroniser
     await this.saveLocalData(resolvedData);
     await this.pushToServer(resolvedData);
 

@@ -121,7 +121,7 @@ export const useEnquetes = () => {
         enquetesRef.current
       );
       setIsDataDirty(false);
-      dataSyncManager.triggerPostSaveSync();
+      // Pas de triggerPostSaveSync ici : ce flush est appelé PAR le sync, pas par l'utilisateur
     } catch (error) {
       console.error('❌ Error during flush save:', error);
     }
