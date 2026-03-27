@@ -386,8 +386,8 @@ export const useTags = (): UseTagsReturn => {
           category = 'infractions';
         } else if (tagValue.includes('enquête') || tagValue.includes('jours')) {
           category = 'duree';
-        } else if (tagValue.toLowerCase().includes('prioritaire')) {
-          category = 'priorite';
+        } else if (tagValue.toLowerCase().includes('jirs') || tagValue.toLowerCase().includes('parquet général')) {
+          category = 'suivi';
         }
         
         // Vérifier que le tag n'existe pas déjà 

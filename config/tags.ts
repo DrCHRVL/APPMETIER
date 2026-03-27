@@ -1,4 +1,4 @@
-export type TagCategory = 'services' | 'infractions' | 'duree' | 'priorite' | 'statut' | 'juge';
+export type TagCategory = 'services' | 'infractions' | 'duree' | 'suivi' | 'statut' | 'juge';
 
 export interface TagOrganization {
   section: string;
@@ -25,7 +25,7 @@ export const TAG_CATEGORIES: Record<TagCategory, string> = {
   services: 'Services',
   infractions: 'Type d\'infractions',
   duree: 'Durée',
-  priorite: 'Priorité',
+  suivi: 'Suivi',
   statut: 'Statut',
   juge: 'Juge'
 };

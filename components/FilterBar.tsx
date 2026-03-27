@@ -37,7 +37,8 @@ export const FilterBar = ({
   const [showSectionOrder, setShowSectionOrder] = useState(false);
   const { getTagsByCategory } = useTags();
 
-  const isPrioritaireSelected = selectedTags.some(tag => tag.id === 'prioritaire');
+  const isSuiviJIRSSelected = selectedTags.some(tag => tag.id === 'suivi_jirs');
+  const isSuiviPGSelected = selectedTags.some(tag => tag.id === 'suivi_pg');
 
   return (
     <div className="bg-white" style={{ borderBottom: '1px solid hsl(214 25% 88%)' }}>
@@ -62,20 +63,43 @@ export const FilterBar = ({
             <Button
               variant="ghost"
               size="sm"
-              className={`h-7 w-7 p-0 rounded-lg transition-colors ${isPrioritaireSelected ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+              className={`h-7 px-1.5 rounded-lg transition-colors text-xs font-medium gap-1 ${isSuiviJIRSSelected ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
               onClick={() => {
-                if (isPrioritaireSelected) {
-                  onTagRemove('prioritaire');
+                if (isSuiviJIRSSelected) {
+                  onTagRemove('suivi_jirs');
                 } else {
                   onTagSelect({
-                    id: 'prioritaire',
-                    value: 'Prioritaire',
-                    category: 'priorite'
+                    id: 'suivi_jirs',
+                    value: 'JIRS',
+                    category: 'suivi'
                   });
                 }
               }}
+              title="Filtrer les dossiers suivis JIRS"
             >
               <Flag className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">JIRS</span>
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`h-7 px-1.5 rounded-lg transition-colors text-xs font-medium gap-1 ${isSuiviPGSelected ? 'text-purple-600 bg-purple-50 hover:bg-purple-100' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+              onClick={() => {
+                if (isSuiviPGSelected) {
+                  onTagRemove('suivi_pg');
+                } else {
+                  onTagSelect({
+                    id: 'suivi_pg',
+                    value: 'PG',
+                    category: 'suivi'
+                  });
+                }
+              }}
+              title="Filtrer les dossiers suivis Parquet Général"
+            >
+              <Flag className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">PG</span>
             </Button>
 
             <Button

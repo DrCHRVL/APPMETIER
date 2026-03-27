@@ -302,17 +302,24 @@ export const InstructionHeader = ({
             )}
           </div>
 
-          {/* Tags priorité */}
+          {/* Tags suivi */}
           <div>
-            <Label className="text-sm font-medium">Priorité</Label>
-            <div className="mt-1">
-              {instruction.tags.some(t => t.category === 'priorite' && t.value === 'Prioritaire') ? (
-                <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300">
+            <Label className="text-sm font-medium">Suivi</Label>
+            <div className="mt-1 flex gap-1">
+              {instruction.tags.some(t => t.category === 'suivi' && t.value === 'JIRS') && (
+                <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
                   <Flag className="h-3 w-3 mr-1" />
-                  Prioritaire
+                  JIRS
                 </Badge>
-              ) : (
-                <span className="text-sm text-gray-500">Normale</span>
+              )}
+              {instruction.tags.some(t => t.category === 'suivi' && t.value === 'PG') && (
+                <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-300">
+                  <Flag className="h-3 w-3 mr-1" />
+                  Parquet Général
+                </Badge>
+              )}
+              {!instruction.tags.some(t => t.category === 'suivi') && (
+                <span className="text-sm text-gray-500">Aucun</span>
               )}
             </div>
           </div>

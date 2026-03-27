@@ -324,7 +324,7 @@ export const TagManagementPage = () => {
         </TabsList>
 
         <TabsContent value="categories" className="space-y-4">
-          {(Object.keys(TAG_CATEGORIES) as TagCategory[]).filter(category => category !== 'priorite').map(category => {
+          {(Object.keys(TAG_CATEGORIES) as TagCategory[]).filter(category => category !== 'suivi').map(category => {
             const categoryTags = getTagsByCategory(category);
             
             return (

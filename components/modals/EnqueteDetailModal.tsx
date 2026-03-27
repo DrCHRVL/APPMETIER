@@ -16,6 +16,8 @@ import { Trash2, Siren, FileText, Plus, X } from 'lucide-react';
 import { EnqueteHeader } from '../sections/EnqueteHeader';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
+import { SuiviAlertModal } from './SuiviAlertModal';
+import { ToDoItem } from '@/types/interfaces';
 
 interface EnqueteDetailModalProps {
   enquete: Enquete;
@@ -31,6 +33,8 @@ interface EnqueteDetailModalProps {
   onDelete?: (id: number) => void;
   /** Noms de tous les MEC connus (cross-dossiers) pour suggestions */
   allKnownMec?: string[];
+  /** Callback pour créer un todo général (suivi JIRS/PG) */
+  onCreateGlobalTodo?: (todo: ToDoItem) => void;
 }
 
 export const EnqueteDetailModal = ({
@@ -45,16 +49,26 @@ export const EnqueteDetailModal = ({
   onDeleteCR,
   setEditingCR,
   onDelete,
-  allKnownMec = []
+  allKnownMec = [],
+  onCreateGlobalTodo
 }: EnqueteDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showClotureSummary, setShowClotureSummary] = useState(false);
   const [showDateOPEdit, setShowDateOPEdit] = useState(false);
+  const [showSuiviAlert, setShowSuiviAlert] = useState(false);
+  const [suiviAlertContext, setSuiviAlertContext] = useState<'dateOP' | 'archive' | 'audience'>('dateOP');
   const { showToast } = useToast();
+
+  const hasSuivi = enquete.tags.some(t => t.category === 'suivi');
 
   const handleUpdateWithToast = (id: number, updates: Partial<Enquete>) => {
     onUpdate(id, updates);
     showToast('Modifications enregistrées', 'success');
+    // Si on enregistre une date d'OP et que le dossier est suivi
+    if (updates.dateOP && hasSuivi) {
+      setSuiviAlertContext('dateOP');
+      setShowSuiviAlert(true);
+    }
   };
   
   const handleDelete = () => {
@@ -281,11 +295,20 @@ export const EnqueteDetailModal = ({
         enquete={enquete}
       />
 
-      <DeleteEnqueteModal 
+      <DeleteEnqueteModal
         isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}
         onConfirm={handleDelete}
         enqueteNumero={enquete.numero}
+      />
+
+      <SuiviAlertModal
+        isOpen={showSuiviAlert}
+        onClose={() => setShowSuiviAlert(false)}
+        enqueteNumero={enquete.numero}
+        enqueteTags={enquete.tags}
+        triggerContext={suiviAlertContext}
+        onCreateTodo={onCreateGlobalTodo}
       />
     </>
   );

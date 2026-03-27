@@ -2,7 +2,7 @@
 export interface Tag {
   id: string;
   value: string;
-  category: 'services' | 'infractions' | 'priorite' | 'duree' | 'statut' | 'juge';
+  category: 'services' | 'infractions' | 'suivi' | 'duree' | 'statut' | 'juge';
 }
 
 // Interface pour les comptes rendus

@@ -8,7 +8,7 @@ export const v1 = async (data: any) => {
       services: [],
       infractions: [],
       duree: [],
-      priorite: []
+      suivi: []
     },
     alertRules: data.alertRules || []
   };

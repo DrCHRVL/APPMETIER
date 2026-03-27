@@ -11,6 +11,8 @@ import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '../ui/badge';
 import { Clock } from 'lucide-react';
+import { SuiviAlertModal } from './SuiviAlertModal';
+import { Tag, ToDoItem } from '@/types/interfaces';
 
 // Extension de CondamnationData pour inclure le statut pending
 interface ExtendedCondamnationData extends CondamnationData {
@@ -29,6 +31,9 @@ interface AudienceResultModalProps {
   initialData?: ResultatAudience;
   isDirectResult?: boolean;
   misEnCause?: { id: number; nom: string }[];
+  enqueteNumero?: string;
+  enqueteTags?: Tag[];
+  onCreateGlobalTodo?: (todo: ToDoItem) => void;
 }
 
 export const AudienceResultModal = ({
@@ -39,7 +44,10 @@ export const AudienceResultModal = ({
   defaultDate,
   initialData,
   isDirectResult,
-  misEnCause = []
+  misEnCause = [],
+  enqueteNumero = '',
+  enqueteTags = [],
+  onCreateGlobalTodo
 }: AudienceResultModalProps) => {
   // States
   const { getTagsByCategory } = useTags();
@@ -81,6 +89,8 @@ export const AudienceResultModal = ({
 
   const { showToast } = useToast();
   const [service, setService] = useState(initialData?.service || '');
+  const [showSuiviAlert, setShowSuiviAlert] = useState(false);
+  const hasSuivi = enqueteTags.some(t => t.category === 'suivi');
 
   // Récupération des tags via le hook
   const infractions = getTagsByCategory('infractions');
@@ -193,7 +203,11 @@ export const AudienceResultModal = ({
       console.log('Calling onSave with resultat:', resultat);
       onSave(resultat);
       showToast('Résultats d\'audience enregistrés', 'success');
-      onClose();
+      if (hasSuivi) {
+        setShowSuiviAlert(true);
+      } else {
+        onClose();
+      }
     } catch (error) {
       console.error('Error in handleSubmit:', error);
       showToast('Erreur lors de l\'enregistrement des résultats', 'error');
@@ -501,7 +515,7 @@ export const AudienceResultModal = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Annuler</Button>
-          <Button 
+          <Button
             onClick={handleSubmit}
             disabled={!dateAudience || nbCondamnes === 0 || !selectedInfraction}
           >
@@ -509,6 +523,18 @@ export const AudienceResultModal = ({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <SuiviAlertModal
+        isOpen={showSuiviAlert}
+        onClose={() => {
+          setShowSuiviAlert(false);
+          onClose();
+        }}
+        enqueteNumero={enqueteNumero}
+        enqueteTags={enqueteTags}
+        triggerContext="audience"
+        onCreateTodo={onCreateGlobalTodo}
+      />
     </Dialog>
   );
 };

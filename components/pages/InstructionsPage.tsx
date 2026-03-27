@@ -121,17 +121,18 @@ export const InstructionsPage = ({
     showToast('Dossier d\'instruction créé avec succès', 'success');
   };
 
-  const handleTogglePriority = (instruction: EnqueteInstruction) => {
-    const isPrioritaire = instruction.tags.some(tag => 
-      tag.category === 'priorite' && tag.value === 'Prioritaire'
+  const handleToggleSuivi = (instruction: EnqueteInstruction, type: 'JIRS' | 'PG') => {
+    const tagId = type === 'JIRS' ? 'suivi_jirs' : 'suivi_pg';
+    const hasSuiviTag = instruction.tags.some(tag =>
+      tag.category === 'suivi' && tag.value === type
     );
 
-    const newTags = isPrioritaire
-      ? instruction.tags.filter(tag => !(tag.category === 'priorite' && tag.value === 'Prioritaire'))
-      : [...instruction.tags, { id: 'prioritaire', value: 'Prioritaire', category: 'priorite' }];
+    const newTags = hasSuiviTag
+      ? instruction.tags.filter(tag => !(tag.category === 'suivi' && tag.value === type))
+      : [...instruction.tags, { id: tagId, value: type, category: 'suivi' }];
 
     onUpdateInstruction(instruction.id, { tags: newTags });
-    showToast(`Priorité ${isPrioritaire ? 'retirée' : 'ajoutée'}`, 'success');
+    showToast(`Suivi ${type} ${hasSuiviTag ? 'retiré' : 'ajouté'}`, 'success');
   };
 
   const handleDeleteInstruction = (instruction: EnqueteInstruction) => {
@@ -234,7 +235,7 @@ export const InstructionsPage = ({
                   setIsEditing(true);
                 }}
                 onDelete={() => handleDeleteInstruction(instruction)}
-                onTogglePriority={() => handleTogglePriority(instruction)}
+                onToggleSuivi={(type: 'JIRS' | 'PG') => handleToggleSuivi(instruction, type)}
               />
             ))}
           </div>

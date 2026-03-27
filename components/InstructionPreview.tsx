@@ -23,7 +23,7 @@ interface InstructionPreviewProps {
   onView: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
-  onTogglePriority?: () => void;
+  onToggleSuivi?: (type: 'JIRS' | 'PG') => void;
 }
 
 export const InstructionPreview = ({
@@ -31,14 +31,17 @@ export const InstructionPreview = ({
   onView,
   onEdit,
   onDelete,
-  onTogglePriority
+  onToggleSuivi
 }: InstructionPreviewProps) => {
   const { showToast } = useToast();
 
   // Variables dérivées
   const lastCR = instruction.comptesRendus?.[0];
-  const isPrioritaire = instruction.tags?.some(tag => 
-    tag.category === 'priorite' && tag.value === 'Prioritaire'
+  const isSuiviJIRS = instruction.tags?.some(tag =>
+    tag.category === 'suivi' && tag.value === 'JIRS'
+  );
+  const isSuiviPG = instruction.tags?.some(tag =>
+    tag.category === 'suivi' && tag.value === 'PG'
   ) || false;
 
   // COMPTEURS DYNAMIQUES BASÉS SUR LES DONNÉES RÉELLES
@@ -135,21 +138,38 @@ export const InstructionPreview = ({
                   </Badge>
                 ))}
 
-                {/* Priorité */}
-                {onTogglePriority && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={`h-6 w-6 p-0 transition-colors ${
-                      isPrioritaire ? 'text-red-500 hover:text-red-600' : 'text-gray-300 hover:text-gray-400'
-                    }`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onTogglePriority();
-                    }}
-                  >
-                    <Flag className="h-4 w-4" />
-                  </Button>
+                {/* Suivi JIRS / PG */}
+                {onToggleSuivi && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`h-6 w-6 p-0 transition-colors ${
+                        isSuiviJIRS ? 'text-blue-500 hover:text-blue-600' : 'text-gray-300 hover:text-gray-400'
+                      }`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleSuivi('JIRS');
+                      }}
+                      title="Suivi JIRS"
+                    >
+                      <Flag className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`h-6 w-6 p-0 transition-colors ${
+                        isSuiviPG ? 'text-purple-500 hover:text-purple-600' : 'text-gray-300 hover:text-gray-400'
+                      }`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleSuivi('PG');
+                      }}
+                      title="Suivi Parquet Général"
+                    >
+                      <Flag className="h-4 w-4" />
+                    </Button>
+                  </>
                 )}
               </div>
             </CardTitle>

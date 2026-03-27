@@ -21,7 +21,7 @@ export const TagSelector = ({
 }: TagSelectorProps) => {
   const { getTagsByCategory, isLoading } = useTags();
   
-  const availableCategories = allowedCategories || ['infractions', 'services', 'duree', 'priorite', 'statut', 'juge'];
+  const availableCategories = allowedCategories || ['infractions', 'services', 'duree', 'suivi', 'statut', 'juge'];
 
   if (isLoading) {
     return <div className="text-sm text-gray-500">Chargement des tags...</div>;
