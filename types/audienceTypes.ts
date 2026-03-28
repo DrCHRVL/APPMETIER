@@ -17,10 +17,90 @@ export interface CondamnationData {
   dateAudiencePending?: string;
 }
 
+// --- Types détaillés pour les saisies ---
+
+export type TypeVehicule = 'voiture' | 'moto' | 'scooter' | 'utilitaire' | 'poids_lourd' | 'bateau' | 'autre';
+
+export interface VehiculeSaisi {
+  type: TypeVehicule;
+  marqueModele?: string;
+  immatriculation?: string;
+  valeurEstimee?: number;
+}
+
+export type TypeImmeuble = 'appartement' | 'maison' | 'terrain' | 'local_commercial' | 'autre';
+
+export interface ImmeubleSaisi {
+  type: TypeImmeuble;
+  adresse?: string;
+  valeurEstimee?: number;
+}
+
+export interface SaisieBancaire {
+  montant: number;
+  banque?: string;
+  referenceAgrasc?: string;
+}
+
+export interface CryptoSaisie {
+  montantEur: number;
+  typeCrypto?: string;
+}
+
+export type CategorieObjet = 'electronique' | 'luxe' | 'transport_leger' | 'informatique' | 'autre';
+
+export interface ObjetMobilier {
+  categorie: CategorieObjet;
+  description?: string;
+  quantite: number;
+  valeurEstimee?: number;
+}
+
+export type TypeStupefiant = 'cocaine' | 'heroine' | 'cannabis' | 'synthese' | 'autre';
+
+export interface StupefiantSaisi {
+  types: TypeStupefiant[];
+  quantite?: string;
+  description?: string;
+}
+
 export interface Confiscations {
-  vehicules: number;
-  immeubles: number;
-  argentTotal: number;
+  vehicules: VehiculeSaisi[];
+  immeubles: ImmeubleSaisi[];
+  numeraire: number;
+  saisiesBancaires: SaisieBancaire[];
+  cryptomonnaies: CryptoSaisie[];
+  objetsMobiliers: ObjetMobilier[];
+  stupefiants?: StupefiantSaisi;
+}
+
+/** Crée un objet Confiscations vide */
+export function emptyConfiscations(): Confiscations {
+  return {
+    vehicules: [],
+    immeubles: [],
+    numeraire: 0,
+    saisiesBancaires: [],
+    cryptomonnaies: [],
+    objetsMobiliers: [],
+  };
+}
+
+/** Migre l'ancien format (compteurs simples) vers le nouveau format détaillé */
+export function migrateConfiscations(raw: any): Confiscations {
+  if (!raw) return emptyConfiscations();
+  // Déjà au nouveau format (vehicules est un tableau)
+  if (Array.isArray(raw.vehicules)) return raw as Confiscations;
+  // Ancien format : vehicules: number, immeubles: number, argentTotal: number
+  const legacy = raw as { vehicules?: number; immeubles?: number; argentTotal?: number };
+  return {
+    vehicules: Array.from({ length: legacy.vehicules || 0 }, () => ({ type: 'voiture' as TypeVehicule })),
+    immeubles: Array.from({ length: legacy.immeubles || 0 }, () => ({ type: 'autre' as TypeImmeuble })),
+    numeraire: legacy.argentTotal || 0,
+    saisiesBancaires: [],
+    cryptomonnaies: [],
+    objetsMobiliers: [],
+  };
 }
 
 export interface PendingCondamnation {
@@ -71,6 +151,11 @@ export interface AudienceStats {
   totalVehicules: number;
   totalImmeubles: number;
   totalArgent: number;
+  totalNumeraire: number;
+  totalBancaire: number;
+  totalCrypto: number;
+  totalObjets: number;
+  totalStupefiants: number;
   nombreAudiences: number;
   nombreCondamnations: number;
   totalPeinePrison: number;

@@ -10,6 +10,7 @@ import { useAudience } from '@/hooks/useAudience';
 import { useToast } from '@/contexts/ToastContext';
 import { SuiviAlertModal } from './SuiviAlertModal';
 import { Tag, ToDoItem } from '@/types/interfaces';
+import { emptyConfiscations } from '@/types/audienceTypes';
 
 interface ArchiveEnqueteModalProps {
   isOpen: boolean;
@@ -71,11 +72,7 @@ export const ArchiveEnqueteModal = ({
         enqueteId,
         dateAudience: data.dateClassement,
         condamnations: [],
-        confiscations: {
-          vehicules: 0,
-          immeubles: 0,
-          argentTotal: 0
-        },
+        confiscations: emptyConfiscations(),
         isClassement: true,
         motifClassement: data.motifClassement
       };
@@ -112,11 +109,7 @@ export const ArchiveEnqueteModal = ({
         enqueteId,
         dateAudience: audienceDate,
         condamnations: [],
-        confiscations: {
-          vehicules: 0,
-          immeubles: 0,
-          argentTotal: 0
-        },
+        confiscations: emptyConfiscations(),
         isAudiencePending: true,
         typeInfraction: "pending",
         dateDefere: deferementDate || undefined,
