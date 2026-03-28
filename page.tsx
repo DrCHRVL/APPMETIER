@@ -567,13 +567,14 @@ return (
                         setIsEditing(true);
                       }}
                       onArchive={handleArchiveEnquete}
-                      onTogglePriority={() => {
-                        const hasPriorityTag = enquete.tags.some((tag: any) =>
-                          tag.category === 'priorite' && tag.value === 'Prioritaire'
+                      onToggleSuivi={(type: 'JIRS' | 'PG') => {
+                        const tagId = type === 'JIRS' ? 'suivi_jirs' : 'suivi_pg';
+                        const hasSuiviTag = enquete.tags.some((tag: any) =>
+                          tag.category === 'suivi' && tag.value === type
                         );
-                        const newTags = hasPriorityTag
-                          ? enquete.tags.filter((tag: any) => !(tag.category === 'priorite' && tag.value === 'Prioritaire'))
-                          : [...enquete.tags, { id: 'prioritaire', value: 'Prioritaire', category: 'priorite' }];
+                        const newTags = hasSuiviTag
+                          ? enquete.tags.filter((tag: any) => !(tag.category === 'suivi' && tag.value === type))
+                          : [...enquete.tags, { id: tagId, value: type, category: 'suivi' }];
                         handleUpdateEnquete(enquete.id, { tags: newTags });
                       }}
                       onStartEnquete={handleStartEnquete}
@@ -605,6 +606,7 @@ return (
                         showToast('Autorisation validée', 'success');
                       }}
                       visualAlertRules={visualAlertRules}
+                      onCreateGlobalTodo={(todo) => handleGlobalTodosChange([...globalTodos, todo])}
                     />
                   );
 
@@ -758,6 +760,7 @@ return (
           setEditingCR={setEditingCR}
           onDelete={handleDeleteEnquete}
           allKnownMec={allKnownMec}
+          onCreateGlobalTodo={(todo) => handleGlobalTodosChange([...globalTodos, todo])}
         />
       )}
 

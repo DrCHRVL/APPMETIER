@@ -3,6 +3,8 @@ import { Tag } from '@/types/interfaces';
 import { Input } from '../ui/input';
 import { Select } from '../ui/select';
 import { MultiSelect } from '../ui/multi-select';
+import { Badge } from '../ui/badge';
+import { Flag } from 'lucide-react';
 import { useTags } from '@/hooks/useTags';
 
 interface EnqueteHeaderProps {
@@ -77,8 +79,27 @@ export const EnqueteHeader = ({
     onUpdate({ tags: [...serviceTags, ...selectedTags] });
   };
 
+  const suiviJIRS = tags.some(t => t.category === 'suivi' && t.value === 'JIRS');
+  const suiviPG = tags.some(t => t.category === 'suivi' && t.value === 'PG');
+
   return (
     <div className="bg-gray-50 rounded-lg p-2 mb-4">
+      {(suiviJIRS || suiviPG) && (
+        <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-200">
+          {suiviJIRS && (
+            <Badge className="bg-blue-100 text-blue-800 border border-blue-300 gap-1">
+              <Flag className="h-3 w-3" />
+              Suivi JIRS
+            </Badge>
+          )}
+          {suiviPG && (
+            <Badge className="bg-purple-100 text-purple-800 border border-purple-300 gap-1">
+              <Flag className="h-3 w-3" />
+              Suivi Parquet Général
+            </Badge>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-3 gap-4">
         <div>
           <h3 className="text-xs font-medium text-gray-500">Date de début</h3>

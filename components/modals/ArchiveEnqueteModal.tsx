@@ -8,6 +8,8 @@ import { OIConfirmationModal } from './OIConfirmationModal';
 import { ClassementModal } from './ClassementModal';
 import { useAudience } from '@/hooks/useAudience';
 import { useToast } from '@/contexts/ToastContext';
+import { SuiviAlertModal } from './SuiviAlertModal';
+import { Tag, ToDoItem } from '@/types/interfaces';
 
 interface ArchiveEnqueteModalProps {
   isOpen: boolean;
@@ -15,6 +17,9 @@ interface ArchiveEnqueteModalProps {
   onArchive: (id: number) => void;
   enqueteId: number;
   misEnCause?: { id: number; nom: string }[];
+  enqueteNumero?: string;
+  enqueteTags?: Tag[];
+  onCreateGlobalTodo?: (todo: ToDoItem) => void;
 }
 
 export const ArchiveEnqueteModal = ({
@@ -22,7 +27,10 @@ export const ArchiveEnqueteModal = ({
   onClose,
   onArchive,
   enqueteId,
-  misEnCause = []
+  misEnCause = [],
+  enqueteNumero = '',
+  enqueteTags = [],
+  onCreateGlobalTodo
 }: ArchiveEnqueteModalProps) => {
   const [step, setStep] = useState<'initial' | 'noResults' | 'date'>('initial');
   const [audienceDate, setAudienceDate] = useState('');
@@ -31,8 +39,10 @@ export const ArchiveEnqueteModal = ({
   const [showResultsModal, setShowResultsModal] = useState(false);
   const [showOIModal, setShowOIModal] = useState(false);
   const [showClassementModal, setShowClassementModal] = useState(false);
+  const [showSuiviAlert, setShowSuiviAlert] = useState(false);
   const { saveResultat } = useAudience();
   const { showToast } = useToast();
+  const hasSuivi = enqueteTags.some(t => t.category === 'suivi');
 
   const handleInitialChoice = (hasResults: boolean) => {
     if (hasResults) {
@@ -88,6 +98,9 @@ export const ArchiveEnqueteModal = ({
     try {
       onArchive(id);
       showToast('Enquête archivée avec succès', 'success');
+      if (hasSuivi) {
+        setShowSuiviAlert(true);
+      }
     } catch (error) {
       showToast('Erreur lors de l\'archivage', 'error');
     }
@@ -310,6 +323,9 @@ export const ArchiveEnqueteModal = ({
           enqueteId={enqueteId}
           onSave={handleSaveResults}
           misEnCause={misEnCause}
+          enqueteNumero={enqueteNumero}
+          enqueteTags={enqueteTags}
+          onCreateGlobalTodo={onCreateGlobalTodo}
         />
       )}
 
@@ -339,6 +355,15 @@ export const ArchiveEnqueteModal = ({
           onDelete={handleClassementDelete} // Fonction factice, ne sera jamais appelée
         />
       )}
+
+      <SuiviAlertModal
+        isOpen={showSuiviAlert}
+        onClose={() => setShowSuiviAlert(false)}
+        enqueteNumero={enqueteNumero}
+        enqueteTags={enqueteTags}
+        triggerContext="archive"
+        onCreateTodo={onCreateGlobalTodo}
+      />
     </>
   );
 };

@@ -104,7 +104,7 @@ export const InstructionFilterBar = ({
             selectedTags={selectedTags}
             onTagSelect={onTagSelect}
             onTagRemove={onTagRemove}
-            categories={['infractions', 'services', 'priorite']}
+            categories={['infractions', 'services', 'suivi']}
             placeholder="Filtrer par type d'infraction..."
           />
         </div>

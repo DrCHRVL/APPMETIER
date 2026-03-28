@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Archive, Edit, Trash, RotateCcw, Users, Building2, FileText, Calendar, Flag, Clock, Hourglass, Gavel, ArrowDown } from 'lucide-react';
-import { Enquete, Alert, VisualAlertRule } from '@/types/interfaces';
+import { Enquete, Alert, VisualAlertRule, ToDoItem } from '@/types/interfaces';
 import { VISUAL_ALERT_COLOR_PALETTE } from '@/config/constants';
 import { StartEnqueteModal } from './modals/StartEnqueteModal';
 import { AlertsModal } from './modals/AlertsModal';
@@ -26,7 +26,7 @@ interface EnquetePreviewProps {
   onArchive?: (id: number) => void;
   onDelete?: () => void;
   onUnarchive?: () => void;
-  onTogglePriority?: () => void;
+  onToggleSuivi?: (type: 'JIRS' | 'PG') => void;
   onStartEnquete?: (id: number, date: string) => void;
   alerts: Alert[];
   onValidateAlert: (alertId: number) => void;
@@ -36,6 +36,7 @@ interface EnquetePreviewProps {
   onValidateProlongationRequest?: (acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
   onValidateAutorisationRequest?: (acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
   visualAlertRules?: VisualAlertRule[];
+  onCreateGlobalTodo?: (todo: ToDoItem) => void;
 }
 
 export const EnquetePreview = ({
@@ -46,7 +47,7 @@ export const EnquetePreview = ({
   onArchive,
   onDelete,
   onUnarchive,
-  onTogglePriority,
+  onToggleSuivi,
   onStartEnquete,
   alerts,
   onValidateAlert, 
@@ -55,7 +56,8 @@ export const EnquetePreview = ({
   onPoseRequest, 
   onValidateProlongationRequest,
   onValidateAutorisationRequest,
-  visualAlertRules = []
+  visualAlertRules = [],
+  onCreateGlobalTodo
 }: EnquetePreviewProps) => {
   // États pour les modales
   const [showStartModal, setShowStartModal] = useState(false);
@@ -97,9 +99,8 @@ export const EnquetePreview = ({
     );
   }, [enquete.dateOP]);
 
-  const isPrioritaire = enquete.tags.some(tag =>
-    tag.category === 'priorite' && tag.value === 'Prioritaire'
-  );
+  const isSuiviJIRS = enquete.tags.some(tag => tag.category === 'suivi' && tag.value === 'JIRS');
+  const isSuiviPG = enquete.tags.some(tag => tag.category === 'suivi' && tag.value === 'PG');
 
   const enqueteAlerts = alerts.filter(alert => alert.enqueteId === enquete.id && alert.status === 'active');
   const hasCRDelayAlert = enqueteAlerts.some(alert => alert.type === 'cr_delay');
@@ -286,20 +287,37 @@ return (
               </div>
             </Button>
           )}
-          {onTogglePriority && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`h-5 w-5 p-0 transition-colors ${
-                isPrioritaire ? 'text-red-500 hover:text-red-600' : 'text-gray-300 hover:text-gray-400'
-              }`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onTogglePriority();
-              }}
-            >
-              <Flag className="h-3 w-3" />
-            </Button>
+          {onToggleSuivi && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`h-5 w-5 p-0 transition-colors ${
+                  isSuiviJIRS ? 'text-blue-500 hover:text-blue-600' : 'text-gray-300 hover:text-gray-400'
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleSuivi('JIRS');
+                }}
+                title="Suivi JIRS"
+              >
+                <Flag className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`h-5 w-5 p-0 transition-colors ${
+                  isSuiviPG ? 'text-purple-500 hover:text-purple-600' : 'text-gray-300 hover:text-gray-400'
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleSuivi('PG');
+                }}
+                title="Suivi Parquet Général"
+              >
+                <Flag className="h-3 w-3" />
+              </Button>
+            </>
           )}
         </div>
       </CardTitle>
@@ -492,6 +510,9 @@ return (
         enqueteId={enquete.id}
         onArchive={onArchive}
         misEnCause={enquete.misEnCause}
+        enqueteNumero={enquete.numero}
+        enqueteTags={enquete.tags}
+        onCreateGlobalTodo={onCreateGlobalTodo}
       />
 
       <ViewAudienceResultModal
