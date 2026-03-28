@@ -10,6 +10,7 @@ import { useTags } from '@/hooks/useTags';
 import { useActeStats } from '@/hooks/useActeStats';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { getYearlyStats } from '@/utils/audienceStats';
+import { Flag } from 'lucide-react';
 
 ChartJS.register(
   ArcElement,
@@ -64,6 +65,31 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
     if (!audienceResult?.dateAudience) return false;
     return new Date(audienceResult.dateAudience).getFullYear() === selectedYear;
   });
+
+  // Stats suivi JIRS / PG — enquêtes actives pendant l'année sélectionnée
+  const suiviStats = useMemo(() => {
+    // Enquêtes pertinentes pour l'année : créées avant ou pendant l'année,
+    // et soit encore en cours, soit archivées pendant cette année
+    const relevant = enquetes.filter(e => {
+      const created = new Date(e.dateCreation).getFullYear();
+      if (created > selectedYear) return false;
+      if (e.statut === 'en_cours' || e.statut === 'instruction') return true;
+      if (e.statut === 'archive') {
+        const ar = Object.values(audienceState?.resultats || {}).find(r => r.enqueteId === e.id);
+        if (ar?.dateAudience) return new Date(ar.dateAudience).getFullYear() === selectedYear;
+        return new Date(e.dateMiseAJour).getFullYear() === selectedYear;
+      }
+      return false;
+    });
+
+    const jirs = relevant.filter(e => e.tags.some(t => t.category === 'suivi' && t.value === 'JIRS'));
+    const pg = relevant.filter(e => e.tags.some(t => t.category === 'suivi' && t.value === 'PG'));
+    const both = relevant.filter(e =>
+      e.tags.some(t => t.category === 'suivi' && t.value === 'JIRS') &&
+      e.tags.some(t => t.category === 'suivi' && t.value === 'PG')
+    );
+    return { jirs, pg, both, total: new Set([...jirs, ...pg].map(e => e.id)).size };
+  }, [enquetes, selectedYear, audienceState?.resultats]);
 
   const getMonthsToShow = () => {
     const lastMonth = selectedYear === currentDate.getFullYear() ?
@@ -313,6 +339,68 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
             </div>
           </CardContent>
         </Card>
+
+        {/* Carte Suivi instances supérieures */}
+        {suiviStats.total > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Flag className="h-4 w-4 text-amber-500" />
+                Suivi instances supérieures
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{suiviStats.total}</div>
+              <p className="text-sm text-gray-500 mb-4">
+                dossier{suiviStats.total > 1 ? 's' : ''} suivi{suiviStats.total > 1 ? 's' : ''}
+              </p>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between bg-blue-50 p-2.5 rounded-lg border border-blue-200">
+                  <div className="flex items-center gap-2">
+                    <Flag className="h-3.5 w-3.5 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-800">JIRS</span>
+                  </div>
+                  <span className="text-lg font-bold text-blue-700">{suiviStats.jirs.length}</span>
+                </div>
+                <div className="flex items-center justify-between bg-purple-50 p-2.5 rounded-lg border border-purple-200">
+                  <div className="flex items-center gap-2">
+                    <Flag className="h-3.5 w-3.5 text-purple-600" />
+                    <span className="text-sm font-medium text-purple-800">Parquet Général</span>
+                  </div>
+                  <span className="text-lg font-bold text-purple-700">{suiviStats.pg.length}</span>
+                </div>
+                {suiviStats.both.length > 0 && (
+                  <div className="text-xs text-gray-500 text-center pt-1 border-t">
+                    dont {suiviStats.both.length} suivi{suiviStats.both.length > 1 ? 's' : ''} par les deux
+                  </div>
+                )}
+              </div>
+
+              {/* Liste des dossiers */}
+              <div className="mt-4 pt-3 border-t space-y-1">
+                <p className="text-xs font-medium text-gray-500 mb-1.5">Dossiers concernés :</p>
+                {[...new Map([...suiviStats.jirs, ...suiviStats.pg].map(e => [e.id, e])).values()].map(e => {
+                  const isJIRS = e.tags.some(t => t.category === 'suivi' && t.value === 'JIRS');
+                  const isPG = e.tags.some(t => t.category === 'suivi' && t.value === 'PG');
+                  return (
+                    <div key={e.id} className="flex items-center justify-between text-xs">
+                      <span className="text-gray-700 truncate mr-2">{e.numero}</span>
+                      <div className="flex gap-1 flex-shrink-0">
+                        {isJIRS && (
+                          <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] font-medium">JIRS</span>
+                        )}
+                        {isPG && (
+                          <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-[10px] font-medium">PG</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Carte Déférements */}
         <Card>
