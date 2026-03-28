@@ -252,7 +252,7 @@ export interface AlertValidations {
 // Configuration du récapitulatif hebdomadaire
 export interface WeeklyPopupConfig {
   enabled: boolean;
-  dayOfWeek: number;   // 0=Dimanche, 1=Lundi ... 6=Samedi
+  dayOfWeek: number;   // 0=Dimanche, 1=Lundi ... 6=Samedi, 7=Chaque jour
   hour: number;        // 0–23
   lastShownDate?: string; // ISO date, pour éviter d'afficher plusieurs fois le même jour
 }
