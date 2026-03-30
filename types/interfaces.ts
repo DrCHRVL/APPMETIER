@@ -560,6 +560,45 @@ export interface RapportAppel {
   dateRendu?: string;
 }
 
+// Types pour le suivi des actes d'instruction (criminalité organisée)
+export type TypeActeInstruction =
+  | 'commission_rogatoire'
+  | 'expertise'
+  | 'audition_temoin'
+  | 'garde_a_vue'
+  | 'ipc'
+  | 'interrogatoire_fond'
+  | 'audition_partie_civile';
+
+export const LIBELLES_ACTE_INSTRUCTION: Record<TypeActeInstruction, string> = {
+  commission_rogatoire: 'Commission rogatoire',
+  expertise: 'Expertise',
+  audition_temoin: 'Audition de témoin',
+  garde_a_vue: 'Garde à vue',
+  ipc: 'IPC',
+  interrogatoire_fond: 'Interrogatoire au fond',
+  audition_partie_civile: 'Audition partie civile',
+};
+
+export interface ActeInstruction {
+  id: number;
+  type: TypeActeInstruction;
+  date: string;
+  libelle: string;        // ex: "Dupont Jean - expert balistique"
+  done: boolean;          // réglé dans le réquisitoire définitif
+  // Spécifique CR :
+  retourPartiel?: string; // date
+  retourFinal?: string;   // date
+  // Spécifique expertise :
+  typeExpertise?: 'balistique' | 'technique' | 'psychiatrique' | 'psychologique' | 'autre';
+}
+
+export interface RequisoireSupletif {
+  id: number;
+  date: string;
+  qualification: string;
+}
+
 // Extension de l'interface Enquete pour les instructions
 export interface EnqueteInstruction extends Enquete {
   // Champs obligatoires création
@@ -597,7 +636,11 @@ export interface EnqueteInstruction extends Enquete {
   
   // Côtes/tomes incrémentable
   cotesTomes: number;
-  
+
+  // Suivi CO : actes d'instruction + réquisitoires supplétifs
+  actesInstruction?: ActeInstruction[];
+  requisoiresSupletifs?: RequisoireSupletif[];
+
   // Timeline personnalisée
   timeline?: TimelineEvent[];
 }

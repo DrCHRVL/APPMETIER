@@ -62,6 +62,14 @@ export const InstructionPreview = ({
     instruction.rapportAppel?.nbPages
   ]);
 
+  // PROGRESSION SUIVI CO
+  const progressionCO = useMemo(() => {
+    const actes = instruction.actesInstruction || [];
+    if (actes.length === 0) return null;
+    const done = actes.filter(a => a.done).length;
+    return { done, total: actes.length, pct: Math.round((done / actes.length) * 100) };
+  }, [instruction.actesInstruction]);
+
   // Alertes DP pour les mis en examen détenus
   const dpAlerts = useMemo(() => {
     const alerts = instruction.misEnExamen
@@ -299,6 +307,33 @@ export const InstructionPreview = ({
       {/* COMPTEURS DYNAMIQUES */}
       <CardContent className="px-3 pb-2 pt-0">
         <div className="border-t-2 border-gray-200 pt-1.5" onClick={(e) => e.stopPropagation()}>
+
+          {/* Jauge suivi CO */}
+          {progressionCO && (
+            <div className="mb-2">
+              <div className="flex justify-between items-center mb-0.5">
+                <span className="text-xs text-gray-500">Règlement</span>
+                <span className={`text-xs font-semibold ${
+                  progressionCO.pct >= 75 ? 'text-green-700' :
+                  progressionCO.pct >= 40 ? 'text-yellow-700' :
+                  'text-red-600'
+                }`}>
+                  {progressionCO.done}/{progressionCO.total} ({progressionCO.pct}%)
+                </span>
+              </div>
+              <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${
+                    progressionCO.pct >= 75 ? 'bg-green-500' :
+                    progressionCO.pct >= 40 ? 'bg-yellow-500' :
+                    'bg-red-400'
+                  }`}
+                  style={{ width: `${progressionCO.pct}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-1">
             {/* Compteur DML - DYNAMIQUE */}
             {compteursDynamiques.dml > 0 && (
