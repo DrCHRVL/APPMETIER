@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { SideBar } from './components/SideBar';
+import { MultiSideBar } from './components/MultiSideBar';
 import { Header } from './components/Header';
 import { FilterBar } from './components/FilterBar';
 import { EnquetePreview } from './components/EnquetePreview';
@@ -55,6 +56,12 @@ import { DataSyncConflictModal } from './components/modals/DataSyncConflictModal
 import { ConflictAction } from '@/types/dataSyncTypes';
 import { DataSyncManager } from './utils/dataSync/DataSyncManager';
 
+// 🆕 Multi-contentieux
+import { SettingsModal } from './components/modals/SettingsModal';
+import { OverboardPage } from './components/pages/OverboardPage';
+import { ContentieuxId } from '@/types/userTypes';
+import { AdminUsersPanel } from './components/AdminUsersPanel';
+
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
 
 
@@ -64,11 +71,36 @@ function AppContent() {
   const [currentView, setCurrentView] = useState('enquetes');
   const [searchTerm, setSearchTerm] = useState('');
 
+  // 🆕 Multi-contentieux
+  const [activeContentieux, setActiveContentieux] = useState<ContentieuxId | null>(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
+
   // Réinitialise la recherche à chaque changement de vue
-  const handleViewChange = (view: string) => {
+  const handleViewChange = (view: string, contentieuxId?: ContentieuxId) => {
     setSearchTerm('');
     setCurrentView(view);
+    if (contentieuxId) {
+      setActiveContentieux(contentieuxId);
+    }
   };
+
+  // Extraire le type de vue et le contentieux depuis les vues composites (ex: "enquetes_crimorg")
+  const parseView = (view: string): { baseView: string; viewContentieux: ContentieuxId | null } => {
+    const parts = view.split('_');
+    if (parts.length >= 2) {
+      const baseView = parts[0];
+      const cId = parts.slice(1).join('_');
+      // Vérifier que c'est bien un contentieux valide
+      if (contentieuxDefs.some(c => c.id === cId)) {
+        return { baseView, viewContentieux: cId };
+      }
+    }
+    return { baseView: view, viewContentieux: null };
+  };
+
+  const { baseView, viewContentieux } = parseView(currentView);
+  const effectiveContentieux = viewContentieux || activeContentieux;
   const [showNewEnqueteModal, setShowNewEnqueteModal] = useState(false);
   const [showNewInstructionModal, setShowNewInstructionModal] = useState(false);
   const [showAlertsModal, setShowAlertsModal] = useState(false);
@@ -517,7 +549,7 @@ function AppContent() {
     return enqueteAlertsCount + instructionAlertsCount + airAlertsCount;
   }, [alerts, instructionAlerts]);
 
-  if (!isClient || tagsLoading) {
+  if (!isClient || tagsLoading || userLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-100">
         <div className="text-lg">Chargement...</div>
@@ -525,15 +557,35 @@ function AppContent() {
     );
   }
 
+  // Afficher une erreur si l'utilisateur n'est pas reconnu
+  if (userError && !isAuthenticated) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-100">
+        <div className="text-center space-y-4 max-w-md">
+          <div className="text-6xl">🔒</div>
+          <h1 className="text-xl font-bold text-gray-800">Accès non autorisé</h1>
+          <p className="text-gray-600">{userError}</p>
+          <p className="text-sm text-gray-400">
+            Votre identifiant Windows n'est pas enregistré dans la configuration.
+            Contactez l'administrateur de l'application.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
 return (
     <div className="flex h-screen bg-gray-100">
       <div className="no-print">
-        <SideBar 
+        <MultiSideBar
           isOpen={sidebarOpen}
           currentView={currentView}
+          currentContentieux={effectiveContentieux}
           onViewChange={handleViewChange}
           onNewEnquete={handleNewEnquete}
+          onOpenSettings={() => setShowSettingsModal(true)}
           alertCount={activeAlertsCount}
+          instructionAlertCount={instructionAlerts.length}
         />
       </div>
       <div className="flex-1 overflow-hidden flex flex-col">
@@ -557,7 +609,14 @@ return (
           />
         </div>
 
-        {(currentView === 'enquetes' || currentView === 'instructions') && (
+        {/* 🆕 Bandeau lecture seule */}
+        {effectiveContentieux && canDo && !canDo(effectiveContentieux, 'edit') && (baseView === 'enquetes' || baseView === 'archives') && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 py-1.5 text-xs text-amber-700 font-medium flex items-center gap-2">
+            <span>👁</span> Mode consultation — {contentieuxDefs.find(c => c.id === effectiveContentieux)?.label || effectiveContentieux}
+          </div>
+        )}
+
+        {(baseView === 'enquetes' || baseView === 'instructions') && (
           <FilterBar
             selectedTags={selectedTags}
             onTagSelect={(tag) => setSelectedTags([...selectedTags, tag])}
@@ -572,7 +631,7 @@ return (
         )}
 
         <main className="flex-1 overflow-auto p-6">
-          {currentView === 'enquetes' && (
+          {baseView === 'enquetes' && (
             <div className="space-y-6">
               <OPTimeline enquetes={activeEnquetes} />
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -703,7 +762,7 @@ return (
             </div>
           )}
 
-          {currentView === 'instructions' && (
+          {baseView === 'instructions' && (
             <InstructionsPage
               instructions={instructions}
               searchTerm={searchTerm}
@@ -714,7 +773,7 @@ return (
             />
           )}
 
-          {currentView === 'archives' && (
+          {baseView === 'archives' && (
             <ArchivePage
               enquetes={enquetes}
               searchTerm={searchTerm}
@@ -727,11 +786,11 @@ return (
             />
           )}
 
-          {currentView === 'permanence' && (
+          {baseView === 'permanence' && (
             <PermanencePage />
           )}
 
-          {currentView === 'air' && (
+          {baseView === 'air' && (
             <AIRPage 
               mesures={mesuresAIR}
               isLoading={isLoadingAIR}
@@ -743,11 +802,11 @@ return (
             />
           )}
 
-          {currentView === 'tags' && (
+          {baseView === 'tags' && (
             <TagManagementPage />
           )}
 
-          {currentView === 'alertes' && (
+          {baseView === 'alertes' && (
             <AlertsPage
               rules={alertRules}
               onUpdateRule={handleUpdateAlertRule}
@@ -761,11 +820,11 @@ return (
             />
           )}
 
-          {currentView === 'statistiques' && (
+          {baseView === 'stats' && (
             <StatsPage enquetes={enquetes} />
           )}
 
-          {currentView === 'sauvegardes' && (
+          {baseView === 'sauvegardes' && (
             <SavePage
               onExport={handleExportData}
               onImport={handleImportData}
@@ -776,6 +835,20 @@ return (
               onListServerBackups={listServerBackups}
               isSyncing={isSyncing}
               syncStatus={syncStatus}
+            />
+          )}
+
+          {/* 🆕 Overboard (vue transversale) */}
+          {currentView === 'overboard' && (
+            <OverboardPage
+              enquetesByContentieux={new Map(
+                accessibleContentieux.map(c => [c.id, enquetes.filter(e => e.statut === 'en_cours')])
+              )}
+              contentieuxDefs={contentieuxDefs}
+              onEnqueteClick={(enquete) => {
+                setSelectedEnquete(enquete);
+                setIsEditing(false);
+              }}
             />
           )}
         </main>
@@ -1056,6 +1129,40 @@ return (
         onClose={() => setShowWeeklyPopup(false)}
         enquetes={enquetes}
         alertRules={alertRules}
+      />
+
+      {/* 🆕 Modal Paramètres multi-onglets */}
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        alertesContent={
+          <AlertsPage
+            rules={alertRules}
+            onUpdateRule={handleUpdateAlertRule}
+            onDuplicateRule={handleDuplicateRule}
+            onDeleteRule={handleDeleteRule}
+            onShowWeeklyPopup={() => setShowWeeklyPopup(true)}
+            visualAlertRules={visualAlertRules}
+            onUpdateVisualAlertRule={updateVisualAlertRule}
+            onDeleteVisualAlertRule={deleteVisualAlertRule}
+            onReorderVisualAlertRules={reorderVisualAlertRules}
+          />
+        }
+        tagsContent={<TagManagementPage />}
+        sauvegardesContent={
+          <SavePage
+            onExport={handleExportData}
+            onImport={handleImportData}
+            onManualSave={handleManualSave}
+            lastSaveDate={StorageManager.getLastSave()}
+            onRepairServer={repairServer}
+            onRestoreFromServerBackup={restoreFromServerBackup}
+            onListServerBackups={listServerBackups}
+            isSyncing={isSyncing}
+            syncStatus={syncStatus}
+          />
+        }
+        adminUsersContent={<AdminUsersPanel />}
       />
     </div>
   );

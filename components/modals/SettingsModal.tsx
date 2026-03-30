@@ -13,12 +13,13 @@ type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'admin_users' | 'admin_t
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  // On passe les composants enfants qui sont déjà rendus ailleurs
-  // Cela permet de réutiliser les pages existantes telles quelles
   alertesContent: React.ReactNode;
   tagsContent: React.ReactNode;
   sauvegardesContent: React.ReactNode;
-  adminContent?: React.ReactNode;
+  adminUsersContent?: React.ReactNode;
+  adminTagsContent?: React.ReactNode;
+  adminServicesContent?: React.ReactNode;
+  adminSnapshotsContent?: React.ReactNode;
 }
 
 // ──────────────────────────────────────────────
@@ -48,13 +49,22 @@ const TABS: TabDef[] = [
 // COMPOSANT
 // ──────────────────────────────────────────────
 
+const AdminPlaceholder = () => (
+  <div className="flex items-center justify-center h-64 text-gray-400">
+    Module d'administration — à implémenter
+  </div>
+);
+
 export const SettingsModal = ({
   isOpen,
   onClose,
   alertesContent,
   tagsContent,
   sauvegardesContent,
-  adminContent,
+  adminUsersContent,
+  adminTagsContent,
+  adminServicesContent,
+  adminSnapshotsContent,
 }: SettingsModalProps) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('alertes');
   const { isAdmin: checkIsAdmin } = useUser();
@@ -73,14 +83,13 @@ export const SettingsModal = ({
       case 'sauvegardes':
         return sauvegardesContent;
       case 'admin_users':
+        return adminUsersContent || <AdminPlaceholder />;
       case 'admin_tags':
+        return adminTagsContent || <AdminPlaceholder />;
       case 'admin_services':
+        return adminServicesContent || <AdminPlaceholder />;
       case 'admin_snapshots':
-        return adminContent || (
-          <div className="flex items-center justify-center h-64 text-gray-400">
-            Module d'administration — à implémenter
-          </div>
-        );
+        return adminSnapshotsContent || <AdminPlaceholder />;
       default:
         return null;
     }
