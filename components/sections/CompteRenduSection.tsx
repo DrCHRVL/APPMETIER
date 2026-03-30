@@ -596,10 +596,11 @@ export const CompteRenduSection = ({
           }}
           modal={false}
         >
-          <DialogContent 
+          <DialogContent
             ref={dialogRef}
-            className="w-[500px] overflow-auto max-h-[80vh] fixed transform-none shadow-xl border border-gray-300" 
+            className="w-[500px] overflow-auto max-h-[80vh] fixed transform-none shadow-xl border border-gray-300"
             style={{ top: '40%', left: '55%' }}
+            onInteractOutside={(e) => e.preventDefault()}
           >
             <DialogHeader>
               <DialogTitle>
