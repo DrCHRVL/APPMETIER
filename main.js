@@ -1367,8 +1367,8 @@ function setupIpcHandlers() {
 
   ipcMain.handle('app:checkUpdate', async () => {
     try {
-      await runGit('git fetch origin master');
-      const count = await runGit('git rev-list HEAD..origin/master --count');
+      await runGit('git fetch origin main');
+      const count = await runGit('git rev-list HEAD..origin/main --count');
       const commits = parseInt(count, 10) || 0;
       return { hasUpdate: commits > 0, commits };
     } catch (error) {
@@ -1378,7 +1378,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('app:applyUpdate', async () => {
     try {
-      await runGit('git pull origin master');
+      await runGit('git pull origin main');
       app.relaunch();
       app.exit(0);
       return { success: true };
