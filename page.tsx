@@ -77,6 +77,13 @@ function AppContent() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
 
+  // Initialiser le contentieux actif au premier contentieux accessible
+  useEffect(() => {
+    if (!activeContentieux && accessibleContentieux.length > 0) {
+      setActiveContentieux(accessibleContentieux[0].id);
+    }
+  }, [accessibleContentieux, activeContentieux]);
+
   // Réinitialise la recherche à chaque changement de vue
   const handleViewChange = (view: string, contentieuxId?: ContentieuxId) => {
     setSearchTerm('');

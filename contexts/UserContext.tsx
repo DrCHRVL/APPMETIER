@@ -16,6 +16,7 @@ import {
   ModuleId,
 } from '@/types/userTypes';
 import { canDo as canDoCheck, isAdmin as isAdminCheck, hasGlobalView, getSyncMode } from '@/utils/permissions';
+import { migrateToMultiContentieux } from '@/utils/migration/migrateToMultiContentieux';
 
 // ──────────────────────────────────────────────
 // INTERFACE DU CONTEXTE
@@ -66,6 +67,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       try {
         setIsLoading(true);
         setError(null);
+
+        // Migration one-shot des données mono→multi contentieux
+        await migrateToMultiContentieux();
 
         const manager = UserManager.getInstance();
         const ctx = await manager.initialize();
