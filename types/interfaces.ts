@@ -205,6 +205,8 @@ export interface Enquete extends NewEnqueteData {
   checklist?: Checklist;
   documents: DocumentEnquete[];
   toDos?: ToDoItem[];
+  // Multi-utilisateurs : épingles Overboard (PRA/VP/Admin)
+  overboardPins?: import('@/types/userTypes').OverboardPin[];
 }
 
 // Configuration de la récurrence
