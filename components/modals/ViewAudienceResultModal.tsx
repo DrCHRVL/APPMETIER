@@ -5,7 +5,7 @@ import { useAudience } from '@/hooks/useAudience';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useToast } from '@/contexts/ToastContext';
-import { ResultatAudience } from '@/types/audienceTypes';
+import { ResultatAudience, migrateConfiscations } from '@/types/audienceTypes';
 import { AudienceResultModal } from './AudienceResultModal';
 import { ClassementModal } from './ClassementModal';
 
@@ -56,11 +56,7 @@ export const ViewAudienceResultModal = ({
     try {
       const compatibleResult = {
         ...updatedResult,
-        confiscations: {
-          vehicules: updatedResult.confiscations?.vehicules || 0,
-          immeubles: updatedResult.confiscations?.immeubles || 0,
-          argentTotal: updatedResult.confiscations?.argentTotal || 0
-        },
+        confiscations: migrateConfiscations(updatedResult.confiscations),
         condamnations: updatedResult.condamnations.map(condamnation => ({
           nom: condamnation.nom || '',
           peinePrison: condamnation.peinePrison || 0,
@@ -287,32 +283,84 @@ export const ViewAudienceResultModal = ({
               </div>
 
               <div className="space-y-4">
-                <h3 className="font-medium">Confiscations</h3>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    {resultat.confiscations.vehicules > 0 && (
-                      <div>
-                        <span className="text-gray-600">Véhicules:</span>
-                        <span className="font-medium ml-2">{resultat.confiscations.vehicules}</span>
-                      </div>
-                    )}
-                    {resultat.confiscations.immeubles > 0 && (
-                      <div>
-                        <span className="text-gray-600">Immeubles:</span>
-                        <span className="font-medium ml-2">{resultat.confiscations.immeubles}</span>
-                      </div>
-                    )}
-                    {resultat.confiscations.argentTotal > 0 && (
-                      <div className="col-span-2">
-                        <span className="text-gray-600">Montant total:</span>
-                        <span className="font-medium ml-2">
-                          {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' })
-                            .format(resultat.confiscations.argentTotal)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <h3 className="font-medium">Confiscations et saisies</h3>
+                {(() => {
+                  const conf = migrateConfiscations(resultat.confiscations);
+                  const formatEur = (v: number) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(v);
+                  const totalBancaire = conf.saisiesBancaires.reduce((s, b) => s + b.montant, 0);
+                  const totalCrypto = conf.cryptomonnaies.reduce((s, c) => s + c.montantEur, 0);
+                  const hasContent = conf.vehicules.length > 0 || conf.immeubles.length > 0 || conf.numeraire > 0 || conf.saisiesBancaires.length > 0 || conf.cryptomonnaies.length > 0 || conf.objetsMobiliers.length > 0 || conf.stupefiants?.types?.length;
+                  if (!hasContent) return <p className="text-sm text-gray-400">Aucune saisie enregistrée</p>;
+                  const typeVehLabels: Record<string, string> = { voiture: 'Voiture', moto: 'Moto', scooter: 'Scooter', utilitaire: 'Utilitaire', poids_lourd: 'Poids lourd', bateau: 'Bateau', autre: 'Autre' };
+                  const typeImmLabels: Record<string, string> = { appartement: 'Appartement', maison: 'Maison', terrain: 'Terrain', local_commercial: 'Local commercial', autre: 'Autre' };
+                  const catObjLabels: Record<string, string> = { electronique: 'Électronique', luxe: 'Luxe', transport_leger: 'Transport léger', informatique: 'Informatique', autre: 'Autre' };
+                  const stupLabels: Record<string, string> = { cocaine: 'Cocaïne', heroine: 'Héroïne', cannabis: 'Cannabis', synthese: 'Synthèse', autre: 'Autre' };
+                  return (
+                    <div className="bg-gray-50 p-4 rounded-lg space-y-3 text-sm">
+                      {conf.vehicules.length > 0 && (
+                        <div>
+                          <span className="text-gray-600 font-medium">Véhicules ({conf.vehicules.length}) :</span>
+                          <ul className="ml-4 mt-1 space-y-1">
+                            {conf.vehicules.map((v, i) => (
+                              <li key={i}>{typeVehLabels[v.type] || v.type}{v.marqueModele ? ` - ${v.marqueModele}` : ''}{v.immatriculation ? ` (${v.immatriculation})` : ''}{v.valeurEstimee ? ` — ${formatEur(v.valeurEstimee)}` : ''}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {conf.immeubles.length > 0 && (
+                        <div>
+                          <span className="text-gray-600 font-medium">Immeubles ({conf.immeubles.length}) :</span>
+                          <ul className="ml-4 mt-1 space-y-1">
+                            {conf.immeubles.map((im, i) => (
+                              <li key={i}>{typeImmLabels[im.type] || im.type}{im.adresse ? ` - ${im.adresse}` : ''}{im.valeurEstimee ? ` — ${formatEur(im.valeurEstimee)}` : ''}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {conf.numeraire > 0 && (
+                        <div><span className="text-gray-600">Numéraire (espèces) :</span> <span className="font-medium">{formatEur(conf.numeraire)}</span></div>
+                      )}
+                      {conf.saisiesBancaires.length > 0 && (
+                        <div>
+                          <span className="text-gray-600 font-medium">Saisies bancaires ({formatEur(totalBancaire)}) :</span>
+                          <ul className="ml-4 mt-1 space-y-1">
+                            {conf.saisiesBancaires.map((sb, i) => (
+                              <li key={i}>{formatEur(sb.montant)}{sb.banque ? ` (${sb.banque})` : ''}{sb.referenceAgrasc ? ` — AGRASC: ${sb.referenceAgrasc}` : ''}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {conf.cryptomonnaies.length > 0 && (
+                        <div>
+                          <span className="text-gray-600 font-medium">Cryptomonnaies ({formatEur(totalCrypto)}) :</span>
+                          <ul className="ml-4 mt-1 space-y-1">
+                            {conf.cryptomonnaies.map((cr, i) => (
+                              <li key={i}>{formatEur(cr.montantEur)}{cr.typeCrypto ? ` (${cr.typeCrypto})` : ''}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {conf.objetsMobiliers.length > 0 && (
+                        <div>
+                          <span className="text-gray-600 font-medium">Objets mobiliers ({conf.objetsMobiliers.length}) :</span>
+                          <ul className="ml-4 mt-1 space-y-1">
+                            {conf.objetsMobiliers.map((obj, i) => (
+                              <li key={i}>{catObjLabels[obj.categorie] || obj.categorie}{obj.description ? ` - ${obj.description}` : ''} ×{obj.quantite}{obj.valeurEstimee ? ` — ${formatEur(obj.valeurEstimee)}` : ''}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {conf.stupefiants?.types?.length ? (
+                        <div>
+                          <span className="text-gray-600 font-medium">Stupéfiants :</span>
+                          <span className="ml-1">{conf.stupefiants.types.map(t => stupLabels[t] || t).join(', ')}</span>
+                          {conf.stupefiants.quantite && <span className="ml-2">— {conf.stupefiants.quantite}</span>}
+                          {conf.stupefiants.description && <span className="ml-2 text-gray-500">({conf.stupefiants.description})</span>}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()}
               </div>
             </>
           )}

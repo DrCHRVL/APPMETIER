@@ -441,7 +441,7 @@ export const AudienceStats = ({ enquetes, selectedYear }: AudienceStatsProps) =>
         {/* Carte Confiscations */}
         <Card>
           <CardHeader>
-            <CardTitle>Confiscations</CardTitle>
+            <CardTitle>Confiscations et saisies</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -454,13 +454,50 @@ export const AudienceStats = ({ enquetes, selectedYear }: AudienceStatsProps) =>
                   <span>Immeubles saisis</span>
                   <span className="font-bold">{yearlyStats.totalImmeubles}</span>
                 </div>
+              </div>
+              <div className="border-t pt-2 space-y-2">
+                <p className="text-xs text-gray-500 font-medium uppercase">Avoirs financiers</p>
                 <div className="flex justify-between">
-                  <span>Montant total des confiscations</span>
+                  <span>Numéraire (espèces)</span>
+                  <span className="font-bold">
+                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(yearlyStats.totalNumeraire)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Saisies bancaires</span>
+                  <span className="font-bold">
+                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(yearlyStats.totalBancaire)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Cryptomonnaies</span>
+                  <span className="font-bold">
+                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(yearlyStats.totalCrypto)}
+                  </span>
+                </div>
+                <div className="flex justify-between border-t pt-1">
+                  <span className="font-medium">Total avoirs</span>
                   <span className="font-bold">
                     {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(yearlyStats.totalArgent)}
                   </span>
                 </div>
               </div>
+              {(yearlyStats.totalObjets > 0 || yearlyStats.totalStupefiants > 0) && (
+                <div className="border-t pt-2 space-y-2">
+                  {yearlyStats.totalObjets > 0 && (
+                    <div className="flex justify-between">
+                      <span>Objets mobiliers saisis</span>
+                      <span className="font-bold">{yearlyStats.totalObjets}</span>
+                    </div>
+                  )}
+                  {yearlyStats.totalStupefiants > 0 && (
+                    <div className="flex justify-between">
+                      <span>Dossiers avec stupéfiants</span>
+                      <span className="font-bold">{yearlyStats.totalStupefiants}</span>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="text-sm text-gray-500">
                 Ratio de {yearlyStats.ratioConfiscations.toFixed(2)} saisies par condamnation
               </div>

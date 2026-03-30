@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
-import { ResultatAudience } from '@/types/audienceTypes';
+import { ResultatAudience, emptyConfiscations } from '@/types/audienceTypes';
 
 interface OIConfirmationModalProps {
   isOpen: boolean;
@@ -30,11 +30,7 @@ export const OIConfirmationModal = ({
         dateAudience: dateOI,
         typeInfraction: "OI",
         condamnations: [],
-        confiscations: {
-          vehicules: 0,
-          immeubles: 0,
-          argentTotal: 0
-        },
+        confiscations: emptyConfiscations(),
         isOI: true,
         isDirectResult: false
       };

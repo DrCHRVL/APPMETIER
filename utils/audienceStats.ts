@@ -1,4 +1,4 @@
-import { ResultatAudience, AudienceStats, PeineParInfraction } from '@/types/audienceTypes';
+import { ResultatAudience, AudienceStats, PeineParInfraction, migrateConfiscations } from '@/types/audienceTypes';
 import { Enquete } from '@/types/interfaces';
 
 export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<string, ResultatAudience>, enquetes: Enquete[]): AudienceStats | null => {
@@ -58,6 +58,11 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
   let totalVehicules = 0;
   let totalImmeubles = 0;
   let totalArgent = 0;
+  let totalNumeraire = 0;
+  let totalBancaire = 0;
+  let totalCrypto = 0;
+  let totalObjets = 0;
+  let totalStupefiants = 0;
 
   // Compteurs pour les types d'orientation
   const audiencesUniques = new Set<string>();
@@ -240,11 +245,19 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
       }
     });
 
-    // Traitement des confiscations
+    // Traitement des confiscations (avec migration de l'ancien format)
     if (resultat.confiscations) {
-      totalVehicules += Number(resultat.confiscations.vehicules) || 0;
-      totalImmeubles += Number(resultat.confiscations.immeubles) || 0;
-      totalArgent += Number(resultat.confiscations.argentTotal) || 0;
+      const conf = migrateConfiscations(resultat.confiscations);
+      totalVehicules += conf.vehicules.length;
+      totalImmeubles += conf.immeubles.length;
+      totalNumeraire += conf.numeraire || 0;
+      const bancaire = conf.saisiesBancaires.reduce((s, b) => s + (b.montant || 0), 0);
+      totalBancaire += bancaire;
+      const crypto = conf.cryptomonnaies.reduce((s, c) => s + (c.montantEur || 0), 0);
+      totalCrypto += crypto;
+      totalArgent += (conf.numeraire || 0) + bancaire + crypto;
+      totalObjets += conf.objetsMobiliers.reduce((s, o) => s + (o.quantite || 1), 0);
+      if (conf.stupefiants?.types?.length) totalStupefiants++;
     }
   });
 
@@ -292,6 +305,11 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
     totalVehicules,
     totalImmeubles,
     totalArgent,
+    totalNumeraire,
+    totalBancaire,
+    totalCrypto,
+    totalObjets,
+    totalStupefiants,
     ratioConfiscations: totalCondamnations > 0 ? (totalVehicules + totalImmeubles) / totalCondamnations : 0,
     peinesParInfraction,
     totalInterdictionsParaitre,

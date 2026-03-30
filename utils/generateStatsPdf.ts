@@ -596,7 +596,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 
 <!-- Confiscations et interdictions -->
 <div class="section-nobreak">
-  <div class="section-title">Confiscations et interdictions</div>
+  <div class="section-title">Confiscations, saisies et interdictions</div>
   <div class="cards-row">
     <div class="card">
       <div class="card-label">Vehicules saisis</div>
@@ -607,8 +607,8 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
       <div class="card-value">${stats?.totalImmeubles || 0}</div>
     </div>
     <div class="card">
-      <div class="card-label">Confiscations argent</div>
-      <div class="card-value">${formatCurrency(stats?.totalArgent || 0)}</div>
+      <div class="card-label">Objets mobiliers</div>
+      <div class="card-value">${stats?.totalObjets || 0}</div>
     </div>
     <div class="card">
       <div class="card-label">Interdictions de paraitre</div>
@@ -616,6 +616,25 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
       <div class="card-detail">${stats && stats.nombreCondamnations > 0 ? ((stats.totalInterdictionsParaitre / stats.nombreCondamnations) * 100).toFixed(1) : 0}% des condamnations</div>
     </div>
   </div>
+  <div class="cards-row">
+    <div class="card">
+      <div class="card-label">Numeraire (especes)</div>
+      <div class="card-value">${formatCurrency(stats?.totalNumeraire || 0)}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Saisies bancaires</div>
+      <div class="card-value">${formatCurrency(stats?.totalBancaire || 0)}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Cryptomonnaies</div>
+      <div class="card-value">${formatCurrency(stats?.totalCrypto || 0)}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Total avoirs saisis</div>
+      <div class="card-value">${formatCurrency(stats?.totalArgent || 0)}</div>
+    </div>
+  </div>
+  ${(stats?.totalStupefiants || 0) > 0 ? `<div style="margin-top:6px;font-size:10px;color:#555">${stats?.totalStupefiants} dossier(s) avec stupefiants saisis</div>` : ''}
 </div>
 
 <!-- Peines par type d'infraction -->

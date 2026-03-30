@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { MecAutocompleteInput } from '../ui/MecAutocompleteInput';
-import { CondamnationData, Confiscations, ResultatAudience } from '@/types/audienceTypes';
+import { CondamnationData, Confiscations, ResultatAudience, VehiculeSaisi, ImmeubleSaisi, SaisieBancaire, CryptoSaisie, ObjetMobilier, TypeVehicule, TypeImmeuble, CategorieObjet, TypeStupefiant, StupefiantSaisi, emptyConfiscations, migrateConfiscations } from '@/types/audienceTypes';
 import { useToast } from '@/contexts/ToastContext';
 import { useTags } from '@/hooks/useTags';
 import { Select } from '@/components/ui/select';
@@ -81,11 +81,9 @@ export const AudienceResultModal = ({
   const initialCondamnations = buildInitialCondamnations();
   const [nbCondamnes, setNbCondamnes] = useState(initialCondamnations.length || 0);
   const [condamnations, setCondamnations] = useState<ExtendedCondamnationData[]>(initialCondamnations);
-  const [confiscations, setConfiscations] = useState<Confiscations>({
-    vehicules: initialData?.confiscations?.vehicules || 0,
-    immeubles: initialData?.confiscations?.immeubles || 0,
-    argentTotal: initialData?.confiscations?.argentTotal || 0
-  });
+  const [confiscations, setConfiscations] = useState<Confiscations>(
+    initialData?.confiscations ? migrateConfiscations(initialData.confiscations) : emptyConfiscations()
+  );
 
   const { showToast } = useToast();
   const [service, setService] = useState(initialData?.service || '');
@@ -471,45 +469,346 @@ export const AudienceResultModal = ({
 
           {/* Confiscations */}
           <div className="border-t pt-4">
-            <h3 className="font-medium mb-4">Confiscations</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Nombre de véhicules</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={confiscations.vehicules}
-                  onChange={(e) => setConfiscations(prev => ({
+            <h3 className="font-medium mb-4">Confiscations et saisies</h3>
+
+            {/* --- Véhicules --- */}
+            <details className="mb-4 border rounded-lg">
+              <summary className="cursor-pointer p-3 font-medium bg-gray-50 rounded-t-lg flex justify-between items-center">
+                <span>Véhicules ({confiscations.vehicules.length})</span>
+                <Button type="button" variant="outline" size="sm" onClick={(e) => {
+                  e.preventDefault();
+                  setConfiscations(prev => ({
                     ...prev,
-                    vehicules: parseInt(e.target.value) || 0
-                  }))}
-                />
+                    vehicules: [...prev.vehicules, { type: 'voiture' as TypeVehicule }]
+                  }));
+                }}>+ Ajouter</Button>
+              </summary>
+              <div className="p-3 space-y-3">
+                {confiscations.vehicules.map((v, i) => (
+                  <div key={i} className="grid grid-cols-4 gap-2 items-end bg-gray-50 p-2 rounded">
+                    <div>
+                      <Label className="text-xs">Type</Label>
+                      <select className="w-full p-1.5 border rounded text-sm" value={v.type} onChange={(e) => {
+                        const arr = [...confiscations.vehicules];
+                        arr[i] = { ...arr[i], type: e.target.value as TypeVehicule };
+                        setConfiscations(prev => ({ ...prev, vehicules: arr }));
+                      }}>
+                        <option value="voiture">Voiture</option>
+                        <option value="moto">Moto</option>
+                        <option value="scooter">Scooter</option>
+                        <option value="utilitaire">Utilitaire</option>
+                        <option value="poids_lourd">Poids lourd</option>
+                        <option value="bateau">Bateau</option>
+                        <option value="autre">Autre</option>
+                      </select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Marque / Modèle</Label>
+                      <Input className="text-sm" placeholder="Ex: BMW X3" value={v.marqueModele || ''} onChange={(e) => {
+                        const arr = [...confiscations.vehicules];
+                        arr[i] = { ...arr[i], marqueModele: e.target.value };
+                        setConfiscations(prev => ({ ...prev, vehicules: arr }));
+                      }} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Immatriculation</Label>
+                      <Input className="text-sm" placeholder="AA-123-BB" value={v.immatriculation || ''} onChange={(e) => {
+                        const arr = [...confiscations.vehicules];
+                        arr[i] = { ...arr[i], immatriculation: e.target.value };
+                        setConfiscations(prev => ({ ...prev, vehicules: arr }));
+                      }} />
+                    </div>
+                    <div className="flex gap-1 items-end">
+                      <div className="flex-1">
+                        <Label className="text-xs">Valeur (€)</Label>
+                        <Input className="text-sm" type="number" min="0" value={v.valeurEstimee || ''} onChange={(e) => {
+                          const arr = [...confiscations.vehicules];
+                          arr[i] = { ...arr[i], valeurEstimee: parseInt(e.target.value) || undefined };
+                          setConfiscations(prev => ({ ...prev, vehicules: arr }));
+                        }} />
+                      </div>
+                      <Button type="button" variant="destructive" size="sm" onClick={() => {
+                        setConfiscations(prev => ({ ...prev, vehicules: prev.vehicules.filter((_, j) => j !== i) }));
+                      }}>×</Button>
+                    </div>
+                  </div>
+                ))}
+                {confiscations.vehicules.length === 0 && <p className="text-sm text-gray-400">Aucun véhicule saisi</p>}
               </div>
-              <div>
-                <Label>Nombre d'immeubles</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={confiscations.immeubles}
-                  onChange={(e) => setConfiscations(prev => ({
+            </details>
+
+            {/* --- Immeubles --- */}
+            <details className="mb-4 border rounded-lg">
+              <summary className="cursor-pointer p-3 font-medium bg-gray-50 rounded-t-lg flex justify-between items-center">
+                <span>Immeubles ({confiscations.immeubles.length})</span>
+                <Button type="button" variant="outline" size="sm" onClick={(e) => {
+                  e.preventDefault();
+                  setConfiscations(prev => ({
                     ...prev,
-                    immeubles: parseInt(e.target.value) || 0
-                  }))}
-                />
+                    immeubles: [...prev.immeubles, { type: 'appartement' as TypeImmeuble }]
+                  }));
+                }}>+ Ajouter</Button>
+              </summary>
+              <div className="p-3 space-y-3">
+                {confiscations.immeubles.map((im, i) => (
+                  <div key={i} className="grid grid-cols-3 gap-2 items-end bg-gray-50 p-2 rounded">
+                    <div>
+                      <Label className="text-xs">Type</Label>
+                      <select className="w-full p-1.5 border rounded text-sm" value={im.type} onChange={(e) => {
+                        const arr = [...confiscations.immeubles];
+                        arr[i] = { ...arr[i], type: e.target.value as TypeImmeuble };
+                        setConfiscations(prev => ({ ...prev, immeubles: arr }));
+                      }}>
+                        <option value="appartement">Appartement</option>
+                        <option value="maison">Maison</option>
+                        <option value="terrain">Terrain</option>
+                        <option value="local_commercial">Local commercial</option>
+                        <option value="autre">Autre</option>
+                      </select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Adresse</Label>
+                      <Input className="text-sm" value={im.adresse || ''} onChange={(e) => {
+                        const arr = [...confiscations.immeubles];
+                        arr[i] = { ...arr[i], adresse: e.target.value };
+                        setConfiscations(prev => ({ ...prev, immeubles: arr }));
+                      }} />
+                    </div>
+                    <div className="flex gap-1 items-end">
+                      <div className="flex-1">
+                        <Label className="text-xs">Valeur (€)</Label>
+                        <Input className="text-sm" type="number" min="0" value={im.valeurEstimee || ''} onChange={(e) => {
+                          const arr = [...confiscations.immeubles];
+                          arr[i] = { ...arr[i], valeurEstimee: parseInt(e.target.value) || undefined };
+                          setConfiscations(prev => ({ ...prev, immeubles: arr }));
+                        }} />
+                      </div>
+                      <Button type="button" variant="destructive" size="sm" onClick={() => {
+                        setConfiscations(prev => ({ ...prev, immeubles: prev.immeubles.filter((_, j) => j !== i) }));
+                      }}>×</Button>
+                    </div>
+                  </div>
+                ))}
+                {confiscations.immeubles.length === 0 && <p className="text-sm text-gray-400">Aucun immeuble saisi</p>}
               </div>
-              <div className="col-span-2">
-                <Label>Montant total des confiscations (€)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={confiscations.argentTotal}
-                  onChange={(e) => setConfiscations(prev => ({
+            </details>
+
+            {/* --- Avoirs financiers --- */}
+            <details className="mb-4 border rounded-lg" open>
+              <summary className="cursor-pointer p-3 font-medium bg-gray-50 rounded-t-lg">Avoirs financiers</summary>
+              <div className="p-3 space-y-4">
+                {/* Numéraire */}
+                <div>
+                  <Label>Numéraire (espèces saisies) (€)</Label>
+                  <Input type="number" min="0" value={confiscations.numeraire || ''} onChange={(e) =>
+                    setConfiscations(prev => ({ ...prev, numeraire: parseInt(e.target.value) || 0 }))
+                  } />
+                </div>
+
+                {/* Saisies bancaires */}
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <Label>Saisies bancaires</Label>
+                    <Button type="button" variant="outline" size="sm" onClick={() =>
+                      setConfiscations(prev => ({ ...prev, saisiesBancaires: [...prev.saisiesBancaires, { montant: 0 }] }))
+                    }>+ Ajouter</Button>
+                  </div>
+                  {confiscations.saisiesBancaires.map((sb, i) => (
+                    <div key={i} className="grid grid-cols-3 gap-2 items-end mb-2 bg-gray-50 p-2 rounded">
+                      <div>
+                        <Label className="text-xs">Montant (€)</Label>
+                        <Input className="text-sm" type="number" min="0" value={sb.montant || ''} onChange={(e) => {
+                          const arr = [...confiscations.saisiesBancaires];
+                          arr[i] = { ...arr[i], montant: parseInt(e.target.value) || 0 };
+                          setConfiscations(prev => ({ ...prev, saisiesBancaires: arr }));
+                        }} />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Banque</Label>
+                        <Input className="text-sm" placeholder="Ex: BNP" value={sb.banque || ''} onChange={(e) => {
+                          const arr = [...confiscations.saisiesBancaires];
+                          arr[i] = { ...arr[i], banque: e.target.value };
+                          setConfiscations(prev => ({ ...prev, saisiesBancaires: arr }));
+                        }} />
+                      </div>
+                      <div className="flex gap-1 items-end">
+                        <div className="flex-1">
+                          <Label className="text-xs">Réf. AGRASC</Label>
+                          <Input className="text-sm" value={sb.referenceAgrasc || ''} onChange={(e) => {
+                            const arr = [...confiscations.saisiesBancaires];
+                            arr[i] = { ...arr[i], referenceAgrasc: e.target.value };
+                            setConfiscations(prev => ({ ...prev, saisiesBancaires: arr }));
+                          }} />
+                        </div>
+                        <Button type="button" variant="destructive" size="sm" onClick={() => {
+                          setConfiscations(prev => ({ ...prev, saisiesBancaires: prev.saisiesBancaires.filter((_, j) => j !== i) }));
+                        }}>×</Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Cryptomonnaies */}
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <Label>Cryptomonnaies</Label>
+                    <Button type="button" variant="outline" size="sm" onClick={() =>
+                      setConfiscations(prev => ({ ...prev, cryptomonnaies: [...prev.cryptomonnaies, { montantEur: 0 }] }))
+                    }>+ Ajouter</Button>
+                  </div>
+                  {confiscations.cryptomonnaies.map((cr, i) => (
+                    <div key={i} className="grid grid-cols-2 gap-2 items-end mb-2 bg-gray-50 p-2 rounded">
+                      <div>
+                        <Label className="text-xs">Valeur en € (au moment de la saisie)</Label>
+                        <Input className="text-sm" type="number" min="0" value={cr.montantEur || ''} onChange={(e) => {
+                          const arr = [...confiscations.cryptomonnaies];
+                          arr[i] = { ...arr[i], montantEur: parseInt(e.target.value) || 0 };
+                          setConfiscations(prev => ({ ...prev, cryptomonnaies: arr }));
+                        }} />
+                      </div>
+                      <div className="flex gap-1 items-end">
+                        <div className="flex-1">
+                          <Label className="text-xs">Type (BTC, ETH...)</Label>
+                          <Input className="text-sm" placeholder="Ex: Bitcoin" value={cr.typeCrypto || ''} onChange={(e) => {
+                            const arr = [...confiscations.cryptomonnaies];
+                            arr[i] = { ...arr[i], typeCrypto: e.target.value };
+                            setConfiscations(prev => ({ ...prev, cryptomonnaies: arr }));
+                          }} />
+                        </div>
+                        <Button type="button" variant="destructive" size="sm" onClick={() => {
+                          setConfiscations(prev => ({ ...prev, cryptomonnaies: prev.cryptomonnaies.filter((_, j) => j !== i) }));
+                        }}>×</Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </details>
+
+            {/* --- Objets mobiliers --- */}
+            <details className="mb-4 border rounded-lg">
+              <summary className="cursor-pointer p-3 font-medium bg-gray-50 rounded-t-lg flex justify-between items-center">
+                <span>Objets mobiliers ({confiscations.objetsMobiliers.length})</span>
+                <Button type="button" variant="outline" size="sm" onClick={(e) => {
+                  e.preventDefault();
+                  setConfiscations(prev => ({
                     ...prev,
-                    argentTotal: parseInt(e.target.value) || 0
-                  }))}
-                />
+                    objetsMobiliers: [...prev.objetsMobiliers, { categorie: 'electronique' as CategorieObjet, quantite: 1 }]
+                  }));
+                }}>+ Ajouter</Button>
+              </summary>
+              <div className="p-3 space-y-3">
+                {confiscations.objetsMobiliers.map((obj, i) => (
+                  <div key={i} className="grid grid-cols-4 gap-2 items-end bg-gray-50 p-2 rounded">
+                    <div>
+                      <Label className="text-xs">Catégorie</Label>
+                      <select className="w-full p-1.5 border rounded text-sm" value={obj.categorie} onChange={(e) => {
+                        const arr = [...confiscations.objetsMobiliers];
+                        arr[i] = { ...arr[i], categorie: e.target.value as CategorieObjet };
+                        setConfiscations(prev => ({ ...prev, objetsMobiliers: arr }));
+                      }}>
+                        <option value="electronique">Électronique (TV, téléphone...)</option>
+                        <option value="luxe">Luxe (vêtements, montres, bijoux...)</option>
+                        <option value="transport_leger">Transport léger (trottinette, vélo...)</option>
+                        <option value="informatique">Matériel informatique</option>
+                        <option value="autre">Autre</option>
+                      </select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Description</Label>
+                      <Input className="text-sm" placeholder="Ex: TV Samsung 65 pouces" value={obj.description || ''} onChange={(e) => {
+                        const arr = [...confiscations.objetsMobiliers];
+                        arr[i] = { ...arr[i], description: e.target.value };
+                        setConfiscations(prev => ({ ...prev, objetsMobiliers: arr }));
+                      }} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Quantité</Label>
+                      <Input className="text-sm" type="number" min="1" value={obj.quantite} onChange={(e) => {
+                        const arr = [...confiscations.objetsMobiliers];
+                        arr[i] = { ...arr[i], quantite: parseInt(e.target.value) || 1 };
+                        setConfiscations(prev => ({ ...prev, objetsMobiliers: arr }));
+                      }} />
+                    </div>
+                    <div className="flex gap-1 items-end">
+                      <div className="flex-1">
+                        <Label className="text-xs">Valeur (€)</Label>
+                        <Input className="text-sm" type="number" min="0" value={obj.valeurEstimee || ''} onChange={(e) => {
+                          const arr = [...confiscations.objetsMobiliers];
+                          arr[i] = { ...arr[i], valeurEstimee: parseInt(e.target.value) || undefined };
+                          setConfiscations(prev => ({ ...prev, objetsMobiliers: arr }));
+                        }} />
+                      </div>
+                      <Button type="button" variant="destructive" size="sm" onClick={() => {
+                        setConfiscations(prev => ({ ...prev, objetsMobiliers: prev.objetsMobiliers.filter((_, j) => j !== i) }));
+                      }}>×</Button>
+                    </div>
+                  </div>
+                ))}
+                {confiscations.objetsMobiliers.length === 0 && <p className="text-sm text-gray-400">Aucun objet mobilier saisi</p>}
               </div>
-            </div>
+            </details>
+
+            {/* --- Stupéfiants --- */}
+            <details className="mb-4 border rounded-lg">
+              <summary className="cursor-pointer p-3 font-medium bg-gray-50 rounded-t-lg">
+                Stupéfiants {confiscations.stupefiants?.types?.length ? `(${confiscations.stupefiants.types.length} type(s))` : ''}
+              </summary>
+              <div className="p-3 space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    ['cocaine', 'Cocaïne'],
+                    ['heroine', 'Héroïne'],
+                    ['cannabis', 'Cannabis'],
+                    ['synthese', 'Drogues de synthèse'],
+                    ['autre', 'Autre'],
+                  ] as [TypeStupefiant, string][]).map(([val, label]) => (
+                    <label key={val} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-gray-300"
+                        checked={confiscations.stupefiants?.types?.includes(val) || false}
+                        onChange={(e) => {
+                          const current = confiscations.stupefiants?.types || [];
+                          const newTypes = e.target.checked
+                            ? [...current, val]
+                            : current.filter(t => t !== val);
+                          setConfiscations(prev => ({
+                            ...prev,
+                            stupefiants: newTypes.length > 0
+                              ? { ...prev.stupefiants, types: newTypes, quantite: prev.stupefiants?.quantite, description: prev.stupefiants?.description }
+                              : undefined
+                          }));
+                        }}
+                      />
+                      <span className="text-sm">{label}</span>
+                    </label>
+                  ))}
+                </div>
+                {confiscations.stupefiants?.types?.length ? (
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div>
+                      <Label className="text-xs">Quantité</Label>
+                      <Input className="text-sm" placeholder="Ex: 5 kg" value={confiscations.stupefiants?.quantite || ''} onChange={(e) => {
+                        setConfiscations(prev => ({
+                          ...prev,
+                          stupefiants: { ...prev.stupefiants!, quantite: e.target.value }
+                        }));
+                      }} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Description</Label>
+                      <Input className="text-sm" placeholder="Détails..." value={confiscations.stupefiants?.description || ''} onChange={(e) => {
+                        setConfiscations(prev => ({
+                          ...prev,
+                          stupefiants: { ...prev.stupefiants!, description: e.target.value }
+                        }));
+                      }} />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </details>
           </div>
         </div>
 
