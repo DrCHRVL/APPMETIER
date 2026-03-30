@@ -534,6 +534,10 @@ return (
     // Déclencher une mise à jour des stats si nécessaire
     window.dispatchEvent(new Event('audience-stats-update'));
   }}
+  onArchive={onArchive ? () => {
+    onArchive(enquete.id);
+    setShowAudienceResultModal(false);
+  } : undefined}
 />
 
       {selectedActe && (
