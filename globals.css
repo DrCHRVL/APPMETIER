@@ -81,6 +81,13 @@ button[class*="ghost"] svg {
   @apply text-white;
 }
 
+/* Placeholder pour l'éditeur WYSIWYG contenteditable */
+[contenteditable][data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  pointer-events: none;
+}
+
 /* Alert badge styles */
 .alert-badge {
   @apply absolute -top-1 -right-1 h-4 w-4 bg-red-600 text-white rounded-full flex items-center justify-center text-xs font-bold;
