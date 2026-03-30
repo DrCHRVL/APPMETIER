@@ -1,6 +1,8 @@
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
+const https = require('https')
+const { exec } = require('child_process')
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
 // Ajout pour l'extraction PDF
 const pdfParse = require('pdf-parse')
@@ -1351,6 +1353,150 @@ function setupIpcHandlers() {
         console.log('💡 Conseil: Téléchargez fra.traineddata et placez-le dans ./tessdata/');
       }
       throw new Error(`Erreur extraction PDF: ${error.message}`);
+    }
+  });
+
+  // === MISE À JOUR DE L'APPLICATION (GitHub API + ZIP, sans git) ===
+
+  const GITHUB_REPO = 'DrCHRVL/APPMETIER';
+  const SKIP_ON_UPDATE = new Set(['data', '.git', 'node_modules', 'tessdata', '.next']);
+
+  // Requête HTTPS avec suivi de redirections, retourne le corps en texte
+  function httpsGet(url) {
+    return new Promise((resolve, reject) => {
+      const makeRequest = (currentUrl) => {
+        https.get(currentUrl, { headers: { 'User-Agent': 'APPMETIER-updater' } }, (res) => {
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            res.resume();
+            makeRequest(res.headers.location);
+            return;
+          }
+          if (res.statusCode !== 200) {
+            res.resume();
+            reject(new Error(`HTTP ${res.statusCode}`));
+            return;
+          }
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => resolve(data));
+          res.on('error', reject);
+        }).on('error', reject);
+      };
+      makeRequest(url);
+    });
+  }
+
+  // Téléchargement binaire avec suivi de redirections
+  function httpsDownload(url, destPath) {
+    return new Promise((resolve, reject) => {
+      const makeRequest = (currentUrl) => {
+        https.get(currentUrl, { headers: { 'User-Agent': 'APPMETIER-updater' } }, (res) => {
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            res.resume();
+            makeRequest(res.headers.location);
+            return;
+          }
+          if (res.statusCode !== 200) {
+            res.resume();
+            reject(new Error(`HTTP ${res.statusCode}`));
+            return;
+          }
+          const file = fs.createWriteStream(destPath);
+          res.pipe(file);
+          file.on('finish', () => file.close(resolve));
+          file.on('error', reject);
+          res.on('error', reject);
+        }).on('error', reject);
+      };
+      makeRequest(url);
+    });
+  }
+
+  // Lit le SHA local depuis app-version.txt ou depuis les fichiers .git
+  function getLocalSha() {
+    const versionFile = path.join(dataFolder, 'app-version.txt');
+    if (fs.existsSync(versionFile)) {
+      return fs.readFileSync(versionFile, 'utf8').trim();
+    }
+    for (const ref of ['main', 'master']) {
+      const refPath = path.join(__dirname, '.git', 'refs', 'heads', ref);
+      if (fs.existsSync(refPath)) {
+        return fs.readFileSync(refPath, 'utf8').trim();
+      }
+    }
+    return null;
+  }
+
+  // Copie récursive d'un dossier source vers dest, en ignorant SKIP_ON_UPDATE
+  function copyDir(src, dest) {
+    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+      if (SKIP_ON_UPDATE.has(entry.name)) continue;
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+      if (entry.isDirectory()) {
+        fs.mkdirSync(destPath, { recursive: true });
+        copyDir(srcPath, destPath);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    }
+  }
+
+  ipcMain.handle('app:checkUpdate', async () => {
+    try {
+      const body = await httpsGet(`https://api.github.com/repos/${GITHUB_REPO}/commits/main`);
+      const data = JSON.parse(body);
+      const remoteSha = data.sha;
+      if (!remoteSha) return { hasUpdate: false, commits: 0, error: 'SHA distant non trouvé' };
+      const localSha = getLocalSha();
+      const hasUpdate = localSha !== remoteSha;
+      return { hasUpdate, commits: hasUpdate ? 1 : 0 };
+    } catch (error) {
+      return { hasUpdate: false, commits: 0, error: error.message };
+    }
+  });
+
+  ipcMain.handle('app:applyUpdate', async () => {
+    const zipPath = path.join(os.tmpdir(), 'appmetier-update.zip');
+    const extractDir = path.join(os.tmpdir(), 'appmetier-update');
+    try {
+      // 1. Téléchargement du ZIP
+      await httpsDownload(`https://github.com/${GITHUB_REPO}/archive/refs/heads/main.zip`, zipPath);
+
+      // 2. Extraction via PowerShell (toujours disponible sur Windows)
+      if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true });
+      fs.mkdirSync(extractDir, { recursive: true });
+      await new Promise((resolve, reject) => {
+        exec(
+          `powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`,
+          { timeout: 60000 },
+          (err, stdout, stderr) => { if (err) reject(new Error(stderr || err.message)); else resolve(); }
+        );
+      });
+
+      // 3. Copie des fichiers (sans data/, .git/, node_modules/, tessdata/, .next/)
+      const sourceDir = path.join(extractDir, 'APPMETIER-main');
+      copyDir(sourceDir, __dirname);
+
+      // 4. Sauvegarde du SHA pour la prochaine comparaison
+      try {
+        const body = await httpsGet(`https://api.github.com/repos/${GITHUB_REPO}/commits/main`);
+        const sha = JSON.parse(body).sha;
+        if (sha) fs.writeFileSync(path.join(dataFolder, 'app-version.txt'), sha);
+      } catch {}
+
+      // 5. Nettoyage
+      try { fs.rmSync(zipPath, { force: true }); } catch {}
+      try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch {}
+
+      // 6. Redémarrage
+      app.relaunch();
+      app.exit(0);
+      return { success: true };
+    } catch (error) {
+      try { fs.rmSync(zipPath, { force: true }); } catch {}
+      try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch {}
+      return { success: false, error: error.message };
     }
   });
 }

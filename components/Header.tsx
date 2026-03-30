@@ -1,4 +1,4 @@
-import { Bell, Search, Save } from 'lucide-react';
+import { Bell, Search, Save, RefreshCw, Download } from 'lucide-react';
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { Alert } from '@/types/interfaces';
@@ -23,6 +23,10 @@ interface HeaderProps {
   onSync?: () => void;
   isSyncing?: boolean;
   isSearchingDocs?: boolean;
+  updateAvailable?: boolean;
+  updateCommits?: number;
+  onApplyUpdate?: () => void;
+  isUpdating?: boolean;
 }
 
 export const Header = ({
@@ -36,7 +40,11 @@ export const Header = ({
   syncStatus,
   onSync,
   isSyncing,
-  isSearchingDocs = false
+  isSearchingDocs = false,
+  updateAvailable = false,
+  updateCommits = 0,
+  onApplyUpdate,
+  isUpdating = false,
 }: HeaderProps) => {
   const activeAlerts = useMemo(() =>
     alerts.filter(alert => alert.status === 'active'),
@@ -123,6 +131,34 @@ export const Header = ({
               onClick={onSync}
               showDetails={false}
             />
+          )}
+
+          {/* Mise à jour disponible */}
+          {(updateAvailable || isUpdating) && onApplyUpdate && (
+            <TooltipProvider>
+              <TooltipRoot>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="relative h-8 px-2 rounded-lg text-amber-600 hover:text-amber-700 hover:bg-amber-50 flex items-center gap-1.5"
+                    onClick={onApplyUpdate}
+                    disabled={isUpdating}
+                  >
+                    {isUpdating
+                      ? <RefreshCw className="h-4 w-4 animate-spin" />
+                      : <Download className="h-4 w-4" />
+                    }
+                    <span className="text-xs font-medium">
+                      {isUpdating ? 'Mise à jour...' : `Mettre à jour${updateCommits > 0 ? ` (${updateCommits})` : ''}`}
+                    </span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>{isUpdating ? 'Application de la mise à jour...' : `${updateCommits} nouvelle${updateCommits > 1 ? 's' : ''} version${updateCommits > 1 ? 's' : ''} disponible${updateCommits > 1 ? 's' : ''}. Cliquer pour mettre à jour et redémarrer.`}</p>
+                </TooltipContent>
+              </TooltipRoot>
+            </TooltipProvider>
           )}
 
           {/* Alertes */}

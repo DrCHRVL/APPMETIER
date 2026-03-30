@@ -106,6 +106,10 @@ interface ElectronAPI {
   dataSync_listServerBackups?: () => Promise<string[]>;
   getCurrentUser?: () => Promise<{ displayName: string; computerName: string }>;
 
+  // MISE À JOUR DE L'APPLICATION
+  checkAppUpdate?: () => Promise<{ hasUpdate: boolean; commits: number; error?: string }>;
+  applyAppUpdate?: () => Promise<{ success: boolean; error?: string }>;
+
   // NOUVELLES API POUR SYNCHRONISATION
   syncDocuments: (
     enqueteNumero: string,
