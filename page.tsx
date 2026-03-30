@@ -20,6 +20,7 @@ import { StorageManager } from './utils/storage';
 import { ConfirmationDialog } from './components/ui/confirmation-dialog';
 import { ToastProvider, useToast } from './contexts/ToastContext';
 import { AudienceProvider } from './contexts/AudienceContext';
+import { UserProvider, useUser } from './contexts/UserContext';
 import { ProlongationModal } from './components/modals/ProlongationModal';
 import { PoseActeModal } from './components/modals/PoseActeModal';
 import { ProlongationValidationModal } from './components/modals/ProlongationValidationModal';
@@ -1062,10 +1063,12 @@ return (
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AudienceProvider>
-        <AppContent />
-      </AudienceProvider>
-    </ToastProvider>
+    <UserProvider>
+      <ToastProvider>
+        <AudienceProvider>
+          <AppContent />
+        </AudienceProvider>
+      </ToastProvider>
+    </UserProvider>
   );
 }
