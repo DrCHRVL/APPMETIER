@@ -397,33 +397,36 @@ function AppContent() {
 
   const handleExportData = async () => {
     try {
-      const enquetesData = await StorageManager.get('enquetes', []);
+      // Exporter les données du contentieux actif (clés préfixées)
+      const ctxPrefix = `ctx_${currentContentieuxId}_`;
+      const enquetesData = await StorageManager.get(`${ctxPrefix}enquetes`, []);
       const instructionsData = await StorageManager.get('instructions', []);
-      const alertRulesData = await StorageManager.get('alertRules', []);
-      const tagsData = await StorageManager.get('tags', []);
+      const alertRulesData = await StorageManager.get(`${ctxPrefix}alertRules`, []);
+      const tagsData = await StorageManager.get(`${ctxPrefix}customTags`, []);
       const airMesuresData = await StorageManager.get('air_mesures', []);
-      
+
       const data = {
+        contentieuxId: currentContentieuxId,
         enquetes: enquetesData,
         instructions: instructionsData,
         alertRules: alertRulesData,
         tags: tagsData,
         airMesures: airMesuresData,
         exportDate: new Date().toISOString(),
-        version: '2.0'
+        version: '3.0'
       };
 
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `sauvegarde_complete_${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `sauvegarde_${currentContentieuxId}_${new Date().toISOString().split('T')[0]}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      
-      showToast(`Exportation réussie: ${enquetesData.length} enquêtes, ${instructionsData.length} instructions`, 'success');
+
+      showToast(`Exportation réussie (${currentContentieuxId}): ${enquetesData.length} enquêtes, ${instructionsData.length} instructions`, 'success');
     } catch (error) {
       console.error('Erreur lors de l\'exportation des données:', error);
       showToast('Erreur lors de l\'exportation des données', 'error');
