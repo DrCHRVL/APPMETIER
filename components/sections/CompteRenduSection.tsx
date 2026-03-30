@@ -72,7 +72,9 @@ const ACTE_TYPES = {
 };
 
 // Convertit le texte markdown simple en HTML pour l'affichage
+// Détecte automatiquement HTML (nouveau format WYSIWYG) vs markdown (ancien format)
 const renderFormattedText = (text: string): string => {
+  if (/<[a-z][\s\S]*?>/i.test(text)) return text; // déjà du HTML
   const escaped = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -100,7 +102,12 @@ export const CompteRenduSection = ({
   // États pour l'UX
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const [showConfirmClose, setShowConfirmClose] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragState = useRef({ dragging: false, startX: 0, startY: 0, initLeft: 0, initTop: 0 });
 
   // Utilisateur courant (pour distinguer les CR de l'autre utilisateur)
   const [currentUser, setCurrentUser] = useState<string>('');
@@ -108,14 +115,75 @@ export const CompteRenduSection = ({
     setCurrentUser(DataSyncManager.getInstance().getStatus().currentUser);
   }, []);
 
-  // État local pour la zone de texte (évite le lag à la saisie)
-  const [localDescription, setLocalDescription] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Synchronise le texte local quand on ouvre/change de CR
+  // Charge le contenu de l'éditeur à l'ouverture (brouillon ou markdown converti)
   useEffect(() => {
-    setLocalDescription(editingCR?.description || '');
+    if (!editingCR) return;
+    setIsDirty(false);
+    setError(null);
+    const key = `cr-draft-${editingCR.id || 'new'}`;
+    const draft = localStorage.getItem(key);
+    let initialHtml = '';
+    if (draft) {
+      try { initialHtml = JSON.parse(draft).description || ''; } catch {}
+    }
+    if (!initialHtml) {
+      initialHtml = editingCR.description ? renderFormattedText(editingCR.description) : '';
+    }
+    // Injecter après le rendu du DOM
+    setTimeout(() => {
+      if (editorRef.current) editorRef.current.innerHTML = initialHtml;
+    }, 0);
   }, [editingCR?.id]);
+
+  // Sauvegarde brouillon dans localStorage (debounce 800ms)
+  const scheduleDraftSave = () => {
+    if (!editingCR) return;
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => {
+      const key = `cr-draft-${editingCR.id || 'new'}`;
+      localStorage.setItem(key, JSON.stringify({
+        description: editorRef.current?.innerHTML || ''
+      }));
+    }, 800);
+  };
+
+  // Drag : écouteurs globaux montés une seule fois
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragState.current.dragging || !dialogRef.current) return;
+      const dx = e.clientX - dragState.current.startX;
+      const dy = e.clientY - dragState.current.startY;
+      dialogRef.current.style.left = `${dragState.current.initLeft + dx}px`;
+      dialogRef.current.style.top  = `${dragState.current.initTop  + dy}px`;
+    };
+    const onMouseUp = () => { dragState.current.dragging = false; };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup',   onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup',   onMouseUp);
+    };
+  }, []);
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    if (!dialogRef.current) return;
+    const rect = dialogRef.current.getBoundingClientRect();
+    dragState.current = { dragging: true, startX: e.clientX, startY: e.clientY, initLeft: rect.left, initTop: rect.top };
+    e.preventDefault();
+  };
+
+  // Fermeture avec confirmation si contenu modifié
+  const clearAndClose = () => {
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    setError(null);
+    setIsDirty(false);
+    setShowConfirmClose(false);
+    setEditingCR(null);
+  };
+
+  const handleClose = () => {
+    if (isDirty) { setShowConfirmClose(true); } else { clearAndClose(); }
+  };
 
   // États spécifiques aux instructions
   const [showTypeChoice, setShowTypeChoice] = useState(false);
@@ -207,7 +275,10 @@ export const CompteRenduSection = ({
   // Validation simple
   const validateCR = (cr: CompteRendu): string | null => {
     if (!cr.enqueteur.trim()) return 'L\'enquêteur est requis';
-    if (!cr.description.trim()) return 'La description est requise';
+    // Dépouiller le HTML pour vérifier si la description est vide
+    const tmp = document.createElement('div');
+    tmp.innerHTML = cr.description;
+    if (!(tmp.textContent || tmp.innerText || '').trim()) return 'La description est requise';
     if (!cr.date) return 'La date est requise';
     
     // Validation spécifique aux synthèses d'instructions
@@ -225,8 +296,9 @@ export const CompteRenduSection = ({
   const handleSave = async () => {
     if (!editingCR) return;
 
-    // Fusionner la description locale avant validation/sauvegarde
-    const crToSave = { ...editingCR, description: localDescription };
+    // Lire le contenu HTML de l'éditeur WYSIWYG
+    const htmlContent = editorRef.current?.innerHTML || '';
+    const crToSave = { ...editingCR, description: htmlContent };
 
     // Validation
     const validationError = validateCR(crToSave);
@@ -245,7 +317,7 @@ export const CompteRenduSection = ({
         await onAddCR({
           date: crToSave.date,
           enqueteur: crToSave.enqueteur,
-          description: localDescription,
+          description: htmlContent,
           createdBy: crToSave.createdBy,
           ...(isInstruction && {
             type: (crToSave as CompteRenduInstruction).type,
@@ -259,6 +331,11 @@ export const CompteRenduSection = ({
           await generateTimelineEvent(crToSave as CompteRenduInstruction);
         }
       }
+      // Effacer le brouillon après sauvegarde réussie
+      const key = `cr-draft-${editingCR.id || 'new'}`;
+      localStorage.removeItem(key);
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+      setIsDirty(false);
       setEditingCR(null);
     } catch (error) {
       setError('Erreur lors de la sauvegarde');
@@ -300,6 +377,18 @@ export const CompteRenduSection = ({
       (enquete as any).onUpdate(instruction.id, { timeline: updatedTimeline });
     }
   };
+
+  // Raccourci Ctrl+S → enregistrer ; Ctrl+H → surligner
+  useEffect(() => {
+    if (!editingCR) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key === 's') { e.preventDefault(); handleSave(); }
+      if (e.key === 'h') { e.preventDefault(); editorRef.current?.focus(); document.execCommand('hiliteColor', false, '#fef08a'); }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [editingCR, isSaving]);
 
   const formatDescription = useMemo(() => (text: string) => {
     const words = text.split(' ');
@@ -586,26 +675,39 @@ export const CompteRenduSection = ({
 
       {/* Modal d'édition du CR */}
       {editingCR && (
-        <Dialog 
-          open={!!editingCR} 
-          onOpenChange={(open) => {
-            if (!open) {
-              setError(null);
-              setEditingCR(null);
-            }
-          }}
+        <Dialog
+          open={!!editingCR}
+          onOpenChange={(open) => { if (!open) handleClose(); }}
           modal={false}
         >
-          <DialogContent 
+          <DialogContent
             ref={dialogRef}
-            className="w-[500px] overflow-auto max-h-[80vh] fixed transform-none shadow-xl border border-gray-300" 
+            className="w-[500px] overflow-auto max-h-[80vh] fixed transform-none shadow-xl border border-gray-300"
             style={{ top: '40%', left: '55%' }}
+            onInteractOutside={(e) => e.preventDefault()}
           >
-            <DialogHeader>
+            {/* Boîte de confirmation fermeture */}
+            {showConfirmClose && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/90 rounded-lg">
+                <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-5 max-w-xs text-center space-y-3">
+                  <p className="text-sm font-medium text-gray-800">Abandonner la rédaction ?</p>
+                  <p className="text-xs text-gray-500">Le brouillon reste sauvegardé localement.</p>
+                  <div className="flex gap-2 justify-center">
+                    <Button variant="outline" size="sm" onClick={() => setShowConfirmClose(false)}>Reprendre</Button>
+                    <Button variant="destructive" size="sm" onClick={clearAndClose}>Abandonner</Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <DialogHeader
+              className="cursor-grab active:cursor-grabbing select-none"
+              onMouseDown={handleDragStart}
+            >
               <DialogTitle>
-                {editingCR.id ? 'Modifier le compte-rendu' : 
-                 isInstruction && (editingCR as CompteRenduInstruction).type === 'synthese' 
-                   ? 'Nouvelle synthèse d\'acte' 
+                {editingCR.id ? 'Modifier le compte-rendu' :
+                 isInstruction && (editingCR as CompteRenduInstruction).type === 'synthese'
+                   ? 'Nouvelle synthèse d\'acte'
                    : 'Nouveau compte-rendu'
                 }
               </DialogTitle>
@@ -658,102 +760,52 @@ export const CompteRenduSection = ({
                 }}
               />
               
-              {/* Barre de mise en forme */}
+              {/* Barre de mise en forme WYSIWYG */}
               <div>
-                <div className="flex gap-1 p-1 border border-b-0 rounded-t bg-gray-50">
+                <div className="flex gap-1 p-1 border border-b-0 rounded-t bg-gray-50 text-xs text-gray-400 items-center">
                   <button
                     type="button"
-                    title="Gras (sélectionner du texte)"
-                    className="px-2 py-1 text-sm font-bold hover:bg-gray-200 rounded"
-                    onClick={() => {
-                      const ta = textareaRef.current;
-                      if (!ta) return;
-                      const start = ta.selectionStart;
-                      const end = ta.selectionEnd;
-                      const sel = localDescription.substring(start, end);
-                      const next = localDescription.substring(0, start) + '**' + sel + '**' + localDescription.substring(end);
-                      setLocalDescription(next);
-                      setTimeout(() => { ta.focus(); ta.setSelectionRange(start + 2, end + 2); }, 0);
-                    }}
-                  >
-                    G
-                  </button>
+                    title="Gras — Ctrl+B"
+                    className="px-2 py-1 text-sm font-bold hover:bg-gray-200 rounded text-gray-700"
+                    onMouseDown={(e) => { e.preventDefault(); editorRef.current?.focus(); document.execCommand('bold'); }}
+                  >G</button>
                   <button
                     type="button"
-                    title="Souligné (sélectionner du texte)"
-                    className="px-2 py-1 text-sm underline hover:bg-gray-200 rounded"
-                    onClick={() => {
-                      const ta = textareaRef.current;
-                      if (!ta) return;
-                      const start = ta.selectionStart;
-                      const end = ta.selectionEnd;
-                      const sel = localDescription.substring(start, end);
-                      const next = localDescription.substring(0, start) + '__' + sel + '__' + localDescription.substring(end);
-                      setLocalDescription(next);
-                      setTimeout(() => { ta.focus(); ta.setSelectionRange(start + 2, end + 2); }, 0);
-                    }}
-                  >
-                    S
-                  </button>
+                    title="Souligné — Ctrl+U"
+                    className="px-2 py-1 text-sm underline hover:bg-gray-200 rounded text-gray-700"
+                    onMouseDown={(e) => { e.preventDefault(); editorRef.current?.focus(); document.execCommand('underline'); }}
+                  >S</button>
                   <button
                     type="button"
-                    title="Surligner (sélectionner du texte)"
+                    title="Surligner — Ctrl+H"
                     className="px-2 py-1 text-sm hover:bg-gray-200 rounded"
                     style={{ background: '#fef08a' }}
-                    onClick={() => {
-                      const ta = textareaRef.current;
-                      if (!ta) return;
-                      const start = ta.selectionStart;
-                      const end = ta.selectionEnd;
-                      const sel = localDescription.substring(start, end);
-                      const next = localDescription.substring(0, start) + '==' + sel + '==' + localDescription.substring(end);
-                      setLocalDescription(next);
-                      setTimeout(() => { ta.focus(); ta.setSelectionRange(start + 2, end + 2); }, 0);
-                    }}
-                  >
-                    HL
-                  </button>
+                    onMouseDown={(e) => { e.preventDefault(); editorRef.current?.focus(); document.execCommand('hiliteColor', false, '#fef08a'); }}
+                  >HL</button>
                   <button
                     type="button"
-                    title="Tiret (début de ligne)"
-                    className="px-2 py-1 text-sm hover:bg-gray-200 rounded font-mono"
-                    onClick={() => {
-                      const ta = textareaRef.current;
-                      if (!ta) return;
-                      const pos = ta.selectionStart;
-                      const lineStart = localDescription.lastIndexOf('\n', pos - 1) + 1;
-                      const next = localDescription.substring(0, lineStart) + '- ' + localDescription.substring(lineStart);
-                      setLocalDescription(next);
-                      setTimeout(() => { ta.focus(); ta.setSelectionRange(pos + 2, pos + 2); }, 0);
-                    }}
-                  >
-                    –
-                  </button>
+                    title="Liste à puces"
+                    className="px-2 py-1 text-sm hover:bg-gray-200 rounded font-mono text-gray-700"
+                    onMouseDown={(e) => { e.preventDefault(); editorRef.current?.focus(); document.execCommand('insertUnorderedList'); }}
+                  >–</button>
+                  <span className="ml-auto pr-1">Ctrl+S pour enregistrer</span>
                 </div>
-                <textarea
-                  ref={textareaRef}
-                  className="w-full min-h-[200px] p-2 border rounded-b rounded-t-none resize-none whitespace-pre-wrap"
-                  placeholder={isInstruction && (editingCR as CompteRenduInstruction).type === 'synthese'
-                    ? "Synthèse de l'acte procédural..."
-                    : "Description"
-                  }
-                  value={localDescription}
-                  onChange={(e) => {
-                    setLocalDescription(e.target.value);
-                  }}
+                <div
+                  ref={editorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  className="w-full min-h-[200px] p-2 border rounded-b rounded-t-none focus:outline-none focus:ring-1 focus:ring-ring"
                   style={{ wordBreak: 'break-word', hyphens: 'auto' }}
+                  data-placeholder={isInstruction && (editingCR as CompteRenduInstruction).type === 'synthese'
+                    ? "Synthèse de l'acte procédural..."
+                    : "Description"}
+                  onInput={() => { setIsDirty(true); scheduleDraftSave(); }}
                 />
               </div>
             </div>
 
             <DialogFooter>
-              <Button 
-                variant="outline" 
-                onClick={() => {
-                  setError(null);
-                  setEditingCR(null);
-                }}
-              >
+              <Button variant="outline" onClick={handleClose}>
                 Annuler
               </Button>
               <Button 
