@@ -13,7 +13,7 @@ import { AlertsPage } from './components/pages/AlertsPage';
 import { AlertsModal } from './components/modals/AlertsModal';
 import { SavePage } from './components/pages/SavePage';
 import { StatsPage } from './components/pages/StatsPage';
-import { useEnquetes } from './hooks/useEnquetes';
+import { useContentieuxEnquetes } from './hooks/useContentieuxEnquetes';
 import { useFilterSort } from './hooks/useFilterSort';
 import { useDocumentSearch } from './hooks/useDocumentSearch';
 import { NewEnqueteData, Tag, ToDoItem } from './types/interfaces';
@@ -61,6 +61,7 @@ import { SettingsModal } from './components/modals/SettingsModal';
 import { OverboardPage } from './components/pages/OverboardPage';
 import { ContentieuxId } from '@/types/userTypes';
 import { AdminUsersPanel } from './components/AdminUsersPanel';
+import { useOverboardData } from './hooks/useOverboardData';
 
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
 
@@ -137,7 +138,8 @@ function AppContent() {
   const [updateCommits, setUpdateCommits] = useState(0);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // Hook pour les enquêtes préliminaires
+  // Hook pour les enquêtes — scopé au contentieux actif (défaut : crimorg)
+  const currentContentieuxId = effectiveContentieux || 'crimorg';
   const {
     enquetes,
     selectedEnquete,
@@ -155,9 +157,11 @@ function AppContent() {
     handleDeleteEnquete,
     handleUnarchiveEnquete,
     handleStartEnquete,
-    handleCreateAudienceAlert,
     flushPendingSave
-  } = useEnquetes();
+  } = useContentieuxEnquetes(currentContentieuxId);
+
+  // Hook Overboard — données transversales (tous contentieux)
+  const { enquetesByContentieux: overboardData } = useOverboardData(contentieuxDefs);
 
   // Hook pour les instructions judiciaires
   const {
@@ -841,9 +845,7 @@ return (
           {/* 🆕 Overboard (vue transversale) */}
           {currentView === 'overboard' && (
             <OverboardPage
-              enquetesByContentieux={new Map(
-                accessibleContentieux.map(c => [c.id, enquetes.filter(e => e.statut === 'en_cours')])
-              )}
+              enquetesByContentieux={overboardData}
               contentieuxDefs={contentieuxDefs}
               onEnqueteClick={(enquete) => {
                 setSelectedEnquete(enquete);

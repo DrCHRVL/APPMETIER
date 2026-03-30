@@ -190,6 +190,23 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
     showToast('Enquête archivée', 'success');
   }, [updateEnquetesList, showToast]);
 
+  const handleStartEnquete = useCallback((id: number, date: string) => {
+    updateEnquetesList(prev =>
+      prev.map(enquete => {
+        if (enquete.id === id) {
+          const newTags = enquete.tags.filter(tag => tag.value !== 'enquête à venir');
+          return {
+            ...enquete,
+            dateDebut: date,
+            tags: newTags,
+            dateMiseAJour: new Date().toISOString(),
+          };
+        }
+        return enquete;
+      })
+    );
+  }, [updateEnquetesList]);
+
   const handleUnarchiveEnquete = useCallback((id: number) => {
     updateEnquetesList(prev =>
       prev.map(e =>
@@ -257,6 +274,7 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
     handleDeleteEnquete,
     handleArchiveEnquete,
     handleUnarchiveEnquete,
+    handleStartEnquete,
     handleAjoutCR,
     handleUpdateCR,
     handleDeleteCR,
