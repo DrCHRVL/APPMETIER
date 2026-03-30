@@ -197,6 +197,7 @@ export interface Enquete extends NewEnqueteData {
   dateCreation: string;
   dateMiseAJour: string;
   statut: 'en_cours' | 'archive' | 'instruction';
+  dateArchivage?: string; // Timestamp de la dernière opération d'archivage (pour résolution des conflits de sync)
   dateAudience?: string;
   // Champs pour le suivi d'instruction
   suivi?: SuiviEntry[];

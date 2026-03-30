@@ -227,13 +227,35 @@ export class DataMergeService {
     const deletedIds    = deletedActeIds || new Set<number>();
     const deletedCRs    = deletedCRIds   || new Set<number>();
     const deletedMECs   = deletedMECIds  || new Set<number>();
-    const localIsNewer = new Date(local.dateMiseAJour).getTime() >= new Date(server.dateMiseAJour).getTime();
+    const localTs  = new Date(local.dateMiseAJour).getTime();
+    const serverTs = new Date(server.dateMiseAJour).getTime();
+    const localIsNewer = localTs >= serverTs;
     const newer = localIsNewer ? local : server;
     const older = localIsNewer ? server : local;
+
+    // Résolution du conflit d'archivage :
+    // Si dateArchivage d'un côté est plus récente que le dateMiseAJour de l'autre côté (qui était en_cours),
+    // l'archivage gagne. Cela évite qu'une mise à jour anodine (CR, MEC…) sur une machine non synchronisée
+    // n'écrase un archivage effectué sur une autre machine.
+    const localArchiveTs  = local.dateArchivage  ? new Date(local.dateArchivage).getTime()  : 0;
+    const serverArchiveTs = server.dateArchivage ? new Date(server.dateArchivage).getTime() : 0;
+    let mergedStatut: Enquete['statut'] = newer.statut;
+    let mergedDateArchivage: string | undefined = newer.dateArchivage;
+    if (localArchiveTs > 0 && localArchiveTs >= serverTs) {
+      // L'archivage local est postérieur à la dernière modif serveur → archive l'emporte
+      mergedStatut = 'archive';
+      mergedDateArchivage = local.dateArchivage;
+    } else if (serverArchiveTs > 0 && serverArchiveTs >= localTs) {
+      // L'archivage serveur est postérieur à la dernière modif locale → archive l'emporte
+      mergedStatut = 'archive';
+      mergedDateArchivage = server.dateArchivage;
+    }
 
     return {
       merged: {
         ...newer,
+        statut: mergedStatut,
+        dateArchivage: mergedDateArchivage,
         // Union des sous-éléments par ID (on ne perd rien, les suppressions intentionnelles sont respectées)
         comptesRendus: this.unionById(
           local.comptesRendus.filter(cr => !deletedCRs.has(cr.id)),
