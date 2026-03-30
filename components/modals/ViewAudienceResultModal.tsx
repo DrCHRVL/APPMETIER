@@ -15,7 +15,6 @@ interface ViewAudienceResultModalProps {
   enqueteId: number;
   onReset?: () => void;
   onUpdate?: (resultat: ResultatAudience) => void;
-  onArchive?: () => void;
 }
 
 export const ViewAudienceResultModal = ({
@@ -23,8 +22,7 @@ export const ViewAudienceResultModal = ({
   onClose,
   enqueteId,
   onReset,
-  onUpdate,
-  onArchive
+  onUpdate
 }: ViewAudienceResultModalProps) => {
   const { getResultat, isLoading, saveResultat, deleteAudienceResultat } = useAudience();
   const { showToast } = useToast();
@@ -372,11 +370,6 @@ export const ViewAudienceResultModal = ({
               <Button variant="outline" onClick={handleEdit}>
                 Modifier
               </Button>
-              {isPending && onArchive && (
-                <Button variant="default" onClick={() => { onArchive(); onClose(); }}>
-                  Archiver l'enquête
-                </Button>
-              )}
               {onReset && !isClassement && (
                 <Button variant="destructive" onClick={handleReset}>
                   Supprimer les résultats
