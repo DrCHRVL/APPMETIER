@@ -233,10 +233,11 @@ export const useEnquetes = () => {
 
   // Archivage d'une enquête
   const handleArchiveEnquete = useCallback((id: number) => {
+    const now = new Date().toISOString();
     updateEnquetesList(prev =>
       prev.map(enquete =>
         enquete.id === id
-          ? { ...enquete, statut: 'archive', dateMiseAJour: new Date().toISOString() }
+          ? { ...enquete, statut: 'archive', dateMiseAJour: now, dateArchivage: now }
           : enquete
       )
     );
