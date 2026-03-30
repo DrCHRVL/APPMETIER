@@ -72,8 +72,10 @@ export class UserManager {
 
       // 3. Si pas de config (premier lancement / migration), créer une config par défaut
       if (!this.config) {
-        console.warn('UserManager: users.json introuvable, utilisation de la config par défaut');
-        this.config = this.createDefaultConfig(systemUser.displayName, systemUser.displayName);
+        console.warn('UserManager: users.json introuvable, création de la config initiale');
+        this.config = this.createDefaultConfig(systemUser.displayName);
+        // Persister immédiatement sur le serveur pour que les prochains lancements la trouvent
+        await this.saveConfig();
       }
 
       // 4. Identifier l'utilisateur courant
@@ -316,9 +318,9 @@ export class UserManager {
 
   /**
    * Crée une config par défaut pour le premier lancement (migration).
-   * L'utilisateur courant devient admin avec accès CrimOrg.
+   * L'utilisateur courant devient admin avec accès à tous les contentieux.
    */
-  private createDefaultConfig(windowsUsername: string, displayName: string): UsersConfig {
+  private createDefaultConfig(windowsUsername: string): UsersConfig {
     const now = new Date().toISOString();
     return {
       version: 1,
@@ -326,10 +328,10 @@ export class UserManager {
       users: [
         {
           windowsUsername,
-          displayName,
+          displayName: `Admin (${windowsUsername})`,
           globalRole: 'admin',
-          contentieux: [{ contentieuxId: 'crimorg', role: 'magistrat' }],
-          modules: ['air', 'instructions'],
+          contentieux: DEFAULT_CONTENTIEUX.map(c => ({ contentieuxId: c.id, role: 'magistrat' as ContentieuxRole })),
+          modules: ['air', 'instructions'] as ModuleId[],
           createdAt: now,
           updatedAt: now,
         },
