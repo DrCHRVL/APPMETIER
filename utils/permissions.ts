@@ -23,7 +23,6 @@ const GLOBAL_ROLE_PERMISSIONS: Record<NonNullable<GlobalRole>, Set<PermissionAct
     'view', 'create', 'edit', 'delete',
     'manage_tags', 'manage_alerts', 'manage_backups', 'view_stats',
     'pin_overboard', 'manage_users', 'manage_modules',
-    'manage_services', 'manage_common_tags', 'full_snapshot',
   ]),
   pra: new Set([
     'view', 'create', 'edit',           // lecture + ajout + modif, PAS de suppression
@@ -48,7 +47,7 @@ const CONTENTIEUX_ROLE_PERMISSIONS: Record<ContentieuxRole, Set<PermissionAction
 
 // Permissions purement globales (non liées à un contentieux)
 const ADMIN_ONLY_PERMISSIONS: Set<PermissionAction> = new Set([
-  'manage_users', 'manage_modules', 'manage_services', 'manage_common_tags', 'full_snapshot',
+  'manage_users', 'manage_modules',
 ]);
 
 // ──────────────────────────────────────────────

@@ -82,10 +82,7 @@ export type PermissionAction =
   | 'view_stats'      // Voir les statistiques
   | 'pin_overboard'   // Épingler une enquête sur l'Overboard
   | 'manage_users'    // Gérer les utilisateurs (admin only)
-  | 'manage_modules'  // Activer/désactiver les modules (admin only)
-  | 'manage_services' // Organisation des services (admin only)
-  | 'manage_common_tags' // Tags communs (admin only)
-  | 'full_snapshot';  // Snapshot complet (admin only)
+  | 'manage_modules'; // Activer/désactiver les modules (admin only)
 
 /** Permissions résolues pour un utilisateur sur un contentieux donné */
 export interface ResolvedPermissions {

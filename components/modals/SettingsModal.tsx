@@ -1,14 +1,14 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Shield, Users, Layers, Globe, Settings } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 
 // ──────────────────────────────────────────────
 // TYPES
 // ──────────────────────────────────────────────
 
-type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'admin_users' | 'admin_tags' | 'admin_services' | 'admin_snapshots';
+type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'admin_users';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -17,9 +17,6 @@ interface SettingsModalProps {
   tagsContent: React.ReactNode;
   sauvegardesContent: React.ReactNode;
   adminUsersContent?: React.ReactNode;
-  adminTagsContent?: React.ReactNode;
-  adminServicesContent?: React.ReactNode;
-  adminSnapshotsContent?: React.ReactNode;
 }
 
 // ──────────────────────────────────────────────
@@ -35,25 +32,16 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
-  { id: 'alertes',        label: 'Alertes',           icon: Bell },
-  { id: 'tags',           label: 'Tags',              icon: Tags },
-  { id: 'sauvegardes',    label: 'Sauvegardes',       icon: Save },
+  { id: 'alertes',        label: 'Alertes',       icon: Bell },
+  { id: 'tags',           label: 'Tags',          icon: Tags },
+  { id: 'sauvegardes',    label: 'Sauvegardes',   icon: Save },
   // Séparateur admin
-  { id: 'admin_users',    label: 'Utilisateurs',      icon: Users,  isAdmin: true, isSeparator: true },
-  { id: 'admin_tags',     label: 'Tags communs',      icon: Globe,  isAdmin: true },
-  { id: 'admin_services', label: 'Orga. services',    icon: Layers, isAdmin: true },
-  { id: 'admin_snapshots',label: 'Snapshots',         icon: Shield, isAdmin: true },
+  { id: 'admin_users',    label: 'Utilisateurs',  icon: Users, isAdmin: true, isSeparator: true },
 ];
 
 // ──────────────────────────────────────────────
 // COMPOSANT
 // ──────────────────────────────────────────────
-
-const AdminPlaceholder = () => (
-  <div className="flex items-center justify-center h-64 text-gray-400">
-    Module d'administration — à implémenter
-  </div>
-);
 
 export const SettingsModal = ({
   isOpen,
@@ -62,9 +50,6 @@ export const SettingsModal = ({
   tagsContent,
   sauvegardesContent,
   adminUsersContent,
-  adminTagsContent,
-  adminServicesContent,
-  adminSnapshotsContent,
 }: SettingsModalProps) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('alertes');
   const { isAdmin: checkIsAdmin } = useUser();
@@ -83,13 +68,7 @@ export const SettingsModal = ({
       case 'sauvegardes':
         return sauvegardesContent;
       case 'admin_users':
-        return adminUsersContent || <AdminPlaceholder />;
-      case 'admin_tags':
-        return adminTagsContent || <AdminPlaceholder />;
-      case 'admin_services':
-        return adminServicesContent || <AdminPlaceholder />;
-      case 'admin_snapshots':
-        return adminSnapshotsContent || <AdminPlaceholder />;
+        return adminUsersContent;
       default:
         return null;
     }
@@ -116,7 +95,7 @@ export const SettingsModal = ({
         <div className="flex flex-1 overflow-hidden">
           {/* Tabs sidebar */}
           <div className="w-52 border-r border-gray-200 py-3 flex flex-col bg-gray-50">
-            {visibleTabs.map((tab, idx) => {
+            {visibleTabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
 
@@ -157,4 +136,3 @@ export const SettingsModal = ({
     </div>
   );
 };
-
