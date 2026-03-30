@@ -66,7 +66,6 @@ export const MultiSideBar = ({
     const items: Array<{ view: string; icon: any; label: string; visible: boolean }> = [
       { view: `enquetes_${cId}`, icon: FileText, label: 'Enquêtes', visible: true },
       { view: `archives_${cId}`, icon: Archive, label: 'Archive', visible: true },
-      { view: `instructions_${cId}`, icon: Scale, label: 'Instructions', visible: hasModule('instructions') && canDo(cId, 'view') },
       { view: `stats_${cId}`, icon: BarChart, label: 'Statistiques', visible: canDo(cId, 'view_stats') },
     ];
     return items.filter(i => i.visible);
@@ -157,6 +156,31 @@ export const MultiSideBar = ({
           })}
 
         {/* ── MODULES TRANSVERSAUX ── */}
+
+        {/* Instructions — module activable, transversal */}
+        {hasModule('instructions') && (
+          <>
+            <div className="my-2 border-t border-white/10" />
+            <button
+              className={`
+                w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm
+                transition-all duration-150 relative group
+                ${currentView === 'instructions'
+                  ? 'bg-white/20 text-white font-semibold shadow-sm'
+                  : 'font-medium text-white/70 hover:bg-white/8 hover:text-white'
+                }
+              `}
+              style={currentView === 'instructions' ? {
+                boxShadow: 'inset 3px 0 0 rgba(255,255,255,0.85)'
+              } : {}}
+              onClick={() => onViewChange('instructions')}
+            >
+              <Scale className={`h-4 w-4 flex-shrink-0 ${currentView === 'instructions' ? 'text-white' : 'text-white/60'}`} />
+              {isOpen && <span className="truncate">Instructions</span>}
+              {instructionAlertCount > 0 && <AlertBadge count={instructionAlertCount} />}
+            </button>
+          </>
+        )}
 
         {/* AIR — module activable */}
         {hasModule('air') && (

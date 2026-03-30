@@ -51,6 +51,8 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
   const enquetesRef = useRef<Enquete[]>([]);
   const isInitialized = useRef(false);
   const currentContentieuxRef = useRef(contentieuxId);
+  const isDataDirtyRef = useRef(false);
+  const isLoadingRef = useRef(true);
 
   const { showToast } = useToast();
 
@@ -68,6 +70,9 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
   useEffect(() => {
     enquetesRef.current = enquetes;
   }, [enquetes]);
+
+  useEffect(() => { isDataDirtyRef.current = isDataDirty; }, [isDataDirty]);
+  useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
 
   // Chargement
   const loadEnquetes = useCallback(async () => {
@@ -98,10 +103,10 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
     init();
   }, [loadEnquetes, contentieuxId]);
 
-  // Sauvegarde throttled
+  // Sauvegarde throttled — refs pour éviter de recréer le throttle à chaque state change
   const saveEnquetes = useCallback(
     throttle(async () => {
-      if (!isDataDirty || isLoading) return;
+      if (!isDataDirtyRef.current || isLoadingRef.current) return;
       try {
         await ElectronBridge.setData(storageKey(contentieuxId), enquetesRef.current);
         setIsDataDirty(false);
@@ -110,18 +115,18 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
         console.error(`❌ useContentieuxEnquetes[${contentieuxId}]: erreur sauvegarde`, error);
       }
     }, SAVE_THROTTLE),
-    [isDataDirty, isLoading, contentieuxId]
+    [contentieuxId]
   );
 
   const flushPendingSave = useCallback(async () => {
-    if (!isDataDirty || isLoading) return;
+    if (!isDataDirtyRef.current || isLoadingRef.current) return;
     try {
       await ElectronBridge.setData(storageKey(contentieuxId), enquetesRef.current);
       setIsDataDirty(false);
     } catch (error) {
       console.error(`❌ useContentieuxEnquetes[${contentieuxId}]: erreur flush`, error);
     }
-  }, [isDataDirty, isLoading, contentieuxId]);
+  }, [contentieuxId]);
 
   useEffect(() => {
     if (isDataDirty && !isLoading) saveEnquetes();

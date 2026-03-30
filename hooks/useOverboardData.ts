@@ -2,7 +2,7 @@
 // Charge les enquêtes de tous les contentieux accessibles pour la vue Overboard.
 // Lecture seule — pas de sauvegarde, juste un snapshot pour l'affichage transversal.
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Enquete } from '@/types/interfaces';
 import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
 import { ElectronBridge } from '@/utils/electronBridge';
@@ -14,6 +14,13 @@ function storageKey(contentieuxId: ContentieuxId): string {
 export const useOverboardData = (contentieuxDefs: ContentieuxDefinition[]) => {
   const [enquetesByContentieux, setEnquetesByContentieux] = useState<Map<ContentieuxId, Enquete[]>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
+
+  // Stabiliser la liste des IDs pour éviter les boucles infinies
+  const contentieuxIds = useMemo(
+    () => contentieuxDefs.map(d => d.id).sort().join(','),
+    [contentieuxDefs]
+  );
+  const prevIdsRef = useRef(contentieuxIds);
 
   const loadAll = useCallback(async () => {
     setIsLoading(true);
@@ -32,13 +39,14 @@ export const useOverboardData = (contentieuxDefs: ContentieuxDefinition[]) => {
 
     setEnquetesByContentieux(result);
     setIsLoading(false);
-  }, [contentieuxDefs]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentieuxIds]);
 
   useEffect(() => {
     if (contentieuxDefs.length > 0) {
       loadAll();
     }
-  }, [loadAll, contentieuxDefs]);
+  }, [loadAll, contentieuxDefs.length]);
 
   return { enquetesByContentieux, isLoading, refresh: loadAll };
 };

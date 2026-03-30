@@ -97,7 +97,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   // Contentieux accessibles (filtrés selon les permissions)
   const accessibleContentieux = contentieux.filter(c =>
-    permissions?.accessibleContentieux.includes(c.id)
+    permissions?.accessibleContentieux?.includes(c.id) ?? false
   );
 
   // Helpers

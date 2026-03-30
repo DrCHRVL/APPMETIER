@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useMemo } from 'react';
-import { SideBar } from './components/SideBar';
 import { MultiSideBar } from './components/MultiSideBar';
 import { Header } from './components/Header';
 import { FilterBar } from './components/FilterBar';
@@ -77,10 +76,12 @@ function AppContent() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
 
-  // Initialiser le contentieux actif au premier contentieux accessible
+  // Initialiser le contentieux actif et la vue au premier contentieux accessible
   useEffect(() => {
     if (!activeContentieux && accessibleContentieux.length > 0) {
-      setActiveContentieux(accessibleContentieux[0].id);
+      const firstId = accessibleContentieux[0].id;
+      setActiveContentieux(firstId);
+      setCurrentView(`enquetes_${firstId}`);
     }
   }, [accessibleContentieux, activeContentieux]);
 
@@ -480,7 +481,7 @@ function AppContent() {
   };
 
   const handleNewEnquete = () => {
-    if (currentView === 'instructions') {
+    if (baseView === 'instructions') {
       setShowNewInstructionModal(true);
     } else {
       setShowNewEnqueteModal(true);
@@ -624,7 +625,7 @@ return (
         </div>
 
         {/* 🆕 Bandeau lecture seule */}
-        {effectiveContentieux && canDo && !canDo(effectiveContentieux, 'edit') && (baseView === 'enquetes' || baseView === 'archives') && (
+        {effectiveContentieux && !canDo(effectiveContentieux, 'edit') && (baseView === 'enquetes' || baseView === 'archives') && (
           <div className="bg-amber-50 border-b border-amber-200 px-4 py-1.5 text-xs text-amber-700 font-medium flex items-center gap-2">
             <span>👁</span> Mode consultation — {contentieuxDefs.find(c => c.id === effectiveContentieux)?.label || effectiveContentieux}
           </div>
@@ -816,40 +817,8 @@ return (
             />
           )}
 
-          {baseView === 'tags' && (
-            <TagManagementPage />
-          )}
-
-          {baseView === 'alertes' && (
-            <AlertsPage
-              rules={alertRules}
-              onUpdateRule={handleUpdateAlertRule}
-              onDuplicateRule={handleDuplicateRule}
-              onDeleteRule={handleDeleteRule}
-              onShowWeeklyPopup={() => setShowWeeklyPopup(true)}
-              visualAlertRules={visualAlertRules}
-              onUpdateVisualAlertRule={updateVisualAlertRule}
-              onDeleteVisualAlertRule={deleteVisualAlertRule}
-              onReorderVisualAlertRules={reorderVisualAlertRules}
-            />
-          )}
-
           {baseView === 'stats' && (
             <StatsPage enquetes={enquetes} />
-          )}
-
-          {baseView === 'sauvegardes' && (
-            <SavePage
-              onExport={handleExportData}
-              onImport={handleImportData}
-              onManualSave={handleManualSave}
-              lastSaveDate={StorageManager.getLastSave()}
-              onRepairServer={repairServer}
-              onRestoreFromServerBackup={restoreFromServerBackup}
-              onListServerBackups={listServerBackups}
-              isSyncing={isSyncing}
-              syncStatus={syncStatus}
-            />
           )}
 
           {/* 🆕 Overboard (vue transversale) */}
