@@ -17,6 +17,7 @@ import {
 } from '@/types/userTypes';
 import { canDo as canDoCheck, isAdmin as isAdminCheck, hasGlobalView, getSyncMode } from '@/utils/permissions';
 import { migrateToMultiContentieux } from '@/utils/migration/migrateToMultiContentieux';
+import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
 
 // ──────────────────────────────────────────────
 // INTERFACE DU CONTEXTE
@@ -69,7 +70,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         setError(null);
 
         // Migration one-shot des données mono→multi contentieux
-        await migrateToMultiContentieux();
+        try {
+          await migrateToMultiContentieux();
+        } catch (migErr) {
+          console.error('UserContext: migration échouée (non bloquante)', migErr);
+        }
 
         const manager = UserManager.getInstance();
         const ctx = await manager.initialize();
@@ -77,8 +82,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         if (ctx) {
           setUser(ctx.user);
           setPermissions(ctx);
-          setContentieux(manager.getContentieux());
+          const defs = manager.getContentieux();
+          setContentieux(defs);
           setIsAuthenticated(true);
+
+          // Initialiser la synchronisation multi-contentieux
+          const syncModes = new Map<ContentieuxId, 'read_write' | 'read_only'>();
+          for (const cId of ctx.accessibleContentieux) {
+            syncModes.set(cId, getSyncMode(ctx, cId));
+          }
+          try {
+            await MultiSyncManager.getInstance().initialize(defs, ctx.accessibleContentieux, syncModes);
+          } catch (syncErr) {
+            console.warn('UserContext: sync multi-contentieux non démarrée', syncErr);
+          }
         } else {
           setError('Utilisateur non reconnu. Contactez l\'administrateur.');
           setIsAuthenticated(false);

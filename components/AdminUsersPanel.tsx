@@ -12,6 +12,7 @@ import {
   ModuleId,
 } from '@/types/userTypes';
 import { useUser } from '@/contexts/UserContext';
+import { useToast } from '@/contexts/ToastContext';
 
 // ──────────────────────────────────────────────
 // LABELS
@@ -38,7 +39,8 @@ const MODULE_LABELS: Record<ModuleId, string> = {
 // ──────────────────────────────────────────────
 
 export const AdminUsersPanel = () => {
-  const { isAdmin: checkIsAdmin, refreshUsers, contentieux: contentieuxDefs } = useUser();
+  const { isAdmin: checkIsAdmin, refreshUsers, contentieux: contentieuxDefs, user: currentUser } = useUser();
+  const { showToast } = useToast();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -80,6 +82,9 @@ export const AdminUsersPanel = () => {
       setNewDisplayName('');
       setNewGlobalRole(null);
       await refreshUsers();
+      showToast('Utilisateur créé', 'success');
+    } else {
+      showToast('Erreur : cet identifiant existe peut-être déjà', 'error');
     }
   };
 
@@ -90,15 +95,28 @@ export const AdminUsersPanel = () => {
     if (success) {
       loadUsers();
       await refreshUsers();
+      showToast('Utilisateur supprimé', 'info');
+    } else {
+      showToast('Impossible de supprimer cet utilisateur', 'error');
     }
   };
 
   const handleUpdateGlobalRole = async (username: string, role: GlobalRole) => {
+    // Empêcher l'admin de retirer son propre rôle admin
+    if (currentUser?.windowsUsername.toLowerCase() === username.toLowerCase() &&
+        currentUser.globalRole === 'admin' && role !== 'admin') {
+      showToast('Vous ne pouvez pas retirer votre propre rôle administrateur', 'error');
+      return;
+    }
+
     const manager = UserManager.getInstance();
     const success = await manager.updateUser(username, { globalRole: role });
     if (success) {
       loadUsers();
       await refreshUsers();
+      showToast('Rôle mis à jour', 'success');
+    } else {
+      showToast('Erreur lors de la mise à jour du rôle', 'error');
     }
   };
 
@@ -108,6 +126,8 @@ export const AdminUsersPanel = () => {
     if (success) {
       loadUsers();
       await refreshUsers();
+    } else {
+      showToast('Erreur lors de l\'affectation', 'error');
     }
   };
 
@@ -117,6 +137,8 @@ export const AdminUsersPanel = () => {
     if (success) {
       loadUsers();
       await refreshUsers();
+    } else {
+      showToast('Erreur lors du retrait du contentieux', 'error');
     }
   };
 
@@ -126,6 +148,8 @@ export const AdminUsersPanel = () => {
     if (success) {
       loadUsers();
       await refreshUsers();
+    } else {
+      showToast('Erreur lors de la modification du module', 'error');
     }
   };
 
