@@ -84,8 +84,11 @@ export class UserManager {
       ) || null;
 
       if (!this.currentUser) {
-        console.warn(`UserManager: utilisateur "${systemUser.displayName}" non trouvé dans users.json`);
-        return null;
+        // Auto-inscription : nouvel utilisateur → JA sans contentieux
+        console.log(`UserManager: auto-inscription de "${systemUser.displayName}" en tant que JA`);
+        this.currentUser = this.autoRegisterUser(systemUser.displayName);
+        this.config.users.push(this.currentUser);
+        await this.saveConfig();
       }
 
       // 5. Construire les permissions
@@ -259,6 +262,23 @@ export class UserManager {
   // ──────────────────────────────────────────────
   // MÉTHODES PRIVÉES
   // ──────────────────────────────────────────────
+
+  /**
+   * Auto-inscription d'un nouvel utilisateur : JA sans contentieux.
+   * L'admin lui attribuera ensuite ses contentieux et son rôle.
+   */
+  private autoRegisterUser(windowsUsername: string): UserProfile {
+    const now = new Date().toISOString();
+    return {
+      windowsUsername,
+      displayName: windowsUsername,
+      globalRole: 'ja' as GlobalRole,
+      contentieux: [],
+      modules: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
 
   private isCurrentUserAdmin(): boolean {
     return this.currentUser?.globalRole === 'admin';

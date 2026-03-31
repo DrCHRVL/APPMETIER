@@ -97,7 +97,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             console.warn('UserContext: sync multi-contentieux non démarrée', syncErr);
           }
         } else {
-          setError('Utilisateur non reconnu. Contactez l\'administrateur.');
+          setError('Impossible d\'identifier l\'utilisateur Windows. Vérifiez votre session.');
           setIsAuthenticated(false);
         }
       } catch (err) {

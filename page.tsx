@@ -587,8 +587,29 @@ function AppContent() {
           <h1 className="text-xl font-bold text-gray-800">Accès non autorisé</h1>
           <p className="text-gray-600">{userError}</p>
           <p className="text-sm text-gray-400">
-            Votre identifiant Windows n'est pas enregistré dans la configuration.
-            Contactez l'administrateur de l'application.
+            Vérifiez que vous êtes bien connecté à votre session Windows
+            et que le serveur partagé est accessible.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Utilisateur authentifié mais sans contentieux attribué (nouvel utilisateur auto-inscrit)
+  if (isAuthenticated && accessibleContentieux.length === 0) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-100">
+        <div className="text-center space-y-4 max-w-md">
+          <div className="text-6xl">&#x23F3;</div>
+          <h1 className="text-xl font-bold text-gray-800">Bienvenue, {user?.displayName || user?.windowsUsername}</h1>
+          <p className="text-gray-600">
+            Votre compte a été créé automatiquement.
+          </p>
+          <p className="text-gray-600">
+            L'administrateur doit maintenant vous attribuer un ou plusieurs contentieux pour que vous puissiez accéder à l'application.
+          </p>
+          <p className="text-sm text-gray-400">
+            Relancez l'application une fois vos accès configurés.
           </p>
         </div>
       </div>
