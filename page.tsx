@@ -98,6 +98,10 @@ function AppContent() {
     if (contentieuxId) {
       setActiveContentieux(contentieuxId);
     }
+    // Rafraîchir l'overboard quand on y navigue (données potentiellement modifiées)
+    if (view === 'overboard') {
+      refreshOverboard();
+    }
   };
 
   // Extraire le type de vue et le contentieux depuis les vues composites (ex: "enquetes_crimorg")
@@ -147,6 +151,13 @@ function AppContent() {
   // 🆕 État pour le modal de conflits
   const [showConflictModal, setShowConflictModal] = useState(false);
 
+  // Auto-fermer le modal de conflits si les conditions deviennent invalides
+  useEffect(() => {
+    if (showConflictModal && (!lastSyncResult || !hasConflicts)) {
+      setShowConflictModal(false);
+    }
+  }, [showConflictModal, lastSyncResult, hasConflicts]);
+
   // Mise à jour de l'application
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updateCommits, setUpdateCommits] = useState(0);
@@ -175,7 +186,7 @@ function AppContent() {
   } = useContentieuxEnquetes(currentContentieuxId);
 
   // Hook Overboard — données transversales (tous contentieux)
-  const { enquetesByContentieux: overboardData } = useOverboardData(contentieuxDefs);
+  const { enquetesByContentieux: overboardData, refresh: refreshOverboard } = useOverboardData(contentieuxDefs);
 
   // Hook pour les instructions judiciaires
   const {
@@ -407,7 +418,7 @@ function AppContent() {
       // Exporter les données du contentieux actif (clés préfixées)
       const ctxPrefix = `ctx_${currentContentieuxId}_`;
       const enquetesData = await StorageManager.get(`${ctxPrefix}enquetes`, []);
-      const instructionsData = await StorageManager.get('instructions', []);
+      const instructionsData = await StorageManager.get(`${ctxPrefix}instructions`, []);
       const alertRulesData = await StorageManager.get(`${ctxPrefix}alertRules`, []);
       const tagsData = await StorageManager.get(`${ctxPrefix}customTags`, []);
       const airMesuresData = await StorageManager.get('air_mesures', []);
@@ -487,6 +498,10 @@ function AppContent() {
   };
 
   const handleNewEnquete = () => {
+    if (!effectiveContentieux) {
+      showToast('Veuillez sélectionner un contentieux', 'error');
+      return;
+    }
     if (baseView === 'instructions') {
       setShowNewInstructionModal(true);
     } else {
@@ -714,12 +729,13 @@ return (
                       onArchive={handleArchiveEnquete}
                       onToggleSuivi={(type: 'JIRS' | 'PG') => {
                         const tagId = type === 'JIRS' ? 'suivi_jirs' : 'suivi_pg';
-                        const hasSuiviTag = enquete.tags.some((tag: any) =>
+                        const tags = enquete.tags || [];
+                        const hasSuiviTag = tags.some((tag: any) =>
                           tag.category === 'suivi' && tag.value === type
                         );
                         const newTags = hasSuiviTag
-                          ? enquete.tags.filter((tag: any) => !(tag.category === 'suivi' && tag.value === type))
-                          : [...enquete.tags, { id: tagId, value: type, category: 'suivi' }];
+                          ? tags.filter((tag: any) => !(tag.category === 'suivi' && tag.value === type))
+                          : [...tags, { id: tagId, value: type, category: 'suivi' }];
                         handleUpdateEnquete(enquete.id, { tags: newTags });
                       }}
                       onStartEnquete={handleStartEnquete}
@@ -849,7 +865,7 @@ return (
           )}
 
           {/* 🆕 Overboard (vue transversale) */}
-          {currentView === 'overboard' && (
+          {baseView === 'overboard' && (
             <OverboardPage
               enquetesByContentieux={overboardData}
               contentieuxDefs={contentieuxDefs}
@@ -886,7 +902,7 @@ return (
           onDelete={handleDeleteEnquete}
           allKnownMec={allKnownMec}
           onCreateGlobalTodo={(todo) => handleGlobalTodosChange([...globalTodos, todo])}
-          readOnly={effectiveContentieux ? !canDo(effectiveContentieux, 'edit') : false}
+          readOnly={effectiveContentieux ? !canDo(effectiveContentieux, 'edit') : true}
         />
       )}
 
@@ -1123,11 +1139,11 @@ return (
       )}
 
       {/* 🆕 Modal de gestion des conflits de synchronisation */}
-{showConflictModal && lastSyncResult && (
+{showConflictModal && lastSyncResult && hasConflicts && (
   <DataSyncConflictModal
     isOpen={showConflictModal}
     onClose={() => setShowConflictModal(false)}
-    conflicts={conflicts}
+    conflicts={conflicts || []}
     onResolve={handleResolveConflicts}
   />
 )}
