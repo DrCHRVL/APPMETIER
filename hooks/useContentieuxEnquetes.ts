@@ -56,11 +56,19 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
 
   const { showToast } = useToast();
 
-  // Reset quand le contentieux change
+  // Reset quand le contentieux change — flush les données dirty avant de switcher
   useEffect(() => {
     if (currentContentieuxRef.current !== contentieuxId) {
+      // Flush synchrone des données en attente pour l'ancien contentieux
+      if (isDataDirtyRef.current && !isLoadingRef.current) {
+        const oldKey = storageKey(currentContentieuxRef.current);
+        ElectronBridge.setData(oldKey, enquetesRef.current).catch(err =>
+          console.error('useContentieuxEnquetes: erreur flush avant switch', err)
+        );
+      }
       currentContentieuxRef.current = contentieuxId;
       isInitialized.current = false;
+      setIsDataDirty(false);
       setSelectedEnquete(null);
       setIsEditing(false);
       setEditingCR(null);

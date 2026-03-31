@@ -27,6 +27,7 @@ const KEY_MAPPING: Array<{ oldKey: string; suffix: string }> = [
   { oldKey: APP_CONFIG.STORAGE_KEYS.ALERT_VALIDATIONS,  suffix: 'alertValidations' },
   { oldKey: APP_CONFIG.STORAGE_KEYS.VISUAL_ALERT_RULES, suffix: 'visualAlertRules' },
   { oldKey: APP_CONFIG.STORAGE_KEYS.AUDIENCE_RESULTATS, suffix: 'audienceResultats' },
+  { oldKey: APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS,      suffix: 'instructions' },
 ];
 
 function newKey(contentieuxId: ContentieuxId, suffix: string): string {

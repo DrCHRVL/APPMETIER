@@ -35,6 +35,8 @@ interface EnqueteDetailModalProps {
   allKnownMec?: string[];
   /** Callback pour créer un todo général (suivi JIRS/PG) */
   onCreateGlobalTodo?: (todo: ToDoItem) => void;
+  /** Si true, masque les boutons Modifier/Supprimer (mode consultation) */
+  readOnly?: boolean;
 }
 
 export const EnqueteDetailModal = ({
@@ -50,7 +52,8 @@ export const EnqueteDetailModal = ({
   setEditingCR,
   onDelete,
   allKnownMec = [],
-  onCreateGlobalTodo
+  onCreateGlobalTodo,
+  readOnly = false
 }: EnqueteDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showClotureSummary, setShowClotureSummary] = useState(false);
@@ -100,9 +103,9 @@ export const EnqueteDetailModal = ({
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {isEditing && onDelete && (
-                  <Button 
-                    variant="ghost" 
+                {isEditing && onDelete && !readOnly && (
+                  <Button
+                    variant="ghost"
                     size="sm"
                     className="text-red-600 hover:text-red-700 hover:bg-red-50"
                     onClick={() => setShowDeleteModal(true)}
@@ -110,9 +113,11 @@ export const EnqueteDetailModal = ({
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 )}
-                <Button onClick={onEdit} size="sm" className="mr-12">
-                  {isEditing ? 'Terminer' : 'Modifier'}
-                </Button>
+                {!readOnly && (
+                  <Button onClick={onEdit} size="sm" className="mr-12">
+                    {isEditing ? 'Terminer' : 'Modifier'}
+                  </Button>
+                )}
               </div>
             </div>
           </DialogHeader>

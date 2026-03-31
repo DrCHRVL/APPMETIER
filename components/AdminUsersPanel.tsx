@@ -126,6 +126,7 @@ export const AdminUsersPanel = () => {
     if (success) {
       loadUsers();
       await refreshUsers();
+      showToast('Contentieux attribué', 'success');
     } else {
       showToast('Erreur lors de l\'affectation', 'error');
     }
@@ -137,6 +138,7 @@ export const AdminUsersPanel = () => {
     if (success) {
       loadUsers();
       await refreshUsers();
+      showToast('Contentieux retiré', 'info');
     } else {
       showToast('Erreur lors du retrait du contentieux', 'error');
     }
@@ -148,6 +150,7 @@ export const AdminUsersPanel = () => {
     if (success) {
       loadUsers();
       await refreshUsers();
+      showToast(enabled ? 'Module activé' : 'Module désactivé', 'success');
     } else {
       showToast('Erreur lors de la modification du module', 'error');
     }

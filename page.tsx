@@ -86,8 +86,14 @@ function AppContent() {
   }, [accessibleContentieux, activeContentieux]);
 
   // Réinitialise la recherche à chaque changement de vue
-  const handleViewChange = (view: string, contentieuxId?: ContentieuxId) => {
+  const handleViewChange = async (view: string, contentieuxId?: ContentieuxId) => {
+    // Flush les données en attente avant de changer de contentieux
+    if (contentieuxId && contentieuxId !== activeContentieux) {
+      await flushPendingSave();
+    }
     setSearchTerm('');
+    setSelectedTags([]);
+    setSortOrder('date-desc');
     setCurrentView(view);
     if (contentieuxId) {
       setActiveContentieux(contentieuxId);
@@ -859,6 +865,7 @@ return (
           onDelete={handleDeleteEnquete}
           allKnownMec={allKnownMec}
           onCreateGlobalTodo={(todo) => handleGlobalTodosChange([...globalTodos, todo])}
+          readOnly={effectiveContentieux ? !canDo(effectiveContentieux, 'edit') : false}
         />
       )}
 
