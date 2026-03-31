@@ -87,6 +87,10 @@ function AppContent() {
 
   // Réinitialise la recherche à chaque changement de vue
   const handleViewChange = async (view: string, contentieuxId?: ContentieuxId) => {
+    // Vérifier que l'utilisateur a accès au contentieux demandé
+    if (contentieuxId && !accessibleContentieux.some(c => c.id === contentieuxId)) {
+      return;
+    }
     // Flush les données en attente avant de changer de contentieux
     if (contentieuxId && contentieuxId !== activeContentieux) {
       await flushPendingSave();
@@ -236,7 +240,7 @@ function AppContent() {
     handleDeleteRule,
     handleSnoozeAlert,
     handleValidateAlert
-  } = useCombinedAlerts(enquetes, mesuresAIR);
+  } = useCombinedAlerts(enquetes, mesuresAIR, currentContentieuxId);
 
 
   // Hook tags centralisé - simplifié
@@ -477,9 +481,26 @@ function AppContent() {
               if (!hasEnquetes && !hasInstructions) {
                 throw new Error('Le fichier ne contient pas de données d\'enquêtes ou d\'instructions');
               }
-              
-              showToast('Import réussi', 'success');
-              
+
+              // Déterminer le contentieux cible (depuis le fichier importé ou le contentieux actif)
+              const targetCtx = importedData.contentieuxId || currentContentieuxId;
+              const ctxPrefix = `ctx_${targetCtx}_`;
+
+              if (hasEnquetes) {
+                await StorageManager.set(`${ctxPrefix}enquetes`, importedData.enquetes);
+              }
+              if (hasInstructions) {
+                await StorageManager.set(`${ctxPrefix}instructions`, importedData.instructions);
+              }
+              if (importedData.alertRules) {
+                await StorageManager.set(`${ctxPrefix}alertRules`, importedData.alertRules);
+              }
+              if (importedData.tags) {
+                await StorageManager.set(`${ctxPrefix}customTags`, importedData.tags);
+              }
+
+              showToast(`Import réussi dans ${targetCtx}`, 'success');
+
               setTimeout(() => {
                 window.location.reload();
               }, 1000);
@@ -869,7 +890,12 @@ return (
             <OverboardPage
               enquetesByContentieux={overboardData}
               contentieuxDefs={contentieuxDefs}
-              onEnqueteClick={(enquete) => {
+              onEnqueteClick={(enquete, contentieuxId) => {
+                // Switcher vers le bon contentieux avant d'ouvrir le modal
+                if (contentieuxId && contentieuxId !== activeContentieux) {
+                  setActiveContentieux(contentieuxId);
+                  setCurrentView(`enquetes_${contentieuxId}`);
+                }
                 setSelectedEnquete(enquete);
                 setIsEditing(false);
               }}

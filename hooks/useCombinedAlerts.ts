@@ -8,7 +8,10 @@ import debounce from 'lodash/debounce';
 const ALERT_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const DEBOUNCE_DELAY = 1000; // 1 seconde
 
-export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[]) => {
+export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], contentieuxId?: string) => {
+  // Clés préfixées par contentieux (fallback sur clés globales si pas de contentieux)
+  const alertRulesKey = contentieuxId ? `ctx_${contentieuxId}_alertRules` : APP_CONFIG.STORAGE_KEYS.ALERT_RULES;
+  const alertsKey = contentieuxId ? `ctx_${contentieuxId}_alerts` : 'alerts';
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -19,7 +22,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[]) 
       try {
         setIsLoading(true);
         const rules = await ElectronBridge.getData(
-          APP_CONFIG.STORAGE_KEYS.ALERT_RULES,
+          alertRulesKey,
           APP_CONFIG.DEFAULT_ALERT_RULES
         );
         setAlertRules(Array.isArray(rules) ? rules : APP_CONFIG.DEFAULT_ALERT_RULES);
@@ -42,13 +45,13 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[]) 
     
     loadAlertRules();
     loadAlerts();
-  }, []);
+  }, [alertRulesKey, alertsKey]);
 
   // Sauvegarder les règles d'alerte
   const debouncedSaveAlertRules = useCallback(
     debounce(async (rules: AlertRule[]) => {
       try {
-        await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, rules);
+        await ElectronBridge.setData(alertRulesKey,rules);
       } catch (error) {
         console.error('Erreur lors de la sauvegarde des règles d\'alerte:', error);
       }
@@ -109,7 +112,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[]) 
     debounce(async () => {
       try {
         // Récupérer les alertes existantes
-        const existingAlerts = await ElectronBridge.getData<Alert[]>('alerts', []);
+        const existingAlerts = await ElectronBridge.getData<Alert[]>(alertsKey, []);
         const newAlerts: Alert[] = [];
         
         // 1. Vérifier les enquêtes pour les alertes traditionnelles
@@ -213,7 +216,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[]) 
         // Conserver uniquement les nouvelles alertes (enquêtes + AIR) et les alertes en snooze
         const allAlerts = [...newAlerts, ...existingSnoozeAlerts];
         
-        await ElectronBridge.setData('alerts', allAlerts);
+        await ElectronBridge.setData(alertsKey, allAlerts);
         setAlerts(allAlerts);
       } catch (error) {
         console.error('Erreur lors de la mise à jour des alertes:', error);
@@ -246,7 +249,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[]) 
   const handleSnoozeAlert = useCallback(
     debounce(async (alertId: number, daysOrDate: number | string): Promise<boolean> => {
       try {
-        const allAlerts = await ElectronBridge.getData<Alert[]>('alerts', []);
+        const allAlerts = await ElectronBridge.getData<Alert[]>(alertsKey, []);
         
         let snoozeUntil: Date;
         
@@ -271,7 +274,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[]) 
             : alert
         );
         
-        await ElectronBridge.setData('alerts', updatedAlerts);
+        await ElectronBridge.setData(alertsKey, updatedAlerts);
         setAlerts(updatedAlerts);
         return true;
       } catch (error) {
@@ -285,7 +288,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[]) 
   const handleValidateAlert = useCallback(
     debounce(async (alertId: number | number[]): Promise<boolean> => {
       try {
-        const allAlerts = await ElectronBridge.getData<Alert[]>('alerts', []);
+        const allAlerts = await ElectronBridge.getData<Alert[]>(alertsKey, []);
         
         const alertsToValidate = Array.isArray(alertId) 
           ? allAlerts.filter(a => alertId.includes(a.id))
@@ -302,7 +305,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[]) 
           return !(Array.isArray(alertId) ? alertId.includes(alert.id) : alert.id === alertId);
         });
     
-        await ElectronBridge.setData('alerts', updatedAlerts);
+        await ElectronBridge.setData(alertsKey, updatedAlerts);
         setAlerts(updatedAlerts);
         return true;
       } catch (error) {
