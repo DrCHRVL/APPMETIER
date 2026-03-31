@@ -300,14 +300,29 @@ export class UserManager {
    * Utilise l'IPC dataSync pour lire le fichier.
    */
   private async loadUsersConfig(): Promise<UsersConfig | null> {
-    try {
-      if (typeof window !== 'undefined' && (window as any).electronAPI?.dataSync_pullUsersConfig) {
-        return await (window as any).electronAPI.dataSync_pullUsersConfig();
+    // 1. Essayer de lire depuis le serveur partagé
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.dataSync_pullUsersConfig) {
+      try {
+        const serverConfig = await (window as any).electronAPI.dataSync_pullUsersConfig();
+        if (serverConfig) {
+          // Mettre à jour le cache local pour le mode offline
+          await ElectronBridge.setData('users_config', serverConfig);
+          return serverConfig;
+        }
+      } catch (error) {
+        console.warn('UserManager: serveur inaccessible, tentative depuis le cache local', error);
       }
-      // Fallback : lire depuis le stockage local (mode dégradé)
-      return await ElectronBridge.getData<UsersConfig>('users_config', null as any);
+    }
+
+    // 2. Fallback : lire depuis le cache local (mode offline)
+    try {
+      const localConfig = await ElectronBridge.getData<UsersConfig>('users_config', null as any);
+      if (localConfig) {
+        console.log('UserManager: config chargée depuis le cache local (mode offline)');
+      }
+      return localConfig;
     } catch (error) {
-      console.error('UserManager: erreur chargement users.json', error);
+      console.error('UserManager: erreur lecture cache local', error);
       return null;
     }
   }
@@ -321,19 +336,25 @@ export class UserManager {
     this.config.updatedAt = new Date().toISOString();
     this.config.updatedBy = this.currentUser?.windowsUsername || 'unknown';
 
+    // Toujours sauvegarder en local d'abord (ne doit jamais échouer)
     try {
-      // Sauvegarder sur le serveur
+      await ElectronBridge.setData('users_config', this.config);
+    } catch (error) {
+      console.error('UserManager: erreur sauvegarde locale', error);
+      return false;
+    }
+
+    // Puis tenter la sauvegarde serveur (peut échouer en offline)
+    try {
       if (typeof window !== 'undefined' && (window as any).electronAPI?.dataSync_pushUsersConfig) {
         await (window as any).electronAPI.dataSync_pushUsersConfig(this.config);
       }
-
-      // Sauvegarder aussi en local (cache)
-      await ElectronBridge.setData('users_config', this.config);
-      return true;
     } catch (error) {
-      console.error('UserManager: erreur sauvegarde users.json', error);
-      return false;
+      console.warn('UserManager: sauvegarde serveur échouée (mode offline)', error);
+      // Pas de return false — le local est sauvé, ça suffira
     }
+
+    return true;
   }
 
   /**
