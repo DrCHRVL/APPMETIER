@@ -631,6 +631,97 @@ export const AudienceStats = ({ enquetes, selectedYear }: AudienceStatsProps) =>
           </CardContent>
         </Card>
 
+        {/* Carte Classements sans suite */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Classements sans suite</CardTitle>
+            <p className="text-sm text-gray-500">Toutes enquêtes confondues</p>
+          </CardHeader>
+          <CardContent>
+            {(() => {
+              const nombreClassements = yearlyStats?.nombreClassements || 0;
+              const totalEnquetes = (yearlyStats?.nombreCRPC || 0) +
+                                    (yearlyStats?.nombreCI || 0) +
+                                    (yearlyStats?.nombreCOPJ || 0) +
+                                    (yearlyStats?.nombreOI || 0) +
+                                    (yearlyStats?.nombreCDD || 0) +
+                                    (yearlyStats?.nombreClassements || 0);
+              const pourcentage = totalEnquetes > 0 ? ((nombreClassements / totalEnquetes) * 100).toFixed(1) : '0';
+
+              // Calcul de l'âge moyen et répartition par type de fait
+              const classementResults = Object.values(audienceState?.resultats || {})
+                .filter(r => r.isClassement && r.dateAudience &&
+                  new Date(r.dateAudience).getFullYear() === selectedYear);
+
+              let totalAge = 0;
+              let countAge = 0;
+              const infractionCounts: Record<string, number> = {};
+
+              classementResults.forEach(r => {
+                const enquete = enquetes.find(e => e.id === r.enqueteId);
+                if (enquete) {
+                  const dateDebut = new Date(enquete.dateDebut);
+                  const dateFin = new Date(r.dateAudience);
+                  const ageJours = Math.floor((dateFin.getTime() - dateDebut.getTime()) / (1000 * 60 * 60 * 24));
+                  if (ageJours >= 0) { totalAge += ageJours; countAge++; }
+                  enquete.tags.filter(t => t.category === 'infractions').forEach(t => {
+                    if (t.value) infractionCounts[t.value] = (infractionCounts[t.value] || 0) + 1;
+                  });
+                }
+              });
+
+              const ageMoyen = countAge > 0 ? Math.round(totalAge / countAge) : 0;
+              const totalInfractions = Object.values(infractionCounts).reduce((a, b) => a + b, 0);
+              const sortedInfractions = Object.entries(infractionCounts).sort(([, a], [, b]) => b - a);
+
+              const ouverturesMensuelles: Record<string, number> = {};
+              getMonthsToShow().forEach(month => {
+                const monthName = new Date(selectedYear, month).toLocaleString('default', { month: 'long' });
+                ouverturesMensuelles[monthName] = monthlyStats[month]?.nombreClassements || 0;
+              });
+
+              return (
+                <>
+                  <div className="flex items-center mb-2">
+                    <div className="text-3xl font-bold mr-2">{nombreClassements}</div>
+                    <div className="text-lg ml-2">({pourcentage}% des orientations)</div>
+                  </div>
+
+                  {countAge > 0 && (
+                    <div className="bg-red-50 p-3 rounded-md mb-4">
+                      <div className="text-sm font-medium text-red-800">Âge moyen des dossiers au classement</div>
+                      <div className="text-2xl font-bold text-red-700">{ageMoyen} jours</div>
+                    </div>
+                  )}
+
+                  {sortedInfractions.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-sm font-medium mb-2">Répartition par type de fait</p>
+                      <div className="space-y-1">
+                        {sortedInfractions.map(([infraction, count]) => (
+                          <div key={infraction} className="flex justify-between text-sm">
+                            <span>{infraction}</span>
+                            <span className="font-medium">{count} ({totalInfractions > 0 ? ((count / totalInfractions) * 100).toFixed(0) : 0}%)</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pt-3 border-t space-y-1">
+                    {Object.entries(ouverturesMensuelles).map(([month, count]) => (
+                      <div key={month} className="flex justify-between text-sm">
+                        <span>{month}:</span>
+                        <span className="font-medium">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
+          </CardContent>
+        </Card>
+
         {/* Carte Ouvertures d'information */}
         <Card>
           <CardHeader>
@@ -644,8 +735,35 @@ export const AudienceStats = ({ enquetes, selectedYear }: AudienceStatsProps) =>
                                     (yearlyStats?.nombreCI || 0) +
                                     (yearlyStats?.nombreCOPJ || 0) +
                                     (yearlyStats?.nombreOI || 0) +
-                                    (yearlyStats?.nombreCDD || 0);
+                                    (yearlyStats?.nombreCDD || 0) +
+                                    (yearlyStats?.nombreClassements || 0);
               const pourcentage = totalEnquetes > 0 ? ((nombreOI / totalEnquetes) * 100).toFixed(1) : '0';
+
+              // Calcul de l'âge moyen et répartition par type de fait
+              const oiResults = Object.values(audienceState?.resultats || {})
+                .filter(r => r.isOI && r.dateAudience &&
+                  new Date(r.dateAudience).getFullYear() === selectedYear);
+
+              let totalAge = 0;
+              let countAge = 0;
+              const infractionCounts: Record<string, number> = {};
+
+              oiResults.forEach(r => {
+                const enquete = enquetes.find(e => e.id === r.enqueteId);
+                if (enquete) {
+                  const dateDebut = new Date(enquete.dateDebut);
+                  const dateFin = new Date(r.dateAudience);
+                  const ageJours = Math.floor((dateFin.getTime() - dateDebut.getTime()) / (1000 * 60 * 60 * 24));
+                  if (ageJours >= 0) { totalAge += ageJours; countAge++; }
+                  enquete.tags.filter(t => t.category === 'infractions').forEach(t => {
+                    if (t.value) infractionCounts[t.value] = (infractionCounts[t.value] || 0) + 1;
+                  });
+                }
+              });
+
+              const ageMoyen = countAge > 0 ? Math.round(totalAge / countAge) : 0;
+              const totalInfractions = Object.values(infractionCounts).reduce((a, b) => a + b, 0);
+              const sortedInfractions = Object.entries(infractionCounts).sort(([, a], [, b]) => b - a);
 
               const ouverturesMensuelles: Record<string, number> = {};
               getMonthsToShow().forEach(month => {
@@ -655,11 +773,33 @@ export const AudienceStats = ({ enquetes, selectedYear }: AudienceStatsProps) =>
 
               return (
                 <>
-                  <div className="flex items-center mb-4">
+                  <div className="flex items-center mb-2">
                     <div className="text-3xl font-bold mr-2">{nombreOI}</div>
-                    <div className="text-lg ml-2">({pourcentage}% des dossiers terminés)</div>
+                    <div className="text-lg ml-2">({pourcentage}% des orientations)</div>
                   </div>
-                  <div className="mt-4 pt-4 border-t space-y-1">
+
+                  {countAge > 0 && (
+                    <div className="bg-gray-100 p-3 rounded-md mb-4">
+                      <div className="text-sm font-medium text-gray-700">Âge moyen des dossiers avant ouverture d'info</div>
+                      <div className="text-2xl font-bold text-gray-800">{ageMoyen} jours</div>
+                    </div>
+                  )}
+
+                  {sortedInfractions.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-sm font-medium mb-2">Répartition par type de fait</p>
+                      <div className="space-y-1">
+                        {sortedInfractions.map(([infraction, count]) => (
+                          <div key={infraction} className="flex justify-between text-sm">
+                            <span>{infraction}</span>
+                            <span className="font-medium">{count} ({totalInfractions > 0 ? ((count / totalInfractions) * 100).toFixed(0) : 0}%)</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pt-3 border-t space-y-1">
                     {Object.entries(ouverturesMensuelles).map(([month, count]) => (
                       <div key={month} className="flex justify-between text-sm">
                         <span>{month}:</span>

@@ -66,6 +66,27 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
     return new Date(audienceResult.dateAudience).getFullYear() === selectedYear;
   });
 
+  // Procédures terminées hors classements sans suite et OI
+  const enquetesTermineesFiltered = enquetesTerminees.filter(e => {
+    const audienceResult = Object.values(audienceState?.resultats || {})
+      .find(r => r.enqueteId === e.id);
+    return audienceResult && !audienceResult.isClassement && !audienceResult.isOI;
+  });
+  const directResultsFiltered = directResults.filter(r => !r.isClassement && !r.isOI);
+
+  // Comptage classements et OI pour l'affichage
+  const classementsCount = enquetesTerminees.filter(e => {
+    const audienceResult = Object.values(audienceState?.resultats || {})
+      .find(r => r.enqueteId === e.id);
+    return audienceResult?.isClassement;
+  }).length + directResults.filter(r => r.isClassement).length;
+
+  const oiCount = enquetesTerminees.filter(e => {
+    const audienceResult = Object.values(audienceState?.resultats || {})
+      .find(r => r.enqueteId === e.id);
+    return audienceResult?.isOI;
+  }).length + directResults.filter(r => r.isOI).length;
+
   // Stats suivi JIRS / PG — enquêtes actives pendant l'année sélectionnée
   const suiviStats = useMemo(() => {
     // Enquêtes pertinentes pour l'année : créées avant ou pendant l'année,
@@ -216,6 +237,31 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
   const moyenneTempsParSemaine = arrondiFavorable((tempsEstimeMinutesAjuste / nombreSemainesAjuste) / 60);
   const moyenneTempsParMois = arrondiFavorable((tempsEstimeMinutesAjuste / nombreMoisAjuste) / 60);
 
+  // Total déférements pour l'année sélectionnée
+  const totalDeferementsYear = Object.values(audienceState.resultats || {})
+    .reduce((acc, r) => {
+      if (r.nombreDeferes && r.dateDefere) {
+        const date = new Date(r.dateDefere);
+        if (date.getFullYear() === selectedYear) {
+          return acc + r.nombreDeferes;
+        }
+      } else {
+        return acc + r.condamnations.filter(c => {
+          if (!c.defere) return false;
+          const dateRef = c.dateDefere || r.dateAudience;
+          const date = new Date(dateRef);
+          return date.getFullYear() === selectedYear;
+        }).length;
+      }
+      return acc;
+    }, 0);
+
+  // Enquêtes en cours
+  const allEnquetesEnCours = enquetes.filter(e => e.statut === 'en_cours');
+  const enquetesOuvertesAnnee = enquetes.filter(e =>
+    e.statut === 'en_cours' && new Date(e.dateCreation).getFullYear() === selectedYear
+  );
+
   // Helper pour afficher les tendances
   const DiffBadge = ({ diff, suffix = '' }: { diff: number; suffix?: string }) => {
     if (diff === 0) return <span className="text-xs text-gray-400">= {suffix}</span>;
@@ -234,14 +280,15 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
         <Card>
           <CardHeader>
             <CardTitle>Total des procédures terminées</CardTitle>
+            <p className="text-sm text-gray-500">Hors classements sans suite et ouvertures d'information</p>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">
-              {enquetesTerminees.length + directResults.length}
+              {enquetesTermineesFiltered.length + directResultsFiltered.length}
             </div>
             <div className="mt-4 pt-4 border-t space-y-1">
               {getMonthsToShow().map(month => {
-                const prelimCount = enquetesTerminees.filter(e => {
+                const prelimCount = enquetesTermineesFiltered.filter(e => {
                   const audienceResult = Object.values(audienceState.resultats || {})
                     .find(r => r.enqueteId === e.id);
                   const audienceDate = new Date(audienceResult.dateAudience);
@@ -249,7 +296,7 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
                          audienceDate.getMonth() === month &&
                          audienceDate.getFullYear() === selectedYear;
                 }).length;
-                const directCount = directResults.filter(r => {
+                const directCount = directResultsFiltered.filter(r => {
                   const audienceDate = new Date(r.dateAudience);
                   return audienceDate.getMonth() === month &&
                          audienceDate.getFullYear() === selectedYear;
@@ -261,6 +308,14 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
                   </div>
                 );
               })}
+            </div>
+            <div className="mt-3 pt-3 border-t">
+              <p className="text-xs text-gray-400">
+                Total avec OI et classements sans suite : <span className="font-semibold">{enquetesTerminees.length + directResults.length}</span>
+              </p>
+              <p className="text-xs text-gray-400">
+                dont {oiCount} ouverture{oiCount > 1 ? 's' : ''} d'information et {classementsCount} classement{classementsCount > 1 ? 's' : ''} sans suite
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -402,6 +457,39 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
           </Card>
         )}
 
+        {/* Carte Enquêtes en cours */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Nombre d'enquêtes en cours</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">{allEnquetesEnCours.length}</div>
+            <p className="text-sm text-gray-500 mb-4">enquête{allEnquetesEnCours.length > 1 ? 's' : ''} en cours au total</p>
+
+            <div className="bg-blue-50 p-3 rounded-md mb-4">
+              <div className="text-sm font-medium text-blue-800">Ouvertes depuis le début de l'année {selectedYear}</div>
+              <div className="text-2xl font-bold text-blue-700">{enquetesOuvertesAnnee.length}</div>
+            </div>
+
+            <div className="pt-3 border-t">
+              <p className="text-sm font-medium mb-2">Ouvertures par mois ({selectedYear})</p>
+              <div className="space-y-1">
+                {getMonthsToShow().map(month => {
+                  const count = enquetesOuvertesAnnee.filter(e =>
+                    new Date(e.dateCreation).getMonth() === month
+                  ).length;
+                  return (
+                    <div key={month} className="flex justify-between text-sm">
+                      <span>{new Date(selectedYear, month).toLocaleString('default', { month: 'long' })}</span>
+                      <span className="font-medium">{count}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Carte Déférements */}
         <Card>
           <CardHeader>
@@ -409,6 +497,10 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
             <p className="text-sm text-gray-500">Toutes enquêtes confondues</p>
           </CardHeader>
           <CardContent>
+            <div className="text-3xl font-bold mb-4">
+              {totalDeferementsYear}
+              <span className="text-base font-normal text-gray-500 ml-2">déférement{totalDeferementsYear > 1 ? 's' : ''} en {selectedYear}</span>
+            </div>
             <div style={{ width: '100%', height: '300px' }}>
               <Line
                 data={{
