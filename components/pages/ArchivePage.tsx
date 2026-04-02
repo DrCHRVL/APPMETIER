@@ -469,6 +469,18 @@ export const ArchivePage = ({
                             className="h-6 w-6 p-0 hover:bg-white/50"
                             onClick={(e) => {
                               e.stopPropagation();
+                              setSelectedEnquete(item);
+                            }}
+                            title="Voir le détail de l'enquête"
+                          >
+                            <FileText className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 hover:bg-white/50"
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setEditingPendingId(item.id);
                               setShowEditPendingModal(true);
                             }}
