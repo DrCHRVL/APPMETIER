@@ -69,17 +69,19 @@ export const InfractionStats = ({ enquetes, selectedYear }: InfractionStatsProps
     if (!infractionValue) return acc;
 
     // Filtrer les enquêtes terminées avec date d'audience de l'année sélectionnée
+    // Exclure les classements sans suite et les ouvertures d'information
     const enquetesFiltered = enquetes.filter(e => {
       if (e.statut !== 'archive') return false;
-      
+
       const audienceResult = Object.values(audienceState?.resultats || {})
         .find(r => r.enqueteId === e.id);
-      
+
       if (!audienceResult?.dateAudience) return false;
-      
+      if (audienceResult.isClassement || audienceResult.isOI) return false;
+
       return new Date(audienceResult.dateAudience).getFullYear() === selectedYear &&
-        e.tags.some(tag => 
-          tag.category === 'infractions' && 
+        e.tags.some(tag =>
+          tag.category === 'infractions' &&
           tag.value === infractionValue
         );
     });
@@ -143,6 +145,7 @@ export const InfractionStats = ({ enquetes, selectedYear }: InfractionStatsProps
       <Card>
         <CardHeader>
           <CardTitle>Répartition des enquêtes terminées par type d'infraction ({selectedYear})</CardTitle>
+          <p className="text-sm text-gray-500">Hors classements sans suite et ouvertures d'information</p>
         </CardHeader>
         <CardContent>
           {Object.keys(infractionStatsTerminees).length > 0 ? (
