@@ -116,9 +116,8 @@ echo.
 echo rem Se deplacer dans le dossier du projet
 echo cd Projet1
 echo.
-echo rem Demarrer Next.js en mode production
-echo echo Starting Next.js server...
-echo start "Next.js" ..\nodejs\node.exe node_modules\next\dist\bin\next start
+echo rem Demarrer Next.js (auto-detection dev/prod via start-next.bat)
+echo call start-next.bat
 echo.
 echo rem Attendre que le serveur soit disponible
 echo echo Waiting for Next.js server to start...
