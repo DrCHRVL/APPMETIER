@@ -10,6 +10,7 @@ import { Edit2, Save, X, Plus, Copy, Clock, RefreshCw, Eye, ChevronUp, ChevronDo
 import { AlertValidation } from '@/utils/alerts/alertValidation';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { VISUAL_ALERT_COLOR_PALETTE, VISUAL_ALERT_COLOR_KEYS, VISUAL_ALERT_TRIGGER_LABELS } from '@/config/constants';
+import { useUser } from '@/contexts/UserContext';
 
 const WEEKLY_POPUP_KEY = 'weekly_popup_config';
 const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -400,6 +401,9 @@ interface AlertsPageProps {
 }
 
 export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule, onShowWeeklyPopup, visualAlertRules = [], onUpdateVisualAlertRule, onDeleteVisualAlertRule, onReorderVisualAlertRules }: AlertsPageProps) => {
+  const { hasModule } = useUser();
+  const userHasAIR = hasModule('air');
+
   const [weeklyConfig, setWeeklyConfig] = useState<WeeklyPopupConfig>({
     enabled: false,
     dayOfWeek: 1, // Lundi
@@ -658,7 +662,11 @@ export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule,
 
       {/* ====== SECTION RÈGLES D'ALERTE CLASSIQUES ====== */}
       <div className="space-y-4">
-        {rules.map(rule => (
+        {rules.filter(rule => {
+          // Masquer les règles AIR si le module n'est pas activé pour l'utilisateur
+          if (!userHasAIR && ['air_6_mois', 'air_12_mois', 'air_rdv_delai'].includes(rule.type)) return false;
+          return true;
+        }).map(rule => (
           <Card key={rule.id} className={`shadow-sm ${rule.isSystemRule ? 'border-green-200' : ''}`}>
             <CardHeader className="flex flex-row items-center justify-between py-4">
               <div>
@@ -863,9 +871,13 @@ export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule,
                 <option value="cr_delay">Délai compte rendu</option>
                 <option value="acte_expiration">Expiration acte</option>
                 <option value="enquete_age">Âge enquête</option>
-                <option value="air_6_mois">Mesure AIR > 6 mois</option>
-                <option value="air_12_mois">Mesure AIR > 12 mois</option>
-                <option value="air_rdv_delai">Délai depuis RDV AIR</option>
+                {userHasAIR && (
+                  <>
+                    <option value="air_6_mois">Mesure AIR &gt; 6 mois</option>
+                    <option value="air_12_mois">Mesure AIR &gt; 12 mois</option>
+                    <option value="air_rdv_delai">Délai depuis RDV AIR</option>
+                  </>
+                )}
               </Select>
             </div>
 

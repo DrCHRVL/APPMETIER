@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { useAudience } from '@/hooks/useAudience';
 import { Enquete } from '@/types/interfaces';
@@ -78,14 +78,30 @@ const OrientationBarBlock = ({
 interface AudienceStatsProps {
   enquetes: Enquete[];
   selectedYear: number;
+  contentieuxId?: string;
 }
 
-export const AudienceStats = ({ enquetes, selectedYear }: AudienceStatsProps) => {
+export const AudienceStats = ({ enquetes, selectedYear, contentieuxId }: AudienceStatsProps) => {
   const [yearlyStats, setYearlyStats] = useState<AudienceStatsType | null>(null);
   const [monthlyStats, setMonthlyStats] = useState<{ [key: number]: AudienceStatsType | null }>({});
 
   const { audienceState } = useAudience();
   const currentDate = new Date();
+
+  // IDs des enquêtes du contentieux actif
+  const enqueteIds = useMemo(() => new Set(enquetes.map(e => e.id)), [enquetes]);
+
+  // Résultats d'audience scopés au contentieux actif (ou tous si global)
+  const scopedResultats = useMemo(() => {
+    const all = audienceState?.resultats || {};
+    if (contentieuxId === 'global') return all;
+    return Object.fromEntries(
+      Object.entries(all).filter(([key, r]) => {
+        if (r.isDirectResult) return contentieuxId === 'crimorg';
+        return enqueteIds.has(Number(key));
+      })
+    );
+  }, [audienceState?.resultats, enqueteIds, contentieuxId]);
 
   const getMonthsToShow = () => {
     const lastMonth = selectedYear === currentDate.getFullYear() ?
@@ -94,22 +110,22 @@ export const AudienceStats = ({ enquetes, selectedYear }: AudienceStatsProps) =>
   };
 
   useEffect(() => {
-    if (!audienceState?.resultats || !enquetes) {
+    if (Object.keys(scopedResultats).length === 0 || !enquetes) {
       setYearlyStats(null);
       return;
     }
-    setYearlyStats(getYearlyStats(audienceState.resultats, enquetes, selectedYear));
-  }, [audienceState?.resultats, selectedYear, enquetes]);
+    setYearlyStats(getYearlyStats(scopedResultats, enquetes, selectedYear));
+  }, [scopedResultats, selectedYear, enquetes]);
 
   useEffect(() => {
-    if (!audienceState?.resultats || !enquetes) return;
+    if (Object.keys(scopedResultats).length === 0 || !enquetes) return;
     const months = getMonthsToShow();
     const data: { [key: number]: AudienceStatsType | null } = {};
     months.forEach(month => {
-      data[month] = getMonthlyStats(audienceState.resultats, enquetes, selectedYear, month);
+      data[month] = getMonthlyStats(scopedResultats, enquetes, selectedYear, month);
     });
     setMonthlyStats(data);
-  }, [audienceState?.resultats, selectedYear, enquetes]);
+  }, [scopedResultats, selectedYear, enquetes]);
 
   if (!yearlyStats) {
     return (
@@ -230,10 +246,10 @@ export const AudienceStats = ({ enquetes, selectedYear }: AudienceStatsProps) =>
           </CardHeader>
           <CardContent>
             {(() => {
-              const totalCondamnations = Object.values(audienceState.resultats || {})
+              const totalCondamnations = Object.values(scopedResultats)
                 .filter(r => new Date(r.dateAudience).getFullYear() === selectedYear)
                 .reduce((acc, r) => acc + r.condamnations.length, 0);
-              const totalAudiences = Object.values(audienceState.resultats || {})
+              const totalAudiences = Object.values(scopedResultats)
                 .filter(r => new Date(r.dateAudience).getFullYear() === selectedYear)
                 .length;
               return (
@@ -244,7 +260,7 @@ export const AudienceStats = ({ enquetes, selectedYear }: AudienceStatsProps) =>
                   </p>
                   <div className="mt-4 pt-4 border-t space-y-1">
                     {getMonthsToShow().map(month => {
-                      const count = Object.values(audienceState.resultats || {})
+                      const count = Object.values(scopedResultats)
                         .filter(r => {
                           const d = new Date(r.dateAudience);
                           return d.getFullYear() === selectedYear && d.getMonth() === month;
@@ -312,7 +328,7 @@ export const AudienceStats = ({ enquetes, selectedYear }: AudienceStatsProps) =>
           </CardHeader>
           <CardContent className="space-y-4">
             {(() => {
-              const allCondamnations = Object.values(audienceState.resultats || {})
+              const allCondamnations = Object.values(scopedResultats)
                 .filter(r => new Date(r.dateAudience).getFullYear() === selectedYear)
                 .flatMap(r => r.condamnations);
               const totalCondamnations = allCondamnations.length;
@@ -562,7 +578,7 @@ export const AudienceStats = ({ enquetes, selectedYear }: AudienceStatsProps) =>
           <CardContent>
             <div className="space-y-4">
               {['CRPC-Def', 'CI', 'COPJ', 'CDD'].map(type => {
-                const condamnationsOfType = Object.values(audienceState.resultats || {})
+                const condamnationsOfType = Object.values(scopedResultats)
                   .flatMap(r => r.condamnations)
                   .filter(c => c && c.typeAudience === type);
                 if (condamnationsOfType.length === 0) return null;
@@ -649,7 +665,7 @@ export const AudienceStats = ({ enquetes, selectedYear }: AudienceStatsProps) =>
               const pourcentage = totalEnquetes > 0 ? ((nombreClassements / totalEnquetes) * 100).toFixed(1) : '0';
 
               // Calcul de l'âge moyen et répartition par type de fait
-              const classementResults = Object.values(audienceState?.resultats || {})
+              const classementResults = Object.values(scopedResultats)
                 .filter(r => r.isClassement && r.dateAudience &&
                   new Date(r.dateAudience).getFullYear() === selectedYear);
 
@@ -740,7 +756,7 @@ export const AudienceStats = ({ enquetes, selectedYear }: AudienceStatsProps) =>
               const pourcentage = totalEnquetes > 0 ? ((nombreOI / totalEnquetes) * 100).toFixed(1) : '0';
 
               // Calcul de l'âge moyen et répartition par type de fait
-              const oiResults = Object.values(audienceState?.resultats || {})
+              const oiResults = Object.values(scopedResultats)
                 .filter(r => r.isOI && r.dateAudience &&
                   new Date(r.dateAudience).getFullYear() === selectedYear);
 

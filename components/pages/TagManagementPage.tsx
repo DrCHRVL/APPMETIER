@@ -5,13 +5,15 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Edit2, Save, X, Plus, Check, Trash2, AlertTriangle } from 'lucide-react';
+import { Edit2, Save, X, Plus, Check, Trash2, AlertTriangle, Send } from 'lucide-react';
 import { TAG_CATEGORIES, TagCategory } from '@/config/tags';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { ServiceOrganizer } from '../ServiceOrganizer';
 import { useTags } from '@/hooks/useTags';
 import { useToast } from '@/contexts/ToastContext';
+import { useUser } from '@/contexts/UserContext';
+import { tagRequestManager } from '@/utils/tagRequestManager';
 
 interface EditingTag {
   id: string;
@@ -22,6 +24,28 @@ interface EditingTag {
 
 export const TagManagementPage = () => {
   const { showToast } = useToast();
+  const { isAdmin: checkIsAdmin, user } = useUser();
+  const userIsAdmin = checkIsAdmin();
+  const [requestTagDialog, setRequestTagDialog] = useState(false);
+  const [requestTagValue, setRequestTagValue] = useState('');
+  const [requestTagCategory, setRequestTagCategory] = useState<'services' | 'infractions'>('services');
+
+  const handleRequestTag = async () => {
+    if (!requestTagValue.trim() || !user) return;
+    try {
+      await tagRequestManager.addRequest({
+        tagValue: requestTagValue.trim(),
+        category: requestTagCategory,
+        contentieuxId: '', // global
+        requestedBy: user.displayName || user.windowsUsername,
+      });
+      showToast('Demande de tag envoyée à l\'administrateur', 'success');
+      setRequestTagValue('');
+      setRequestTagDialog(false);
+    } catch {
+      showToast('Erreur lors de l\'envoi de la demande', 'error');
+    }
+  };
   
   const {
     tags,
@@ -332,31 +356,48 @@ export const TagManagementPage = () => {
                 <CardHeader className="flex flex-row items-center justify-between py-4">
                   <CardTitle className="text-lg">{TAG_CATEGORIES[category]}</CardTitle>
                   <div className="flex gap-2">
-                    {editingCategory === category ? (
-                      <>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleSaveEdit(category)}
-                        >
-                          <Save className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setEditingCategory(null)}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </>
-                    ) : (
+                    {/* Tags de services : édition réservée à l'admin */}
+                    {category === 'services' && !userIsAdmin ? (
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleStartEdit(category)}
+                        onClick={() => {
+                          setRequestTagCategory('services');
+                          setRequestTagDialog(true);
+                        }}
+                        title="Demander la création d'un tag service"
                       >
-                        <Edit2 className="h-4 w-4" />
+                        <Send className="h-4 w-4" />
                       </Button>
+                    ) : (
+                      <>
+                        {editingCategory === category ? (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleSaveEdit(category)}
+                            >
+                              <Save className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setEditingCategory(null)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleStartEdit(category)}
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </>
                     )}
                   </div>
                 </CardHeader>
@@ -510,6 +551,44 @@ export const TagManagementPage = () => {
             </Button>
             <Button onClick={handleRecreateOrphans}>
               Recréer {foundOrphans.length} tag(s)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Dialog demande de tag (non-admin) */}
+      <Dialog open={requestTagDialog} onOpenChange={setRequestTagDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Demander la création d'un tag</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Votre demande sera envoyée à l'administrateur pour validation.
+            </p>
+            <div>
+              <label className="text-sm font-medium">Catégorie</label>
+              <select
+                className="w-full mt-1 rounded-md border border-gray-300 p-2 text-sm"
+                value={requestTagCategory}
+                onChange={(e) => setRequestTagCategory(e.target.value as 'services' | 'infractions')}
+              >
+                <option value="services">Service d'enquête</option>
+                <option value="infractions">Type d'infraction</option>
+              </select>
+            </div>
+            <Input
+              value={requestTagValue}
+              onChange={(e) => setRequestTagValue(e.target.value)}
+              placeholder="Nom du tag souhaité"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRequestTagDialog(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleRequestTag} disabled={!requestTagValue.trim()}>
+              <Send className="h-4 w-4 mr-2" />
+              Envoyer la demande
             </Button>
           </DialogFooter>
         </DialogContent>

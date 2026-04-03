@@ -58,9 +58,12 @@ import { DataSyncManager } from './utils/dataSync/DataSyncManager';
 // 🆕 Multi-contentieux
 import { SettingsModal } from './components/modals/SettingsModal';
 import { OverboardPage } from './components/pages/OverboardPage';
+import { GlobalStatsPage } from './components/pages/GlobalStatsPage';
 import { ContentieuxId } from '@/types/userTypes';
 import { AdminUsersPanel } from './components/AdminUsersPanel';
 import { useOverboardData } from './hooks/useOverboardData';
+import { TagRequestPopup } from './components/modals/TagRequestPopup';
+import { tagRequestManager } from './utils/tagRequestManager';
 
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
 
@@ -74,6 +77,8 @@ function AppContent() {
   // 🆕 Multi-contentieux
   const [activeContentieux, setActiveContentieux] = useState<ContentieuxId | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsContentieuxId, setSettingsContentieuxId] = useState<ContentieuxId | null>(null);
+  const [showTagRequestPopup, setShowTagRequestPopup] = useState(false);
   const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
 
   // Initialiser le contentieux actif et la vue au premier contentieux accessible
@@ -103,7 +108,7 @@ function AppContent() {
       setActiveContentieux(contentieuxId);
     }
     // Rafraîchir l'overboard quand on y navigue (données potentiellement modifiées)
-    if (view === 'overboard') {
+    if (view === 'overboard' || view === 'global_stats') {
       refreshOverboard();
     }
   };
@@ -283,6 +288,16 @@ function AppContent() {
       setGlobalTodos(todos || []);
     });
   }, []);
+
+  // Vérifier les demandes de tags en attente (admin uniquement)
+  useEffect(() => {
+    if (!isAdmin()) return;
+    tagRequestManager.getPendingRequests().then(requests => {
+      if (requests.length > 0) {
+        setShowTagRequestPopup(true);
+      }
+    });
+  }, [isAdmin]);
 
   const handleGlobalTodosChange = (todos: ToDoItem[]) => {
     setGlobalTodos(todos);
@@ -530,6 +545,44 @@ function AppContent() {
     }
   };
 
+  // Toggle dissimulation JA
+  const handleToggleHideFromJA = (enqueteId: number) => {
+    const enquete = enquetes.find(e => e.id === enqueteId);
+    if (!enquete) return;
+    const newValue = !enquete.hiddenFromJA;
+    handleUpdateEnquete(enqueteId, { hiddenFromJA: newValue });
+    showToast(
+      newValue ? 'Enquête dissimulée aux JA' : 'Enquête visible par les JA',
+      'success'
+    );
+  };
+
+  // Toggle pin overboard pour une enquête
+  const handleToggleOverboardPin = (enqueteId: number) => {
+    if (!user) return;
+    const enquete = enquetes.find(e => e.id === enqueteId);
+    if (!enquete) return;
+
+    const pins = enquete.overboardPins || [];
+    const existingPin = pins.find(p => p.pinnedBy === user.windowsUsername);
+
+    let newPins;
+    if (existingPin) {
+      newPins = pins.filter(p => p.pinnedBy !== user.windowsUsername);
+      showToast('Enquête retirée du suivi hiérarchique', 'success');
+    } else {
+      const globalRole = user.globalRole;
+      if (!globalRole || !['admin', 'pra', 'vice_proc'].includes(globalRole)) return;
+      newPins = [...pins, {
+        pinnedBy: user.windowsUsername,
+        pinnedAt: new Date().toISOString(),
+        role: globalRole as 'admin' | 'pra' | 'vice_proc'
+      }];
+      showToast('Enquête épinglée au suivi hiérarchique', 'success');
+    }
+    handleUpdateEnquete(enqueteId, { overboardPins: newPins });
+  };
+
   const filteredAndSortedEnquetes = useFilterSort(enquetes, searchTerm, selectedTags, sortOrder);
 
   // Liste dédupliquée de tous les noms de MEC connus (cross-dossiers)
@@ -553,10 +606,21 @@ function AppContent() {
     return [...filteredAndSortedEnquetes, ...docOnlyMatches];
   }, [filteredAndSortedEnquetes, documentMatchIds, enquetes]);
 
-  const activeEnquetes = useMemo(() =>
-    mergedFilteredEnquetes.filter(e => e.statut !== 'archive'),
-    [mergedFilteredEnquetes]
-  );
+  // Déterminer si l'utilisateur est JA pour le contentieux actif
+  const isJAForCurrentCtx = useMemo(() => {
+    if (!user) return false;
+    if (user.globalRole) return false; // Les rôles globaux ne sont pas JA
+    return user.contentieux.some(c => c.contentieuxId === currentContentieuxId && c.role === 'ja');
+  }, [user, currentContentieuxId]);
+
+  const activeEnquetes = useMemo(() => {
+    let result = mergedFilteredEnquetes.filter(e => e.statut !== 'archive');
+    // Filtrer les enquêtes dissimulées aux JA
+    if (isJAForCurrentCtx) {
+      result = result.filter(e => !e.hiddenFromJA);
+    }
+    return result;
+  }, [mergedFilteredEnquetes, isJAForCurrentCtx]);
 
   // Organisation des enquêtes par section, puis par service au sein de chaque section
   const enquetesByOrganization = useMemo(() => {
@@ -760,6 +824,8 @@ return (
                         handleUpdateEnquete(enquete.id, { tags: newTags });
                       }}
                       onStartEnquete={handleStartEnquete}
+                      onToggleOverboardPin={hasOverboard() ? handleToggleOverboardPin : undefined}
+                      onToggleHideFromJA={canDo(currentContentieuxId, 'delete') ? handleToggleHideFromJA : undefined}
                       alerts={alerts.filter(alert => !alert.isAIRAlert)}
                       onValidateAlert={handleValidateAlert}
                       onSnoozeAlert={handleSnoozeAlert}
@@ -856,6 +922,7 @@ return (
             <ArchivePage
               enquetes={enquetes}
               searchTerm={searchTerm}
+              contentieuxId={currentContentieuxId}
               onUpdateEnquete={handleUpdateEnquete}
               onDeleteEnquete={handleDeleteEnquete}
               onUnarchiveEnquete={handleUnarchiveEnquete}
@@ -882,7 +949,7 @@ return (
           )}
 
           {baseView === 'stats' && (
-            <StatsPage enquetes={enquetes} />
+            <StatsPage enquetes={enquetes} contentieuxId={currentContentieuxId} />
           )}
 
           {/* 🆕 Overboard (vue transversale) */}
@@ -899,6 +966,14 @@ return (
                 setSelectedEnquete(enquete);
                 setIsEditing(false);
               }}
+            />
+          )}
+
+          {/* Statistiques globales (tous contentieux) */}
+          {currentView === 'global_stats' && (
+            <GlobalStatsPage
+              enquetesByContentieux={overboardData}
+              contentieuxDefs={contentieuxDefs}
             />
           )}
         </main>
@@ -1185,7 +1260,18 @@ return (
       {/* 🆕 Modal Paramètres multi-onglets */}
       <SettingsModal
         isOpen={showSettingsModal}
-        onClose={() => setShowSettingsModal(false)}
+        onClose={() => {
+          setShowSettingsModal(false);
+          setSettingsContentieuxId(null);
+        }}
+        activeContentieuxId={settingsContentieuxId || currentContentieuxId}
+        onContentieuxChange={async (cId) => {
+          // Flush les données en attente avant de changer de contentieux
+          await flushPendingSave();
+          setSettingsContentieuxId(cId);
+          setActiveContentieux(cId);
+          setCurrentView(`enquetes_${cId}`);
+        }}
         alertesContent={
           <AlertsPage
             rules={alertRules}
@@ -1214,6 +1300,12 @@ return (
           />
         }
         adminUsersContent={<AdminUsersPanel />}
+      />
+
+      {/* Popup demandes de tags (admin) */}
+      <TagRequestPopup
+        isOpen={showTagRequestPopup}
+        onClose={() => setShowTagRequestPopup(false)}
       />
     </div>
   );

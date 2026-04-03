@@ -12,7 +12,8 @@ import { DocumentsSection } from '../sections/DocumentsSection';
 import { ToDoSection } from '../sections/ToDoSection';
 import { DeleteEnqueteModal } from './DeleteEnqueteModal';
 import { ClotureSummaryModal } from './ClotureSummaryModal';
-import { Trash2, Siren, FileText, Plus, X } from 'lucide-react';
+import { Trash2, Siren, FileText, Plus, X, Star } from 'lucide-react';
+import { Badge } from '../ui/badge';
 import { EnqueteHeader } from '../sections/EnqueteHeader';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
@@ -97,8 +98,20 @@ export const EnqueteDetailModal = ({
                     placeholder="Numéro d'enquête"
                   />
                 ) : (
-                  <DialogTitle className="text-base">
+                  <DialogTitle className="text-base flex items-center gap-2">
                     Enquête N° {enquete.numero}
+                    {enquete.overboardPins && enquete.overboardPins.length > 0 && (
+                      enquete.overboardPins.map(pin => (
+                        <Badge
+                          key={pin.pinnedBy}
+                          variant="outline"
+                          className="text-[10px] py-0 px-1.5 bg-amber-50 text-amber-700 border-amber-200"
+                        >
+                          <Star className="h-2.5 w-2.5 fill-amber-500 text-amber-500 mr-1" />
+                          Suivi hiérarchique — {pin.pinnedBy.toUpperCase()}
+                        </Badge>
+                      ))
+                    )}
                   </DialogTitle>
                 )}
               </div>

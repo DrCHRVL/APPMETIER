@@ -3,7 +3,7 @@
 import React from 'react';
 import {
   FileText, Archive, BarChart, Settings, Target,
-  Plus, Scale, Activity, Eye
+  Plus, Scale, Activity, Eye, PieChart
 } from 'lucide-react';
 import { AlertBadge } from './AlertBadge';
 import { useUser } from '@/contexts/UserContext';
@@ -226,7 +226,23 @@ export const MultiSideBar = ({
             >
               <Target className={`h-4 w-4 flex-shrink-0 ${currentView === 'overboard' ? 'text-white' : 'text-white/60'}`} />
               {isOpen && <span className="truncate">Overboard</span>}
-              {alertCount > 0 && <AlertBadge count={alertCount} />}
+            </button>
+            <button
+              className={`
+                w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm
+                transition-all duration-150 relative group
+                ${currentView === 'global_stats'
+                  ? 'bg-white/20 text-white font-semibold shadow-sm'
+                  : 'font-medium text-white/70 hover:bg-white/8 hover:text-white'
+                }
+              `}
+              style={currentView === 'global_stats' ? {
+                boxShadow: 'inset 3px 0 0 rgba(255,255,255,0.85)'
+              } : {}}
+              onClick={() => onViewChange('global_stats')}
+            >
+              <PieChart className={`h-4 w-4 flex-shrink-0 ${currentView === 'global_stats' ? 'text-white' : 'text-white/60'}`} />
+              {isOpen && <span className="truncate">Statistiques globales</span>}
             </button>
           </>
         )}

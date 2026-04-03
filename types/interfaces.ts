@@ -207,6 +207,8 @@ export interface Enquete extends NewEnqueteData {
   toDos?: ToDoItem[];
   // Multi-utilisateurs : épingles Overboard (PRA/VP/Admin)
   overboardPins?: import('@/types/userTypes').OverboardPin[];
+  // Dissimulation aux utilisateurs JA
+  hiddenFromJA?: boolean;
 }
 
 // Configuration de la récurrence
