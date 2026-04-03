@@ -8,6 +8,7 @@ import {
 import { AlertBadge } from './AlertBadge';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId } from '@/types/userTypes';
+import { CrossSearchResult } from '@/hooks/useCrossSearch';
 
 // ──────────────────────────────────────────────
 // TYPES
@@ -22,6 +23,8 @@ interface MultiSideBarProps {
   onOpenSettings: () => void;
   alertCount: number;
   instructionAlertCount?: number;
+  /** Résultats de recherche dans les autres contentieux (pastilles) */
+  crossSearchResults?: CrossSearchResult[];
 }
 
 // ──────────────────────────────────────────────
@@ -52,6 +55,7 @@ export const MultiSideBar = ({
   onOpenSettings,
   alertCount,
   instructionAlertCount = 0,
+  crossSearchResults = [],
 }: MultiSideBarProps) => {
   const { accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, permissions } = useUser();
   const sidebarWidth = isOpen ? 'w-64' : 'w-16';
@@ -115,6 +119,12 @@ export const MultiSideBar = ({
                 {/* Nav items du contentieux */}
                 {items.map(({ view, icon: Icon, label }) => {
                   const isActive = currentView === view;
+                  // Pastille cross-search : uniquement sur l'item "Enquêtes"
+                  const isEnquetesView = view === `enquetes_${ctxDef.id}`;
+                  const crossHit = isEnquetesView
+                    ? crossSearchResults.find(r => r.contentieuxId === ctxDef.id)
+                    : null;
+
                   return (
                     <button
                       key={view}
@@ -133,6 +143,20 @@ export const MultiSideBar = ({
                     >
                       <Icon className={`h-4 w-4 flex-shrink-0 transition-colors ${isActive ? 'text-white' : 'text-white/60 group-hover:text-white'}`} />
                       {isOpen && <span className="truncate">{label}</span>}
+                      {/* Pastille résultat de recherche cross-contentieux */}
+                      {crossHit && (
+                        <span
+                          className="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded-full animate-pulse"
+                          style={{
+                            backgroundColor: ctxDef.color + '33',
+                            color: '#fff',
+                            border: `1px solid ${ctxDef.color}88`,
+                          }}
+                          title={`${crossHit.count} résultat${crossHit.count > 1 ? 's' : ''} trouvé${crossHit.count > 1 ? 's' : ''}`}
+                        >
+                          {crossHit.count}
+                        </span>
+                      )}
                     </button>
                   );
                 })}

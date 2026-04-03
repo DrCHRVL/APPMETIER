@@ -60,6 +60,7 @@ import { SettingsModal } from './components/modals/SettingsModal';
 import { OverboardPage } from './components/pages/OverboardPage';
 import { GlobalStatsPage } from './components/pages/GlobalStatsPage';
 import { ContentieuxId } from '@/types/userTypes';
+import { useCrossSearch } from './hooks/useCrossSearch';
 import { AdminUsersPanel } from './components/AdminUsersPanel';
 import { AdminContentieuxPanel } from './components/admin/AdminContentieuxPanel';
 import { AdminPathsPanel } from './components/admin/AdminPathsPanel';
@@ -638,6 +639,9 @@ function AppContent() {
   // Recherche dans le contenu des documents (async, avec cache)
   const { documentMatchIds, isSearchingDocs } = useDocumentSearch(enquetes, searchTerm);
 
+  // Recherche cross-contentieux (pastilles sidebar + bandeau)
+  const { crossSearchResults, totalOtherResults } = useCrossSearch(searchTerm, effectiveContentieux, contentieuxDefs);
+
   // Fusion des résultats métadonnées + contenu documents
   const mergedFilteredEnquetes = useMemo(() => {
     if (!documentMatchIds.size) return filteredAndSortedEnquetes;
@@ -772,6 +776,7 @@ return (
           onOpenSettings={() => setShowSettingsModal(true)}
           alertCount={activeAlertsCount}
           instructionAlertCount={instructionAlerts.length}
+          crossSearchResults={crossSearchResults}
         />
       </div>
       <div className="flex-1 overflow-hidden flex flex-col">
@@ -795,10 +800,36 @@ return (
           />
         </div>
 
-        {/* 🆕 Bandeau lecture seule */}
+        {/* Bandeau lecture seule */}
         {effectiveContentieux && !canDo(effectiveContentieux, 'edit') && (baseView === 'enquetes' || baseView === 'archives') && (
           <div className="bg-amber-50 border-b border-amber-200 px-4 py-1.5 text-xs text-amber-700 font-medium flex items-center gap-2">
             <span>👁</span> Mode consultation — {contentieuxDefs.find(c => c.id === effectiveContentieux)?.label || effectiveContentieux}
+          </div>
+        )}
+
+        {/* Bandeau résultats cross-contentieux */}
+        {totalOtherResults > 0 && baseView === 'enquetes' && (
+          <div className="bg-purple-50 border-b border-purple-200 px-4 py-1.5 text-xs text-purple-700 font-medium flex items-center gap-2">
+            <span className="shrink-0">Aussi trouvé :</span>
+            {crossSearchResults.map(r => {
+              const def = contentieuxDefs.find(d => d.id === r.contentieuxId);
+              return (
+                <button
+                  key={r.contentieuxId}
+                  onClick={() => handleViewChange(`enquetes_${r.contentieuxId}`, r.contentieuxId)}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full hover:bg-purple-100 transition-colors"
+                >
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: def?.color || '#888' }}
+                  />
+                  <span className="font-semibold">{def?.label || r.contentieuxId}</span>
+                  <span className="bg-purple-200 text-purple-800 px-1 rounded-full text-[10px] font-bold">
+                    {r.count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
 
