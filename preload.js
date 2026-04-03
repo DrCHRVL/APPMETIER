@@ -191,4 +191,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   lanUpdateGetLocalVersion: () =>
     ipcRenderer.invoke('lanUpdate:getLocalVersion'),
+
+  // Listener pour la progression de la publication (build + obfuscation)
+  onPublishProgress: (callback) =>
+    ipcRenderer.on('publish-progress', (event, data) => callback(data)),
 })

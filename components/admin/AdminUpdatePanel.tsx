@@ -20,6 +20,7 @@ export const AdminUpdatePanel = () => {
   const [remoteCheck, setRemoteCheck] = useState<{ hasUpdate: boolean; manifest?: LanVersion } | null>(null);
   const [changelog, setChangelog] = useState('');
   const [publishing, setPublishing] = useState(false);
+  const [publishStep, setPublishStep] = useState<string>('');
   const [checking, setChecking] = useState(false);
   const [showConfirmPublish, setShowConfirmPublish] = useState(false);
 
@@ -42,6 +43,10 @@ export const AdminUpdatePanel = () => {
   useEffect(() => {
     loadVersions();
     checkForUpdate();
+    // Écouter la progression de la publication
+    (window as any).electronAPI?.onPublishProgress?.((data: { step: string; detail: string }) => {
+      setPublishStep(data.detail);
+    });
   }, [loadVersions, checkForUpdate]);
 
   if (!checkIsAdmin()) {
@@ -54,7 +59,7 @@ export const AdminUpdatePanel = () => {
     try {
       const result = await (window as any).electronAPI?.lanUpdatePublish?.(changelog.trim());
       if (result?.success) {
-        showToast(`Version ${result.version} publiée sur le réseau`, 'success');
+        showToast(`Version ${result.version} publiée sur le réseau (code protégé)`, 'success');
         setChangelog('');
         loadVersions();
         checkForUpdate();
@@ -65,6 +70,7 @@ export const AdminUpdatePanel = () => {
       showToast(`Erreur de publication: ${e.message}`, 'error');
     }
     setPublishing(false);
+    setPublishStep('');
   };
 
   const handleRollback = async () => {
@@ -145,8 +151,9 @@ export const AdminUpdatePanel = () => {
           Publier une mise à jour
         </h4>
         <p className="text-xs text-emerald-700">
-          Copie votre version actuelle de l'application sur le réseau.
+          Compile, protège et publie votre version sur le réseau.
           Au prochain démarrage, les autres postes se mettront à jour automatiquement.
+          Le code source est automatiquement protégé (compilation + obfuscation).
         </p>
 
         <div>
@@ -162,15 +169,23 @@ export const AdminUpdatePanel = () => {
           />
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowConfirmPublish(true)}
-            disabled={publishing}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-          >
-            {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            Publier sur le réseau
-          </button>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowConfirmPublish(true)}
+              disabled={publishing}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              {publishing ? 'Publication en cours...' : 'Publier sur le réseau'}
+            </button>
+          </div>
+          {publishing && publishStep && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-600" />
+              <span className="text-xs text-emerald-700">{publishStep}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -196,6 +211,7 @@ export const AdminUpdatePanel = () => {
       <div className="text-xs text-gray-400 space-y-1">
         <p><strong>Fonctionnement :</strong> au démarrage, chaque poste vérifie automatiquement si une nouvelle version est disponible sur le réseau. Si oui, la mise à jour est appliquée silencieusement avant l'affichage de l'application.</p>
         <p>Les données (enquêtes, documents, résultats) ne sont <strong>jamais</strong> affectées par les mises à jour.</p>
+        <p><strong>Protection :</strong> le code est compilé et obfusqué avant publication. Les utilisateurs reçoivent uniquement le code protégé, pas les sources.</p>
       </div>
 
       {/* Confirmation de publication */}
