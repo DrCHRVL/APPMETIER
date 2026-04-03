@@ -245,19 +245,6 @@ export class UserManager {
     return this.saveConfig();
   }
 
-  public async removeContentieux(id: ContentieuxId): Promise<boolean> {
-    if (!this.config || !this.isCurrentUserAdmin()) return false;
-    // Ne pas supprimer s'il reste un seul contentieux actif
-    const enabledCount = this.config.contentieux.filter(c => c.enabled !== false).length;
-    if (enabledCount <= 1 && this.config.contentieux.find(c => c.id === id)?.enabled !== false) return false;
-    this.config.contentieux = this.config.contentieux.filter(c => c.id !== id);
-    // Retirer aussi l'assignation de ce contentieux à tous les utilisateurs
-    for (const user of this.config.users) {
-      user.contentieux = user.contentieux.filter(c => c.contentieuxId !== id);
-    }
-    return this.saveConfig();
-  }
-
   public async toggleContentieux(id: ContentieuxId, enabled: boolean): Promise<boolean> {
     if (!this.config || !this.isCurrentUserAdmin()) return false;
     // Ne pas désactiver le dernier contentieux

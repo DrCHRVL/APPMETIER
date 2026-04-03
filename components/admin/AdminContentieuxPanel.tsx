@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Save, Power, PowerOff, Edit2, X, Check, FolderOpen } from 'lucide-react';
+import { Plus, Save, Power, PowerOff, Edit2, X, Check, FolderOpen, AlertTriangle } from 'lucide-react';
 import { UserManager } from '@/utils/userManager';
 import { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import { useUser } from '@/contexts/UserContext';
@@ -73,29 +73,36 @@ export const AdminContentieuxPanel = () => {
     }
   };
 
+  const [confirmDisableId, setConfirmDisableId] = useState<string | null>(null);
+
   const handleToggle = async (id: ContentieuxId, enabled: boolean) => {
+    // Activation : pas besoin de confirmation
+    if (enabled) {
+      const manager = UserManager.getInstance();
+      const success = await manager.toggleContentieux(id, true);
+      if (success) {
+        showToast('Contentieux activé', 'success');
+        refreshUsers();
+        load();
+      }
+      return;
+    }
+    // Désactivation : demander confirmation
+    setConfirmDisableId(id);
+  };
+
+  const confirmDisable = async () => {
+    if (!confirmDisableId) return;
     const manager = UserManager.getInstance();
-    const success = await manager.toggleContentieux(id, enabled);
+    const success = await manager.toggleContentieux(confirmDisableId, false);
     if (success) {
-      showToast(enabled ? 'Contentieux activé' : 'Contentieux désactivé', 'success');
+      showToast('Contentieux désactivé (données conservées)', 'success');
       refreshUsers();
       load();
     } else {
       showToast('Impossible: au moins un contentieux doit rester actif', 'error');
     }
-  };
-
-  const handleDelete = async (id: ContentieuxId, label: string) => {
-    if (!confirm(`Supprimer le contentieux "${label}" ?\nCette action retirera aussi les assignations utilisateurs.`)) return;
-    const manager = UserManager.getInstance();
-    const success = await manager.removeContentieux(id);
-    if (success) {
-      showToast(`Contentieux "${label}" supprimé`, 'success');
-      refreshUsers();
-      load();
-    } else {
-      showToast('Impossible de supprimer ce contentieux', 'error');
-    }
+    setConfirmDisableId(null);
   };
 
   const startEdit = (def: ContentieuxDefinition) => {
@@ -308,13 +315,6 @@ export const AdminContentieuxPanel = () => {
                       <button onClick={() => startEdit(def)} className="p-1.5 bg-gray-100 hover:bg-gray-200 rounded-md">
                         <Edit2 className="h-3.5 w-3.5 text-gray-500" />
                       </button>
-                      <button
-                        onClick={() => handleDelete(def.id, def.label)}
-                        className="p-1.5 bg-red-50 hover:bg-red-100 rounded-md"
-                        title="Supprimer"
-                      >
-                        <Trash2 className="h-3.5 w-3.5 text-red-500" />
-                      </button>
                     </>
                   )}
                 </div>
@@ -322,6 +322,60 @@ export const AdminContentieuxPanel = () => {
             );
           })}
       </div>
+
+      {/* Note de sécurité */}
+      <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+        <div>
+          <strong>Sécurité :</strong> la désactivation d'un contentieux le masque de l'application
+          mais <strong>ne supprime aucune donnée</strong>. Vous pouvez le réactiver à tout moment
+          pour retrouver toutes les enquêtes et données associées.
+        </div>
+      </div>
+
+      {/* Confirmation de désactivation */}
+      {confirmDisableId && (() => {
+        const ctxToDisable = contentieuxList.find(c => c.id === confirmDisableId);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-amber-100 rounded-full">
+                  <AlertTriangle className="h-5 w-5 text-amber-600" />
+                </div>
+                <h3 className="text-base font-semibold text-gray-800">Désactiver ce contentieux ?</h3>
+              </div>
+              <div className="text-sm text-gray-600 space-y-2">
+                <p>
+                  Vous allez désactiver <strong>{ctxToDisable?.label}</strong>.
+                </p>
+                <p>
+                  Le contentieux sera <strong>masqué</strong> dans toute l'application (sidebar, paramètres, overboard).
+                  Les utilisateurs assignés n'y auront plus accès.
+                </p>
+                <p className="text-green-700 font-medium">
+                  Les données (enquêtes, documents, résultats) ne seront pas supprimées.
+                  Vous pourrez réactiver ce contentieux à tout moment.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setConfirmDisableId(null)}
+                  className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={confirmDisable}
+                  className="px-4 py-2 text-sm bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium transition-colors"
+                >
+                  Désactiver
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
