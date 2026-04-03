@@ -86,6 +86,13 @@ export const EnquetePreview = ({
     return enquete.overboardPins.some(p => p.pinnedBy === user.windowsUsername);
   }, [enquete.overboardPins, user]);
 
+  // L'utilisateur est-il JA ? (pas de rôle global = potentiellement JA)
+  const isUserJA = useMemo(() => {
+    if (!user) return false;
+    if (user.globalRole) return false;
+    return user.contentieux.some(c => c.role === 'ja');
+  }, [user]);
+
   // Variables dérivées
   const lastCR = enquete.comptesRendus[0];
   const activeActes = [
@@ -285,8 +292,8 @@ return (
             </Button>
           )}
 
-          {/* Dissimulation JA */}
-          {onToggleHideFromJA && (
+          {/* Dissimulation JA — invisible pour les JA eux-mêmes */}
+          {onToggleHideFromJA && !isUserJA && (
             <Button
               variant="ghost"
               size="sm"
