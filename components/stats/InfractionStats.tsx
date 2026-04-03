@@ -8,9 +8,10 @@ import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '..
 interface InfractionStatsProps {
   enquetes: Enquete[];
   selectedYear: number;
+  contentieuxId?: string;
 }
 
-export const InfractionStats = ({ enquetes, selectedYear }: InfractionStatsProps) => {
+export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: InfractionStatsProps) => {
   const { getTagsByCategory } = useTags();
   const { audienceState } = useAudience();
 

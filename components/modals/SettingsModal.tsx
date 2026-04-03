@@ -1,14 +1,15 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
+import { ContentieuxId } from '@/types/userTypes';
 
 // ──────────────────────────────────────────────
 // TYPES
 // ──────────────────────────────────────────────
 
-type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'admin_users';
+type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'a_propos' | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -17,6 +18,16 @@ interface SettingsModalProps {
   tagsContent: React.ReactNode;
   sauvegardesContent: React.ReactNode;
   adminUsersContent?: React.ReactNode;
+  adminContentieuxContent?: React.ReactNode;
+  adminPathsContent?: React.ReactNode;
+  adminDashboardContent?: React.ReactNode;
+  adminTagHistoryContent?: React.ReactNode;
+  adminUpdateContent?: React.ReactNode;
+  aProposContent?: React.ReactNode;
+  /** Currently active contentieux (used as default) */
+  activeContentieuxId?: ContentieuxId;
+  /** Called when user switches contentieux tab in settings */
+  onContentieuxChange?: (contentieuxId: ContentieuxId) => void;
 }
 
 // ──────────────────────────────────────────────
@@ -35,9 +46,22 @@ const TABS: TabDef[] = [
   { id: 'alertes',        label: 'Alertes',       icon: Bell },
   { id: 'tags',           label: 'Tags',          icon: Tags },
   { id: 'sauvegardes',    label: 'Sauvegardes',   icon: Save },
+  { id: 'a_propos',       label: 'À propos',      icon: Info },
   // Séparateur admin
-  { id: 'admin_users',    label: 'Utilisateurs',  icon: Users, isAdmin: true, isSeparator: true },
+  { id: 'admin_users',       label: 'Utilisateurs',     icon: Users,         isAdmin: true, isSeparator: true },
+  { id: 'admin_contentieux', label: 'Contentieux',      icon: Layers,        isAdmin: true },
+  { id: 'admin_paths',       label: 'Chemins réseau',   icon: Network,       isAdmin: true },
+  { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      isAdmin: true },
+  { id: 'admin_tag_history', label: 'Historique tags',   icon: ClipboardList, isAdmin: true },
+  { id: 'admin_update',      label: 'Mise à jour',      icon: Upload,        isAdmin: true },
 ];
+
+// Couleurs contentieux
+const CTX_TAB_COLORS: Record<string, { active: string; dot: string }> = {
+  crimorg: { active: 'border-red-500 text-red-700', dot: 'bg-red-500' },
+  ecofi:   { active: 'border-blue-500 text-blue-700', dot: 'bg-blue-500' },
+  enviro:  { active: 'border-green-500 text-green-700', dot: 'bg-green-500' },
+};
 
 // ──────────────────────────────────────────────
 // COMPOSANT
@@ -50,10 +74,23 @@ export const SettingsModal = ({
   tagsContent,
   sauvegardesContent,
   adminUsersContent,
+  adminContentieuxContent,
+  adminPathsContent,
+  adminDashboardContent,
+  adminTagHistoryContent,
+  adminUpdateContent,
+  aProposContent,
+  activeContentieuxId,
+  onContentieuxChange,
 }: SettingsModalProps) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('alertes');
-  const { isAdmin: checkIsAdmin } = useUser();
+  const { isAdmin: checkIsAdmin, accessibleContentieux } = useUser();
   const userIsAdmin = checkIsAdmin();
+
+  // Contentieux sélectionné dans les paramètres (indépendant du contentieux actif)
+  const [selectedCtx, setSelectedCtx] = useState<ContentieuxId>(
+    activeContentieuxId || accessibleContentieux[0]?.id || 'crimorg'
+  );
 
   if (!isOpen) return null;
 
@@ -67,12 +104,27 @@ export const SettingsModal = ({
         return tagsContent;
       case 'sauvegardes':
         return sauvegardesContent;
+      case 'a_propos':
+        return aProposContent;
       case 'admin_users':
         return adminUsersContent;
+      case 'admin_contentieux':
+        return adminContentieuxContent;
+      case 'admin_paths':
+        return adminPathsContent;
+      case 'admin_dashboard':
+        return adminDashboardContent;
+      case 'admin_tag_history':
+        return adminTagHistoryContent;
+      case 'admin_update':
+        return adminUpdateContent;
       default:
         return null;
     }
   };
+
+  // Onglets contentieux (horizontal en haut)
+  const showContentieuxTabs = accessibleContentieux.length > 1 && !activeTab.startsWith('admin_') && activeTab !== 'a_propos';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -90,6 +142,38 @@ export const SettingsModal = ({
             <X className="h-5 w-5 text-gray-500" />
           </button>
         </div>
+
+        {/* Onglets contentieux (horizontal) */}
+        {showContentieuxTabs && (
+          <div className="flex items-center gap-1 px-6 pt-3 pb-0 border-b border-gray-100">
+            {accessibleContentieux
+              .sort((a, b) => a.order - b.order)
+              .map(ctxDef => {
+                const isActive = selectedCtx === ctxDef.id;
+                const colors = CTX_TAB_COLORS[ctxDef.id] || { active: 'border-gray-500 text-gray-700', dot: 'bg-gray-500' };
+                return (
+                  <button
+                    key={ctxDef.id}
+                    className={`
+                      flex items-center gap-1.5 px-3 py-2 text-xs font-semibold uppercase tracking-wider
+                      border-b-2 transition-all
+                      ${isActive
+                        ? `${colors.active} border-b-2`
+                        : 'border-transparent text-gray-400 hover:text-gray-600 hover:border-gray-300'
+                      }
+                    `}
+                    onClick={() => {
+                      setSelectedCtx(ctxDef.id);
+                      onContentieuxChange?.(ctxDef.id);
+                    }}
+                  >
+                    <div className={`w-2 h-2 rounded-full ${colors.dot}`} />
+                    {ctxDef.label}
+                  </button>
+                );
+              })}
+          </div>
+        )}
 
         {/* Body */}
         <div className="flex flex-1 overflow-hidden">

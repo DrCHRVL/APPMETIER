@@ -1508,10 +1508,416 @@ function setupIpcHandlers() {
     }
   });
 
-  // === MISE À JOUR DE L'APPLICATION (GitHub API + ZIP, sans git) ===
+  // ========================================================================
+  // HANDLERS HEARTBEAT, ÉVÉNEMENTS PARTAGÉS, JOURNAL D'AUDIT
+  // ========================================================================
+
+  /**
+   * Résout le chemin "general" depuis la config serverPaths de users.json.
+   * Fallback sur COMMON_SERVER_PATH si non configuré.
+   */
+  function getGeneralServerPath() {
+    try {
+      if (fs.existsSync(USERS_CONFIG_PATH)) {
+        const config = JSON.parse(fs.readFileSync(USERS_CONFIG_PATH, 'utf8'))
+        if (config.serverPaths?.general) {
+          return config.serverPaths.general
+        }
+      }
+    } catch {}
+    return COMMON_SERVER_PATH
+  }
+
+  function ensureDir(dirPath) {
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, { recursive: true })
+    }
+    return dirPath
+  }
+
+  // ── HEARTBEAT ──
+
+  ipcMain.handle('heartbeat:write', async (event, username, heartbeat) => {
+    try {
+      const dir = ensureDir(path.join(getGeneralServerPath(), 'heartbeats'))
+      const filePath = path.join(dir, `${username}.json`)
+      fs.writeFileSync(filePath, JSON.stringify(heartbeat, null, 2), 'utf8')
+      return true
+    } catch (error) {
+      console.error('❌ Heartbeat write error:', error.message)
+      return false
+    }
+  })
+
+  ipcMain.handle('heartbeat:remove', async (event, username) => {
+    try {
+      const filePath = path.join(getGeneralServerPath(), 'heartbeats', `${username}.json`)
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath)
+      }
+      return true
+    } catch (error) {
+      console.error('❌ Heartbeat remove error:', error.message)
+      return false
+    }
+  })
+
+  ipcMain.handle('heartbeat:readAll', async () => {
+    try {
+      const dir = path.join(getGeneralServerPath(), 'heartbeats')
+      if (!fs.existsSync(dir)) return []
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'))
+      const heartbeats = []
+      for (const file of files) {
+        try {
+          const content = fs.readFileSync(path.join(dir, file), 'utf8')
+          heartbeats.push(JSON.parse(content))
+        } catch {}
+      }
+      return heartbeats
+    } catch (error) {
+      console.error('❌ Heartbeat readAll error:', error.message)
+      return []
+    }
+  })
+
+  // ── ÉVÉNEMENTS PARTAGÉS ──
+
+  ipcMain.handle('sharedEvent:write', async (event, sharedEvent) => {
+    try {
+      const dir = ensureDir(path.join(getGeneralServerPath(), 'events'))
+      const filePath = path.join(dir, `${sharedEvent.id}.json`)
+      fs.writeFileSync(filePath, JSON.stringify(sharedEvent, null, 2), 'utf8')
+      return true
+    } catch (error) {
+      console.error('❌ SharedEvent write error:', error.message)
+      return false
+    }
+  })
+
+  ipcMain.handle('sharedEvent:cleanup', async (event, ttlMs) => {
+    try {
+      const dir = path.join(getGeneralServerPath(), 'events')
+      if (!fs.existsSync(dir)) return true
+      const now = Date.now()
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'))
+      for (const file of files) {
+        try {
+          const filePath = path.join(dir, file)
+          const content = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+          if (now - new Date(content.timestamp).getTime() > ttlMs) {
+            fs.unlinkSync(filePath)
+          }
+        } catch {}
+      }
+      return true
+    } catch (error) {
+      console.error('❌ SharedEvent cleanup error:', error.message)
+      return false
+    }
+  })
+
+  // File watcher pour les événements partagés
+  let eventsWatcher = null
+
+  function startEventsWatcher() {
+    try {
+      const dir = ensureDir(path.join(getGeneralServerPath(), 'events'))
+      if (eventsWatcher) {
+        eventsWatcher.close()
+        eventsWatcher = null
+      }
+      eventsWatcher = fs.watch(dir, (eventType, filename) => {
+        if (eventType === 'rename' && filename && filename.endsWith('.json')) {
+          const filePath = path.join(dir, filename)
+          try {
+            if (fs.existsSync(filePath)) {
+              const content = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('sharedEvent:received', content)
+              }
+            }
+          } catch {}
+        }
+      })
+      console.log('✅ Events watcher démarré sur', dir)
+    } catch (error) {
+      console.error('❌ Events watcher error:', error.message)
+    }
+  }
+
+  ipcMain.handle('sharedEvent:startWatcher', async () => {
+    startEventsWatcher()
+    return true
+  })
+
+  // ── JOURNAL D'AUDIT ──
+
+  ipcMain.handle('auditLog:append', async (event, entry, maxEntries) => {
+    try {
+      const dir = ensureDir(path.join(getGeneralServerPath(), 'audit'))
+      const filePath = path.join(dir, 'audit_log.json')
+      let entries = []
+      if (fs.existsSync(filePath)) {
+        try {
+          entries = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+        } catch {}
+      }
+      entries.unshift(entry)
+      if (entries.length > maxEntries) {
+        entries.length = maxEntries
+      }
+      fs.writeFileSync(filePath, JSON.stringify(entries, null, 2), 'utf8')
+      return true
+    } catch (error) {
+      console.error('❌ AuditLog append error:', error.message)
+      return false
+    }
+  })
+
+  ipcMain.handle('auditLog:read', async () => {
+    try {
+      const filePath = path.join(getGeneralServerPath(), 'audit', 'audit_log.json')
+      if (!fs.existsSync(filePath)) return []
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+    } catch (error) {
+      console.error('❌ AuditLog read error:', error.message)
+      return []
+    }
+  })
+
+  // ========================================================================
+  // MISE À JOUR VIA RÉSEAU LOCAL (P:/) — Auto-update silencieux
+  // ========================================================================
+
+  const SKIP_ON_UPDATE = new Set(['data', '.git', 'node_modules', 'tessdata', '.next']);
+  const LOCAL_VERSION_FILE = path.join(dataFolder, 'app-version-lan.json');
+
+  function getUpdatesDir() {
+    return path.join(getGeneralServerPath(), 'updates')
+  }
+
+  function getRollbackDir() {
+    return path.join(dataFolder, 'rollback')
+  }
+
+  function getManifestPath() {
+    return path.join(getUpdatesDir(), 'update-manifest.json')
+  }
+
+  function getLocalLanVersion() {
+    try {
+      if (fs.existsSync(LOCAL_VERSION_FILE)) {
+        return JSON.parse(fs.readFileSync(LOCAL_VERSION_FILE, 'utf8'))
+      }
+    } catch {}
+    return null
+  }
+
+  function saveLocalLanVersion(manifest) {
+    try {
+      fs.writeFileSync(LOCAL_VERSION_FILE, JSON.stringify(manifest, null, 2), 'utf8')
+    } catch (e) {
+      console.error('❌ LAN update: erreur sauvegarde version locale:', e.message)
+    }
+  }
+
+  // Copie récursive pour update (réutilisée par LAN et GitHub)
+  function copyDirForUpdate(src, dest) {
+    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+      if (SKIP_ON_UPDATE.has(entry.name)) continue
+      const srcPath = path.join(src, entry.name)
+      const destPath = path.join(dest, entry.name)
+      if (entry.isDirectory()) {
+        fs.mkdirSync(destPath, { recursive: true })
+        copyDirForUpdate(srcPath, destPath)
+      } else {
+        fs.copyFileSync(srcPath, destPath)
+      }
+    }
+  }
+
+  // Sauvegarde rollback (copie l'app actuelle)
+  function createRollback() {
+    const rollbackDir = getRollbackDir()
+    // Nettoyer l'ancien rollback
+    if (fs.existsSync(rollbackDir)) {
+      fs.rmSync(rollbackDir, { recursive: true, force: true })
+    }
+    fs.mkdirSync(rollbackDir, { recursive: true })
+    copyDirForUpdate(__dirname, rollbackDir)
+    // Sauvegarder la version actuelle
+    const currentVersion = getLocalLanVersion()
+    if (currentVersion) {
+      fs.writeFileSync(
+        path.join(rollbackDir, '_rollback-version.json'),
+        JSON.stringify(currentVersion, null, 2),
+        'utf8'
+      )
+    }
+    console.log('✅ LAN update: rollback créé')
+  }
+
+  /**
+   * ADMIN : Publier la version actuelle de l'app sur le réseau
+   */
+  ipcMain.handle('lanUpdate:publish', async (event, changelog) => {
+    try {
+      const updatesDir = ensureDir(getUpdatesDir())
+      const sourceDir = path.join(updatesDir, 'source')
+
+      // Nettoyer l'ancien source
+      if (fs.existsSync(sourceDir)) {
+        fs.rmSync(sourceDir, { recursive: true, force: true })
+      }
+      fs.mkdirSync(sourceDir, { recursive: true })
+
+      // Copier les fichiers de l'app actuelle (sauf data/, .git/, etc.)
+      copyDirForUpdate(__dirname, sourceDir)
+
+      // Créer le manifeste
+      const now = new Date().toISOString()
+      const version = `${now.slice(0,10).replace(/-/g, '.')}.${Date.now().toString(36)}`
+      const manifest = {
+        version,
+        publishedAt: now,
+        publishedBy: os.userInfo().username,
+        changelog: changelog || '',
+      }
+      fs.writeFileSync(getManifestPath(), JSON.stringify(manifest, null, 2), 'utf8')
+
+      // Mettre à jour sa propre version locale
+      saveLocalLanVersion(manifest)
+
+      console.log(`✅ LAN update: version ${version} publiée`)
+      return { success: true, version }
+    } catch (error) {
+      console.error('❌ LAN update publish error:', error.message)
+      return { success: false, error: error.message }
+    }
+  })
+
+  /**
+   * Vérifie si une mise à jour réseau est disponible
+   */
+  ipcMain.handle('lanUpdate:check', async () => {
+    try {
+      const manifestPath = getManifestPath()
+      if (!fs.existsSync(manifestPath)) {
+        return { hasUpdate: false }
+      }
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+      const local = getLocalLanVersion()
+
+      // Comparer les versions
+      const hasUpdate = !local || local.version !== manifest.version
+      return { hasUpdate, manifest, localVersion: local?.version || null }
+    } catch (error) {
+      return { hasUpdate: false, error: error.message }
+    }
+  })
+
+  /**
+   * Applique la mise à jour réseau (rollback + copie + redémarrage)
+   */
+  ipcMain.handle('lanUpdate:apply', async () => {
+    try {
+      const manifestPath = getManifestPath()
+      if (!fs.existsSync(manifestPath)) {
+        return { success: false, error: 'Aucune mise à jour disponible' }
+      }
+
+      const sourceDir = path.join(getUpdatesDir(), 'source')
+      if (!fs.existsSync(sourceDir)) {
+        return { success: false, error: 'Fichiers source introuvables' }
+      }
+
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+
+      // 1. Créer le rollback
+      createRollback()
+
+      // 2. Copier les fichiers
+      copyDirForUpdate(sourceDir, __dirname)
+
+      // 3. Sauvegarder la version
+      saveLocalLanVersion(manifest)
+
+      // 4. Marquer comme "just updated" pour le toast changelog
+      fs.writeFileSync(
+        path.join(dataFolder, 'just-updated.json'),
+        JSON.stringify({ version: manifest.version, changelog: manifest.changelog, appliedAt: new Date().toISOString() }),
+        'utf8'
+      )
+
+      console.log(`✅ LAN update: version ${manifest.version} appliquée, redémarrage...`)
+
+      // 5. Redémarrage
+      app.relaunch()
+      app.exit(0)
+      return { success: true }
+    } catch (error) {
+      console.error('❌ LAN update apply error:', error.message)
+      return { success: false, error: error.message }
+    }
+  })
+
+  /**
+   * Rollback vers la version précédente
+   */
+  ipcMain.handle('lanUpdate:rollback', async () => {
+    try {
+      const rollbackDir = getRollbackDir()
+      if (!fs.existsSync(rollbackDir)) {
+        return { success: false, error: 'Aucun rollback disponible' }
+      }
+
+      // Copier les fichiers du rollback
+      copyDirForUpdate(rollbackDir, __dirname)
+
+      // Restaurer la version
+      const rollbackVersionFile = path.join(rollbackDir, '_rollback-version.json')
+      if (fs.existsSync(rollbackVersionFile)) {
+        const oldVersion = JSON.parse(fs.readFileSync(rollbackVersionFile, 'utf8'))
+        saveLocalLanVersion(oldVersion)
+      }
+
+      console.log('✅ LAN update: rollback appliqué, redémarrage...')
+      app.relaunch()
+      app.exit(0)
+      return { success: true }
+    } catch (error) {
+      console.error('❌ LAN update rollback error:', error.message)
+      return { success: false, error: error.message }
+    }
+  })
+
+  /**
+   * Lire les infos post-update (pour le toast changelog)
+   */
+  ipcMain.handle('lanUpdate:getJustUpdated', async () => {
+    try {
+      const filePath = path.join(dataFolder, 'just-updated.json')
+      if (!fs.existsSync(filePath)) return null
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+      // Supprimer après lecture (one-shot)
+      fs.unlinkSync(filePath)
+      return data
+    } catch {
+      return null
+    }
+  })
+
+  /**
+   * Lire la version LAN locale
+   */
+  ipcMain.handle('lanUpdate:getLocalVersion', async () => {
+    return getLocalLanVersion()
+  })
+
+  // === MISE À JOUR VIA GITHUB (GitHub API + ZIP, sans git) ===
 
   const GITHUB_REPO = 'DrCHRVL/APPMETIER';
-  const SKIP_ON_UPDATE = new Set(['data', '.git', 'node_modules', 'tessdata', '.next']);
 
   // Requête HTTPS avec suivi de redirections, retourne le corps en texte
   function httpsGet(url) {
@@ -1579,20 +1985,8 @@ function setupIpcHandlers() {
     return null;
   }
 
-  // Copie récursive d'un dossier source vers dest, en ignorant SKIP_ON_UPDATE
-  function copyDir(src, dest) {
-    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-      if (SKIP_ON_UPDATE.has(entry.name)) continue;
-      const srcPath = path.join(src, entry.name);
-      const destPath = path.join(dest, entry.name);
-      if (entry.isDirectory()) {
-        fs.mkdirSync(destPath, { recursive: true });
-        copyDir(srcPath, destPath);
-      } else {
-        fs.copyFileSync(srcPath, destPath);
-      }
-    }
-  }
+  // copyDir pour GitHub updater — réutilise copyDirForUpdate
+  const copyDir = copyDirForUpdate;
 
   ipcMain.handle('app:checkUpdate', async () => {
     try {
@@ -1652,8 +2046,96 @@ function setupIpcHandlers() {
     }
   });
 }
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   setupIpcHandlers()
+
+  // ── Auto-update silencieux au démarrage (via réseau local) ──
+  try {
+    // Lire la config pour vérifier si autoUpdate est activé
+    let autoUpdateEnabled = true
+    try {
+      if (fs.existsSync(USERS_CONFIG_PATH)) {
+        const cfg = JSON.parse(fs.readFileSync(USERS_CONFIG_PATH, 'utf8'))
+        if (cfg.autoUpdate === false) autoUpdateEnabled = false
+      }
+    } catch {}
+
+    if (autoUpdateEnabled) {
+      const generalPath = (() => {
+        try {
+          if (fs.existsSync(USERS_CONFIG_PATH)) {
+            const cfg = JSON.parse(fs.readFileSync(USERS_CONFIG_PATH, 'utf8'))
+            return cfg.serverPaths?.general || COMMON_SERVER_PATH
+          }
+        } catch {}
+        return COMMON_SERVER_PATH
+      })()
+
+      const manifestPath = path.join(generalPath, 'updates', 'update-manifest.json')
+      if (fs.existsSync(manifestPath)) {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+        const localVersionFile = path.join(dataFolder, 'app-version-lan.json')
+        let local = null
+        try {
+          if (fs.existsSync(localVersionFile)) {
+            local = JSON.parse(fs.readFileSync(localVersionFile, 'utf8'))
+          }
+        } catch {}
+
+        if (!local || local.version !== manifest.version) {
+          console.log(`🔄 Auto-update: ${local?.version || 'none'} → ${manifest.version}`)
+
+          const sourceDir = path.join(generalPath, 'updates', 'source')
+          if (fs.existsSync(sourceDir)) {
+            // Rollback
+            const rollbackDir = path.join(dataFolder, 'rollback')
+            const SKIP = new Set(['data', '.git', 'node_modules', 'tessdata', '.next'])
+            const copyRecursive = (src, dest) => {
+              for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+                if (SKIP.has(entry.name)) continue
+                const s = path.join(src, entry.name)
+                const d = path.join(dest, entry.name)
+                if (entry.isDirectory()) {
+                  fs.mkdirSync(d, { recursive: true })
+                  copyRecursive(s, d)
+                } else {
+                  fs.copyFileSync(s, d)
+                }
+              }
+            }
+
+            if (fs.existsSync(rollbackDir)) fs.rmSync(rollbackDir, { recursive: true, force: true })
+            fs.mkdirSync(rollbackDir, { recursive: true })
+            copyRecursive(__dirname, rollbackDir)
+            if (local) {
+              fs.writeFileSync(path.join(rollbackDir, '_rollback-version.json'), JSON.stringify(local, null, 2))
+            }
+
+            // Copier les nouveaux fichiers
+            copyRecursive(sourceDir, __dirname)
+
+            // Sauvegarder version
+            fs.writeFileSync(localVersionFile, JSON.stringify(manifest, null, 2))
+
+            // Marquer pour toast changelog
+            fs.writeFileSync(
+              path.join(dataFolder, 'just-updated.json'),
+              JSON.stringify({ version: manifest.version, changelog: manifest.changelog, appliedAt: new Date().toISOString() })
+            )
+
+            console.log(`✅ Auto-update: version ${manifest.version} appliquée, redémarrage...`)
+            app.relaunch()
+            app.exit(0)
+            return // Ne pas créer la fenêtre
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('⚠️ Auto-update check failed (non bloquant):', error.message)
+    // En cas d'erreur, on continue normalement
+  }
+
   createWindow()
 })
 app.on('window-all-closed', () => {

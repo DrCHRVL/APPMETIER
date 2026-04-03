@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Archive, Edit, Trash, RotateCcw, Users, Building2, FileText, Calendar, Flag, Clock, Hourglass, Gavel, ArrowDown } from 'lucide-react';
+import { Archive, Edit, Trash, RotateCcw, Users, Building2, FileText, Calendar, Flag, Clock, Hourglass, Gavel, ArrowDown, Star, EyeOff, Eye } from 'lucide-react';
 import { Enquete, Alert, VisualAlertRule, ToDoItem } from '@/types/interfaces';
 import { VISUAL_ALERT_COLOR_PALETTE } from '@/config/constants';
 import { StartEnqueteModal } from './modals/StartEnqueteModal';
@@ -17,6 +17,8 @@ import { PoseActeModal } from './modals/PoseActeModal';
 import { ProlongationValidationModal } from './modals/ProlongationValidationModal';
 import { AutorisationValidationModal } from './modals/AutorisationValidationModal';
 import { useTags } from '@/hooks/useTags';
+import { useUser } from '@/contexts/UserContext';
+import { OverboardPin } from '@/types/userTypes';
 
 interface EnquetePreviewProps {
   enquete: Enquete;
@@ -28,6 +30,8 @@ interface EnquetePreviewProps {
   onUnarchive?: () => void;
   onToggleSuivi?: (type: 'JIRS' | 'PG') => void;
   onStartEnquete?: (id: number, date: string) => void;
+  onToggleOverboardPin?: (enqueteId: number) => void;
+  onToggleHideFromJA?: (enqueteId: number) => void;
   alerts: Alert[];
   onValidateAlert: (alertId: number) => void;
   onSnoozeAlert: (alertId: number) => void;
@@ -52,8 +56,10 @@ export const EnquetePreview = ({
   alerts,
   onValidateAlert, 
   onSnoozeAlert, 
-  onProlongationRequest, 
-  onPoseRequest, 
+  onToggleOverboardPin,
+  onToggleHideFromJA,
+  onProlongationRequest,
+  onPoseRequest,
   onValidateProlongationRequest,
   onValidateAutorisationRequest,
   visualAlertRules = [],
@@ -65,12 +71,27 @@ export const EnquetePreview = ({
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [showAudienceResultModal, setShowAudienceResultModal] = useState(false);
   const [showAutorisationModal, setShowAutorisationModal] = useState(false);
+  const [showHideConfirm, setShowHideConfirm] = useState(false);
   const [selectedActe, setSelectedActe] = useState<{ id: number, type: 'acte' | 'ecoute' | 'geoloc' } | null>(null);
 
   // Hooks
   const { hasResultat, deleteAudienceResultat, isLoading } = useAudience();
   const { showToast } = useToast();
   const { getServicesFromTags } = useTags();
+  const { user, canDo: userCanDo } = useUser();
+
+  // Pin overboard
+  const isPinned = useMemo(() => {
+    if (!user || !enquete.overboardPins) return false;
+    return enquete.overboardPins.some(p => p.pinnedBy === user.windowsUsername);
+  }, [enquete.overboardPins, user]);
+
+  // L'utilisateur est-il JA ? (pas de rôle global = potentiellement JA)
+  const isUserJA = useMemo(() => {
+    if (!user) return false;
+    if (user.globalRole) return false;
+    return user.contentieux.some(c => c.role === 'ja');
+  }, [user]);
 
   // Variables dérivées
   const lastCR = enquete.comptesRendus[0];
@@ -252,7 +273,43 @@ return (
               {activeTodosCount}
             </div>
           )}
-          
+
+          {/* Pin overboard */}
+          {onToggleOverboardPin && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`h-5 w-5 p-0 transition-colors ${
+                isPinned ? 'text-amber-500 hover:text-amber-600' : 'text-gray-300 hover:text-gray-400'
+              }`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleOverboardPin(enquete.id);
+              }}
+              title={isPinned ? 'Retirer du suivi hiérarchique' : 'Épingler au suivi hiérarchique'}
+            >
+              <Star className={`h-3 w-3 ${isPinned ? 'fill-amber-500' : ''}`} />
+            </Button>
+          )}
+
+          {/* Dissimulation JA — invisible pour les JA eux-mêmes */}
+          {onToggleHideFromJA && !isUserJA && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`h-5 w-5 p-0 transition-colors ${
+                enquete.hiddenFromJA ? 'text-red-400 hover:text-red-500' : 'text-gray-300 hover:text-gray-400'
+              }`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowHideConfirm(true);
+              }}
+              title={enquete.hiddenFromJA ? 'Rendre visible aux JA' : 'Dissimuler aux JA'}
+            >
+              {enquete.hiddenFromJA ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+            </Button>
+          )}
+
          {!isLoading && hasResultat(enquete.id) && (
   <Button
     variant="ghost"
@@ -546,6 +603,48 @@ return (
           onValidate={handleValidateAutorisation}
           acteType={selectedActe?.type || ''}
         />
+      )}
+
+      {/* Confirmation dissimulation JA */}
+      {showHideConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-xl shadow-2xl w-[420px] p-5">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">
+              {enquete.hiddenFromJA
+                ? 'Rendre cette enquête visible aux JA ?'
+                : 'Dissimuler cette enquête aux utilisateurs de statut "JA" ?'}
+            </h3>
+            <p className="text-xs text-gray-500 mb-4">
+              {enquete.hiddenFromJA
+                ? 'Les utilisateurs de statut JA pourront à nouveau voir cette enquête sur la grille.'
+                : 'Les utilisateurs de statut JA ne verront plus cette enquête sur la grille. Aucun impact sur les statistiques.'}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowHideConfirm(false);
+                }}
+              >
+                Non
+              </Button>
+              <Button
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onToggleHideFromJA) {
+                    onToggleHideFromJA(enquete.id);
+                  }
+                  setShowHideConfirm(false);
+                }}
+              >
+                Oui
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

@@ -16,6 +16,7 @@ import { ClassementModal } from '../modals/ClassementModal';
 interface ArchivePageProps {
   enquetes: Enquete[];
   searchTerm: string;
+  contentieuxId?: string;
   onUpdateEnquete: (id: number, data: Partial<Enquete>) => void;
   onDeleteEnquete: (id: number) => void;
   onUnarchiveEnquete: (id: number) => void;
@@ -24,9 +25,10 @@ interface ArchivePageProps {
   onDeleteCR: (enqueteId: number, crId: number) => void;
 }
 
-export const ArchivePage = ({ 
+export const ArchivePage = ({
   enquetes,
   searchTerm,
+  contentieuxId,
   onUpdateEnquete,
   onDeleteEnquete,
   onUnarchiveEnquete,
@@ -130,9 +132,10 @@ export const ArchivePage = ({
   }, [enquetes, searchTerm]);
   
   // Récupérer les flagrances "orphelines" (procédures de permanence sans enquête correspondante)
-  const orphanedFlagrances = Object.values(audienceState?.resultats || {})
+  // Uniquement pour crimorg — les procédures de permanence sont un héritage de cette subdivision
+  const orphanedFlagrances = (contentieuxId !== 'crimorg' ? [] : Object.values(audienceState?.resultats || {})
     .filter(r => r.isDirectResult === true)
-    .filter(r => !archivedEnquetes.some(e => e.id === r.enqueteId))
+    .filter(r => !archivedEnquetes.some(e => e.id === r.enqueteId)))
     .map(r => ({
       // Créer un objet "enquête-like" pour les flagrances orphelines
       id: r.enqueteId,
@@ -715,14 +718,16 @@ export const ArchivePage = ({
         </div>
       </div>
 
-      {/* Bouton flottant pour ajouter une procédure de permanence */}
-      <Button
-        onClick={() => setShowDirectResultModal(true)}
-        className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg bg-orange-600 hover:bg-orange-700 text-white z-50"
-        title="Ajouter une procédure de permanence"
-      >
-        <Plus className="h-6 w-6" />
-      </Button>
+      {/* Bouton flottant pour ajouter une procédure de permanence — crimorg uniquement */}
+      {contentieuxId === 'crimorg' && (
+        <Button
+          onClick={() => setShowDirectResultModal(true)}
+          className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg bg-orange-600 hover:bg-orange-700 text-white z-50"
+          title="Ajouter une procédure de permanence"
+        >
+          <Plus className="h-6 w-6" />
+        </Button>
+      )}
       
       {/* Modales */}
       {selectedEnquete && (

@@ -3,11 +3,12 @@
 import React from 'react';
 import {
   FileText, Archive, BarChart, Settings, Target,
-  Plus, Scale, Activity, Eye
+  Plus, Scale, Activity, Eye, PieChart
 } from 'lucide-react';
 import { AlertBadge } from './AlertBadge';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId } from '@/types/userTypes';
+import { CrossSearchResult } from '@/hooks/useCrossSearch';
 
 // ──────────────────────────────────────────────
 // TYPES
@@ -22,6 +23,8 @@ interface MultiSideBarProps {
   onOpenSettings: () => void;
   alertCount: number;
   instructionAlertCount?: number;
+  /** Résultats de recherche dans les autres contentieux (pastilles) */
+  crossSearchResults?: CrossSearchResult[];
 }
 
 // ──────────────────────────────────────────────
@@ -52,6 +55,7 @@ export const MultiSideBar = ({
   onOpenSettings,
   alertCount,
   instructionAlertCount = 0,
+  crossSearchResults = [],
 }: MultiSideBarProps) => {
   const { accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, permissions } = useUser();
   const sidebarWidth = isOpen ? 'w-64' : 'w-16';
@@ -115,6 +119,12 @@ export const MultiSideBar = ({
                 {/* Nav items du contentieux */}
                 {items.map(({ view, icon: Icon, label }) => {
                   const isActive = currentView === view;
+                  // Pastille cross-search : uniquement sur l'item "Enquêtes"
+                  const isEnquetesView = view === `enquetes_${ctxDef.id}`;
+                  const crossHit = isEnquetesView
+                    ? crossSearchResults.find(r => r.contentieuxId === ctxDef.id)
+                    : null;
+
                   return (
                     <button
                       key={view}
@@ -133,6 +143,20 @@ export const MultiSideBar = ({
                     >
                       <Icon className={`h-4 w-4 flex-shrink-0 transition-colors ${isActive ? 'text-white' : 'text-white/60 group-hover:text-white'}`} />
                       {isOpen && <span className="truncate">{label}</span>}
+                      {/* Pastille résultat de recherche cross-contentieux */}
+                      {crossHit && (
+                        <span
+                          className="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded-full animate-pulse"
+                          style={{
+                            backgroundColor: ctxDef.color + '33',
+                            color: '#fff',
+                            border: `1px solid ${ctxDef.color}88`,
+                          }}
+                          title={`${crossHit.count} résultat${crossHit.count > 1 ? 's' : ''} trouvé${crossHit.count > 1 ? 's' : ''}`}
+                        >
+                          {crossHit.count}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -226,7 +250,23 @@ export const MultiSideBar = ({
             >
               <Target className={`h-4 w-4 flex-shrink-0 ${currentView === 'overboard' ? 'text-white' : 'text-white/60'}`} />
               {isOpen && <span className="truncate">Overboard</span>}
-              {alertCount > 0 && <AlertBadge count={alertCount} />}
+            </button>
+            <button
+              className={`
+                w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm
+                transition-all duration-150 relative group
+                ${currentView === 'global_stats'
+                  ? 'bg-white/20 text-white font-semibold shadow-sm'
+                  : 'font-medium text-white/70 hover:bg-white/8 hover:text-white'
+                }
+              `}
+              style={currentView === 'global_stats' ? {
+                boxShadow: 'inset 3px 0 0 rgba(255,255,255,0.85)'
+              } : {}}
+              onClick={() => onViewChange('global_stats')}
+            >
+              <PieChart className={`h-4 w-4 flex-shrink-0 ${currentView === 'global_stats' ? 'text-white' : 'text-white/60'}`} />
+              {isOpen && <span className="truncate">Statistiques globales</span>}
             </button>
           </>
         )}
@@ -254,7 +294,11 @@ export const MultiSideBar = ({
       </div>
 
       <div className="copyright">
-        Propriété de Audran CHEVALIER, Parquet d&apos;AMIENS
+        <div style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.08em', opacity: 0.7 }}>
+          APP MÉTIER
+        </div>
+        <div>Conçu par A. CHEVALIER — Parquet d&apos;Amiens</div>
+        <div style={{ opacity: 0.4 }}>2025–{new Date().getFullYear()}</div>
       </div>
     </div>
   );

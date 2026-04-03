@@ -43,14 +43,30 @@ const getServiceColor = (service: string, index: number) => {
 interface GeneralStatsProps {
   enquetes: Enquete[];
   selectedYear: number;
+  contentieuxId?: string;
 }
 
-export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
+export const GeneralStats = ({ enquetes, selectedYear, contentieuxId }: GeneralStatsProps) => {
   const { audienceState } = useAudience();
   const { getServicesFromTags } = useTags();
   const currentDate = new Date();
 
-  const directResults = Object.values(audienceState?.resultats || {})
+  // IDs des enquêtes du contentieux actif (pour filtrer les résultats d'audience)
+  const enqueteIds = useMemo(() => new Set(enquetes.map(e => e.id)), [enquetes]);
+
+  // Résultats d'audience scopés au contentieux actif (ou tous si global)
+  const scopedResultats = useMemo(() => {
+    const all = audienceState?.resultats || {};
+    if (contentieuxId === 'global') return all;
+    return Object.fromEntries(
+      Object.entries(all).filter(([key, r]) => {
+        if (r.isDirectResult) return contentieuxId === 'crimorg';
+        return enqueteIds.has(Number(key));
+      })
+    );
+  }, [audienceState?.resultats, enqueteIds, contentieuxId]);
+
+  const directResults = Object.values(scopedResultats)
     .filter(r => r.isDirectResult && new Date(r.dateAudience).getFullYear() === selectedYear);
 
   const enquetesForYear = enquetes.filter(e =>
@@ -60,7 +76,7 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
 
   const enquetesTerminees = enquetes.filter(e => {
     if (e.statut !== 'archive') return false;
-    const audienceResult = Object.values(audienceState?.resultats || {})
+    const audienceResult = Object.values(scopedResultats)
       .find(r => r.enqueteId === e.id);
     if (!audienceResult?.dateAudience) return false;
     return new Date(audienceResult.dateAudience).getFullYear() === selectedYear;
@@ -68,7 +84,7 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
 
   // Procédures terminées hors classements sans suite et OI
   const enquetesTermineesFiltered = enquetesTerminees.filter(e => {
-    const audienceResult = Object.values(audienceState?.resultats || {})
+    const audienceResult = Object.values(scopedResultats)
       .find(r => r.enqueteId === e.id);
     return audienceResult && !audienceResult.isClassement && !audienceResult.isOI;
   });
@@ -76,13 +92,13 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
 
   // Comptage classements et OI pour l'affichage
   const classementsCount = enquetesTerminees.filter(e => {
-    const audienceResult = Object.values(audienceState?.resultats || {})
+    const audienceResult = Object.values(scopedResultats)
       .find(r => r.enqueteId === e.id);
     return audienceResult?.isClassement;
   }).length + directResults.filter(r => r.isClassement).length;
 
   const oiCount = enquetesTerminees.filter(e => {
-    const audienceResult = Object.values(audienceState?.resultats || {})
+    const audienceResult = Object.values(scopedResultats)
       .find(r => r.enqueteId === e.id);
     return audienceResult?.isOI;
   }).length + directResults.filter(r => r.isOI).length;
@@ -96,7 +112,7 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
       if (created > selectedYear) return false;
       if (e.statut === 'en_cours' || e.statut === 'instruction') return true;
       if (e.statut === 'archive') {
-        const ar = Object.values(audienceState?.resultats || {}).find(r => r.enqueteId === e.id);
+        const ar = Object.values(scopedResultats).find(r => r.enqueteId === e.id);
         if (ar?.dateAudience) return new Date(ar.dateAudience).getFullYear() === selectedYear;
         return new Date(e.dateMiseAJour).getFullYear() === selectedYear;
       }
@@ -110,7 +126,7 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
       e.tags.some(t => t.category === 'suivi' && t.value === 'PG')
     );
     return { jirs, pg, both, total: new Set([...jirs, ...pg].map(e => e.id)).size };
-  }, [enquetes, selectedYear, audienceState?.resultats]);
+  }, [enquetes, selectedYear, scopedResultats]);
 
   const getMonthsToShow = () => {
     const lastMonth = selectedYear === currentDate.getFullYear() ?
@@ -120,7 +136,7 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
 
   // Durées moyennes
   const averageDurationTerminees = enquetesTerminees.reduce((acc, e) => {
-    const audienceResult = Object.values(audienceState.resultats || {}).find(r => r.enqueteId === e.id);
+    const audienceResult = Object.values(scopedResultats).find(r => r.enqueteId === e.id);
     if (!audienceResult?.dateAudience) return acc;
     const start = new Date(e.dateDebut);
     const end = new Date(audienceResult.dateAudience);
@@ -141,18 +157,18 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
   const comparison = useMemo(() => {
     const prevEnquetesTerminees = enquetes.filter(e => {
       if (e.statut !== 'archive') return false;
-      const ar = Object.values(audienceState?.resultats || {}).find(r => r.enqueteId === e.id);
+      const ar = Object.values(scopedResultats).find(r => r.enqueteId === e.id);
       if (!ar?.dateAudience) return false;
       return new Date(ar.dateAudience).getFullYear() === prevYear;
     });
-    const prevDirectResults = Object.values(audienceState?.resultats || {})
+    const prevDirectResults = Object.values(scopedResultats)
       .filter(r => r.isDirectResult && new Date(r.dateAudience).getFullYear() === prevYear);
 
     const prevTotalTerminees = prevEnquetesTerminees.length + prevDirectResults.length;
     const currentTotalTerminees = enquetesTerminees.length + directResults.length;
 
-    const prevYearlyStats = getYearlyStats(audienceState?.resultats || {}, enquetes, prevYear);
-    const currentYearlyStats = getYearlyStats(audienceState?.resultats || {}, enquetes, selectedYear);
+    const prevYearlyStats = getYearlyStats(scopedResultats, enquetes, prevYear);
+    const currentYearlyStats = getYearlyStats(scopedResultats, enquetes, selectedYear);
 
     return {
       prevTotalTerminees,
@@ -172,7 +188,7 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
       diffDeferements: (currentYearlyStats?.nombreDeferements || 0) - (prevYearlyStats?.nombreDeferements || 0),
       hasPrevData: prevTotalTerminees > 0 || (prevYearlyStats?.nombreCondamnations || 0) > 0,
     };
-  }, [audienceState?.resultats, enquetes, selectedYear, prevYear]);
+  }, [scopedResultats, enquetes, selectedYear, prevYear]);
 
   // Services
   const combinedServiceStats: Record<string, number> = {};
@@ -181,7 +197,7 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
       if (service) combinedServiceStats[service] = (combinedServiceStats[service] || 0) + 1;
     });
   });
-  Object.values(audienceState?.resultats || {})
+  Object.values(scopedResultats)
     .filter(r => r.isDirectResult && new Date(r.dateAudience).getFullYear() === selectedYear)
     .forEach(r => {
       if (r.service) combinedServiceStats[r.service] = (combinedServiceStats[r.service] || 0) + 1;
@@ -197,7 +213,7 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
       if (service) terminatedServiceStats[service] = (terminatedServiceStats[service] || 0) + 1;
     });
   });
-  Object.values(audienceState?.resultats || {})
+  Object.values(scopedResultats)
     .filter(r => r.isDirectResult && new Date(r.dateAudience).getFullYear() === selectedYear)
     .forEach(r => {
       if (r.service) terminatedServiceStats[r.service] = (terminatedServiceStats[r.service] || 0) + 1;
@@ -238,7 +254,7 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
   const moyenneTempsParMois = arrondiFavorable((tempsEstimeMinutesAjuste / nombreMoisAjuste) / 60);
 
   // Total déférements pour l'année sélectionnée
-  const totalDeferementsYear = Object.values(audienceState.resultats || {})
+  const totalDeferementsYear = Object.values(scopedResultats)
     .reduce((acc, r) => {
       if (r.nombreDeferes && r.dateDefere) {
         const date = new Date(r.dateDefere);
@@ -289,7 +305,7 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
             <div className="mt-4 pt-4 border-t space-y-1">
               {getMonthsToShow().map(month => {
                 const prelimCount = enquetesTermineesFiltered.filter(e => {
-                  const audienceResult = Object.values(audienceState.resultats || {})
+                  const audienceResult = Object.values(scopedResultats)
                     .find(r => r.enqueteId === e.id);
                   const audienceDate = new Date(audienceResult.dateAudience);
                   return audienceResult &&
@@ -510,7 +526,7 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
                   datasets: [{
                     label: 'Déférements',
                     data: getMonthsToShow().map(month => {
-                      return Object.values(audienceState.resultats || {})
+                      return Object.values(scopedResultats)
                         .reduce((acc, r) => {
                           if (r.nombreDeferes && r.dateDefere) {
                             const date = new Date(r.dateDefere);
@@ -673,7 +689,7 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
                   const servicesFromTags = getServicesFromTags(e.tags);
                   return servicesFromTags.includes(service);
                 });
-                const directResultsForService = Object.values(audienceState?.resultats || {})
+                const directResultsForService = Object.values(scopedResultats)
                   .filter(r => r.isDirectResult &&
                                r.service === service &&
                                new Date(r.dateAudience).getFullYear() === selectedYear);
@@ -693,7 +709,7 @@ export const GeneralStats = ({ enquetes, selectedYear }: GeneralStatsProps) => {
                           <div className="space-y-1">
                             <p className="text-xs font-medium text-gray-300 mb-1">Enquêtes préliminaires :</p>
                             {enquetesForService.map(e => {
-                              const audienceResult = Object.values(audienceState?.resultats || {}).find(r => r.enqueteId === e.id);
+                              const audienceResult = Object.values(scopedResultats).find(r => r.enqueteId === e.id);
                               return (
                                 <div key={e.id} className="text-xs">
                                   {e.numero} - {audienceResult?.dateAudience ?

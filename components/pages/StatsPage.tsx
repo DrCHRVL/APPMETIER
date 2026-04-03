@@ -1,48 +1,24 @@
 import React, { useState } from 'react';
 import { useAudience } from '@/hooks/useAudience';
+
 import { Enquete } from '@/types/interfaces';
 import { GeneralStats } from '../stats/GeneralStats';
 import { AudienceStats } from '../stats/AudienceStats';
 import { InfractionStats } from '../stats/InfractionStats';
-import { Button } from '../ui/button';
-import { AudienceResultModal } from '../modals/AudienceResultModal';
-import { useToast } from '@/contexts/ToastContext';
-import { ResultatAudience } from '@/types/audienceTypes';
 import { ExportPdfButton } from '../pdf/ExportPdfButton';
 
 interface StatsPageProps {
   enquetes: Enquete[];
+  contentieuxId?: string;
 }
 
-export const StatsPage = ({ enquetes }: StatsPageProps) => {
-  const { audienceState, isLoading, saveResultat } = useAudience();
-  const { showToast } = useToast();
-  const [showDirectResultModal, setShowDirectResultModal] = useState(false);
+export const StatsPage = ({ enquetes, contentieuxId }: StatsPageProps) => {
+  const { isLoading } = useAudience();
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
   if (isLoading) {
     return <div>Chargement des statistiques...</div>;
   }
-
-  if (!audienceState?.resultats) {
-    return <div>Aucune donnée d'audience disponible</div>;
-  }
-
-  const handleSaveDirectResult = async (resultat: ResultatAudience) => {
-    try {
-      const directResultat = {
-        ...resultat,
-        isDirectResult: true,
-        enqueteId: Math.floor(Math.random() * 1e15) + Date.now()
-      };
-
-      await saveResultat(directResultat);
-      setShowDirectResultModal(false);
-      showToast('Résultat enregistré avec succès', 'success');
-    } catch (error) {
-      showToast('Erreur lors de l\'enregistrement', 'error');
-    }
-  };
 
   return (
     <>
@@ -61,12 +37,6 @@ export const StatsPage = ({ enquetes }: StatsPageProps) => {
         {/* Barre d'action avec sélecteur d'année centralisé */}
         <div className="flex justify-between items-center mb-4 no-print">
           <div className="flex items-center gap-4">
-            <Button
-              onClick={() => setShowDirectResultModal(true)}
-              variant="outline"
-            >
-              + Ajouter procédure permanence
-            </Button>
             <div className="flex items-center gap-2 bg-white border rounded-lg px-3 py-1.5">
               <label className="font-medium text-sm">Année :</label>
               <select
@@ -102,30 +72,20 @@ export const StatsPage = ({ enquetes }: StatsPageProps) => {
         <div className="print-container">
           <div className="pdf-section">
             <h3>Statistiques générales</h3>
-            <GeneralStats enquetes={enquetes} selectedYear={selectedYear} />
+            <GeneralStats enquetes={enquetes} selectedYear={selectedYear} contentieuxId={contentieuxId} />
           </div>
 
           <div className="pdf-section">
             <h3>Types d'infractions</h3>
-            <InfractionStats enquetes={enquetes} selectedYear={selectedYear} />
+            <InfractionStats enquetes={enquetes} selectedYear={selectedYear} contentieuxId={contentieuxId} />
           </div>
 
           <div className="pdf-section">
             <h3>Résultats d'audience</h3>
-            <AudienceStats enquetes={enquetes} selectedYear={selectedYear} />
+            <AudienceStats enquetes={enquetes} selectedYear={selectedYear} contentieuxId={contentieuxId} />
           </div>
         </div>
 
-        {/* Modal */}
-        {showDirectResultModal && (
-          <AudienceResultModal
-            isOpen={showDirectResultModal}
-            onClose={() => setShowDirectResultModal(false)}
-            onSave={handleSaveDirectResult}
-            enqueteId={Date.now()}
-            isDirectResult={true}
-          />
-        )}
       </div>
     </>
   );

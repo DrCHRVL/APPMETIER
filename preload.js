@@ -135,10 +135,60 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dataSync_backupContentieux: (contentieuxId, backupFilename) =>
     ipcRenderer.invoke('dataSync:backupContentieux', contentieuxId, backupFilename),
 
-  // === MISE À JOUR DE L'APPLICATION ===
+  // ========================================================================
+  // HEARTBEAT, ÉVÉNEMENTS PARTAGÉS, JOURNAL D'AUDIT
+  // ========================================================================
+
+  writeHeartbeat: (username, heartbeat) =>
+    ipcRenderer.invoke('heartbeat:write', username, heartbeat),
+
+  removeHeartbeat: (username) =>
+    ipcRenderer.invoke('heartbeat:remove', username),
+
+  readAllHeartbeats: () =>
+    ipcRenderer.invoke('heartbeat:readAll'),
+
+  writeSharedEvent: (sharedEvent) =>
+    ipcRenderer.invoke('sharedEvent:write', sharedEvent),
+
+  cleanupSharedEvents: (ttlMs) =>
+    ipcRenderer.invoke('sharedEvent:cleanup', ttlMs),
+
+  startEventsWatcher: () =>
+    ipcRenderer.invoke('sharedEvent:startWatcher'),
+
+  onSharedEvent: (callback) =>
+    ipcRenderer.on('sharedEvent:received', (event, data) => callback(data)),
+
+  appendAuditLog: (entry, maxEntries) =>
+    ipcRenderer.invoke('auditLog:append', entry, maxEntries),
+
+  readAuditLog: () =>
+    ipcRenderer.invoke('auditLog:read'),
+
+  // === MISE À JOUR DE L'APPLICATION (GitHub) ===
   checkAppUpdate: () =>
     ipcRenderer.invoke('app:checkUpdate'),
 
   applyAppUpdate: () =>
     ipcRenderer.invoke('app:applyUpdate'),
+
+  // === MISE À JOUR VIA RÉSEAU LOCAL ===
+  lanUpdatePublish: (changelog) =>
+    ipcRenderer.invoke('lanUpdate:publish', changelog),
+
+  lanUpdateCheck: () =>
+    ipcRenderer.invoke('lanUpdate:check'),
+
+  lanUpdateApply: () =>
+    ipcRenderer.invoke('lanUpdate:apply'),
+
+  lanUpdateRollback: () =>
+    ipcRenderer.invoke('lanUpdate:rollback'),
+
+  lanUpdateGetJustUpdated: () =>
+    ipcRenderer.invoke('lanUpdate:getJustUpdated'),
+
+  lanUpdateGetLocalVersion: () =>
+    ipcRenderer.invoke('lanUpdate:getLocalVersion'),
 })

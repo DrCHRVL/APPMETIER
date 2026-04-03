@@ -58,9 +58,22 @@ import { DataSyncManager } from './utils/dataSync/DataSyncManager';
 // 🆕 Multi-contentieux
 import { SettingsModal } from './components/modals/SettingsModal';
 import { OverboardPage } from './components/pages/OverboardPage';
+import { GlobalStatsPage } from './components/pages/GlobalStatsPage';
 import { ContentieuxId } from '@/types/userTypes';
+import { useCrossSearch } from './hooks/useCrossSearch';
 import { AdminUsersPanel } from './components/AdminUsersPanel';
+import { AdminContentieuxPanel } from './components/admin/AdminContentieuxPanel';
+import { AdminPathsPanel } from './components/admin/AdminPathsPanel';
+import { AdminDashboardPanel } from './components/admin/AdminDashboardPanel';
+import { AdminTagHistoryPanel } from './components/admin/AdminTagHistoryPanel';
+import { AdminUpdatePanel } from './components/admin/AdminUpdatePanel';
+import { AboutContent } from './components/AboutContent';
 import { useOverboardData } from './hooks/useOverboardData';
+import { TagRequestPopup } from './components/modals/TagRequestPopup';
+import { tagRequestManager } from './utils/tagRequestManager';
+import { HeartbeatManager } from './utils/heartbeatManager';
+import { SharedEventManager } from './utils/sharedEventManager';
+import { AuditLogger } from './utils/auditLogger';
 
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
 
@@ -74,6 +87,8 @@ function AppContent() {
   // 🆕 Multi-contentieux
   const [activeContentieux, setActiveContentieux] = useState<ContentieuxId | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsContentieuxId, setSettingsContentieuxId] = useState<ContentieuxId | null>(null);
+  const [showTagRequestPopup, setShowTagRequestPopup] = useState(false);
   const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
 
   // Initialiser le contentieux actif et la vue au premier contentieux accessible
@@ -103,7 +118,7 @@ function AppContent() {
       setActiveContentieux(contentieuxId);
     }
     // Rafraîchir l'overboard quand on y navigue (données potentiellement modifiées)
-    if (view === 'overboard') {
+    if (view === 'overboard' || view === 'global_stats') {
       refreshOverboard();
     }
   };
@@ -284,6 +299,53 @@ function AppContent() {
     });
   }, []);
 
+  // Vérifier les demandes de tags en attente (admin uniquement)
+  useEffect(() => {
+    if (!isAdmin()) return;
+    tagRequestManager.getPendingRequests().then(requests => {
+      if (requests.length > 0) {
+        setShowTagRequestPopup(true);
+      }
+    });
+  }, [isAdmin]);
+
+  // Démarrage des services temps réel (heartbeat, événements, audit)
+  useEffect(() => {
+    if (!user || !isAuthenticated) return;
+
+    // Heartbeat
+    const hb = HeartbeatManager.getInstance();
+    hb.start(user.windowsUsername, user.displayName);
+
+    // Événements partagés
+    const sem = SharedEventManager.getInstance();
+    sem.start(user.windowsUsername);
+    // Démarrer le file watcher côté main process
+    (window as any).electronAPI?.startEventsWatcher?.();
+
+    // Journal d'audit
+    const audit = AuditLogger.getInstance();
+    audit.initialize(user.windowsUsername, user.displayName);
+    audit.log('user_login', `Connexion de ${user.displayName}`);
+
+    // Nettoyage périodique des événements (toutes les 5 min)
+    const cleanupInterval = setInterval(() => {
+      SharedEventManager.cleanup();
+    }, 5 * 60_000);
+
+    return () => {
+      hb.stop();
+      clearInterval(cleanupInterval);
+    };
+  }, [user, isAuthenticated]);
+
+  // Mise à jour du contexte heartbeat quand la vue change
+  useEffect(() => {
+    if (!user) return;
+    const hb = HeartbeatManager.getInstance();
+    hb.updateContext(activeContentieux, baseView);
+  }, [activeContentieux, baseView, user]);
+
   const handleGlobalTodosChange = (todos: ToDoItem[]) => {
     setGlobalTodos(todos);
     ElectronBridge.setData('global_todos', todos);
@@ -341,6 +403,23 @@ function AppContent() {
     checkUpdate();
     const interval = setInterval(checkUpdate, 30 * 60 * 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Vérification post-update LAN : afficher le changelog
+  useEffect(() => {
+    const checkJustUpdated = async () => {
+      try {
+        const info = await (window as any).electronAPI?.lanUpdateGetJustUpdated?.();
+        if (info) {
+          const msg = info.changelog
+            ? `Mise à jour ${info.version} installée : ${info.changelog}`
+            : `Mise à jour ${info.version} installée`;
+          showToast(msg, 'success');
+        }
+      } catch {}
+    };
+    checkJustUpdated();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleApplyUpdate = async () => {
@@ -530,6 +609,44 @@ function AppContent() {
     }
   };
 
+  // Toggle dissimulation JA
+  const handleToggleHideFromJA = (enqueteId: number) => {
+    const enquete = enquetes.find(e => e.id === enqueteId);
+    if (!enquete) return;
+    const newValue = !enquete.hiddenFromJA;
+    handleUpdateEnquete(enqueteId, { hiddenFromJA: newValue });
+    showToast(
+      newValue ? 'Enquête dissimulée aux JA' : 'Enquête visible par les JA',
+      'success'
+    );
+  };
+
+  // Toggle pin overboard pour une enquête
+  const handleToggleOverboardPin = (enqueteId: number) => {
+    if (!user) return;
+    const enquete = enquetes.find(e => e.id === enqueteId);
+    if (!enquete) return;
+
+    const pins = enquete.overboardPins || [];
+    const existingPin = pins.find(p => p.pinnedBy === user.windowsUsername);
+
+    let newPins;
+    if (existingPin) {
+      newPins = pins.filter(p => p.pinnedBy !== user.windowsUsername);
+      showToast('Enquête retirée du suivi hiérarchique', 'success');
+    } else {
+      const globalRole = user.globalRole;
+      if (!globalRole || !['admin', 'pra', 'vice_proc'].includes(globalRole)) return;
+      newPins = [...pins, {
+        pinnedBy: user.windowsUsername,
+        pinnedAt: new Date().toISOString(),
+        role: globalRole as 'admin' | 'pra' | 'vice_proc'
+      }];
+      showToast('Enquête épinglée au suivi hiérarchique', 'success');
+    }
+    handleUpdateEnquete(enqueteId, { overboardPins: newPins });
+  };
+
   const filteredAndSortedEnquetes = useFilterSort(enquetes, searchTerm, selectedTags, sortOrder);
 
   // Liste dédupliquée de tous les noms de MEC connus (cross-dossiers)
@@ -540,6 +657,9 @@ function AppContent() {
 
   // Recherche dans le contenu des documents (async, avec cache)
   const { documentMatchIds, isSearchingDocs } = useDocumentSearch(enquetes, searchTerm);
+
+  // Recherche cross-contentieux (pastilles sidebar + bandeau)
+  const { crossSearchResults, totalOtherResults } = useCrossSearch(searchTerm, effectiveContentieux, contentieuxDefs);
 
   // Fusion des résultats métadonnées + contenu documents
   const mergedFilteredEnquetes = useMemo(() => {
@@ -553,10 +673,21 @@ function AppContent() {
     return [...filteredAndSortedEnquetes, ...docOnlyMatches];
   }, [filteredAndSortedEnquetes, documentMatchIds, enquetes]);
 
-  const activeEnquetes = useMemo(() =>
-    mergedFilteredEnquetes.filter(e => e.statut !== 'archive'),
-    [mergedFilteredEnquetes]
-  );
+  // Déterminer si l'utilisateur est JA pour le contentieux actif
+  const isJAForCurrentCtx = useMemo(() => {
+    if (!user) return false;
+    if (user.globalRole) return false; // Les rôles globaux ne sont pas JA
+    return user.contentieux.some(c => c.contentieuxId === currentContentieuxId && c.role === 'ja');
+  }, [user, currentContentieuxId]);
+
+  const activeEnquetes = useMemo(() => {
+    let result = mergedFilteredEnquetes.filter(e => e.statut !== 'archive');
+    // Filtrer les enquêtes dissimulées aux JA
+    if (isJAForCurrentCtx) {
+      result = result.filter(e => !e.hiddenFromJA);
+    }
+    return result;
+  }, [mergedFilteredEnquetes, isJAForCurrentCtx]);
 
   // Organisation des enquêtes par section, puis par service au sein de chaque section
   const enquetesByOrganization = useMemo(() => {
@@ -664,6 +795,7 @@ return (
           onOpenSettings={() => setShowSettingsModal(true)}
           alertCount={activeAlertsCount}
           instructionAlertCount={instructionAlerts.length}
+          crossSearchResults={crossSearchResults}
         />
       </div>
       <div className="flex-1 overflow-hidden flex flex-col">
@@ -687,10 +819,36 @@ return (
           />
         </div>
 
-        {/* 🆕 Bandeau lecture seule */}
+        {/* Bandeau lecture seule */}
         {effectiveContentieux && !canDo(effectiveContentieux, 'edit') && (baseView === 'enquetes' || baseView === 'archives') && (
           <div className="bg-amber-50 border-b border-amber-200 px-4 py-1.5 text-xs text-amber-700 font-medium flex items-center gap-2">
             <span>👁</span> Mode consultation — {contentieuxDefs.find(c => c.id === effectiveContentieux)?.label || effectiveContentieux}
+          </div>
+        )}
+
+        {/* Bandeau résultats cross-contentieux */}
+        {totalOtherResults > 0 && baseView === 'enquetes' && (
+          <div className="bg-purple-50 border-b border-purple-200 px-4 py-1.5 text-xs text-purple-700 font-medium flex items-center gap-2">
+            <span className="shrink-0">Aussi trouvé :</span>
+            {crossSearchResults.map(r => {
+              const def = contentieuxDefs.find(d => d.id === r.contentieuxId);
+              return (
+                <button
+                  key={r.contentieuxId}
+                  onClick={() => handleViewChange(`enquetes_${r.contentieuxId}`, r.contentieuxId)}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full hover:bg-purple-100 transition-colors"
+                >
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: def?.color || '#888' }}
+                  />
+                  <span className="font-semibold">{def?.label || r.contentieuxId}</span>
+                  <span className="bg-purple-200 text-purple-800 px-1 rounded-full text-[10px] font-bold">
+                    {r.count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -760,6 +918,8 @@ return (
                         handleUpdateEnquete(enquete.id, { tags: newTags });
                       }}
                       onStartEnquete={handleStartEnquete}
+                      onToggleOverboardPin={hasOverboard() ? handleToggleOverboardPin : undefined}
+                      onToggleHideFromJA={canDo(currentContentieuxId, 'delete') ? handleToggleHideFromJA : undefined}
                       alerts={alerts.filter(alert => !alert.isAIRAlert)}
                       onValidateAlert={handleValidateAlert}
                       onSnoozeAlert={handleSnoozeAlert}
@@ -856,6 +1016,7 @@ return (
             <ArchivePage
               enquetes={enquetes}
               searchTerm={searchTerm}
+              contentieuxId={currentContentieuxId}
               onUpdateEnquete={handleUpdateEnquete}
               onDeleteEnquete={handleDeleteEnquete}
               onUnarchiveEnquete={handleUnarchiveEnquete}
@@ -882,7 +1043,7 @@ return (
           )}
 
           {baseView === 'stats' && (
-            <StatsPage enquetes={enquetes} />
+            <StatsPage enquetes={enquetes} contentieuxId={currentContentieuxId} />
           )}
 
           {/* 🆕 Overboard (vue transversale) */}
@@ -899,6 +1060,14 @@ return (
                 setSelectedEnquete(enquete);
                 setIsEditing(false);
               }}
+            />
+          )}
+
+          {/* Statistiques globales (tous contentieux) */}
+          {currentView === 'global_stats' && (
+            <GlobalStatsPage
+              enquetesByContentieux={overboardData}
+              contentieuxDefs={contentieuxDefs}
             />
           )}
         </main>
@@ -1185,7 +1354,18 @@ return (
       {/* 🆕 Modal Paramètres multi-onglets */}
       <SettingsModal
         isOpen={showSettingsModal}
-        onClose={() => setShowSettingsModal(false)}
+        onClose={() => {
+          setShowSettingsModal(false);
+          setSettingsContentieuxId(null);
+        }}
+        activeContentieuxId={settingsContentieuxId || currentContentieuxId}
+        onContentieuxChange={async (cId) => {
+          // Flush les données en attente avant de changer de contentieux
+          await flushPendingSave();
+          setSettingsContentieuxId(cId);
+          setActiveContentieux(cId);
+          setCurrentView(`enquetes_${cId}`);
+        }}
         alertesContent={
           <AlertsPage
             rules={alertRules}
@@ -1214,6 +1394,18 @@ return (
           />
         }
         adminUsersContent={<AdminUsersPanel />}
+        adminContentieuxContent={<AdminContentieuxPanel />}
+        adminPathsContent={<AdminPathsPanel />}
+        adminDashboardContent={<AdminDashboardPanel />}
+        adminTagHistoryContent={<AdminTagHistoryPanel />}
+        adminUpdateContent={<AdminUpdatePanel />}
+        aProposContent={<AboutContent />}
+      />
+
+      {/* Popup demandes de tags (admin) */}
+      <TagRequestPopup
+        isOpen={showTagRequestPopup}
+        onClose={() => setShowTagRequestPopup(false)}
       />
     </div>
   );
