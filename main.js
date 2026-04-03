@@ -1,6 +1,7 @@
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
+const crypto = require('crypto')
 const https = require('https')
 const { exec, execSync } = require('child_process')
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron')
@@ -1824,14 +1825,23 @@ function setupIpcHandlers() {
       const code = fs.readFileSync(filePath, 'utf8')
       const result = JavaScriptObfuscator.obfuscate(code, {
         compact: true,
-        controlFlowFlattening: false,
+        controlFlowFlattening: true,
+        controlFlowFlatteningThreshold: 0.7,
+        deadCodeInjection: true,
+        deadCodeInjectionThreshold: 0.3,
         identifierNamesGenerator: 'hexadecimal',
         renameGlobals: false,
+        selfDefending: true,
         stringArray: true,
-        stringArrayEncoding: ['base64'],
-        stringArrayThreshold: 0.75,
-        selfDefending: false,
-        deadCodeInjection: false,
+        stringArrayEncoding: ['rc4'],
+        stringArrayThreshold: 0.9,
+        stringArrayRotate: true,
+        stringArrayShuffle: true,
+        transformObjectKeys: true,
+        unicodeEscapeSequence: true,
+        numbersToExpressions: true,
+        splitStrings: true,
+        splitStringsChunkLength: 5,
       })
       fs.writeFileSync(filePath, result.getObfuscatedCode(), 'utf8')
       return true
@@ -1903,6 +1913,18 @@ function setupIpcHandlers() {
       const publishedPreload = path.join(sourceDir, 'preload.js')
       if (fs.existsSync(publishedMain)) obfuscateFile(publishedMain)
       if (fs.existsSync(publishedPreload)) obfuscateFile(publishedPreload)
+
+      // Étape 5b : Générer le fichier d'intégrité pour la copie publiée
+      sendProgress('integrity', 'Génération de l\'empreinte d\'intégrité...')
+      const integrityManifest = {}
+      ;['main.js', 'preload.js', 'package.json'].forEach(f => {
+        const fp = path.join(sourceDir, f)
+        if (fs.existsSync(fp)) {
+          const content = fs.readFileSync(fp)
+          integrityManifest[f] = crypto.createHash('sha256').update(content).digest('hex')
+        }
+      })
+      fs.writeFileSync(path.join(sourceDir, '.integrity'), JSON.stringify(integrityManifest, null, 2), 'utf8')
 
       // Étape 6 : Créer le manifeste
       sendProgress('manifest', 'Finalisation...')
@@ -2177,8 +2199,61 @@ function setupIpcHandlers() {
     }
   });
 }
+// ── INTÉGRITÉ : vérification anti-tampering au démarrage ──
+const INTEGRITY_FILE = path.join(__dirname, '.integrity')
+const CRITICAL_FILES = ['main.js', 'preload.js', 'package.json']
+
+function computeFileHash(filePath) {
+  try {
+    const content = fs.readFileSync(filePath)
+    return crypto.createHash('sha256').update(content).digest('hex')
+  } catch { return null }
+}
+
+function generateIntegrityManifest() {
+  const manifest = {}
+  CRITICAL_FILES.forEach(f => {
+    const fp = path.join(__dirname, f)
+    const hash = computeFileHash(fp)
+    if (hash) manifest[f] = hash
+  })
+  fs.writeFileSync(INTEGRITY_FILE, JSON.stringify(manifest, null, 2), 'utf8')
+  return manifest
+}
+
+function verifyIntegrity() {
+  if (!fs.existsSync(INTEGRITY_FILE)) return { valid: true, missing: true }
+  try {
+    const manifest = JSON.parse(fs.readFileSync(INTEGRITY_FILE, 'utf8'))
+    const tampered = []
+    for (const [file, expectedHash] of Object.entries(manifest)) {
+      const currentHash = computeFileHash(path.join(__dirname, file))
+      if (currentHash && currentHash !== expectedHash) {
+        tampered.push(file)
+      }
+    }
+    return { valid: tampered.length === 0, tampered }
+  } catch { return { valid: true } }
+}
+
 app.whenReady().then(async () => {
   setupIpcHandlers()
+
+  // ── Vérification d'intégrité en production ──
+  if (IS_PRODUCTION) {
+    const integrity = verifyIntegrity()
+    if (!integrity.valid) {
+      console.error('⚠️ ALERTE INTÉGRITÉ : fichiers modifiés détectés :', integrity.tampered)
+      dialog.showMessageBoxSync({
+        type: 'warning',
+        title: 'Alerte de sécurité',
+        message: 'Des fichiers de l\'application semblent avoir été modifiés.\nCette version pourrait ne pas être authentique.',
+        buttons: ['Continuer quand même', 'Quitter'],
+        defaultId: 1,
+        cancelId: 1,
+      })
+    }
+  }
 
   // ── Auto-update silencieux au démarrage (via réseau local) ──
   try {
