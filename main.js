@@ -16,6 +16,40 @@ const documentsEnquetesFolder = path.join(dataFolder, 'documentenquete')
 const userDataPath = path.join(dataFolder, 'data.json')
 // Chemin serveur commun (utilisé pour documents ET sync des données)
 const COMMON_SERVER_PATH = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\GESTION DE SERVICE\\10_App METIER"
+
+// ── MULTI-CONTENTIEUX : chemin racine et dossiers par contentieux ──
+const MULTI_CONTENTIEUX_ROOT = path.join(COMMON_SERVER_PATH) // Même racine, sous-dossiers par contentieux
+const USERS_CONFIG_PATH = path.join(COMMON_SERVER_PATH, 'users.json')
+
+// Mapping des contentieux vers leurs dossiers serveur
+const CONTENTIEUX_FOLDERS = {
+  crimorg: path.join(COMMON_SERVER_PATH, 'crimorg'),
+  ecofi:   path.join(COMMON_SERVER_PATH, 'ecofi'),
+  enviro:  path.join(COMMON_SERVER_PATH, 'enviro'),
+}
+
+/**
+ * Retourne le chemin du dossier d'un contentieux, en le créant si nécessaire.
+ */
+function getContentieuxFolder(contentieuxId) {
+  const folder = CONTENTIEUX_FOLDERS[contentieuxId]
+  if (!folder) throw new Error(`Contentieux inconnu: ${contentieuxId}`)
+  if (!fs.existsSync(folder)) {
+    fs.mkdirSync(folder, { recursive: true })
+  }
+  return folder
+}
+
+/**
+ * Retourne le chemin du dossier backups d'un contentieux.
+ */
+function getContentieuxBackupFolder(contentieuxId) {
+  const backupDir = path.join(getContentieuxFolder(contentieuxId), 'backups')
+  if (!fs.existsSync(backupDir)) {
+    fs.mkdirSync(backupDir, { recursive: true })
+  }
+  return backupDir
+}
 // Création des dossiers s'ils n'existent pas
 if (!fs.existsSync(dataFolder)) {
   fs.mkdirSync(dataFolder, { recursive: true })
@@ -1151,6 +1185,124 @@ function setupIpcHandlers() {
       };
     }
   });
+
+  // ========================================================================
+  // HANDLERS MULTI-CONTENTIEUX (users.json + sync par contentieux)
+  // ========================================================================
+
+  /**
+   * Lit users.json depuis le serveur partagé
+   */
+  ipcMain.handle('dataSync:pullUsersConfig', async () => {
+    try {
+      if (!fs.existsSync(USERS_CONFIG_PATH)) {
+        console.log('ℹ️ MultiSync: users.json introuvable (premier lancement)')
+        return null
+      }
+      const content = fs.readFileSync(USERS_CONFIG_PATH, 'utf8')
+      return JSON.parse(content)
+    } catch (error) {
+      console.error('❌ MultiSync: Erreur lecture users.json:', error)
+      return null
+    }
+  })
+
+  /**
+   * Écrit users.json sur le serveur partagé
+   */
+  ipcMain.handle('dataSync:pushUsersConfig', async (event, config) => {
+    try {
+      if (!fs.existsSync(COMMON_SERVER_PATH)) {
+        throw new Error('Serveur commun inaccessible')
+      }
+      // Backup avant écriture
+      if (fs.existsSync(USERS_CONFIG_PATH)) {
+        const backupPath = path.join(COMMON_SERVER_PATH, 'admin', 'backups')
+        if (!fs.existsSync(backupPath)) fs.mkdirSync(backupPath, { recursive: true })
+        const timestamp = new Date().toISOString().replace(/:/g, '-')
+        fs.copyFileSync(USERS_CONFIG_PATH, path.join(backupPath, `users-${timestamp}.json`))
+      }
+      fs.writeFileSync(USERS_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8')
+      console.log('✅ MultiSync: users.json sauvegardé')
+      return true
+    } catch (error) {
+      console.error('❌ MultiSync: Erreur écriture users.json:', error)
+      return false
+    }
+  })
+
+  /**
+   * Vérifie l'accès au dossier d'un contentieux
+   */
+  ipcMain.handle('dataSync:checkContentieuxAccess', async (event, contentieuxId) => {
+    try {
+      const folder = CONTENTIEUX_FOLDERS[contentieuxId]
+      if (!folder) return false
+      // Le dossier n'a pas besoin d'exister déjà (sera créé au premier push)
+      return fs.existsSync(COMMON_SERVER_PATH)
+    } catch {
+      return false
+    }
+  })
+
+  /**
+   * Lit app-data.json d'un contentieux spécifique
+   */
+  ipcMain.handle('dataSync:pullContentieux', async (event, contentieuxId) => {
+    try {
+      const folder = getContentieuxFolder(contentieuxId)
+      const dataPath = path.join(folder, 'app-data.json')
+      if (!fs.existsSync(dataPath)) {
+        console.log(`ℹ️ MultiSync[${contentieuxId}]: Pas de données (première sync)`)
+        return null
+      }
+      const content = fs.readFileSync(dataPath, 'utf8')
+      const parsed = JSON.parse(content)
+      console.log(`✅ MultiSync[${contentieuxId}]: Données récupérées`)
+      return {
+        data: parsed.data || parsed,
+        metadata: parsed.metadata || null
+      }
+    } catch (error) {
+      console.error(`❌ MultiSync[${contentieuxId}]: Erreur lecture:`, error)
+      throw new Error(`Erreur lecture serveur ${contentieuxId}: ${error.message}`)
+    }
+  })
+
+  /**
+   * Écrit app-data.json d'un contentieux spécifique
+   */
+  ipcMain.handle('dataSync:pushContentieux', async (event, contentieuxId, data, metadata) => {
+    try {
+      const folder = getContentieuxFolder(contentieuxId)
+      const dataPath = path.join(folder, 'app-data.json')
+      const payload = { data, metadata }
+      fs.writeFileSync(dataPath, JSON.stringify(payload, null, 2), 'utf8')
+      console.log(`✅ MultiSync[${contentieuxId}]: Données envoyées`)
+      return true
+    } catch (error) {
+      console.error(`❌ MultiSync[${contentieuxId}]: Erreur écriture:`, error)
+      throw new Error(`Erreur envoi serveur ${contentieuxId}: ${error.message}`)
+    }
+  })
+
+  /**
+   * Crée un backup du app-data.json d'un contentieux avant push
+   */
+  ipcMain.handle('dataSync:backupContentieux', async (event, contentieuxId, backupFilename) => {
+    try {
+      const folder = getContentieuxFolder(contentieuxId)
+      const dataPath = path.join(folder, 'app-data.json')
+      if (!fs.existsSync(dataPath)) return false
+      const backupDir = getContentieuxBackupFolder(contentieuxId)
+      fs.copyFileSync(dataPath, path.join(backupDir, backupFilename))
+      console.log(`✅ MultiSync[${contentieuxId}]: Backup créé → ${backupFilename}`)
+      return true
+    } catch (error) {
+      console.error(`❌ MultiSync[${contentieuxId}]: Erreur backup:`, error)
+      return false
+    }
+  })
 
   // === SCAN DES DOCUMENTS PDF DU CHEMIN EXTERNE POUR ANALYSE AUTOMATIQUE ===
   ipcMain.handle('documents:scan-external-pdfs', async (event, externalPath, enqueteNumero, useSubfolder = true) => {

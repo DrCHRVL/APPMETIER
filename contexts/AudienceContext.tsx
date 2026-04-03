@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { ResultatAudience } from '@/types/audienceTypes';
 import { cleanupAudienceResults } from '@/utils/audienceStats';
-import { useEnquetes } from '@/hooks/useEnquetes';
 import { electronStorage } from '@/services/storage/electronStorage';
+import { ElectronBridge } from '@/utils/electronBridge';
+import { Enquete } from '@/types/interfaces';
 
 const AUDIENCE_STORAGE_KEY = 'audience_resultats';
 const CLEANUP_INTERVAL = 30000;
@@ -35,10 +36,25 @@ const readFreshFromStorage = async (): Promise<Record<string, ResultatAudience>>
   }
 };
 
+// Lecture des enquêtes depuis le storage préfixé (tous contentieux accessibles)
+const readEnquetesForCleanup = async (): Promise<Enquete[]> => {
+  try {
+    // Lire les 3 contentieux connus pour le cleanup
+    const contentieuxIds = ['crimorg', 'ecofi', 'enviro'];
+    const all: Enquete[] = [];
+    for (const cId of contentieuxIds) {
+      const data = await ElectronBridge.getData<Enquete[]>(`ctx_${cId}_enquetes`, []);
+      if (Array.isArray(data)) all.push(...data);
+    }
+    return all;
+  } catch {
+    return [];
+  }
+};
+
 export const AudienceProvider = ({ children }: { children: React.ReactNode }) => {
   const [audienceState, setAudienceState] = useState<AudienceState>({ resultats: {} });
   const [isLoading, setIsLoading] = useState(true);
-  const { enquetes } = useEnquetes();
 
   // Chargement initial
   useEffect(() => {
@@ -74,11 +90,14 @@ export const AudienceProvider = ({ children }: { children: React.ReactNode }) =>
 
   // Cleanup périodique - lecture fraîche du storage avant nettoyage
   useEffect(() => {
-    if (!enquetes || isLoading) return;
+    if (isLoading) return;
 
     const timer = setTimeout(async () => {
       const freshResultats = await readFreshFromStorage();
       if (Object.keys(freshResultats).length === 0) return;
+
+      const enquetes = await readEnquetesForCleanup();
+      if (enquetes.length === 0) return; // pas de cleanup si pas d'enquêtes chargées
 
       const cleanedResultats = cleanupAudienceResults(freshResultats, enquetes);
 
@@ -93,7 +112,7 @@ export const AudienceProvider = ({ children }: { children: React.ReactNode }) =>
     }, CLEANUP_INTERVAL);
 
     return () => clearTimeout(timer);
-  }, [enquetes?.length, isLoading]);
+  }, [isLoading]);
 
   const saveResultat = useCallback(async (resultat: ResultatAudience): Promise<boolean> => {
     // Lire les données fraîches pour ne pas écraser les changements concurrents

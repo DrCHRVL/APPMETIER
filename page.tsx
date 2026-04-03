@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from 'react';
-import { SideBar } from './components/SideBar';
+import { MultiSideBar } from './components/MultiSideBar';
 import { Header } from './components/Header';
 import { FilterBar } from './components/FilterBar';
 import { EnquetePreview } from './components/EnquetePreview';
@@ -12,7 +12,7 @@ import { AlertsPage } from './components/pages/AlertsPage';
 import { AlertsModal } from './components/modals/AlertsModal';
 import { SavePage } from './components/pages/SavePage';
 import { StatsPage } from './components/pages/StatsPage';
-import { useEnquetes } from './hooks/useEnquetes';
+import { useContentieuxEnquetes } from './hooks/useContentieuxEnquetes';
 import { useFilterSort } from './hooks/useFilterSort';
 import { useDocumentSearch } from './hooks/useDocumentSearch';
 import { NewEnqueteData, Tag, ToDoItem } from './types/interfaces';
@@ -20,6 +20,7 @@ import { StorageManager } from './utils/storage';
 import { ConfirmationDialog } from './components/ui/confirmation-dialog';
 import { ToastProvider, useToast } from './contexts/ToastContext';
 import { AudienceProvider } from './contexts/AudienceContext';
+import { UserProvider, useUser } from './contexts/UserContext';
 import { ProlongationModal } from './components/modals/ProlongationModal';
 import { PoseActeModal } from './components/modals/PoseActeModal';
 import { ProlongationValidationModal } from './components/modals/ProlongationValidationModal';
@@ -54,6 +55,13 @@ import { DataSyncConflictModal } from './components/modals/DataSyncConflictModal
 import { ConflictAction } from '@/types/dataSyncTypes';
 import { DataSyncManager } from './utils/dataSync/DataSyncManager';
 
+// 🆕 Multi-contentieux
+import { SettingsModal } from './components/modals/SettingsModal';
+import { OverboardPage } from './components/pages/OverboardPage';
+import { ContentieuxId } from '@/types/userTypes';
+import { AdminUsersPanel } from './components/AdminUsersPanel';
+import { useOverboardData } from './hooks/useOverboardData';
+
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
 
 
@@ -63,11 +71,59 @@ function AppContent() {
   const [currentView, setCurrentView] = useState('enquetes');
   const [searchTerm, setSearchTerm] = useState('');
 
+  // 🆕 Multi-contentieux
+  const [activeContentieux, setActiveContentieux] = useState<ContentieuxId | null>(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
+
+  // Initialiser le contentieux actif et la vue au premier contentieux accessible
+  useEffect(() => {
+    if (!activeContentieux && accessibleContentieux.length > 0) {
+      const firstId = accessibleContentieux[0].id;
+      setActiveContentieux(firstId);
+      setCurrentView(`enquetes_${firstId}`);
+    }
+  }, [accessibleContentieux, activeContentieux]);
+
   // Réinitialise la recherche à chaque changement de vue
-  const handleViewChange = (view: string) => {
+  const handleViewChange = async (view: string, contentieuxId?: ContentieuxId) => {
+    // Vérifier que l'utilisateur a accès au contentieux demandé
+    if (contentieuxId && !accessibleContentieux.some(c => c.id === contentieuxId)) {
+      return;
+    }
+    // Flush les données en attente avant de changer de contentieux
+    if (contentieuxId && contentieuxId !== activeContentieux) {
+      await flushPendingSave();
+    }
     setSearchTerm('');
+    setSelectedTags([]);
+    setSortOrder('date-desc');
     setCurrentView(view);
+    if (contentieuxId) {
+      setActiveContentieux(contentieuxId);
+    }
+    // Rafraîchir l'overboard quand on y navigue (données potentiellement modifiées)
+    if (view === 'overboard') {
+      refreshOverboard();
+    }
   };
+
+  // Extraire le type de vue et le contentieux depuis les vues composites (ex: "enquetes_crimorg")
+  const parseView = (view: string): { baseView: string; viewContentieux: ContentieuxId | null } => {
+    const parts = view.split('_');
+    if (parts.length >= 2) {
+      const baseView = parts[0];
+      const cId = parts.slice(1).join('_');
+      // Vérifier que c'est bien un contentieux valide
+      if (contentieuxDefs.some(c => c.id === cId)) {
+        return { baseView, viewContentieux: cId };
+      }
+    }
+    return { baseView: view, viewContentieux: null };
+  };
+
+  const { baseView, viewContentieux } = parseView(currentView);
+  const effectiveContentieux = viewContentieux || activeContentieux;
   const [showNewEnqueteModal, setShowNewEnqueteModal] = useState(false);
   const [showNewInstructionModal, setShowNewInstructionModal] = useState(false);
   const [showAlertsModal, setShowAlertsModal] = useState(false);
@@ -99,12 +155,20 @@ function AppContent() {
   // 🆕 État pour le modal de conflits
   const [showConflictModal, setShowConflictModal] = useState(false);
 
+  // Auto-fermer le modal de conflits si les conditions deviennent invalides
+  useEffect(() => {
+    if (showConflictModal && (!lastSyncResult || !hasConflicts)) {
+      setShowConflictModal(false);
+    }
+  }, [showConflictModal, lastSyncResult, hasConflicts]);
+
   // Mise à jour de l'application
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updateCommits, setUpdateCommits] = useState(0);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // Hook pour les enquêtes préliminaires
+  // Hook pour les enquêtes — scopé au contentieux actif (défaut : crimorg)
+  const currentContentieuxId = effectiveContentieux || 'crimorg';
   const {
     enquetes,
     selectedEnquete,
@@ -122,9 +186,11 @@ function AppContent() {
     handleDeleteEnquete,
     handleUnarchiveEnquete,
     handleStartEnquete,
-    handleCreateAudienceAlert,
     flushPendingSave
-  } = useEnquetes();
+  } = useContentieuxEnquetes(currentContentieuxId);
+
+  // Hook Overboard — données transversales (tous contentieux)
+  const { enquetesByContentieux: overboardData, refresh: refreshOverboard } = useOverboardData(contentieuxDefs);
 
   // Hook pour les instructions judiciaires
   const {
@@ -174,7 +240,7 @@ function AppContent() {
     handleDeleteRule,
     handleSnoozeAlert,
     handleValidateAlert
-  } = useCombinedAlerts(enquetes, mesuresAIR);
+  } = useCombinedAlerts(enquetes, mesuresAIR, currentContentieuxId);
 
 
   // Hook tags centralisé - simplifié
@@ -353,33 +419,36 @@ function AppContent() {
 
   const handleExportData = async () => {
     try {
-      const enquetesData = await StorageManager.get('enquetes', []);
-      const instructionsData = await StorageManager.get('instructions', []);
-      const alertRulesData = await StorageManager.get('alertRules', []);
-      const tagsData = await StorageManager.get('tags', []);
+      // Exporter les données du contentieux actif (clés préfixées)
+      const ctxPrefix = `ctx_${currentContentieuxId}_`;
+      const enquetesData = await StorageManager.get(`${ctxPrefix}enquetes`, []);
+      const instructionsData = await StorageManager.get(`${ctxPrefix}instructions`, []);
+      const alertRulesData = await StorageManager.get(`${ctxPrefix}alertRules`, []);
+      const tagsData = await StorageManager.get(`${ctxPrefix}customTags`, []);
       const airMesuresData = await StorageManager.get('air_mesures', []);
-      
+
       const data = {
+        contentieuxId: currentContentieuxId,
         enquetes: enquetesData,
         instructions: instructionsData,
         alertRules: alertRulesData,
         tags: tagsData,
         airMesures: airMesuresData,
         exportDate: new Date().toISOString(),
-        version: '2.0'
+        version: '3.0'
       };
 
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `sauvegarde_complete_${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `sauvegarde_${currentContentieuxId}_${new Date().toISOString().split('T')[0]}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      
-      showToast(`Exportation réussie: ${enquetesData.length} enquêtes, ${instructionsData.length} instructions`, 'success');
+
+      showToast(`Exportation réussie (${currentContentieuxId}): ${enquetesData.length} enquêtes, ${instructionsData.length} instructions`, 'success');
     } catch (error) {
       console.error('Erreur lors de l\'exportation des données:', error);
       showToast('Erreur lors de l\'exportation des données', 'error');
@@ -412,9 +481,26 @@ function AppContent() {
               if (!hasEnquetes && !hasInstructions) {
                 throw new Error('Le fichier ne contient pas de données d\'enquêtes ou d\'instructions');
               }
-              
-              showToast('Import réussi', 'success');
-              
+
+              // Déterminer le contentieux cible (depuis le fichier importé ou le contentieux actif)
+              const targetCtx = importedData.contentieuxId || currentContentieuxId;
+              const ctxPrefix = `ctx_${targetCtx}_`;
+
+              if (hasEnquetes) {
+                await StorageManager.set(`${ctxPrefix}enquetes`, importedData.enquetes);
+              }
+              if (hasInstructions) {
+                await StorageManager.set(`${ctxPrefix}instructions`, importedData.instructions);
+              }
+              if (importedData.alertRules) {
+                await StorageManager.set(`${ctxPrefix}alertRules`, importedData.alertRules);
+              }
+              if (importedData.tags) {
+                await StorageManager.set(`${ctxPrefix}customTags`, importedData.tags);
+              }
+
+              showToast(`Import réussi dans ${targetCtx}`, 'success');
+
               setTimeout(() => {
                 window.location.reload();
               }, 1000);
@@ -433,7 +519,11 @@ function AppContent() {
   };
 
   const handleNewEnquete = () => {
-    if (currentView === 'instructions') {
+    if (!effectiveContentieux) {
+      showToast('Veuillez sélectionner un contentieux', 'error');
+      return;
+    }
+    if (baseView === 'instructions') {
       setShowNewInstructionModal(true);
     } else {
       setShowNewEnqueteModal(true);
@@ -516,7 +606,7 @@ function AppContent() {
     return enqueteAlertsCount + instructionAlertsCount + airAlertsCount;
   }, [alerts, instructionAlerts]);
 
-  if (!isClient || tagsLoading) {
+  if (!isClient || tagsLoading || userLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-100">
         <div className="text-lg">Chargement...</div>
@@ -524,15 +614,56 @@ function AppContent() {
     );
   }
 
+  // Afficher une erreur si l'utilisateur n'est pas reconnu
+  if (userError && !isAuthenticated) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-100">
+        <div className="text-center space-y-4 max-w-md">
+          <div className="text-6xl">🔒</div>
+          <h1 className="text-xl font-bold text-gray-800">Accès non autorisé</h1>
+          <p className="text-gray-600">{userError}</p>
+          <p className="text-sm text-gray-400">
+            Vérifiez que vous êtes bien connecté à votre session Windows
+            et que le serveur partagé est accessible.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Utilisateur authentifié mais sans contentieux attribué (nouvel utilisateur auto-inscrit)
+  if (isAuthenticated && accessibleContentieux.length === 0) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-100">
+        <div className="text-center space-y-4 max-w-md">
+          <div className="text-6xl">&#x23F3;</div>
+          <h1 className="text-xl font-bold text-gray-800">Bienvenue, {user?.displayName || user?.windowsUsername}</h1>
+          <p className="text-gray-600">
+            Votre compte a été créé automatiquement.
+          </p>
+          <p className="text-gray-600">
+            L'administrateur doit maintenant vous attribuer un ou plusieurs contentieux pour que vous puissiez accéder à l'application.
+          </p>
+          <p className="text-sm text-gray-400">
+            Relancez l'application une fois vos accès configurés.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
 return (
     <div className="flex h-screen bg-gray-100">
       <div className="no-print">
-        <SideBar 
+        <MultiSideBar
           isOpen={sidebarOpen}
           currentView={currentView}
+          currentContentieux={effectiveContentieux}
           onViewChange={handleViewChange}
           onNewEnquete={handleNewEnquete}
+          onOpenSettings={() => setShowSettingsModal(true)}
           alertCount={activeAlertsCount}
+          instructionAlertCount={instructionAlerts.length}
         />
       </div>
       <div className="flex-1 overflow-hidden flex flex-col">
@@ -556,7 +687,14 @@ return (
           />
         </div>
 
-        {(currentView === 'enquetes' || currentView === 'instructions') && (
+        {/* 🆕 Bandeau lecture seule */}
+        {effectiveContentieux && !canDo(effectiveContentieux, 'edit') && (baseView === 'enquetes' || baseView === 'archives') && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 py-1.5 text-xs text-amber-700 font-medium flex items-center gap-2">
+            <span>👁</span> Mode consultation — {contentieuxDefs.find(c => c.id === effectiveContentieux)?.label || effectiveContentieux}
+          </div>
+        )}
+
+        {(baseView === 'enquetes' || baseView === 'instructions') && (
           <FilterBar
             selectedTags={selectedTags}
             onTagSelect={(tag) => setSelectedTags([...selectedTags, tag])}
@@ -571,7 +709,7 @@ return (
         )}
 
         <main className="flex-1 overflow-auto p-6">
-          {currentView === 'enquetes' && (
+          {baseView === 'enquetes' && (
             <div className="space-y-6">
               <OPTimeline enquetes={activeEnquetes} />
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -612,12 +750,13 @@ return (
                       onArchive={handleArchiveEnquete}
                       onToggleSuivi={(type: 'JIRS' | 'PG') => {
                         const tagId = type === 'JIRS' ? 'suivi_jirs' : 'suivi_pg';
-                        const hasSuiviTag = enquete.tags.some((tag: any) =>
+                        const tags = enquete.tags || [];
+                        const hasSuiviTag = tags.some((tag: any) =>
                           tag.category === 'suivi' && tag.value === type
                         );
                         const newTags = hasSuiviTag
-                          ? enquete.tags.filter((tag: any) => !(tag.category === 'suivi' && tag.value === type))
-                          : [...enquete.tags, { id: tagId, value: type, category: 'suivi' }];
+                          ? tags.filter((tag: any) => !(tag.category === 'suivi' && tag.value === type))
+                          : [...tags, { id: tagId, value: type, category: 'suivi' }];
                         handleUpdateEnquete(enquete.id, { tags: newTags });
                       }}
                       onStartEnquete={handleStartEnquete}
@@ -702,7 +841,7 @@ return (
             </div>
           )}
 
-          {currentView === 'instructions' && (
+          {baseView === 'instructions' && (
             <InstructionsPage
               instructions={instructions}
               searchTerm={searchTerm}
@@ -713,7 +852,7 @@ return (
             />
           )}
 
-          {currentView === 'archives' && (
+          {baseView === 'archives' && (
             <ArchivePage
               enquetes={enquetes}
               searchTerm={searchTerm}
@@ -726,11 +865,11 @@ return (
             />
           )}
 
-          {currentView === 'permanence' && (
+          {baseView === 'permanence' && (
             <PermanencePage />
           )}
 
-          {currentView === 'air' && (
+          {baseView === 'air' && (
             <AIRPage 
               mesures={mesuresAIR}
               isLoading={isLoadingAIR}
@@ -742,39 +881,24 @@ return (
             />
           )}
 
-          {currentView === 'tags' && (
-            <TagManagementPage />
-          )}
-
-          {currentView === 'alertes' && (
-            <AlertsPage
-              rules={alertRules}
-              onUpdateRule={handleUpdateAlertRule}
-              onDuplicateRule={handleDuplicateRule}
-              onDeleteRule={handleDeleteRule}
-              onShowWeeklyPopup={() => setShowWeeklyPopup(true)}
-              visualAlertRules={visualAlertRules}
-              onUpdateVisualAlertRule={updateVisualAlertRule}
-              onDeleteVisualAlertRule={deleteVisualAlertRule}
-              onReorderVisualAlertRules={reorderVisualAlertRules}
-            />
-          )}
-
-          {currentView === 'statistiques' && (
+          {baseView === 'stats' && (
             <StatsPage enquetes={enquetes} />
           )}
 
-          {currentView === 'sauvegardes' && (
-            <SavePage
-              onExport={handleExportData}
-              onImport={handleImportData}
-              onManualSave={handleManualSave}
-              lastSaveDate={StorageManager.getLastSave()}
-              onRepairServer={repairServer}
-              onRestoreFromServerBackup={restoreFromServerBackup}
-              onListServerBackups={listServerBackups}
-              isSyncing={isSyncing}
-              syncStatus={syncStatus}
+          {/* 🆕 Overboard (vue transversale) */}
+          {baseView === 'overboard' && (
+            <OverboardPage
+              enquetesByContentieux={overboardData}
+              contentieuxDefs={contentieuxDefs}
+              onEnqueteClick={(enquete, contentieuxId) => {
+                // Switcher vers le bon contentieux avant d'ouvrir le modal
+                if (contentieuxId && contentieuxId !== activeContentieux) {
+                  setActiveContentieux(contentieuxId);
+                  setCurrentView(`enquetes_${contentieuxId}`);
+                }
+                setSelectedEnquete(enquete);
+                setIsEditing(false);
+              }}
             />
           )}
         </main>
@@ -804,6 +928,7 @@ return (
           onDelete={handleDeleteEnquete}
           allKnownMec={allKnownMec}
           onCreateGlobalTodo={(todo) => handleGlobalTodosChange([...globalTodos, todo])}
+          readOnly={effectiveContentieux ? !canDo(effectiveContentieux, 'edit') : true}
         />
       )}
 
@@ -1040,11 +1165,11 @@ return (
       )}
 
       {/* 🆕 Modal de gestion des conflits de synchronisation */}
-{showConflictModal && lastSyncResult && (
+{showConflictModal && lastSyncResult && hasConflicts && (
   <DataSyncConflictModal
     isOpen={showConflictModal}
     onClose={() => setShowConflictModal(false)}
-    conflicts={conflicts}
+    conflicts={conflicts || []}
     onResolve={handleResolveConflicts}
   />
 )}
@@ -1056,16 +1181,52 @@ return (
         enquetes={enquetes}
         alertRules={alertRules}
       />
+
+      {/* 🆕 Modal Paramètres multi-onglets */}
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        alertesContent={
+          <AlertsPage
+            rules={alertRules}
+            onUpdateRule={handleUpdateAlertRule}
+            onDuplicateRule={handleDuplicateRule}
+            onDeleteRule={handleDeleteRule}
+            onShowWeeklyPopup={() => setShowWeeklyPopup(true)}
+            visualAlertRules={visualAlertRules}
+            onUpdateVisualAlertRule={updateVisualAlertRule}
+            onDeleteVisualAlertRule={deleteVisualAlertRule}
+            onReorderVisualAlertRules={reorderVisualAlertRules}
+          />
+        }
+        tagsContent={<TagManagementPage />}
+        sauvegardesContent={
+          <SavePage
+            onExport={handleExportData}
+            onImport={handleImportData}
+            onManualSave={handleManualSave}
+            lastSaveDate={StorageManager.getLastSave()}
+            onRepairServer={repairServer}
+            onRestoreFromServerBackup={restoreFromServerBackup}
+            onListServerBackups={listServerBackups}
+            isSyncing={isSyncing}
+            syncStatus={syncStatus}
+          />
+        }
+        adminUsersContent={<AdminUsersPanel />}
+      />
     </div>
   );
 }
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AudienceProvider>
-        <AppContent />
-      </AudienceProvider>
-    </ToastProvider>
+    <UserProvider>
+      <ToastProvider>
+        <AudienceProvider>
+          <AppContent />
+        </AudienceProvider>
+      </ToastProvider>
+    </UserProvider>
   );
 }

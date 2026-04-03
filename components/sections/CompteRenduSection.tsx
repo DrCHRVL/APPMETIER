@@ -7,7 +7,7 @@ import { Label } from '../ui/label';
 import { Enquete, CompteRendu, EnqueteInstruction } from '@/types/interfaces';
 import { X, FileText, Calendar, User } from 'lucide-react';
 import { useMemo, useState, useRef, useEffect } from 'react';
-import { DataSyncManager } from '@/utils/dataSync/DataSyncManager';
+import { useUser } from '@/contexts/UserContext';
 
 interface CompteRenduSectionProps {
   enquete: Enquete | EnqueteInstruction;
@@ -110,10 +110,8 @@ export const CompteRenduSection = ({
   const dragState = useRef({ dragging: false, startX: 0, startY: 0, initLeft: 0, initTop: 0 });
 
   // Utilisateur courant (pour distinguer les CR de l'autre utilisateur)
-  const [currentUser, setCurrentUser] = useState<string>('');
-  useEffect(() => {
-    setCurrentUser(DataSyncManager.getInstance().getStatus().currentUser);
-  }, []);
+  const { user } = useUser();
+  const currentUser = user?.windowsUsername || '';
 
   // Charge le contenu de l'éditeur à l'ouverture (brouillon ou markdown converti)
   useEffect(() => {

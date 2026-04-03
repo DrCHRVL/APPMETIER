@@ -113,6 +113,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getCurrentUser: () =>
     ipcRenderer.invoke('system:getCurrentUser'),
 
+  // ========================================================================
+  // APIS MULTI-CONTENTIEUX (users.json + sync par contentieux)
+  // ========================================================================
+
+  dataSync_pullUsersConfig: () =>
+    ipcRenderer.invoke('dataSync:pullUsersConfig'),
+
+  dataSync_pushUsersConfig: (config) =>
+    ipcRenderer.invoke('dataSync:pushUsersConfig', config),
+
+  dataSync_checkContentieuxAccess: (contentieuxId) =>
+    ipcRenderer.invoke('dataSync:checkContentieuxAccess', contentieuxId),
+
+  dataSync_pullContentieux: (contentieuxId) =>
+    ipcRenderer.invoke('dataSync:pullContentieux', contentieuxId),
+
+  dataSync_pushContentieux: (contentieuxId, data, metadata) =>
+    ipcRenderer.invoke('dataSync:pushContentieux', contentieuxId, data, metadata),
+
+  dataSync_backupContentieux: (contentieuxId, backupFilename) =>
+    ipcRenderer.invoke('dataSync:backupContentieux', contentieuxId, backupFilename),
+
   // === MISE À JOUR DE L'APPLICATION ===
   checkAppUpdate: () =>
     ipcRenderer.invoke('app:checkUpdate'),

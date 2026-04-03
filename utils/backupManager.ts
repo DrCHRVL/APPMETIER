@@ -12,14 +12,20 @@ class BackupManager {
   private static readonly BACKUP_KEY_PREFIX = 'backup_';
   
   // Liste des données importantes pour les sauvegardes sélectives
+  // Inclut les clés globales (rétrocompat) ET les clés préfixées par contentieux
+  private static readonly CONTENTIEUX_IDS = ['crimorg', 'ecofi', 'enviro'];
+  private static readonly CONTENTIEUX_SUFFIXES = [
+    'enquetes', 'instructions', 'alertRules', 'alerts', 'alertValidations',
+    'customTags', 'visualAlertRules', 'audienceResultats'
+  ];
   private static readonly MAIN_DATA_KEYS = [
-    APP_CONFIG.STORAGE_KEYS.ENQUETES,
-    APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS,
-    APP_CONFIG.STORAGE_KEYS.ALERT_RULES,
-    APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS,
-    APP_CONFIG.STORAGE_KEYS.AUDIENCE_RESULTATS,
+    // Clés globales (anciennes données + modules transversaux)
     APP_CONFIG.STORAGE_KEYS.AIR_MESURES,
-    APP_CONFIG.STORAGE_KEYS.SAVE_HISTORY
+    APP_CONFIG.STORAGE_KEYS.SAVE_HISTORY,
+    // Clés préfixées par contentieux
+    ...BackupManager.CONTENTIEUX_IDS.flatMap(ctx =>
+      BackupManager.CONTENTIEUX_SUFFIXES.map(suffix => `ctx_${ctx}_${suffix}`)
+    ),
   ];
 
   private backupTimerId: NodeJS.Timeout | null = null;
