@@ -294,7 +294,11 @@ export const MultiSideBar = ({
       </div>
 
       <div className="copyright">
-        Propriété de Audran CHEVALIER, Parquet d&apos;AMIENS
+        <div style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.08em', opacity: 0.7 }}>
+          APP MÉTIER
+        </div>
+        <div>Conçu par A. CHEVALIER — Parquet d&apos;Amiens</div>
+        <div style={{ opacity: 0.4 }}>2025–{new Date().getFullYear()}</div>
       </div>
     </div>
   );

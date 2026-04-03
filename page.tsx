@@ -67,6 +67,7 @@ import { AdminPathsPanel } from './components/admin/AdminPathsPanel';
 import { AdminDashboardPanel } from './components/admin/AdminDashboardPanel';
 import { AdminTagHistoryPanel } from './components/admin/AdminTagHistoryPanel';
 import { AdminUpdatePanel } from './components/admin/AdminUpdatePanel';
+import { AboutContent } from './components/AboutContent';
 import { useOverboardData } from './hooks/useOverboardData';
 import { TagRequestPopup } from './components/modals/TagRequestPopup';
 import { tagRequestManager } from './utils/tagRequestManager';
@@ -1398,6 +1399,7 @@ return (
         adminDashboardContent={<AdminDashboardPanel />}
         adminTagHistoryContent={<AdminTagHistoryPanel />}
         adminUpdateContent={<AdminUpdatePanel />}
+        aProposContent={<AboutContent />}
       />
 
       {/* Popup demandes de tags (admin) */}

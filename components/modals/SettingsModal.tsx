@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId } from '@/types/userTypes';
 
@@ -9,7 +9,7 @@ import { ContentieuxId } from '@/types/userTypes';
 // TYPES
 // ──────────────────────────────────────────────
 
-type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
+type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'a_propos' | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -23,6 +23,7 @@ interface SettingsModalProps {
   adminDashboardContent?: React.ReactNode;
   adminTagHistoryContent?: React.ReactNode;
   adminUpdateContent?: React.ReactNode;
+  aProposContent?: React.ReactNode;
   /** Currently active contentieux (used as default) */
   activeContentieuxId?: ContentieuxId;
   /** Called when user switches contentieux tab in settings */
@@ -45,6 +46,7 @@ const TABS: TabDef[] = [
   { id: 'alertes',        label: 'Alertes',       icon: Bell },
   { id: 'tags',           label: 'Tags',          icon: Tags },
   { id: 'sauvegardes',    label: 'Sauvegardes',   icon: Save },
+  { id: 'a_propos',       label: 'À propos',      icon: Info },
   // Séparateur admin
   { id: 'admin_users',       label: 'Utilisateurs',     icon: Users,         isAdmin: true, isSeparator: true },
   { id: 'admin_contentieux', label: 'Contentieux',      icon: Layers,        isAdmin: true },
@@ -77,6 +79,7 @@ export const SettingsModal = ({
   adminDashboardContent,
   adminTagHistoryContent,
   adminUpdateContent,
+  aProposContent,
   activeContentieuxId,
   onContentieuxChange,
 }: SettingsModalProps) => {
@@ -101,6 +104,8 @@ export const SettingsModal = ({
         return tagsContent;
       case 'sauvegardes':
         return sauvegardesContent;
+      case 'a_propos':
+        return aProposContent;
       case 'admin_users':
         return adminUsersContent;
       case 'admin_contentieux':
@@ -119,7 +124,7 @@ export const SettingsModal = ({
   };
 
   // Onglets contentieux (horizontal en haut)
-  const showContentieuxTabs = accessibleContentieux.length > 1 && !activeTab.startsWith('admin_');
+  const showContentieuxTabs = accessibleContentieux.length > 1 && !activeTab.startsWith('admin_') && activeTab !== 'a_propos';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
