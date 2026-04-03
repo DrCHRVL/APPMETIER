@@ -1508,6 +1508,184 @@ function setupIpcHandlers() {
     }
   });
 
+  // ========================================================================
+  // HANDLERS HEARTBEAT, ÉVÉNEMENTS PARTAGÉS, JOURNAL D'AUDIT
+  // ========================================================================
+
+  /**
+   * Résout le chemin "general" depuis la config serverPaths de users.json.
+   * Fallback sur COMMON_SERVER_PATH si non configuré.
+   */
+  function getGeneralServerPath() {
+    try {
+      if (fs.existsSync(USERS_CONFIG_PATH)) {
+        const config = JSON.parse(fs.readFileSync(USERS_CONFIG_PATH, 'utf8'))
+        if (config.serverPaths?.general) {
+          return config.serverPaths.general
+        }
+      }
+    } catch {}
+    return COMMON_SERVER_PATH
+  }
+
+  function ensureDir(dirPath) {
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, { recursive: true })
+    }
+    return dirPath
+  }
+
+  // ── HEARTBEAT ──
+
+  ipcMain.handle('heartbeat:write', async (event, username, heartbeat) => {
+    try {
+      const dir = ensureDir(path.join(getGeneralServerPath(), 'heartbeats'))
+      const filePath = path.join(dir, `${username}.json`)
+      fs.writeFileSync(filePath, JSON.stringify(heartbeat, null, 2), 'utf8')
+      return true
+    } catch (error) {
+      console.error('❌ Heartbeat write error:', error.message)
+      return false
+    }
+  })
+
+  ipcMain.handle('heartbeat:remove', async (event, username) => {
+    try {
+      const filePath = path.join(getGeneralServerPath(), 'heartbeats', `${username}.json`)
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath)
+      }
+      return true
+    } catch (error) {
+      console.error('❌ Heartbeat remove error:', error.message)
+      return false
+    }
+  })
+
+  ipcMain.handle('heartbeat:readAll', async () => {
+    try {
+      const dir = path.join(getGeneralServerPath(), 'heartbeats')
+      if (!fs.existsSync(dir)) return []
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'))
+      const heartbeats = []
+      for (const file of files) {
+        try {
+          const content = fs.readFileSync(path.join(dir, file), 'utf8')
+          heartbeats.push(JSON.parse(content))
+        } catch {}
+      }
+      return heartbeats
+    } catch (error) {
+      console.error('❌ Heartbeat readAll error:', error.message)
+      return []
+    }
+  })
+
+  // ── ÉVÉNEMENTS PARTAGÉS ──
+
+  ipcMain.handle('sharedEvent:write', async (event, sharedEvent) => {
+    try {
+      const dir = ensureDir(path.join(getGeneralServerPath(), 'events'))
+      const filePath = path.join(dir, `${sharedEvent.id}.json`)
+      fs.writeFileSync(filePath, JSON.stringify(sharedEvent, null, 2), 'utf8')
+      return true
+    } catch (error) {
+      console.error('❌ SharedEvent write error:', error.message)
+      return false
+    }
+  })
+
+  ipcMain.handle('sharedEvent:cleanup', async (event, ttlMs) => {
+    try {
+      const dir = path.join(getGeneralServerPath(), 'events')
+      if (!fs.existsSync(dir)) return true
+      const now = Date.now()
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'))
+      for (const file of files) {
+        try {
+          const filePath = path.join(dir, file)
+          const content = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+          if (now - new Date(content.timestamp).getTime() > ttlMs) {
+            fs.unlinkSync(filePath)
+          }
+        } catch {}
+      }
+      return true
+    } catch (error) {
+      console.error('❌ SharedEvent cleanup error:', error.message)
+      return false
+    }
+  })
+
+  // File watcher pour les événements partagés
+  let eventsWatcher = null
+
+  function startEventsWatcher() {
+    try {
+      const dir = ensureDir(path.join(getGeneralServerPath(), 'events'))
+      if (eventsWatcher) {
+        eventsWatcher.close()
+        eventsWatcher = null
+      }
+      eventsWatcher = fs.watch(dir, (eventType, filename) => {
+        if (eventType === 'rename' && filename && filename.endsWith('.json')) {
+          const filePath = path.join(dir, filename)
+          try {
+            if (fs.existsSync(filePath)) {
+              const content = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('sharedEvent:received', content)
+              }
+            }
+          } catch {}
+        }
+      })
+      console.log('✅ Events watcher démarré sur', dir)
+    } catch (error) {
+      console.error('❌ Events watcher error:', error.message)
+    }
+  }
+
+  ipcMain.handle('sharedEvent:startWatcher', async () => {
+    startEventsWatcher()
+    return true
+  })
+
+  // ── JOURNAL D'AUDIT ──
+
+  ipcMain.handle('auditLog:append', async (event, entry, maxEntries) => {
+    try {
+      const dir = ensureDir(path.join(getGeneralServerPath(), 'audit'))
+      const filePath = path.join(dir, 'audit_log.json')
+      let entries = []
+      if (fs.existsSync(filePath)) {
+        try {
+          entries = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+        } catch {}
+      }
+      entries.unshift(entry)
+      if (entries.length > maxEntries) {
+        entries.length = maxEntries
+      }
+      fs.writeFileSync(filePath, JSON.stringify(entries, null, 2), 'utf8')
+      return true
+    } catch (error) {
+      console.error('❌ AuditLog append error:', error.message)
+      return false
+    }
+  })
+
+  ipcMain.handle('auditLog:read', async () => {
+    try {
+      const filePath = path.join(getGeneralServerPath(), 'audit', 'audit_log.json')
+      if (!fs.existsSync(filePath)) return []
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+    } catch (error) {
+      console.error('❌ AuditLog read error:', error.message)
+      return []
+    }
+  })
+
   // === MISE À JOUR DE L'APPLICATION (GitHub API + ZIP, sans git) ===
 
   const GITHUB_REPO = 'DrCHRVL/APPMETIER';

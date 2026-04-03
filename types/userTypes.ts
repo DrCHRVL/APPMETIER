@@ -58,10 +58,20 @@ export interface UserProfile {
 // FICHIER USERS.JSON (structure serveur)
 // ──────────────────────────────────────────────
 
+/** Configuration des chemins réseau */
+export interface ServerPathsConfig {
+  /** Chemin racine général (heartbeats, events, users.json, audit) */
+  general: string;
+  /** Chemins par contentieux (données, backups) */
+  contentieux: Record<ContentieuxId, string>;
+}
+
 export interface UsersConfig {
   version: number;
   contentieux: ContentieuxDefinition[];
   users: UserProfile[];
+  /** Chemins réseau configurés par l'admin */
+  serverPaths?: ServerPathsConfig;
   updatedAt: string;          // ISO date
   updatedBy: string;          // windowsUsername de l'admin
 }
@@ -110,4 +120,47 @@ export interface OverboardPin {
   pinnedBy: string;           // windowsUsername
   pinnedAt: string;           // ISO date
   role: 'admin' | 'pra' | 'vice_proc';
+}
+
+// ──────────────────────────────────────────────
+// HEARTBEAT & ÉVÉNEMENTS TEMPS RÉEL
+// ──────────────────────────────────────────────
+
+/** Heartbeat d'un utilisateur (fichier sur le serveur partagé) */
+export interface UserHeartbeat {
+  username: string;
+  displayName: string;
+  activeContentieux: ContentieuxId | null;
+  currentView: string;
+  appVersion: string;
+  timestamp: string;          // ISO date
+}
+
+/** Événement partagé entre clients */
+export interface SharedEvent {
+  id: string;
+  type: 'enquete_archived' | 'enquete_created' | 'pin_changed' | 'tag_request' | 'sync_completed' | 'cr_added';
+  contentieuxId?: ContentieuxId;
+  username: string;
+  data?: Record<string, any>;
+  timestamp: string;          // ISO date
+}
+
+// ──────────────────────────────────────────────
+// JOURNAL D'AUDIT
+// ──────────────────────────────────────────────
+
+/** Entrée du journal d'audit */
+export interface AuditLogEntry {
+  id: string;
+  action: 'create_enquete' | 'archive_enquete' | 'delete_enquete' | 'unarchive_enquete'
+    | 'update_enquete' | 'add_cr' | 'pin_overboard' | 'hide_from_ja'
+    | 'user_login' | 'user_added' | 'user_role_changed'
+    | 'tag_created' | 'tag_deleted' | 'tag_request_approved' | 'tag_request_rejected'
+    | 'settings_changed' | 'backup_created';
+  username: string;
+  displayName: string;
+  contentieuxId?: ContentieuxId;
+  details?: string;           // Description libre (ex: "Enquête 2025/123 archivée")
+  timestamp: string;          // ISO date
 }

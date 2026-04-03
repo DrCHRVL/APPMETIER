@@ -61,9 +61,15 @@ import { OverboardPage } from './components/pages/OverboardPage';
 import { GlobalStatsPage } from './components/pages/GlobalStatsPage';
 import { ContentieuxId } from '@/types/userTypes';
 import { AdminUsersPanel } from './components/AdminUsersPanel';
+import { AdminPathsPanel } from './components/admin/AdminPathsPanel';
+import { AdminDashboardPanel } from './components/admin/AdminDashboardPanel';
+import { AdminTagHistoryPanel } from './components/admin/AdminTagHistoryPanel';
 import { useOverboardData } from './hooks/useOverboardData';
 import { TagRequestPopup } from './components/modals/TagRequestPopup';
 import { tagRequestManager } from './utils/tagRequestManager';
+import { HeartbeatManager } from './utils/heartbeatManager';
+import { SharedEventManager } from './utils/sharedEventManager';
+import { AuditLogger } from './utils/auditLogger';
 
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
 
@@ -298,6 +304,43 @@ function AppContent() {
       }
     });
   }, [isAdmin]);
+
+  // Démarrage des services temps réel (heartbeat, événements, audit)
+  useEffect(() => {
+    if (!user || !isAuthenticated) return;
+
+    // Heartbeat
+    const hb = HeartbeatManager.getInstance();
+    hb.start(user.windowsUsername, user.displayName);
+
+    // Événements partagés
+    const sem = SharedEventManager.getInstance();
+    sem.start(user.windowsUsername);
+    // Démarrer le file watcher côté main process
+    (window as any).electronAPI?.startEventsWatcher?.();
+
+    // Journal d'audit
+    const audit = AuditLogger.getInstance();
+    audit.initialize(user.windowsUsername, user.displayName);
+    audit.log('user_login', `Connexion de ${user.displayName}`);
+
+    // Nettoyage périodique des événements (toutes les 5 min)
+    const cleanupInterval = setInterval(() => {
+      SharedEventManager.cleanup();
+    }, 5 * 60_000);
+
+    return () => {
+      hb.stop();
+      clearInterval(cleanupInterval);
+    };
+  }, [user, isAuthenticated]);
+
+  // Mise à jour du contexte heartbeat quand la vue change
+  useEffect(() => {
+    if (!user) return;
+    const hb = HeartbeatManager.getInstance();
+    hb.updateContext(activeContentieux, baseView);
+  }, [activeContentieux, baseView, user]);
 
   const handleGlobalTodosChange = (todos: ToDoItem[]) => {
     setGlobalTodos(todos);
@@ -1300,6 +1343,9 @@ return (
           />
         }
         adminUsersContent={<AdminUsersPanel />}
+        adminPathsContent={<AdminPathsPanel />}
+        adminDashboardContent={<AdminDashboardPanel />}
+        adminTagHistoryContent={<AdminTagHistoryPanel />}
       />
 
       {/* Popup demandes de tags (admin) */}

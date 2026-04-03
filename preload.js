@@ -135,6 +135,37 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dataSync_backupContentieux: (contentieuxId, backupFilename) =>
     ipcRenderer.invoke('dataSync:backupContentieux', contentieuxId, backupFilename),
 
+  // ========================================================================
+  // HEARTBEAT, ÉVÉNEMENTS PARTAGÉS, JOURNAL D'AUDIT
+  // ========================================================================
+
+  writeHeartbeat: (username, heartbeat) =>
+    ipcRenderer.invoke('heartbeat:write', username, heartbeat),
+
+  removeHeartbeat: (username) =>
+    ipcRenderer.invoke('heartbeat:remove', username),
+
+  readAllHeartbeats: () =>
+    ipcRenderer.invoke('heartbeat:readAll'),
+
+  writeSharedEvent: (sharedEvent) =>
+    ipcRenderer.invoke('sharedEvent:write', sharedEvent),
+
+  cleanupSharedEvents: (ttlMs) =>
+    ipcRenderer.invoke('sharedEvent:cleanup', ttlMs),
+
+  startEventsWatcher: () =>
+    ipcRenderer.invoke('sharedEvent:startWatcher'),
+
+  onSharedEvent: (callback) =>
+    ipcRenderer.on('sharedEvent:received', (event, data) => callback(data)),
+
+  appendAuditLog: (entry, maxEntries) =>
+    ipcRenderer.invoke('auditLog:append', entry, maxEntries),
+
+  readAuditLog: () =>
+    ipcRenderer.invoke('auditLog:read'),
+
   // === MISE À JOUR DE L'APPLICATION ===
   checkAppUpdate: () =>
     ipcRenderer.invoke('app:checkUpdate'),
