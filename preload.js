@@ -166,10 +166,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readAuditLog: () =>
     ipcRenderer.invoke('auditLog:read'),
 
-  // === MISE À JOUR DE L'APPLICATION ===
+  // === MISE À JOUR DE L'APPLICATION (GitHub) ===
   checkAppUpdate: () =>
     ipcRenderer.invoke('app:checkUpdate'),
 
   applyAppUpdate: () =>
     ipcRenderer.invoke('app:applyUpdate'),
+
+  // === MISE À JOUR VIA RÉSEAU LOCAL ===
+  lanUpdatePublish: (changelog) =>
+    ipcRenderer.invoke('lanUpdate:publish', changelog),
+
+  lanUpdateCheck: () =>
+    ipcRenderer.invoke('lanUpdate:check'),
+
+  lanUpdateApply: () =>
+    ipcRenderer.invoke('lanUpdate:apply'),
+
+  lanUpdateRollback: () =>
+    ipcRenderer.invoke('lanUpdate:rollback'),
+
+  lanUpdateGetJustUpdated: () =>
+    ipcRenderer.invoke('lanUpdate:getJustUpdated'),
+
+  lanUpdateGetLocalVersion: () =>
+    ipcRenderer.invoke('lanUpdate:getLocalVersion'),
 })

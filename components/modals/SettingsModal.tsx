@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId } from '@/types/userTypes';
 
@@ -9,7 +9,7 @@ import { ContentieuxId } from '@/types/userTypes';
 // TYPES
 // ──────────────────────────────────────────────
 
-type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history';
+type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -22,6 +22,7 @@ interface SettingsModalProps {
   adminPathsContent?: React.ReactNode;
   adminDashboardContent?: React.ReactNode;
   adminTagHistoryContent?: React.ReactNode;
+  adminUpdateContent?: React.ReactNode;
   /** Currently active contentieux (used as default) */
   activeContentieuxId?: ContentieuxId;
   /** Called when user switches contentieux tab in settings */
@@ -50,6 +51,7 @@ const TABS: TabDef[] = [
   { id: 'admin_paths',       label: 'Chemins réseau',   icon: Network,       isAdmin: true },
   { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      isAdmin: true },
   { id: 'admin_tag_history', label: 'Historique tags',   icon: ClipboardList, isAdmin: true },
+  { id: 'admin_update',      label: 'Mise à jour',      icon: Upload,        isAdmin: true },
 ];
 
 // Couleurs contentieux
@@ -74,6 +76,7 @@ export const SettingsModal = ({
   adminPathsContent,
   adminDashboardContent,
   adminTagHistoryContent,
+  adminUpdateContent,
   activeContentieuxId,
   onContentieuxChange,
 }: SettingsModalProps) => {
@@ -108,6 +111,8 @@ export const SettingsModal = ({
         return adminDashboardContent;
       case 'admin_tag_history':
         return adminTagHistoryContent;
+      case 'admin_update':
+        return adminUpdateContent;
       default:
         return null;
     }

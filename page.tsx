@@ -66,6 +66,7 @@ import { AdminContentieuxPanel } from './components/admin/AdminContentieuxPanel'
 import { AdminPathsPanel } from './components/admin/AdminPathsPanel';
 import { AdminDashboardPanel } from './components/admin/AdminDashboardPanel';
 import { AdminTagHistoryPanel } from './components/admin/AdminTagHistoryPanel';
+import { AdminUpdatePanel } from './components/admin/AdminUpdatePanel';
 import { useOverboardData } from './hooks/useOverboardData';
 import { TagRequestPopup } from './components/modals/TagRequestPopup';
 import { tagRequestManager } from './utils/tagRequestManager';
@@ -401,6 +402,23 @@ function AppContent() {
     checkUpdate();
     const interval = setInterval(checkUpdate, 30 * 60 * 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Vérification post-update LAN : afficher le changelog
+  useEffect(() => {
+    const checkJustUpdated = async () => {
+      try {
+        const info = await (window as any).electronAPI?.lanUpdateGetJustUpdated?.();
+        if (info) {
+          const msg = info.changelog
+            ? `Mise à jour ${info.version} installée : ${info.changelog}`
+            : `Mise à jour ${info.version} installée`;
+          showToast(msg, 'success');
+        }
+      } catch {}
+    };
+    checkJustUpdated();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleApplyUpdate = async () => {
@@ -1379,6 +1397,7 @@ return (
         adminPathsContent={<AdminPathsPanel />}
         adminDashboardContent={<AdminDashboardPanel />}
         adminTagHistoryContent={<AdminTagHistoryPanel />}
+        adminUpdateContent={<AdminUpdatePanel />}
       />
 
       {/* Popup demandes de tags (admin) */}
