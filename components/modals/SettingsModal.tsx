@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId } from '@/types/userTypes';
 
@@ -9,7 +9,7 @@ import { ContentieuxId } from '@/types/userTypes';
 // TYPES
 // ──────────────────────────────────────────────
 
-type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'admin_users' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history';
+type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -18,6 +18,7 @@ interface SettingsModalProps {
   tagsContent: React.ReactNode;
   sauvegardesContent: React.ReactNode;
   adminUsersContent?: React.ReactNode;
+  adminContentieuxContent?: React.ReactNode;
   adminPathsContent?: React.ReactNode;
   adminDashboardContent?: React.ReactNode;
   adminTagHistoryContent?: React.ReactNode;
@@ -45,6 +46,7 @@ const TABS: TabDef[] = [
   { id: 'sauvegardes',    label: 'Sauvegardes',   icon: Save },
   // Séparateur admin
   { id: 'admin_users',       label: 'Utilisateurs',     icon: Users,         isAdmin: true, isSeparator: true },
+  { id: 'admin_contentieux', label: 'Contentieux',      icon: Layers,        isAdmin: true },
   { id: 'admin_paths',       label: 'Chemins réseau',   icon: Network,       isAdmin: true },
   { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      isAdmin: true },
   { id: 'admin_tag_history', label: 'Historique tags',   icon: ClipboardList, isAdmin: true },
@@ -68,6 +70,7 @@ export const SettingsModal = ({
   tagsContent,
   sauvegardesContent,
   adminUsersContent,
+  adminContentieuxContent,
   adminPathsContent,
   adminDashboardContent,
   adminTagHistoryContent,
@@ -97,6 +100,8 @@ export const SettingsModal = ({
         return sauvegardesContent;
       case 'admin_users':
         return adminUsersContent;
+      case 'admin_contentieux':
+        return adminContentieuxContent;
       case 'admin_paths':
         return adminPathsContent;
       case 'admin_dashboard':

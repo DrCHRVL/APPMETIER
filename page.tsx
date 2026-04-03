@@ -61,6 +61,7 @@ import { OverboardPage } from './components/pages/OverboardPage';
 import { GlobalStatsPage } from './components/pages/GlobalStatsPage';
 import { ContentieuxId } from '@/types/userTypes';
 import { AdminUsersPanel } from './components/AdminUsersPanel';
+import { AdminContentieuxPanel } from './components/admin/AdminContentieuxPanel';
 import { AdminPathsPanel } from './components/admin/AdminPathsPanel';
 import { AdminDashboardPanel } from './components/admin/AdminDashboardPanel';
 import { AdminTagHistoryPanel } from './components/admin/AdminTagHistoryPanel';
@@ -1343,6 +1344,7 @@ return (
           />
         }
         adminUsersContent={<AdminUsersPanel />}
+        adminContentieuxContent={<AdminContentieuxPanel />}
         adminPathsContent={<AdminPathsPanel />}
         adminDashboardContent={<AdminDashboardPanel />}
         adminTagHistoryContent={<AdminTagHistoryPanel />}

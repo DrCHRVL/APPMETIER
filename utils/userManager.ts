@@ -118,7 +118,14 @@ export class UserManager {
     return this.config;
   }
 
+  /** Retourne uniquement les contentieux activés (pour l'app) */
   public getContentieux(): ContentieuxDefinition[] {
+    const all = this.config?.contentieux || DEFAULT_CONTENTIEUX;
+    return all.filter(c => c.enabled !== false);
+  }
+
+  /** Retourne TOUS les contentieux, y compris désactivés (pour l'admin) */
+  public getAllContentieux(): ContentieuxDefinition[] {
     return this.config?.contentieux || DEFAULT_CONTENTIEUX;
   }
 
@@ -220,7 +227,49 @@ export class UserManager {
   }
 
   // ──────────────────────────────────────────────
-  // GESTION DES CONTENTIEUX (admin only)
+  // GESTION DES DÉFINITIONS DE CONTENTIEUX (admin only)
+  // ──────────────────────────────────────────────
+
+  public async addContentieux(def: ContentieuxDefinition): Promise<boolean> {
+    if (!this.config || !this.isCurrentUserAdmin()) return false;
+    if (this.config.contentieux.some(c => c.id === def.id)) return false;
+    this.config.contentieux.push({ ...def, enabled: def.enabled !== false });
+    return this.saveConfig();
+  }
+
+  public async updateContentieux(id: ContentieuxId, updates: Partial<ContentieuxDefinition>): Promise<boolean> {
+    if (!this.config || !this.isCurrentUserAdmin()) return false;
+    const idx = this.config.contentieux.findIndex(c => c.id === id);
+    if (idx === -1) return false;
+    this.config.contentieux[idx] = { ...this.config.contentieux[idx], ...updates, id };
+    return this.saveConfig();
+  }
+
+  public async removeContentieux(id: ContentieuxId): Promise<boolean> {
+    if (!this.config || !this.isCurrentUserAdmin()) return false;
+    // Ne pas supprimer s'il reste un seul contentieux actif
+    const enabledCount = this.config.contentieux.filter(c => c.enabled !== false).length;
+    if (enabledCount <= 1 && this.config.contentieux.find(c => c.id === id)?.enabled !== false) return false;
+    this.config.contentieux = this.config.contentieux.filter(c => c.id !== id);
+    // Retirer aussi l'assignation de ce contentieux à tous les utilisateurs
+    for (const user of this.config.users) {
+      user.contentieux = user.contentieux.filter(c => c.contentieuxId !== id);
+    }
+    return this.saveConfig();
+  }
+
+  public async toggleContentieux(id: ContentieuxId, enabled: boolean): Promise<boolean> {
+    if (!this.config || !this.isCurrentUserAdmin()) return false;
+    // Ne pas désactiver le dernier contentieux
+    if (!enabled) {
+      const enabledCount = this.config.contentieux.filter(c => c.enabled !== false && c.id !== id).length;
+      if (enabledCount === 0) return false;
+    }
+    return this.updateContentieux(id, { enabled });
+  }
+
+  // ──────────────────────────────────────────────
+  // GESTION DES ASSIGNATIONS CONTENTIEUX (admin only)
   // ──────────────────────────────────────────────
 
   public async assignContentieux(

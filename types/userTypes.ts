@@ -24,6 +24,7 @@ export interface ContentieuxDefinition {
   color: string;           // Couleur hex pour la sidebar et les badges
   serverFolder: string;    // Nom du dossier sur le serveur (ex: "crimorg")
   order: number;           // Ordre d'affichage dans la sidebar
+  enabled?: boolean;       // false = contentieux désactivé (masqué partout). Default true.
 }
 
 // ──────────────────────────────────────────────
