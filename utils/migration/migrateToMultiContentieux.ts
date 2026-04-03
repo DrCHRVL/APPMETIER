@@ -47,10 +47,16 @@ export async function isMigrationDone(): Promise<boolean> {
  * Retourne true si la migration a été effectuée, false si déjà faite.
  */
 export async function migrateToMultiContentieux(): Promise<boolean> {
-  // Vérifier si déjà migrée
+  // Vérifier si déjà migrée — mais aussi vérifier si les données existent vraiment
   if (await isMigrationDone()) {
-    console.log('✅ Migration multi-contentieux : déjà effectuée');
-    return false;
+    // Double check : la clé enquetes existe-t-elle dans le nouveau format ?
+    const check = await ElectronBridge.getData(newKey(DEFAULT_CONTENTIEUX, 'enquetes'), null);
+    if (check !== null) {
+      console.log('✅ Migration multi-contentieux : déjà effectuée et vérifiée');
+      return false;
+    }
+    // Flag marqué mais données absentes → relancer la migration
+    console.warn('⚠️ Migration multi-contentieux : flag présent mais données absentes, relance...');
   }
 
   console.log('🔄 Migration multi-contentieux : démarrage...');
@@ -74,7 +80,7 @@ export async function migrateToMultiContentieux(): Promise<boolean> {
       }
 
       // Écrire sous la nouvelle clé
-      await ElectronBridge.setData(newKey(DEFAULT_CONTENTIEUX, suffix), oldData);
+      await ElectronBridge.setDataImmediate(newKey(DEFAULT_CONTENTIEUX, suffix), oldData);
       migratedCount++;
       console.log(`✅ Migration : ${oldKey} → ${newKey(DEFAULT_CONTENTIEUX, suffix)}`);
     } catch (error) {
@@ -95,7 +101,7 @@ export async function migrateToMultiContentieux(): Promise<boolean> {
     try {
       const data = await ElectronBridge.getData(old, null);
       if (data !== null) {
-        await ElectronBridge.setData(newKey(DEFAULT_CONTENTIEUX, suffix), data);
+        await ElectronBridge.setDataImmediate(newKey(DEFAULT_CONTENTIEUX, suffix), data);
         console.log(`✅ Migration : ${old} → ${newKey(DEFAULT_CONTENTIEUX, suffix)}`);
       }
     } catch (error) {
@@ -104,7 +110,7 @@ export async function migrateToMultiContentieux(): Promise<boolean> {
   }
 
   // Marquer la migration comme effectuée
-  await ElectronBridge.setData(MIGRATION_FLAG_KEY, true);
+  await ElectronBridge.setDataImmediate(MIGRATION_FLAG_KEY, true);
   console.log(`✅ Migration multi-contentieux terminée : ${migratedCount} clé(s) migrée(s)`);
 
   return true;

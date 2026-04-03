@@ -119,6 +119,20 @@ class ElectronBridgeService {
     return true;
   }
   
+  /**
+   * Écriture immédiate — sans SAVE_DELAY.
+   * À utiliser pour les opérations critiques (migration, etc.)
+   */
+  public async setDataImmediate<T>(key: string, value: T): Promise<boolean> {
+    this.dataCache.set(key, value);
+    // Annuler toute sauvegarde en attente pour cette clé
+    if (this.pendingSaves.has(key)) {
+      clearTimeout(this.pendingSaves.get(key)!);
+      this.pendingSaves.delete(key);
+    }
+    return this.setDataInternal(key, value);
+  }
+
   // Méthode interne qui effectue la sauvegarde réelle
   private async setDataInternal<T>(key: string, value: T): Promise<boolean> {
     if (!this.isElectronAvailable) {
