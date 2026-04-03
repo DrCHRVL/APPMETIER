@@ -34,7 +34,7 @@ echo Dossier de sortie : %OUTPUT_DIR%
 echo.
 
 rem ── Étape 1 : Build Next.js ──
-echo [1/5] Compilation de l'application (next build)...
+echo [1/6] Compilation de l'application (next build)...
 "%NODE_EXE%" node_modules\next\dist\bin\next build
 if %ERRORLEVEL% neq 0 (
     echo ERREUR: Le build a echoue.
@@ -45,7 +45,7 @@ echo       OK
 echo.
 
 rem ── Étape 2 : Nettoyer et créer le dossier de sortie ──
-echo [2/5] Preparation du dossier de distribution...
+echo [2/6] Preparation du dossier de distribution...
 if exist "%OUTPUT_DIR%" (
     rmdir /s /q "%OUTPUT_DIR%"
 )
@@ -54,7 +54,7 @@ echo       OK
 echo.
 
 rem ── Étape 3 : Copier les fichiers nécessaires (PAS les sources) ──
-echo [3/5] Copie des fichiers compiles...
+echo [3/6] Copie des fichiers compiles...
 
 rem Copier .next (le build compilé)
 xcopy ".next" "%OUTPUT_DIR%\.next" /E /I /Q /Y >nul
@@ -85,13 +85,25 @@ echo       OK
 echo.
 
 rem ── Étape 4 : Obfusquer main.js et preload.js ──
-echo [4/5] Protection du code (obfuscation)...
-"%NODE_EXE%" -e "const JO=require('javascript-obfuscator');const fs=require('fs');['main.js','preload.js'].forEach(f=>{const p='%OUTPUT_DIR%\\'+f;try{const code=fs.readFileSync(p,'utf8');const result=JO.obfuscate(code,{compact:true,controlFlowFlattening:false,identifierNamesGenerator:'hexadecimal',renameGlobals:false,stringArray:true,stringArrayEncoding:['base64'],stringArrayThreshold:0.75});fs.writeFileSync(p,result.getObfuscatedCode(),'utf8');console.log('  Protege: '+f)}catch(e){console.error('  Erreur '+f+': '+e.message)}});"
+echo [4/6] Protection du code (obfuscation main.js/preload.js)...
+"%NODE_EXE%" -e "const JO=require('javascript-obfuscator');const fs=require('fs');const opts={compact:true,controlFlowFlattening:true,controlFlowFlatteningThreshold:0.7,deadCodeInjection:true,deadCodeInjectionThreshold:0.3,identifierNamesGenerator:'hexadecimal',renameGlobals:false,selfDefending:true,stringArray:true,stringArrayEncoding:['rc4'],stringArrayThreshold:0.9,stringArrayRotate:true,stringArrayShuffle:true,transformObjectKeys:true,unicodeEscapeSequence:true,numbersToExpressions:true,splitStrings:true,splitStringsChunkLength:5};['main.js','preload.js'].forEach(f=>{const p='%OUTPUT_DIR%\\'+f;try{const code=fs.readFileSync(p,'utf8');const result=JO.obfuscate(code,opts);fs.writeFileSync(p,result.getObfuscatedCode(),'utf8');console.log('  Protege: '+f)}catch(e){console.error('  Erreur '+f+': '+e.message)}});"
 echo       OK
 echo.
 
-rem ── Étape 5 : Copier les fichiers externes (electron, nodejs, launcher) ──
-echo [5/5] Copie de l'environnement (electron, nodejs, launcher)...
+rem ── Étape 5 : Obfusquer les fichiers JS du build Next.js ──
+echo [5/6] Protection du build Next.js (obfuscation des chunks)...
+"%NODE_EXE%" -e "const JO=require('javascript-obfuscator');const fs=require('fs');const path=require('path');const opts={compact:true,controlFlowFlattening:false,identifierNamesGenerator:'hexadecimal',renameGlobals:false,selfDefending:false,stringArray:true,stringArrayEncoding:['base64'],stringArrayThreshold:0.75,unicodeEscapeSequence:true};function walkAndObfuscate(dir){if(!fs.existsSync(dir))return;const items=fs.readdirSync(dir);items.forEach(item=>{const full=path.join(dir,item);const stat=fs.statSync(full);if(stat.isDirectory()){walkAndObfuscate(full)}else if(item.endsWith('.js')&&stat.size>500&&stat.size<5000000){try{const code=fs.readFileSync(full,'utf8');const result=JO.obfuscate(code,opts);fs.writeFileSync(full,result.getObfuscatedCode(),'utf8')}catch(e){}}});}walkAndObfuscate('%OUTPUT_DIR%\\.next\\server');walkAndObfuscate('%OUTPUT_DIR%\\.next\\static');console.log('  Build Next.js protege');"
+echo       OK
+echo.
+
+rem ── Étape 5b : Générer le fichier d'intégrité ──
+echo        Generation de l'empreinte d'integrite...
+"%NODE_EXE%" -e "const crypto=require('crypto');const fs=require('fs');const path=require('path');const m={};['main.js','preload.js','package.json'].forEach(f=>{const fp=path.join('%OUTPUT_DIR%',f);if(fs.existsSync(fp)){const c=fs.readFileSync(fp);m[f]=crypto.createHash('sha256').update(c).digest('hex')}});fs.writeFileSync(path.join('%OUTPUT_DIR%','.integrity'),JSON.stringify(m,null,2),'utf8');console.log('  Integrite generee');"
+echo       OK
+echo.
+
+rem ── Étape 6 : Copier les fichiers externes (electron, nodejs, launcher) ──
+echo [6/6] Copie de l'environnement (electron, nodejs, launcher)...
 set USB_ROOT=%BASE_DIR%..\USB_Distribution
 
 rem Copier electron
