@@ -2,8 +2,12 @@ const path = require('path')
 const fs = require('fs')
 const os = require('os')
 const https = require('https')
-const { exec } = require('child_process')
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
+const { exec, execSync } = require('child_process')
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron')
+
+// ── MODE PRODUCTION : détecte si l'app tourne en mode build (next start) ──
+const IS_PRODUCTION = fs.existsSync(path.join(__dirname, '.next', 'BUILD_ID'))
+  && !fs.existsSync(path.join(__dirname, '.dev-mode'))
 // Ajout pour l'extraction PDF
 const pdfParse = require('pdf-parse')
 const tesseract = require('tesseract.js')
@@ -179,7 +183,21 @@ function createWindow() {
       mainWindow.loadURL('http://localhost:3000')
     }, 1000)
   })
-  mainWindow.webContents.openDevTools()
+  // DevTools : uniquement en mode développement
+  if (!IS_PRODUCTION) {
+    mainWindow.webContents.openDevTools()
+  } else {
+    // En production : bloquer F12 / Ctrl+Shift+I
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.key === 'F12' ||
+          (input.control && input.shift && (input.key === 'I' || input.key === 'i')) ||
+          (input.control && input.shift && (input.key === 'J' || input.key === 'j'))) {
+        event.preventDefault()
+      }
+    })
+    // Supprimer le menu par défaut en production
+    Menu.setApplicationMenu(null)
+  }
   mainWindow.loadURL('http://localhost:3000')
 }
 // Configuration des gestionnaires IPC pour l'API Electron
@@ -1690,7 +1708,23 @@ function setupIpcHandlers() {
   // MISE À JOUR VIA RÉSEAU LOCAL (P:/) — Auto-update silencieux
   // ========================================================================
 
+  // Fichiers/dossiers à ne jamais copier lors des mises à jour
   const SKIP_ON_UPDATE = new Set(['data', '.git', 'node_modules', 'tessdata', '.next']);
+
+  // Dossiers sources à exclure de la publication (code protégé)
+  const SOURCE_DIRS_TO_EXCLUDE = new Set([
+    'app', 'components', 'hooks', 'utils', 'services', 'contexts',
+    'config', 'types', 'lib', 'migrations',
+  ]);
+  // Fichiers sources à exclure de la publication
+  const SOURCE_FILES_TO_EXCLUDE = new Set([
+    'layout.tsx', 'page.tsx', 'globals.css', 'print.css',
+    'next-env.d.ts', '.eslintrc.json', 'postcss.config.js',
+    'tailwind.config.js', 'tailwind.config.ts', 'tsconfig.json',
+    'preparer-usb.bat', '.dev-mode', 'ui-preview.html',
+    'README.md', '.gitignore',
+  ]);
+
   const LOCAL_VERSION_FILE = path.join(dataFolder, 'app-version-lan.json');
 
   function getUpdatesDir() {
@@ -1723,19 +1757,23 @@ function setupIpcHandlers() {
   }
 
   // Copie récursive pour update (réutilisée par LAN et GitHub)
-  function copyDirForUpdate(src, dest) {
+  function copyDirForUpdate(src, dest, skipSet) {
+    const skip = skipSet || SKIP_ON_UPDATE
     for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-      if (SKIP_ON_UPDATE.has(entry.name)) continue
+      if (skip.has(entry.name)) continue
       const srcPath = path.join(src, entry.name)
       const destPath = path.join(dest, entry.name)
       if (entry.isDirectory()) {
         fs.mkdirSync(destPath, { recursive: true })
-        copyDirForUpdate(srcPath, destPath)
+        copyDirForUpdate(srcPath, destPath, skip)
       } else {
         fs.copyFileSync(srcPath, destPath)
       }
     }
   }
+
+  // Skip set pour appliquer une mise à jour (inclut .next car la publication le fournit compilé)
+  const SKIP_ON_APPLY = new Set(['data', '.git', 'node_modules', 'tessdata']);
 
   // Sauvegarde rollback (copie l'app actuelle)
   function createRollback() {
@@ -1759,23 +1797,115 @@ function setupIpcHandlers() {
   }
 
   /**
+   * Copie récursive pour publication : exclut les sources en plus des dossiers habituels
+   */
+  function copyDirForPublish(src, dest) {
+    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+      if (SKIP_ON_UPDATE.has(entry.name)) continue
+      if (SOURCE_DIRS_TO_EXCLUDE.has(entry.name)) continue
+      if (SOURCE_FILES_TO_EXCLUDE.has(entry.name)) continue
+      const srcPath = path.join(src, entry.name)
+      const destPath = path.join(dest, entry.name)
+      if (entry.isDirectory()) {
+        fs.mkdirSync(destPath, { recursive: true })
+        copyDirForPublish(srcPath, destPath)
+      } else {
+        fs.copyFileSync(srcPath, destPath)
+      }
+    }
+  }
+
+  /**
+   * Obfusque un fichier JS en place (renomme variables, encode strings, etc.)
+   */
+  function obfuscateFile(filePath) {
+    try {
+      const JavaScriptObfuscator = require('javascript-obfuscator')
+      const code = fs.readFileSync(filePath, 'utf8')
+      const result = JavaScriptObfuscator.obfuscate(code, {
+        compact: true,
+        controlFlowFlattening: false,
+        identifierNamesGenerator: 'hexadecimal',
+        renameGlobals: false,
+        stringArray: true,
+        stringArrayEncoding: ['base64'],
+        stringArrayThreshold: 0.75,
+        selfDefending: false,
+        deadCodeInjection: false,
+      })
+      fs.writeFileSync(filePath, result.getObfuscatedCode(), 'utf8')
+      return true
+    } catch (e) {
+      console.error(`⚠️ Obfuscation échouée pour ${filePath}: ${e.message}`)
+      return false
+    }
+  }
+
+  /**
+   * Lance "next build" dans le répertoire de l'app
+   */
+  function runNextBuild() {
+    return new Promise((resolve, reject) => {
+      const nodePath = path.resolve(__dirname, '..', 'nodejs', 'node.exe')
+      const nodeToUse = fs.existsSync(nodePath) ? `"${nodePath}"` : 'node'
+      const nextBin = path.join(__dirname, 'node_modules', 'next', 'dist', 'bin', 'next')
+      const cmd = `${nodeToUse} "${nextBin}" build`
+      console.log(`🔨 Build: ${cmd}`)
+      exec(cmd, { cwd: __dirname, maxBuffer: 50 * 1024 * 1024, timeout: 300000 }, (error, stdout, stderr) => {
+        if (error) {
+          console.error('❌ Build failed:', stderr || error.message)
+          reject(new Error(`Build échoué: ${stderr || error.message}`))
+        } else {
+          console.log('✅ Build terminé')
+          resolve(stdout)
+        }
+      })
+    })
+  }
+
+  /**
    * ADMIN : Publier la version actuelle de l'app sur le réseau
+   * Étapes : build → obfuscation → copie compilée (sans sources) → manifest
    */
   ipcMain.handle('lanUpdate:publish', async (event, changelog) => {
     try {
+      // Envoyer la progression au renderer
+      const sendProgress = (step, detail) => {
+        try { mainWindow?.webContents?.send('publish-progress', { step, detail }) } catch {}
+      }
+
+      // Étape 1 : Build Next.js
+      sendProgress('build', 'Compilation de l\'application...')
+      await runNextBuild()
+
+      // Étape 2 : Préparer le dossier de publication
+      sendProgress('copy', 'Préparation des fichiers...')
       const updatesDir = ensureDir(getUpdatesDir())
       const sourceDir = path.join(updatesDir, 'source')
 
-      // Nettoyer l'ancien source
       if (fs.existsSync(sourceDir)) {
         fs.rmSync(sourceDir, { recursive: true, force: true })
       }
       fs.mkdirSync(sourceDir, { recursive: true })
 
-      // Copier les fichiers de l'app actuelle (sauf data/, .git/, etc.)
-      copyDirForUpdate(__dirname, sourceDir)
+      // Étape 3 : Copier le build (.next/) vers le dossier de publication
+      const nextBuildDir = path.join(__dirname, '.next')
+      const destNextDir = path.join(sourceDir, '.next')
+      fs.mkdirSync(destNextDir, { recursive: true })
+      copyDirForUpdate(nextBuildDir, destNextDir)
 
-      // Créer le manifeste
+      // Étape 4 : Copier les fichiers nécessaires (sans les sources)
+      copyDirForPublish(__dirname, sourceDir)
+
+      // Étape 5 : Obfusquer main.js et preload.js dans la copie publiée
+      sendProgress('obfuscate', 'Protection du code...')
+      const publishedMain = path.join(sourceDir, 'main.js')
+      const publishedPreload = path.join(sourceDir, 'preload.js')
+      if (fs.existsSync(publishedMain)) obfuscateFile(publishedMain)
+      if (fs.existsSync(publishedPreload)) obfuscateFile(publishedPreload)
+
+      // Étape 6 : Créer le manifeste
+      sendProgress('manifest', 'Finalisation...')
       const now = new Date().toISOString()
       const version = `${now.slice(0,10).replace(/-/g, '.')}.${Date.now().toString(36)}`
       const manifest = {
@@ -1789,7 +1919,8 @@ function setupIpcHandlers() {
       // Mettre à jour sa propre version locale
       saveLocalLanVersion(manifest)
 
-      console.log(`✅ LAN update: version ${version} publiée`)
+      sendProgress('done', `Version ${version} publiée`)
+      console.log(`✅ LAN update: version ${version} publiée (build + obfuscation)`)
       return { success: true, version }
     } catch (error) {
       console.error('❌ LAN update publish error:', error.message)
@@ -1837,8 +1968,8 @@ function setupIpcHandlers() {
       // 1. Créer le rollback
       createRollback()
 
-      // 2. Copier les fichiers
-      copyDirForUpdate(sourceDir, __dirname)
+      // 2. Copier les fichiers (avec .next inclus, car la publication fournit le build)
+      copyDirForUpdate(sourceDir, __dirname, SKIP_ON_APPLY)
 
       // 3. Sauvegarder la version
       saveLocalLanVersion(manifest)
@@ -2089,7 +2220,7 @@ app.whenReady().then(async () => {
           if (fs.existsSync(sourceDir)) {
             // Rollback
             const rollbackDir = path.join(dataFolder, 'rollback')
-            const SKIP = new Set(['data', '.git', 'node_modules', 'tessdata', '.next'])
+            const SKIP = new Set(['data', '.git', 'node_modules', 'tessdata'])
             const copyRecursive = (src, dest) => {
               for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
                 if (SKIP.has(entry.name)) continue
