@@ -2005,6 +2005,7 @@ function setupIpcHandlers() {
 
       // Vérifier que le chemin réseau est accessible
       const generalPath = getGeneralServerPath()
+      console.log(`📡 Publish: chemin réseau résolu = "${generalPath}"`)
       if (!generalPath || !fs.existsSync(generalPath)) {
         return { success: false, error: `Le chemin réseau n'est pas accessible : ${generalPath || '(non configuré)'}.\nVeuillez configurer le chemin général dans Paramètres > Chemins réseau.` }
       }
@@ -2016,7 +2017,10 @@ function setupIpcHandlers() {
       // Étape 2 : Préparer le dossier de publication
       sendProgress('copy', 'Préparation des fichiers...', 2)
       const updatesDir = ensureDir(getUpdatesDir())
+      console.log(`📡 Publish: dossier updates = "${updatesDir}"`)
       const sourceDir = path.join(updatesDir, 'source')
+      console.log(`📡 Publish: dossier source = "${sourceDir}"`)
+
 
       if (fs.existsSync(sourceDir)) {
         fs.rmSync(sourceDir, { recursive: true, force: true })
@@ -2070,8 +2074,8 @@ function setupIpcHandlers() {
       fs.writeFileSync(getManifestPath(), JSON.stringify(manifest, null, 2), 'utf8')
 
       sendProgress('done', `Version ${version} publiée`, totalSteps)
-      console.log(`✅ LAN update: version ${version} publiée (build + obfuscation)`)
-      return { success: true, version, manifest }
+      console.log(`✅ LAN update: version ${version} publiée dans "${updatesDir}" (build + obfuscation)`)
+      return { success: true, version, manifest, publishPath: updatesDir }
     } catch (error) {
       console.error('❌ LAN update publish error:', error.message)
       return { success: false, error: error.message }

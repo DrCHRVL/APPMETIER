@@ -65,7 +65,7 @@ export const AdminUpdatePanel = () => {
     try {
       const result = await (window as any).electronAPI?.lanUpdatePublish?.(changelog.trim());
       if (result?.success) {
-        showToast(`Version ${result.version} publiée sur le réseau (code protégé)`, 'success');
+        showToast(`Version ${result.version} publiée sur le réseau${result.publishPath ? ` (${result.publishPath})` : ''}`, 'success');
         setChangelog('');
         // Mettre à jour depuis la réponse ET relire le fichier local pour confirmer
         if (result.manifest) {
