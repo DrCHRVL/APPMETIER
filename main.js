@@ -1879,17 +1879,24 @@ function setupIpcHandlers() {
    */
   ipcMain.handle('lanUpdate:publish', async (event, changelog) => {
     try {
-      // Envoyer la progression au renderer
-      const sendProgress = (step, detail) => {
-        try { mainWindow?.webContents?.send('publish-progress', { step, detail }) } catch {}
+      const totalSteps = 6
+      // Envoyer la progression au renderer avec numéro d'étape
+      const sendProgress = (step, detail, current) => {
+        try { mainWindow?.webContents?.send('publish-progress', { step, detail, current, total: totalSteps }) } catch {}
+      }
+
+      // Vérifier que le chemin réseau est accessible
+      const generalPath = getGeneralServerPath()
+      if (!generalPath || !fs.existsSync(generalPath)) {
+        return { success: false, error: `Le chemin réseau n'est pas accessible : ${generalPath || '(non configuré)'}.\nVeuillez configurer le chemin général dans Paramètres > Chemins réseau.` }
       }
 
       // Étape 1 : Build Next.js
-      sendProgress('build', 'Compilation de l\'application...')
+      sendProgress('build', 'Compilation de l\'application...', 1)
       await runNextBuild()
 
       // Étape 2 : Préparer le dossier de publication
-      sendProgress('copy', 'Préparation des fichiers...')
+      sendProgress('copy', 'Préparation des fichiers...', 2)
       const updatesDir = ensureDir(getUpdatesDir())
       const sourceDir = path.join(updatesDir, 'source')
 
@@ -1899,23 +1906,24 @@ function setupIpcHandlers() {
       fs.mkdirSync(sourceDir, { recursive: true })
 
       // Étape 3 : Copier le build (.next/) vers le dossier de publication
+      sendProgress('copy', 'Copie du build...', 3)
       const nextBuildDir = path.join(__dirname, '.next')
       const destNextDir = path.join(sourceDir, '.next')
       fs.mkdirSync(destNextDir, { recursive: true })
       copyDirForUpdate(nextBuildDir, destNextDir)
 
-      // Étape 4 : Copier les fichiers nécessaires (sans les sources)
+      // Copier les fichiers nécessaires (sans les sources)
       copyDirForPublish(__dirname, sourceDir)
 
-      // Étape 5 : Obfusquer main.js et preload.js dans la copie publiée
-      sendProgress('obfuscate', 'Protection du code...')
+      // Étape 4 : Obfusquer main.js et preload.js dans la copie publiée
+      sendProgress('obfuscate', 'Protection du code (obfuscation)...', 4)
       const publishedMain = path.join(sourceDir, 'main.js')
       const publishedPreload = path.join(sourceDir, 'preload.js')
       if (fs.existsSync(publishedMain)) obfuscateFile(publishedMain)
       if (fs.existsSync(publishedPreload)) obfuscateFile(publishedPreload)
 
-      // Étape 5b : Générer le fichier d'intégrité pour la copie publiée
-      sendProgress('integrity', 'Génération de l\'empreinte d\'intégrité...')
+      // Étape 5 : Générer le fichier d'intégrité pour la copie publiée
+      sendProgress('integrity', 'Génération de l\'empreinte d\'intégrité...', 5)
       const integrityManifest = {}
       ;['main.js', 'preload.js', 'package.json'].forEach(f => {
         const fp = path.join(sourceDir, f)
@@ -1926,8 +1934,8 @@ function setupIpcHandlers() {
       })
       fs.writeFileSync(path.join(sourceDir, '.integrity'), JSON.stringify(integrityManifest, null, 2), 'utf8')
 
-      // Étape 6 : Créer le manifeste
-      sendProgress('manifest', 'Finalisation...')
+      // Étape 6 : Créer le manifeste et finaliser
+      sendProgress('manifest', 'Finalisation...', 6)
       const now = new Date().toISOString()
       const version = `${now.slice(0,10).replace(/-/g, '.')}.${Date.now().toString(36)}`
       const manifest = {
@@ -1941,7 +1949,7 @@ function setupIpcHandlers() {
       // Mettre à jour sa propre version locale
       saveLocalLanVersion(manifest)
 
-      sendProgress('done', `Version ${version} publiée`)
+      sendProgress('done', `Version ${version} publiée`, totalSteps)
       console.log(`✅ LAN update: version ${version} publiée (build + obfuscation)`)
       return { success: true, version }
     } catch (error) {

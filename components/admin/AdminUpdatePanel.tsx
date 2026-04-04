@@ -21,6 +21,7 @@ export const AdminUpdatePanel = () => {
   const [changelog, setChangelog] = useState('');
   const [publishing, setPublishing] = useState(false);
   const [publishStep, setPublishStep] = useState<string>('');
+  const [publishProgress, setPublishProgress] = useState<{ current: number; total: number } | null>(null);
   const [checking, setChecking] = useState(false);
   const [showConfirmPublish, setShowConfirmPublish] = useState(false);
 
@@ -44,8 +45,11 @@ export const AdminUpdatePanel = () => {
     loadVersions();
     checkForUpdate();
     // Écouter la progression de la publication
-    (window as any).electronAPI?.onPublishProgress?.((data: { step: string; detail: string }) => {
+    (window as any).electronAPI?.onPublishProgress?.((data: { step: string; detail: string; current: number; total: number }) => {
       setPublishStep(data.detail);
+      if (data.current && data.total) {
+        setPublishProgress({ current: data.current, total: data.total });
+      }
     });
   }, [loadVersions, checkForUpdate]);
 
@@ -71,6 +75,7 @@ export const AdminUpdatePanel = () => {
     }
     setPublishing(false);
     setPublishStep('');
+    setPublishProgress(null);
   };
 
   const handleRollback = async () => {
@@ -180,10 +185,27 @@ export const AdminUpdatePanel = () => {
               {publishing ? 'Publication en cours...' : 'Publier sur le réseau'}
             </button>
           </div>
-          {publishing && publishStep && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-600" />
-              <span className="text-xs text-emerald-700">{publishStep}</span>
+          {publishing && (
+            <div className="px-3 py-3 bg-emerald-50 border border-emerald-200 rounded-lg space-y-2">
+              {/* Barre de progression */}
+              <div className="w-full bg-emerald-100 rounded-full h-2.5 overflow-hidden">
+                <div
+                  className="bg-emerald-500 h-2.5 rounded-full transition-all duration-500 ease-out"
+                  style={{ width: publishProgress ? `${Math.round((publishProgress.current / publishProgress.total) * 100)}%` : '5%' }}
+                />
+              </div>
+              {/* Détail étape */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-600" />
+                  <span className="text-xs text-emerald-700">{publishStep || 'Démarrage...'}</span>
+                </div>
+                {publishProgress && (
+                  <span className="text-xs text-emerald-500 font-mono">
+                    {publishProgress.current}/{publishProgress.total}
+                  </span>
+                )}
+              </div>
             </div>
           )}
         </div>
