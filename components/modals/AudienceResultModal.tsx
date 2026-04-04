@@ -6,6 +6,7 @@ import { Label } from '../ui/label';
 import { MecAutocompleteInput } from '../ui/MecAutocompleteInput';
 import { CondamnationData, Confiscations, ResultatAudience, VehiculeSaisi, ImmeubleSaisi, SaisieBancaire, CryptoSaisie, ObjetMobilier, TypeVehicule, TypeImmeuble, CategorieObjet, TypeStupefiant, StupefiantSaisi, emptyConfiscations, migrateConfiscations } from '@/types/audienceTypes';
 import { useToast } from '@/contexts/ToastContext';
+import { useAudience } from '@/hooks/useAudience';
 import { useTags } from '@/hooks/useTags';
 import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
@@ -86,9 +87,21 @@ export const AudienceResultModal = ({
   );
 
   const { showToast } = useToast();
+  const { audienceState } = useAudience();
   const [service, setService] = useState(initialData?.service || '');
   const [showSuiviAlert, setShowSuiviAlert] = useState(false);
   const hasSuivi = enqueteTags.some(t => t.category === 'suivi');
+
+  // Lieux d'interdiction de paraître déjà enregistrés (pour suggestions)
+  const lieuxInterdictionExistants = React.useMemo(() => {
+    const defaultLieux = ['Somme', 'Amiens', 'Abbeville', 'Péronne', 'Montdidier'];
+    const allResultats = audienceState?.resultats ? Object.values(audienceState.resultats) : [];
+    const lieuxFromData = allResultats
+      .flatMap(r => r.condamnations || [])
+      .map(c => c.lieuInterdictionParaitre)
+      .filter((l): l is string => !!l && l.trim() !== '');
+    return [...new Set([...defaultLieux, ...lieuxFromData])].sort();
+  }, [audienceState?.resultats]);
 
   // Récupération des tags via le hook
   const infractions = getTagsByCategory('infractions');
@@ -123,7 +136,7 @@ export const AudienceResultModal = ({
     const newCondamnations = [...condamnations];
     newCondamnations[index] = {
       ...newCondamnations[index],
-      [field]: field === 'nom' || field === 'dateDefere' ? value :
+      [field]: field === 'nom' || field === 'dateDefere' || field === 'lieuInterdictionParaitre' ? value :
                field === 'interdictionParaitre' || field === 'defere' || field === 'isPending' ? Boolean(value) :
                field === 'typeAudience' || field === 'dateAudiencePending' ? value :
                (parseInt(value as string) || 0)
@@ -452,6 +465,34 @@ export const AudienceResultModal = ({
                       />
                       <Label htmlFor={`interdiction-${index}`}>Interdiction de paraître</Label>
                     </div>
+                    {condamnation.interdictionParaitre && (
+                      <div className="col-span-2 grid grid-cols-2 gap-4 mt-1 pl-6 border-l-2 border-amber-300">
+                        <div>
+                          <Label>Lieu d'interdiction</Label>
+                          <Input
+                            list={`lieux-interdiction-${index}`}
+                            placeholder="Ex: Amiens"
+                            value={condamnation.lieuInterdictionParaitre || ''}
+                            onChange={(e) => updateCondamnation(index, 'lieuInterdictionParaitre', e.target.value)}
+                          />
+                          <datalist id={`lieux-interdiction-${index}`}>
+                            {lieuxInterdictionExistants.map(lieu => (
+                              <option key={lieu} value={lieu} />
+                            ))}
+                          </datalist>
+                        </div>
+                        <div>
+                          <Label>Durée (mois)</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            placeholder="Ex: 12"
+                            value={condamnation.dureeInterdictionParaitre || ''}
+                            onChange={(e) => updateCondamnation(index, 'dureeInterdictionParaitre', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </>
               )}

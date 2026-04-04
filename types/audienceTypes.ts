@@ -9,6 +9,8 @@ export interface CondamnationData {
   sursisSimple: number;
   peineAmende: number;
   interdictionParaitre: boolean;
+  lieuInterdictionParaitre?: string;
+  dureeInterdictionParaitre?: number; // en mois
   typeAudience: TypeAudience;
   defere: boolean;
   dateDefere?: string;
