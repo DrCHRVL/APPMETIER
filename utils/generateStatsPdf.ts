@@ -423,7 +423,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
         ${(() => {
           const total = data.serviceStats.reduce((s, i) => s + i.count, 0);
           return data.serviceStats.map(s =>
-            `<tr><td>${s.service}</td><td class="text-right font-bold">${s.count}</td><td class="text-right">${((s.count/total)*100).toFixed(1)}%</td></tr>`
+            `<tr><td>${s.service}</td><td class="text-right font-bold">${s.count}</td><td class="text-right">${total > 0 ? ((s.count/total)*100).toFixed(1) : 0}%</td></tr>`
           ).join('');
         })()}
       </table>

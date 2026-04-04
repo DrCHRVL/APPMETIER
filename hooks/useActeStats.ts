@@ -29,12 +29,12 @@ export function useActeStats(enquetes: Enquete[]): ActeStats {
           const fin = new Date(ecoute.dateFin);
           const dureeJours = Math.floor((fin.getTime() - debut.getTime()) / (1000 * 60 * 60 * 24));
           if (dureeJours > 30) {
-            count = Math.min(1, Math.floor((dureeJours - 30) / 30));
+            count = Math.floor((dureeJours - 30) / 30);
           }
         }
 
         if (ecoute.prolongationsHistory && ecoute.prolongationsHistory.length > 0) {
-          const historiqueCount = Math.min(ecoute.prolongationsHistory.length, 1);
+          const historiqueCount = ecoute.prolongationsHistory.length;
           if (historiqueCount !== count && count > 0) {
             console.warn(`Incoherence ecoute ${ecoute.numero || ecoute.id} - Historique: ${historiqueCount}, Calcul duree: ${count}`);
           }

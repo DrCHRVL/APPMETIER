@@ -44,21 +44,30 @@ export const ExportPdfButton = ({
         return new Date(audienceResult.dateAudience).getFullYear() === selectedYear;
       });
 
-      // Durée moyenne terminées
-      const dureeMoyenneTerminees = enquetesTerminees.reduce((acc, e) => {
+      // Durée moyenne terminées (avec protection contre dateDebut invalide)
+      const durationTerminees = enquetesTerminees.reduce((result, e) => {
         const audienceResult = Object.values(resultats).find(r => r.enqueteId === e.id);
-        if (!audienceResult?.dateAudience) return acc;
+        if (!audienceResult?.dateAudience || !e.dateDebut) return result;
         const start = new Date(e.dateDebut);
         const end = new Date(audienceResult.dateAudience);
-        return acc + Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-      }, 0) / (enquetesTerminees.length || 1);
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) return result;
+        const duree = Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        if (duree < 0) return result;
+        return { total: result.total + duree, count: result.count + 1 };
+      }, { total: 0, count: 0 });
+      const dureeMoyenneTerminees = durationTerminees.count > 0 ? durationTerminees.total / durationTerminees.count : 0;
 
       // Durée moyenne en cours
       const now = new Date();
-      const dureeMoyenneEnCours = activeEnquetes.reduce((acc, e) => {
+      const durationEnCours = activeEnquetes.reduce((result, e) => {
+        if (!e.dateDebut) return result;
         const start = new Date(e.dateDebut);
-        return acc + Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-      }, 0) / (activeEnquetes.length || 1);
+        if (isNaN(start.getTime())) return result;
+        const duree = Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        if (duree < 0) return result;
+        return { total: result.total + duree, count: result.count + 1 };
+      }, { total: 0, count: 0 });
+      const dureeMoyenneEnCours = durationEnCours.count > 0 ? durationEnCours.total / durationEnCours.count : 0;
 
       // Mois à afficher
       const currentDate = new Date();
@@ -91,9 +100,9 @@ export const ExportPdfButton = ({
           let count = 0;
           if (ecoute.dateDebut && ecoute.dateFin) {
             const duree = Math.floor((new Date(ecoute.dateFin).getTime() - new Date(ecoute.dateDebut).getTime()) / (1000 * 60 * 60 * 24));
-            if (duree > 30) count = Math.min(1, Math.floor((duree - 30) / 30));
+            if (duree > 30) count = Math.floor((duree - 30) / 30);
           }
-          if (ecoute.prolongationsHistory?.length) count = Math.max(ecoute.prolongationsHistory.length > 1 ? 1 : ecoute.prolongationsHistory.length, count);
+          if (ecoute.prolongationsHistory?.length) count = Math.max(ecoute.prolongationsHistory.length, count);
           if (count === 0 && (ecoute.prolongationData || ecoute.prolongationDate)) count = 1;
           return sum + count;
         }, 0) || 0;
@@ -203,7 +212,7 @@ export const ExportPdfButton = ({
           } else {
             return acc + r.condamnations.filter(c => {
               if (!c.defere) return false;
-              const dateRef = (c as any).dateDefere || r.dateAudience;
+              const dateRef = c.dateDefere || r.dateAudience;
               const d = new Date(dateRef);
               return d.getFullYear() === selectedYear && d.getMonth() === month;
             }).length;
