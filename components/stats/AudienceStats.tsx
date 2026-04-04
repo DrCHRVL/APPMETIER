@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { useAudience } from '@/hooks/useAudience';
 import { Enquete } from '@/types/interfaces';
+import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
 import { AudienceStats as AudienceStatsType, ResultatAudience } from '@/types/audienceTypes';
 import { getYearlyStats, getMonthlyStats } from '@/utils/audienceStats';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, BarElement } from 'chart.js';
@@ -177,9 +178,11 @@ interface AudienceStatsProps {
   enquetes: Enquete[];
   selectedYear: number;
   contentieuxId?: string;
+  enquetesByContentieux?: Map<ContentieuxId, Enquete[]>;
+  contentieuxDefs?: ContentieuxDefinition[];
 }
 
-export const AudienceStats = ({ enquetes, selectedYear, contentieuxId }: AudienceStatsProps) => {
+export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesByContentieux, contentieuxDefs }: AudienceStatsProps) => {
   const [yearlyStats, setYearlyStats] = useState<AudienceStatsType | null>(null);
   const [monthlyStats, setMonthlyStats] = useState<{ [key: number]: AudienceStatsType | null }>({});
 
@@ -224,6 +227,33 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId }: Audienc
     });
     setMonthlyStats(data);
   }, [scopedResultats, selectedYear, enquetes]);
+
+  // === Statistiques par contentieux (uniquement pour la vue globale) ===
+  const isGlobal = contentieuxId === 'global' && enquetesByContentieux && contentieuxDefs;
+  const enabledDefs = useMemo(() => (contentieuxDefs || []).filter(d => d.enabled !== false).sort((a, b) => a.order - b.order), [contentieuxDefs]);
+
+  const condamnationsParContentieux = useMemo(() => {
+    if (!isGlobal) return null;
+    const allResultats = audienceState?.resultats || {};
+
+    return enabledDefs.map(def => {
+      const cEnquetes = enquetesByContentieux!.get(def.id) || [];
+      const cEnqueteIds = new Set(cEnquetes.map(e => e.id));
+
+      const cResultats = Object.fromEntries(
+        Object.entries(allResultats).filter(([key, r]) => {
+          if (r.isDirectResult) return def.id === 'crimorg';
+          return cEnqueteIds.has(Number(key));
+        })
+      );
+
+      const total = Object.values(cResultats)
+        .filter(r => new Date(r.dateAudience).getFullYear() === selectedYear)
+        .reduce((acc, r) => acc + r.condamnations.length, 0);
+
+      return { def, total };
+    });
+  }, [isGlobal, enabledDefs, enquetesByContentieux, audienceState?.resultats, selectedYear]);
 
   if (!yearlyStats) {
     return (
@@ -372,6 +402,23 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId }: Audienc
                       );
                     })}
                   </div>
+                  {/* Subdivision par contentieux */}
+                  {isGlobal && condamnationsParContentieux && condamnationsParContentieux.filter(s => s.total > 0).length > 0 && (
+                    <div className="mt-4 pt-4 border-t">
+                      <p className="text-xs font-medium text-gray-500 mb-2">Par contentieux</p>
+                      <div className="space-y-1">
+                        {condamnationsParContentieux.filter(s => s.total > 0).map(s => (
+                          <div key={s.def.id} className="flex justify-between items-center text-sm">
+                            <div className="flex items-center gap-2">
+                              <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: s.def.color }} />
+                              <span className="text-gray-700">{s.def.label}</span>
+                            </div>
+                            <span className="font-semibold">{s.total}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </>
               );
             })()}
@@ -626,8 +673,8 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId }: Audienc
           </CardContent>
         </Card>
 
-        {/* Carte Peines moyennes par type d'infraction */}
-        <Card className="col-span-full">
+        {/* Carte Peines moyennes par type d'infraction (masquée en mode global) */}
+        {contentieuxId !== 'global' && <Card className="col-span-full">
           <CardHeader>
             <CardTitle>Peines moyennes par type d'infraction (mois)</CardTitle>
           </CardHeader>
@@ -673,10 +720,10 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId }: Audienc
               }
             </div>
           </CardContent>
-        </Card>
+        </Card>}
 
-        {/* Carte Peines moyennes par type d'audience */}
-        <Card>
+        {/* Carte Peines moyennes par type d'audience (masquée en mode global) */}
+        {contentieuxId !== 'global' && <Card>
           <CardHeader>
             <CardTitle>Peines moyennes par type d'audience</CardTitle>
           </CardHeader>
@@ -750,7 +797,7 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId }: Audienc
               })}
             </div>
           </CardContent>
-        </Card>
+        </Card>}
 
         {/* Carte Classements sans suite */}
         <Card>

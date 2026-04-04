@@ -1,5 +1,6 @@
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Enquete } from '@/types/interfaces';
+import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
 import { useAudience } from '@/hooks/useAudience';
 import { useMemo } from 'react';
 import { Pie } from 'react-chartjs-2';
@@ -44,9 +45,11 @@ interface GeneralStatsProps {
   enquetes: Enquete[];
   selectedYear: number;
   contentieuxId?: string;
+  enquetesByContentieux?: Map<ContentieuxId, Enquete[]>;
+  contentieuxDefs?: ContentieuxDefinition[];
 }
 
-export const GeneralStats = ({ enquetes, selectedYear, contentieuxId }: GeneralStatsProps) => {
+export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesByContentieux, contentieuxDefs }: GeneralStatsProps) => {
   const { audienceState } = useAudience();
   const { getServicesFromTags } = useTags();
   const currentDate = new Date();
@@ -309,6 +312,107 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId }: GeneralS
     e.statut === 'en_cours' && new Date(e.dateCreation).getFullYear() === selectedYear
   );
 
+  // === Statistiques par contentieux (uniquement pour la vue globale) ===
+  const isGlobal = contentieuxId === 'global' && enquetesByContentieux && contentieuxDefs;
+  const enabledDefs = useMemo(() => (contentieuxDefs || []).filter(d => d.enabled !== false).sort((a, b) => a.order - b.order), [contentieuxDefs]);
+
+  const contentieuxStats = useMemo(() => {
+    if (!isGlobal) return null;
+    const allResultats = audienceState?.resultats || {};
+
+    return enabledDefs.map(def => {
+      const cEnquetes = enquetesByContentieux!.get(def.id) || [];
+      const cEnqueteIds = new Set(cEnquetes.map(e => e.id));
+
+      // Scoped resultats for this contentieux
+      const cResultats = Object.fromEntries(
+        Object.entries(allResultats).filter(([key, r]) => {
+          if (r.isDirectResult) return def.id === 'crimorg';
+          return cEnqueteIds.has(Number(key));
+        })
+      );
+
+      // Procédures terminées (hors classements et OI)
+      const cTerminees = cEnquetes.filter(e => {
+        if (e.statut !== 'archive') return false;
+        const ar = Object.values(cResultats).find(r => r.enqueteId === e.id);
+        if (!ar?.dateAudience) return false;
+        if (ar.isClassement || ar.isOI) return false;
+        return new Date(ar.dateAudience).getFullYear() === selectedYear;
+      });
+      const cDirectFiltered = Object.values(cResultats)
+        .filter(r => r.isDirectResult && !r.isClassement && !r.isOI && new Date(r.dateAudience).getFullYear() === selectedYear);
+      const totalTerminees = cTerminees.length + cDirectFiltered.length;
+
+      // Durée moyenne terminées
+      const durTerminees = cTerminees.reduce((res, e) => {
+        const ar = Object.values(cResultats).find(r => r.enqueteId === e.id);
+        if (!ar?.dateAudience || !e.dateDebut) return res;
+        const start = new Date(e.dateDebut);
+        const end = new Date(ar.dateAudience);
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) return res;
+        const duree = Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        if (duree < 0) return res;
+        return { total: res.total + duree, count: res.count + 1 };
+      }, { total: 0, count: 0 });
+      const avgDuration = durTerminees.count > 0 ? Math.round(durTerminees.total / durTerminees.count) : 0;
+
+      // Enquêtes en cours
+      const enCours = cEnquetes.filter(e => e.statut === 'en_cours').length;
+
+      // Actes - enquêtes de l'année
+      const cEnquetesForYear = cEnquetes.filter(e => new Date(e.dateCreation).getFullYear() === selectedYear);
+      const cActes = cEnquetesForYear.reduce((acc, e) => {
+        const tags = e.tags || [];
+        const ecoutes = tags.filter(t => t.category === 'acte' && t.value === 'ecoute').length;
+        const geo = tags.filter(t => t.category === 'acte' && t.value === 'geolocalisation').length;
+        const autres = tags.filter(t => t.category === 'acte' && t.value === 'autre').length;
+        const prolongEcoutes = tags.filter(t => t.category === 'prolongation' && t.value === 'ecoute').length;
+        const prolongGeo = tags.filter(t => t.category === 'prolongation' && t.value === 'geolocalisation').length;
+        const prolongAutres = tags.filter(t => t.category === 'prolongation' && t.value === 'autre').length;
+        return acc + ecoutes + geo + autres + prolongEcoutes + prolongGeo + prolongAutres;
+      }, 0);
+
+      // Déférements par mois
+      const deferementsParMois: Record<number, number> = {};
+      for (let m = 0; m <= 11; m++) deferementsParMois[m] = 0;
+      Object.values(cResultats).forEach(r => {
+        if (r.nombreDeferes && r.dateDefere) {
+          const date = new Date(r.dateDefere);
+          if (date.getFullYear() === selectedYear) {
+            deferementsParMois[date.getMonth()] = (deferementsParMois[date.getMonth()] || 0) + r.nombreDeferes;
+          }
+        } else {
+          r.condamnations.forEach(c => {
+            if (!c.defere) return;
+            const dateRef = c.dateDefere || r.dateAudience;
+            const date = new Date(dateRef);
+            if (date.getFullYear() === selectedYear) {
+              deferementsParMois[date.getMonth()] = (deferementsParMois[date.getMonth()] || 0) + 1;
+            }
+          });
+        }
+      });
+      const totalDeferements = Object.values(deferementsParMois).reduce((a, b) => a + b, 0);
+
+      // Condamnations
+      const totalCondamnations = Object.values(cResultats)
+        .filter(r => new Date(r.dateAudience).getFullYear() === selectedYear)
+        .reduce((acc, r) => acc + r.condamnations.length, 0);
+
+      return {
+        def,
+        totalTerminees,
+        avgDuration,
+        enCours,
+        totalActes: cActes,
+        deferementsParMois,
+        totalDeferements,
+        totalCondamnations,
+      };
+    });
+  }, [isGlobal, enabledDefs, enquetesByContentieux, audienceState?.resultats, selectedYear]);
+
   // Helper pour afficher les tendances
   const DiffBadge = ({ diff, suffix = '' }: { diff: number; suffix?: string }) => {
     if (diff === 0) return <span className="text-xs text-gray-400">= {suffix}</span>;
@@ -356,6 +460,24 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId }: GeneralS
                 );
               })}
             </div>
+            {/* Subdivision par contentieux */}
+            {isGlobal && contentieuxStats && contentieuxStats.length > 0 && (
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-xs font-medium text-gray-500 mb-2">Par contentieux</p>
+                <div className="space-y-1">
+                  {contentieuxStats.filter(s => s.totalTerminees > 0).map(s => (
+                    <div key={s.def.id} className="flex justify-between items-center text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: s.def.color }} />
+                        <span className="text-gray-700">{s.def.label}</span>
+                      </div>
+                      <span className="font-semibold">{s.totalTerminees}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="mt-3 pt-3 border-t">
               <p className="text-xs text-gray-400">
                 Total avec OI et classements sans suite : <span className="font-semibold">{enquetesTerminees.length + directResults.length}</span>
@@ -378,6 +500,23 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId }: GeneralS
             <div className="mt-2 pt-2 border-t">
               <div className="text-sm">Enquêtes en cours: {Math.round(averageDurationEnCours)} jours</div>
             </div>
+            {/* Subdivision par contentieux */}
+            {isGlobal && contentieuxStats && contentieuxStats.length > 0 && (
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-xs font-medium text-gray-500 mb-2">Par contentieux (terminées)</p>
+                <div className="space-y-1">
+                  {contentieuxStats.filter(s => s.avgDuration > 0).map(s => (
+                    <div key={s.def.id} className="flex justify-between items-center text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: s.def.color }} />
+                        <span className="text-gray-700">{s.def.label}</span>
+                      </div>
+                      <span className="font-semibold">{s.avgDuration} jours</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -439,6 +578,58 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId }: GeneralS
                 </div>
               </div>
             </div>
+            {/* Répartition par contentieux */}
+            {isGlobal && contentieuxStats && contentieuxStats.filter(s => s.totalActes > 0).length > 0 && (() => {
+              const actesData = contentieuxStats.filter(s => s.totalActes > 0).sort((a, b) => b.totalActes - a.totalActes);
+              const totalActesGlobal = actesData.reduce((a, s) => a + s.totalActes, 0);
+              return (
+                <div className="mt-4 pt-4 border-t">
+                  <p className="text-xs font-medium text-gray-500 mb-2">Répartition par contentieux</p>
+                  <div className="flex items-center gap-4">
+                    <div className="h-[120px] w-[120px] flex-shrink-0">
+                      <Pie
+                        data={{
+                          labels: actesData.map(s => s.def.label),
+                          datasets: [{
+                            data: actesData.map(s => s.totalActes),
+                            backgroundColor: actesData.map(s => s.def.color),
+                          }],
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: {
+                            legend: { display: false },
+                            datalabels: { display: false },
+                            tooltip: {
+                              callbacks: {
+                                label: (ctx) => {
+                                  const pct = totalActesGlobal > 0 ? ((ctx.raw as number / totalActesGlobal) * 100).toFixed(0) : '0';
+                                  return ` ${ctx.label}: ${ctx.raw} (${pct}%)`;
+                                }
+                              }
+                            },
+                          },
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-1 flex-grow">
+                      {actesData.map(s => (
+                        <div key={s.def.id} className="flex justify-between items-center text-xs">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.def.color }} />
+                            <span>{s.def.label}</span>
+                          </div>
+                          <span className="font-semibold">
+                            {s.totalActes} ({totalActesGlobal > 0 ? ((s.totalActes / totalActesGlobal) * 100).toFixed(0) : 0}%)
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
 
@@ -513,6 +704,24 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId }: GeneralS
             <div className="text-3xl font-bold">{allEnquetesEnCours.length}</div>
             <p className="text-sm text-gray-500 mb-4">enquête{allEnquetesEnCours.length > 1 ? 's' : ''} en cours au total</p>
 
+            {/* Subdivision par contentieux */}
+            {isGlobal && contentieuxStats && contentieuxStats.length > 0 && (
+              <div className="mb-4 p-3 bg-gray-50 rounded-md">
+                <p className="text-xs font-medium text-gray-500 mb-2">Par contentieux</p>
+                <div className="space-y-1">
+                  {contentieuxStats.filter(s => s.enCours > 0).map(s => (
+                    <div key={s.def.id} className="flex justify-between items-center text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: s.def.color }} />
+                        <span className="text-gray-700">{s.def.label}</span>
+                      </div>
+                      <span className="font-semibold">{s.enCours}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="bg-blue-50 p-3 rounded-md mb-4">
               <div className="text-sm font-medium text-blue-800">Ouvertes depuis le début de l'année {selectedYear}</div>
               <div className="text-2xl font-bold text-blue-700">{enquetesOuvertesAnnee.length}</div>
@@ -549,8 +758,58 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId }: GeneralS
               <span className="text-base font-normal text-gray-500 ml-2">déférement{totalDeferementsYear > 1 ? 's' : ''} en {selectedYear}</span>
             </div>
             {(() => {
-              // Pré-calculer les dossiers avec déférements par mois pour le tooltip
-              const deferementsDetailParMois = getMonthsToShow().map(month => {
+              const monthsToShow = getMonthsToShow();
+
+              // Mode global : une courbe par contentieux
+              if (isGlobal && contentieuxStats && contentieuxStats.filter(s => s.totalDeferements > 0).length > 0) {
+                const activeStats = contentieuxStats.filter(s => s.totalDeferements > 0);
+                return (
+                  <>
+                    <div style={{ width: '100%', height: '300px' }}>
+                      <Line
+                        data={{
+                          labels: monthsToShow.map(month =>
+                            new Date(selectedYear, month).toLocaleString('default', { month: 'short' })
+                          ),
+                          datasets: activeStats.map(s => ({
+                            label: s.def.label,
+                            data: monthsToShow.map(month => s.deferementsParMois[month] || 0),
+                            borderColor: s.def.color,
+                            backgroundColor: s.def.color + '20',
+                            tension: 0.3,
+                            fill: false,
+                            borderWidth: 2,
+                            pointRadius: 3,
+                          })),
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          scales: {
+                            y: { beginAtZero: true, ticks: { stepSize: 1 } }
+                          },
+                          plugins: {
+                            legend: { display: false },
+                            datalabels: { display: false },
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="flex flex-wrap justify-center gap-3 mt-3">
+                      {activeStats.map(s => (
+                        <div key={s.def.id} className="flex items-center gap-1.5 text-xs">
+                          <div className="w-3 h-1 rounded" style={{ backgroundColor: s.def.color }} />
+                          <span>{s.def.label}</span>
+                          <span className="font-semibold">({s.totalDeferements})</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                );
+              }
+
+              // Mode individuel : courbe simple
+              const deferementsDetailParMois = monthsToShow.map(month => {
                 const dossiers: string[] = [];
                 Object.values(scopedResultats).forEach(r => {
                   const enquete = enquetes.find(e => e.id === r.enqueteId);
@@ -578,7 +837,7 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId }: GeneralS
                 <div style={{ width: '100%', height: '300px' }}>
                   <Line
                     data={{
-                      labels: getMonthsToShow().map(month =>
+                      labels: monthsToShow.map(month =>
                         new Date(selectedYear, month).toLocaleString('default', { month: 'long' })
                       ),
                       datasets: [{
