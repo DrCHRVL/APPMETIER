@@ -84,11 +84,8 @@ export const MultiSelect = ({
                 className="bg-gray-100 px-2 py-0.5 rounded-sm text-xs flex items-center gap-1"
                 onClick={(e) => {
                   e.stopPropagation();
-                  // Trouver l'option correspondante pour la passer à toggleOption
-                  const correspondingOption = options.find(opt => getOptionValue(opt) === v);
-                  if (correspondingOption) {
-                    toggleOption(correspondingOption);
-                  }
+                  // Retirer la valeur directement (permet de supprimer les tags orphelins/supprimés)
+                  onChange(value.filter(val => val !== v));
                 }}
               >
                 {v}

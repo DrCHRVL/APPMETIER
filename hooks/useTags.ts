@@ -23,6 +23,9 @@ interface UseTagsReturn {
   // Organisation
   updateTagOrganization: (tagId: string, organization: TagOrganization | null) => Promise<boolean>;
   
+  // Utilitaire
+  getTagUsageCount: (tagValue: string, category: TagCategory) => Promise<number>;
+
   // Nettoyage et migration
   cleanupOrphanTags: () => Promise<{ found: string[], cleaned: number }>;
   recreateOrphanTags: (orphanTags: string[]) => Promise<number>;
@@ -295,6 +298,36 @@ export const useTags = (): UseTagsReturn => {
     return null;
   }, [tags]);
 
+  // Compter le nombre d'enquêtes/instructions utilisant un tag
+  const getTagUsageCount = useCallback(async (tagValue: string, category: TagCategory): Promise<number> => {
+    try {
+      const enquetes = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.ENQUETES, []);
+      const instructions = await ElectronBridge.getData('instructions', []);
+      let count = 0;
+
+      const countInItems = (items: any[]) => {
+        items.forEach((item: any) => {
+          if (item.tags && Array.isArray(item.tags)) {
+            const found = item.tags.some((tag: any) => {
+              const tv = typeof tag === 'string' ? tag : tag.value;
+              const tc = typeof tag === 'string' ? null : tag.category;
+              return tv === tagValue && (!tc || tc === category);
+            });
+            if (found) count++;
+          }
+        });
+      };
+
+      if (Array.isArray(enquetes)) countInItems(enquetes);
+      if (Array.isArray(instructions)) countInItems(instructions);
+
+      return count;
+    } catch (error) {
+      console.error('Error counting tag usage:', error);
+      return 0;
+    }
+  }, []);
+
   // Fonction de nettoyage des tags orphelins
   const cleanupOrphanTags = useCallback(async (): Promise<{ found: string[], cleaned: number }> => {
     try {
@@ -494,6 +527,9 @@ export const useTags = (): UseTagsReturn => {
     // Organisation
     updateTagOrganization,
     
+    // Utilitaire
+    getTagUsageCount,
+
     // Nettoyage et migration
     cleanupOrphanTags,
     recreateOrphanTags
