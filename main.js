@@ -1823,7 +1823,7 @@ function setupIpcHandlers() {
   // ========================================================================
 
   // Fichiers/dossiers à ne jamais copier lors des mises à jour
-  const SKIP_ON_UPDATE = new Set(['data', '.git', 'node_modules', 'tessdata', '.next']);
+  const SKIP_ON_UPDATE = new Set(['data', '.git', 'node_modules', 'tessdata', '.next', '.next-publish']);
 
   // Dossiers sources à exclure de la publication (code protégé)
   const SOURCE_DIRS_TO_EXCLUDE = new Set([
@@ -1970,22 +1970,28 @@ function setupIpcHandlers() {
   }
 
   /**
-   * Lance "next build" dans le répertoire de l'app
+   * Lance "next build" dans un dossier de sortie séparé (.next-publish)
+   * pour ne pas casser le serveur next dev en cours d'exécution.
+   * Retourne le chemin du dossier build produit.
    */
+  const PUBLISH_BUILD_DIR = '.next-publish'
+
   function runNextBuild() {
     return new Promise((resolve, reject) => {
       const nodePath = path.resolve(__dirname, '..', 'nodejs', 'node.exe')
       const nodeToUse = fs.existsSync(nodePath) ? `"${nodePath}"` : 'node'
       const nextBin = path.join(__dirname, 'node_modules', 'next', 'dist', 'bin', 'next')
+      // Utiliser un distDir séparé pour ne pas écraser .next/ du dev server
       const cmd = `${nodeToUse} "${nextBin}" build`
-      console.log(`🔨 Build: ${cmd}`)
-      exec(cmd, { cwd: __dirname, maxBuffer: 50 * 1024 * 1024, timeout: 300000 }, (error, stdout, stderr) => {
+      const env = { ...process.env, NEXT_PUBLISH_BUILD: '1' }
+      console.log(`🔨 Build (distDir=${PUBLISH_BUILD_DIR}): ${cmd}`)
+      exec(cmd, { cwd: __dirname, maxBuffer: 50 * 1024 * 1024, timeout: 300000, env }, (error, stdout, stderr) => {
         if (error) {
           console.error('❌ Build failed:', stderr || error.message)
           reject(new Error(`Build échoué: ${stderr || error.message}`))
         } else {
           console.log('✅ Build terminé')
-          resolve(stdout)
+          resolve(path.join(__dirname, PUBLISH_BUILD_DIR))
         }
       })
     })
@@ -2010,9 +2016,10 @@ function setupIpcHandlers() {
         return { success: false, error: `Le chemin réseau n'est pas accessible : ${generalPath || '(non configuré)'}.\nVeuillez configurer le chemin général dans Paramètres > Chemins réseau.` }
       }
 
-      // Étape 1 : Build Next.js
+      // Étape 1 : Build Next.js (dans .next-publish pour ne pas casser le serveur dev)
       sendProgress('build', 'Compilation de l\'application...', 1)
-      await runNextBuild()
+      const buildOutputDir = await runNextBuild()
+      console.log(`📡 Publish: build terminé dans "${buildOutputDir}"`)
 
       // Étape 2 : Préparer le dossier de publication
       sendProgress('copy', 'Préparation des fichiers...', 2)
@@ -2021,21 +2028,22 @@ function setupIpcHandlers() {
       const sourceDir = path.join(updatesDir, 'source')
       console.log(`📡 Publish: dossier source = "${sourceDir}"`)
 
-
       if (fs.existsSync(sourceDir)) {
         fs.rmSync(sourceDir, { recursive: true, force: true })
       }
       fs.mkdirSync(sourceDir, { recursive: true })
 
-      // Étape 3 : Copier le build (.next/) vers le dossier de publication
+      // Étape 3 : Copier le build (.next-publish/) vers le dossier de publication
       sendProgress('copy', 'Copie du build...', 3)
-      const nextBuildDir = path.join(__dirname, '.next')
       const destNextDir = path.join(sourceDir, '.next')
       fs.mkdirSync(destNextDir, { recursive: true })
-      copyDirForUpdate(nextBuildDir, destNextDir)
+      copyDirForUpdate(buildOutputDir, destNextDir)
 
       // Copier les fichiers nécessaires (sans les sources)
       copyDirForPublish(__dirname, sourceDir)
+
+      // Nettoyage du build temporaire
+      try { fs.rmSync(buildOutputDir, { recursive: true, force: true }) } catch {}
 
       // Étape 4 : Obfusquer main.js et preload.js dans la copie publiée
       sendProgress('obfuscate', 'Protection du code (obfuscation)...', 4)
@@ -2100,9 +2108,9 @@ function setupIpcHandlers() {
         return { success: false, error: `Le chemin réseau n'est pas accessible : ${generalPath || '(non configuré)'}.\nVeuillez configurer le chemin général dans Paramètres > Chemins réseau.` }
       }
 
-      // Étape 1 : Build Next.js
+      // Étape 1 : Build Next.js (dans .next-publish pour ne pas casser le serveur dev)
       sendProgress('build', 'Compilation de l\'application...', 1)
-      await runNextBuild()
+      const buildOutputDir = await runNextBuild()
 
       // Étape 2 : Préparer le dossier d'installation complète
       sendProgress('prepare', 'Préparation du dossier d\'installation...', 2)
@@ -2114,16 +2122,18 @@ function setupIpcHandlers() {
       }
       fs.mkdirSync(appDir, { recursive: true })
 
-      // Étape 3 : Copier le build .next/
+      // Étape 3 : Copier le build .next-publish/
       sendProgress('copy', 'Copie du build compilé...', 3)
-      const nextBuildDir = path.join(__dirname, '.next')
       const destNextDir = path.join(appDir, '.next')
       fs.mkdirSync(destNextDir, { recursive: true })
-      copyDirForUpdate(nextBuildDir, destNextDir)
+      copyDirForUpdate(buildOutputDir, destNextDir)
 
       // Étape 4 : Copier les fichiers de l'app (sans les sources)
       sendProgress('copy', 'Copie des fichiers de l\'application...', 4)
       copyDirForPublish(__dirname, appDir)
+
+      // Nettoyage du build temporaire
+      try { fs.rmSync(buildOutputDir, { recursive: true, force: true }) } catch {}
 
       // Copier node_modules (nécessaire pour la première installation)
       sendProgress('copy', 'Copie des dépendances (node_modules)...', 5)
