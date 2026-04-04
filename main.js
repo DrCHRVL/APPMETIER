@@ -35,9 +35,18 @@ const CONTENTIEUX_FOLDERS = {
 
 /**
  * Retourne le chemin du dossier d'un contentieux, en le créant si nécessaire.
+ * Priorité : serverPaths.contentieux[id] dans users.json > CONTENTIEUX_FOLDERS hardcodé
  */
 function getContentieuxFolder(contentieuxId) {
-  const folder = CONTENTIEUX_FOLDERS[contentieuxId]
+  let folder = CONTENTIEUX_FOLDERS[contentieuxId]
+  try {
+    if (fs.existsSync(USERS_CONFIG_PATH)) {
+      const config = JSON.parse(fs.readFileSync(USERS_CONFIG_PATH, 'utf8'))
+      if (config.serverPaths?.contentieux?.[contentieuxId]) {
+        folder = config.serverPaths.contentieux[contentieuxId]
+      }
+    }
+  } catch {}
   if (!folder) throw new Error(`Contentieux inconnu: ${contentieuxId}`)
   if (!fs.existsSync(folder)) {
     fs.mkdirSync(folder, { recursive: true })
@@ -1255,12 +1264,116 @@ function setupIpcHandlers() {
    */
   ipcMain.handle('dataSync:checkContentieuxAccess', async (event, contentieuxId) => {
     try {
-      const folder = CONTENTIEUX_FOLDERS[contentieuxId]
+      const folder = getContentieuxFolder(contentieuxId)
       if (!folder) return false
-      // Le dossier n'a pas besoin d'exister déjà (sera créé au premier push)
-      return fs.existsSync(COMMON_SERVER_PATH)
+      // Le dossier parent doit être accessible
+      const parentDir = path.dirname(folder)
+      return fs.existsSync(parentDir)
     } catch {
       return false
+    }
+  })
+
+  /**
+   * Retourne les chemins effectifs actuels (configurés ou par défaut)
+   */
+  ipcMain.handle('paths:getEffective', async () => {
+    const general = getGeneralServerPath()
+    const contentieux = {}
+    for (const [id, defaultPath] of Object.entries(CONTENTIEUX_FOLDERS)) {
+      try {
+        contentieux[id] = getContentieuxFolder(id)
+      } catch {
+        contentieux[id] = defaultPath
+      }
+    }
+    return { general, contentieux }
+  })
+
+  /**
+   * Migre les données d'un ancien chemin vers un nouveau chemin.
+   * Copie app-data.json et le dossier backups/ s'ils existent.
+   */
+  ipcMain.handle('paths:migrateContentieux', async (event, contentieuxId, oldPath, newPath) => {
+    try {
+      if (!oldPath || !newPath || oldPath === newPath) return { success: true, skipped: true }
+      if (!fs.existsSync(oldPath)) return { success: true, skipped: true, reason: 'Ancien chemin inexistant' }
+
+      // Créer le nouveau dossier
+      if (!fs.existsSync(newPath)) {
+        fs.mkdirSync(newPath, { recursive: true })
+      }
+
+      const migrated = []
+
+      // Copier app-data.json
+      const oldData = path.join(oldPath, 'app-data.json')
+      if (fs.existsSync(oldData)) {
+        const newData = path.join(newPath, 'app-data.json')
+        if (!fs.existsSync(newData)) {
+          fs.copyFileSync(oldData, newData)
+          migrated.push('app-data.json')
+        }
+      }
+
+      // Copier le dossier backups/
+      const oldBackups = path.join(oldPath, 'backups')
+      if (fs.existsSync(oldBackups)) {
+        const newBackups = path.join(newPath, 'backups')
+        if (!fs.existsSync(newBackups)) {
+          fs.mkdirSync(newBackups, { recursive: true })
+          for (const file of fs.readdirSync(oldBackups)) {
+            fs.copyFileSync(path.join(oldBackups, file), path.join(newBackups, file))
+          }
+          migrated.push(`backups/ (${fs.readdirSync(oldBackups).length} fichiers)`)
+        }
+      }
+
+      console.log(`✅ Migration ${contentieuxId}: ${oldPath} → ${newPath} (${migrated.join(', ') || 'rien à migrer'})`)
+      return { success: true, migrated }
+    } catch (error) {
+      console.error(`❌ Migration ${contentieuxId} error:`, error.message)
+      return { success: false, error: error.message }
+    }
+  })
+
+  /**
+   * Migre les données générales (heartbeats, events, audit, updates) vers un nouveau chemin.
+   */
+  ipcMain.handle('paths:migrateGeneral', async (event, oldPath, newPath) => {
+    try {
+      if (!oldPath || !newPath || oldPath === newPath) return { success: true, skipped: true }
+      if (!fs.existsSync(oldPath)) return { success: true, skipped: true, reason: 'Ancien chemin inexistant' }
+
+      if (!fs.existsSync(newPath)) {
+        fs.mkdirSync(newPath, { recursive: true })
+      }
+
+      const migrated = []
+      const subfolders = ['heartbeats', 'events', 'audit', 'updates']
+      for (const sub of subfolders) {
+        const oldSub = path.join(oldPath, sub)
+        const newSub = path.join(newPath, sub)
+        if (fs.existsSync(oldSub) && !fs.existsSync(newSub)) {
+          fs.mkdirSync(newSub, { recursive: true })
+          copyDirForUpdate(oldSub, newSub)
+          migrated.push(sub)
+        }
+      }
+
+      // Copier users.json
+      const oldUsers = path.join(oldPath, 'users.json')
+      const newUsers = path.join(newPath, 'users.json')
+      if (fs.existsSync(oldUsers) && !fs.existsSync(newUsers)) {
+        fs.copyFileSync(oldUsers, newUsers)
+        migrated.push('users.json')
+      }
+
+      console.log(`✅ Migration général: ${oldPath} → ${newPath} (${migrated.join(', ') || 'rien à migrer'})`)
+      return { success: true, migrated }
+    } catch (error) {
+      console.error(`❌ Migration général error:`, error.message)
+      return { success: false, error: error.message }
     }
   })
 
