@@ -2077,6 +2077,174 @@ function setupIpcHandlers() {
   })
 
   /**
+   * ADMIN : Publier un package COMPLET sur le réseau (pour première installation)
+   * Inclut : app compilée + electron + nodejs + launcher
+   * Les collègues n'ont qu'à copier le dossier sur leur poste.
+   */
+  ipcMain.handle('lanUpdate:publishFull', async (event, changelog) => {
+    try {
+      const totalSteps = 8
+      const sendProgress = (step, detail, current) => {
+        try { mainWindow?.webContents?.send('publish-progress', { step, detail, current, total: totalSteps }) } catch {}
+      }
+
+      // Vérifier que le chemin réseau est accessible
+      const generalPath = getGeneralServerPath()
+      if (!generalPath || !fs.existsSync(generalPath)) {
+        return { success: false, error: `Le chemin réseau n'est pas accessible : ${generalPath || '(non configuré)'}.\nVeuillez configurer le chemin général dans Paramètres > Chemins réseau.` }
+      }
+
+      // Étape 1 : Build Next.js
+      sendProgress('build', 'Compilation de l\'application...', 1)
+      await runNextBuild()
+
+      // Étape 2 : Préparer le dossier d'installation complète
+      sendProgress('prepare', 'Préparation du dossier d\'installation...', 2)
+      const installDir = path.join(generalPath, 'Installation')
+      const appDir = path.join(installDir, 'Projet1')
+
+      if (fs.existsSync(appDir)) {
+        fs.rmSync(appDir, { recursive: true, force: true })
+      }
+      fs.mkdirSync(appDir, { recursive: true })
+
+      // Étape 3 : Copier le build .next/
+      sendProgress('copy', 'Copie du build compilé...', 3)
+      const nextBuildDir = path.join(__dirname, '.next')
+      const destNextDir = path.join(appDir, '.next')
+      fs.mkdirSync(destNextDir, { recursive: true })
+      copyDirForUpdate(nextBuildDir, destNextDir)
+
+      // Étape 4 : Copier les fichiers de l'app (sans les sources)
+      sendProgress('copy', 'Copie des fichiers de l\'application...', 4)
+      copyDirForPublish(__dirname, appDir)
+
+      // Copier node_modules (nécessaire pour la première installation)
+      sendProgress('copy', 'Copie des dépendances (node_modules)...', 5)
+      const nodeModulesSrc = path.join(__dirname, 'node_modules')
+      const nodeModulesDest = path.join(appDir, 'node_modules')
+      if (fs.existsSync(nodeModulesSrc)) {
+        fs.mkdirSync(nodeModulesDest, { recursive: true })
+        copyDirForUpdate(nodeModulesSrc, nodeModulesDest, new Set())
+      }
+
+      // Créer le dossier data vide
+      fs.mkdirSync(path.join(appDir, 'data'), { recursive: true })
+
+      // Copier tessdata si présent
+      const tessdataSrc = path.join(__dirname, 'tessdata')
+      if (fs.existsSync(tessdataSrc)) {
+        const tessdataDest = path.join(appDir, 'tessdata')
+        fs.mkdirSync(tessdataDest, { recursive: true })
+        copyDirForUpdate(tessdataSrc, tessdataDest, new Set())
+      }
+
+      // Étape 6 : Obfusquer main.js et preload.js
+      sendProgress('obfuscate', 'Protection du code (obfuscation)...', 6)
+      const publishedMain = path.join(appDir, 'main.js')
+      const publishedPreload = path.join(appDir, 'preload.js')
+      if (fs.existsSync(publishedMain)) obfuscateFile(publishedMain)
+      if (fs.existsSync(publishedPreload)) obfuscateFile(publishedPreload)
+
+      // Étape 7 : Générer l'intégrité + copier les runtimes
+      sendProgress('runtime', 'Copie des runtimes (Electron + Node.js)...', 7)
+
+      // Intégrité
+      const integrityManifest = {}
+      ;['main.js', 'preload.js', 'package.json'].forEach(f => {
+        const fp = path.join(appDir, f)
+        if (fs.existsSync(fp)) {
+          const content = fs.readFileSync(fp)
+          integrityManifest[f] = crypto.createHash('sha256').update(content).digest('hex')
+        }
+      })
+      fs.writeFileSync(path.join(appDir, '.integrity'), JSON.stringify(integrityManifest, null, 2), 'utf8')
+
+      // Copier start-next.bat
+      const startNextSrc = path.join(__dirname, 'start-next.bat')
+      if (fs.existsSync(startNextSrc)) {
+        fs.copyFileSync(startNextSrc, path.join(appDir, 'start-next.bat'))
+      }
+
+      // Copier Electron runtime
+      const electronSrc = path.resolve(__dirname, '..', 'electron')
+      if (fs.existsSync(electronSrc)) {
+        const electronDest = path.join(installDir, 'electron')
+        if (fs.existsSync(electronDest)) fs.rmSync(electronDest, { recursive: true, force: true })
+        fs.mkdirSync(electronDest, { recursive: true })
+        copyDirForUpdate(electronSrc, electronDest, new Set())
+      }
+
+      // Copier Node.js runtime
+      const nodejsSrc = path.resolve(__dirname, '..', 'nodejs')
+      if (fs.existsSync(nodejsSrc)) {
+        const nodejsDest = path.join(installDir, 'nodejs')
+        if (fs.existsSync(nodejsDest)) fs.rmSync(nodejsDest, { recursive: true, force: true })
+        fs.mkdirSync(nodejsDest, { recursive: true })
+        copyDirForUpdate(nodejsSrc, nodejsDest, new Set())
+      }
+
+      // Créer le launcher.bat
+      const launcherPath = path.join(installDir, 'launcher.bat')
+      const launcherContent = [
+        '@echo off',
+        'echo Demarrage de l\'application...',
+        'set BASE_DIR=%~dp0',
+        'set ELECTRON_OVERRIDE_DIST_PATH=%BASE_DIR%electron',
+        'cd Projet1',
+        'call start-next.bat',
+        'echo Attente du serveur Next.js...',
+        'set /a attempts=0',
+        ':WAIT_LOOP',
+        'if %attempts% geq 20 goto TIMEOUT',
+        'timeout /t 1 /nobreak >nul',
+        'set /a attempts+=1',
+        'curl -s http://localhost:3000 >nul 2>&1',
+        'if %ERRORLEVEL% neq 0 goto WAIT_LOOP',
+        'echo Lancement d\'Electron...',
+        'start "" ..\\electron\\electron.exe .',
+        'goto END',
+        ':TIMEOUT',
+        'echo Timeout: le serveur Next.js ne repond pas',
+        'exit /b 1',
+        ':END',
+      ].join('\r\n')
+      fs.writeFileSync(launcherPath, launcherContent, 'ascii')
+
+      // Étape 8 : Manifeste
+      sendProgress('manifest', 'Finalisation...', 8)
+      const now = new Date().toISOString()
+      const version = `${now.slice(0,10).replace(/-/g, '.')}.${Date.now().toString(36)}`
+      const manifest = {
+        version,
+        publishedAt: now,
+        publishedBy: os.userInfo().username,
+        changelog: changelog || '',
+        type: 'full-install',
+      }
+      fs.writeFileSync(path.join(installDir, 'install-manifest.json'), JSON.stringify(manifest, null, 2), 'utf8')
+
+      // Publier aussi la mise à jour classique pour que les postes existants se mettent à jour
+      const updatesDir = ensureDir(getUpdatesDir())
+      const sourceDir = path.join(updatesDir, 'source')
+      if (fs.existsSync(sourceDir)) fs.rmSync(sourceDir, { recursive: true, force: true })
+      fs.mkdirSync(sourceDir, { recursive: true })
+      copyDirForUpdate(path.join(appDir, '.next'), path.join(sourceDir, '.next'))
+      copyDirForPublish(appDir, sourceDir)
+      const updateManifest = { version, publishedAt: now, publishedBy: os.userInfo().username, changelog: changelog || '' }
+      fs.writeFileSync(getManifestPath(), JSON.stringify(updateManifest, null, 2), 'utf8')
+      saveLocalLanVersion(updateManifest)
+
+      sendProgress('done', `Version ${version} publiée (installation complète)`, totalSteps)
+      console.log(`✅ LAN full install: version ${version} publiée dans ${installDir}`)
+      return { success: true, version, manifest, installPath: installDir }
+    } catch (error) {
+      console.error('❌ LAN full install publish error:', error.message)
+      return { success: false, error: error.message }
+    }
+  })
+
+  /**
    * Vérifie si une mise à jour réseau est disponible
    */
   ipcMain.handle('lanUpdate:check', async () => {
