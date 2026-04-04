@@ -54,6 +54,7 @@ export const TagManagementPage = () => {
     addTag,
     updateTag,
     deleteTag,
+    getTagUsageCount,
     cleanupOrphanTags,
     recreateOrphanTags
   } = useTags();
@@ -66,6 +67,7 @@ export const TagManagementPage = () => {
   const [orphanCleanupDialog, setOrphanCleanupDialog] = useState(false);
   const [foundOrphans, setFoundOrphans] = useState<string[]>([]);
   const [isCleaningUp, setIsCleaningUp] = useState(false);
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{ tagId: string; tagValue: string; usageCount: number } | null>(null);
   
   const editInputRef = useRef<HTMLInputElement>(null);
 
@@ -225,10 +227,24 @@ export const TagManagementPage = () => {
   };
 
   const handleRemoveTag = async (tagId: string) => {
+    const tag = tags.find(t => t.id === tagId);
+    if (!tag) return;
+
+    const usageCount = await getTagUsageCount(tag.value, tag.category);
+
+    if (usageCount > 0) {
+      setDeleteConfirmDialog({ tagId, tagValue: tag.value, usageCount });
+    } else {
+      await confirmDeleteTag(tagId);
+    }
+  };
+
+  const confirmDeleteTag = async (tagId: string) => {
     try {
       const success = await deleteTag(tagId);
-      
+
       if (success) {
+        setDeleteConfirmDialog(null);
         showToast('Tag supprimé avec succès', 'success');
       } else {
         showToast('Erreur lors de la suppression du tag', 'error');
@@ -590,6 +606,38 @@ export const TagManagementPage = () => {
             <Button onClick={handleRequestTag} disabled={!requestTagValue.trim()}>
               <Send className="h-4 w-4 mr-2" />
               Envoyer la demande
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de confirmation de suppression */}
+      <Dialog open={!!deleteConfirmDialog} onOpenChange={() => setDeleteConfirmDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-orange-500" />
+              Confirmer la suppression
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm">
+              Le tag <strong>"{deleteConfirmDialog?.tagValue}"</strong> est utilisé dans{' '}
+              <strong>{deleteConfirmDialog?.usageCount} enquête(s) / instruction(s)</strong>.
+            </p>
+            <p className="text-sm text-red-600">
+              La suppression retirera ce tag de toutes les enquêtes et instructions concernées.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmDialog(null)}>
+              Annuler
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteConfirmDialog && confirmDeleteTag(deleteConfirmDialog.tagId)}
+            >
+              Supprimer
             </Button>
           </DialogFooter>
         </DialogContent>

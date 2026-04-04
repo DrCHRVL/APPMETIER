@@ -84,16 +84,21 @@ export const NewEnqueteModal = ({
           category: 'services'
         };
 
-        // Supprimer l'ancien service à cette position s'il existe
-        const filteredTags = selectedTags.filter(tag => 
-          !(tag.category === 'services' && selectedTags.indexOf(tag) === index)
-        );
+        // Séparer les tags services et non-services
+        const nonServiceTags = selectedTags.filter(tag => tag.category !== 'services');
+        const existingServiceTags = selectedTags.filter(tag => tag.category === 'services');
 
-        // Ajouter le nouveau service
-        const newServiceTags = [...filteredTags];
-        newServiceTags.splice(index, 0, serviceTag);
+        // Remplacer ou ajouter le service à la position donnée
+        const newServiceTags = [...existingServiceTags];
+        if (index < newServiceTags.length) {
+          newServiceTags[index] = serviceTag;
+        } else {
+          newServiceTags.push(serviceTag);
+        }
 
-        setSelectedTags(newServiceTags);
+        const allTags = [...newServiceTags, ...nonServiceTags];
+
+        setSelectedTags(allTags);
 
         // Mettre à jour aussi services[] pour compatibilité (sera supprimé plus tard)
         const newServices = [...newEnqueteData.services];
@@ -131,10 +136,12 @@ export const NewEnqueteModal = ({
     }
 
     // Créer tous les tags (services + infractions + enquête à venir)
+    const dureeTags = getTagsByCategory('duree');
+    const aVenirTag = dureeTags.find(t => t.value === 'enquête à venir');
     const allTags = [
       ...selectedTags,
       ...(isEnqueteAVenir ? [{
-        id: 'duree-a-venir',
+        id: aVenirTag?.id || `duree-${Date.now()}`,
         value: 'enquête à venir',
         category: 'duree' as const
       }] : [])

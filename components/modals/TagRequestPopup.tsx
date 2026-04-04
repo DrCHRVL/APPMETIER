@@ -8,6 +8,7 @@ import { tagRequestManager, TagRequest } from '@/utils/tagRequestManager';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useTags } from '@/hooks/useTags';
+import { TagCategory } from '@/config/tags';
 
 interface TagRequestPopupProps {
   isOpen: boolean;
@@ -32,7 +33,7 @@ export const TagRequestPopup = ({ isOpen, onClose }: TagRequestPopupProps) => {
   const handleApprove = async (request: TagRequest) => {
     if (!user) return;
     try {
-      await addTag(request.tagValue, request.category as any);
+      await addTag({ value: request.tagValue, category: request.category as TagCategory });
       await tagRequestManager.reviewRequest(request.id, 'approved', user.windowsUsername);
       showToast(`Tag "${request.tagValue}" approuvé et créé`, 'success');
       loadRequests();
