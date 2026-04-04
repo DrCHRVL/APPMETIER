@@ -74,7 +74,8 @@ export const TagManagementPage = () => {
       editInputRef.current.focus();
       editInputRef.current.select();
     }
-  }, [editingTag]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingTag?.id]);
 
   const getPlaceholder = (category: TagCategory) => {
     switch (category) {
