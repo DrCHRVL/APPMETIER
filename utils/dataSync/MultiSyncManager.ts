@@ -43,7 +43,7 @@ class ContentieuxSyncInstance {
   private syncInterval: NodeJS.Timeout | null = null;
   private postSaveDebounceTimer: NodeJS.Timeout | null = null;
   private readonly POST_SAVE_DEBOUNCE_MS = 5000;
-  private readonly SYNC_INTERVAL_MS = 30 * 1000;
+  private readonly SYNC_INTERVAL_MS = 120 * 1000;
 
   private statusListeners: Array<(contentieuxId: ContentieuxId, status: SyncStatus) => void> = [];
   private toastCallback: ((message: string, type: 'success' | 'info' | 'error') => void) | null = null;
@@ -218,11 +218,13 @@ class ContentieuxSyncInstance {
   }
 
   private async getLocalData(): Promise<SyncData> {
-    const enquetes = await ElectronBridge.getData(this.prefix('enquetes'), []);
-    const audienceResultats = await ElectronBridge.getData(this.prefix('audienceResultats'), {});
-    const customTags = await ElectronBridge.getData(this.prefix('customTags'), {});
-    const alertRules = await ElectronBridge.getData(this.prefix('alertRules'), []);
-    const alertValidations = await ElectronBridge.getData(this.prefix('alertValidations'), {});
+    const [enquetes, audienceResultats, customTags, alertRules, alertValidations] = await Promise.all([
+      ElectronBridge.getData(this.prefix('enquetes'), []),
+      ElectronBridge.getData(this.prefix('audienceResultats'), {}),
+      ElectronBridge.getData(this.prefix('customTags'), {}),
+      ElectronBridge.getData(this.prefix('alertRules'), []),
+      ElectronBridge.getData(this.prefix('alertValidations'), {}),
+    ]);
 
     return {
       enquetes: Array.isArray(enquetes) ? enquetes : [],
@@ -235,14 +237,19 @@ class ContentieuxSyncInstance {
   }
 
   private async saveLocalData(data: SyncData): Promise<void> {
-    await ElectronBridge.setData(this.prefix('enquetes'), data.enquetes);
-    await ElectronBridge.setData(this.prefix('audienceResultats'), data.audienceResultats);
-    await ElectronBridge.setData(this.prefix('customTags'), data.customTags);
-    await ElectronBridge.setData(this.prefix('alertRules'), data.alertRules);
+    const saveOps = [
+      ElectronBridge.setData(this.prefix('enquetes'), data.enquetes),
+      ElectronBridge.setData(this.prefix('audienceResultats'), data.audienceResultats),
+      ElectronBridge.setData(this.prefix('customTags'), data.customTags),
+      ElectronBridge.setData(this.prefix('alertRules'), data.alertRules),
+    ];
+
     if (data.alertValidations) {
       const local = await ElectronBridge.getData(this.prefix('alertValidations'), {});
-      await ElectronBridge.setData(this.prefix('alertValidations'), { ...local, ...data.alertValidations });
+      saveOps.push(ElectronBridge.setData(this.prefix('alertValidations'), { ...local, ...data.alertValidations }));
     }
+
+    await Promise.all(saveOps);
 
     // Mettre à jour le ContentieuxManager
     ContentieuxManager.getInstance().replaceData(this.contentieuxId, {
