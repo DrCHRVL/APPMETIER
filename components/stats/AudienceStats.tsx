@@ -2,11 +2,12 @@ import { useEffect, useState, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { useAudience } from '@/hooks/useAudience';
 import { Enquete } from '@/types/interfaces';
-import { AudienceStats as AudienceStatsType } from '@/types/audienceTypes';
+import { AudienceStats as AudienceStatsType, ResultatAudience } from '@/types/audienceTypes';
 import { getYearlyStats, getMonthlyStats } from '@/utils/audienceStats';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, BarElement } from 'chart.js';
 import { Pie, Bar } from 'react-chartjs-2';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
+import { ListFilter, X } from 'lucide-react';
 
 ChartJS.register(
   ArcElement,
@@ -74,6 +75,103 @@ const OrientationBarBlock = ({
     />
   </div>
 );
+
+// Bouton + popup pour lister les mis en cause avec interdiction de paraître par type de contentieux
+const InterdictionsDetailButton = ({
+  scopedResultats,
+  enquetes,
+  selectedYear,
+}: {
+  scopedResultats: Record<string, ResultatAudience>;
+  enquetes: Enquete[];
+  selectedYear: number;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const interdictionsData = useMemo(() => {
+    const result: Record<string, { nom: string; lieu?: string; duree?: number; dossier: string; dateAudience: string }[]> = {};
+
+    Object.values(scopedResultats).forEach(r => {
+      if (!r.dateAudience || new Date(r.dateAudience).getFullYear() !== selectedYear) return;
+
+      const enquete = enquetes.find(e => e.id === r.enqueteId);
+      const dossier = enquete?.numero || r.numeroAudience || `#${r.enqueteId}`;
+      const typeInfraction = r.typeInfraction || 'Non renseigné';
+
+      r.condamnations?.forEach(c => {
+        if (!c.interdictionParaitre) return;
+        if (!result[typeInfraction]) result[typeInfraction] = [];
+        result[typeInfraction].push({
+          nom: c.nom || 'Inconnu',
+          lieu: c.lieuInterdictionParaitre,
+          duree: c.dureeInterdictionParaitre,
+          dossier,
+          dateAudience: r.dateAudience,
+        });
+      });
+    });
+
+    return result;
+  }, [scopedResultats, enquetes, selectedYear]);
+
+  const sortedTypes = Object.entries(interdictionsData).sort(([, a], [, b]) => b.length - a.length);
+
+  return (
+    <>
+      <button
+        onClick={() => setIsOpen(true)}
+        className="mt-2 flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+      >
+        <ListFilter className="h-3.5 w-3.5" />
+        Voir le détail par contentieux
+      </button>
+
+      {isOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setIsOpen(false)}>
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white">
+              <h3 className="font-semibold text-lg">Interdictions de paraître ({selectedYear})</h3>
+              <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-gray-100 rounded">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              {sortedTypes.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">Aucune interdiction de paraître</p>
+              ) : (
+                sortedTypes.map(([type, items]) => (
+                  <div key={type}>
+                    <h4 className="font-medium text-sm text-gray-700 mb-2 bg-gray-50 p-2 rounded">
+                      {type} <span className="text-gray-400">({items.length})</span>
+                    </h4>
+                    <div className="space-y-1 pl-2">
+                      {items.map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-sm py-1 border-b border-gray-100 last:border-0">
+                          <div>
+                            <span className="font-medium">{item.nom}</span>
+                            <span className="text-gray-400 ml-2">({item.dossier})</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-gray-500">
+                            {item.lieu && <span>{item.lieu}</span>}
+                            {item.duree && <span>{item.duree} mois</span>}
+                            <span>{new Date(item.dateAudience).toLocaleDateString('fr-FR')}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
 
 interface AudienceStatsProps {
   enquetes: Enquete[];
@@ -450,6 +548,13 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId }: Audienc
                   ? ((yearlyStats.totalInterdictionsParaitre / yearlyStats.nombreCondamnations) * 100).toFixed(1)
                   : 0}% des condamnations
               </div>
+              {yearlyStats.totalInterdictionsParaitre > 0 && (
+                <InterdictionsDetailButton
+                  scopedResultats={scopedResultats}
+                  enquetes={enquetes}
+                  selectedYear={selectedYear}
+                />
+              )}
             </div>
           </CardContent>
         </Card>

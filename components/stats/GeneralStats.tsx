@@ -134,20 +134,29 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId }: GeneralS
     return Array.from({ length: lastMonth + 1 }, (_, i) => i);
   };
 
-  // Durées moyennes
-  const averageDurationTerminees = enquetesTerminees.reduce((acc, e) => {
+  // Durées moyennes (avec protection contre dateDebut invalide)
+  const durationTerminees = enquetesTerminees.reduce((result, e) => {
     const audienceResult = Object.values(scopedResultats).find(r => r.enqueteId === e.id);
-    if (!audienceResult?.dateAudience) return acc;
+    if (!audienceResult?.dateAudience || !e.dateDebut) return result;
     const start = new Date(e.dateDebut);
     const end = new Date(audienceResult.dateAudience);
-    return acc + Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-  }, 0) / (enquetesTerminees.length || 1);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return result;
+    const duree = Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    if (duree < 0) return result;
+    return { total: result.total + duree, count: result.count + 1 };
+  }, { total: 0, count: 0 });
+  const averageDurationTerminees = durationTerminees.count > 0 ? durationTerminees.total / durationTerminees.count : 0;
 
-  const averageDurationEnCours = activeEnquetes.reduce((acc, e) => {
+  const durationEnCours = activeEnquetes.reduce((result, e) => {
+    if (!e.dateDebut) return result;
     const start = new Date(e.dateDebut);
+    if (isNaN(start.getTime())) return result;
     const now = new Date();
-    return acc + Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-  }, 0) / (activeEnquetes.length || 1);
+    const duree = Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    if (duree < 0) return result;
+    return { total: result.total + duree, count: result.count + 1 };
+  }, { total: 0, count: 0 });
+  const averageDurationEnCours = durationEnCours.count > 0 ? durationEnCours.total / durationEnCours.count : 0;
 
   // Actes via hook
   const acteStats = useActeStats(enquetesForYear);
@@ -155,20 +164,42 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId }: GeneralS
   // Comparatif N-1
   const prevYear = selectedYear - 1;
   const comparison = useMemo(() => {
+    // Procédures terminées N-1 (hors OI et classements, raccord avec la carte)
     const prevEnquetesTerminees = enquetes.filter(e => {
       if (e.statut !== 'archive') return false;
       const ar = Object.values(scopedResultats).find(r => r.enqueteId === e.id);
       if (!ar?.dateAudience) return false;
+      if (ar.isClassement || ar.isOI) return false;
       return new Date(ar.dateAudience).getFullYear() === prevYear;
     });
     const prevDirectResults = Object.values(scopedResultats)
-      .filter(r => r.isDirectResult && new Date(r.dateAudience).getFullYear() === prevYear);
+      .filter(r => r.isDirectResult && !r.isClassement && !r.isOI && new Date(r.dateAudience).getFullYear() === prevYear);
 
     const prevTotalTerminees = prevEnquetesTerminees.length + prevDirectResults.length;
-    const currentTotalTerminees = enquetesTerminees.length + directResults.length;
+    const currentTotalTerminees = enquetesTermineesFiltered.length + directResultsFiltered.length;
 
     const prevYearlyStats = getYearlyStats(scopedResultats, enquetes, prevYear);
     const currentYearlyStats = getYearlyStats(scopedResultats, enquetes, selectedYear);
+
+    // Déférements : même logique que la carte (scopedResultats directement)
+    const countDeferementsForYear = (year: number) => {
+      return Object.values(scopedResultats).reduce((acc, r) => {
+        if (r.nombreDeferes && r.dateDefere) {
+          const date = new Date(r.dateDefere);
+          if (date.getFullYear() === year) return acc + r.nombreDeferes;
+        } else {
+          return acc + r.condamnations.filter(c => {
+            if (!c.defere) return false;
+            const dateRef = c.dateDefere || r.dateAudience;
+            const date = new Date(dateRef);
+            return date.getFullYear() === year;
+          }).length;
+        }
+        return acc;
+      }, 0);
+    };
+    const prevDeferements = countDeferementsForYear(prevYear);
+    const currentDeferements = countDeferementsForYear(selectedYear);
 
     return {
       prevTotalTerminees,
@@ -183,9 +214,9 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId }: GeneralS
       prevAmendes: prevYearlyStats?.montantTotalAmendes || 0,
       currentAmendes: currentYearlyStats?.montantTotalAmendes || 0,
       diffAmendes: (currentYearlyStats?.montantTotalAmendes || 0) - (prevYearlyStats?.montantTotalAmendes || 0),
-      prevDeferements: prevYearlyStats?.nombreDeferements || 0,
-      currentDeferements: currentYearlyStats?.nombreDeferements || 0,
-      diffDeferements: (currentYearlyStats?.nombreDeferements || 0) - (prevYearlyStats?.nombreDeferements || 0),
+      prevDeferements,
+      currentDeferements,
+      diffDeferements: currentDeferements - prevDeferements,
       hasPrevData: prevTotalTerminees > 0 || (prevYearlyStats?.nombreCondamnations || 0) > 0,
     };
   }, [scopedResultats, enquetes, selectedYear, prevYear]);
@@ -417,7 +448,7 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId }: GeneralS
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Flag className="h-4 w-4 text-amber-500" />
-                Suivi instances supérieures
+                Suivi parquet extérieur
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -517,53 +548,74 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId }: GeneralS
               {totalDeferementsYear}
               <span className="text-base font-normal text-gray-500 ml-2">déférement{totalDeferementsYear > 1 ? 's' : ''} en {selectedYear}</span>
             </div>
-            <div style={{ width: '100%', height: '300px' }}>
-              <Line
-                data={{
-                  labels: getMonthsToShow().map(month =>
-                    new Date(selectedYear, month).toLocaleString('default', { month: 'long' })
-                  ),
-                  datasets: [{
-                    label: 'Déférements',
-                    data: getMonthsToShow().map(month => {
-                      return Object.values(scopedResultats)
-                        .reduce((acc, r) => {
-                          if (r.nombreDeferes && r.dateDefere) {
-                            const date = new Date(r.dateDefere);
-                            if (date.getFullYear() === selectedYear && date.getMonth() === month) {
-                              return acc + r.nombreDeferes;
-                            }
-                          } else {
-                            return acc + r.condamnations.filter(c => {
-                              if (!c.defere) return false;
-                              const dateRef = c.dateDefere || r.dateAudience;
-                              const date = new Date(dateRef);
-                              return date.getFullYear() === selectedYear &&
-                                     date.getMonth() === month;
-                            }).length;
-                          }
-                          return acc;
-                        }, 0);
-                    }),
-                    borderColor: '#3498db',
-                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                    tension: 0.3,
-                    fill: true
-                  }]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  scales: {
-                    y: { beginAtZero: true, ticks: { stepSize: 1 } }
-                  },
-                  plugins: {
-                    legend: { display: false },
-                    datalabels: { display: false }
+            {(() => {
+              // Pré-calculer les dossiers avec déférements par mois pour le tooltip
+              const deferementsDetailParMois = getMonthsToShow().map(month => {
+                const dossiers: string[] = [];
+                Object.values(scopedResultats).forEach(r => {
+                  const enquete = enquetes.find(e => e.id === r.enqueteId);
+                  const dossierLabel = enquete?.numero || r.numeroAudience || `#${r.enqueteId}`;
+                  if (r.nombreDeferes && r.dateDefere) {
+                    const date = new Date(r.dateDefere);
+                    if (date.getFullYear() === selectedYear && date.getMonth() === month) {
+                      for (let i = 0; i < r.nombreDeferes; i++) dossiers.push(dossierLabel);
+                    }
+                  } else {
+                    r.condamnations.forEach(c => {
+                      if (!c.defere) return;
+                      const dateRef = c.dateDefere || r.dateAudience;
+                      const date = new Date(dateRef);
+                      if (date.getFullYear() === selectedYear && date.getMonth() === month) {
+                        dossiers.push(c.nom ? `${dossierLabel} (${c.nom})` : dossierLabel);
+                      }
+                    });
                   }
-                }}
-              />
-            </div>
+                });
+                return { count: dossiers.length, dossiers };
+              });
+
+              return (
+                <div style={{ width: '100%', height: '300px' }}>
+                  <Line
+                    data={{
+                      labels: getMonthsToShow().map(month =>
+                        new Date(selectedYear, month).toLocaleString('default', { month: 'long' })
+                      ),
+                      datasets: [{
+                        label: 'Déférements',
+                        data: deferementsDetailParMois.map(d => d.count),
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                        tension: 0.3,
+                        fill: true
+                      }]
+                    }}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      scales: {
+                        y: { beginAtZero: true, ticks: { stepSize: 1 } }
+                      },
+                      plugins: {
+                        legend: { display: false },
+                        datalabels: { display: false },
+                        tooltip: {
+                          callbacks: {
+                            afterBody: (tooltipItems) => {
+                              const index = tooltipItems[0]?.dataIndex;
+                              if (index === undefined) return '';
+                              const detail = deferementsDetailParMois[index];
+                              if (!detail || detail.dossiers.length === 0) return '';
+                              return ['', 'Dossiers :', ...detail.dossiers.map(d => `  • ${d}`)];
+                            }
+                          }
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       </div>

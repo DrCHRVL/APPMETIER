@@ -274,7 +274,11 @@ export const ViewAudienceResultModal = ({
                       {condamnation.interdictionParaitre && (
                         <div className="col-span-2">
                           <span className="text-gray-600">Interdiction de paraître</span>
-                          <span className="ml-2">Oui</span>
+                          <span className="ml-2">
+                            Oui
+                            {condamnation.lieuInterdictionParaitre && ` — ${condamnation.lieuInterdictionParaitre}`}
+                            {condamnation.dureeInterdictionParaitre && ` (${condamnation.dureeInterdictionParaitre} mois)`}
+                          </span>
                         </div>
                       )}
                     </div>
