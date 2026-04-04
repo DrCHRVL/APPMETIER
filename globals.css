@@ -49,20 +49,13 @@
 }
 
 .copyright {
-  position: absolute;
-  bottom: 8px;
-  left: 0;
-  width: 100%;
+  flex-shrink: 0;
   font-size: 8px;
   color: rgba(255, 255, 255, 0.45);
   text-align: center;
-  padding: 0 12px;
+  padding: 4px 12px 8px;
   letter-spacing: 0.04em;
   line-height: 1.5;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding-top: 8px;
-  margin: 0 8px;
-  width: calc(100% - 16px);
 }
 
 /* Fix for button icons */

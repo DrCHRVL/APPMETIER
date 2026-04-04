@@ -271,26 +271,24 @@ export const MultiSideBar = ({
           </>
         )}
 
-        {/* Spacer */}
-        <div className="flex-1" />
+      </div>
 
-        {/* ── PARAMÈTRES ── */}
-        <div className="mt-2 border-t border-white/10 pt-2">
-          <button
-            className={`
-              w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm
-              transition-all duration-150 relative group
-              ${currentView === 'settings'
-                ? 'bg-white/20 text-white font-semibold shadow-sm'
-                : 'font-medium text-white/70 hover:bg-white/8 hover:text-white'
-              }
-            `}
-            onClick={onOpenSettings}
-          >
-            <Settings className={`h-4 w-4 flex-shrink-0 ${currentView === 'settings' ? 'text-white' : 'text-white/60'}`} />
-            {isOpen && <span className="truncate">Paramètres</span>}
-          </button>
-        </div>
+      {/* ── PARAMÈTRES ── */}
+      <div className="px-3 pb-1 pt-2 border-t border-white/10 mx-1">
+        <button
+          className={`
+            w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm
+            transition-all duration-150 relative group
+            ${currentView === 'settings'
+              ? 'bg-white/20 text-white font-semibold shadow-sm'
+              : 'font-medium text-white/70 hover:bg-white/8 hover:text-white'
+            }
+          `}
+          onClick={onOpenSettings}
+        >
+          <Settings className={`h-4 w-4 flex-shrink-0 ${currentView === 'settings' ? 'text-white' : 'text-white/60'}`} />
+          {isOpen && <span className="truncate">Paramètres</span>}
+        </button>
       </div>
 
       <div className="copyright">
