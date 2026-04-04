@@ -66,7 +66,7 @@ export const GlobalStatsPage = ({
       <div className="space-y-8">
         <div>
           <h3 className="text-lg font-semibold text-gray-700 mb-3">Statistiques générales</h3>
-          <GeneralStats enquetes={allEnquetes} selectedYear={selectedYear} contentieuxId="global" />
+          <GeneralStats enquetes={allEnquetes} selectedYear={selectedYear} contentieuxId="global" enquetesByContentieux={enquetesByContentieux} contentieuxDefs={contentieuxDefs} />
         </div>
 
         <div>
@@ -76,7 +76,7 @@ export const GlobalStatsPage = ({
 
         <div>
           <h3 className="text-lg font-semibold text-gray-700 mb-3">Résultats d'audience</h3>
-          <AudienceStats enquetes={allEnquetes} selectedYear={selectedYear} contentieuxId="global" />
+          <AudienceStats enquetes={allEnquetes} selectedYear={selectedYear} contentieuxId="global" enquetesByContentieux={enquetesByContentieux} contentieuxDefs={contentieuxDefs} />
         </div>
       </div>
     </div>
