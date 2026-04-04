@@ -2062,10 +2062,12 @@ function setupIpcHandlers() {
         publishedBy: os.userInfo().username,
         changelog: changelog || '',
       }
-      fs.writeFileSync(getManifestPath(), JSON.stringify(manifest, null, 2), 'utf8')
 
-      // Mettre à jour sa propre version locale
+      // Sauvegarder la version locale EN PREMIER (même si l'écriture réseau échoue ensuite)
       saveLocalLanVersion(manifest)
+
+      // Puis écrire le manifeste sur le réseau
+      fs.writeFileSync(getManifestPath(), JSON.stringify(manifest, null, 2), 'utf8')
 
       sendProgress('done', `Version ${version} publiée`, totalSteps)
       console.log(`✅ LAN update: version ${version} publiée (build + obfuscation)`)

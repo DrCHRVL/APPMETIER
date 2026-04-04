@@ -67,12 +67,12 @@ export const AdminUpdatePanel = () => {
       if (result?.success) {
         showToast(`Version ${result.version} publiée sur le réseau (code protégé)`, 'success');
         setChangelog('');
-        // Mettre à jour directement depuis la réponse (pas besoin de relire le fichier)
+        // Mettre à jour depuis la réponse ET relire le fichier local pour confirmer
         if (result.manifest) {
           setLocalVersion(result.manifest);
-        } else {
-          loadVersions();
         }
+        // Toujours relire depuis le fichier pour s'assurer de la cohérence
+        await loadVersions();
         checkForUpdate();
       } else {
         showToast(`Erreur: ${result?.error || 'inconnue'}`, 'error');
@@ -105,9 +105,8 @@ export const AdminUpdatePanel = () => {
         setLastFullInstallPath(result.installPath || null);
         if (result.manifest) {
           setLocalVersion(result.manifest);
-        } else {
-          loadVersions();
         }
+        await loadVersions();
         checkForUpdate();
       } else {
         showToast(`Erreur: ${result?.error || 'inconnue'}`, 'error');
@@ -141,7 +140,7 @@ export const AdminUpdatePanel = () => {
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2">
         <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
           <Info className="h-4 w-4 text-gray-400" />
-          Version installée
+          Dernière version publiée
         </h4>
         {localVersion ? (
           <div className="text-sm text-gray-600 space-y-1">
@@ -156,7 +155,7 @@ export const AdminUpdatePanel = () => {
             )}
           </div>
         ) : (
-          <p className="text-xs text-gray-400 italic">Aucune version réseau installée</p>
+          <p className="text-xs text-gray-400 italic">Aucune publication effectuée depuis ce poste</p>
         )}
       </div>
 
