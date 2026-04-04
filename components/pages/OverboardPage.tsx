@@ -155,7 +155,7 @@ export const OverboardPage = ({
         )}
       </div>
 
-      {/* Section 2 : Audiences en attente par contentieux */}
+      {/* Section 2 : Audiences en attente par contentieux — colonnes côte à côte */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="flex items-center gap-2 mb-3">
           <Gavel className="h-4 w-4 text-gray-500" />
@@ -169,99 +169,92 @@ export const OverboardPage = ({
           )}
         </div>
 
-        {totalPending === 0 ? (
-          <p className="text-sm text-gray-400 italic">Aucune audience en attente</p>
-        ) : (
-          <div className="space-y-3">
-            {contentieuxDefs
-              .sort((a, b) => a.order - b.order)
-              .map(ctxDef => {
-                const items = pendingAudiencesByCtx.get(ctxDef.id);
-                if (!items || items.length === 0) return null;
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: `repeat(${contentieuxDefs.length}, minmax(0, 1fr))` }}
+        >
+          {contentieuxDefs
+            .sort((a, b) => a.order - b.order)
+            .map(ctxDef => {
+              const items = pendingAudiencesByCtx.get(ctxDef.id) || [];
+              const colors = CTX_COLORS[ctxDef.id] || DEFAULT_CTX_COLOR;
 
-                const colors = CTX_COLORS[ctxDef.id] || DEFAULT_CTX_COLOR;
-
-                return (
-                  <div key={`aud_${ctxDef.id}`}>
-                    {/* Header contentieux */}
-                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-t-lg ${colors.bg} border ${colors.border} border-b-0`}>
-                      <div className={`w-2 h-2 rounded-full ${colors.dot}`} />
-                      <span className={`text-xs font-bold uppercase tracking-wider ${colors.text}`}>
-                        {ctxDef.label}
+              return (
+                <div
+                  key={`aud_${ctxDef.id}`}
+                  className={`rounded-lg border-2 ${colors.border} flex flex-col min-h-[80px]`}
+                >
+                  {/* Header bulle contentieux */}
+                  <div className={`flex items-center gap-1.5 px-2.5 py-1.5 ${colors.bg} rounded-t-md border-b ${colors.border}`}>
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${colors.dot}`} />
+                    <span className={`text-[11px] font-bold uppercase tracking-wider ${colors.text} truncate`}>
+                      {ctxDef.label}
+                    </span>
+                    {items.length > 0 && (
+                      <span className="text-[10px] text-gray-400 ml-auto flex-shrink-0">
+                        {items.length}
                       </span>
-                      <span className="text-xs text-gray-400 ml-auto">
-                        {items.length} en attente
-                      </span>
-                    </div>
-
-                    {/* Liste des audiences */}
-                    <div className={`border ${colors.border} border-t-0 rounded-b-lg overflow-hidden`}>
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-gray-50 text-xs text-gray-500">
-                            <th className="text-left px-3 py-1.5 font-medium">Enquête</th>
-                            <th className="text-left px-3 py-1.5 font-medium">Date audience</th>
-                            <th className="text-left px-3 py-1.5 font-medium">Personnes en attente</th>
-                            <th className="text-left px-3 py-1.5 font-medium">Statut</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {items.map(({ enquete, resultat }) => {
-                            const pendingNames = [
-                              ...(resultat.pendingCondamnations?.map(p => p.nom) || []),
-                              ...(resultat.condamnations?.filter(c => c.isPending).map(c => c.nom || '?') || []),
-                            ];
-                            const uniqueNames = [...new Set(pendingNames)];
-
-                            return (
-                              <tr
-                                key={enquete.id}
-                                className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
-                                onClick={() => onEnqueteClick?.(enquete, ctxDef.id)}
-                              >
-                                <td className="px-3 py-2">
-                                  <span className="font-medium text-gray-800">{enquete.numero}</span>
-                                  {enquete.description && (
-                                    <span className="text-xs text-gray-400 ml-2 truncate">{enquete.description}</span>
-                                  )}
-                                </td>
-                                <td className="px-3 py-2 text-gray-600">
-                                  {resultat.dateAudience
-                                    ? new Date(resultat.dateAudience).toLocaleDateString('fr-FR')
-                                    : '—'}
-                                </td>
-                                <td className="px-3 py-2">
-                                  {uniqueNames.length > 0 ? (
-                                    <div className="flex flex-wrap gap-1">
-                                      {uniqueNames.slice(0, 3).map((name, i) => (
-                                        <span key={i} className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">
-                                          {name}
-                                        </span>
-                                      ))}
-                                      {uniqueNames.length > 3 && (
-                                        <span className="text-xs text-gray-400">+{uniqueNames.length - 3}</span>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <span className="text-xs text-gray-400">—</span>
-                                  )}
-                                </td>
-                                <td className="px-3 py-2">
-                                  <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">
-                                    En attente
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                    )}
                   </div>
-                );
-              })}
-          </div>
-        )}
+
+                  {/* Contenu */}
+                  <div className="flex-1 p-1.5">
+                    {items.length === 0 ? (
+                      <div className="flex items-center justify-center h-full min-h-[40px]">
+                        <span className="text-[11px] text-gray-300 italic">Aucune</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        {items.map(({ enquete, resultat }) => {
+                          const pendingNames = [
+                            ...(resultat.pendingCondamnations?.map(p => p.nom) || []),
+                            ...(resultat.condamnations?.filter(c => c.isPending).map(c => c.nom || '?') || []),
+                          ];
+                          const uniqueNames = [...new Set(pendingNames)];
+
+                          return (
+                            <div
+                              key={enquete.id}
+                              className={`px-2 py-1.5 rounded border ${colors.border} bg-white hover:shadow-sm cursor-pointer transition-shadow`}
+                              onClick={() => onEnqueteClick?.(enquete, ctxDef.id)}
+                            >
+                              <div className="flex items-baseline gap-1">
+                                <span className="text-xs font-semibold text-gray-800 truncate">
+                                  {enquete.numero}
+                                </span>
+                                {resultat.dateAudience && (
+                                  <span className="text-[10px] text-gray-400 flex-shrink-0">
+                                    {new Date(resultat.dateAudience).toLocaleDateString('fr-FR')}
+                                  </span>
+                                )}
+                              </div>
+                              {enquete.description && (
+                                <p className="text-[10px] text-gray-400 leading-tight line-clamp-1 mt-0.5">
+                                  {enquete.description}
+                                </p>
+                              )}
+                              {uniqueNames.length > 0 && (
+                                <div className="flex flex-wrap gap-0.5 mt-1">
+                                  {uniqueNames.slice(0, 2).map((name, i) => (
+                                    <span key={i} className="text-[10px] bg-amber-50 text-amber-700 px-1 py-0 rounded">
+                                      {name}
+                                    </span>
+                                  ))}
+                                  {uniqueNames.length > 2 && (
+                                    <span className="text-[10px] text-gray-400">+{uniqueNames.length - 2}</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+        </div>
       </div>
 
       {/* Section 3 : Enquêtes marquées */}
