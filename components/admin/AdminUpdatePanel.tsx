@@ -65,7 +65,12 @@ export const AdminUpdatePanel = () => {
       if (result?.success) {
         showToast(`Version ${result.version} publiée sur le réseau (code protégé)`, 'success');
         setChangelog('');
-        loadVersions();
+        // Mettre à jour directement depuis la réponse (pas besoin de relire le fichier)
+        if (result.manifest) {
+          setLocalVersion(result.manifest);
+        } else {
+          loadVersions();
+        }
         checkForUpdate();
       } else {
         showToast(`Erreur: ${result?.error || 'inconnue'}`, 'error');

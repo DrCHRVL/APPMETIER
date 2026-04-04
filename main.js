@@ -1863,11 +1863,16 @@ function setupIpcHandlers() {
   }
 
   function saveLocalLanVersion(manifest) {
-    try {
-      fs.writeFileSync(LOCAL_VERSION_FILE, JSON.stringify(manifest, null, 2), 'utf8')
-    } catch (e) {
-      console.error('❌ LAN update: erreur sauvegarde version locale:', e.message)
+    const dir = path.dirname(LOCAL_VERSION_FILE)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
     }
+    fs.writeFileSync(LOCAL_VERSION_FILE, JSON.stringify(manifest, null, 2), 'utf8')
+    // Vérification immédiate
+    if (!fs.existsSync(LOCAL_VERSION_FILE)) {
+      throw new Error(`Le fichier version locale n'a pas été créé : ${LOCAL_VERSION_FILE}`)
+    }
+    console.log(`✅ Version locale sauvegardée : ${LOCAL_VERSION_FILE}`)
   }
 
   // Copie récursive pour update (réutilisée par LAN et GitHub)
@@ -2064,7 +2069,7 @@ function setupIpcHandlers() {
 
       sendProgress('done', `Version ${version} publiée`, totalSteps)
       console.log(`✅ LAN update: version ${version} publiée (build + obfuscation)`)
-      return { success: true, version }
+      return { success: true, version, manifest }
     } catch (error) {
       console.error('❌ LAN update publish error:', error.message)
       return { success: false, error: error.message }
