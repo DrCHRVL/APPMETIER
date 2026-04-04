@@ -1,5 +1,4 @@
 @echo off
-chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 echo ============================================================
@@ -7,7 +6,7 @@ echo    PREPARATION DE LA VERSION USB
 echo ============================================================
 echo.
 
-rem ── Verifier qu'on est bien dans Projet1 ──
+rem -- Verifier qu'on est bien dans Projet1 --
 if not exist "package.json" (
     echo ERREUR: Ce script doit etre lance depuis le dossier Projet1
     echo Ex: cd Bureau\MonProjetPortable\Projet1
@@ -16,24 +15,24 @@ if not exist "package.json" (
     exit /b 1
 )
 
-rem ── Chemin de base ──
+rem -- Chemin de base --
 set BASE_DIR=%~dp0
 set PROJET_DIR=%CD%
 set NODE_EXE=%BASE_DIR%..\nodejs\node.exe
 
-rem ── Verifier que Node.js est disponible ──
+rem -- Verifier que Node.js est disponible --
 if not exist "%NODE_EXE%" (
     echo ERREUR: nodejs\node.exe introuvable dans le dossier parent.
     pause
     exit /b 1
 )
 
-rem ── Dossier de sortie ──
+rem -- Dossier de sortie --
 set OUTPUT_DIR=%BASE_DIR%..\USB_Distribution\Projet1
 echo Dossier de sortie : %OUTPUT_DIR%
 echo.
 
-rem ── Etape 1 : Build Next.js ──
+rem -- Etape 1 : Build Next.js --
 echo [1/6] Compilation de l'application...
 "%NODE_EXE%" node_modules\next\dist\bin\next build
 if %ERRORLEVEL% neq 0 (
@@ -44,14 +43,14 @@ if %ERRORLEVEL% neq 0 (
 echo       OK
 echo.
 
-rem ── Etape 2 : Nettoyer et creer le dossier de sortie ──
+rem -- Etape 2 : Nettoyer et creer le dossier de sortie --
 echo [2/6] Preparation du dossier de distribution...
 if exist "%OUTPUT_DIR%" rmdir /s /q "%OUTPUT_DIR%"
 mkdir "%OUTPUT_DIR%"
 echo       OK
 echo.
 
-rem ── Etape 3 : Copier les fichiers necessaires ──
+rem -- Etape 3 : Copier les fichiers necessaires --
 echo [3/6] Copie des fichiers compiles...
 
 xcopy ".next" "%OUTPUT_DIR%\.next" /E /I /Q /Y >nul
@@ -71,7 +70,7 @@ copy "preload.js" "%OUTPUT_DIR%\preload.js" >nul
 echo       OK
 echo.
 
-rem ── Etape 4 : Obfusquer main.js et preload.js ──
+rem -- Etape 4 : Obfusquer main.js et preload.js --
 echo [4/6] Protection du code main.js / preload.js...
 "%NODE_EXE%" scripts\obfuscate-main.js "%OUTPUT_DIR%"
 if %ERRORLEVEL% neq 0 (
@@ -80,7 +79,7 @@ if %ERRORLEVEL% neq 0 (
 echo       OK
 echo.
 
-rem ── Etape 5 : Obfusquer les fichiers JS du build Next.js ──
+rem -- Etape 5 : Obfusquer les fichiers JS du build Next.js --
 echo [5/6] Protection du build Next.js...
 "%NODE_EXE%" scripts\obfuscate-next.js "%OUTPUT_DIR%"
 if %ERRORLEVEL% neq 0 (
@@ -89,13 +88,13 @@ if %ERRORLEVEL% neq 0 (
 echo       OK
 echo.
 
-rem ── Etape 5b : Generer le fichier d'integrite ──
+rem -- Etape 5b : Generer le fichier d'integrite --
 echo        Generation de l'empreinte d'integrite...
 "%NODE_EXE%" scripts\generate-integrity.js "%OUTPUT_DIR%"
 echo       OK
 echo.
 
-rem ── Etape 6 : Copier les fichiers externes ──
+rem -- Etape 6 : Copier les fichiers externes --
 echo [6/6] Copie de l'environnement...
 set USB_ROOT=%BASE_DIR%..\USB_Distribution
 

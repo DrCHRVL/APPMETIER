@@ -186,6 +186,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   lanUpdatePublish: (changelog) =>
     ipcRenderer.invoke('lanUpdate:publish', changelog),
 
+  lanUpdatePublishFull: (changelog) =>
+    ipcRenderer.invoke('lanUpdate:publishFull', changelog),
+
   lanUpdateCheck: () =>
     ipcRenderer.invoke('lanUpdate:check'),
 

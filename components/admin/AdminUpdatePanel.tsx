@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Upload, RefreshCw, RotateCcw, Check, AlertTriangle, Loader2, Info } from 'lucide-react';
+import { Upload, RefreshCw, RotateCcw, Check, AlertTriangle, Loader2, Info, HardDrive, Copy } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 
@@ -24,6 +24,8 @@ export const AdminUpdatePanel = () => {
   const [publishProgress, setPublishProgress] = useState<{ current: number; total: number } | null>(null);
   const [checking, setChecking] = useState(false);
   const [showConfirmPublish, setShowConfirmPublish] = useState(false);
+  const [showConfirmFullPublish, setShowConfirmFullPublish] = useState(false);
+  const [lastFullInstallPath, setLastFullInstallPath] = useState<string | null>(null);
 
   const loadVersions = useCallback(async () => {
     try {
@@ -63,14 +65,14 @@ export const AdminUpdatePanel = () => {
     try {
       const result = await (window as any).electronAPI?.lanUpdatePublish?.(changelog.trim());
       if (result?.success) {
-        showToast(`Version ${result.version} publiée sur le réseau (code protégé)`, 'success');
+        showToast(`Version ${result.version} publiée sur le réseau${result.publishPath ? ` (${result.publishPath})` : ''}`, 'success');
         setChangelog('');
-        // Mettre à jour directement depuis la réponse (pas besoin de relire le fichier)
+        // Mettre à jour depuis la réponse ET relire le fichier local pour confirmer
         if (result.manifest) {
           setLocalVersion(result.manifest);
-        } else {
-          loadVersions();
         }
+        // Toujours relire depuis le fichier pour s'assurer de la cohérence
+        await loadVersions();
         checkForUpdate();
       } else {
         showToast(`Erreur: ${result?.error || 'inconnue'}`, 'error');
@@ -90,6 +92,31 @@ export const AdminUpdatePanel = () => {
     } catch {
       showToast('Erreur lors du rollback', 'error');
     }
+  };
+
+  const handlePublishFull = async () => {
+    setPublishing(true);
+    setShowConfirmFullPublish(false);
+    try {
+      const result = await (window as any).electronAPI?.lanUpdatePublishFull?.(changelog.trim());
+      if (result?.success) {
+        showToast(`Version complète ${result.version} publiée sur le réseau`, 'success');
+        setChangelog('');
+        setLastFullInstallPath(result.installPath || null);
+        if (result.manifest) {
+          setLocalVersion(result.manifest);
+        }
+        await loadVersions();
+        checkForUpdate();
+      } else {
+        showToast(`Erreur: ${result?.error || 'inconnue'}`, 'error');
+      }
+    } catch (e: any) {
+      showToast(`Erreur de publication: ${e.message}`, 'error');
+    }
+    setPublishing(false);
+    setPublishStep('');
+    setPublishProgress(null);
   };
 
   const formatDate = (iso: string) => {
@@ -113,7 +140,7 @@ export const AdminUpdatePanel = () => {
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2">
         <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
           <Info className="h-4 w-4 text-gray-400" />
-          Version installée
+          Dernière version publiée
         </h4>
         {localVersion ? (
           <div className="text-sm text-gray-600 space-y-1">
@@ -128,7 +155,7 @@ export const AdminUpdatePanel = () => {
             )}
           </div>
         ) : (
-          <p className="text-xs text-gray-400 italic">Aucune version réseau installée</p>
+          <p className="text-xs text-gray-400 italic">Aucune publication effectuée depuis ce poste</p>
         )}
       </div>
 
@@ -216,6 +243,65 @@ export const AdminUpdatePanel = () => {
         </div>
       </div>
 
+      {/* Section première installation (package complet) */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
+        <h4 className="text-sm font-semibold text-blue-800 flex items-center gap-2">
+          <HardDrive className="h-4 w-4" />
+          Première installation (package complet)
+        </h4>
+        <p className="text-xs text-blue-700">
+          Publie un <strong>package complet</strong> sur le réseau incluant l'application,
+          Electron, Node.js et le launcher. Vos collègues n'ont qu'à <strong>copier le dossier
+          "Installation"</strong> sur leur bureau et lancer <strong>launcher.bat</strong>.
+        </p>
+        <p className="text-xs text-blue-600">
+          Les mises à jour suivantes se feront automatiquement via "Publier sur le réseau" ci-dessus.
+        </p>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowConfirmFullPublish(true)}
+            disabled={publishing}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+            {publishing ? 'Publication en cours...' : 'Publier version complète'}
+          </button>
+        </div>
+
+        {lastFullInstallPath && (
+          <div className="bg-blue-100 border border-blue-300 rounded-lg p-3 space-y-1">
+            <p className="text-xs font-medium text-blue-800">Package d'installation prêt :</p>
+            <p className="text-xs font-mono text-blue-700 break-all">{lastFullInstallPath}</p>
+            <p className="text-xs text-blue-600 mt-1">
+              Vos collègues peuvent copier ce dossier sur leur poste et lancer <strong>launcher.bat</strong>.
+            </p>
+          </div>
+        )}
+
+        {publishing && (
+          <div className="px-3 py-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+            <div className="w-full bg-blue-100 rounded-full h-2.5 overflow-hidden">
+              <div
+                className="bg-blue-500 h-2.5 rounded-full transition-all duration-500 ease-out"
+                style={{ width: publishProgress ? `${Math.round((publishProgress.current / publishProgress.total) * 100)}%` : '5%' }}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600" />
+                <span className="text-xs text-blue-700">{publishStep || 'Démarrage...'}</span>
+              </div>
+              {publishProgress && (
+                <span className="text-xs text-blue-500 font-mono">
+                  {publishProgress.current}/{publishProgress.total}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Rollback */}
       <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
         <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
@@ -277,6 +363,51 @@ export const AdminUpdatePanel = () => {
                 className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors"
               >
                 Publier
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Confirmation publication complète */}
+      {showConfirmFullPublish && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-100 rounded-full">
+                <HardDrive className="h-5 w-5 text-blue-600" />
+              </div>
+              <h3 className="text-base font-semibold text-gray-800">Publication complète</h3>
+            </div>
+            <div className="text-sm text-gray-600 space-y-2">
+              <p>
+                Un <strong>package d'installation complet</strong> sera créé sur le réseau,
+                incluant l'application, Electron, Node.js et le launcher.
+              </p>
+              <p>
+                Cette opération peut prendre plusieurs minutes (copie des runtimes).
+              </p>
+              <p className="text-xs text-gray-500">
+                Vos collègues pourront simplement copier le dossier "Installation" sur leur
+                bureau et lancer <strong>launcher.bat</strong>.
+              </p>
+              {changelog.trim() && (
+                <div className="bg-gray-50 rounded p-2 text-xs text-gray-500 border">
+                  <strong>Changelog :</strong> {changelog.trim()}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setShowConfirmFullPublish(false)}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handlePublishFull}
+                className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+              >
+                Publier version complète
               </button>
             </div>
           </div>
