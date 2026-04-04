@@ -209,6 +209,15 @@ export const SettingsModal = ({
                 </React.Fragment>
               );
             })}
+
+            {/* Footer propriété intellectuelle */}
+            <div className="mt-auto px-4 pt-3 border-t border-gray-200 mx-2">
+              <p className="text-[10px] leading-tight text-gray-400 font-medium uppercase tracking-wide">APP METIER</p>
+              <p className="text-[10px] leading-tight text-gray-400 mt-0.5">
+                {"Conçu par A. CHEVALIER \u2014 Parquet d'Amiens"}
+              </p>
+              <p className="text-[9px] leading-tight text-red-400 font-semibold mt-1">NE PAS DIFFUSER</p>
+            </div>
           </div>
 
           {/* Content */}

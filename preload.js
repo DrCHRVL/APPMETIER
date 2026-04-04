@@ -126,6 +126,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dataSync_checkContentieuxAccess: (contentieuxId) =>
     ipcRenderer.invoke('dataSync:checkContentieuxAccess', contentieuxId),
 
+  paths_getEffective: () =>
+    ipcRenderer.invoke('paths:getEffective'),
+
+  paths_migrateContentieux: (contentieuxId, oldPath, newPath) =>
+    ipcRenderer.invoke('paths:migrateContentieux', contentieuxId, oldPath, newPath),
+
+  paths_migrateGeneral: (oldPath, newPath) =>
+    ipcRenderer.invoke('paths:migrateGeneral', oldPath, newPath),
+
   dataSync_pullContentieux: (contentieuxId) =>
     ipcRenderer.invoke('dataSync:pullContentieux', contentieuxId),
 

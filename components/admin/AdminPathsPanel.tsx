@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { FolderOpen, Save, Check, AlertCircle, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { FolderOpen, Save, Check, AlertCircle, Loader2, ArrowRight } from 'lucide-react';
 import { UserManager } from '@/utils/userManager';
 import { ServerPathsConfig, ContentieuxId } from '@/types/userTypes';
 import { useUser } from '@/contexts/UserContext';
@@ -16,14 +16,30 @@ export const AdminPathsPanel = () => {
   const [validResults, setValidResults] = useState<Record<string, boolean | null>>({});
   const [saving, setSaving] = useState(false);
 
-  const loadPaths = useCallback(() => {
+  // Chemins effectifs actuels (pour détecter les changements et migrer)
+  const [effectivePaths, setEffectivePaths] = useState<{ general: string; contentieux: Record<string, string> } | null>(null);
+  const [showMigrationDialog, setShowMigrationDialog] = useState(false);
+  const [migrationChanges, setMigrationChanges] = useState<Array<{ type: 'general' | 'contentieux'; id?: string; label?: string; oldPath: string; newPath: string }>>([]);
+  const [migrating, setMigrating] = useState(false);
+  const pendingSaveRef = useRef<ServerPathsConfig | null>(null);
+
+  const loadPaths = useCallback(async () => {
     const manager = UserManager.getInstance();
     const config = manager.getConfig();
     const paths = config?.serverPaths;
-    setGeneralPath(paths?.general || '');
+
+    // Charger les chemins effectifs (configurés ou par défaut)
+    let effective: { general: string; contentieux: Record<string, string> } | null = null;
+    try {
+      effective = await (window as any).electronAPI?.paths_getEffective?.();
+      setEffectivePaths(effective);
+    } catch {}
+
+    // Si pas configuré, pré-remplir avec les chemins effectifs (= les défauts hardcodés)
+    setGeneralPath(paths?.general || effective?.general || '');
     const ctxPaths: Record<string, string> = {};
     for (const def of contentieuxDefs) {
-      ctxPaths[def.id] = paths?.contentieux?.[def.id] || '';
+      ctxPaths[def.id] = paths?.contentieux?.[def.id] || effective?.contentieux?.[def.id] || '';
     }
     setContentieuxPaths(ctxPaths);
   }, [contentieuxDefs]);
@@ -57,13 +73,28 @@ export const AdminPathsPanel = () => {
     }
   };
 
+  const doSave = async (serverPaths: ServerPathsConfig) => {
+    const manager = UserManager.getInstance();
+    const config = manager.getConfig();
+    if (!config) return;
+
+    config.serverPaths = serverPaths;
+    config.updatedAt = new Date().toISOString();
+
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.dataSync_pushUsersConfig) {
+      await (window as any).electronAPI.dataSync_pushUsersConfig(config);
+    }
+    // Recharger les chemins effectifs
+    try {
+      const effective = await (window as any).electronAPI?.paths_getEffective?.();
+      setEffectivePaths(effective);
+    } catch {}
+    showToast('Chemins réseau sauvegardés', 'success');
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
-      const manager = UserManager.getInstance();
-      const config = manager.getConfig();
-      if (!config) return;
-
       const serverPaths: ServerPathsConfig = {
         general: generalPath.trim(),
         contentieux: {},
@@ -71,17 +102,66 @@ export const AdminPathsPanel = () => {
       for (const [id, p] of Object.entries(contentieuxPaths)) {
         if (p.trim()) serverPaths.contentieux[id] = p.trim();
       }
-      config.serverPaths = serverPaths;
-      config.updatedAt = new Date().toISOString();
 
-      if (typeof window !== 'undefined' && (window as any).electronAPI?.dataSync_pushUsersConfig) {
-        await (window as any).electronAPI.dataSync_pushUsersConfig(config);
+      // Détecter les changements de chemins
+      const changes: typeof migrationChanges = [];
+      if (effectivePaths) {
+        if (generalPath.trim() && effectivePaths.general && generalPath.trim() !== effectivePaths.general) {
+          changes.push({ type: 'general', oldPath: effectivePaths.general, newPath: generalPath.trim() });
+        }
+        for (const def of contentieuxDefs) {
+          const newP = contentieuxPaths[def.id]?.trim();
+          const oldP = effectivePaths.contentieux?.[def.id];
+          if (newP && oldP && newP !== oldP) {
+            changes.push({ type: 'contentieux', id: def.id, label: def.label, oldPath: oldP, newPath: newP });
+          }
+        }
       }
-      showToast('Chemins réseau sauvegardés', 'success');
+
+      if (changes.length > 0) {
+        // Proposer la migration
+        setMigrationChanges(changes);
+        pendingSaveRef.current = serverPaths;
+        setShowMigrationDialog(true);
+      } else {
+        await doSave(serverPaths);
+      }
     } catch (error) {
       showToast('Erreur lors de la sauvegarde', 'error');
     }
     setSaving(false);
+  };
+
+  const handleMigrate = async (doMigrate: boolean) => {
+    setMigrating(true);
+    try {
+      if (doMigrate) {
+        for (const change of migrationChanges) {
+          if (change.type === 'general') {
+            const result = await (window as any).electronAPI?.paths_migrateGeneral?.(change.oldPath, change.newPath);
+            if (result?.success && result.migrated?.length > 0) {
+              showToast(`Données générales migrées : ${result.migrated.join(', ')}`, 'success');
+            }
+          } else if (change.type === 'contentieux' && change.id) {
+            const result = await (window as any).electronAPI?.paths_migrateContentieux?.(change.id, change.oldPath, change.newPath);
+            if (result?.success && result.migrated?.length > 0) {
+              showToast(`${change.label} : données migrées (${result.migrated.join(', ')})`, 'success');
+            }
+          }
+        }
+      }
+
+      // Sauvegarder dans tous les cas
+      if (pendingSaveRef.current) {
+        await doSave(pendingSaveRef.current);
+      }
+    } catch (error) {
+      showToast('Erreur lors de la migration', 'error');
+    }
+    setMigrating(false);
+    setShowMigrationDialog(false);
+    pendingSaveRef.current = null;
+    setMigrationChanges([]);
   };
 
   const renderPathInput = (
@@ -181,6 +261,56 @@ export const AdminPathsPanel = () => {
           Sauvegarder
         </button>
       </div>
+
+      {/* Dialog de migration */}
+      {showMigrationDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-lg w-full mx-4 space-y-4">
+            <h3 className="text-base font-semibold text-gray-800">Migrer les données ?</h3>
+            <p className="text-sm text-gray-600">
+              Vous avez modifié {migrationChanges.length === 1 ? 'un chemin' : `${migrationChanges.length} chemins`}.
+              Souhaitez-vous copier les données existantes vers {migrationChanges.length === 1 ? 'le nouveau chemin' : 'les nouveaux chemins'} ?
+            </p>
+
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {migrationChanges.map((change, i) => (
+                <div key={i} className="bg-gray-50 rounded-lg p-3 text-xs space-y-1">
+                  <div className="font-medium text-gray-700">
+                    {change.type === 'general' ? 'Chemin général' : change.label}
+                  </div>
+                  <div className="flex items-center gap-2 text-gray-500">
+                    <span className="font-mono truncate flex-1" title={change.oldPath}>{change.oldPath}</span>
+                    <ArrowRight className="h-3 w-3 shrink-0" />
+                    <span className="font-mono truncate flex-1 text-emerald-600" title={change.newPath}>{change.newPath}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs text-gray-400">
+              Les fichiers originaux ne seront pas supprimés (copie uniquement).
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => handleMigrate(false)}
+                disabled={migrating}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                Sauvegarder sans migrer
+              </button>
+              <button
+                onClick={() => handleMigrate(true)}
+                disabled={migrating}
+                className="flex items-center gap-2 px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+              >
+                {migrating ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                Copier et sauvegarder
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

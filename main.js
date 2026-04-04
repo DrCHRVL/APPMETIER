@@ -35,9 +35,18 @@ const CONTENTIEUX_FOLDERS = {
 
 /**
  * Retourne le chemin du dossier d'un contentieux, en le créant si nécessaire.
+ * Priorité : serverPaths.contentieux[id] dans users.json > CONTENTIEUX_FOLDERS hardcodé
  */
 function getContentieuxFolder(contentieuxId) {
-  const folder = CONTENTIEUX_FOLDERS[contentieuxId]
+  let folder = CONTENTIEUX_FOLDERS[contentieuxId]
+  try {
+    if (fs.existsSync(USERS_CONFIG_PATH)) {
+      const config = JSON.parse(fs.readFileSync(USERS_CONFIG_PATH, 'utf8'))
+      if (config.serverPaths?.contentieux?.[contentieuxId]) {
+        folder = config.serverPaths.contentieux[contentieuxId]
+      }
+    }
+  } catch {}
   if (!folder) throw new Error(`Contentieux inconnu: ${contentieuxId}`)
   if (!fs.existsSync(folder)) {
     fs.mkdirSync(folder, { recursive: true })
@@ -1255,12 +1264,116 @@ function setupIpcHandlers() {
    */
   ipcMain.handle('dataSync:checkContentieuxAccess', async (event, contentieuxId) => {
     try {
-      const folder = CONTENTIEUX_FOLDERS[contentieuxId]
+      const folder = getContentieuxFolder(contentieuxId)
       if (!folder) return false
-      // Le dossier n'a pas besoin d'exister déjà (sera créé au premier push)
-      return fs.existsSync(COMMON_SERVER_PATH)
+      // Le dossier parent doit être accessible
+      const parentDir = path.dirname(folder)
+      return fs.existsSync(parentDir)
     } catch {
       return false
+    }
+  })
+
+  /**
+   * Retourne les chemins effectifs actuels (configurés ou par défaut)
+   */
+  ipcMain.handle('paths:getEffective', async () => {
+    const general = getGeneralServerPath()
+    const contentieux = {}
+    for (const [id, defaultPath] of Object.entries(CONTENTIEUX_FOLDERS)) {
+      try {
+        contentieux[id] = getContentieuxFolder(id)
+      } catch {
+        contentieux[id] = defaultPath
+      }
+    }
+    return { general, contentieux }
+  })
+
+  /**
+   * Migre les données d'un ancien chemin vers un nouveau chemin.
+   * Copie app-data.json et le dossier backups/ s'ils existent.
+   */
+  ipcMain.handle('paths:migrateContentieux', async (event, contentieuxId, oldPath, newPath) => {
+    try {
+      if (!oldPath || !newPath || oldPath === newPath) return { success: true, skipped: true }
+      if (!fs.existsSync(oldPath)) return { success: true, skipped: true, reason: 'Ancien chemin inexistant' }
+
+      // Créer le nouveau dossier
+      if (!fs.existsSync(newPath)) {
+        fs.mkdirSync(newPath, { recursive: true })
+      }
+
+      const migrated = []
+
+      // Copier app-data.json
+      const oldData = path.join(oldPath, 'app-data.json')
+      if (fs.existsSync(oldData)) {
+        const newData = path.join(newPath, 'app-data.json')
+        if (!fs.existsSync(newData)) {
+          fs.copyFileSync(oldData, newData)
+          migrated.push('app-data.json')
+        }
+      }
+
+      // Copier le dossier backups/
+      const oldBackups = path.join(oldPath, 'backups')
+      if (fs.existsSync(oldBackups)) {
+        const newBackups = path.join(newPath, 'backups')
+        if (!fs.existsSync(newBackups)) {
+          fs.mkdirSync(newBackups, { recursive: true })
+          for (const file of fs.readdirSync(oldBackups)) {
+            fs.copyFileSync(path.join(oldBackups, file), path.join(newBackups, file))
+          }
+          migrated.push(`backups/ (${fs.readdirSync(oldBackups).length} fichiers)`)
+        }
+      }
+
+      console.log(`✅ Migration ${contentieuxId}: ${oldPath} → ${newPath} (${migrated.join(', ') || 'rien à migrer'})`)
+      return { success: true, migrated }
+    } catch (error) {
+      console.error(`❌ Migration ${contentieuxId} error:`, error.message)
+      return { success: false, error: error.message }
+    }
+  })
+
+  /**
+   * Migre les données générales (heartbeats, events, audit, updates) vers un nouveau chemin.
+   */
+  ipcMain.handle('paths:migrateGeneral', async (event, oldPath, newPath) => {
+    try {
+      if (!oldPath || !newPath || oldPath === newPath) return { success: true, skipped: true }
+      if (!fs.existsSync(oldPath)) return { success: true, skipped: true, reason: 'Ancien chemin inexistant' }
+
+      if (!fs.existsSync(newPath)) {
+        fs.mkdirSync(newPath, { recursive: true })
+      }
+
+      const migrated = []
+      const subfolders = ['heartbeats', 'events', 'audit', 'updates']
+      for (const sub of subfolders) {
+        const oldSub = path.join(oldPath, sub)
+        const newSub = path.join(newPath, sub)
+        if (fs.existsSync(oldSub) && !fs.existsSync(newSub)) {
+          fs.mkdirSync(newSub, { recursive: true })
+          copyDirForUpdate(oldSub, newSub)
+          migrated.push(sub)
+        }
+      }
+
+      // Copier users.json
+      const oldUsers = path.join(oldPath, 'users.json')
+      const newUsers = path.join(newPath, 'users.json')
+      if (fs.existsSync(oldUsers) && !fs.existsSync(newUsers)) {
+        fs.copyFileSync(oldUsers, newUsers)
+        migrated.push('users.json')
+      }
+
+      console.log(`✅ Migration général: ${oldPath} → ${newPath} (${migrated.join(', ') || 'rien à migrer'})`)
+      return { success: true, migrated }
+    } catch (error) {
+      console.error(`❌ Migration général error:`, error.message)
+      return { success: false, error: error.message }
     }
   })
 
@@ -1750,11 +1863,16 @@ function setupIpcHandlers() {
   }
 
   function saveLocalLanVersion(manifest) {
-    try {
-      fs.writeFileSync(LOCAL_VERSION_FILE, JSON.stringify(manifest, null, 2), 'utf8')
-    } catch (e) {
-      console.error('❌ LAN update: erreur sauvegarde version locale:', e.message)
+    const dir = path.dirname(LOCAL_VERSION_FILE)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
     }
+    fs.writeFileSync(LOCAL_VERSION_FILE, JSON.stringify(manifest, null, 2), 'utf8')
+    // Vérification immédiate
+    if (!fs.existsSync(LOCAL_VERSION_FILE)) {
+      throw new Error(`Le fichier version locale n'a pas été créé : ${LOCAL_VERSION_FILE}`)
+    }
+    console.log(`✅ Version locale sauvegardée : ${LOCAL_VERSION_FILE}`)
   }
 
   // Copie récursive pour update (réutilisée par LAN et GitHub)
@@ -1879,17 +1997,24 @@ function setupIpcHandlers() {
    */
   ipcMain.handle('lanUpdate:publish', async (event, changelog) => {
     try {
-      // Envoyer la progression au renderer
-      const sendProgress = (step, detail) => {
-        try { mainWindow?.webContents?.send('publish-progress', { step, detail }) } catch {}
+      const totalSteps = 6
+      // Envoyer la progression au renderer avec numéro d'étape
+      const sendProgress = (step, detail, current) => {
+        try { mainWindow?.webContents?.send('publish-progress', { step, detail, current, total: totalSteps }) } catch {}
+      }
+
+      // Vérifier que le chemin réseau est accessible
+      const generalPath = getGeneralServerPath()
+      if (!generalPath || !fs.existsSync(generalPath)) {
+        return { success: false, error: `Le chemin réseau n'est pas accessible : ${generalPath || '(non configuré)'}.\nVeuillez configurer le chemin général dans Paramètres > Chemins réseau.` }
       }
 
       // Étape 1 : Build Next.js
-      sendProgress('build', 'Compilation de l\'application...')
+      sendProgress('build', 'Compilation de l\'application...', 1)
       await runNextBuild()
 
       // Étape 2 : Préparer le dossier de publication
-      sendProgress('copy', 'Préparation des fichiers...')
+      sendProgress('copy', 'Préparation des fichiers...', 2)
       const updatesDir = ensureDir(getUpdatesDir())
       const sourceDir = path.join(updatesDir, 'source')
 
@@ -1899,23 +2024,24 @@ function setupIpcHandlers() {
       fs.mkdirSync(sourceDir, { recursive: true })
 
       // Étape 3 : Copier le build (.next/) vers le dossier de publication
+      sendProgress('copy', 'Copie du build...', 3)
       const nextBuildDir = path.join(__dirname, '.next')
       const destNextDir = path.join(sourceDir, '.next')
       fs.mkdirSync(destNextDir, { recursive: true })
       copyDirForUpdate(nextBuildDir, destNextDir)
 
-      // Étape 4 : Copier les fichiers nécessaires (sans les sources)
+      // Copier les fichiers nécessaires (sans les sources)
       copyDirForPublish(__dirname, sourceDir)
 
-      // Étape 5 : Obfusquer main.js et preload.js dans la copie publiée
-      sendProgress('obfuscate', 'Protection du code...')
+      // Étape 4 : Obfusquer main.js et preload.js dans la copie publiée
+      sendProgress('obfuscate', 'Protection du code (obfuscation)...', 4)
       const publishedMain = path.join(sourceDir, 'main.js')
       const publishedPreload = path.join(sourceDir, 'preload.js')
       if (fs.existsSync(publishedMain)) obfuscateFile(publishedMain)
       if (fs.existsSync(publishedPreload)) obfuscateFile(publishedPreload)
 
-      // Étape 5b : Générer le fichier d'intégrité pour la copie publiée
-      sendProgress('integrity', 'Génération de l\'empreinte d\'intégrité...')
+      // Étape 5 : Générer le fichier d'intégrité pour la copie publiée
+      sendProgress('integrity', 'Génération de l\'empreinte d\'intégrité...', 5)
       const integrityManifest = {}
       ;['main.js', 'preload.js', 'package.json'].forEach(f => {
         const fp = path.join(sourceDir, f)
@@ -1926,8 +2052,8 @@ function setupIpcHandlers() {
       })
       fs.writeFileSync(path.join(sourceDir, '.integrity'), JSON.stringify(integrityManifest, null, 2), 'utf8')
 
-      // Étape 6 : Créer le manifeste
-      sendProgress('manifest', 'Finalisation...')
+      // Étape 6 : Créer le manifeste et finaliser
+      sendProgress('manifest', 'Finalisation...', 6)
       const now = new Date().toISOString()
       const version = `${now.slice(0,10).replace(/-/g, '.')}.${Date.now().toString(36)}`
       const manifest = {
@@ -1941,9 +2067,9 @@ function setupIpcHandlers() {
       // Mettre à jour sa propre version locale
       saveLocalLanVersion(manifest)
 
-      sendProgress('done', `Version ${version} publiée`)
+      sendProgress('done', `Version ${version} publiée`, totalSteps)
       console.log(`✅ LAN update: version ${version} publiée (build + obfuscation)`)
-      return { success: true, version }
+      return { success: true, version, manifest }
     } catch (error) {
       console.error('❌ LAN update publish error:', error.message)
       return { success: false, error: error.message }
