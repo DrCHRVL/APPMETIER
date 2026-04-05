@@ -4,7 +4,7 @@ const os = require('os')
 const crypto = require('crypto')
 const https = require('https')
 const { exec, execSync } = require('child_process')
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, powerMonitor } = require('electron')
 
 // ── MODE PRODUCTION : détecte si l'app tourne en mode build (next start) ──
 const IS_PRODUCTION = fs.existsSync(path.join(__dirname, '.next', 'BUILD_ID'))
@@ -13,6 +13,19 @@ const IS_PRODUCTION = fs.existsSync(path.join(__dirname, '.next', 'BUILD_ID'))
 const pdfParse = require('pdf-parse')
 const tesseract = require('tesseract.js')
 console.log('User Data Path:', app.getPath('userData'));
+
+// ── FILET DE SÉCURITÉ : empêche le crash sur erreurs non gérées (ex. ECONNRESET au retour de veille) ──
+process.on('uncaughtException', (error) => {
+  console.error('⚠️ Uncaught exception interceptée :', error.message)
+  // Les erreurs réseau liées au file watcher sont récupérables, on ne crash pas
+  if (error.message && (error.message.includes('ECONNRESET') || error.message.includes('EPERM') || error.message.includes('ENETUNREACH'))) {
+    console.log('🔄 Erreur réseau récupérable, l\'app continue...')
+    return
+  }
+  // Pour les erreurs vraiment critiques, on affiche une alerte
+  console.error('❌ Erreur critique non gérée :', error.stack)
+})
+
 // Création des dossiers pour les données
 const dataFolder = path.join(__dirname, 'data')
 const casiersFolder = path.join(dataFolder, 'casiers')
@@ -210,6 +223,79 @@ function createWindow() {
   }
   mainWindow.loadURL('http://localhost:3000')
 }
+// ── UTILITAIRES RÉSEAU (niveau module pour accès depuis watcher et powerMonitor) ──
+function getGeneralServerPath() {
+  try {
+    if (fs.existsSync(USERS_CONFIG_PATH)) {
+      const config = JSON.parse(fs.readFileSync(USERS_CONFIG_PATH, 'utf8'))
+      if (config.serverPaths?.general) {
+        return config.serverPaths.general
+      }
+    }
+  } catch {}
+  return COMMON_SERVER_PATH
+}
+
+function ensureDir(dirPath) {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true })
+  }
+  return dirPath
+}
+
+// ── FILE WATCHER pour événements partagés (niveau module pour accès depuis powerMonitor) ──
+let eventsWatcher = null
+let eventsWatcherRestartTimeout = null
+
+function stopEventsWatcher() {
+  if (eventsWatcher) {
+    try { eventsWatcher.close() } catch {}
+    eventsWatcher = null
+  }
+  if (eventsWatcherRestartTimeout) {
+    clearTimeout(eventsWatcherRestartTimeout)
+    eventsWatcherRestartTimeout = null
+  }
+}
+
+function startEventsWatcher() {
+  try {
+    const dir = ensureDir(path.join(getGeneralServerPath(), 'events'))
+    stopEventsWatcher()
+    eventsWatcher = fs.watch(dir, (eventType, filename) => {
+      if (eventType === 'rename' && filename && filename.endsWith('.json')) {
+        const filePath = path.join(dir, filename)
+        try {
+          if (fs.existsSync(filePath)) {
+            const content = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('sharedEvent:received', content)
+            }
+          }
+        } catch {}
+      }
+    })
+    // Handler d'erreur pour éviter le crash (ex. ECONNRESET au retour de veille)
+    eventsWatcher.on('error', (error) => {
+      console.error('⚠️ Events watcher error:', error.message)
+      stopEventsWatcher()
+      // Redémarrage automatique après 5 secondes
+      eventsWatcherRestartTimeout = setTimeout(() => {
+        console.log('🔄 Tentative de redémarrage du watcher...')
+        startEventsWatcher()
+      }, 5000)
+    })
+    console.log('✅ Events watcher démarré sur', dir)
+  } catch (error) {
+    console.error('❌ Events watcher error:', error.message)
+    // Retry après 10 secondes si le dossier réseau n'est pas accessible
+    eventsWatcherRestartTimeout = setTimeout(() => {
+      console.log('🔄 Retry démarrage du watcher...')
+      startEventsWatcher()
+    }, 10000)
+  }
+}
+
 // Configuration des gestionnaires IPC pour l'API Electron
 function setupIpcHandlers() {
   // === GESTIONNAIRES DE BASE POUR LES DONNÉES ===
@@ -1648,24 +1734,7 @@ function setupIpcHandlers() {
    * Résout le chemin "general" depuis la config serverPaths de users.json.
    * Fallback sur COMMON_SERVER_PATH si non configuré.
    */
-  function getGeneralServerPath() {
-    try {
-      if (fs.existsSync(USERS_CONFIG_PATH)) {
-        const config = JSON.parse(fs.readFileSync(USERS_CONFIG_PATH, 'utf8'))
-        if (config.serverPaths?.general) {
-          return config.serverPaths.general
-        }
-      }
-    } catch {}
-    return COMMON_SERVER_PATH
-  }
-
-  function ensureDir(dirPath) {
-    if (!fs.existsSync(dirPath)) {
-      fs.mkdirSync(dirPath, { recursive: true })
-    }
-    return dirPath
-  }
+  // getGeneralServerPath et ensureDir sont désormais au niveau module (voir plus haut)
 
   // ── HEARTBEAT ──
 
@@ -1749,34 +1818,7 @@ function setupIpcHandlers() {
     }
   })
 
-  // File watcher pour les événements partagés
-  let eventsWatcher = null
-
-  function startEventsWatcher() {
-    try {
-      const dir = ensureDir(path.join(getGeneralServerPath(), 'events'))
-      if (eventsWatcher) {
-        eventsWatcher.close()
-        eventsWatcher = null
-      }
-      eventsWatcher = fs.watch(dir, (eventType, filename) => {
-        if (eventType === 'rename' && filename && filename.endsWith('.json')) {
-          const filePath = path.join(dir, filename)
-          try {
-            if (fs.existsSync(filePath)) {
-              const content = JSON.parse(fs.readFileSync(filePath, 'utf8'))
-              if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('sharedEvent:received', content)
-              }
-            }
-          } catch {}
-        }
-      })
-      console.log('✅ Events watcher démarré sur', dir)
-    } catch (error) {
-      console.error('❌ Events watcher error:', error.message)
-    }
-  }
+  // File watcher pour les événements partagés (géré au niveau module, voir startEventsWatcher/stopEventsWatcher)
 
   ipcMain.handle('sharedEvent:startWatcher', async () => {
     startEventsWatcher()
@@ -2653,6 +2695,14 @@ app.whenReady().then(async () => {
   }
 
   createWindow()
+
+  // ── Gestion veille/réveil : redémarrer les watchers réseau après le réveil ──
+  powerMonitor.on('resume', () => {
+    console.log('💤 Retour de veille détecté, redémarrage des watchers dans 3s...')
+    setTimeout(() => {
+      startEventsWatcher()
+    }, 3000)
+  })
 })
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
