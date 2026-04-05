@@ -5,9 +5,7 @@ import { Alert } from '@/types/interfaces';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { AlertManager } from '@/utils/alerts/alertManager';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Input } from '../ui/input';
-import { Select } from '../ui/select';
 import { CalendarDays, Clock } from 'lucide-react';
 
 interface AlertsModalProps {

@@ -19,8 +19,8 @@ interface AIRImportData {
   dateCloture?: string;
   dateFinPriseEnCharge?: string;
   faits: string;
-  referent: string;
-  secteurGeographique: string;
+  referent?: string;
+  secteurGeographique?: string;
   nombreEntretiensAIR: number;
   nombreRencontresPR?: number;
   nombreCarences?: number;
@@ -832,7 +832,7 @@ const stats = useMemo(() => {
                     <div className="text-gray-500">
                       Reçue: {parseExcelDate(mesure.dateReception)?.toLocaleDateString('fr-FR') || 'Inconnue'}
                     </div>
-                    <div className="text-gray-500">Référent: {mesure.referent}</div>
+                    <div className="text-gray-500">Référent: {mesure.referent || 'Non assigné'}</div>
                   </div>
                 ))}
               </div>
