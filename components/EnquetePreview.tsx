@@ -561,16 +561,18 @@ return (
         onSnoozeAlert={onSnoozeAlert}
       />
 
-      <ArchiveEnqueteModal
-        isOpen={showArchiveModal}
-        onClose={() => setShowArchiveModal(false)}
-        enqueteId={enquete.id}
-        onArchive={onArchive}
-        misEnCause={enquete.misEnCause}
-        enqueteNumero={enquete.numero}
-        enqueteTags={enquete.tags}
-        onCreateGlobalTodo={onCreateGlobalTodo}
-      />
+      {onArchive && (
+        <ArchiveEnqueteModal
+          isOpen={showArchiveModal}
+          onClose={() => setShowArchiveModal(false)}
+          enqueteId={enquete.id}
+          onArchive={onArchive}
+          misEnCause={enquete.misEnCause}
+          enqueteNumero={enquete.numero}
+          enqueteTags={enquete.tags}
+          onCreateGlobalTodo={onCreateGlobalTodo}
+        />
+      )}
 
       <ViewAudienceResultModal
   isOpen={showAudienceResultModal}

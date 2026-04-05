@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useToast } from '@/contexts/ToastContext';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
-import { Enquete } from '@/types/interfaces';
+import { Enquete, CompteRendu } from '@/types/interfaces';
 import { useAudience } from '@/hooks/useAudience';
 import { ViewAudienceResultModal } from '../modals/ViewAudienceResultModal';
 import { EnqueteDetailModal } from '../modals/EnqueteDetailModal';
@@ -40,7 +40,7 @@ export const ArchivePage = ({
   const { hasResultat, isLoading, audienceState, getResultat, saveResultat } = useAudience();
   const [selectedEnquete, setSelectedEnquete] = useState<Enquete | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [editingCR, setEditingCR] = useState(null);
+  const [editingCR, setEditingCR] = useState<CompteRendu | null>(null);
   const [viewResultat, setViewResultat] = useState<number | null>(null);
   const [showResultModal, setShowResultModal] = useState<number | null>(null);
   const [showDirectResultModal, setShowDirectResultModal] = useState(false);

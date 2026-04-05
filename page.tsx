@@ -1090,9 +1090,9 @@ return (
           onClose={() => setSelectedEnquete(null)}
           onEdit={() => setIsEditing(!isEditing)}
           onUpdate={handleUpdateEnquete}
-          onAddCR={handleAjoutCR}
-          onUpdateCR={handleUpdateCR}
-          onDeleteCR={handleDeleteCR}
+          onAddCR={(cr) => handleAjoutCR(selectedEnquete.id, cr)}
+          onUpdateCR={(crId, updates) => handleUpdateCR(selectedEnquete.id, crId, updates)}
+          onDeleteCR={(crId) => handleDeleteCR(selectedEnquete.id, crId)}
           setEditingCR={setEditingCR}
           onDelete={handleDeleteEnquete}
           allKnownMec={allKnownMec}
@@ -1385,9 +1385,6 @@ return (
         tagsContent={<TagManagementPage />}
         sauvegardesContent={
           <SavePage
-            onExport={handleExportData}
-            onImport={handleImportData}
-            onManualSave={handleManualSave}
             lastSaveDate={StorageManager.getLastSave()}
             onRepairServer={repairServer}
             onRestoreFromServerBackup={restoreFromServerBackup}
