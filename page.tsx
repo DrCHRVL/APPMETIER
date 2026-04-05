@@ -1124,20 +1124,23 @@ return (
         isOpen={showAlertsModal}
         onClose={() => setShowAlertsModal(false)}
         alerts={[...alerts.filter(alert => alert.status === 'active'), ...instructionAlerts]}
-        onValidateAlert={(alertId) => {
-          const isInstructionAlert = instructionAlerts.some(alert => alert.id === alertId);
-          if (isInstructionAlert) {
-            handleValidateInstructionAlert(alertId);
-          } else {
-            handleValidateAlert(alertId);
+        onValidateAlert={(alertId: number | number[]) => {
+          const ids = Array.isArray(alertId) ? alertId : [alertId];
+          const instructionIds = ids.filter(id => instructionAlerts.some(alert => alert.id === id));
+          const regularIds = ids.filter(id => !instructionAlerts.some(alert => alert.id === id));
+          if (instructionIds.length > 0) {
+            handleValidateInstructionAlert(instructionIds.length === 1 ? instructionIds[0] : instructionIds);
+          }
+          if (regularIds.length > 0) {
+            handleValidateAlert(regularIds.length === 1 ? regularIds[0] : regularIds);
           }
         }}
-        onSnoozeAlert={(alertId) => {
+        onSnoozeAlert={(alertId: number, daysOrDate: number | string) => {
           const isInstructionAlert = instructionAlerts.some(alert => alert.id === alertId);
           if (isInstructionAlert) {
             handleSnoozeInstructionAlert(alertId);
           } else {
-            handleSnoozeAlert(alertId);
+            handleSnoozeAlert(alertId, daysOrDate);
           }
         }}
       />
