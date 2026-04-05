@@ -30,7 +30,7 @@ export const DebatModal = ({
   const availableMisEnExamen = type === 'placement_dp' 
     ? instruction.misEnExamen || []
     : (instruction.misEnExamen?.filter(mex => 
-        mex.statut === 'detenu' || mex.role === 'détenu' || mex.role === 'detenu'
+        mex.statut === 'detenu' || mex.role === 'detenu'
       ) || []);
 
   const handleConfirm = () => {

@@ -23,7 +23,7 @@ export const DMLModal = ({
   
   // Filtrer les mis en examen détenus - CORRECTION: vérifier le statut ET le role
   const detenus = instruction.misEnExamen?.filter(mex => 
-    mex.statut === 'detenu' || mex.role === 'détenu' || mex.role === 'detenu'
+    mex.statut === 'detenu' || mex.role === 'detenu'
   ) || [];
 
   console.log('Mis en examen disponibles:', instruction.misEnExamen);
