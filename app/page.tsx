@@ -807,7 +807,7 @@ return (
             onShowAlerts={() => setShowAlertsModal(true)}
             onSave={handleManualSave}
             isSaving={isSaving}
-            lastSaveDate={StorageManager.getLastSave()}
+            lastSaveDate={StorageManager.getLastSave() ?? undefined}
             syncStatus={syncStatus}
             onSync={handleManualSync}
             isSyncing={isSyncing}
@@ -1200,18 +1200,21 @@ return (
               setSelectedActe(null);
             }}
             originalStartDate={
-              selectedActe && selectedActe.enqueteId && enquetes.find(e => e.id === selectedActe.enqueteId)?.[
-                selectedActe.type === 'acte' ? 'actes' : 
-                selectedActe.type === 'ecoute' ? 'ecoutes' : 
+              (selectedActe && selectedActe.enqueteId && enquetes.find(e => e.id === selectedActe.enqueteId)?.[
+                selectedActe.type === 'acte' ? 'actes' :
+                selectedActe.type === 'ecoute' ? 'ecoutes' :
                 'geolocalisations'
-              ]?.find(a => a.id === selectedActe.id)?.dateDebut
+              ]?.find(a => a.id === selectedActe.id)?.dateDebut) || undefined
             }
             originalDuration={
-              selectedActe && selectedActe.enqueteId && enquetes.find(e => e.id === selectedActe.enqueteId)?.[
-                selectedActe.type === 'acte' ? 'actes' : 
-                selectedActe.type === 'ecoute' ? 'ecoutes' : 
-                'geolocalisations'
-              ]?.find(a => a.id === selectedActe.id)?.duree
+              (selectedActe && selectedActe.enqueteId && (() => {
+                const duree = enquetes.find(e => e.id === selectedActe.enqueteId)?.[
+                  selectedActe.type === 'acte' ? 'actes' :
+                  selectedActe.type === 'ecoute' ? 'ecoutes' :
+                  'geolocalisations'
+                ]?.find(a => a.id === selectedActe.id)?.duree;
+                return duree != null ? String(duree) : undefined;
+              })()) || undefined
             }
           />
 
@@ -1305,32 +1308,35 @@ return (
               }
             }}
             originalStartDate={
-              selectedActe && selectedActe.enqueteId && enquetes.find(e => e.id === selectedActe.enqueteId)?.[
-                selectedActe.type === 'acte' ? 'actes' : 
-                selectedActe.type === 'ecoute' ? 'ecoutes' : 
+              (selectedActe && selectedActe.enqueteId && enquetes.find(e => e.id === selectedActe.enqueteId)?.[
+                selectedActe.type === 'acte' ? 'actes' :
+                selectedActe.type === 'ecoute' ? 'ecoutes' :
                 'geolocalisations'
-              ]?.find(a => a.id === selectedActe.id)?.dateDebut
+              ]?.find(a => a.id === selectedActe.id)?.dateDebut) || undefined
             }
             originalDuration={
-              selectedActe && selectedActe.enqueteId && enquetes.find(e => e.id === selectedActe.enqueteId)?.[
-                selectedActe.type === 'acte' ? 'actes' : 
-                selectedActe.type === 'ecoute' ? 'ecoutes' : 
-                'geolocalisations'
-              ]?.find(a => a.id === selectedActe.id)?.duree
+              (selectedActe && selectedActe.enqueteId && (() => {
+                const duree = enquetes.find(e => e.id === selectedActe.enqueteId)?.[
+                  selectedActe.type === 'acte' ? 'actes' :
+                  selectedActe.type === 'ecoute' ? 'ecoutes' :
+                  'geolocalisations'
+                ]?.find(a => a.id === selectedActe.id)?.duree;
+                return duree != null ? String(duree) : undefined;
+              })()) || undefined
             }
             poseDate={
-              selectedActe && selectedActe.enqueteId && enquetes.find(e => e.id === selectedActe.enqueteId)?.[
+              (selectedActe && selectedActe.enqueteId && enquetes.find(e => e.id === selectedActe.enqueteId)?.[
                 selectedActe.type === 'acte' ? 'actes' :
                 selectedActe.type === 'ecoute' ? 'ecoutes' :
                 'geolocalisations'
-              ]?.find(a => a.id === selectedActe.id)?.datePose
+              ]?.find(a => a.id === selectedActe.id)?.datePose) || undefined
             }
             currentDateFin={
-              selectedActe && selectedActe.enqueteId && enquetes.find(e => e.id === selectedActe.enqueteId)?.[
+              (selectedActe && selectedActe.enqueteId && enquetes.find(e => e.id === selectedActe.enqueteId)?.[
                 selectedActe.type === 'acte' ? 'actes' :
                 selectedActe.type === 'ecoute' ? 'ecoutes' :
                 'geolocalisations'
-              ]?.find(a => a.id === selectedActe.id)?.dateFin
+              ]?.find(a => a.id === selectedActe.id)?.dateFin) || undefined
             }
           />
         </>
@@ -1385,7 +1391,7 @@ return (
         tagsContent={<TagManagementPage />}
         sauvegardesContent={
           <SavePage
-            lastSaveDate={StorageManager.getLastSave()}
+            lastSaveDate={StorageManager.getLastSave() ?? undefined}
             onRepairServer={repairServer}
             onRestoreFromServerBackup={restoreFromServerBackup}
             onListServerBackups={listServerBackups}

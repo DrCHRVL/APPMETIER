@@ -126,7 +126,7 @@ export const ArchiveEnqueteModal = ({
     }
   };
 
-  const handleSaveResults = async (resultat) => {
+  const handleSaveResults = async (resultat: any) => {
     try {
       console.log('Sauvegarde des résultats:', resultat);
       
@@ -157,7 +157,7 @@ export const ArchiveEnqueteModal = ({
   };
 
   // Gestionnaire pour la confirmation de l'OI
-  const handleOIConfirm = async (resultat) => {
+  const handleOIConfirm = async (resultat: any) => {
     try {
       // Sauvegarder les résultats avec le flag OI
       await saveResultat(resultat);

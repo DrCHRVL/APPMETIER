@@ -117,12 +117,11 @@ export const AIRImportModal = ({
     
     try {
       const worksheet = workbook.Sheets[selectedSheet];
-      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, { 
+      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, {
         header: 1,
         defval: '',
         blankrows: false,
-        raw: true, 
-	cellDates: true
+        raw: true
       });
 
       const validationResult = validateFileStructure(jsonData);
@@ -139,7 +138,7 @@ export const AIRImportModal = ({
       
       for (let i = dataStartIndex; i < jsonData.length; i++) {
         const row = jsonData[i];
-        if (!row || row.every(cell => !cell || String(cell).trim() === '')) {
+        if (!row || row.every((cell: any) => !cell || String(cell).trim() === '')) {
           continue;
         }
         
@@ -210,12 +209,11 @@ export const AIRImportModal = ({
   const applyMappingAndRefresh = async (mapping: Record<string, number>) => {
     try {
       const worksheet = workbook!.Sheets[selectedSheet];
-      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, { 
+      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, {
         header: 1,
         defval: '',
         blankrows: false,
-        raw: true,
-	cellDates: true
+        raw: true
       });
 
       const validationResult = validateFileStructure(jsonData);
@@ -228,7 +226,7 @@ export const AIRImportModal = ({
       
       for (let i = dataStartIndex; i < maxPreviewRows; i++) {
         const row = jsonData[i];
-        if (!row || row.every(cell => !cell || String(cell).trim() === '')) {
+        if (!row || row.every((cell: any) => !cell || String(cell).trim() === '')) {
           continue;
         }
         
@@ -326,12 +324,11 @@ export const AIRImportModal = ({
       }
       
       // Convertir en JSON
-      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, { 
+      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, {
         header: 1,
         defval: '',
         blankrows: false,
-        raw: true, 
-	cellDates: true
+        raw: true
       });
       
       if (!jsonData || jsonData.length <= 1) {
@@ -343,7 +340,7 @@ export const AIRImportModal = ({
       // 🆕 EXTRAIRE LES EN-TÊTES DISPONIBLES POUR L'ÉDITEUR
       const headerRowIndex = validation ? validation.headerRowIndex ?? 2 : 2;
       if (jsonData[headerRowIndex]) {
-        const headers = jsonData[headerRowIndex].map((header, index) => 
+        const headers = jsonData[headerRowIndex].map((header: any, index: number) =>
           header ? `${getExcelColumnName(index)}${headerRowIndex + 1}: ${String(header)}` : ''
         ).filter(Boolean);
         setAvailableHeaders(headers);
@@ -372,7 +369,7 @@ export const AIRImportModal = ({
         
         for (let i = dataStartIndex; i < jsonData.length; i++) {
           const row = jsonData[i];
-          if (!row || row.every(cell => !cell || String(cell).trim() === '')) {
+          if (!row || row.every((cell: any) => !cell || String(cell).trim() === '')) {
             continue;
           }
           
@@ -638,23 +635,6 @@ export const AIRImportModal = ({
               </div>
               
               {/* Ancien code conditionnel supprimé */}
-              {false && !forceDynamicMapping && (
-                mappingResult.confidence === 'low' || 
-                mappingResult.confidence === 'medium' || 
-                mappingResult.missingFields.length > 2
-              ) && (
-                <div className="flex justify-center">
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={handleForceRemapping}
-                    disabled={isProcessing}
-                    className="text-blue-600 border-blue-300 hover:bg-blue-50"
-                  >
-                    🔧 Essayer le mapping automatique
-                  </Button>
-                </div>
-              )}
               
               {/* 🆕 AFFICHAGE DES CHAMPS MANQUANTS */}
               {mappingResult.missingFields.length > 0 && (

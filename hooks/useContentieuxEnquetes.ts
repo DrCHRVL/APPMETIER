@@ -235,11 +235,12 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
 
   // ── CR OPERATIONS ──
 
-  const handleAjoutCR = useCallback((enqueteId: number, cr: CompteRendu) => {
+  const handleAjoutCR = useCallback((enqueteId: number, cr: CompteRendu | Omit<CompteRendu, 'id'>) => {
+    const newCR = 'id' in cr ? cr : { ...cr, id: Date.now() };
     updateEnquetesList(prev =>
       prev.map(e =>
         e.id === enqueteId
-          ? { ...e, comptesRendus: [...e.comptesRendus, cr], dateMiseAJour: new Date().toISOString() }
+          ? { ...e, comptesRendus: [...e.comptesRendus, newCR], dateMiseAJour: new Date().toISOString() }
           : e
       )
     );

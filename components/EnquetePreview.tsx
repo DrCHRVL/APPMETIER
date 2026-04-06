@@ -34,7 +34,7 @@ interface EnquetePreviewProps {
   onToggleHideFromJA?: (enqueteId: number) => void;
   alerts: Alert[];
   onValidateAlert: (alertId: number | number[]) => void;
-  onSnoozeAlert: (alertId: number, daysOrDate?: number | string) => void;
+  onSnoozeAlert: (alertId: number, daysOrDate: number | string) => void;
   onProlongationRequest?: (acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
   onPoseRequest?: (acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
   onValidateProlongationRequest?: (acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;

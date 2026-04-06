@@ -328,7 +328,7 @@ export const DocumentPathModal = ({
               </Button>
               <Button 
                 onClick={handleSave}
-                disabled={selectedPath.trim() && pathStatus === 'invalid'}
+                disabled={!!(selectedPath.trim() && pathStatus === 'invalid')}
                 className={selectedPath.trim() && pathStatus === 'valid' ? 'bg-green-600 hover:bg-green-700' : ''}
               >
                 {!selectedPath.trim() ? 'Désactiver' : 'Enregistrer'}

@@ -106,6 +106,21 @@ interface ElectronAPI {
   dataSync_listServerBackups?: () => Promise<string[]>;
   getCurrentUser?: () => Promise<{ displayName: string; computerName: string }>;
 
+  // Heartbeat
+  writeHeartbeat?: (username: string, heartbeat: any) => Promise<boolean>;
+  removeHeartbeat?: (username: string) => Promise<boolean>;
+  readAllHeartbeats?: () => Promise<any[]>;
+
+  // Événements partagés
+  writeSharedEvent?: (event: any) => Promise<boolean>;
+  cleanupSharedEvents?: (ttlMs: number) => Promise<boolean>;
+  startEventsWatcher?: () => Promise<boolean>;
+  onSharedEvent?: (callback: (event: any) => void) => void;
+
+  // Journal d'audit
+  appendAuditLog?: (entry: any, maxEntries: number) => Promise<boolean>;
+  readAuditLog?: () => Promise<any[]>;
+
   // MISE À JOUR DE L'APPLICATION
   checkAppUpdate?: () => Promise<{ hasUpdate: boolean; commits: number; error?: string }>;
   applyAppUpdate?: () => Promise<{ success: boolean; error?: string }>;

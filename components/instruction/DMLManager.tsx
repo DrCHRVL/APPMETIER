@@ -15,7 +15,8 @@ import {
   Trash2,
   Edit3
 } from 'lucide-react';
-import { EnqueteInstruction, DML, calculateDMLEcheance } from '@/types/interfaces';
+import { EnqueteInstruction, DML } from '@/types/interfaces';
+import { calculateDMLEcheance } from '@/utils/instructionUtils';
 import { useToast } from '@/contexts/ToastContext';
 
 interface DMLManagerProps {

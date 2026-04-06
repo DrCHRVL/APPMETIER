@@ -29,6 +29,9 @@ export const AdminContentieuxPanel = () => {
   const [editColor, setEditColor] = useState('');
   const [editServerFolder, setEditServerFolder] = useState('');
 
+  // Confirm disable
+  const [confirmDisableId, setConfirmDisableId] = useState<string | null>(null);
+
   const load = useCallback(() => {
     const manager = UserManager.getInstance();
     setContentieuxList(manager.getAllContentieux());
@@ -72,8 +75,6 @@ export const AdminContentieuxPanel = () => {
       showToast('Erreur: ID déjà existant ou droits insuffisants', 'error');
     }
   };
-
-  const [confirmDisableId, setConfirmDisableId] = useState<string | null>(null);
 
   const handleToggle = async (id: ContentieuxId, enabled: boolean) => {
     // Activation : pas besoin de confirmation

@@ -107,7 +107,7 @@ export const MultiSideBar = ({
                       {ctxDef.label}
                     </span>
                     {readOnly && (
-                      <Eye className="h-3 w-3 text-white/40 ml-auto" title="Lecture seule" />
+                      <span title="Lecture seule"><Eye className="h-3 w-3 text-white/40 ml-auto" /></span>
                     )}
                   </div>
                 ) : (

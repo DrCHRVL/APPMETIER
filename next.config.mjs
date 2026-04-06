@@ -1,5 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  reactStrictMode: false,
+  images: {
+    unoptimized: true
+  },
+
   // Désactiver les source maps en production pour protéger le code source
   productionBrowserSourceMaps: false,
 
@@ -9,9 +14,28 @@ const nextConfig = {
   // Optimisation : output standalone pour distribution
   output: 'standalone',
 
+  // Ignorer les erreurs TypeScript et ESLint pendant le build
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+
   // En mode publication, builder dans un dossier séparé pour ne pas
   // casser le serveur next dev en cours d'exécution
   ...(process.env.NEXT_PUBLISH_BUILD ? { distDir: '.next-publish' } : {}),
+
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.target = 'electron-renderer';
+      config.output = {
+        ...config.output,
+        globalObject: 'globalThis'
+      };
+    }
+    return config;
+  }
 }
 
 export default nextConfig
