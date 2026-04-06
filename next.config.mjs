@@ -28,7 +28,19 @@ const nextConfig = {
 
   webpack: (config, { isServer }) => {
     if (!isServer) {
-      config.target = 'electron-renderer';
+      // Ne pas utiliser electron-renderer comme target car cela injecte
+      // __dirname dans le bundle navigateur et provoque une erreur
+      config.resolve = {
+        ...config.resolve,
+        fallback: {
+          ...config.resolve?.fallback,
+          fs: false,
+          path: false,
+          os: false,
+          crypto: false,
+          child_process: false,
+        }
+      };
       config.output = {
         ...config.output,
         globalObject: 'globalThis'
