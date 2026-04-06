@@ -2473,7 +2473,20 @@ function setupIpcHandlers() {
    * Lire la version LAN locale
    */
   ipcMain.handle('lanUpdate:getLocalVersion', async () => {
-    return getLocalLanVersion()
+    // 1. Essayer le fichier local
+    const local = getLocalLanVersion()
+    if (local) return local
+    // 2. Fallback : lire le manifest serveur (au cas où la sauvegarde locale a échoué / app a planté)
+    try {
+      const manifestPath = getManifestPath()
+      if (fs.existsSync(manifestPath)) {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+        // Restaurer le fichier local pour les prochaines fois
+        saveLocalLanVersion(manifest)
+        return manifest
+      }
+    } catch {}
+    return null
   })
 
   // === MISE À JOUR VIA GITHUB (GitHub API + ZIP, sans git) ===

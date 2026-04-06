@@ -791,9 +791,6 @@ function AppContent() {
             <p className="text-sm text-amber-800 font-medium">
               L'administrateur doit valider votre accès avant que vous puissiez utiliser l'application.
             </p>
-            <p className="text-sm text-amber-700 mt-1">
-              Cette application contient des données protégées par le secret de l'enquête.
-            </p>
           </div>
           <p className="text-xs text-gray-400">
             Relancez l'application une fois votre accès validé par l'administrateur.
