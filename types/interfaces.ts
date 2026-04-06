@@ -12,6 +12,7 @@ export interface CompteRendu {
   enqueteur: string;
   description: string;
   createdBy?: string; // Identifiant système de l'auteur (Windows username)
+  contentieuxSource?: string; // Contentieux d'origine du CR (pour les co-saisines)
 }
 
 // Interface pour les tâches à faire
@@ -209,6 +210,9 @@ export interface Enquete extends NewEnqueteData {
   overboardPins?: import('@/types/userTypes').OverboardPin[];
   // Dissimulation aux utilisateurs JA
   hiddenFromJA?: boolean;
+  // Co-saisine : partage de l'enquête avec d'autres contentieux
+  sharedWith?: string[];        // IDs des contentieux avec lesquels l'enquête est partagée
+  contentieuxOrigine?: string;  // ID du contentieux propriétaire (celui qui stocke l'enquête)
 }
 
 // Configuration de la récurrence

@@ -10,11 +10,12 @@
 // Stratégie : on ne modifie PAS useEnquetes.ts, on crée un wrapper
 // qui change les clés de stockage via un hook de configuration.
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Enquete, CompteRendu, NewEnqueteData } from '@/types/interfaces';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { ContentieuxId } from '@/types/userTypes';
 import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
+import { ContentieuxManager } from '@/utils/contentieuxManager';
 import { useToast } from '@/contexts/ToastContext';
 import throttle from 'lodash/throttle';
 
@@ -39,14 +40,19 @@ const migrateEnqueteDocuments = (enquete: any): Enquete => {
 /**
  * Hook pour gérer les enquêtes d'un contentieux spécifique.
  * Même API que useEnquetes, mais scopé à un contentieux.
+ * Charge également les enquêtes partagées (co-saisine) depuis les autres contentieux.
  */
 export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
-  const [enquetes, setEnquetes] = useState<Enquete[]>([]);
+  const [ownEnquetes, setOwnEnquetes] = useState<Enquete[]>([]);
+  const [sharedEnquetes, setSharedEnquetes] = useState<Enquete[]>([]);
   const [selectedEnquete, setSelectedEnquete] = useState<Enquete | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editingCR, setEditingCR] = useState<CompteRendu | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDataDirty, setIsDataDirty] = useState(false);
+
+  // Enquêtes combinées (propres + partagées) pour l'affichage
+  const enquetes = useMemo(() => [...ownEnquetes, ...sharedEnquetes], [ownEnquetes, sharedEnquetes]);
 
   const enquetesRef = useRef<Enquete[]>([]);
   const isInitialized = useRef(false);
@@ -74,17 +80,18 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
       setSelectedEnquete(null);
       setIsEditing(false);
       setEditingCR(null);
+      setSharedEnquetes([]);
     }
   }, [contentieuxId]);
 
   useEffect(() => {
-    enquetesRef.current = enquetes;
-  }, [enquetes]);
+    enquetesRef.current = ownEnquetes;
+  }, [ownEnquetes]);
 
   useEffect(() => { isDataDirtyRef.current = isDataDirty; }, [isDataDirty]);
   useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
 
-  // Chargement
+  // Chargement des enquêtes propres
   const loadEnquetes = useCallback(async () => {
     try {
       const key = storageKey(contentieuxId);
@@ -92,12 +99,37 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
       const validData = Array.isArray(data)
         ? data.filter(item => item.statut !== 'instruction').map(migrateEnqueteDocuments)
         : [];
-      setEnquetes(validData);
+      setOwnEnquetes(validData);
       enquetesRef.current = validData;
     } catch (error) {
       console.error(`❌ useContentieuxEnquetes[${contentieuxId}]: erreur chargement`, error);
-      setEnquetes([]);
+      setOwnEnquetes([]);
       enquetesRef.current = [];
+    }
+  }, [contentieuxId]);
+
+  // Chargement des enquêtes partagées depuis les autres contentieux (co-saisine)
+  const loadSharedEnquetes = useCallback(async () => {
+    try {
+      const manager = ContentieuxManager.getInstance();
+      const allIds = manager.getLoadedContentieuxIds();
+      const shared: Enquete[] = [];
+      for (const otherId of allIds) {
+        if (otherId === contentieuxId) continue;
+        const otherEnquetes = manager.getEnquetes(otherId);
+        for (const enquete of otherEnquetes) {
+          if (enquete.sharedWith?.includes(contentieuxId)) {
+            shared.push({
+              ...enquete,
+              contentieuxOrigine: enquete.contentieuxOrigine || otherId,
+            });
+          }
+        }
+      }
+      setSharedEnquetes(shared);
+    } catch (error) {
+      console.error(`❌ useContentieuxEnquetes[${contentieuxId}]: erreur chargement co-saisines`, error);
+      setSharedEnquetes([]);
     }
   }, [contentieuxId]);
 
@@ -107,11 +139,12 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
     const init = async () => {
       setIsLoading(true);
       await loadEnquetes();
+      await loadSharedEnquetes();
       setIsLoading(false);
       isInitialized.current = true;
     };
     init();
-  }, [loadEnquetes, contentieuxId]);
+  }, [loadEnquetes, loadSharedEnquetes, contentieuxId]);
 
   // Sauvegarde throttled — refs pour éviter de recréer le throttle à chaque state change
   const saveEnquetes = useCallback(
@@ -143,9 +176,9 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
     return () => { saveEnquetes.cancel(); };
   }, [saveEnquetes, isDataDirty, isLoading]);
 
-  // Updater helper
+  // Updater helper (enquêtes propres uniquement)
   const updateEnquetesList = useCallback((updater: (prev: Enquete[]) => Enquete[]) => {
-    setEnquetes(prev => {
+    setOwnEnquetes(prev => {
       const updated = updater(prev);
       enquetesRef.current = updated;
       setIsDataDirty(true);
@@ -233,10 +266,54 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
     showToast('Enquête réactivée', 'success');
   }, [updateEnquetesList, showToast]);
 
+  // ── HELPERS CO-SAISINE ──
+
+  /** Vérifie si une enquête est partagée (provient d'un autre contentieux) */
+  const isSharedEnquete = useCallback((enqueteId: number): boolean => {
+    return sharedEnquetes.some(e => e.id === enqueteId);
+  }, [sharedEnquetes]);
+
+  /** Trouve le contentieux d'origine d'une enquête partagée */
+  const getOriginContentieux = useCallback((enqueteId: number): ContentieuxId | null => {
+    const shared = sharedEnquetes.find(e => e.id === enqueteId);
+    return shared?.contentieuxOrigine || null;
+  }, [sharedEnquetes]);
+
+  /**
+   * Met à jour une enquête partagée dans son contentieux d'origine.
+   * Utilise ContentieuxManager pour écrire dans le bon storage.
+   */
+  const updateSharedEnquete = useCallback(async (
+    originId: ContentieuxId,
+    enqueteId: number,
+    updater: (enquete: Enquete) => Enquete
+  ) => {
+    const manager = ContentieuxManager.getInstance();
+    const originEnquetes = manager.getEnquetes(originId);
+    const updated = originEnquetes.map(e =>
+      e.id === enqueteId ? updater(e) : e
+    );
+    await manager.setEnquetes(originId, updated);
+    // Recharger les enquêtes partagées pour refléter le changement
+    await loadSharedEnquetes();
+  }, [loadSharedEnquetes]);
+
   // ── CR OPERATIONS ──
 
   const handleAjoutCR = useCallback((enqueteId: number, cr: CompteRendu | Omit<CompteRendu, 'id'>) => {
-    const newCR = 'id' in cr ? cr : { ...cr, id: Date.now() };
+    const newCR = 'id' in cr ? { ...cr, contentieuxSource: contentieuxId } : { ...cr, id: Date.now(), contentieuxSource: contentieuxId };
+
+    const originId = getOriginContentieux(enqueteId);
+    if (originId) {
+      // Enquête partagée → écrire dans le contentieux d'origine
+      updateSharedEnquete(originId, enqueteId, e => ({
+        ...e,
+        comptesRendus: [...e.comptesRendus, newCR],
+        dateMiseAJour: new Date().toISOString(),
+      }));
+      return;
+    }
+
     updateEnquetesList(prev =>
       prev.map(e =>
         e.id === enqueteId
@@ -244,9 +321,21 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
           : e
       )
     );
-  }, [updateEnquetesList]);
+  }, [updateEnquetesList, getOriginContentieux, updateSharedEnquete, contentieuxId]);
 
   const handleUpdateCR = useCallback((enqueteId: number, crId: number, updates: Partial<CompteRendu>) => {
+    const originId = getOriginContentieux(enqueteId);
+    if (originId) {
+      updateSharedEnquete(originId, enqueteId, e => ({
+        ...e,
+        comptesRendus: e.comptesRendus.map(cr =>
+          cr.id === crId ? { ...cr, ...updates } : cr
+        ),
+        dateMiseAJour: new Date().toISOString(),
+      }));
+      return;
+    }
+
     updateEnquetesList(prev =>
       prev.map(e =>
         e.id === enqueteId
@@ -260,9 +349,19 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
           : e
       )
     );
-  }, [updateEnquetesList]);
+  }, [updateEnquetesList, getOriginContentieux, updateSharedEnquete]);
 
   const handleDeleteCR = useCallback((enqueteId: number, crId: number) => {
+    const originId = getOriginContentieux(enqueteId);
+    if (originId) {
+      updateSharedEnquete(originId, enqueteId, e => ({
+        ...e,
+        comptesRendus: e.comptesRendus.filter(cr => cr.id !== crId),
+        dateMiseAJour: new Date().toISOString(),
+      }));
+      return;
+    }
+
     updateEnquetesList(prev =>
       prev.map(e =>
         e.id === enqueteId
@@ -274,10 +373,43 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
           : e
       )
     );
+  }, [updateEnquetesList, getOriginContentieux, updateSharedEnquete]);
+
+  // ── CO-SAISINE : partager/départager une enquête ──
+
+  const handleShareEnquete = useCallback((enqueteId: number, targetContentieuxIds: string[]) => {
+    updateEnquetesList(prev =>
+      prev.map(e =>
+        e.id === enqueteId
+          ? {
+              ...e,
+              sharedWith: targetContentieuxIds,
+              contentieuxOrigine: contentieuxId,
+              dateMiseAJour: new Date().toISOString(),
+            }
+          : e
+      )
+    );
+  }, [updateEnquetesList, contentieuxId]);
+
+  const handleUnshareEnquete = useCallback((enqueteId: number) => {
+    updateEnquetesList(prev =>
+      prev.map(e =>
+        e.id === enqueteId
+          ? {
+              ...e,
+              sharedWith: undefined,
+              dateMiseAJour: new Date().toISOString(),
+            }
+          : e
+      )
+    );
   }, [updateEnquetesList]);
 
   return {
     enquetes,
+    ownEnquetes,
+    sharedEnquetes,
     selectedEnquete,
     isEditing,
     editingCR,
@@ -295,6 +427,11 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
     handleUpdateCR,
     handleDeleteCR,
     flushPendingSave,
+    // Co-saisine
+    isSharedEnquete,
+    handleShareEnquete,
+    handleUnshareEnquete,
+    loadSharedEnquetes,
     // Le contentieux courant pour référence
     contentieuxId,
   };

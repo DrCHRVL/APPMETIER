@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Archive, Edit, Trash, RotateCcw, Users, Building2, FileText, Calendar, Flag, Clock, Hourglass, Gavel, ArrowDown, Star, EyeOff, Eye } from 'lucide-react';
+import { Archive, Edit, Trash, RotateCcw, Users, Building2, FileText, Calendar, Flag, Clock, Hourglass, Gavel, ArrowDown, Star, EyeOff, Eye, Link2 } from 'lucide-react';
 import { Enquete, Alert, VisualAlertRule, ToDoItem } from '@/types/interfaces';
 import { VISUAL_ALERT_COLOR_PALETTE } from '@/config/constants';
 import { StartEnqueteModal } from './modals/StartEnqueteModal';
@@ -385,14 +385,28 @@ return (
               {enquete.tags
                 .filter(tag => tag.category === 'infractions')
                 .map(tag => (
-                  <Badge 
-                    key={tag.value} 
-                    variant="outline" 
+                  <Badge
+                    key={tag.value}
+                    variant="outline"
                     className="text-[10px] py-0 px-1.5 bg-gray-50"
                   >
                     {tag.value}
                   </Badge>
                 ))}
+
+              {/* Badge co-saisine */}
+              {enquete.sharedWith && enquete.sharedWith.length > 0 && (
+                <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-purple-50 text-purple-700 border-purple-300">
+                  <Link2 className="h-3 w-3 mr-0.5" />
+                  Co-saisine
+                </Badge>
+              )}
+              {enquete.contentieuxOrigine && (
+                <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-amber-50 text-amber-700 border-amber-300">
+                  <Link2 className="h-3 w-3 mr-0.5" />
+                  Partagée · {enquete.contentieuxOrigine}
+                </Badge>
+              )}
             </div>
 
             {descriptionPreview && (

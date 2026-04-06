@@ -15,6 +15,7 @@ import { ClotureSummaryModal } from './ClotureSummaryModal';
 import { Trash2, Siren, FileText, Plus, X, Star } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { EnqueteHeader } from '../sections/EnqueteHeader';
+import { CoSaisineSection } from '../sections/CoSaisineSection';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
 import { SuiviAlertModal } from './SuiviAlertModal';
@@ -38,6 +39,14 @@ interface EnqueteDetailModalProps {
   onCreateGlobalTodo?: (todo: ToDoItem) => void;
   /** Si true, masque les boutons Modifier/Supprimer (mode consultation) */
   readOnly?: boolean;
+  /** ID du contentieux courant (pour la co-saisine) */
+  contentieuxId?: string;
+  /** Callback pour partager l'enquête avec d'autres contentieux */
+  onShareEnquete?: (enqueteId: number, targetContentieuxIds: string[]) => void;
+  /** Callback pour retirer le partage */
+  onUnshareEnquete?: (enqueteId: number) => void;
+  /** Si true, cette enquête provient d'un autre contentieux */
+  isSharedEnquete?: boolean;
 }
 
 export const EnqueteDetailModal = ({
@@ -54,7 +63,11 @@ export const EnqueteDetailModal = ({
   onDelete,
   allKnownMec = [],
   onCreateGlobalTodo,
-  readOnly = false
+  readOnly = false,
+  contentieuxId,
+  onShareEnquete,
+  onUnshareEnquete,
+  isSharedEnquete = false,
 }: EnqueteDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showClotureSummary, setShowClotureSummary] = useState(false);
@@ -267,6 +280,18 @@ export const EnqueteDetailModal = ({
                     </div>
                   ) : null}
                 </div>
+
+                {/* Co-saisine */}
+                {contentieuxId && onShareEnquete && onUnshareEnquete && (
+                  <CoSaisineSection
+                    enquete={enquete}
+                    isEditing={isEditing}
+                    currentContentieuxId={contentieuxId}
+                    onShare={onShareEnquete}
+                    onUnshare={onUnshareEnquete}
+                    isShared={isSharedEnquete}
+                  />
+                )}
 
                 <GeolocSection
                   enquete={enquete}
