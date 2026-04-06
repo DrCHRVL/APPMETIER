@@ -1,0 +1,6 @@
+root: C:\Users\audran.chevalier\MonProjetPortable\nodejs
+path: C:\Users\audran.chevalier\MonProjetPortable\nodejs\nodejs
+arch: 64
+proxy: none
+node_mirror: https://nodejs.org/dist/
+npm_mirror: https://github.com/npm/cli/archive/
