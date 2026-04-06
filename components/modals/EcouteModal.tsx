@@ -59,7 +59,6 @@ export const EcouteModal = ({
           description: ecoute.description || ''
         });
         setDateDebut(ecoute.dateDebut || '');
-        setDuree(ecoute.duree || '30');
         setDatePose(ecoute.datePose || '');
         setHadPoseDate(!!ecoute.datePose);
         setNeedsJLDAuth(false);

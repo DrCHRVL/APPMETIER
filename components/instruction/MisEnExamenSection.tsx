@@ -673,10 +673,4 @@ export const MisEnExamenSection = ({
       </CardContent>
     </Card>
   );
-};>
-                              <span className="text-gray-600">Placement DP:</span>
-                              <div className="font-medium">
-                                {mex.datePlacementDP ? new Date(mex.datePlacementDP).toLocaleDateString() : 'Non renseignée'}
-                              </div>
-                            </div>
-                            <div
+};

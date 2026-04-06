@@ -3,29 +3,6 @@ import { APP_CONFIG } from '../config/constants';
 import { MigrationManager, CURRENT_VERSION } from '../migrations/migrationManager';
 import { StorageValidator } from './storage/validator';
 
-interface ElectronAPI {
-  getData: <T>(key: string) => Promise<T | null>;
-  setData: <T>(key: string, value: T) => Promise<boolean>;
-  // Heartbeat
-  writeHeartbeat: (username: string, heartbeat: any) => Promise<boolean>;
-  removeHeartbeat: (username: string) => Promise<boolean>;
-  readAllHeartbeats: () => Promise<any[]>;
-  // Événements partagés
-  writeSharedEvent: (event: any) => Promise<boolean>;
-  cleanupSharedEvents: (ttlMs: number) => Promise<boolean>;
-  startEventsWatcher: () => Promise<boolean>;
-  onSharedEvent: (callback: (event: any) => void) => void;
-  // Journal d'audit
-  appendAuditLog: (entry: any, maxEntries: number) => Promise<boolean>;
-  readAuditLog: () => Promise<any[]>;
-}
-
-declare global {
-  interface Window {
-    electronAPI: ElectronAPI;
-  }
-}
-
 class ElectronBridgeService {
   private static instance: ElectronBridgeService;
   private isElectronAvailable: boolean;

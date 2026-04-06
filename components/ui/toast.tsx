@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
 
-export type ToastType = 'success' | 'error' | 'info';
+export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
 interface ToastProps {
   message: string;
@@ -16,8 +16,9 @@ export const Toast = ({ message, type, onClose, duration = 3000 }: ToastProps) =
     return () => clearTimeout(timer);
   }, [duration, onClose]);
 
-  const bgColor = type === 'success' ? 'bg-green-500' : 
-                 type === 'error' ? 'bg-red-500' : 
+  const bgColor = type === 'success' ? 'bg-green-500' :
+                 type === 'error' ? 'bg-red-500' :
+                 type === 'warning' ? 'bg-amber-500' :
                  'bg-blue-500';
 
   return (

@@ -122,7 +122,7 @@ export const AudienceResultModal = ({
         sursisSimple: 0,
         peineAmende: 0,
         interdictionParaitre: false,
-        typeAudience: 'CRPC-Def',
+        typeAudience: 'CRPC-Def' as const,
         defere: true,
         dateDefere: '',
         isPending: false,
@@ -202,8 +202,8 @@ export const AudienceResultModal = ({
         // Nouvelles propriétés pour gérer les résultats partiels
         hasPartialResults,
         pendingCondamnations: pendingCondamnations.map(c => ({
-          nom: c.nom,
-          dateAudiencePending: c.dateAudiencePending
+          nom: c.nom || '',
+          dateAudiencePending: c.dateAudiencePending || ''
         })),
         isPartiallyPending: hasPartialResults,
         // Supprimer nombreDeferes et dateDefere car maintenant dans les condamnations

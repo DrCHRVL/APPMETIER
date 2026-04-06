@@ -602,6 +602,9 @@ export interface EnqueteInstruction extends Enquete {
   // Côtes/tomes incrémentable
   cotesTomes: number;
   
+  // Victimes
+  victimes?: Array<{ id: number; nom: string }>;
+
   // Timeline personnalisée
   timeline?: TimelineEvent[];
 }
@@ -610,7 +613,7 @@ export interface EnqueteInstruction extends Enquete {
 export interface TimelineEvent {
   id: number;
   date: string;
-  type: 'ouverture' | 'dml' | 'debat' | 'rd' | 'rapport' | 'ordonnance' | 'expertise' | 'cr' | 'audition' | 'interrogatoire' | 'autre';
+  type: 'ouverture' | 'dml' | 'debat' | 'rd' | 'rapport' | 'ordonnance' | 'expertise' | 'cr' | 'audition' | 'interrogatoire' | 'placement_dp' | 'ipc' | 'op' | 'autre';
   title: string;
   description?: string;
   automatic?: boolean;
