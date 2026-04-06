@@ -43,6 +43,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectFolder: () =>
     ipcRenderer.invoke('documents:select-folder'),
 
+  // Configuration serveur (premier lancement)
+  serverConfig_get: () =>
+    ipcRenderer.invoke('serverConfig:get'),
+  serverConfig_setup: (serverRootPath) =>
+    ipcRenderer.invoke('serverConfig:setup', serverRootPath),
+  serverConfig_reset: () =>
+    ipcRenderer.invoke('serverConfig:reset'),
+
   openExternalFolder: (externalPath, enqueteNumero, useSubfolder = true) =>
     ipcRenderer.invoke('documents:open-external-folder', externalPath, enqueteNumero, useSubfolder),
 

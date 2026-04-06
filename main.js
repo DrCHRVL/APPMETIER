@@ -32,18 +32,69 @@ const casiersFolder = path.join(dataFolder, 'casiers')
 const backupsFolder = path.join(dataFolder, 'backups')
 const documentsEnquetesFolder = path.join(dataFolder, 'documentenquete')
 const userDataPath = path.join(dataFolder, 'data.json')
-// Chemin serveur commun (utilisé pour documents ET sync des données)
-const COMMON_SERVER_PATH = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\GESTION DE SERVICE\\10_App METIER"
+
+// ── CONFIGURATION SERVEUR (configurable au premier lancement) ──
+const SERVER_CONFIG_PATH = path.join(dataFolder, 'server-config.json')
+// Fallback historique (pour compatibilité avec les installations existantes)
+const LEGACY_SERVER_PATH = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\GESTION DE SERVICE\\10_App METIER"
+
+/**
+ * Lit le chemin serveur racine depuis server-config.json.
+ * Retourne null si pas encore configuré (premier lancement).
+ */
+function getConfiguredServerPath() {
+  try {
+    if (fs.existsSync(SERVER_CONFIG_PATH)) {
+      const config = JSON.parse(fs.readFileSync(SERVER_CONFIG_PATH, 'utf8'))
+      if (config.serverRootPath) return config.serverRootPath
+    }
+  } catch {}
+  return null
+}
+
+/**
+ * Sauvegarde le chemin serveur racine dans server-config.json.
+ */
+function saveServerConfig(serverRootPath) {
+  if (!fs.existsSync(dataFolder)) fs.mkdirSync(dataFolder, { recursive: true })
+  const config = { serverRootPath, configuredAt: new Date().toISOString() }
+  fs.writeFileSync(SERVER_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8')
+}
+
+/**
+ * Retourne le chemin serveur racine effectif :
+ * 1. server-config.json (configuré au premier lancement)
+ * 2. Fallback legacy (installations existantes avec le chemin en dur)
+ */
+function getServerRootPath() {
+  return getConfiguredServerPath() || LEGACY_SERVER_PATH
+}
+
+// Chemin serveur commun — résolu dynamiquement
+const COMMON_SERVER_PATH = getServerRootPath()
 
 // ── MULTI-CONTENTIEUX : chemin racine et dossiers par contentieux ──
-const MULTI_CONTENTIEUX_ROOT = path.join(COMMON_SERVER_PATH) // Même racine, sous-dossiers par contentieux
-const USERS_CONFIG_PATH = path.join(COMMON_SERVER_PATH, 'users.json')
+// Note: ces chemins sont recalculés si le serveur est reconfiguré (via getServerRootPath())
+let MULTI_CONTENTIEUX_ROOT = COMMON_SERVER_PATH
+let USERS_CONFIG_PATH = path.join(COMMON_SERVER_PATH, 'users.json')
 
 // Mapping des contentieux vers leurs dossiers serveur
-const CONTENTIEUX_FOLDERS = {
-  crimorg: path.join(COMMON_SERVER_PATH, 'crimorg'),
-  ecofi:   path.join(COMMON_SERVER_PATH, 'ecofi'),
-  enviro:  path.join(COMMON_SERVER_PATH, 'enviro'),
+function getDefaultContentieuxFolders() {
+  const root = getServerRootPath()
+  return {
+    crimorg: path.join(root, 'crimorg'),
+    ecofi:   path.join(root, 'ecofi'),
+    enviro:  path.join(root, 'enviro'),
+  }
+}
+let CONTENTIEUX_FOLDERS = getDefaultContentieuxFolders()
+
+/** Recharge les chemins après reconfiguration du serveur */
+function reloadServerPaths() {
+  const root = getServerRootPath()
+  MULTI_CONTENTIEUX_ROOT = root
+  USERS_CONFIG_PATH = path.join(root, 'users.json')
+  CONTENTIEUX_FOLDERS = getDefaultContentieuxFolders()
 }
 
 /**
@@ -1363,6 +1414,61 @@ function setupIpcHandlers() {
   /**
    * Retourne les chemins effectifs actuels (configurés ou par défaut)
    */
+  // ── Configuration serveur (premier lancement / reset) ──
+
+  ipcMain.handle('serverConfig:get', async () => {
+    const configured = getConfiguredServerPath()
+    return {
+      isConfigured: !!configured,
+      serverRootPath: configured || LEGACY_SERVER_PATH,
+      configPath: SERVER_CONFIG_PATH,
+    }
+  })
+
+  ipcMain.handle('serverConfig:setup', async (event, serverRootPath) => {
+    try {
+      // Valider que le chemin existe et est accessible
+      if (!fs.existsSync(serverRootPath)) {
+        // Tenter de créer le dossier
+        try {
+          fs.mkdirSync(serverRootPath, { recursive: true })
+        } catch (e) {
+          return { success: false, error: `Impossible de créer le dossier : ${e.message}` }
+        }
+      }
+      // Vérifier l'écriture
+      const testFile = path.join(serverRootPath, '.write-test')
+      try {
+        fs.writeFileSync(testFile, 'test', 'utf8')
+        fs.unlinkSync(testFile)
+      } catch (e) {
+        return { success: false, error: `Le dossier n'est pas accessible en écriture : ${e.message}` }
+      }
+
+      // Sauvegarder la config
+      saveServerConfig(serverRootPath)
+      // Recharger les chemins dans le process
+      reloadServerPaths()
+
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('serverConfig:reset', async () => {
+    try {
+      if (fs.existsSync(SERVER_CONFIG_PATH)) {
+        fs.unlinkSync(SERVER_CONFIG_PATH)
+      }
+      // Recharger les chemins (retombera sur le fallback legacy)
+      reloadServerPaths()
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
   ipcMain.handle('paths:getEffective', async () => {
     const general = getGeneralServerPath()
     const contentieux = {}

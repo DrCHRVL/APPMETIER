@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { FolderOpen, Save, Check, AlertCircle, Loader2, ArrowRight } from 'lucide-react';
+import { FolderOpen, Save, Check, AlertCircle, Loader2, ArrowRight, Lock, RotateCcw } from 'lucide-react';
 import { UserManager } from '@/utils/userManager';
 import { ServerPathsConfig, ContentieuxId } from '@/types/userTypes';
 import { useUser } from '@/contexts/UserContext';
@@ -15,6 +15,10 @@ export const AdminPathsPanel = () => {
   const [validating, setValidating] = useState<Record<string, boolean>>({});
   const [validResults, setValidResults] = useState<Record<string, boolean | null>>({});
   const [saving, setSaving] = useState(false);
+  const [serverRootPath, setServerRootPath] = useState('');
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetInput, setResetInput] = useState('');
+  const [resetting, setResetting] = useState(false);
 
   // Chemins effectifs actuels (pour détecter les changements et migrer)
   const [effectivePaths, setEffectivePaths] = useState<{ general: string; contentieux: Record<string, string> } | null>(null);
@@ -27,6 +31,12 @@ export const AdminPathsPanel = () => {
     const manager = UserManager.getInstance();
     const config = manager.getConfig();
     const paths = config?.serverPaths;
+
+    // Charger le chemin racine configuré
+    try {
+      const serverConfig = await (window as any).electronAPI?.serverConfig_get?.();
+      setServerRootPath(serverConfig?.serverRootPath || '');
+    } catch {}
 
     // Charger les chemins effectifs (configurés ou par défaut)
     let effective: { general: string; contentieux: Record<string, string> } | null = null;
@@ -219,6 +229,85 @@ export const AdminPathsPanel = () => {
           Configurez les chemins réseau partagés pour la synchronisation et les fichiers communs.
         </p>
       </div>
+
+      {/* Chemin racine (configuré à l'initialisation — lecture seule) */}
+      <div className="bg-gray-100 border border-gray-300 rounded-lg p-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+            <Lock className="h-3.5 w-3.5 text-gray-400" />
+            Chemin racine du serveur
+          </h4>
+          <button
+            onClick={() => { setShowResetConfirm(true); setResetInput(''); }}
+            className="text-[10px] text-red-400 hover:text-red-600 font-medium transition-colors"
+          >
+            Réinitialiser
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">Défini lors de la configuration initiale. Non modifiable.</p>
+        <div className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-600 font-mono">
+          {serverRootPath || '(non configuré)'}
+        </div>
+      </div>
+
+      {/* Dialog reset factory */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 space-y-4">
+            <h3 className="text-base font-semibold text-red-700 flex items-center gap-2">
+              <RotateCcw className="h-5 w-5" />
+              Réinitialisation du serveur
+            </h3>
+            <div className="text-sm text-gray-600 space-y-2">
+              <p>
+                Cette action va <strong>déconnecter cette instance</strong> du serveur actuel.
+                Au prochain lancement, l'écran de configuration initiale s'affichera.
+              </p>
+              <p className="text-red-600 font-medium">
+                Les données locales ne seront pas supprimées, mais la synchronisation sera interrompue.
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                Tapez <strong>RESET</strong> pour confirmer
+              </label>
+              <input
+                type="text"
+                value={resetInput}
+                onChange={e => setResetInput(e.target.value)}
+                placeholder="RESET"
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg font-mono"
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setShowResetConfirm(false)}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={async () => {
+                  setResetting(true);
+                  try {
+                    await (window as any).electronAPI?.serverConfig_reset?.();
+                    setShowResetConfirm(false);
+                    showToast('Configuration réinitialisée. Relancez l\'application.', 'info');
+                  } catch {
+                    showToast('Erreur lors de la réinitialisation', 'error');
+                  }
+                  setResetting(false);
+                }}
+                disabled={resetInput !== 'RESET' || resetting}
+                className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {resetting ? 'Réinitialisation...' : 'Confirmer la réinitialisation'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Chemin général */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
