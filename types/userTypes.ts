@@ -51,6 +51,7 @@ export interface UserProfile {
   globalRole: GlobalRole;     // Rôle transversal
   contentieux: UserContentieuxAssignment[];
   modules: ModuleId[];        // Modules activés pour cet utilisateur
+  approved?: boolean;         // true = approuvé par l'admin, false/undefined = en attente
   createdAt: string;          // ISO date
   updatedAt: string;          // ISO date
 }

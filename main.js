@@ -1933,6 +1933,56 @@ function setupIpcHandlers() {
     }
   }
 
+  /**
+   * Copie récursive ASYNCHRONE avec progression — utilisée pour les copies lourdes
+   * (node_modules, runtimes) afin de ne pas bloquer le process principal.
+   * Yield au event loop tous les N fichiers pour garder l'UI réactive.
+   */
+  async function copyDirAsync(src, dest, skipSet, onProgress) {
+    const skip = skipSet || new Set()
+    // 1. Compter le nombre total de fichiers
+    function countFiles(dir) {
+      let count = 0
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (skip.has(entry.name)) continue
+        if (entry.isDirectory()) {
+          count += countFiles(path.join(dir, entry.name))
+        } else {
+          count++
+        }
+      }
+      return count
+    }
+    const totalFiles = countFiles(src)
+    let copiedFiles = 0
+
+    // 2. Copier avec yield périodique
+    async function copyRecursive(srcDir, destDir) {
+      const entries = fs.readdirSync(srcDir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (skip.has(entry.name)) continue
+        const srcPath = path.join(srcDir, entry.name)
+        const destPath = path.join(destDir, entry.name)
+        if (entry.isDirectory()) {
+          fs.mkdirSync(destPath, { recursive: true })
+          await copyRecursive(srcPath, destPath)
+        } else {
+          fs.copyFileSync(srcPath, destPath)
+          copiedFiles++
+          // Yield au event loop tous les 50 fichiers pour ne pas bloquer l'UI
+          if (copiedFiles % 50 === 0) {
+            if (onProgress) onProgress(copiedFiles, totalFiles)
+            await new Promise(resolve => setImmediate(resolve))
+          }
+        }
+      }
+    }
+
+    if (onProgress) onProgress(0, totalFiles)
+    await copyRecursive(src, dest)
+    if (onProgress) onProgress(totalFiles, totalFiles)
+  }
+
   // Skip set pour appliquer une mise à jour (inclut .next car la publication le fournit compilé)
   const SKIP_ON_APPLY = new Set(['data', '.git', 'node_modules', 'tessdata']);
 
@@ -2177,13 +2227,15 @@ function setupIpcHandlers() {
       // Nettoyage du build temporaire
       try { fs.rmSync(buildOutputDir, { recursive: true, force: true }) } catch {}
 
-      // Copier node_modules (nécessaire pour la première installation)
+      // Copier node_modules (nécessaire pour la première installation) — copie async pour ne pas bloquer l'UI
       sendProgress('copy', 'Copie des dépendances (node_modules)...', 5)
       const nodeModulesSrc = path.join(__dirname, 'node_modules')
       const nodeModulesDest = path.join(appDir, 'node_modules')
       if (fs.existsSync(nodeModulesSrc)) {
         fs.mkdirSync(nodeModulesDest, { recursive: true })
-        copyDirForUpdate(nodeModulesSrc, nodeModulesDest, new Set())
+        await copyDirAsync(nodeModulesSrc, nodeModulesDest, new Set(), (copied, total) => {
+          sendProgress('copy', `Copie des dépendances (node_modules)... ${copied}/${total}`, 5)
+        })
       }
 
       // Créer le dossier data vide
@@ -2194,7 +2246,7 @@ function setupIpcHandlers() {
       if (fs.existsSync(tessdataSrc)) {
         const tessdataDest = path.join(appDir, 'tessdata')
         fs.mkdirSync(tessdataDest, { recursive: true })
-        copyDirForUpdate(tessdataSrc, tessdataDest, new Set())
+        await copyDirAsync(tessdataSrc, tessdataDest, new Set())
       }
 
       // Étape 6 : Obfusquer main.js et preload.js
@@ -2230,7 +2282,9 @@ function setupIpcHandlers() {
         const electronDest = path.join(installDir, 'electron')
         if (fs.existsSync(electronDest)) fs.rmSync(electronDest, { recursive: true, force: true })
         fs.mkdirSync(electronDest, { recursive: true })
-        copyDirForUpdate(electronSrc, electronDest, new Set())
+        await copyDirAsync(electronSrc, electronDest, new Set(), (copied, total) => {
+          sendProgress('runtime', `Copie d'Electron... ${copied}/${total}`, 7)
+        })
       }
 
       // Copier Node.js runtime
@@ -2239,7 +2293,9 @@ function setupIpcHandlers() {
         const nodejsDest = path.join(installDir, 'nodejs')
         if (fs.existsSync(nodejsDest)) fs.rmSync(nodejsDest, { recursive: true, force: true })
         fs.mkdirSync(nodejsDest, { recursive: true })
-        copyDirForUpdate(nodejsSrc, nodejsDest, new Set())
+        await copyDirAsync(nodejsSrc, nodejsDest, new Set(), (copied, total) => {
+          sendProgress('runtime', `Copie de Node.js... ${copied}/${total}`, 7)
+        })
       }
 
       // Créer le launcher.bat

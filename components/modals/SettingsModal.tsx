@@ -28,6 +28,8 @@ interface SettingsModalProps {
   activeContentieuxId?: ContentieuxId;
   /** Called when user switches contentieux tab in settings */
   onContentieuxChange?: (contentieuxId: ContentieuxId) => void;
+  /** Number of pending user approvals (shown as badge on Utilisateurs tab) */
+  pendingUsersCount?: number;
 }
 
 // ──────────────────────────────────────────────
@@ -82,6 +84,7 @@ export const SettingsModal = ({
   aProposContent,
   activeContentieuxId,
   onContentieuxChange,
+  pendingUsersCount = 0,
 }: SettingsModalProps) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('alertes');
   const { isAdmin: checkIsAdmin, accessibleContentieux } = useUser();
@@ -205,6 +208,11 @@ export const SettingsModal = ({
                   >
                     <Icon className={`h-4 w-4 ${isActive ? 'text-emerald-600' : 'text-gray-400'}`} />
                     <span>{tab.label}</span>
+                    {tab.id === 'admin_users' && pendingUsersCount > 0 && (
+                      <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full">
+                        {pendingUsersCount}
+                      </span>
+                    )}
                   </button>
                 </React.Fragment>
               );

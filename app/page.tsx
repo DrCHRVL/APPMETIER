@@ -62,6 +62,7 @@ import { GlobalStatsPage } from '@/components/pages/GlobalStatsPage';
 import { ContentieuxId } from '@/types/userTypes';
 import { useCrossSearch } from '@/hooks/useCrossSearch';
 import { AdminUsersPanel } from '@/components/AdminUsersPanel';
+import { UserManager } from '@/utils/userManager';
 import { AdminContentieuxPanel } from '@/components/admin/AdminContentieuxPanel';
 import { AdminPathsPanel } from '@/components/admin/AdminPathsPanel';
 import { AdminDashboardPanel } from '@/components/admin/AdminDashboardPanel';
@@ -89,6 +90,7 @@ function AppContent() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsContentieuxId, setSettingsContentieuxId] = useState<ContentieuxId | null>(null);
   const [showTagRequestPopup, setShowTagRequestPopup] = useState(false);
+  const [pendingUsersCount, setPendingUsersCount] = useState(0);
   const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
 
   // Initialiser le contentieux actif et la vue au premier contentieux accessible
@@ -308,6 +310,13 @@ function AppContent() {
       }
     });
   }, [isAdmin]);
+
+  // Compter les utilisateurs en attente d'approbation (admin uniquement)
+  useEffect(() => {
+    if (!isAdmin()) { setPendingUsersCount(0); return; }
+    const count = UserManager.getInstance().getPendingUsersCount();
+    setPendingUsersCount(count);
+  }, [isAdmin, showSettingsModal]);
 
   // Démarrage des services temps réel (heartbeat, événements, audit)
   useEffect(() => {
@@ -762,21 +771,57 @@ function AppContent() {
     );
   }
 
-  // Utilisateur authentifié mais sans contentieux attribué (nouvel utilisateur auto-inscrit)
+  // Utilisateur non approuvé par l'administrateur
+  if (isAuthenticated && user && user.approved !== true && user.globalRole !== 'admin') {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center space-y-5 max-w-lg p-8 bg-white rounded-2xl shadow-lg border border-gray-200">
+          <div className="mx-auto w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center">
+            <svg className="w-8 h-8 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m0 0v2m0-2h2m-2 0H10m2-6V4m0 0a2 2 0 00-2 2v2a2 2 0 002 2 2 2 0 002-2V6a2 2 0 00-2-2z" />
+            </svg>
+          </div>
+          <h1 className="text-xl font-bold text-gray-800">
+            Demande d'accès en attente
+          </h1>
+          <p className="text-gray-600">
+            Bonjour <span className="font-semibold">{user.displayName || user.windowsUsername}</span>, votre demande d'utilisation a bien été enregistrée.
+          </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <p className="text-sm text-amber-800 font-medium">
+              L'administrateur doit valider votre accès avant que vous puissiez utiliser l'application.
+            </p>
+            <p className="text-sm text-amber-700 mt-1">
+              Cette application contient des données protégées par le secret de l'enquête.
+            </p>
+          </div>
+          <p className="text-xs text-gray-400">
+            Relancez l'application une fois votre accès validé par l'administrateur.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Utilisateur approuvé mais sans contentieux attribué
   if (isAuthenticated && accessibleContentieux.length === 0) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-100">
-        <div className="text-center space-y-4 max-w-md">
-          <div className="text-6xl">&#x23F3;</div>
+      <div className="h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center space-y-5 max-w-lg p-8 bg-white rounded-2xl shadow-lg border border-gray-200">
+          <div className="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+            <svg className="w-8 h-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
           <h1 className="text-xl font-bold text-gray-800">Bienvenue, {user?.displayName || user?.windowsUsername}</h1>
           <p className="text-gray-600">
-            Votre compte a été créé automatiquement.
+            Votre accès a été validé, mais aucun contentieux ne vous a encore été attribué.
           </p>
           <p className="text-gray-600">
-            L'administrateur doit maintenant vous attribuer un ou plusieurs contentieux pour que vous puissiez accéder à l'application.
+            L'administrateur doit vous affecter à un ou plusieurs contentieux pour que vous puissiez accéder aux données.
           </p>
-          <p className="text-sm text-gray-400">
-            Relancez l'application une fois vos accès configurés.
+          <p className="text-xs text-gray-400">
+            Relancez l'application une fois vos contentieux configurés.
           </p>
         </div>
       </div>
@@ -796,6 +841,7 @@ return (
           alertCount={activeAlertsCount}
           instructionAlertCount={instructionAlerts.length}
           crossSearchResults={crossSearchResults}
+          pendingUsersCount={pendingUsersCount}
         />
       </div>
       <div className="flex-1 overflow-hidden flex flex-col">
@@ -1406,6 +1452,7 @@ return (
         adminTagHistoryContent={<AdminTagHistoryPanel />}
         adminUpdateContent={<AdminUpdatePanel />}
         aProposContent={<AboutContent />}
+        pendingUsersCount={pendingUsersCount}
       />
 
       {/* Popup demandes de tags (admin) */}
