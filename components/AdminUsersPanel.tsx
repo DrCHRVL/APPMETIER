@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserPlus, Trash2, Shield, Save, Edit2, X, Check, ChevronDown } from 'lucide-react';
+import { UserPlus, Trash2, Shield, Save, Edit2, X, Check, ChevronDown, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import { UserManager } from '@/utils/userManager';
 import {
   UserProfile,
@@ -156,6 +156,35 @@ export const AdminUsersPanel = () => {
     }
   };
 
+  const handleApproveUser = async (username: string) => {
+    const manager = UserManager.getInstance();
+    const success = await manager.updateUser(username, { approved: true });
+    if (success) {
+      loadUsers();
+      await refreshUsers();
+      showToast('Utilisateur approuvé', 'success');
+    } else {
+      showToast('Erreur lors de l\'approbation', 'error');
+    }
+  };
+
+  const handleRejectUser = async (username: string) => {
+    if (!confirm(`Rejeter et supprimer la demande de "${username}" ? L'utilisateur devra relancer l'app pour refaire une demande.`)) return;
+    const manager = UserManager.getInstance();
+    const success = await manager.removeUser(username);
+    if (success) {
+      loadUsers();
+      await refreshUsers();
+      showToast('Demande rejetée — utilisateur supprimé', 'info');
+    } else {
+      showToast('Erreur lors du rejet', 'error');
+    }
+  };
+
+  // Séparer les utilisateurs en attente et les utilisateurs approuvés
+  const pendingUsers = users.filter(u => u.approved !== true && u.globalRole !== 'admin');
+  const approvedUsers = users.filter(u => u.approved === true || u.globalRole === 'admin');
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -171,6 +200,50 @@ export const AdminUsersPanel = () => {
           Ajouter un utilisateur
         </button>
       </div>
+
+      {/* Demandes en attente */}
+      {pendingUsers.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-3">
+          <h3 className="text-sm font-bold text-amber-800 flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" />
+            Demandes d'accès en attente ({pendingUsers.length})
+          </h3>
+          <p className="text-xs text-amber-700">
+            Ces utilisateurs ont lancé l'application et attendent votre validation pour accéder aux données.
+          </p>
+          <div className="space-y-2">
+            {pendingUsers.map(pendingUser => (
+              <div key={pendingUser.windowsUsername} className="flex items-center justify-between bg-white px-4 py-3 rounded-lg border border-amber-200">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center text-sm font-bold text-amber-700">
+                    {pendingUser.displayName.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-gray-800">{pendingUser.displayName}</div>
+                    <div className="text-xs text-gray-400">{pendingUser.windowsUsername} — inscrit le {new Date(pendingUser.createdAt).toLocaleDateString('fr-FR')}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleApproveUser(pendingUser.windowsUsername)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 transition-colors"
+                  >
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    Approuver
+                  </button>
+                  <button
+                    onClick={() => handleRejectUser(pendingUser.windowsUsername)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg text-xs font-medium hover:bg-red-100 transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Rejeter
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Formulaire d'ajout */}
       {showAddForm && (
@@ -230,9 +303,9 @@ export const AdminUsersPanel = () => {
         </div>
       )}
 
-      {/* Liste des utilisateurs */}
+      {/* Liste des utilisateurs approuvés */}
       <div className="space-y-3">
-        {users.map(user => (
+        {approvedUsers.map(user => (
           <UserCard
             key={user.windowsUsername}
             user={user}

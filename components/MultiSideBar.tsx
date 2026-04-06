@@ -25,6 +25,8 @@ interface MultiSideBarProps {
   instructionAlertCount?: number;
   /** Résultats de recherche dans les autres contentieux (pastilles) */
   crossSearchResults?: CrossSearchResult[];
+  /** Nombre d'utilisateurs en attente d'approbation (badge sur Paramètres) */
+  pendingUsersCount?: number;
 }
 
 // ──────────────────────────────────────────────
@@ -56,6 +58,7 @@ export const MultiSideBar = ({
   alertCount,
   instructionAlertCount = 0,
   crossSearchResults = [],
+  pendingUsersCount = 0,
 }: MultiSideBarProps) => {
   const { accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, permissions } = useUser();
   const sidebarWidth = isOpen ? 'w-64' : 'w-16';
@@ -288,6 +291,11 @@ export const MultiSideBar = ({
         >
           <Settings className={`h-4 w-4 flex-shrink-0 ${currentView === 'settings' ? 'text-white' : 'text-white/60'}`} />
           {isOpen && <span className="truncate">Paramètres</span>}
+          {pendingUsersCount > 0 && (
+            <span className="absolute top-1 right-1 flex items-center justify-center min-w-[16px] h-[16px] px-0.5 bg-red-500 text-white text-[9px] font-bold rounded-full shadow-sm">
+              {pendingUsersCount}
+            </span>
+          )}
         </button>
       </div>
 

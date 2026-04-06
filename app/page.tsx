@@ -62,6 +62,7 @@ import { GlobalStatsPage } from '@/components/pages/GlobalStatsPage';
 import { ContentieuxId } from '@/types/userTypes';
 import { useCrossSearch } from '@/hooks/useCrossSearch';
 import { AdminUsersPanel } from '@/components/AdminUsersPanel';
+import { UserManager } from '@/utils/userManager';
 import { AdminContentieuxPanel } from '@/components/admin/AdminContentieuxPanel';
 import { AdminPathsPanel } from '@/components/admin/AdminPathsPanel';
 import { AdminDashboardPanel } from '@/components/admin/AdminDashboardPanel';
@@ -89,6 +90,7 @@ function AppContent() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsContentieuxId, setSettingsContentieuxId] = useState<ContentieuxId | null>(null);
   const [showTagRequestPopup, setShowTagRequestPopup] = useState(false);
+  const [pendingUsersCount, setPendingUsersCount] = useState(0);
   const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
 
   // Initialiser le contentieux actif et la vue au premier contentieux accessible
@@ -308,6 +310,13 @@ function AppContent() {
       }
     });
   }, [isAdmin]);
+
+  // Compter les utilisateurs en attente d'approbation (admin uniquement)
+  useEffect(() => {
+    if (!isAdmin()) { setPendingUsersCount(0); return; }
+    const count = UserManager.getInstance().getPendingUsersCount();
+    setPendingUsersCount(count);
+  }, [isAdmin, showSettingsModal]);
 
   // Démarrage des services temps réel (heartbeat, événements, audit)
   useEffect(() => {
@@ -762,21 +771,54 @@ function AppContent() {
     );
   }
 
-  // Utilisateur authentifié mais sans contentieux attribué (nouvel utilisateur auto-inscrit)
+  // Utilisateur non approuvé par l'administrateur
+  if (isAuthenticated && user && user.approved !== true && user.globalRole !== 'admin') {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center space-y-5 max-w-lg p-8 bg-white rounded-2xl shadow-lg border border-gray-200">
+          <div className="mx-auto w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center">
+            <svg className="w-8 h-8 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m0 0v2m0-2h2m-2 0H10m2-6V4m0 0a2 2 0 00-2 2v2a2 2 0 002 2 2 2 0 002-2V6a2 2 0 00-2-2z" />
+            </svg>
+          </div>
+          <h1 className="text-xl font-bold text-gray-800">
+            Demande d'accès en attente
+          </h1>
+          <p className="text-gray-600">
+            Bonjour <span className="font-semibold">{user.displayName || user.windowsUsername}</span>, votre demande d'utilisation a bien été enregistrée.
+          </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <p className="text-sm text-amber-800 font-medium">
+              L'administrateur doit valider votre accès avant que vous puissiez utiliser l'application.
+            </p>
+          </div>
+          <p className="text-xs text-gray-400">
+            Relancez l'application une fois votre accès validé par l'administrateur.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Utilisateur approuvé mais sans contentieux attribué
   if (isAuthenticated && accessibleContentieux.length === 0) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-100">
-        <div className="text-center space-y-4 max-w-md">
-          <div className="text-6xl">&#x23F3;</div>
+      <div className="h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center space-y-5 max-w-lg p-8 bg-white rounded-2xl shadow-lg border border-gray-200">
+          <div className="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+            <svg className="w-8 h-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
           <h1 className="text-xl font-bold text-gray-800">Bienvenue, {user?.displayName || user?.windowsUsername}</h1>
           <p className="text-gray-600">
-            Votre compte a été créé automatiquement.
+            Votre accès a été validé, mais aucun contentieux ne vous a encore été attribué.
           </p>
           <p className="text-gray-600">
-            L'administrateur doit maintenant vous attribuer un ou plusieurs contentieux pour que vous puissiez accéder à l'application.
+            L'administrateur doit vous affecter à un ou plusieurs contentieux pour que vous puissiez accéder aux données.
           </p>
-          <p className="text-sm text-gray-400">
-            Relancez l'application une fois vos accès configurés.
+          <p className="text-xs text-gray-400">
+            Relancez l'application une fois vos contentieux configurés.
           </p>
         </div>
       </div>
@@ -796,6 +838,7 @@ return (
           alertCount={activeAlertsCount}
           instructionAlertCount={instructionAlerts.length}
           crossSearchResults={crossSearchResults}
+          pendingUsersCount={pendingUsersCount}
         />
       </div>
       <div className="flex-1 overflow-hidden flex flex-col">
@@ -1406,6 +1449,7 @@ return (
         adminTagHistoryContent={<AdminTagHistoryPanel />}
         adminUpdateContent={<AdminUpdatePanel />}
         aProposContent={<AboutContent />}
+        pendingUsersCount={pendingUsersCount}
       />
 
       {/* Popup demandes de tags (admin) */}
@@ -1417,7 +1461,176 @@ return (
   );
 }
 
+// ──────────────────────────────────────────────
+// ÉCRAN DE CONFIGURATION INITIALE (premier lancement)
+// ──────────────────────────────────────────────
+
+function InitialSetupScreen({ onSetupComplete }: { onSetupComplete: () => void }) {
+  const [serverPath, setServerPath] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [isValid, setIsValid] = useState<boolean | null>(null);
+
+  const handleBrowse = async () => {
+    const selected = await (window as any).electronAPI?.selectFolder?.();
+    if (selected) {
+      setServerPath(selected);
+      setError('');
+      setIsValid(null);
+      // Valider automatiquement
+      setValidating(true);
+      try {
+        const result = await (window as any).electronAPI?.validatePath?.(selected);
+        setIsValid(!!result);
+      } catch { setIsValid(false); }
+      setValidating(false);
+    }
+  };
+
+  const handleSetup = async () => {
+    if (!serverPath.trim()) {
+      setError('Veuillez indiquer un chemin.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const result = await (window as any).electronAPI?.serverConfig_setup?.(serverPath.trim());
+      if (result?.success) {
+        onSetupComplete();
+      } else {
+        setError(result?.error || 'Erreur inconnue');
+      }
+    } catch (e: any) {
+      setError(e.message);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+      <div className="max-w-xl w-full mx-4 p-8 bg-white rounded-2xl shadow-xl border border-gray-200 space-y-6">
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <div className="mx-auto w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center">
+            <svg className="w-8 h-8 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+          </div>
+          <h1 className="text-2xl font-bold text-gray-800">Configuration initiale</h1>
+          <p className="text-gray-500 text-sm">
+            Bienvenue ! Configurez le dossier réseau partagé pour démarrer.
+          </p>
+        </div>
+
+        {/* Explication */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <p className="text-sm text-blue-800">
+            Indiquez le chemin du <strong>dossier réseau partagé</strong> qui servira de point central
+            pour la synchronisation des données, les utilisateurs et les mises à jour.
+          </p>
+          <p className="text-xs text-blue-600 mt-2">
+            Ce dossier doit être accessible par tous les postes qui utiliseront l'application.
+            Vous serez l'administrateur de cette instance.
+          </p>
+        </div>
+
+        {/* Champ chemin */}
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">
+            Chemin du dossier réseau partagé
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={serverPath}
+              onChange={(e) => { setServerPath(e.target.value); setError(''); setIsValid(null); }}
+              placeholder="Ex: P:\MonService\AppMetier"
+              className="flex-1 px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+            />
+            <button
+              onClick={handleBrowse}
+              className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm font-medium text-gray-700"
+            >
+              Parcourir
+            </button>
+          </div>
+          {validating && (
+            <p className="text-xs text-gray-400">Vérification du chemin...</p>
+          )}
+          {isValid === true && (
+            <p className="text-xs text-emerald-600">Chemin accessible et inscriptible</p>
+          )}
+          {isValid === false && (
+            <p className="text-xs text-red-500">Chemin inaccessible ou non inscriptible</p>
+          )}
+          {error && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{error}</p>
+          )}
+        </div>
+
+        {/* Bouton */}
+        <button
+          onClick={handleSetup}
+          disabled={saving || !serverPath.trim()}
+          className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {saving ? 'Configuration en cours...' : 'Initialiser l\'application'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// APP — Point d'entrée avec guard de setup
+// ──────────────────────────────────────────────
+
 export default function App() {
+  const [setupChecked, setSetupChecked] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState(false);
+
+  useEffect(() => {
+    const checkSetup = async () => {
+      try {
+        const config = await (window as any).electronAPI?.serverConfig_get?.();
+        if (config?.isConfigured) {
+          // Déjà configuré
+          setNeedsSetup(false);
+        } else {
+          // Pas configuré — vérifier si le chemin legacy est accessible (installation existante)
+          const legacyAccessible = await (window as any).electronAPI?.validatePath?.(config?.serverRootPath);
+          if (legacyAccessible) {
+            // Le chemin legacy marche → sauvegarder en tant que config officielle et continuer
+            await (window as any).electronAPI?.serverConfig_setup?.(config?.serverRootPath);
+            setNeedsSetup(false);
+          } else {
+            // Aucun chemin accessible → afficher l'écran de setup
+            setNeedsSetup(true);
+          }
+        }
+      } catch {
+        // Si electronAPI n'est pas dispo (mode dev Next.js pur), skip
+        setNeedsSetup(false);
+      }
+      setSetupChecked(true);
+    };
+    checkSetup();
+  }, []);
+
+  if (!setupChecked) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-100">
+        <div className="text-lg text-gray-500">Chargement...</div>
+      </div>
+    );
+  }
+
+  if (needsSetup) {
+    return <InitialSetupScreen onSetupComplete={() => { setNeedsSetup(false); window.location.reload(); }} />;
+  }
+
   return (
     <UserProvider>
       <ToastProvider>

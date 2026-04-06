@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Upload, RefreshCw, RotateCcw, Check, AlertTriangle, Loader2, Info, HardDrive, Copy } from 'lucide-react';
+import { Upload, RefreshCw, RotateCcw, Check, AlertTriangle, Loader2, Info, HardDrive, Copy, ShieldCheck, X, CheckCircle, XCircle } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 
@@ -26,6 +26,8 @@ export const AdminUpdatePanel = () => {
   const [showConfirmPublish, setShowConfirmPublish] = useState(false);
   const [showConfirmFullPublish, setShowConfirmFullPublish] = useState(false);
   const [lastFullInstallPath, setLastFullInstallPath] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [integrityResult, setIntegrityResult] = useState<any>(null);
 
   const loadVersions = useCallback(async () => {
     try {
@@ -94,6 +96,18 @@ export const AdminUpdatePanel = () => {
     }
   };
 
+  const handleVerifyIntegrity = async () => {
+    setVerifying(true);
+    setIntegrityResult(null);
+    try {
+      const result = await (window as any).electronAPI?.lanUpdateVerifyIntegrity?.();
+      setIntegrityResult(result);
+    } catch (e: any) {
+      setIntegrityResult({ success: false, error: e.message });
+    }
+    setVerifying(false);
+  };
+
   const handlePublishFull = async () => {
     setPublishing(true);
     setShowConfirmFullPublish(false);
@@ -156,6 +170,43 @@ export const AdminUpdatePanel = () => {
           </div>
         ) : (
           <p className="text-xs text-gray-400 italic">Aucune publication effectuée depuis ce poste</p>
+        )}
+
+        {/* Bouton vérification intégrité */}
+        <div className="pt-2 border-t border-gray-100">
+          <button
+            onClick={handleVerifyIntegrity}
+            disabled={verifying}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            {verifying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+            {verifying ? 'Vérification...' : 'Vérifier l\'intégrité sur le serveur'}
+          </button>
+        </div>
+
+        {/* Résultat vérification */}
+        {integrityResult && (
+          <div className="mt-2 space-y-2">
+            {!integrityResult.success ? (
+              <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-2 rounded-lg border border-red-200">
+                <XCircle className="h-4 w-4 shrink-0" />
+                <span>Erreur : {integrityResult.error}</span>
+              </div>
+            ) : (
+              <>
+                {/* Package complet */}
+                <IntegrityBlock
+                  title="Package complet (Installation)"
+                  data={integrityResult.results.fullInstall}
+                />
+                {/* Mise à jour réseau */}
+                <IntegrityBlock
+                  title="Mise à jour réseau (updates)"
+                  data={integrityResult.results.update}
+                />
+              </>
+            )}
+          </div>
         )}
       </div>
 
@@ -411,6 +462,79 @@ export const AdminUpdatePanel = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ──────────────────────────────────────────────
+// SOUS-COMPOSANT : Bloc de vérification d'intégrité
+// ──────────────────────────────────────────────
+
+const IntegrityBlock = ({ title, data }: { title: string; data: any }) => {
+  if (!data) return null;
+
+  const hasIssues = data.issues && data.issues.length > 0;
+  const isOk = data.exists && !hasIssues;
+
+  return (
+    <div className={`text-xs rounded-lg p-3 border ${isOk ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+      <div className="flex items-center gap-2 font-semibold mb-1.5">
+        {isOk ? (
+          <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
+        ) : (
+          <XCircle className="h-3.5 w-3.5 text-red-500" />
+        )}
+        <span className={isOk ? 'text-emerald-800' : 'text-red-800'}>{title}</span>
+      </div>
+
+      {!data.exists ? (
+        <p className="text-red-600 ml-5">Non trouvé sur le serveur</p>
+      ) : (
+        <div className="ml-5 space-y-1">
+          {/* Fichiers vérifiés */}
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+            {Object.entries(data.files || {}).map(([file, ok]) => (
+              <span key={file} className={`flex items-center gap-0.5 ${ok ? 'text-emerald-700' : 'text-red-600'}`}>
+                {ok ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                <span className="font-mono">{file}</span>
+              </span>
+            ))}
+          </div>
+
+          {/* Intégrité SHA256 */}
+          {data.integrity && (
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-1 border-t border-gray-200 mt-1">
+              {Object.entries(data.integrity).map(([file, ok]) => (
+                <span key={file} className={`flex items-center gap-0.5 ${ok ? 'text-emerald-700' : 'text-red-600 font-semibold'}`}>
+                  {ok ? <ShieldCheck className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+                  <span className="font-mono">{file}</span>
+                  <span className="text-gray-400">{ok ? 'SHA256 OK' : 'MODIFIÉ'}</span>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Version */}
+          {data.manifest && (
+            <div className="text-gray-500 pt-1">
+              Version : <span className="font-mono font-medium">{data.manifest.version}</span>
+              {data.manifest.publishedAt && ` — ${new Date(data.manifest.publishedAt).toLocaleDateString('fr-FR')}`}
+            </div>
+          )}
+
+          {/* Problèmes */}
+          {hasIssues && (
+            <div className="pt-1 space-y-0.5">
+              {data.issues.map((issue: string, i: number) => (
+                <div key={i} className="text-red-600 flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                  {issue}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

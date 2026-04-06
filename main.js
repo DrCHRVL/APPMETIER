@@ -32,18 +32,69 @@ const casiersFolder = path.join(dataFolder, 'casiers')
 const backupsFolder = path.join(dataFolder, 'backups')
 const documentsEnquetesFolder = path.join(dataFolder, 'documentenquete')
 const userDataPath = path.join(dataFolder, 'data.json')
-// Chemin serveur commun (utilisé pour documents ET sync des données)
-const COMMON_SERVER_PATH = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\GESTION DE SERVICE\\10_App METIER"
+
+// ── CONFIGURATION SERVEUR (configurable au premier lancement) ──
+const SERVER_CONFIG_PATH = path.join(dataFolder, 'server-config.json')
+// Fallback historique (pour compatibilité avec les installations existantes)
+const LEGACY_SERVER_PATH = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\GESTION DE SERVICE\\10_App METIER"
+
+/**
+ * Lit le chemin serveur racine depuis server-config.json.
+ * Retourne null si pas encore configuré (premier lancement).
+ */
+function getConfiguredServerPath() {
+  try {
+    if (fs.existsSync(SERVER_CONFIG_PATH)) {
+      const config = JSON.parse(fs.readFileSync(SERVER_CONFIG_PATH, 'utf8'))
+      if (config.serverRootPath) return config.serverRootPath
+    }
+  } catch {}
+  return null
+}
+
+/**
+ * Sauvegarde le chemin serveur racine dans server-config.json.
+ */
+function saveServerConfig(serverRootPath) {
+  if (!fs.existsSync(dataFolder)) fs.mkdirSync(dataFolder, { recursive: true })
+  const config = { serverRootPath, configuredAt: new Date().toISOString() }
+  fs.writeFileSync(SERVER_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8')
+}
+
+/**
+ * Retourne le chemin serveur racine effectif :
+ * 1. server-config.json (configuré au premier lancement)
+ * 2. Fallback legacy (installations existantes avec le chemin en dur)
+ */
+function getServerRootPath() {
+  return getConfiguredServerPath() || LEGACY_SERVER_PATH
+}
+
+// Chemin serveur commun — résolu dynamiquement
+const COMMON_SERVER_PATH = getServerRootPath()
 
 // ── MULTI-CONTENTIEUX : chemin racine et dossiers par contentieux ──
-const MULTI_CONTENTIEUX_ROOT = path.join(COMMON_SERVER_PATH) // Même racine, sous-dossiers par contentieux
-const USERS_CONFIG_PATH = path.join(COMMON_SERVER_PATH, 'users.json')
+// Note: ces chemins sont recalculés si le serveur est reconfiguré (via getServerRootPath())
+let MULTI_CONTENTIEUX_ROOT = COMMON_SERVER_PATH
+let USERS_CONFIG_PATH = path.join(COMMON_SERVER_PATH, 'users.json')
 
 // Mapping des contentieux vers leurs dossiers serveur
-const CONTENTIEUX_FOLDERS = {
-  crimorg: path.join(COMMON_SERVER_PATH, 'crimorg'),
-  ecofi:   path.join(COMMON_SERVER_PATH, 'ecofi'),
-  enviro:  path.join(COMMON_SERVER_PATH, 'enviro'),
+function getDefaultContentieuxFolders() {
+  const root = getServerRootPath()
+  return {
+    crimorg: path.join(root, 'crimorg'),
+    ecofi:   path.join(root, 'ecofi'),
+    enviro:  path.join(root, 'enviro'),
+  }
+}
+let CONTENTIEUX_FOLDERS = getDefaultContentieuxFolders()
+
+/** Recharge les chemins après reconfiguration du serveur */
+function reloadServerPaths() {
+  const root = getServerRootPath()
+  MULTI_CONTENTIEUX_ROOT = root
+  USERS_CONFIG_PATH = path.join(root, 'users.json')
+  CONTENTIEUX_FOLDERS = getDefaultContentieuxFolders()
 }
 
 /**
@@ -1363,6 +1414,61 @@ function setupIpcHandlers() {
   /**
    * Retourne les chemins effectifs actuels (configurés ou par défaut)
    */
+  // ── Configuration serveur (premier lancement / reset) ──
+
+  ipcMain.handle('serverConfig:get', async () => {
+    const configured = getConfiguredServerPath()
+    return {
+      isConfigured: !!configured,
+      serverRootPath: configured || LEGACY_SERVER_PATH,
+      configPath: SERVER_CONFIG_PATH,
+    }
+  })
+
+  ipcMain.handle('serverConfig:setup', async (event, serverRootPath) => {
+    try {
+      // Valider que le chemin existe et est accessible
+      if (!fs.existsSync(serverRootPath)) {
+        // Tenter de créer le dossier
+        try {
+          fs.mkdirSync(serverRootPath, { recursive: true })
+        } catch (e) {
+          return { success: false, error: `Impossible de créer le dossier : ${e.message}` }
+        }
+      }
+      // Vérifier l'écriture
+      const testFile = path.join(serverRootPath, '.write-test')
+      try {
+        fs.writeFileSync(testFile, 'test', 'utf8')
+        fs.unlinkSync(testFile)
+      } catch (e) {
+        return { success: false, error: `Le dossier n'est pas accessible en écriture : ${e.message}` }
+      }
+
+      // Sauvegarder la config
+      saveServerConfig(serverRootPath)
+      // Recharger les chemins dans le process
+      reloadServerPaths()
+
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('serverConfig:reset', async () => {
+    try {
+      if (fs.existsSync(SERVER_CONFIG_PATH)) {
+        fs.unlinkSync(SERVER_CONFIG_PATH)
+      }
+      // Recharger les chemins (retombera sur le fallback legacy)
+      reloadServerPaths()
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
   ipcMain.handle('paths:getEffective', async () => {
     const general = getGeneralServerPath()
     const contentieux = {}
@@ -1933,6 +2039,56 @@ function setupIpcHandlers() {
     }
   }
 
+  /**
+   * Copie récursive ASYNCHRONE avec progression — utilisée pour les copies lourdes
+   * (node_modules, runtimes) afin de ne pas bloquer le process principal.
+   * Yield au event loop tous les N fichiers pour garder l'UI réactive.
+   */
+  async function copyDirAsync(src, dest, skipSet, onProgress) {
+    const skip = skipSet || new Set()
+    // 1. Compter le nombre total de fichiers
+    function countFiles(dir) {
+      let count = 0
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (skip.has(entry.name)) continue
+        if (entry.isDirectory()) {
+          count += countFiles(path.join(dir, entry.name))
+        } else {
+          count++
+        }
+      }
+      return count
+    }
+    const totalFiles = countFiles(src)
+    let copiedFiles = 0
+
+    // 2. Copier avec yield périodique
+    async function copyRecursive(srcDir, destDir) {
+      const entries = fs.readdirSync(srcDir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (skip.has(entry.name)) continue
+        const srcPath = path.join(srcDir, entry.name)
+        const destPath = path.join(destDir, entry.name)
+        if (entry.isDirectory()) {
+          fs.mkdirSync(destPath, { recursive: true })
+          await copyRecursive(srcPath, destPath)
+        } else {
+          fs.copyFileSync(srcPath, destPath)
+          copiedFiles++
+          // Yield au event loop tous les 50 fichiers pour ne pas bloquer l'UI
+          if (copiedFiles % 50 === 0) {
+            if (onProgress) onProgress(copiedFiles, totalFiles)
+            await new Promise(resolve => setImmediate(resolve))
+          }
+        }
+      }
+    }
+
+    if (onProgress) onProgress(0, totalFiles)
+    await copyRecursive(src, dest)
+    if (onProgress) onProgress(totalFiles, totalFiles)
+  }
+
   // Skip set pour appliquer une mise à jour (inclut .next car la publication le fournit compilé)
   const SKIP_ON_APPLY = new Set(['data', '.git', 'node_modules', 'tessdata']);
 
@@ -2177,13 +2333,15 @@ function setupIpcHandlers() {
       // Nettoyage du build temporaire
       try { fs.rmSync(buildOutputDir, { recursive: true, force: true }) } catch {}
 
-      // Copier node_modules (nécessaire pour la première installation)
+      // Copier node_modules (nécessaire pour la première installation) — copie async pour ne pas bloquer l'UI
       sendProgress('copy', 'Copie des dépendances (node_modules)...', 5)
       const nodeModulesSrc = path.join(__dirname, 'node_modules')
       const nodeModulesDest = path.join(appDir, 'node_modules')
       if (fs.existsSync(nodeModulesSrc)) {
         fs.mkdirSync(nodeModulesDest, { recursive: true })
-        copyDirForUpdate(nodeModulesSrc, nodeModulesDest, new Set())
+        await copyDirAsync(nodeModulesSrc, nodeModulesDest, new Set(), (copied, total) => {
+          sendProgress('copy', `Copie des dépendances (node_modules)... ${copied}/${total}`, 5)
+        })
       }
 
       // Créer le dossier data vide
@@ -2194,7 +2352,7 @@ function setupIpcHandlers() {
       if (fs.existsSync(tessdataSrc)) {
         const tessdataDest = path.join(appDir, 'tessdata')
         fs.mkdirSync(tessdataDest, { recursive: true })
-        copyDirForUpdate(tessdataSrc, tessdataDest, new Set())
+        await copyDirAsync(tessdataSrc, tessdataDest, new Set())
       }
 
       // Étape 6 : Obfusquer main.js et preload.js
@@ -2230,7 +2388,9 @@ function setupIpcHandlers() {
         const electronDest = path.join(installDir, 'electron')
         if (fs.existsSync(electronDest)) fs.rmSync(electronDest, { recursive: true, force: true })
         fs.mkdirSync(electronDest, { recursive: true })
-        copyDirForUpdate(electronSrc, electronDest, new Set())
+        await copyDirAsync(electronSrc, electronDest, new Set(), (copied, total) => {
+          sendProgress('runtime', `Copie d'Electron... ${copied}/${total}`, 7)
+        })
       }
 
       // Copier Node.js runtime
@@ -2239,7 +2399,9 @@ function setupIpcHandlers() {
         const nodejsDest = path.join(installDir, 'nodejs')
         if (fs.existsSync(nodejsDest)) fs.rmSync(nodejsDest, { recursive: true, force: true })
         fs.mkdirSync(nodejsDest, { recursive: true })
-        copyDirForUpdate(nodejsSrc, nodejsDest, new Set())
+        await copyDirAsync(nodejsSrc, nodejsDest, new Set(), (copied, total) => {
+          sendProgress('runtime', `Copie de Node.js... ${copied}/${total}`, 7)
+        })
       }
 
       // Créer le launcher.bat
@@ -2319,6 +2481,107 @@ function setupIpcHandlers() {
       return { hasUpdate, manifest, localVersion: local?.version || null }
     } catch (error) {
       return { hasUpdate: false, error: error.message }
+    }
+  })
+
+  /**
+   * Vérifie l'intégrité de la publication sur le serveur :
+   * - Package complet (Installation/Projet1) : présence + fichiers critiques + intégrité
+   * - Mise à jour réseau (updates/source) : présence + manifest
+   */
+  ipcMain.handle('lanUpdate:verifyIntegrity', async () => {
+    try {
+      const generalPath = getGeneralServerPath()
+      if (!generalPath || !fs.existsSync(generalPath)) {
+        return { success: false, error: 'Chemin réseau inaccessible' }
+      }
+
+      const results = { fullInstall: null, update: null }
+
+      // ── 1. Vérifier le package complet ──
+      const installDir = path.join(generalPath, 'Installation')
+      const appDir = path.join(installDir, 'Projet1')
+      if (fs.existsSync(appDir)) {
+        const fullCheck = { exists: true, files: {}, integrity: null, manifest: null, issues: [] }
+        // Fichiers critiques attendus
+        const criticalFiles = ['main.js', 'preload.js', 'package.json', '.integrity', 'start-next.bat']
+        for (const f of criticalFiles) {
+          fullCheck.files[f] = fs.existsSync(path.join(appDir, f))
+          if (!fullCheck.files[f]) fullCheck.issues.push(`Fichier manquant : ${f}`)
+        }
+        // Dossiers critiques
+        const criticalDirs = ['.next', 'node_modules']
+        for (const d of criticalDirs) {
+          const dirPath = path.join(appDir, d)
+          fullCheck.files[d + '/'] = fs.existsSync(dirPath)
+          if (!fullCheck.files[d + '/']) fullCheck.issues.push(`Dossier manquant : ${d}`)
+        }
+        // Vérifier l'intégrité (hashes SHA256)
+        const integrityPath = path.join(appDir, '.integrity')
+        if (fs.existsSync(integrityPath)) {
+          try {
+            const expected = JSON.parse(fs.readFileSync(integrityPath, 'utf8'))
+            const integrityResults = {}
+            for (const [file, expectedHash] of Object.entries(expected)) {
+              const fp = path.join(appDir, file)
+              if (fs.existsSync(fp)) {
+                const actualHash = crypto.createHash('sha256').update(fs.readFileSync(fp)).digest('hex')
+                integrityResults[file] = actualHash === expectedHash
+                if (actualHash !== expectedHash) fullCheck.issues.push(`Intégrité compromise : ${file}`)
+              } else {
+                integrityResults[file] = false
+                fullCheck.issues.push(`Fichier d'intégrité manquant : ${file}`)
+              }
+            }
+            fullCheck.integrity = integrityResults
+          } catch {}
+        }
+        // Manifest d'installation
+        const installManifestPath = path.join(installDir, 'install-manifest.json')
+        if (fs.existsSync(installManifestPath)) {
+          try { fullCheck.manifest = JSON.parse(fs.readFileSync(installManifestPath, 'utf8')) } catch {}
+        }
+        // Vérifier Electron et Node.js
+        fullCheck.files['electron/'] = fs.existsSync(path.join(installDir, 'electron'))
+        if (!fullCheck.files['electron/']) fullCheck.issues.push('Runtime Electron manquant')
+        fullCheck.files['nodejs/'] = fs.existsSync(path.join(installDir, 'nodejs'))
+        if (!fullCheck.files['nodejs/']) fullCheck.issues.push('Runtime Node.js manquant')
+        fullCheck.files['launcher.bat'] = fs.existsSync(path.join(installDir, 'launcher.bat'))
+        if (!fullCheck.files['launcher.bat']) fullCheck.issues.push('launcher.bat manquant')
+
+        results.fullInstall = fullCheck
+      } else {
+        results.fullInstall = { exists: false, issues: ['Dossier Installation/Projet1 inexistant'] }
+      }
+
+      // ── 2. Vérifier la mise à jour réseau ──
+      const updatesDir = path.join(generalPath, 'updates')
+      const sourceDir = path.join(updatesDir, 'source')
+      if (fs.existsSync(sourceDir)) {
+        const updateCheck = { exists: true, files: {}, manifest: null, issues: [] }
+        // Fichiers critiques de la mise à jour
+        const updateFiles = ['main.js', 'preload.js', 'package.json']
+        for (const f of updateFiles) {
+          updateCheck.files[f] = fs.existsSync(path.join(sourceDir, f))
+          if (!updateCheck.files[f]) updateCheck.issues.push(`Fichier manquant : ${f}`)
+        }
+        updateCheck.files['.next/'] = fs.existsSync(path.join(sourceDir, '.next'))
+        if (!updateCheck.files['.next/']) updateCheck.issues.push('Dossier .next manquant')
+        // Manifest
+        const manifestPath = getManifestPath()
+        if (fs.existsSync(manifestPath)) {
+          try { updateCheck.manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) } catch {}
+        } else {
+          updateCheck.issues.push('Manifest de mise à jour manquant')
+        }
+        results.update = updateCheck
+      } else {
+        results.update = { exists: false, issues: ['Dossier updates/source inexistant — aucune mise à jour publiée'] }
+      }
+
+      return { success: true, results }
+    } catch (error) {
+      return { success: false, error: error.message }
     }
   })
 
@@ -2417,7 +2680,20 @@ function setupIpcHandlers() {
    * Lire la version LAN locale
    */
   ipcMain.handle('lanUpdate:getLocalVersion', async () => {
-    return getLocalLanVersion()
+    // 1. Essayer le fichier local
+    const local = getLocalLanVersion()
+    if (local) return local
+    // 2. Fallback : lire le manifest serveur (au cas où la sauvegarde locale a échoué / app a planté)
+    try {
+      const manifestPath = getManifestPath()
+      if (fs.existsSync(manifestPath)) {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+        // Restaurer le fichier local pour les prochaines fois
+        saveLocalLanVersion(manifest)
+        return manifest
+      }
+    } catch {}
+    return null
   })
 
   // === MISE À JOUR VIA GITHUB (GitHub API + ZIP, sans git) ===

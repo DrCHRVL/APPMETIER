@@ -137,6 +137,11 @@ export class UserManager {
     return this.config?.users || [];
   }
 
+  /** Nombre d'utilisateurs en attente d'approbation */
+  public getPendingUsersCount(): number {
+    return (this.config?.users || []).filter(u => u.approved !== true && u.globalRole !== 'admin').length;
+  }
+
   // ──────────────────────────────────────────────
   // CRUD UTILISATEURS (admin only)
   // ──────────────────────────────────────────────
@@ -147,6 +152,7 @@ export class UserManager {
     const now = new Date().toISOString();
     const newUser: UserProfile = {
       ...user,
+      approved: user.approved !== false, // L'admin crée un utilisateur → approuvé par défaut
       createdAt: now,
       updatedAt: now,
     };
@@ -308,9 +314,10 @@ export class UserManager {
     return {
       windowsUsername,
       displayName: windowsUsername,
-      globalRole: 'ja' as GlobalRole,
+      globalRole: null,
       contentieux: [],
       modules: [],
+      approved: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -409,6 +416,7 @@ export class UserManager {
           globalRole: 'admin',
           contentieux: DEFAULT_CONTENTIEUX.map(c => ({ contentieuxId: c.id, role: 'magistrat' as ContentieuxRole })),
           modules: ['air', 'instructions'] as ModuleId[],
+          approved: true,
           createdAt: now,
           updatedAt: now,
         },
