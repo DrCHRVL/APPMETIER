@@ -204,6 +204,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   lanUpdateGetLocalVersion: () =>
     ipcRenderer.invoke('lanUpdate:getLocalVersion'),
 
+  lanUpdateVerifyIntegrity: () =>
+    ipcRenderer.invoke('lanUpdate:verifyIntegrity'),
+
   // Listener pour la progression de la publication (build + obfuscation)
   onPublishProgress: (callback) =>
     ipcRenderer.on('publish-progress', (event, data) => callback(data)),

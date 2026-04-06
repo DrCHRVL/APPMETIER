@@ -2379,6 +2379,107 @@ function setupIpcHandlers() {
   })
 
   /**
+   * Vérifie l'intégrité de la publication sur le serveur :
+   * - Package complet (Installation/Projet1) : présence + fichiers critiques + intégrité
+   * - Mise à jour réseau (updates/source) : présence + manifest
+   */
+  ipcMain.handle('lanUpdate:verifyIntegrity', async () => {
+    try {
+      const generalPath = getGeneralServerPath()
+      if (!generalPath || !fs.existsSync(generalPath)) {
+        return { success: false, error: 'Chemin réseau inaccessible' }
+      }
+
+      const results = { fullInstall: null, update: null }
+
+      // ── 1. Vérifier le package complet ──
+      const installDir = path.join(generalPath, 'Installation')
+      const appDir = path.join(installDir, 'Projet1')
+      if (fs.existsSync(appDir)) {
+        const fullCheck = { exists: true, files: {}, integrity: null, manifest: null, issues: [] }
+        // Fichiers critiques attendus
+        const criticalFiles = ['main.js', 'preload.js', 'package.json', '.integrity', 'start-next.bat']
+        for (const f of criticalFiles) {
+          fullCheck.files[f] = fs.existsSync(path.join(appDir, f))
+          if (!fullCheck.files[f]) fullCheck.issues.push(`Fichier manquant : ${f}`)
+        }
+        // Dossiers critiques
+        const criticalDirs = ['.next', 'node_modules']
+        for (const d of criticalDirs) {
+          const dirPath = path.join(appDir, d)
+          fullCheck.files[d + '/'] = fs.existsSync(dirPath)
+          if (!fullCheck.files[d + '/']) fullCheck.issues.push(`Dossier manquant : ${d}`)
+        }
+        // Vérifier l'intégrité (hashes SHA256)
+        const integrityPath = path.join(appDir, '.integrity')
+        if (fs.existsSync(integrityPath)) {
+          try {
+            const expected = JSON.parse(fs.readFileSync(integrityPath, 'utf8'))
+            const integrityResults = {}
+            for (const [file, expectedHash] of Object.entries(expected)) {
+              const fp = path.join(appDir, file)
+              if (fs.existsSync(fp)) {
+                const actualHash = crypto.createHash('sha256').update(fs.readFileSync(fp)).digest('hex')
+                integrityResults[file] = actualHash === expectedHash
+                if (actualHash !== expectedHash) fullCheck.issues.push(`Intégrité compromise : ${file}`)
+              } else {
+                integrityResults[file] = false
+                fullCheck.issues.push(`Fichier d'intégrité manquant : ${file}`)
+              }
+            }
+            fullCheck.integrity = integrityResults
+          } catch {}
+        }
+        // Manifest d'installation
+        const installManifestPath = path.join(installDir, 'install-manifest.json')
+        if (fs.existsSync(installManifestPath)) {
+          try { fullCheck.manifest = JSON.parse(fs.readFileSync(installManifestPath, 'utf8')) } catch {}
+        }
+        // Vérifier Electron et Node.js
+        fullCheck.files['electron/'] = fs.existsSync(path.join(installDir, 'electron'))
+        if (!fullCheck.files['electron/']) fullCheck.issues.push('Runtime Electron manquant')
+        fullCheck.files['nodejs/'] = fs.existsSync(path.join(installDir, 'nodejs'))
+        if (!fullCheck.files['nodejs/']) fullCheck.issues.push('Runtime Node.js manquant')
+        fullCheck.files['launcher.bat'] = fs.existsSync(path.join(installDir, 'launcher.bat'))
+        if (!fullCheck.files['launcher.bat']) fullCheck.issues.push('launcher.bat manquant')
+
+        results.fullInstall = fullCheck
+      } else {
+        results.fullInstall = { exists: false, issues: ['Dossier Installation/Projet1 inexistant'] }
+      }
+
+      // ── 2. Vérifier la mise à jour réseau ──
+      const updatesDir = path.join(generalPath, 'updates')
+      const sourceDir = path.join(updatesDir, 'source')
+      if (fs.existsSync(sourceDir)) {
+        const updateCheck = { exists: true, files: {}, manifest: null, issues: [] }
+        // Fichiers critiques de la mise à jour
+        const updateFiles = ['main.js', 'preload.js', 'package.json']
+        for (const f of updateFiles) {
+          updateCheck.files[f] = fs.existsSync(path.join(sourceDir, f))
+          if (!updateCheck.files[f]) updateCheck.issues.push(`Fichier manquant : ${f}`)
+        }
+        updateCheck.files['.next/'] = fs.existsSync(path.join(sourceDir, '.next'))
+        if (!updateCheck.files['.next/']) updateCheck.issues.push('Dossier .next manquant')
+        // Manifest
+        const manifestPath = getManifestPath()
+        if (fs.existsSync(manifestPath)) {
+          try { updateCheck.manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) } catch {}
+        } else {
+          updateCheck.issues.push('Manifest de mise à jour manquant')
+        }
+        results.update = updateCheck
+      } else {
+        results.update = { exists: false, issues: ['Dossier updates/source inexistant — aucune mise à jour publiée'] }
+      }
+
+      return { success: true, results }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  /**
    * Applique la mise à jour réseau (rollback + copie + redémarrage)
    */
   ipcMain.handle('lanUpdate:apply', async () => {
