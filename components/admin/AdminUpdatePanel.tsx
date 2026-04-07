@@ -19,7 +19,8 @@ export const AdminUpdatePanel = () => {
   const [localVersion, setLocalVersion] = useState<LanVersion | null>(null);
   const [remoteCheck, setRemoteCheck] = useState<{ hasUpdate: boolean; manifest?: LanVersion } | null>(null);
   const [changelog, setChangelog] = useState('');
-  const [publishing, setPublishing] = useState(false);
+  const [publishingUpdate, setPublishingUpdate] = useState(false);
+  const [publishingFull, setPublishingFull] = useState(false);
   const [publishStep, setPublishStep] = useState<string>('');
   const [publishProgress, setPublishProgress] = useState<{ current: number; total: number } | null>(null);
   const [checking, setChecking] = useState(false);
@@ -62,7 +63,7 @@ export const AdminUpdatePanel = () => {
   }
 
   const handlePublish = async () => {
-    setPublishing(true);
+    setPublishingUpdate(true);
     setShowConfirmPublish(false);
     try {
       const result = await (window as any).electronAPI?.lanUpdatePublish?.(changelog.trim());
@@ -82,7 +83,7 @@ export const AdminUpdatePanel = () => {
     } catch (e: any) {
       showToast(`Erreur de publication: ${e.message}`, 'error');
     }
-    setPublishing(false);
+    setPublishingUpdate(false);
     setPublishStep('');
     setPublishProgress(null);
   };
@@ -109,7 +110,7 @@ export const AdminUpdatePanel = () => {
   };
 
   const handlePublishFull = async () => {
-    setPublishing(true);
+    setPublishingFull(true);
     setShowConfirmFullPublish(false);
     try {
       const result = await (window as any).electronAPI?.lanUpdatePublishFull?.(changelog.trim());
@@ -128,7 +129,7 @@ export const AdminUpdatePanel = () => {
     } catch (e: any) {
       showToast(`Erreur de publication: ${e.message}`, 'error');
     }
-    setPublishing(false);
+    setPublishingFull(false);
     setPublishStep('');
     setPublishProgress(null);
   };
@@ -261,14 +262,14 @@ export const AdminUpdatePanel = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowConfirmPublish(true)}
-              disabled={publishing}
+              disabled={publishingUpdate || publishingFull}
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
             >
-              {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              {publishing ? 'Publication en cours...' : 'Publier sur le réseau'}
+              {publishingUpdate ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              {publishingUpdate ? 'Publication en cours...' : 'Publier sur le réseau'}
             </button>
           </div>
-          {publishing && (
+          {publishingUpdate && (
             <div className="px-3 py-3 bg-emerald-50 border border-emerald-200 rounded-lg space-y-2">
               {/* Barre de progression */}
               <div className="w-full bg-emerald-100 rounded-full h-2.5 overflow-hidden">
@@ -312,11 +313,11 @@ export const AdminUpdatePanel = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowConfirmFullPublish(true)}
-            disabled={publishing}
+            disabled={publishingUpdate || publishingFull}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
           >
-            {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
-            {publishing ? 'Publication en cours...' : 'Publier version complète'}
+            {publishingFull ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+            {publishingFull ? 'Publication en cours...' : 'Publier version complète'}
           </button>
         </div>
 
@@ -330,7 +331,7 @@ export const AdminUpdatePanel = () => {
           </div>
         )}
 
-        {publishing && (
+        {publishingFull && (
           <div className="px-3 py-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
             <div className="w-full bg-blue-100 rounded-full h-2.5 overflow-hidden">
               <div
