@@ -17,6 +17,7 @@ interface CompteRenduSectionProps {
   onDeleteCR: (id: number) => void;
   setEditingCR: (cr: CompteRendu | null) => void;
   isEditing: boolean;
+  contentieuxId?: string;
 }
 
 // Types étendus pour les instructions
@@ -94,7 +95,8 @@ export const CompteRenduSection = ({
   onUpdateCR,
   onDeleteCR,
   setEditingCR,
-  isEditing
+  isEditing,
+  contentieuxId
 }: CompteRenduSectionProps) => {
   // Détection si on est dans une instruction
   const isInstruction = 'numeroInstruction' in enquete && 'cabinet' in enquete;
@@ -427,9 +429,10 @@ export const CompteRenduSection = ({
       cr.createdBy &&
       cr.createdBy !== currentUser;
 
-    // CR provenant d'un autre contentieux (co-saisine)
+    // CR provenant d'un autre contentieux (co-saisine) — n'afficher que si différent du contentieux courant
     const contentieuxSource = cr.contentieuxSource;
-    const ctxColors = contentieuxSource ? CONTENTIEUX_BORDER_COLORS[contentieuxSource] : null;
+    const isFromOtherContentieux = contentieuxSource && contentieuxId && contentieuxSource !== contentieuxId;
+    const ctxColors = isFromOtherContentieux ? CONTENTIEUX_BORDER_COLORS[contentieuxSource] : null;
 
     let bgClass = 'bg-gray-50';
     let hoverClass = 'hover:bg-gray-100';
