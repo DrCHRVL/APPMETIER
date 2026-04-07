@@ -2927,6 +2927,34 @@ app.whenReady().then(async () => {
 
           const sourceDir = path.join(generalPath, 'updates', 'source')
           if (fs.existsSync(sourceDir)) {
+            // Afficher une fenêtre splash pour informer l'utilisateur
+            const updateSplash = new BrowserWindow({
+              width: 420,
+              height: 200,
+              frame: false,
+              transparent: false,
+              resizable: false,
+              alwaysOnTop: true,
+              skipTaskbar: false,
+              center: true,
+              backgroundColor: '#ffffff',
+              webPreferences: { nodeIntegration: false, contextIsolation: true },
+            })
+            updateSplash.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<!DOCTYPE html>
+<html><head><style>
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; background:#fff; color:#1f2937; flex-direction:column; gap:16px; }
+  .spinner { width:32px; height:32px; border:3px solid #e5e7eb; border-top:3px solid #6d28d9; border-radius:50%; animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .title { font-size:15px; font-weight:600; }
+  .sub { font-size:12px; color:#6b7280; text-align:center; line-height:1.5; }
+  .version { font-size:11px; color:#9ca3af; font-family:monospace; }
+</style></head><body>
+  <div class="spinner"></div>
+  <div class="title">Mise à jour en cours...</div>
+  <div class="sub">Une nouvelle version a été détectée.<br>L'application va redémarrer automatiquement.</div>
+  <div class="version">${manifest.version}</div>
+</body></html>`)}`)
+
             // Rollback
             const rollbackDir = path.join(dataFolder, 'rollback')
             const SKIP = new Set(['data', '.git', 'node_modules', 'tessdata'])
