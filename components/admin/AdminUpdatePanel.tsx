@@ -12,7 +12,11 @@ interface LanVersion {
   changelog: string;
 }
 
-export const AdminUpdatePanel = () => {
+interface AdminUpdatePanelProps {
+  onGithubUpdateChange?: (hasUpdate: boolean, commits: number) => void;
+}
+
+export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps) => {
   const { isAdmin: checkIsAdmin } = useUser();
   const { showToast } = useToast();
 
@@ -33,9 +37,12 @@ export const AdminUpdatePanel = () => {
 
   // GitHub update states
   const [githubUpdateAvailable, setGithubUpdateAvailable] = useState(false);
+  const [githubCommits, setGithubCommits] = useState(0);
   const [githubChecking, setGithubChecking] = useState(false);
   const [githubUpdating, setGithubUpdating] = useState(false);
   const [githubError, setGithubError] = useState<string | null>(null);
+  const [githubLocalSha, setGithubLocalSha] = useState<string | null>(null);
+  const [githubRemoteSha, setGithubRemoteSha] = useState<string | null>(null);
 
   const loadVersions = useCallback(async () => {
     try {
@@ -58,12 +65,20 @@ export const AdminUpdatePanel = () => {
     setGithubError(null);
     try {
       const result = await (window as any).electronAPI?.checkAppUpdate?.();
-      setGithubUpdateAvailable(result?.hasUpdate || false);
+      const hasUpdate = result?.hasUpdate || false;
+      const commits = result?.commits || 0;
+      setGithubUpdateAvailable(hasUpdate);
+      setGithubCommits(commits);
+      setGithubLocalSha(result?.localSha || null);
+      setGithubRemoteSha(result?.remoteSha || null);
+      if (result?.error) setGithubError(result.error);
+      // Notifier le parent (header) du nouvel état
+      onGithubUpdateChange?.(hasUpdate, commits);
     } catch {
       setGithubError('Impossible de vérifier les mises à jour GitHub');
     }
     setGithubChecking(false);
-  }, []);
+  }, [onGithubUpdateChange]);
 
   const applyGithubUpdate = async () => {
     setGithubUpdating(true);
@@ -235,6 +250,25 @@ export const AdminUpdatePanel = () => {
             </span>
           )}
         </div>
+
+        {/* Debug SHA info */}
+        {(githubLocalSha || githubRemoteSha) && (
+          <div className="text-xs bg-gray-50 border border-gray-200 rounded-lg p-2 space-y-1 font-mono">
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500 w-14">Local :</span>
+              <span className={githubLocalSha ? 'text-gray-700' : 'text-red-500 italic font-sans'}>{githubLocalSha ? githubLocalSha.substring(0, 12) : 'non trouvé'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500 w-14">GitHub :</span>
+              <span className="text-gray-700">{githubRemoteSha ? githubRemoteSha.substring(0, 12) : '—'}</span>
+            </div>
+            {githubUpdateAvailable && githubCommits > 0 && (
+              <div className="text-amber-600 font-sans font-medium pt-1 border-t border-gray-200">
+                {githubCommits} commit{githubCommits > 1 ? 's' : ''} de retard
+              </div>
+            )}
+          </div>
+        )}
 
         {githubError && (
           <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-2 rounded-lg border border-red-200">

@@ -404,9 +404,9 @@ function AppContent() {
     const checkUpdate = async () => {
       try {
         const result = await window.electronAPI.checkAppUpdate?.();
-        if (result && result.hasUpdate) {
-          setUpdateAvailable(true);
-          setUpdateCommits(result.commits);
+        if (result) {
+          setUpdateAvailable(result.hasUpdate || false);
+          setUpdateCommits(result.commits || 0);
         }
       } catch {
         // Silencieux si pas de connexion
@@ -1455,7 +1455,10 @@ return (
         adminPathsContent={<AdminPathsPanel />}
         adminDashboardContent={<AdminDashboardPanel />}
         adminTagHistoryContent={<AdminTagHistoryPanel />}
-        adminUpdateContent={<AdminUpdatePanel />}
+        adminUpdateContent={<AdminUpdatePanel onGithubUpdateChange={(hasUpdate, commits) => {
+          setUpdateAvailable(hasUpdate);
+          setUpdateCommits(commits);
+        }} />}
         aProposContent={<AboutContent />}
         pendingUsersCount={pendingUsersCount}
       />
