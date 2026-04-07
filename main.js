@@ -2725,11 +2725,11 @@ function setupIpcHandlers() {
     });
   }
 
-  // Téléchargement binaire avec suivi de redirections
-  function httpsDownload(url, destPath) {
+  // Téléchargement binaire avec suivi de redirections et timeout
+  function httpsDownload(url, destPath, timeoutMs = 120000) {
     return new Promise((resolve, reject) => {
       const makeRequest = (currentUrl) => {
-        https.get(currentUrl, { headers: { 'User-Agent': 'APPMETIER-updater' } }, (res) => {
+        const req = https.get(currentUrl, { headers: { 'User-Agent': 'APPMETIER-updater' }, timeout: timeoutMs }, (res) => {
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             res.resume();
             makeRequest(res.headers.location);
@@ -2745,7 +2745,9 @@ function setupIpcHandlers() {
           file.on('finish', () => file.close(resolve));
           file.on('error', reject);
           res.on('error', reject);
-        }).on('error', reject);
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('Timeout de téléchargement')); });
       };
       makeRequest(url);
     });
@@ -2787,8 +2789,8 @@ function setupIpcHandlers() {
     const zipPath = path.join(os.tmpdir(), 'appmetier-update.zip');
     const extractDir = path.join(os.tmpdir(), 'appmetier-update');
     try {
-      // 1. Téléchargement du ZIP
-      await httpsDownload(`https://github.com/${GITHUB_REPO}/archive/refs/heads/main.zip`, zipPath);
+      // 1. Téléchargement du ZIP via l'API GitHub (plus fiable, même endpoint que le check)
+      await httpsDownload(`https://api.github.com/repos/${GITHUB_REPO}/zipball/main`, zipPath);
 
       // 2. Extraction via PowerShell (toujours disponible sur Windows)
       if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true });
@@ -2802,7 +2804,11 @@ function setupIpcHandlers() {
       });
 
       // 3. Copie des fichiers (sans data/, .git/, node_modules/, tessdata/, .next/)
-      const sourceDir = path.join(extractDir, 'APPMETIER-main');
+      // Le zipball API crée un dossier nommé "Owner-Repo-SHA", on prend le premier dossier trouvé
+      const extractedItems = fs.readdirSync(extractDir);
+      const extractedFolder = extractedItems.find(f => fs.statSync(path.join(extractDir, f)).isDirectory());
+      if (!extractedFolder) throw new Error('Dossier extrait introuvable');
+      const sourceDir = path.join(extractDir, extractedFolder);
       copyDir(sourceDir, __dirname);
 
       // 4. Sauvegarde du SHA pour la prochaine comparaison

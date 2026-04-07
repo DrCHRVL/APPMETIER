@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Upload, RefreshCw, RotateCcw, Check, AlertTriangle, Loader2, Info, HardDrive, Copy, ShieldCheck, X, CheckCircle, XCircle } from 'lucide-react';
+import { Upload, RefreshCw, RotateCcw, Check, AlertTriangle, Loader2, Info, HardDrive, Copy, ShieldCheck, X, CheckCircle, XCircle, Globe, ArrowRight, Download } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 
@@ -31,6 +31,12 @@ export const AdminUpdatePanel = () => {
   const [integrityResult, setIntegrityResult] = useState<any>(null);
   const [publishSuccessResult, setPublishSuccessResult] = useState<{ version: string; type: 'update' | 'full'; installPath?: string } | null>(null);
 
+  // GitHub update states
+  const [githubUpdateAvailable, setGithubUpdateAvailable] = useState(false);
+  const [githubChecking, setGithubChecking] = useState(false);
+  const [githubUpdating, setGithubUpdating] = useState(false);
+  const [githubError, setGithubError] = useState<string | null>(null);
+
   const loadVersions = useCallback(async () => {
     try {
       const local = await (window as any).electronAPI?.lanUpdateGetLocalVersion?.();
@@ -47,9 +53,38 @@ export const AdminUpdatePanel = () => {
     setChecking(false);
   }, []);
 
+  const checkGithubUpdate = useCallback(async () => {
+    setGithubChecking(true);
+    setGithubError(null);
+    try {
+      const result = await (window as any).electronAPI?.checkAppUpdate?.();
+      setGithubUpdateAvailable(result?.hasUpdate || false);
+    } catch {
+      setGithubError('Impossible de vérifier les mises à jour GitHub');
+    }
+    setGithubChecking(false);
+  }, []);
+
+  const applyGithubUpdate = async () => {
+    setGithubUpdating(true);
+    setGithubError(null);
+    try {
+      const result = await (window as any).electronAPI?.applyAppUpdate?.();
+      if (result && !result.success) {
+        setGithubError(`Erreur : ${result.error}`);
+        setGithubUpdating(false);
+      }
+      // Si succès, l'app redémarre
+    } catch (e: any) {
+      setGithubError(`Erreur : ${e.message}`);
+      setGithubUpdating(false);
+    }
+  };
+
   useEffect(() => {
     loadVersions();
     checkForUpdate();
+    checkGithubUpdate();
     // Écouter la progression de la publication
     (window as any).electronAPI?.onPublishProgress?.((data: { step: string; detail: string; current: number; total: number }) => {
       setPublishStep(data.detail);
@@ -57,7 +92,7 @@ export const AdminUpdatePanel = () => {
         setPublishProgress({ current: data.current, total: data.total });
       }
     });
-  }, [loadVersions, checkForUpdate]);
+  }, [loadVersions, checkForUpdate, checkGithubUpdate]);
 
   if (!checkIsAdmin()) {
     return <div className="text-gray-500">Accès réservé à l'administrateur.</div>;
@@ -139,6 +174,91 @@ export const AdminUpdatePanel = () => {
 
   return (
     <div className="space-y-5">
+      {/* Workflow global */}
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+        <h3 className="text-base font-semibold text-gray-800 mb-2">Gestion des mises à jour</h3>
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <span className="flex items-center gap-1 px-2 py-1 bg-violet-100 text-violet-700 rounded font-medium"><Globe className="h-3 w-3" /> GitHub</span>
+          <ArrowRight className="h-3 w-3 text-gray-400" />
+          <span className="flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 rounded font-medium">Votre poste</span>
+          <ArrowRight className="h-3 w-3 text-gray-400" />
+          <span className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded font-medium"><Upload className="h-3 w-3" /> Réseau LAN</span>
+          <ArrowRight className="h-3 w-3 text-gray-400" />
+          <span className="flex items-center gap-1 px-2 py-1 bg-gray-200 text-gray-600 rounded font-medium">Utilisateurs</span>
+        </div>
+        <p className="text-xs text-gray-400 mt-2">
+          Mettez à jour votre poste depuis GitHub, puis publiez sur le réseau pour les autres utilisateurs.
+        </p>
+      </div>
+
+      {/* Section GitHub */}
+      <div className="bg-violet-50 border border-violet-200 rounded-lg p-4 space-y-3">
+        <h4 className="text-sm font-semibold text-violet-800 flex items-center gap-2">
+          <Globe className="h-4 w-4" />
+          Mise à jour depuis GitHub
+        </h4>
+        <p className="text-xs text-violet-700">
+          Récupère la dernière version du code source depuis le dépôt GitHub.
+          Votre poste sera mis à jour et l'application redémarrera.
+        </p>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={checkGithubUpdate}
+            disabled={githubChecking || githubUpdating}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-violet-100 hover:bg-violet-200 text-violet-800 rounded-lg transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${githubChecking ? 'animate-spin' : ''}`} />
+            Vérifier GitHub
+          </button>
+
+          {githubUpdateAvailable && (
+            <button
+              onClick={applyGithubUpdate}
+              disabled={githubUpdating}
+              className="flex items-center gap-2 px-4 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+            >
+              {githubUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              {githubUpdating ? 'Mise à jour en cours...' : 'Mettre à jour depuis GitHub'}
+            </button>
+          )}
+
+          {!githubChecking && !githubUpdateAvailable && !githubError && (
+            <span className="text-xs text-green-600 flex items-center gap-1">
+              <Check className="h-3.5 w-3.5" /> Vous êtes à jour
+            </span>
+          )}
+
+          {githubUpdateAvailable && !githubUpdating && (
+            <span className="text-xs text-amber-600 flex items-center gap-1">
+              <AlertTriangle className="h-3.5 w-3.5" /> Nouvelle version disponible
+            </span>
+          )}
+        </div>
+
+        {githubError && (
+          <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-2 rounded-lg border border-red-200">
+            <XCircle className="h-4 w-4 shrink-0" />
+            <span>{githubError}</span>
+          </div>
+        )}
+
+        {githubUpdating && (
+          <div className="px-3 py-2 bg-violet-100 border border-violet-200 rounded-lg flex items-center gap-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-600" />
+            <span className="text-xs text-violet-700">Téléchargement et installation en cours... L'application va redémarrer.</span>
+          </div>
+        )}
+      </div>
+
+      {/* Séparateur */}
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
+        <div className="relative flex justify-center">
+          <span className="bg-white px-3 text-xs text-gray-400 font-medium">Publication réseau (LAN)</span>
+        </div>
+      </div>
+
       <div>
         <h3 className="text-base font-semibold text-gray-800">Mise à jour réseau</h3>
         <p className="text-sm text-gray-500 mt-0.5">
