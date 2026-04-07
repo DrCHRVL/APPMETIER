@@ -171,6 +171,7 @@ export const EnqueteDetailModal = ({
                   onDeleteCR={onDeleteCR}
                   setEditingCR={setEditingCR}
                   isEditing={isEditing}
+                  contentieuxId={contentieuxId}
                 />
 
                 <MisEnCauseSection

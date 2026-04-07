@@ -314,13 +314,21 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
       return;
     }
 
+    const now = new Date().toISOString();
     updateEnquetesList(prev =>
       prev.map(e =>
         e.id === enqueteId
-          ? { ...e, comptesRendus: [...e.comptesRendus, newCR], dateMiseAJour: new Date().toISOString() }
+          ? { ...e, comptesRendus: [...e.comptesRendus, newCR], dateMiseAJour: now }
           : e
       )
     );
+    // Mettre à jour selectedEnquete pour rafraîchir immédiatement l'UI
+    setSelectedEnquete(prev => {
+      if (prev && prev.id === enqueteId) {
+        return { ...prev, comptesRendus: [...prev.comptesRendus, newCR], dateMiseAJour: now };
+      }
+      return prev;
+    });
   }, [updateEnquetesList, getOriginContentieux, updateSharedEnquete, contentieuxId]);
 
   const handleUpdateCR = useCallback((enqueteId: number, crId: number, updates: Partial<CompteRendu>) => {
@@ -336,6 +344,7 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
       return;
     }
 
+    const now = new Date().toISOString();
     updateEnquetesList(prev =>
       prev.map(e =>
         e.id === enqueteId
@@ -344,11 +353,24 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
               comptesRendus: e.comptesRendus.map(cr =>
                 cr.id === crId ? { ...cr, ...updates } : cr
               ),
-              dateMiseAJour: new Date().toISOString(),
+              dateMiseAJour: now,
             }
           : e
       )
     );
+    // Mettre à jour selectedEnquete pour rafraîchir immédiatement l'UI
+    setSelectedEnquete(prev => {
+      if (prev && prev.id === enqueteId) {
+        return {
+          ...prev,
+          comptesRendus: prev.comptesRendus.map(cr =>
+            cr.id === crId ? { ...cr, ...updates } : cr
+          ),
+          dateMiseAJour: now,
+        };
+      }
+      return prev;
+    });
   }, [updateEnquetesList, getOriginContentieux, updateSharedEnquete]);
 
   const handleDeleteCR = useCallback((enqueteId: number, crId: number) => {
@@ -362,17 +384,29 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
       return;
     }
 
+    const now = new Date().toISOString();
     updateEnquetesList(prev =>
       prev.map(e =>
         e.id === enqueteId
           ? {
               ...e,
               comptesRendus: e.comptesRendus.filter(cr => cr.id !== crId),
-              dateMiseAJour: new Date().toISOString(),
+              dateMiseAJour: now,
             }
           : e
       )
     );
+    // Mettre à jour selectedEnquete pour rafraîchir immédiatement l'UI
+    setSelectedEnquete(prev => {
+      if (prev && prev.id === enqueteId) {
+        return {
+          ...prev,
+          comptesRendus: prev.comptesRendus.filter(cr => cr.id !== crId),
+          dateMiseAJour: now,
+        };
+      }
+      return prev;
+    });
   }, [updateEnquetesList, getOriginContentieux, updateSharedEnquete]);
 
   // ── CO-SAISINE : partager/départager une enquête ──
