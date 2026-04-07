@@ -29,6 +29,7 @@ export const AdminUpdatePanel = () => {
   const [lastFullInstallPath, setLastFullInstallPath] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [integrityResult, setIntegrityResult] = useState<any>(null);
+  const [publishSuccessResult, setPublishSuccessResult] = useState<{ version: string; type: 'update' | 'full'; installPath?: string } | null>(null);
 
   const loadVersions = useCallback(async () => {
     try {
@@ -68,13 +69,9 @@ export const AdminUpdatePanel = () => {
     try {
       const result = await (window as any).electronAPI?.lanUpdatePublish?.(changelog.trim());
       if (result?.success) {
-        showToast(`Version ${result.version} publiée sur le réseau${result.publishPath ? ` (${result.publishPath})` : ''}`, 'success');
+        setPublishSuccessResult({ version: result.version, type: 'update' });
         setChangelog('');
-        // Mettre à jour depuis la réponse ET relire le fichier local pour confirmer
-        if (result.manifest) {
-          setLocalVersion(result.manifest);
-        }
-        // Toujours relire depuis le fichier pour s'assurer de la cohérence
+        if (result.manifest) setLocalVersion(result.manifest);
         await loadVersions();
         checkForUpdate();
       } else {
@@ -115,12 +112,10 @@ export const AdminUpdatePanel = () => {
     try {
       const result = await (window as any).electronAPI?.lanUpdatePublishFull?.(changelog.trim());
       if (result?.success) {
-        showToast(`Version complète ${result.version} publiée sur le réseau`, 'success');
+        setPublishSuccessResult({ version: result.version, type: 'full', installPath: result.installPath });
         setChangelog('');
         setLastFullInstallPath(result.installPath || null);
-        if (result.manifest) {
-          setLocalVersion(result.manifest);
-        }
+        if (result.manifest) setLocalVersion(result.manifest);
         await loadVersions();
         checkForUpdate();
       } else {
@@ -378,6 +373,50 @@ export const AdminUpdatePanel = () => {
         <p>Les données (enquêtes, documents, résultats) ne sont <strong>jamais</strong> affectées par les mises à jour.</p>
         <p><strong>Protection :</strong> le code est compilé et obfusqué avant publication. Les utilisateurs reçoivent uniquement le code protégé, pas les sources.</p>
       </div>
+
+      {/* Modal succès publication */}
+      {publishSuccessResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-emerald-100 rounded-full">
+                <CheckCircle className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-800">
+                  {publishSuccessResult.type === 'full' ? 'Package complet publié' : 'Mise à jour publiée'}
+                </h3>
+                <p className="text-xs text-gray-400 font-mono">{publishSuccessResult.version}</p>
+              </div>
+            </div>
+            <div className="text-sm text-gray-600 space-y-2">
+              {publishSuccessResult.type === 'full' ? (
+                <>
+                  <p>Le package d'installation complet est disponible sur le réseau.</p>
+                  {publishSuccessResult.installPath && (
+                    <div className="bg-gray-50 rounded p-2 text-xs font-mono text-gray-500 border break-all">
+                      {publishSuccessResult.installPath}
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-500">
+                    Vos collègues peuvent copier le dossier <strong>"Installation"</strong> sur leur poste et lancer <strong>launcher.bat</strong>.
+                  </p>
+                </>
+              ) : (
+                <p>La mise à jour est disponible sur le réseau. Les autres postes se mettront à jour au prochain démarrage.</p>
+              )}
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setPublishSuccessResult(null)}
+                className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirmation de publication */}
       {showConfirmPublish && (
