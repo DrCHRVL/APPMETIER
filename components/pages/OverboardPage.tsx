@@ -43,11 +43,18 @@ export const OverboardPage = ({
   onEnqueteClick,
   renderEnqueteCard,
 }: OverboardPageProps) => {
-  // Toutes les enquêtes en cours (pour la timeline OP)
+  // Toutes les enquêtes en cours (pour la timeline OP) — dédupliquées (co-saisine)
   const allEnquetes = useMemo(() => {
+    const seen = new Set<string>();
     const all: Enquete[] = [];
-    for (const enquetes of enquetesByContentieux.values()) {
-      all.push(...enquetes.filter(e => e.statut === 'en_cours'));
+    for (const [ctxId, enquetes] of enquetesByContentieux) {
+      for (const enquete of enquetes.filter(e => e.statut === 'en_cours')) {
+        const key = `${enquete.contentieuxOrigine || ctxId}_${enquete.id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          all.push(enquete);
+        }
+      }
     }
     return all;
   }, [enquetesByContentieux]);

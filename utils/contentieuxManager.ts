@@ -105,12 +105,49 @@ export class ContentieuxManager {
     return this.getData(contentieuxId)?.enquetes || [];
   }
 
+  /** Récupère les enquêtes d'un contentieux + celles partagées depuis d'autres contentieux */
+  public getEnquetesWithShared(contentieuxId: ContentieuxId): Enquete[] {
+    const own = this.getEnquetes(contentieuxId);
+    const shared: Enquete[] = [];
+    for (const [otherId, state] of this.states) {
+      if (otherId === contentieuxId || !state.isLoaded) continue;
+      for (const enquete of state.data.enquetes) {
+        if (enquete.sharedWith?.includes(contentieuxId)) {
+          shared.push(enquete);
+        }
+      }
+    }
+    return [...own, ...shared];
+  }
+
   /** Récupère les enquêtes de TOUS les contentieux chargés */
   public getAllEnquetes(): Map<ContentieuxId, Enquete[]> {
     const result = new Map<ContentieuxId, Enquete[]>();
     for (const [id, state] of this.states) {
       if (state.isLoaded) {
         result.set(id, state.data.enquetes);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Récupère toutes les enquêtes dédupliquées (pour les stats globales).
+   * Les enquêtes partagées ne sont comptées qu'une seule fois,
+   * rattachées à leur contentieux d'origine.
+   */
+  public getAllEnquetesDeduplicated(): Enquete[] {
+    const seen = new Set<string>();
+    const result: Enquete[] = [];
+    for (const [contentieuxId, state] of this.states) {
+      if (!state.isLoaded) continue;
+      for (const enquete of state.data.enquetes) {
+        // Clé unique = contentieuxOrigine + id (pour éviter les doublons cross-contentieux)
+        const key = `${enquete.contentieuxOrigine || contentieuxId}_${enquete.id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          result.push(enquete);
+        }
       }
     }
     return result;

@@ -203,7 +203,10 @@ function AppContent() {
     handleDeleteEnquete,
     handleUnarchiveEnquete,
     handleStartEnquete,
-    flushPendingSave
+    flushPendingSave,
+    isSharedEnquete,
+    handleShareEnquete,
+    handleUnshareEnquete,
   } = useContentieuxEnquetes(currentContentieuxId);
 
   // Hook Overboard — données transversales (tous contentieux)
@@ -1141,6 +1144,10 @@ return (
           allKnownMec={allKnownMec}
           onCreateGlobalTodo={(todo) => handleGlobalTodosChange([...globalTodos, todo])}
           readOnly={effectiveContentieux ? !canDo(effectiveContentieux, 'edit') : true}
+          contentieuxId={currentContentieuxId}
+          onShareEnquete={handleShareEnquete}
+          onUnshareEnquete={handleUnshareEnquete}
+          isSharedEnquete={isSharedEnquete(selectedEnquete.id)}
         />
       )}
 

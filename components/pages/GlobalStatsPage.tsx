@@ -23,11 +23,20 @@ export const GlobalStatsPage = ({
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const { isLoading } = useAudience();
 
-  // Fusionner toutes les enquêtes
+  // Fusionner toutes les enquêtes — dédupliquées pour éviter de compter
+  // les enquêtes en co-saisine deux fois dans les stats globales
   const allEnquetes = useMemo(() => {
+    const seen = new Set<string>();
     const all: Enquete[] = [];
-    for (const enquetes of enquetesByContentieux.values()) {
-      all.push(...enquetes);
+    for (const [ctxId, enquetes] of enquetesByContentieux) {
+      for (const enquete of enquetes) {
+        // Clé unique : contentieux d'origine + id
+        const key = `${enquete.contentieuxOrigine || ctxId}_${enquete.id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          all.push(enquete);
+        }
+      }
     }
     return all;
   }, [enquetesByContentieux]);

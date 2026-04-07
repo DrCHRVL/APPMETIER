@@ -409,6 +409,13 @@ export const CompteRenduSection = ({
     return acteType;
   };
 
+  // Couleurs de bordure par contentieux d'origine (co-saisine)
+  const CONTENTIEUX_BORDER_COLORS: Record<string, { border: string; bg: string; text: string; borderColor: string }> = {
+    crimorg: { border: 'border-l-red-500', bg: 'bg-red-50', text: 'text-red-700', borderColor: 'border-red-300' },
+    ecofi:   { border: 'border-l-blue-500', bg: 'bg-blue-50', text: 'text-blue-700', borderColor: 'border-blue-300' },
+    enviro:  { border: 'border-l-green-500', bg: 'bg-green-50', text: 'text-green-700', borderColor: 'border-green-300' },
+  };
+
   // Rendu du CR avec indicateurs visuels pour les instructions
   const renderCR = (cr: CompteRendu) => {
     const crInstruction = cr as CompteRenduInstruction;
@@ -420,6 +427,10 @@ export const CompteRenduSection = ({
       cr.createdBy &&
       cr.createdBy !== currentUser;
 
+    // CR provenant d'un autre contentieux (co-saisine)
+    const contentieuxSource = cr.contentieuxSource;
+    const ctxColors = contentieuxSource ? CONTENTIEUX_BORDER_COLORS[contentieuxSource] : null;
+
     let bgClass = 'bg-gray-50';
     let hoverClass = 'hover:bg-gray-100';
     if (isSynthese) {
@@ -430,10 +441,20 @@ export const CompteRenduSection = ({
       hoverClass = 'hover:bg-sky-100';
     }
 
+    // Bordure gauche : contentieux source (co-saisine) > synthèse > collègue
+    let borderLeftClass = '';
+    if (ctxColors) {
+      borderLeftClass = `border-l-4 ${ctxColors.border}`;
+    } else if (isSynthese) {
+      borderLeftClass = 'border-l-4 border-l-blue-400';
+    } else if (isFromColleague) {
+      borderLeftClass = 'border-l-4 border-l-sky-300';
+    }
+
     return (
       <div
         key={cr.id}
-        className={`${bgClass} ${hoverClass} ${isSynthese ? 'border-l-4 border-l-blue-400' : isFromColleague ? 'border-l-4 border-l-sky-300' : ''} p-4 rounded relative group transition-colors`}
+        className={`${bgClass} ${hoverClass} ${borderLeftClass} p-4 rounded relative group transition-colors`}
       >
         <div className="flex justify-between items-start">
           <div className="flex-1">
@@ -441,6 +462,13 @@ export const CompteRenduSection = ({
               <p className="font-medium text-sm">
                 {new Date(cr.date).toLocaleDateString()} - {cr.enqueteur}
               </p>
+
+              {/* Indicateur contentieux source (co-saisine) */}
+              {ctxColors && (
+                <Badge variant="outline" className={`text-xs h-5 px-2 ${ctxColors.bg} ${ctxColors.text} ${ctxColors.borderColor}`}>
+                  {contentieuxSource}
+                </Badge>
+              )}
 
               {/* Indicateur collègue */}
               {isFromColleague && (
