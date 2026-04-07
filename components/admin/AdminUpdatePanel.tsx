@@ -36,6 +36,7 @@ export const AdminUpdatePanel = () => {
   const [githubChecking, setGithubChecking] = useState(false);
   const [githubUpdating, setGithubUpdating] = useState(false);
   const [githubError, setGithubError] = useState<string | null>(null);
+  const [githubShaInfo, setGithubShaInfo] = useState<{ localSha: string | null; remoteSha: string | null } | null>(null);
 
   const loadVersions = useCallback(async () => {
     try {
@@ -59,6 +60,10 @@ export const AdminUpdatePanel = () => {
     try {
       const result = await (window as any).electronAPI?.checkAppUpdate?.();
       setGithubUpdateAvailable(result?.hasUpdate || false);
+      setGithubShaInfo({ localSha: result?.localSha || null, remoteSha: result?.remoteSha || null });
+      if (result?.error && !result?.hasUpdate) {
+        setGithubError(result.error);
+      }
     } catch {
       setGithubError('Impossible de vérifier les mises à jour GitHub');
     }
@@ -247,6 +252,14 @@ export const AdminUpdatePanel = () => {
           <div className="px-3 py-2 bg-violet-100 border border-violet-200 rounded-lg flex items-center gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-600" />
             <span className="text-xs text-violet-700">Téléchargement et installation en cours... L'application va redémarrer.</span>
+          </div>
+        )}
+
+        {/* Debug SHA info */}
+        {githubShaInfo && (
+          <div className="text-xs text-gray-400 flex items-center gap-3 pt-1">
+            <span>Local : <span className="font-mono font-medium">{githubShaInfo.localSha || 'inconnu'}</span></span>
+            <span>GitHub : <span className="font-mono font-medium">{githubShaInfo.remoteSha || '—'}</span></span>
           </div>
         )}
       </div>

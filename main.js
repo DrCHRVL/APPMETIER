@@ -2704,7 +2704,7 @@ function setupIpcHandlers() {
   function httpsGet(url) {
     return new Promise((resolve, reject) => {
       const makeRequest = (currentUrl) => {
-        https.get(currentUrl, { headers: { 'User-Agent': 'APPMETIER-updater' } }, (res) => {
+        https.get(currentUrl, { headers: { 'User-Agent': 'APPMETIER-updater', 'Cache-Control': 'no-cache', 'If-None-Match': '' } }, (res) => {
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             res.resume();
             makeRequest(res.headers.location);
@@ -2778,8 +2778,9 @@ function setupIpcHandlers() {
       const remoteSha = data.sha;
       if (!remoteSha) return { hasUpdate: false, commits: 0, error: 'SHA distant non trouvé' };
       const localSha = getLocalSha();
-      const hasUpdate = localSha !== remoteSha;
-      return { hasUpdate, commits: hasUpdate ? 1 : 0 };
+      const hasUpdate = !localSha || localSha !== remoteSha;
+      console.log(`🔍 Update check: local=${localSha?.substring(0,8) || 'null'} remote=${remoteSha.substring(0,8)} → ${hasUpdate ? 'MAJ dispo' : 'à jour'}`);
+      return { hasUpdate, commits: hasUpdate ? 1 : 0, localSha: localSha?.substring(0, 8) || null, remoteSha: remoteSha.substring(0, 8) };
     } catch (error) {
       return { hasUpdate: false, commits: 0, error: error.message };
     }
