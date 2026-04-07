@@ -858,6 +858,7 @@ return (
             onSync={handleManualSync}
             isSyncing={isSyncing}
             isSearchingDocs={isSearchingDocs}
+            isAdmin={isAdmin()}
             updateAvailable={updateAvailable}
             updateCommits={updateCommits}
             onApplyUpdate={handleApplyUpdate}

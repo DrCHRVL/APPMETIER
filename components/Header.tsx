@@ -23,6 +23,7 @@ interface HeaderProps {
   onSync?: () => void;
   isSyncing?: boolean;
   isSearchingDocs?: boolean;
+  isAdmin?: boolean;
   updateAvailable?: boolean;
   updateCommits?: number;
   onApplyUpdate?: () => void;
@@ -41,6 +42,7 @@ export const Header = ({
   onSync,
   isSyncing,
   isSearchingDocs = false,
+  isAdmin = false,
   updateAvailable = false,
   updateCommits = 0,
   onApplyUpdate,
@@ -133,8 +135,8 @@ export const Header = ({
             />
           )}
 
-          {/* Mise à jour disponible */}
-          {(updateAvailable || isUpdating) && onApplyUpdate && (
+          {/* Mise à jour disponible (admin uniquement) */}
+          {isAdmin && (updateAvailable || isUpdating) && onApplyUpdate && (
             <TooltipProvider>
               <TooltipRoot>
                 <TooltipTrigger asChild>

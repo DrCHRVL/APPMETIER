@@ -2725,11 +2725,11 @@ function setupIpcHandlers() {
     });
   }
 
-  // Téléchargement binaire avec suivi de redirections
-  function httpsDownload(url, destPath) {
+  // Téléchargement binaire avec suivi de redirections et timeout
+  function httpsDownload(url, destPath, timeoutMs = 120000) {
     return new Promise((resolve, reject) => {
       const makeRequest = (currentUrl) => {
-        https.get(currentUrl, { headers: { 'User-Agent': 'APPMETIER-updater' } }, (res) => {
+        const req = https.get(currentUrl, { headers: { 'User-Agent': 'APPMETIER-updater' }, timeout: timeoutMs }, (res) => {
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             res.resume();
             makeRequest(res.headers.location);
@@ -2745,7 +2745,9 @@ function setupIpcHandlers() {
           file.on('finish', () => file.close(resolve));
           file.on('error', reject);
           res.on('error', reject);
-        }).on('error', reject);
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('Timeout de téléchargement')); });
       };
       makeRequest(url);
     });
@@ -2787,8 +2789,8 @@ function setupIpcHandlers() {
     const zipPath = path.join(os.tmpdir(), 'appmetier-update.zip');
     const extractDir = path.join(os.tmpdir(), 'appmetier-update');
     try {
-      // 1. Téléchargement du ZIP
-      await httpsDownload(`https://github.com/${GITHUB_REPO}/archive/refs/heads/main.zip`, zipPath);
+      // 1. Téléchargement du ZIP via l'API GitHub (plus fiable, même endpoint que le check)
+      await httpsDownload(`https://api.github.com/repos/${GITHUB_REPO}/zipball/main`, zipPath);
 
       // 2. Extraction via PowerShell (toujours disponible sur Windows)
       if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true });
@@ -2802,7 +2804,11 @@ function setupIpcHandlers() {
       });
 
       // 3. Copie des fichiers (sans data/, .git/, node_modules/, tessdata/, .next/)
-      const sourceDir = path.join(extractDir, 'APPMETIER-main');
+      // Le zipball API crée un dossier nommé "Owner-Repo-SHA", on prend le premier dossier trouvé
+      const extractedItems = fs.readdirSync(extractDir);
+      const extractedFolder = extractedItems.find(f => fs.statSync(path.join(extractDir, f)).isDirectory());
+      if (!extractedFolder) throw new Error('Dossier extrait introuvable');
+      const sourceDir = path.join(extractDir, extractedFolder);
       copyDir(sourceDir, __dirname);
 
       // 4. Sauvegarde du SHA pour la prochaine comparaison
@@ -2921,6 +2927,34 @@ app.whenReady().then(async () => {
 
           const sourceDir = path.join(generalPath, 'updates', 'source')
           if (fs.existsSync(sourceDir)) {
+            // Afficher une fenêtre splash pour informer l'utilisateur
+            const updateSplash = new BrowserWindow({
+              width: 420,
+              height: 200,
+              frame: false,
+              transparent: false,
+              resizable: false,
+              alwaysOnTop: true,
+              skipTaskbar: false,
+              center: true,
+              backgroundColor: '#ffffff',
+              webPreferences: { nodeIntegration: false, contextIsolation: true },
+            })
+            updateSplash.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<!DOCTYPE html>
+<html><head><style>
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; background:#fff; color:#1f2937; flex-direction:column; gap:16px; }
+  .spinner { width:32px; height:32px; border:3px solid #e5e7eb; border-top:3px solid #6d28d9; border-radius:50%; animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .title { font-size:15px; font-weight:600; }
+  .sub { font-size:12px; color:#6b7280; text-align:center; line-height:1.5; }
+  .version { font-size:11px; color:#9ca3af; font-family:monospace; }
+</style></head><body>
+  <div class="spinner"></div>
+  <div class="title">Mise à jour en cours...</div>
+  <div class="sub">Une nouvelle version a été détectée.<br>L'application va redémarrer automatiquement.</div>
+  <div class="version">${manifest.version}</div>
+</body></html>`)}`)
+
             // Rollback
             const rollbackDir = path.join(dataFolder, 'rollback')
             const SKIP = new Set(['data', '.git', 'node_modules', 'tessdata'])
