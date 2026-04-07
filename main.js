@@ -6,7 +6,7 @@ const https = require('https')
 const { exec, execSync } = require('child_process')
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu, powerMonitor } = require('electron')
 
-// ── MODE PRODUCTION : détecte si l'app tourne en mode build (next start) ──
+// ── MODE PRODUCTION : détecte si l'app tourne en mode build (standalone) ──
 const IS_PRODUCTION = fs.existsSync(path.join(__dirname, '.next', 'BUILD_ID'))
   && !fs.existsSync(path.join(__dirname, '.dev-mode'))
 // Ajout pour l'extraction PDF
