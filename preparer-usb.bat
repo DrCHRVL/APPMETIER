@@ -66,6 +66,7 @@ if exist ".npmrc" copy ".npmrc" "%OUTPUT_DIR%\.npmrc" >nul
 
 copy "main.js" "%OUTPUT_DIR%\main.js" >nul
 copy "preload.js" "%OUTPUT_DIR%\preload.js" >nul
+copy "start-next.bat" "%OUTPUT_DIR%\start-next.bat" >nul
 
 echo       OK
 echo.
