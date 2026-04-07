@@ -9,5 +9,12 @@ if exist ".dev-mode" (
     start "Next.js" ..\nodejs\node.exe node_modules\next\dist\bin\next dev
 ) else (
     echo [PROD] Demarrage en mode production...
-    start "Next.js" ..\nodejs\node.exe node_modules\next\dist\bin\next start
+    rem Copie des assets statiques pour le serveur standalone (si pas encore fait)
+    if not exist ".next\standalone\.next\static\" (
+        xcopy /E /I /Q ".next\static" ".next\standalone\.next\static\" >nul 2>&1
+    )
+    if not exist ".next\standalone\public\" (
+        xcopy /E /I /Q "public" ".next\standalone\public\" >nul 2>&1
+    )
+    start "Next.js" ..\nodejs\node.exe .next\standalone\server.js
 )
