@@ -33,7 +33,7 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
   const [lastFullInstallPath, setLastFullInstallPath] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [integrityResult, setIntegrityResult] = useState<any>(null);
-  const [publishSuccessResult, setPublishSuccessResult] = useState<{ version: string; type: 'update' | 'full'; installPath?: string } | null>(null);
+  const [publishSuccessResult, setPublishSuccessResult] = useState<{ version: string; type: 'update' | 'full'; installPath?: string; zipFile?: string; zipSizeMB?: string } | null>(null);
 
   // GitHub update states
   const [githubUpdateAvailable, setGithubUpdateAvailable] = useState(false);
@@ -162,7 +162,7 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
     try {
       const result = await (window as any).electronAPI?.lanUpdatePublishFull?.(changelog.trim());
       if (result?.success) {
-        setPublishSuccessResult({ version: result.version, type: 'full', installPath: result.installPath });
+        setPublishSuccessResult({ version: result.version, type: 'full', installPath: result.installPath, zipFile: result.zipFile, zipSizeMB: result.zipSizeMB });
         setChangelog('');
         setLastFullInstallPath(result.installPath || null);
         if (result.manifest) setLocalVersion(result.manifest);
@@ -451,11 +451,12 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
           Première installation (package complet)
         </h4>
         <p className="text-xs text-blue-700">
-          Publie un <strong>package complet</strong> sur le réseau incluant l'application,
-          Electron, Node.js et le launcher. Vos collègues n'ont qu'à <strong>copier le dossier
-          "Installation"</strong> sur leur bureau et lancer <strong>launcher.bat</strong>.
+          Publie un <strong>package complet</strong> (ZIP) sur le réseau incluant l'application,
+          Electron, Node.js et le launcher. Vos collègues n'ont qu'à <strong>télécharger
+          Installation.zip</strong>, le dézipper et lancer <strong>launcher.bat</strong>.
         </p>
         <p className="text-xs text-blue-600">
+          Le package est préparé localement puis transféré en un seul fichier ZIP — rapide et fiable.
           Les mises à jour suivantes se feront automatiquement via "Publier sur le réseau" ci-dessus.
         </p>
 
@@ -473,9 +474,9 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
         {lastFullInstallPath && (
           <div className="bg-blue-100 border border-blue-300 rounded-lg p-3 space-y-1">
             <p className="text-xs font-medium text-blue-800">Package d'installation prêt :</p>
-            <p className="text-xs font-mono text-blue-700 break-all">{lastFullInstallPath}</p>
+            <p className="text-xs font-mono text-blue-700 break-all">{lastFullInstallPath}/Installation.zip</p>
             <p className="text-xs text-blue-600 mt-1">
-              Vos collègues peuvent copier ce dossier sur leur poste et lancer <strong>launcher.bat</strong>.
+              Vos collègues peuvent télécharger <strong>Installation.zip</strong>, le dézipper et lancer <strong>launcher.bat</strong>.
             </p>
           </div>
         )}
@@ -546,14 +547,16 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
             <div className="text-sm text-gray-600 space-y-2">
               {publishSuccessResult.type === 'full' ? (
                 <>
-                  <p>Le package d'installation complet est disponible sur le réseau.</p>
+                  <p>Le package d'installation (ZIP) est disponible sur le réseau.</p>
                   {publishSuccessResult.installPath && (
                     <div className="bg-gray-50 rounded p-2 text-xs font-mono text-gray-500 border break-all">
                       {publishSuccessResult.installPath}
+                      {publishSuccessResult.zipFile && <><br />{publishSuccessResult.zipFile}</>}
+                      {publishSuccessResult.zipSizeMB && <span className="text-gray-400"> ({publishSuccessResult.zipSizeMB} Mo)</span>}
                     </div>
                   )}
                   <p className="text-xs text-gray-500">
-                    Vos collègues peuvent copier le dossier <strong>"Installation"</strong> sur leur poste et lancer <strong>launcher.bat</strong>.
+                    Vos collègues peuvent télécharger <strong>Installation.zip</strong>, le dézipper et lancer <strong>launcher.bat</strong>.
                   </p>
                 </>
               ) : (
@@ -625,15 +628,15 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
             </div>
             <div className="text-sm text-gray-600 space-y-2">
               <p>
-                Un <strong>package d'installation complet</strong> sera créé sur le réseau,
+                Un <strong>package d'installation complet</strong> (ZIP) sera créé et déposé sur le réseau,
                 incluant l'application, Electron, Node.js et le launcher.
               </p>
               <p>
-                Cette opération peut prendre plusieurs minutes (copie des runtimes).
+                Le package est préparé localement puis transféré en un seul fichier — plus rapide et fiable.
               </p>
               <p className="text-xs text-gray-500">
-                Vos collègues pourront simplement copier le dossier "Installation" sur leur
-                bureau et lancer <strong>launcher.bat</strong>.
+                Vos collègues pourront télécharger <strong>Installation.zip</strong>, le dézipper
+                et lancer <strong>launcher.bat</strong>.
               </p>
               {changelog.trim() && (
                 <div className="bg-gray-50 rounded p-2 text-xs text-gray-500 border">
@@ -695,6 +698,9 @@ const IntegrityBlock = ({ title, data }: { title: string; data: any }) => {
                 <span className="font-mono">{file}</span>
               </span>
             ))}
+            {data.zipSizeMB && (
+              <span className="text-gray-400 text-xs">({data.zipSizeMB} Mo)</span>
+            )}
           </div>
 
           {/* Intégrité SHA256 */}

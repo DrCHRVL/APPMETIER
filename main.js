@@ -2231,6 +2231,56 @@ function setupIpcHandlers() {
   }
 
   /**
+   * Copie un fichier volumineux avec progression (stream, non-bloquant)
+   */
+  function copyFileWithProgress(src, dest, onProgress) {
+    return new Promise((resolve, reject) => {
+      const stat = fs.statSync(src)
+      const totalBytes = stat.size
+      let copiedBytes = 0
+      const readStream = fs.createReadStream(src)
+      const writeStream = fs.createWriteStream(dest)
+      readStream.on('data', (chunk) => {
+        copiedBytes += chunk.length
+        if (onProgress) onProgress(copiedBytes, totalBytes)
+      })
+      readStream.pipe(writeStream)
+      writeStream.on('finish', resolve)
+      writeStream.on('error', reject)
+      readStream.on('error', reject)
+    })
+  }
+
+  /**
+   * Crée une archive ZIP via PowerShell (zéro dépendance npm)
+   */
+  function createZipPowerShell(sourceDir, zipPath) {
+    return new Promise((resolve, reject) => {
+      // Supprimer le ZIP s'il existe déjà
+      if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath)
+      const cmd = `powershell -NoProfile -Command "Compress-Archive -Path '${sourceDir}\\*' -DestinationPath '${zipPath}' -Force"`
+      console.log(`📦 ZIP: ${cmd}`)
+      exec(cmd, { timeout: 600000 }, (err, stdout, stderr) => {
+        if (err) reject(new Error(`ZIP échoué: ${stderr || err.message}`))
+        else resolve()
+      })
+    })
+  }
+
+  /**
+   * Calcule le SHA256 d'un fichier (stream, non-bloquant)
+   */
+  function hashFileAsync(filePath) {
+    return new Promise((resolve, reject) => {
+      const hash = crypto.createHash('sha256')
+      const stream = fs.createReadStream(filePath)
+      stream.on('data', chunk => hash.update(chunk))
+      stream.on('end', () => resolve(hash.digest('hex')))
+      stream.on('error', reject)
+    })
+  }
+
+  /**
    * Lance "next build" dans un dossier de sortie séparé (.next-publish)
    * pour ne pas casser le serveur next dev en cours d'exécution.
    * Retourne le chemin du dossier build produit.
@@ -2282,28 +2332,23 @@ function setupIpcHandlers() {
       const buildOutputDir = await runNextBuild()
       console.log(`📡 Publish: build terminé dans "${buildOutputDir}"`)
 
-      // Étape 2 : Préparer le dossier de publication
+      // Étape 2 : Préparer le dossier de publication (dans un dossier temporaire pour atomicité)
       sendProgress('copy', 'Préparation des fichiers...', 2)
       const updatesDir = ensureDir(getUpdatesDir())
       console.log(`📡 Publish: dossier updates = "${updatesDir}"`)
-      const sourceDir = path.join(updatesDir, 'source')
-      console.log(`📡 Publish: dossier source = "${sourceDir}"`)
-
-      if (fs.existsSync(sourceDir)) {
-        fs.rmSync(sourceDir, { recursive: true, force: true })
-      }
-      fs.mkdirSync(sourceDir, { recursive: true })
+      const sourceNew = path.join(updatesDir, `source-new-${Date.now()}`)
+      fs.mkdirSync(sourceNew, { recursive: true })
 
       // Étape 3 : Copier le build (.next-publish/) vers le dossier de publication (async pour ne pas bloquer l'UI)
       sendProgress('copy', 'Copie du build...', 3)
-      const destNextDir = path.join(sourceDir, '.next')
+      const destNextDir = path.join(sourceNew, '.next')
       fs.mkdirSync(destNextDir, { recursive: true })
       await copyDirAsync(buildOutputDir, destNextDir, SKIP_ON_UPDATE, (copied, total) => {
         sendProgress('copy', `Copie du build... ${copied}/${total}`, 3)
       })
 
       // Copier les fichiers nécessaires (sans les sources) — async
-      await copyDirAsync(__dirname, sourceDir, SKIP_ON_PUBLISH, (copied, total) => {
+      await copyDirAsync(__dirname, sourceNew, SKIP_ON_PUBLISH, (copied, total) => {
         sendProgress('copy', `Copie des fichiers... ${copied}/${total}`, 3)
       })
 
@@ -2312,25 +2357,33 @@ function setupIpcHandlers() {
 
       // Étape 4 : Obfusquer main.js et preload.js dans la copie publiée (worker thread pour ne pas bloquer l'UI)
       sendProgress('obfuscate', 'Protection du code (obfuscation)...', 4)
-      const publishedMain = path.join(sourceDir, 'main.js')
-      const publishedPreload = path.join(sourceDir, 'preload.js')
+      const publishedMain = path.join(sourceNew, 'main.js')
+      const publishedPreload = path.join(sourceNew, 'preload.js')
       if (fs.existsSync(publishedMain)) await obfuscateFileAsync(publishedMain)
       if (fs.existsSync(publishedPreload)) await obfuscateFileAsync(publishedPreload)
 
       // Étape 5 : Générer le fichier d'intégrité pour la copie publiée
       sendProgress('integrity', 'Génération de l\'empreinte d\'intégrité...', 5)
       const integrityManifest = {}
-      ;['main.js', 'preload.js', 'package.json'].forEach(f => {
-        const fp = path.join(sourceDir, f)
+      for (const f of ['main.js', 'preload.js', 'package.json']) {
+        const fp = path.join(sourceNew, f)
         if (fs.existsSync(fp)) {
-          const content = fs.readFileSync(fp)
-          integrityManifest[f] = crypto.createHash('sha256').update(content).digest('hex')
+          integrityManifest[f] = await hashFileAsync(fp)
         }
-      })
-      fs.writeFileSync(path.join(sourceDir, '.integrity'), JSON.stringify(integrityManifest, null, 2), 'utf8')
+      }
+      fs.writeFileSync(path.join(sourceNew, '.integrity'), JSON.stringify(integrityManifest, null, 2), 'utf8')
 
-      // Étape 6 : Créer le manifeste et finaliser
+      // Étape 6 : Remplacement atomique + manifeste
       sendProgress('manifest', 'Finalisation...', 6)
+
+      // Remplacement atomique : source-new → source (l'ancien reste intact jusqu'au rename)
+      const sourceDir = path.join(updatesDir, 'source')
+      const sourceOld = path.join(updatesDir, `source-old-${Date.now()}`)
+      if (fs.existsSync(sourceDir)) fs.renameSync(sourceDir, sourceOld)
+      fs.renameSync(sourceNew, sourceDir)
+      if (fs.existsSync(sourceOld)) {
+        try { fs.rmSync(sourceOld, { recursive: true, force: true }) } catch {}
+      }
       const now = new Date().toISOString()
       const version = `${now.slice(0,10).replace(/-/g, '.')}.${Date.now().toString(36)}`
       const manifest = {
@@ -2357,12 +2410,13 @@ function setupIpcHandlers() {
 
   /**
    * ADMIN : Publier un package COMPLET sur le réseau (pour première installation)
-   * Inclut : app compilée + electron + nodejs + launcher
-   * Les collègues n'ont qu'à copier le dossier sur leur poste.
+   * Architecture : staging local → ZIP → copie unique sur le réseau
+   * Les collègues téléchargent le ZIP et le dézippent sur leur poste.
    */
   ipcMain.handle('lanUpdate:publishFull', async (event, changelog) => {
+    const stagingBase = path.join(os.tmpdir(), `appmetier-publish-${Date.now()}`)
     try {
-      const totalSteps = 8
+      const totalSteps = 7
       const sendProgress = (step, detail, current) => {
         try { mainWindow?.webContents?.send('publish-progress', { step, detail, current, total: totalSteps }) } catch {}
       }
@@ -2373,45 +2427,42 @@ function setupIpcHandlers() {
         return { success: false, error: `Le chemin réseau n'est pas accessible : ${generalPath || '(non configuré)'}.\nVeuillez configurer le chemin général dans Paramètres > Chemins réseau.` }
       }
 
-      // Étape 1 : Build Next.js (dans .next-publish pour ne pas casser le serveur dev)
+      // ══════════════════════════════════════════════════════
+      // PHASE 1 : TOUT PRÉPARER EN LOCAL (rapide, pas de risque réseau)
+      // ══════════════════════════════════════════════════════
+
+      // Étape 1 : Build Next.js
       sendProgress('build', 'Compilation de l\'application...', 1)
       const buildOutputDir = await runNextBuild()
 
-      // Étape 2 : Préparer le dossier d'installation complète
-      sendProgress('prepare', 'Préparation du dossier d\'installation...', 2)
-      const installDir = path.join(generalPath, 'Installation')
+      // Étape 2 : Staging local — copier tous les fichiers sur le disque local
+      sendProgress('staging', 'Préparation locale du package...', 2)
+      const installDir = path.join(stagingBase, 'Installation')
       const appDir = path.join(installDir, 'Projet1')
-
-      if (fs.existsSync(appDir)) {
-        fs.rmSync(appDir, { recursive: true, force: true })
-      }
       fs.mkdirSync(appDir, { recursive: true })
 
-      // Étape 3 : Copier le build .next-publish/ (async pour ne pas bloquer l'UI)
-      sendProgress('copy', 'Copie du build compilé...', 3)
+      // Copier le build .next-publish/
       const destNextDir = path.join(appDir, '.next')
       fs.mkdirSync(destNextDir, { recursive: true })
       await copyDirAsync(buildOutputDir, destNextDir, SKIP_ON_UPDATE, (copied, total) => {
-        sendProgress('copy', `Copie du build compilé... ${copied}/${total}`, 3)
+        sendProgress('staging', `Copie du build... ${copied}/${total}`, 2)
       })
 
-      // Étape 4 : Copier les fichiers de l'app (sans les sources) — async
-      sendProgress('copy', 'Copie des fichiers de l\'application...', 4)
+      // Copier les fichiers de l'app (sans les sources)
       await copyDirAsync(__dirname, appDir, SKIP_ON_PUBLISH, (copied, total) => {
-        sendProgress('copy', `Copie des fichiers de l'application... ${copied}/${total}`, 4)
+        sendProgress('staging', `Copie de l'application... ${copied}/${total}`, 2)
       })
 
       // Nettoyage du build temporaire
       try { fs.rmSync(buildOutputDir, { recursive: true, force: true }) } catch {}
 
-      // Copier node_modules (nécessaire pour la première installation) — copie async pour ne pas bloquer l'UI
-      sendProgress('copy', 'Copie des dépendances (node_modules)...', 5)
+      // Copier node_modules
       const nodeModulesSrc = path.join(__dirname, 'node_modules')
-      const nodeModulesDest = path.join(appDir, 'node_modules')
       if (fs.existsSync(nodeModulesSrc)) {
+        const nodeModulesDest = path.join(appDir, 'node_modules')
         fs.mkdirSync(nodeModulesDest, { recursive: true })
         await copyDirAsync(nodeModulesSrc, nodeModulesDest, new Set(), (copied, total) => {
-          sendProgress('copy', `Copie des dépendances (node_modules)... ${copied}/${total}`, 5)
+          sendProgress('staging', `Copie des dépendances... ${copied}/${total}`, 2)
         })
       }
 
@@ -2426,27 +2477,6 @@ function setupIpcHandlers() {
         await copyDirAsync(tessdataSrc, tessdataDest, new Set())
       }
 
-      // Étape 6 : Obfusquer main.js et preload.js (worker thread pour ne pas bloquer l'UI)
-      sendProgress('obfuscate', 'Protection du code (obfuscation)...', 6)
-      const publishedMain = path.join(appDir, 'main.js')
-      const publishedPreload = path.join(appDir, 'preload.js')
-      if (fs.existsSync(publishedMain)) await obfuscateFileAsync(publishedMain)
-      if (fs.existsSync(publishedPreload)) await obfuscateFileAsync(publishedPreload)
-
-      // Étape 7 : Générer l'intégrité + copier les runtimes
-      sendProgress('runtime', 'Copie des runtimes (Electron + Node.js)...', 7)
-
-      // Intégrité
-      const integrityManifest = {}
-      ;['main.js', 'preload.js', 'package.json'].forEach(f => {
-        const fp = path.join(appDir, f)
-        if (fs.existsSync(fp)) {
-          const content = fs.readFileSync(fp)
-          integrityManifest[f] = crypto.createHash('sha256').update(content).digest('hex')
-        }
-      })
-      fs.writeFileSync(path.join(appDir, '.integrity'), JSON.stringify(integrityManifest, null, 2), 'utf8')
-
       // Copier start-next.bat
       const startNextSrc = path.join(__dirname, 'start-next.bat')
       if (fs.existsSync(startNextSrc)) {
@@ -2457,10 +2487,9 @@ function setupIpcHandlers() {
       const electronSrc = path.resolve(__dirname, '..', 'electron')
       if (fs.existsSync(electronSrc)) {
         const electronDest = path.join(installDir, 'electron')
-        if (fs.existsSync(electronDest)) fs.rmSync(electronDest, { recursive: true, force: true })
         fs.mkdirSync(electronDest, { recursive: true })
         await copyDirAsync(electronSrc, electronDest, new Set(), (copied, total) => {
-          sendProgress('runtime', `Copie d'Electron... ${copied}/${total}`, 7)
+          sendProgress('staging', `Copie d'Electron... ${copied}/${total}`, 2)
         })
       }
 
@@ -2468,15 +2497,13 @@ function setupIpcHandlers() {
       const nodejsSrc = path.resolve(__dirname, '..', 'nodejs')
       if (fs.existsSync(nodejsSrc)) {
         const nodejsDest = path.join(installDir, 'nodejs')
-        if (fs.existsSync(nodejsDest)) fs.rmSync(nodejsDest, { recursive: true, force: true })
         fs.mkdirSync(nodejsDest, { recursive: true })
         await copyDirAsync(nodejsSrc, nodejsDest, new Set(), (copied, total) => {
-          sendProgress('runtime', `Copie de Node.js... ${copied}/${total}`, 7)
+          sendProgress('staging', `Copie de Node.js... ${copied}/${total}`, 2)
         })
       }
 
       // Créer le launcher.bat
-      const launcherPath = path.join(installDir, 'launcher.bat')
       const launcherContent = [
         '@echo off',
         'echo Demarrage de l\'application...',
@@ -2500,10 +2527,26 @@ function setupIpcHandlers() {
         'exit /b 1',
         ':END',
       ].join('\r\n')
-      fs.writeFileSync(launcherPath, launcherContent, 'ascii')
+      fs.writeFileSync(path.join(installDir, 'launcher.bat'), launcherContent, 'ascii')
 
-      // Étape 8 : Manifeste
-      sendProgress('manifest', 'Finalisation...', 8)
+      // Étape 3 : Obfusquer + intégrité (en local, rapide)
+      sendProgress('obfuscate', 'Protection du code (obfuscation)...', 3)
+      const publishedMain = path.join(appDir, 'main.js')
+      const publishedPreload = path.join(appDir, 'preload.js')
+      if (fs.existsSync(publishedMain)) await obfuscateFileAsync(publishedMain)
+      if (fs.existsSync(publishedPreload)) await obfuscateFileAsync(publishedPreload)
+
+      // Générer l'intégrité des fichiers à l'intérieur du package
+      const integrityManifest = {}
+      for (const f of ['main.js', 'preload.js', 'package.json']) {
+        const fp = path.join(appDir, f)
+        if (fs.existsSync(fp)) {
+          integrityManifest[f] = await hashFileAsync(fp)
+        }
+      }
+      fs.writeFileSync(path.join(appDir, '.integrity'), JSON.stringify(integrityManifest, null, 2), 'utf8')
+
+      // Écrire le manifeste d'installation dans le package
       const now = new Date().toISOString()
       const version = `${now.slice(0,10).replace(/-/g, '.')}.${Date.now().toString(36)}`
       const manifest = {
@@ -2515,21 +2558,93 @@ function setupIpcHandlers() {
       }
       fs.writeFileSync(path.join(installDir, 'install-manifest.json'), JSON.stringify(manifest, null, 2), 'utf8')
 
-      // Publier aussi la mise à jour classique pour que les postes existants se mettent à jour
+      // ══════════════════════════════════════════════════════
+      // PHASE 2 : CRÉER LE ZIP (local, rapide)
+      // ══════════════════════════════════════════════════════
+
+      sendProgress('zip', 'Création de l\'archive ZIP...', 4)
+      const zipPath = path.join(stagingBase, 'Installation.zip')
+      await createZipPowerShell(installDir, zipPath)
+      const zipSize = fs.statSync(zipPath).size
+      const zipSizeMB = (zipSize / (1024 * 1024)).toFixed(1)
+      console.log(`📦 ZIP créé : ${zipSizeMB} Mo`)
+
+      // Calculer le SHA256 du ZIP
+      const zipHash = await hashFileAsync(zipPath)
+
+      // ══════════════════════════════════════════════════════
+      // PHASE 3 : TRANSFERT RÉSEAU (1 seul fichier, sûr)
+      // ══════════════════════════════════════════════════════
+
+      sendProgress('transfer', `Transfert sur le réseau (${zipSizeMB} Mo)...`, 5)
+      const networkZipPath = path.join(generalPath, 'Installation.zip')
+      const networkZipTemp = path.join(generalPath, `Installation-${Date.now()}.zip.tmp`)
+
+      // Copier vers un fichier temporaire d'abord (l'ancien ZIP reste intact)
+      await copyFileWithProgress(zipPath, networkZipTemp, (copied, total) => {
+        const pct = Math.round((copied / total) * 100)
+        sendProgress('transfer', `Transfert sur le réseau... ${pct}% (${zipSizeMB} Mo)`, 5)
+      })
+
+      // Vérifier l'intégrité du transfert
+      const transferredHash = await hashFileAsync(networkZipTemp)
+      if (transferredHash !== zipHash) {
+        fs.unlinkSync(networkZipTemp)
+        throw new Error('Le transfert réseau a échoué : le hash SHA256 du fichier transféré ne correspond pas. Réessayez.')
+      }
+
+      // Remplacer l'ancien ZIP par le nouveau (quasi-instantané)
+      if (fs.existsSync(networkZipPath)) {
+        try { fs.unlinkSync(networkZipPath) } catch {}
+      }
+      fs.renameSync(networkZipTemp, networkZipPath)
+
+      // Écrire le fichier de hash à côté du ZIP
+      fs.writeFileSync(
+        path.join(generalPath, 'Installation.zip.sha256'),
+        `${zipHash}  Installation.zip\n`,
+        'utf8'
+      )
+
+      // Écrire le manifeste sur le réseau
+      fs.writeFileSync(
+        path.join(generalPath, 'install-manifest.json'),
+        JSON.stringify(manifest, null, 2),
+        'utf8'
+      )
+
+      // Étape 6 : Publier aussi la mise à jour classique (pour les postes existants)
+      sendProgress('update', 'Publication de la mise à jour réseau...', 6)
       const updatesDir = ensureDir(getUpdatesDir())
+      const sourceNew = path.join(updatesDir, `source-new-${Date.now()}`)
+      fs.mkdirSync(sourceNew, { recursive: true })
+      await copyDirAsync(path.join(appDir, '.next'), path.join(sourceNew, '.next'), SKIP_ON_UPDATE)
+      await copyDirAsync(appDir, sourceNew, SKIP_ON_PUBLISH)
+
+      // Remplacement atomique : source-new → source
       const sourceDir = path.join(updatesDir, 'source')
-      if (fs.existsSync(sourceDir)) fs.rmSync(sourceDir, { recursive: true, force: true })
-      fs.mkdirSync(sourceDir, { recursive: true })
-      await copyDirAsync(path.join(appDir, '.next'), path.join(sourceDir, '.next'), SKIP_ON_UPDATE)
-      await copyDirAsync(appDir, sourceDir, SKIP_ON_PUBLISH)
+      const sourceOld = path.join(updatesDir, `source-old-${Date.now()}`)
+      if (fs.existsSync(sourceDir)) fs.renameSync(sourceDir, sourceOld)
+      fs.renameSync(sourceNew, sourceDir)
+      if (fs.existsSync(sourceOld)) {
+        try { fs.rmSync(sourceOld, { recursive: true, force: true }) } catch {}
+      }
+
       const updateManifest = { version, publishedAt: now, publishedBy: os.userInfo().username, changelog: changelog || '' }
       fs.writeFileSync(getManifestPath(), JSON.stringify(updateManifest, null, 2), 'utf8')
       saveLocalLanVersion(updateManifest)
 
-      sendProgress('done', `Version ${version} publiée (installation complète)`, totalSteps)
-      console.log(`✅ LAN full install: version ${version} publiée dans ${installDir}`)
-      return { success: true, version, manifest, installPath: installDir }
+      // Étape 7 : Nettoyage
+      sendProgress('done', `Version ${version} publiée (ZIP ${zipSizeMB} Mo)`, 7)
+      console.log(`✅ LAN full install: version ${version} publiée — ZIP ${zipSizeMB} Mo dans "${generalPath}"`)
+
+      // Nettoyage du staging local (en arrière-plan, non bloquant)
+      try { fs.rmSync(stagingBase, { recursive: true, force: true }) } catch {}
+
+      return { success: true, version, manifest, installPath: generalPath, zipFile: 'Installation.zip', zipSizeMB }
     } catch (error) {
+      // Nettoyage en cas d'erreur — le réseau n'a PAS été touché (ou ancien ZIP toujours intact)
+      try { fs.rmSync(stagingBase, { recursive: true, force: true }) } catch {}
       console.error('❌ LAN full install publish error:', error.message)
       return { success: false, error: error.message }
     }
@@ -2569,60 +2684,93 @@ function setupIpcHandlers() {
 
       const results = { fullInstall: null, update: null }
 
-      // ── 1. Vérifier le package complet ──
-      const installDir = path.join(generalPath, 'Installation')
-      const appDir = path.join(installDir, 'Projet1')
-      if (fs.existsSync(appDir)) {
-        const fullCheck = { exists: true, files: {}, integrity: null, manifest: null, issues: [] }
-        // Fichiers critiques attendus
-        const criticalFiles = ['main.js', 'preload.js', 'package.json', '.integrity', 'start-next.bat']
-        for (const f of criticalFiles) {
-          fullCheck.files[f] = fs.existsSync(path.join(appDir, f))
-          if (!fullCheck.files[f]) fullCheck.issues.push(`Fichier manquant : ${f}`)
+      // ── 1. Vérifier le package complet (ZIP) ──
+      const zipPath = path.join(generalPath, 'Installation.zip')
+      const sha256Path = path.join(generalPath, 'Installation.zip.sha256')
+      const installManifestPath = path.join(generalPath, 'install-manifest.json')
+
+      if (fs.existsSync(zipPath)) {
+        const fullCheck = { exists: true, files: {}, integrity: null, manifest: null, issues: [], isZip: true }
+
+        // Vérifier que le ZIP existe
+        fullCheck.files['Installation.zip'] = true
+        const zipStat = fs.statSync(zipPath)
+        fullCheck.zipSizeMB = (zipStat.size / (1024 * 1024)).toFixed(1)
+
+        // Vérifier le fichier SHA256
+        fullCheck.files['Installation.zip.sha256'] = fs.existsSync(sha256Path)
+        if (!fullCheck.files['Installation.zip.sha256']) {
+          fullCheck.issues.push('Fichier de vérification SHA256 manquant')
         }
-        // Dossiers critiques
-        const criticalDirs = ['.next', 'node_modules']
-        for (const d of criticalDirs) {
-          const dirPath = path.join(appDir, d)
-          fullCheck.files[d + '/'] = fs.existsSync(dirPath)
-          if (!fullCheck.files[d + '/']) fullCheck.issues.push(`Dossier manquant : ${d}`)
-        }
-        // Vérifier l'intégrité (hashes SHA256)
-        const integrityPath = path.join(appDir, '.integrity')
-        if (fs.existsSync(integrityPath)) {
+
+        // Vérifier l'intégrité SHA256 du ZIP
+        if (fs.existsSync(sha256Path)) {
           try {
-            const expected = JSON.parse(fs.readFileSync(integrityPath, 'utf8'))
-            const integrityResults = {}
-            for (const [file, expectedHash] of Object.entries(expected)) {
-              const fp = path.join(appDir, file)
-              if (fs.existsSync(fp)) {
-                const actualHash = crypto.createHash('sha256').update(fs.readFileSync(fp)).digest('hex')
-                integrityResults[file] = actualHash === expectedHash
-                if (actualHash !== expectedHash) fullCheck.issues.push(`Intégrité compromise : ${file}`)
-              } else {
-                integrityResults[file] = false
-                fullCheck.issues.push(`Fichier d'intégrité manquant : ${file}`)
-              }
-            }
-            fullCheck.integrity = integrityResults
-          } catch {}
+            const expectedLine = fs.readFileSync(sha256Path, 'utf8').trim()
+            const expectedHash = expectedLine.split(/\s+/)[0]
+            const actualHash = await hashFileAsync(zipPath)
+            const hashOk = actualHash === expectedHash
+            fullCheck.integrity = { 'Installation.zip': hashOk }
+            if (!hashOk) fullCheck.issues.push('Intégrité compromise : le hash SHA256 du ZIP ne correspond pas')
+          } catch (e) {
+            fullCheck.issues.push(`Erreur vérification SHA256 : ${e.message}`)
+          }
         }
+
         // Manifest d'installation
-        const installManifestPath = path.join(installDir, 'install-manifest.json')
         if (fs.existsSync(installManifestPath)) {
           try { fullCheck.manifest = JSON.parse(fs.readFileSync(installManifestPath, 'utf8')) } catch {}
+        } else {
+          fullCheck.issues.push('Manifest d\'installation manquant')
         }
-        // Vérifier Electron et Node.js
-        fullCheck.files['electron/'] = fs.existsSync(path.join(installDir, 'electron'))
-        if (!fullCheck.files['electron/']) fullCheck.issues.push('Runtime Electron manquant')
-        fullCheck.files['nodejs/'] = fs.existsSync(path.join(installDir, 'nodejs'))
-        if (!fullCheck.files['nodejs/']) fullCheck.issues.push('Runtime Node.js manquant')
-        fullCheck.files['launcher.bat'] = fs.existsSync(path.join(installDir, 'launcher.bat'))
-        if (!fullCheck.files['launcher.bat']) fullCheck.issues.push('launcher.bat manquant')
 
         results.fullInstall = fullCheck
       } else {
-        results.fullInstall = { exists: false, issues: ['Dossier Installation/Projet1 inexistant'] }
+        // Rétrocompatibilité : vérifier l'ancien format (dossier Installation/)
+        const installDir = path.join(generalPath, 'Installation')
+        const appDir = path.join(installDir, 'Projet1')
+        if (fs.existsSync(appDir)) {
+          const fullCheck = { exists: true, files: {}, integrity: null, manifest: null, issues: [], isZip: false }
+          const criticalFiles = ['main.js', 'preload.js', 'package.json', '.integrity', 'start-next.bat']
+          for (const f of criticalFiles) {
+            fullCheck.files[f] = fs.existsSync(path.join(appDir, f))
+            if (!fullCheck.files[f]) fullCheck.issues.push(`Fichier manquant : ${f}`)
+          }
+          const criticalDirs = ['.next', 'node_modules']
+          for (const d of criticalDirs) {
+            fullCheck.files[d + '/'] = fs.existsSync(path.join(appDir, d))
+            if (!fullCheck.files[d + '/']) fullCheck.issues.push(`Dossier manquant : ${d}`)
+          }
+          const integrityPath = path.join(appDir, '.integrity')
+          if (fs.existsSync(integrityPath)) {
+            try {
+              const expected = JSON.parse(fs.readFileSync(integrityPath, 'utf8'))
+              const integrityResults = {}
+              for (const [file, expectedHash] of Object.entries(expected)) {
+                const fp = path.join(appDir, file)
+                if (fs.existsSync(fp)) {
+                  const actualHash = crypto.createHash('sha256').update(fs.readFileSync(fp)).digest('hex')
+                  integrityResults[file] = actualHash === expectedHash
+                  if (actualHash !== expectedHash) fullCheck.issues.push(`Intégrité compromise : ${file}`)
+                } else {
+                  integrityResults[file] = false
+                  fullCheck.issues.push(`Fichier d'intégrité manquant : ${file}`)
+                }
+              }
+              fullCheck.integrity = integrityResults
+            } catch {}
+          }
+          const oldManifestPath = path.join(installDir, 'install-manifest.json')
+          if (fs.existsSync(oldManifestPath)) {
+            try { fullCheck.manifest = JSON.parse(fs.readFileSync(oldManifestPath, 'utf8')) } catch {}
+          }
+          fullCheck.files['electron/'] = fs.existsSync(path.join(installDir, 'electron'))
+          fullCheck.files['nodejs/'] = fs.existsSync(path.join(installDir, 'nodejs'))
+          fullCheck.files['launcher.bat'] = fs.existsSync(path.join(installDir, 'launcher.bat'))
+          results.fullInstall = fullCheck
+        } else {
+          results.fullInstall = { exists: false, issues: ['Aucun package trouvé (ni Installation.zip ni dossier Installation/)'] }
+        }
       }
 
       // ── 2. Vérifier la mise à jour réseau ──
