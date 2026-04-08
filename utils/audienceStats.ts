@@ -53,6 +53,7 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
   let totalAmende = 0;
   let totalCondamnations = 0;
   let totalInterdictionsParaitre = 0;
+  let totalInterdictionsGerer = 0;
   let totalDureeEnquetes = 0;
   let nombreEnquetesTerminees = 0;
   let totalVehicules = 0;
@@ -63,6 +64,14 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
   let totalCrypto = 0;
   let totalObjets = 0;
   let totalStupefiants = 0;
+  // Saisies (phase enquête)
+  let totalSaisiesVehicules = 0;
+  let totalSaisiesImmeubles = 0;
+  let totalSaisiesArgent = 0;
+  let totalSaisiesNumeraire = 0;
+  let totalSaisiesBancaire = 0;
+  let totalSaisiesCrypto = 0;
+  let totalSaisiesObjets = 0;
 
   // Compteurs pour les types d'orientation
   const audiencesUniques = new Set<string>();
@@ -120,6 +129,20 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
           nombreEnquetesTerminees++;
         }
       }
+    }
+
+    // Compter les saisies des résultats en attente d'audience
+    if (special.saisies) {
+      const sais = migrateConfiscations(special.saisies);
+      totalSaisiesVehicules += sais.vehicules.length;
+      totalSaisiesImmeubles += sais.immeubles.length;
+      totalSaisiesNumeraire += sais.numeraire || 0;
+      const sBancaire = sais.saisiesBancaires.reduce((s, b) => s + (b.montant || 0), 0);
+      totalSaisiesBancaire += sBancaire;
+      const sCrypto = sais.cryptomonnaies.reduce((s, c) => s + (c.montantEur || 0), 0);
+      totalSaisiesCrypto += sCrypto;
+      totalSaisiesArgent += (sais.numeraire || 0) + sBancaire + sCrypto;
+      totalSaisiesObjets += sais.objetsMobiliers.reduce((s, o) => s + (o.quantite || 1), 0);
     }
   }
 
@@ -243,6 +266,9 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
       if (condamnation.interdictionParaitre) {
         totalInterdictionsParaitre++;
       }
+      if (condamnation.interdictionGerer) {
+        totalInterdictionsGerer++;
+      }
     });
 
     // Traitement des confiscations (avec migration de l'ancien format)
@@ -258,6 +284,20 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
       totalArgent += (conf.numeraire || 0) + bancaire + crypto;
       totalObjets += conf.objetsMobiliers.reduce((s, o) => s + (o.quantite || 1), 0);
       if (conf.stupefiants?.types?.length) totalStupefiants++;
+    }
+
+    // Traitement des saisies (phase enquête)
+    if (resultat.saisies) {
+      const sais = migrateConfiscations(resultat.saisies);
+      totalSaisiesVehicules += sais.vehicules.length;
+      totalSaisiesImmeubles += sais.immeubles.length;
+      totalSaisiesNumeraire += sais.numeraire || 0;
+      const sBancaire = sais.saisiesBancaires.reduce((s, b) => s + (b.montant || 0), 0);
+      totalSaisiesBancaire += sBancaire;
+      const sCrypto = sais.cryptomonnaies.reduce((s, c) => s + (c.montantEur || 0), 0);
+      totalSaisiesCrypto += sCrypto;
+      totalSaisiesArgent += (sais.numeraire || 0) + sBancaire + sCrypto;
+      totalSaisiesObjets += sais.objetsMobiliers.reduce((s, o) => s + (o.quantite || 1), 0);
     }
   });
 
@@ -310,10 +350,19 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
     totalCrypto,
     totalObjets,
     totalStupefiants,
+    totalSaisiesVehicules,
+    totalSaisiesImmeubles,
+    totalSaisiesArgent,
+    totalSaisiesNumeraire,
+    totalSaisiesBancaire,
+    totalSaisiesCrypto,
+    totalSaisiesObjets,
     ratioConfiscations: totalCondamnations > 0 ? (totalVehicules + totalImmeubles) / totalCondamnations : 0,
     peinesParInfraction,
     totalInterdictionsParaitre,
     ratioInterdictionsParaitre: totalCondamnations > 0 ? (totalInterdictionsParaitre / totalCondamnations) * 100 : 0,
+    totalInterdictionsGerer,
+    ratioInterdictionsGerer: totalCondamnations > 0 ? (totalInterdictionsGerer / totalCondamnations) * 100 : 0,
     nombreCRPC,
     nombreCI,
     nombreCOPJ,

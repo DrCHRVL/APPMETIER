@@ -11,6 +11,8 @@ export interface CondamnationData {
   interdictionParaitre: boolean;
   lieuInterdictionParaitre?: string;
   dureeInterdictionParaitre?: number; // en mois
+  interdictionGerer: boolean;
+  dureeInterdictionGerer?: number; // en mois
   typeAudience: TypeAudience;
   defere: boolean;
   dateDefere?: string;
@@ -116,6 +118,7 @@ export interface ResultatAudience {
   modifiedAt?: string; // Horodatage de la dernière modification (pour résolution automatique des conflits de sync)
   condamnations: CondamnationData[];
   confiscations: Confiscations;
+  saisies?: Confiscations; // Saisies effectuées par les services d'enquête (phase enquête)
   typeInfraction?: string;
   numeroAudience?: string; // Format: "YYYY-MM-DD-N"
   isDirectResult?: boolean;
@@ -158,6 +161,14 @@ export interface AudienceStats {
   totalCrypto: number;
   totalObjets: number;
   totalStupefiants: number;
+  // Saisies (phase enquête)
+  totalSaisiesVehicules: number;
+  totalSaisiesImmeubles: number;
+  totalSaisiesArgent: number;
+  totalSaisiesNumeraire: number;
+  totalSaisiesBancaire: number;
+  totalSaisiesCrypto: number;
+  totalSaisiesObjets: number;
   nombreAudiences: number;
   nombreCondamnations: number;
   totalPeinePrison: number;
@@ -169,6 +180,8 @@ export interface AudienceStats {
   peinesParInfraction: Record<string, PeineParInfraction>;
   totalInterdictionsParaitre: number;
   ratioInterdictionsParaitre: number;
+  totalInterdictionsGerer: number;
+  ratioInterdictionsGerer: number;
   tauxPeinesFermes: number;
   tauxPeinesProbation: number;
   tauxPeinesSimple: number;

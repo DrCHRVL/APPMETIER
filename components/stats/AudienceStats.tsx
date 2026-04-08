@@ -1,14 +1,15 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { useAudience } from '@/hooks/useAudience';
+import { useTags } from '@/hooks/useTags';
 import { Enquete } from '@/types/interfaces';
 import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
-import { AudienceStats as AudienceStatsType, ResultatAudience } from '@/types/audienceTypes';
+import { AudienceStats as AudienceStatsType, ResultatAudience, migrateConfiscations } from '@/types/audienceTypes';
 import { getYearlyStats, getMonthlyStats } from '@/utils/audienceStats';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, BarElement } from 'chart.js';
 import { Pie, Bar } from 'react-chartjs-2';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
-import { ListFilter, X } from 'lucide-react';
+import { ListFilter, X, Filter } from 'lucide-react';
 
 ChartJS.register(
   ArcElement,
@@ -187,6 +188,9 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
   const [monthlyStats, setMonthlyStats] = useState<{ [key: number]: AudienceStatsType | null }>({});
 
   const { audienceState } = useAudience();
+  const { getTagsByCategory } = useTags();
+  const infractions = getTagsByCategory('infractions');
+  const [selectedGererTags, setSelectedGererTags] = useState<string[]>([]);
   const currentDate = new Date();
 
   // IDs des enquêtes du contentieux actif
@@ -585,23 +589,36 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
             <CardTitle>Interdictions</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <span>Interdictions de paraître</span>
-                <span className="font-bold">{yearlyStats.totalInterdictionsParaitre}</span>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span>Interdictions de paraître</span>
+                  <span className="font-bold">{yearlyStats.totalInterdictionsParaitre}</span>
+                </div>
+                <div className="text-sm text-gray-500">
+                  {yearlyStats.nombreCondamnations > 0
+                    ? ((yearlyStats.totalInterdictionsParaitre / yearlyStats.nombreCondamnations) * 100).toFixed(1)
+                    : 0}% des condamnations
+                </div>
+                {yearlyStats.totalInterdictionsParaitre > 0 && (
+                  <InterdictionsDetailButton
+                    scopedResultats={scopedResultats}
+                    enquetes={enquetes}
+                    selectedYear={selectedYear}
+                  />
+                )}
               </div>
-              <div className="text-sm text-gray-500">
-                {yearlyStats.nombreCondamnations > 0
-                  ? ((yearlyStats.totalInterdictionsParaitre / yearlyStats.nombreCondamnations) * 100).toFixed(1)
-                  : 0}% des condamnations
+              <div className="border-t pt-2 space-y-2">
+                <div className="flex justify-between">
+                  <span>Interdictions de gérer</span>
+                  <span className="font-bold">{yearlyStats.totalInterdictionsGerer}</span>
+                </div>
+                <div className="text-sm text-gray-500">
+                  {yearlyStats.nombreCondamnations > 0
+                    ? ((yearlyStats.totalInterdictionsGerer / yearlyStats.nombreCondamnations) * 100).toFixed(1)
+                    : 0}% des condamnations
+                </div>
               </div>
-              {yearlyStats.totalInterdictionsParaitre > 0 && (
-                <InterdictionsDetailButton
-                  scopedResultats={scopedResultats}
-                  enquetes={enquetes}
-                  selectedYear={selectedYear}
-                />
-              )}
             </div>
           </CardContent>
         </Card>
@@ -670,6 +687,173 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                 Ratio de {yearlyStats.ratioConfiscations.toFixed(2)} saisies par condamnation
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Carte Delta Saisies vs Confiscations */}
+        {(yearlyStats.totalSaisiesVehicules > 0 || yearlyStats.totalSaisiesArgent > 0 || yearlyStats.totalSaisiesImmeubles > 0 || yearlyStats.totalSaisiesObjets > 0) && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Delta saisies vs confiscations</CardTitle>
+              <p className="text-sm text-gray-500">Comparaison entre les saisies (enquête) et les confiscations (audience)</p>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                const fmt = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
+                const items: { label: string; saisie: number | string; confiscation: number | string; isAmount?: boolean }[] = [
+                  { label: 'Véhicules', saisie: yearlyStats.totalSaisiesVehicules, confiscation: yearlyStats.totalVehicules },
+                  { label: 'Immeubles', saisie: yearlyStats.totalSaisiesImmeubles, confiscation: yearlyStats.totalImmeubles },
+                  { label: 'Numéraire', saisie: yearlyStats.totalSaisiesNumeraire, confiscation: yearlyStats.totalNumeraire, isAmount: true },
+                  { label: 'Bancaire', saisie: yearlyStats.totalSaisiesBancaire, confiscation: yearlyStats.totalBancaire, isAmount: true },
+                  { label: 'Crypto', saisie: yearlyStats.totalSaisiesCrypto, confiscation: yearlyStats.totalCrypto, isAmount: true },
+                  { label: 'Objets mobiliers', saisie: yearlyStats.totalSaisiesObjets, confiscation: yearlyStats.totalObjets },
+                ];
+                const totalSaisiesFinancier = yearlyStats.totalSaisiesNumeraire + yearlyStats.totalSaisiesBancaire + yearlyStats.totalSaisiesCrypto;
+                const totalConfiscationsFinancier = yearlyStats.totalNumeraire + yearlyStats.totalBancaire + yearlyStats.totalCrypto;
+
+                return (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-4 gap-2 text-xs font-medium text-gray-500 border-b pb-1">
+                      <span></span>
+                      <span className="text-right">Saisi</span>
+                      <span className="text-right">Confisqué</span>
+                      <span className="text-right">Delta</span>
+                    </div>
+                    {items.map(({ label, saisie, confiscation, isAmount }) => {
+                      const s = Number(saisie);
+                      const c = Number(confiscation);
+                      const delta = s - c;
+                      const hasData = s > 0 || c > 0;
+                      if (!hasData) return null;
+                      return (
+                        <div key={label} className="grid grid-cols-4 gap-2 text-sm items-center">
+                          <span>{label}</span>
+                          <span className="text-right font-medium">{isAmount ? fmt.format(s) : s}</span>
+                          <span className="text-right font-medium">{isAmount ? fmt.format(c) : c}</span>
+                          <span className={`text-right font-bold ${delta > 0 ? 'text-orange-600' : delta < 0 ? 'text-green-600' : 'text-gray-500'}`}>
+                            {delta > 0 ? '+' : ''}{isAmount ? fmt.format(delta) : delta}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    <div className="grid grid-cols-4 gap-2 text-sm items-center border-t pt-2 font-medium">
+                      <span>Total avoirs</span>
+                      <span className="text-right">{fmt.format(totalSaisiesFinancier)}</span>
+                      <span className="text-right">{fmt.format(totalConfiscationsFinancier)}</span>
+                      <span className={`text-right font-bold ${totalSaisiesFinancier - totalConfiscationsFinancier > 0 ? 'text-orange-600' : totalSaisiesFinancier - totalConfiscationsFinancier < 0 ? 'text-green-600' : 'text-gray-500'}`}>
+                        {totalSaisiesFinancier - totalConfiscationsFinancier > 0 ? '+' : ''}{fmt.format(totalSaisiesFinancier - totalConfiscationsFinancier)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">
+                      Orange = saisie {'>'} confiscation (non confisqué par le juge). Vert = confiscation {'>'} saisie.
+                    </p>
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Carte Interdictions de gérer par tag d'infraction */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              Interdictions de gérer
+              <Filter className="h-4 w-4 text-gray-400" />
+            </CardTitle>
+            <p className="text-sm text-gray-500">Pourcentage filtrable par type d'infraction</p>
+          </CardHeader>
+          <CardContent>
+            {(() => {
+              // Filtre multi-select des tags
+              const allYearResults = Object.values(scopedResultats)
+                .filter(r => r.dateAudience && new Date(r.dateAudience).getFullYear() === selectedYear && !r.isOI && !r.isClassement && !r.isAudiencePending);
+
+              // Si des tags sont sélectionnés, filtrer les résultats par type d'infraction
+              const filteredResults = selectedGererTags.length > 0
+                ? allYearResults.filter(r => r.typeInfraction && selectedGererTags.includes(r.typeInfraction))
+                : allYearResults;
+
+              const totalCondFiltered = filteredResults.reduce((acc, r) => acc + r.condamnations.length, 0);
+              const totalGererFiltered = filteredResults.reduce((acc, r) =>
+                acc + r.condamnations.filter(c => c.interdictionGerer).length, 0);
+              const ratioFiltered = totalCondFiltered > 0 ? ((totalGererFiltered / totalCondFiltered) * 100).toFixed(1) : '0';
+
+              return (
+                <div className="space-y-4">
+                  {/* Sélecteur de tags */}
+                  <div>
+                    <label className="text-xs font-medium text-gray-500 mb-1 block">Filtrer par infractions (vide = toutes)</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {infractions.map(tag => {
+                        const isSelected = selectedGererTags.includes(tag.value);
+                        return (
+                          <button
+                            key={tag.id}
+                            onClick={() => {
+                              setSelectedGererTags(prev =>
+                                isSelected ? prev.filter(t => t !== tag.value) : [...prev, tag.value]
+                              );
+                            }}
+                            className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
+                              isSelected
+                                ? 'bg-purple-100 border-purple-300 text-purple-800'
+                                : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                            }`}
+                          >
+                            {tag.value}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {selectedGererTags.length > 0 && (
+                      <button
+                        onClick={() => setSelectedGererTags([])}
+                        className="text-xs text-gray-400 hover:text-gray-600 mt-1"
+                      >
+                        Réinitialiser le filtre
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Résultat */}
+                  <div>
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-2xl font-bold">{totalGererFiltered}</span>
+                      <span className="text-lg font-medium text-purple-600">{ratioFiltered}%</span>
+                    </div>
+                    <p className="text-sm text-gray-500">
+                      {totalGererFiltered} interdiction{totalGererFiltered > 1 ? 's' : ''} de gérer sur {totalCondFiltered} condamnation{totalCondFiltered > 1 ? 's' : ''}
+                      {selectedGererTags.length > 0 && ` (filtré sur ${selectedGererTags.length} tag${selectedGererTags.length > 1 ? 's' : ''})`}
+                    </p>
+                  </div>
+
+                  {/* Détail par infraction si pas de filtre */}
+                  {selectedGererTags.length === 0 && (
+                    <div className="border-t pt-2 space-y-1">
+                      {Object.entries(
+                        allYearResults.reduce<Record<string, { total: number; gerer: number }>>((acc, r) => {
+                          const type = r.typeInfraction || 'Non renseigné';
+                          if (!acc[type]) acc[type] = { total: 0, gerer: 0 };
+                          acc[type].total += r.condamnations.length;
+                          acc[type].gerer += r.condamnations.filter(c => c.interdictionGerer).length;
+                          return acc;
+                        }, {})
+                      )
+                        .filter(([, v]) => v.gerer > 0)
+                        .sort(([, a], [, b]) => b.gerer - a.gerer)
+                        .map(([type, { total, gerer }]) => (
+                          <div key={type} className="flex justify-between text-sm">
+                            <span>{type}</span>
+                            <span className="font-medium">{gerer}/{total} ({total > 0 ? ((gerer / total) * 100).toFixed(0) : 0}%)</span>
+                          </div>
+                        ))
+                      }
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
 
