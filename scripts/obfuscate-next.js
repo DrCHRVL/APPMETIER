@@ -44,4 +44,7 @@ function walkAndObfuscate(dir) {
 
 walkAndObfuscate(path.join(outputDir, '.next', 'server'));
 walkAndObfuscate(path.join(outputDir, '.next', 'static'));
+// Le serveur standalone utilise ses propres copies dans .next/standalone/.next/
+walkAndObfuscate(path.join(outputDir, '.next', 'standalone', '.next', 'server'));
+walkAndObfuscate(path.join(outputDir, '.next', 'standalone', '.next', 'static'));
 console.log('  Build Next.js protege');

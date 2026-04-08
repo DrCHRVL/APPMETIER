@@ -1977,7 +1977,7 @@ function setupIpcHandlers() {
   // Dossiers sources à exclure de la publication (code protégé)
   const SOURCE_DIRS_TO_EXCLUDE = new Set([
     'app', 'components', 'hooks', 'utils', 'services', 'contexts',
-    'config', 'types', 'lib', 'migrations',
+    'config', 'types', 'lib', 'migrations', 'pages',
   ]);
   // Fichiers sources à exclure de la publication
   const SOURCE_FILES_TO_EXCLUDE = new Set([
