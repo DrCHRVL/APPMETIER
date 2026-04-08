@@ -50,16 +50,17 @@ mkdir "%OUTPUT_DIR%"
 echo       OK
 echo.
 
-rem -- Etape 3 : Copier les fichiers necessaires --
+rem -- Etape 3 : Copier les fichiers necessaires (SANS node_modules) --
 echo [3/6] Copie des fichiers compiles...
+echo       (node_modules exclu — sera installe par installer.bat)
 
 xcopy ".next" "%OUTPUT_DIR%\.next" /E /I /Q /Y >nul
-xcopy "node_modules" "%OUTPUT_DIR%\node_modules" /E /I /Q /Y >nul
 if exist "public" xcopy "public" "%OUTPUT_DIR%\public" /E /I /Q /Y >nul
 mkdir "%OUTPUT_DIR%\data"
 if exist "tessdata" xcopy "tessdata" "%OUTPUT_DIR%\tessdata" /E /I /Q /Y >nul
 
 copy "package.json" "%OUTPUT_DIR%\package.json" >nul
+if exist "package-lock.json" copy "package-lock.json" "%OUTPUT_DIR%\package-lock.json" >nul
 if exist "next.config.js" copy "next.config.js" "%OUTPUT_DIR%\next.config.js" >nul
 if exist "next.config.mjs" copy "next.config.mjs" "%OUTPUT_DIR%\next.config.mjs" >nul
 if exist ".npmrc" copy ".npmrc" "%OUTPUT_DIR%\.npmrc" >nul
@@ -102,12 +103,64 @@ set USB_ROOT=%BASE_DIR%..\USB_Distribution
 if exist "%BASE_DIR%..\electron" xcopy "%BASE_DIR%..\electron" "%USB_ROOT%\electron" /E /I /Q /Y >nul
 if exist "%BASE_DIR%..\nodejs" xcopy "%BASE_DIR%..\nodejs" "%USB_ROOT%\nodejs" /E /I /Q /Y >nul
 
-rem Creer le launcher
+rem Creer installer.bat (installation des dependances par le collegue)
+>"%USB_ROOT%\installer.bat" echo @echo off
+>>"%USB_ROOT%\installer.bat" echo setlocal enabledelayedexpansion
+>>"%USB_ROOT%\installer.bat" echo echo ============================================================
+>>"%USB_ROOT%\installer.bat" echo echo    INSTALLATION DES DEPENDANCES
+>>"%USB_ROOT%\installer.bat" echo echo ============================================================
+>>"%USB_ROOT%\installer.bat" echo echo.
+>>"%USB_ROOT%\installer.bat" echo set BASE_DIR=%%~dp0
+>>"%USB_ROOT%\installer.bat" echo set NODE_EXE=%%BASE_DIR%%nodejs\node.exe
+>>"%USB_ROOT%\installer.bat" echo set NPM_CMD=%%BASE_DIR%%nodejs\npm.cmd
+>>"%USB_ROOT%\installer.bat" echo if not exist "%%NODE_EXE%%" (
+>>"%USB_ROOT%\installer.bat" echo     echo ERREUR: nodejs\node.exe introuvable.
+>>"%USB_ROOT%\installer.bat" echo     echo Verifiez que le dossier nodejs est present.
+>>"%USB_ROOT%\installer.bat" echo     pause
+>>"%USB_ROOT%\installer.bat" echo     exit /b 1
+>>"%USB_ROOT%\installer.bat" echo )
+>>"%USB_ROOT%\installer.bat" echo set PATH=%%BASE_DIR%%nodejs;%%PATH%%
+>>"%USB_ROOT%\installer.bat" echo cd "%%BASE_DIR%%Projet1"
+>>"%USB_ROOT%\installer.bat" echo echo Configuration du proxy...
+>>"%USB_ROOT%\installer.bat" echo call "%%NPM_CMD%%" config set proxy http://rie-proxy.justice.gouv.fr:8080
+>>"%USB_ROOT%\installer.bat" echo call "%%NPM_CMD%%" config set https-proxy http://rie-proxy.justice.gouv.fr:8080
+>>"%USB_ROOT%\installer.bat" echo call "%%NPM_CMD%%" config set registry https://registry.npmjs.org/
+>>"%USB_ROOT%\installer.bat" echo call "%%NPM_CMD%%" config set strict-ssl false
+>>"%USB_ROOT%\installer.bat" echo set ELECTRON_SKIP_BINARY_DOWNLOAD=1
+>>"%USB_ROOT%\installer.bat" echo echo.
+>>"%USB_ROOT%\installer.bat" echo echo Installation des modules (peut prendre quelques minutes)...
+>>"%USB_ROOT%\installer.bat" echo call "%%NPM_CMD%%" install --omit=dev
+>>"%USB_ROOT%\installer.bat" echo if %%ERRORLEVEL%% neq 0 (
+>>"%USB_ROOT%\installer.bat" echo     echo.
+>>"%USB_ROOT%\installer.bat" echo     echo ERREUR: L'installation a echoue.
+>>"%USB_ROOT%\installer.bat" echo     echo Verifiez votre connexion reseau et le proxy.
+>>"%USB_ROOT%\installer.bat" echo     pause
+>>"%USB_ROOT%\installer.bat" echo     exit /b 1
+>>"%USB_ROOT%\installer.bat" echo )
+>>"%USB_ROOT%\installer.bat" echo echo.
+>>"%USB_ROOT%\installer.bat" echo echo ============================================================
+>>"%USB_ROOT%\installer.bat" echo echo    INSTALLATION TERMINEE !
+>>"%USB_ROOT%\installer.bat" echo echo ============================================================
+>>"%USB_ROOT%\installer.bat" echo echo Vous pouvez maintenant lancer l'application avec launcher.bat
+>>"%USB_ROOT%\installer.bat" echo echo.
+>>"%USB_ROOT%\installer.bat" echo pause
+
+rem Creer le launcher (avec auto-detection node_modules)
 >"%USB_ROOT%\launcher.bat" echo @echo off
->>"%USB_ROOT%\launcher.bat" echo echo Starting Application...
 >>"%USB_ROOT%\launcher.bat" echo set BASE_DIR=%%~dp0
 >>"%USB_ROOT%\launcher.bat" echo set ELECTRON_OVERRIDE_DIST_PATH=%%BASE_DIR%%electron
 >>"%USB_ROOT%\launcher.bat" echo cd Projet1
+>>"%USB_ROOT%\launcher.bat" echo if not exist "node_modules" (
+>>"%USB_ROOT%\launcher.bat" echo     echo ============================================================
+>>"%USB_ROOT%\launcher.bat" echo     echo    PREMIER LANCEMENT : installation des dependances...
+>>"%USB_ROOT%\launcher.bat" echo     echo ============================================================
+>>"%USB_ROOT%\launcher.bat" echo     echo.
+>>"%USB_ROOT%\launcher.bat" echo     cd "%%BASE_DIR%%"
+>>"%USB_ROOT%\launcher.bat" echo     call installer.bat
+>>"%USB_ROOT%\launcher.bat" echo     if %%ERRORLEVEL%% neq 0 exit /b 1
+>>"%USB_ROOT%\launcher.bat" echo     cd Projet1
+>>"%USB_ROOT%\launcher.bat" echo )
+>>"%USB_ROOT%\launcher.bat" echo echo Starting Application...
 >>"%USB_ROOT%\launcher.bat" echo call start-next.bat
 >>"%USB_ROOT%\launcher.bat" echo echo Waiting for Next.js server to start...
 >>"%USB_ROOT%\launcher.bat" echo set /a attempts=0
@@ -136,13 +189,15 @@ echo Le dossier USB est pret dans :
 echo   %USB_ROOT%
 echo.
 echo Contenu :
-echo   - launcher.bat       lance l'app en mode production
+echo   - launcher.bat       lance l'app (auto-installe au 1er lancement)
+echo   - installer.bat      installe les dependances manuellement
 echo   - electron\          runtime Electron
 echo   - nodejs\            runtime Node.js
-echo   - Projet1\           app compilee et protegee
+echo   - Projet1\           app compilee et protegee (sans node_modules)
 echo.
 echo Les fichiers sources ne sont PAS inclus.
 echo Le code est compile et obfusque.
+echo node_modules n'est PAS inclus (installe automatiquement au 1er lancement).
 echo.
 echo Copiez ce dossier sur une cle USB pour vos collegues.
 echo ============================================================
