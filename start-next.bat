@@ -9,8 +9,34 @@ if exist ".dev-mode" (
     start "Next.js" ..\nodejs\node.exe node_modules\next\dist\bin\next dev
 ) else (
     echo [PROD] Demarrage en mode production...
+
+    rem Verifier que le build production existe
+    if not exist ".next\standalone\server.js" (
+        echo Build production introuvable. Compilation en cours...
+        echo Cela peut prendre quelques minutes...
+        echo.
+        if exist "node_modules\next\dist\bin\next" (
+            ..\nodejs\node.exe node_modules\next\dist\bin\next build
+            if %ERRORLEVEL% neq 0 (
+                echo.
+                echo ERREUR: La compilation a echoue.
+                exit /b 1
+            )
+        ) else (
+            echo ERREUR: .next\standalone\server.js introuvable et Next.js non disponible.
+            echo Lancez d'abord : npm run build
+            exit /b 1
+        )
+    )
+
     rem Copie des assets statiques pour le serveur standalone (rafraichie a chaque demarrage)
-    xcopy /E /I /Q /Y ".next\static" ".next\standalone\.next\static\" >nul 2>&1
-    xcopy /E /I /Q /Y "public" ".next\standalone\public\" >nul 2>&1
-    start "Next.js" ..\nodejs\node.exe .next\standalone\server.js
+    if exist ".next\static" (
+        xcopy /E /I /Q /Y ".next\static" ".next\standalone\.next\static\" >nul 2>&1
+    )
+    if exist "public" (
+        xcopy /E /I /Q /Y "public" ".next\standalone\public\" >nul 2>&1
+    )
+
+    rem Demarrer le serveur standalone avec log d'erreurs pour diagnostic
+    start "Next.js" cmd /c "..\nodejs\node.exe .next\standalone\server.js 2>.next\server-error.log"
 )
