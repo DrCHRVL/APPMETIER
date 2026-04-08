@@ -615,6 +615,11 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
       <div class="card-value">${stats?.totalInterdictionsParaitre || 0}</div>
       <div class="card-detail">${stats && stats.nombreCondamnations > 0 ? ((stats.totalInterdictionsParaitre / stats.nombreCondamnations) * 100).toFixed(1) : 0}% des condamnations</div>
     </div>
+    <div class="card">
+      <div class="card-label">Interdictions de gerer</div>
+      <div class="card-value">${stats?.totalInterdictionsGerer || 0}</div>
+      <div class="card-detail">${stats && stats.nombreCondamnations > 0 ? ((stats.totalInterdictionsGerer / stats.nombreCondamnations) * 100).toFixed(1) : 0}% des condamnations</div>
+    </div>
   </div>
   <div class="cards-row">
     <div class="card">
@@ -636,6 +641,21 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   </div>
   ${(stats?.totalStupefiants || 0) > 0 ? `<div style="margin-top:6px;font-size:10px;color:#555">${stats?.totalStupefiants} dossier(s) avec stupefiants saisis</div>` : ''}
 </div>
+
+${(stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalSaisiesImmeubles || 0) > 0 ? `
+<div class="section-nobreak">
+  <div class="section-title">Delta saisies (enquete) vs confiscations (audience)</div>
+  <table>
+    <tr><th>Categorie</th><th class="text-right">Saisi</th><th class="text-right">Confisque</th><th class="text-right">Delta</th></tr>
+    ${(stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalVehicules || 0) > 0 ? `<tr><td>Vehicules</td><td class="text-right">${stats?.totalSaisiesVehicules || 0}</td><td class="text-right">${stats?.totalVehicules || 0}</td><td class="text-right">${(stats?.totalSaisiesVehicules || 0) - (stats?.totalVehicules || 0)}</td></tr>` : ''}
+    ${(stats?.totalSaisiesImmeubles || 0) > 0 || (stats?.totalImmeubles || 0) > 0 ? `<tr><td>Immeubles</td><td class="text-right">${stats?.totalSaisiesImmeubles || 0}</td><td class="text-right">${stats?.totalImmeubles || 0}</td><td class="text-right">${(stats?.totalSaisiesImmeubles || 0) - (stats?.totalImmeubles || 0)}</td></tr>` : ''}
+    ${(stats?.totalSaisiesNumeraire || 0) > 0 || (stats?.totalNumeraire || 0) > 0 ? `<tr><td>Numeraire</td><td class="text-right">${formatCurrency(stats?.totalSaisiesNumeraire || 0)}</td><td class="text-right">${formatCurrency(stats?.totalNumeraire || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesNumeraire || 0) - (stats?.totalNumeraire || 0))}</td></tr>` : ''}
+    ${(stats?.totalSaisiesBancaire || 0) > 0 || (stats?.totalBancaire || 0) > 0 ? `<tr><td>Bancaire</td><td class="text-right">${formatCurrency(stats?.totalSaisiesBancaire || 0)}</td><td class="text-right">${formatCurrency(stats?.totalBancaire || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesBancaire || 0) - (stats?.totalBancaire || 0))}</td></tr>` : ''}
+    ${(stats?.totalSaisiesCrypto || 0) > 0 || (stats?.totalCrypto || 0) > 0 ? `<tr><td>Crypto</td><td class="text-right">${formatCurrency(stats?.totalSaisiesCrypto || 0)}</td><td class="text-right">${formatCurrency(stats?.totalCrypto || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesCrypto || 0) - (stats?.totalCrypto || 0))}</td></tr>` : ''}
+    <tr style="font-weight:bold;border-top:2px solid #333"><td>Total avoirs</td><td class="text-right">${formatCurrency(stats?.totalSaisiesArgent || 0)}</td><td class="text-right">${formatCurrency(stats?.totalArgent || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesArgent || 0) - (stats?.totalArgent || 0))}</td></tr>
+  </table>
+</div>
+` : ''}
 
 <!-- Peines par type d'infraction -->
 ${stats?.peinesParInfraction && Object.keys(stats.peinesParInfraction).length > 0 ? `

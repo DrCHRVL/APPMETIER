@@ -70,6 +70,7 @@ export const AudienceResultModal = ({
       sursisSimple: 0,
       peineAmende: 0,
       interdictionParaitre: false,
+      interdictionGerer: false,
       typeAudience: 'CRPC-Def' as const,
       defere: true,
       dateDefere: '',
@@ -82,9 +83,36 @@ export const AudienceResultModal = ({
   const initialCondamnations = buildInitialCondamnations();
   const [nbCondamnes, setNbCondamnes] = useState(initialCondamnations.length || 0);
   const [condamnations, setCondamnations] = useState<ExtendedCondamnationData[]>(initialCondamnations);
-  const [confiscations, setConfiscations] = useState<Confiscations>(
-    initialData?.confiscations ? migrateConfiscations(initialData.confiscations) : emptyConfiscations()
-  );
+  // Si des saisies existent et que les confiscations sont vides, pré-remplir les confiscations depuis les saisies
+  const getInitialConfiscations = (): Confiscations => {
+    if (initialData?.confiscations) {
+      const migrated = migrateConfiscations(initialData.confiscations);
+      const isEmpty = migrated.vehicules.length === 0 && migrated.immeubles.length === 0 &&
+        migrated.numeraire === 0 && migrated.saisiesBancaires.length === 0 &&
+        migrated.cryptomonnaies.length === 0 && migrated.objetsMobiliers.length === 0 &&
+        !migrated.stupefiants?.types?.length;
+      // Si confiscations déjà renseignées, les utiliser
+      if (!isEmpty) return migrated;
+    }
+    // Sinon, pré-remplir depuis les saisies si disponibles
+    if (initialData?.saisies) {
+      return JSON.parse(JSON.stringify(initialData.saisies));
+    }
+    return emptyConfiscations();
+  };
+  const [confiscations, setConfiscations] = useState<Confiscations>(getInitialConfiscations());
+  const [prefilledFromSaisies] = useState<boolean>(() => {
+    if (!initialData?.saisies) return false;
+    if (initialData?.confiscations) {
+      const migrated = migrateConfiscations(initialData.confiscations);
+      const isEmpty = migrated.vehicules.length === 0 && migrated.immeubles.length === 0 &&
+        migrated.numeraire === 0 && migrated.saisiesBancaires.length === 0 &&
+        migrated.cryptomonnaies.length === 0 && migrated.objetsMobiliers.length === 0 &&
+        !migrated.stupefiants?.types?.length;
+      return isEmpty;
+    }
+    return true;
+  });
 
   const { showToast } = useToast();
   const { audienceState } = useAudience();
@@ -122,6 +150,7 @@ export const AudienceResultModal = ({
         sursisSimple: 0,
         peineAmende: 0,
         interdictionParaitre: false,
+        interdictionGerer: false,
         typeAudience: 'CRPC-Def' as const,
         defere: true,
         dateDefere: '',
@@ -137,7 +166,7 @@ export const AudienceResultModal = ({
     newCondamnations[index] = {
       ...newCondamnations[index],
       [field]: field === 'nom' || field === 'dateDefere' || field === 'lieuInterdictionParaitre' ? value :
-               field === 'interdictionParaitre' || field === 'defere' || field === 'isPending' ? Boolean(value) :
+               field === 'interdictionParaitre' || field === 'interdictionGerer' || field === 'defere' || field === 'isPending' ? Boolean(value) :
                field === 'typeAudience' || field === 'dateAudiencePending' ? value :
                (parseInt(value as string) || 0)
     };
@@ -493,6 +522,30 @@ export const AudienceResultModal = ({
                         </div>
                       </div>
                     )}
+                    <div className="col-span-2 flex items-center gap-2 mt-2">
+                      <input
+                        type="checkbox"
+                        id={`interdiction-gerer-${index}`}
+                        checked={!!condamnation.interdictionGerer}
+                        onChange={(e) => updateCondamnation(index, 'interdictionGerer', e.target.checked)}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      <Label htmlFor={`interdiction-gerer-${index}`}>Interdiction de gérer</Label>
+                    </div>
+                    {condamnation.interdictionGerer && (
+                      <div className="col-span-2 pl-6 border-l-2 border-purple-300 mt-1">
+                        <div>
+                          <Label>Durée (mois)</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            placeholder="Ex: 24"
+                            value={condamnation.dureeInterdictionGerer || ''}
+                            onChange={(e) => updateCondamnation(index, 'dureeInterdictionGerer', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </>
               )}
@@ -511,6 +564,16 @@ export const AudienceResultModal = ({
           {/* Confiscations */}
           <div className="border-t pt-4">
             <h3 className="font-medium mb-4">Confiscations et saisies</h3>
+            {prefilledFromSaisies && (
+              <div className="bg-green-50 border border-green-200 p-3 rounded-lg mb-4">
+                <p className="text-sm text-green-800 font-medium">
+                  Les confiscations ont été pré-remplies depuis les saisies effectuées en phase d'enquête.
+                </p>
+                <p className="text-xs text-green-600 mt-1">
+                  Vous pouvez valider tel quel ou modifier les valeurs si le juge a confisqué différemment.
+                </p>
+              </div>
+            )}
 
             {/* --- Véhicules --- */}
             <details className="mb-4 border rounded-lg">

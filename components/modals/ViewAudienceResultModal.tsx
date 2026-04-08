@@ -281,6 +281,15 @@ export const ViewAudienceResultModal = ({
                           </span>
                         </div>
                       )}
+                      {condamnation.interdictionGerer && (
+                        <div className="col-span-2">
+                          <span className="text-gray-600">Interdiction de gérer</span>
+                          <span className="ml-2">
+                            Oui
+                            {condamnation.dureeInterdictionGerer && ` (${condamnation.dureeInterdictionGerer} mois)`}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
