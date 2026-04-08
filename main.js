@@ -1988,6 +1988,9 @@ function setupIpcHandlers() {
     'README.md', '.gitignore',
   ]);
 
+  // Skip set combiné pour les copies async de publication
+  const SKIP_ON_PUBLISH = new Set([...SKIP_ON_UPDATE, ...SOURCE_DIRS_TO_EXCLUDE, ...SOURCE_FILES_TO_EXCLUDE]);
+
   const LOCAL_VERSION_FILE = path.join(dataFolder, 'app-version-lan.json');
 
   function getUpdatesDir() {
@@ -2169,6 +2172,65 @@ function setupIpcHandlers() {
   }
 
   /**
+   * Obfusque un fichier JS dans un worker thread (non-bloquant pour le main process)
+   */
+  function obfuscateFileAsync(filePath) {
+    return new Promise((resolve, reject) => {
+      const { Worker } = require('worker_threads')
+      const workerCode = `
+        const { parentPort, workerData } = require('worker_threads')
+        try {
+          const fs = require('fs')
+          const JavaScriptObfuscator = require(workerData.obfuscatorPath)
+          const code = fs.readFileSync(workerData.filePath, 'utf8')
+          const result = JavaScriptObfuscator.obfuscate(code, {
+            compact: true,
+            controlFlowFlattening: true,
+            controlFlowFlatteningThreshold: 0.7,
+            deadCodeInjection: true,
+            deadCodeInjectionThreshold: 0.3,
+            identifierNamesGenerator: 'hexadecimal',
+            renameGlobals: false,
+            selfDefending: true,
+            stringArray: true,
+            stringArrayEncoding: ['rc4'],
+            stringArrayThreshold: 0.9,
+            stringArrayRotate: true,
+            stringArrayShuffle: true,
+            transformObjectKeys: true,
+            unicodeEscapeSequence: true,
+            numbersToExpressions: true,
+            splitStrings: true,
+            splitStringsChunkLength: 5,
+          })
+          fs.writeFileSync(workerData.filePath, result.getObfuscatedCode(), 'utf8')
+          parentPort.postMessage({ success: true })
+        } catch (e) {
+          parentPort.postMessage({ success: false, error: e.message })
+        }
+      `
+      const worker = new Worker(workerCode, {
+        eval: true,
+        workerData: {
+          filePath,
+          obfuscatorPath: require.resolve('javascript-obfuscator'),
+        },
+      })
+      worker.on('message', (msg) => {
+        if (msg.success) resolve(true)
+        else {
+          console.error(`⚠️ Obfuscation échouée pour ${filePath}: ${msg.error}`)
+          resolve(false)
+        }
+      })
+      worker.on('error', (err) => {
+        console.error(`⚠️ Worker obfuscation error pour ${filePath}: ${err.message}`)
+        resolve(false)
+      })
+    })
+  }
+
+  /**
    * Lance "next build" dans un dossier de sortie séparé (.next-publish)
    * pour ne pas casser le serveur next dev en cours d'exécution.
    * Retourne le chemin du dossier build produit.
@@ -2232,24 +2294,28 @@ function setupIpcHandlers() {
       }
       fs.mkdirSync(sourceDir, { recursive: true })
 
-      // Étape 3 : Copier le build (.next-publish/) vers le dossier de publication
+      // Étape 3 : Copier le build (.next-publish/) vers le dossier de publication (async pour ne pas bloquer l'UI)
       sendProgress('copy', 'Copie du build...', 3)
       const destNextDir = path.join(sourceDir, '.next')
       fs.mkdirSync(destNextDir, { recursive: true })
-      copyDirForUpdate(buildOutputDir, destNextDir)
+      await copyDirAsync(buildOutputDir, destNextDir, SKIP_ON_UPDATE, (copied, total) => {
+        sendProgress('copy', `Copie du build... ${copied}/${total}`, 3)
+      })
 
-      // Copier les fichiers nécessaires (sans les sources)
-      copyDirForPublish(__dirname, sourceDir)
+      // Copier les fichiers nécessaires (sans les sources) — async
+      await copyDirAsync(__dirname, sourceDir, SKIP_ON_PUBLISH, (copied, total) => {
+        sendProgress('copy', `Copie des fichiers... ${copied}/${total}`, 3)
+      })
 
       // Nettoyage du build temporaire
       try { fs.rmSync(buildOutputDir, { recursive: true, force: true }) } catch {}
 
-      // Étape 4 : Obfusquer main.js et preload.js dans la copie publiée
+      // Étape 4 : Obfusquer main.js et preload.js dans la copie publiée (worker thread pour ne pas bloquer l'UI)
       sendProgress('obfuscate', 'Protection du code (obfuscation)...', 4)
       const publishedMain = path.join(sourceDir, 'main.js')
       const publishedPreload = path.join(sourceDir, 'preload.js')
-      if (fs.existsSync(publishedMain)) obfuscateFile(publishedMain)
-      if (fs.existsSync(publishedPreload)) obfuscateFile(publishedPreload)
+      if (fs.existsSync(publishedMain)) await obfuscateFileAsync(publishedMain)
+      if (fs.existsSync(publishedPreload)) await obfuscateFileAsync(publishedPreload)
 
       // Étape 5 : Générer le fichier d'intégrité pour la copie publiée
       sendProgress('integrity', 'Génération de l\'empreinte d\'intégrité...', 5)
@@ -2321,15 +2387,19 @@ function setupIpcHandlers() {
       }
       fs.mkdirSync(appDir, { recursive: true })
 
-      // Étape 3 : Copier le build .next-publish/
+      // Étape 3 : Copier le build .next-publish/ (async pour ne pas bloquer l'UI)
       sendProgress('copy', 'Copie du build compilé...', 3)
       const destNextDir = path.join(appDir, '.next')
       fs.mkdirSync(destNextDir, { recursive: true })
-      copyDirForUpdate(buildOutputDir, destNextDir)
+      await copyDirAsync(buildOutputDir, destNextDir, SKIP_ON_UPDATE, (copied, total) => {
+        sendProgress('copy', `Copie du build compilé... ${copied}/${total}`, 3)
+      })
 
-      // Étape 4 : Copier les fichiers de l'app (sans les sources)
+      // Étape 4 : Copier les fichiers de l'app (sans les sources) — async
       sendProgress('copy', 'Copie des fichiers de l\'application...', 4)
-      copyDirForPublish(__dirname, appDir)
+      await copyDirAsync(__dirname, appDir, SKIP_ON_PUBLISH, (copied, total) => {
+        sendProgress('copy', `Copie des fichiers de l'application... ${copied}/${total}`, 4)
+      })
 
       // Nettoyage du build temporaire
       try { fs.rmSync(buildOutputDir, { recursive: true, force: true }) } catch {}
@@ -2356,12 +2426,12 @@ function setupIpcHandlers() {
         await copyDirAsync(tessdataSrc, tessdataDest, new Set())
       }
 
-      // Étape 6 : Obfusquer main.js et preload.js
+      // Étape 6 : Obfusquer main.js et preload.js (worker thread pour ne pas bloquer l'UI)
       sendProgress('obfuscate', 'Protection du code (obfuscation)...', 6)
       const publishedMain = path.join(appDir, 'main.js')
       const publishedPreload = path.join(appDir, 'preload.js')
-      if (fs.existsSync(publishedMain)) obfuscateFile(publishedMain)
-      if (fs.existsSync(publishedPreload)) obfuscateFile(publishedPreload)
+      if (fs.existsSync(publishedMain)) await obfuscateFileAsync(publishedMain)
+      if (fs.existsSync(publishedPreload)) await obfuscateFileAsync(publishedPreload)
 
       // Étape 7 : Générer l'intégrité + copier les runtimes
       sendProgress('runtime', 'Copie des runtimes (Electron + Node.js)...', 7)
@@ -2450,8 +2520,8 @@ function setupIpcHandlers() {
       const sourceDir = path.join(updatesDir, 'source')
       if (fs.existsSync(sourceDir)) fs.rmSync(sourceDir, { recursive: true, force: true })
       fs.mkdirSync(sourceDir, { recursive: true })
-      copyDirForUpdate(path.join(appDir, '.next'), path.join(sourceDir, '.next'))
-      copyDirForPublish(appDir, sourceDir)
+      await copyDirAsync(path.join(appDir, '.next'), path.join(sourceDir, '.next'), SKIP_ON_UPDATE)
+      await copyDirAsync(appDir, sourceDir, SKIP_ON_PUBLISH)
       const updateManifest = { version, publishedAt: now, publishedBy: os.userInfo().username, changelog: changelog || '' }
       fs.writeFileSync(getManifestPath(), JSON.stringify(updateManifest, null, 2), 'utf8')
       saveLocalLanVersion(updateManifest)
