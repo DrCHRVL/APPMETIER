@@ -2919,25 +2919,6 @@ function setupIpcHandlers() {
 
   const GITHUB_REPO = 'DrCHRVL/APPMETIER';
 
-  // Lit un token GitHub optionnel depuis data/github-token.txt (augmente la limite API de 60 à 5000 req/h)
-  function getGithubToken() {
-    try {
-      const tokenFile = path.join(dataFolder, 'github-token.txt');
-      if (fs.existsSync(tokenFile)) {
-        return fs.readFileSync(tokenFile, 'utf8').trim();
-      }
-    } catch {}
-    return null;
-  }
-
-  // Headers communs pour l'API GitHub (User-Agent + token si disponible)
-  function githubHeaders(extra = {}) {
-    const headers = { 'User-Agent': 'APPMETIER-updater', 'Accept': 'application/vnd.github.v3+json', ...extra };
-    const token = getGithubToken();
-    if (token) headers['Authorization'] = `token ${token}`;
-    return headers;
-  }
-
   // Détection du proxy depuis les variables d'environnement ou .npmrc
   function getProxyUrl() {
     // Variables d'environnement standard
@@ -2994,7 +2975,7 @@ function setupIpcHandlers() {
           const options = {
             hostname: parsed.hostname,
             path: parsed.pathname + parsed.search,
-            headers: parsed.hostname.includes('github') ? githubHeaders(extraHeaders) : { 'User-Agent': 'APPMETIER-updater', ...extraHeaders },
+            headers: { 'User-Agent': 'APPMETIER-updater', ...extraHeaders },
             timeout: 30000
           };
           if (socket) { options.socket = socket; options.agent = false; }
@@ -3009,7 +2990,7 @@ function setupIpcHandlers() {
               res.resume();
               if (socket) socket.destroy();
               const msg = res.statusCode === 403
-                ? 'HTTP 403 — Limite API GitHub atteinte. Créez un fichier data/github-token.txt avec un Personal Access Token.'
+                ? 'HTTP 403 — Limite API GitHub atteinte (60 req/h). Réessayez dans quelques minutes.'
                 : `HTTP ${res.statusCode}`;
               reject(new Error(msg));
               return;
@@ -3039,7 +3020,7 @@ function setupIpcHandlers() {
           const options = {
             hostname: parsed.hostname,
             path: parsed.pathname + parsed.search,
-            headers: parsed.hostname.includes('github') ? githubHeaders() : { 'User-Agent': 'APPMETIER-updater' },
+            headers: { 'User-Agent': 'APPMETIER-updater' },
             timeout: timeoutMs
           };
           if (socket) { options.socket = socket; options.agent = false; }
@@ -3054,7 +3035,7 @@ function setupIpcHandlers() {
               res.resume();
               if (socket) socket.destroy();
               const msg = res.statusCode === 403
-                ? 'HTTP 403 — Limite API GitHub atteinte. Créez un fichier data/github-token.txt avec un Personal Access Token.'
+                ? 'HTTP 403 — Limite API GitHub atteinte (60 req/h). Réessayez dans quelques minutes.'
                 : `HTTP ${res.statusCode}`;
               reject(new Error(msg));
               return;
@@ -3109,26 +3090,39 @@ function setupIpcHandlers() {
   // copyDir pour GitHub updater — réutilise copyDirForUpdate
   const copyDir = copyDirForUpdate;
 
-  ipcMain.handle('app:checkUpdate', async () => {
+  // Cache pour éviter de surcharger l'API GitHub (limite : 60 req/h sans token)
+  let lastCheckResult = null;
+  let lastCheckTime = 0;
+  const CHECK_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes entre chaque appel API
+
+  ipcMain.handle('app:checkUpdate', async (_event, forceRefresh = false) => {
+    // Retourner le cache si la dernière vérification est récente
+    if (!forceRefresh && lastCheckResult && (Date.now() - lastCheckTime) < CHECK_COOLDOWN_MS) {
+      console.log('[Update] Résultat en cache (encore', Math.round((CHECK_COOLDOWN_MS - (Date.now() - lastCheckTime)) / 1000), 's)');
+      return lastCheckResult;
+    }
     const noCacheHeaders = { 'Cache-Control': 'no-cache', 'If-None-Match': '' };
+    let result;
     try {
       const body = await httpsGet(`https://api.github.com/repos/${GITHUB_REPO}/commits/main`, noCacheHeaders);
       const data = JSON.parse(body);
       const remoteSha = data.sha;
-      if (!remoteSha) return { hasUpdate: false, commits: 0, error: 'SHA distant non trouvé', localSha: null, remoteSha: null };
+      if (!remoteSha) { result = { hasUpdate: false, commits: 0, error: 'SHA distant non trouvé', localSha: null, remoteSha: null }; lastCheckResult = result; lastCheckTime = Date.now(); return result; }
       const localSha = getLocalSha();
 
       // Si pas de SHA local → premier déploiement, on enregistre le SHA distant comme référence
       if (!localSha) {
         console.log('[Update] Pas de SHA local trouvé → premier déploiement, on enregistre le SHA distant:', remoteSha);
         try { fs.writeFileSync(path.join(dataFolder, 'app-version.txt'), remoteSha); } catch {}
-        return { hasUpdate: false, commits: 0, localSha: remoteSha, remoteSha };
+        result = { hasUpdate: false, commits: 0, localSha: remoteSha, remoteSha };
+        lastCheckResult = result; lastCheckTime = Date.now(); return result;
       }
 
       // Si identiques → à jour
       if (localSha === remoteSha) {
         console.log('[Update] À jour. SHA:', localSha);
-        return { hasUpdate: false, commits: 0, localSha, remoteSha };
+        result = { hasUpdate: false, commits: 0, localSha, remoteSha };
+        lastCheckResult = result; lastCheckTime = Date.now(); return result;
       }
 
       // SHA différents → utiliser l'API compare pour le vrai nombre de commits
@@ -3146,9 +3140,11 @@ function setupIpcHandlers() {
         console.log('[Update] Compare API failed, fallback à 1 commit:', compareErr.message);
       }
       console.log('[Update] Mise à jour disponible:', commits, 'commit(s). Local:', localSha, 'Remote:', remoteSha);
-      return { hasUpdate: true, commits, localSha, remoteSha };
+      result = { hasUpdate: true, commits, localSha, remoteSha };
+      lastCheckResult = result; lastCheckTime = Date.now(); return result;
     } catch (error) {
       console.log('[Update] Erreur check:', error.message);
+      // Ne pas cacher les erreurs pour permettre un retry rapide
       return { hasUpdate: false, commits: 0, error: error.message, localSha: null, remoteSha: null };
     }
   });
