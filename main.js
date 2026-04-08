@@ -2486,13 +2486,20 @@ function setupIpcHandlers() {
       }
 
       // Copier Electron runtime
+      // IMPORTANT : désactiver le traitement ASAR d'Electron pour copier les .asar
+      // comme des fichiers normaux (sinon fs les traite comme des dossiers virtuels → ENOENT)
       const electronSrc = path.resolve(__dirname, '..', 'electron')
       if (fs.existsSync(electronSrc)) {
         const electronDest = path.join(installDir, 'electron')
         fs.mkdirSync(electronDest, { recursive: true })
-        await copyDirAsync(electronSrc, electronDest, new Set(), (copied, total) => {
-          sendProgress('staging', `Copie d'Electron... ${copied}/${total}`, 2)
-        })
+        process.noAsar = true
+        try {
+          await copyDirAsync(electronSrc, electronDest, new Set(), (copied, total) => {
+            sendProgress('staging', `Copie d'Electron... ${copied}/${total}`, 2)
+          })
+        } finally {
+          process.noAsar = false
+        }
       }
 
       // Copier Node.js runtime
@@ -2822,7 +2829,7 @@ function setupIpcHandlers() {
       console.log(`✅ LAN update: version ${manifest.version} appliquée, redémarrage...`)
 
       // 5. Redémarrage
-      app.relaunch()
+      app.relaunch({ args: [__dirname] })
       app.exit(0)
       return { success: true }
     } catch (error) {
@@ -2852,7 +2859,7 @@ function setupIpcHandlers() {
       }
 
       console.log('✅ LAN update: rollback appliqué, redémarrage...')
-      app.relaunch()
+      app.relaunch({ args: [__dirname] })
       app.exit(0)
       return { success: true }
     } catch (error) {
@@ -3169,7 +3176,7 @@ function setupIpcHandlers() {
       try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch {}
 
       // 6. Redémarrage
-      app.relaunch();
+      app.relaunch({ args: [__dirname] });
       app.exit(0);
       return { success: true };
     } catch (error) {
@@ -3338,7 +3345,7 @@ app.whenReady().then(async () => {
             )
 
             console.log(`✅ Auto-update: version ${manifest.version} appliquée, redémarrage...`)
-            app.relaunch()
+            app.relaunch({ args: [__dirname] })
             app.exit(0)
             return // Ne pas créer la fenêtre
           }

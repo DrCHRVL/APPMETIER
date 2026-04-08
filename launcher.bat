@@ -36,7 +36,7 @@ if %ERRORLEVEL% neq 0 goto WAIT_LOOP
 
 rem -- Lancer Electron --
 echo Lancement de l'application...
-start "" "%BASE_DIR%electron\electron.exe" .
+start "" "%BASE_DIR%electron\electron.exe" "%BASE_DIR%Projet1"
 goto END
 
 :TIMEOUT
