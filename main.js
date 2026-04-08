@@ -1984,7 +1984,7 @@ function setupIpcHandlers() {
     'layout.tsx', 'page.tsx', 'globals.css', 'print.css',
     'next-env.d.ts', '.eslintrc.json', 'postcss.config.js',
     'tailwind.config.js', 'tailwind.config.ts', 'tsconfig.json',
-    'preparer-usb.bat', '.dev-mode', 'ui-preview.html',
+    'preparer-usb.bat', 'installer.bat', '.dev-mode', 'ui-preview.html',
     'README.md', '.gitignore',
   ]);
 
@@ -2456,14 +2456,16 @@ function setupIpcHandlers() {
       // Nettoyage du build temporaire
       try { fs.rmSync(buildOutputDir, { recursive: true, force: true }) } catch {}
 
-      // Copier node_modules
-      const nodeModulesSrc = path.join(__dirname, 'node_modules')
-      if (fs.existsSync(nodeModulesSrc)) {
-        const nodeModulesDest = path.join(appDir, 'node_modules')
-        fs.mkdirSync(nodeModulesDest, { recursive: true })
-        await copyDirAsync(nodeModulesSrc, nodeModulesDest, new Set(), (copied, total) => {
-          sendProgress('staging', `Copie des dépendances... ${copied}/${total}`, 2)
-        })
+      // Générer un package.json allégé (sans devDependencies) pour npm install --production
+      const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'))
+      delete pkg.devDependencies
+      if (pkg.dependencies) delete pkg.dependencies['javascript-obfuscator']
+      fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify(pkg, null, 2), 'utf8')
+
+      // Copier package-lock.json pour des installs reproductibles
+      const lockSrc = path.join(__dirname, 'package-lock.json')
+      if (fs.existsSync(lockSrc)) {
+        fs.copyFileSync(lockSrc, path.join(appDir, 'package-lock.json'))
       }
 
       // Créer le dossier data vide
@@ -2503,31 +2505,11 @@ function setupIpcHandlers() {
         })
       }
 
-      // Créer le launcher.bat
-      const launcherContent = [
-        '@echo off',
-        'echo Demarrage de l\'application...',
-        'set BASE_DIR=%~dp0',
-        'set ELECTRON_OVERRIDE_DIST_PATH=%BASE_DIR%electron',
-        'cd Projet1',
-        'call start-next.bat',
-        'echo Attente du serveur Next.js...',
-        'set /a attempts=0',
-        ':WAIT_LOOP',
-        'if %attempts% geq 20 goto TIMEOUT',
-        'timeout /t 1 /nobreak >nul',
-        'set /a attempts+=1',
-        'curl -s http://localhost:3000 >nul 2>&1',
-        'if %ERRORLEVEL% neq 0 goto WAIT_LOOP',
-        'echo Lancement d\'Electron...',
-        'start "" ..\\electron\\electron.exe .',
-        'goto END',
-        ':TIMEOUT',
-        'echo Timeout: le serveur Next.js ne repond pas',
-        'exit /b 1',
-        ':END',
-      ].join('\r\n')
-      fs.writeFileSync(path.join(installDir, 'launcher.bat'), launcherContent, 'ascii')
+      // Copier launcher.bat et installer.bat depuis le projet
+      const launcherSrc = path.join(__dirname, 'launcher.bat')
+      const installerSrc = path.join(__dirname, 'installer.bat')
+      if (fs.existsSync(launcherSrc)) fs.copyFileSync(launcherSrc, path.join(installDir, 'launcher.bat'))
+      if (fs.existsSync(installerSrc)) fs.copyFileSync(installerSrc, path.join(installDir, 'installer.bat'))
 
       // Étape 3 : Obfusquer + intégrité (en local, rapide)
       sendProgress('obfuscate', 'Protection du code (obfuscation)...', 3)
