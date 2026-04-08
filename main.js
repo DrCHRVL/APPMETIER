@@ -2252,18 +2252,31 @@ function setupIpcHandlers() {
   }
 
   /**
-   * Crée une archive ZIP via PowerShell (zéro dépendance npm)
+   * Crée une archive ZIP via archiver (Node.js, fiable et cross-platform)
    */
-  function createZipPowerShell(sourceDir, zipPath) {
+  function createZipArchiver(sourceDir, zipPath) {
     return new Promise((resolve, reject) => {
+      const archiver = require('archiver')
       // Supprimer le ZIP s'il existe déjà
       if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath)
-      const cmd = `powershell -NoProfile -Command "Compress-Archive -Path '${sourceDir}\\*' -DestinationPath '${zipPath}' -Force"`
-      console.log(`📦 ZIP: ${cmd}`)
-      exec(cmd, { timeout: 600000 }, (err, stdout, stderr) => {
-        if (err) reject(new Error(`ZIP échoué: ${stderr || err.message}`))
-        else resolve()
+
+      const output = fs.createWriteStream(zipPath)
+      const archive = archiver('zip', { zlib: { level: 5 } })
+
+      output.on('close', () => {
+        console.log(`📦 ZIP finalisé : ${archive.pointer()} octets`)
+        resolve()
       })
+      archive.on('warning', (err) => {
+        if (err.code === 'ENOENT') console.warn('⚠️ ZIP warning:', err.message)
+        else reject(err)
+      })
+      archive.on('error', (err) => reject(new Error(`ZIP échoué: ${err.message}`)))
+
+      archive.pipe(output)
+      // Ajouter le contenu du dossier à la racine du ZIP (false = pas de dossier parent)
+      archive.directory(sourceDir, false)
+      archive.finalize()
     })
   }
 
@@ -2553,7 +2566,7 @@ function setupIpcHandlers() {
 
       sendProgress('zip', 'Création de l\'archive ZIP...', 4)
       const zipPath = path.join(stagingBase, 'Installation.zip')
-      await createZipPowerShell(installDir, zipPath)
+      await createZipArchiver(installDir, zipPath)
       const zipSize = fs.statSync(zipPath).size
       const zipSizeMB = (zipSize / (1024 * 1024)).toFixed(1)
       console.log(`📦 ZIP créé : ${zipSizeMB} Mo`)
