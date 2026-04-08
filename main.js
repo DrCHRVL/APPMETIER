@@ -2701,10 +2701,10 @@ function setupIpcHandlers() {
   const GITHUB_REPO = 'DrCHRVL/APPMETIER';
 
   // Requête HTTPS avec suivi de redirections, retourne le corps en texte
-  function httpsGet(url) {
+  function httpsGet(url, extraHeaders = {}) {
     return new Promise((resolve, reject) => {
       const makeRequest = (currentUrl) => {
-        https.get(currentUrl, { headers: { 'User-Agent': 'APPMETIER-updater' } }, (res) => {
+        https.get(currentUrl, { headers: { 'User-Agent': 'APPMETIER-updater', ...extraHeaders } }, (res) => {
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             res.resume();
             makeRequest(res.headers.location);
@@ -2772,16 +2772,45 @@ function setupIpcHandlers() {
   const copyDir = copyDirForUpdate;
 
   ipcMain.handle('app:checkUpdate', async () => {
+    const noCacheHeaders = { 'Cache-Control': 'no-cache', 'If-None-Match': '' };
     try {
-      const body = await httpsGet(`https://api.github.com/repos/${GITHUB_REPO}/commits/main`);
+      const body = await httpsGet(`https://api.github.com/repos/${GITHUB_REPO}/commits/main`, noCacheHeaders);
       const data = JSON.parse(body);
       const remoteSha = data.sha;
-      if (!remoteSha) return { hasUpdate: false, commits: 0, error: 'SHA distant non trouvé' };
+      if (!remoteSha) return { hasUpdate: false, commits: 0, error: 'SHA distant non trouvé', localSha: null, remoteSha: null };
       const localSha = getLocalSha();
-      const hasUpdate = localSha !== remoteSha;
-      return { hasUpdate, commits: hasUpdate ? 1 : 0 };
+
+      // Si pas de SHA local → forcément pas à jour
+      if (!localSha) {
+        console.log('[Update] Pas de SHA local trouvé → mise à jour nécessaire. Remote:', remoteSha);
+        return { hasUpdate: true, commits: 1, localSha: null, remoteSha };
+      }
+
+      // Si identiques → à jour
+      if (localSha === remoteSha) {
+        console.log('[Update] À jour. SHA:', localSha);
+        return { hasUpdate: false, commits: 0, localSha, remoteSha };
+      }
+
+      // SHA différents → utiliser l'API compare pour le vrai nombre de commits
+      let commits = 1;
+      try {
+        const compareBody = await httpsGet(
+          `https://api.github.com/repos/${GITHUB_REPO}/compare/${localSha}...${remoteSha}`,
+          noCacheHeaders
+        );
+        const compareData = JSON.parse(compareBody);
+        if (compareData.ahead_by != null) {
+          commits = compareData.ahead_by;
+        }
+      } catch (compareErr) {
+        console.log('[Update] Compare API failed, fallback à 1 commit:', compareErr.message);
+      }
+      console.log('[Update] Mise à jour disponible:', commits, 'commit(s). Local:', localSha, 'Remote:', remoteSha);
+      return { hasUpdate: true, commits, localSha, remoteSha };
     } catch (error) {
-      return { hasUpdate: false, commits: 0, error: error.message };
+      console.log('[Update] Erreur check:', error.message);
+      return { hasUpdate: false, commits: 0, error: error.message, localSha: null, remoteSha: null };
     }
   });
 
