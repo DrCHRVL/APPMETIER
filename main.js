@@ -2919,6 +2919,25 @@ function setupIpcHandlers() {
 
   const GITHUB_REPO = 'DrCHRVL/APPMETIER';
 
+  // Lit un token GitHub optionnel depuis data/github-token.txt (augmente la limite API de 60 à 5000 req/h)
+  function getGithubToken() {
+    try {
+      const tokenFile = path.join(dataFolder, 'github-token.txt');
+      if (fs.existsSync(tokenFile)) {
+        return fs.readFileSync(tokenFile, 'utf8').trim();
+      }
+    } catch {}
+    return null;
+  }
+
+  // Headers communs pour l'API GitHub (User-Agent + token si disponible)
+  function githubHeaders(extra = {}) {
+    const headers = { 'User-Agent': 'APPMETIER-updater', 'Accept': 'application/vnd.github.v3+json', ...extra };
+    const token = getGithubToken();
+    if (token) headers['Authorization'] = `token ${token}`;
+    return headers;
+  }
+
   // Détection du proxy depuis les variables d'environnement ou .npmrc
   function getProxyUrl() {
     // Variables d'environnement standard
@@ -2975,7 +2994,7 @@ function setupIpcHandlers() {
           const options = {
             hostname: parsed.hostname,
             path: parsed.pathname + parsed.search,
-            headers: { 'User-Agent': 'APPMETIER-updater', ...extraHeaders },
+            headers: parsed.hostname.includes('github') ? githubHeaders(extraHeaders) : { 'User-Agent': 'APPMETIER-updater', ...extraHeaders },
             timeout: 30000
           };
           if (socket) { options.socket = socket; options.agent = false; }
@@ -2989,7 +3008,10 @@ function setupIpcHandlers() {
             if (res.statusCode !== 200) {
               res.resume();
               if (socket) socket.destroy();
-              reject(new Error(`HTTP ${res.statusCode}`));
+              const msg = res.statusCode === 403
+                ? 'HTTP 403 — Limite API GitHub atteinte. Créez un fichier data/github-token.txt avec un Personal Access Token.'
+                : `HTTP ${res.statusCode}`;
+              reject(new Error(msg));
               return;
             }
             let data = '';
@@ -3017,7 +3039,7 @@ function setupIpcHandlers() {
           const options = {
             hostname: parsed.hostname,
             path: parsed.pathname + parsed.search,
-            headers: { 'User-Agent': 'APPMETIER-updater' },
+            headers: parsed.hostname.includes('github') ? githubHeaders() : { 'User-Agent': 'APPMETIER-updater' },
             timeout: timeoutMs
           };
           if (socket) { options.socket = socket; options.agent = false; }
@@ -3031,7 +3053,10 @@ function setupIpcHandlers() {
             if (res.statusCode !== 200) {
               res.resume();
               if (socket) socket.destroy();
-              reject(new Error(`HTTP ${res.statusCode}`));
+              const msg = res.statusCode === 403
+                ? 'HTTP 403 — Limite API GitHub atteinte. Créez un fichier data/github-token.txt avec un Personal Access Token.'
+                : `HTTP ${res.statusCode}`;
+              reject(new Error(msg));
               return;
             }
             const file = fs.createWriteStream(destPath);
@@ -3054,12 +3079,30 @@ function setupIpcHandlers() {
     if (fs.existsSync(versionFile)) {
       return fs.readFileSync(versionFile, 'utf8').trim();
     }
+    // Fallback : lire depuis .git (mode développement)
     for (const ref of ['main', 'master']) {
       const refPath = path.join(__dirname, '.git', 'refs', 'heads', ref);
       if (fs.existsSync(refPath)) {
-        return fs.readFileSync(refPath, 'utf8').trim();
+        const sha = fs.readFileSync(refPath, 'utf8').trim();
+        // Persister pour les prochaines vérifications
+        try { fs.writeFileSync(versionFile, sha); } catch {}
+        return sha;
       }
     }
+    // Fallback : lire depuis packed-refs (git pack les refs parfois)
+    try {
+      const packedRefs = path.join(__dirname, '.git', 'packed-refs');
+      if (fs.existsSync(packedRefs)) {
+        const content = fs.readFileSync(packedRefs, 'utf8');
+        for (const ref of ['main', 'master']) {
+          const match = content.match(new RegExp(`^([0-9a-f]{40})\\s+refs/heads/${ref}$`, 'm'));
+          if (match) {
+            try { fs.writeFileSync(versionFile, match[1]); } catch {}
+            return match[1];
+          }
+        }
+      }
+    } catch {}
     return null;
   }
 
@@ -3075,10 +3118,11 @@ function setupIpcHandlers() {
       if (!remoteSha) return { hasUpdate: false, commits: 0, error: 'SHA distant non trouvé', localSha: null, remoteSha: null };
       const localSha = getLocalSha();
 
-      // Si pas de SHA local → forcément pas à jour
+      // Si pas de SHA local → premier déploiement, on enregistre le SHA distant comme référence
       if (!localSha) {
-        console.log('[Update] Pas de SHA local trouvé → mise à jour nécessaire. Remote:', remoteSha);
-        return { hasUpdate: true, commits: 1, localSha: null, remoteSha };
+        console.log('[Update] Pas de SHA local trouvé → premier déploiement, on enregistre le SHA distant:', remoteSha);
+        try { fs.writeFileSync(path.join(dataFolder, 'app-version.txt'), remoteSha); } catch {}
+        return { hasUpdate: false, commits: 0, localSha: remoteSha, remoteSha };
       }
 
       // Si identiques → à jour
