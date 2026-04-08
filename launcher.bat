@@ -1,31 +1,49 @@
 @echo off
-echo Starting Application...
+setlocal
+echo Demarrage de l'application...
 
-rem Definir le chemin de base
+rem -- Auto-detection des chemins --
 set BASE_DIR=%~dp0
 set ELECTRON_OVERRIDE_DIST_PATH=%BASE_DIR%electron
 
-rem Se deplacer dans le dossier du projet
-cd Projet1
+rem -- Se deplacer dans le dossier du projet --
+cd /d "%BASE_DIR%Projet1"
 
-rem Demarrer Next.js (auto-detection dev/prod via start-next.bat)
-call start-next.bat
-
-rem Attendre que le serveur soit disponible (20 secondes max)
-echo Waiting for Next.js server to start...
-set /a attempts=0
-:WAIT_LOOP
-if %attempts% geq 20 (
-    echo Timeout waiting for Next.js server
+rem -- Verifier que node_modules existe --
+if not exist "node_modules" (
+    echo.
+    echo ERREUR: Les dependances ne sont pas installees.
+    echo.
+    echo Lancez d'abord : installer.bat
+    echo (il se trouve a cote de ce fichier)
+    echo.
+    pause
     exit /b 1
 )
-timeout /t 1 > nul
-set /a attempts+=1
-curl -s http://localhost:3000 > nul
-if %ERRORLEVEL% neq 0 (
-    goto WAIT_LOOP
-)
 
-rem Lancer Electron
-echo Starting Electron...
-start "Electron" ..\electron\electron.exe .
+rem -- Demarrer Next.js (auto-detection dev/prod via start-next.bat) --
+call start-next.bat
+
+rem -- Attendre que le serveur soit disponible (30 secondes max) --
+echo Attente du serveur Next.js...
+set /a attempts=0
+:WAIT_LOOP
+if %attempts% geq 30 goto TIMEOUT
+timeout /t 1 /nobreak >nul
+set /a attempts+=1
+"%BASE_DIR%nodejs\node.exe" -e "const h=require('http');h.get('http://localhost:3000',r=>{process.exit(r.statusCode?0:1)}).on('error',()=>process.exit(1))" >nul 2>&1
+if %ERRORLEVEL% neq 0 goto WAIT_LOOP
+
+rem -- Lancer Electron --
+echo Lancement de l'application...
+start "" "%BASE_DIR%electron\electron.exe" .
+goto END
+
+:TIMEOUT
+echo.
+echo ERREUR: Le serveur Next.js n'a pas demarre dans les 30 secondes.
+echo Verifiez que le port 3000 n'est pas deja utilise.
+pause
+exit /b 1
+
+:END
