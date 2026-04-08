@@ -2177,6 +2177,13 @@ function setupIpcHandlers() {
   function obfuscateFileAsync(filePath) {
     return new Promise((resolve, reject) => {
       const { Worker } = require('worker_threads')
+      // Timeout de sécurité : 5 minutes max par fichier
+      const timeout = setTimeout(() => {
+        console.error(`⚠️ Obfuscation timeout pour ${filePath} (5 min)`)
+        try { worker.terminate() } catch {}
+        resolve(false)
+      }, 300000)
+
       const workerCode = `
         const { parentPort, workerData } = require('worker_threads')
         try {
@@ -2217,6 +2224,7 @@ function setupIpcHandlers() {
         },
       })
       worker.on('message', (msg) => {
+        clearTimeout(timeout)
         if (msg.success) resolve(true)
         else {
           console.error(`⚠️ Obfuscation échouée pour ${filePath}: ${msg.error}`)
@@ -2224,6 +2232,7 @@ function setupIpcHandlers() {
         }
       })
       worker.on('error', (err) => {
+        clearTimeout(timeout)
         console.error(`⚠️ Worker obfuscation error pour ${filePath}: ${err.message}`)
         resolve(false)
       })
@@ -2252,17 +2261,63 @@ function setupIpcHandlers() {
   }
 
   /**
-   * Crée une archive ZIP via PowerShell (zéro dépendance npm)
+   * Crée une archive ZIP — essaie d'abord .NET ZipFile (rapide), puis tar, puis Compress-Archive en fallback
    */
-  function createZipPowerShell(sourceDir, zipPath) {
-    return new Promise((resolve, reject) => {
+  function createZipArchive(sourceDir, zipPath) {
+    return new Promise(async (resolve, reject) => {
       // Supprimer le ZIP s'il existe déjà
       if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath)
-      const cmd = `powershell -NoProfile -Command "Compress-Archive -Path '${sourceDir}\\*' -DestinationPath '${zipPath}' -Force"`
-      console.log(`📦 ZIP: ${cmd}`)
-      exec(cmd, { timeout: 600000 }, (err, stdout, stderr) => {
-        if (err) reject(new Error(`ZIP échoué: ${stderr || err.message}`))
-        else resolve()
+
+      // Méthode 1 : .NET ZipFile (le plus rapide et fiable)
+      const dotnetCmd = `powershell -NoProfile -Command "Add-Type -Assembly 'System.IO.Compression.FileSystem'; [System.IO.Compression.ZipFile]::CreateFromDirectory('${sourceDir}', '${zipPath}', [System.IO.Compression.CompressionLevel]::Fastest, $false)"`
+      console.log(`📦 ZIP (tentative .NET ZipFile): ${sourceDir} → ${zipPath}`)
+
+      try {
+        await new Promise((res, rej) => {
+          exec(dotnetCmd, { timeout: 900000 }, (err, stdout, stderr) => {
+            if (err) rej(new Error(stderr || err.message))
+            else res()
+          })
+        })
+        if (fs.existsSync(zipPath) && fs.statSync(zipPath).size > 0) {
+          console.log('✅ ZIP créé via .NET ZipFile')
+          return resolve()
+        }
+      } catch (e) {
+        console.warn(`⚠️ .NET ZipFile échoué: ${e.message}, tentative tar...`)
+      }
+
+      // Méthode 2 : tar (intégré à Windows 10 1803+)
+      const parentDir = path.dirname(sourceDir)
+      const folderName = path.basename(sourceDir)
+      const tarCmd = `tar -a -cf "${zipPath}" -C "${parentDir}" "${folderName}"`
+      console.log(`📦 ZIP (tentative tar): ${tarCmd}`)
+
+      try {
+        await new Promise((res, rej) => {
+          exec(tarCmd, { timeout: 900000 }, (err, stdout, stderr) => {
+            if (err) rej(new Error(stderr || err.message))
+            else res()
+          })
+        })
+        if (fs.existsSync(zipPath) && fs.statSync(zipPath).size > 0) {
+          console.log('✅ ZIP créé via tar')
+          return resolve()
+        }
+      } catch (e) {
+        console.warn(`⚠️ tar échoué: ${e.message}, tentative Compress-Archive...`)
+      }
+
+      // Méthode 3 : Compress-Archive (fallback lent)
+      const psCmd = `powershell -NoProfile -Command "Compress-Archive -Path '${sourceDir}\\*' -DestinationPath '${zipPath}' -Force"`
+      console.log(`📦 ZIP (tentative Compress-Archive): ${psCmd}`)
+      exec(psCmd, { timeout: 900000 }, (err, stdout, stderr) => {
+        if (err) reject(new Error(`ZIP échoué (3 méthodes tentées): ${stderr || err.message}`))
+        else if (!fs.existsSync(zipPath)) reject(new Error('ZIP non créé après toutes les tentatives'))
+        else {
+          console.log('✅ ZIP créé via Compress-Archive')
+          resolve()
+        }
       })
     })
   }
@@ -2431,12 +2486,17 @@ function setupIpcHandlers() {
       // PHASE 1 : TOUT PRÉPARER EN LOCAL (rapide, pas de risque réseau)
       // ══════════════════════════════════════════════════════
 
+      console.log(`📦 PublishFull: démarrage, staging dans "${stagingBase}"`)
+
       // Étape 1 : Build Next.js
       sendProgress('build', 'Compilation de l\'application...', 1)
+      console.log('📦 PublishFull [1/7]: Build Next.js...')
       const buildOutputDir = await runNextBuild()
+      console.log('📦 PublishFull [1/7]: Build terminé')
 
       // Étape 2 : Staging local — copier tous les fichiers sur le disque local
       sendProgress('staging', 'Préparation locale du package...', 2)
+      console.log('📦 PublishFull [2/7]: Staging local...')
       const installDir = path.join(stagingBase, 'Installation')
       const appDir = path.join(installDir, 'Projet1')
       fs.mkdirSync(appDir, { recursive: true })
@@ -2531,6 +2591,7 @@ function setupIpcHandlers() {
 
       // Étape 3 : Obfusquer + intégrité (en local, rapide)
       sendProgress('obfuscate', 'Protection du code (obfuscation)...', 3)
+      console.log('📦 PublishFull [3/7]: Obfuscation...')
       const publishedMain = path.join(appDir, 'main.js')
       const publishedPreload = path.join(appDir, 'preload.js')
       if (fs.existsSync(publishedMain)) await obfuscateFileAsync(publishedMain)
@@ -2563,8 +2624,10 @@ function setupIpcHandlers() {
       // ══════════════════════════════════════════════════════
 
       sendProgress('zip', 'Création de l\'archive ZIP...', 4)
+      console.log('📦 PublishFull [4/7]: Création ZIP...')
       const zipPath = path.join(stagingBase, 'Installation.zip')
-      await createZipPowerShell(installDir, zipPath)
+      await createZipArchive(installDir, zipPath)
+      console.log('📦 PublishFull [4/7]: ZIP créé')
       const zipSize = fs.statSync(zipPath).size
       const zipSizeMB = (zipSize / (1024 * 1024)).toFixed(1)
       console.log(`📦 ZIP créé : ${zipSizeMB} Mo`)
@@ -2577,6 +2640,7 @@ function setupIpcHandlers() {
       // ══════════════════════════════════════════════════════
 
       sendProgress('transfer', `Transfert sur le réseau (${zipSizeMB} Mo)...`, 5)
+      console.log(`📦 PublishFull [5/7]: Transfert réseau (${zipSizeMB} Mo)...`)
       const networkZipPath = path.join(generalPath, 'Installation.zip')
       const networkZipTemp = path.join(generalPath, `Installation-${Date.now()}.zip.tmp`)
 
@@ -2615,6 +2679,7 @@ function setupIpcHandlers() {
 
       // Étape 6 : Publier aussi la mise à jour classique (pour les postes existants)
       sendProgress('update', 'Publication de la mise à jour réseau...', 6)
+      console.log('📦 PublishFull [6/7]: Publication mise à jour classique...')
       const updatesDir = ensureDir(getUpdatesDir())
       const sourceNew = path.join(updatesDir, `source-new-${Date.now()}`)
       fs.mkdirSync(sourceNew, { recursive: true })
@@ -2646,6 +2711,9 @@ function setupIpcHandlers() {
       // Nettoyage en cas d'erreur — le réseau n'a PAS été touché (ou ancien ZIP toujours intact)
       try { fs.rmSync(stagingBase, { recursive: true, force: true }) } catch {}
       console.error('❌ LAN full install publish error:', error.message)
+      console.error('❌ Stack:', error.stack)
+      // Envoyer un événement de progression pour que l'UI sache que c'est fini (en erreur)
+      try { mainWindow?.webContents?.send('publish-progress', { step: 'error', detail: error.message, current: 0, total: 0 }) } catch {}
       return { success: false, error: error.message }
     }
   })
