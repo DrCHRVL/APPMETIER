@@ -2,6 +2,7 @@ const path = require('path')
 const fs = require('fs')
 const os = require('os')
 const crypto = require('crypto')
+const http = require('http')
 const https = require('https')
 const { exec, execSync } = require('child_process')
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu, powerMonitor } = require('electron')
@@ -2700,56 +2701,132 @@ function setupIpcHandlers() {
 
   const GITHUB_REPO = 'DrCHRVL/APPMETIER';
 
+  // Détection du proxy depuis les variables d'environnement ou .npmrc
+  function getProxyUrl() {
+    // Variables d'environnement standard
+    const envProxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
+    if (envProxy) return envProxy;
+    // Lecture depuis .npmrc
+    try {
+      const npmrc = fs.readFileSync(path.join(__dirname, '.npmrc'), 'utf8');
+      const match = npmrc.match(/https-proxy\s*=\s*(.+)/i) || npmrc.match(/proxy\s*=\s*(.+)/i);
+      if (match) return match[1].trim();
+    } catch {}
+    return null;
+  }
+
+  // Crée un tunnel CONNECT à travers le proxy pour les requêtes HTTPS
+  function createProxyTunnel(targetHost, targetPort = 443, timeoutMs = 30000) {
+    const proxyUrl = getProxyUrl();
+    if (!proxyUrl) return Promise.resolve(null); // Pas de proxy → connexion directe
+
+    return new Promise((resolve, reject) => {
+      const proxy = new URL(proxyUrl);
+      const req = http.request({
+        host: proxy.hostname,
+        port: proxy.port || 8080,
+        method: 'CONNECT',
+        path: `${targetHost}:${targetPort}`,
+        timeout: timeoutMs,
+        headers: { 'Host': `${targetHost}:${targetPort}` }
+      });
+      req.on('connect', (res, socket) => {
+        if (res.statusCode === 200) {
+          resolve(socket);
+        } else {
+          socket.destroy();
+          reject(new Error(`Proxy CONNECT failed: HTTP ${res.statusCode}`));
+        }
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('Proxy CONNECT timeout')); });
+      req.end();
+    });
+  }
+
   // Requête HTTPS avec suivi de redirections, retourne le corps en texte
   function httpsGet(url, extraHeaders = {}) {
-    return new Promise((resolve, reject) => {
-      const makeRequest = (currentUrl) => {
-        https.get(currentUrl, { headers: { 'User-Agent': 'APPMETIER-updater', ...extraHeaders } }, (res) => {
-          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            res.resume();
-            makeRequest(res.headers.location);
-            return;
+    return new Promise(async (resolve, reject) => {
+      try {
+        const makeRequest = async (currentUrl) => {
+          const parsed = new URL(currentUrl);
+          let socket;
+          try { socket = await createProxyTunnel(parsed.hostname); } catch (e) {
+            reject(new Error(`Erreur proxy: ${e.message}`)); return;
           }
-          if (res.statusCode !== 200) {
-            res.resume();
-            reject(new Error(`HTTP ${res.statusCode}`));
-            return;
-          }
-          let data = '';
-          res.on('data', chunk => data += chunk);
-          res.on('end', () => resolve(data));
-          res.on('error', reject);
-        }).on('error', reject);
-      };
-      makeRequest(url);
+          const options = {
+            hostname: parsed.hostname,
+            path: parsed.pathname + parsed.search,
+            headers: { 'User-Agent': 'APPMETIER-updater', ...extraHeaders },
+            timeout: 30000
+          };
+          if (socket) { options.socket = socket; options.agent = false; }
+          https.get(options, (res) => {
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+              res.resume();
+              if (socket) socket.destroy();
+              makeRequest(res.headers.location);
+              return;
+            }
+            if (res.statusCode !== 200) {
+              res.resume();
+              if (socket) socket.destroy();
+              reject(new Error(`HTTP ${res.statusCode}`));
+              return;
+            }
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => { if (socket) socket.destroy(); resolve(data); });
+            res.on('error', (e) => { if (socket) socket.destroy(); reject(e); });
+          }).on('error', (e) => { if (socket) socket.destroy(); reject(e); })
+            .on('timeout', function() { this.destroy(); if (socket) socket.destroy(); reject(new Error('Timeout requête API')); });
+        };
+        await makeRequest(url);
+      } catch (e) { reject(e); }
     });
   }
 
   // Téléchargement binaire avec suivi de redirections et timeout
   function httpsDownload(url, destPath, timeoutMs = 120000) {
-    return new Promise((resolve, reject) => {
-      const makeRequest = (currentUrl) => {
-        const req = https.get(currentUrl, { headers: { 'User-Agent': 'APPMETIER-updater' }, timeout: timeoutMs }, (res) => {
-          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            res.resume();
-            makeRequest(res.headers.location);
-            return;
+    return new Promise(async (resolve, reject) => {
+      try {
+        const makeRequest = async (currentUrl) => {
+          const parsed = new URL(currentUrl);
+          let socket;
+          try { socket = await createProxyTunnel(parsed.hostname, 443, timeoutMs); } catch (e) {
+            reject(new Error(`Erreur proxy: ${e.message}`)); return;
           }
-          if (res.statusCode !== 200) {
-            res.resume();
-            reject(new Error(`HTTP ${res.statusCode}`));
-            return;
-          }
-          const file = fs.createWriteStream(destPath);
-          res.pipe(file);
-          file.on('finish', () => file.close(resolve));
-          file.on('error', reject);
-          res.on('error', reject);
-        });
-        req.on('error', reject);
-        req.on('timeout', () => { req.destroy(); reject(new Error('Timeout de téléchargement')); });
-      };
-      makeRequest(url);
+          const options = {
+            hostname: parsed.hostname,
+            path: parsed.pathname + parsed.search,
+            headers: { 'User-Agent': 'APPMETIER-updater' },
+            timeout: timeoutMs
+          };
+          if (socket) { options.socket = socket; options.agent = false; }
+          const req = https.get(options, (res) => {
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+              res.resume();
+              if (socket) socket.destroy();
+              makeRequest(res.headers.location);
+              return;
+            }
+            if (res.statusCode !== 200) {
+              res.resume();
+              if (socket) socket.destroy();
+              reject(new Error(`HTTP ${res.statusCode}`));
+              return;
+            }
+            const file = fs.createWriteStream(destPath);
+            res.pipe(file);
+            file.on('finish', () => { file.close(() => { if (socket) socket.destroy(); resolve(); }); });
+            file.on('error', (e) => { if (socket) socket.destroy(); reject(e); });
+            res.on('error', (e) => { if (socket) socket.destroy(); reject(e); });
+          });
+          req.on('error', (e) => { if (socket) socket.destroy(); reject(e); });
+          req.on('timeout', () => { req.destroy(); if (socket) socket.destroy(); reject(new Error('Timeout de téléchargement')); });
+        };
+        await makeRequest(url);
+      } catch (e) { reject(e); }
     });
   }
 
