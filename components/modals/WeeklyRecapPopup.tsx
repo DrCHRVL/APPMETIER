@@ -4,6 +4,7 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Enquete, AlertRule } from '@/types/interfaces';
 import { Calendar, FileText, Clock } from 'lucide-react';
+import { getLastCR } from '@/utils/compteRenduUtils';
 
 interface WeeklyRecapPopupProps {
   isOpen: boolean;
@@ -45,7 +46,7 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, enquetes, alertRules }: Week
   const enquetesARelancer = enquetes
     .filter(e => e.statut === 'en_cours' && e.comptesRendus.length > 0)
     .map(e => {
-      const lastCR = e.comptesRendus[0];
+      const lastCR = getLastCR(e.comptesRendus);
       const days = Math.floor((today.getTime() - new Date(lastCR.date).getTime()) / (1000 * 60 * 60 * 24));
       return { enquete: e, days };
     })

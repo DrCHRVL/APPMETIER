@@ -2,6 +2,7 @@ import { Alert, AlertRule, Enquete, AlertValidation, RecurrenceConfig } from '@/
 import { ElectronBridge } from '../electronBridge';
 import { DateUtils } from '../dateUtils';
 import { AlertStorage } from './alertStorage';
+import { getLastCR } from '../compteRenduUtils';
 
 export class AlertManager {
   private static ALERTS_KEY = 'alerts';
@@ -457,7 +458,7 @@ export class AlertManager {
     // Vérification des CR
     const crRule = enabledRules.find(rule => rule.type === 'cr_delay');
     if (crRule && enquete.comptesRendus.length > 0) {
-      const lastCR = enquete.comptesRendus[0];
+      const lastCR = getLastCR(enquete.comptesRendus);
       // La clé inclut la date du dernier CR : si un nouveau CR est ajouté, la validation est réinitialisée
       const wasValidated = await this.wasRecentlyValidated(enquete.id, 'cr_delay', undefined, lastCR.date.split('T')[0]);
       if (!wasValidated) {
