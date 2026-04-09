@@ -38,5 +38,5 @@ if exist ".dev-mode" (
     )
 
     rem Demarrer le serveur standalone avec log d'erreurs pour diagnostic
-    start "Next.js" cmd /c "..\nodejs\node.exe .next\standalone\server.js 2>.next\server-error.log"
+    start "Next.js" cmd /c "set PORT=3000&& set HOSTNAME=0.0.0.0&& ..\nodejs\node.exe .next\standalone\server.js 2>.next\server-error.log"
 )

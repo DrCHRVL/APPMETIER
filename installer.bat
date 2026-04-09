@@ -57,7 +57,9 @@ rem -- Installation des dependances de production --
 echo [2/3] Installation des dependances (npm install)...
 echo        Cela peut prendre quelques minutes selon la connexion...
 echo.
-call "%NPM_CMD%" install --production
+rem -- S'assurer qu'on est bien dans le dossier du projet (npm.cmd peut changer le repertoire courant) --
+cd /d "%PROJET_DIR%"
+call "%NPM_CMD%" install --omit=dev
 if %ERRORLEVEL% neq 0 (
     echo.
     echo ERREUR: L'installation a echoue.
