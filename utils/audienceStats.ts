@@ -357,7 +357,7 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
     totalSaisiesBancaire,
     totalSaisiesCrypto,
     totalSaisiesObjets,
-    ratioConfiscations: totalCondamnations > 0 ? (totalVehicules + totalImmeubles) / totalCondamnations : 0,
+    ratioConfiscations: totalCondamnations > 0 ? (totalVehicules + totalImmeubles + totalObjets) / totalCondamnations : 0,
     peinesParInfraction,
     totalInterdictionsParaitre,
     ratioInterdictionsParaitre: totalCondamnations > 0 ? (totalInterdictionsParaitre / totalCondamnations) * 100 : 0,
