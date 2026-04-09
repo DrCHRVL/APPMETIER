@@ -18,6 +18,7 @@ import { ProlongationValidationModal } from './modals/ProlongationValidationModa
 import { AutorisationValidationModal } from './modals/AutorisationValidationModal';
 import { useTags } from '@/hooks/useTags';
 import { useUser } from '@/contexts/UserContext';
+import { getLastCR } from '@/utils/compteRenduUtils';
 import { OverboardPin } from '@/types/userTypes';
 
 interface EnquetePreviewProps {
@@ -94,7 +95,7 @@ export const EnquetePreview = ({
   }, [user]);
 
   // Variables dérivées
-  const lastCR = enquete.comptesRendus[0];
+  const lastCR = getLastCR(enquete.comptesRendus);
   const activeActes = [
     ...(enquete.actes || []), 
     ...(enquete.ecoutes || []), 
@@ -154,7 +155,7 @@ export const EnquetePreview = ({
               return daysLeft <= rule.seuil && daysLeft >= 0;
             });
           case 'cr_retard': {
-            const cr = enquete.comptesRendus[0];
+            const cr = getLastCR(enquete.comptesRendus);
             if (!cr) return false;
             const daysSinceCR = Math.ceil((new Date().getTime() - new Date(cr.date).getTime()) / (1000 * 60 * 60 * 24));
             return daysSinceCR >= rule.seuil;

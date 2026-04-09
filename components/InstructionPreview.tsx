@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { EnqueteInstruction, CABINET_COLORS } from '@/types/interfaces';
 import { useToast } from '@/contexts/ToastContext';
+import { getLastCR } from '@/utils/compteRenduUtils';
 
 interface InstructionPreviewProps {
   instruction: EnqueteInstruction;
@@ -36,7 +37,7 @@ export const InstructionPreview = ({
   const { showToast } = useToast();
 
   // Variables dérivées
-  const lastCR = instruction.comptesRendus?.[0];
+  const lastCR = getLastCR(instruction.comptesRendus ?? []);
   const isSuiviJIRS = instruction.tags?.some(tag =>
     tag.category === 'suivi' && tag.value === 'JIRS'
   );

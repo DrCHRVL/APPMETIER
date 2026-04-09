@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Enquete, Tag } from '@/types/interfaces';
+import { getLastCR } from '@/utils/compteRenduUtils';
 
 export const useFilterSort = (
   enquetes: Enquete[],
@@ -84,11 +85,11 @@ export const useFilterSort = (
         case 'date-desc':
           return new Date(b.dateDebut).getTime() - new Date(a.dateDebut).getTime();
         case 'cr-asc':
-          return new Date(a.comptesRendus[0]?.date || 0).getTime() - 
-                 new Date(b.comptesRendus[0]?.date || 0).getTime();
+          return new Date(getLastCR(a.comptesRendus)?.date || 0).getTime() -
+                 new Date(getLastCR(b.comptesRendus)?.date || 0).getTime();
         case 'cr-desc':
-          return new Date(b.comptesRendus[0]?.date || 0).getTime() - 
-                 new Date(a.comptesRendus[0]?.date || 0).getTime();
+          return new Date(getLastCR(b.comptesRendus)?.date || 0).getTime() -
+                 new Date(getLastCR(a.comptesRendus)?.date || 0).getTime();
         case 'update-asc':
           return new Date(a.dateMiseAJour).getTime() - new Date(b.dateMiseAJour).getTime();
         case 'update-desc':

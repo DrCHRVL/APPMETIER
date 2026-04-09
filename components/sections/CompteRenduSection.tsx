@@ -195,10 +195,12 @@ export const CompteRenduSection = ({
   const [acteDate, setActeDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
   // Mémoisation des CR triés pour les performances
-  const sortedCRs = useMemo(() => 
-    [...enquete.comptesRendus].sort((a, b) => 
-      new Date(b.date).getTime() - new Date(a.date).getTime()
-    ), 
+  const sortedCRs = useMemo(() =>
+    [...enquete.comptesRendus].sort((a, b) => {
+      const diff = new Date(b.date).getTime() - new Date(a.date).getTime();
+      if (diff !== 0) return diff;
+      return b.id - a.id;
+    }),
     [enquete.comptesRendus]
   );
 
