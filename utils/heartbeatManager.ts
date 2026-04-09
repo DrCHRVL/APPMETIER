@@ -27,16 +27,22 @@ export class HeartbeatManager {
     return HeartbeatManager.instance;
   }
 
+  private beforeUnloadHandler: (() => void) | null = null;
+
   /** Démarre le heartbeat périodique */
   start(username: string, displayName: string): void {
+    // Éviter les doubles démarrages
+    if (this.intervalId) this.stop();
+
     this.username = username;
     this.displayName = displayName;
     this.writeHeartbeat();
     this.intervalId = setInterval(() => this.writeHeartbeat(), HEARTBEAT_INTERVAL);
 
-    // Supprimer le heartbeat à la fermeture
-    if (typeof window !== 'undefined') {
-      window.addEventListener('beforeunload', () => this.stop());
+    // Supprimer le heartbeat à la fermeture (un seul listener)
+    if (typeof window !== 'undefined' && !this.beforeUnloadHandler) {
+      this.beforeUnloadHandler = () => this.stop();
+      window.addEventListener('beforeunload', this.beforeUnloadHandler);
     }
   }
 

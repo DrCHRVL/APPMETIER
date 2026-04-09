@@ -19,7 +19,7 @@ interface EnqueteHeaderProps {
   onUpdate?: (updates: Partial<any>) => void;
 }
 
-export const EnqueteHeader = ({
+export const EnqueteHeader = React.memo(({
   numero,
   dateDebut,
   services,
@@ -211,4 +211,4 @@ export const EnqueteHeader = ({
       </div>
     </div>
   );
-};
+});

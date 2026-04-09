@@ -21,7 +21,7 @@ interface ActeSectionProps {
   isEditing: boolean;
 }
 
-export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) => {
+export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSectionProps) => {
   const { showToast } = useToast();
   const [editingActeId, setEditingActeId] = useState<number | null>(null);
   const [prolongationActeId, setProlongationActeId] = useState<number | null>(null);
@@ -698,4 +698,4 @@ export const ActeSection = ({ enquete, onUpdate, isEditing }: ActeSectionProps) 
       />
     </div>
   );
-};
+});

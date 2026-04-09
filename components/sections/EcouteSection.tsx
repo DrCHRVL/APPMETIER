@@ -20,7 +20,7 @@ interface EcouteSectionProps {
   isEditing: boolean;
 }
 
-export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionProps) => {
+export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: EcouteSectionProps) => {
   const { showToast } = useToast();
   const [editingEcouteId, setEditingEcouteId] = useState<number | null>(null);
   const [prolongationEcouteId, setProlongationEcouteId] = useState<number | null>(null);
@@ -744,4 +744,4 @@ export const EcouteSection = ({ enquete, onUpdate, isEditing }: EcouteSectionPro
       />
     </div>
   );
-};
+});

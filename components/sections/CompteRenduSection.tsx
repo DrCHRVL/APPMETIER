@@ -88,7 +88,7 @@ const renderFormattedText = (text: string): string => {
     .replace(/\n/g, '<br>');
 };
 
-export const CompteRenduSection = ({
+export const CompteRenduSection = React.memo(({
   enquete,
   editingCR,
   onAddCR,
@@ -851,4 +851,4 @@ export const CompteRenduSection = ({
       )}
     </div>
   );
-};
+});

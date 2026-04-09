@@ -150,26 +150,28 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
   const saveEnquetes = useCallback(
     throttle(async () => {
       if (!isDataDirtyRef.current || isLoadingRef.current) return;
+      const cId = currentContentieuxRef.current;
       try {
-        await ElectronBridge.setData(storageKey(contentieuxId), enquetesRef.current);
+        await ElectronBridge.setData(storageKey(cId), enquetesRef.current);
         setIsDataDirty(false);
-        MultiSyncManager.getInstance().triggerPostSaveSync(contentieuxId);
+        MultiSyncManager.getInstance().triggerPostSaveSync(cId);
       } catch (error) {
-        console.error(`❌ useContentieuxEnquetes[${contentieuxId}]: erreur sauvegarde`, error);
+        console.error(`❌ useContentieuxEnquetes[${cId}]: erreur sauvegarde`, error);
       }
     }, SAVE_THROTTLE),
-    [contentieuxId]
+    [] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const flushPendingSave = useCallback(async () => {
     if (!isDataDirtyRef.current || isLoadingRef.current) return;
+    const cId = currentContentieuxRef.current;
     try {
-      await ElectronBridge.setData(storageKey(contentieuxId), enquetesRef.current);
+      await ElectronBridge.setData(storageKey(cId), enquetesRef.current);
       setIsDataDirty(false);
     } catch (error) {
-      console.error(`❌ useContentieuxEnquetes[${contentieuxId}]: erreur flush`, error);
+      console.error(`❌ useContentieuxEnquetes[${cId}]: erreur flush`, error);
     }
-  }, [contentieuxId]);
+  }, []);
 
   useEffect(() => {
     if (isDataDirty && !isLoading) saveEnquetes();

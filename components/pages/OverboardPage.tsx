@@ -43,6 +43,8 @@ export const OverboardPage = ({
   onEnqueteClick,
   renderEnqueteCard,
 }: OverboardPageProps) => {
+  const sortedDefs = useMemo(() => [...contentieuxDefs].sort((a, b) => a.order - b.order), [contentieuxDefs]);
+
   // Toutes les enquêtes en cours (pour la timeline OP) — dédupliquées (co-saisine)
   const allEnquetes = useMemo(() => {
     const seen = new Set<string>();
@@ -180,8 +182,7 @@ export const OverboardPage = ({
           className="grid gap-3"
           style={{ gridTemplateColumns: `repeat(${contentieuxDefs.length}, minmax(0, 1fr))` }}
         >
-          {contentieuxDefs
-            .sort((a, b) => a.order - b.order)
+          {sortedDefs
             .map(ctxDef => {
               const items = pendingAudiencesByCtx.get(ctxDef.id) || [];
               const colors = CTX_COLORS[ctxDef.id] || DEFAULT_CTX_COLOR;

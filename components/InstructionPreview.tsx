@@ -27,7 +27,7 @@ interface InstructionPreviewProps {
   onToggleSuivi?: (type: 'JIRS' | 'PG') => void;
 }
 
-export const InstructionPreview = ({
+export const InstructionPreview = React.memo(({
   instruction,
   onView,
   onEdit,
@@ -366,4 +366,4 @@ export const InstructionPreview = ({
       </CardContent>
     </Card>
   );
-};
+});

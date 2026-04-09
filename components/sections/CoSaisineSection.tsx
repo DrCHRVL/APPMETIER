@@ -25,7 +25,7 @@ const CTX_COLORS: Record<string, { bg: string; text: string; border: string; dot
 
 const DEFAULT_CTX_COLOR = { bg: 'bg-gray-50', text: 'text-gray-700', border: 'border-gray-300', dot: 'bg-gray-500' };
 
-export const CoSaisineSection = ({
+export const CoSaisineSection = React.memo(({
   enquete,
   isEditing,
   currentContentieuxId,
@@ -149,4 +149,4 @@ export const CoSaisineSection = ({
       )}
     </div>
   );
-};
+});

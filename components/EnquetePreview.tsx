@@ -44,7 +44,7 @@ interface EnquetePreviewProps {
   onCreateGlobalTodo?: (todo: ToDoItem) => void;
 }
 
-export const EnquetePreview = ({
+export const EnquetePreview = React.memo(({
   enquete,
   isArchived = false,
   onView,
@@ -665,4 +665,4 @@ return (
       )}
     </>
   );
-};
+});

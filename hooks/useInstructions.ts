@@ -52,9 +52,11 @@ export const useInstructions = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isDataDirty, setIsDataDirty] = useState(false);
   
-  // Référence pour éviter les re-renders
+  // Références pour éviter les re-renders et stabiliser les throttles
   const instructionsRef = useRef<EnqueteInstruction[]>([]);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isDataDirtyRef = useRef(false);
+  const isLoadingRef = useRef(true);
 
   // Utiliser le hook d'alertes spécialisé pour les instructions
   const {
@@ -65,9 +67,9 @@ export const useInstructions = () => {
   } = useInstructionAlerts(instructions);
 
   // Synchronisation ref -> state
-  useEffect(() => {
-    instructionsRef.current = instructions;
-  }, [instructions]);
+  useEffect(() => { instructionsRef.current = instructions; }, [instructions]);
+  useEffect(() => { isDataDirtyRef.current = isDataDirty; }, [isDataDirty]);
+  useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
 
   // Chargement initial des données - CORRIGÉ
   useEffect(() => {
@@ -104,20 +106,19 @@ export const useInstructions = () => {
 
 
 
-  // Sauvegarde avec debounce - CORRIGÉ POUR CLÉ SÉPARÉE
+  // Sauvegarde avec debounce - utilise des refs pour stabiliser le throttle
   const saveInstructions = useCallback(
     throttle(async () => {
-      if (!isDataDirty || isLoading) return;
-      
+      if (!isDataDirtyRef.current || isLoadingRef.current) return;
+
       try {
         console.log('💾 Sauvegarde instructions:', instructionsRef.current.length);
-        
-        // 🆕 SAUVEGARDER DIRECTEMENT DANS LA CLÉ INSTRUCTIONS
+
         const success = await ElectronBridge.setData(
-          APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS, 
+          APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS,
           instructionsRef.current
         );
-        
+
         if (success) {
           console.log('✅ Instructions sauvegardées avec succès');
           setIsDataDirty(false);
@@ -128,7 +129,7 @@ export const useInstructions = () => {
         console.error('Error saving instructions:', error);
       }
     }, SAVE_DEBOUNCE),
-    [isDataDirty, isLoading]
+    [] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // Déclencher la sauvegarde quand les données changent
