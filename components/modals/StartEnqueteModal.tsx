@@ -2,7 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { X } from 'lucide-react';
-import { useState } from 'react';
+import { useState, FormEvent } from 'react';
 import { useToast } from '@/contexts/ToastContext';
 interface StartEnqueteModalProps {
   isOpen: boolean;
@@ -17,7 +17,7 @@ export const StartEnqueteModal = ({
 }: StartEnqueteModalProps) => {
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
   const { showToast } = useToast();
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
   e.preventDefault();
   try {
     onConfirm(startDate);

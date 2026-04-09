@@ -1,7 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { Label } from '../ui/label';
 import { DateUtils } from '@/utils/dateUtils';
 import { useToast } from '@/contexts/ToastContext';
@@ -77,7 +77,7 @@ export const ProlongationValidationModal = ({
     }
   }, [duration, initialEndDate, prolongationDureeUnit]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     try {
       onValidate(date, duration, prolongationDureeUnit);

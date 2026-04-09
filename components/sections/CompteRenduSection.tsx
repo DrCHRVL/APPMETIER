@@ -6,7 +6,7 @@ import { Select } from '../ui/select';
 import { Label } from '../ui/label';
 import { Enquete, CompteRendu, EnqueteInstruction } from '@/types/interfaces';
 import { X, FileText, Calendar, User } from 'lucide-react';
-import { useMemo, useState, useRef, useEffect } from 'react';
+import { useMemo, useState, useRef, useEffect, memo, MouseEvent } from 'react';
 import { useUser } from '@/contexts/UserContext';
 
 interface CompteRenduSectionProps {
@@ -88,7 +88,7 @@ const renderFormattedText = (text: string): string => {
     .replace(/\n/g, '<br>');
 };
 
-export const CompteRenduSection = React.memo(({
+export const CompteRenduSection = memo(({
   enquete,
   editingCR,
   onAddCR,
@@ -165,7 +165,7 @@ export const CompteRenduSection = React.memo(({
     };
   }, []);
 
-  const handleDragStart = (e: React.MouseEvent) => {
+  const handleDragStart = (e: MouseEvent) => {
     if (!dialogRef.current) return;
     const rect = dialogRef.current.getBoundingClientRect();
     dragState.current = { dragging: true, startX: e.clientX, startY: e.clientY, initLeft: rect.left, initTop: rect.top };
