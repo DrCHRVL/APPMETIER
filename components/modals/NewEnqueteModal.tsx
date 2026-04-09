@@ -5,7 +5,7 @@ import { MecAutocompleteInput } from '@/components/ui/MecAutocompleteInput';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
 import { X, Clock } from 'lucide-react';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, FormEvent } from 'react';
 import { NewEnqueteData, Tag } from '@/types/interfaces';
 import { useToast } from '@/contexts/ToastContext';
 import { useTags } from '@/hooks/useTags';
@@ -127,7 +127,7 @@ export const NewEnqueteModal = ({
     setSelectedTags(prev => prev.filter(tag => tag.id !== tagId));
   }, []);
 
-  const handleSubmit = useCallback((e: React.FormEvent) => {
+  const handleSubmit = useCallback((e: FormEvent) => {
     e.preventDefault();
     
     if (!newEnqueteData.numero) {
