@@ -32,14 +32,16 @@ export const useEnquetes = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isDataDirty, setIsDataDirty] = useState(false);
   
-  // Référence pour éviter les re-renders
+  // Références pour éviter les re-renders et stabiliser les throttles
   const enquetesRef = useRef<Enquete[]>([]);
   const isInitialized = useRef(false);
+  const isDataDirtyRef = useRef(false);
+  const isLoadingRef = useRef(true);
 
   // Synchronisation ref -> state pour les événements asynchrones
-  useEffect(() => {
-    enquetesRef.current = enquetes;
-  }, [enquetes]);
+  useEffect(() => { enquetesRef.current = enquetes; }, [enquetes]);
+  useEffect(() => { isDataDirtyRef.current = isDataDirty; }, [isDataDirty]);
+  useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
 
   // ✅ CORRECTION 1: Fonction de chargement stable avec useCallback vide
   const loadEnquetesData = useCallback(async () => {
@@ -93,11 +95,11 @@ export const useEnquetes = () => {
     initialize();
   }, [loadEnquetesData]); // ✅ loadEnquetesData est stable
 
-  // Sauvegarde avec throttle
+  // Sauvegarde avec throttle — utilise des refs pour éviter de recréer le throttle
   const saveEnquetes = useCallback(
     throttle(async () => {
-      if (!isDataDirty || isLoading) return;
-      
+      if (!isDataDirtyRef.current || isLoadingRef.current) return;
+
       try {
         await ElectronBridge.setData(
           APP_CONFIG.STORAGE_KEYS.ENQUETES,
@@ -109,12 +111,12 @@ export const useEnquetes = () => {
         console.error('❌ Error saving enquetes:', error);
       }
     }, SAVE_THROTTLE),
-    [isDataDirty, isLoading]
+    [] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // Sauvegarde immédiate (bypass throttle) — utilisée par DataSyncManager avant la lecture
   const flushPendingSave = useCallback(async () => {
-    if (!isDataDirty || isLoading) return;
+    if (!isDataDirtyRef.current || isLoadingRef.current) return;
     try {
       await ElectronBridge.setData(
         APP_CONFIG.STORAGE_KEYS.ENQUETES,
@@ -125,7 +127,7 @@ export const useEnquetes = () => {
     } catch (error) {
       console.error('❌ Error during flush save:', error);
     }
-  }, [isDataDirty, isLoading]);
+  }, []);
 
   // Déclencher la sauvegarde quand les données changent
   useEffect(() => {

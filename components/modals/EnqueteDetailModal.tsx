@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -78,7 +78,7 @@ export const EnqueteDetailModal = ({
 
   const hasSuivi = enquete.tags.some(t => t.category === 'suivi');
 
-  const handleUpdateWithToast = (id: number, updates: Partial<Enquete>) => {
+  const handleUpdateWithToast = useCallback((id: number, updates: Partial<Enquete>) => {
     onUpdate(id, updates);
     showToast('Modifications enregistrées', 'success');
     // Si on enregistre une date d'OP et que le dossier est suivi
@@ -86,15 +86,15 @@ export const EnqueteDetailModal = ({
       setSuiviAlertContext('dateOP');
       setShowSuiviAlert(true);
     }
-  };
-  
-  const handleDelete = () => {
+  }, [onUpdate, showToast, hasSuivi]);
+
+  const handleDelete = useCallback(() => {
     if (onDelete) {
       onDelete(enquete.id);
       showToast('Enquête supprimée avec succès', 'success');
       onClose();
     }
-  };
+  }, [onDelete, enquete.id, showToast, onClose]);
 
   return (
     <>

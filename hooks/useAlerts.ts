@@ -19,6 +19,7 @@ export const useAlerts = (enquetes: Enquete[]) => {
   // ✅ CORRECTION 1: Références stables pour éviter les recréations de fonctions
   const enquetesRef = useRef<Enquete[]>([]);
   const alertRulesRef = useRef<AlertRule[]>([]);
+  const isLoadingRef = useRef(true);
   const lastProcessedEnquetes = useRef<Record<number, string>>({});
   const alertsLoaded = useRef(false);
 
@@ -27,9 +28,8 @@ export const useAlerts = (enquetes: Enquete[]) => {
     enquetesRef.current = enquetes;
   }, [enquetes]);
 
-  useEffect(() => {
-    alertRulesRef.current = alertRules;
-  }, [alertRules]);
+  useEffect(() => { alertRulesRef.current = alertRules; }, [alertRules]);
+  useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
 
   // ✅ CORRECTION 2: Charger les alertes et les règles UNE SEULE FOIS au démarrage
   useEffect(() => {
@@ -60,10 +60,10 @@ export const useAlerts = (enquetes: Enquete[]) => {
     loadAlertData();
   }, []); // ✅ Dépendances vides = exécution unique
 
-  // Fonction pour sauvegarder les règles d'alerte avec throttle
+  // Fonction pour sauvegarder les règles d'alerte avec throttle — ref pour stabiliser
   const saveAlertRules = useCallback(
     throttle(async (rules: AlertRule[]) => {
-      if (!isLoading) {
+      if (!isLoadingRef.current) {
         try {
           await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, rules);
         } catch (error) {
@@ -71,7 +71,7 @@ export const useAlerts = (enquetes: Enquete[]) => {
         }
       }
     }, THROTTLE_DELAY),
-    [isLoading]
+    [] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // Sauvegarder les règles d'alerte lorsqu'elles changent

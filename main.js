@@ -142,24 +142,31 @@ if (!fs.existsSync(backupsFolder)) {
 if (!fs.existsSync(documentsEnquetesFolder)) {
   fs.mkdirSync(documentsEnquetesFolder, { recursive: true })
 }
-// Fonction pour charger toutes les données
+// Cache mémoire pour éviter les lectures disque répétées
+let _dataCache = null
+
+// Fonction pour charger toutes les données (avec cache mémoire)
 function loadData() {
+  if (_dataCache !== null) return _dataCache
   try {
-    return fs.existsSync(userDataPath)
+    _dataCache = fs.existsSync(userDataPath)
       ? JSON.parse(fs.readFileSync(userDataPath, 'utf8'))
       : {}
+    return _dataCache
   } catch (error) {
     console.error('Erreur de chargement:', error)
     return {}
   }
 }
-// Fonction pour sauvegarder toutes les données
+// Fonction pour sauvegarder toutes les données (invalide le cache)
 function saveData(data) {
   try {
     fs.writeFileSync(userDataPath, JSON.stringify(data, null, 2))
+    _dataCache = data
     return true
   } catch (error) {
     console.error('Erreur de sauvegarde:', error)
+    _dataCache = null
     return false
   }
 }
@@ -1024,6 +1031,7 @@ function setupIpcHandlers() {
       }
       // Restaurer depuis le backup
       fs.copyFileSync(backupPath, userDataPath);
+      _dataCache = null // Invalider le cache après restauration
 
       console.log(`✅ data.json restauré depuis ${backupFileName}`);
       return true;

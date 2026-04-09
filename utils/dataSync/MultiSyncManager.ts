@@ -420,10 +420,13 @@ export class MultiSyncManager {
       this.instances.set(def.id, instance);
     }
 
-    // Initialiser toutes les instances en parallèle
-    await Promise.allSettled(
-      Array.from(this.instances.values()).map(inst => inst.initialize())
-    );
+    // Initialiser les instances de sync avec un délai progressif entre chaque
+    // pour éviter un pic de charge I/O au démarrage ou au retour d'app
+    const instances = Array.from(this.instances.values());
+    for (let i = 0; i < instances.length; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 1500));
+      try { await instances[i].initialize(); } catch {}
+    }
   }
 
   public stopAll(): void {

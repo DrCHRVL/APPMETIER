@@ -5,7 +5,7 @@
 
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { UserManager } from '@/utils/userManager';
 import {
   UserProfile,
@@ -113,8 +113,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Contentieux accessibles (filtrés selon les permissions)
-  const accessibleContentieux = contentieux.filter(c =>
-    permissions?.accessibleContentieux?.includes(c.id) ?? false
+  const accessibleContentieux = useMemo(
+    () => contentieux.filter(c => permissions?.accessibleContentieux?.includes(c.id) ?? false),
+    [contentieux, permissions]
   );
 
   // Helpers
@@ -161,7 +162,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const value: UserContextValue = {
+  const value = useMemo<UserContextValue>(() => ({
     isLoading,
     isAuthenticated,
     error,
@@ -175,7 +176,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     hasModule: hasModuleHelper,
     getSyncMode: getSyncModeHelper,
     refreshUsers,
-  };
+  }), [
+    isLoading, isAuthenticated, error, user, permissions,
+    contentieux, accessibleContentieux, canDoHelper, isAdminHelper,
+    hasOverboardHelper, hasModuleHelper, getSyncModeHelper, refreshUsers,
+  ]);
 
   return (
     <UserContext.Provider value={value}>

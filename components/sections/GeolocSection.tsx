@@ -19,7 +19,7 @@ interface GeolocSectionProps {
   isEditing: boolean;
 }
 
-export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionProps) => {
+export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: GeolocSectionProps) => {
   const { showToast } = useToast();
   const [editingGeolocId, setEditingGeolocId] = useState<number | null>(null);
   const [prolongationGeolocId, setProlongationGeolocId] = useState<number | null>(null);
@@ -639,4 +639,4 @@ export const GeolocSection = ({ enquete, onUpdate, isEditing }: GeolocSectionPro
       />
     </div>
   );
-};
+});

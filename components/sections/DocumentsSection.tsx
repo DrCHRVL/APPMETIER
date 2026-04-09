@@ -121,7 +121,7 @@ const resolveNameConflict = (fileName: string, existingNames: string[]): string 
   return candidate;
 };
 
-export const DocumentsSection = ({ enquete, onUpdate, isEditing }: DocumentsSectionProps) => {
+export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: DocumentsSectionProps) => {
   const [dragOverZone, setDragOverZone] = useState<DocumentCategory | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showPathModal, setShowPathModal] = useState(false);
@@ -850,4 +850,4 @@ export const DocumentsSection = ({ enquete, onUpdate, isEditing }: DocumentsSect
       />
     </>
   );
-};
+});

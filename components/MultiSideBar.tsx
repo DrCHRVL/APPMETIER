@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   FileText, Archive, BarChart, Settings, Target,
   Plus, Scale, Activity, Eye, PieChart
@@ -61,6 +61,10 @@ export const MultiSideBar = ({
   pendingUsersCount = 0,
 }: MultiSideBarProps) => {
   const { accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, permissions } = useUser();
+  const sortedContentieux = useMemo(
+    () => [...accessibleContentieux].sort((a, b) => a.order - b.order),
+    [accessibleContentieux]
+  );
   const sidebarWidth = isOpen ? 'w-64' : 'w-16';
 
   // Déterminer si un contentieux est en lecture seule pour l'utilisateur
@@ -90,8 +94,7 @@ export const MultiSideBar = ({
 
       <div className="p-3 flex flex-col flex-1 pt-4 overflow-y-auto scrollbar-thin">
         {/* ── BLOCS CONTENTIEUX ── */}
-        {accessibleContentieux
-          .sort((a, b) => a.order - b.order)
+        {sortedContentieux
           .map((ctxDef, idx) => {
             const colors = CONTENTIEUX_COLORS[ctxDef.id] || CONTENTIEUX_COLORS.crimorg;
             const readOnly = isReadOnly(ctxDef.id);
