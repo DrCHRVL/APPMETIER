@@ -57,7 +57,7 @@ rem -- Installation des dependances de production --
 echo [2/3] Installation des dependances (npm install)...
 echo        Cela peut prendre quelques minutes selon la connexion...
 echo.
-call "%NPM_CMD%" install --production
+call "%NPM_CMD%" install --omit=dev
 if %ERRORLEVEL% neq 0 (
     echo.
     echo ERREUR: L'installation a echoue.
