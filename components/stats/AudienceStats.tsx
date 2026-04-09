@@ -623,75 +623,150 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
           </CardContent>
         </Card>
 
-        {/* Carte Confiscations */}
+        {/* Carte Saisies (phase enquête) */}
         <Card>
           <CardHeader>
-            <CardTitle>Confiscations et saisies</CardTitle>
+            <CardTitle>Saisies (enquête)</CardTitle>
+            <p className="text-sm text-gray-500">Biens saisis par les services d'enquête</p>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span>Véhicules saisis</span>
-                  <span className="font-bold">{yearlyStats.totalVehicules}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Immeubles saisis</span>
-                  <span className="font-bold">{yearlyStats.totalImmeubles}</span>
-                </div>
-              </div>
-              <div className="border-t pt-2 space-y-2">
-                <p className="text-xs text-gray-500 font-medium uppercase">Avoirs financiers</p>
-                <div className="flex justify-between">
-                  <span>Numéraire (espèces)</span>
-                  <span className="font-bold">
-                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(yearlyStats.totalNumeraire)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Saisies bancaires</span>
-                  <span className="font-bold">
-                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(yearlyStats.totalBancaire)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Cryptomonnaies</span>
-                  <span className="font-bold">
-                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(yearlyStats.totalCrypto)}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t pt-1">
-                  <span className="font-medium">Total avoirs</span>
-                  <span className="font-bold">
-                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(yearlyStats.totalArgent)}
-                  </span>
-                </div>
-              </div>
-              {(yearlyStats.totalObjets > 0 || yearlyStats.totalStupefiants > 0) && (
-                <div className="border-t pt-2 space-y-2">
-                  {yearlyStats.totalObjets > 0 && (
-                    <div className="flex justify-between">
-                      <span>Objets mobiliers saisis</span>
-                      <span className="font-bold">{yearlyStats.totalObjets}</span>
+            {(() => {
+              const hasSaisies = yearlyStats.totalSaisiesVehicules > 0 || yearlyStats.totalSaisiesImmeubles > 0 ||
+                yearlyStats.totalSaisiesArgent > 0 || yearlyStats.totalSaisiesObjets > 0;
+              const fmt = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
+              if (!hasSaisies) {
+                return <p className="text-sm text-gray-400 italic">Aucune saisie renseignée pour cette période</p>;
+              }
+              return (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    {yearlyStats.totalSaisiesVehicules > 0 && (
+                      <div className="flex justify-between">
+                        <span>Véhicules saisis</span>
+                        <span className="font-bold">{yearlyStats.totalSaisiesVehicules}</span>
+                      </div>
+                    )}
+                    {yearlyStats.totalSaisiesImmeubles > 0 && (
+                      <div className="flex justify-between">
+                        <span>Immeubles saisis</span>
+                        <span className="font-bold">{yearlyStats.totalSaisiesImmeubles}</span>
+                      </div>
+                    )}
+                  </div>
+                  {(yearlyStats.totalSaisiesNumeraire > 0 || yearlyStats.totalSaisiesBancaire > 0 || yearlyStats.totalSaisiesCrypto > 0) && (
+                    <div className="border-t pt-2 space-y-2">
+                      <p className="text-xs text-gray-500 font-medium uppercase">Avoirs financiers saisis</p>
+                      {yearlyStats.totalSaisiesNumeraire > 0 && (
+                        <div className="flex justify-between">
+                          <span>Numéraire (espèces)</span>
+                          <span className="font-bold">{fmt.format(yearlyStats.totalSaisiesNumeraire)}</span>
+                        </div>
+                      )}
+                      {yearlyStats.totalSaisiesBancaire > 0 && (
+                        <div className="flex justify-between">
+                          <span>Comptes bancaires</span>
+                          <span className="font-bold">{fmt.format(yearlyStats.totalSaisiesBancaire)}</span>
+                        </div>
+                      )}
+                      {yearlyStats.totalSaisiesCrypto > 0 && (
+                        <div className="flex justify-between">
+                          <span>Cryptomonnaies</span>
+                          <span className="font-bold">{fmt.format(yearlyStats.totalSaisiesCrypto)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between border-t pt-1">
+                        <span className="font-medium">Total avoirs saisis</span>
+                        <span className="font-bold">{fmt.format(yearlyStats.totalSaisiesArgent)}</span>
+                      </div>
                     </div>
                   )}
-                  {yearlyStats.totalStupefiants > 0 && (
-                    <div className="flex justify-between">
-                      <span>Dossiers avec stupéfiants</span>
-                      <span className="font-bold">{yearlyStats.totalStupefiants}</span>
+                  {yearlyStats.totalSaisiesObjets > 0 && (
+                    <div className="border-t pt-2">
+                      <div className="flex justify-between">
+                        <span>Objets mobiliers saisis</span>
+                        <span className="font-bold">{yearlyStats.totalSaisiesObjets}</span>
+                      </div>
                     </div>
                   )}
                 </div>
-              )}
-              <div className="text-sm text-gray-500">
-                Ratio de {yearlyStats.ratioConfiscations.toFixed(2)} saisies par condamnation
-              </div>
-            </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+
+        {/* Carte Confiscations (résultats d'audience) */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Confiscations (audience)</CardTitle>
+            <p className="text-sm text-gray-500">Biens confisqués par décision du tribunal</p>
+          </CardHeader>
+          <CardContent>
+            {(() => {
+              const hasConfiscations = yearlyStats.totalVehicules > 0 || yearlyStats.totalImmeubles > 0 ||
+                yearlyStats.totalArgent > 0 || yearlyStats.totalObjets > 0 || yearlyStats.totalStupefiants > 0;
+              const fmt = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
+              if (!hasConfiscations) {
+                return <p className="text-sm text-gray-400 italic">Aucune confiscation renseignée pour cette période</p>;
+              }
+              return (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span>Véhicules confisqués</span>
+                      <span className="font-bold">{yearlyStats.totalVehicules}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Immeubles confisqués</span>
+                      <span className="font-bold">{yearlyStats.totalImmeubles}</span>
+                    </div>
+                  </div>
+                  <div className="border-t pt-2 space-y-2">
+                    <p className="text-xs text-gray-500 font-medium uppercase">Avoirs financiers confisqués</p>
+                    <div className="flex justify-between">
+                      <span>Numéraire (espèces)</span>
+                      <span className="font-bold">{fmt.format(yearlyStats.totalNumeraire)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Comptes bancaires</span>
+                      <span className="font-bold">{fmt.format(yearlyStats.totalBancaire)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Cryptomonnaies</span>
+                      <span className="font-bold">{fmt.format(yearlyStats.totalCrypto)}</span>
+                    </div>
+                    <div className="flex justify-between border-t pt-1">
+                      <span className="font-medium">Total avoirs confisqués</span>
+                      <span className="font-bold">{fmt.format(yearlyStats.totalArgent)}</span>
+                    </div>
+                  </div>
+                  {(yearlyStats.totalObjets > 0 || yearlyStats.totalStupefiants > 0) && (
+                    <div className="border-t pt-2 space-y-2">
+                      {yearlyStats.totalObjets > 0 && (
+                        <div className="flex justify-between">
+                          <span>Objets mobiliers confisqués</span>
+                          <span className="font-bold">{yearlyStats.totalObjets}</span>
+                        </div>
+                      )}
+                      {yearlyStats.totalStupefiants > 0 && (
+                        <div className="flex justify-between">
+                          <span>Dossiers avec stupéfiants</span>
+                          <span className="font-bold">{yearlyStats.totalStupefiants}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="text-sm text-gray-500">
+                    Ratio de {yearlyStats.ratioConfiscations.toFixed(2)} confiscations par condamnation
+                  </div>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
 
         {/* Carte Delta Saisies vs Confiscations */}
-        {(yearlyStats.totalSaisiesVehicules > 0 || yearlyStats.totalSaisiesArgent > 0 || yearlyStats.totalSaisiesImmeubles > 0 || yearlyStats.totalSaisiesObjets > 0) && (
+        {(yearlyStats.totalSaisiesVehicules > 0 || yearlyStats.totalSaisiesArgent > 0 || yearlyStats.totalSaisiesImmeubles > 0 || yearlyStats.totalSaisiesObjets > 0 ||
+          yearlyStats.totalVehicules > 0 || yearlyStats.totalArgent > 0 || yearlyStats.totalImmeubles > 0 || yearlyStats.totalObjets > 0) && (
           <Card>
             <CardHeader>
               <CardTitle>Delta saisies vs confiscations</CardTitle>
@@ -700,7 +775,7 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
             <CardContent>
               {(() => {
                 const fmt = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
-                const items: { label: string; saisie: number | string; confiscation: number | string; isAmount?: boolean }[] = [
+                const items: { label: string; saisie: number; confiscation: number; isAmount?: boolean }[] = [
                   { label: 'Véhicules', saisie: yearlyStats.totalSaisiesVehicules, confiscation: yearlyStats.totalVehicules },
                   { label: 'Immeubles', saisie: yearlyStats.totalSaisiesImmeubles, confiscation: yearlyStats.totalImmeubles },
                   { label: 'Numéraire', saisie: yearlyStats.totalSaisiesNumeraire, confiscation: yearlyStats.totalNumeraire, isAmount: true },
@@ -720,16 +795,14 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                       <span className="text-right">Delta</span>
                     </div>
                     {items.map(({ label, saisie, confiscation, isAmount }) => {
-                      const s = Number(saisie);
-                      const c = Number(confiscation);
-                      const delta = s - c;
-                      const hasData = s > 0 || c > 0;
+                      const delta = saisie - confiscation;
+                      const hasData = saisie > 0 || confiscation > 0;
                       if (!hasData) return null;
                       return (
                         <div key={label} className="grid grid-cols-4 gap-2 text-sm items-center">
                           <span>{label}</span>
-                          <span className="text-right font-medium">{isAmount ? fmt.format(s) : s}</span>
-                          <span className="text-right font-medium">{isAmount ? fmt.format(c) : c}</span>
+                          <span className="text-right font-medium">{isAmount ? fmt.format(saisie) : saisie}</span>
+                          <span className="text-right font-medium">{isAmount ? fmt.format(confiscation) : confiscation}</span>
                           <span className={`text-right font-bold ${delta > 0 ? 'text-orange-600' : delta < 0 ? 'text-green-600' : 'text-gray-500'}`}>
                             {delta > 0 ? '+' : ''}{isAmount ? fmt.format(delta) : delta}
                           </span>
@@ -745,7 +818,7 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                       </span>
                     </div>
                     <p className="text-xs text-gray-400 mt-2">
-                      Orange = saisie {'>'} confiscation (non confisqué par le juge). Vert = confiscation {'>'} saisie.
+                      Orange = saisi non confisqué par le juge. Vert = confiscation {'>'} saisie.
                     </p>
                   </div>
                 );
