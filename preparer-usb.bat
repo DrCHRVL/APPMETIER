@@ -27,6 +27,11 @@ if not exist "%NODE_EXE%" (
     exit /b 1
 )
 
+rem -- Configuration environnement build --
+set NEXT_TELEMETRY_DISABLED=1
+set NODE_OPTIONS=--max-old-space-size=4096
+set NODE_ENV=production
+
 rem -- Dossier de sortie --
 set USB_ROOT=%BASE_DIR%..\USB_Distribution
 set OUTPUT_DIR=%USB_ROOT%\Projet1
@@ -35,6 +40,9 @@ echo.
 
 rem -- Etape 1 : Build Next.js --
 echo [1/7] Compilation de l'application...
+echo        (nettoyage du cache precedent...)
+if exist ".next\cache" rmdir /s /q ".next\cache"
+echo        (compilation en cours, cela peut prendre 1-2 minutes...)
 "%NODE_EXE%" node_modules\next\dist\bin\next build
 if %ERRORLEVEL% neq 0 (
     echo ERREUR: Le build a echoue.

@@ -4,6 +4,8 @@ rem Ce fichier est mis a jour automatiquement via le reseau.
 rem S'il existe un fichier .dev-mode → next dev (developpeur)
 rem Sinon → node .next\standalone\server.js (utilisateur final)
 
+set NEXT_TELEMETRY_DISABLED=1
+
 if exist ".dev-mode" (
     echo [DEV] Demarrage en mode developpement...
     start "Next.js" ..\nodejs\node.exe node_modules\next\dist\bin\next dev
@@ -15,6 +17,9 @@ if exist ".dev-mode" (
         echo Build production introuvable. Compilation en cours...
         echo Cela peut prendre quelques minutes...
         echo.
+        set NODE_OPTIONS=--max-old-space-size=4096
+        set NODE_ENV=production
+        if exist ".next\cache" rmdir /s /q ".next\cache"
         if exist "node_modules\next\dist\bin\next" (
             ..\nodejs\node.exe node_modules\next\dist\bin\next build
             if %ERRORLEVEL% neq 0 (
