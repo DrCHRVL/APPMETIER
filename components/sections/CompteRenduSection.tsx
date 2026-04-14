@@ -6,7 +6,7 @@ import { Select } from '../ui/select';
 import { Label } from '../ui/label';
 import { Enquete, CompteRendu, EnqueteInstruction } from '@/types/interfaces';
 import { X, FileText, Calendar, User } from 'lucide-react';
-import { useMemo, useState, useRef, useEffect, memo, MouseEvent } from 'react';
+import { useMemo, useState, useRef, useEffect, useCallback, memo, MouseEvent } from 'react';
 import { useUser } from '@/contexts/UserContext';
 
 interface CompteRenduSectionProps {
@@ -101,6 +101,13 @@ export const CompteRenduSection = memo(({
   // Détection si on est dans une instruction
   const isInstruction = 'numeroInstruction' in enquete && 'cabinet' in enquete;
 
+  // État local d'édition — évite de remonter chaque frappe au parent (re-render de toute l'app)
+  // Le parent est notifié uniquement à la sauvegarde ou à la fermeture
+  const [localCR, setLocalCR] = useState<CompteRendu | null>(null);
+  useEffect(() => {
+    setLocalCR(editingCR ? { ...editingCR } : null);
+  }, [editingCR]);
+
   // États pour l'UX
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -137,10 +144,11 @@ export const CompteRenduSection = memo(({
 
   // Sauvegarde brouillon dans localStorage (debounce 800ms)
   const scheduleDraftSave = () => {
-    if (!editingCR) return;
+    if (!localCR) return;
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    const crId = localCR.id;
     draftTimerRef.current = setTimeout(() => {
-      const key = `cr-draft-${editingCR.id || 'new'}`;
+      const key = `cr-draft-${crId || 'new'}`;
       localStorage.setItem(key, JSON.stringify({
         description: editorRef.current?.innerHTML || ''
       }));
@@ -296,11 +304,11 @@ export const CompteRenduSection = memo(({
   };
 
   const handleSave = async () => {
-    if (!editingCR) return;
+    if (!localCR) return;
 
     // Lire le contenu HTML de l'éditeur WYSIWYG
     const htmlContent = editorRef.current?.innerHTML || '';
-    const crToSave = { ...editingCR, description: htmlContent };
+    const crToSave = { ...localCR, description: htmlContent };
 
     // Validation
     const validationError = validateCR(crToSave);
@@ -334,10 +342,11 @@ export const CompteRenduSection = memo(({
         }
       }
       // Effacer le brouillon après sauvegarde réussie
-      const key = `cr-draft-${editingCR.id || 'new'}`;
+      const key = `cr-draft-${localCR.id || 'new'}`;
       localStorage.removeItem(key);
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
       setIsDirty(false);
+      setLocalCR(null);
       setEditingCR(null);
     } catch (error) {
       setError('Erreur lors de la sauvegarde');
@@ -380,9 +389,52 @@ export const CompteRenduSection = memo(({
     }
   };
 
+  // Nettoyage du HTML collé (évite le lag causé par le HTML Word/PDF)
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const clipboard = e.clipboardData;
+
+    // Priorité : HTML nettoyé > texte brut
+    const html = clipboard.getData('text/html');
+    const plain = clipboard.getData('text/plain');
+
+    let cleanHtml: string;
+    if (html) {
+      // Nettoyer le HTML (retirer styles inline, classes Office, spans inutiles)
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      // Supprimer les balises style, script, meta, link
+      tmp.querySelectorAll('style, script, meta, link, title, xml').forEach(el => el.remove());
+      // Supprimer tous les attributs sauf href sur <a>
+      const walk = (node: Element) => {
+        const attrs = [...node.attributes];
+        for (const attr of attrs) {
+          if (node.tagName === 'A' && attr.name === 'href') continue;
+          node.removeAttribute(attr.name);
+        }
+        for (const child of node.children) walk(child);
+      };
+      walk(tmp);
+      // Remplacer les divs/spans vides ou inutiles par leur contenu
+      tmp.querySelectorAll('span, font, o\\:p').forEach(el => {
+        el.replaceWith(...el.childNodes);
+      });
+      cleanHtml = tmp.innerHTML;
+    } else {
+      // Texte brut : convertir les sauts de ligne en <br>
+      cleanHtml = plain.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+    }
+
+    // Insérer proprement au curseur
+    document.execCommand('insertHTML', false, cleanHtml);
+    setIsDirty(true);
+    scheduleDraftSave();
+  };
+
   // Raccourci Ctrl+S → enregistrer ; Ctrl+H → surligner
   useEffect(() => {
-    if (!editingCR) return;
+    if (!localCR) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       if (e.key === 's') { e.preventDefault(); handleSave(); }
@@ -390,7 +442,7 @@ export const CompteRenduSection = memo(({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [editingCR, isSaving]);
+  }, [localCR, isSaving]);
 
   const formatDescription = useMemo(() => (text: string) => {
     const words = text.split(' ');
@@ -736,8 +788,8 @@ export const CompteRenduSection = memo(({
               onMouseDown={handleDragStart}
             >
               <DialogTitle>
-                {editingCR.id ? 'Modifier le compte-rendu' :
-                 isInstruction && (editingCR as CompteRenduInstruction).type === 'synthese'
+                {localCR?.id ? 'Modifier le compte-rendu' :
+                 isInstruction && (localCR as CompteRenduInstruction)?.type === 'synthese'
                    ? 'Nouvelle synthèse d\'acte'
                    : 'Nouveau compte-rendu'
                 }
@@ -752,16 +804,16 @@ export const CompteRenduSection = memo(({
               )}
 
               {/* Affichage des infos de la synthèse */}
-              {isInstruction && (editingCR as CompteRenduInstruction).type === 'synthese' && (
+              {isInstruction && (localCR as CompteRenduInstruction)?.type === 'synthese' && (
                 <div className="bg-blue-50 border border-blue-200 rounded p-3">
                   <div className="flex items-center gap-2 mb-2">
                     <Calendar className="h-4 w-4 text-blue-600" />
                     <span className="font-medium text-blue-700">Synthèse d'acte</span>
                   </div>
                   <div className="text-sm space-y-1">
-                    <div>Type: {getActeTypeLabel((editingCR as CompteRenduInstruction).acteType || '')}</div>
-                    <div>Date de l'acte: {(editingCR as CompteRenduInstruction).dateActe && 
-                      new Date((editingCR as CompteRenduInstruction).dateActe!).toLocaleDateString()}</div>
+                    <div>Type: {getActeTypeLabel((localCR as CompteRenduInstruction)?.acteType || '')}</div>
+                    <div>Date de l'acte: {(localCR as CompteRenduInstruction)?.dateActe &&
+                      new Date((localCR as CompteRenduInstruction).dateActe!).toLocaleDateString()}</div>
                   </div>
                 </div>
               )}
@@ -769,25 +821,19 @@ export const CompteRenduSection = memo(({
               <Input
                 type="text"
                 placeholder="Enquêteur"
-                value={editingCR.enqueteur}
+                value={localCR?.enqueteur ?? ''}
                 onChange={(e) => {
                   setError(null);
-                  setEditingCR({
-                    ...editingCR,
-                    enqueteur: e.target.value
-                  });
+                  setLocalCR(prev => prev ? { ...prev, enqueteur: e.target.value } : prev);
                 }}
               />
-              
+
               <Input
                 type="date"
-                value={editingCR.date.split('T')[0]}
+                value={(localCR?.date ?? '').split('T')[0]}
                 onChange={(e) => {
                   setError(null);
-                  setEditingCR({
-                    ...editingCR,
-                    date: e.target.value
-                  });
+                  setLocalCR(prev => prev ? { ...prev, date: e.target.value } : prev);
                 }}
               />
               
@@ -827,9 +873,10 @@ export const CompteRenduSection = memo(({
                   suppressContentEditableWarning
                   className="w-full min-h-[200px] p-2 border rounded-b rounded-t-none focus:outline-none focus:ring-1 focus:ring-ring"
                   style={{ wordBreak: 'break-word', hyphens: 'auto' }}
-                  data-placeholder={isInstruction && (editingCR as CompteRenduInstruction).type === 'synthese'
+                  data-placeholder={isInstruction && (localCR as CompteRenduInstruction)?.type === 'synthese'
                     ? "Synthèse de l'acte procédural..."
                     : "Description"}
+                  onPaste={handlePaste}
                   onInput={() => { setIsDirty(true); scheduleDraftSave(); }}
                 />
               </div>

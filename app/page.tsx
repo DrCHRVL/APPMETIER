@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { MultiSideBar } from '@/components/MultiSideBar';
 import { Header } from '@/components/Header';
 import { FilterBar } from '@/components/FilterBar';
@@ -84,6 +84,14 @@ function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentView, setCurrentView] = useState('enquetes');
   const [searchTerm, setSearchTerm] = useState('');
+  // Debounce de la recherche : l'input reste réactif, les hooks coûteux attendent 300ms
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchTerm(value);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => setDebouncedSearchTerm(value), 300);
+  }, []);
 
   // 🆕 Multi-contentieux
   const [activeContentieux, setActiveContentieux] = useState<ContentieuxId | null>(null);
@@ -113,6 +121,8 @@ function AppContent() {
       await flushPendingSave();
     }
     setSearchTerm('');
+    setDebouncedSearchTerm('');
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     setSelectedTags([]);
     setSortOrder('date-desc');
     setCurrentView(view);
@@ -204,6 +214,7 @@ function AppContent() {
     handleUnarchiveEnquete,
     handleStartEnquete,
     flushPendingSave,
+    refreshData: refreshEnquetes,
     isSharedEnquete,
     handleShareEnquete,
     handleUnshareEnquete,
@@ -291,6 +302,25 @@ function AppContent() {
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  // Rafraîchissement en arrière-plan quand l'app revient au premier plan (comme Slack)
+  // Garde l'UI affichée (pas de page blanche), recharge les données silencieusement
+  useEffect(() => {
+    let lastHidden = 0;
+    const STALE_THRESHOLD = 30_000; // 30s d'absence → rafraîchir
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        lastHidden = Date.now();
+      } else if (lastHidden && Date.now() - lastHidden > STALE_THRESHOLD) {
+        // L'app est revenue après 30s+ d'absence → refresh silencieux
+        refreshEnquetes();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [refreshEnquetes]);
 
   // Enregistrer le flush de sauvegarde pour éviter la race condition sync/throttle
   useEffect(() => {
@@ -659,7 +689,7 @@ function AppContent() {
     handleUpdateEnquete(enqueteId, { overboardPins: newPins });
   };
 
-  const filteredAndSortedEnquetes = useFilterSort(enquetes, searchTerm, selectedTags, sortOrder);
+  const filteredAndSortedEnquetes = useFilterSort(enquetes, debouncedSearchTerm, selectedTags, sortOrder);
 
   // Liste dédupliquée de tous les noms de MEC connus (cross-dossiers)
   const allKnownMec = useMemo(
@@ -668,10 +698,10 @@ function AppContent() {
   );
 
   // Recherche dans le contenu des documents (async, avec cache)
-  const { documentMatchIds, isSearchingDocs } = useDocumentSearch(enquetes, searchTerm);
+  const { documentMatchIds, isSearchingDocs } = useDocumentSearch(enquetes, debouncedSearchTerm);
 
   // Recherche cross-contentieux (pastilles sidebar + bandeau)
-  const { crossSearchResults, totalOtherResults } = useCrossSearch(searchTerm, effectiveContentieux, contentieuxDefs);
+  const { crossSearchResults, totalOtherResults } = useCrossSearch(debouncedSearchTerm, effectiveContentieux, contentieuxDefs);
 
   // Fusion des résultats métadonnées + contenu documents
   const mergedFilteredEnquetes = useMemo(() => {
@@ -848,7 +878,7 @@ return (
         <div className="no-print">
           <Header
             searchTerm={searchTerm}
-            onSearch={setSearchTerm}
+            onSearch={handleSearchChange}
             alerts={[...alerts.filter(alert => alert.status === 'active'), ...instructionAlerts]}
             onShowAlerts={() => setShowAlertsModal(true)}
             onSave={handleManualSave}
@@ -1052,7 +1082,7 @@ return (
             <InstructionsPage
               instructions={instructions}
               searchTerm={searchTerm}
-              onSearchChange={setSearchTerm}
+              onSearchChange={handleSearchChange}
               onUpdateInstruction={handleUpdateInstruction}
               onAddInstruction={handleAddInstruction}
               onDeleteInstruction={handleDeleteInstruction}
