@@ -20,7 +20,7 @@ import { NewEnqueteData, Tag, ToDoItem } from '@/types/interfaces';
 import { StorageManager } from '@/utils/storage';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ToastProvider, useToast } from '@/contexts/ToastContext';
-import { AudienceProvider, useAudience } from '@/contexts/AudienceContext';
+import { AudienceProvider } from '@/contexts/AudienceContext';
 import { UserProvider, useUser } from '@/contexts/UserContext';
 import { ProlongationModal } from '@/components/modals/ProlongationModal';
 import { PoseActeModal } from '@/components/modals/PoseActeModal';
@@ -222,6 +222,10 @@ function AppContent() {
     handleUnshareEnquete,
   } = useContentieuxEnquetes(currentContentieuxId);
 
+  // Ref pour les callbacks stables qui lisent les enquêtes courantes
+  const enquetesLookupRef = useRef(enquetes);
+  enquetesLookupRef.current = enquetes;
+
   // Hook Overboard — données transversales (tous contentieux)
   const { enquetesByContentieux: overboardData, refresh: refreshOverboard } = useOverboardData(contentieuxDefs);
 
@@ -282,10 +286,6 @@ function AppContent() {
     isLoading: tagsLoading,
     getTagsByCategory
   } = useTags();
-  const { getServicesFromTags } = useTags();
-
-  // Hook audience — une seule souscription partagée avec les cartes
-  const { hasResultat: audienceHasResultat, deleteAudienceResultat, isLoading: audienceIsLoading } = useAudience();
 
   const { getSectionOrder, sections: sectionsList, reorderSection, addSection: addSectionFn } = useSections();
 
@@ -659,7 +659,7 @@ function AppContent() {
 
   // Toggle dissimulation JA
   const handleToggleHideFromJA = useCallback((enqueteId: number) => {
-    const enquete = enquetes.find(e => e.id === enqueteId);
+    const enquete = enquetesLookupRef.current.find(e => e.id === enqueteId);
     if (!enquete) return;
     const newValue = !enquete.hiddenFromJA;
     handleUpdateEnquete(enqueteId, { hiddenFromJA: newValue });
@@ -667,12 +667,12 @@ function AppContent() {
       newValue ? 'Enquête dissimulée aux JA' : 'Enquête visible par les JA',
       'success'
     );
-  }, [enquetes, handleUpdateEnquete, showToast]);
+  }, [handleUpdateEnquete, showToast]);
 
   // Toggle pin overboard pour une enquête
   const handleToggleOverboardPin = useCallback((enqueteId: number) => {
     if (!user) return;
-    const enquete = enquetes.find(e => e.id === enqueteId);
+    const enquete = enquetesLookupRef.current.find(e => e.id === enqueteId);
     if (!enquete) return;
 
     const pins = enquete.overboardPins || [];
@@ -693,7 +693,7 @@ function AppContent() {
       showToast('Enquête épinglée au suivi hiérarchique', 'success');
     }
     handleUpdateEnquete(enqueteId, { overboardPins: newPins });
-  }, [user, enquetes, handleUpdateEnquete, showToast]);
+  }, [user, handleUpdateEnquete, showToast]);
 
   const filteredAndSortedEnquetes = useFilterSort(enquetes, debouncedSearchTerm, selectedTags, sortOrder);
 
@@ -807,7 +807,7 @@ function AppContent() {
     setIsEditing(true);
   }, []);
   const handleToggleSuivi = useCallback((enqueteId: number, type: 'JIRS' | 'PG') => {
-    const enquete = enquetes.find(e => e.id === enqueteId);
+    const enquete = enquetesLookupRef.current.find(e => e.id === enqueteId);
     if (!enquete) return;
     const tagId = type === 'JIRS' ? 'suivi_jirs' : 'suivi_pg';
     const etags = enquete.tags || [];
@@ -816,7 +816,7 @@ function AppContent() {
       ? etags.filter((tag: any) => !(tag.category === 'suivi' && tag.value === type))
       : [...etags, { id: tagId, value: type, category: 'suivi' }];
     handleUpdateEnquete(enqueteId, { tags: newTags });
-  }, [enquetes, handleUpdateEnquete]);
+  }, [handleUpdateEnquete]);
   const handleActeRequest = useCallback((acteId: number, type: 'acte' | 'ecoute' | 'geoloc', enqueteId: number, modal: 'prolongation' | 'pose' | 'validation') => {
     setSelectedActe({ id: acteId, type, enqueteId });
     if (modal === 'prolongation') setShowProlongationModal(true);
@@ -824,18 +824,21 @@ function AppContent() {
     else setShowProlongationValidationModal(true);
   }, []);
   const handleValidateAutorisation = useCallback((enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => {
-    const enquete = enquetes.find(e => e.id === enqueteId);
+    const enquete = enquetesLookupRef.current.find(e => e.id === enqueteId);
     if (!enquete) return;
     const key = type === 'acte' ? 'actes' : type === 'ecoute' ? 'ecoutes' : 'geolocalisations';
     handleUpdateEnquete(enqueteId, {
       [key]: enquete[key]?.map((a: any) => a.id === acteId ? { ...a, statut: 'en_cours' } : a)
     });
     showToast('Autorisation validée', 'success');
-  }, [enquetes, handleUpdateEnquete, showToast]);
+  }, [handleUpdateEnquete, showToast]);
   const handleCreateGlobalTodo = useCallback((todo: ToDoItem) => {
-    setGlobalTodos(prev => [...prev, todo]);
-    ElectronBridge.setData('global_todos', [...globalTodos, todo]);
-  }, [globalTodos]);
+    setGlobalTodos(prev => {
+      const updated = [...prev, todo];
+      ElectronBridge.setData('global_todos', updated);
+      return updated;
+    });
+  }, []);
 
   // Flags conditionnels stables
   const showOverboardPin = hasOverboard();
@@ -1066,10 +1069,6 @@ return (
                       onValidateAutorisationRequest={(acteId, type) => handleValidateAutorisation(enquete.id, acteId, type)}
                       visualAlertRules={visualAlertRules}
                       onCreateGlobalTodo={handleCreateGlobalTodo}
-                      audienceHasResultat={audienceHasResultat}
-                      audienceDeleteResultat={deleteAudienceResultat}
-                      audienceIsLoading={audienceIsLoading}
-                      getServicesFromTagsFn={getServicesFromTags}
                     />
                   );
 

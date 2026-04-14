@@ -42,11 +42,6 @@ interface EnquetePreviewProps {
   onValidateAutorisationRequest?: (acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
   visualAlertRules?: VisualAlertRule[];
   onCreateGlobalTodo?: (todo: ToDoItem) => void;
-  // Helpers remontés du parent pour éviter N souscriptions contexte
-  audienceHasResultat?: (enqueteId: number) => boolean;
-  audienceDeleteResultat?: (enqueteId: number) => Promise<boolean>;
-  audienceIsLoading?: boolean;
-  getServicesFromTagsFn?: (tags: any[]) => string[];
 }
 
 export const EnquetePreview = React.memo(({
@@ -69,11 +64,7 @@ export const EnquetePreview = React.memo(({
   onValidateProlongationRequest,
   onValidateAutorisationRequest,
   visualAlertRules = [],
-  onCreateGlobalTodo,
-  audienceHasResultat,
-  audienceDeleteResultat,
-  audienceIsLoading,
-  getServicesFromTagsFn
+  onCreateGlobalTodo
 }: EnquetePreviewProps) => {
   // États pour les modales
   const [showStartModal, setShowStartModal] = useState(false);
@@ -84,14 +75,10 @@ export const EnquetePreview = React.memo(({
   const [showHideConfirm, setShowHideConfirm] = useState(false);
   const [selectedActe, setSelectedActe] = useState<{ id: number, type: 'acte' | 'ecoute' | 'geoloc' } | null>(null);
 
-  // Hooks (fallback si les props ne sont pas fournies — rétrocompatibilité)
-  const audienceCtx = useAudience();
-  const hasResultat = audienceHasResultat ?? audienceCtx.hasResultat;
-  const deleteAudienceResultat = audienceDeleteResultat ?? audienceCtx.deleteAudienceResultat;
-  const isLoading = audienceIsLoading ?? audienceCtx.isLoading;
+  // Hooks
+  const { hasResultat, deleteAudienceResultat, isLoading } = useAudience();
   const { showToast } = useToast();
-  const tagsCtx = useTags();
-  const getServicesFromTags = getServicesFromTagsFn ?? tagsCtx.getServicesFromTags;
+  const { getServicesFromTags } = useTags();
   const { user, canDo: userCanDo } = useUser();
 
   // Pin overboard

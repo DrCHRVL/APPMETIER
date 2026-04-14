@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, ReactElement } from 'react';
 
 interface LazyGridProps {
   children: React.ReactNode[];
@@ -12,7 +12,7 @@ interface LazyGridProps {
 /**
  * Grille légère avec virtualisation par IntersectionObserver.
  * Les cartes hors-écran sont remplacées par des placeholders.
- * Pas de dépendance externe — utilise l'API native du navigateur.
+ * Réagit correctement aux changements de liste (filtrage, tri).
  */
 export const LazyGrid = ({
   children,
@@ -27,11 +27,15 @@ export const LazyGrid = ({
 
   return (
     <div className={className}>
-      {children.map((child, i) => (
-        <LazyItem key={i} placeholderHeight={placeholderHeight}>
-          {child}
-        </LazyItem>
-      ))}
+      {children.map((child) => {
+        // Utiliser la key React du child s'il en a une, sinon fallback sur l'index
+        const childKey = React.isValidElement(child) ? child.key : null;
+        return (
+          <LazyItem key={childKey ?? undefined} placeholderHeight={placeholderHeight}>
+            {child}
+          </LazyItem>
+        );
+      })}
     </div>
   );
 };
@@ -44,18 +48,22 @@ function LazyItem({ children, placeholderHeight }: { children: React.ReactNode; 
     const el = ref.current;
     if (!el) return;
 
+    // Observer bidirectionnel : rend visible quand entre dans le viewport,
+    // garde visible une fois chargé (pas de re-placeholder pour éviter le flickering)
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
           setVisible(true);
-          observer.disconnect();
         }
       },
-      { rootMargin: '200px' } // rendre 200px avant d'être visible
+      { rootMargin: '300px' }
     );
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  // Reset visibility quand le contenu change (filtrage/tri)
+  // Le child key change → React remonte le composant → visible repart à false → observer relance
 
   if (!visible) {
     return <div ref={ref} style={{ minHeight: placeholderHeight }} />;

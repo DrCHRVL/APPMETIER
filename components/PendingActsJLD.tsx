@@ -14,7 +14,7 @@ interface PendingActeItem {
   kind: 'autorisation' | 'prolongation';
 }
 
-export const PendingActsJLD = ({ enquetes, onOpenEnquete }: PendingActsJLDProps) => {
+export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete }: PendingActsJLDProps) => {
   const pendingActes = useMemo(() => {
     const now = Date.now();
     const dayMs = 1000 * 60 * 60 * 24;
@@ -94,4 +94,4 @@ export const PendingActsJLD = ({ enquetes, onOpenEnquete }: PendingActsJLDProps)
       </div>
     </div>
   );
-};
+});

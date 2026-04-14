@@ -10,7 +10,7 @@ interface TodoReminderBarProps {
   onOpenEnquete?: (enquete: Enquete) => void;
 }
 
-export const TodoReminderBar = ({
+export const TodoReminderBar = React.memo(({
   enquetes,
   globalTodos,
   onUpdateEnquete,
@@ -158,4 +158,4 @@ export const TodoReminderBar = ({
       </div>
     </div>
   );
-};
+});

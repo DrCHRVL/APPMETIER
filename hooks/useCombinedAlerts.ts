@@ -17,6 +17,8 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
   // Clés préfixées par contentieux (fallback sur clés globales si pas de contentieux)
   const alertRulesKey = contentieuxId ? `ctx_${contentieuxId}_alertRules` : APP_CONFIG.STORAGE_KEYS.ALERT_RULES;
   const alertsKey = contentieuxId ? `ctx_${contentieuxId}_alerts` : 'alerts';
+  const alertsKeyRef = useRef(alertsKey);
+  alertsKeyRef.current = alertsKey;
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -117,7 +119,8 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     debounce(async () => {
       try {
         // Récupérer les alertes existantes
-        const existingAlerts = await ElectronBridge.getData<Alert[]>(alertsKey, []);
+        const currentAlertsKey = alertsKeyRef.current;
+        const existingAlerts = await ElectronBridge.getData<Alert[]>(currentAlertsKey, []);
         const newAlerts: Alert[] = [];
 
         // 1. Vérifier les enquêtes pour les alertes traditionnelles
@@ -221,13 +224,13 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
         // Conserver uniquement les nouvelles alertes (enquêtes + AIR) et les alertes en snooze
         const allAlerts = [...newAlerts, ...existingSnoozeAlerts];
         
-        await ElectronBridge.setData(alertsKey, allAlerts);
+        await ElectronBridge.setData(currentAlertsKey, allAlerts);
         setAlerts(allAlerts);
       } catch (error) {
         console.error('Erreur lors de la mise à jour des alertes:', error);
       }
     }, DEBOUNCE_DELAY),
-    [alertRules] // eslint-disable-line react-hooks/exhaustive-deps
+    [alertRules] // alertsKey et enquetes/mesures accédés via refs
   );
 
   // Lancement initial + polling toutes les 5 min (ne dépend que de alertRules via updateAlerts)
@@ -240,10 +243,11 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     };
   }, [updateAlerts]);
 
-  // Recalculer quand les données changent (debounced, sans recréer l'interval)
+  // Recalculer quand les données ou le contentieux changent (debounced, sans recréer l'interval)
   useEffect(() => {
     updateAlerts();
-  }, [enquetes, mesuresAIR]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { updateAlerts.cancel(); };
+  }, [enquetes, mesuresAIR, alertsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleUpdateAlertRule = useCallback(async (updatedRule: AlertRule) => {
     setAlertRules(prev => {
