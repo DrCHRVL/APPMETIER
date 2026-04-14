@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Alert, AlertRule, Enquete, AIRMesure } from '@/types/interfaces';
 import { APP_CONFIG } from '@/config/constants';
 import { ElectronBridge } from '@/utils/electronBridge';
@@ -9,6 +9,11 @@ const ALERT_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const DEBOUNCE_DELAY = 1000; // 1 seconde
 
 export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], contentieuxId?: string) => {
+  // Refs pour les données volatiles — évite de recréer le debounced callback à chaque changement
+  const enquetesRef = useRef(enquetes);
+  enquetesRef.current = enquetes;
+  const mesuresAIRRef = useRef(mesuresAIR);
+  mesuresAIRRef.current = mesuresAIR;
   // Clés préfixées par contentieux (fallback sur clés globales si pas de contentieux)
   const alertRulesKey = contentieuxId ? `ctx_${contentieuxId}_alertRules` : APP_CONFIG.STORAGE_KEYS.ALERT_RULES;
   const alertsKey = contentieuxId ? `ctx_${contentieuxId}_alerts` : 'alerts';
@@ -107,16 +112,16 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     return parseDateString(sortedRdvs[0].date);
   };
 
-  // Mise à jour des alertes
+  // Mise à jour des alertes — utilise les refs pour ne pas recréer le debounce à chaque changement de données
   const updateAlerts = useCallback(
     debounce(async () => {
       try {
         // Récupérer les alertes existantes
         const existingAlerts = await ElectronBridge.getData<Alert[]>(alertsKey, []);
         const newAlerts: Alert[] = [];
-        
+
         // 1. Vérifier les enquêtes pour les alertes traditionnelles
-        for (const enquete of enquetes) {
+        for (const enquete of enquetesRef.current) {
           if (enquete.statut === 'en_cours') {
             const enqueteAlerts = await AlertManager.checkEnquete(enquete, alertRules);
             newAlerts.push(...enqueteAlerts);
@@ -131,7 +136,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
         
         const now = new Date();
         
-        for (const mesure of mesuresAIR) {
+        for (const mesure of mesuresAIRRef.current) {
           // Ignorer les mesures terminées
           if (mesure.statut !== 'en_cours') {
             continue;
@@ -222,9 +227,10 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
         console.error('Erreur lors de la mise à jour des alertes:', error);
       }
     }, DEBOUNCE_DELAY),
-    [enquetes, mesuresAIR, alertRules]
+    [alertRules] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
+  // Lancement initial + polling toutes les 5 min (ne dépend que de alertRules via updateAlerts)
   useEffect(() => {
     updateAlerts();
     const interval = setInterval(updateAlerts, ALERT_CHECK_INTERVAL);
@@ -233,6 +239,11 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
       updateAlerts.cancel();
     };
   }, [updateAlerts]);
+
+  // Recalculer quand les données changent (debounced, sans recréer l'interval)
+  useEffect(() => {
+    updateAlerts();
+  }, [enquetes, mesuresAIR]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleUpdateAlertRule = useCallback(async (updatedRule: AlertRule) => {
     setAlertRules(prev => {

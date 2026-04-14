@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Plus } from 'lucide-react';
 import { Enquete, ToDoItem } from '@/types/interfaces';
 
@@ -20,19 +20,19 @@ export const TodoReminderBar = ({
   const [newText, setNewText] = useState('');
   const [showInput, setShowInput] = useState(false);
 
-  // Todos actifs des enquêtes, avec numéro source
-  const enqueteTodos = enquetes.flatMap(e =>
-    (e.toDos || [])
+  // Todos actifs des enquêtes, avec numéro source (mémorisé pour éviter les recalculs)
+  const allActive = useMemo(() => {
+    const enqueteTodos = enquetes.flatMap(e =>
+      (e.toDos || [])
+        .filter(t => t.status === 'active')
+        .map(t => ({ ...t, enqueteId: e.id as number | null, enqueteNumero: e.numero as string | null }))
+    );
+    const activeGlobals = globalTodos
       .filter(t => t.status === 'active')
-      .map(t => ({ ...t, enqueteId: e.id as number | null, enqueteNumero: e.numero as string | null }))
-  );
+      .map(t => ({ ...t, enqueteId: null as number | null, enqueteNumero: null as string | null }));
+    return [...activeGlobals, ...enqueteTodos];
+  }, [enquetes, globalTodos]);
 
-  // Todos globaux actifs
-  const activeGlobals = globalTodos
-    .filter(t => t.status === 'active')
-    .map(t => ({ ...t, enqueteId: null as number | null, enqueteNumero: null as string | null }));
-
-  const allActive = [...activeGlobals, ...enqueteTodos];
   const totalCount = allActive.length;
 
   const handleCheckGlobal = (id: number) => {

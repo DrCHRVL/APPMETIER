@@ -5,6 +5,7 @@ import { MultiSideBar } from '@/components/MultiSideBar';
 import { Header } from '@/components/Header';
 import { FilterBar } from '@/components/FilterBar';
 import { EnquetePreview } from '@/components/EnquetePreview';
+import { LazyGrid } from '@/components/ui/LazyGrid';
 import { NewEnqueteModal } from '@/components/modals/NewEnqueteModal';
 import { EnqueteDetailModal } from '@/components/modals/EnqueteDetailModal';
 import { TagManagementPage } from '@/components/pages/TagManagementPage';
@@ -19,7 +20,7 @@ import { NewEnqueteData, Tag, ToDoItem } from '@/types/interfaces';
 import { StorageManager } from '@/utils/storage';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ToastProvider, useToast } from '@/contexts/ToastContext';
-import { AudienceProvider } from '@/contexts/AudienceContext';
+import { AudienceProvider, useAudience } from '@/contexts/AudienceContext';
 import { UserProvider, useUser } from '@/contexts/UserContext';
 import { ProlongationModal } from '@/components/modals/ProlongationModal';
 import { PoseActeModal } from '@/components/modals/PoseActeModal';
@@ -35,14 +36,15 @@ import { useSections } from '@/hooks/useSections';
 // Imports pour les instructions judiciaires
 import { InstructionsPage } from '@/components/pages/InstructionsPage';
 import { NewInstructionModal } from '@/components/modals/NewInstructionModal';
-import { InstructionDetailModal } from '@/components/modals/InstructionDetailModal';
+import dynamic from 'next/dynamic';
+const InstructionDetailModal = dynamic(() => import('@/components/modals/InstructionDetailModal').then(m => ({ default: m.InstructionDetailModal })), { ssr: false });
 import { useInstructions } from '@/hooks/useInstructions';
 
 import { useAIR } from '@/hooks/useAIR';
 import { useCombinedAlerts } from '@/hooks/useCombinedAlerts';
 import { useVisualAlerts } from '@/hooks/useVisualAlerts';
 import { backupManager } from '@/utils/backupManager';
-import { WeeklyRecapPopup } from '@/components/modals/WeeklyRecapPopup';
+const WeeklyRecapPopup = dynamic(() => import('@/components/modals/WeeklyRecapPopup').then(m => ({ default: m.WeeklyRecapPopup })), { ssr: false });
 import { WeeklyPopupConfig } from '@/types/interfaces';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { OPTimeline } from '@/components/OPTimeline';
@@ -56,21 +58,21 @@ import { ConflictAction } from '@/types/dataSyncTypes';
 import { DataSyncManager } from '@/utils/dataSync/DataSyncManager';
 
 // 🆕 Multi-contentieux
-import { SettingsModal } from '@/components/modals/SettingsModal';
-import { OverboardPage } from '@/components/pages/OverboardPage';
-import { GlobalStatsPage } from '@/components/pages/GlobalStatsPage';
+const SettingsModal = dynamic(() => import('@/components/modals/SettingsModal').then(m => ({ default: m.SettingsModal })), { ssr: false });
+const OverboardPage = dynamic(() => import('@/components/pages/OverboardPage').then(m => ({ default: m.OverboardPage })), { ssr: false });
+const GlobalStatsPage = dynamic(() => import('@/components/pages/GlobalStatsPage').then(m => ({ default: m.GlobalStatsPage })), { ssr: false });
 import { ContentieuxId } from '@/types/userTypes';
 import { useCrossSearch } from '@/hooks/useCrossSearch';
-import { AdminUsersPanel } from '@/components/AdminUsersPanel';
+const AdminUsersPanel = dynamic(() => import('@/components/AdminUsersPanel').then(m => ({ default: m.AdminUsersPanel })), { ssr: false });
 import { UserManager } from '@/utils/userManager';
-import { AdminContentieuxPanel } from '@/components/admin/AdminContentieuxPanel';
-import { AdminPathsPanel } from '@/components/admin/AdminPathsPanel';
-import { AdminDashboardPanel } from '@/components/admin/AdminDashboardPanel';
-import { AdminTagHistoryPanel } from '@/components/admin/AdminTagHistoryPanel';
-import { AdminUpdatePanel } from '@/components/admin/AdminUpdatePanel';
-import { AboutContent } from '@/components/AboutContent';
+const AdminContentieuxPanel = dynamic(() => import('@/components/admin/AdminContentieuxPanel').then(m => ({ default: m.AdminContentieuxPanel })), { ssr: false });
+const AdminPathsPanel = dynamic(() => import('@/components/admin/AdminPathsPanel').then(m => ({ default: m.AdminPathsPanel })), { ssr: false });
+const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashboardPanel').then(m => ({ default: m.AdminDashboardPanel })), { ssr: false });
+const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHistoryPanel').then(m => ({ default: m.AdminTagHistoryPanel })), { ssr: false });
+const AdminUpdatePanel = dynamic(() => import('@/components/admin/AdminUpdatePanel').then(m => ({ default: m.AdminUpdatePanel })), { ssr: false });
+const AboutContent = dynamic(() => import('@/components/AboutContent').then(m => ({ default: m.AboutContent })), { ssr: false });
 import { useOverboardData } from '@/hooks/useOverboardData';
-import { TagRequestPopup } from '@/components/modals/TagRequestPopup';
+const TagRequestPopup = dynamic(() => import('@/components/modals/TagRequestPopup').then(m => ({ default: m.TagRequestPopup })), { ssr: false });
 import { tagRequestManager } from '@/utils/tagRequestManager';
 import { HeartbeatManager } from '@/utils/heartbeatManager';
 import { SharedEventManager } from '@/utils/sharedEventManager';
@@ -280,6 +282,10 @@ function AppContent() {
     isLoading: tagsLoading,
     getTagsByCategory
   } = useTags();
+  const { getServicesFromTags } = useTags();
+
+  // Hook audience — une seule souscription partagée avec les cartes
+  const { hasResultat: audienceHasResultat, deleteAudienceResultat, isLoading: audienceIsLoading } = useAudience();
 
   const { getSectionOrder, sections: sectionsList, reorderSection, addSection: addSectionFn } = useSections();
 
@@ -388,10 +394,10 @@ function AppContent() {
     hb.updateContext(activeContentieux, baseView);
   }, [activeContentieux, baseView, user]);
 
-  const handleGlobalTodosChange = (todos: ToDoItem[]) => {
+  const handleGlobalTodosChange = useCallback((todos: ToDoItem[]) => {
     setGlobalTodos(todos);
     ElectronBridge.setData('global_todos', todos);
-  };
+  }, []);
 
   // Popup récapitulatif hebdomadaire : vérifié une fois au démarrage
   useEffect(() => {
@@ -652,7 +658,7 @@ function AppContent() {
   };
 
   // Toggle dissimulation JA
-  const handleToggleHideFromJA = (enqueteId: number) => {
+  const handleToggleHideFromJA = useCallback((enqueteId: number) => {
     const enquete = enquetes.find(e => e.id === enqueteId);
     if (!enquete) return;
     const newValue = !enquete.hiddenFromJA;
@@ -661,10 +667,10 @@ function AppContent() {
       newValue ? 'Enquête dissimulée aux JA' : 'Enquête visible par les JA',
       'success'
     );
-  };
+  }, [enquetes, handleUpdateEnquete, showToast]);
 
   // Toggle pin overboard pour une enquête
-  const handleToggleOverboardPin = (enqueteId: number) => {
+  const handleToggleOverboardPin = useCallback((enqueteId: number) => {
     if (!user) return;
     const enquete = enquetes.find(e => e.id === enqueteId);
     if (!enquete) return;
@@ -687,7 +693,7 @@ function AppContent() {
       showToast('Enquête épinglée au suivi hiérarchique', 'success');
     }
     handleUpdateEnquete(enqueteId, { overboardPins: newPins });
-  };
+  }, [user, enquetes, handleUpdateEnquete, showToast]);
 
   const filteredAndSortedEnquetes = useFilterSort(enquetes, debouncedSearchTerm, selectedTags, sortOrder);
 
@@ -778,6 +784,76 @@ function AppContent() {
     
     return enqueteAlertsCount + instructionAlertsCount + airAlertsCount;
   }, [alerts, instructionAlerts]);
+
+  // ── Mémorisation des tableaux et callbacks pour éviter de casser React.memo ──
+
+  // Alertes filtrées (référence stable tant que alerts ne change pas)
+  const enqueteAlertsList = useMemo(
+    () => alerts.filter(alert => !alert.isAIRAlert),
+    [alerts]
+  );
+  const headerAlertsList = useMemo(
+    () => [...alerts.filter(alert => alert.status === 'active'), ...instructionAlerts],
+    [alerts, instructionAlerts]
+  );
+
+  // Callbacks stables pour EnquetePreview — ne dépendent pas de l'enquête individuelle
+  const handleViewEnquete = useCallback((enquete: Enquete) => {
+    setSelectedEnquete(enquete);
+    setIsEditing(false);
+  }, []);
+  const handleEditEnquete = useCallback((enquete: Enquete) => {
+    setSelectedEnquete(enquete);
+    setIsEditing(true);
+  }, []);
+  const handleToggleSuivi = useCallback((enqueteId: number, type: 'JIRS' | 'PG') => {
+    const enquete = enquetes.find(e => e.id === enqueteId);
+    if (!enquete) return;
+    const tagId = type === 'JIRS' ? 'suivi_jirs' : 'suivi_pg';
+    const etags = enquete.tags || [];
+    const hasSuiviTag = etags.some((tag: any) => tag.category === 'suivi' && tag.value === type);
+    const newTags = hasSuiviTag
+      ? etags.filter((tag: any) => !(tag.category === 'suivi' && tag.value === type))
+      : [...etags, { id: tagId, value: type, category: 'suivi' }];
+    handleUpdateEnquete(enqueteId, { tags: newTags });
+  }, [enquetes, handleUpdateEnquete]);
+  const handleActeRequest = useCallback((acteId: number, type: 'acte' | 'ecoute' | 'geoloc', enqueteId: number, modal: 'prolongation' | 'pose' | 'validation') => {
+    setSelectedActe({ id: acteId, type, enqueteId });
+    if (modal === 'prolongation') setShowProlongationModal(true);
+    else if (modal === 'pose') setShowPoseModal(true);
+    else setShowProlongationValidationModal(true);
+  }, []);
+  const handleValidateAutorisation = useCallback((enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => {
+    const enquete = enquetes.find(e => e.id === enqueteId);
+    if (!enquete) return;
+    const key = type === 'acte' ? 'actes' : type === 'ecoute' ? 'ecoutes' : 'geolocalisations';
+    handleUpdateEnquete(enqueteId, {
+      [key]: enquete[key]?.map((a: any) => a.id === acteId ? { ...a, statut: 'en_cours' } : a)
+    });
+    showToast('Autorisation validée', 'success');
+  }, [enquetes, handleUpdateEnquete, showToast]);
+  const handleCreateGlobalTodo = useCallback((todo: ToDoItem) => {
+    setGlobalTodos(prev => [...prev, todo]);
+    ElectronBridge.setData('global_todos', [...globalTodos, todo]);
+  }, [globalTodos]);
+
+  // Flags conditionnels stables
+  const showOverboardPin = hasOverboard();
+  const showHideFromJA = canDo(currentContentieuxId, 'delete');
+
+  // Sections actives mémorisées pour FilterBar
+  const activeSections = useMemo(
+    () => Object.keys(enquetesByOrganization),
+    [enquetesByOrganization]
+  );
+
+  // Callbacks FilterBar stables
+  const handleTagSelect = useCallback((tag: Tag) => {
+    setSelectedTags(prev => [...prev, tag]);
+  }, []);
+  const handleTagRemove = useCallback((tagId: string) => {
+    setSelectedTags(prev => prev.filter(t => t.id !== tagId));
+  }, []);
 
   if (!isClient || tagsLoading || userLoading) {
     return (
@@ -879,7 +955,7 @@ return (
           <Header
             searchTerm={searchTerm}
             onSearch={handleSearchChange}
-            alerts={[...alerts.filter(alert => alert.status === 'active'), ...instructionAlerts]}
+            alerts={headerAlertsList}
             onShowAlerts={() => setShowAlertsModal(true)}
             onSave={handleManualSave}
             isSaving={isSaving}
@@ -932,11 +1008,11 @@ return (
         {(baseView === 'enquetes' || baseView === 'instructions') && (
           <FilterBar
             selectedTags={selectedTags}
-            onTagSelect={(tag) => setSelectedTags([...selectedTags, tag])}
-            onTagRemove={(tagId) => setSelectedTags(selectedTags.filter(t => t.id !== tagId))}
+            onTagSelect={handleTagSelect}
+            onTagRemove={handleTagRemove}
             sortOrder={sortOrder}
             onSortChange={setSortOrder}
-            activeSections={Object.keys(enquetesByOrganization)}
+            activeSections={activeSections}
             sections={sectionsList}
             onReorder={reorderSection}
             onAddSection={addSectionFn}
@@ -953,11 +1029,11 @@ return (
                   globalTodos={globalTodos}
                   onUpdateEnquete={handleUpdateEnquete}
                   onGlobalTodosChange={handleGlobalTodosChange}
-                  onOpenEnquete={(e) => { setSelectedEnquete(e); setIsEditing(false); }}
+                  onOpenEnquete={handleViewEnquete}
                 />
                 <PendingActsJLD
                   enquetes={activeEnquetes}
-                  onOpenEnquete={(e) => { setSelectedEnquete(e); setIsEditing(false); }}
+                  onOpenEnquete={handleViewEnquete}
                 />
               </div>
               {Object.entries(enquetesByOrganization)
@@ -974,58 +1050,26 @@ return (
                     <EnquetePreview
                       key={enquete.id}
                       enquete={enquete}
-                      onView={() => {
-                        setSelectedEnquete(enquete);
-                        setIsEditing(false);
-                      }}
-                      onEdit={() => {
-                        setSelectedEnquete(enquete);
-                        setIsEditing(true);
-                      }}
+                      onView={() => handleViewEnquete(enquete)}
+                      onEdit={() => handleEditEnquete(enquete)}
                       onArchive={handleArchiveEnquete}
-                      onToggleSuivi={(type: 'JIRS' | 'PG') => {
-                        const tagId = type === 'JIRS' ? 'suivi_jirs' : 'suivi_pg';
-                        const tags = enquete.tags || [];
-                        const hasSuiviTag = tags.some((tag: any) =>
-                          tag.category === 'suivi' && tag.value === type
-                        );
-                        const newTags = hasSuiviTag
-                          ? tags.filter((tag: any) => !(tag.category === 'suivi' && tag.value === type))
-                          : [...tags, { id: tagId, value: type, category: 'suivi' }];
-                        handleUpdateEnquete(enquete.id, { tags: newTags });
-                      }}
+                      onToggleSuivi={(type: 'JIRS' | 'PG') => handleToggleSuivi(enquete.id, type)}
                       onStartEnquete={handleStartEnquete}
-                      onToggleOverboardPin={hasOverboard() ? handleToggleOverboardPin : undefined}
-                      onToggleHideFromJA={canDo(currentContentieuxId, 'delete') ? handleToggleHideFromJA : undefined}
-                      alerts={alerts.filter(alert => !alert.isAIRAlert)}
+                      onToggleOverboardPin={showOverboardPin ? handleToggleOverboardPin : undefined}
+                      onToggleHideFromJA={showHideFromJA ? handleToggleHideFromJA : undefined}
+                      alerts={enqueteAlertsList}
                       onValidateAlert={handleValidateAlert}
                       onSnoozeAlert={handleSnoozeAlert}
-                      onProlongationRequest={(acteId, type) => {
-                        setSelectedActe({ id: acteId, type, enqueteId: enquete.id });
-                        setShowProlongationModal(true);
-                      }}
-                      onPoseRequest={(acteId, type) => {
-                        setSelectedActe({ id: acteId, type, enqueteId: enquete.id });
-                        setShowPoseModal(true);
-                      }}
-                      onValidateProlongationRequest={(acteId, type) => {
-                        setSelectedActe({ id: acteId, type, enqueteId: enquete.id });
-                        setShowProlongationValidationModal(true);
-                      }}
-                      onValidateAutorisationRequest={(acteId, type) => {
-                        handleUpdateEnquete(enquete.id, {
-                          [type === 'acte' ? 'actes' :
-                           type === 'ecoute' ? 'ecoutes' :
-                           'geolocalisations']: enquete[type === 'acte' ? 'actes' :
-                                                        type === 'ecoute' ? 'ecoutes' :
-                                                        'geolocalisations']?.map((a: any) =>
-                            a.id === acteId ? { ...a, statut: 'en_cours' } : a
-                          )
-                        });
-                        showToast('Autorisation validée', 'success');
-                      }}
+                      onProlongationRequest={(acteId, type) => handleActeRequest(acteId, type, enquete.id, 'prolongation')}
+                      onPoseRequest={(acteId, type) => handleActeRequest(acteId, type, enquete.id, 'pose')}
+                      onValidateProlongationRequest={(acteId, type) => handleActeRequest(acteId, type, enquete.id, 'validation')}
+                      onValidateAutorisationRequest={(acteId, type) => handleValidateAutorisation(enquete.id, acteId, type)}
                       visualAlertRules={visualAlertRules}
-                      onCreateGlobalTodo={(todo) => handleGlobalTodosChange([...globalTodos, todo])}
+                      onCreateGlobalTodo={handleCreateGlobalTodo}
+                      audienceHasResultat={audienceHasResultat}
+                      audienceDeleteResultat={deleteAudienceResultat}
+                      audienceIsLoading={audienceIsLoading}
+                      getServicesFromTagsFn={getServicesFromTags}
                     />
                   );
 
@@ -1054,22 +1098,22 @@ return (
                                   {serviceEnquetes.length}
                                 </span>
                               </div>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 justify-items-center">
+                              <LazyGrid className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 justify-items-center">
                                 {serviceEnquetes.map(renderEnqueteCard)}
-                              </div>
+                              </LazyGrid>
                             </div>
                           ))}
                           {/* Enquêtes sans service nommé dans cette section */}
                           {serviceGroups[''] && serviceGroups[''].length > 0 && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 justify-items-center">
+                            <LazyGrid className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 justify-items-center">
                               {serviceGroups[''].map(renderEnqueteCard)}
-                            </div>
+                            </LazyGrid>
                           )}
                         </div>
                       ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 justify-items-center">
+                        <LazyGrid className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 justify-items-center">
                           {allEnquetes.map(renderEnqueteCard)}
-                        </div>
+                        </LazyGrid>
                       )}
                     </div>
                   );
