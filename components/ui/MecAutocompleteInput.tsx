@@ -57,18 +57,35 @@ export const MecAutocompleteInput = ({
   const matches = useMemo(() => {
     if (value.length < minTriggerLength || !suggestions.length) return [];
     const query = value.toLowerCase();
-    return suggestions
-      .filter(s => s.toLowerCase() !== query) // Exclure ce qui est déjà saisi
-      .map(s => {
-        const sl = s.toLowerCase();
-        const containsScore = sl.includes(query) ? 1 : 0;
-        const simScore = similarity(s, value);
-        return { nom: s, score: containsScore > 0 ? 1 : simScore };
-      })
+
+    // Phase 1 : pré-filtre rapide par includes() — O(n), pas de Levenshtein
+    const exactMatches: string[] = [];
+    const candidates: string[] = [];
+    for (const s of suggestions) {
+      const sl = s.toLowerCase();
+      if (sl === query) continue; // Exclure ce qui est déjà saisi
+      if (sl.includes(query) || query.includes(sl)) {
+        exactMatches.push(s);
+      } else {
+        candidates.push(s);
+      }
+    }
+
+    // Si on a assez de résultats exacts, pas besoin de fuzzy
+    if (exactMatches.length >= 6) {
+      return exactMatches.slice(0, 6);
+    }
+
+    // Phase 2 : fuzzy uniquement sur les candidats restants (limité à 50 pour la perf)
+    const fuzzyResults = candidates
+      .slice(0, 50)
+      .map(s => ({ nom: s, score: similarity(s, value) }))
       .filter(({ score }) => score >= similarityThreshold)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 6)
-      .map(x => x.nom);
+      .sort((a, b) => b.score - a.score);
+
+    // Fusionner : exacts d'abord, puis fuzzy
+    const combined = [...exactMatches, ...fuzzyResults.map(x => x.nom)];
+    return combined.slice(0, 6);
   }, [value, suggestions, minTriggerLength, similarityThreshold]);
 
   // Ouvrir/fermer le menu selon les résultats

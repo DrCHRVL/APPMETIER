@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Clock } from 'lucide-react';
 import { Enquete } from '@/types/interfaces';
 
@@ -14,71 +14,37 @@ interface PendingActeItem {
   kind: 'autorisation' | 'prolongation';
 }
 
-export const PendingActsJLD = ({ enquetes, onOpenEnquete }: PendingActsJLDProps) => {
-  const now = new Date();
-
-  const pendingActes: PendingActeItem[] = enquetes.flatMap(e => {
+export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete }: PendingActsJLDProps) => {
+  const pendingActes = useMemo(() => {
+    const now = Date.now();
+    const dayMs = 1000 * 60 * 60 * 24;
     const items: PendingActeItem[] = [];
 
-    (e.actes || []).forEach(a => {
-      if (a.statut === 'autorisation_pending') {
-        items.push({
-          acteType: a.type || 'Acte',
-          enquete: e,
-          daysSince: Math.floor((now.getTime() - new Date(a.dateDebut).getTime()) / (1000 * 60 * 60 * 24)),
-          kind: 'autorisation',
-        });
-      } else if (a.statut === 'prolongation_pending') {
-        const refDate = a.prolongationDate || a.dateDebut;
-        items.push({
-          acteType: a.type || 'Acte',
-          enquete: e,
-          daysSince: Math.floor((now.getTime() - new Date(refDate).getTime()) / (1000 * 60 * 60 * 24)),
-          kind: 'prolongation',
-        });
+    for (const e of enquetes) {
+      for (const a of e.actes || []) {
+        if (a.statut === 'autorisation_pending') {
+          items.push({ acteType: a.type || 'Acte', enquete: e, daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs), kind: 'autorisation' });
+        } else if (a.statut === 'prolongation_pending') {
+          items.push({ acteType: a.type || 'Acte', enquete: e, daysSince: Math.floor((now - new Date(a.prolongationDate || a.dateDebut).getTime()) / dayMs), kind: 'prolongation' });
+        }
       }
-    });
-
-    (e.ecoutes || []).forEach(a => {
-      if (a.statut === 'autorisation_pending') {
-        items.push({
-          acteType: `Écoute ${a.numero}`,
-          enquete: e,
-          daysSince: Math.floor((now.getTime() - new Date(a.dateDebut).getTime()) / (1000 * 60 * 60 * 24)),
-          kind: 'autorisation',
-        });
-      } else if (a.statut === 'prolongation_pending') {
-        const refDate = a.prolongationDate || a.dateDebut;
-        items.push({
-          acteType: `Écoute ${a.numero}`,
-          enquete: e,
-          daysSince: Math.floor((now.getTime() - new Date(refDate).getTime()) / (1000 * 60 * 60 * 24)),
-          kind: 'prolongation',
-        });
+      for (const a of e.ecoutes || []) {
+        if (a.statut === 'autorisation_pending') {
+          items.push({ acteType: `Écoute ${a.numero}`, enquete: e, daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs), kind: 'autorisation' });
+        } else if (a.statut === 'prolongation_pending') {
+          items.push({ acteType: `Écoute ${a.numero}`, enquete: e, daysSince: Math.floor((now - new Date(a.prolongationDate || a.dateDebut).getTime()) / dayMs), kind: 'prolongation' });
+        }
       }
-    });
-
-    (e.geolocalisations || []).forEach(a => {
-      if (a.statut === 'autorisation_pending') {
-        items.push({
-          acteType: `Géoloc ${a.objet}`,
-          enquete: e,
-          daysSince: Math.floor((now.getTime() - new Date(a.dateDebut).getTime()) / (1000 * 60 * 60 * 24)),
-          kind: 'autorisation',
-        });
-      } else if (a.statut === 'prolongation_pending') {
-        const refDate = a.prolongationDate || a.dateDebut;
-        items.push({
-          acteType: `Géoloc ${a.objet}`,
-          enquete: e,
-          daysSince: Math.floor((now.getTime() - new Date(refDate).getTime()) / (1000 * 60 * 60 * 24)),
-          kind: 'prolongation',
-        });
+      for (const a of e.geolocalisations || []) {
+        if (a.statut === 'autorisation_pending') {
+          items.push({ acteType: `Géoloc ${a.objet}`, enquete: e, daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs), kind: 'autorisation' });
+        } else if (a.statut === 'prolongation_pending') {
+          items.push({ acteType: `Géoloc ${a.objet}`, enquete: e, daysSince: Math.floor((now - new Date(a.prolongationDate || a.dateDebut).getTime()) / dayMs), kind: 'prolongation' });
+        }
       }
-    });
-
+    }
     return items;
-  });
+  }, [enquetes]);
 
   const totalCount = pendingActes.length;
 
@@ -128,4 +94,4 @@ export const PendingActsJLD = ({ enquetes, onOpenEnquete }: PendingActsJLDProps)
       </div>
     </div>
   );
-};
+});

@@ -463,6 +463,8 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
     handleUpdateCR,
     handleDeleteCR,
     flushPendingSave,
+    // Rechargement silencieux (pour refresh en arrière-plan au retour foreground)
+    refreshData: loadEnquetes,
     // Co-saisine
     isSharedEnquete,
     handleShareEnquete,
