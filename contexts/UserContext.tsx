@@ -1,168 +1,62 @@
-// contexts/UserContext.tsx — Contexte React pour l'utilisateur connecté et ses permissions
-//
-// Wrape le UserManager et expose les permissions à tous les composants.
-// Usage : const { permissions, canDo, isAdmin, contentieux } = useUser();
+/**
+ * UserContext — wrapper rétro-compatible autour du store Zustand.
+ *
+ * Le UserProvider initialise le store au montage.
+ * useUser() continue de fonctionner partout — aucun changement nécessaire
+ * dans les 16 fichiers consommateurs.
+ *
+ * Avantage Zustand : les composants qui lisent isAdmin() ne re-rendent pas
+ * quand `user.name` change. Chaque composant ne re-rend que sur sa tranche.
+ */
 
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { UserManager } from '@/utils/userManager';
-import {
-  UserProfile,
-  ContentieuxDefinition,
+import React, { useEffect, useMemo } from 'react';
+import { useUserStore } from '@/stores/useUserStore';
+import type {
   ContentieuxId,
   PermissionAction,
-  UserPermissionsContext,
   ModuleId,
 } from '@/types/userTypes';
-import { canDo as canDoCheck, isAdmin as isAdminCheck, hasGlobalView, getSyncMode } from '@/utils/permissions';
-import { migrateToMultiContentieux } from '@/utils/migration/migrateToMultiContentieux';
-import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
 
-// ──────────────────────────────────────────────
-// INTERFACE DU CONTEXTE
-// ──────────────────────────────────────────────
+/**
+ * Provider rétro-compatible.
+ * Initialise le store au montage — pas de Context.Provider.
+ */
+export function UserProvider({ children }: { children: React.ReactNode }) {
+  const initialize = useUserStore(s => s.initialize);
 
-interface UserContextValue {
-  // État
-  isLoading: boolean;
-  isAuthenticated: boolean;
-  error: string | null;
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
 
-  // Utilisateur courant
-  user: UserProfile | null;
-  permissions: UserPermissionsContext | null;
-
-  // Données contentieux
-  contentieux: ContentieuxDefinition[];
-  accessibleContentieux: ContentieuxDefinition[];
-
-  // Helpers rapides
-  canDo: (contentieuxId: ContentieuxId, action: PermissionAction) => boolean;
-  isAdmin: () => boolean;
-  hasOverboard: () => boolean;
-  hasModule: (moduleId: ModuleId) => boolean;
-  getSyncMode: (contentieuxId: ContentieuxId) => 'read_write' | 'read_only' | 'none';
-
-  // Admin actions
-  refreshUsers: () => Promise<void>;
+  return <>{children}</>;
 }
 
-const UserContext = createContext<UserContextValue | null>(null);
+/**
+ * Hook rétro-compatible — délègue au store Zustand.
+ * Retourne le même objet que l'ancien UserContext.
+ * Les 16 fichiers consommateurs n'ont rien à changer.
+ */
+export function useUser() {
+  const isLoading = useUserStore(s => s.isLoading);
+  const isAuthenticated = useUserStore(s => s.isAuthenticated);
+  const error = useUserStore(s => s.error);
+  const user = useUserStore(s => s.user);
+  const permissions = useUserStore(s => s.permissions);
+  const contentieux = useUserStore(s => s.contentieux);
+  const canDo = useUserStore(s => s.canDo);
+  const isAdmin = useUserStore(s => s.isAdmin);
+  const hasOverboard = useUserStore(s => s.hasOverboard);
+  const hasModule = useUserStore(s => s.hasModule);
+  const getSyncMode = useUserStore(s => s.getSyncMode);
+  const refreshUsers = useUserStore(s => s.refreshUsers);
+  const getAccessibleContentieux = useUserStore(s => s.getAccessibleContentieux);
 
-// ──────────────────────────────────────────────
-// PROVIDER
-// ──────────────────────────────────────────────
+  // Mémoiser pour éviter une nouvelle ref array à chaque render
+  const accessibleContentieux = useMemo(() => getAccessibleContentieux(), [contentieux]);
 
-export function UserProvider({ children }: { children: React.ReactNode }) {
-  const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [user, setUser] = useState<UserProfile | null>(null);
-  const [permissions, setPermissions] = useState<UserPermissionsContext | null>(null);
-  const [contentieux, setContentieux] = useState<ContentieuxDefinition[]>([]);
-
-  // Initialisation au montage
-  useEffect(() => {
-    const init = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-
-        // Migration one-shot des données mono→multi contentieux
-        try {
-          await migrateToMultiContentieux();
-        } catch (migErr) {
-          console.error('UserContext: migration échouée (non bloquante)', migErr);
-        }
-
-        const manager = UserManager.getInstance();
-        const ctx = await manager.initialize();
-
-        if (ctx) {
-          setUser(ctx.user);
-          setPermissions(ctx);
-          const defs = manager.getContentieux();
-          setContentieux(defs);
-          setIsAuthenticated(true);
-
-          // Initialiser la synchronisation multi-contentieux
-          const syncModes = new Map<ContentieuxId, 'read_write' | 'read_only'>();
-          for (const cId of ctx.accessibleContentieux) {
-            syncModes.set(cId, getSyncMode(ctx, cId));
-          }
-          try {
-            await MultiSyncManager.getInstance().initialize(defs, ctx.accessibleContentieux, syncModes);
-          } catch (syncErr) {
-            console.warn('UserContext: sync multi-contentieux non démarrée', syncErr);
-          }
-        } else {
-          setError('Impossible d\'identifier l\'utilisateur Windows. Vérifiez votre session.');
-          setIsAuthenticated(false);
-        }
-      } catch (err) {
-        console.error('UserContext: erreur initialisation', err);
-        setError('Erreur lors de l\'identification utilisateur.');
-        setIsAuthenticated(false);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    init();
-  }, []);
-
-  // Contentieux accessibles (filtrés selon les permissions)
-  const accessibleContentieux = useMemo(
-    () => contentieux.filter(c => permissions?.accessibleContentieux?.includes(c.id) ?? false),
-    [contentieux, permissions]
-  );
-
-  // Helpers
-  const canDoHelper = useCallback(
-    (contentieuxId: ContentieuxId, action: PermissionAction): boolean => {
-      if (!permissions) return false;
-      return canDoCheck(permissions, contentieuxId, action);
-    },
-    [permissions]
-  );
-
-  const isAdminHelper = useCallback((): boolean => {
-    if (!permissions) return false;
-    return isAdminCheck(permissions);
-  }, [permissions]);
-
-  const hasOverboardHelper = useCallback((): boolean => {
-    return permissions?.hasOverboard ?? false;
-  }, [permissions]);
-
-  const hasModuleHelper = useCallback(
-    (moduleId: ModuleId): boolean => {
-      if (!user) return false;
-      return user.modules.includes(moduleId);
-    },
-    [user]
-  );
-
-  const getSyncModeHelper = useCallback(
-    (contentieuxId: ContentieuxId): 'read_write' | 'read_only' | 'none' => {
-      if (!permissions) return 'none';
-      return getSyncMode(permissions, contentieuxId);
-    },
-    [permissions]
-  );
-
-  const refreshUsers = useCallback(async () => {
-    const manager = UserManager.getInstance();
-    const ctx = await manager.initialize();
-    if (ctx) {
-      setUser(ctx.user);
-      setPermissions(ctx);
-      setContentieux(manager.getContentieux());
-    }
-  }, []);
-
-  const value = useMemo<UserContextValue>(() => ({
+  return {
     isLoading,
     isAuthenticated,
     error,
@@ -170,33 +64,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     permissions,
     contentieux,
     accessibleContentieux,
-    canDo: canDoHelper,
-    isAdmin: isAdminHelper,
-    hasOverboard: hasOverboardHelper,
-    hasModule: hasModuleHelper,
-    getSyncMode: getSyncModeHelper,
+    canDo,
+    isAdmin,
+    hasOverboard,
+    hasModule,
+    getSyncMode,
     refreshUsers,
-  }), [
-    isLoading, isAuthenticated, error, user, permissions,
-    contentieux, accessibleContentieux, canDoHelper, isAdminHelper,
-    hasOverboardHelper, hasModuleHelper, getSyncModeHelper, refreshUsers,
-  ]);
-
-  return (
-    <UserContext.Provider value={value}>
-      {children}
-    </UserContext.Provider>
-  );
-}
-
-// ──────────────────────────────────────────────
-// HOOK
-// ──────────────────────────────────────────────
-
-export function useUser(): UserContextValue {
-  const context = useContext(UserContext);
-  if (!context) {
-    throw new Error('useUser doit être utilisé dans un <UserProvider>');
-  }
-  return context;
+  };
 }

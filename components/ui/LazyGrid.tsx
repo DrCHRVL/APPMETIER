@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, ReactElement } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 
 interface LazyGridProps {
   children: React.ReactNode[];
@@ -10,9 +10,9 @@ interface LazyGridProps {
 }
 
 /**
- * Grille légère avec virtualisation par IntersectionObserver.
- * Les cartes hors-écran sont remplacées par des placeholders.
- * Réagit correctement aux changements de liste (filtrage, tri).
+ * Grille avec vraie virtualisation bidirectionnelle par IntersectionObserver.
+ * Les cartes hors-écran sont remplacées par des placeholders ET retirées du DOM
+ * quand elles sortent du viewport, libérant mémoire et réduisant les nœuds DOM.
  */
 export const LazyGrid = ({
   children,
@@ -28,7 +28,6 @@ export const LazyGrid = ({
   return (
     <div className={className}>
       {children.map((child) => {
-        // Utiliser la key React du child s'il en a une, sinon fallback sur l'index
         const childKey = React.isValidElement(child) ? child.key : null;
         return (
           <LazyItem key={childKey ?? undefined} placeholderHeight={placeholderHeight}>
@@ -43,30 +42,35 @@ export const LazyGrid = ({
 function LazyItem({ children, placeholderHeight }: { children: React.ReactNode; placeholderHeight: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
+  const measuredHeight = useRef<number>(placeholderHeight);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
 
-    // Observer bidirectionnel : rend visible quand entre dans le viewport,
-    // garde visible une fois chargé (pas de re-placeholder pour éviter le flickering)
+    // Vraie virtualisation bidirectionnelle :
+    // - visible quand entre dans le viewport (+ buffer 400px)
+    // - retour en placeholder quand sort du viewport (+ buffer 800px)
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) {
-          setVisible(true);
-        }
+        setVisible(entry.isIntersecting);
       },
-      { rootMargin: '300px' }
+      { rootMargin: '400px' }
     );
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
-  // Reset visibility quand le contenu change (filtrage/tri)
-  // Le child key change → React remonte le composant → visible repart à false → observer relance
+  // Mesurer la hauteur réelle quand visible pour un placeholder précis
+  useEffect(() => {
+    if (visible && ref.current) {
+      const h = ref.current.getBoundingClientRect().height;
+      if (h > 0) measuredHeight.current = h;
+    }
+  }, [visible]);
 
   if (!visible) {
-    return <div ref={ref} style={{ minHeight: placeholderHeight }} />;
+    return <div ref={ref} style={{ minHeight: measuredHeight.current }} />;
   }
 
   return <div ref={ref}>{children}</div>;

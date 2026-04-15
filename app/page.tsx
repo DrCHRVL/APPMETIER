@@ -13,7 +13,7 @@ import { AlertsPage } from '@/components/pages/AlertsPage';
 import { AlertsModal } from '@/components/modals/AlertsModal';
 import { SavePage } from '@/components/pages/SavePage';
 import { StatsPage } from '@/components/pages/StatsPage';
-import { useContentieuxEnquetes } from '@/hooks/useContentieuxEnquetes';
+import { useContentieuxEnquetesStore as useContentieuxEnquetes } from '@/hooks/useContentieuxEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
 import { useDocumentSearch } from '@/hooks/useDocumentSearch';
 import { NewEnqueteData, Tag, ToDoItem } from '@/types/interfaces';
@@ -313,13 +313,13 @@ function AppContent() {
   // Garde l'UI affichée (pas de page blanche), recharge les données silencieusement
   useEffect(() => {
     let lastHidden = 0;
-    const STALE_THRESHOLD = 30_000; // 30s d'absence → rafraîchir
+    const STALE_THRESHOLD = 300_000; // 5min d'absence → rafraîchir (30s trop agressif en écran partagé)
 
     const handleVisibility = () => {
       if (document.hidden) {
         lastHidden = Date.now();
       } else if (lastHidden && Date.now() - lastHidden > STALE_THRESHOLD) {
-        // L'app est revenue après 30s+ d'absence → refresh silencieux
+        // L'app est revenue après 5min+ d'absence → refresh silencieux
         refreshEnquetes();
       }
     };

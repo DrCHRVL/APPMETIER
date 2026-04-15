@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Tag } from '@/types/interfaces';
 import { Input } from '../ui/input';
 import { Select } from '../ui/select';
@@ -17,6 +17,8 @@ interface EnqueteHeaderProps {
   numeroParquet?: string;
   isEditing?: boolean;
   onUpdate?: (updates: Partial<any>) => void;
+  /** Callback immédiat pour les actions discrètes (date, select) — sans debounce */
+  onUpdateImmediate?: (updates: Partial<any>) => void;
 }
 
 export const EnqueteHeader = React.memo(({
@@ -28,8 +30,21 @@ export const EnqueteHeader = React.memo(({
   directeurEnquete,
   numeroParquet,
   isEditing = false,
-  onUpdate
+  onUpdate,
+  onUpdateImmediate
 }: EnqueteHeaderProps) => {
+  // Pour les actions discrètes (date, select), utiliser le callback immédiat si disponible
+  const discreteUpdate = onUpdateImmediate || onUpdate;
+  // État local pour les champs texte : feedback instantané, propagation déboncée
+  const [localDirecteur, setLocalDirecteur] = useState(directeurEnquete || '');
+  const [localParquet, setLocalParquet] = useState(numeroParquet || '');
+  const [localDescription, setLocalDescription] = useState(description || '');
+
+  // Sync depuis les props parent quand l'enquête change
+  useEffect(() => { setLocalDirecteur(directeurEnquete || ''); }, [directeurEnquete]);
+  useEffect(() => { setLocalParquet(numeroParquet || ''); }, [numeroParquet]);
+  useEffect(() => { setLocalDescription(description || ''); }, [description]);
+
   const { getTagsByCategory, getServicesFromTags } = useTags();
   const servicesTags = getTagsByCategory('services');
   const infractionsTags = getTagsByCategory('infractions');
@@ -39,15 +54,15 @@ export const EnqueteHeader = React.memo(({
   const displayServices = getServicesFromTags(tags);
 
   const handleServiceChange = (index: number, value: string) => {
-    if (!onUpdate) return;
-    
+    if (!discreteUpdate) return;
+
     // Récupérer les tags actuels sans les services
     const nonServiceTags = tags.filter(tag => tag.category !== 'services');
-    
+
     // Créer la nouvelle liste de services
     const newServices = [...displayServices];
     newServices[index] = value;
-    
+
     // Créer les nouveaux tags de services
     const newServiceTags = newServices
       .filter(Boolean)
@@ -59,9 +74,9 @@ export const EnqueteHeader = React.memo(({
           category: 'services' as const
         };
       });
-    
-    // Mettre à jour avec les nouveaux tags
-    onUpdate({ 
+
+    // Mettre à jour avec les nouveaux tags (action discrète = immédiat)
+    discreteUpdate({
       tags: [...nonServiceTags, ...newServiceTags],
       // Garder services[] synchronisé pour l'instant (sera supprimé plus tard)
       services: newServices.filter(Boolean)
@@ -69,14 +84,14 @@ export const EnqueteHeader = React.memo(({
   };
 
   const handleInfractionChange = (selectedValues: string[]) => {
-    if (!onUpdate) return;
+    if (!discreteUpdate) return;
     const selectedTags = selectedValues.map(value => ({
       id: `infractions-${value}`,
       value,
       category: 'infractions' as const
     }));
     const serviceTags = tags.filter(tag => tag.category === 'services');
-    onUpdate({ tags: [...serviceTags, ...selectedTags] });
+    discreteUpdate({ tags: [...serviceTags, ...selectedTags] });
   };
 
   const suiviJIRS = tags.some(t => t.category === 'suivi' && t.value === 'JIRS');
@@ -107,7 +122,7 @@ export const EnqueteHeader = React.memo(({
             <Input
               type="date"
               value={dateDebut}
-              onChange={(e) => onUpdate?.({ dateDebut: e.target.value })}
+              onChange={(e) => discreteUpdate?.({ dateDebut: e.target.value })}
               className="h-7 text-sm"
             />
           ) : (
@@ -171,8 +186,11 @@ export const EnqueteHeader = React.memo(({
           <h3 className="text-xs font-medium text-gray-500">Directeur d'enquête</h3>
           {isEditing ? (
             <Input
-              value={directeurEnquete || ''}
-              onChange={(e) => onUpdate?.({ directeurEnquete: e.target.value })}
+              value={localDirecteur}
+              onChange={(e) => {
+                setLocalDirecteur(e.target.value);
+                onUpdate?.({ directeurEnquete: e.target.value });
+              }}
               className="h-7 text-sm"
               placeholder="Nom du directeur d'enquête"
             />
@@ -185,8 +203,11 @@ export const EnqueteHeader = React.memo(({
           <h3 className="text-xs font-medium text-gray-500">Numéro parquet</h3>
           {isEditing ? (
             <Input
-              value={numeroParquet || ''}
-              onChange={(e) => onUpdate?.({ numeroParquet: e.target.value })}
+              value={localParquet}
+              onChange={(e) => {
+                setLocalParquet(e.target.value);
+                onUpdate?.({ numeroParquet: e.target.value });
+              }}
               className="h-7 text-sm"
               placeholder="Numéro de parquet"
             />
@@ -200,8 +221,11 @@ export const EnqueteHeader = React.memo(({
         <h3 className="text-xs font-medium text-gray-500">Description</h3>
         {isEditing ? (
           <textarea
-            value={description}
-            onChange={(e) => onUpdate?.({ description: e.target.value })}
+            value={localDescription}
+            onChange={(e) => {
+              setLocalDescription(e.target.value);
+              onUpdate?.({ description: e.target.value });
+            }}
             className="w-full min-h-[60px] text-sm p-2 rounded border resize-none"
             placeholder="Description de l'enquête..."
           />

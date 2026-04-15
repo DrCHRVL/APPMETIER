@@ -51,7 +51,7 @@ export const ArchivePage = ({
   useEffect(() => {
     if (selectedEnquete) {
       const updatedEnquete = enquetes.find(e => e.id === selectedEnquete.id);
-      if (updatedEnquete && JSON.stringify(updatedEnquete) !== JSON.stringify(selectedEnquete)) {
+      if (updatedEnquete && updatedEnquete.dateMiseAJour !== selectedEnquete.dateMiseAJour) {
         setSelectedEnquete(updatedEnquete);
       }
     }

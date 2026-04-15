@@ -1,40 +1,48 @@
-import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
-import { Toast, ToastType } from '../components/ui/toast';
+/**
+ * ToastContext — wrapper rétro-compatible autour du store Zustand.
+ *
+ * Le ToastProvider ne fait plus que rendre le composant Toast.
+ * L'état est géré par useToastStore (pas de re-render du provider tree).
+ *
+ * useToast() continue de fonctionner partout — aucun changement nécessaire
+ * dans les 54 fichiers consommateurs.
+ */
 
-interface ToastContextType {
-  showToast: (message: string, type: ToastType) => void;
-}
+import React from 'react';
+import { Toast } from '../components/ui/toast';
+import { useToastStore } from '@/stores/useToastStore';
 
-const ToastContext = createContext<ToastContextType | undefined>(undefined);
+// Ré-exporter le type pour compatibilité
+export type { ToastType } from '../components/ui/toast';
 
+/**
+ * Provider rétro-compatible.
+ * Rend uniquement le composant Toast — l'état est dans le store Zustand.
+ * Pas de Context.Provider = pas de cascade de re-renders.
+ */
 export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
-  const [toast, setToast] = useState<{
-    message: string;
-    type: ToastType;
-  } | null>(null);
-
-  const showToast = useCallback((message: string, type: ToastType) => {
-    setToast({ message, type });
-  }, []);
-
   return (
-    <ToastContext.Provider value={useMemo(() => ({ showToast }), [showToast])}>
+    <>
       {children}
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
-    </ToastContext.Provider>
+      <ToastDisplay />
+    </>
   );
 };
 
+/** Composant interne qui s'abonne au store pour afficher le toast */
+function ToastDisplay() {
+  const toast = useToastStore(s => s.toast);
+  const clearToast = useToastStore(s => s.clearToast);
+
+  if (!toast) return null;
+  return <Toast message={toast.message} type={toast.type} onClose={clearToast} />;
+}
+
+/**
+ * Hook rétro-compatible — délègue au store Zustand.
+ * Les 54 fichiers consommateurs n'ont rien à changer.
+ */
 export const useToast = () => {
-  const context = useContext(ToastContext);
-  if (!context) {
-    throw new Error('useToast must be used within a ToastProvider');
-  }
-  return context;
+  const showToast = useToastStore(s => s.showToast);
+  return { showToast };
 };
