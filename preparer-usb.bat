@@ -134,15 +134,13 @@ echo        --------------------------------------------------------
 echo.
 echo [%DATE% %TIME%] Lancement next build... >> "%LOG_FILE%"
 
-rem -- Activer le debug Next.js pour voir les phases internes --
-set DEBUG=next:*
-set NEXT_PRIVATE_WORKER_THREADS=1
-
-"%NODE_EXE%" node_modules\next\dist\bin\next build 2>&1
-set BUILD_EXIT=%ERRORLEVEL%
-
-rem -- Desactiver le debug pour la suite --
+rem -- S'assurer que les variables problematiques sont vides --
 set DEBUG=
+set NEXT_PRIVATE_WORKER_THREADS=
+
+rem -- Build avec timeout, progression et log vers next-build.log --
+"%NODE_EXE%" scripts\build-with-timeout.js
+set BUILD_EXIT=%ERRORLEVEL%
 
 echo.
 echo        [%TIME%] Build termine (code retour: %BUILD_EXIT%)
@@ -325,5 +323,6 @@ echo Le code est compile et obfusque.
 echo node_modules sera installe automatiquement au premier lancement.
 echo.
 echo Log detaille : %LOG_FILE%
+echo Log du build   : %BASE_DIR%next-build.log
 echo ============================================================
 pause
