@@ -241,7 +241,7 @@ export const GeolocModal = ({
           {!needsJLDAuth && (
             <>
               <div>
-                <Label htmlFor="dateDebut">Date de début (autorisation JLD) *</Label>
+                <Label htmlFor="dateDebut">Date de début *</Label>
                 <Input
                   id="dateDebut"
                   type="date"
