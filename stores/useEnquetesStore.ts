@@ -457,6 +457,8 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
         )
       )
     );
+    // Mettre à jour le cache ContentieuxManager pour que les autres contentieux voient le partage
+    ContentieuxManager.getInstance().setEnquetes(get().contentieuxId, get().ownEnquetes);
     _saveThrottled();
   },
 
@@ -470,6 +472,8 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
         )
       )
     );
+    // Mettre à jour le cache ContentieuxManager pour refléter la suppression du partage
+    ContentieuxManager.getInstance().setEnquetes(get().contentieuxId, get().ownEnquetes);
     _saveThrottled();
   },
 }));
