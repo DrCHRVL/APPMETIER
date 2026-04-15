@@ -19,7 +19,7 @@ if exist ".dev-mode" (
         echo.
         set NODE_OPTIONS=--max-old-space-size=4096
         set NODE_ENV=production
-        if exist ".next\cache" rmdir /s /q ".next\cache"
+        if exist ".next\cache\fetch-cache" rmdir /s /q ".next\cache\fetch-cache"
         if exist "node_modules\next\dist\bin\next" (
             ..\nodejs\node.exe node_modules\next\dist\bin\next build
             if %ERRORLEVEL% neq 0 (
