@@ -20,6 +20,7 @@ interface ActeModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (acte: Partial<AutreActe>, dates: DateManagerData) => void;
+  onDelete?: () => void;
   acte?: AutreActe;
   title: string;
   initialData?: any;
@@ -29,6 +30,7 @@ export const ActeModal = ({
   isOpen,
   onClose,
   onSave,
+  onDelete,
   acte,
   title,
   initialData
@@ -332,13 +334,24 @@ export const ActeModal = ({
             </div>
           )}
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
-              Annuler
-            </Button>
-            <Button type="submit" disabled={!selectedTypeKey}>
-              {acte ? 'Modifier' : 'Ajouter'}
-            </Button>
+          <DialogFooter className={acte && onDelete ? 'flex justify-between sm:justify-between' : ''}>
+            {acte && onDelete && (
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => { onDelete(); onClose(); }}
+              >
+                Supprimer
+              </Button>
+            )}
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={onClose}>
+                Annuler
+              </Button>
+              <Button type="submit" disabled={!selectedTypeKey}>
+                {acte ? 'Modifier' : 'Ajouter'}
+              </Button>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>

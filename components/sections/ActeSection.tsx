@@ -644,10 +644,11 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
         title="Ajouter un acte"
       />
 
-      <ActeModal 
+      <ActeModal
         isOpen={!!editingActeId}
         onClose={() => setEditingActeId(null)}
         onSave={handleUpdateActe}
+        onDelete={editingActeId ? () => { handleDeleteActe(editingActeId); setEditingActeId(null); } : undefined}
         acte={acteToEdit || undefined}
         title="Modifier l'acte"
       />
