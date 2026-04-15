@@ -5,6 +5,7 @@ import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { Label } from '../ui/label';
 import { Select } from '../ui/select';
+import { Switch } from '../ui/switch';
 import { DateUtils } from '@/utils/dateUtils';
 import { useToast } from '@/contexts/ToastContext';
 import { AutreActe, DateManagerData, ActeStatus } from '@/types/interfaces';
@@ -37,6 +38,7 @@ export const ActeModal = ({
   const [dateDebut, setDateDebut] = useState('');
   const [customDuree, setCustomDuree] = useState(''); // pour types à durée libre (captation public, infiltration)
   const [datePose, setDatePose] = useState('');
+  const [needsJLDAuth, setNeedsJLDAuth] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { showToast } = useToast();
 
@@ -61,18 +63,21 @@ export const ActeModal = ({
         setDateDebut(acte.dateDebut || '');
         setCustomDuree(acte.duree || '');
         setDatePose(acte.datePose || '');
+        setNeedsJLDAuth(false);
       } else if (initialData) {
         setSelectedTypeKey(initialData.type || '');
         setDescription(initialData.description || '');
         setDateDebut(initialData.dateDebut || '');
         setCustomDuree(initialData.duree || '');
         setDatePose(initialData.datePose || '');
+        setNeedsJLDAuth(false);
       } else {
         setSelectedTypeKey('');
         setDescription('');
         setDateDebut('');
         setCustomDuree('');
         setDatePose('');
+        setNeedsJLDAuth(false);
       }
       setErrors({});
     }
@@ -85,6 +90,12 @@ export const ActeModal = ({
     setCustomDuree('');
     setDatePose('');
     setErrors({});
+    if (!acte && key) {
+      const cfg = AUTRE_ACTE_TYPES[key as AutreActeTypeKey];
+      setNeedsJLDAuth(cfg?.autorisation === 'JLD' && cfg?.hasDuree === true);
+    } else {
+      setNeedsJLDAuth(false);
+    }
   };
 
   const validateForm = (): boolean => {
@@ -93,7 +104,7 @@ export const ActeModal = ({
     if (typeConfig?.hasDuree && typeConfig.duree === undefined && !customDuree) {
       newErrors.duree = 'La durée est requise';
     }
-    if (typeConfig?.hasDuree && !dateDebut) {
+    if (typeConfig?.hasDuree && !needsJLDAuth && !dateDebut) {
       newErrors.dateDebut = 'La date de début est requise';
     }
     setErrors(newErrors);
@@ -111,6 +122,8 @@ export const ActeModal = ({
     if (!typeConfig.hasDuree) {
       // Art. 76, pas de durée → directement en cours
       updatedStatut = 'en_cours';
+    } else if (needsJLDAuth && typeConfig.autorisation === 'JLD') {
+      updatedStatut = 'autorisation_pending';
     } else if (!datePose) {
       updatedStatut = 'pose_pending';
     }
@@ -122,13 +135,13 @@ export const ActeModal = ({
       : undefined;
 
     const dates: DateManagerData = {
-      dateDebut: typeConfig.hasDuree ? dateDebut : '',
+      dateDebut: needsJLDAuth ? '' : (typeConfig.hasDuree ? dateDebut : ''),
       duree: dureeVal,
       dureeUnit: effectiveDureeUnit as 'jours' | 'mois',
       maxProlongations: typeConfig.maxProlongations,
       datePose: needsPose ? datePose : undefined,
       updatedStatut,
-      dateFin,
+      dateFin: needsJLDAuth ? undefined : dateFin,
     };
 
     try {
@@ -226,8 +239,28 @@ export const ActeModal = ({
             />
           </div>
 
-          {/* ── Champs dates/durée (seulement si le type a une durée) ── */}
-          {typeConfig?.hasDuree && (
+          {/* ── Switch JLD — uniquement pour types JLD + hasDuree en mode ajout ── */}
+          {typeConfig?.autorisation === 'JLD' && typeConfig?.hasDuree && !acte && (
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="needsJLDAuth"
+                checked={needsJLDAuth}
+                onCheckedChange={setNeedsJLDAuth}
+              />
+              <Label htmlFor="needsJLDAuth">En attente d'autorisation JLD</Label>
+            </div>
+          )}
+
+          {/* ── Message en attente d'autorisation ── */}
+          {needsJLDAuth && typeConfig?.autorisation === 'JLD' && typeConfig?.hasDuree && (
+            <div className="bg-purple-50 p-3 rounded-md text-sm text-purple-800 border border-purple-200">
+              L'acte sera créé en attente d'autorisation JLD.
+              Vous pourrez valider l'autorisation ultérieurement à partir de la fiche d'enquête.
+            </div>
+          )}
+
+          {/* ── Champs dates/durée (seulement si le type a une durée et pas en attente JLD) ── */}
+          {typeConfig?.hasDuree && !needsJLDAuth && (
             <>
               {/* Durée : affichage fixe ou champ libre selon le type */}
               {typeConfig.duree !== undefined ? (

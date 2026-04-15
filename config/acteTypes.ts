@@ -9,6 +9,7 @@ export type AutreActeTypeKey =
   | 'imsi_interceptions'
   | 'captation_images_public'
   | 'captation_images_prive'
+  | 'sonorisation_prive'
   | 'drone_public'
   | 'captation_donnees_informatiques'
   | 'activation_fixe'
@@ -117,7 +118,28 @@ export const AUTRE_ACTE_TYPES: Record<AutreActeTypeKey, AutreActeTypeConfig> = {
 
   captation_images_prive: {
     key: 'captation_images_prive',
-    label: 'Captation d\'images et sonorisation — Lieux privés (y compris hors art. 59)',
+    label: 'Captation d\'images — Lieux privés (y compris hors art. 59)',
+    hasDuree: true,
+    duree: 1,
+    dureeUnit: 'mois',
+    maxProlongations: 1,
+    prolongationDuree: 1,
+    prolongationDureeUnit: 'mois',
+    limiteLegaleTexte: 'Limite légale : 1 mois + 1 renouvellement',
+    autorisation: 'JLD',
+    warningBanner: 'Autorisation JLD sur requête procureur. Y compris hors heures légales (art. 59). ATTENTION : le renouvellement doit intervenir AVANT l\'expiration de la mesure.',
+    hoverTips: [
+      'ATTENTION : le renouvellement doit intervenir avant l\'expiration de la mesure précédente.',
+      'La révélation d\'autres infractions en cours d\'opération ne constitue pas une cause de nullité des procédures incidentes.',
+      'Si la mesure doit être mise en place dans un autre ressort, le parquet du lieu doit être avisé.',
+      'Limite légale : 1 mois + 1 renouvellement.',
+    ],
+    toastOnRenewal: 'ATTENTION : le renouvellement doit intervenir AVANT l\'expiration de la mesure précédente (lieux privés).',
+  },
+
+  sonorisation_prive: {
+    key: 'sonorisation_prive',
+    label: 'Sonorisation — Lieux privés (y compris hors art. 59)',
     hasDuree: true,
     duree: 1,
     dureeUnit: 'mois',
@@ -247,6 +269,7 @@ export const AUTRE_ACTE_TYPE_OPTIONS: { key: AutreActeTypeKey; label: string }[]
   { key: 'imsi_interceptions',           label: AUTRE_ACTE_TYPES.imsi_interceptions.label },
   { key: 'captation_images_public',      label: AUTRE_ACTE_TYPES.captation_images_public.label },
   { key: 'captation_images_prive',       label: AUTRE_ACTE_TYPES.captation_images_prive.label },
+  { key: 'sonorisation_prive',           label: AUTRE_ACTE_TYPES.sonorisation_prive.label },
   { key: 'drone_public',                 label: AUTRE_ACTE_TYPES.drone_public.label },
   { key: 'captation_donnees_informatiques', label: AUTRE_ACTE_TYPES.captation_donnees_informatiques.label },
   { key: 'activation_fixe',             label: AUTRE_ACTE_TYPES.activation_fixe.label },
