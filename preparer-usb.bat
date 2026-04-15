@@ -28,9 +28,14 @@ if not exist "%NODE_EXE%" (
 )
 
 rem -- Configuration environnement build --
+set CI=true
 set NEXT_TELEMETRY_DISABLED=1
 set NODE_OPTIONS=--max-old-space-size=4096
 set NODE_ENV=production
+rem -- Desactiver le proxy pour le build (pas besoin de reseau) --
+set HTTP_PROXY=
+set HTTPS_PROXY=
+set NO_PROXY=localhost,127.0.0.1
 
 rem -- Dossier de sortie --
 set USB_ROOT=%BASE_DIR%..\USB_Distribution
@@ -40,16 +45,39 @@ echo.
 
 rem -- Etape 1 : Build Next.js --
 echo [1/7] Compilation de l'application...
-echo        (nettoyage du cache precedent...)
-if exist ".next\cache" rmdir /s /q ".next\cache"
-echo        (compilation en cours, cela peut prendre 1-2 minutes...)
+
+rem -- Nettoyage selectif (garder le cache webpack/swc pour builds incrementaux) --
+echo        (nettoyage selectif du cache...)
+if exist ".next\cache\fetch-cache" rmdir /s /q ".next\cache\fetch-cache"
+if exist ".next\standalone" rmdir /s /q ".next\standalone"
+
+rem -- Verifier que SWC est disponible --
+echo        (verification de SWC...)
+"%NODE_EXE%" -e "try{require('@next/swc-win32-x64-msvc');console.log('       SWC: OK')}catch(e){try{require('@next/swc-win32-ia32-msvc');console.log('       SWC: OK (32-bit)')}catch(e2){console.log('       ATTENTION: SWC natif non disponible, le build sera lent');console.log('       Solution: npm install @next/swc-win32-x64-msvc')}}"
+
+echo        (compilation en cours, les etapes s'affichent ci-dessous...)
+echo.
 "%NODE_EXE%" node_modules\next\dist\bin\next build
 if %ERRORLEVEL% neq 0 (
-    echo ERREUR: Le build a echoue.
+    echo.
+    echo ERREUR: Le build a echoue (code %ERRORLEVEL%).
+    echo.
+    echo Diagnostics :
+    if not exist "node_modules\next" echo   - next n'est pas installe dans node_modules
+    if not exist "node_modules\@next" echo   - les binaires SWC (@next) sont manquants
+    echo   - Verifiez que node_modules est installe: npm install
     pause
     exit /b 1
 )
-echo       OK
+
+rem -- Valider que le build standalone a produit server.js --
+if not exist ".next\standalone\server.js" (
+    echo ERREUR: Le build s'est termine mais server.js est absent.
+    echo Le mode standalone n'a peut-etre pas fonctionne correctement.
+    pause
+    exit /b 1
+)
+echo       Build termine avec succes.
 echo.
 
 rem -- Etape 2 : Nettoyer et creer le dossier de sortie --

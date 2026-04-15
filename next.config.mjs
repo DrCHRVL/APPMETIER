@@ -14,6 +14,28 @@ const nextConfig = {
   // Optimisation : output standalone pour distribution
   output: 'standalone',
 
+  // Forcer SWC pour la minification (éviter le fallback vers Terser, beaucoup plus lent)
+  swcMinify: true,
+
+  experimental: {
+    // Limiter les workers pour éviter les problèmes avec le Node.js portable
+    cpus: 2,
+    // Exclure du file tracing les packages utilisés uniquement par Electron (main.js)
+    // et jamais par les pages Next.js - évite que le build bloque sur le tracing
+    outputFileTracingExcludes: {
+      '*': [
+        './tessdata/**',
+        './node_modules/tesseract.js/**',
+        './node_modules/tesseract.js-core/**',
+        './node_modules/pdf-parse/**',
+        './node_modules/archiver/**',
+        './node_modules/pdfjs-dist/**',
+        './node_modules/javascript-obfuscator/**',
+        './node_modules/electron/**',
+      ],
+    },
+  },
+
   // Ignorer les erreurs TypeScript et ESLint pendant le build
   typescript: {
     ignoreBuildErrors: true,
