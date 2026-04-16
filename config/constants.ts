@@ -81,7 +81,8 @@ export const APP_CONFIG = {
     AIR_MESURES: 'air_mesures',
     ALERTS: 'alerts',
     ALERT_VALIDATIONS: 'alert_validations',
-    VISUAL_ALERT_RULES: 'visualAlertRules'
+    VISUAL_ALERT_RULES: 'visualAlertRules',
+    CLOTURE_TEMPLATE: 'clotureTemplate'
   },
 
   // 🆕 CONFIGURATION DES SAUVEGARDES
