@@ -24,22 +24,22 @@ import { OverboardPin } from '@/types/userTypes';
 interface EnquetePreviewProps {
   enquete: Enquete;
   isArchived?: boolean;
-  onView: () => void;
-  onEdit?: () => void;
+  onView: (id: number) => void;
+  onEdit?: (id: number) => void;
   onArchive?: (id: number) => void;
   onDelete?: () => void;
   onUnarchive?: () => void;
-  onToggleSuivi?: (type: 'JIRS' | 'PG') => void;
+  onToggleSuivi?: (id: number, type: 'JIRS' | 'PG') => void;
   onStartEnquete?: (id: number, date: string) => void;
   onToggleOverboardPin?: (enqueteId: number) => void;
   onToggleHideFromJA?: (enqueteId: number) => void;
   alerts: Alert[];
   onValidateAlert: (alertId: number | number[]) => void;
   onSnoozeAlert: (alertId: number, daysOrDate: number | string) => void;
-  onProlongationRequest?: (acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
-  onPoseRequest?: (acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
-  onValidateProlongationRequest?: (acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
-  onValidateAutorisationRequest?: (acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
+  onProlongationRequest?: (enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
+  onPoseRequest?: (enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
+  onValidateProlongationRequest?: (enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
+  onValidateAutorisationRequest?: (enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
   visualAlertRules?: VisualAlertRule[];
   onCreateGlobalTodo?: (todo: ToDoItem) => void;
 }
@@ -247,7 +247,7 @@ export const EnquetePreview = React.memo(({
 
   const handleValidateAutorisation = (date: string) => {
     if (selectedActe && onValidateAutorisationRequest) {
-      onValidateAutorisationRequest(selectedActe.id, selectedActe.type);
+      onValidateAutorisationRequest(enquete.id, selectedActe.id, selectedActe.type);
       showToast('Autorisation validée', 'success');
       setSelectedActe(null);
       setShowAutorisationModal(false);
@@ -258,7 +258,7 @@ return (
     <>
       <Card
         className={`w-full card-hover cursor-pointer overflow-hidden ${cardBgClass} ${cardBorderClass}`}
-        onClick={onView}
+        onClick={() => onView(enquete.id)}
       >
         <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 pt-2 px-3">
   <div className="flex-1 min-w-0 mr-3 max-w-[60%]">
@@ -355,7 +355,7 @@ return (
                 }`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onToggleSuivi('JIRS');
+                  onToggleSuivi(enquete.id, 'JIRS');
                 }}
                 title="Suivi JIRS"
               >
@@ -369,7 +369,7 @@ return (
                 }`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onToggleSuivi('PG');
+                  onToggleSuivi(enquete.id, 'PG');
                 }}
                 title="Suivi Parquet Général"
               >
@@ -455,7 +455,7 @@ return (
 ) : (
                 <>
                   {onEdit && (
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onEdit}>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => onEdit?.(enquete.id)}>
                       <Edit className="h-3 w-3" />
                     </Button>
                   )}
@@ -530,11 +530,11 @@ return (
         const type = 'type' in acte ? 'acte' : 'numero' in acte ? 'ecoute' : 'geoloc';
   
         if (acte.statut === 'pose_pending' && onPoseRequest) {
-          onPoseRequest(acte.id, type);
+          onPoseRequest(enquete.id, acte.id, type);
         } else if (acte.statut === 'en_cours' && onProlongationRequest) {
-          onProlongationRequest(acte.id, type);
+          onProlongationRequest(enquete.id, acte.id, type);
         } else if (acte.statut === 'prolongation_pending' && onValidateProlongationRequest) {
-          onValidateProlongationRequest(acte.id, type);
+          onValidateProlongationRequest(enquete.id, acte.id, type);
         } else if (acte.statut === 'autorisation_pending' && onValidateAutorisationRequest) {
           setSelectedActe({ id: acte.id, type });
           setShowAutorisationModal(true);

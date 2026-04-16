@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Checkbox } from '../ui/checkbox';
@@ -18,9 +18,15 @@ export const ToDoSection = React.memo(({ enquete, onUpdate, isEditing }: ToDoSec
   const [editingText, setEditingText] = useState('');
 
   const toDos = enquete.toDos || [];
-  const activeTodos = toDos.filter(todo => todo.status === 'active');
-  const completedTodos = toDos.filter(todo => todo.status === 'completed')
-    .sort((a, b) => new Date(b.dateCompletion!).getTime() - new Date(a.dateCompletion!).getTime());
+  const activeTodos = useMemo(() =>
+    toDos.filter(todo => todo.status === 'active'),
+    [toDos]
+  );
+  const completedTodos = useMemo(() =>
+    toDos.filter(todo => todo.status === 'completed')
+      .sort((a, b) => new Date(b.dateCompletion!).getTime() - new Date(a.dateCompletion!).getTime()),
+    [toDos]
+  );
 
   const handleAddTodo = () => {
     if (!onUpdate || !newTodoText.trim()) return;

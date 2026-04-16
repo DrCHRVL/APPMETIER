@@ -798,11 +798,19 @@ function AppContent() {
   );
 
   // Callbacks stables pour EnquetePreview — ne dépendent pas de l'enquête individuelle
-  const handleViewEnquete = useCallback((enquete: Enquete) => {
+  const handleViewEnquete = useCallback((enqueteOrId: Enquete | number) => {
+    const enquete = typeof enqueteOrId === 'number'
+      ? enquetesLookupRef.current.find(e => e.id === enqueteOrId)
+      : enqueteOrId;
+    if (!enquete) return;
     setSelectedEnquete(enquete);
     setIsEditing(false);
   }, []);
-  const handleEditEnquete = useCallback((enquete: Enquete) => {
+  const handleEditEnquete = useCallback((enqueteOrId: Enquete | number) => {
+    const enquete = typeof enqueteOrId === 'number'
+      ? enquetesLookupRef.current.find(e => e.id === enqueteOrId)
+      : enqueteOrId;
+    if (!enquete) return;
     setSelectedEnquete(enquete);
     setIsEditing(true);
   }, []);
@@ -823,6 +831,16 @@ function AppContent() {
     else if (modal === 'pose') setShowPoseModal(true);
     else setShowProlongationValidationModal(true);
   }, []);
+  // Wrappers stables pour EnquetePreview (évitent les arrow functions inline dans le .map())
+  const handleProlongationRequest = useCallback((enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => {
+    handleActeRequest(acteId, type, enqueteId, 'prolongation');
+  }, [handleActeRequest]);
+  const handlePoseRequest = useCallback((enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => {
+    handleActeRequest(acteId, type, enqueteId, 'pose');
+  }, [handleActeRequest]);
+  const handleValidateProlongationRequest = useCallback((enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => {
+    handleActeRequest(acteId, type, enqueteId, 'validation');
+  }, [handleActeRequest]);
   const handleValidateAutorisation = useCallback((enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => {
     const enquete = enquetesLookupRef.current.find(e => e.id === enqueteId);
     if (!enquete) return;
@@ -1053,20 +1071,20 @@ return (
                     <EnquetePreview
                       key={enquete.id}
                       enquete={enquete}
-                      onView={() => handleViewEnquete(enquete)}
-                      onEdit={() => handleEditEnquete(enquete)}
+                      onView={handleViewEnquete}
+                      onEdit={handleEditEnquete}
                       onArchive={handleArchiveEnquete}
-                      onToggleSuivi={(type: 'JIRS' | 'PG') => handleToggleSuivi(enquete.id, type)}
+                      onToggleSuivi={handleToggleSuivi}
                       onStartEnquete={handleStartEnquete}
                       onToggleOverboardPin={showOverboardPin ? handleToggleOverboardPin : undefined}
                       onToggleHideFromJA={showHideFromJA ? handleToggleHideFromJA : undefined}
                       alerts={enqueteAlertsList}
                       onValidateAlert={handleValidateAlert}
                       onSnoozeAlert={handleSnoozeAlert}
-                      onProlongationRequest={(acteId, type) => handleActeRequest(acteId, type, enquete.id, 'prolongation')}
-                      onPoseRequest={(acteId, type) => handleActeRequest(acteId, type, enquete.id, 'pose')}
-                      onValidateProlongationRequest={(acteId, type) => handleActeRequest(acteId, type, enquete.id, 'validation')}
-                      onValidateAutorisationRequest={(acteId, type) => handleValidateAutorisation(enquete.id, acteId, type)}
+                      onProlongationRequest={handleProlongationRequest}
+                      onPoseRequest={handlePoseRequest}
+                      onValidateProlongationRequest={handleValidateProlongationRequest}
+                      onValidateAutorisationRequest={handleValidateAutorisation}
                       visualAlertRules={visualAlertRules}
                       onCreateGlobalTodo={handleCreateGlobalTodo}
                     />
