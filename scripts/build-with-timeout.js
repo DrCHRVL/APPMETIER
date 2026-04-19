@@ -1,94 +1,76 @@
 /**
  * build-with-timeout.js
- * Wrapper pour next build avec timeout, progression et logging.
+ * Lance next build avec un timeout et un heartbeat pour montrer la progression.
  * Usage : node scripts/build-with-timeout.js [timeout_en_secondes]
  */
 
 const { spawn } = require('child_process');
-const fs = require('fs');
-const path = require('path');
 
 const TIMEOUT = parseInt(process.argv[2], 10) || 600; // 10 minutes par defaut
-const LOG_FILE = path.join(__dirname, '..', 'next-build.log');
 
-// Nettoyer les variables problematiques pour le child process
-const env = Object.assign({}, process.env);
-delete env.DEBUG;
-delete env.NEXT_PRIVATE_WORKER_THREADS;
-
-const log = fs.createWriteStream(LOG_FILE);
-log.write(`[BUILD] Debut: ${new Date().toLocaleString()}\n`);
-log.write(`[BUILD] Timeout: ${TIMEOUT}s\n\n`);
-
-console.log(`        Build en cours (timeout: ${TIMEOUT}s)...`);
-console.log(`        Log detaille : ${LOG_FILE}`);
+console.log('  Build en cours (timeout: ' + TIMEOUT + 's)...');
 console.log();
 
 const child = spawn(
   process.execPath,
   ['node_modules/next/dist/bin/next', 'build'],
-  { stdio: ['ignore', 'pipe', 'pipe'], env }
+  { stdio: ['ignore', 'pipe', 'pipe'], env: process.env }
 );
 
-// Mots-cles Next.js a afficher dans la console pour montrer la progression
-const PHASE_KEYWORDS = [
+// Mots-cles de progression Next.js
+const KEYWORDS = [
   'Compiling', 'Compiled', 'Generating', 'Collecting',
   'Finalizing', 'Creating an optimized', 'Route', 'Build error',
   'Error', 'Warning', 'warn', 'Module not found',
 ];
 
-child.stdout.on('data', (data) => {
-  log.write(data);
-  const lines = data.toString().split('\n');
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (PHASE_KEYWORDS.some((kw) => trimmed.includes(kw))) {
-      console.log(`        [NEXT] ${trimmed.substring(0, 80)}`);
+child.stdout.on('data', function (data) {
+  var lines = data.toString().split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line) continue;
+    for (var k = 0; k < KEYWORDS.length; k++) {
+      if (line.includes(KEYWORDS[k])) {
+        console.log('  [NEXT] ' + line.substring(0, 100));
+        break;
+      }
     }
   }
 });
 
-child.stderr.on('data', (data) => {
-  log.write(data);
+child.stderr.on('data', function (data) {
+  process.stderr.write(data);
 });
 
-// Heartbeat toutes les 15 secondes
-let elapsed = 0;
-const heartbeat = setInterval(() => {
-  elapsed += 15;
-  console.log(`        [${elapsed}s] Build en cours...`);
-}, 15000);
+// Heartbeat toutes les 30 secondes
+var elapsed = 0;
+var heartbeat = setInterval(function () {
+  elapsed += 30;
+  console.log('  [' + elapsed + 's] Build en cours...');
+}, 30000);
 
 // Timeout
-const timeout = setTimeout(() => {
+var timer = setTimeout(function () {
   console.error();
-  console.error(`        TIMEOUT: le build a depasse ${TIMEOUT} secondes.`);
-  console.error(`        Consultez le log : ${LOG_FILE}`);
-  log.write(`\n[BUILD] TIMEOUT apres ${TIMEOUT}s\n`);
+  console.error('  TIMEOUT: le build a depasse ' + TIMEOUT + ' secondes.');
   child.kill();
-  setTimeout(() => {
+  setTimeout(function () {
     try { child.kill('SIGKILL'); } catch (_) {}
-    log.end();
     process.exit(99);
   }, 5000);
 }, TIMEOUT * 1000);
 
-child.on('close', (code) => {
+child.on('close', function (code) {
   clearInterval(heartbeat);
-  clearTimeout(timeout);
-  log.write(`\n[BUILD] Termine avec code: ${code}\n`);
-  log.end();
+  clearTimeout(timer);
   console.log();
-  console.log(`        Build termine (code: ${code})`);
+  console.log('  Build termine (code: ' + (code || 0) + ')');
   process.exit(code || 0);
 });
 
-child.on('error', (err) => {
+child.on('error', function (err) {
   clearInterval(heartbeat);
-  clearTimeout(timeout);
-  console.error(`        ERREUR: impossible de lancer next build: ${err.message}`);
-  log.write(`\n[BUILD] Erreur: ${err.message}\n`);
-  log.end();
+  clearTimeout(timer);
+  console.error('  ERREUR: impossible de lancer next build: ' + err.message);
   process.exit(1);
 });
