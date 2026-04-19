@@ -51,20 +51,25 @@ export const VerificationDoublonsModal = ({
     return DuplicateDetectionService.verifyAgainstExisting(parsedActes, enquete);
   }, [isOpen, parsedActes, enquete]);
 
-  // Reset à l'ouverture
+  // Reset UNIQUEMENT à l'ouverture de la modale : ne pas réinitialiser les sélections
+  // lorsque `verification` change suite à un re-render parent (sinon l'application
+  // des corrections elle-même recrée `enquete` → efface les cases cochées par l'utilisateur).
   useEffect(() => {
     if (isOpen) {
       setExpandedItems(new Set());
       setAcceptedCorrections(new Set());
       setDismissedDoublons(new Set());
-      // Afficher l'onglet le plus pertinent
-      if (verification) {
-        if (verification.corrections.length > 0) setActiveTab('corrections');
-        else if (verification.doublonsConfirmes.length + verification.doublonsProbables.length > 0) setActiveTab('doublons');
-        else setActiveTab('nouveaux');
-      }
     }
-  }, [isOpen, verification]);
+  }, [isOpen]);
+
+  // Sélection de l'onglet par défaut dès que la vérification est prête (ouverture initiale).
+  useEffect(() => {
+    if (!isOpen || !verification) return;
+    if (verification.corrections.length > 0) setActiveTab('corrections');
+    else if (verification.doublonsConfirmes.length + verification.doublonsProbables.length > 0) setActiveTab('doublons');
+    else setActiveTab('nouveaux');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   const toggleExpand = (key: string) => {
     setExpandedItems(prev => {

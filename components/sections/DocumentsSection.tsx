@@ -166,17 +166,21 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     return result;
   }, [enquete.documents]);
 
+  // Ref toujours à jour vers scanForNewDocuments pour que l'interval appelle
+  // la dernière version (et lise la liste de documents actuelle, pas celle du 1er render).
+  const scanRef = useRef<(silent?: boolean) => void>(() => {});
+
   // ── useEffect : scan initial (délayé) + scan périodique — singleton par enquête ID ──
   useEffect(() => {
     // Ne créer un timer/interval que s'il n'en existe pas encore pour cette enquête
     if (!_scanIntervals.has(enquete.id)) {
       const timer = setTimeout(() => {
-        scanForNewDocuments(true);
+        scanRef.current(true);
       }, 1500);
       _scanTimers.set(enquete.id, timer);
 
       const interval = setInterval(() => {
-        scanForNewDocuments(true);
+        scanRef.current(true);
       }, 600000);
       _scanIntervals.set(enquete.id, interval);
     }
@@ -198,14 +202,18 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     }
   }, [currentConflict, conflictQueue]);
 
+  // Ref pour lire l'état scanning à jour depuis l'interval singleton
+  const isScanningRef = useRef(false);
+
   // ── Scan des nouveaux documents ──
   const scanForNewDocuments = async (silent = false) => {
     if (!window.electronAPI) {
       if (!silent) showToast('API Electron non disponible', 'error');
       return;
     }
-    if (isScanning) return;
+    if (isScanningRef.current) return;
 
+    isScanningRef.current = true;
     setIsScanning(true);
     try {
       const existing = enquete.documents || [];
@@ -228,9 +236,13 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
       console.error('Erreur scan documents:', err);
       if (!silent) showToast('Erreur lors du scan des documents', 'error');
     } finally {
+      isScanningRef.current = false;
       setIsScanning(false);
     }
   };
+
+  // Tenir la ref du scan à jour à chaque render pour que l'interval lise la dernière version
+  scanRef.current = scanForNewDocuments;
 
   // ── Synchronisation externe ──
   const synchronizeDocuments = async () => {

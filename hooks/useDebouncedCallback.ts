@@ -22,7 +22,11 @@ export function useDebouncedCallback<T extends (...args: any[]) => any>(
   ).current;
 
   useEffect(() => {
-    return () => debouncedFn.cancel();
+    return () => {
+      // Flush plutôt que cancel : on évite de perdre la dernière frappe
+      // quand l'utilisateur ferme la modale avant la fin du délai.
+      debouncedFn.flush();
+    };
   }, [debouncedFn]);
 
   return debouncedFn as any;
