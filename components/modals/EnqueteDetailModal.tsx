@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -74,19 +75,33 @@ export const EnqueteDetailModal = ({
   const [showDateOPEdit, setShowDateOPEdit] = useState(false);
   const [showSuiviAlert, setShowSuiviAlert] = useState(false);
   const [suiviAlertContext, setSuiviAlertContext] = useState<'dateOP' | 'archive' | 'audience'>('dateOP');
+  const [localNumero, setLocalNumero] = useState(enquete.numero);
+  useEffect(() => { setLocalNumero(enquete.numero); }, [enquete.numero]);
   const { showToast } = useToast();
 
-  const hasSuivi = enquete.tags.some(t => t.category === 'suivi');
+  const hasSuiviRef = useRef(enquete.tags.some(t => t.category === 'suivi'));
+  hasSuiviRef.current = enquete.tags.some(t => t.category === 'suivi');
 
-  const handleUpdateWithToast = useCallback((id: number, updates: Partial<Enquete>) => {
+  // Pour les actions discrètes (clics, validation, ajout/suppression) : propagation immédiate + toast
+  const handleUpdateImmediate = useCallback((id: number, updates: Partial<Enquete>) => {
     onUpdate(id, updates);
     showToast('Modifications enregistrées', 'success');
-    // Si on enregistre une date d'OP et que le dossier est suivi
-    if (updates.dateOP && hasSuivi) {
+    if (updates.dateOP && hasSuiviRef.current) {
       setSuiviAlertContext('dateOP');
       setShowSuiviAlert(true);
     }
-  }, [onUpdate, showToast, hasSuivi]);
+  }, [onUpdate, showToast]);
+
+  // Pour la saisie texte : propagation déboncée (400ms), PAS de toast par frappe
+  const debouncedOnUpdate = useDebouncedCallback(
+    (id: number, updates: Partial<Enquete>) => {
+      onUpdate(id, updates);
+    },
+    400
+  );
+
+  // Rétro-compatibilité : alias pour les anciens appels
+  const handleUpdateWithToast = handleUpdateImmediate;
 
   const handleDelete = useCallback(() => {
     if (onDelete) {
@@ -105,8 +120,11 @@ export const EnqueteDetailModal = ({
               <div className="flex-1">
                 {isEditing ? (
                   <Input
-                    value={enquete.numero}
-                    onChange={(e) => handleUpdateWithToast(enquete.id, { numero: e.target.value })}
+                    value={localNumero}
+                    onChange={(e) => {
+                      setLocalNumero(e.target.value);
+                      debouncedOnUpdate(enquete.id, { numero: e.target.value });
+                    }}
                     className="text-base font-semibold w-64"
                     placeholder="Numéro d'enquête"
                   />
@@ -158,7 +176,8 @@ export const EnqueteDetailModal = ({
               directeurEnquete={enquete.directeurEnquete}
               numeroParquet={enquete.numeroParquet}
               isEditing={isEditing}
-              onUpdate={isEditing ? (updates) => handleUpdateWithToast(enquete.id, updates) : undefined}
+              onUpdate={isEditing ? (updates) => debouncedOnUpdate(enquete.id, updates) : undefined}
+              onUpdateImmediate={isEditing ? (updates) => handleUpdateImmediate(enquete.id, updates) : undefined}
             />
 
             <div className="grid grid-cols-2 gap-6">

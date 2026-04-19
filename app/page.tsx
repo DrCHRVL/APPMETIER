@@ -13,7 +13,7 @@ import { AlertsPage } from '@/components/pages/AlertsPage';
 import { AlertsModal } from '@/components/modals/AlertsModal';
 import { SavePage } from '@/components/pages/SavePage';
 import { StatsPage } from '@/components/pages/StatsPage';
-import { useContentieuxEnquetes } from '@/hooks/useContentieuxEnquetes';
+import { useContentieuxEnquetesStore as useContentieuxEnquetes } from '@/hooks/useContentieuxEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
 import { useDocumentSearch } from '@/hooks/useDocumentSearch';
 import { NewEnqueteData, Tag, ToDoItem } from '@/types/interfaces';
@@ -313,13 +313,13 @@ function AppContent() {
   // Garde l'UI affichée (pas de page blanche), recharge les données silencieusement
   useEffect(() => {
     let lastHidden = 0;
-    const STALE_THRESHOLD = 30_000; // 30s d'absence → rafraîchir
+    const STALE_THRESHOLD = 300_000; // 5min d'absence → rafraîchir (30s trop agressif en écran partagé)
 
     const handleVisibility = () => {
       if (document.hidden) {
         lastHidden = Date.now();
       } else if (lastHidden && Date.now() - lastHidden > STALE_THRESHOLD) {
-        // L'app est revenue après 30s+ d'absence → refresh silencieux
+        // L'app est revenue après 5min+ d'absence → refresh silencieux
         refreshEnquetes();
       }
     };
@@ -798,11 +798,19 @@ function AppContent() {
   );
 
   // Callbacks stables pour EnquetePreview — ne dépendent pas de l'enquête individuelle
-  const handleViewEnquete = useCallback((enquete: Enquete) => {
+  const handleViewEnquete = useCallback((enqueteOrId: Enquete | number) => {
+    const enquete = typeof enqueteOrId === 'number'
+      ? enquetesLookupRef.current.find(e => e.id === enqueteOrId)
+      : enqueteOrId;
+    if (!enquete) return;
     setSelectedEnquete(enquete);
     setIsEditing(false);
   }, []);
-  const handleEditEnquete = useCallback((enquete: Enquete) => {
+  const handleEditEnquete = useCallback((enqueteOrId: Enquete | number) => {
+    const enquete = typeof enqueteOrId === 'number'
+      ? enquetesLookupRef.current.find(e => e.id === enqueteOrId)
+      : enqueteOrId;
+    if (!enquete) return;
     setSelectedEnquete(enquete);
     setIsEditing(true);
   }, []);
@@ -823,6 +831,16 @@ function AppContent() {
     else if (modal === 'pose') setShowPoseModal(true);
     else setShowProlongationValidationModal(true);
   }, []);
+  // Wrappers stables pour EnquetePreview (évitent les arrow functions inline dans le .map())
+  const handleProlongationRequest = useCallback((enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => {
+    handleActeRequest(acteId, type, enqueteId, 'prolongation');
+  }, [handleActeRequest]);
+  const handlePoseRequest = useCallback((enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => {
+    handleActeRequest(acteId, type, enqueteId, 'pose');
+  }, [handleActeRequest]);
+  const handleValidateProlongationRequest = useCallback((enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => {
+    handleActeRequest(acteId, type, enqueteId, 'validation');
+  }, [handleActeRequest]);
   const handleValidateAutorisation = useCallback((enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => {
     const enquete = enquetesLookupRef.current.find(e => e.id === enqueteId);
     if (!enquete) return;
@@ -1053,20 +1071,20 @@ return (
                     <EnquetePreview
                       key={enquete.id}
                       enquete={enquete}
-                      onView={() => handleViewEnquete(enquete)}
-                      onEdit={() => handleEditEnquete(enquete)}
+                      onView={handleViewEnquete}
+                      onEdit={handleEditEnquete}
                       onArchive={handleArchiveEnquete}
-                      onToggleSuivi={(type: 'JIRS' | 'PG') => handleToggleSuivi(enquete.id, type)}
+                      onToggleSuivi={handleToggleSuivi}
                       onStartEnquete={handleStartEnquete}
                       onToggleOverboardPin={showOverboardPin ? handleToggleOverboardPin : undefined}
                       onToggleHideFromJA={showHideFromJA ? handleToggleHideFromJA : undefined}
                       alerts={enqueteAlertsList}
                       onValidateAlert={handleValidateAlert}
                       onSnoozeAlert={handleSnoozeAlert}
-                      onProlongationRequest={(acteId, type) => handleActeRequest(acteId, type, enquete.id, 'prolongation')}
-                      onPoseRequest={(acteId, type) => handleActeRequest(acteId, type, enquete.id, 'pose')}
-                      onValidateProlongationRequest={(acteId, type) => handleActeRequest(acteId, type, enquete.id, 'validation')}
-                      onValidateAutorisationRequest={(acteId, type) => handleValidateAutorisation(enquete.id, acteId, type)}
+                      onProlongationRequest={handleProlongationRequest}
+                      onPoseRequest={handlePoseRequest}
+                      onValidateProlongationRequest={handleValidateProlongationRequest}
+                      onValidateAutorisationRequest={handleValidateAutorisation}
                       visualAlertRules={visualAlertRules}
                       onCreateGlobalTodo={handleCreateGlobalTodo}
                     />

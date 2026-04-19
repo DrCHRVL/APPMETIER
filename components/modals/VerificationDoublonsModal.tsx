@@ -89,6 +89,8 @@ export const VerificationDoublonsModal = ({
     const newEcoutes = [...(enquete.ecoutes || [])];
     const newGeolocs = [...(enquete.geolocalisations || [])];
     let nbCorrections = 0;
+    let ecoutesModified = false;
+    let geolocsModified = false;
 
     for (const correction of verification.corrections) {
       for (const div of correction.corrections) {
@@ -103,6 +105,7 @@ export const VerificationDoublonsModal = ({
             ecoute.numero = div.parsedValue;
           }
           newEcoutes[correction.acteIndex] = ecoute;
+          ecoutesModified = true;
           nbCorrections++;
         } else {
           const geoloc = { ...newGeolocs[correction.acteIndex] };
@@ -112,6 +115,7 @@ export const VerificationDoublonsModal = ({
             geoloc.objet = div.parsedValue;
           }
           newGeolocs[correction.acteIndex] = geoloc;
+          geolocsModified = true;
           nbCorrections++;
         }
       }
@@ -123,10 +127,10 @@ export const VerificationDoublonsModal = ({
     }
 
     const updates: Partial<Enquete> = {};
-    if (JSON.stringify(newEcoutes) !== JSON.stringify(enquete.ecoutes || [])) {
+    if (ecoutesModified) {
       updates.ecoutes = newEcoutes;
     }
-    if (JSON.stringify(newGeolocs) !== JSON.stringify(enquete.geolocalisations || [])) {
+    if (geolocsModified) {
       updates.geolocalisations = newGeolocs;
     }
 

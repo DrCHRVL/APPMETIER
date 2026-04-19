@@ -152,18 +152,16 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
 
   // Documents par catégorie — mémoïsés pour éviter les recalculs inutiles
   const documentsByCategory = useMemo(() => {
-    const mapping: Record<DocumentCategory, string> = {
-      geoloc: 'Geoloc',
-      ecoutes: 'Ecoutes',
-      actes: 'Actes',
-      pv: 'PV'
+    // 1 seule passe au lieu de 4 .filter() — plus rapide pour les grosses listes
+    const result: Record<DocumentCategory, DocumentEnquete[]> = {
+      geoloc: [], ecoutes: [], actes: [], pv: []
     };
-    const result = {} as Record<DocumentCategory, DocumentEnquete[]>;
-    for (const cat of Object.keys(mapping) as DocumentCategory[]) {
-      const prefix = mapping[cat];
-      result[cat] = (enquete.documents || []).filter(doc =>
-        doc.cheminRelatif.startsWith(`${prefix}/`)
-      );
+    for (const doc of (enquete.documents || [])) {
+      const path = doc.cheminRelatif;
+      if (path.startsWith('Geoloc/')) result.geoloc.push(doc);
+      else if (path.startsWith('Ecoutes/')) result.ecoutes.push(doc);
+      else if (path.startsWith('Actes/')) result.actes.push(doc);
+      else if (path.startsWith('PV/')) result.pv.push(doc);
     }
     return result;
   }, [enquete.documents]);
