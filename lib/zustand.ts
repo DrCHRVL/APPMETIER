@@ -35,11 +35,20 @@ function createStore<T extends object>(initializer: StateCreator<T>): StoreApi<T
 
   const setState: SetState<T> = (partial: any) => {
     const nextPartial = typeof partial === 'function' ? partial(state) : partial;
-    const nextState = { ...state, ...nextPartial };
-    if (!Object.is(state, nextState)) {
-      state = nextState;
-      listeners.forEach((l) => l());
+    if (!nextPartial) return;
+    // Shallow compare sur les clés du partial : évite de notifier les listeners
+    // quand aucune valeur n'a réellement changé (le spread crée sinon toujours
+    // un nouvel objet, donc `Object.is(state, nextState)` serait toujours faux).
+    let changed = false;
+    for (const key in nextPartial) {
+      if (!Object.is((state as any)[key], (nextPartial as any)[key])) {
+        changed = true;
+        break;
+      }
     }
+    if (!changed) return;
+    state = { ...state, ...nextPartial };
+    listeners.forEach((l) => l());
   };
 
   const subscribe = (listener: () => void) => {

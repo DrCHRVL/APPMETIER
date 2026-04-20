@@ -53,8 +53,10 @@ export function useUser() {
   const refreshUsers = useUserStore(s => s.refreshUsers);
   const getAccessibleContentieux = useUserStore(s => s.getAccessibleContentieux);
 
-  // Mémoiser pour éviter une nouvelle ref array à chaque render
-  const accessibleContentieux = useMemo(() => getAccessibleContentieux(), [contentieux]);
+  // Mémoiser pour éviter une nouvelle ref array à chaque render — dépend aussi des
+  // permissions car getAccessibleContentieux lit `get().permissions` en interne.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const accessibleContentieux = useMemo(() => getAccessibleContentieux(), [contentieux, permissions]);
 
   return {
     isLoading,

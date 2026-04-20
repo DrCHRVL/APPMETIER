@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Checkbox } from '../ui/checkbox';
-import { ChevronDown, ChevronUp, Plus, Check, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, Check, X, Pencil, RotateCcw } from 'lucide-react';
 import { Enquete, ToDoItem } from '@/types/interfaces';
 
 interface ToDoSectionProps {
@@ -171,7 +171,7 @@ export const ToDoSection = React.memo(({ enquete, onUpdate, isEditing }: ToDoSec
                       onClick={() => startEditing(todo)}
                       title="Modifier"
                     >
-                      <Plus className="h-3 w-3 rotate-45" />
+                      <Pencil className="h-3 w-3" />
                     </Button>
                     <Button
                       variant="ghost"
@@ -258,7 +258,7 @@ export const ToDoSection = React.memo(({ enquete, onUpdate, isEditing }: ToDoSec
                       onClick={() => handleToggleTodo(todo.id)}
                       title="Remettre en tâche active"
                     >
-                      <Plus className="h-2 w-2 rotate-45" />
+                      <RotateCcw className="h-2.5 w-2.5" />
                     </Button>
                   )}
                 </div>

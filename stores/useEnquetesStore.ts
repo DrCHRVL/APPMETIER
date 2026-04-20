@@ -107,6 +107,21 @@ function updateOwn(
   };
 }
 
+// ── Persistance d'un contentieux distant (co-saisine : CR écrit sur le contentieux d'origine) ──
+// ContentieuxManager ne gère que le cache mémoire ; sans ce helper, les CR ajoutés sur une
+// enquête co-saisie sont perdus au reboot.
+async function persistOriginContentieux(
+  originId: ContentieuxId,
+  enquetes: Enquete[]
+): Promise<void> {
+  try {
+    await ElectronBridge.setData(storageKey(originId), enquetes);
+    MultiSyncManager.getInstance().triggerPostSaveSync(originId);
+  } catch (error) {
+    console.error(`❌ EnquetesStore[co-saisine→${originId}]: erreur persistance`, error);
+  }
+}
+
 // ── Création du store ──
 
 export const useEnquetesStore = create<EnquetesState>((set, get) => ({
@@ -126,9 +141,18 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
 
   setContentieux: async (id: ContentieuxId) => {
     const state = get();
-    if (state.contentieuxId === id && state.ownEnquetes.length > 0) return;
+    if (state.contentieuxId === id && state.ownEnquetes.length > 0) {
+      // Déjà sur ce contentieux : rafraîchir seulement les co-saisines pour capturer
+      // d'éventuels partages arrivés via MultiSyncManager depuis le dernier load.
+      await get().loadSharedEnquetes();
+      return;
+    }
 
-    // Flush les données dirty du contentieux précédent
+    // Annuler tout throttle en vol pour éviter qu'il écrive dans le NOUVEAU contentieux
+    // avec les données de l'ANCIEN après le changement de _contentieuxRef.
+    _saveThrottled.cancel();
+
+    // Flush les données dirty du contentieux précédent (avant de muter _contentieuxRef)
     if (_isDirty) {
       try {
         await ElectronBridge.setData(storageKey(state.contentieuxId), _enquetesRef);
@@ -337,6 +361,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
           : e
       );
       manager.setEnquetes(shared.contentieuxOrigine, updated);
+      persistOriginContentieux(shared.contentieuxOrigine, updated);
       get().loadSharedEnquetes();
       return;
     }
@@ -374,6 +399,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
           : e
       );
       manager.setEnquetes(shared.contentieuxOrigine, updated);
+      persistOriginContentieux(shared.contentieuxOrigine, updated);
       get().loadSharedEnquetes();
       return;
     }
@@ -413,6 +439,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
           : e
       );
       manager.setEnquetes(shared.contentieuxOrigine, updated);
+      persistOriginContentieux(shared.contentieuxOrigine, updated);
       get().loadSharedEnquetes();
       return;
     }

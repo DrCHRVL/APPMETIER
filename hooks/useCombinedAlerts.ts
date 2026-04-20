@@ -42,7 +42,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     
     const loadAlerts = async () => {
       try {
-        const existingAlerts = await ElectronBridge.getData('alerts', []);
+        const existingAlerts = await ElectronBridge.getData(alertsKey, []);
         setAlerts(Array.isArray(existingAlerts) ? existingAlerts : []);
       } catch (error) {
         console.error('Erreur lors du chargement des alertes:', error);
@@ -264,10 +264,12 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
   const handleSnoozeAlert = useCallback(
     debounce(async (alertId: number, daysOrDate: number | string): Promise<boolean> => {
       try {
-        const allAlerts = await ElectronBridge.getData<Alert[]>(alertsKey, []);
-        
+        // Lire la clé en live (ref) pour éviter la corruption cross-contentieux.
+        const currentAlertsKey = alertsKeyRef.current;
+        const allAlerts = await ElectronBridge.getData<Alert[]>(currentAlertsKey, []);
+
         let snoozeUntil: Date;
-        
+
         // Si c'est une chaîne de caractères ISO, considérer comme une date
         if (typeof daysOrDate === 'string' && daysOrDate.includes('T')) {
           snoozeUntil = new Date(daysOrDate);
@@ -277,9 +279,9 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
           snoozeUntil = new Date();
           snoozeUntil.setDate(snoozeUntil.getDate() + days);
         }
-        
-        const updatedAlerts = allAlerts.map(alert => 
-          alert.id === alertId 
+
+        const updatedAlerts = allAlerts.map(alert =>
+          alert.id === alertId
             ? {
                 ...alert,
                 status: 'snoozed',
@@ -288,8 +290,8 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
               }
             : alert
         );
-        
-        await ElectronBridge.setData(alertsKey, updatedAlerts);
+
+        await ElectronBridge.setData(currentAlertsKey, updatedAlerts);
         setAlerts(updatedAlerts);
         return true;
       } catch (error) {
@@ -303,24 +305,25 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
   const handleValidateAlert = useCallback(
     debounce(async (alertId: number | number[]): Promise<boolean> => {
       try {
-        const allAlerts = await ElectronBridge.getData<Alert[]>(alertsKey, []);
-        
-        const alertsToValidate = Array.isArray(alertId) 
+        const currentAlertsKey = alertsKeyRef.current;
+        const allAlerts = await ElectronBridge.getData<Alert[]>(currentAlertsKey, []);
+
+        const alertsToValidate = Array.isArray(alertId)
           ? allAlerts.filter(a => alertId.includes(a.id))
           : allAlerts.filter(a => a.id === alertId);
-    
+
         // Marquer chaque alerte comme validée dans l'historique des validations
         for (const alert of alertsToValidate) {
           await AlertManager.markAlertAsValidated(alert);
         }
-    
+
         // Mettre à jour l'état local des alertes
         const updatedAlerts = allAlerts.filter(alert => {
           // Conserver les alertes qui ne sont pas dans la liste à valider
           return !(Array.isArray(alertId) ? alertId.includes(alert.id) : alert.id === alertId);
         });
-    
-        await ElectronBridge.setData(alertsKey, updatedAlerts);
+
+        await ElectronBridge.setData(currentAlertsKey, updatedAlerts);
         setAlerts(updatedAlerts);
         return true;
       } catch (error) {

@@ -29,7 +29,11 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
   const [template, setTemplate] = useState<ClotureTemplate>(DEFAULT_TEMPLATE);
   const [templateLoaded, setTemplateLoaded] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<ClotureTemplate | null>(null);
+  // Snapshot du template au début de l'édition pour détecter si l'utilisateur a modifié
+  const [editingSnapshot, setEditingSnapshot] = useState<ClotureTemplate | null>(null);
   const [showConfirmEdit, setShowConfirmEdit] = useState(false);
+  const [showConfirmReset, setShowConfirmReset] = useState(false);
+  const [showConfirmDiscard, setShowConfirmDiscard] = useState(false);
 
   // Charger la trame sauvegardée à l'ouverture du modal
   useEffect(() => {
@@ -42,10 +46,32 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
     } else {
       // Reset des états d'édition à la fermeture
       setEditingTemplate(null);
+      setEditingSnapshot(null);
       setShowConfirmEdit(false);
+      setShowConfirmReset(false);
+      setShowConfirmDiscard(false);
       setCopied(false);
     }
   }, [isOpen]);
+
+  // Détecte si la trame en cours d'édition a été modifiée par rapport au snapshot de départ
+  const isEditingDirty = useMemo(() => {
+    if (!editingTemplate || !editingSnapshot) return false;
+    return (
+      editingTemplate.beforeEcoutes !== editingSnapshot.beforeEcoutes ||
+      editingTemplate.beforeGeolocs !== editingSnapshot.beforeGeolocs ||
+      editingTemplate.footer !== editingSnapshot.footer
+    );
+  }, [editingTemplate, editingSnapshot]);
+
+  // Intercepte la fermeture si des modifs non sauvées existent
+  const handleDialogClose = useCallback(() => {
+    if (editingTemplate && isEditingDirty) {
+      setShowConfirmDiscard(true);
+      return;
+    }
+    onClose();
+  }, [editingTemplate, isEditingDirty, onClose]);
 
   const generatedText = useMemo(() => {
     if (!templateLoaded) return '';
@@ -75,10 +101,20 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
     await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.CLOTURE_TEMPLATE, editingTemplate);
     setTemplate(editingTemplate);
     setEditingTemplate(null);
+    setEditingSnapshot(null);
   }, [editingTemplate]);
 
+  const handleCancelEdit = useCallback(() => {
+    if (isEditingDirty) {
+      setShowConfirmDiscard(true);
+      return;
+    }
+    setEditingTemplate(null);
+    setEditingSnapshot(null);
+  }, [isEditingDirty]);
+
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={handleDialogClose}>
       <DialogContent className="max-w-2xl bg-white relative">
         <DialogHeader>
           <DialogTitle className="text-base">
@@ -138,13 +174,13 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
                   variant="ghost"
                   size="sm"
                   className="text-gray-500 gap-1"
-                  onClick={() => setEditingTemplate({ ...DEFAULT_TEMPLATE })}
+                  onClick={() => setShowConfirmReset(true)}
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
                   Réinitialiser
                 </Button>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setEditingTemplate(null)}>
+                  <Button variant="outline" size="sm" onClick={handleCancelEdit}>
                     Annuler
                   </Button>
                   <Button size="sm" onClick={handleSaveTemplate}>
@@ -198,7 +234,7 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
           )}
         </div>
 
-        {/* Overlay de confirmation */}
+        {/* Overlay de confirmation — ouverture éditeur */}
         {showConfirmEdit && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/90 rounded-lg">
             <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-5 max-w-xs text-center space-y-3">
@@ -210,13 +246,66 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
               </p>
               <div className="flex gap-2 justify-center">
                 <Button variant="outline" size="sm" onClick={() => setShowConfirmEdit(false)}>
-                  Non
+                  Annuler
                 </Button>
                 <Button size="sm" onClick={() => {
                   setShowConfirmEdit(false);
                   setEditingTemplate({ ...template });
+                  setEditingSnapshot({ ...template });
                 }}>
-                  Oui
+                  Confirmer
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Overlay de confirmation — réinitialisation de la trame */}
+        {showConfirmReset && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/90 rounded-lg">
+            <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-5 max-w-xs text-center space-y-3">
+              <p className="text-sm font-medium text-gray-800">
+                Réinitialiser la trame ?
+              </p>
+              <p className="text-xs text-gray-500">
+                Vos modifications en cours seront perdues et la trame reviendra aux textes d'origine.
+              </p>
+              <div className="flex gap-2 justify-center">
+                <Button variant="outline" size="sm" onClick={() => setShowConfirmReset(false)}>
+                  Annuler
+                </Button>
+                <Button variant="destructive" size="sm" onClick={() => {
+                  setEditingTemplate({ ...DEFAULT_TEMPLATE });
+                  setShowConfirmReset(false);
+                }}>
+                  Réinitialiser
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Overlay de confirmation — abandon des modifications */}
+        {showConfirmDiscard && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/90 rounded-lg">
+            <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-5 max-w-xs text-center space-y-3">
+              <p className="text-sm font-medium text-gray-800">
+                Abandonner vos modifications ?
+              </p>
+              <p className="text-xs text-gray-500">
+                Les changements apportés à la trame ne seront pas enregistrés.
+              </p>
+              <div className="flex gap-2 justify-center">
+                <Button variant="outline" size="sm" onClick={() => setShowConfirmDiscard(false)}>
+                  Continuer l'édition
+                </Button>
+                <Button variant="destructive" size="sm" onClick={() => {
+                  setEditingTemplate(null);
+                  setEditingSnapshot(null);
+                  setShowConfirmDiscard(false);
+                  onClose();
+                }}>
+                  Abandonner
                 </Button>
               </div>
             </div>

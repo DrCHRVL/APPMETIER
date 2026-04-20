@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Enquete, AutreActe, DateManagerData, ProlongationHistoryEntry } from '@/types/interfaces';
 import ProgressBar from '../ProgressBar';
@@ -31,6 +31,24 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
   const [showAddModal, setShowAddModal] = useState(false);
   const [expandedHistoryIds, setExpandedHistoryIds] = useState<number[]>([]);
   const [showTerminated, setShowTerminated] = useState(false);
+
+  // Ref pour tracker les setTimeout et les nettoyer au unmount (évite setState sur
+  // composant démonté si l'utilisateur ferme la modal avant les 500ms).
+  const pendingTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  useEffect(() => {
+    const timeouts = pendingTimeoutsRef.current;
+    return () => {
+      timeouts.forEach(t => clearTimeout(t));
+      timeouts.clear();
+    };
+  }, []);
+  const scheduleTimeout = (fn: () => void, delay: number) => {
+    const t = setTimeout(() => {
+      pendingTimeoutsRef.current.delete(t);
+      fn();
+    }, delay);
+    pendingTimeoutsRef.current.add(t);
+  };
 
   const toggleHistoryExpansion = (id: number) => {
     setExpandedHistoryIds(prev => 
@@ -183,9 +201,7 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
     });
 
     onUpdate(enquete.id, { actes: updatedActes });
-    setTimeout(() => {
-      setProlongationActeId(null);
-    }, 500);
+    scheduleTimeout(() => setProlongationActeId(null), 500);
   };
 
   const handleValidateProlongation = (date: string, duration: string, dureeUnit?: 'jours' | 'mois') => {
@@ -217,7 +233,7 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
     });
 
     onUpdate(enquete.id, { actes: updatedActes });
-    setTimeout(() => setValidationActeId(null), 500);
+    scheduleTimeout(() => setValidationActeId(null), 500);
   };
 
   const handleValidateAutorisation = (date: string) => {
@@ -235,7 +251,7 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
     });
 
     onUpdate(enquete.id, { actes: updatedActes });
-    setTimeout(() => setAutorisationActeId(null), 500);
+    scheduleTimeout(() => setAutorisationActeId(null), 500);
   };
 
   const handleDeleteProlongation = (acteId: number, prolongationIndex: number) => {
@@ -546,7 +562,9 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
                 <div key={acte.id} className="bg-gray-50 p-3 rounded border border-gray-200">
                   <div className="flex justify-between items-center mb-2">
                     <div>
-                      <span className="font-medium text-gray-600">{acte.type}</span>
+                      <span className="font-medium text-gray-600">
+                        {AUTRE_ACTE_TYPES[acte.type as AutreActeTypeKey]?.label || acte.type}
+                      </span>
                       {acte.description && (
                         <p className="text-sm text-gray-500 mt-1">{acte.description}</p>
                       )}

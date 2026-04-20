@@ -100,6 +100,20 @@ export const EnqueteDetailModal = ({
     400
   );
 
+  // Flush des écritures en attente quand on change d'enquête : évite que les frappes
+  // sur l'enquête A soient écrites sur l'enquête B après un switch rapide.
+  useEffect(() => {
+    return () => {
+      debouncedOnUpdate.flush();
+    };
+  }, [enquete.id, debouncedOnUpdate]);
+
+  // Fermeture : flush le debounce pour ne pas perdre la dernière frappe.
+  const handleClose = useCallback(() => {
+    debouncedOnUpdate.flush();
+    onClose();
+  }, [debouncedOnUpdate, onClose]);
+
   // Rétro-compatibilité : alias pour les anciens appels
   const handleUpdateWithToast = handleUpdateImmediate;
 
@@ -113,7 +127,7 @@ export const EnqueteDetailModal = ({
 
   return (
     <>
-      <Dialog open={!!enquete} onOpenChange={onClose}>
+      <Dialog open={!!enquete} onOpenChange={handleClose}>
         <DialogContent className="max-w-6xl max-h-[90vh] bg-white overflow-hidden flex flex-col">
           <DialogHeader className="flex-shrink-0">
             <div className="flex justify-between items-center">

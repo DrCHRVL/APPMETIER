@@ -6,6 +6,7 @@ import { Textarea } from '../ui/textarea';
 import { Label } from '../ui/label';
 import { Select } from '../ui/select';
 import { Switch } from '../ui/switch';
+import { ConfirmationDialog } from '../ui/confirmation-dialog';
 import { DateUtils } from '@/utils/dateUtils';
 import { useToast } from '@/contexts/ToastContext';
 import { AutreActe, DateManagerData, ActeStatus } from '@/types/interfaces';
@@ -42,6 +43,7 @@ export const ActeModal = ({
   const [datePose, setDatePose] = useState('');
   const [needsJLDAuth, setNeedsJLDAuth] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const { showToast } = useToast();
 
   const typeConfig: AutreActeTypeConfig | null =
@@ -339,7 +341,7 @@ export const ActeModal = ({
               <Button
                 type="button"
                 variant="destructive"
-                onClick={() => { onDelete(); onClose(); }}
+                onClick={() => setConfirmDeleteOpen(true)}
               >
                 Supprimer
               </Button>
@@ -355,6 +357,17 @@ export const ActeModal = ({
           </DialogFooter>
         </form>
       </DialogContent>
+      {acte && onDelete && (
+        <ConfirmationDialog
+          isOpen={confirmDeleteOpen}
+          onClose={() => setConfirmDeleteOpen(false)}
+          onConfirm={() => { onDelete(); onClose(); }}
+          title="Supprimer cet acte ?"
+          message="Cette action est irréversible. L'acte et son historique de prolongations seront définitivement perdus."
+          confirmLabel="Supprimer définitivement"
+          variant="destructive"
+        />
+      )}
     </Dialog>
   );
 };

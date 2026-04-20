@@ -222,9 +222,12 @@ function AppContent() {
     handleUnshareEnquete,
   } = useContentieuxEnquetes(currentContentieuxId);
 
-  // Ref pour les callbacks stables qui lisent les enquêtes courantes
+  // Ref pour les callbacks stables qui lisent les enquêtes courantes.
+  // Mise à jour via useEffect plutôt que pendant le render (plus sûr en concurrent mode).
   const enquetesLookupRef = useRef(enquetes);
-  enquetesLookupRef.current = enquetes;
+  useEffect(() => {
+    enquetesLookupRef.current = enquetes;
+  });
 
   // Hook Overboard — données transversales (tous contentieux)
   const { enquetesByContentieux: overboardData, refresh: refreshOverboard } = useOverboardData(contentieuxDefs);
