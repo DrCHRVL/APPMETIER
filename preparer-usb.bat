@@ -4,6 +4,7 @@ set EXITCODE=0
 
 echo ============================================================
 echo    PREPARATION DE LA VERSION USB (sans node_modules)
+echo    Protection anti-tampering : signature SHA-256 .integrity
 echo ============================================================
 echo.
 
@@ -46,9 +47,9 @@ set DEBUG=
 set NEXT_PRIVATE_WORKER_THREADS=
 
 rem ============================================================
-rem [1/5] DIAGNOSTICS ENVIRONNEMENT
+rem [1/4] DIAGNOSTICS ENVIRONNEMENT
 rem ============================================================
-echo [1/5] Verification de l'environnement...
+echo [1/4] Verification de l'environnement...
 "%NODE_EXE%" scripts\check-env.js
 if !ERRORLEVEL! neq 0 (
     echo ERREUR: Verification environnement echouee.
@@ -58,9 +59,9 @@ if !ERRORLEVEL! neq 0 (
 echo.
 
 rem ============================================================
-rem [2/5] BUILD NEXT.JS
+rem [2/4] BUILD NEXT.JS
 rem ============================================================
-echo [2/5] Compilation de l'application...
+echo [2/4] Compilation de l'application...
 echo       [%TIME%] Debut du build
 echo.
 
@@ -116,9 +117,9 @@ if exist ".next\BUILD_ID" (
 echo.
 
 rem ============================================================
-rem [3/5] PACKAGING
+rem [3/4] PACKAGING
 rem ============================================================
-echo [3/5] Creation du package USB...
+echo [3/4] Creation du package USB...
 echo       [%TIME%] Preparation du dossier...
 
 rem -- Nettoyer et creer la sortie --
@@ -155,34 +156,14 @@ echo       [%TIME%] Packaging OK
 echo.
 
 rem ============================================================
-rem [4/5] OBFUSCATION
+rem [4/4] RUNTIMES, SIGNATURE ET SCRIPTS
 rem ============================================================
-echo [4/5] Protection du code (obfuscation)...
+echo [4/4] Copie des runtimes, signature anti-tampering, scripts...
 
-echo       [%TIME%] Obfuscation main.js / preload.js...
-"%NODE_EXE%" scripts\obfuscate-main.js "%OUTPUT_DIR%"
-if !ERRORLEVEL! neq 0 (
-    echo       [ATTENTION] Obfuscation main.js/preload.js echouee (non bloquant).
-) else (
-    echo       [%TIME%] main.js / preload.js OK
-)
-
-echo       [%TIME%] Obfuscation build Next.js (1-2 min)...
-"%NODE_EXE%" scripts\obfuscate-next.js "%OUTPUT_DIR%"
-if !ERRORLEVEL! neq 0 (
-    echo       [ATTENTION] Obfuscation Next.js echouee (non bloquant).
-) else (
-    echo       [%TIME%] Build Next.js OK
-)
-echo.
-
-rem ============================================================
-rem [5/5] RUNTIMES ET SCRIPTS
-rem ============================================================
-echo [5/5] Copie des runtimes et scripts...
-
-rem -- Integrite --
-echo       [%TIME%] Generation empreinte integrite...
+rem -- Integrite : SHA-256 de main.js, preload.js, package.json ──
+rem    Verifie au demarrage par main.js (verifyIntegrity) : dialog d'alerte
+rem    si un fichier est modifie, avec bouton "Quitter" par defaut.
+echo       [%TIME%] Generation empreinte integrite .integrity...
 "%NODE_EXE%" scripts\generate-integrity.js "%OUTPUT_DIR%"
 
 rem -- Runtimes --

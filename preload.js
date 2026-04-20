@@ -215,7 +215,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   lanUpdateVerifyIntegrity: () =>
     ipcRenderer.invoke('lanUpdate:verifyIntegrity'),
 
-  // Listener pour la progression de la publication (build + obfuscation)
+  // Listener pour la progression de la publication (build + intégrité)
   onPublishProgress: (callback) =>
     ipcRenderer.on('publish-progress', (event, data) => callback(data)),
 })

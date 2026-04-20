@@ -389,9 +389,10 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
           Publier une mise à jour
         </h4>
         <p className="text-xs text-emerald-700">
-          Compile, protège et publie votre version sur le réseau.
+          Compile et publie votre version sur le réseau.
           Au prochain démarrage, les autres postes se mettront à jour automatiquement.
-          Le code source est automatiquement protégé (compilation + obfuscation).
+          Une signature SHA-256 (.integrity) est générée : toute modification du
+          code est détectée au lancement.
         </p>
 
         <div>

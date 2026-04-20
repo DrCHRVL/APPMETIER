@@ -2145,100 +2145,6 @@ function setupIpcHandlers() {
   }
 
   /**
-   * Obfusque un fichier JS en place (renomme variables, encode strings, etc.)
-   */
-  function obfuscateFile(filePath) {
-    try {
-      const JavaScriptObfuscator = require('javascript-obfuscator')
-      const code = fs.readFileSync(filePath, 'utf8')
-      const result = JavaScriptObfuscator.obfuscate(code, {
-        compact: true,
-        controlFlowFlattening: true,
-        controlFlowFlatteningThreshold: 0.7,
-        deadCodeInjection: true,
-        deadCodeInjectionThreshold: 0.3,
-        identifierNamesGenerator: 'hexadecimal',
-        renameGlobals: false,
-        selfDefending: true,
-        stringArray: true,
-        stringArrayEncoding: ['rc4'],
-        stringArrayThreshold: 0.9,
-        stringArrayRotate: true,
-        stringArrayShuffle: true,
-        transformObjectKeys: true,
-        unicodeEscapeSequence: true,
-        numbersToExpressions: true,
-        splitStrings: true,
-        splitStringsChunkLength: 5,
-      })
-      fs.writeFileSync(filePath, result.getObfuscatedCode(), 'utf8')
-      return true
-    } catch (e) {
-      console.error(`⚠️ Obfuscation échouée pour ${filePath}: ${e.message}`)
-      return false
-    }
-  }
-
-  /**
-   * Obfusque un fichier JS dans un worker thread (non-bloquant pour le main process)
-   */
-  function obfuscateFileAsync(filePath) {
-    return new Promise((resolve, reject) => {
-      const { Worker } = require('worker_threads')
-      const workerCode = `
-        const { parentPort, workerData } = require('worker_threads')
-        try {
-          const fs = require('fs')
-          const JavaScriptObfuscator = require(workerData.obfuscatorPath)
-          const code = fs.readFileSync(workerData.filePath, 'utf8')
-          const result = JavaScriptObfuscator.obfuscate(code, {
-            compact: true,
-            controlFlowFlattening: true,
-            controlFlowFlatteningThreshold: 0.7,
-            deadCodeInjection: true,
-            deadCodeInjectionThreshold: 0.3,
-            identifierNamesGenerator: 'hexadecimal',
-            renameGlobals: false,
-            selfDefending: true,
-            stringArray: true,
-            stringArrayEncoding: ['rc4'],
-            stringArrayThreshold: 0.9,
-            stringArrayRotate: true,
-            stringArrayShuffle: true,
-            transformObjectKeys: true,
-            unicodeEscapeSequence: true,
-            numbersToExpressions: true,
-            splitStrings: true,
-            splitStringsChunkLength: 5,
-          })
-          fs.writeFileSync(workerData.filePath, result.getObfuscatedCode(), 'utf8')
-          parentPort.postMessage({ success: true })
-        } catch (e) {
-          parentPort.postMessage({ success: false, error: e.message })
-        }
-      `
-      const worker = new Worker(workerCode, {
-        eval: true,
-        workerData: {
-          filePath,
-          obfuscatorPath: require.resolve('javascript-obfuscator'),
-        },
-      })
-      worker.on('message', (msg) => {
-        if (msg.success) resolve(true)
-        else {
-          console.error(`⚠️ Obfuscation échouée pour ${filePath}: ${msg.error}`)
-          resolve(false)
-        }
-      })
-      worker.on('error', (err) => {
-        console.error(`⚠️ Worker obfuscation error pour ${filePath}: ${err.message}`)
-        resolve(false)
-      })
-    })
-  }
-
-  /**
    * Copie un fichier volumineux avec progression (stream, non-bloquant)
    */
   function copyFileWithProgress(src, dest, onProgress) {
@@ -2331,11 +2237,11 @@ function setupIpcHandlers() {
 
   /**
    * ADMIN : Publier la version actuelle de l'app sur le réseau
-   * Étapes : build → obfuscation → copie compilée (sans sources) → manifest
+   * Étapes : build → copie compilée (sans sources) → intégrité → manifest
    */
   ipcMain.handle('lanUpdate:publish', async (event, changelog) => {
     try {
-      const totalSteps = 6
+      const totalSteps = 5
       // Envoyer la progression au renderer avec numéro d'étape
       const sendProgress = (step, detail, current) => {
         try { mainWindow?.webContents?.send('publish-progress', { step, detail, current, total: totalSteps }) } catch {}
@@ -2376,15 +2282,8 @@ function setupIpcHandlers() {
       // Nettoyage du build temporaire
       try { fs.rmSync(buildOutputDir, { recursive: true, force: true }) } catch {}
 
-      // Étape 4 : Obfusquer main.js et preload.js dans la copie publiée (worker thread pour ne pas bloquer l'UI)
-      sendProgress('obfuscate', 'Protection du code (obfuscation)...', 4)
-      const publishedMain = path.join(sourceNew, 'main.js')
-      const publishedPreload = path.join(sourceNew, 'preload.js')
-      if (fs.existsSync(publishedMain)) await obfuscateFileAsync(publishedMain)
-      if (fs.existsSync(publishedPreload)) await obfuscateFileAsync(publishedPreload)
-
-      // Étape 5 : Générer le fichier d'intégrité pour la copie publiée
-      sendProgress('integrity', 'Génération de l\'empreinte d\'intégrité...', 5)
+      // Étape 4 : Générer le fichier d'intégrité pour la copie publiée
+      sendProgress('integrity', 'Génération de l\'empreinte d\'intégrité...', 4)
       const integrityManifest = {}
       for (const f of ['main.js', 'preload.js', 'package.json']) {
         const fp = path.join(sourceNew, f)
@@ -2394,8 +2293,8 @@ function setupIpcHandlers() {
       }
       fs.writeFileSync(path.join(sourceNew, '.integrity'), JSON.stringify(integrityManifest, null, 2), 'utf8')
 
-      // Étape 6 : Remplacement atomique + manifeste
-      sendProgress('manifest', 'Finalisation...', 6)
+      // Étape 5 : Remplacement atomique + manifeste
+      sendProgress('manifest', 'Finalisation...', 5)
 
       // Remplacement atomique : source-new → source (l'ancien reste intact jusqu'au rename)
       const sourceDir = path.join(updatesDir, 'source')
@@ -2421,7 +2320,7 @@ function setupIpcHandlers() {
       fs.writeFileSync(getManifestPath(), JSON.stringify(manifest, null, 2), 'utf8')
 
       sendProgress('done', `Version ${version} publiée`, totalSteps)
-      console.log(`✅ LAN update: version ${version} publiée dans "${updatesDir}" (build + obfuscation)`)
+      console.log(`✅ LAN update: version ${version} publiée dans "${updatesDir}" (build + intégrité)`)
       return { success: true, version, manifest, publishPath: updatesDir }
     } catch (error) {
       console.error('❌ LAN update publish error:', error.message)
@@ -2480,7 +2379,6 @@ function setupIpcHandlers() {
       // Générer un package.json allégé (sans devDependencies) pour npm install --production
       const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'))
       delete pkg.devDependencies
-      if (pkg.dependencies) delete pkg.dependencies['javascript-obfuscator']
       fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify(pkg, null, 2), 'utf8')
 
       // Copier package-lock.json pour des installs reproductibles
@@ -2539,14 +2437,8 @@ function setupIpcHandlers() {
       if (fs.existsSync(launcherSrc)) fs.copyFileSync(launcherSrc, path.join(installDir, 'launcher.bat'))
       if (fs.existsSync(installerSrc)) fs.copyFileSync(installerSrc, path.join(installDir, 'installer.bat'))
 
-      // Étape 3 : Obfusquer + intégrité (en local, rapide)
-      sendProgress('obfuscate', 'Protection du code (obfuscation)...', 3)
-      const publishedMain = path.join(appDir, 'main.js')
-      const publishedPreload = path.join(appDir, 'preload.js')
-      if (fs.existsSync(publishedMain)) await obfuscateFileAsync(publishedMain)
-      if (fs.existsSync(publishedPreload)) await obfuscateFileAsync(publishedPreload)
-
-      // Générer l'intégrité des fichiers à l'intérieur du package
+      // Étape 3 : Intégrité (SHA-256 des fichiers critiques du package)
+      sendProgress('integrity', 'Génération de l\'empreinte d\'intégrité...', 3)
       const integrityManifest = {}
       for (const f of ['main.js', 'preload.js', 'package.json']) {
         const fp = path.join(appDir, f)
@@ -2571,7 +2463,6 @@ function setupIpcHandlers() {
       // ══════════════════════════════════════════════════════
       // PHASE 2 : CRÉER LE ZIP (local, rapide)
       // ══════════════════════════════════════════════════════
-
       sendProgress('zip', 'Création de l\'archive ZIP...', 4)
       const zipPath = path.join(stagingBase, 'Installation.zip')
       await createZipArchiver(installDir, zipPath)

@@ -30,7 +30,6 @@ const nextConfig = {
         './node_modules/pdf-parse/**',
         './node_modules/archiver/**',
         './node_modules/pdfjs-dist/**',
-        './node_modules/javascript-obfuscator/**',
         './node_modules/electron/**',
       ],
     },
