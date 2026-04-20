@@ -83,6 +83,27 @@ if not exist ".next\standalone\server.js" (
     echo.
     echo ERREUR: server.js absent apres le build.
     echo Le mode standalone n'a pas fonctionne.
+    echo.
+    echo --- Diagnostic .next\ ---
+    if exist ".next" (
+        dir ".next" /b /a
+    ) else (
+        echo .next\ introuvable
+    )
+    if exist ".next\standalone" (
+        echo.
+        echo .next\standalone\ present mais server.js manque :
+        dir ".next\standalone" /b /s
+    ) else (
+        echo .next\standalone\ introuvable
+    )
+    if exist ".next\BUILD_ID" (
+        set /p _BID=<".next\BUILD_ID"
+        echo BUILD_ID: !_BID!
+    ) else (
+        echo BUILD_ID manquant
+    )
+    echo --- Fin diagnostic ---
     set EXITCODE=1
     goto :END
 )
@@ -205,10 +226,15 @@ echo.
 echo.
 if !EXITCODE! neq 0 (
     echo ============================================================
-    echo    ECHEC - Voir les messages d'erreur ci-dessus
+    echo    ECHEC - Code !EXITCODE!
+    if exist ".next\build.log" echo    Log du build : %CD%\.next\build.log
     echo ============================================================
 )
 echo.
-echo Appuyez sur une touche pour fermer...
-pause >nul
+echo ============================================================
+echo    Fenetre maintenue ouverte. Appuyez sur une touche puis
+echo    tapez 'exit' pour fermer (scrollback conserve).
+echo ============================================================
+pause < CON >nul
+cmd /k
 exit /b !EXITCODE!

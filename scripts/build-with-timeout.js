@@ -5,10 +5,23 @@
  */
 
 const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 const TIMEOUT = parseInt(process.argv[2], 10) || 600; // 10 minutes par defaut
 
+// Eviter les EPIPE silencieux si stdout/stderr sont fermes avant la fin
+process.stdout.on('error', function () {});
+process.stderr.on('error', function () {});
+
+// Log brut et complet du build dans .next/build.log (cree le dossier .next si besoin)
+try { fs.mkdirSync('.next', { recursive: true }); } catch (_) {}
+const logPath = path.join('.next', 'build.log');
+const logStream = fs.createWriteStream(logPath, { flags: 'w' });
+logStream.write('--- next build demarre ' + new Date().toISOString() + ' ---\n');
+
 console.log('  Build en cours (timeout: ' + TIMEOUT + 's)...');
+console.log('  Log brut : ' + logPath);
 console.log();
 
 const child = spawn(
@@ -25,6 +38,7 @@ const KEYWORDS = [
 ];
 
 child.stdout.on('data', function (data) {
+  logStream.write(data);
   var lines = data.toString().split('\n');
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i].trim();
@@ -39,6 +53,7 @@ child.stdout.on('data', function (data) {
 });
 
 child.stderr.on('data', function (data) {
+  logStream.write(data);
   process.stderr.write(data);
 });
 
@@ -53,24 +68,36 @@ var heartbeat = setInterval(function () {
 var timer = setTimeout(function () {
   console.error();
   console.error('  TIMEOUT: le build a depasse ' + TIMEOUT + ' secondes.');
+  logStream.write('\nTIMEOUT apres ' + TIMEOUT + 's\n');
   child.kill();
   setTimeout(function () {
     try { child.kill('SIGKILL'); } catch (_) {}
-    process.exit(99);
+    shutdown(99);
   }, 5000);
 }, TIMEOUT * 1000);
 
-child.on('close', function (code) {
+function shutdown(exitCode) {
   clearInterval(heartbeat);
   clearTimeout(timer);
   console.log();
-  console.log('  Build termine (code: ' + (code || 0) + ')');
-  process.exit(code || 0);
+  console.log('  Build termine (code: ' + exitCode + ')');
+  console.log('  Log brut : ' + logPath);
+  // Ferme le fichier log puis exit quand le flush est fait (evite la perte
+  // de la derniere ligne). Filet de securite : hard-exit a 2s.
+  try {
+    logStream.end(function () { process.exit(exitCode); });
+  } catch (_) {
+    process.exit(exitCode);
+  }
+  setTimeout(function () { process.exit(exitCode); }, 2000).unref();
+}
+
+child.on('close', function (code) {
+  shutdown(code || 0);
 });
 
 child.on('error', function (err) {
-  clearInterval(heartbeat);
-  clearTimeout(timer);
+  logStream.write('\nERREUR spawn: ' + err.message + '\n');
   console.error('  ERREUR: impossible de lancer next build: ' + err.message);
-  process.exit(1);
+  shutdown(1);
 });
