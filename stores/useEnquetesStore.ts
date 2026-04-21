@@ -49,6 +49,22 @@ const _saveThrottled = throttle(async () => {
   }
 }, SAVE_THROTTLE);
 
+// ── Abonnement au ContentieuxManager pour la réactivité cross-contentieux ──
+// Quand un autre contentieux (ou un pull de sync) met à jour ses enquêtes, on
+// recharge nos sharedEnquetes pour que la grille et les stats reflètent les
+// co-saisines entrantes/sortantes sans rechargement manuel.
+let _managerUnsub: (() => void) | null = null;
+
+function ensureManagerSubscription(): void {
+  if (_managerUnsub) return;
+  _managerUnsub = ContentieuxManager.getInstance().addListener((changedCtxId) => {
+    const { contentieuxId } = useEnquetesStore.getState();
+    // Nos propres écritures sont déjà synchronisées via updateOwn() ; ignorer.
+    if (changedCtxId === contentieuxId) return;
+    useEnquetesStore.getState().loadSharedEnquetes();
+  });
+}
+
 // ── Interface du store ──
 
 interface EnquetesState {
@@ -140,6 +156,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
   // ────────────────────────────────────────────
 
   setContentieux: async (id: ContentieuxId) => {
+    ensureManagerSubscription();
     const state = get();
     if (state.contentieuxId === id && state.ownEnquetes.length > 0) {
       // Déjà sur ce contentieux : rafraîchir seulement les co-saisines pour capturer
