@@ -220,6 +220,7 @@ function AppContent() {
     isSharedEnquete,
     handleShareEnquete,
     handleUnshareEnquete,
+    handleTransferEnquete,
   } = useContentieuxEnquetes(currentContentieuxId);
 
   // Ref pour les callbacks stables qui lisent les enquêtes courantes.
@@ -1225,6 +1226,7 @@ return (
           contentieuxId={currentContentieuxId}
           onShareEnquete={handleShareEnquete}
           onUnshareEnquete={handleUnshareEnquete}
+          onTransferEnquete={handleTransferEnquete}
           isSharedEnquete={isSharedEnquete(selectedEnquete.id)}
         />
       )}
