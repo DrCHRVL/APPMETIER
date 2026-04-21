@@ -88,8 +88,8 @@ interface EnquetesState {
 
   // ── Co-saisine ──
   isSharedEnquete: (enqueteId: number) => boolean;
-  shareEnquete: (enqueteId: number, targetContentieuxIds: string[]) => void;
-  unshareEnquete: (enqueteId: number) => void;
+  shareEnquete: (enqueteId: number, targetContentieuxIds: string[]) => Promise<void>;
+  unshareEnquete: (enqueteId: number) => Promise<void>;
 }
 
 // ── Helper interne pour mettre à jour les enquêtes propres + synchroniser `enquetes` ──
@@ -473,7 +473,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     return get().sharedEnquetes.some(e => e.id === enqueteId);
   },
 
-  shareEnquete: (enqueteId: number, targetContentieuxIds: string[]) => {
+  shareEnquete: async (enqueteId: number, targetContentieuxIds: string[]) => {
     const now = new Date().toISOString();
     set(state => {
       const contentieuxId = state.contentieuxId;
@@ -495,11 +495,11 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       return changes;
     });
     // Mettre à jour le cache ContentieuxManager pour que les autres contentieux voient le partage
-    ContentieuxManager.getInstance().setEnquetes(get().contentieuxId, get().ownEnquetes);
+    await ContentieuxManager.getInstance().setEnquetes(get().contentieuxId, get().ownEnquetes);
     _saveThrottled();
   },
 
-  unshareEnquete: (enqueteId: number) => {
+  unshareEnquete: async (enqueteId: number) => {
     const now = new Date().toISOString();
     set(state => {
       const changes = updateOwn(state, prev =>
@@ -519,7 +519,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       return changes;
     });
     // Mettre à jour le cache ContentieuxManager pour refléter la suppression du partage
-    ContentieuxManager.getInstance().setEnquetes(get().contentieuxId, get().ownEnquetes);
+    await ContentieuxManager.getInstance().setEnquetes(get().contentieuxId, get().ownEnquetes);
     _saveThrottled();
   },
 }));
