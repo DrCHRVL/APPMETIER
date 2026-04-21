@@ -47,6 +47,7 @@ export const useContentieuxEnquetesStore = (contentieuxId: ContentieuxId) => {
   const isSharedEnqueteFn = useEnquetesStore(s => s.isSharedEnquete);
   const shareEnquete = useEnquetesStore(s => s.shareEnquete);
   const unshareEnquete = useEnquetesStore(s => s.unshareEnquete);
+  const transferEnquete = useEnquetesStore(s => s.transferEnquete);
 
   // Wrappers pour compatibilité API (les anciens handlers prennent id en premier argument)
   return {
@@ -85,6 +86,14 @@ export const useContentieuxEnquetesStore = (contentieuxId: ContentieuxId) => {
     isSharedEnquete: isSharedEnqueteFn,
     handleShareEnquete: shareEnquete,
     handleUnshareEnquete: unshareEnquete,
+    handleTransferEnquete: async (enqueteId: number, targetCtxId: ContentieuxId) => {
+      const ok = await transferEnquete(enqueteId, targetCtxId);
+      showToast(
+        ok ? 'Enquête transférée' : 'Transfert impossible',
+        ok ? 'success' : 'error'
+      );
+      return ok;
+    },
     contentieuxId,
   };
 };

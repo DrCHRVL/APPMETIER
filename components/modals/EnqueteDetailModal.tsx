@@ -17,6 +17,7 @@ import { Trash2, Siren, FileText, Plus, X, Star } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { EnqueteHeader } from '../sections/EnqueteHeader';
 import { CoSaisineSection } from '../sections/CoSaisineSection';
+import { TransfertContentieuxSection } from '../sections/TransfertContentieuxSection';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
 import { SuiviAlertModal } from './SuiviAlertModal';
@@ -46,6 +47,8 @@ interface EnqueteDetailModalProps {
   onShareEnquete?: (enqueteId: number, targetContentieuxIds: string[]) => void;
   /** Callback pour retirer le partage */
   onUnshareEnquete?: (enqueteId: number) => void;
+  /** Callback pour transférer l'enquête vers un autre contentieux */
+  onTransferEnquete?: (enqueteId: number, targetContentieuxId: string) => Promise<boolean>;
   /** Si true, cette enquête provient d'un autre contentieux */
   isSharedEnquete?: boolean;
 }
@@ -68,6 +71,7 @@ export const EnqueteDetailModal = ({
   contentieuxId,
   onShareEnquete,
   onUnshareEnquete,
+  onTransferEnquete,
   isSharedEnquete = false,
 }: EnqueteDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -324,6 +328,17 @@ export const EnqueteDetailModal = ({
                     onShare={onShareEnquete}
                     onUnshare={onUnshareEnquete}
                     isShared={isSharedEnquete}
+                  />
+                )}
+
+                {/* Transfert vers un autre contentieux */}
+                {contentieuxId && onTransferEnquete && !isSharedEnquete && (
+                  <TransfertContentieuxSection
+                    enquete={enquete}
+                    isEditing={isEditing}
+                    currentContentieuxId={contentieuxId}
+                    isShared={isSharedEnquete}
+                    onTransfer={onTransferEnquete}
                   />
                 )}
 

@@ -5,6 +5,7 @@ import { Enquete } from '@/types/interfaces';
 import { ContentieuxDefinition } from '@/types/userTypes';
 import { Link2, X } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
+import { CTX_COLORS, DEFAULT_CTX_COLOR } from './contentieuxColors';
 
 interface CoSaisineSectionProps {
   enquete: Enquete;
@@ -15,15 +16,6 @@ interface CoSaisineSectionProps {
   /** Si true, l'enquête vient d'un autre contentieux (lecture seule pour la co-saisine) */
   isShared?: boolean;
 }
-
-// Couleurs par contentieux
-const CTX_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
-  crimorg: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-300', dot: 'bg-red-500' },
-  ecofi:   { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-300', dot: 'bg-blue-500' },
-  enviro:  { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-300', dot: 'bg-green-500' },
-};
-
-const DEFAULT_CTX_COLOR = { bg: 'bg-gray-50', text: 'text-gray-700', border: 'border-gray-300', dot: 'bg-gray-500' };
 
 export const CoSaisineSection = React.memo(({
   enquete,

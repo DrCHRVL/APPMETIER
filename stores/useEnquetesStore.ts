@@ -49,6 +49,22 @@ const _saveThrottled = throttle(async () => {
   }
 }, SAVE_THROTTLE);
 
+// ── Abonnement au ContentieuxManager pour la réactivité cross-contentieux ──
+// Quand un autre contentieux (ou un pull de sync) met à jour ses enquêtes, on
+// recharge nos sharedEnquetes pour que la grille et les stats reflètent les
+// co-saisines entrantes/sortantes sans rechargement manuel.
+let _managerUnsub: (() => void) | null = null;
+
+function ensureManagerSubscription(): void {
+  if (_managerUnsub) return;
+  _managerUnsub = ContentieuxManager.getInstance().addListener((changedCtxId) => {
+    const { contentieuxId } = useEnquetesStore.getState();
+    // Nos propres écritures sont déjà synchronisées via updateOwn() ; ignorer.
+    if (changedCtxId === contentieuxId) return;
+    useEnquetesStore.getState().loadSharedEnquetes();
+  });
+}
+
 // ── Interface du store ──
 
 interface EnquetesState {
@@ -88,8 +104,11 @@ interface EnquetesState {
 
   // ── Co-saisine ──
   isSharedEnquete: (enqueteId: number) => boolean;
-  shareEnquete: (enqueteId: number, targetContentieuxIds: string[]) => void;
-  unshareEnquete: (enqueteId: number) => void;
+  shareEnquete: (enqueteId: number, targetContentieuxIds: string[]) => Promise<void>;
+  unshareEnquete: (enqueteId: number) => Promise<void>;
+
+  // ── Transfert ──
+  transferEnquete: (enqueteId: number, targetContentieuxId: ContentieuxId) => Promise<boolean>;
 }
 
 // ── Helper interne pour mettre à jour les enquêtes propres + synchroniser `enquetes` ──
@@ -140,6 +159,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
   // ────────────────────────────────────────────
 
   setContentieux: async (id: ContentieuxId) => {
+    ensureManagerSubscription();
     const state = get();
     if (state.contentieuxId === id && state.ownEnquetes.length > 0) {
       // Déjà sur ce contentieux : rafraîchir seulement les co-saisines pour capturer
@@ -473,34 +493,97 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     return get().sharedEnquetes.some(e => e.id === enqueteId);
   },
 
-  shareEnquete: (enqueteId: number, targetContentieuxIds: string[]) => {
-    const { contentieuxId } = get();
-    set(state =>
-      updateOwn(state, prev =>
+  shareEnquete: async (enqueteId: number, targetContentieuxIds: string[]) => {
+    const now = new Date().toISOString();
+    set(state => {
+      const contentieuxId = state.contentieuxId;
+      const changes = updateOwn(state, prev =>
         prev.map(e =>
           e.id === enqueteId
-            ? { ...e, sharedWith: targetContentieuxIds, contentieuxOrigine: contentieuxId, dateMiseAJour: new Date().toISOString() }
+            ? { ...e, sharedWith: targetContentieuxIds, contentieuxOrigine: contentieuxId, dateMiseAJour: now }
             : e
         )
-      )
-    );
+      );
+      if (state.selectedEnquete?.id === enqueteId) {
+        changes.selectedEnquete = {
+          ...state.selectedEnquete,
+          sharedWith: targetContentieuxIds,
+          contentieuxOrigine: contentieuxId,
+          dateMiseAJour: now,
+        };
+      }
+      return changes;
+    });
     // Mettre à jour le cache ContentieuxManager pour que les autres contentieux voient le partage
-    ContentieuxManager.getInstance().setEnquetes(get().contentieuxId, get().ownEnquetes);
+    await ContentieuxManager.getInstance().setEnquetes(get().contentieuxId, get().ownEnquetes);
     _saveThrottled();
   },
 
-  unshareEnquete: (enqueteId: number) => {
-    set(state =>
-      updateOwn(state, prev =>
+  unshareEnquete: async (enqueteId: number) => {
+    const now = new Date().toISOString();
+    set(state => {
+      const changes = updateOwn(state, prev =>
         prev.map(e =>
           e.id === enqueteId
-            ? { ...e, sharedWith: undefined, dateMiseAJour: new Date().toISOString() }
+            ? { ...e, sharedWith: undefined, dateMiseAJour: now }
             : e
         )
-      )
-    );
+      );
+      if (state.selectedEnquete?.id === enqueteId) {
+        changes.selectedEnquete = {
+          ...state.selectedEnquete,
+          sharedWith: undefined,
+          dateMiseAJour: now,
+        };
+      }
+      return changes;
+    });
     // Mettre à jour le cache ContentieuxManager pour refléter la suppression du partage
-    ContentieuxManager.getInstance().setEnquetes(get().contentieuxId, get().ownEnquetes);
+    await ContentieuxManager.getInstance().setEnquetes(get().contentieuxId, get().ownEnquetes);
     _saveThrottled();
+  },
+
+  // ────────────────────────────────────────────
+  // TRANSFERT
+  // ────────────────────────────────────────────
+
+  transferEnquete: async (enqueteId: number, targetContentieuxId: ContentieuxId): Promise<boolean> => {
+    const { contentieuxId, ownEnquetes } = get();
+    if (targetContentieuxId === contentieuxId) return false;
+
+    const original = ownEnquetes.find(e => e.id === enqueteId);
+    if (!original) return false; // UI restreint au propriétaire, garde-fou
+
+    const manager = ContentieuxManager.getInstance();
+    if (manager.getSyncMode(targetContentieuxId) !== 'read_write') return false;
+
+    const targetEnquetes = manager.getEnquetes(targetContentieuxId);
+    const newId = targetEnquetes.reduce((m, e) => Math.max(m, e.id || 0), 0) + 1;
+
+    const transferred: Enquete = {
+      ...original,
+      id: newId,
+      contentieuxOrigine: targetContentieuxId,
+      sharedWith: undefined, // Le partage ne suit pas le transfert ; l'utilisateur re-configure si besoin
+      dateMiseAJour: new Date().toISOString(),
+    };
+
+    const ok = await manager.setEnquetes(targetContentieuxId, [...targetEnquetes, transferred]);
+    if (!ok) return false;
+    MultiSyncManager.getInstance().triggerPostSaveSync(targetContentieuxId);
+
+    set(state => {
+      const changes = updateOwn(state, prev => prev.filter(e => e.id !== enqueteId));
+      if (state.selectedEnquete?.id === enqueteId) {
+        changes.selectedEnquete = null;
+        changes.isEditing = false;
+        changes.editingCR = null;
+      }
+      return changes;
+    });
+    _saveThrottled();
+    await manager.setEnquetes(contentieuxId, get().ownEnquetes);
+
+    return true;
   },
 }));
