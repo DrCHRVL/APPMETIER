@@ -8,6 +8,7 @@ import { ResultatAudience } from '@/types/audienceTypes';
 import { useAudience } from '@/contexts/AudienceContext';
 import { findCrossMatches, groupMatches, CrossMatch } from '@/utils/crossContentieuxMatcher';
 import { OPTimeline } from '../OPTimeline';
+import { UserManager } from '@/utils/userManager';
 
 // ──────────────────────────────────────────────
 // TYPES
@@ -112,6 +113,38 @@ export const OverboardPage = ({
     return count;
   }, [pendingAudiencesByCtx]);
 
+  // Audiences en attente organisées par mois puis par contentieux
+  const pendingByMonthCtx = useMemo(() => {
+    const byMonth = new Map<
+      string,
+      Map<ContentieuxId, { enquete: Enquete; resultat: ResultatAudience }[]>
+    >();
+
+    for (const [cId, items] of pendingAudiencesByCtx) {
+      for (const item of items) {
+        if (!item.resultat.dateAudience) continue;
+        const d = new Date(item.resultat.dateAudience);
+        if (isNaN(d.getTime())) continue;
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (!byMonth.has(key)) byMonth.set(key, new Map());
+        const ctxMap = byMonth.get(key)!;
+        if (!ctxMap.has(cId)) ctxMap.set(cId, []);
+        ctxMap.get(cId)!.push(item);
+      }
+    }
+
+    return [...byMonth.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([monthKey, ctxMap]) => {
+        const [y, m] = monthKey.split('-').map(Number);
+        const label = new Date(y, m - 1, 1).toLocaleDateString('fr-FR', {
+          month: 'long',
+          year: 'numeric',
+        });
+        return { monthKey, label, ctxMap };
+      });
+  }, [pendingAudiencesByCtx]);
+
   // Enquêtes marquées (pinned), groupées par contentieux
   const pinnedByContentieux = useMemo(() => {
     const result = new Map<ContentieuxId, Enquete[]>();
@@ -139,6 +172,80 @@ export const OverboardPage = ({
   const MATCH_ICONS: Record<string, React.ElementType> = { nom: User, telephone: Phone, immatriculation: Car };
 
   const getCtxLabel = (ctxId: ContentieuxId) => contentieuxDefs.find(d => d.id === ctxId)?.label || ctxId;
+
+  // Utilisateur courant (pour retrouver son propre pin)
+  const currentUsername = useMemo(
+    () => UserManager.getInstance().getCurrentUser()?.windowsUsername ?? null,
+    []
+  );
+
+  // Nouveautés (CR + actes) postérieures à l'épinglage. Par défaut on prend le pin
+  // de l'utilisateur courant ; sinon le pin le plus ancien (référence conservatrice).
+  // Note : CR.date et Acte.dateDebut/datePose sont auto-déclarés, pas des timestamps
+  // de création — approximation acceptable en l'absence de champ createdAt.
+  const getNewActivitySincePin = (enquete: Enquete): { count: number } => {
+    const pins = enquete.overboardPins || [];
+    if (pins.length === 0) return { count: 0 };
+    const myPin = currentUsername ? pins.find(p => p.pinnedBy === currentUsername) : null;
+    const refPin = myPin ?? [...pins].sort((a, b) => a.pinnedAt.localeCompare(b.pinnedAt))[0];
+    const since = refPin.pinnedAt;
+    const nbCR = (enquete.comptesRendus || []).filter(cr => cr.date && cr.date > since).length;
+    const nbActes = (enquete.actes || []).filter(a => {
+      const d = a.datePose || a.dateDebut;
+      return d && d > since;
+    }).length;
+    return { count: nbCR + nbActes };
+  };
+
+  // Rendu d'une carte d'audience en attente (réutilisé par la vue colonnes et la vue par mois)
+  const renderAudienceCard = (
+    enquete: Enquete,
+    resultat: ResultatAudience,
+    colors: { bg: string; border: string; text: string; dot: string },
+    ctxDef: ContentieuxDefinition
+  ) => {
+    const pendingNames = [
+      ...(resultat.pendingCondamnations?.map(p => p.nom) || []),
+      ...(resultat.condamnations?.filter(c => c.isPending).map(c => c.nom || '?') || []),
+    ];
+    const uniqueNames = [...new Set(pendingNames)];
+
+    return (
+      <div
+        key={enquete.id}
+        className={`px-2 py-1.5 rounded border ${colors.border} bg-white hover:shadow-sm cursor-pointer transition-shadow`}
+        onClick={() => onEnqueteClick?.(enquete, ctxDef.id)}
+      >
+        <div className="flex items-baseline gap-1">
+          <span className="text-xs font-semibold text-gray-800 truncate">
+            {enquete.numero}
+          </span>
+          {resultat.dateAudience && (
+            <span className="text-[10px] text-gray-400 flex-shrink-0">
+              {new Date(resultat.dateAudience).toLocaleDateString('fr-FR')}
+            </span>
+          )}
+        </div>
+        {enquete.description && (
+          <p className="text-[10px] text-gray-400 leading-tight line-clamp-1 mt-0.5">
+            {enquete.description}
+          </p>
+        )}
+        {uniqueNames.length > 0 && (
+          <div className="flex flex-wrap gap-0.5 mt-1">
+            {uniqueNames.slice(0, 2).map((name, i) => (
+              <span key={i} className="text-[10px] bg-amber-50 text-amber-700 px-1 py-0 rounded">
+                {name}
+              </span>
+            ))}
+            {uniqueNames.length > 2 && (
+              <span className="text-[10px] text-gray-400">+{uniqueNames.length - 2}</span>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -213,49 +320,9 @@ export const OverboardPage = ({
                       </div>
                     ) : (
                       <div className="space-y-1">
-                        {items.map(({ enquete, resultat }) => {
-                          const pendingNames = [
-                            ...(resultat.pendingCondamnations?.map(p => p.nom) || []),
-                            ...(resultat.condamnations?.filter(c => c.isPending).map(c => c.nom || '?') || []),
-                          ];
-                          const uniqueNames = [...new Set(pendingNames)];
-
-                          return (
-                            <div
-                              key={enquete.id}
-                              className={`px-2 py-1.5 rounded border ${colors.border} bg-white hover:shadow-sm cursor-pointer transition-shadow`}
-                              onClick={() => onEnqueteClick?.(enquete, ctxDef.id)}
-                            >
-                              <div className="flex items-baseline gap-1">
-                                <span className="text-xs font-semibold text-gray-800 truncate">
-                                  {enquete.numero}
-                                </span>
-                                {resultat.dateAudience && (
-                                  <span className="text-[10px] text-gray-400 flex-shrink-0">
-                                    {new Date(resultat.dateAudience).toLocaleDateString('fr-FR')}
-                                  </span>
-                                )}
-                              </div>
-                              {enquete.description && (
-                                <p className="text-[10px] text-gray-400 leading-tight line-clamp-1 mt-0.5">
-                                  {enquete.description}
-                                </p>
-                              )}
-                              {uniqueNames.length > 0 && (
-                                <div className="flex flex-wrap gap-0.5 mt-1">
-                                  {uniqueNames.slice(0, 2).map((name, i) => (
-                                    <span key={i} className="text-[10px] bg-amber-50 text-amber-700 px-1 py-0 rounded">
-                                      {name}
-                                    </span>
-                                  ))}
-                                  {uniqueNames.length > 2 && (
-                                    <span className="text-[10px] text-gray-400">+{uniqueNames.length - 2}</span>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                        {items.map(({ enquete, resultat }) =>
+                          renderAudienceCard(enquete, resultat, colors, ctxDef)
+                        )}
                       </div>
                     )}
                   </div>
@@ -263,6 +330,40 @@ export const OverboardPage = ({
               );
             })}
         </div>
+
+        {/* Vue alternative : audiences alignées par mois, colonnes contentieux identiques */}
+        {pendingByMonthCtx.length > 0 && (
+          <div className="mt-6 pt-4 border-t border-gray-100">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 mb-3">
+              Par mois
+            </div>
+            <div className="space-y-4">
+              {pendingByMonthCtx.map(({ monthKey, label, ctxMap }) => (
+                <div key={monthKey}>
+                  <div className="text-xs font-semibold text-gray-700 mb-1.5 capitalize">
+                    {label}
+                  </div>
+                  <div
+                    className="grid gap-3"
+                    style={{ gridTemplateColumns: `repeat(${contentieuxDefs.length}, minmax(0, 1fr))` }}
+                  >
+                    {sortedDefs.map(ctxDef => {
+                      const items = ctxMap.get(ctxDef.id) || [];
+                      const colors = CTX_COLORS[ctxDef.id] || DEFAULT_CTX_COLOR;
+                      return (
+                        <div key={`month_${monthKey}_${ctxDef.id}`} className="space-y-1">
+                          {items.map(({ enquete, resultat }) =>
+                            renderAudienceCard(enquete, resultat, colors, ctxDef)
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Section 3 : Enquêtes marquées */}
@@ -309,8 +410,19 @@ export const OverboardPage = ({
                     {/* Grille d'enquêtes */}
                     <div className={`border ${colors.border} border-t-0 rounded-b-lg p-3`}>
                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                        {pinned.map(enquete => (
+                        {pinned.map(enquete => {
+                          const { count: newCount } = getNewActivitySincePin(enquete);
+                          return (
                           <div key={enquete.id} className="relative">
+                            {newCount > 0 && (
+                              <div
+                                className="absolute top-1 right-1 z-10 flex items-center gap-1 bg-emerald-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-sm"
+                                title={`${newCount} nouveauté${newCount > 1 ? 's' : ''} depuis votre épinglage (CR + actes)`}
+                              >
+                                <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+                                {newCount}
+                              </div>
+                            )}
                             {renderEnqueteCard ? (
                               renderEnqueteCard(enquete, ctxDef.id)
                             ) : (
@@ -340,7 +452,8 @@ export const OverboardPage = ({
                               </div>
                             )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
