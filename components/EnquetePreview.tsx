@@ -483,7 +483,7 @@ return (
 
             {lastCR?.description && (
               <div
-                className="mt-1.5 bg-gray-50/80 border border-gray-100 p-1.5 rounded-md text-[9px] text-gray-600 w-full line-clamp-5"
+                className="mt-1.5 bg-gray-50/80 border border-gray-100 p-1.5 rounded-md text-[9px] text-gray-600 w-full"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex items-start gap-1">
