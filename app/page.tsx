@@ -456,23 +456,6 @@ function AppContent() {
     return () => clearInterval(interval);
   }, []);
 
-  // Vérification post-update LAN : afficher le changelog
-  useEffect(() => {
-    const checkJustUpdated = async () => {
-      try {
-        const info = await (window as any).electronAPI?.lanUpdateGetJustUpdated?.();
-        if (info) {
-          const msg = info.changelog
-            ? `Mise à jour ${info.version} installée : ${info.changelog}`
-            : `Mise à jour ${info.version} installée`;
-          showToast(msg, 'success');
-        }
-      } catch {}
-    };
-    checkJustUpdated();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const handleApplyUpdate = async () => {
     setIsUpdating(true);
     try {

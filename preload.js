@@ -190,32 +190,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
   applyAppUpdate: () =>
     ipcRenderer.invoke('app:applyUpdate'),
 
-  // === MISE À JOUR VIA RÉSEAU LOCAL ===
-  lanUpdatePublish: (changelog) =>
-    ipcRenderer.invoke('lanUpdate:publish', changelog),
-
-  lanUpdatePublishFull: (changelog) =>
-    ipcRenderer.invoke('lanUpdate:publishFull', changelog),
-
-  lanUpdateCheck: () =>
-    ipcRenderer.invoke('lanUpdate:check'),
-
-  lanUpdateApply: () =>
-    ipcRenderer.invoke('lanUpdate:apply'),
-
-  lanUpdateRollback: () =>
-    ipcRenderer.invoke('lanUpdate:rollback'),
-
-  lanUpdateGetJustUpdated: () =>
-    ipcRenderer.invoke('lanUpdate:getJustUpdated'),
-
-  lanUpdateGetLocalVersion: () =>
-    ipcRenderer.invoke('lanUpdate:getLocalVersion'),
-
-  lanUpdateVerifyIntegrity: () =>
-    ipcRenderer.invoke('lanUpdate:verifyIntegrity'),
-
-  // Listener pour la progression de la publication (build + obfuscation)
-  onPublishProgress: (callback) =>
-    ipcRenderer.on('publish-progress', (event, data) => callback(data)),
 })
