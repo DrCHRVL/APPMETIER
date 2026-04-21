@@ -5,6 +5,9 @@ set EXITCODE=0
 set BASE_DIR=%~dp0
 set NODE_EXE=%BASE_DIR%nodejs\node.exe
 set ELECTRON_EXE=%BASE_DIR%electron\electron.exe
+set NPM_CMD=%BASE_DIR%nodejs\npm.cmd
+set FLAG_FILE=%BASE_DIR%data\post-update.flag
+set RIE_PROXY=http://rie-proxy.justice.gouv.fr:8080
 
 cd /d "%BASE_DIR%"
 
@@ -26,6 +29,89 @@ if not exist "package.json" (
     set EXITCODE=1
     goto :END
 )
+
+rem ============================================================
+rem  Mise a jour detectee ? -> rebuild automatique
+rem ============================================================
+if exist "%FLAG_FILE%" (
+    echo.
+    echo ============================================================
+    echo   MISE A JOUR DETECTEE - Reconstruction automatique
+    echo ============================================================
+    echo.
+
+    rem -- Tuer le serveur Next.js d'une precedente session (port 3000) --
+    echo Arret du serveur Next.js precedent s'il tourne...
+    for /f "tokens=5" %%P in ('netstat -ano ^| findstr :3000 ^| findstr LISTENING 2^>nul') do (
+        taskkill /F /PID %%P >nul 2>&1
+    )
+
+    rem -- Lire le flag pour savoir si npm install est requis --
+    set NEEDS_INSTALL=0
+    "%NODE_EXE%" -e "try{const f=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));process.exit(f.needsInstall?0:1)}catch(e){process.exit(1)}" "%FLAG_FILE%"
+    if !ERRORLEVEL! equ 0 set NEEDS_INSTALL=1
+
+    set PATH=%BASE_DIR%nodejs;%PATH%
+    set ELECTRON_SKIP_BINARY_DOWNLOAD=1
+
+    if "!NEEDS_INSTALL!"=="1" (
+        echo [1/3] Installation des dependances npm...
+        echo       Cela peut prendre quelques minutes.
+
+        rem Detection proxy
+        call "%NPM_CMD%" config set registry https://registry.npmjs.org/ >nul 2>&1
+        call "%NPM_CMD%" config set strict-ssl false >nul 2>&1
+        "%NODE_EXE%" -e "const req=require('https').get('https://registry.npmjs.org/',r=>process.exit(r.statusCode===200?0:1));req.on('error',()=>process.exit(1));req.setTimeout(5000,()=>{req.destroy();process.exit(1)})" >nul 2>&1
+        if !ERRORLEVEL! neq 0 (
+            echo       Proxy RIE detecte, configuration...
+            call "%NPM_CMD%" config set proxy %RIE_PROXY% >nul 2>&1
+            call "%NPM_CMD%" config set https-proxy %RIE_PROXY% >nul 2>&1
+        ) else (
+            call "%NPM_CMD%" config delete proxy >nul 2>&1
+            call "%NPM_CMD%" config delete https-proxy >nul 2>&1
+        )
+
+        call "%NPM_CMD%" install --omit=dev --no-audit --no-fund
+        if !ERRORLEVEL! neq 0 (
+            echo ERREUR: npm install a echoue.
+            set EXITCODE=1
+            goto :END
+        )
+        echo       OK
+        echo.
+    )
+
+    echo [2/3] Compilation Next.js (next build)...
+    echo       Cela peut prendre 1 a 3 minutes.
+    "%NODE_EXE%" scripts\build-with-timeout.js 600
+    if !ERRORLEVEL! neq 0 (
+        echo ERREUR: le build a echoue. Voir .next\build.log pour le detail.
+        set EXITCODE=1
+        goto :END
+    )
+    if not exist ".next\standalone\server.js" (
+        echo ERREUR: .next\standalone\server.js manquant apres build.
+        set EXITCODE=1
+        goto :END
+    )
+    echo       OK
+    echo.
+
+    echo [3/3] Signature d'integrite...
+    "%NODE_EXE%" scripts\generate-integrity.js "." >nul 2>&1
+    echo       OK
+    echo.
+
+    rem -- Suppression du flag : MAJ appliquee --
+    del "%FLAG_FILE%" >nul 2>&1
+
+    echo ============================================================
+    echo   Mise a jour appliquee. Lancement de l'application...
+    echo ============================================================
+    echo.
+)
+
+rem -- Securite : si le build est absent, guider vers installer.bat --
 if not exist ".next\standalone\server.js" (
     echo ERREUR: .next\standalone\server.js introuvable.
     echo Le build Next.js est manquant. Lancez installer.bat.

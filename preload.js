@@ -184,10 +184,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('auditLog:read'),
 
   // === MISE À JOUR DE L'APPLICATION (GitHub) ===
-  checkAppUpdate: () =>
-    ipcRenderer.invoke('app:checkUpdate'),
+  checkAppUpdate: (forceRefresh = false) =>
+    ipcRenderer.invoke('app:checkUpdate', forceRefresh),
 
   applyAppUpdate: () =>
     ipcRenderer.invoke('app:applyUpdate'),
+
+  getUpdateChangelog: (localSha, remoteSha) =>
+    ipcRenderer.invoke('app:getChangelog', { localSha, remoteSha }),
+
+  // Publication d'une MAJ aux utilisateurs (admin uniquement côté UI)
+  approveAppUpdate: (sha, approvedBy) =>
+    ipcRenderer.invoke('app:approveUpdate', { sha, approvedBy }),
+
+  unapproveAppUpdate: () =>
+    ipcRenderer.invoke('app:unapproveUpdate'),
+
+  getApprovedAppUpdate: () =>
+    ipcRenderer.invoke('app:getApprovedUpdate'),
 
 })

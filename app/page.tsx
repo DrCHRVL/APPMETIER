@@ -56,6 +56,7 @@ import { useDataSync } from '@/hooks/useDataSync';
 import { DataSyncConflictModal } from '@/components/modals/DataSyncConflictModal';
 import { ConflictAction } from '@/types/dataSyncTypes';
 import { DataSyncManager } from '@/utils/dataSync/DataSyncManager';
+import { UpdateChangelogModal } from '@/components/modals/UpdateChangelogModal';
 
 // 🆕 Multi-contentieux
 const SettingsModal = dynamic(() => import('@/components/modals/SettingsModal').then(m => ({ default: m.SettingsModal })), { ssr: false });
@@ -195,6 +196,10 @@ function AppContent() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updateCommits, setUpdateCommits] = useState(0);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [updateLocalSha, setUpdateLocalSha] = useState<string | null>(null);
+  const [updateRemoteSha, setUpdateRemoteSha] = useState<string | null>(null);
+  const [updateApprovedSha, setUpdateApprovedSha] = useState<string | null>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   // Hook pour les enquêtes — scopé au contentieux actif (défaut : crimorg)
   const currentContentieuxId = effectiveContentieux || 'crimorg';
@@ -446,6 +451,9 @@ function AppContent() {
         if (result) {
           setUpdateAvailable(result.hasUpdate || false);
           setUpdateCommits(result.commits || 0);
+          setUpdateLocalSha(result.localSha || null);
+          setUpdateRemoteSha(result.remoteSha || null);
+          setUpdateApprovedSha(result.approvedSha || null);
         }
       } catch {
         // Silencieux si pas de connexion
@@ -974,8 +982,10 @@ return (
             isAdmin={isAdmin()}
             updateAvailable={updateAvailable}
             updateCommits={updateCommits}
-            onApplyUpdate={handleApplyUpdate}
+            onShowUpdate={() => setShowUpdateModal(true)}
             isUpdating={isUpdating}
+            remoteSha={updateRemoteSha}
+            approvedSha={updateApprovedSha}
           />
         </div>
 
@@ -1479,6 +1489,17 @@ return (
     onResolve={handleResolveConflicts}
   />
 )}
+
+      {/* Modal changelog mise à jour */}
+      <UpdateChangelogModal
+        isOpen={showUpdateModal}
+        onClose={() => setShowUpdateModal(false)}
+        localSha={updateLocalSha}
+        remoteSha={updateRemoteSha}
+        commitsCount={updateCommits}
+        onApply={handleApplyUpdate}
+        isApplying={isUpdating}
+      />
 
       {/* Popup récapitulatif hebdomadaire */}
       <WeeklyRecapPopup

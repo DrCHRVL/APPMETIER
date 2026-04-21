@@ -2147,19 +2147,54 @@ function setupIpcHandlers() {
     return null;
   }
 
-  // Copie récursive pour GitHub updater (exclut dossiers d'état / runtimes)
+  // Copie récursive pour GitHub updater (exclut dossiers d'état / runtimes).
+  // Retourne la liste des chemins relatifs copiés pour détection rebuild/install.
   const GITHUB_COPY_SKIP = new Set(['data', '.git', 'node_modules', 'tessdata', '.next', 'nodejs', 'electron']);
-  function copyDir(src, dest) {
+  function copyDir(src, dest, rel = '', changedFiles = []) {
     for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
       if (GITHUB_COPY_SKIP.has(entry.name)) continue;
       const srcPath = path.join(src, entry.name);
       const destPath = path.join(dest, entry.name);
+      const relPath = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
         fs.mkdirSync(destPath, { recursive: true });
-        copyDir(srcPath, destPath);
+        copyDir(srcPath, destPath, relPath, changedFiles);
       } else {
         fs.copyFileSync(srcPath, destPath);
+        changedFiles.push(relPath);
       }
+    }
+    return changedFiles;
+  }
+
+  // Déduit les actions post-MAJ (install / rebuild) selon les fichiers modifiés
+  function detectPostUpdateActions(changedFiles) {
+    const rebuildTriggers = ['app/', 'components/', 'lib/', 'pages/', 'hooks/', 'contexts/', 'stores/', 'services/', 'utils/', 'types/', 'public/', 'styles/'];
+    const rebuildExactFiles = ['next.config.mjs', 'tailwind.config.ts', 'postcss.config.js', 'tsconfig.json'];
+    const needsInstall = changedFiles.some(f => f === 'package.json' || f === 'package-lock.json');
+    const needsRebuild = needsInstall || changedFiles.some(f =>
+      rebuildTriggers.some(prefix => f.startsWith(prefix)) ||
+      rebuildExactFiles.includes(f)
+    );
+    return { needsInstall, needsRebuild };
+  }
+
+  // Chemin du fichier d'approbation sur le serveur commun
+  function getApprovalFilePath() {
+    return path.join(getServerRootPath(), 'update-approved.json');
+  }
+
+  // Lit l'approbation admin depuis le serveur commun (ou null si absent/erreur)
+  function readApprovedUpdate() {
+    try {
+      const p = getApprovalFilePath();
+      if (!fs.existsSync(p)) return null;
+      const raw = fs.readFileSync(p, 'utf8');
+      const data = JSON.parse(raw);
+      if (!data || typeof data.approvedSha !== 'string') return null;
+      return data;
+    } catch {
+      return null;
     }
   }
 
@@ -2169,10 +2204,16 @@ function setupIpcHandlers() {
   const CHECK_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes entre chaque appel API
 
   ipcMain.handle('app:checkUpdate', async (_event, forceRefresh = false) => {
-    // Retourner le cache si la dernière vérification est récente
+    const approval = readApprovedUpdate();
+    const approvedSha = approval?.approvedSha || null;
+    const approvedBy = approval?.approvedBy || null;
+    const approvedAt = approval?.approvedAt || null;
+
+    // Retourner le cache si la dernière vérification est récente,
+    // mais fusionner l'approbation courante (qui peut changer sans re-call GitHub)
     if (!forceRefresh && lastCheckResult && (Date.now() - lastCheckTime) < CHECK_COOLDOWN_MS) {
       console.log('[Update] Résultat en cache (encore', Math.round((CHECK_COOLDOWN_MS - (Date.now() - lastCheckTime)) / 1000), 's)');
-      return lastCheckResult;
+      return { ...lastCheckResult, approvedSha, approvedBy, approvedAt };
     }
     const noCacheHeaders = { 'Cache-Control': 'no-cache', 'If-None-Match': '' };
     let result;
@@ -2180,7 +2221,7 @@ function setupIpcHandlers() {
       const body = await httpsGet(`https://api.github.com/repos/${GITHUB_REPO}/commits/main`, noCacheHeaders);
       const data = JSON.parse(body);
       const remoteSha = data.sha;
-      if (!remoteSha) { result = { hasUpdate: false, commits: 0, error: 'SHA distant non trouvé', localSha: null, remoteSha: null }; lastCheckResult = result; lastCheckTime = Date.now(); return result; }
+      if (!remoteSha) { result = { hasUpdate: false, commits: 0, error: 'SHA distant non trouvé', localSha: null, remoteSha: null }; lastCheckResult = result; lastCheckTime = Date.now(); return { ...result, approvedSha, approvedBy, approvedAt }; }
       const localSha = getLocalSha();
 
       // Si pas de SHA local → premier déploiement, on enregistre le SHA distant comme référence
@@ -2188,14 +2229,14 @@ function setupIpcHandlers() {
         console.log('[Update] Pas de SHA local trouvé → premier déploiement, on enregistre le SHA distant:', remoteSha);
         try { fs.writeFileSync(path.join(dataFolder, 'app-version.txt'), remoteSha); } catch {}
         result = { hasUpdate: false, commits: 0, localSha: remoteSha, remoteSha };
-        lastCheckResult = result; lastCheckTime = Date.now(); return result;
+        lastCheckResult = result; lastCheckTime = Date.now(); return { ...result, approvedSha, approvedBy, approvedAt };
       }
 
       // Si identiques → à jour
       if (localSha === remoteSha) {
         console.log('[Update] À jour. SHA:', localSha);
         result = { hasUpdate: false, commits: 0, localSha, remoteSha };
-        lastCheckResult = result; lastCheckTime = Date.now(); return result;
+        lastCheckResult = result; lastCheckTime = Date.now(); return { ...result, approvedSha, approvedBy, approvedAt };
       }
 
       // SHA différents → utiliser l'API compare pour le vrai nombre de commits
@@ -2214,12 +2255,79 @@ function setupIpcHandlers() {
       }
       console.log('[Update] Mise à jour disponible:', commits, 'commit(s). Local:', localSha, 'Remote:', remoteSha);
       result = { hasUpdate: true, commits, localSha, remoteSha };
-      lastCheckResult = result; lastCheckTime = Date.now(); return result;
+      lastCheckResult = result; lastCheckTime = Date.now(); return { ...result, approvedSha, approvedBy, approvedAt };
     } catch (error) {
       console.log('[Update] Erreur check:', error.message);
       // Ne pas cacher les erreurs pour permettre un retry rapide
-      return { hasUpdate: false, commits: 0, error: error.message, localSha: null, remoteSha: null };
+      return { hasUpdate: false, commits: 0, error: error.message, localSha: null, remoteSha: null, approvedSha, approvedBy, approvedAt };
     }
+  });
+
+  // Renvoie la liste des commits entre localSha et remoteSha (pour le changelog)
+  ipcMain.handle('app:getChangelog', async (_event, { localSha, remoteSha } = {}) => {
+    try {
+      if (!localSha || !remoteSha) {
+        return { success: false, error: 'SHA local ou distant manquant', commits: [] };
+      }
+      if (localSha === remoteSha) {
+        return { success: true, commits: [] };
+      }
+      const body = await httpsGet(
+        `https://api.github.com/repos/${GITHUB_REPO}/compare/${localSha}...${remoteSha}`,
+        { 'Cache-Control': 'no-cache' }
+      );
+      const data = JSON.parse(body);
+      const commits = Array.isArray(data.commits) ? data.commits.map(c => ({
+        sha: c.sha,
+        message: c.commit?.message || '',
+        author: c.commit?.author?.name || c.author?.login || 'inconnu',
+        date: c.commit?.author?.date || null,
+        url: c.html_url || null,
+      })).reverse() : []; // plus récents en premier
+      return { success: true, commits };
+    } catch (error) {
+      return { success: false, error: error.message, commits: [] };
+    }
+  });
+
+  // Publie la version courante aux utilisateurs (admin uniquement côté UI).
+  // Écrit update-approved.json à la racine du serveur commun.
+  ipcMain.handle('app:approveUpdate', async (_event, { sha, approvedBy } = {}) => {
+    try {
+      if (!sha || typeof sha !== 'string') {
+        return { success: false, error: 'SHA manquant' };
+      }
+      const serverRoot = getServerRootPath();
+      if (!serverRoot || !fs.existsSync(serverRoot)) {
+        return { success: false, error: 'Serveur commun inaccessible' };
+      }
+      const payload = {
+        approvedSha: sha,
+        approvedBy: approvedBy || 'inconnu',
+        approvedAt: new Date().toISOString(),
+      };
+      fs.writeFileSync(getApprovalFilePath(), JSON.stringify(payload, null, 2), 'utf8');
+      return { success: true, ...payload };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Retire la publication (supprime update-approved.json)
+  ipcMain.handle('app:unapproveUpdate', async () => {
+    try {
+      const p = getApprovalFilePath();
+      if (fs.existsSync(p)) fs.rmSync(p, { force: true });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Lit l'état d'approbation courant (sans appel GitHub)
+  ipcMain.handle('app:getApprovedUpdate', async () => {
+    const approval = readApprovedUpdate();
+    return approval || { approvedSha: null, approvedBy: null, approvedAt: null };
   });
 
   ipcMain.handle('app:applyUpdate', async () => {
@@ -2246,23 +2354,56 @@ function setupIpcHandlers() {
       const extractedFolder = extractedItems.find(f => fs.statSync(path.join(extractDir, f)).isDirectory());
       if (!extractedFolder) throw new Error('Dossier extrait introuvable');
       const sourceDir = path.join(extractDir, extractedFolder);
-      copyDir(sourceDir, __dirname);
+      const changedFiles = copyDir(sourceDir, __dirname);
 
-      // 4. Sauvegarde du SHA pour la prochaine comparaison
+      // 4. Détection rebuild/install nécessaire → flag lu par launcher.bat
+      const { needsInstall, needsRebuild } = detectPostUpdateActions(changedFiles);
+      try {
+        const flag = {
+          needsInstall,
+          needsRebuild,
+          appliedAt: new Date().toISOString(),
+          changedFileCount: changedFiles.length,
+        };
+        fs.writeFileSync(path.join(dataFolder, 'post-update.flag'), JSON.stringify(flag, null, 2), 'utf8');
+        console.log('[Update] Flag post-update:', flag);
+      } catch (e) {
+        console.warn('[Update] Impossible d\'écrire post-update.flag:', e.message);
+      }
+
+      // 5. Sauvegarde du SHA pour la prochaine comparaison
       try {
         const body = await httpsGet(`https://api.github.com/repos/${GITHUB_REPO}/commits/main`);
         const sha = JSON.parse(body).sha;
         if (sha) fs.writeFileSync(path.join(dataFolder, 'app-version.txt'), sha);
       } catch {}
 
-      // 5. Nettoyage
+      // 6. Nettoyage
       try { fs.rmSync(zipPath, { force: true }); } catch {}
       try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch {}
 
-      // 6. Redémarrage
-      app.relaunch({ args: [__dirname] });
-      app.exit(0);
-      return { success: true };
+      // 7. Redémarrage
+      if (needsRebuild) {
+        // Rebuild nécessaire → on démarre launcher.bat dans une nouvelle fenêtre cmd détachée.
+        // launcher.bat lira post-update.flag, tuera le serveur Next.js existant,
+        // refera npm install (si besoin) + next build, puis relancera l'app.
+        const launcherPath = path.join(__dirname, 'launcher.bat');
+        if (fs.existsSync(launcherPath)) {
+          try {
+            // Escape double quotes in the path (rare but possible)
+            const safeDir = __dirname.replace(/"/g, '\\"');
+            exec(`start "APPMETIER" /D "${safeDir}" launcher.bat`, { cwd: __dirname });
+          } catch (e) {
+            console.error('[Update] Échec relance launcher.bat:', e.message);
+          }
+        }
+        // Petit délai pour laisser cmd.exe démarrer avant qu'on quitte Electron
+        setTimeout(() => app.exit(0), 800);
+      } else {
+        app.relaunch({ args: [__dirname] });
+        app.exit(0);
+      }
+      return { success: true, needsInstall, needsRebuild };
     } catch (error) {
       try { fs.rmSync(zipPath, { force: true }); } catch {}
       try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch {}

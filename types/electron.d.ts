@@ -122,8 +122,31 @@ interface ElectronAPI {
   readAuditLog?: () => Promise<any[]>;
 
   // MISE À JOUR DE L'APPLICATION
-  checkAppUpdate?: () => Promise<{ hasUpdate: boolean; commits: number; error?: string }>;
-  applyAppUpdate?: () => Promise<{ success: boolean; error?: string }>;
+  checkAppUpdate?: (forceRefresh?: boolean) => Promise<{
+    hasUpdate: boolean;
+    commits: number;
+    error?: string;
+    localSha?: string | null;
+    remoteSha?: string | null;
+    approvedSha?: string | null;
+    approvedBy?: string | null;
+    approvedAt?: string | null;
+  }>;
+  applyAppUpdate?: () => Promise<{ success: boolean; error?: string; needsInstall?: boolean; needsRebuild?: boolean }>;
+  getUpdateChangelog?: (localSha: string, remoteSha: string) => Promise<{
+    success: boolean;
+    error?: string;
+    commits: Array<{ sha: string; message: string; author: string; date: string | null; url: string | null }>;
+  }>;
+  approveAppUpdate?: (sha: string, approvedBy: string) => Promise<{
+    success: boolean;
+    error?: string;
+    approvedSha?: string;
+    approvedBy?: string;
+    approvedAt?: string;
+  }>;
+  unapproveAppUpdate?: () => Promise<{ success: boolean; error?: string }>;
+  getApprovedAppUpdate?: () => Promise<{ approvedSha: string | null; approvedBy: string | null; approvedAt: string | null }>;
 
   // NOUVELLES API POUR SYNCHRONISATION
   syncDocuments: (

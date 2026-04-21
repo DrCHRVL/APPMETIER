@@ -26,8 +26,10 @@ interface HeaderProps {
   isAdmin?: boolean;
   updateAvailable?: boolean;
   updateCommits?: number;
-  onApplyUpdate?: () => void;
+  onShowUpdate?: () => void;
   isUpdating?: boolean;
+  remoteSha?: string | null;
+  approvedSha?: string | null;
 }
 
 export const Header = ({
@@ -45,9 +47,18 @@ export const Header = ({
   isAdmin = false,
   updateAvailable = false,
   updateCommits = 0,
-  onApplyUpdate,
+  onShowUpdate,
   isUpdating = false,
+  remoteSha = null,
+  approvedSha = null,
 }: HeaderProps) => {
+  // L'icône est visible :
+  //  - pour l'admin : dès qu'une MAJ existe
+  //  - pour les autres : seulement si l'admin a publié exactement cette version (remoteSha === approvedSha)
+  const showUpdateIcon =
+    (updateAvailable || isUpdating) && (
+      isAdmin || (remoteSha != null && approvedSha != null && remoteSha === approvedSha)
+    );
   const activeAlerts = useMemo(() =>
     alerts.filter(alert => alert.status === 'active'),
     [alerts]
@@ -135,8 +146,8 @@ export const Header = ({
             />
           )}
 
-          {/* Mise à jour disponible (admin uniquement) */}
-          {isAdmin && (updateAvailable || isUpdating) && onApplyUpdate && (
+          {/* Mise à jour disponible — visible pour tous si l'admin a publié la MAJ */}
+          {showUpdateIcon && onShowUpdate && (
             <TooltipProvider>
               <TooltipRoot>
                 <TooltipTrigger asChild>
@@ -144,7 +155,7 @@ export const Header = ({
                     variant="ghost"
                     size="sm"
                     className="relative h-8 px-2 rounded-lg text-amber-600 hover:text-amber-700 hover:bg-amber-50 flex items-center gap-1.5"
-                    onClick={onApplyUpdate}
+                    onClick={onShowUpdate}
                     disabled={isUpdating}
                   >
                     {isUpdating
@@ -157,7 +168,7 @@ export const Header = ({
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p>{isUpdating ? 'Application de la mise à jour...' : `${updateCommits} nouvelle${updateCommits > 1 ? 's' : ''} version${updateCommits > 1 ? 's' : ''} disponible${updateCommits > 1 ? 's' : ''}. Cliquer pour mettre à jour et redémarrer.`}</p>
+                  <p>{isUpdating ? 'Application de la mise à jour...' : `${updateCommits} nouvelle${updateCommits > 1 ? 's' : ''} version${updateCommits > 1 ? 's' : ''} disponible${updateCommits > 1 ? 's' : ''}. Cliquer pour voir le détail.`}</p>
                 </TooltipContent>
               </TooltipRoot>
             </TooltipProvider>
