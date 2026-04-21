@@ -474,31 +474,50 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
   },
 
   shareEnquete: (enqueteId: number, targetContentieuxIds: string[]) => {
-    const { contentieuxId } = get();
-    set(state =>
-      updateOwn(state, prev =>
+    const now = new Date().toISOString();
+    set(state => {
+      const contentieuxId = state.contentieuxId;
+      const changes = updateOwn(state, prev =>
         prev.map(e =>
           e.id === enqueteId
-            ? { ...e, sharedWith: targetContentieuxIds, contentieuxOrigine: contentieuxId, dateMiseAJour: new Date().toISOString() }
+            ? { ...e, sharedWith: targetContentieuxIds, contentieuxOrigine: contentieuxId, dateMiseAJour: now }
             : e
         )
-      )
-    );
+      );
+      if (state.selectedEnquete?.id === enqueteId) {
+        changes.selectedEnquete = {
+          ...state.selectedEnquete,
+          sharedWith: targetContentieuxIds,
+          contentieuxOrigine: contentieuxId,
+          dateMiseAJour: now,
+        };
+      }
+      return changes;
+    });
     // Mettre à jour le cache ContentieuxManager pour que les autres contentieux voient le partage
     ContentieuxManager.getInstance().setEnquetes(get().contentieuxId, get().ownEnquetes);
     _saveThrottled();
   },
 
   unshareEnquete: (enqueteId: number) => {
-    set(state =>
-      updateOwn(state, prev =>
+    const now = new Date().toISOString();
+    set(state => {
+      const changes = updateOwn(state, prev =>
         prev.map(e =>
           e.id === enqueteId
-            ? { ...e, sharedWith: undefined, dateMiseAJour: new Date().toISOString() }
+            ? { ...e, sharedWith: undefined, dateMiseAJour: now }
             : e
         )
-      )
-    );
+      );
+      if (state.selectedEnquete?.id === enqueteId) {
+        changes.selectedEnquete = {
+          ...state.selectedEnquete,
+          sharedWith: undefined,
+          dateMiseAJour: now,
+        };
+      }
+      return changes;
+    });
     // Mettre à jour le cache ContentieuxManager pour refléter la suppression du partage
     ContentieuxManager.getInstance().setEnquetes(get().contentieuxId, get().ownEnquetes);
     _saveThrottled();
