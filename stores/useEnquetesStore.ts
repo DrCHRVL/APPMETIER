@@ -106,6 +106,9 @@ interface EnquetesState {
   isSharedEnquete: (enqueteId: number) => boolean;
   shareEnquete: (enqueteId: number, targetContentieuxIds: string[]) => Promise<void>;
   unshareEnquete: (enqueteId: number) => Promise<void>;
+
+  // ── Transfert ──
+  transferEnquete: (enqueteId: number, targetContentieuxId: ContentieuxId) => Promise<boolean>;
 }
 
 // ── Helper interne pour mettre à jour les enquêtes propres + synchroniser `enquetes` ──
@@ -538,5 +541,49 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     // Mettre à jour le cache ContentieuxManager pour refléter la suppression du partage
     await ContentieuxManager.getInstance().setEnquetes(get().contentieuxId, get().ownEnquetes);
     _saveThrottled();
+  },
+
+  // ────────────────────────────────────────────
+  // TRANSFERT
+  // ────────────────────────────────────────────
+
+  transferEnquete: async (enqueteId: number, targetContentieuxId: ContentieuxId): Promise<boolean> => {
+    const { contentieuxId, ownEnquetes } = get();
+    if (targetContentieuxId === contentieuxId) return false;
+
+    const original = ownEnquetes.find(e => e.id === enqueteId);
+    if (!original) return false; // UI restreint au propriétaire, garde-fou
+
+    const manager = ContentieuxManager.getInstance();
+    if (manager.getSyncMode(targetContentieuxId) !== 'read_write') return false;
+
+    const targetEnquetes = manager.getEnquetes(targetContentieuxId);
+    const newId = targetEnquetes.reduce((m, e) => Math.max(m, e.id || 0), 0) + 1;
+
+    const transferred: Enquete = {
+      ...original,
+      id: newId,
+      contentieuxOrigine: targetContentieuxId,
+      sharedWith: undefined, // Le partage ne suit pas le transfert ; l'utilisateur re-configure si besoin
+      dateMiseAJour: new Date().toISOString(),
+    };
+
+    const ok = await manager.setEnquetes(targetContentieuxId, [...targetEnquetes, transferred]);
+    if (!ok) return false;
+    MultiSyncManager.getInstance().triggerPostSaveSync(targetContentieuxId);
+
+    set(state => {
+      const changes = updateOwn(state, prev => prev.filter(e => e.id !== enqueteId));
+      if (state.selectedEnquete?.id === enqueteId) {
+        changes.selectedEnquete = null;
+        changes.isEditing = false;
+        changes.editingCR = null;
+      }
+      return changes;
+    });
+    _saveThrottled();
+    await manager.setEnquetes(contentieuxId, get().ownEnquetes);
+
+    return true;
   },
 }));
