@@ -2,25 +2,33 @@
 setlocal enabledelayedexpansion
 set EXITCODE=0
 
-set BASE_DIR=%~dp0
-set NODE_VERSION=v20.11.1
-set NODE_ZIP=node-%NODE_VERSION%-win-x64.zip
-set NODE_URL=https://nodejs.org/dist/%NODE_VERSION%/%NODE_ZIP%
-set NODE_DIR=%BASE_DIR%nodejs
-set NODE_EXE=%NODE_DIR%\node.exe
+rem ============================================================
+rem  Resolution des chemins
+rem  - PROJECT_DIR : dossier contenant installer.bat (racine du projet)
+rem  - PARENT_DIR  : dossier parent -> recoit nodejs, electron, launcher.bat
+rem ============================================================
+set "BASE_DIR=%~dp0"
+set "PROJECT_DIR=%BASE_DIR:~0,-1%"
+for %%I in ("%PROJECT_DIR%\..") do set "PARENT_DIR=%%~fI"
 
-set ELECTRON_VERSION=v30.5.1
-set ELECTRON_ZIP=electron-%ELECTRON_VERSION%-win32-x64.zip
-set ELECTRON_URL=https://github.com/electron/electron/releases/download/%ELECTRON_VERSION%/%ELECTRON_ZIP%
-set ELECTRON_DIR=%BASE_DIR%electron
-set ELECTRON_EXE=%ELECTRON_DIR%\electron.exe
+set "NODE_VERSION=v20.11.1"
+set "NODE_ZIP=node-%NODE_VERSION%-win-x64.zip"
+set "NODE_URL=https://nodejs.org/dist/%NODE_VERSION%/%NODE_ZIP%"
+set "NODE_DIR=%PARENT_DIR%\nodejs"
+set "NODE_EXE=%NODE_DIR%\node.exe"
 
-set RIE_PROXY=http://rie-proxy.justice.gouv.fr:8080
+set "ELECTRON_VERSION=v30.5.1"
+set "ELECTRON_ZIP=electron-%ELECTRON_VERSION%-win32-x64.zip"
+set "ELECTRON_URL=https://github.com/electron/electron/releases/download/%ELECTRON_VERSION%/%ELECTRON_ZIP%"
+set "ELECTRON_DIR=%PARENT_DIR%\electron"
+set "ELECTRON_EXE=%ELECTRON_DIR%\electron.exe"
+
+set "RIE_PROXY=http://rie-proxy.justice.gouv.fr:8080"
 
 cd /d "%BASE_DIR%"
 
 if not exist "package.json" (
-    echo ERREUR: package.json introuvable dans %BASE_DIR%
+    echo ERREUR: package.json introuvable dans "!BASE_DIR!"
     echo Ce script doit etre lance depuis le dossier racine du projet.
     set EXITCODE=1
     goto :END
@@ -29,14 +37,15 @@ if not exist "package.json" (
 echo ============================================================
 echo   INSTALLATION APPMETIER
 echo ============================================================
-echo Dossier : %BASE_DIR%
+echo Projet : !PROJECT_DIR!
+echo Parent : !PARENT_DIR!
 echo.
 
 rem ============================================================
-rem [1/5] Node.js portable
+rem [1/6] Node.js portable (au niveau parent)
 rem ============================================================
-echo [1/5] Node.js portable (%NODE_VERSION%)
-if exist "%NODE_EXE%" (
+echo [1/6] Node.js portable (%NODE_VERSION%) - cible "!NODE_DIR!"
+if exist "!NODE_EXE!" (
     echo       Deja present : OK
     goto :AFTER_NODE
 )
@@ -59,12 +68,13 @@ if !ERRORLEVEL! neq 0 (
     goto :END
 )
 
-move "%TEMP%\node-extract\node-%NODE_VERSION%-win-x64" "%NODE_DIR%" >nul
+if not exist "!PARENT_DIR!" mkdir "!PARENT_DIR!" 2>nul
+move "%TEMP%\node-extract\node-%NODE_VERSION%-win-x64" "!NODE_DIR!" >nul
 rmdir /S /Q "%TEMP%\node-extract" 2>nul
 del "%TEMP%\%NODE_ZIP%" 2>nul
 
-if not exist "%NODE_EXE%" (
-    echo ERREUR: %NODE_EXE% introuvable apres extraction.
+if not exist "!NODE_EXE!" (
+    echo ERREUR: "!NODE_EXE!" introuvable apres extraction.
     set EXITCODE=1
     goto :END
 )
@@ -74,10 +84,10 @@ echo       OK
 echo.
 
 rem ============================================================
-rem [2/5] Electron portable
+rem [2/6] Electron portable (au niveau parent)
 rem ============================================================
-echo [2/5] Electron portable (%ELECTRON_VERSION%)
-if exist "%ELECTRON_EXE%" (
+echo [2/6] Electron portable (%ELECTRON_VERSION%) - cible "!ELECTRON_DIR!"
+if exist "!ELECTRON_EXE!" (
     echo       Deja present : OK
     goto :AFTER_ELECTRON
 )
@@ -91,8 +101,8 @@ if !ERRORLEVEL! neq 0 (
 )
 
 echo       Extraction...
-if not exist "%ELECTRON_DIR%" mkdir "%ELECTRON_DIR%"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%TEMP%\%ELECTRON_ZIP%' -DestinationPath '%ELECTRON_DIR%' -Force"
+if not exist "!ELECTRON_DIR!" mkdir "!ELECTRON_DIR!"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%TEMP%\%ELECTRON_ZIP%' -DestinationPath '!ELECTRON_DIR!' -Force"
 if !ERRORLEVEL! neq 0 (
     echo ERREUR: Extraction d'Electron echouee.
     set EXITCODE=1
@@ -100,8 +110,8 @@ if !ERRORLEVEL! neq 0 (
 )
 del "%TEMP%\%ELECTRON_ZIP%" 2>nul
 
-if not exist "%ELECTRON_EXE%" (
-    echo ERREUR: %ELECTRON_EXE% introuvable apres extraction.
+if not exist "!ELECTRON_EXE!" (
+    echo ERREUR: "!ELECTRON_EXE!" introuvable apres extraction.
     set EXITCODE=1
     goto :END
 )
@@ -111,31 +121,32 @@ echo       OK
 echo.
 
 rem ============================================================
-rem [3/5] npm install
+rem [3/6] npm install
 rem ============================================================
-echo [3/5] Installation des dependances (npm install)
-set PATH=%NODE_DIR%;%PATH%
-set NPM_CMD=%NODE_DIR%\npm.cmd
+echo [3/6] Installation des dependances (npm install)
+rem Ajout de nodejs au PATH : permet d'appeler 'node' et 'npm.cmd' sans chemin absolu
+rem (evite les pieges de guillemets imbriques quand le chemin contient des parentheses)
+set "PATH=!NODE_DIR!;%PATH%"
 rem Ne pas retelecharger le binaire Electron (on a deja la version portable)
 set ELECTRON_SKIP_BINARY_DOWNLOAD=1
 
 rem Config npm de base
-call "%NPM_CMD%" config set registry https://registry.npmjs.org/ >nul 2>&1
-call "%NPM_CMD%" config set strict-ssl false >nul 2>&1
+call npm.cmd config set registry https://registry.npmjs.org/ >nul 2>&1
+call npm.cmd config set strict-ssl false >nul 2>&1
 
 rem Detection auto du proxy : test de connexion directe au registry
-"%NODE_EXE%" -e "const req=require('https').get('https://registry.npmjs.org/',r=>process.exit(r.statusCode===200?0:1));req.on('error',()=>process.exit(1));req.setTimeout(5000,()=>{req.destroy();process.exit(1)})" >nul 2>&1
+node -e "const req=require('https').get('https://registry.npmjs.org/',r=>process.exit(r.statusCode===200?0:1));req.on('error',()=>process.exit(1));req.setTimeout(5000,()=>{req.destroy();process.exit(1)})" >nul 2>&1
 if !ERRORLEVEL! neq 0 (
     echo       Connexion directe echouee, configuration du proxy RIE...
-    call "%NPM_CMD%" config set proxy %RIE_PROXY% >nul 2>&1
-    call "%NPM_CMD%" config set https-proxy %RIE_PROXY% >nul 2>&1
+    call npm.cmd config set proxy %RIE_PROXY% >nul 2>&1
+    call npm.cmd config set https-proxy %RIE_PROXY% >nul 2>&1
 ) else (
-    call "%NPM_CMD%" config delete proxy >nul 2>&1
-    call "%NPM_CMD%" config delete https-proxy >nul 2>&1
+    call npm.cmd config delete proxy >nul 2>&1
+    call npm.cmd config delete https-proxy >nul 2>&1
 )
 
 echo       Cela peut prendre quelques minutes...
-call "%NPM_CMD%" install --omit=dev --no-audit --no-fund
+call npm.cmd install --omit=dev --no-audit --no-fund
 if !ERRORLEVEL! neq 0 (
     echo ERREUR: npm install a echoue.
     echo Causes possibles : reseau, proxy, permissions.
@@ -151,11 +162,11 @@ echo       OK
 echo.
 
 rem ============================================================
-rem [4/5] npm run build (next build)
+rem [4/6] npm run build (next build)
 rem ============================================================
-echo [4/5] Compilation de l'application (next build)
+echo [4/6] Compilation de l'application (next build)
 echo       Cela peut prendre 2 a 5 minutes...
-"%NODE_EXE%" scripts\build-with-timeout.js 600
+node scripts\build-with-timeout.js 600
 if !ERRORLEVEL! neq 0 (
     echo ERREUR: le build a echoue. Voir .next\build.log pour le detail.
     set EXITCODE=1
@@ -170,10 +181,10 @@ echo       OK
 echo.
 
 rem ============================================================
-rem [5/5] Signature d'integrite (.integrity)
+rem [5/6] Signature d'integrite (.integrity)
 rem ============================================================
-echo [5/5] Signature SHA-256 (.integrity)
-"%NODE_EXE%" scripts\generate-integrity.js "."
+echo [5/6] Signature SHA-256 (.integrity)
+node scripts\generate-integrity.js "."
 if !ERRORLEVEL! neq 0 (
     echo ERREUR: generation .integrity echouee.
     set EXITCODE=1
@@ -187,11 +198,25 @@ if not exist ".integrity" (
 echo       OK
 echo.
 
+rem ============================================================
+rem [6/6] Deploiement du launcher au dossier parent
+rem ============================================================
+echo [6/6] Deploiement du launcher au dossier parent
+copy /Y "!BASE_DIR!launcher.bat" "!PARENT_DIR!\launcher.bat" >nul
+if !ERRORLEVEL! neq 0 (
+    echo ERREUR: copie de launcher.bat vers "!PARENT_DIR!" echouee.
+    set EXITCODE=1
+    goto :END
+)
+echo       OK : "!PARENT_DIR!\launcher.bat"
+echo.
+
 echo ============================================================
 echo   INSTALLATION TERMINEE
 echo ============================================================
 echo.
-echo Lancez l'application en double-cliquant sur : launcher.bat
+echo Lancez l'application en double-cliquant sur :
+echo   "!PARENT_DIR!\launcher.bat"
 echo.
 
 :END
