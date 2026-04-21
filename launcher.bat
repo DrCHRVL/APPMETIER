@@ -13,11 +13,10 @@ rem  - launcher a cote du projet (layout portable au parent)
 rem  - launcher dans le projet lui-meme (layout autonome)
 rem ============================================================
 set "PROJECT_DIR="
-if exist "!BASE_DIR!package.json" (
-    set "PROJECT_DIR=!BASE_DIR:~0,-1!"
-) else (
+if exist "!BASE_DIR!main.js" if exist "!BASE_DIR!package.json" set "PROJECT_DIR=!BASE_DIR:~0,-1!"
+if not defined PROJECT_DIR (
     for /d %%D in ("!BASE_DIR!*") do (
-        if exist "%%D\package.json" if not defined PROJECT_DIR set "PROJECT_DIR=%%~fD"
+        if exist "%%D\main.js" if exist "%%D\package.json" if not defined PROJECT_DIR set "PROJECT_DIR=%%~fD"
     )
 )
 
