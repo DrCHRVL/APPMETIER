@@ -5,6 +5,8 @@ set EXITCODE=0
 set "BASE_DIR=%~dp0"
 set "RIE_PROXY=http://rie-proxy.justice.gouv.fr:8080"
 
+echo Depuis : !BASE_DIR!
+
 rem ============================================================
 rem  Auto-detection du dossier projet (contenant package.json)
 rem  - launcher a cote du projet (layout portable au parent)
@@ -57,6 +59,13 @@ set "NPM_CMD=!PORTABLE_ROOT!\nodejs\npm.cmd"
 set "ELECTRON_EXE=!PORTABLE_ROOT!\electron\electron.exe"
 set "FLAG_FILE=!PROJECT_DIR!\data\post-update.flag"
 
+echo ============================================================
+echo   APPMETIER - LANCEUR
+echo ============================================================
+echo Projet  : !PROJECT_DIR!
+echo Portable: !PORTABLE_ROOT!
+echo.
+
 if not exist "!ELECTRON_EXE!" (
     echo ERREUR: "!ELECTRON_EXE!" introuvable.
     echo Lancez d'abord installer.bat.
@@ -108,7 +117,8 @@ if exist "!FLAG_FILE!" (
             call npm.cmd config delete https-proxy >nul 2>&1
         )
 
-        call npm.cmd install --omit=dev --no-audit --no-fund
+        rem Meme raison que installer.bat : devDependencies requises au build
+        call npm.cmd install --no-audit --no-fund
         if !ERRORLEVEL! neq 0 (
             echo ERREUR: npm install a echoue.
             set EXITCODE=1

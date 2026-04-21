@@ -146,7 +146,9 @@ if !ERRORLEVEL! neq 0 (
 )
 
 echo       Cela peut prendre quelques minutes...
-call npm.cmd install --omit=dev --no-audit --no-fund
+rem Ne pas utiliser --omit=dev : le build Next.js a besoin de typescript,
+rem tailwindcss, postcss et autoprefixer (declares en devDependencies).
+call npm.cmd install --no-audit --no-fund
 if !ERRORLEVEL! neq 0 (
     echo ERREUR: npm install a echoue.
     echo Causes possibles : reseau, proxy, permissions.
