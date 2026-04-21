@@ -8,6 +8,7 @@ import { Enquete, CompteRendu, EnqueteInstruction } from '@/types/interfaces';
 import { X, FileText, Calendar, User } from 'lucide-react';
 import { useMemo, useState, useRef, useEffect, useCallback, memo, MouseEvent } from 'react';
 import { useUser } from '@/contexts/UserContext';
+import { renderFormattedText } from '@/lib/formatCR';
 
 interface CompteRenduSectionProps {
   enquete: Enquete | EnqueteInstruction;
@@ -72,21 +73,140 @@ const ACTE_TYPES = {
   }
 };
 
-// Convertit le texte markdown simple en HTML pour l'affichage
-// Détecte automatiquement HTML (nouveau format WYSIWYG) vs markdown (ancien format)
-const renderFormattedText = (text: string): string => {
-  if (/<[a-z][\s\S]*?>/i.test(text)) return text; // déjà du HTML
-  const escaped = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  return escaped
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/__(.*?)__/g, '<u>$1</u>')
-    .replace(/==(.*?)==/g, '<mark style="background:#fef08a;padding:1px 2px">$1</mark>')
-    .replace(/^- (.*)$/gm, '• $1')
-    .replace(/\n/g, '<br>');
+// Garde-fou du drag : laisse au moins 120px visibles à gauche/droite/haut du viewport.
+const DIALOG_MIN_VISIBLE = 120;
+
+// Ligne de compte-rendu : composant mémoïsé pour éviter le re-render de toute
+// la liste quand on tape dans l'éditeur WYSIWYG ouvert dans la fenêtre.
+interface CompteRenduItemProps {
+  cr: CompteRendu;
+  isEditing: boolean;
+  currentUser: string;
+  contentieuxId?: string;
+  isInstruction: boolean;
+  onEdit: (cr: CompteRendu) => void;
+  onDelete: (id: number) => void;
+}
+
+const CONTENTIEUX_BORDER_COLORS: Record<string, { border: string; bg: string; text: string; borderColor: string }> = {
+  crimorg: { border: 'border-l-red-500', bg: 'bg-red-50', text: 'text-red-700', borderColor: 'border-red-300' },
+  ecofi:   { border: 'border-l-blue-500', bg: 'bg-blue-50', text: 'text-blue-700', borderColor: 'border-blue-300' },
+  enviro:  { border: 'border-l-green-500', bg: 'bg-green-50', text: 'text-green-700', borderColor: 'border-green-300' },
 };
+
+const getActeTypeLabel = (acteType: string): string => {
+  for (const category of Object.values(ACTE_TYPES)) {
+    if ((category.subtypes as Record<string, string>)[acteType]) {
+      return (category.subtypes as Record<string, string>)[acteType];
+    }
+  }
+  return acteType;
+};
+
+const breakLongWords = (text: string): string => {
+  const words = text.split(' ');
+  const formatted = words.map(word => {
+    if (word.length > 50) return word.match(/.{1,50}/g)?.join('-') || word;
+    return word;
+  });
+  return formatted.join(' ');
+};
+
+const CompteRenduItem = memo(({ cr, isEditing, currentUser, contentieuxId, isInstruction, onEdit, onDelete }: CompteRenduItemProps) => {
+  const crInstruction = cr as CompteRenduInstruction;
+  const isSynthese = isInstruction && crInstruction.type === 'synthese';
+
+  const isFromColleague = !!(currentUser && cr.createdBy && cr.createdBy !== currentUser);
+  const contentieuxSource = cr.contentieuxSource;
+  const isFromOtherContentieux = contentieuxSource && contentieuxId && contentieuxSource !== contentieuxId;
+  const ctxColors = isFromOtherContentieux ? CONTENTIEUX_BORDER_COLORS[contentieuxSource] : null;
+
+  let bgClass = 'bg-gray-50';
+  let hoverClass = 'hover:bg-gray-100';
+  if (isSynthese) { bgClass = 'bg-blue-50'; hoverClass = 'hover:bg-blue-100'; }
+  else if (isFromColleague) { bgClass = 'bg-sky-50'; hoverClass = 'hover:bg-sky-100'; }
+
+  let borderLeftClass = '';
+  if (ctxColors) borderLeftClass = `border-l-4 ${ctxColors.border}`;
+  else if (isSynthese) borderLeftClass = 'border-l-4 border-l-blue-400';
+  else if (isFromColleague) borderLeftClass = 'border-l-4 border-l-sky-300';
+
+  // Mémoïsation du HTML rendu : recalculé uniquement quand la description change.
+  const descriptionHtml = useMemo(
+    () => renderFormattedText(breakLongWords(cr.description)),
+    [cr.description]
+  );
+
+  return (
+    <div
+      className={`${bgClass} ${hoverClass} ${borderLeftClass} p-4 rounded relative group transition-colors`}
+    >
+      <div className="flex justify-between items-start">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <p className="font-medium text-sm">
+              {new Date(cr.date).toLocaleDateString()} - {cr.enqueteur}
+            </p>
+
+            {ctxColors && (
+              <Badge variant="outline" className={`text-xs h-5 px-2 ${ctxColors.bg} ${ctxColors.text} ${ctxColors.borderColor}`}>
+                {contentieuxSource}
+              </Badge>
+            )}
+
+            {isFromColleague && (
+              <Badge variant="outline" className="text-xs h-5 px-2 bg-sky-100 text-sky-700 border-sky-300">
+                <User className="h-3 w-3 mr-1" />
+                {cr.createdBy}
+              </Badge>
+            )}
+
+            {isSynthese && crInstruction.acteType && (
+              <div className="flex items-center gap-1">
+                <Badge variant="outline" className="text-xs h-5 px-2 bg-blue-100 text-blue-700 border-blue-300">
+                  <FileText className="h-3 w-3 mr-1" />
+                  Synthèse
+                </Badge>
+                <Badge variant="outline" className="text-xs h-5 px-2 bg-white">
+                  {getActeTypeLabel(crInstruction.acteType)}
+                </Badge>
+                {crInstruction.dateActe && (
+                  <Badge variant="outline" className="text-xs h-5 px-2 bg-white">
+                    <Calendar className="h-3 w-3 mr-1" />
+                    {new Date(crInstruction.dateActe).toLocaleDateString()}
+                  </Badge>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div
+            className="text-gray-600 mt-1 text-sm break-words"
+            style={{ wordBreak: 'break-word', hyphens: 'auto' }}
+            dangerouslySetInnerHTML={{ __html: descriptionHtml }}
+          />
+        </div>
+
+        {isEditing && (
+          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button variant="ghost" size="sm" onClick={() => onEdit(cr)}>
+              Modifier
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-red-500 hover:text-red-700"
+              onClick={() => onDelete(cr.id)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+CompteRenduItem.displayName = 'CompteRenduItem';
 
 export const CompteRenduSection = memo(({
   enquete,
@@ -111,7 +231,10 @@ export const CompteRenduSection = memo(({
   // États pour l'UX
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isDirty, setIsDirty] = useState(false);
+  // Dirty state stocké en ref : la frappe dans l'éditeur WYSIWYG (contentEditable)
+  // n'a pas besoin de déclencher un re-render de la liste ; seul `handleClose`
+  // et les boutons lisent la valeur.
+  const isDirtyRef = useRef(false);
   const [showConfirmClose, setShowConfirmClose] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -125,7 +248,7 @@ export const CompteRenduSection = memo(({
   // Charge le contenu de l'éditeur à l'ouverture (brouillon ou markdown converti)
   useEffect(() => {
     if (!editingCR) return;
-    setIsDirty(false);
+    isDirtyRef.current = false;
     setError(null);
     const key = `cr-draft-${editingCR.id || 'new'}`;
     const draft = localStorage.getItem(key);
@@ -155,14 +278,25 @@ export const CompteRenduSection = memo(({
     }, 800);
   };
 
-  // Drag : écouteurs globaux montés une seule fois
+  // Drag : écouteurs globaux montés une seule fois, avec clamp dans le viewport
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!dragState.current.dragging || !dialogRef.current) return;
       const dx = e.clientX - dragState.current.startX;
       const dy = e.clientY - dragState.current.startY;
-      dialogRef.current.style.left = `${dragState.current.initLeft + dx}px`;
-      dialogRef.current.style.top  = `${dragState.current.initTop  + dy}px`;
+      const rect = dialogRef.current.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const nextLeft = Math.min(
+        Math.max(dragState.current.initLeft + dx, DIALOG_MIN_VISIBLE - rect.width),
+        vw - DIALOG_MIN_VISIBLE
+      );
+      const nextTop = Math.min(
+        Math.max(dragState.current.initTop + dy, 0),
+        vh - DIALOG_MIN_VISIBLE
+      );
+      dialogRef.current.style.left = `${nextLeft}px`;
+      dialogRef.current.style.top  = `${nextTop}px`;
     };
     const onMouseUp = () => { dragState.current.dragging = false; };
     window.addEventListener('mousemove', onMouseMove);
@@ -184,13 +318,13 @@ export const CompteRenduSection = memo(({
   const clearAndClose = () => {
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     setError(null);
-    setIsDirty(false);
+    isDirtyRef.current = false;
     setShowConfirmClose(false);
     setEditingCR(null);
   };
 
   const handleClose = () => {
-    if (isDirty) { setShowConfirmClose(true); } else { clearAndClose(); }
+    if (isDirtyRef.current) { setShowConfirmClose(true); } else { clearAndClose(); }
   };
 
   // États spécifiques aux instructions
@@ -345,7 +479,7 @@ export const CompteRenduSection = memo(({
       const key = `cr-draft-${localCR.id || 'new'}`;
       localStorage.removeItem(key);
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-      setIsDirty(false);
+      isDirtyRef.current = false;
       setLocalCR(null);
       setEditingCR(null);
     } catch (error) {
@@ -428,7 +562,7 @@ export const CompteRenduSection = memo(({
 
     // Insérer proprement au curseur
     document.execCommand('insertHTML', false, cleanHtml);
-    setIsDirty(true);
+    isDirtyRef.current = true;
     scheduleDraftSave();
   };
 
@@ -444,150 +578,15 @@ export const CompteRenduSection = memo(({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [localCR, isSaving]);
 
-  const formatDescription = useMemo(() => (text: string) => {
-    const words = text.split(' ');
-    const formattedWords = words.map(word => {
-      if (word.length > 50) {
-        return word.match(/.{1,50}/g)?.join('-') || word;
-      }
-      return word;
-    });
-    return formattedWords.join(' ');
-  }, []);
+  // Handlers stables pour préserver la mémoïsation de CompteRenduItem.
+  const handleEditItem = useCallback((cr: CompteRendu) => {
+    setError(null);
+    setEditingCR(cr);
+  }, [setEditingCR]);
 
-  // Fonction pour obtenir le label d'un type d'acte
-  const getActeTypeLabel = (acteType: string): string => {
-    for (const category of Object.values(ACTE_TYPES)) {
-      if (category.subtypes[acteType]) {
-        return category.subtypes[acteType];
-      }
-    }
-    return acteType;
-  };
-
-  // Couleurs de bordure par contentieux d'origine (co-saisine)
-  const CONTENTIEUX_BORDER_COLORS: Record<string, { border: string; bg: string; text: string; borderColor: string }> = {
-    crimorg: { border: 'border-l-red-500', bg: 'bg-red-50', text: 'text-red-700', borderColor: 'border-red-300' },
-    ecofi:   { border: 'border-l-blue-500', bg: 'bg-blue-50', text: 'text-blue-700', borderColor: 'border-blue-300' },
-    enviro:  { border: 'border-l-green-500', bg: 'bg-green-50', text: 'text-green-700', borderColor: 'border-green-300' },
-  };
-
-  // Rendu du CR avec indicateurs visuels pour les instructions
-  const renderCR = (cr: CompteRendu) => {
-    const crInstruction = cr as CompteRenduInstruction;
-    const isSynthese = isInstruction && crInstruction.type === 'synthese';
-
-    // CR créé par un autre utilisateur → fond bleuté
-    const isFromColleague =
-      currentUser &&
-      cr.createdBy &&
-      cr.createdBy !== currentUser;
-
-    // CR provenant d'un autre contentieux (co-saisine) — n'afficher que si différent du contentieux courant
-    const contentieuxSource = cr.contentieuxSource;
-    const isFromOtherContentieux = contentieuxSource && contentieuxId && contentieuxSource !== contentieuxId;
-    const ctxColors = isFromOtherContentieux ? CONTENTIEUX_BORDER_COLORS[contentieuxSource] : null;
-
-    let bgClass = 'bg-gray-50';
-    let hoverClass = 'hover:bg-gray-100';
-    if (isSynthese) {
-      bgClass = 'bg-blue-50';
-      hoverClass = 'hover:bg-blue-100';
-    } else if (isFromColleague) {
-      bgClass = 'bg-sky-50';
-      hoverClass = 'hover:bg-sky-100';
-    }
-
-    // Bordure gauche : contentieux source (co-saisine) > synthèse > collègue
-    let borderLeftClass = '';
-    if (ctxColors) {
-      borderLeftClass = `border-l-4 ${ctxColors.border}`;
-    } else if (isSynthese) {
-      borderLeftClass = 'border-l-4 border-l-blue-400';
-    } else if (isFromColleague) {
-      borderLeftClass = 'border-l-4 border-l-sky-300';
-    }
-
-    return (
-      <div
-        key={cr.id}
-        className={`${bgClass} ${hoverClass} ${borderLeftClass} p-4 rounded relative group transition-colors`}
-      >
-        <div className="flex justify-between items-start">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <p className="font-medium text-sm">
-                {new Date(cr.date).toLocaleDateString()} - {cr.enqueteur}
-              </p>
-
-              {/* Indicateur contentieux source (co-saisine) */}
-              {ctxColors && (
-                <Badge variant="outline" className={`text-xs h-5 px-2 ${ctxColors.bg} ${ctxColors.text} ${ctxColors.borderColor}`}>
-                  {contentieuxSource}
-                </Badge>
-              )}
-
-              {/* Indicateur collègue */}
-              {isFromColleague && (
-                <Badge variant="outline" className="text-xs h-5 px-2 bg-sky-100 text-sky-700 border-sky-300">
-                  <User className="h-3 w-3 mr-1" />
-                  {cr.createdBy}
-                </Badge>
-              )}
-
-              {/* Badges pour les synthèses d'instructions */}
-              {isSynthese && crInstruction.acteType && (
-                <div className="flex items-center gap-1">
-                  <Badge variant="outline" className="text-xs h-5 px-2 bg-blue-100 text-blue-700 border-blue-300">
-                    <FileText className="h-3 w-3 mr-1" />
-                    Synthèse
-                  </Badge>
-                  <Badge variant="outline" className="text-xs h-5 px-2 bg-white">
-                    {getActeTypeLabel(crInstruction.acteType)}
-                  </Badge>
-                  {crInstruction.dateActe && (
-                    <Badge variant="outline" className="text-xs h-5 px-2 bg-white">
-                      <Calendar className="h-3 w-3 mr-1" />
-                      {new Date(crInstruction.dateActe).toLocaleDateString()}
-                    </Badge>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div
-              className="text-gray-600 mt-1 text-sm break-words"
-              style={{ wordBreak: 'break-word', hyphens: 'auto' }}
-              dangerouslySetInnerHTML={{ __html: renderFormattedText(formatDescription(cr.description)) }}
-            />
-          </div>
-
-          {isEditing && (
-            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setError(null);
-                  setEditingCR(cr);
-                }}
-              >
-                Modifier
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-red-500 hover:text-red-700"
-                onClick={() => onDeleteCR(cr.id)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
+  const handleDeleteItem = useCallback((id: number) => {
+    onDeleteCR(id);
+  }, [onDeleteCR]);
 
   return (
     <div>
@@ -603,7 +602,18 @@ export const CompteRenduSection = memo(({
       </div>
 
       <div className="space-y-4">
-        {sortedCRs.map(renderCR)}
+        {sortedCRs.map(cr => (
+          <CompteRenduItem
+            key={cr.id}
+            cr={cr}
+            isEditing={isEditing}
+            currentUser={currentUser}
+            contentieuxId={contentieuxId}
+            isInstruction={isInstruction}
+            onEdit={handleEditItem}
+            onDelete={handleDeleteItem}
+          />
+        ))}
       </div>
 
       {/* Modal de choix du type (Instructions uniquement) */}
@@ -765,8 +775,8 @@ export const CompteRenduSection = memo(({
         >
           <DialogContent
             ref={dialogRef}
-            className="w-[500px] overflow-auto max-h-[80vh] fixed transform-none shadow-xl border border-gray-300"
-            style={{ top: '40%', left: '55%' }}
+            className="w-[500px] fixed transform-none shadow-xl border border-gray-300"
+            style={{ top: '8%', left: 'min(62vw, calc(100vw - 520px))' }}
             onInteractOutside={(e) => e.preventDefault()}
           >
             {/* Boîte de confirmation fermeture */}
@@ -837,9 +847,12 @@ export const CompteRenduSection = memo(({
                 }}
               />
               
-              {/* Barre de mise en forme WYSIWYG */}
-              <div>
-                <div className="flex gap-1 p-1 border border-b-0 rounded-t bg-gray-50 text-xs text-gray-400 items-center">
+              {/* Barre de mise en forme WYSIWYG.
+                  La toolbar est sticky et le contentEditable est l'élément
+                  scrollable : la molette défile naturellement le texte et la
+                  barre d'outils reste toujours visible, même pour un long CR. */}
+              <div className="flex flex-col min-h-0">
+                <div className="sticky top-0 z-10 flex gap-1 p-1 border border-b-0 rounded-t bg-gray-50 text-xs text-gray-400 items-center">
                   <button
                     type="button"
                     title="Gras — Ctrl+B"
@@ -871,13 +884,13 @@ export const CompteRenduSection = memo(({
                   ref={editorRef}
                   contentEditable
                   suppressContentEditableWarning
-                  className="w-full min-h-[200px] p-2 border rounded-b rounded-t-none focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="w-full min-h-[200px] max-h-[55vh] overflow-y-auto p-2 border rounded-b rounded-t-none focus:outline-none focus:ring-1 focus:ring-ring"
                   style={{ wordBreak: 'break-word', hyphens: 'auto' }}
                   data-placeholder={isInstruction && (localCR as CompteRenduInstruction)?.type === 'synthese'
                     ? "Synthèse de l'acte procédural..."
                     : "Description"}
                   onPaste={handlePaste}
-                  onInput={() => { setIsDirty(true); scheduleDraftSave(); }}
+                  onInput={() => { isDirtyRef.current = true; scheduleDraftSave(); }}
                 />
               </div>
             </div>
