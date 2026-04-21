@@ -11,6 +11,7 @@ import {
 import { canDo as canDoCheck, isAdmin as isAdminCheck, getSyncMode } from '@/utils/permissions';
 import { migrateToMultiContentieux } from '@/utils/migration/migrateToMultiContentieux';
 import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
+import { ContentieuxManager } from '@/utils/contentieuxManager';
 
 interface UserState {
   isLoading: boolean;
@@ -64,10 +65,29 @@ export const useUserStore = create<UserState>((set, get) => ({
           isAuthenticated: true,
         });
 
+        // Hydrater le cache ContentieuxManager pour tous les contentieux accessibles.
+        // Sans cet appel, setEnquetes/getSyncMode/getLoadedContentieuxIds opèrent sur
+        // une Map vide → co-saisines invisibles côté cible, transfert sans cibles,
+        // listener réactif jamais déclenché.
+        const syncModesAll = new Map<ContentieuxId, 'read_write' | 'read_only' | 'none'>();
+        for (const cId of ctx.accessibleContentieux) {
+          syncModesAll.set(cId, getSyncMode(ctx, cId));
+        }
+        try {
+          await ContentieuxManager.getInstance().loadContentieux(
+            defs,
+            ctx.accessibleContentieux,
+            syncModesAll,
+          );
+        } catch (mgrErr) {
+          console.error('UserStore: hydratation ContentieuxManager échouée', mgrErr);
+        }
+
         // Initialiser la synchronisation multi-contentieux
         const syncModes = new Map<ContentieuxId, 'read_write' | 'read_only'>();
         for (const cId of ctx.accessibleContentieux) {
-          syncModes.set(cId, getSyncMode(ctx, cId));
+          const m = syncModesAll.get(cId);
+          if (m && m !== 'none') syncModes.set(cId, m);
         }
         try {
           await MultiSyncManager.getInstance().initialize(defs, ctx.accessibleContentieux, syncModes);

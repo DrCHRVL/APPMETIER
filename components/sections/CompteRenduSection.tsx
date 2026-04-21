@@ -8,7 +8,7 @@ import { Enquete, CompteRendu, EnqueteInstruction } from '@/types/interfaces';
 import { X, FileText, Calendar, User } from 'lucide-react';
 import { useMemo, useState, useRef, useEffect, useCallback, memo, MouseEvent } from 'react';
 import { useUser } from '@/contexts/UserContext';
-import { renderFormattedText } from '@/lib/formatCR';
+import { renderFormattedText, stripClipboardNoise } from '@/lib/formatCR';
 
 interface CompteRenduSectionProps {
   enquete: Enquete | EnqueteInstruction;
@@ -537,8 +537,21 @@ export const CompteRenduSection = memo(({
       // Nettoyer le HTML (retirer styles inline, classes Office, spans inutiles)
       const tmp = document.createElement('div');
       tmp.innerHTML = html;
-      // Supprimer les balises style, script, meta, link
-      tmp.querySelectorAll('style, script, meta, link, title, xml').forEach(el => el.remove());
+      // Supprimer d'abord tous les Comment nodes (conditionnels MSO
+      // <!--[if gte mso 9]>…<![endif]--> sont stockés comme commentaires DOM
+      // et re-sérialisés tels quels par innerHTML si on ne les retire pas ici).
+      const removeComments = (root: Node) => {
+        for (const child of Array.from(root.childNodes)) {
+          if (child.nodeType === Node.COMMENT_NODE) {
+            child.parentNode?.removeChild(child);
+          } else if (child.nodeType === Node.ELEMENT_NODE) {
+            removeComments(child);
+          }
+        }
+      };
+      removeComments(tmp);
+      // Supprimer les balises style, script, meta, link + éléments à classe Mso*
+      tmp.querySelectorAll('style, script, meta, link, title, xml, [class^="Mso"]').forEach(el => el.remove());
       // Supprimer tous les attributs sauf href sur <a>
       const walk = (node: Element) => {
         const attrs = [...node.attributes];
@@ -549,11 +562,26 @@ export const CompteRenduSection = memo(({
         for (const child of node.children) walk(child);
       };
       walk(tmp);
-      // Remplacer les divs/spans vides ou inutiles par leur contenu
-      tmp.querySelectorAll('span, font, o\\:p').forEach(el => {
+      // Déballer spans/fonts inutiles + tout élément à préfixe namespacé
+      // (o:, w:, m:, v:, st1:…) en gardant uniquement leur contenu textuel.
+      tmp.querySelectorAll('span, font').forEach(el => {
         el.replaceWith(...el.childNodes);
       });
-      cleanHtml = tmp.innerHTML;
+      const unwrapNamespaced = () => {
+        const all = tmp.getElementsByTagName('*');
+        // Itération inverse : le DOM se réorganise à chaque replaceWith.
+        for (let i = all.length - 1; i >= 0; i--) {
+          const el = all[i];
+          if (el.tagName.includes(':')) {
+            el.replaceWith(...el.childNodes);
+          }
+        }
+      };
+      unwrapNamespaced();
+      // Passe finale via stripClipboardNoise pour attraper d'éventuels résidus
+      // sérialisés (commentaires orphelins, balises `<o:OfficeDocumentSettings>`
+      // que querySelectorAll n'aurait pas matché sur certains parsers).
+      cleanHtml = stripClipboardNoise(tmp.innerHTML);
     } else {
       // Texte brut : convertir les sauts de ligne en <br>
       cleanHtml = plain.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
