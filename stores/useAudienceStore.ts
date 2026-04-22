@@ -145,6 +145,8 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
 
       if (Object.keys(cleanedResultats).length !== Object.keys(freshResultats).length) {
         electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, cleanedResultats);
+        // Propager le nettoyage (résultats orphelins) vers le serveur commun
+        audienceSyncService.schedulePush();
       }
     };
 

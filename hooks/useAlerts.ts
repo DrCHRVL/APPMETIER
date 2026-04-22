@@ -304,6 +304,8 @@ export const useAlerts = (enquetes: Enquete[]) => {
       setAlertRules(prev => {
         const updatedRules = prev.filter(rule => rule.id !== ruleId);
         ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, updatedRules);
+        lastPersistedRulesRef.current = JSON.stringify(updatedRules);
+        alertSyncService.schedulePush();
         return updatedRules;
       });
     }, THROTTLE_DELAY),

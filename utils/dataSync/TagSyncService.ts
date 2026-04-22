@@ -7,7 +7,7 @@
 import { ElectronBridge } from '@/utils/electronBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { TagDefinition } from '@/config/tags';
-import { TagRequest } from '@/utils/tagRequestManager';
+import type { TagRequest } from '@/utils/tagRequestManager';
 import { TagSyncFile } from '@/types/globalSyncTypes';
 import {
   getCurrentUserInfo,
