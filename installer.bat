@@ -1,12 +1,15 @@
 @echo off
 setlocal enabledelayedexpansion
-set EXITCODE=0
 
 rem ============================================================
-rem  Resolution des chemins
-rem  - PROJECT_DIR : dossier contenant installer.bat (racine du projet)
-rem  - PARENT_DIR  : dossier parent -> recoit nodejs, electron, launcher.bat
+rem  APPMETIER - Installation des runtimes portables
+rem
+rem  Role : telecharger et extraire Node.js et Electron au
+rem  dossier parent, copier le launcher, et laisser au launcher
+rem  le soin de faire npm install + build au premier lancement
+rem  via le mecanisme data\post-update.flag.
 rem ============================================================
+
 set "BASE_DIR=%~dp0"
 set "PROJECT_DIR=%BASE_DIR:~0,-1%"
 for %%I in ("%PROJECT_DIR%\..") do set "PARENT_DIR=%%~fI"
@@ -15,304 +18,154 @@ set "NODE_VERSION=v20.11.1"
 set "NODE_ZIP=node-%NODE_VERSION%-win-x64.zip"
 set "NODE_URL=https://nodejs.org/dist/%NODE_VERSION%/%NODE_ZIP%"
 set "NODE_DIR=%PARENT_DIR%\nodejs"
-set "NODE_EXE=%NODE_DIR%\node.exe"
 
 set "ELECTRON_VERSION=v30.5.1"
 set "ELECTRON_ZIP=electron-%ELECTRON_VERSION%-win32-x64.zip"
 set "ELECTRON_URL=https://github.com/electron/electron/releases/download/%ELECTRON_VERSION%/%ELECTRON_ZIP%"
 set "ELECTRON_DIR=%PARENT_DIR%\electron"
-set "ELECTRON_EXE=%ELECTRON_DIR%\electron.exe"
 
 set "RIE_PROXY=http://rie-proxy.justice.gouv.fr:8080"
 
-rem Detection unique de tar.exe (bsdtar natif livre avec Win10 1803+ / Win11).
-rem Priorite : binaire C monoprocessus, surface d'interception AV reduite
-rem par rapport a PowerShell Expand-Archive. Fallback PS si absent/KO.
-set "TAR_EXE="
-where tar.exe >nul 2>&1 && set "TAR_EXE=tar.exe"
+rem Dossier temporaire UNIQUE par execution : immunise contre les
+rem fichiers laisses verrouilles par l'antivirus d'un run precedent.
+set "WORK_DIR=%TEMP%\appmetier-%RANDOM%%RANDOM%"
+mkdir "%WORK_DIR%" 2>nul
 
 cd /d "%BASE_DIR%"
-
 if not exist "package.json" (
-    echo ERREUR: package.json introuvable dans "!BASE_DIR!"
+    echo ERREUR: package.json introuvable dans "%BASE_DIR%".
     echo Ce script doit etre lance depuis le dossier racine du projet.
-    set EXITCODE=1
-    goto :END
+    goto :ERR
+)
+
+where curl.exe >nul 2>&1 || (
+    echo ERREUR: curl.exe introuvable. Windows 10 1803+ ou superieur requis.
+    goto :ERR
+)
+where tar.exe >nul 2>&1 || (
+    echo ERREUR: tar.exe introuvable. Windows 10 1803+ ou superieur requis.
+    goto :ERR
 )
 
 echo ============================================================
-echo   INSTALLATION APPMETIER
+echo   APPMETIER - INSTALLATION DES RUNTIMES
 echo ============================================================
-echo Projet : !PROJECT_DIR!
-echo Parent : !PARENT_DIR!
+echo Projet : %PROJECT_DIR%
+echo Parent : %PARENT_DIR%
 echo.
 
-rem ============================================================
-rem [1/6] Node.js portable (au niveau parent)
-rem ============================================================
-echo [1/6] Node.js portable (%NODE_VERSION%) - cible "!NODE_DIR!"
-if exist "!NODE_EXE!" (
+rem ------------------------------------------------------------
+rem [1/3] Node.js portable
+rem ------------------------------------------------------------
+echo [1/3] Node.js %NODE_VERSION%
+if exist "%NODE_DIR%\node.exe" (
     echo       Deja present : OK
     goto :AFTER_NODE
 )
-
-echo       Telechargement depuis %NODE_URL% ...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol='Tls12'; try { Invoke-WebRequest -Uri '%NODE_URL%' -OutFile '%TEMP%\%NODE_ZIP%' -UseBasicParsing -ErrorAction Stop } catch { Write-Host '       Connexion directe echouee, tentative via proxy RIE...'; Invoke-WebRequest -Uri '%NODE_URL%' -OutFile '%TEMP%\%NODE_ZIP%' -UseBasicParsing -Proxy '%RIE_PROXY%' -ErrorAction Stop }"
+echo       Telechargement...
+call :DOWNLOAD "%NODE_URL%" "%WORK_DIR%\%NODE_ZIP%"
 if !ERRORLEVEL! neq 0 (
-    echo ERREUR: Telechargement de Node.js echoue.
-    echo Verifiez votre connexion reseau ou le proxy.
-    set EXITCODE=1
-    goto :END
+    echo ERREUR: telechargement Node.js echoue.
+    goto :ERR
 )
-
 echo       Extraction...
-if not exist "!PARENT_DIR!" mkdir "!PARENT_DIR!" 2>nul
-
-rem Nettoyage best-effort d'une install precedente. Plus de 2>nul : si le
-rem dossier reste verrouille on le signale et on continue, le staging a nom
-rem unique ci-dessous est immunise contre les collisions.
-if exist "!NODE_DIR!" (
-    rmdir /S /Q "!NODE_DIR!"
-    if exist "!NODE_DIR!" echo       Avertissement: "!NODE_DIR!" partiellement verrouille, on passe par un dossier temporaire.
-)
-
-rem Staging a nom unique sous PARENT_DIR : elimine toute collision avec un
-rem dossier residuel (ex: node-v20.11.1-win-x64\ d'un run precedent sous
-rem verrou AV). Staging et cible restent freres sous PARENT_DIR -> le move
-rem final est un rename NTFS atomique intra-repertoire.
-set "STAGE=!PARENT_DIR!\.stage-node-%RANDOM%%RANDOM%"
-mkdir "!STAGE!" 2>nul
-if not exist "!STAGE!" (
-    echo ERREUR: creation du dossier staging "!STAGE!" refusee.
-    set EXITCODE=1
-    goto :END
-)
-
-rem Extraction : tar.exe (bsdtar) en priorite, fallback PowerShell avec
-rem try/catch pour remonter la VRAIE cause d'erreur.
-set "EXTRACT_OK=0"
-if defined TAR_EXE (
-    pushd "!STAGE!"
-    tar.exe -xf "%TEMP%\%NODE_ZIP%"
-    if !ERRORLEVEL! equ 0 set "EXTRACT_OK=1"
-    popd
-)
-if "!EXTRACT_OK!"=="0" (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Expand-Archive -Path '%TEMP%\%NODE_ZIP%' -DestinationPath '!STAGE!' -Force -ErrorAction Stop } catch { Write-Host ''; Write-Host '       Echec extraction Node.js :'; Write-Host ('       ' + $_.Exception.Message); Write-Host '       Causes frequentes : OneDrive/Controlled Folder Access, antivirus, ACL.'; exit 1 }"
-    if !ERRORLEVEL! neq 0 (
-        rmdir /S /Q "!STAGE!" 2>nul
-        echo ERREUR: Extraction de Node.js echouee.
-        set EXITCODE=1
-        goto :END
-    )
-)
-
-rem Promotion : rename NTFS atomique intra-PARENT_DIR via MoveFileEx.
-move /Y "!STAGE!\node-%NODE_VERSION%-win-x64" "!NODE_DIR!" >nul
+tar.exe -xf "%WORK_DIR%\%NODE_ZIP%" -C "%WORK_DIR%"
 if !ERRORLEVEL! neq 0 (
-    echo ERREUR: renommage final vers "!NODE_DIR!" refuse.
-    echo Causes frequentes : OneDrive/Controlled Folder Access, antivirus, ACL.
-    rmdir /S /Q "!STAGE!" 2>nul
-    set EXITCODE=1
-    goto :END
+    echo ERREUR: extraction Node.js echouee.
+    goto :ERR
 )
-rmdir /S /Q "!STAGE!" 2>nul
-
-del "%TEMP%\%NODE_ZIP%" 2>nul
-
-if not exist "!NODE_EXE!" (
-    echo ERREUR: "!NODE_EXE!" introuvable apres extraction.
-    set EXITCODE=1
-    goto :END
+if exist "%NODE_DIR%" rmdir /S /Q "%NODE_DIR%" 2>nul
+move "%WORK_DIR%\node-%NODE_VERSION%-win-x64" "%NODE_DIR%" >nul
+if not exist "%NODE_DIR%\node.exe" (
+    echo ERREUR: node.exe introuvable apres extraction.
+    goto :ERR
 )
 echo       OK
-
 :AFTER_NODE
 echo.
 
-rem ============================================================
-rem [2/6] Electron portable (au niveau parent)
-rem ============================================================
-echo [2/6] Electron portable (%ELECTRON_VERSION%) - cible "!ELECTRON_DIR!"
-if exist "!ELECTRON_EXE!" (
+rem ------------------------------------------------------------
+rem [2/3] Electron portable
+rem ------------------------------------------------------------
+echo [2/3] Electron %ELECTRON_VERSION%
+if exist "%ELECTRON_DIR%\electron.exe" (
     echo       Deja present : OK
     goto :AFTER_ELECTRON
 )
-
-echo       Telechargement depuis %ELECTRON_URL% ...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol='Tls12'; try { Invoke-WebRequest -Uri '%ELECTRON_URL%' -OutFile '%TEMP%\%ELECTRON_ZIP%' -UseBasicParsing -ErrorAction Stop } catch { Write-Host '       Connexion directe echouee, tentative via proxy RIE...'; Invoke-WebRequest -Uri '%ELECTRON_URL%' -OutFile '%TEMP%\%ELECTRON_ZIP%' -UseBasicParsing -Proxy '%RIE_PROXY%' -ErrorAction Stop }"
+echo       Telechargement...
+call :DOWNLOAD "%ELECTRON_URL%" "%WORK_DIR%\%ELECTRON_ZIP%"
 if !ERRORLEVEL! neq 0 (
-    echo ERREUR: Telechargement d'Electron echoue.
-    set EXITCODE=1
-    goto :END
+    echo ERREUR: telechargement Electron echoue.
+    goto :ERR
 )
-
 echo       Extraction...
-
-rem Nettoyage best-effort (voir commentaire du bloc Node.js plus haut).
-if exist "!ELECTRON_DIR!" (
-    rmdir /S /Q "!ELECTRON_DIR!"
-    if exist "!ELECTRON_DIR!" echo       Avertissement: "!ELECTRON_DIR!" partiellement verrouille, on passe par un dossier temporaire.
-)
-
-rem Staging a nom unique. L'archive Electron n'a pas de wrapper folder
-rem (fichiers a la racine du zip) : on extrait dans STAGE, puis on renomme
-rem STAGE lui-meme en ELECTRON_DIR (rename intra-PARENT_DIR, atomique).
-set "STAGE=!PARENT_DIR!\.stage-electron-%RANDOM%%RANDOM%"
-mkdir "!STAGE!" 2>nul
-if not exist "!STAGE!" (
-    echo ERREUR: creation du dossier staging "!STAGE!" refusee.
-    set EXITCODE=1
-    goto :END
-)
-
-set "EXTRACT_OK=0"
-if defined TAR_EXE (
-    pushd "!STAGE!"
-    tar.exe -xf "%TEMP%\%ELECTRON_ZIP%"
-    if !ERRORLEVEL! equ 0 set "EXTRACT_OK=1"
-    popd
-)
-if "!EXTRACT_OK!"=="0" (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Expand-Archive -Path '%TEMP%\%ELECTRON_ZIP%' -DestinationPath '!STAGE!' -Force -ErrorAction Stop } catch { Write-Host ''; Write-Host '       Echec extraction Electron :'; Write-Host ('       ' + $_.Exception.Message); Write-Host '       Causes frequentes : OneDrive/Controlled Folder Access, antivirus, ACL.'; exit 1 }"
-    if !ERRORLEVEL! neq 0 (
-        rmdir /S /Q "!STAGE!" 2>nul
-        echo ERREUR: Extraction d'Electron echouee.
-        set EXITCODE=1
-        goto :END
-    )
-)
-
-rem Promotion : STAGE devient ELECTRON_DIR (rename intra-PARENT_DIR).
-move /Y "!STAGE!" "!ELECTRON_DIR!" >nul
+if exist "%ELECTRON_DIR%" rmdir /S /Q "%ELECTRON_DIR%" 2>nul
+mkdir "%ELECTRON_DIR%" 2>nul
+tar.exe -xf "%WORK_DIR%\%ELECTRON_ZIP%" -C "%ELECTRON_DIR%"
 if !ERRORLEVEL! neq 0 (
-    echo ERREUR: renommage final vers "!ELECTRON_DIR!" refuse.
-    echo Causes frequentes : OneDrive/Controlled Folder Access, antivirus, ACL.
-    rmdir /S /Q "!STAGE!" 2>nul
-    set EXITCODE=1
-    goto :END
+    echo ERREUR: extraction Electron echouee.
+    goto :ERR
 )
-
-del "%TEMP%\%ELECTRON_ZIP%" 2>nul
-
-if not exist "!ELECTRON_EXE!" (
-    echo ERREUR: "!ELECTRON_EXE!" introuvable apres extraction.
-    set EXITCODE=1
-    goto :END
+if not exist "%ELECTRON_DIR%\electron.exe" (
+    echo ERREUR: electron.exe introuvable apres extraction.
+    goto :ERR
 )
 echo       OK
-
 :AFTER_ELECTRON
 echo.
 
-rem ============================================================
-rem [3/6] npm install
-rem ============================================================
-echo [3/6] Installation des dependances (npm install)
-rem Ajout de nodejs au PATH : permet d'appeler 'node' et 'npm.cmd' sans chemin absolu
-rem (evite les pieges de guillemets imbriques quand le chemin contient des parentheses)
-set "PATH=!NODE_DIR!;%PATH%"
-rem Ne pas retelecharger le binaire Electron (on a deja la version portable)
-set ELECTRON_SKIP_BINARY_DOWNLOAD=1
-
-rem Config npm de base
-call npm.cmd config set registry https://registry.npmjs.org/ >nul 2>&1
-call npm.cmd config set strict-ssl false >nul 2>&1
-
-rem Detection auto du proxy : test de connexion directe au registry
-node -e "const req=require('https').get('https://registry.npmjs.org/',r=>process.exit(r.statusCode===200?0:1));req.on('error',()=>process.exit(1));req.setTimeout(5000,()=>{req.destroy();process.exit(1)})" >nul 2>&1
+rem ------------------------------------------------------------
+rem [3/3] Deploiement launcher + flag post-update
+rem ------------------------------------------------------------
+echo [3/3] Deploiement du launcher
+copy /Y "%BASE_DIR%launcher.bat" "%PARENT_DIR%\launcher.bat" >nul
 if !ERRORLEVEL! neq 0 (
-    echo       Connexion directe echouee, configuration du proxy RIE...
-    call npm.cmd config set proxy %RIE_PROXY% >nul 2>&1
-    call npm.cmd config set https-proxy %RIE_PROXY% >nul 2>&1
-) else (
-    call npm.cmd config delete proxy >nul 2>&1
-    call npm.cmd config delete https-proxy >nul 2>&1
+    echo ERREUR: copie de launcher.bat vers "%PARENT_DIR%" echouee.
+    goto :ERR
 )
 
-echo       Cela peut prendre quelques minutes...
-rem Ne pas utiliser --omit=dev : le build Next.js a besoin de typescript,
-rem tailwindcss, postcss et autoprefixer (declares en devDependencies).
-call npm.cmd install --no-audit --no-fund
-if !ERRORLEVEL! neq 0 (
-    echo ERREUR: npm install a echoue.
-    echo Causes possibles : reseau, proxy, permissions.
-    set EXITCODE=1
-    goto :END
-)
-if not exist "node_modules" (
-    echo ERREUR: node_modules non cree.
-    set EXITCODE=1
-    goto :END
-)
-echo       OK
+rem Flag lu par launcher.bat (via scripts\read-update-flag.js) pour
+rem declencher npm install + build au premier lancement.
+if not exist "%PROJECT_DIR%\data" mkdir "%PROJECT_DIR%\data" 2>nul
+> "%PROJECT_DIR%\data\post-update.flag" echo {"needsInstall":true}
+
+echo       OK : "%PARENT_DIR%\launcher.bat"
 echo.
 
-rem ============================================================
-rem [4/6] npm run build (next build)
-rem ============================================================
-echo [4/6] Compilation de l'application (next build)
-echo       Cela peut prendre 2 a 5 minutes...
-node scripts\build-with-timeout.js 600
-if !ERRORLEVEL! neq 0 (
-    echo ERREUR: le build a echoue. Voir .next\build.log pour le detail.
-    set EXITCODE=1
-    goto :END
-)
-if not exist ".next\standalone\server.js" (
-    echo ERREUR: .next\standalone\server.js manquant apres build.
-    set EXITCODE=1
-    goto :END
-)
-echo       OK
-echo.
-
-rem ============================================================
-rem [5/6] Signature d'integrite (.integrity)
-rem ============================================================
-echo [5/6] Signature SHA-256 (.integrity)
-node scripts\generate-integrity.js "."
-if !ERRORLEVEL! neq 0 (
-    echo ERREUR: generation .integrity echouee.
-    set EXITCODE=1
-    goto :END
-)
-if not exist ".integrity" (
-    echo ERREUR: fichier .integrity non cree.
-    set EXITCODE=1
-    goto :END
-)
-echo       OK
-echo.
-
-rem ============================================================
-rem [6/6] Deploiement du launcher au dossier parent
-rem ============================================================
-echo [6/6] Deploiement du launcher au dossier parent
-copy /Y "!BASE_DIR!launcher.bat" "!PARENT_DIR!\launcher.bat" >nul
-if !ERRORLEVEL! neq 0 (
-    echo ERREUR: copie de launcher.bat vers "!PARENT_DIR!" echouee.
-    set EXITCODE=1
-    goto :END
-)
-echo       OK : "!PARENT_DIR!\launcher.bat"
-echo.
+rmdir /S /Q "%WORK_DIR%" 2>nul
 
 echo ============================================================
 echo   INSTALLATION TERMINEE
 echo ============================================================
 echo.
 echo Lancez l'application en double-cliquant sur :
-echo   "!PARENT_DIR!\launcher.bat"
+echo   "%PARENT_DIR%\launcher.bat"
 echo.
+echo Le premier lancement installera les dependances npm et
+echo compilera l'application (2 a 5 minutes selon la machine).
+echo.
+pause
+exit /b 0
 
-:END
-if !EXITCODE! neq 0 (
-    echo ============================================================
-    echo   ECHEC - voir les messages ci-dessus
-    echo ============================================================
-)
+:ERR
+rmdir /S /Q "%WORK_DIR%" 2>nul
 echo.
-echo Appuyez sur une touche pour fermer...
-pause >nul
-exit /b !EXITCODE!
+echo ============================================================
+echo   ECHEC - voir les messages ci-dessus
+echo ============================================================
+echo.
+pause
+exit /b 1
+
+rem ============================================================
+rem  Sous-routine de telechargement
+rem  Essai 1 : connexion directe
+rem  Essai 2 : proxy RIE (justice.gouv.fr)
+rem  Args   : %1 = URL, %2 = fichier de destination
+rem ============================================================
+:DOWNLOAD
+curl.exe -L --fail --show-error -o %2 %1
+if !ERRORLEVEL! equ 0 exit /b 0
+echo       Connexion directe echouee, tentative via proxy RIE...
+curl.exe -L --fail --show-error --proxy "%RIE_PROXY%" -o %2 %1
+exit /b !ERRORLEVEL!
