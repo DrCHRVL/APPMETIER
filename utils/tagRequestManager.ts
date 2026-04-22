@@ -1,5 +1,6 @@
 // utils/tagRequestManager.ts — Gestion des demandes de création de tags service
 import { ElectronBridge } from './electronBridge';
+import { tagSyncService } from './dataSync/TagSyncService';
 
 const TAG_REQUESTS_KEY = 'tag_requests';
 
@@ -35,6 +36,7 @@ export const tagRequestManager = {
     };
     all.push(newRequest);
     await ElectronBridge.setData(TAG_REQUESTS_KEY, all);
+    tagSyncService.schedulePush();
     return newRequest;
   },
 
@@ -46,6 +48,7 @@ export const tagRequestManager = {
       all[idx].reviewedBy = reviewedBy;
       all[idx].reviewedAt = new Date().toISOString();
       await ElectronBridge.setData(TAG_REQUESTS_KEY, all);
+      tagSyncService.schedulePush();
     }
   },
 
@@ -53,5 +56,6 @@ export const tagRequestManager = {
     const all = await this.getRequests();
     const pending = all.filter(r => r.status === 'pending');
     await ElectronBridge.setData(TAG_REQUESTS_KEY, pending);
+    tagSyncService.schedulePush();
   }
 };

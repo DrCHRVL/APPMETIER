@@ -96,6 +96,17 @@ interface ElectronAPI {
   dataSync_checkAccess?: () => Promise<boolean>;
   dataSync_pull?: () => Promise<{ data: import('./dataSyncTypes').SyncData; metadata: import('./dataSyncTypes').SyncMetadata } | null>;
   dataSync_push?: (data: import('./dataSyncTypes').SyncData, metadata: import('./dataSyncTypes').SyncMetadata) => Promise<boolean>;
+
+  // Fichiers globaux partagés (tag-data.json, audience-data.json)
+  globalSync_pullTags?: () => Promise<import('./globalSyncTypes').TagSyncFile | null>;
+  globalSync_pushTags?: (payload: import('./globalSyncTypes').TagSyncFile) => Promise<boolean>;
+  globalSync_pullAudience?: () => Promise<import('./globalSyncTypes').AudienceSyncFile | null>;
+  globalSync_pushAudience?: (payload: import('./globalSyncTypes').AudienceSyncFile) => Promise<boolean>;
+  globalSync_pullAlerts?: () => Promise<import('./globalSyncTypes').AlertSyncFile | null>;
+  globalSync_pushAlerts?: (payload: import('./globalSyncTypes').AlertSyncFile) => Promise<boolean>;
+  globalSync_pullDeletedIds?: () => Promise<import('./globalSyncTypes').DeletedIdsSyncFile | null>;
+  globalSync_pushDeletedIds?: (payload: import('./globalSyncTypes').DeletedIdsSyncFile) => Promise<boolean>;
+  globalSync_readLegacyAppData?: () => Promise<any | null>;
   /** Copie le fichier sync serveur actuel vers un fichier backup avec le nom fourni (ou écrase l'unique backup si aucun nom). */
   dataSync_backupServer?: (filename?: string) => Promise<boolean>;
   /** Supprime un fichier backup du dossier serveur. */

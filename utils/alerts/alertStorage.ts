@@ -1,5 +1,6 @@
 import { Alert, AlertValidation, AlertValidations } from '@/types/interfaces';
 import { ElectronBridge } from '../electronBridge';
+import { alertSyncService } from '../dataSync/AlertSyncService';
 
 const ALERTS_KEY = 'alerts';
 const VALIDATED_ALERTS_KEY = 'alert_validations';
@@ -35,6 +36,7 @@ export const AlertStorage = {
     const validations = await this.getValidations();
     validations[key] = validation;
     await ElectronBridge.setData(VALIDATED_ALERTS_KEY, validations);
+    alertSyncService.schedulePush();
   },
 
   async cleanupValidations(): Promise<void> {
@@ -53,5 +55,6 @@ export const AlertStorage = {
     );
 
     await ElectronBridge.setData(VALIDATED_ALERTS_KEY, updatedValidations);
+    alertSyncService.schedulePush();
   }
 };

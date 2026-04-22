@@ -1,17 +1,34 @@
 import { GeolocData, EcouteData, AutreActe, ActeStatus } from '@/types/interfaces';
 import { DateUtils } from './dateUtils';
 import { ElectronBridge } from './electronBridge';
+import { deletedIdsSyncService } from './dataSync/DeletedIdsSyncService';
 
-const DELETED_ACTE_IDS_KEY = 'deleted_acte_ids';
-const DELETED_CR_IDS_KEY   = 'deleted_cr_ids';
-const DELETED_MEC_IDS_KEY  = 'deleted_mec_ids';
+const DELETED_ENQUETE_IDS_KEY = 'deleted_ids';
+const DELETED_ACTE_IDS_KEY    = 'deleted_acte_ids';
+const DELETED_CR_IDS_KEY      = 'deleted_cr_ids';
+const DELETED_MEC_IDS_KEY     = 'deleted_mec_ids';
+
+async function appendTombstone(key: string, id: number): Promise<void> {
+  const existing = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(key, []);
+  const normalized = (Array.isArray(existing) ? existing : []).filter(e => e.id !== id);
+  await ElectronBridge.setData(key, [...normalized, { id, deletedAt: new Date().toISOString() }]);
+}
+
+/** Mémorise l'ID d'une enquête supprimée pour empêcher sa résurrection via sync. */
+export async function trackDeletedEnqueteId(id: number): Promise<void> {
+  try {
+    await appendTombstone(DELETED_ENQUETE_IDS_KEY, id);
+    deletedIdsSyncService.schedulePush();
+  } catch (error) {
+    console.error('❌ Erreur mémorisation ID enquête supprimée:', error);
+  }
+}
 
 /** Mémorise l'ID d'un acte/écoute/géoloc supprimé pour empêcher la resynchronisation. */
 export async function trackDeletedActeId(id: number): Promise<void> {
   try {
-    const existing = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(DELETED_ACTE_IDS_KEY, []);
-    const normalized = (Array.isArray(existing) ? existing : []).filter(e => e.id !== id);
-    await ElectronBridge.setData(DELETED_ACTE_IDS_KEY, [...normalized, { id, deletedAt: new Date().toISOString() }]);
+    await appendTombstone(DELETED_ACTE_IDS_KEY, id);
+    deletedIdsSyncService.schedulePush();
   } catch (error) {
     console.error('❌ Erreur mémorisation ID acte supprimé:', error);
   }
@@ -20,9 +37,8 @@ export async function trackDeletedActeId(id: number): Promise<void> {
 /** Mémorise l'ID d'un compte rendu supprimé pour empêcher la resynchronisation. */
 export async function trackDeletedCRId(id: number): Promise<void> {
   try {
-    const existing = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(DELETED_CR_IDS_KEY, []);
-    const normalized = (Array.isArray(existing) ? existing : []).filter(e => e.id !== id);
-    await ElectronBridge.setData(DELETED_CR_IDS_KEY, [...normalized, { id, deletedAt: new Date().toISOString() }]);
+    await appendTombstone(DELETED_CR_IDS_KEY, id);
+    deletedIdsSyncService.schedulePush();
   } catch (error) {
     console.error('❌ Erreur mémorisation ID CR supprimé:', error);
   }
@@ -31,9 +47,8 @@ export async function trackDeletedCRId(id: number): Promise<void> {
 /** Mémorise l'ID d'un mis en cause supprimé pour empêcher la resynchronisation. */
 export async function trackDeletedMECId(id: number): Promise<void> {
   try {
-    const existing = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(DELETED_MEC_IDS_KEY, []);
-    const normalized = (Array.isArray(existing) ? existing : []).filter(e => e.id !== id);
-    await ElectronBridge.setData(DELETED_MEC_IDS_KEY, [...normalized, { id, deletedAt: new Date().toISOString() }]);
+    await appendTombstone(DELETED_MEC_IDS_KEY, id);
+    deletedIdsSyncService.schedulePush();
   } catch (error) {
     console.error('❌ Erreur mémorisation ID MEC supprimé:', error);
   }

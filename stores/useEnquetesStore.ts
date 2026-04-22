@@ -14,6 +14,7 @@ import { ElectronBridge } from '@/utils/electronBridge';
 import { ContentieuxId } from '@/types/userTypes';
 import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
 import { ContentieuxManager } from '@/utils/contentieuxManager';
+import { trackDeletedEnqueteId, trackDeletedCRId } from '@/utils/acteUtils';
 import throttle from 'lodash/throttle';
 
 const SAVE_THROTTLE = 2500;
@@ -313,6 +314,9 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       ...updateOwn(state, prev => prev.filter(e => e.id !== id)),
       selectedEnquete: null,
     }));
+    // Pose un tombstone pour éviter que l'enquête ne revienne quand un
+    // collègue avec un cache plus ancien re-pousse son état.
+    trackDeletedEnqueteId(id).catch(() => {});
     _saveThrottled();
   },
 
@@ -448,6 +452,8 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
   },
 
   deleteCR: (enqueteId: number, crId: number) => {
+    // Tombstone : le CR ne doit pas renaître via un merge ultérieur
+    trackDeletedCRId(crId).catch(() => {});
     const { sharedEnquetes } = get();
     const shared = sharedEnquetes.find(e => e.id === enqueteId);
     if (shared?.contentieuxOrigine) {

@@ -131,6 +131,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dataSync_pushUsersConfig: (config) =>
     ipcRenderer.invoke('dataSync:pushUsersConfig', config),
 
+  // Fichiers globaux partagés (tag-data.json, audience-data.json)
+  globalSync_pullTags: () =>
+    ipcRenderer.invoke('globalSync:pullTags'),
+  globalSync_pushTags: (payload) =>
+    ipcRenderer.invoke('globalSync:pushTags', payload),
+  globalSync_pullAudience: () =>
+    ipcRenderer.invoke('globalSync:pullAudience'),
+  globalSync_pushAudience: (payload) =>
+    ipcRenderer.invoke('globalSync:pushAudience', payload),
+  globalSync_pullAlerts: () =>
+    ipcRenderer.invoke('globalSync:pullAlerts'),
+  globalSync_pushAlerts: (payload) =>
+    ipcRenderer.invoke('globalSync:pushAlerts', payload),
+  globalSync_pullDeletedIds: () =>
+    ipcRenderer.invoke('globalSync:pullDeletedIds'),
+  globalSync_pushDeletedIds: (payload) =>
+    ipcRenderer.invoke('globalSync:pushDeletedIds', payload),
+  globalSync_readLegacyAppData: () =>
+    ipcRenderer.invoke('globalSync:readLegacyAppData'),
+
   dataSync_checkContentieuxAccess: (contentieuxId) =>
     ipcRenderer.invoke('dataSync:checkContentieuxAccess', contentieuxId),
 

@@ -3,6 +3,7 @@ import { TagDefinition, TagCategory, TagOrganization, getTagsByCategory } from '
 import { ElectronBridge } from '@/utils/electronBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { Tag } from '@/types/interfaces';
+import { tagSyncService } from '@/utils/dataSync/TagSyncService';
 
 interface UseTagsReturn {
   // État
@@ -34,8 +35,12 @@ interface UseTagsReturn {
 export const useTags = (): UseTagsReturn => {
   const [tags, setTags] = useState<TagDefinition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   const saveTimeoutRef = useRef<NodeJS.Timeout>();
+  // Snapshot sérialisé du dernier état connu comme "déjà sauvegardé".
+  // Permet d'éviter un push inutile quand `setTags` provient d'une
+  // hydratation (init + event sync) plutôt que d'une édition utilisateur.
+  const lastPersistedRef = useRef<string>('');
 
   // Utilitaires
   const createTagId = useCallback((value: string, category: TagCategory) => {
@@ -217,24 +222,40 @@ export const useTags = (): UseTagsReturn => {
       try {
         setIsLoading(true);
 
-        // Lecture depuis la clé partagée avec la sync (DataSyncManager)
-        const tagsData = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, []);
-        let normalized: TagDefinition[] = Array.isArray(tagsData) ? tagsData : (tagsData?.data || []);
-
         // Migration one-shot depuis l'ancienne clé 'tags' (jamais synchronisée)
-        // → recopie les tags locaux dans 'customTags' pour qu'ils transitent enfin par le sync
-        if (normalized.length === 0) {
-          const legacyData = await ElectronBridge.getData('tags', []);
-          const legacyArr: TagDefinition[] = Array.isArray(legacyData) ? legacyData : (legacyData?.data || []);
+        // Faite AVANT la sync serveur pour que le push remonte aussi ces tags-là.
+        const firstRead = await ElectronBridge.getData<TagDefinition[] | { data?: TagDefinition[] }>(
+          APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS,
+          [],
+        );
+        const hasCustomTags =
+          (Array.isArray(firstRead) && firstRead.length > 0) ||
+          (!Array.isArray(firstRead) && Array.isArray(firstRead?.data) && firstRead!.data!.length > 0);
+        if (!hasCustomTags) {
+          const legacyData = await ElectronBridge.getData<TagDefinition[] | { data?: TagDefinition[] }>('tags', []);
+          const legacyArr: TagDefinition[] = Array.isArray(legacyData)
+            ? legacyData
+            : (legacyData?.data || []);
           if (legacyArr.length > 0) {
             await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, legacyArr);
-            normalized = legacyArr;
             console.log(`✅ Migration tags → customTags : ${legacyArr.length} tag(s) migré(s)`);
           }
         }
 
-        setTags(normalized);
+        // Pull/push serveur via le service dédié (tag-data.json)
+        // Non bloquant pour l'UX : on affiche d'abord ce qu'on a en local,
+        // puis on hydrate à nouveau au retour de la sync.
+        await tagSyncService.sync();
 
+        const tagsData = await ElectronBridge.getData<TagDefinition[] | { data?: TagDefinition[] }>(
+          APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS,
+          [],
+        );
+        const normalized: TagDefinition[] = Array.isArray(tagsData)
+          ? tagsData
+          : (tagsData?.data || []);
+        lastPersistedRef.current = JSON.stringify(normalized);
+        setTags(normalized);
       } catch (error) {
         console.error('Error initializing tags:', error);
         setTags([]);
@@ -244,6 +265,22 @@ export const useTags = (): UseTagsReturn => {
     };
 
     initialize();
+
+    // Re-hydrater quand un autre poste pousse des tags (sync périodique)
+    const handleExternalSync = (event: Event) => {
+      const custom = event as CustomEvent<{ scope?: string }>;
+      if (custom.detail?.scope && custom.detail.scope !== 'tags') return;
+      ElectronBridge.getData<TagDefinition[] | { data?: TagDefinition[] }>(
+        APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS,
+        [],
+      ).then(data => {
+        const arr: TagDefinition[] = Array.isArray(data) ? data : (data?.data || []);
+        lastPersistedRef.current = JSON.stringify(arr);
+        setTags(arr);
+      });
+    };
+    window.addEventListener('global-sync-completed', handleExternalSync);
+    return () => window.removeEventListener('global-sync-completed', handleExternalSync);
   }, []);
 
   // Sauvegarde automatique avec debounce
@@ -251,10 +288,18 @@ export const useTags = (): UseTagsReturn => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
-    
+
+    const serialized = JSON.stringify(tagsToSave);
+    // No-op si ce snapshot provient d'une hydratation (init ou pull sync) :
+    // inutile de réécrire localement ni de repousser au serveur.
+    if (serialized === lastPersistedRef.current) return;
+
     saveTimeoutRef.current = setTimeout(async () => {
       try {
         await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, tagsToSave);
+        lastPersistedRef.current = serialized;
+        // Propager vers tag-data.json (serveur commun)
+        tagSyncService.schedulePush();
       } catch (error) {
         console.error('Error saving tags:', error);
       }
