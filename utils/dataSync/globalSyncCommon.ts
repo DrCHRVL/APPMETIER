@@ -49,11 +49,13 @@ export function isGlobalSyncAvailable(): boolean {
     && !!window.electronAPI?.globalSync_pushTags;
 }
 
+export type GlobalSyncScope = 'tags' | 'audience' | 'alerts';
+
 /**
  * Déclenche un event `global-sync-completed` que les stores/hooks
  * peuvent écouter pour ré-hydrater leur état mémoire.
  */
-export function emitSyncCompleted(scope: 'tags' | 'audience'): void {
+export function emitSyncCompleted(scope: GlobalSyncScope): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent('global-sync-completed', { detail: { scope } }));
 }

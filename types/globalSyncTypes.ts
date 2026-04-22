@@ -10,6 +10,7 @@
 import { TagDefinition } from '@/config/tags';
 import { TagRequest } from '@/utils/tagRequestManager';
 import { ResultatAudience } from './audienceTypes';
+import { AlertRule, AlertValidations } from './interfaces';
 
 export interface GlobalSyncMetadata {
   version: number;
@@ -25,4 +26,9 @@ export interface TagSyncFile extends GlobalSyncMetadata {
 
 export interface AudienceSyncFile extends GlobalSyncMetadata {
   audienceResultats: Record<string, ResultatAudience>;
+}
+
+export interface AlertSyncFile extends GlobalSyncMetadata {
+  alertRules: AlertRule[];
+  alertValidations: AlertValidations;
 }

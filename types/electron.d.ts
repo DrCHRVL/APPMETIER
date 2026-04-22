@@ -102,6 +102,8 @@ interface ElectronAPI {
   globalSync_pushTags?: (payload: import('./globalSyncTypes').TagSyncFile) => Promise<boolean>;
   globalSync_pullAudience?: () => Promise<import('./globalSyncTypes').AudienceSyncFile | null>;
   globalSync_pushAudience?: (payload: import('./globalSyncTypes').AudienceSyncFile) => Promise<boolean>;
+  globalSync_pullAlerts?: () => Promise<import('./globalSyncTypes').AlertSyncFile | null>;
+  globalSync_pushAlerts?: (payload: import('./globalSyncTypes').AlertSyncFile) => Promise<boolean>;
   globalSync_readLegacyAppData?: () => Promise<any | null>;
   /** Copie le fichier sync serveur actuel vers un fichier backup avec le nom fourni (ou écrase l'unique backup si aucun nom). */
   dataSync_backupServer?: (filename?: string) => Promise<boolean>;

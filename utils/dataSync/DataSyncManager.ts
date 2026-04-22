@@ -618,24 +618,22 @@ export class DataSyncManager {
 
   private async getLocalData(): Promise<SyncData> {
     const enquetes = await ElectronBridge.getData('enquetes', []);
-    const alertRules = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, []);
-    const alertValidations = await ElectronBridge.getData<Record<string, any>>('alert_validations', {});
     const deletedEntries      = await this.loadDeletedEntries();
     const deletedActeEntries  = await this.loadDeletedActeEntries();
     const deletedCREntries    = await this.loadDeletedCREntries();
     const deletedMECEntries   = await this.loadDeletedMECEntries();
 
-    // NOTE : customTags, audienceResultats et tagRequests ont leur propre
-    // pipeline dédié (TagSyncService / AudienceSyncService → tag-data.json /
-    // audience-data.json). On renvoie des valeurs vides ici pour que le vieux
-    // pipeline app-data.json racine ne les touche plus, même s'il tente encore
-    // de se réveiller.
+    // NOTE : customTags, audienceResultats, tagRequests, alertRules,
+    // alertValidations ont chacun leur propre pipeline dédié (TagSyncService /
+    // AudienceSyncService / AlertSyncService → tag-data.json / audience-data.json /
+    // alerts-data.json). On renvoie des valeurs vides ici pour que le vieux
+    // pipeline app-data.json racine ne les touche plus.
     return {
       enquetes: Array.isArray(enquetes) ? enquetes : [],
       audienceResultats: {},
       customTags: [],
-      alertRules: Array.isArray(alertRules) ? alertRules : [],
-      alertValidations: alertValidations || {},
+      alertRules: [],
+      alertValidations: {},
       tagRequests: [],
       deletedIds:     deletedEntries.map(e => e.id),
       deletedActeIds: deletedActeEntries.map(e => e.id),
@@ -647,16 +645,10 @@ export class DataSyncManager {
 
   private async saveLocalData(data: SyncData): Promise<void> {
     await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ENQUETES, data.enquetes);
-    await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, data.alertRules);
-    if (data.alertValidations) {
-      // Fusionner avec les validations locales existantes : on ne perd jamais une validation déjà posée
-      const localValidations = await ElectronBridge.getData<Record<string, any>>(APP_CONFIG.STORAGE_KEYS.ALERT_VALIDATIONS, {});
-      const merged = { ...localValidations, ...data.alertValidations };
-      await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_VALIDATIONS, merged);
-    }
-    // NOTE : customTags, audienceResultats et tagRequests ont leur propre
-    // pipeline dédié — on ne les touche plus depuis ici pour éviter d'écraser
-    // les données fraîches écrites par TagSyncService / AudienceSyncService.
+    // NOTE : customTags, audienceResultats, tagRequests, alertRules,
+    // alertValidations ont leur propre pipeline dédié — on ne les touche plus
+    // depuis ici pour éviter d'écraser les données fraîches écrites par les
+    // services TagSyncService / AudienceSyncService / AlertSyncService.
     await this.saveDeletedEntries(data.deletedIds || []);
     await this.saveDeletedActeEntries(data.deletedActeIds || []);
     await this.saveDeletedCREntries(data.deletedCRIds || []);

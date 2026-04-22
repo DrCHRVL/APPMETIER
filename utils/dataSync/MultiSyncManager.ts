@@ -10,6 +10,7 @@ import { ElectronBridge } from '../electronBridge';
 import { ContentieuxManager } from '../contentieuxManager';
 import { tagSyncService } from './TagSyncService';
 import { audienceSyncService } from './AudienceSyncService';
+import { alertSyncService } from './AlertSyncService';
 import {
   SyncData,
   SyncStatus,
@@ -430,14 +431,19 @@ export class MultiSyncManager {
       try { await instances[i].initialize(); } catch {}
     }
 
-    // Démarrer les pipelines globaux (tag-data.json, audience-data.json).
-    // Ces services sont indépendants des contentieux : ils ont leur propre
-    // fichier serveur, leur propre fusion et leur propre timer périodique.
+    // Démarrer les pipelines globaux (tag-data.json, audience-data.json,
+    // alerts-data.json). Ces services sont indépendants des contentieux : ils
+    // ont leur propre fichier serveur, leur propre fusion et leur propre timer.
     try {
-      await Promise.allSettled([tagSyncService.sync(), audienceSyncService.sync()]);
+      await Promise.allSettled([
+        tagSyncService.sync(),
+        audienceSyncService.sync(),
+        alertSyncService.sync(),
+      ]);
     } catch {}
     tagSyncService.startPeriodic();
     audienceSyncService.startPeriodic();
+    alertSyncService.startPeriodic();
   }
 
   public stopAll(): void {
@@ -447,6 +453,7 @@ export class MultiSyncManager {
     this.instances.clear();
     tagSyncService.stopPeriodic();
     audienceSyncService.stopPeriodic();
+    alertSyncService.stopPeriodic();
   }
 
   public setToastCallback(cb: (message: string, type: 'success' | 'info' | 'error') => void): void {

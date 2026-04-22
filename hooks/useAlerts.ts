@@ -5,6 +5,7 @@ import { APP_CONFIG } from '@/config/constants';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { AlertManager } from '@/utils/alerts/alertManager';
 import { AlertStorage } from '@/utils/alerts/alertStorage';
+import { alertSyncService } from '@/utils/dataSync/AlertSyncService';
 import throttle from 'lodash/throttle';
 
 // Augmenter l'intervalle de vérification des alertes
@@ -31,23 +32,33 @@ export const useAlerts = (enquetes: Enquete[]) => {
   useEffect(() => { alertRulesRef.current = alertRules; }, [alertRules]);
   useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
 
+  // Snapshot "déjà persisté" pour éviter un push inutile quand les règles
+  // arrivent par sync plutôt que par édition utilisateur.
+  const lastPersistedRulesRef = useRef<string>('');
+
   // ✅ CORRECTION 2: Charger les alertes et les règles UNE SEULE FOIS au démarrage
   useEffect(() => {
     const loadAlertData = async () => {
       try {
         setIsLoading(true);
-        
+
+        // Pull/merge serveur (alerts-data.json) avant de lire le local, pour
+        // qu'un nouveau poste voie tout de suite les règles partagées.
+        await alertSyncService.sync();
+
         // Charger les règles d'alerte
         const rules = await ElectronBridge.getData(
           APP_CONFIG.STORAGE_KEYS.ALERT_RULES,
           APP_CONFIG.DEFAULT_ALERT_RULES
         );
-        setAlertRules(Array.isArray(rules) ? rules : APP_CONFIG.DEFAULT_ALERT_RULES);
-        
+        const rulesArr = Array.isArray(rules) ? rules : APP_CONFIG.DEFAULT_ALERT_RULES;
+        lastPersistedRulesRef.current = JSON.stringify(rulesArr);
+        setAlertRules(rulesArr);
+
         // Charger les alertes existantes
         const existingAlerts = await ElectronBridge.getData<Alert[]>('alerts', []);
         setAlerts(Array.isArray(existingAlerts) ? existingAlerts : []);
-        
+
         alertsLoaded.current = true;
       } catch (error) {
         console.error('❌ Erreur lors du chargement des alertes:', error);
@@ -56,19 +67,36 @@ export const useAlerts = (enquetes: Enquete[]) => {
         setIsLoading(false);
       }
     };
-    
+
     loadAlertData();
+
+    // Re-hydrater quand un autre poste pousse des règles/validations
+    const handleExternalSync = (event: Event) => {
+      const custom = event as CustomEvent<{ scope?: string }>;
+      if (custom.detail?.scope && custom.detail.scope !== 'alerts') return;
+      ElectronBridge.getData<AlertRule[]>(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, []).then(data => {
+        const arr = Array.isArray(data) ? data : APP_CONFIG.DEFAULT_ALERT_RULES;
+        lastPersistedRulesRef.current = JSON.stringify(arr);
+        setAlertRules(arr);
+      });
+    };
+    window.addEventListener('global-sync-completed', handleExternalSync);
+    return () => window.removeEventListener('global-sync-completed', handleExternalSync);
   }, []); // ✅ Dépendances vides = exécution unique
 
   // Fonction pour sauvegarder les règles d'alerte avec throttle — ref pour stabiliser
   const saveAlertRules = useCallback(
     throttle(async (rules: AlertRule[]) => {
-      if (!isLoadingRef.current) {
-        try {
-          await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, rules);
-        } catch (error) {
-          console.error('❌ Erreur sauvegarde règles:', error);
-        }
+      if (isLoadingRef.current) return;
+      const serialized = JSON.stringify(rules);
+      // No-op si ce snapshot vient d'une hydratation (init ou pull sync).
+      if (serialized === lastPersistedRulesRef.current) return;
+      try {
+        await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, rules);
+        lastPersistedRulesRef.current = serialized;
+        alertSyncService.schedulePush();
+      } catch (error) {
+        console.error('❌ Erreur sauvegarde règles:', error);
       }
     }, THROTTLE_DELAY),
     [] // eslint-disable-line react-hooks/exhaustive-deps

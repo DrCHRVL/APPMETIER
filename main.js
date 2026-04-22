@@ -1497,6 +1497,22 @@ function setupIpcHandlers() {
     }
   })
 
+  ipcMain.handle('globalSync:pullAlerts', async () => {
+    return readGlobalFile('alerts-data.json')
+  })
+
+  ipcMain.handle('globalSync:pushAlerts', async (event, payload) => {
+    try {
+      writeGlobalFile('alerts-data.json', payload)
+      pruneGlobalBackups('alerts-data')
+      console.log('✅ GlobalSync: alerts-data.json sauvegardé')
+      return true
+    } catch (error) {
+      console.error('❌ GlobalSync: Erreur écriture alerts-data.json:', error)
+      return false
+    }
+  })
+
   /**
    * Lit app-data.json racine en fallback pour la migration one-shot
    * (renvoie la clé customTags telle qu'elle existe, format legacy ou non)

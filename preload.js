@@ -140,6 +140,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('globalSync:pullAudience'),
   globalSync_pushAudience: (payload) =>
     ipcRenderer.invoke('globalSync:pushAudience', payload),
+  globalSync_pullAlerts: () =>
+    ipcRenderer.invoke('globalSync:pullAlerts'),
+  globalSync_pushAlerts: (payload) =>
+    ipcRenderer.invoke('globalSync:pushAlerts', payload),
   globalSync_readLegacyAppData: () =>
     ipcRenderer.invoke('globalSync:readLegacyAppData'),
 

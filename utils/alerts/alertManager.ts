@@ -3,6 +3,7 @@ import { ElectronBridge } from '../electronBridge';
 import { DateUtils } from '../dateUtils';
 import { AlertStorage } from './alertStorage';
 import { getLastCR } from '../compteRenduUtils';
+import { alertSyncService } from '../dataSync/AlertSyncService';
 
 export class AlertManager {
   private static ALERTS_KEY = 'alerts';
@@ -53,6 +54,7 @@ export class AlertManager {
       );
 
       await ElectronBridge.setData(this.VALIDATED_ALERTS_KEY, cleanedValidations);
+      alertSyncService.schedulePush();
     } catch (error) {
       console.error('Erreur lors du nettoyage de l\'historique:', error);
     }
