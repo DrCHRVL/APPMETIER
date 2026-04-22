@@ -216,11 +216,25 @@ export const useTags = (): UseTagsReturn => {
     const initialize = async () => {
       try {
         setIsLoading(true);
-        
-        const tagsData = await ElectronBridge.getData('tags', []);
-        const migratedTags = Array.isArray(tagsData) ? tagsData : (tagsData?.data || []);
-        setTags(Array.isArray(migratedTags) ? migratedTags : []);
-        
+
+        // Lecture depuis la clé partagée avec la sync (DataSyncManager)
+        const tagsData = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, []);
+        let normalized: TagDefinition[] = Array.isArray(tagsData) ? tagsData : (tagsData?.data || []);
+
+        // Migration one-shot depuis l'ancienne clé 'tags' (jamais synchronisée)
+        // → recopie les tags locaux dans 'customTags' pour qu'ils transitent enfin par le sync
+        if (normalized.length === 0) {
+          const legacyData = await ElectronBridge.getData('tags', []);
+          const legacyArr: TagDefinition[] = Array.isArray(legacyData) ? legacyData : (legacyData?.data || []);
+          if (legacyArr.length > 0) {
+            await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, legacyArr);
+            normalized = legacyArr;
+            console.log(`✅ Migration tags → customTags : ${legacyArr.length} tag(s) migré(s)`);
+          }
+        }
+
+        setTags(normalized);
+
       } catch (error) {
         console.error('Error initializing tags:', error);
         setTags([]);
@@ -228,7 +242,7 @@ export const useTags = (): UseTagsReturn => {
         setIsLoading(false);
       }
     };
-    
+
     initialize();
   }, []);
 
@@ -240,7 +254,7 @@ export const useTags = (): UseTagsReturn => {
     
     saveTimeoutRef.current = setTimeout(async () => {
       try {
-        await ElectronBridge.setData('tags', tagsToSave);
+        await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, tagsToSave);
       } catch (error) {
         console.error('Error saving tags:', error);
       }

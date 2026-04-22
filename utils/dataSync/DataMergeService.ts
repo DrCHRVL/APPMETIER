@@ -96,8 +96,10 @@ export class DataMergeService {
       r => r.modifiedAt
     );
 
-    // 3. Tags (union simple, local prioritaire)
-    const mergedTags = { ...serverData.customTags, ...localData.customTags };
+    // 3. Tags (union par ID, local prioritaire)
+    const localTags  = Array.isArray(localData.customTags)  ? localData.customTags  : [];
+    const serverTags = Array.isArray(serverData.customTags) ? serverData.customTags : [];
+    const mergedTags = this.mergeArrayById(localTags, serverTags);
 
     // 4. Règles d'alertes (union par ID, local prioritaire)
     const mergedRules = this.mergeArrayById(localData.alertRules || [], serverData.alertRules || []);
