@@ -420,13 +420,12 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
           ? {
               ...e,
               sharedWith: targetContentieuxIds,
-              contentieuxOrigine: contentieuxId,
               dateMiseAJour: new Date().toISOString(),
             }
           : e
       )
     );
-  }, [updateEnquetesList, contentieuxId]);
+  }, [updateEnquetesList]);
 
   const handleUnshareEnquete = useCallback((enqueteId: number) => {
     updateEnquetesList(prev =>
@@ -435,6 +434,7 @@ export const useContentieuxEnquetes = (contentieuxId: ContentieuxId) => {
           ? {
               ...e,
               sharedWith: undefined,
+              contentieuxOrigine: undefined,
               dateMiseAJour: new Date().toISOString(),
             }
           : e
