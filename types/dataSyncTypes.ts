@@ -3,6 +3,7 @@
 import { Enquete, AlertValidation } from './interfaces';
 import { ResultatAudience } from './audienceTypes';
 import { TagDefinition } from '@/config/tags';
+import { TagRequest } from '@/utils/tagRequestManager';
 
 /**
  * Structure des données synchronisées entre le serveur et les clients
@@ -13,6 +14,7 @@ export interface SyncData {
   customTags: TagDefinition[];
   alertRules: any[];
   alertValidations?: Record<string, AlertValidation>; // Validations d'alertes (reporter/valider) — synchro entre collègues
+  tagRequests?: TagRequest[]; // Demandes de création de tags (propositions users, revue admin)
   version: number;
   deletedIds?: number[];     // IDs d'enquêtes supprimées (empêche la re-sync)
   deletedActeIds?: number[]; // IDs d'actes/écoutes/géolocs supprimés

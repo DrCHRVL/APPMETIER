@@ -3,6 +3,7 @@
 import { Enquete } from '@/types/interfaces';
 import { ResultatAudience } from '@/types/audienceTypes';
 import { SyncData, SyncConflict } from '@/types/dataSyncTypes';
+import { TagRequest } from '@/utils/tagRequestManager';
 
 /**
  * Service de fusion des données pour la synchronisation
@@ -111,6 +112,12 @@ export class DataMergeService {
       v => v.validatedAt
     );
 
+    // 6. Demandes de tags (union par id, reviewedAt le plus récent gagne)
+    const mergedTagRequests = this.mergeTagRequestsById(
+      localData.tagRequests || [],
+      serverData.tagRequests || []
+    );
+
     return {
       merged: {
         enquetes: mergedEnquetes,
@@ -118,6 +125,7 @@ export class DataMergeService {
         customTags: mergedTags,
         alertRules: mergedRules,
         alertValidations: mergedValidations,
+        tagRequests: mergedTagRequests,
         deletedIds: mergedDeletedIds,
         deletedActeIds: mergedDeletedActeIds,
         deletedCRIds: mergedDeletedCRIds,
@@ -322,6 +330,23 @@ export class DataMergeService {
     const merged = new Map<number | string, T>();
     server.forEach(item => merged.set(item.id, item));
     local.forEach(item => merged.set(item.id, item));
+    return Array.from(merged.values());
+  }
+
+  /**
+   * Fusion dédiée aux demandes de tags : union par id, reviewedAt le plus récent gagne.
+   * Égalité (typiquement deux 'pending' sans reviewedAt) → version locale conservée.
+   */
+  private static mergeTagRequestsById(local: TagRequest[], server: TagRequest[]): TagRequest[] {
+    const merged = new Map<string, TagRequest>();
+    server.forEach(r => merged.set(r.id, r));
+    for (const localReq of local) {
+      const serverReq = merged.get(localReq.id);
+      if (!serverReq) { merged.set(localReq.id, localReq); continue; }
+      const localTs  = localReq.reviewedAt  ? new Date(localReq.reviewedAt).getTime()  : 0;
+      const serverTs = serverReq.reviewedAt ? new Date(serverReq.reviewedAt).getTime() : 0;
+      merged.set(localReq.id, localTs >= serverTs ? localReq : serverReq);
+    }
     return Array.from(merged.values());
   }
 
