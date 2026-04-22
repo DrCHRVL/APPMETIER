@@ -12,6 +12,7 @@ import {
   ConflictAction
 } from '@/types/dataSyncTypes';
 import { APP_CONFIG } from '@/config/constants';
+import { TagRequest } from '../tagRequestManager';
 
 /**
  * Gestionnaire principal de la synchronisation des données
@@ -622,6 +623,7 @@ export class DataSyncManager {
     const customTags = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, []);
     const alertRules = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, []);
     const alertValidations = await ElectronBridge.getData<Record<string, any>>('alert_validations', {});
+    const tagRequests = await ElectronBridge.getData<TagRequest[]>('tag_requests', []);
     const deletedEntries      = await this.loadDeletedEntries();
     const deletedActeEntries  = await this.loadDeletedActeEntries();
     const deletedCREntries    = await this.loadDeletedCREntries();
@@ -633,6 +635,7 @@ export class DataSyncManager {
       customTags: Array.isArray(customTags) ? customTags : [],
       alertRules: Array.isArray(alertRules) ? alertRules : [],
       alertValidations: alertValidations || {},
+      tagRequests: Array.isArray(tagRequests) ? tagRequests : [],
       deletedIds:     deletedEntries.map(e => e.id),
       deletedActeIds: deletedActeEntries.map(e => e.id),
       deletedCRIds:   deletedCREntries.map(e => e.id),
@@ -651,6 +654,20 @@ export class DataSyncManager {
       const localValidations = await ElectronBridge.getData<Record<string, any>>(APP_CONFIG.STORAGE_KEYS.ALERT_VALIDATIONS, {});
       const merged = { ...localValidations, ...data.alertValidations };
       await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_VALIDATIONS, merged);
+    }
+    if (data.tagRequests) {
+      // Fusionner avec les demandes locales : couvre une demande créée entre getLocalData() et saveLocalData()
+      const localReqs = await ElectronBridge.getData<TagRequest[]>('tag_requests', []) || [];
+      const byId = new Map<string, TagRequest>();
+      localReqs.forEach(r => byId.set(r.id, r));
+      data.tagRequests.forEach(r => {
+        const prev = byId.get(r.id);
+        if (!prev) { byId.set(r.id, r); return; }
+        const prevTs = prev.reviewedAt ? new Date(prev.reviewedAt).getTime() : 0;
+        const newTs  = r.reviewedAt    ? new Date(r.reviewedAt).getTime()    : 0;
+        byId.set(r.id, newTs >= prevTs ? r : prev);
+      });
+      await ElectronBridge.setData('tag_requests', Array.from(byId.values()));
     }
     await this.saveDeletedEntries(data.deletedIds || []);
     await this.saveDeletedActeEntries(data.deletedActeIds || []);
