@@ -4,6 +4,7 @@ import { cleanupAudienceResults } from '@/utils/audienceStats';
 import { electronStorage } from '@/services/storage/electronStorage';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { Enquete } from '@/types/interfaces';
+import { audienceSyncService } from '@/utils/dataSync/AudienceSyncService';
 
 const AUDIENCE_STORAGE_KEY = 'audience_resultats';
 const CLEANUP_INTERVAL = 30000;
@@ -63,6 +64,10 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
     set({ _initialized: true, isLoading: true });
 
     try {
+      // Tirer les résultats depuis le serveur commun (audience-data.json) avant
+      // de lire le local, pour que les nouveaux postes voient tout de suite les
+      // résultats OI/CSS/CRPC de leurs collègues.
+      await audienceSyncService.sync();
       const savedResultats = await readFreshFromStorage();
       set({ resultats: savedResultats });
     } catch (error) {
@@ -73,17 +78,19 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
     }
 
     // Écouter les événements de mise à jour externe :
-    // - 'audience-stats-update' : recalcul interne (utils/audienceStats)
-    // - 'data-sync-completed'   : la sync vient d'écrire des résultats frais en local
-    //   → re-hydrater le snapshot mémoire pour que les badges (CSS/OI/CRPC) s'affichent
-    //     sans attendre un reload de l'app (cas du nouvel utilisateur après première sync).
-    const handleExternalUpdate = () => {
+    // - 'audience-stats-update'    : recalcul interne (utils/audienceStats)
+    // - 'data-sync-completed'      : compat ancien pipeline
+    // - 'global-sync-completed'    : nouveau pipeline dédié (audience-data.json)
+    const handleExternalUpdate = (event?: Event) => {
+      const custom = event as CustomEvent<{ scope?: string }> | undefined;
+      if (custom?.detail?.scope && custom.detail.scope !== 'audience') return;
       readFreshFromStorage().then(freshData => {
         set({ resultats: freshData });
       });
     };
-    window.addEventListener('audience-stats-update', handleExternalUpdate);
-    window.addEventListener('data-sync-completed', handleExternalUpdate);
+    window.addEventListener('audience-stats-update', handleExternalUpdate as EventListener);
+    window.addEventListener('data-sync-completed', handleExternalUpdate as EventListener);
+    window.addEventListener('global-sync-completed', handleExternalUpdate as EventListener);
 
     // Démarrer le cleanup périodique
     get().startCleanup();
@@ -99,6 +106,7 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
     const success = await electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, newResultats);
     if (success) {
       set({ resultats: newResultats });
+      audienceSyncService.schedulePush();
       return true;
     }
     throw new Error('Échec de la sauvegarde');
@@ -112,6 +120,7 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
     const success = await electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, newResultats);
     if (success) {
       set({ resultats: newResultats });
+      audienceSyncService.schedulePush();
       return true;
     }
     throw new Error('Échec de la suppression');

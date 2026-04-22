@@ -1405,6 +1405,115 @@ function setupIpcHandlers() {
     }
   })
 
+  // ========================================================================
+  // HANDLERS FICHIERS GLOBAUX PARTAGÉS (tag-data.json, audience-data.json)
+  //
+  // Architecture : chaque catégorie "transverse aux contentieux" (tags,
+  // résultats d'audience) possède son propre fichier à la racine du serveur
+  // commun, avec backup dans admin/backups/. Remplace le vieux pipeline
+  // DataSyncManager global (app-data.json racine) qui ne détectait plus les
+  // changements depuis la bascule en multi-contentieux.
+  // ========================================================================
+
+  const globalFilePath = (name) => path.join(COMMON_SERVER_PATH, name)
+  const globalBackupDir = () => path.join(COMMON_SERVER_PATH, 'admin', 'backups')
+
+  const readGlobalFile = (name) => {
+    try {
+      const filePath = globalFilePath(name)
+      if (!fs.existsSync(filePath)) return null
+      const content = fs.readFileSync(filePath, 'utf8')
+      if (!content || !content.trim()) return null
+      return JSON.parse(content)
+    } catch (error) {
+      console.error(`❌ GlobalSync: Erreur lecture ${name}:`, error)
+      return null
+    }
+  }
+
+  const writeGlobalFile = (name, payload) => {
+    if (!fs.existsSync(COMMON_SERVER_PATH)) {
+      throw new Error('Serveur commun inaccessible')
+    }
+    const filePath = globalFilePath(name)
+    const backupDir = globalBackupDir()
+    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true })
+    if (fs.existsSync(filePath)) {
+      const timestamp = new Date().toISOString().replace(/:/g, '-')
+      const base = name.replace(/\.json$/i, '')
+      fs.copyFileSync(filePath, path.join(backupDir, `${base}-${timestamp}.json`))
+    }
+    fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8')
+    return true
+  }
+
+  // Nettoyage : on ne garde que les N backups les plus récents par type
+  const pruneGlobalBackups = (basename, keep = 20) => {
+    try {
+      const backupDir = globalBackupDir()
+      if (!fs.existsSync(backupDir)) return
+      const prefix = `${basename}-`
+      const files = fs.readdirSync(backupDir)
+        .filter(f => f.startsWith(prefix) && f.endsWith('.json'))
+        .map(f => ({ name: f, mtime: fs.statSync(path.join(backupDir, f)).mtimeMs }))
+        .sort((a, b) => b.mtime - a.mtime)
+      files.slice(keep).forEach(f => {
+        try { fs.unlinkSync(path.join(backupDir, f.name)) } catch {}
+      })
+    } catch {
+      // non bloquant
+    }
+  }
+
+  ipcMain.handle('globalSync:pullTags', async () => {
+    return readGlobalFile('tag-data.json')
+  })
+
+  ipcMain.handle('globalSync:pushTags', async (event, payload) => {
+    try {
+      writeGlobalFile('tag-data.json', payload)
+      pruneGlobalBackups('tag-data')
+      console.log('✅ GlobalSync: tag-data.json sauvegardé')
+      return true
+    } catch (error) {
+      console.error('❌ GlobalSync: Erreur écriture tag-data.json:', error)
+      return false
+    }
+  })
+
+  ipcMain.handle('globalSync:pullAudience', async () => {
+    return readGlobalFile('audience-data.json')
+  })
+
+  ipcMain.handle('globalSync:pushAudience', async (event, payload) => {
+    try {
+      writeGlobalFile('audience-data.json', payload)
+      pruneGlobalBackups('audience-data')
+      console.log('✅ GlobalSync: audience-data.json sauvegardé')
+      return true
+    } catch (error) {
+      console.error('❌ GlobalSync: Erreur écriture audience-data.json:', error)
+      return false
+    }
+  })
+
+  /**
+   * Lit app-data.json racine en fallback pour la migration one-shot
+   * (renvoie la clé customTags telle qu'elle existe, format legacy ou non)
+   */
+  ipcMain.handle('globalSync:readLegacyAppData', async () => {
+    try {
+      const legacyPath = globalFilePath('app-data.json')
+      if (!fs.existsSync(legacyPath)) return null
+      const content = fs.readFileSync(legacyPath, 'utf8')
+      if (!content || !content.trim()) return null
+      return JSON.parse(content)
+    } catch (error) {
+      console.error('❌ GlobalSync: Erreur lecture app-data.json legacy:', error)
+      return null
+    }
+  })
+
   /**
    * Vérifie l'accès au dossier d'un contentieux
    */

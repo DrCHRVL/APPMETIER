@@ -8,6 +8,8 @@
 import { DataMergeService } from './DataMergeService';
 import { ElectronBridge } from '../electronBridge';
 import { ContentieuxManager } from '../contentieuxManager';
+import { tagSyncService } from './TagSyncService';
+import { audienceSyncService } from './AudienceSyncService';
 import {
   SyncData,
   SyncStatus,
@@ -427,6 +429,15 @@ export class MultiSyncManager {
       if (i > 0) await new Promise(r => setTimeout(r, 1500));
       try { await instances[i].initialize(); } catch {}
     }
+
+    // Démarrer les pipelines globaux (tag-data.json, audience-data.json).
+    // Ces services sont indépendants des contentieux : ils ont leur propre
+    // fichier serveur, leur propre fusion et leur propre timer périodique.
+    try {
+      await Promise.allSettled([tagSyncService.sync(), audienceSyncService.sync()]);
+    } catch {}
+    tagSyncService.startPeriodic();
+    audienceSyncService.startPeriodic();
   }
 
   public stopAll(): void {
@@ -434,6 +445,8 @@ export class MultiSyncManager {
       instance.stop();
     }
     this.instances.clear();
+    tagSyncService.stopPeriodic();
+    audienceSyncService.stopPeriodic();
   }
 
   public setToastCallback(cb: (message: string, type: 'success' | 'info' | 'error') => void): void {
