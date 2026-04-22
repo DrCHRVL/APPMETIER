@@ -51,6 +51,63 @@ function mergeById<T extends { id: string }>(
   return Array.from(map.values());
 }
 
+// ─── Déduplication par (catégorie, valeur normalisée) ───────────────────────
+// Les migrations historiques ont créé plusieurs TagDefinition avec des IDs
+// différents mais la même valeur (ex. deux "BR ABBEVILLE" dont un seul porte
+// l'organisation). On fusionne systématiquement lors du merge : un tag par
+// paire (catégorie, valeur), en préservant l'organisation si un des doublons
+// en avait une. Auto-réparant et idempotent.
+function normalizeTagKey(tag: TagDefinition): string {
+  const value = (tag.value || '').trim().toLowerCase();
+  return `${tag.category}::${value}`;
+}
+
+function dedupTagsByValue(tags: TagDefinition[]): TagDefinition[] {
+  const groups = new Map<string, TagDefinition[]>();
+  const noKey: TagDefinition[] = [];
+  for (const tag of tags) {
+    if (!tag || !tag.value || !tag.category) {
+      if (tag) noKey.push(tag);
+      continue;
+    }
+    const key = normalizeTagKey(tag);
+    const arr = groups.get(key);
+    if (arr) arr.push(tag);
+    else groups.set(key, [tag]);
+  }
+
+  const result: TagDefinition[] = [];
+  groups.forEach(group => {
+    if (group.length === 1) {
+      result.push(group[0]);
+      return;
+    }
+    // Choix déterministe du "gardé" :
+    //   1) celui qui possède une organisation.section
+    //   2) à défaut, plus petit ID (ordre lexicographique) pour stabilité
+    const sorted = [...group].sort((a, b) => {
+      const aOrg = a.organization?.section ? 1 : 0;
+      const bOrg = b.organization?.section ? 1 : 0;
+      if (aOrg !== bOrg) return bOrg - aOrg; // org en premier
+      return (a.id || '').localeCompare(b.id || '');
+    });
+    const keeper = sorted[0];
+    // Si le gardé n'a pas d'organisation mais un doublon en a une, on la
+    // transfère. (Le tri fait que si keeper n'en a pas, aucun n'en a ; mais
+    // on garde la sécurité si la structure change.)
+    if (!keeper.organization?.section) {
+      const donor = group.find(t => t.organization?.section);
+      if (donor?.organization) {
+        result.push({ ...keeper, organization: donor.organization });
+        return;
+      }
+    }
+    result.push(keeper);
+  });
+
+  return [...result, ...noKey];
+}
+
 // ─── Migration one-shot depuis le vieux app-data.json racine ─────────────────
 // Deux formats connus :
 //   A) customTags = TagDefinition[]          (format attendu)
@@ -190,10 +247,14 @@ export class TagSyncService {
       this.serverVersion = serverFile?.version ?? 0;
 
       // Si le fichier serveur n'existait pas, on intègre aussi les tags
-      // historiques du vieux app-data.json racine (migration one-shot)
-      const mergedTags = serverFile
-        ? mergeById(localTags, serverTags)
-        : mergeById(mergeById(localTags, legacy.tags), serverTags);
+      // historiques du vieux app-data.json racine (migration one-shot).
+      // `dedupTagsByValue` écrase les doublons hérités des migrations :
+      // même (catégorie, valeur normalisée) ⇒ un seul tag conservé.
+      const mergedTags = dedupTagsByValue(
+        serverFile
+          ? mergeById(localTags, serverTags)
+          : mergeById(mergeById(localTags, legacy.tags), serverTags),
+      );
 
       const mergedRequests = serverFile
         ? mergeById(localRequests, serverRequests, r => r.reviewedAt || r.requestedAt)

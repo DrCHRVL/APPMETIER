@@ -5,12 +5,12 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Edit2, Save, X, Plus, Check, Trash2, AlertTriangle, Send } from 'lucide-react';
+import { Edit2, Save, X, Plus, Check, Trash2, AlertTriangle, Send, Layers } from 'lucide-react';
 import { TAG_CATEGORIES, TagCategory } from '@/config/tags';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { ServiceOrganizer } from '../ServiceOrganizer';
-import { useTags } from '@/hooks/useTags';
+import { useTags, DuplicateTagGroup } from '@/hooks/useTags';
 import { useToast } from '@/contexts/ToastContext';
 import { useUser } from '@/contexts/UserContext';
 import { tagRequestManager } from '@/utils/tagRequestManager';
@@ -56,7 +56,9 @@ export const TagManagementPage = () => {
     deleteTag,
     getTagUsageCount,
     cleanupOrphanTags,
-    recreateOrphanTags
+    recreateOrphanTags,
+    findDuplicateTags,
+    mergeDuplicateTags
   } = useTags();
 
   const [editingCategory, setEditingCategory] = useState<TagCategory | null>(null);
@@ -67,6 +69,9 @@ export const TagManagementPage = () => {
   const [orphanCleanupDialog, setOrphanCleanupDialog] = useState(false);
   const [foundOrphans, setFoundOrphans] = useState<string[]>([]);
   const [isCleaningUp, setIsCleaningUp] = useState(false);
+  const [duplicatesDialog, setDuplicatesDialog] = useState(false);
+  const [foundDuplicates, setFoundDuplicates] = useState<DuplicateTagGroup[]>([]);
+  const [isMergingDuplicates, setIsMergingDuplicates] = useState(false);
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{ tagId: string; tagValue: string; usageCount: number } | null>(null);
   
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -116,7 +121,7 @@ export const TagManagementPage = () => {
       const recreated = await recreateOrphanTags(foundOrphans);
       setOrphanCleanupDialog(false);
       setFoundOrphans([]);
-      
+
       if (recreated > 0) {
         showToast(`${recreated} tags orphelins recréés avec succès`, 'success');
       } else {
@@ -125,6 +130,35 @@ export const TagManagementPage = () => {
     } catch (error) {
       console.error('Erreur lors de la recréation:', error);
       showToast('Erreur lors de la recréation des tags', 'error');
+    }
+  };
+
+  const handleScanDuplicates = () => {
+    const groups = findDuplicateTags();
+    if (groups.length === 0) {
+      showToast('Aucun doublon détecté', 'info');
+      return;
+    }
+    setFoundDuplicates(groups);
+    setDuplicatesDialog(true);
+  };
+
+  const handleConfirmMergeDuplicates = async () => {
+    try {
+      setIsMergingDuplicates(true);
+      const removed = await mergeDuplicateTags();
+      setDuplicatesDialog(false);
+      setFoundDuplicates([]);
+      if (removed > 0) {
+        showToast(`${removed} doublon(s) fusionné(s) avec succès`, 'success');
+      } else {
+        showToast('Aucun doublon à fusionner', 'info');
+      }
+    } catch (error) {
+      console.error('Erreur lors de la fusion des doublons:', error);
+      showToast('Erreur lors de la fusion des doublons', 'error');
+    } finally {
+      setIsMergingDuplicates(false);
     }
   };
 
@@ -348,15 +382,26 @@ export const TagManagementPage = () => {
         <h2 className="text-2xl font-bold">Gestion des Tags</h2>
 
         {userIsAdmin ? (
-          <Button
-            onClick={handleCleanupOrphans}
-            disabled={isCleaningUp}
-            variant="outline"
-            className="flex items-center gap-2"
-          >
-            <Trash2 className="h-4 w-4" />
-            {isCleaningUp ? 'Analyse...' : 'Nettoyer tags orphelins'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={handleScanDuplicates}
+              disabled={isMergingDuplicates}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <Layers className="h-4 w-4" />
+              Fusionner les doublons
+            </Button>
+            <Button
+              onClick={handleCleanupOrphans}
+              disabled={isCleaningUp}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <Trash2 className="h-4 w-4" />
+              {isCleaningUp ? 'Analyse...' : 'Nettoyer tags orphelins'}
+            </Button>
+          </div>
         ) : (
           <Button
             onClick={() => {
@@ -578,6 +623,71 @@ export const TagManagementPage = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog pour la fusion des doublons */}
+      <Dialog open={duplicatesDialog} onOpenChange={setDuplicatesDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Layers className="h-5 w-5 text-blue-500" />
+              Doublons détectés
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              {foundDuplicates.length} valeur(s) existent plusieurs fois. La fusion conservera
+              un seul tag par valeur (en priorité celui qui a déjà une section assignée) et
+              transférera l'organisation si nécessaire.
+            </p>
+
+            <div className="max-h-72 overflow-y-auto border rounded p-3 bg-gray-50">
+              <ul className="space-y-1 text-sm">
+                {foundDuplicates.map((g, i) => (
+                  <li key={i} className="flex items-center justify-between gap-2">
+                    <span className="truncate">
+                      <Badge variant="outline" className="mr-2">
+                        {TAG_CATEGORIES[g.category] || g.category}
+                      </Badge>
+                      <span className="font-medium">{g.value}</span>
+                    </span>
+                    <span className="text-xs text-gray-500 whitespace-nowrap">
+                      {g.count} → 1 ({g.removedCount} supprimé{g.removedCount > 1 ? 's' : ''})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <p className="text-xs text-gray-500">
+              Les enquêtes référencent les tags par leur nom : la fusion n'impactera pas les
+              enquêtes existantes.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDuplicatesDialog(false);
+                setFoundDuplicates([]);
+              }}
+              disabled={isMergingDuplicates}
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={handleConfirmMergeDuplicates}
+              disabled={isMergingDuplicates}
+            >
+              {isMergingDuplicates
+                ? 'Fusion...'
+                : `Fusionner (${foundDuplicates.reduce((sum, g) => sum + g.removedCount, 0)} suppression(s))`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Dialog demande de tag (non-admin) */}
       <Dialog open={requestTagDialog} onOpenChange={setRequestTagDialog}>
         <DialogContent>
