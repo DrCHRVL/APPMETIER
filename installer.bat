@@ -25,6 +25,12 @@ set "ELECTRON_EXE=%ELECTRON_DIR%\electron.exe"
 
 set "RIE_PROXY=http://rie-proxy.justice.gouv.fr:8080"
 
+rem Detection unique de tar.exe (bsdtar natif livre avec Win10 1803+ / Win11).
+rem Priorite : binaire C monoprocessus, surface d'interception AV reduite
+rem par rapport a PowerShell Expand-Archive. Fallback PS si absent/KO.
+set "TAR_EXE="
+where tar.exe >nul 2>&1 && set "TAR_EXE=tar.exe"
+
 cd /d "%BASE_DIR%"
 
 if not exist "package.json" (
@@ -60,22 +66,57 @@ if !ERRORLEVEL! neq 0 (
 )
 
 echo       Extraction...
-rem Nettoyage prealable : supprimer toute installation partielle d'un run precedent
-rem (sinon Rename-Item echoue si le dossier cible existe deja)
-if exist "!NODE_DIR!" rmdir /S /Q "!NODE_DIR!" 2>nul
-if exist "!PARENT_DIR!\node-%NODE_VERSION%-win-x64" rmdir /S /Q "!PARENT_DIR!\node-%NODE_VERSION%-win-x64" 2>nul
 if not exist "!PARENT_DIR!" mkdir "!PARENT_DIR!" 2>nul
 
-rem Extraction directe dans !PARENT_DIR! (meme pattern qu'Electron) puis
-rem Rename-Item local (operation atomique NTFS intra-repertoire, evite
-rem le move inter-dossiers qui echoue sous OneDrive / Controlled Folder Access).
-rem try/catch remonte la VRAIE cause d'erreur au lieu du "Acces refuse." opaque.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Expand-Archive -Path '%TEMP%\%NODE_ZIP%' -DestinationPath '!PARENT_DIR!' -Force -ErrorAction Stop; Rename-Item -LiteralPath (Join-Path '!PARENT_DIR!' 'node-%NODE_VERSION%-win-x64') -NewName 'nodejs' -ErrorAction Stop } catch { Write-Host ''; Write-Host '       Echec extraction/renommage Node.js :'; Write-Host ('       ' + $_.Exception.Message); Write-Host ('       Chemin cible : !PARENT_DIR!'); Write-Host '       Causes frequentes : OneDrive/Controlled Folder Access, antivirus, ACL,'; Write-Host '                          ou dossier en cours d''utilisation.'; exit 1 }"
-if !ERRORLEVEL! neq 0 (
-    echo ERREUR: Extraction de Node.js echouee.
+rem Nettoyage best-effort d'une install precedente. Plus de 2>nul : si le
+rem dossier reste verrouille on le signale et on continue, le staging a nom
+rem unique ci-dessous est immunise contre les collisions.
+if exist "!NODE_DIR!" (
+    rmdir /S /Q "!NODE_DIR!"
+    if exist "!NODE_DIR!" echo       Avertissement: "!NODE_DIR!" partiellement verrouille, on passe par un dossier temporaire.
+)
+
+rem Staging a nom unique sous PARENT_DIR : elimine toute collision avec un
+rem dossier residuel (ex: node-v20.11.1-win-x64\ d'un run precedent sous
+rem verrou AV). Staging et cible restent freres sous PARENT_DIR -> le move
+rem final est un rename NTFS atomique intra-repertoire.
+set "STAGE=!PARENT_DIR!\.stage-node-%RANDOM%%RANDOM%"
+mkdir "!STAGE!" 2>nul
+if not exist "!STAGE!" (
+    echo ERREUR: creation du dossier staging "!STAGE!" refusee.
     set EXITCODE=1
     goto :END
 )
+
+rem Extraction : tar.exe (bsdtar) en priorite, fallback PowerShell avec
+rem try/catch pour remonter la VRAIE cause d'erreur.
+set "EXTRACT_OK=0"
+if defined TAR_EXE (
+    pushd "!STAGE!"
+    tar.exe -xf "%TEMP%\%NODE_ZIP%"
+    if !ERRORLEVEL! equ 0 set "EXTRACT_OK=1"
+    popd
+)
+if "!EXTRACT_OK!"=="0" (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Expand-Archive -Path '%TEMP%\%NODE_ZIP%' -DestinationPath '!STAGE!' -Force -ErrorAction Stop } catch { Write-Host ''; Write-Host '       Echec extraction Node.js :'; Write-Host ('       ' + $_.Exception.Message); Write-Host '       Causes frequentes : OneDrive/Controlled Folder Access, antivirus, ACL.'; exit 1 }"
+    if !ERRORLEVEL! neq 0 (
+        rmdir /S /Q "!STAGE!" 2>nul
+        echo ERREUR: Extraction de Node.js echouee.
+        set EXITCODE=1
+        goto :END
+    )
+)
+
+rem Promotion : rename NTFS atomique intra-PARENT_DIR via MoveFileEx.
+move /Y "!STAGE!\node-%NODE_VERSION%-win-x64" "!NODE_DIR!" >nul
+if !ERRORLEVEL! neq 0 (
+    echo ERREUR: renommage final vers "!NODE_DIR!" refuse.
+    echo Causes frequentes : OneDrive/Controlled Folder Access, antivirus, ACL.
+    rmdir /S /Q "!STAGE!" 2>nul
+    set EXITCODE=1
+    goto :END
+)
+rmdir /S /Q "!STAGE!" 2>nul
 
 del "%TEMP%\%NODE_ZIP%" 2>nul
 
@@ -107,13 +148,51 @@ if !ERRORLEVEL! neq 0 (
 )
 
 echo       Extraction...
-if not exist "!ELECTRON_DIR!" mkdir "!ELECTRON_DIR!"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%TEMP%\%ELECTRON_ZIP%' -DestinationPath '!ELECTRON_DIR!' -Force"
-if !ERRORLEVEL! neq 0 (
-    echo ERREUR: Extraction d'Electron echouee.
+
+rem Nettoyage best-effort (voir commentaire du bloc Node.js plus haut).
+if exist "!ELECTRON_DIR!" (
+    rmdir /S /Q "!ELECTRON_DIR!"
+    if exist "!ELECTRON_DIR!" echo       Avertissement: "!ELECTRON_DIR!" partiellement verrouille, on passe par un dossier temporaire.
+)
+
+rem Staging a nom unique. L'archive Electron n'a pas de wrapper folder
+rem (fichiers a la racine du zip) : on extrait dans STAGE, puis on renomme
+rem STAGE lui-meme en ELECTRON_DIR (rename intra-PARENT_DIR, atomique).
+set "STAGE=!PARENT_DIR!\.stage-electron-%RANDOM%%RANDOM%"
+mkdir "!STAGE!" 2>nul
+if not exist "!STAGE!" (
+    echo ERREUR: creation du dossier staging "!STAGE!" refusee.
     set EXITCODE=1
     goto :END
 )
+
+set "EXTRACT_OK=0"
+if defined TAR_EXE (
+    pushd "!STAGE!"
+    tar.exe -xf "%TEMP%\%ELECTRON_ZIP%"
+    if !ERRORLEVEL! equ 0 set "EXTRACT_OK=1"
+    popd
+)
+if "!EXTRACT_OK!"=="0" (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Expand-Archive -Path '%TEMP%\%ELECTRON_ZIP%' -DestinationPath '!STAGE!' -Force -ErrorAction Stop } catch { Write-Host ''; Write-Host '       Echec extraction Electron :'; Write-Host ('       ' + $_.Exception.Message); Write-Host '       Causes frequentes : OneDrive/Controlled Folder Access, antivirus, ACL.'; exit 1 }"
+    if !ERRORLEVEL! neq 0 (
+        rmdir /S /Q "!STAGE!" 2>nul
+        echo ERREUR: Extraction d'Electron echouee.
+        set EXITCODE=1
+        goto :END
+    )
+)
+
+rem Promotion : STAGE devient ELECTRON_DIR (rename intra-PARENT_DIR).
+move /Y "!STAGE!" "!ELECTRON_DIR!" >nul
+if !ERRORLEVEL! neq 0 (
+    echo ERREUR: renommage final vers "!ELECTRON_DIR!" refuse.
+    echo Causes frequentes : OneDrive/Controlled Folder Access, antivirus, ACL.
+    rmdir /S /Q "!STAGE!" 2>nul
+    set EXITCODE=1
+    goto :END
+)
+
 del "%TEMP%\%ELECTRON_ZIP%" 2>nul
 
 if not exist "!ELECTRON_EXE!" (
