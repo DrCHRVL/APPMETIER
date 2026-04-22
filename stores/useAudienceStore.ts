@@ -72,13 +72,18 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
       set({ isLoading: false });
     }
 
-    // Écouter les événements de mise à jour externe
+    // Écouter les événements de mise à jour externe :
+    // - 'audience-stats-update' : recalcul interne (utils/audienceStats)
+    // - 'data-sync-completed'   : la sync vient d'écrire des résultats frais en local
+    //   → re-hydrater le snapshot mémoire pour que les badges (CSS/OI/CRPC) s'affichent
+    //     sans attendre un reload de l'app (cas du nouvel utilisateur après première sync).
     const handleExternalUpdate = () => {
       readFreshFromStorage().then(freshData => {
         set({ resultats: freshData });
       });
     };
     window.addEventListener('audience-stats-update', handleExternalUpdate);
+    window.addEventListener('data-sync-completed', handleExternalUpdate);
 
     // Démarrer le cleanup périodique
     get().startCleanup();

@@ -221,7 +221,7 @@ class ContentieuxSyncInstance {
     const [enquetes, audienceResultats, customTags, alertRules, alertValidations] = await Promise.all([
       ElectronBridge.getData(this.prefix('enquetes'), []),
       ElectronBridge.getData(this.prefix('audienceResultats'), {}),
-      ElectronBridge.getData(this.prefix('customTags'), {}),
+      ElectronBridge.getData(this.prefix('customTags'), []),
       ElectronBridge.getData(this.prefix('alertRules'), []),
       ElectronBridge.getData(this.prefix('alertValidations'), {}),
     ]);
@@ -229,7 +229,7 @@ class ContentieuxSyncInstance {
     return {
       enquetes: Array.isArray(enquetes) ? enquetes : [],
       audienceResultats: audienceResultats || {},
-      customTags: customTags || {},
+      customTags: Array.isArray(customTags) ? customTags : [],
       alertRules: Array.isArray(alertRules) ? alertRules : [],
       alertValidations: alertValidations || {},
       version: 1,

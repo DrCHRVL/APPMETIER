@@ -2,6 +2,7 @@
 
 import { Enquete, AlertValidation } from './interfaces';
 import { ResultatAudience } from './audienceTypes';
+import { TagDefinition } from '@/config/tags';
 
 /**
  * Structure des données synchronisées entre le serveur et les clients
@@ -9,7 +10,7 @@ import { ResultatAudience } from './audienceTypes';
 export interface SyncData {
   enquetes: Enquete[];
   audienceResultats: Record<string, ResultatAudience>;
-  customTags: Record<string, any>;
+  customTags: TagDefinition[];
   alertRules: any[];
   alertValidations?: Record<string, AlertValidation>; // Validations d'alertes (reporter/valider) — synchro entre collègues
   version: number;

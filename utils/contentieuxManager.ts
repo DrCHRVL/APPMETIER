@@ -10,6 +10,7 @@ import { APP_CONFIG } from '@/config/constants';
 import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
 import { Enquete, AlertRule, Alert, AlertValidation, VisualAlertRule } from '@/types/interfaces';
 import { ResultatAudience } from '@/types/audienceTypes';
+import { TagDefinition } from '@/config/tags';
 
 // ──────────────────────────────────────────────
 // TYPES INTERNES
@@ -18,7 +19,7 @@ import { ResultatAudience } from '@/types/audienceTypes';
 /** Données d'un contentieux stockées localement */
 export interface ContentieuxData {
   enquetes: Enquete[];
-  customTags: Record<string, any>;
+  customTags: TagDefinition[];
   alertRules: AlertRule[];
   alerts: Alert[];
   alertValidations: Record<string, AlertValidation>;
@@ -154,8 +155,8 @@ export class ContentieuxManager {
   }
 
   /** Récupère les tags custom d'un contentieux */
-  public getCustomTags(contentieuxId: ContentieuxId): Record<string, any> {
-    return this.getData(contentieuxId)?.customTags || {};
+  public getCustomTags(contentieuxId: ContentieuxId): TagDefinition[] {
+    return this.getData(contentieuxId)?.customTags || [];
   }
 
   /** Récupère les résultats d'audience d'un contentieux */
@@ -194,7 +195,7 @@ export class ContentieuxManager {
   }
 
   /** Met à jour les tags custom d'un contentieux */
-  public async setCustomTags(contentieuxId: ContentieuxId, tags: Record<string, any>): Promise<boolean> {
+  public async setCustomTags(contentieuxId: ContentieuxId, tags: TagDefinition[]): Promise<boolean> {
     const state = this.states.get(contentieuxId);
     if (!state || state.syncMode === 'read_only') return false;
 
@@ -295,7 +296,7 @@ export class ContentieuxManager {
     const [enquetes, customTags, alertRules, alerts, alertValidations, visualAlertRules, audienceResultats] =
       await Promise.all([
         ElectronBridge.getData(storageKey(contentieuxId, 'enquetes'), [] as Enquete[]),
-        ElectronBridge.getData(storageKey(contentieuxId, 'customTags'), {} as Record<string, any>),
+        ElectronBridge.getData(storageKey(contentieuxId, 'customTags'), [] as TagDefinition[]),
         ElectronBridge.getData(storageKey(contentieuxId, 'alertRules'), APP_CONFIG.DEFAULT_ALERT_RULES),
         ElectronBridge.getData(storageKey(contentieuxId, 'alerts'), [] as Alert[]),
         ElectronBridge.getData(storageKey(contentieuxId, 'alertValidations'), {} as Record<string, AlertValidation>),

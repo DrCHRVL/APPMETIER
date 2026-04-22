@@ -346,77 +346,81 @@ export const TagManagementPage = () => {
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">Gestion des Tags</h2>
-        
-        <Button
-          onClick={handleCleanupOrphans}
-          disabled={isCleaningUp}
-          variant="outline"
-          className="flex items-center gap-2"
-        >
-          <Trash2 className="h-4 w-4" />
-          {isCleaningUp ? 'Analyse...' : 'Nettoyer tags orphelins'}
-        </Button>
+
+        {userIsAdmin ? (
+          <Button
+            onClick={handleCleanupOrphans}
+            disabled={isCleaningUp}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            <Trash2 className="h-4 w-4" />
+            {isCleaningUp ? 'Analyse...' : 'Nettoyer tags orphelins'}
+          </Button>
+        ) : (
+          <Button
+            onClick={() => {
+              setRequestTagCategory('services');
+              setRequestTagValue('');
+              setRequestTagDialog(true);
+            }}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            <Send className="h-4 w-4" />
+            Proposer un nouveau tag
+          </Button>
+        )}
       </div>
 
       <Tabs defaultValue="categories" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className={`grid w-full ${userIsAdmin ? 'grid-cols-2' : 'grid-cols-1'}`}>
           <TabsTrigger value="categories">Tags par catégories</TabsTrigger>
-          <TabsTrigger value="organization">Organisation des services</TabsTrigger>
+          {userIsAdmin && (
+            <TabsTrigger value="organization">Organisation des services</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="categories" className="space-y-4">
           {(Object.keys(TAG_CATEGORIES) as TagCategory[]).filter(category => category !== 'suivi').map(category => {
             const categoryTags = getTagsByCategory(category);
-            
+
             return (
               <Card key={category} className="shadow-sm">
                 <CardHeader className="flex flex-row items-center justify-between py-4">
                   <CardTitle className="text-lg">{TAG_CATEGORIES[category]}</CardTitle>
-                  <div className="flex gap-2">
-                    {/* Tags de services : édition réservée à l'admin */}
-                    {category === 'services' && !userIsAdmin ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setRequestTagCategory('services');
-                          setRequestTagDialog(true);
-                        }}
-                        title="Demander la création d'un tag service"
-                      >
-                        <Send className="h-4 w-4" />
-                      </Button>
-                    ) : (
-                      <>
-                        {editingCategory === category ? (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleSaveEdit(category)}
-                            >
-                              <Save className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setEditingCategory(null)}
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </>
-                        ) : (
+                  {/* Contrôles d'édition : admin uniquement.
+                      Les non-admins passent par le bouton "Proposer un nouveau tag" du header. */}
+                  {userIsAdmin && (
+                    <div className="flex gap-2">
+                      {editingCategory === category ? (
+                        <>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleStartEdit(category)}
+                            onClick={() => handleSaveEdit(category)}
                           >
-                            <Edit2 className="h-4 w-4" />
+                            <Save className="h-4 w-4" />
                           </Button>
-                        )}
-                      </>
-                    )}
-                  </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEditingCategory(null)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleStartEdit(category)}
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent>
                   {editingCategory === category && (
@@ -445,19 +449,21 @@ export const TagManagementPage = () => {
           })}
         </TabsContent>
 
-        <TabsContent value="organization" className="space-y-4">
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg">Organisation des services par sections</CardTitle>
-              <p className="text-sm text-gray-600">
-                Organisez vos services d'enquête en sections pour un affichage structuré sur la grille principale.
-              </p>
-            </CardHeader>
-            <CardContent>
-              <ServiceOrganizer />
-            </CardContent>
-          </Card>
-        </TabsContent>
+        {userIsAdmin && (
+          <TabsContent value="organization" className="space-y-4">
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-lg">Organisation des services par sections</CardTitle>
+                <p className="text-sm text-gray-600">
+                  Organisez vos services d'enquête en sections pour un affichage structuré sur la grille principale.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <ServiceOrganizer />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Dialog pour les nouveaux tags */}
