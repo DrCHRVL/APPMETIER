@@ -60,17 +60,23 @@ if !ERRORLEVEL! neq 0 (
 )
 
 echo       Extraction...
-if exist "%TEMP%\node-extract" rmdir /S /Q "%TEMP%\node-extract" 2>nul
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%TEMP%\%NODE_ZIP%' -DestinationPath '%TEMP%\node-extract' -Force"
+rem Nettoyage prealable : supprimer toute installation partielle d'un run precedent
+rem (sinon Rename-Item echoue si le dossier cible existe deja)
+if exist "!NODE_DIR!" rmdir /S /Q "!NODE_DIR!" 2>nul
+if exist "!PARENT_DIR!\node-%NODE_VERSION%-win-x64" rmdir /S /Q "!PARENT_DIR!\node-%NODE_VERSION%-win-x64" 2>nul
+if not exist "!PARENT_DIR!" mkdir "!PARENT_DIR!" 2>nul
+
+rem Extraction directe dans !PARENT_DIR! (meme pattern qu'Electron) puis
+rem Rename-Item local (operation atomique NTFS intra-repertoire, evite
+rem le move inter-dossiers qui echoue sous OneDrive / Controlled Folder Access).
+rem try/catch remonte la VRAIE cause d'erreur au lieu du "Acces refuse." opaque.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Expand-Archive -Path '%TEMP%\%NODE_ZIP%' -DestinationPath '!PARENT_DIR!' -Force -ErrorAction Stop; Rename-Item -LiteralPath (Join-Path '!PARENT_DIR!' 'node-%NODE_VERSION%-win-x64') -NewName 'nodejs' -ErrorAction Stop } catch { Write-Host ''; Write-Host '       Echec extraction/renommage Node.js :'; Write-Host ('       ' + $_.Exception.Message); Write-Host ('       Chemin cible : !PARENT_DIR!'); Write-Host '       Causes frequentes : OneDrive/Controlled Folder Access, antivirus, ACL,'; Write-Host '                          ou dossier en cours d''utilisation.'; exit 1 }"
 if !ERRORLEVEL! neq 0 (
     echo ERREUR: Extraction de Node.js echouee.
     set EXITCODE=1
     goto :END
 )
 
-if not exist "!PARENT_DIR!" mkdir "!PARENT_DIR!" 2>nul
-move "%TEMP%\node-extract\node-%NODE_VERSION%-win-x64" "!NODE_DIR!" >nul
-rmdir /S /Q "%TEMP%\node-extract" 2>nul
 del "%TEMP%\%NODE_ZIP%" 2>nul
 
 if not exist "!NODE_EXE!" (
