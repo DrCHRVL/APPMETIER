@@ -618,16 +618,15 @@ export class DataSyncManager {
 
   private async getLocalData(): Promise<SyncData> {
     const enquetes = await ElectronBridge.getData('enquetes', []);
-    const deletedEntries      = await this.loadDeletedEntries();
-    const deletedActeEntries  = await this.loadDeletedActeEntries();
-    const deletedCREntries    = await this.loadDeletedCREntries();
-    const deletedMECEntries   = await this.loadDeletedMECEntries();
 
-    // NOTE : customTags, audienceResultats, tagRequests, alertRules,
-    // alertValidations ont chacun leur propre pipeline dédié (TagSyncService /
-    // AudienceSyncService / AlertSyncService → tag-data.json / audience-data.json /
-    // alerts-data.json). On renvoie des valeurs vides ici pour que le vieux
-    // pipeline app-data.json racine ne les touche plus.
+    // NOTE : chaque famille de données globales a son propre pipeline dédié :
+    //   - customTags / tagRequests        → TagSyncService      (tag-data.json)
+    //   - audienceResultats               → AudienceSyncService (audience-data.json)
+    //   - alertRules / alertValidations   → AlertSyncService    (alerts-data.json)
+    //   - deletedIds / deletedActeIds...  → DeletedIdsSyncService (deleted-ids.json)
+    // On renvoie des valeurs vides ici pour que le vieux pipeline
+    // app-data.json racine ne touche plus à rien de partagé, même s'il tentait
+    // encore de se réveiller via une sync résiduelle.
     return {
       enquetes: Array.isArray(enquetes) ? enquetes : [],
       audienceResultats: {},
@@ -635,24 +634,19 @@ export class DataSyncManager {
       alertRules: [],
       alertValidations: {},
       tagRequests: [],
-      deletedIds:     deletedEntries.map(e => e.id),
-      deletedActeIds: deletedActeEntries.map(e => e.id),
-      deletedCRIds:   deletedCREntries.map(e => e.id),
-      deletedMECIds:  deletedMECEntries.map(e => e.id),
+      deletedIds:     [],
+      deletedActeIds: [],
+      deletedCRIds:   [],
+      deletedMECIds:  [],
       version: 1
     };
   }
 
   private async saveLocalData(data: SyncData): Promise<void> {
     await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ENQUETES, data.enquetes);
-    // NOTE : customTags, audienceResultats, tagRequests, alertRules,
-    // alertValidations ont leur propre pipeline dédié — on ne les touche plus
-    // depuis ici pour éviter d'écraser les données fraîches écrites par les
-    // services TagSyncService / AudienceSyncService / AlertSyncService.
-    await this.saveDeletedEntries(data.deletedIds || []);
-    await this.saveDeletedActeEntries(data.deletedActeIds || []);
-    await this.saveDeletedCREntries(data.deletedCRIds || []);
-    await this.saveDeletedMECEntries(data.deletedMECIds || []);
+    // NOTE : toutes les données globales (customTags, audienceResultats,
+    // tagRequests, alertRules, alertValidations, tombstones) sont gérées par
+    // leurs services dédiés. On ne les touche plus depuis ici.
 
     // Notifier les stores (AudienceStore, etc.) que des données fraîches sont en local
     // → leur permet de re-hydrater leur snapshot mémoire sans attendre un reload de l'app.

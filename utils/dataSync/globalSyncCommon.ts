@@ -49,7 +49,7 @@ export function isGlobalSyncAvailable(): boolean {
     && !!window.electronAPI?.globalSync_pushTags;
 }
 
-export type GlobalSyncScope = 'tags' | 'audience' | 'alerts';
+export type GlobalSyncScope = 'tags' | 'audience' | 'alerts' | 'deletedIds';
 
 /**
  * Déclenche un event `global-sync-completed` que les stores/hooks

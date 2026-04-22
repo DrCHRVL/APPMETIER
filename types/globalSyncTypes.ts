@@ -32,3 +32,21 @@ export interface AlertSyncFile extends GlobalSyncMetadata {
   alertRules: AlertRule[];
   alertValidations: AlertValidations;
 }
+
+/**
+ * Tombstones des éléments supprimés (enquêtes + actes/écoutes/géolocs +
+ * comptes-rendus + mis en cause). Empêche la résurrection d'un élément
+ * quand une machine avec un cache plus ancien pousserait son état vers
+ * le serveur.
+ */
+export interface DeletedTombstone {
+  id: number;
+  deletedAt: string;
+}
+
+export interface DeletedIdsSyncFile extends GlobalSyncMetadata {
+  enqueteIds: DeletedTombstone[];
+  acteIds: DeletedTombstone[];
+  crIds: DeletedTombstone[];
+  mecIds: DeletedTombstone[];
+}

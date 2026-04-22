@@ -144,6 +144,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('globalSync:pullAlerts'),
   globalSync_pushAlerts: (payload) =>
     ipcRenderer.invoke('globalSync:pushAlerts', payload),
+  globalSync_pullDeletedIds: () =>
+    ipcRenderer.invoke('globalSync:pullDeletedIds'),
+  globalSync_pushDeletedIds: (payload) =>
+    ipcRenderer.invoke('globalSync:pushDeletedIds', payload),
   globalSync_readLegacyAppData: () =>
     ipcRenderer.invoke('globalSync:readLegacyAppData'),
 

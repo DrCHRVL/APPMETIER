@@ -11,6 +11,7 @@ import { ContentieuxManager } from '../contentieuxManager';
 import { tagSyncService } from './TagSyncService';
 import { audienceSyncService } from './AudienceSyncService';
 import { alertSyncService } from './AlertSyncService';
+import { deletedIdsSyncService } from './DeletedIdsSyncService';
 import {
   SyncData,
   SyncStatus,
@@ -221,13 +222,36 @@ class ContentieuxSyncInstance {
   }
 
   private async getLocalData(): Promise<SyncData> {
-    const [enquetes, audienceResultats, customTags, alertRules, alertValidations] = await Promise.all([
+    // Les tombstones (deleted_*_ids) sont stockés en clés globales, gérés par
+    // DeletedIdsSyncService qui les maintient synchronisés avec deleted-ids.json.
+    // On les relit ici pour que DataMergeService.mergeEnquetes puisse filtrer
+    // correctement les éléments supprimés (anti-résurrection).
+    const [
+      enquetes,
+      audienceResultats,
+      customTags,
+      alertRules,
+      alertValidations,
+      deletedEnq,
+      deletedActe,
+      deletedCR,
+      deletedMEC,
+    ] = await Promise.all([
       ElectronBridge.getData(this.prefix('enquetes'), []),
       ElectronBridge.getData(this.prefix('audienceResultats'), {}),
       ElectronBridge.getData(this.prefix('customTags'), []),
       ElectronBridge.getData(this.prefix('alertRules'), []),
       ElectronBridge.getData(this.prefix('alertValidations'), {}),
+      ElectronBridge.getData<Array<{ id: number }>>('deleted_ids', []),
+      ElectronBridge.getData<Array<{ id: number }>>('deleted_acte_ids', []),
+      ElectronBridge.getData<Array<{ id: number }>>('deleted_cr_ids', []),
+      ElectronBridge.getData<Array<{ id: number }>>('deleted_mec_ids', []),
     ]);
+
+    const toIds = (entries: unknown): number[] =>
+      Array.isArray(entries)
+        ? (entries as Array<{ id: number }>).map(e => e?.id).filter((n): n is number => typeof n === 'number')
+        : [];
 
     return {
       enquetes: Array.isArray(enquetes) ? enquetes : [],
@@ -235,6 +259,10 @@ class ContentieuxSyncInstance {
       customTags: Array.isArray(customTags) ? customTags : [],
       alertRules: Array.isArray(alertRules) ? alertRules : [],
       alertValidations: alertValidations || {},
+      deletedIds:     toIds(deletedEnq),
+      deletedActeIds: toIds(deletedActe),
+      deletedCRIds:   toIds(deletedCR),
+      deletedMECIds:  toIds(deletedMEC),
       version: 1,
     };
   }
@@ -254,6 +282,14 @@ class ContentieuxSyncInstance {
 
     await Promise.all(saveOps);
 
+    // Propager les tombstones fraîchement fusionnés vers les clés globales
+    // pour que les prochaines fusions per-contentieux en tiennent compte
+    // immédiatement, sans attendre le prochain DeletedIdsSyncService.
+    await this.mergeTombstonesToLocal('deleted_ids',      data.deletedIds);
+    await this.mergeTombstonesToLocal('deleted_acte_ids', data.deletedActeIds);
+    await this.mergeTombstonesToLocal('deleted_cr_ids',   data.deletedCRIds);
+    await this.mergeTombstonesToLocal('deleted_mec_ids',  data.deletedMECIds);
+
     // Mettre à jour le ContentieuxManager
     ContentieuxManager.getInstance().replaceData(this.contentieuxId, {
       enquetes: data.enquetes,
@@ -262,6 +298,23 @@ class ContentieuxSyncInstance {
       alertValidations: data.alertValidations || {},
       audienceResultats: data.audienceResultats,
     });
+  }
+
+  /** Union locale + IDs fournis par le merge, en conservant la date la plus
+   *  récente. L'appel est non bloquant si `ids` est vide/undefined. */
+  private async mergeTombstonesToLocal(key: string, ids: number[] | undefined): Promise<void> {
+    if (!ids || ids.length === 0) return;
+    const existing = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(key, []);
+    const arr = Array.isArray(existing) ? existing : [];
+    const byId = new Map<number, { id: number; deletedAt: string }>();
+    for (const t of arr) if (t && typeof t.id === 'number') byId.set(t.id, t);
+    const now = new Date().toISOString();
+    for (const id of ids) {
+      if (!byId.has(id)) byId.set(id, { id, deletedAt: now });
+    }
+    if (byId.size !== arr.length) {
+      await ElectronBridge.setData(key, Array.from(byId.values()));
+    }
   }
 
   private async getServerData(): Promise<{ data: SyncData; metadata: SyncMetadata } | null> {
@@ -423,6 +476,14 @@ export class MultiSyncManager {
       this.instances.set(def.id, instance);
     }
 
+    // Avant de lancer les sync per-contentieux, on tire les tombstones
+    // globaux depuis deleted-ids.json. Indispensable pour que le premier
+    // cycle per-contentieux voie les suppressions faites par d'autres postes
+    // et ne ressuscite pas les éléments correspondants.
+    try {
+      await deletedIdsSyncService.sync();
+    } catch {}
+
     // Initialiser les instances de sync avec un délai progressif entre chaque
     // pour éviter un pic de charge I/O au démarrage ou au retour d'app
     const instances = Array.from(this.instances.values());
@@ -431,7 +492,7 @@ export class MultiSyncManager {
       try { await instances[i].initialize(); } catch {}
     }
 
-    // Démarrer les pipelines globaux (tag-data.json, audience-data.json,
+    // Démarrer les autres pipelines globaux (tag-data.json, audience-data.json,
     // alerts-data.json). Ces services sont indépendants des contentieux : ils
     // ont leur propre fichier serveur, leur propre fusion et leur propre timer.
     try {
@@ -444,6 +505,7 @@ export class MultiSyncManager {
     tagSyncService.startPeriodic();
     audienceSyncService.startPeriodic();
     alertSyncService.startPeriodic();
+    deletedIdsSyncService.startPeriodic();
   }
 
   public stopAll(): void {
@@ -454,6 +516,7 @@ export class MultiSyncManager {
     tagSyncService.stopPeriodic();
     audienceSyncService.stopPeriodic();
     alertSyncService.stopPeriodic();
+    deletedIdsSyncService.stopPeriodic();
   }
 
   public setToastCallback(cb: (message: string, type: 'success' | 'info' | 'error') => void): void {

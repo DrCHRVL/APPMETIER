@@ -1513,6 +1513,22 @@ function setupIpcHandlers() {
     }
   })
 
+  ipcMain.handle('globalSync:pullDeletedIds', async () => {
+    return readGlobalFile('deleted-ids.json')
+  })
+
+  ipcMain.handle('globalSync:pushDeletedIds', async (event, payload) => {
+    try {
+      writeGlobalFile('deleted-ids.json', payload)
+      pruneGlobalBackups('deleted-ids')
+      console.log('✅ GlobalSync: deleted-ids.json sauvegardé')
+      return true
+    } catch (error) {
+      console.error('❌ GlobalSync: Erreur écriture deleted-ids.json:', error)
+      return false
+    }
+  })
+
   /**
    * Lit app-data.json racine en fallback pour la migration one-shot
    * (renvoie la clé customTags telle qu'elle existe, format legacy ou non)
