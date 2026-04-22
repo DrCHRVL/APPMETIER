@@ -496,11 +496,10 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
   shareEnquete: async (enqueteId: number, targetContentieuxIds: string[]) => {
     const now = new Date().toISOString();
     set(state => {
-      const contentieuxId = state.contentieuxId;
       const changes = updateOwn(state, prev =>
         prev.map(e =>
           e.id === enqueteId
-            ? { ...e, sharedWith: targetContentieuxIds, contentieuxOrigine: contentieuxId, dateMiseAJour: now }
+            ? { ...e, sharedWith: targetContentieuxIds, dateMiseAJour: now }
             : e
         )
       );
@@ -508,7 +507,6 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
         changes.selectedEnquete = {
           ...state.selectedEnquete,
           sharedWith: targetContentieuxIds,
-          contentieuxOrigine: contentieuxId,
           dateMiseAJour: now,
         };
       }
@@ -525,7 +523,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       const changes = updateOwn(state, prev =>
         prev.map(e =>
           e.id === enqueteId
-            ? { ...e, sharedWith: undefined, dateMiseAJour: now }
+            ? { ...e, sharedWith: undefined, contentieuxOrigine: undefined, dateMiseAJour: now }
             : e
         )
       );
@@ -533,6 +531,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
         changes.selectedEnquete = {
           ...state.selectedEnquete,
           sharedWith: undefined,
+          contentieuxOrigine: undefined,
           dateMiseAJour: now,
         };
       }
