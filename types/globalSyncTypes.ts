@@ -19,9 +19,22 @@ export interface GlobalSyncMetadata {
   computerName: string;
 }
 
+/**
+ * Tombstone de suppression pour les tags et demandes de tags (IDs string).
+ * Empêche la résurrection d'un élément supprimé quand un autre poste
+ * encore désynchronisé pousserait son état vers le serveur.
+ * Nettoyés après TAG_TOMBSTONE_TTL_DAYS jours.
+ */
+export interface TagTombstone {
+  id: string;
+  deletedAt: string;
+}
+
 export interface TagSyncFile extends GlobalSyncMetadata {
   customTags: TagDefinition[];
   tagRequests: TagRequest[];
+  deletedTagIds?: TagTombstone[];
+  deletedTagRequestIds?: TagTombstone[];
 }
 
 export interface AudienceSyncFile extends GlobalSyncMetadata {

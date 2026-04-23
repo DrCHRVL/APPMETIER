@@ -73,8 +73,6 @@ const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHi
 const AdminUpdatePanel = dynamic(() => import('@/components/admin/AdminUpdatePanel').then(m => ({ default: m.AdminUpdatePanel })), { ssr: false });
 const AboutContent = dynamic(() => import('@/components/AboutContent').then(m => ({ default: m.AboutContent })), { ssr: false });
 import { useOverboardData } from '@/hooks/useOverboardData';
-const TagRequestPopup = dynamic(() => import('@/components/modals/TagRequestPopup').then(m => ({ default: m.TagRequestPopup })), { ssr: false });
-import { tagRequestManager } from '@/utils/tagRequestManager';
 import { HeartbeatManager } from '@/utils/heartbeatManager';
 import { SharedEventManager } from '@/utils/sharedEventManager';
 import { AuditLogger } from '@/utils/auditLogger';
@@ -100,7 +98,6 @@ function AppContent() {
   const [activeContentieux, setActiveContentieux] = useState<ContentieuxId | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsContentieuxId, setSettingsContentieuxId] = useState<ContentieuxId | null>(null);
-  const [showTagRequestPopup, setShowTagRequestPopup] = useState(false);
   const [pendingUsersCount, setPendingUsersCount] = useState(0);
   const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
 
@@ -348,16 +345,6 @@ function AppContent() {
       setGlobalTodos(todos || []);
     });
   }, []);
-
-  // Vérifier les demandes de tags en attente (admin uniquement)
-  useEffect(() => {
-    if (!isAdmin()) return;
-    tagRequestManager.getPendingRequests().then(requests => {
-      if (requests.length > 0) {
-        setShowTagRequestPopup(true);
-      }
-    });
-  }, [isAdmin]);
 
   // Compter les utilisateurs en attente d'approbation (admin uniquement)
   useEffect(() => {
@@ -1561,12 +1548,6 @@ return (
         }} />}
         aProposContent={<AboutContent />}
         pendingUsersCount={pendingUsersCount}
-      />
-
-      {/* Popup demandes de tags (admin) */}
-      <TagRequestPopup
-        isOpen={showTagRequestPopup}
-        onClose={() => setShowTagRequestPopup(false)}
       />
     </div>
   );

@@ -5,6 +5,8 @@ import { Check, X, Clock, Trash2, RefreshCw } from 'lucide-react';
 import { tagRequestManager, TagRequest } from '@/utils/tagRequestManager';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
+import { useTags } from '@/hooks/useTags';
+import { TagCategory } from '@/config/tags';
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending:  { label: 'En attente', color: 'bg-amber-100 text-amber-700' },
@@ -20,6 +22,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 export const AdminTagHistoryPanel = () => {
   const { isAdmin: checkIsAdmin, user } = useUser();
   const { showToast } = useToast();
+  const { addTag, getTagByValue } = useTags();
   const [requests, setRequests] = useState<TagRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -42,8 +45,29 @@ export const AdminTagHistoryPanel = () => {
   }
 
   const handleReview = async (id: string, status: 'approved' | 'rejected') => {
-    await tagRequestManager.reviewRequest(id, status, user?.windowsUsername || 'admin');
-    showToast(status === 'approved' ? 'Demande approuvée' : 'Demande refusée', 'success');
+    const req = requests.find(r => r.id === id);
+
+    if (status === 'approved' && req) {
+      // Dédup : ne crée le tag que s'il n'existe pas déjà (même valeur + catégorie).
+      const alreadyExists = !!getTagByValue(req.tagValue, req.category as TagCategory);
+      if (!alreadyExists) {
+        const created = await addTag({ value: req.tagValue, category: req.category as TagCategory });
+        if (!created) {
+          showToast(`Erreur lors de la création du tag "${req.tagValue}"`, 'error');
+          return;
+        }
+      }
+      await tagRequestManager.reviewRequest(id, status, user?.windowsUsername || 'admin');
+      showToast(
+        alreadyExists
+          ? `Demande approuvée — tag "${req.tagValue}" déjà existant`
+          : `Demande approuvée — tag "${req.tagValue}" créé`,
+        'success',
+      );
+    } else {
+      await tagRequestManager.reviewRequest(id, status, user?.windowsUsername || 'admin');
+      showToast('Demande refusée', 'success');
+    }
     loadRequests();
   };
 
