@@ -11,6 +11,7 @@ import { AlertValidation } from '@/utils/alerts/alertValidation';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { VISUAL_ALERT_COLOR_PALETTE, VISUAL_ALERT_COLOR_KEYS, VISUAL_ALERT_TRIGGER_LABELS } from '@/config/constants';
 import { useUser } from '@/contexts/UserContext';
+import { useUserPreferences } from '@/hooks/useUserPreferences';
 
 const WEEKLY_POPUP_KEY = 'weekly_popup_config';
 const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -401,8 +402,16 @@ interface AlertsPageProps {
 }
 
 export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule, onShowWeeklyPopup, visualAlertRules = [], onUpdateVisualAlertRule, onDeleteVisualAlertRule, onReorderVisualAlertRules }: AlertsPageProps) => {
-  const { hasModule } = useUser();
+  const { hasModule, accessibleContentieux } = useUser();
   const userHasAIR = hasModule('air');
+  const { subscribedContentieux, setWeeklyRecapSubscriptions } = useUserPreferences();
+
+  const toggleContentieuxSubscription = (id: string) => {
+    const next = subscribedContentieux.includes(id)
+      ? subscribedContentieux.filter(c => c !== id)
+      : [...subscribedContentieux, id];
+    setWeeklyRecapSubscriptions(next);
+  };
 
   const [weeklyConfig, setWeeklyConfig] = useState<WeeklyPopupConfig>({
     enabled: false,
@@ -646,6 +655,45 @@ export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule,
               S'affiche si l'app est ouverte après {weeklyConfig.hour}h00 {weeklyConfig.dayOfWeek === 7 ? 'chaque jour' : `le ${DAYS[weeklyConfig.dayOfWeek]}`}.
               Les seuils utilisés sont ceux des règles "Délai compte rendu" et "Expiration acte".
             </p>
+
+            {/* Abonnement par contentieux : seuls les contentieux accessibles à
+                l'utilisateur sont listés. Si aucun n'est coché, le popup ne
+                s'ouvre pas. */}
+            <div className="w-full border-t border-blue-100 pt-3 mt-1">
+              <p className="text-sm font-medium text-gray-700 mb-2">Contentieux suivis</p>
+              {accessibleContentieux.length === 0 ? (
+                <p className="text-xs text-gray-400">Aucun contentieux accessible.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {accessibleContentieux.map(c => {
+                    const checked = subscribedContentieux.includes(c.id);
+                    return (
+                      <label
+                        key={c.id}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+                          checked
+                            ? 'bg-blue-100 border-blue-300'
+                            : 'bg-white border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleContentieuxSubscription(c.id)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        <span className="text-sm">{c.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              {subscribedContentieux.length === 0 && accessibleContentieux.length > 0 && (
+                <p className="text-xs text-amber-600 mt-2">
+                  Aucun contentieux coché : le récapitulatif ne s'affichera pas.
+                </p>
+              )}
+            </div>
           </CardContent>
         )}
       </Card>

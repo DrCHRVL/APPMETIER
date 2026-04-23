@@ -22,6 +22,7 @@ import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ToastProvider, useToast } from '@/contexts/ToastContext';
 import { AudienceProvider } from '@/contexts/AudienceContext';
 import { UserProvider, useUser } from '@/contexts/UserContext';
+import { useUserPreferences } from '@/hooks/useUserPreferences';
 import { ProlongationModal } from '@/components/modals/ProlongationModal';
 import { PoseActeModal } from '@/components/modals/PoseActeModal';
 import { ProlongationValidationModal } from '@/components/modals/ProlongationValidationModal';
@@ -164,6 +165,39 @@ function AppContent() {
 
   // Popup de récapitulatif hebdomadaire
   const [showWeeklyPopup, setShowWeeklyPopup] = useState(false);
+  const [weeklyBuckets, setWeeklyBuckets] = useState<Array<{
+    contentieuxId: string;
+    contentieuxLabel: string;
+    contentieuxColor?: string;
+    enquetes: any[];
+  }>>([]);
+  const { subscribedContentieux: weeklySubscribedIds } = useUserPreferences();
+
+  // Construit les buckets pour le récap hebdo : intersection des contentieux
+  // abonnés et des contentieux actuellement accessibles à l'utilisateur, en
+  // lisant directement ctx_{id}_enquetes pour chaque (pas besoin d'activer le
+  // contentieux dans le store).
+  const buildWeeklyBuckets = useCallback(async () => {
+    const allowedIds = new Set(accessibleContentieux.map(c => c.id));
+    const effective = weeklySubscribedIds.filter(id => allowedIds.has(id));
+    const results = await Promise.all(effective.map(async (id) => {
+      const def = accessibleContentieux.find(c => c.id === id);
+      const enq = await ElectronBridge.getData<any[]>(`ctx_${id}_enquetes`, []);
+      return {
+        contentieuxId: id,
+        contentieuxLabel: def?.label || id,
+        contentieuxColor: def?.color,
+        enquetes: Array.isArray(enq) ? enq : [],
+      };
+    }));
+    setWeeklyBuckets(results);
+    return results;
+  }, [accessibleContentieux, weeklySubscribedIds]);
+
+  const openWeeklyPopup = useCallback(async () => {
+    await buildWeeklyBuckets();
+    setShowWeeklyPopup(true);
+  }, [buildWeeklyBuckets]);
 
   // 🆕 Hook de synchronisation des données
   const {
@@ -395,8 +429,19 @@ function AppContent() {
     ElectronBridge.setData('global_todos', todos);
   }, []);
 
-  // Popup récapitulatif hebdomadaire : vérifié une fois au démarrage
+  // Popup récapitulatif hebdomadaire : vérifié au démarrage, une fois que
+  // les contentieux accessibles et les abonnements utilisateur sont chargés.
+  // N'ouvre pas le popup si aucun contentieux n'est coché : le user doit
+  // s'abonner explicitement via Paramètres → Alertes.
+  const weeklyCheckDoneRef = useRef(false);
   useEffect(() => {
+    if (weeklyCheckDoneRef.current) return;
+    if (accessibleContentieux.length === 0) return;
+
+    const allowedIds = new Set(accessibleContentieux.map(c => c.id));
+    const effectiveIds = weeklySubscribedIds.filter(id => allowedIds.has(id));
+    if (effectiveIds.length === 0) return;
+
     const checkWeeklyPopup = async () => {
       try {
         const cfg = await ElectronBridge.getData<WeeklyPopupConfig>('weekly_popup_config', {
@@ -407,22 +452,21 @@ function AppContent() {
         const now = new Date();
         const todayStr = now.toISOString().split('T')[0];
 
-        // Déjà montré aujourd'hui ?
         if (cfg.lastShownDate === todayStr) return;
 
-        // Bon jour de la semaine et heure atteinte ? (7 = chaque jour)
         const isRightDay = cfg.dayOfWeek === 7 || now.getDay() === cfg.dayOfWeek;
         if (isRightDay && now.getHours() >= cfg.hour) {
-          // Mettre à jour lastShownDate pour ne pas le réafficher cette journée
           await ElectronBridge.setData('weekly_popup_config', { ...cfg, lastShownDate: todayStr });
+          await buildWeeklyBuckets();
           setShowWeeklyPopup(true);
+          weeklyCheckDoneRef.current = true;
         }
       } catch {
         // Silencieux si stockage non disponible
       }
     };
     checkWeeklyPopup();
-  }, []);
+  }, [accessibleContentieux, weeklySubscribedIds, buildWeeklyBuckets]);
 
   // 🆕 Effet pour détecter les conflits et afficher le modal
   useEffect(() => {
@@ -1494,7 +1538,7 @@ return (
       <WeeklyRecapPopup
         isOpen={showWeeklyPopup}
         onClose={() => setShowWeeklyPopup(false)}
-        enquetes={enquetes}
+        buckets={weeklyBuckets}
         alertRules={alertRules}
       />
 
@@ -1519,7 +1563,7 @@ return (
             onUpdateRule={handleUpdateAlertRule}
             onDuplicateRule={handleDuplicateRule}
             onDeleteRule={handleDeleteRule}
-            onShowWeeklyPopup={() => setShowWeeklyPopup(true)}
+            onShowWeeklyPopup={() => { openWeeklyPopup(); }}
             visualAlertRules={visualAlertRules}
             onUpdateVisualAlertRule={updateVisualAlertRule}
             onDeleteVisualAlertRule={deleteVisualAlertRule}

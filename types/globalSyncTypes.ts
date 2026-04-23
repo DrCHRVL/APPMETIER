@@ -63,3 +63,16 @@ export interface DeletedIdsSyncFile extends GlobalSyncMetadata {
   crIds: DeletedTombstone[];
   mecIds: DeletedTombstone[];
 }
+
+/**
+ * Préférences utilisateur synchronisées sur le serveur commun.
+ * Un fichier par utilisateur : user-preferences/{windowsUsername}.json.
+ * Structure volontairement ouverte (chaque clé est optionnelle) pour pouvoir
+ * accueillir d'autres préférences par utilisateur plus tard sans migration.
+ */
+export interface UserPreferencesFile extends GlobalSyncMetadata {
+  windowsUsername: string;
+  weeklyRecap?: {
+    subscribedContentieux: string[];
+  };
+}
