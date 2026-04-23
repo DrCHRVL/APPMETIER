@@ -1529,6 +1529,54 @@ function setupIpcHandlers() {
     }
   })
 
+  // ─── Préférences utilisateur (1 fichier JSON par utilisateur) ──────────────
+  // Dossier : user-preferences/{windowsUsername}.json
+  // Backups : admin/backups/user-preferences-{username}-{timestamp}.json
+  // Sanitize le username pour éviter tout path traversal.
+  const userPrefsFolder = () => path.join(COMMON_SERVER_PATH, 'user-preferences')
+  const sanitizeUsername = (u) => String(u || '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 64)
+
+  ipcMain.handle('globalSync:pullUserPreferences', async (event, username) => {
+    try {
+      const safe = sanitizeUsername(username)
+      if (!safe) return null
+      const filePath = path.join(userPrefsFolder(), `${safe}.json`)
+      if (!fs.existsSync(filePath)) return null
+      const content = fs.readFileSync(filePath, 'utf8')
+      if (!content || !content.trim()) return null
+      return JSON.parse(content)
+    } catch (error) {
+      console.error('❌ GlobalSync: Erreur lecture user-preferences:', error)
+      return null
+    }
+  })
+
+  ipcMain.handle('globalSync:pushUserPreferences', async (event, username, payload) => {
+    try {
+      if (!fs.existsSync(COMMON_SERVER_PATH)) {
+        throw new Error('Serveur commun inaccessible')
+      }
+      const safe = sanitizeUsername(username)
+      if (!safe) return false
+      const folder = userPrefsFolder()
+      if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true })
+      const filePath = path.join(folder, `${safe}.json`)
+      const backupDir = globalBackupDir()
+      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true })
+      if (fs.existsSync(filePath)) {
+        const timestamp = new Date().toISOString().replace(/:/g, '-')
+        fs.copyFileSync(filePath, path.join(backupDir, `user-preferences-${safe}-${timestamp}.json`))
+      }
+      fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8')
+      pruneGlobalBackups(`user-preferences-${safe}`, 10)
+      console.log(`✅ GlobalSync: user-preferences/${safe}.json sauvegardé`)
+      return true
+    } catch (error) {
+      console.error('❌ GlobalSync: Erreur écriture user-preferences:', error)
+      return false
+    }
+  })
+
   /**
    * Lit app-data.json racine en fallback pour la migration one-shot
    * (renvoie la clé customTags telle qu'elle existe, format legacy ou non)

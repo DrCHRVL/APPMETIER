@@ -8,7 +8,7 @@ import { ElectronBridge } from '@/utils/electronBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { TagDefinition } from '@/config/tags';
 import type { TagRequest } from '@/utils/tagRequestManager';
-import { TagSyncFile } from '@/types/globalSyncTypes';
+import { TagSyncFile, TagTombstone } from '@/types/globalSyncTypes';
 import {
   getCurrentUserInfo,
   buildMetadata,
@@ -17,8 +17,11 @@ import {
 } from './globalSyncCommon';
 
 const TAG_REQUESTS_KEY = 'tag_requests';
+export const DELETED_TAG_IDS_KEY = 'deleted_tag_ids';
+export const DELETED_TAG_REQUEST_IDS_KEY = 'deleted_tag_request_ids';
 const PUSH_DEBOUNCE_MS = 800;
 const PERIODIC_SYNC_MS = 30_000;
+const TAG_TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 jours
 
 // ─── Fusion : union par ID, le plus récent gagne quand disponible ────────────
 function mergeById<T extends { id: string }>(
@@ -153,6 +156,43 @@ async function writeLocalTagRequests(requests: TagRequest[]): Promise<void> {
   await ElectronBridge.setData(TAG_REQUESTS_KEY, requests);
 }
 
+async function readLocalTombstones(key: string): Promise<TagTombstone[]> {
+  const raw = await ElectronBridge.getData<TagTombstone[]>(key, []);
+  return Array.isArray(raw) ? raw : [];
+}
+
+async function writeLocalTombstones(key: string, data: TagTombstone[]): Promise<void> {
+  await ElectronBridge.setData(key, data);
+}
+
+// ─── Fusion des tombstones : union par ID, deletedAt le plus récent gagne ───
+function mergeTombstones(a: TagTombstone[], b: TagTombstone[]): TagTombstone[] {
+  const map = new Map<string, TagTombstone>();
+  for (const t of [...a, ...b]) {
+    if (!t || typeof t.id !== 'string') continue;
+    const prev = map.get(t.id);
+    if (!prev || (t.deletedAt || '') >= (prev.deletedAt || '')) {
+      map.set(t.id, t);
+    }
+  }
+  return Array.from(map.values());
+}
+
+// ─── Expiration des tombstones après TAG_TOMBSTONE_TTL_MS ───────────────────
+function pruneExpiredTombstones(tombstones: TagTombstone[]): TagTombstone[] {
+  const cutoff = Date.now() - TAG_TOMBSTONE_TTL_MS;
+  return tombstones.filter(t => {
+    const ts = Date.parse(t.deletedAt || '');
+    return !Number.isFinite(ts) || ts >= cutoff;
+  });
+}
+
+function tombstonesDiffer(a: TagTombstone[], b: TagTombstone[]): boolean {
+  if (a.length !== b.length) return true;
+  const setB = new Set(b.map(t => t.id));
+  return a.some(t => !setB.has(t.id));
+}
+
 async function pullServer(): Promise<TagSyncFile | null> {
   if (!window.electronAPI?.globalSync_pullTags) return null;
   return (await window.electronAPI.globalSync_pullTags()) || null;
@@ -235,44 +275,73 @@ export class TagSyncService {
 
   private async performSync(): Promise<void> {
     try {
-      const [serverFile, localTags, localRequests, legacy] = await Promise.all([
+      const [serverFile, localTags, localRequests, legacy, localTagTombs, localReqTombs] = await Promise.all([
         pullServer(),
         readLocalTags(),
         readLocalTagRequests(),
         pullLegacyTags(),
+        readLocalTombstones(DELETED_TAG_IDS_KEY),
+        readLocalTombstones(DELETED_TAG_REQUEST_IDS_KEY),
       ]);
 
       const serverTags = serverFile?.customTags ?? [];
       const serverRequests = serverFile?.tagRequests ?? [];
+      const serverTagTombs = serverFile?.deletedTagIds ?? [];
+      const serverReqTombs = serverFile?.deletedTagRequestIds ?? [];
       this.serverVersion = serverFile?.version ?? 0;
+
+      // Fusion des tombstones (local + serveur), puis purge de ceux > 7j.
+      // Les tombstones expirés sont nettoyés lors de chaque sync : ils ne
+      // sont utiles que le temps que toutes les machines se resynchronisent.
+      const mergedTagTombs = pruneExpiredTombstones(mergeTombstones(localTagTombs, serverTagTombs));
+      const mergedReqTombs = pruneExpiredTombstones(mergeTombstones(localReqTombs, serverReqTombs));
+      const deletedTagIds = new Set(mergedTagTombs.map(t => t.id));
+      const deletedReqIds = new Set(mergedReqTombs.map(t => t.id));
 
       // Si le fichier serveur n'existait pas, on intègre aussi les tags
       // historiques du vieux app-data.json racine (migration one-shot).
       // `dedupTagsByValue` écrase les doublons hérités des migrations :
       // même (catégorie, valeur normalisée) ⇒ un seul tag conservé.
+      // Les tombstones filtrent tout tag/demande explicitement supprimé
+      // avant le merge ET après, pour neutraliser les entrées serveur
+      // issues d'un poste encore désynchronisé.
+      const filterOutTags = (arr: TagDefinition[]) => arr.filter(t => t && !deletedTagIds.has(t.id));
+      const filterOutReqs = (arr: TagRequest[]) => arr.filter(r => r && !deletedReqIds.has(r.id));
+
       const mergedTags = dedupTagsByValue(
-        serverFile
-          ? mergeById(localTags, serverTags)
-          : mergeById(mergeById(localTags, legacy.tags), serverTags),
+        filterOutTags(
+          serverFile
+            ? mergeById(filterOutTags(localTags), filterOutTags(serverTags))
+            : mergeById(
+                mergeById(filterOutTags(localTags), filterOutTags(legacy.tags)),
+                filterOutTags(serverTags),
+              ),
+        ),
       );
 
-      const mergedRequests = serverFile
-        ? mergeById(localRequests, serverRequests, r => r.reviewedAt || r.requestedAt)
-        : mergeById(
-            mergeById(localRequests, legacy.tagRequests, r => r.reviewedAt || r.requestedAt),
-            serverRequests,
-            r => r.reviewedAt || r.requestedAt,
-          );
+      const mergedRequests = filterOutReqs(
+        serverFile
+          ? mergeById(filterOutReqs(localRequests), filterOutReqs(serverRequests), r => r.reviewedAt || r.requestedAt)
+          : mergeById(
+              mergeById(filterOutReqs(localRequests), filterOutReqs(legacy.tagRequests), r => r.reviewedAt || r.requestedAt),
+              filterOutReqs(serverRequests),
+              r => r.reviewedAt || r.requestedAt,
+            ),
+      );
 
       // Écrire le local si différent (évite les notifications inutiles)
       const localChanged =
         mergedTags.length !== localTags.length ||
         mergedRequests.length !== localRequests.length ||
-        mergedTags.some(t => !localTags.find(l => l.id === t.id));
+        mergedTags.some(t => !localTags.find(l => l.id === t.id)) ||
+        tombstonesDiffer(mergedTagTombs, localTagTombs) ||
+        tombstonesDiffer(mergedReqTombs, localReqTombs);
 
       if (localChanged) {
         await writeLocalTags(mergedTags);
         await writeLocalTagRequests(mergedRequests);
+        await writeLocalTombstones(DELETED_TAG_IDS_KEY, mergedTagTombs);
+        await writeLocalTombstones(DELETED_TAG_REQUEST_IDS_KEY, mergedReqTombs);
         emitSyncCompleted('tags');
       }
 
@@ -285,7 +354,9 @@ export class TagSyncService {
         mergedTags.length !== serverTags.length ||
         mergedRequests.length !== serverRequests.length ||
         mergedTags.some(t => !serverTags.find(s => s.id === t.id)) ||
-        mergedRequests.some(r => !serverRequests.find(s => s.id === r.id));
+        mergedRequests.some(r => !serverRequests.find(s => s.id === r.id)) ||
+        tombstonesDiffer(mergedTagTombs, serverTagTombs) ||
+        tombstonesDiffer(mergedReqTombs, serverReqTombs);
 
       if (mergedHasNewForServer) {
         const user = await getCurrentUserInfo();
@@ -293,6 +364,8 @@ export class TagSyncService {
           ...buildMetadata(this.serverVersion, user),
           customTags: mergedTags,
           tagRequests: mergedRequests,
+          deletedTagIds: mergedTagTombs,
+          deletedTagRequestIds: mergedReqTombs,
         };
         const ok = await pushServer(payload);
         if (ok) {

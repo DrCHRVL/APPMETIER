@@ -1,6 +1,7 @@
 // utils/tagRequestManager.ts — Gestion des demandes de création de tags service
 import { ElectronBridge } from './electronBridge';
-import { tagSyncService } from './dataSync/TagSyncService';
+import { tagSyncService, DELETED_TAG_REQUEST_IDS_KEY } from './dataSync/TagSyncService';
+import type { TagTombstone } from '@/types/globalSyncTypes';
 
 const TAG_REQUESTS_KEY = 'tag_requests';
 
@@ -55,6 +56,24 @@ export const tagRequestManager = {
   async clearReviewed(): Promise<void> {
     const all = await this.getRequests();
     const pending = all.filter(r => r.status === 'pending');
+    const removed = all.filter(r => r.status !== 'pending');
+
+    // Tombstones pour les demandes nettoyées : empêche leur résurrection lors
+    // du prochain merge serveur (TagSyncService applique un TTL de 7 jours).
+    if (removed.length > 0) {
+      const existing = await ElectronBridge.getData<TagTombstone[]>(DELETED_TAG_REQUEST_IDS_KEY, []);
+      const tombstones: TagTombstone[] = Array.isArray(existing) ? existing : [];
+      const now = new Date().toISOString();
+      const known = new Set(tombstones.map(t => t.id));
+      for (const r of removed) {
+        if (!known.has(r.id)) {
+          tombstones.push({ id: r.id, deletedAt: now });
+          known.add(r.id);
+        }
+      }
+      await ElectronBridge.setData(DELETED_TAG_REQUEST_IDS_KEY, tombstones);
+    }
+
     await ElectronBridge.setData(TAG_REQUESTS_KEY, pending);
     tagSyncService.schedulePush();
   }

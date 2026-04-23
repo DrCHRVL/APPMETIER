@@ -150,6 +150,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('globalSync:pushDeletedIds', payload),
   globalSync_readLegacyAppData: () =>
     ipcRenderer.invoke('globalSync:readLegacyAppData'),
+  globalSync_pullUserPreferences: (username) =>
+    ipcRenderer.invoke('globalSync:pullUserPreferences', username),
+  globalSync_pushUserPreferences: (username, payload) =>
+    ipcRenderer.invoke('globalSync:pushUserPreferences', username, payload),
 
   dataSync_checkContentieuxAccess: (contentieuxId) =>
     ipcRenderer.invoke('dataSync:checkContentieuxAccess', contentieuxId),

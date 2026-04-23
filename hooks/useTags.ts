@@ -3,7 +3,8 @@ import { TagDefinition, TagCategory, TagOrganization, getTagsByCategory } from '
 import { ElectronBridge } from '@/utils/electronBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { Tag } from '@/types/interfaces';
-import { tagSyncService } from '@/utils/dataSync/TagSyncService';
+import { tagSyncService, DELETED_TAG_IDS_KEY } from '@/utils/dataSync/TagSyncService';
+import type { TagTombstone } from '@/types/globalSyncTypes';
 
 export interface DuplicateTagGroup {
   value: string;           // valeur "canonique" (celle du tag conservé)
@@ -330,9 +331,11 @@ export const useTags = (): UseTagsReturn => {
     };
   }, [tags, isLoading, debouncedSave]);
 
-  // Sélecteurs
+  // Sélecteurs — tri alphabétique (localeCompare FR, insensible à la casse/accents)
   const getTagsByCategoryMemo = useCallback((category: TagCategory) => {
-    return getTagsByCategory(tags, category);
+    return [...getTagsByCategory(tags, category)].sort((a, b) =>
+      a.value.localeCompare(b.value, 'fr', { sensitivity: 'base' })
+    );
   }, [tags]);
 
   const getTagById = useCallback((id: string) => {
@@ -628,13 +631,24 @@ export const useTags = (): UseTagsReturn => {
       if (!tagToDelete) {
         throw new Error('Tag non trouvé');
       }
-      
+
       // Supprimer des enquêtes et instructions
       await propagateTagChange(tagToDelete.value, '', tagToDelete.category);
-      
+
+      // Tombstone : empêche la résurrection du tag lors du prochain merge serveur.
+      // Le TagSyncService filtre les tags dont l'id apparaît ici et nettoie les
+      // tombstones vieux de plus de 7 jours.
+      const existing = await ElectronBridge.getData<TagTombstone[]>(DELETED_TAG_IDS_KEY, []);
+      const tombstones: TagTombstone[] = Array.isArray(existing) ? existing : [];
+      if (!tombstones.some(t => t.id === id)) {
+        tombstones.push({ id, deletedAt: new Date().toISOString() });
+        await ElectronBridge.setData(DELETED_TAG_IDS_KEY, tombstones);
+      }
+
       setTags(prev => prev.filter(tag => tag.id !== id));
+      tagSyncService.schedulePush();
       return true;
-      
+
     } catch (error) {
       console.error('Error deleting tag:', error);
       return false;
