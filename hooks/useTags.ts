@@ -5,31 +5,42 @@ import { APP_CONFIG } from '@/config/constants';
 import { Tag } from '@/types/interfaces';
 import { tagSyncService } from '@/utils/dataSync/TagSyncService';
 
+export interface DuplicateTagGroup {
+  value: string;           // valeur "canonique" (celle du tag conservé)
+  category: TagCategory;
+  count: number;           // nombre total de tags dans le groupe (>= 2)
+  removedCount: number;    // nombre qui seront supprimés = count - 1
+}
+
 interface UseTagsReturn {
   // État
   tags: TagDefinition[];
   isLoading: boolean;
-  
+
   // Sélecteurs
   getTagsByCategory: (category: TagCategory) => TagDefinition[];
   getTagById: (id: string) => TagDefinition | undefined;
   getTagByValue: (value: string, category?: TagCategory) => TagDefinition | undefined;
   getServicesFromTags: (tags: Tag[]) => string[];
-  
+
   // CRUD Tags
   addTag: (tag: Omit<TagDefinition, 'id'>) => Promise<boolean>;
   updateTag: (id: string, updates: Partial<TagDefinition>) => Promise<boolean>;
   deleteTag: (id: string) => Promise<boolean>;
-  
+
   // Organisation
   updateTagOrganization: (tagId: string, organization: TagOrganization | null) => Promise<boolean>;
-  
+
   // Utilitaire
   getTagUsageCount: (tagValue: string, category: TagCategory) => Promise<number>;
 
   // Nettoyage et migration
   cleanupOrphanTags: () => Promise<{ found: string[], cleaned: number }>;
   recreateOrphanTags: (orphanTags: string[]) => Promise<number>;
+
+  // Déduplication (doublons issus des migrations)
+  findDuplicateTags: () => DuplicateTagGroup[];
+  mergeDuplicateTags: () => Promise<number>;
 }
 
 export const useTags = (): UseTagsReturn => {
@@ -506,6 +517,80 @@ export const useTags = (): UseTagsReturn => {
     }
   }, [tags, addTag]);
 
+  // ─── Déduplication des tags (doublons hérités des anciennes migrations) ───
+  // Regroupe par (catégorie, valeur normalisée : trim + lowercase). Pour chaque
+  // groupe à plusieurs entrées, un seul tag est conservé — de préférence celui
+  // qui porte déjà une `organization.section`. Si le conservé n'en a pas mais
+  // qu'un doublon en a une, on la transfère pour ne rien perdre.
+  const computeDuplicateGroups = useCallback((): Array<{
+    keeper: TagDefinition;
+    losers: TagDefinition[];
+    transferOrg?: TagOrganization;
+  }> => {
+    const groups = new Map<string, TagDefinition[]>();
+    for (const tag of tags) {
+      if (!tag || !tag.value || !tag.category) continue;
+      const key = `${tag.category}::${tag.value.trim().toLowerCase()}`;
+      const arr = groups.get(key);
+      if (arr) arr.push(tag);
+      else groups.set(key, [tag]);
+    }
+
+    const out: Array<{ keeper: TagDefinition; losers: TagDefinition[]; transferOrg?: TagOrganization }> = [];
+    groups.forEach(group => {
+      if (group.length < 2) return;
+      const sorted = [...group].sort((a, b) => {
+        const aOrg = a.organization?.section ? 1 : 0;
+        const bOrg = b.organization?.section ? 1 : 0;
+        if (aOrg !== bOrg) return bOrg - aOrg;
+        return (a.id || '').localeCompare(b.id || '');
+      });
+      const keeper = sorted[0];
+      const losers = sorted.slice(1);
+      let transferOrg: TagOrganization | undefined;
+      if (!keeper.organization?.section) {
+        const donor = losers.find(l => l.organization?.section);
+        if (donor?.organization) transferOrg = donor.organization;
+      }
+      out.push({ keeper, losers, transferOrg });
+    });
+    return out;
+  }, [tags]);
+
+  const findDuplicateTags = useCallback((): DuplicateTagGroup[] => {
+    return computeDuplicateGroups().map(({ keeper, losers }) => ({
+      value: keeper.value,
+      category: keeper.category,
+      count: 1 + losers.length,
+      removedCount: losers.length,
+    }));
+  }, [computeDuplicateGroups]);
+
+  const mergeDuplicateTags = useCallback(async (): Promise<number> => {
+    const groups = computeDuplicateGroups();
+    if (groups.length === 0) return 0;
+
+    const loserIds = new Set<string>();
+    const orgTransfers = new Map<string, TagOrganization>();
+    for (const { keeper, losers, transferOrg } of groups) {
+      losers.forEach(l => loserIds.add(l.id));
+      if (transferOrg) orgTransfers.set(keeper.id, transferOrg);
+    }
+
+    setTags(prev => prev
+      .filter(t => !loserIds.has(t.id))
+      .map(t => {
+        const org = orgTransfers.get(t.id);
+        return org ? { ...t, organization: org } : t;
+      })
+    );
+
+    // Les enquêtes référencent les tags par valeur (et non par ID) : la valeur
+    // du tag conservé étant identique aux doublons supprimés, aucune
+    // propagation n'est nécessaire.
+    return loserIds.size;
+  }, [computeDuplicateGroups]);
+
   const updateTag = useCallback(async (id: string, updates: Partial<TagDefinition>): Promise<boolean> => {
     try {
       const existingTag = getTagById(id);
@@ -591,6 +676,10 @@ export const useTags = (): UseTagsReturn => {
 
     // Nettoyage et migration
     cleanupOrphanTags,
-    recreateOrphanTags
+    recreateOrphanTags,
+
+    // Déduplication
+    findDuplicateTags,
+    mergeDuplicateTags
   };
 };
