@@ -1,13 +1,11 @@
-import { Alert, AlertRule, Enquete, AlertValidation, RecurrenceConfig } from '@/types/interfaces';
-import { ElectronBridge } from '../electronBridge';
+import { Alert, AlertRule, Enquete, AlertValidation, RecurrenceConfig, AlertValidations } from '@/types/interfaces';
 import { DateUtils } from '../dateUtils';
 import { AlertStorage } from './alertStorage';
 import { getLastCR } from '../compteRenduUtils';
-import { alertSyncService } from '../dataSync/AlertSyncService';
+import { userPreferencesSyncService } from '../dataSync/UserPreferencesSyncService';
 
 export class AlertManager {
   private static ALERTS_KEY = 'alerts';
-  private static VALIDATED_ALERTS_KEY = 'alert_validations';
   
   // Périodes de validation différentes selon le type d'alerte.
   // Une fois validée, l'alerte ne réapparaît pas pendant cette durée
@@ -43,7 +41,7 @@ export class AlertManager {
       const cutoffDate = new Date();
       cutoffDate.setTime(cutoffDate.getTime() - this.HISTORY_CLEANUP_PERIOD);
 
-      const cleanedValidations = Object.entries(validations).reduce<Record<string, AlertValidation>>(
+      const cleanedValidations = Object.entries(validations).reduce<AlertValidations>(
         (acc, [key, validation]) => {
           if (new Date(validation.validatedAt) > cutoffDate) {
             acc[key] = validation;
@@ -53,8 +51,7 @@ export class AlertManager {
         {}
       );
 
-      await ElectronBridge.setData(this.VALIDATED_ALERTS_KEY, cleanedValidations);
-      alertSyncService.schedulePush();
+      await userPreferencesSyncService.setAlertValidations(cleanedValidations);
     } catch (error) {
       console.error('Erreur lors du nettoyage de l\'historique:', error);
     }
@@ -210,7 +207,8 @@ export class AlertManager {
 
   static async findAlertRule(type: string): Promise<AlertRule | undefined> {
     try {
-      const rules = await ElectronBridge.getData<AlertRule[]>('alert_rules', []);
+      const prefs = await userPreferencesSyncService.getPreferences();
+      const rules = prefs?.alertRules?.global || [];
       return rules.find(rule => rule.type === type && rule.enabled);
     } catch (error) {
       console.error('Error finding alert rule:', error);

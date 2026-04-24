@@ -7,6 +7,7 @@ import { Badge } from './ui/badge';
 import { Plus, Settings, Save, X, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
 import { useTags } from '@/hooks/useTags';
 import { useSections } from '@/hooks/useSections';
+import { useUserServiceOrganization } from '@/hooks/useUserServiceOrganization';
 import { useToast } from '@/contexts/ToastContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { TagOrganization } from '@/config/tags';
@@ -15,9 +16,7 @@ export const ServiceOrganizer = () => {
   const { showToast } = useToast();
 
   const {
-    tags,
     getTagsByCategory,
-    updateTagOrganization,
     isLoading
   } = useTags();
 
@@ -30,6 +29,8 @@ export const ServiceOrganizer = () => {
     getSectionOrder
   } = useSections();
 
+  const { getTagSection, setTagSection } = useUserServiceOrganization();
+
   const [newSectionDialog, setNewSectionDialog] = useState(false);
   const [newSectionName, setNewSectionName] = useState('');
   const [editingTag, setEditingTag] = useState<string | null>(null);
@@ -37,14 +38,16 @@ export const ServiceOrganizer = () => {
 
   const serviceTags = getTagsByCategory('services');
 
-  // Organiser les tags par section
+  // Organiser les tags par section d'après l'organisation PERSONNELLE de
+  // l'utilisateur (user-preferences), et non l'ancienne `tag.organization`
+  // globale qui était partagée par toute l'équipe.
   const tagsBySection = useMemo(() => {
     const organized: { [section: string]: any[] } = {};
     const unorganized: any[] = [];
 
     serviceTags.forEach(tag => {
-      if (tag.organization?.section) {
-        const section = tag.organization.section;
+      const section = getTagSection(tag.id);
+      if (section) {
         if (!organized[section]) organized[section] = [];
         organized[section].push(tag);
       } else {
@@ -52,13 +55,12 @@ export const ServiceOrganizer = () => {
       }
     });
 
-    // Ajouter les tags non organisés
     if (unorganized.length > 0) {
       organized['NON ORGANISÉS'] = unorganized;
     }
 
     return organized;
-  }, [serviceTags]);
+  }, [serviceTags, getTagSection]);
 
   // Obtenir toutes les sections disponibles (sauvegardées + utilisées dans les tags)
   const availableSections = useMemo(() => {
@@ -69,28 +71,24 @@ export const ServiceOrganizer = () => {
 
   const handleStartEditTag = (tag: any) => {
     setEditingTag(tag.id);
-    setEditingOrganization(tag.organization || { section: '', order: 0 });
+    const currentSection = getTagSection(tag.id) ?? '';
+    setEditingOrganization({ section: currentSection });
   };
 
   const handleSaveTagOrganization = async () => {
     if (!editingTag || !editingOrganization) return;
 
-    if (!editingOrganization.section.trim()) {
-      // Supprimer l'organisation
-      const success = await updateTagOrganization(editingTag, null);
-      if (success) {
+    try {
+      if (!editingOrganization.section.trim()) {
+        await setTagSection(editingTag, null);
         showToast('Tag retiré de l\'organisation', 'success');
       } else {
-        showToast('Erreur lors de la modification', 'error');
-      }
-    } else {
-      // Mettre à jour l'organisation
-      const success = await updateTagOrganization(editingTag, editingOrganization);
-      if (success) {
+        await setTagSection(editingTag, editingOrganization.section);
         showToast('Organisation mise à jour', 'success');
-      } else {
-        showToast('Erreur lors de la modification', 'error');
       }
+    } catch (error) {
+      console.error('Error updating tag organization:', error);
+      showToast('Erreur lors de la modification', 'error');
     }
 
     setEditingTag(null);
@@ -100,19 +98,6 @@ export const ServiceOrganizer = () => {
   const handleCancelEdit = () => {
     setEditingTag(null);
     setEditingOrganization(null);
-  };
-
-  const handleQuickAssign = async (tagId: string, section: string) => {
-    const organization: TagOrganization = {
-      section
-    };
-
-    const success = await updateTagOrganization(tagId, organization);
-    if (success) {
-      showToast(`Tag assigné à ${section}`, 'success');
-    } else {
-      showToast('Erreur lors de l\'assignation', 'error');
-    }
   };
 
   const handleCreateSection = async () => {

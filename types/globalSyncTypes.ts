@@ -10,7 +10,7 @@
 import { TagDefinition } from '@/config/tags';
 import { TagRequest } from '@/utils/tagRequestManager';
 import { ResultatAudience } from './audienceTypes';
-import { AlertRule, AlertValidations } from './interfaces';
+import { AlertRule, AlertValidations, VisualAlertRule, AlerteInstruction } from './interfaces';
 
 export interface GlobalSyncMetadata {
   version: number;
@@ -74,5 +74,54 @@ export interface UserPreferencesFile extends GlobalSyncMetadata {
   windowsUsername: string;
   weeklyRecap?: {
     subscribedContentieux: string[];
+  };
+  /**
+   * Organisation personnelle des services dans l'onglet
+   * "Organisation des services". Chaque utilisateur a sa propre liste
+   * ordonnée de sections + ses propres rattachements tag→section.
+   * `seeded` passe à true une fois la migration depuis l'organisation
+   * globale effectuée pour cet utilisateur, pour éviter d'écraser ses
+   * modifications ultérieures.
+   */
+  serviceOrganization?: {
+    seeded?: boolean;
+    sections?: string[];
+    tagSections?: Record<string, string>;
+  };
+  /**
+   * Règles d'alertes classiques personnelles. `global` correspond aux
+   * règles utilisées par `useAlerts` (anciennement clé globale
+   * `alert_rules`). `byContentieux[id]` correspond aux règles spécifiques
+   * à un contentieux (anciennement `ctx_{id}_alertRules`). Le seed est
+   * unique pour la partie globale ; chaque contentieux est seedé à la
+   * première ouverture.
+   */
+  alertRules?: {
+    seeded?: boolean;
+    global?: AlertRule[];
+    byContentieux?: Record<string, AlertRule[]>;
+    seededContentieux?: string[];
+  };
+  /**
+   * Validations d'alertes personnelles. Avant cette refacto, le geste
+   * « j'ai validé l'alerte X sur l'enquête Y » était partagé par toute
+   * l'équipe. Désormais chaque utilisateur a son propre journal.
+   */
+  alertValidations?: {
+    seeded?: boolean;
+    entries?: AlertValidations;
+  };
+  /** Règles d'alertes visuelles (badges sur la grille) personnelles. */
+  visualAlertRules?: {
+    seeded?: boolean;
+    rules?: VisualAlertRule[];
+  };
+  /**
+   * Snapshot des alertes d'instruction (DP, DML, délai 175) personnelles —
+   * principalement utile pour conserver l'état "snoozed" entre machines.
+   */
+  instructionAlerts?: {
+    seeded?: boolean;
+    alerts?: AlerteInstruction[];
   };
 }

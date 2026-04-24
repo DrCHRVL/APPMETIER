@@ -33,6 +33,7 @@ import { ArchivePage } from '@/components/pages/ArchivePage';
 import { AIRPage } from '@/components/pages/AIRPage';
 import { useTags } from '@/hooks/useTags';
 import { useSections } from '@/hooks/useSections';
+import { useUserServiceOrganization } from '@/hooks/useUserServiceOrganization';
 
 // Imports pour les instructions judiciaires
 import { InstructionsPage } from '@/components/pages/InstructionsPage';
@@ -328,6 +329,7 @@ function AppContent() {
   } = useTags();
 
   const { getSectionOrder, sections: sectionsList, reorderSection, addSection: addSectionFn } = useSections();
+  const { getTagSection } = useUserServiceOrganization();
 
   // Hook alertes visuelles
   const {
@@ -773,15 +775,17 @@ function AppContent() {
       const serviceTag = enquete.tags?.find((tag: any) => tag.category === 'services');
 
       if (serviceTag) {
-        // Chercher le tag central correspondant pour récupérer l'organization
+        // Chercher le tag central correspondant pour récupérer l'id, puis
+        // résoudre la section depuis l'organisation PERSONNELLE de
+        // l'utilisateur courant (prefs) — plus d'`organization` globale.
         const centralTag = tags.find(t => t.value === serviceTag.value && t.category === 'services');
+        const userSection = centralTag ? getTagSection(centralTag.id) : undefined;
 
-        if (centralTag?.organization?.section) {
-          const section = centralTag.organization.section;
+        if (userSection) {
           const serviceName = serviceTag.value as string;
-          if (!organized[section]) organized[section] = {};
-          if (!organized[section][serviceName]) organized[section][serviceName] = [];
-          organized[section][serviceName].push(enquete);
+          if (!organized[userSection]) organized[userSection] = {};
+          if (!organized[userSection][serviceName]) organized[userSection][serviceName] = [];
+          organized[userSection][serviceName].push(enquete);
         } else {
           fallback.push(enquete);
         }
@@ -795,7 +799,7 @@ function AppContent() {
     }
 
     return organized;
-  }, [activeEnquetes, tags]);
+  }, [activeEnquetes, tags, getTagSection]);
 
   const archivedEnquetes = useMemo(() =>
     mergedFilteredEnquetes.filter(e => e.statut === 'archive'),
