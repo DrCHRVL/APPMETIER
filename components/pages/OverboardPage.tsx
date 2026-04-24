@@ -179,22 +179,36 @@ export const OverboardPage = ({
     []
   );
 
-  // Nouveautés (CR + actes) postérieures à l'épinglage. Par défaut on prend le pin
-  // de l'utilisateur courant ; sinon le pin le plus ancien (référence conservatrice).
-  // Note : CR.date et Acte.dateDebut/datePose sont auto-déclarés, pas des timestamps
-  // de création — approximation acceptable en l'absence de champ createdAt.
-  const getNewActivitySincePin = (enquete: Enquete): { count: number } => {
+  // Nouveautés postérieures à l'épinglage, triées du plus récent au plus ancien, max 4.
+  // CR.date et Acte.dateDebut/datePose sont auto-déclarés (approximation sans champ createdAt).
+  const getRecentActivitySincePin = (enquete: Enquete): { date: string; label: string }[] => {
     const pins = enquete.overboardPins || [];
-    if (pins.length === 0) return { count: 0 };
+    if (pins.length === 0) return [];
     const myPin = currentUsername ? pins.find(p => p.pinnedBy === currentUsername) : null;
     const refPin = myPin ?? [...pins].sort((a, b) => a.pinnedAt.localeCompare(b.pinnedAt))[0];
     const since = refPin.pinnedAt;
-    const nbCR = (enquete.comptesRendus || []).filter(cr => cr.date && cr.date > since).length;
-    const nbActes = (enquete.actes || []).filter(a => {
+
+    const events: { date: string; label: string }[] = [];
+
+    for (const cr of enquete.comptesRendus || []) {
+      if (cr.date && cr.date > since) {
+        events.push({ date: cr.date, label: 'Nouveau CR' });
+      }
+    }
+    for (const a of enquete.actes || []) {
       const d = a.datePose || a.dateDebut;
-      return d && d > since;
-    }).length;
-    return { count: nbCR + nbActes };
+      if (d && d > since) {
+        events.push({ date: d, label: 'Nouvel acte enregistré' });
+      }
+    }
+    const audienceResultat = audienceState?.resultats?.[String(enquete.id)];
+    if (audienceResultat?.modifiedAt && audienceResultat.modifiedAt > since) {
+      events.push({ date: audienceResultat.modifiedAt, label: "Date d'audience fixée" });
+    }
+
+    return events
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 4);
   };
 
   // Rendu d'une carte d'audience en attente (réutilisé par la vue colonnes et la vue par mois)
@@ -361,18 +375,9 @@ export const OverboardPage = ({
                     <div className={`border ${colors.border} border-t-0 rounded-b-lg p-3`}>
                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                         {pinned.map(enquete => {
-                          const { count: newCount } = getNewActivitySincePin(enquete);
+                          const recentActivity = getRecentActivitySincePin(enquete);
                           return (
-                          <div key={enquete.id} className="relative">
-                            {newCount > 0 && (
-                              <div
-                                className="absolute top-1 right-1 z-10 flex items-center gap-1 bg-emerald-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-sm"
-                                title={`${newCount} nouveauté${newCount > 1 ? 's' : ''} depuis votre épinglage (CR + actes)`}
-                              >
-                                <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
-                                {newCount}
-                              </div>
-                            )}
+                          <div key={enquete.id} className="flex flex-col gap-1">
                             {renderEnqueteCard ? (
                               renderEnqueteCard(enquete, ctxDef.id)
                             ) : (
@@ -388,7 +393,6 @@ export const OverboardPage = ({
                                 {enquete.description && (
                                   <p className="text-xs text-gray-500 mt-1 line-clamp-2">{enquete.description}</p>
                                 )}
-                                {/* Badges des épingleurs */}
                                 <div className="flex gap-1 mt-2">
                                   {enquete.overboardPins?.map(pin => (
                                     <span
@@ -400,6 +404,20 @@ export const OverboardPage = ({
                                   ))}
                                 </div>
                               </div>
+                            )}
+                            {recentActivity.length > 0 && (
+                              <ul className="px-1 space-y-0.5">
+                                {recentActivity.map((ev, i) => (
+                                  <li key={i} className="text-[10px] text-gray-400 leading-tight">
+                                    <span className="mr-1">—</span>
+                                    <span className="text-gray-500">
+                                      {new Date(ev.date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}
+                                    </span>
+                                    <span className="mx-1">·</span>
+                                    {ev.label}
+                                  </li>
+                                ))}
+                              </ul>
                             )}
                           </div>
                           );

@@ -15,6 +15,7 @@ interface ViewAudienceResultModalProps {
   enqueteId: number;
   onReset?: () => void;
   onUpdate?: (resultat: ResultatAudience) => void;
+  isOverboardPinned?: boolean;
 }
 
 export const ViewAudienceResultModal = ({
@@ -22,7 +23,8 @@ export const ViewAudienceResultModal = ({
   onClose,
   enqueteId,
   onReset,
-  onUpdate
+  onUpdate,
+  isOverboardPinned = false,
 }: ViewAudienceResultModalProps) => {
   const { getResultat, isLoading, saveResultat, deleteAudienceResultat } = useAudience();
   const { showToast } = useToast();
@@ -140,6 +142,7 @@ export const ViewAudienceResultModal = ({
         enqueteId={enqueteId}
         defaultDate={resultat.dateAudience}
         initialData={resultat}
+        isOverboardPinned={isOverboardPinned}
       />
     );
   }

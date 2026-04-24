@@ -9,6 +9,7 @@ import { ClassementModal } from './ClassementModal';
 import { useAudience } from '@/hooks/useAudience';
 import { useToast } from '@/contexts/ToastContext';
 import { SuiviAlertModal } from './SuiviAlertModal';
+import { OverboardPinnedAlertModal } from './OverboardPinnedAlertModal';
 import { Tag, ToDoItem } from '@/types/interfaces';
 import { emptyConfiscations, Confiscations, VehiculeSaisi, ImmeubleSaisi, SaisieBancaire, CryptoSaisie, ObjetMobilier, TypeVehicule, TypeImmeuble, CategorieObjet, TypeStupefiant } from '@/types/audienceTypes';
 import { Label } from '../ui/label';
@@ -22,6 +23,7 @@ interface ArchiveEnqueteModalProps {
   enqueteNumero?: string;
   enqueteTags?: Tag[];
   onCreateGlobalTodo?: (todo: ToDoItem) => void;
+  isOverboardPinned?: boolean;
 }
 
 export const ArchiveEnqueteModal = ({
@@ -32,7 +34,8 @@ export const ArchiveEnqueteModal = ({
   misEnCause = [],
   enqueteNumero = '',
   enqueteTags = [],
-  onCreateGlobalTodo
+  onCreateGlobalTodo,
+  isOverboardPinned = false,
 }: ArchiveEnqueteModalProps) => {
   const [step, setStep] = useState<'initial' | 'noResults' | 'date'>('initial');
   const [audienceDate, setAudienceDate] = useState('');
@@ -43,6 +46,7 @@ export const ArchiveEnqueteModal = ({
   const [showOIModal, setShowOIModal] = useState(false);
   const [showClassementModal, setShowClassementModal] = useState(false);
   const [showSuiviAlert, setShowSuiviAlert] = useState(false);
+  const [showOverboardAlert, setShowOverboardAlert] = useState(false);
   const { saveResultat } = useAudience();
   const { showToast } = useToast();
   const hasSuivi = enqueteTags.some(t => t.category === 'suivi');
@@ -128,7 +132,11 @@ export const ArchiveEnqueteModal = ({
       await saveResultat(pendingResultat);
       handleArchiveWithToast(enqueteId);
       showToast('Enquête archivée avec date d\'audience enregistrée', 'success');
-      onClose();
+      if (isOverboardPinned) {
+        setShowOverboardAlert(true);
+      } else {
+        onClose();
+      }
     } catch (error) {
       console.error('Erreur lors de l\'archivage avec date:', error);
       showToast('Erreur lors de l\'archivage', 'error');
@@ -512,6 +520,7 @@ export const ArchiveEnqueteModal = ({
           enqueteNumero={enqueteNumero}
           enqueteTags={enqueteTags}
           onCreateGlobalTodo={onCreateGlobalTodo}
+          isOverboardPinned={isOverboardPinned}
         />
       )}
 
@@ -541,6 +550,14 @@ export const ArchiveEnqueteModal = ({
           onDelete={handleClassementDelete} // Fonction factice, ne sera jamais appelée
         />
       )}
+
+      <OverboardPinnedAlertModal
+        isOpen={showOverboardAlert}
+        onClose={() => {
+          setShowOverboardAlert(false);
+          onClose();
+        }}
+      />
 
       <SuiviAlertModal
         isOpen={showSuiviAlert}

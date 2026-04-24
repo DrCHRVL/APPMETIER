@@ -586,6 +586,7 @@ return (
           enqueteNumero={enquete.numero}
           enqueteTags={enquete.tags}
           onCreateGlobalTodo={onCreateGlobalTodo}
+          isOverboardPinned={!!(enquete.overboardPins && enquete.overboardPins.length > 0)}
         />
       )}
 
@@ -593,6 +594,7 @@ return (
   isOpen={showAudienceResultModal}
   onClose={() => setShowAudienceResultModal(false)}
   enqueteId={enquete.id}
+  isOverboardPinned={!!(enquete.overboardPins && enquete.overboardPins.length > 0)}
   onReset={async () => {
     try {
       await deleteAudienceResultat(enquete.id);
