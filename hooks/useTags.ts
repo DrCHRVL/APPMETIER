@@ -4,6 +4,7 @@ import { ElectronBridge } from '@/utils/electronBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { Tag } from '@/types/interfaces';
 import { tagSyncService, DELETED_TAG_IDS_KEY } from '@/utils/dataSync/TagSyncService';
+import { emitSyncCompleted } from '@/utils/dataSync/globalSyncCommon';
 import type { TagTombstone } from '@/types/globalSyncTypes';
 
 export interface DuplicateTagGroup {
@@ -310,6 +311,8 @@ export const useTags = (): UseTagsReturn => {
       try {
         await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, tagsToSave);
         lastPersistedRef.current = serialized;
+        // Notifier les autres instances useTags (ex. NewEnqueteModal toujours monté)
+        emitSyncCompleted('tags');
         // Propager vers tag-data.json (serveur commun)
         tagSyncService.schedulePush();
       } catch (error) {
