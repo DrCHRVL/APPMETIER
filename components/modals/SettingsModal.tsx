@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId } from '@/types/userTypes';
 
@@ -9,7 +9,7 @@ import { ContentieuxId } from '@/types/userTypes';
 // TYPES
 // ──────────────────────────────────────────────
 
-type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'a_propos' | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
+type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'a_propos' | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -17,6 +17,7 @@ interface SettingsModalProps {
   alertesContent: React.ReactNode;
   tagsContent: React.ReactNode;
   sauvegardesContent: React.ReactNode;
+  monProfilContent?: React.ReactNode;
   adminUsersContent?: React.ReactNode;
   adminContentieuxContent?: React.ReactNode;
   adminPathsContent?: React.ReactNode;
@@ -48,6 +49,7 @@ const TABS: TabDef[] = [
   { id: 'alertes',        label: 'Alertes',       icon: Bell },
   { id: 'tags',           label: 'Tags',          icon: Tags },
   { id: 'sauvegardes',    label: 'Sauvegardes',   icon: Save },
+  { id: 'mon_profil',     label: 'Mon profil',    icon: User },
   { id: 'a_propos',       label: 'À propos',      icon: Info },
   // Séparateur admin
   { id: 'admin_users',       label: 'Utilisateurs',     icon: Users,         isAdmin: true, isSeparator: true },
@@ -75,6 +77,7 @@ export const SettingsModal = ({
   alertesContent,
   tagsContent,
   sauvegardesContent,
+  monProfilContent,
   adminUsersContent,
   adminContentieuxContent,
   adminPathsContent,
@@ -107,6 +110,8 @@ export const SettingsModal = ({
         return tagsContent;
       case 'sauvegardes':
         return sauvegardesContent;
+      case 'mon_profil':
+        return monProfilContent;
       case 'a_propos':
         return aProposContent;
       case 'admin_users':
@@ -127,7 +132,7 @@ export const SettingsModal = ({
   };
 
   // Onglets contentieux (horizontal en haut)
-  const showContentieuxTabs = accessibleContentieux.length > 1 && !activeTab.startsWith('admin_') && activeTab !== 'a_propos';
+  const showContentieuxTabs = accessibleContentieux.length > 1 && !activeTab.startsWith('admin_') && activeTab !== 'a_propos' && activeTab !== 'mon_profil';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

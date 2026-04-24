@@ -73,6 +73,7 @@ const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashbo
 const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHistoryPanel').then(m => ({ default: m.AdminTagHistoryPanel })), { ssr: false });
 const AdminUpdatePanel = dynamic(() => import('@/components/admin/AdminUpdatePanel').then(m => ({ default: m.AdminUpdatePanel })), { ssr: false });
 const AboutContent = dynamic(() => import('@/components/AboutContent').then(m => ({ default: m.AboutContent })), { ssr: false });
+const MyProfileContent = dynamic(() => import('@/components/MyProfileContent').then(m => ({ default: m.MyProfileContent })), { ssr: false });
 import { useOverboardData } from '@/hooks/useOverboardData';
 import { HeartbeatManager } from '@/utils/heartbeatManager';
 import { SharedEventManager } from '@/utils/sharedEventManager';
@@ -1591,6 +1592,7 @@ return (
           setUpdateCommits(commits);
         }} />}
         aProposContent={<AboutContent />}
+        monProfilContent={<MyProfileContent />}
         pendingUsersCount={pendingUsersCount}
       />
     </div>
