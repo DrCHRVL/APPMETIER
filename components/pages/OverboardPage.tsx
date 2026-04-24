@@ -179,13 +179,15 @@ export const OverboardPage = ({
     []
   );
 
-  // Nouveautés (CR + actes) postérieures à l'épinglage. Par défaut on prend le pin
-  // de l'utilisateur courant ; sinon le pin le plus ancien (référence conservatrice).
-  // Note : CR.date et Acte.dateDebut/datePose sont auto-déclarés, pas des timestamps
-  // de création — approximation acceptable en l'absence de champ createdAt.
-  const getNewActivitySincePin = (enquete: Enquete): { count: number } => {
+  // Nouveautés postérieures à l'épinglage, ventilées par type.
+  // CR.date et Acte.dateDebut/datePose sont auto-déclarés (approximation sans champ createdAt).
+  const getNewActivitySincePin = (enquete: Enquete): {
+    nbCR: number;
+    nbActes: number;
+    hasNewAudience: boolean;
+  } => {
     const pins = enquete.overboardPins || [];
-    if (pins.length === 0) return { count: 0 };
+    if (pins.length === 0) return { nbCR: 0, nbActes: 0, hasNewAudience: false };
     const myPin = currentUsername ? pins.find(p => p.pinnedBy === currentUsername) : null;
     const refPin = myPin ?? [...pins].sort((a, b) => a.pinnedAt.localeCompare(b.pinnedAt))[0];
     const since = refPin.pinnedAt;
@@ -194,7 +196,9 @@ export const OverboardPage = ({
       const d = a.datePose || a.dateDebut;
       return d && d > since;
     }).length;
-    return { count: nbCR + nbActes };
+    const audienceResultat = audienceState?.resultats?.[String(enquete.id)];
+    const hasNewAudience = !!(audienceResultat?.modifiedAt && audienceResultat.modifiedAt > since);
+    return { nbCR, nbActes, hasNewAudience };
   };
 
   // Rendu d'une carte d'audience en attente (réutilisé par la vue colonnes et la vue par mois)
@@ -411,16 +415,37 @@ export const OverboardPage = ({
                     <div className={`border ${colors.border} border-t-0 rounded-b-lg p-3`}>
                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                         {pinned.map(enquete => {
-                          const { count: newCount } = getNewActivitySincePin(enquete);
+                          const { nbCR, nbActes, hasNewAudience } = getNewActivitySincePin(enquete);
+                          const hasAny = nbCR > 0 || nbActes > 0 || hasNewAudience;
                           return (
                           <div key={enquete.id} className="relative">
-                            {newCount > 0 && (
-                              <div
-                                className="absolute top-1 right-1 z-10 flex items-center gap-1 bg-emerald-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-sm"
-                                title={`${newCount} nouveauté${newCount > 1 ? 's' : ''} depuis votre épinglage (CR + actes)`}
-                              >
-                                <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
-                                {newCount}
+                            {hasAny && (
+                              <div className="absolute top-1 right-1 z-10 flex flex-wrap gap-1 max-w-[calc(100%-8px)] justify-end">
+                                {nbCR > 0 && (
+                                  <span
+                                    className="flex items-center gap-0.5 bg-emerald-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-sm"
+                                    title={`${nbCR} compte${nbCR > 1 ? 's' : ''}-rendu${nbCR > 1 ? 's' : ''} depuis l'épinglage`}
+                                  >
+                                    <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse flex-shrink-0" />
+                                    {nbCR > 1 ? `${nbCR} CR` : 'Nouveau CR'}
+                                  </span>
+                                )}
+                                {nbActes > 0 && (
+                                  <span
+                                    className="flex items-center gap-0.5 bg-orange-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-sm"
+                                    title={`${nbActes} acte${nbActes > 1 ? 's' : ''} depuis l'épinglage`}
+                                  >
+                                    {nbActes > 1 ? `${nbActes} actes` : 'Nouvel acte'}
+                                  </span>
+                                )}
+                                {hasNewAudience && (
+                                  <span
+                                    className="flex items-center gap-0.5 bg-violet-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-sm"
+                                    title="Date d'audience fixée depuis l'épinglage"
+                                  >
+                                    Date audience
+                                  </span>
+                                )}
                               </div>
                             )}
                             {renderEnqueteCard ? (

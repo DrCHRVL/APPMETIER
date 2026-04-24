@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '../ui/badge';
 import { Clock } from 'lucide-react';
 import { SuiviAlertModal } from './SuiviAlertModal';
+import { OverboardPinnedAlertModal } from './OverboardPinnedAlertModal';
 import { Tag, ToDoItem } from '@/types/interfaces';
 
 // Extension de CondamnationData pour inclure le statut pending
@@ -35,6 +36,7 @@ interface AudienceResultModalProps {
   enqueteNumero?: string;
   enqueteTags?: Tag[];
   onCreateGlobalTodo?: (todo: ToDoItem) => void;
+  isOverboardPinned?: boolean;
 }
 
 export const AudienceResultModal = ({
@@ -48,7 +50,8 @@ export const AudienceResultModal = ({
   misEnCause = [],
   enqueteNumero = '',
   enqueteTags = [],
-  onCreateGlobalTodo
+  onCreateGlobalTodo,
+  isOverboardPinned = false,
 }: AudienceResultModalProps) => {
   // States
   const { getTagsByCategory } = useTags();
@@ -118,6 +121,7 @@ export const AudienceResultModal = ({
   const { audienceState } = useAudience();
   const [service, setService] = useState(initialData?.service || '');
   const [showSuiviAlert, setShowSuiviAlert] = useState(false);
+  const [showOverboardAlert, setShowOverboardAlert] = useState(false);
   const hasSuivi = enqueteTags.some(t => t.category === 'suivi');
 
   // Lieux d'interdiction de paraître déjà enregistrés (pour suggestions)
@@ -243,7 +247,9 @@ export const AudienceResultModal = ({
       console.log('Calling onSave with resultat:', resultat);
       onSave(resultat);
       showToast('Résultats d\'audience enregistrés', 'success');
-      if (hasSuivi) {
+      if (isOverboardPinned) {
+        setShowOverboardAlert(true);
+      } else if (hasSuivi) {
         setShowSuiviAlert(true);
       } else {
         onClose();
@@ -926,6 +932,18 @@ export const AudienceResultModal = ({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <OverboardPinnedAlertModal
+        isOpen={showOverboardAlert}
+        onClose={() => {
+          setShowOverboardAlert(false);
+          if (hasSuivi) {
+            setShowSuiviAlert(true);
+          } else {
+            onClose();
+          }
+        }}
+      />
 
       <SuiviAlertModal
         isOpen={showSuiviAlert}
