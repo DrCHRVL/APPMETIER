@@ -285,84 +285,34 @@ export const OverboardPage = ({
           )}
         </div>
 
-        <div
-          className="grid gap-3"
-          style={{ gridTemplateColumns: `repeat(${contentieuxDefs.length}, minmax(0, 1fr))` }}
-        >
-          {sortedDefs
-            .map(ctxDef => {
-              const items = pendingAudiencesByCtx.get(ctxDef.id) || [];
-              const colors = CTX_COLORS[ctxDef.id] || DEFAULT_CTX_COLOR;
-
-              return (
+        {pendingByMonthCtx.length > 0 ? (
+          <div className="space-y-4">
+            {pendingByMonthCtx.map(({ monthKey, label, ctxMap }) => (
+              <div key={monthKey}>
+                <div className="text-xs font-semibold text-gray-700 mb-1.5 capitalize">
+                  {label}
+                </div>
                 <div
-                  key={`aud_${ctxDef.id}`}
-                  className={`rounded-lg border-2 ${colors.border} flex flex-col min-h-[80px]`}
+                  className="grid gap-3"
+                  style={{ gridTemplateColumns: `repeat(${contentieuxDefs.length}, minmax(0, 1fr))` }}
                 >
-                  {/* Header bulle contentieux */}
-                  <div className={`flex items-center gap-1.5 px-2.5 py-1.5 ${colors.bg} rounded-t-md border-b ${colors.border}`}>
-                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${colors.dot}`} />
-                    <span className={`text-[11px] font-bold uppercase tracking-wider ${colors.text} truncate`}>
-                      {ctxDef.label}
-                    </span>
-                    {items.length > 0 && (
-                      <span className="text-[10px] text-gray-400 ml-auto flex-shrink-0">
-                        {items.length}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Contenu */}
-                  <div className="flex-1 p-1.5">
-                    {items.length === 0 ? (
-                      <div className="flex items-center justify-center h-full min-h-[40px]">
-                        <span className="text-[11px] text-gray-300 italic">Aucune</span>
-                      </div>
-                    ) : (
-                      <div className="space-y-1">
+                  {sortedDefs.map(ctxDef => {
+                    const items = ctxMap.get(ctxDef.id) || [];
+                    const colors = CTX_COLORS[ctxDef.id] || DEFAULT_CTX_COLOR;
+                    return (
+                      <div key={`month_${monthKey}_${ctxDef.id}`} className="space-y-1">
                         {items.map(({ enquete, resultat }) =>
                           renderAudienceCard(enquete, resultat, colors, ctxDef)
                         )}
                       </div>
-                    )}
-                  </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-        </div>
-
-        {/* Vue alternative : audiences alignées par mois, colonnes contentieux identiques */}
-        {pendingByMonthCtx.length > 0 && (
-          <div className="mt-6 pt-4 border-t border-gray-100">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 mb-3">
-              Par mois
-            </div>
-            <div className="space-y-4">
-              {pendingByMonthCtx.map(({ monthKey, label, ctxMap }) => (
-                <div key={monthKey}>
-                  <div className="text-xs font-semibold text-gray-700 mb-1.5 capitalize">
-                    {label}
-                  </div>
-                  <div
-                    className="grid gap-3"
-                    style={{ gridTemplateColumns: `repeat(${contentieuxDefs.length}, minmax(0, 1fr))` }}
-                  >
-                    {sortedDefs.map(ctxDef => {
-                      const items = ctxMap.get(ctxDef.id) || [];
-                      const colors = CTX_COLORS[ctxDef.id] || DEFAULT_CTX_COLOR;
-                      return (
-                        <div key={`month_${monthKey}_${ctxDef.id}`} className="space-y-1">
-                          {items.map(({ enquete, resultat }) =>
-                            renderAudienceCard(enquete, resultat, colors, ctxDef)
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
+        ) : (
+          <p className="text-sm text-gray-300 italic">Aucune audience en attente</p>
         )}
       </div>
 
