@@ -1071,7 +1071,7 @@ return (
         <main className="flex-1 overflow-auto p-6">
           {baseView === 'enquetes' && (
             <div className="space-y-6">
-              <OPTimeline enquetes={activeEnquetes} />
+              <OPTimeline enquetesByContentieux={new Map([[currentContentieuxId, activeEnquetes]])} contentieuxDefs={contentieuxDefs} />
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <TodoReminderBar
                   enquetes={activeEnquetes}

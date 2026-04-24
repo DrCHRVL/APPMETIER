@@ -1,8 +1,10 @@
 import React, { useMemo } from 'react';
 import { Enquete } from '@/types/interfaces';
+import { ContentieuxDefinition } from '@/types/userTypes';
 
 interface OPTimelineProps {
-  enquetes: Enquete[];
+  enquetesByContentieux: Map<string, Enquete[]>;
+  contentieuxDefs: ContentieuxDefinition[];
 }
 
 interface OPEvent {
@@ -10,6 +12,8 @@ interface OPEvent {
   numero: string;
   dateOP: Date;
   daysFromToday: number;
+  contentieuxId: string;
+  color: string; // hex, depuis contentieuxDefs
 }
 
 const DAYS_RANGE = 40; // ~6 semaines
@@ -17,7 +21,7 @@ const OP_DURATION_DAYS = 4; // 96h
 const DAY_LABELS = ['D', 'L', 'M', 'M', 'J', 'V', 'S']; // index par getDay() (0=Dim)
 const MONTHS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
 
-export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
+export const OPTimeline = ({ enquetesByContentieux, contentieuxDefs }: OPTimelineProps) => {
   const today = useMemo(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -31,19 +35,38 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
   }, [today]);
 
   const opEvents = useMemo((): OPEvent[] => {
+    const seen = new Set<string>();
+    const ctxColorMap = new Map(contentieuxDefs.map(d => [d.id, d.color]));
     const events: OPEvent[] = [];
-    enquetes.forEach(e => {
-      if (!e.dateOP || e.statut === 'archive') return;
-      const dateOP = new Date(e.dateOP);
-      dateOP.setHours(0, 0, 0, 0);
-      const opEndDate = new Date(dateOP);
-      opEndDate.setDate(opEndDate.getDate() + OP_DURATION_DAYS);
-      if (opEndDate < today || dateOP > rangeEnd) return;
-      const daysFromToday = Math.round((dateOP.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-      events.push({ enqueteId: e.id, numero: e.numero, dateOP, daysFromToday });
+
+    enquetesByContentieux.forEach((enquetes, ctxId) => {
+      enquetes.forEach(e => {
+        if (!e.dateOP || e.statut === 'archive') return;
+        const ownerCtxId = e.contentieuxOrigine || ctxId;
+        const dedupeKey = `${ownerCtxId}_${e.id}`;
+        if (seen.has(dedupeKey)) return;
+        seen.add(dedupeKey);
+
+        const dateOP = new Date(e.dateOP);
+        dateOP.setHours(0, 0, 0, 0);
+        const opEndDate = new Date(dateOP);
+        opEndDate.setDate(opEndDate.getDate() + OP_DURATION_DAYS);
+        if (opEndDate < today || dateOP > rangeEnd) return;
+
+        const daysFromToday = Math.round((dateOP.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        events.push({
+          enqueteId: e.id,
+          numero: e.numero,
+          dateOP,
+          daysFromToday,
+          contentieuxId: ownerCtxId,
+          color: ctxColorMap.get(ownerCtxId) || '#6b7280',
+        });
+      });
     });
+
     return events.sort((a, b) => a.dateOP.getTime() - b.dateOP.getTime());
-  }, [enquetes, today, rangeEnd]);
+  }, [enquetesByContentieux, contentieuxDefs, today, rangeEnd]);
 
   // Colonnes de jours (doit être avant le return anticipé pour respecter les règles des hooks)
   const dayCells = useMemo(() => {
@@ -115,9 +138,6 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
               const leftPct = (event.daysFromToday / DAYS_RANGE) * 100;
               const clampedLeft = Math.max(0, leftPct);
               const barWidthPct = ((OP_DURATION_DAYS + Math.min(0, event.daysFromToday)) / DAYS_RANGE) * 100;
-              const isUrgent = event.daysFromToday <= 3;
-              const isSoon = event.daysFromToday <= 7;
-              const barBg = isUrgent ? '#fca5a5' : isSoon ? '#fdba74' : '#93c5fd'; // red-300 / orange-300 / blue-300
               return (
                 <div
                   key={`bar-${event.enqueteId}`}
@@ -127,8 +147,8 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
                     width: `${Math.min(barWidthPct, 100 - clampedLeft)}%`,
                     top: idx * ROW_H + 8,
                     height: 12,
-                    backgroundColor: barBg,
-                    opacity: 0.55,
+                    backgroundColor: event.color,
+                    opacity: 0.35,
                   }}
                 />
               );
@@ -138,10 +158,6 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
             {opEvents.map((event, idx) => {
               const leftPct = (event.daysFromToday / DAYS_RANGE) * 100;
               const clampedLeft = Math.max(0, leftPct);
-              const isUrgent = event.daysFromToday <= 3;
-              const isSoon = event.daysFromToday <= 7;
-              const dotColor = isUrgent ? 'bg-red-600' : isSoon ? 'bg-orange-500' : 'bg-blue-600';
-              const textColor = isUrgent ? 'text-red-700' : isSoon ? 'text-orange-700' : 'text-blue-700';
 
               const dayLabel =
                 event.daysFromToday === 0
@@ -159,8 +175,14 @@ export const OPTimeline = ({ enquetes }: OPTimelineProps) => {
                   style={{ top: idx * ROW_H + 6, left: `${clampedLeft}%` }}
                   title={`OP ${event.numero} — dans ${event.daysFromToday} jour(s)`}
                 >
-                  <div className={`h-4 w-4 rounded-full ${dotColor} border-2 border-white shadow flex-shrink-0`} />
-                  <span className={`ml-1 text-xs font-bold ${textColor} whitespace-nowrap leading-none`}>
+                  <div
+                    className="h-4 w-4 rounded-full border-2 border-white shadow flex-shrink-0"
+                    style={{ backgroundColor: event.color }}
+                  />
+                  <span
+                    className="ml-1 text-xs font-bold whitespace-nowrap leading-none"
+                    style={{ color: event.color }}
+                  >
                     {event.numero}
                     <span className="font-normal text-gray-500 ml-1">{dayLabel}</span>
                   </span>
