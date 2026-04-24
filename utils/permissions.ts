@@ -40,7 +40,7 @@ const CONTENTIEUX_ROLE_PERMISSIONS: Record<ContentieuxRole, Set<PermissionAction
     'manage_tags', 'manage_alerts', 'manage_backups', 'view_stats',
   ]),
   ja: new Set([
-    'view', 'edit',    // lecture + ajout/modif, PAS de suppression ni création d'enquête
+    'view', 'create', 'edit',    // lecture + création + modif, PAS de suppression
     'view_stats',
   ]),
 };
