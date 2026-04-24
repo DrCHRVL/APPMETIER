@@ -265,7 +265,7 @@ export const OverboardPage = ({
           </h2>
         </div>
         {allEnquetes.length > 0 ? (
-          <OPTimeline enquetes={allEnquetes} />
+          <OPTimeline enquetesByContentieux={enquetesByContentieux} contentieuxDefs={contentieuxDefs} />
         ) : (
           <p className="text-sm text-gray-400 italic">Aucune OP programmée</p>
         )}
