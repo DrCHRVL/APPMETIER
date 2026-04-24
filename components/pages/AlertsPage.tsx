@@ -1,17 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
-import { AlertRule, WeeklyPopupConfig, VisualAlertRule, VisualAlertTrigger, VisualAlertMode, VisualAlertColorKey } from '@/types/interfaces';
+import { WeeklyPopupConfig, VisualAlertRule, VisualAlertTrigger, VisualAlertMode, VisualAlertColorKey } from '@/types/interfaces';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Select } from '../ui/select';
 import { Edit2, Save, X, Plus, Copy, Clock, RefreshCw, Eye, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
-import { AlertValidation } from '@/utils/alerts/alertValidation';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { VISUAL_ALERT_COLOR_PALETTE, VISUAL_ALERT_COLOR_KEYS, VISUAL_ALERT_TRIGGER_LABELS } from '@/config/constants';
 import { useUser } from '@/contexts/UserContext';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
+import { ContentieuxAlertsBubble } from '@/components/ContentieuxAlertsBubble';
 
 const WEEKLY_POPUP_KEY = 'weekly_popup_config';
 const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -137,10 +137,10 @@ const VisualAlertsSection = ({
         <div>
           <CardTitle className="text-lg flex items-center gap-2">
             <Eye className="h-5 w-5 text-purple-600" />
-            Alertes visuelles
+            Alertes visuelles personnelles
           </CardTitle>
           <p className="text-sm text-gray-500 mt-1">
-            Couleur et bordure sur les cartes enquêtes. Le fond ne peut afficher qu'une couleur (priorité haute gagne). Les bordures se cumulent (gauche + droite).
+            Couleur et bordure sur les cartes enquêtes. Propres à chaque utilisateur : tes règles n'affectent que ton affichage. Le fond ne peut avoir qu'une couleur (priorité haute gagne) ; les bordures se cumulent.
           </p>
         </div>
         <Button size="sm" onClick={() => setShowNewDialog(true)}>
@@ -389,28 +389,43 @@ const VisualAlertsSection = ({
 };
 
 interface AlertsPageProps {
-  rules: AlertRule[];
-  onUpdateRule: (rule: AlertRule) => void;
-  onDuplicateRule: (rule: AlertRule) => void;
-  onDeleteRule: (ruleId: number) => void;
   onShowWeeklyPopup?: () => void;
-  // Props pour les alertes visuelles
+  // Props pour les alertes visuelles personnelles
   visualAlertRules?: VisualAlertRule[];
   onUpdateVisualAlertRule?: (rule: VisualAlertRule) => void;
   onDeleteVisualAlertRule?: (ruleId: number) => void;
   onReorderVisualAlertRules?: (rules: VisualAlertRule[]) => void;
 }
 
-export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule, onShowWeeklyPopup, visualAlertRules = [], onUpdateVisualAlertRule, onDeleteVisualAlertRule, onReorderVisualAlertRules }: AlertsPageProps) => {
-  const { hasModule, accessibleContentieux } = useUser();
+export const AlertsPage = ({ onShowWeeklyPopup, visualAlertRules = [], onUpdateVisualAlertRule, onDeleteVisualAlertRule, onReorderVisualAlertRules }: AlertsPageProps) => {
+  const { hasModule, accessibleContentieux, canDo } = useUser();
   const userHasAIR = hasModule('air');
-  const { subscribedContentieux, setWeeklyRecapSubscriptions } = useUserPreferences();
+  const {
+    subscribedContentieux,
+    setWeeklyRecapSubscriptions,
+    subscribedContentieuxAlerts,
+    setContentieuxAlertsSubscriptions,
+  } = useUserPreferences();
 
   const toggleContentieuxSubscription = (id: string) => {
     const next = subscribedContentieux.includes(id)
       ? subscribedContentieux.filter(c => c !== id)
       : [...subscribedContentieux, id];
     setWeeklyRecapSubscriptions(next);
+  };
+
+  // Champ absent dans la prefs = auto-abonné à tous les contentieux accessibles.
+  const effectiveAlertsSubscriptions = useMemo<string[]>(() => {
+    if (Array.isArray(subscribedContentieuxAlerts)) return subscribedContentieuxAlerts;
+    return accessibleContentieux.map(c => c.id);
+  }, [subscribedContentieuxAlerts, accessibleContentieux]);
+
+  const toggleAlertsSubscription = (id: string) => {
+    const current = effectiveAlertsSubscriptions;
+    const next = current.includes(id)
+      ? current.filter(c => c !== id)
+      : [...current, id];
+    setContentieuxAlertsSubscriptions(next);
   };
 
   const [weeklyConfig, setWeeklyConfig] = useState<WeeklyPopupConfig>({
@@ -430,167 +445,11 @@ export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule,
     ElectronBridge.setData(WEEKLY_POPUP_KEY, cfg);
   };
 
-  const [showNewRuleDialog, setShowNewRuleDialog] = useState(false);
-  const [editingRule, setEditingRule] = useState<AlertRule | null>(null);
-  const [newRule, setNewRule] = useState<Partial<AlertRule>>({
-    type: 'cr_delay',
-    name: '',
-    description: '',
-    threshold: 7,
-    enabled: true,
-    acteType: 'all',
-    recurrence: {
-      enabled: false,
-      defaultInterval: 7,
-      maxOccurrences: undefined
-    }
-  });
-
-  const getTypeLabel = (type: AlertRule['type']) => {
-    switch (type) {
-      case 'cr_delay':
-        return 'Délai compte rendu';
-      case 'acte_expiration':
-        return 'Expiration acte';
-      case 'enquete_age':
-        return 'Âge enquête';
-      case 'prolongation_pending':
-        return 'Prolongation en attente';
-      case 'air_6_mois':
-        return 'Mesure AIR > 6 mois';
-      case 'air_12_mois':
-        return 'Mesure AIR > 12 mois';
-      case 'air_rdv_delai':
-        return 'Délai depuis RDV AIR';
-      default:
-        return type;
-    }
-  };
-
-  // Déplacer la fonction getDescription ici, avant son utilisation
-  const getDescription = (rule: AlertRule) => {
-    let baseDescription = '';
-    
-    switch (rule.type) {
-      case 'cr_delay':
-        baseDescription = `Alerte lorsqu'aucun compte rendu n'a été ajouté depuis ${rule.threshold} jours`;
-        break;
-      case 'acte_expiration':
-        baseDescription = `Alerte lorsqu'un ${rule.acteType === 'all' ? 'acte' : rule.acteType} arrive à expiration dans ${rule.threshold} jours`;
-        break;
-      case 'enquete_age':
-        baseDescription = `Alerte lorsqu'une enquête atteint ${rule.threshold} jours`;
-        break;
-      case 'prolongation_pending':
-        baseDescription = `Alerte pour relancer le JLD après ${rule.threshold} jours d'attente`;
-        break;
-      case 'air_6_mois':
-        baseDescription = `Alerte lorsqu'une mesure AIR dépasse 6 mois`;
-        break;
-      case 'air_12_mois':
-        baseDescription = `Alerte lorsqu'une mesure AIR dépasse 12 mois`;
-        break;
-      case 'air_rdv_delai':
-        baseDescription = `Alerte lorsqu'aucun RDV procureur n'a eu lieu depuis ${rule.threshold} jours`;
-        break;
-      default:
-        baseDescription = rule.description || '';
-        break;
-    }
-    
-    // Ajouter les infos de récurrence si activée
-    if (rule.recurrence?.enabled) {
-      baseDescription += ` (récurrence tous les ${rule.recurrence.defaultInterval} jours`;
-      if (rule.recurrence.maxOccurrences) {
-        baseDescription += `, max. ${rule.recurrence.maxOccurrences} fois`;
-      }
-      baseDescription += ')';
-    }
-    
-    return baseDescription;
-  };
-
-  const handleToggleRule = (rule: AlertRule) => {
-    onUpdateRule({
-      ...rule,
-      enabled: !rule.enabled
-    });
-  };
-
-  const handleToggleRecurrence = (rule: AlertRule, enabled: boolean) => {
-    onUpdateRule({
-      ...rule,
-      recurrence: {
-        ...rule.recurrence || { defaultInterval: 7 },
-        enabled
-      }
-    });
-  };
-
-  const handleSaveEdit = () => {
-    if (editingRule) {
-      const updatedRule = {
-        ...editingRule,
-        description: getDescription(editingRule)
-      };
-
-      if (AlertValidation.validateRule(updatedRule)) {
-        onUpdateRule(updatedRule);
-        setEditingRule(null);
-      } else {
-        alert('Veuillez remplir tous les champs requis');
-      }
-    }
-  };
-
-  const handleCreateRule = () => {
-    if (!newRule.type || !newRule.threshold) {
-      alert('Veuillez remplir tous les champs requis');
-      return;
-    }
-
-    const rule: AlertRule = {
-      id: Date.now(),
-      type: newRule.type,
-      name: newRule.name || getTypeLabel(newRule.type),
-      description: getDescription(newRule as AlertRule),
-      threshold: newRule.threshold,
-      enabled: true,
-      acteType: newRule.acteType || 'all',
-      recurrence: newRule.recurrence
-    };
-
-    if (AlertValidation.validateRule(rule)) {
-      onUpdateRule(rule);
-      setShowNewRuleDialog(false);
-      setNewRule({
-        type: 'cr_delay',
-        name: '',
-        description: '',
-        threshold: 7,
-        enabled: true,
-        acteType: 'all',
-        recurrence: {
-          enabled: false,
-          defaultInterval: 7,
-          maxOccurrences: undefined
-        }
-      });
-    } else {
-      alert('Veuillez remplir tous les champs requis');
-    }
-  };
-
-  const isSystemRule = (rule: AlertRule) => rule.isSystemRule;
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">Gestion des Alertes</h2>
-        <Button onClick={() => setShowNewRuleDialog(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Nouvelle alerte
-        </Button>
       </div>
 
       {/* Récapitulatif hebdomadaire */}
@@ -708,352 +567,30 @@ export const AlertsPage = ({ rules, onUpdateRule, onDuplicateRule, onDeleteRule,
         />
       )}
 
-      {/* ====== SECTION RÈGLES D'ALERTE CLASSIQUES ====== */}
-      <div className="space-y-4">
-        {rules.filter(rule => {
-          // Masquer les règles AIR si le module n'est pas activé pour l'utilisateur
-          if (!userHasAIR && ['air_6_mois', 'air_12_mois', 'air_rdv_delai'].includes(rule.type)) return false;
-          return true;
-        }).map(rule => (
-          <Card key={rule.id} className={`shadow-sm ${rule.isSystemRule ? 'border-green-200' : ''}`}>
-            <CardHeader className="flex flex-row items-center justify-between py-4">
-              <div>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  {rule.name || getTypeLabel(rule.type)}
-                  {rule.isSystemRule && (
-                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
-                      Système
-                    </span>
-                  )}
-                  {rule.recurrence?.enabled && (
-                    <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      Récurrent
-                    </span>
-                  )}
-                </CardTitle>
-                <p className="text-sm text-gray-500">{getDescription(rule)}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={rule.enabled}
-                  onCheckedChange={() => handleToggleRule(rule)}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onDuplicateRule(rule)}
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
-                {editingRule?.id === rule.id ? (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleSaveEdit}
-                    >
-                      <Save className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setEditingRule(null)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setEditingRule(rule)}
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </Button>
-                    {!isSystemRule(rule) && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-red-500 hover:text-red-700"
-                        onClick={() => onDeleteRule(rule.id)}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {editingRule?.id === rule.id && (
-                <>
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm text-gray-600">Délai d'alerte:</span>
-                    <Input
-                      type="number"
-                      min="1"
-                      value={editingRule.threshold}
-                      onChange={(e) => setEditingRule({
-                        ...editingRule,
-                        threshold: parseInt(e.target.value)
-                      })}
-                      className="w-24"
-                    /> 
-                    <span className="text-sm text-gray-600">jours</span>
-                  </div>
-
-                  {editingRule.type === 'acte_expiration' && (
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm text-gray-600">Type d'acte:</span>
-                      <Select
-                        value={editingRule.acteType || 'all'}
-                        onChange={(e) => setEditingRule({
-                          ...editingRule,
-                          acteType: e.target.value
-                        })}
-                        className="w-40"
-                      >
-                        <option value="all">Tous les actes</option>
-                        <option value="geolocalisation">Géolocalisation</option>
-                        <option value="ecoute">Écoute</option>
-                        <option value="autre">Autre acte</option>
-                      </Select>
-                    </div>
-                  )}
-                  
-                  {/* Section de récurrence avec checkbox natif */}
-                  <div className="border-t pt-4 mt-4">
-                    <div className="flex items-center gap-2 mb-4">
-                      <input
-                        type="checkbox"
-                        id={`recurrence-${rule.id}`}
-                        checked={editingRule.recurrence?.enabled || false}
-                        onChange={(e) => setEditingRule({
-                          ...editingRule,
-                          recurrence: {
-                            ...editingRule.recurrence || { defaultInterval: 7 },
-                            enabled: e.target.checked
-                          }
-                        })}
-                        className="h-4 w-4 rounded border-gray-300"
-                      />
-                      <label 
-                        htmlFor={`recurrence-${rule.id}`}
-                        className="text-sm font-medium"
-                      >
-                        Activer la récurrence
-                      </label>
-                    </div>
-                    
-                    {editingRule.recurrence?.enabled && (
-                      <div className="space-y-3 pl-6">
-                        <div className="flex items-center gap-4">
-                          <span className="text-sm text-gray-600">Répéter tous les:</span>
-                          <Input
-                            type="number"
-                            min="1"
-                            value={editingRule.recurrence?.defaultInterval || 7}
-                            onChange={(e) => setEditingRule({
-                              ...editingRule,
-                              recurrence: {
-                                ...editingRule.recurrence || {},
-                                defaultInterval: parseInt(e.target.value) || 7
-                              }
-                            })}
-                            className="w-24"
-                          /> 
-                          <span className="text-sm text-gray-600">jours</span>
-                        </div>
-                        
-                        <div className="flex items-center gap-4">
-                          <span className="text-sm text-gray-600">Nombre maximum de répétitions:</span>
-                          <Input
-                            type="number"
-                            min="0"
-                            placeholder="Illimité"
-                            value={editingRule.recurrence?.maxOccurrences || ''}
-                            onChange={(e) => {
-                              const value = e.target.value.trim() === '' 
-                                ? undefined 
-                                : parseInt(e.target.value);
-                              setEditingRule({
-                                ...editingRule,
-                                recurrence: {
-                                  ...editingRule.recurrence || {},
-                                  maxOccurrences: value
-                                }
-                              });
-                            }}
-                            className="w-24"
-                          /> 
-                          <span className="text-sm text-gray-600">fois (vide = illimité)</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <Dialog open={showNewRuleDialog} onOpenChange={setShowNewRuleDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Nouvelle règle d'alerte</DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">Type d'alerte</label>
-              <Select
-                value={newRule.type}
-                onChange={(e) => setNewRule(prev => ({
-                  ...prev,
-                  type: e.target.value as AlertRule['type']
-                }))}
-              >
-                <option value="cr_delay">Délai compte rendu</option>
-                <option value="acte_expiration">Expiration acte</option>
-                <option value="enquete_age">Âge enquête</option>
-                {userHasAIR && (
-                  <>
-                    <option value="air_6_mois">Mesure AIR &gt; 6 mois</option>
-                    <option value="air_12_mois">Mesure AIR &gt; 12 mois</option>
-                    <option value="air_rdv_delai">Délai depuis RDV AIR</option>
-                  </>
-                )}
-              </Select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium">Titre de l'alerte</label>
-              <Input
-                value={newRule.name}
-                onChange={(e) => setNewRule(prev => ({
-                  ...prev,
-                  name: e.target.value
-                }))}
-                placeholder="Titre personnalisé (optionnel)"
-              />
-            </div>
-
-            {newRule.type === 'acte_expiration' && (
-              <div>
-                <label className="text-sm font-medium">Type d'acte</label>
-                <Select
-                  value={newRule.acteType}
-                  onChange={(e) => setNewRule(prev => ({
-                    ...prev,
-                    acteType: e.target.value
-                  }))}
-                >
-                  <option value="all">Tous les actes</option>
-                  <option value="geolocalisation">Géolocalisation</option>
-                  <option value="ecoute">Écoute</option>
-                  <option value="autre">Autre acte</option>
-                </Select>
-              </div>
-            )}
-
-            <div>
-              <label className="text-sm font-medium">Délai (jours)</label>
-              <Input
-                type="number"
-                min="1"
-                value={newRule.threshold}
-                onChange={(e) => setNewRule(prev => ({
-                  ...prev,
-                  threshold: parseInt(e.target.value)
-                }))}
-              />
-            </div>
-            
-            {/* Section de récurrence avec checkbox natif */}
-            <div className="border-t pt-4 mt-4">
-              <div className="flex items-center gap-2 mb-4">
-                <input
-                  type="checkbox"
-                  id="new-rule-recurrence" 
-                  checked={newRule.recurrence?.enabled || false}
-                  onChange={(e) => setNewRule(prev => ({
-                    ...prev,
-                    recurrence: {
-                      ...prev.recurrence || { defaultInterval: 7 },
-                      enabled: e.target.checked
-                    }
-                  }))}
-                  className="h-4 w-4 rounded border-gray-300"
-                />
-                <label 
-                  htmlFor="new-rule-recurrence"
-                  className="text-sm font-medium"
-                >
-                  Activer la récurrence
-                </label>
-              </div>
-              
-              {newRule.recurrence?.enabled && (
-                <div className="space-y-3 pl-6">
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm text-gray-600">Répéter tous les:</span>
-                    <Input
-                      type="number"
-                      min="1"
-                      value={newRule.recurrence?.defaultInterval || 7}
-                      onChange={(e) => setNewRule(prev => ({
-                        ...prev,
-                        recurrence: {
-                          ...prev.recurrence || {},
-                          defaultInterval: parseInt(e.target.value) || 7
-                        }
-                      }))}
-                      className="w-24"
-                    /> 
-                    <span className="text-sm text-gray-600">jours</span>
-                  </div>
-                  
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm text-gray-600">Nombre maximum de répétitions:</span>
-                    <Input
-                      type="number"
-                      min="0"
-                      placeholder="Illimité"
-                      value={newRule.recurrence?.maxOccurrences || ''}
-                      onChange={(e) => {
-                        const value = e.target.value.trim() === '' 
-                          ? undefined 
-                          : parseInt(e.target.value);
-                        setNewRule(prev => ({
-                          ...prev,
-                          recurrence: {
-                            ...prev.recurrence || {},
-                            maxOccurrences: value
-                          }
-                        }));
-                      }}
-                      className="w-24"
-                    /> 
-                    <span className="text-sm text-gray-600">fois (vide = illimité)</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowNewRuleDialog(false)}>
-              Annuler
-            </Button>
-            <Button onClick={handleCreateRule}>
-              Créer
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* ====== ALERTES PAR CONTENTIEUX (partagées) ====== */}
+      {accessibleContentieux.length === 0 && (
+        <Card className="mb-6 border-gray-200">
+          <CardContent className="py-6 text-sm text-gray-500">
+            Aucun contentieux accessible : rien à configurer ici.
+          </CardContent>
+        </Card>
+      )}
+      {accessibleContentieux.map(c => {
+        const canManage = canDo(c.id, 'manage_alerts');
+        const isSubscribed = effectiveAlertsSubscriptions.includes(c.id);
+        return (
+          <ContentieuxAlertsBubble
+            key={c.id}
+            contentieuxId={c.id}
+            contentieuxLabel={c.label}
+            contentieuxColor={c.color}
+            canManage={canManage}
+            isSubscribed={isSubscribed}
+            onToggleSubscription={() => toggleAlertsSubscription(c.id)}
+            userHasAIR={userHasAIR}
+          />
+        );
+      })}
     </div>
   );
 };

@@ -11,6 +11,7 @@ import { TagDefinition } from '@/config/tags';
 import { TagRequest } from '@/utils/tagRequestManager';
 import { ResultatAudience } from './audienceTypes';
 import { AlertRule, AlertValidations, VisualAlertRule, AlerteInstruction } from './interfaces';
+import { ContentieuxId } from './userTypes';
 
 export interface GlobalSyncMetadata {
   version: number;
@@ -89,19 +90,14 @@ export interface UserPreferencesFile extends GlobalSyncMetadata {
     tagSections?: Record<string, string>;
   };
   /**
-   * Règles d'alertes classiques personnelles. `global` correspond aux
-   * règles utilisées par `useAlerts` (anciennement clé globale
-   * `alert_rules`). `byContentieux[id]` correspond aux règles spécifiques
-   * à un contentieux (anciennement `ctx_{id}_alertRules`). Le seed est
-   * unique pour la partie globale ; chaque contentieux est seedé à la
-   * première ouverture.
+   * Abonnements aux alertes partagées par contentieux. Les règles
+   * d'alertes (délai CR, expiration acte…) vivent côté serveur dans
+   * `contentieux-alerts/{id}.json` (partagées par toute l'équipe) ;
+   * chaque utilisateur choisit quels contentieux écouter pour alimenter
+   * sa cloche. Si le champ est absent, l'utilisateur est considéré
+   * auto-abonné à tous les contentieux auxquels il a accès.
    */
-  alertRules?: {
-    seeded?: boolean;
-    global?: AlertRule[];
-    byContentieux?: Record<string, AlertRule[]>;
-    seededContentieux?: string[];
-  };
+  subscribedContentieuxAlerts?: ContentieuxId[];
   /**
    * Validations d'alertes personnelles. Avant cette refacto, le geste
    * « j'ai validé l'alerte X sur l'enquête Y » était partagé par toute
@@ -124,4 +120,15 @@ export interface UserPreferencesFile extends GlobalSyncMetadata {
     seeded?: boolean;
     alerts?: AlerteInstruction[];
   };
+}
+
+/**
+ * Règles d'alertes partagées pour un contentieux. Éditables uniquement
+ * par un magistrat affecté au contentieux ou par un admin. Chaque user
+ * s'abonne via `UserPreferencesFile.subscribedContentieuxAlerts` pour
+ * alimenter sa cloche. Fichier serveur : `contentieux-alerts/{id}.json`.
+ */
+export interface ContentieuxAlertsSyncFile extends GlobalSyncMetadata {
+  contentieuxId: ContentieuxId;
+  rules: AlertRule[];
 }

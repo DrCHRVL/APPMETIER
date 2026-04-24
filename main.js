@@ -1577,6 +1577,54 @@ function setupIpcHandlers() {
     }
   })
 
+  // ─── Alertes partagées par contentieux ─────────────────────────────────────
+  // Dossier : contentieux-alerts/{contentieuxId}.json
+  // Backups : admin/backups/contentieux-alerts-{id}-{timestamp}.json
+  // Sanitize le contentieuxId pour éviter tout path traversal.
+  const contentieuxAlertsFolder = () => path.join(COMMON_SERVER_PATH, 'contentieux-alerts')
+  const sanitizeContentieuxId = (id) => String(id || '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 64)
+
+  ipcMain.handle('globalSync:pullContentieuxAlerts', async (event, contentieuxId) => {
+    try {
+      const safe = sanitizeContentieuxId(contentieuxId)
+      if (!safe) return null
+      const filePath = path.join(contentieuxAlertsFolder(), `${safe}.json`)
+      if (!fs.existsSync(filePath)) return null
+      const content = fs.readFileSync(filePath, 'utf8')
+      if (!content || !content.trim()) return null
+      return JSON.parse(content)
+    } catch (error) {
+      console.error('❌ GlobalSync: Erreur lecture contentieux-alerts:', error)
+      return null
+    }
+  })
+
+  ipcMain.handle('globalSync:pushContentieuxAlerts', async (event, contentieuxId, payload) => {
+    try {
+      if (!fs.existsSync(COMMON_SERVER_PATH)) {
+        throw new Error('Serveur commun inaccessible')
+      }
+      const safe = sanitizeContentieuxId(contentieuxId)
+      if (!safe) return false
+      const folder = contentieuxAlertsFolder()
+      if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true })
+      const filePath = path.join(folder, `${safe}.json`)
+      const backupDir = globalBackupDir()
+      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true })
+      if (fs.existsSync(filePath)) {
+        const timestamp = new Date().toISOString().replace(/:/g, '-')
+        fs.copyFileSync(filePath, path.join(backupDir, `contentieux-alerts-${safe}-${timestamp}.json`))
+      }
+      fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8')
+      pruneGlobalBackups(`contentieux-alerts-${safe}`, 10)
+      console.log(`✅ GlobalSync: contentieux-alerts/${safe}.json sauvegardé`)
+      return true
+    } catch (error) {
+      console.error('❌ GlobalSync: Erreur écriture contentieux-alerts:', error)
+      return false
+    }
+  })
+
   /**
    * Lit app-data.json racine en fallback pour la migration one-shot
    * (renvoie la clé customTags telle qu'elle existe, format legacy ou non)

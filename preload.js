@@ -154,6 +154,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('globalSync:pullUserPreferences', username),
   globalSync_pushUserPreferences: (username, payload) =>
     ipcRenderer.invoke('globalSync:pushUserPreferences', username, payload),
+  globalSync_pullContentieuxAlerts: (contentieuxId) =>
+    ipcRenderer.invoke('globalSync:pullContentieuxAlerts', contentieuxId),
+  globalSync_pushContentieuxAlerts: (contentieuxId, payload) =>
+    ipcRenderer.invoke('globalSync:pushContentieuxAlerts', contentieuxId, payload),
 
   dataSync_checkContentieuxAccess: (contentieuxId) =>
     ipcRenderer.invoke('dataSync:checkContentieuxAccess', contentieuxId),

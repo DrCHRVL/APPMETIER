@@ -8,7 +8,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useUser } from '@/contexts/UserContext';
 import { userPreferencesSyncService } from '@/utils/dataSync/UserPreferencesSyncService';
 import type { UserPreferencesFile } from '@/types/globalSyncTypes';
-import type { AlertRule, AlertValidation, AlertValidations, VisualAlertRule, AlerteInstruction } from '@/types/interfaces';
+import type { AlertValidation, AlertValidations, VisualAlertRule, AlerteInstruction } from '@/types/interfaces';
+import type { ContentieuxId } from '@/types/userTypes';
 
 export interface WeeklyRecapPrefs {
   subscribedContentieux: string[];
@@ -79,26 +80,9 @@ export function useUserPreferences() {
     return seeded;
   }, [refresh]);
 
-  const setAlertRulesGlobal = useCallback(async (rules: AlertRule[]) => {
-    await userPreferencesSyncService.setAlertRulesGlobal(rules);
+  const setContentieuxAlertsSubscriptions = useCallback(async (ids: ContentieuxId[]) => {
+    await userPreferencesSyncService.setContentieuxAlertsSubscriptions(ids);
     await refresh();
-  }, [refresh]);
-
-  const seedAlertRulesGlobal = useCallback(async (rules: AlertRule[]) => {
-    const seeded = await userPreferencesSyncService.seedAlertRulesGlobal(rules);
-    if (seeded) await refresh();
-    return seeded;
-  }, [refresh]);
-
-  const setAlertRulesForContentieux = useCallback(async (contentieuxId: string, rules: AlertRule[]) => {
-    await userPreferencesSyncService.setAlertRulesForContentieux(contentieuxId, rules);
-    await refresh();
-  }, [refresh]);
-
-  const seedAlertRulesForContentieux = useCallback(async (contentieuxId: string, rules: AlertRule[]) => {
-    const seeded = await userPreferencesSyncService.seedAlertRulesForContentieux(contentieuxId, rules);
-    if (seeded) await refresh();
-    return seeded;
   }, [refresh]);
 
   const setAlertValidation = useCallback(async (key: string, validation: AlertValidation) => {
@@ -141,7 +125,7 @@ export function useUserPreferences() {
 
   const subscribedContentieux: string[] = prefs?.weeklyRecap?.subscribedContentieux || [];
   const serviceOrganization = prefs?.serviceOrganization;
-  const alertRules = prefs?.alertRules;
+  const subscribedContentieuxAlerts = prefs?.subscribedContentieuxAlerts;
   const alertValidations = prefs?.alertValidations;
   const visualAlertRules = prefs?.visualAlertRules;
   const instructionAlerts = prefs?.instructionAlerts;
@@ -155,11 +139,8 @@ export function useUserPreferences() {
     setServiceOrganizationSections,
     setServiceOrganizationTagSection,
     seedServiceOrganization,
-    alertRules,
-    setAlertRulesGlobal,
-    seedAlertRulesGlobal,
-    setAlertRulesForContentieux,
-    seedAlertRulesForContentieux,
+    subscribedContentieuxAlerts,
+    setContentieuxAlertsSubscriptions,
     alertValidations,
     setAlertValidation,
     setAlertValidations,

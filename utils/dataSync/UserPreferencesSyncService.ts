@@ -10,7 +10,8 @@
 
 import { ElectronBridge } from '@/utils/electronBridge';
 import { UserPreferencesFile } from '@/types/globalSyncTypes';
-import { AlertRule, AlertValidations, AlertValidation, VisualAlertRule, AlerteInstruction } from '@/types/interfaces';
+import { AlertValidations, AlertValidation, VisualAlertRule, AlerteInstruction } from '@/types/interfaces';
+import { ContentieuxId } from '@/types/userTypes';
 import {
   getCurrentUserInfo,
   buildMetadata,
@@ -57,7 +58,6 @@ function empty(username: string): UserPreferencesFile {
     windowsUsername: username,
     weeklyRecap: { subscribedContentieux: [] },
     serviceOrganization: { seeded: false, sections: [], tagSections: {} },
-    alertRules: { seeded: false, global: [], byContentieux: {}, seededContentieux: [] },
     alertValidations: { seeded: false, entries: {} },
     visualAlertRules: { seeded: false, rules: [] },
     instructionAlerts: { seeded: false, alerts: [] },
@@ -223,9 +223,9 @@ export class UserPreferencesSyncService {
     return true;
   }
 
-  // ─── Règles d'alertes globales (anciennement clé `alert_rules`) ──────────
+  // ─── Abonnement aux alertes partagées par contentieux ───────────────────
 
-  async setAlertRulesGlobal(rules: AlertRule[]): Promise<void> {
+  async setContentieuxAlertsSubscriptions(ids: ContentieuxId[]): Promise<void> {
     if (!this.currentUsername) return;
     const user = await getCurrentUserInfo();
     const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
@@ -233,93 +233,11 @@ export class UserPreferencesSyncService {
       ...current,
       ...buildMetadata(current.version || 0, user),
       windowsUsername: this.currentUsername,
-      alertRules: {
-        ...(current.alertRules || {}),
-        seeded: true,
-        global: [...rules],
-      },
+      subscribedContentieuxAlerts: Array.from(new Set(ids)),
     };
     await writeLocal(this.currentUsername, next);
     emitSyncCompleted('userPreferences');
     this.schedulePush();
-  }
-
-  async seedAlertRulesGlobal(rules: AlertRule[]): Promise<boolean> {
-    if (!this.currentUsername) return false;
-    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
-    if (current.alertRules?.seeded) return false;
-    const user = await getCurrentUserInfo();
-    const next: UserPreferencesFile = {
-      ...current,
-      ...buildMetadata(current.version || 0, user),
-      windowsUsername: this.currentUsername,
-      alertRules: {
-        ...(current.alertRules || {}),
-        seeded: true,
-        global: [...rules],
-      },
-    };
-    await writeLocal(this.currentUsername, next);
-    emitSyncCompleted('userPreferences');
-    this.schedulePush();
-    return true;
-  }
-
-  // ─── Règles d'alertes par contentieux (anciennement `ctx_X_alertRules`) ──
-
-  async setAlertRulesForContentieux(contentieuxId: string, rules: AlertRule[]): Promise<void> {
-    if (!this.currentUsername) return;
-    const user = await getCurrentUserInfo();
-    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
-    const byContentieux = { ...(current.alertRules?.byContentieux || {}) };
-    byContentieux[contentieuxId] = [...rules];
-    const seededContentieux = Array.from(new Set([
-      ...(current.alertRules?.seededContentieux || []),
-      contentieuxId,
-    ]));
-    const next: UserPreferencesFile = {
-      ...current,
-      ...buildMetadata(current.version || 0, user),
-      windowsUsername: this.currentUsername,
-      alertRules: {
-        ...(current.alertRules || {}),
-        seeded: current.alertRules?.seeded ?? false,
-        byContentieux,
-        seededContentieux,
-      },
-    };
-    await writeLocal(this.currentUsername, next);
-    emitSyncCompleted('userPreferences');
-    this.schedulePush();
-  }
-
-  /**
-   * Seed lazy d'un contentieux à sa première ouverture. No-op si ce
-   * contentieux a déjà été seedé pour cet utilisateur.
-   */
-  async seedAlertRulesForContentieux(contentieuxId: string, rules: AlertRule[]): Promise<boolean> {
-    if (!this.currentUsername) return false;
-    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
-    const seededList = current.alertRules?.seededContentieux || [];
-    if (seededList.includes(contentieuxId)) return false;
-    const user = await getCurrentUserInfo();
-    const byContentieux = { ...(current.alertRules?.byContentieux || {}) };
-    byContentieux[contentieuxId] = [...rules];
-    const next: UserPreferencesFile = {
-      ...current,
-      ...buildMetadata(current.version || 0, user),
-      windowsUsername: this.currentUsername,
-      alertRules: {
-        ...(current.alertRules || {}),
-        seeded: current.alertRules?.seeded ?? false,
-        byContentieux,
-        seededContentieux: [...seededList, contentieuxId],
-      },
-    };
-    await writeLocal(this.currentUsername, next);
-    emitSyncCompleted('userPreferences');
-    this.schedulePush();
-    return true;
   }
 
   // ─── Validations d'alertes ───────────────────────────────────────────────

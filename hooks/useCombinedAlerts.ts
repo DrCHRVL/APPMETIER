@@ -1,17 +1,18 @@
 // hooks/useCombinedAlerts.ts
 //
-// Variante de useAlerts qui partitionne les règles par contentieux. Les
-// règles vivent désormais dans la prefs utilisateur :
-//   - global → `prefs.alertRules.global`
-//   - par contentieux → `prefs.alertRules.byContentieux[id]`
-// Les alertes actives/snoozed restent un cache machine (clés ElectronBridge
-// `ctx_{id}_alerts` ou `alerts`).
+// Alertes classiques de la cloche pour un contentieux donné. Les règles
+// (délai CR, expiration actes, âge enquête, prolongation, AIR) sont
+// partagées par toute l'équipe du contentieux et stockées côté serveur
+// dans `contentieux-alerts/{id}.json`. Les validations restent
+// personnelles (AlertStorage → UserPreferencesFile). Un utilisateur qui
+// n'est pas abonné au contentieux ne voit aucune alerte dans sa cloche.
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Alert, AlertRule, Enquete, AIRMesure } from '@/types/interfaces';
+import { Alert, AlertRule, Enquete, AIRMesure, AlertValidations } from '@/types/interfaces';
 import { APP_CONFIG } from '@/config/constants';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { AlertManager } from '@/utils/alerts/alertManager';
+import { contentieuxAlertsSyncService } from '@/utils/dataSync/ContentieuxAlertsSyncService';
 import { useUserPreferences } from './useUserPreferences';
 import debounce from 'lodash/debounce';
 
@@ -24,95 +25,121 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
   const mesuresAIRRef = useRef(mesuresAIR);
   mesuresAIRRef.current = mesuresAIR;
 
-  // Cache machine pour les alertes actives/snoozed (par contentieux).
   const alertsKey = contentieuxId ? `ctx_${contentieuxId}_alerts` : 'alerts';
   const alertsKeyRef = useRef(alertsKey);
   alertsKeyRef.current = alertsKey;
 
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(true);
+  const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
+  const [rulesLoading, setRulesLoading] = useState(true);
 
   const {
-    alertRules: alertRulesPrefs,
+    subscribedContentieuxAlerts,
+    alertValidations,
     isLoading: prefsLoading,
-    setAlertRulesGlobal,
-    setAlertRulesForContentieux,
-    seedAlertRulesForContentieux,
-    seedAlertRulesGlobal,
+    seedAlertValidations,
   } = useUserPreferences();
 
-  const alertRules = useMemo<AlertRule[]>(() => {
-    if (contentieuxId) {
-      const stored = alertRulesPrefs?.byContentieux?.[contentieuxId];
-      if (stored && stored.length > 0) return stored;
-    }
-    if (alertRulesPrefs?.global && alertRulesPrefs.global.length > 0) {
-      return alertRulesPrefs.global;
-    }
-    return APP_CONFIG.DEFAULT_ALERT_RULES;
-  }, [contentieuxId, alertRulesPrefs?.byContentieux, alertRulesPrefs?.global]);
-
-  // Seed lazy : à la première ouverture d'un contentieux par cet utilisateur,
-  // on copie les règles globales pré-existantes (clé locale `ctx_X_alertRules`)
-  // dans sa prefs. Idem pour le seed de la partie globale (cas pas de
-  // contentieuxId : seedé via useAlerts au démarrage).
-  const seededRef = useRef<Set<string>>(new Set());
+  // Seed initial des validations (one-shot par user) : recopie l'ancien
+  // dictionnaire global `alert_validations` dans la prefs personnelle.
+  // Évite que les alertes précédemment validées reviennent en masse après
+  // migration.
+  const validationsSeedTriedRef = useRef(false);
   useEffect(() => {
     if (prefsLoading) return;
-    if (!contentieuxId) {
-      // Seed des règles globales si jamais useAlerts n'a pas tourné (cas
-      // ServiceOrganizer/AlertsPage qui appellent useCombinedAlerts en mode
-      // global). On lit la dernière clé locale connue.
-      if (alertRulesPrefs?.seeded) return;
-      const cacheKey = '__global__';
-      if (seededRef.current.has(cacheKey)) return;
-      seededRef.current.add(cacheKey);
-      (async () => {
-        try {
-          const legacy = await ElectronBridge.getData<AlertRule[]>(
-            APP_CONFIG.STORAGE_KEYS.ALERT_RULES,
-            APP_CONFIG.DEFAULT_ALERT_RULES,
-          );
-          await seedAlertRulesGlobal(
-            Array.isArray(legacy) && legacy.length > 0 ? legacy : APP_CONFIG.DEFAULT_ALERT_RULES,
-          );
-        } catch (error) {
-          console.error('Seed global alertRules échoué:', error);
-          seededRef.current.delete(cacheKey);
-        }
-      })();
-      return;
-    }
-
-    const seededList = alertRulesPrefs?.seededContentieux || [];
-    if (seededList.includes(contentieuxId)) return;
-    if (seededRef.current.has(contentieuxId)) return;
-    seededRef.current.add(contentieuxId);
+    if (alertValidations?.seeded) return;
+    if (validationsSeedTriedRef.current) return;
+    validationsSeedTriedRef.current = true;
     (async () => {
       try {
-        const legacy = await ElectronBridge.getData<AlertRule[]>(
-          `ctx_${contentieuxId}_alertRules`,
-          APP_CONFIG.DEFAULT_ALERT_RULES,
+        const legacy = await ElectronBridge.getData<AlertValidations>(
+          APP_CONFIG.STORAGE_KEYS.ALERT_VALIDATIONS,
+          {},
         );
-        await seedAlertRulesForContentieux(
-          contentieuxId,
-          Array.isArray(legacy) && legacy.length > 0 ? legacy : APP_CONFIG.DEFAULT_ALERT_RULES,
-        );
+        const entries = legacy && typeof legacy === 'object' && !Array.isArray(legacy)
+          ? legacy
+          : {};
+        await seedAlertValidations(entries);
       } catch (error) {
-        console.error(`Seed alertRules contentieux ${contentieuxId} échoué:`, error);
-        seededRef.current.delete(contentieuxId);
+        console.error('Seed alertValidations échoué:', error);
+        validationsSeedTriedRef.current = false;
       }
     })();
-  }, [
-    contentieuxId,
-    prefsLoading,
-    alertRulesPrefs?.seeded,
-    alertRulesPrefs?.seededContentieux,
-    seedAlertRulesForContentieux,
-    seedAlertRulesGlobal,
-  ]);
+  }, [prefsLoading, alertValidations?.seeded, seedAlertValidations]);
 
-  // Charger le cache machine des alertes actives/snoozed.
+  // Abonnement : champ absent = auto-abonné à tous les contentieux accessibles.
+  const isSubscribed = useMemo(() => {
+    if (!contentieuxId) return false;
+    if (!subscribedContentieuxAlerts) return true;
+    return subscribedContentieuxAlerts.includes(contentieuxId);
+  }, [contentieuxId, subscribedContentieuxAlerts]);
+
+  // Chargement des règles partagées + seed lazy depuis legacy si besoin.
+  useEffect(() => {
+    if (!contentieuxId) {
+      setAlertRules([]);
+      setRulesLoading(false);
+      return;
+    }
+    let cancelled = false;
+
+    const load = async () => {
+      setRulesLoading(true);
+      try {
+        await contentieuxAlertsSyncService.sync(contentieuxId);
+        let rules = await contentieuxAlertsSyncService.getRules(contentieuxId);
+
+        if (rules.length === 0) {
+          // Seed lazy : reprendre les clés legacy si elles existent, sinon
+          // défauts système. N'écrit côté serveur que si le fichier est
+          // absent (seedFromLegacy est idempotent).
+          const legacyCtx = await ElectronBridge.getData<AlertRule[]>(
+            `ctx_${contentieuxId}_alertRules`,
+            [],
+          );
+          const legacyGlobal = await ElectronBridge.getData<AlertRule[]>(
+            APP_CONFIG.STORAGE_KEYS.ALERT_RULES,
+            [],
+          );
+          const seedRules = (Array.isArray(legacyCtx) && legacyCtx.length > 0)
+            ? legacyCtx
+            : (Array.isArray(legacyGlobal) && legacyGlobal.length > 0)
+              ? legacyGlobal
+              : APP_CONFIG.DEFAULT_ALERT_RULES;
+          const seeded = await contentieuxAlertsSyncService.seedFromLegacy(contentieuxId, seedRules);
+          rules = seeded ? seedRules : APP_CONFIG.DEFAULT_ALERT_RULES;
+        }
+
+        if (!cancelled) setAlertRules(rules);
+      } catch (error) {
+        console.error(`Chargement règles partagées [${contentieuxId}] échoué:`, error);
+        if (!cancelled) setAlertRules(APP_CONFIG.DEFAULT_ALERT_RULES);
+      } finally {
+        if (!cancelled) setRulesLoading(false);
+      }
+    };
+
+    load();
+    contentieuxAlertsSyncService.startPeriodic(contentieuxId);
+
+    const handler = async (e: Event) => {
+      const custom = e as CustomEvent<{ scope?: string }>;
+      if (custom.detail?.scope === `contentieuxAlerts:${contentieuxId}`) {
+        const rules = await contentieuxAlertsSyncService.getRules(contentieuxId);
+        if (!cancelled) setAlertRules(rules.length > 0 ? rules : APP_CONFIG.DEFAULT_ALERT_RULES);
+      }
+    };
+    window.addEventListener('global-sync-completed', handler);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('global-sync-completed', handler);
+      contentieuxAlertsSyncService.stopPeriodic(contentieuxId);
+    };
+  }, [contentieuxId]);
+
+  // Cache machine des alertes actives/snoozed.
   useEffect(() => {
     const loadAlerts = async () => {
       try {
@@ -129,7 +156,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     loadAlerts();
   }, [alertsKey]);
 
-  const isLoading = prefsLoading || alertsLoading;
+  const isLoading = prefsLoading || alertsLoading || rulesLoading;
 
   const parseDateString = (dateString: string): Date | null => {
     if (!dateString) return null;
@@ -163,6 +190,14 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     debounce(async () => {
       try {
         const currentAlertsKey = alertsKeyRef.current;
+
+        // Non abonné → vider la cloche et nettoyer le cache persistant.
+        if (!isSubscribed) {
+          await ElectronBridge.setData(currentAlertsKey, []);
+          setAlerts([]);
+          return;
+        }
+
         const existingAlerts = await ElectronBridge.getData<Alert[]>(currentAlertsKey, []);
         const newAlerts: Alert[] = [];
 
@@ -249,7 +284,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
         console.error('Erreur lors de la mise à jour des alertes:', error);
       }
     }, DEBOUNCE_DELAY),
-    [alertRules]
+    [alertRules, isSubscribed]
   );
 
   useEffect(() => {
@@ -266,15 +301,14 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     return () => { updateAlerts.cancel(); };
   }, [enquetes, mesuresAIR, alertsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Persistance des règles : bascule sur la prefs utilisateur via le bon
-  // setter (par contentieux ou global).
+  // Persistance des règles partagées (écriture serveur). N'importe quel
+  // appelant peut techniquement écrire : l'UI doit masquer les boutons
+  // aux utilisateurs sans `manage_alerts` sur ce contentieux.
   const persistRules = useCallback(async (rules: AlertRule[]) => {
-    if (contentieuxId) {
-      await setAlertRulesForContentieux(contentieuxId, rules);
-    } else {
-      await setAlertRulesGlobal(rules);
-    }
-  }, [contentieuxId, setAlertRulesForContentieux, setAlertRulesGlobal]);
+    if (!contentieuxId) return;
+    setAlertRules(rules);
+    await contentieuxAlertsSyncService.saveRules(contentieuxId, rules);
+  }, [contentieuxId]);
 
   const handleUpdateAlertRule = useCallback(async (updatedRule: AlertRule) => {
     const exists = alertRules.find(rule => rule.id === updatedRule.id);
@@ -385,11 +419,12 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     airAlerts,
     alertRules,
     isLoading,
+    isSubscribed,
     updateAlerts,
     handleUpdateAlertRule,
     handleDuplicateRule,
     handleDeleteRule,
     handleSnoozeAlert,
-    handleValidateAlert
+    handleValidateAlert,
   };
 };

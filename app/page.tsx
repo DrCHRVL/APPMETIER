@@ -1563,10 +1563,6 @@ return (
         }}
         alertesContent={
           <AlertsPage
-            rules={alertRules}
-            onUpdateRule={handleUpdateAlertRule}
-            onDuplicateRule={handleDuplicateRule}
-            onDeleteRule={handleDeleteRule}
             onShowWeeklyPopup={() => { openWeeklyPopup(); }}
             visualAlertRules={visualAlertRules}
             onUpdateVisualAlertRule={updateVisualAlertRule}

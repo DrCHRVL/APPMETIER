@@ -205,15 +205,14 @@ export class AlertManager {
     }
   }
 
-  static async findAlertRule(type: string): Promise<AlertRule | undefined> {
-    try {
-      const prefs = await userPreferencesSyncService.getPreferences();
-      const rules = prefs?.alertRules?.global || [];
-      return rules.find(rule => rule.type === type && rule.enabled);
-    } catch (error) {
-      console.error('Error finding alert rule:', error);
-      return undefined;
-    }
+  /**
+   * Ne fonctionne plus : les règles d'alertes sont désormais partagées
+   * par contentieux (ContentieuxAlertsSyncService), il n'existe plus de
+   * jeu « global ». La méthode reste pour compatibilité mais renvoie
+   * toujours undefined — en pratique elle n'est plus appelée nulle part.
+   */
+  static async findAlertRule(_type: string): Promise<AlertRule | undefined> {
+    return undefined;
   }
 
   // Méthode mise à jour pour supporter le report à une date spécifique ou pour un nombre de jours
