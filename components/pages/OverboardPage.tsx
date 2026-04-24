@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { Target, Pin, Calendar, Gavel, Link2, User, Phone, Car } from 'lucide-react';
+import { Target, Pin, Calendar, Gavel, Link2, User, Phone, Car, Star } from 'lucide-react';
 import { Enquete } from '@/types/interfaces';
 import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
 import { ResultatAudience } from '@/types/audienceTypes';
@@ -9,6 +9,7 @@ import { useAudience } from '@/contexts/AudienceContext';
 import { findCrossMatches, groupMatches, CrossMatch } from '@/utils/crossContentieuxMatcher';
 import { OPTimeline } from '../OPTimeline';
 import { UserManager } from '@/utils/userManager';
+import { Badge } from '../ui/badge';
 
 // ──────────────────────────────────────────────
 // TYPES
@@ -393,14 +394,16 @@ export const OverboardPage = ({
                                 {enquete.description && (
                                   <p className="text-xs text-gray-500 mt-1 line-clamp-2">{enquete.description}</p>
                                 )}
-                                <div className="flex gap-1 mt-2">
+                                <div className="flex flex-wrap gap-1 mt-2">
                                   {enquete.overboardPins?.map(pin => (
-                                    <span
+                                    <Badge
                                       key={pin.pinnedBy}
-                                      className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded"
+                                      variant="outline"
+                                      className="text-[10px] py-0 px-1.5 bg-amber-50 text-amber-700 border-amber-200"
                                     >
-                                      {pin.role.toUpperCase()}
-                                    </span>
+                                      <Star className="h-2.5 w-2.5 fill-amber-500 text-amber-500 mr-1" />
+                                      Suivi par {pin.pinnedBy.toUpperCase()}
+                                    </Badge>
                                   ))}
                                 </div>
                               </div>
