@@ -45,6 +45,7 @@ import { useInstructions } from '@/hooks/useInstructions';
 import { useAIR } from '@/hooks/useAIR';
 import { useCombinedAlerts } from '@/hooks/useCombinedAlerts';
 import { useVisualAlerts } from '@/hooks/useVisualAlerts';
+import { contentieuxAlertsSyncService } from '@/utils/dataSync/ContentieuxAlertsSyncService';
 import { backupManager } from '@/utils/backupManager';
 const WeeklyRecapPopup = dynamic(() => import('@/components/modals/WeeklyRecapPopup').then(m => ({ default: m.WeeklyRecapPopup })), { ssr: false });
 import { WeeklyPopupConfig } from '@/types/interfaces';
@@ -578,7 +579,11 @@ function AppContent() {
       const ctxPrefix = `ctx_${currentContentieuxId}_`;
       const enquetesData = await StorageManager.get(`${ctxPrefix}enquetes`, []);
       const instructionsData = await StorageManager.get(`${ctxPrefix}instructions`, []);
-      const alertRulesData = await StorageManager.get(`${ctxPrefix}alertRules`, []);
+      // Règles d'alertes : on lit la source actuelle (fichier serveur partagé)
+      // via le service. La clé locale `ctx_X_alertRules` n'est plus à jour
+      // depuis la migration vers contentieux-alerts/{id}.json.
+      await contentieuxAlertsSyncService.sync(currentContentieuxId);
+      const sharedAlertRules = await contentieuxAlertsSyncService.getRules(currentContentieuxId);
       const tagsData = await StorageManager.get(`${ctxPrefix}customTags`, []);
       const airMesuresData = await StorageManager.get('air_mesures', []);
 
@@ -586,11 +591,11 @@ function AppContent() {
         contentieuxId: currentContentieuxId,
         enquetes: enquetesData,
         instructions: instructionsData,
-        alertRules: alertRulesData,
+        sharedAlertRules,
         tags: tagsData,
         airMesures: airMesuresData,
         exportDate: new Date().toISOString(),
-        version: '3.0'
+        version: '4.0'
       };
 
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -647,7 +652,12 @@ function AppContent() {
               if (hasInstructions) {
                 await StorageManager.set(`${ctxPrefix}instructions`, importedData.instructions);
               }
-              if (importedData.alertRules) {
+              // v4.0+ : règles d'alertes partagées du contentieux. Push vers
+              // le fichier serveur via le service. v3.0 (legacy) : champ
+              // `alertRules` stocké dans la clé locale (plus utilisée).
+              if (Array.isArray(importedData.sharedAlertRules)) {
+                await contentieuxAlertsSyncService.saveRules(targetCtx, importedData.sharedAlertRules);
+              } else if (importedData.alertRules) {
                 await StorageManager.set(`${ctxPrefix}alertRules`, importedData.alertRules);
               }
               if (importedData.tags) {

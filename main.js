@@ -1303,6 +1303,112 @@ function setupIpcHandlers() {
   });
 
   /**
+   * Liste les fichiers backup présents dans admin/backups/ (les nouveaux
+   * fichiers : user-preferences-*, contentieux-alerts-*, tag-data-*,
+   * audience-data-*, alerts-data-*, deleted-ids-*). Retourne une liste
+   * d'objets { filename, kind, identifier, timestamp } pour faciliter
+   * l'affichage groupé. Le tri est du plus récent au plus ancien.
+   */
+  ipcMain.handle('dataSync:listAdminBackups', async () => {
+    try {
+      const backupDir = globalBackupDir()
+      if (!fs.existsSync(backupDir)) return []
+      const files = fs.readdirSync(backupDir)
+      const parsed = []
+      const pattern = /^(user-preferences|contentieux-alerts|tag-data|audience-data|alerts-data|deleted-ids)(?:-(.+?))?-(\d{4}-\d{2}-\d{2}T[\d.\-]+Z)\.json$/
+      for (const f of files) {
+        const m = f.match(pattern)
+        if (!m) continue
+        parsed.push({
+          filename: f,
+          kind: m[1],
+          identifier: m[2] || null,
+          timestamp: m[3].replace(/-/g, ':').replace('T', 'T').replace(/^(.{10}):/, '$1T'),
+          rawTimestamp: m[3],
+        })
+      }
+      parsed.sort((a, b) => (a.rawTimestamp < b.rawTimestamp ? 1 : -1))
+      return parsed
+    } catch (error) {
+      console.error('❌ DataSync: Erreur listage admin/backups:', error)
+      return []
+    }
+  })
+
+  /**
+   * Restaure un backup admin vers son emplacement d'origine. La destination
+   * est déduite du nom de fichier :
+   *   - user-preferences-{user}-{ts}.json → user-preferences/{user}.json
+   *   - contentieux-alerts-{id}-{ts}.json → contentieux-alerts/{id}.json
+   *   - tag-data-{ts}.json                → tag-data.json
+   *   - audience-data-{ts}.json           → audience-data.json
+   *   - alerts-data-{ts}.json             → alerts-data.json
+   *   - deleted-ids-{ts}.json             → deleted-ids.json
+   * Avant écriture, l'état actuel est lui-même sauvegardé dans admin/backups/
+   * pour pouvoir revenir en arrière.
+   */
+  ipcMain.handle('dataSync:restoreAdminBackup', async (event, filename) => {
+    try {
+      if (!filename || typeof filename !== 'string') return false
+      // Sécurité : pas de path traversal, fichier doit exister dans admin/backups/
+      if (filename.includes('/') || filename.includes('\\') || filename.includes('..')) return false
+      const backupDir = globalBackupDir()
+      const sourcePath = path.join(backupDir, filename)
+      if (!fs.existsSync(sourcePath)) {
+        console.error(`❌ DataSync: backup introuvable : ${filename}`)
+        return false
+      }
+
+      const pattern = /^(user-preferences|contentieux-alerts|tag-data|audience-data|alerts-data|deleted-ids)(?:-(.+?))?-(\d{4}-\d{2}-\d{2}T[\d.\-]+Z)\.json$/
+      const m = filename.match(pattern)
+      if (!m) {
+        console.error(`❌ DataSync: nom de backup non reconnu : ${filename}`)
+        return false
+      }
+      const kind = m[1]
+      const identifier = m[2]
+
+      let destPath = null
+      let backupBaseName = null
+      if (kind === 'user-preferences' && identifier) {
+        const safe = sanitizeUsername(identifier)
+        if (!safe) return false
+        const folder = userPrefsFolder()
+        if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true })
+        destPath = path.join(folder, `${safe}.json`)
+        backupBaseName = `user-preferences-${safe}`
+      } else if (kind === 'contentieux-alerts' && identifier) {
+        const safe = sanitizeContentieuxId(identifier)
+        if (!safe) return false
+        const folder = contentieuxAlertsFolder()
+        if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true })
+        destPath = path.join(folder, `${safe}.json`)
+        backupBaseName = `contentieux-alerts-${safe}`
+      } else if (kind === 'tag-data' || kind === 'audience-data' || kind === 'alerts-data' || kind === 'deleted-ids') {
+        destPath = path.join(COMMON_SERVER_PATH, `${kind}.json`)
+        backupBaseName = kind
+      } else {
+        console.error(`❌ DataSync: type de backup non géré : ${kind}`)
+        return false
+      }
+
+      // Backup de l'état courant avant écrasement.
+      if (fs.existsSync(destPath)) {
+        const ts = new Date().toISOString().replace(/:/g, '-')
+        fs.copyFileSync(destPath, path.join(backupDir, `${backupBaseName}-${ts}.json`))
+        pruneGlobalBackups(backupBaseName, 10)
+      }
+
+      fs.copyFileSync(sourcePath, destPath)
+      console.log(`✅ DataSync: backup admin restauré → ${destPath}`)
+      return true
+    } catch (error) {
+      console.error('❌ DataSync: Erreur restauration admin backup:', error)
+      return false
+    }
+  })
+
+  /**
    * Lit un fichier backup serveur et retourne son contenu parsé { data, metadata }.
    * Utilisé par DataSyncManager.restoreFromServerBackup().
    */

@@ -111,6 +111,10 @@ interface ElectronAPI {
   globalSync_pushUserPreferences?: (username: string, payload: import('./globalSyncTypes').UserPreferencesFile) => Promise<boolean>;
   globalSync_pullContentieuxAlerts?: (contentieuxId: string) => Promise<import('./globalSyncTypes').ContentieuxAlertsSyncFile | null>;
   globalSync_pushContentieuxAlerts?: (contentieuxId: string, payload: import('./globalSyncTypes').ContentieuxAlertsSyncFile) => Promise<boolean>;
+  /** Liste les fichiers backup admin (admin/backups/) avec parsing du nom. */
+  dataSync_listAdminBackups?: () => Promise<Array<{ filename: string; kind: 'user-preferences' | 'contentieux-alerts' | 'tag-data' | 'audience-data' | 'alerts-data' | 'deleted-ids'; identifier: string | null; rawTimestamp: string }>>;
+  /** Restaure un backup admin vers son emplacement d'origine. Backup automatique de l'état courant avant écrasement. */
+  dataSync_restoreAdminBackup?: (filename: string) => Promise<boolean>;
   /** Copie le fichier sync serveur actuel vers un fichier backup avec le nom fourni (ou écrase l'unique backup si aucun nom). */
   dataSync_backupServer?: (filename?: string) => Promise<boolean>;
   /** Supprime un fichier backup du dossier serveur. */

@@ -158,6 +158,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('globalSync:pullContentieuxAlerts', contentieuxId),
   globalSync_pushContentieuxAlerts: (contentieuxId, payload) =>
     ipcRenderer.invoke('globalSync:pushContentieuxAlerts', contentieuxId, payload),
+  dataSync_listAdminBackups: () =>
+    ipcRenderer.invoke('dataSync:listAdminBackups'),
+  dataSync_restoreAdminBackup: (filename) =>
+    ipcRenderer.invoke('dataSync:restoreAdminBackup', filename),
 
   dataSync_checkContentieuxAccess: (contentieuxId) =>
     ipcRenderer.invoke('dataSync:checkContentieuxAccess', contentieuxId),
