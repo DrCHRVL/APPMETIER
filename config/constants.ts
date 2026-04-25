@@ -39,34 +39,6 @@ export const APP_CONFIG = {
       threshold: 2,
       enabled: true,
       isSystemRule: true
-    },
-    // Nouvelles règles pour AIR
-    {
-      id: 5,
-      type: 'air_6_mois',
-      name: 'Mesure AIR > 6 mois',
-      description: 'Alerte lorsqu\'une mesure AIR dépasse 6 mois',
-      threshold: 180, // 6 mois en jours
-      enabled: true,
-      isSystemRule: true
-    },
-    {
-      id: 6,
-      type: 'air_12_mois',
-      name: 'Mesure AIR > 12 mois',
-      description: 'Alerte lorsqu\'une mesure AIR dépasse 12 mois',
-      threshold: 365, // 12 mois en jours
-      enabled: true,
-      isSystemRule: true
-    },
-    {
-      id: 7,
-      type: 'air_rdv_delai',
-      name: 'Délai depuis RDV AIR',
-      description: 'Alerte lorsqu\'aucun RDV procureur depuis 45 jours',
-      threshold: 45,
-      enabled: true,
-      isSystemRule: true
     }
   ] as AlertRule[],
   
