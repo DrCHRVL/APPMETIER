@@ -41,6 +41,8 @@ interface EnquetePreviewProps {
   onValidateProlongationRequest?: (enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
   onValidateAutorisationRequest?: (enqueteId: number, acteId: number, type: 'acte' | 'ecoute' | 'geoloc') => void;
   visualAlertRules?: VisualAlertRule[];
+  /** Surlignage ambre de la ligne « Dernier CR » quand alerte cr_delay active. Défaut true. */
+  crDelayHighlight?: boolean;
   onCreateGlobalTodo?: (todo: ToDoItem) => void;
 }
 
@@ -64,6 +66,7 @@ export const EnquetePreview = React.memo(({
   onValidateProlongationRequest,
   onValidateAutorisationRequest,
   visualAlertRules = [],
+  crDelayHighlight = true,
   onCreateGlobalTodo
 }: EnquetePreviewProps) => {
   // États pour les modales
@@ -475,7 +478,7 @@ return (
               </div>
 
               {lastCR && (
-                <div className={`text-xs ${hasCRDelayAlert ? 'text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md font-medium' : 'text-gray-500'}`}>
+                <div className={`text-xs ${hasCRDelayAlert && crDelayHighlight ? 'text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md font-medium' : 'text-gray-500'}`}>
                   Dernier CR: {new Date(lastCR.date).toLocaleDateString()} ({lastCR.enqueteur})
                 </div>
               )}

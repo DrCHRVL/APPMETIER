@@ -173,7 +173,7 @@ function AppContent() {
     contentieuxColor?: string;
     enquetes: any[];
   }>>([]);
-  const { subscribedContentieux: weeklySubscribedIds } = useUserPreferences();
+  const { subscribedContentieux: weeklySubscribedIds, crDelayHighlight } = useUserPreferences();
 
   // Construit les buckets pour le récap hebdo : intersection des contentieux
   // abonnés et des contentieux actuellement accessibles à l'utilisateur, en
@@ -1128,6 +1128,7 @@ return (
                       onValidateProlongationRequest={handleValidateProlongationRequest}
                       onValidateAutorisationRequest={handleValidateAutorisation}
                       visualAlertRules={visualAlertRules}
+                      crDelayHighlight={crDelayHighlight}
                       onCreateGlobalTodo={handleCreateGlobalTodo}
                     />
                   );

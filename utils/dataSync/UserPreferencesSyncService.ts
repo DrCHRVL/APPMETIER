@@ -240,6 +240,21 @@ export class UserPreferencesSyncService {
     this.schedulePush();
   }
 
+  async setCrDelayHighlight(enabled: boolean): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      crDelayHighlight: enabled,
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
   // ─── Validations d'alertes ───────────────────────────────────────────────
 
   async setAlertValidation(key: string, validation: AlertValidation): Promise<void> {

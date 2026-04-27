@@ -405,6 +405,8 @@ export const AlertsPage = ({ onShowWeeklyPopup, visualAlertRules = [], onUpdateV
     setWeeklyRecapSubscriptions,
     subscribedContentieuxAlerts,
     setContentieuxAlertsSubscriptions,
+    crDelayHighlight,
+    setCrDelayHighlight,
   } = useUserPreferences();
 
   const toggleContentieuxSubscription = (id: string) => {
@@ -566,6 +568,25 @@ export const AlertsPage = ({ onShowWeeklyPopup, visualAlertRules = [], onUpdateV
           onReorderRules={onReorderVisualAlertRules}
         />
       )}
+
+      {/* Toggle simple : surlignage ambre de la ligne « Dernier CR » sur la
+          carte enquête quand l'alerte cr_delay est active. Préférence perso. */}
+      <Card className="mb-6 border-purple-200 bg-purple-50/30">
+        <CardContent className="py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium">Surligner « Dernier CR » en ambre quand l'alerte délai est active</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Met en évidence la ligne « Dernier CR » sur la carte enquête dès que le seuil de la règle « Délai compte rendu » est dépassé. Préférence personnelle.
+              </p>
+            </div>
+            <Switch
+              checked={crDelayHighlight}
+              onCheckedChange={(v) => setCrDelayHighlight(v)}
+            />
+          </div>
+        </CardContent>
+      </Card>
 
       {/* ====== ALERTES PAR CONTENTIEUX (partagées) ====== */}
       {accessibleContentieux.length === 0 && (

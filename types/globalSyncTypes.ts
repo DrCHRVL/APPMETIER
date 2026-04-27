@@ -113,6 +113,12 @@ export interface UserPreferencesFile extends GlobalSyncMetadata {
     rules?: VisualAlertRule[];
   };
   /**
+   * Surlignage ambre de la ligne « Dernier CR » sur la carte enquête
+   * lorsqu'une alerte cr_delay est active. Activé par défaut. Toggle dans
+   * la section « Alertes visuelles personnelles ».
+   */
+  crDelayHighlight?: boolean;
+  /**
    * Snapshot des alertes d'instruction (DP, DML, délai 175) personnelles —
    * principalement utile pour conserver l'état "snoozed" entre machines.
    */

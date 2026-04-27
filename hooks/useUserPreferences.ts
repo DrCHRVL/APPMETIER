@@ -85,6 +85,11 @@ export function useUserPreferences() {
     await refresh();
   }, [refresh]);
 
+  const setCrDelayHighlight = useCallback(async (enabled: boolean) => {
+    await userPreferencesSyncService.setCrDelayHighlight(enabled);
+    await refresh();
+  }, [refresh]);
+
   const setAlertValidation = useCallback(async (key: string, validation: AlertValidation) => {
     await userPreferencesSyncService.setAlertValidation(key, validation);
     await refresh();
@@ -126,6 +131,7 @@ export function useUserPreferences() {
   const subscribedContentieux: string[] = prefs?.weeklyRecap?.subscribedContentieux || [];
   const serviceOrganization = prefs?.serviceOrganization;
   const subscribedContentieuxAlerts = prefs?.subscribedContentieuxAlerts;
+  const crDelayHighlight = prefs?.crDelayHighlight ?? true;
   const alertValidations = prefs?.alertValidations;
   const visualAlertRules = prefs?.visualAlertRules;
   const instructionAlerts = prefs?.instructionAlerts;
@@ -141,6 +147,8 @@ export function useUserPreferences() {
     seedServiceOrganization,
     subscribedContentieuxAlerts,
     setContentieuxAlertsSubscriptions,
+    crDelayHighlight,
+    setCrDelayHighlight,
     alertValidations,
     setAlertValidation,
     setAlertValidations,
