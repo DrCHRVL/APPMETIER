@@ -2,10 +2,14 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { TagDefinition, TagCategory, TagOrganization, getTagsByCategory } from '@/config/tags';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { APP_CONFIG } from '@/config/constants';
-import { Tag } from '@/types/interfaces';
+import { Tag, Enquete } from '@/types/interfaces';
 import { tagSyncService, DELETED_TAG_IDS_KEY } from '@/utils/dataSync/TagSyncService';
 import { emitSyncCompleted } from '@/utils/dataSync/globalSyncCommon';
 import type { TagTombstone } from '@/types/globalSyncTypes';
+import { ContentieuxManager } from '@/utils/contentieuxManager';
+import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
+import { useEnquetesStore } from '@/stores/useEnquetesStore';
+import type { ContentieuxId } from '@/types/userTypes';
 
 export interface DuplicateTagGroup {
   value: string;           // valeur "canonique" (celle du tag conservé)
@@ -29,6 +33,11 @@ interface UseTagsReturn {
   addTag: (tag: Omit<TagDefinition, 'id'>) => Promise<boolean>;
   updateTag: (id: string, updates: Partial<TagDefinition>) => Promise<boolean>;
   deleteTag: (id: string) => Promise<boolean>;
+  // Fusion : remplace toutes les références à `sourceId` par `targetId` dans
+  // les enquêtes de tous les contentieux chargés, puis supprime le tag source
+  // de la gestion centrale. Les deux tags doivent appartenir à la même
+  // catégorie. Retourne le nombre d'enquêtes impactées (ou -1 en cas d'erreur).
+  mergeTags: (sourceId: string, targetId: string) => Promise<number>;
 
   // Organisation
   updateTagOrganization: (tagId: string, organization: TagOrganization | null) => Promise<boolean>;
@@ -70,164 +79,179 @@ export const useTags = (): UseTagsReturn => {
       .filter(Boolean);
   }, []);
 
-  // Fonction de propagation des changements de tags
+  // Applique une transformation à la liste de tags + services[] d'une enquête.
+  // Retourne null si rien n'a changé, l'enquête mise à jour sinon (avec
+  // dateMiseAJour rafraîchie). Utilisé pour la propagation (rename/delete) et
+  // la fusion : la logique ne dépend pas du persiste cible.
+  const applyEnqueteTagTransform = useCallback((
+    enquete: any,
+    transform: {
+      // null = supprimer ; sinon = nouvelle valeur (rename/merge target)
+      tagMatcher: (tagValue: string, tagCategory: TagCategory | null) => boolean;
+      replacement: { value: string; category: TagCategory; id?: string } | null;
+      // pour services[] (catégorie services uniquement)
+      servicesMatch?: (service: string) => boolean;
+      servicesReplacement?: string | null;
+    }
+  ): any | null => {
+    let hasModification = false;
+    const updated = { ...enquete };
+
+    if (Array.isArray(enquete.tags)) {
+      const seenValues = new Set<string>(); // dédup par catégorie+valeur (anti-doublon après merge)
+      const newTags: any[] = [];
+
+      for (const tag of enquete.tags) {
+        const tagValue = typeof tag === 'string' ? tag : tag.value;
+        const tagCategory: TagCategory | null = typeof tag === 'string' ? null : tag.category;
+
+        if (transform.tagMatcher(tagValue, tagCategory)) {
+          hasModification = true;
+          if (transform.replacement === null) {
+            continue; // suppression
+          }
+          // remplacement (rename ou merge) — privilégie l'id explicite (merge),
+          // puis l'id du tag remplacé (rename), puis génère un id (legacy
+          // string-tag).
+          const replId =
+            transform.replacement.id
+            ?? (typeof tag !== 'string' ? tag.id : undefined)
+            ?? createTagId(transform.replacement.value, transform.replacement.category);
+          const repl = {
+            id: replId,
+            value: transform.replacement.value,
+            category: transform.replacement.category,
+          };
+          const dedupKey = `${repl.category}::${repl.value}`;
+          if (seenValues.has(dedupKey)) continue;
+          seenValues.add(dedupKey);
+          newTags.push(repl);
+        } else {
+          if (typeof tag !== 'string') {
+            const dedupKey = `${tag.category}::${tag.value}`;
+            if (seenValues.has(dedupKey)) continue;
+            seenValues.add(dedupKey);
+          }
+          newTags.push(tag);
+        }
+      }
+
+      if (hasModification) updated.tags = newTags;
+    }
+
+    // services[] (catégorie services uniquement)
+    if (transform.servicesMatch && Array.isArray(enquete.services)) {
+      if (transform.servicesReplacement === null) {
+        const filtered = enquete.services.filter((s: string) => !transform.servicesMatch!(s));
+        if (filtered.length !== enquete.services.length) {
+          updated.services = filtered;
+          hasModification = true;
+        }
+      } else {
+        const replacement = transform.servicesReplacement!;
+        let changed = false;
+        const remapped = enquete.services.map((s: string) => {
+          if (transform.servicesMatch!(s)) {
+            changed = true;
+            return replacement;
+          }
+          return s;
+        });
+        if (changed) {
+          // dédoublonner si la fusion crée des doublons
+          updated.services = Array.from(new Set(remapped));
+          hasModification = true;
+        }
+      }
+    }
+
+    if (!hasModification) return null;
+    updated.dateMiseAJour = new Date().toISOString();
+    return updated;
+  }, [createTagId]);
+
+  // Itère sur tous les contentieux chargés et applique `transformEnquete` à
+  // chacune de leurs enquêtes. Met à jour le store Zustand pour le contentieux
+  // actif (UI immédiate) et le ContentieuxManager pour les autres. Déclenche la
+  // sync serveur pour chaque contentieux modifié.
+  const updateEnquetesAcrossContentieux = useCallback(async (
+    transformEnquete: (enquete: any) => any | null,
+  ): Promise<number> => {
+    const manager = ContentieuxManager.getInstance();
+    const multiSync = MultiSyncManager.getInstance();
+    const store = useEnquetesStore.getState();
+    const activeId = store.contentieuxId;
+    let totalModified = 0;
+
+    for (const contentieuxId of manager.getLoadedContentieuxIds()) {
+      if (manager.getSyncMode(contentieuxId) === 'read_only') continue;
+
+      // Pour le contentieux actif, on travaille à partir des enquêtes du store
+      // (qui est la source de vérité de l'UI) plutôt que de celles du manager
+      // qui peuvent être plus anciennes si une édition n'a pas encore été
+      // flushée.
+      const source: Enquete[] = contentieuxId === activeId
+        ? useEnquetesStore.getState().ownEnquetes
+        : manager.getEnquetes(contentieuxId);
+
+      let modifiedCount = 0;
+      const updated: Enquete[] = source.map(enquete => {
+        const next = transformEnquete(enquete);
+        if (next) {
+          modifiedCount++;
+          return next as Enquete;
+        }
+        return enquete;
+      });
+
+      if (modifiedCount === 0) continue;
+      totalModified += modifiedCount;
+
+      // Persistance
+      await manager.setEnquetes(contentieuxId as ContentieuxId, updated);
+
+      if (contentieuxId === activeId) {
+        // Resynchroniser le store Zustand : ses propres écritures ne passent
+        // pas par le manager, donc l'UI ne se rafraîchirait pas autrement.
+        await useEnquetesStore.getState().loadEnquetes();
+      }
+
+      multiSync.triggerPostSaveSync(contentieuxId as ContentieuxId);
+      console.log(`[${contentieuxId}] ${modifiedCount} enquête(s) mise(s) à jour`);
+    }
+
+    return totalModified;
+  }, []);
+
+  // Fonction de propagation des changements de tags (rename/delete)
   const propagateTagChange = useCallback(async (oldValue: string, newValue: string, category: TagCategory) => {
     try {
-      console.log(`Propagation du tag "${oldValue}" → "${newValue}" (${category})`);
-      
-      // Mettre à jour les enquêtes
-      const enquetes = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.ENQUETES, []);
-      if (Array.isArray(enquetes)) {
-        let modifiedCount = 0;
-        
-        const updatedEnquetes = enquetes.map((enquete: any) => {
-          let hasModification = false;
-          let updatedEnquete = { ...enquete };
-          
-          // Mettre à jour les tags
-          if (enquete.tags && Array.isArray(enquete.tags)) {
-            let updatedTags;
-            if (newValue === '') {
-              // Suppression : retirer le tag de la liste
-              updatedTags = enquete.tags.filter((tag: any) => {
-                const tagValue = typeof tag === 'string' ? tag : tag.value;
-                const tagCategory = typeof tag === 'string' ? category : tag.category;
-                if (tagCategory === category && tagValue === oldValue) {
-                  hasModification = true;
-                  return false;
-                }
-                return true;
-              });
-            } else {
-              // Renommage : mettre à jour la valeur
-              updatedTags = enquete.tags.map((tag: any) => {
-                const tagValue = typeof tag === 'string' ? tag : tag.value;
-                const tagCategory = typeof tag === 'string' ? category : tag.category;
+      console.log(`Propagation du tag "${oldValue}" → "${newValue || '(suppression)'}" (${category})`);
 
-                if (tagCategory === category && tagValue === oldValue) {
-                  hasModification = true;
-                  if (typeof tag === 'string') {
-                    return {
-                      id: createTagId(newValue, category),
-                      value: newValue,
-                      category: category,
-  
-                    };
-                  }
-                  return { ...tag, value: newValue };
-                }
-                return tag;
-              });
-            }
+      const replacement = newValue === ''
+        ? null
+        : { value: newValue, category };
 
-            if (hasModification) {
-              updatedEnquete.tags = updatedTags;
-            }
-          }
+      const isServiceCategory = category === 'services';
 
-          // Nettoyer services[] si c'est un service (pour éviter la désync)
-          if (category === 'services' && enquete.services && Array.isArray(enquete.services)) {
-            if (newValue === '') {
-              // Suppression
-              const filteredServices = enquete.services.filter((service: string) => service !== oldValue);
-              if (filteredServices.length !== enquete.services.length) {
-                updatedEnquete.services = filteredServices;
-                hasModification = true;
-              }
-            } else {
-              // Renommage
-              const updatedServices = enquete.services.map((service: string) =>
-                service === oldValue ? newValue : service
-              );
-              if (JSON.stringify(updatedServices) !== JSON.stringify(enquete.services)) {
-                updatedEnquete.services = updatedServices;
-                hasModification = true;
-              }
-            }
-          }
-          
-          if (hasModification) {
-            modifiedCount++;
-            updatedEnquete.dateMiseAJour = new Date().toISOString();
-          }
-          
-          return updatedEnquete;
-        });
-        
-        if (modifiedCount > 0) {
-          await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ENQUETES, updatedEnquetes);
-          console.log(`${modifiedCount} enquête(s) mise(s) à jour`);
-        }
+      const total = await updateEnquetesAcrossContentieux(enquete =>
+        applyEnqueteTagTransform(enquete, {
+          tagMatcher: (tagValue, tagCategory) =>
+            (tagCategory === category || tagCategory === null) && tagValue === oldValue,
+          replacement,
+          servicesMatch: isServiceCategory ? (s) => s === oldValue : undefined,
+          servicesReplacement: isServiceCategory ? (newValue === '' ? null : newValue) : undefined,
+        })
+      );
+
+      if (total > 0) {
+        console.log(`Propagation terminée : ${total} enquête(s) impactée(s) au total`);
       }
-      
-      // Mettre à jour les instructions
-      const instructions = await ElectronBridge.getData('instructions', []);
-      if (Array.isArray(instructions)) {
-        let modifiedCount = 0;
-        
-        const updatedInstructions = instructions.map((instruction: any) => {
-          if (!instruction.tags || !Array.isArray(instruction.tags)) return instruction;
-
-          let hasModification = false;
-          let updatedTags;
-
-          if (newValue === '') {
-            // Suppression : retirer le tag de la liste
-            updatedTags = instruction.tags.filter((tag: any) => {
-              const tagValue = typeof tag === 'string' ? tag : tag.value;
-              const tagCategory = typeof tag === 'string' ? category : tag.category;
-              if (tagCategory === category && tagValue === oldValue) {
-                hasModification = true;
-                return false;
-              }
-              return true;
-            });
-          } else {
-            // Renommage : mettre à jour la valeur
-            updatedTags = instruction.tags.map((tag: any) => {
-              const tagValue = typeof tag === 'string' ? tag : tag.value;
-              const tagCategory = typeof tag === 'string' ? category : tag.category;
-
-              if (tagCategory === category && tagValue === oldValue) {
-                hasModification = true;
-                if (typeof tag === 'string') {
-                  return {
-                    id: createTagId(newValue, category),
-                    value: newValue,
-                    category: category,
-
-                  };
-                }
-                return { ...tag, value: newValue };
-              }
-
-              return tag;
-            });
-          }
-
-          if (hasModification) {
-            modifiedCount++;
-            return {
-              ...instruction,
-              tags: updatedTags,
-              dateMiseAJour: new Date().toISOString()
-            };
-          }
-
-          return instruction;
-        });
-        
-        if (modifiedCount > 0) {
-          await ElectronBridge.setData('instructions', updatedInstructions);
-          console.log(`${modifiedCount} instruction(s) mise(s) à jour`);
-        }
-      }
-      
     } catch (error) {
       console.error('Erreur lors de la propagation:', error);
       throw error;
     }
-  }, [createTagId]);
+  }, [applyEnqueteTagTransform, updateEnquetesAcrossContentieux]);
 
   // Initialisation
   useEffect(() => {
@@ -374,28 +398,29 @@ export const useTags = (): UseTagsReturn => {
     return null;
   }, [tags]);
 
-  // Compter le nombre d'enquêtes/instructions utilisant un tag
+  // Compter le nombre d'enquêtes utilisant un tag (tous contentieux chargés).
   const getTagUsageCount = useCallback(async (tagValue: string, category: TagCategory): Promise<number> => {
     try {
-      const enquetes = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.ENQUETES, []);
-      const instructions = await ElectronBridge.getData('instructions', []);
+      const manager = ContentieuxManager.getInstance();
+      const store = useEnquetesStore.getState();
+      const activeId = store.contentieuxId;
       let count = 0;
 
-      const countInItems = (items: any[]) => {
-        items.forEach((item: any) => {
-          if (item.tags && Array.isArray(item.tags)) {
-            const found = item.tags.some((tag: any) => {
-              const tv = typeof tag === 'string' ? tag : tag.value;
-              const tc = typeof tag === 'string' ? null : tag.category;
-              return tv === tagValue && (!tc || tc === category);
-            });
-            if (found) count++;
-          }
-        });
-      };
+      for (const contentieuxId of manager.getLoadedContentieuxIds()) {
+        const enquetes: Enquete[] = contentieuxId === activeId
+          ? store.ownEnquetes
+          : manager.getEnquetes(contentieuxId);
 
-      if (Array.isArray(enquetes)) countInItems(enquetes);
-      if (Array.isArray(instructions)) countInItems(instructions);
+        for (const enquete of enquetes) {
+          if (!Array.isArray(enquete.tags)) continue;
+          const found = enquete.tags.some((tag: any) => {
+            const tv = typeof tag === 'string' ? tag : tag.value;
+            const tc = typeof tag === 'string' ? null : tag.category;
+            return tv === tagValue && (!tc || tc === category);
+          });
+          if (found) count++;
+        }
+      }
 
       return count;
     } catch (error) {
@@ -408,48 +433,41 @@ export const useTags = (): UseTagsReturn => {
   const cleanupOrphanTags = useCallback(async (): Promise<{ found: string[], cleaned: number }> => {
     try {
       console.log('🧹 Recherche des tags orphelins...');
-      
-      // Récupérer tous les tags utilisés dans les enquêtes et instructions
-      const enquetes = await ElectronBridge.getData(APP_CONFIG.STORAGE_KEYS.ENQUETES, []);
-      const instructions = await ElectronBridge.getData('instructions', []);
-      
+
+      const manager = ContentieuxManager.getInstance();
+      const store = useEnquetesStore.getState();
+      const activeId = store.contentieuxId;
       const usedTags = new Set<string>();
-      
-      // Parcourir les enquêtes
-      enquetes.forEach((enquete: any) => {
-        if (enquete.tags && Array.isArray(enquete.tags)) {
-          enquete.tags.forEach((tag: any) => {
+
+      for (const contentieuxId of manager.getLoadedContentieuxIds()) {
+        const enquetes: Enquete[] = contentieuxId === activeId
+          ? store.ownEnquetes
+          : manager.getEnquetes(contentieuxId);
+
+        for (const enquete of enquetes) {
+          if (!Array.isArray(enquete.tags)) continue;
+          for (const tag of enquete.tags as any[]) {
             const tagValue = typeof tag === 'string' ? tag : tag.value;
             if (tagValue) usedTags.add(tagValue);
-          });
+          }
         }
-      });
-      
-      // Parcourir les instructions
-      instructions.forEach((instruction: any) => {
-        if (instruction.tags && Array.isArray(instruction.tags)) {
-          instruction.tags.forEach((tag: any) => {
-            const tagValue = typeof tag === 'string' ? tag : tag.value;
-            if (tagValue) usedTags.add(tagValue);
-          });
-        }
-      });
-      
+      }
+
       // Tags centralisés disponibles
       const centralTagValues = new Set(tags.map(tag => tag.value));
       const orphanTags: string[] = [];
-      
+
       // Tags utilisés dans les enquêtes mais ABSENTS de la gestion centrale
       usedTags.forEach(tagValue => {
         if (!centralTagValues.has(tagValue)) {
           orphanTags.push(tagValue);
         }
       });
-      
+
       console.log(`📊 Tags orphelins trouvés: ${orphanTags.length}`);
-      
+
       return { found: orphanTags, cleaned: 0 };
-      
+
     } catch (error) {
       console.error('Erreur lors du nettoyage:', error);
       return { found: [], cleaned: 0 };
@@ -658,6 +676,52 @@ export const useTags = (): UseTagsReturn => {
     }
   }, [getTagById, propagateTagChange]);
 
+  // Fusion d'un tag dans un autre : toutes les enquêtes référençant `sourceId`
+  // pointent désormais sur `targetId`, et le tag source est supprimé.
+  // Les deux tags doivent appartenir à la même catégorie.
+  const mergeTags = useCallback(async (sourceId: string, targetId: string): Promise<number> => {
+    try {
+      if (sourceId === targetId) return 0;
+
+      const source = getTagById(sourceId);
+      const target = getTagById(targetId);
+      if (!source || !target) {
+        throw new Error('Tag source ou cible introuvable');
+      }
+      if (source.category !== target.category) {
+        throw new Error('La fusion est limitée aux tags d\'une même catégorie');
+      }
+
+      const isServiceCategory = source.category === 'services';
+
+      const impacted = await updateEnquetesAcrossContentieux(enquete =>
+        applyEnqueteTagTransform(enquete, {
+          tagMatcher: (tagValue, tagCategory) =>
+            (tagCategory === source.category || tagCategory === null) && tagValue === source.value,
+          replacement: { id: target.id, value: target.value, category: target.category },
+          servicesMatch: isServiceCategory ? (s) => s === source.value : undefined,
+          servicesReplacement: isServiceCategory ? target.value : undefined,
+        })
+      );
+
+      // Supprimer le tag source de la gestion centrale + tombstone
+      const existing = await ElectronBridge.getData<TagTombstone[]>(DELETED_TAG_IDS_KEY, []);
+      const tombstones: TagTombstone[] = Array.isArray(existing) ? existing : [];
+      if (!tombstones.some(t => t.id === sourceId)) {
+        tombstones.push({ id: sourceId, deletedAt: new Date().toISOString() });
+        await ElectronBridge.setData(DELETED_TAG_IDS_KEY, tombstones);
+      }
+      setTags(prev => prev.filter(tag => tag.id !== sourceId));
+      tagSyncService.schedulePush();
+
+      console.log(`Fusion "${source.value}" → "${target.value}" : ${impacted} enquête(s) impactée(s)`);
+      return impacted;
+    } catch (error) {
+      console.error('Error merging tags:', error);
+      return -1;
+    }
+  }, [getTagById, applyEnqueteTagTransform, updateEnquetesAcrossContentieux]);
+
   // Organisation
   const updateTagOrganization = useCallback(async (tagId: string, organization: TagOrganization | null): Promise<boolean> => {
     try {
@@ -684,7 +748,8 @@ export const useTags = (): UseTagsReturn => {
     addTag,
     updateTag,
     deleteTag,
-    
+    mergeTags,
+
     // Organisation
     updateTagOrganization,
     
