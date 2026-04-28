@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Edit2, Save, X, Plus, Check, Trash2, AlertTriangle, Send, Layers } from 'lucide-react';
+import { Edit2, Save, X, Plus, Check, Trash2, AlertTriangle, Send, Layers, GitMerge } from 'lucide-react';
 import { TAG_CATEGORIES, TagCategory } from '@/config/tags';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
@@ -54,6 +54,7 @@ export const TagManagementPage = () => {
     addTag,
     updateTag,
     deleteTag,
+    mergeTags,
     getTagUsageCount,
     cleanupOrphanTags,
     recreateOrphanTags,
@@ -73,6 +74,14 @@ export const TagManagementPage = () => {
   const [foundDuplicates, setFoundDuplicates] = useState<DuplicateTagGroup[]>([]);
   const [isMergingDuplicates, setIsMergingDuplicates] = useState(false);
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{ tagId: string; tagValue: string; usageCount: number } | null>(null);
+  const [mergeDialog, setMergeDialog] = useState<{
+    sourceId: string;
+    sourceValue: string;
+    category: TagCategory;
+    targetId: string;
+    usageCount: number | null;
+  } | null>(null);
+  const [isMergingTag, setIsMergingTag] = useState(false);
   
   const editInputRef = useRef<HTMLInputElement>(null);
 
@@ -273,6 +282,41 @@ export const TagManagementPage = () => {
     }
   };
 
+  const handleStartMergeTag = async (tag: any, category: TagCategory) => {
+    const usageCount = await getTagUsageCount(tag.value, category);
+    setMergeDialog({
+      sourceId: tag.id,
+      sourceValue: tag.value,
+      category,
+      targetId: '',
+      usageCount,
+    });
+  };
+
+  const handleConfirmMergeTag = async () => {
+    if (!mergeDialog || !mergeDialog.targetId) return;
+    try {
+      setIsMergingTag(true);
+      const impacted = await mergeTags(mergeDialog.sourceId, mergeDialog.targetId);
+      if (impacted < 0) {
+        showToast('Erreur lors de la fusion du tag', 'error');
+        return;
+      }
+      const targetTag = tags.find(t => t.id === mergeDialog.targetId);
+      const targetLabel = targetTag?.value ?? mergeDialog.targetId;
+      showToast(
+        `Tag "${mergeDialog.sourceValue}" fusionné dans "${targetLabel}" — ${impacted} enquête(s) mise(s) à jour`,
+        'success',
+      );
+      setMergeDialog(null);
+    } catch (error) {
+      console.error('Erreur lors de la fusion du tag:', error);
+      showToast('Erreur lors de la fusion du tag', 'error');
+    } finally {
+      setIsMergingTag(false);
+    }
+  };
+
   const confirmDeleteTag = async (tagId: string) => {
     try {
       const success = await deleteTag(tagId);
@@ -349,6 +393,20 @@ export const TagManagementPage = () => {
               >
                 <Edit2 className="h-3 w-3 text-blue-600" />
               </Button>
+              {userIsAdmin && getTagsByCategory(category).length > 1 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-4 w-4 p-0 opacity-0 group-hover:opacity-100 hover:bg-transparent"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleStartMergeTag(tag, category);
+                  }}
+                  title="Fusionner ce tag dans un autre"
+                >
+                  <GitMerge className="h-3 w-3 text-purple-600" />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -722,6 +780,65 @@ export const TagManagementPage = () => {
             <Button onClick={handleRequestTag} disabled={!requestTagValue.trim()}>
               <Send className="h-4 w-4 mr-2" />
               Envoyer la demande
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de fusion d'un tag dans un autre */}
+      <Dialog open={!!mergeDialog} onOpenChange={() => !isMergingTag && setMergeDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitMerge className="h-5 w-5 text-purple-600" />
+              Fusionner « {mergeDialog?.sourceValue} »
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-700">
+              Toutes les enquêtes utilisant <strong>« {mergeDialog?.sourceValue} »</strong>{' '}
+              {mergeDialog?.usageCount !== null && (
+                <span className="text-gray-500">({mergeDialog?.usageCount} enquête(s)) </span>
+              )}
+              recevront le tag cible à la place. Le tag <strong>« {mergeDialog?.sourceValue} »</strong>{' '}
+              sera ensuite supprimé de la gestion centrale.
+            </p>
+            <div>
+              <label className="text-sm font-medium">Tag cible</label>
+              <select
+                className="w-full mt-1 rounded-md border border-gray-300 p-2 text-sm"
+                value={mergeDialog?.targetId ?? ''}
+                onChange={(e) =>
+                  mergeDialog && setMergeDialog({ ...mergeDialog, targetId: e.target.value })
+                }
+                disabled={isMergingTag}
+              >
+                <option value="">— Sélectionner un tag —</option>
+                {mergeDialog && getTagsByCategory(mergeDialog.category)
+                  .filter(t => t.id !== mergeDialog.sourceId)
+                  .sort((a, b) => a.value.localeCompare(b.value))
+                  .map(t => (
+                    <option key={t.id} value={t.id}>{t.value}</option>
+                  ))}
+              </select>
+            </div>
+            <p className="text-xs text-gray-500">
+              La fusion est irréversible et limitée aux tags de la même catégorie.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setMergeDialog(null)}
+              disabled={isMergingTag}
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={handleConfirmMergeTag}
+              disabled={!mergeDialog?.targetId || isMergingTag}
+            >
+              {isMergingTag ? 'Fusion...' : 'Fusionner'}
             </Button>
           </DialogFooter>
         </DialogContent>
