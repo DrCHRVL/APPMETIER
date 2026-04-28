@@ -4,6 +4,7 @@ import { Enquete } from '@/types/interfaces';
 import { ResultatAudience } from '@/types/audienceTypes';
 import { SyncData, SyncConflict } from '@/types/dataSyncTypes';
 import { TagRequest } from '@/utils/tagRequestManager';
+import { mergeModifications, mergeLastViewedBy } from '@/utils/modificationLogger';
 
 /**
  * Service de fusion des données pour la synchronisation
@@ -299,6 +300,10 @@ export class DataMergeService {
         checklist: newer.checklist || older.checklist,
         documents: this.unionById(newer.documents || [], older.documents || [], true),
         toDos: newer.toDos || older.toDos,
+        // Suivi des modifications inter-utilisateurs : union par id (pas de perte
+        // sur écritures concurrentes), max-par-utilisateur pour `lastViewedBy`.
+        modifications: mergeModifications(local.modifications, server.modifications),
+        lastViewedBy: mergeLastViewedBy(local.lastViewedBy, server.lastViewedBy),
         // Timestamp : garder le réel (ne pas gonfler)
         dateMiseAJour: newer.dateMiseAJour
       }

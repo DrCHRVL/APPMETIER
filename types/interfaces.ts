@@ -192,6 +192,44 @@ export interface NewEnqueteData {
   useSubfolderForExternal?: boolean;
 }
 
+// Suivi des modifications faites par les autres utilisateurs sur une enquête
+export type ModificationType =
+  | 'enquete_created'
+  | 'enquete_archived'
+  | 'enquete_unarchived'
+  | 'enquete_shared'
+  | 'enquete_unshared'
+  | 'cr_added'
+  | 'cr_modified'
+  | 'cr_deleted'
+  | 'acte_added'
+  | 'acte_modified'
+  | 'acte_deleted'
+  | 'ecoute_added'
+  | 'ecoute_modified'
+  | 'ecoute_deleted'
+  | 'geoloc_added'
+  | 'geoloc_modified'
+  | 'geoloc_deleted'
+  | 'mec_added'
+  | 'mec_modified'
+  | 'mec_deleted'
+  | 'document_added'
+  | 'document_deleted'
+  | 'todo_added'
+  | 'todo_completed'
+  | 'todo_deleted'
+  | 'general_info_updated';
+
+export interface ModificationEntry {
+  id: string;            // identifiant unique pour la fusion (sync)
+  type: ModificationType;
+  user: { username: string; displayName: string };
+  timestamp: string;     // ISO date
+  label: string;         // texte affiché à l'utilisateur
+  targetId?: number;     // identifiant de l'entité concernée (acte, CR, MEC…)
+}
+
 // Interface principale pour une enquête
 export interface Enquete extends NewEnqueteData {
   id: number;
@@ -213,6 +251,9 @@ export interface Enquete extends NewEnqueteData {
   // Co-saisine : partage de l'enquête avec d'autres contentieux
   sharedWith?: string[];        // IDs des contentieux avec lesquels l'enquête est partagée
   contentieuxOrigine?: string;  // ID du contentieux propriétaire (celui qui stocke l'enquête)
+  // Suivi des modifications par les autres utilisateurs
+  modifications?: ModificationEntry[];           // historique horodaté (capé)
+  lastViewedBy?: Record<string, string>;         // windowsUsername → ISO timestamp de la dernière consultation
 }
 
 // Configuration de la récurrence

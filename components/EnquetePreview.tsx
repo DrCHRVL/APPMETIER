@@ -2,8 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Archive, Edit, Trash, RotateCcw, Users, Building2, FileText, Calendar, Flag, Clock, Hourglass, Gavel, ArrowDown, Star, EyeOff, Eye, Link2 } from 'lucide-react';
+import { Archive, Edit, Trash, RotateCcw, Users, Building2, FileText, Calendar, Flag, Clock, Hourglass, Gavel, ArrowDown, Star, EyeOff, Eye, Link2, History } from 'lucide-react';
 import { Enquete, Alert, VisualAlertRule, ToDoItem } from '@/types/interfaces';
+import { getUnseenModifications } from '@/utils/modificationLogger';
 import { VISUAL_ALERT_COLOR_PALETTE } from '@/config/constants';
 import { StartEnqueteModal } from './modals/StartEnqueteModal';
 import { AlertsModal } from './modals/AlertsModal';
@@ -96,6 +97,12 @@ export const EnquetePreview = React.memo(({
     if (user.globalRole) return false;
     return user.contentieux.some(c => c.role === 'ja');
   }, [user]);
+
+  // Modifications non vues par l'utilisateur courant (faites par d'autres)
+  const unseenCount = useMemo(() => {
+    if (!user) return 0;
+    return getUnseenModifications(enquete, user.windowsUsername).length;
+  }, [enquete, user]);
 
   // Variables dérivées
   const lastCR = getLastCR(enquete.comptesRendus);
@@ -271,6 +278,19 @@ return (
           {enquete.numero}
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          {/* Modifications non vues (par d'autres utilisateurs) */}
+          {unseenCount > 0 && (
+            <div
+              className="relative h-5 w-5 flex items-center justify-center text-red-600"
+              title={`${unseenCount} modification${unseenCount > 1 ? 's' : ''} non vue${unseenCount > 1 ? 's' : ''} — ouvrir l'enquête pour voir le détail`}
+            >
+              <History className="h-3.5 w-3.5" />
+              <span className="absolute -top-0.5 -right-0.5 text-[8px] bg-red-600 text-white rounded-full h-2.5 w-2.5 flex items-center justify-center font-bold">
+                {unseenCount > 9 ? '9+' : unseenCount}
+              </span>
+            </div>
+          )}
+
           {/* Indicateur de tâches à faire */}
           {activeTodosCount > 0 && (
             <div className="h-5 w-5 bg-violet-500 text-white text-[8px] rounded-full flex items-center justify-center font-bold shadow-md">
