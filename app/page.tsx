@@ -33,6 +33,7 @@ import { ArchivePage } from '@/components/pages/ArchivePage';
 import { AIRPage } from '@/components/pages/AIRPage';
 import { useTags } from '@/hooks/useTags';
 import { useSections } from '@/hooks/useSections';
+import { useUserServiceOrganization } from '@/hooks/useUserServiceOrganization';
 
 // Imports pour les instructions judiciaires
 import { InstructionsPage } from '@/components/pages/InstructionsPage';
@@ -44,6 +45,7 @@ import { useInstructions } from '@/hooks/useInstructions';
 import { useAIR } from '@/hooks/useAIR';
 import { useCombinedAlerts } from '@/hooks/useCombinedAlerts';
 import { useVisualAlerts } from '@/hooks/useVisualAlerts';
+import { contentieuxAlertsSyncService } from '@/utils/dataSync/ContentieuxAlertsSyncService';
 import { backupManager } from '@/utils/backupManager';
 const WeeklyRecapPopup = dynamic(() => import('@/components/modals/WeeklyRecapPopup').then(m => ({ default: m.WeeklyRecapPopup })), { ssr: false });
 import { WeeklyPopupConfig } from '@/types/interfaces';
@@ -172,7 +174,7 @@ function AppContent() {
     contentieuxColor?: string;
     enquetes: any[];
   }>>([]);
-  const { subscribedContentieux: weeklySubscribedIds } = useUserPreferences();
+  const { subscribedContentieux: weeklySubscribedIds, crDelayHighlight } = useUserPreferences();
 
   // Construit les buckets pour le récap hebdo : intersection des contentieux
   // abonnés et des contentieux actuellement accessibles à l'utilisateur, en
@@ -329,6 +331,7 @@ function AppContent() {
   } = useTags();
 
   const { getSectionOrder, sections: sectionsList, reorderSection, addSection: addSectionFn } = useSections();
+  const { getTagSection } = useUserServiceOrganization();
 
   // Hook alertes visuelles
   const {
@@ -577,7 +580,11 @@ function AppContent() {
       const ctxPrefix = `ctx_${currentContentieuxId}_`;
       const enquetesData = await StorageManager.get(`${ctxPrefix}enquetes`, []);
       const instructionsData = await StorageManager.get(`${ctxPrefix}instructions`, []);
-      const alertRulesData = await StorageManager.get(`${ctxPrefix}alertRules`, []);
+      // Règles d'alertes : on lit la source actuelle (fichier serveur partagé)
+      // via le service. La clé locale `ctx_X_alertRules` n'est plus à jour
+      // depuis la migration vers contentieux-alerts/{id}.json.
+      await contentieuxAlertsSyncService.sync(currentContentieuxId);
+      const sharedAlertRules = await contentieuxAlertsSyncService.getRules(currentContentieuxId);
       const tagsData = await StorageManager.get(`${ctxPrefix}customTags`, []);
       const airMesuresData = await StorageManager.get('air_mesures', []);
 
@@ -585,11 +592,11 @@ function AppContent() {
         contentieuxId: currentContentieuxId,
         enquetes: enquetesData,
         instructions: instructionsData,
-        alertRules: alertRulesData,
+        sharedAlertRules,
         tags: tagsData,
         airMesures: airMesuresData,
         exportDate: new Date().toISOString(),
-        version: '3.0'
+        version: '4.0'
       };
 
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -646,7 +653,12 @@ function AppContent() {
               if (hasInstructions) {
                 await StorageManager.set(`${ctxPrefix}instructions`, importedData.instructions);
               }
-              if (importedData.alertRules) {
+              // v4.0+ : règles d'alertes partagées du contentieux. Push vers
+              // le fichier serveur via le service. v3.0 (legacy) : champ
+              // `alertRules` stocké dans la clé locale (plus utilisée).
+              if (Array.isArray(importedData.sharedAlertRules)) {
+                await contentieuxAlertsSyncService.saveRules(targetCtx, importedData.sharedAlertRules);
+              } else if (importedData.alertRules) {
                 await StorageManager.set(`${ctxPrefix}alertRules`, importedData.alertRules);
               }
               if (importedData.tags) {
@@ -774,15 +786,17 @@ function AppContent() {
       const serviceTag = enquete.tags?.find((tag: any) => tag.category === 'services');
 
       if (serviceTag) {
-        // Chercher le tag central correspondant pour récupérer l'organization
+        // Chercher le tag central correspondant pour récupérer l'id, puis
+        // résoudre la section depuis l'organisation PERSONNELLE de
+        // l'utilisateur courant (prefs) — plus d'`organization` globale.
         const centralTag = tags.find(t => t.value === serviceTag.value && t.category === 'services');
+        const userSection = centralTag ? getTagSection(centralTag.id) : undefined;
 
-        if (centralTag?.organization?.section) {
-          const section = centralTag.organization.section;
+        if (userSection) {
           const serviceName = serviceTag.value as string;
-          if (!organized[section]) organized[section] = {};
-          if (!organized[section][serviceName]) organized[section][serviceName] = [];
-          organized[section][serviceName].push(enquete);
+          if (!organized[userSection]) organized[userSection] = {};
+          if (!organized[userSection][serviceName]) organized[userSection][serviceName] = [];
+          organized[userSection][serviceName].push(enquete);
         } else {
           fallback.push(enquete);
         }
@@ -796,7 +810,7 @@ function AppContent() {
     }
 
     return organized;
-  }, [activeEnquetes, tags]);
+  }, [activeEnquetes, tags, getTagSection]);
 
   const archivedEnquetes = useMemo(() =>
     mergedFilteredEnquetes.filter(e => e.statut === 'archive'),
@@ -1119,6 +1133,7 @@ return (
                       onValidateProlongationRequest={handleValidateProlongationRequest}
                       onValidateAutorisationRequest={handleValidateAutorisation}
                       visualAlertRules={visualAlertRules}
+                      crDelayHighlight={crDelayHighlight}
                       onCreateGlobalTodo={handleCreateGlobalTodo}
                     />
                   );
@@ -1564,10 +1579,6 @@ return (
         }}
         alertesContent={
           <AlertsPage
-            rules={alertRules}
-            onUpdateRule={handleUpdateAlertRule}
-            onDuplicateRule={handleDuplicateRule}
-            onDeleteRule={handleDeleteRule}
             onShowWeeklyPopup={() => { openWeeklyPopup(); }}
             visualAlertRules={visualAlertRules}
             onUpdateVisualAlertRule={updateVisualAlertRule}

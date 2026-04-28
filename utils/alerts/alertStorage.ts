@@ -1,16 +1,23 @@
 import { Alert, AlertValidation, AlertValidations } from '@/types/interfaces';
 import { ElectronBridge } from '../electronBridge';
-import { alertSyncService } from '../dataSync/AlertSyncService';
+import { userPreferencesSyncService } from '../dataSync/UserPreferencesSyncService';
 
 const ALERTS_KEY = 'alerts';
-const VALIDATED_ALERTS_KEY = 'alert_validations';
 const VALIDATION_CLEANUP_INTERVAL = 30 * 24 * 60 * 60 * 1000; // 30 jours en millisecondes
 
+/**
+ * AlertStorage : R/W des alertes locales (par machine) + des validations
+ * personnelles (par utilisateur via userPreferencesSyncService).
+ *
+ * Les validations vivaient dans `alert_validations` (clé globale synchronisée
+ * via AlertSyncService). Elles sont maintenant attachées à l'utilisateur :
+ * chaque agent a son propre journal de validations, ce qui évite qu'un
+ * collègue éteigne l'alerte chez tout le monde.
+ */
 export const AlertStorage = {
   async saveAlerts(alerts: Alert[]): Promise<void> {
     // Sauvegarder uniquement les alertes actives et snoozées.
-    // Les validations sont tracées via le dictionnaire alert_validations (saveValidation).
-    // Ne PAS écrire dans VALIDATED_ALERTS_KEY ici : cela écraserait le dictionnaire de validations.
+    // Les validations sont tracées dans la prefs utilisateur (saveValidation).
     const alertsToSave = alerts.filter(
       alert => alert.status === 'active' || alert.status === 'snoozed'
     );
@@ -27,16 +34,13 @@ export const AlertStorage = {
     }
   },
 
-  // Nouvelles méthodes pour la gestion des validations
   async getValidations(): Promise<AlertValidations> {
-    return await ElectronBridge.getData(VALIDATED_ALERTS_KEY, {});
+    const prefs = await userPreferencesSyncService.getPreferences();
+    return prefs?.alertValidations?.entries || {};
   },
 
   async saveValidation(key: string, validation: AlertValidation): Promise<void> {
-    const validations = await this.getValidations();
-    validations[key] = validation;
-    await ElectronBridge.setData(VALIDATED_ALERTS_KEY, validations);
-    alertSyncService.schedulePush();
+    await userPreferencesSyncService.setAlertValidation(key, validation);
   },
 
   async cleanupValidations(): Promise<void> {
@@ -54,7 +58,6 @@ export const AlertStorage = {
       {}
     );
 
-    await ElectronBridge.setData(VALIDATED_ALERTS_KEY, updatedValidations);
-    alertSyncService.schedulePush();
+    await userPreferencesSyncService.setAlertValidations(updatedValidations);
   }
 };

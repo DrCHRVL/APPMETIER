@@ -477,11 +477,9 @@ export const TagManagementPage = () => {
       </div>
 
       <Tabs defaultValue="categories" className="w-full">
-        <TabsList className={`grid w-full ${userIsAdmin ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="categories">Tags par catégories</TabsTrigger>
-          {userIsAdmin && (
-            <TabsTrigger value="organization">Organisation des services</TabsTrigger>
-          )}
+          <TabsTrigger value="organization">Organisation des services</TabsTrigger>
         </TabsList>
 
         <TabsContent value="categories" className="space-y-4">
@@ -552,21 +550,20 @@ export const TagManagementPage = () => {
           })}
         </TabsContent>
 
-        {userIsAdmin && (
-          <TabsContent value="organization" className="space-y-4">
-            <Card className="shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg">Organisation des services par sections</CardTitle>
-                <p className="text-sm text-gray-600">
-                  Organisez vos services d'enquête en sections pour un affichage structuré sur la grille principale.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <ServiceOrganizer />
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
+        <TabsContent value="organization" className="space-y-4">
+          <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg">Organisation des services par sections</CardTitle>
+              <p className="text-sm text-gray-600">
+                Organisez vos services d'enquête en sections pour un affichage structuré sur la grille principale.
+                Cette organisation est personnelle : chaque utilisateur a la sienne.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <ServiceOrganizer />
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Dialog pour les nouveaux tags */}

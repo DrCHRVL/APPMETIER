@@ -1,32 +1,65 @@
 // hooks/useInstructionAlerts.ts
-import { useState, useEffect, useCallback, useMemo } from 'react';
+//
+// Alertes d'instruction (DP expiration, DML retard, délai 175) personnelles.
+// Stockage par utilisateur dans la prefs (`instructionAlerts.alerts`) ; seed
+// initial depuis l'ancienne clé locale `instruction_alerts`.
+
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { EnqueteInstruction, AlerteInstruction } from '@/types/interfaces';
 import { calculateDPAlert } from '@/utils/instructionUtils';
 import { ElectronBridge } from '@/utils/electronBridge';
+import { useUserPreferences } from './useUserPreferences';
 import throttle from 'lodash/throttle';
 
 const ALERT_CHECK_INTERVAL = 10 * 60 * 1000; // 10 minutes
 const THROTTLE_DELAY = 2000; // 2 secondes
+const LEGACY_STORAGE_KEY = 'instruction_alerts';
 
 export const useInstructionAlerts = (instructions: EnqueteInstruction[]) => {
-  const [instructionAlerts, setInstructionAlerts] = useState<AlerteInstruction[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const {
+    instructionAlerts: instructionAlertsPrefs,
+    isLoading: prefsLoading,
+    setInstructionAlerts: setInstructionAlertsPrefs,
+    seedInstructionAlerts,
+  } = useUserPreferences();
 
-  // Génération automatique des alertes depuis les données
+  const seedAttemptedRef = useRef(false);
+
+  // Seed initial depuis l'ancienne clé locale.
+  useEffect(() => {
+    if (prefsLoading) return;
+    if (instructionAlertsPrefs?.seeded) return;
+    if (seedAttemptedRef.current) return;
+    seedAttemptedRef.current = true;
+    (async () => {
+      try {
+        const legacy = await ElectronBridge.getData<AlerteInstruction[]>(LEGACY_STORAGE_KEY, []);
+        await seedInstructionAlerts(Array.isArray(legacy) ? legacy : []);
+      } catch (error) {
+        console.error('Seed instructionAlerts échoué:', error);
+        seedAttemptedRef.current = false;
+      }
+    })();
+  }, [prefsLoading, instructionAlertsPrefs?.seeded, seedInstructionAlerts]);
+
+  const instructionAlerts = useMemo<AlerteInstruction[]>(
+    () => instructionAlertsPrefs?.alerts || [],
+    [instructionAlertsPrefs?.alerts],
+  );
+
   const generateInstructionAlerts = useCallback(() => {
     const alerts: AlerteInstruction[] = [];
     let alertId = Date.now();
 
     instructions.forEach(instruction => {
-      // Alertes DP (1 mois avant expiration)
       if (instruction.mesuresSurete?.dp) {
         const dpAlert = calculateDPAlert(instruction.mesuresSurete.dp.dateFin);
-        
+
         if (dpAlert.alerteActive) {
           alerts.push({
             id: alertId++,
             instructionId: instruction.id,
-            enqueteId: instruction.id, // Compatibilité avec le système existant
+            enqueteId: instruction.id,
             cabinetId: instruction.cabinet,
             type: 'dp_expiration',
             alerteType: 'dp_expiration',
@@ -38,15 +71,14 @@ export const useInstructionAlerts = (instructions: EnqueteInstruction[]) => {
         }
       }
 
-      // Alertes DML en retard (si échéance dépassée)
       instruction.dmls?.forEach(dml => {
         if (dml.statut === 'en_attente') {
           const now = new Date();
           const echeance = new Date(dml.dateEcheance);
-          
+
           if (echeance < now) {
             const joursRetard = Math.ceil((now.getTime() - echeance.getTime()) / (1000 * 60 * 60 * 24));
-            
+
             alerts.push({
               id: alertId++,
               instructionId: instruction.id,
@@ -64,19 +96,17 @@ export const useInstructionAlerts = (instructions: EnqueteInstruction[]) => {
         }
       });
 
-      // Alertes délai 175 CPP (1 mois si détenu, 3 mois sinon)
       if (instruction.etatReglement === 'instruction') {
         const hasDetention = instruction.mesuresSurete?.dp !== undefined;
-        const delaiMax = hasDetention ? 30 : 90; // jours
-        
+        const delaiMax = hasDetention ? 30 : 90;
+
         const joursDepuis = Math.ceil(
           (new Date().getTime() - new Date(instruction.dateDebut).getTime()) / (1000 * 60 * 60 * 24)
         );
-        
-        // Alerte à 7 jours avant l'échéance
+
         if (joursDepuis >= delaiMax - 7) {
           const joursRestants = delaiMax - joursDepuis;
-          
+
           alerts.push({
             id: alertId++,
             instructionId: instruction.id,
@@ -84,7 +114,7 @@ export const useInstructionAlerts = (instructions: EnqueteInstruction[]) => {
             cabinetId: instruction.cabinet,
             type: 'delai_175',
             alerteType: 'delai_175',
-            message: joursRestants > 0 
+            message: joursRestants > 0
               ? `Délai 175 CPP dans ${joursRestants} jour${joursRestants > 1 ? 's' : ''} ${hasDetention ? '(détenu)' : '(libre)'}`
               : `Délai 175 CPP dépassé de ${Math.abs(joursRestants)} jour${Math.abs(joursRestants) > 1 ? 's' : ''} ${hasDetention ? '(détenu)' : '(libre)'}`,
             createdAt: new Date().toISOString(),
@@ -98,29 +128,25 @@ export const useInstructionAlerts = (instructions: EnqueteInstruction[]) => {
     return alerts;
   }, [instructions]);
 
-  // Mise à jour des alertes avec throttle
   const updateInstructionAlerts = useCallback(
     throttle(async () => {
-      if (isLoading) return;
+      if (prefsLoading || !instructionAlertsPrefs?.seeded) return;
 
       try {
-        // Charger les alertes existantes pour préserver les états "snoozed"
-        const existingAlerts = await ElectronBridge.getData<AlerteInstruction[]>('instruction_alerts', []);
-        const existingAlertsMap = new Map(
+        const existingAlerts: AlerteInstruction[] = instructionAlerts;
+        const existingAlertsMap = new Map<string, AlerteInstruction>(
           existingAlerts.map(alert => [
             `${alert.instructionId}-${alert.type}-${alert.acteId || ''}`,
-            alert
-          ])
+            alert,
+          ] as [string, AlerteInstruction])
         );
 
-        // Générer les nouvelles alertes
         const newAlerts = generateInstructionAlerts();
-        
-        // Préserver les états "snoozed" des alertes existantes
+
         const alertsWithState = newAlerts.map(alert => {
           const key = `${alert.instructionId}-${alert.type}-${alert.acteId || ''}`;
           const existing = existingAlertsMap.get(key);
-          
+
           if (existing?.status === 'snoozed') {
             const snoozeEndDate = new Date(existing.snoozedUntil!);
             if (new Date() < snoozeEndDate) {
@@ -132,64 +158,43 @@ export const useInstructionAlerts = (instructions: EnqueteInstruction[]) => {
               };
             }
           }
-          
+
           return alert;
         });
 
-        setInstructionAlerts(alertsWithState);
-        await ElectronBridge.setData('instruction_alerts', alertsWithState);
+        await setInstructionAlertsPrefs(alertsWithState);
       } catch (error) {
         console.error('Erreur lors de la mise à jour des alertes instruction:', error);
       }
     }, THROTTLE_DELAY),
-    [generateInstructionAlerts, isLoading]
+    [generateInstructionAlerts, prefsLoading, instructionAlertsPrefs?.seeded, instructionAlerts, setInstructionAlertsPrefs]
   );
 
-  // Chargement initial
   useEffect(() => {
-    const loadAlerts = async () => {
-      try {
-        setIsLoading(true);
-        const savedAlerts = await ElectronBridge.getData<AlerteInstruction[]>('instruction_alerts', []);
-        setInstructionAlerts(Array.isArray(savedAlerts) ? savedAlerts : []);
-      } catch (error) {
-        console.error('Erreur lors du chargement des alertes instruction:', error);
-        setInstructionAlerts([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    loadAlerts();
-  }, []);
-
-  // Mise à jour périodique
-  useEffect(() => {
-    if (!isLoading) {
-      // Première mise à jour après chargement
+    if (!prefsLoading && instructionAlertsPrefs?.seeded) {
       const initialTimeout = setTimeout(() => {
         updateInstructionAlerts();
       }, 1000);
-      
-      // Mise à jour périodique
+
       const interval = setInterval(updateInstructionAlerts, ALERT_CHECK_INTERVAL);
-      
+
       return () => {
         clearTimeout(initialTimeout);
         clearInterval(interval);
         updateInstructionAlerts.cancel();
       };
     }
-  }, [updateInstructionAlerts, isLoading]);
+  }, [updateInstructionAlerts, prefsLoading, instructionAlertsPrefs?.seeded]);
 
-  // Validation d'une alerte
   const handleValidateInstructionAlert = useCallback(
     throttle(async (alertId: number | number[]) => {
-      const alertsToValidate = Array.isArray(alertId) 
+      const alertsToValidate = Array.isArray(alertId)
         ? instructionAlerts.filter(a => alertId.includes(a.id))
         : instructionAlerts.filter(a => a.id === alertId);
 
-      // Marquer comme validées dans un stockage persistent
+      // Conserver le marqueur de validation per-user pour ne pas régénérer.
+      // Conservé sous l'ancienne clé local-only (par machine) car la
+      // régénération se fait par poste ; pas critique de migrer.
       for (const alert of alertsToValidate) {
         const validationKey = `instruction_alert_validated_${alert.instructionId}_${alert.type}_${alert.acteId || 'none'}`;
         await ElectronBridge.setData(validationKey, {
@@ -198,25 +203,22 @@ export const useInstructionAlerts = (instructions: EnqueteInstruction[]) => {
         });
       }
 
-      // Supprimer des alertes actives
       const updatedAlerts = instructionAlerts.filter(alert => {
         return !(Array.isArray(alertId) ? alertId.includes(alert.id) : alert.id === alertId);
       });
 
-      setInstructionAlerts(updatedAlerts);
-      await ElectronBridge.setData('instruction_alerts', updatedAlerts);
+      await setInstructionAlertsPrefs(updatedAlerts);
     }, THROTTLE_DELAY),
-    [instructionAlerts]
+    [instructionAlerts, setInstructionAlertsPrefs]
   );
 
-  // Mise en pause d'une alerte
   const handleSnoozeInstructionAlert = useCallback(
     throttle(async (alertId: number) => {
       const snoozeDate = new Date();
-      snoozeDate.setDate(snoozeDate.getDate() + 7); // 7 jours
+      snoozeDate.setDate(snoozeDate.getDate() + 7);
 
-      const updatedAlerts = instructionAlerts.map(alert => 
-        alert.id === alertId 
+      const updatedAlerts = instructionAlerts.map(alert =>
+        alert.id === alertId
           ? {
               ...alert,
               status: 'snoozed',
@@ -226,19 +228,16 @@ export const useInstructionAlerts = (instructions: EnqueteInstruction[]) => {
           : alert
       );
 
-      setInstructionAlerts(updatedAlerts);
-      await ElectronBridge.setData('instruction_alerts', updatedAlerts);
+      await setInstructionAlertsPrefs(updatedAlerts);
     }, THROTTLE_DELAY),
-    [instructionAlerts]
+    [instructionAlerts, setInstructionAlertsPrefs]
   );
 
-  // Filtrer les alertes actives pour l'affichage
-  const activeInstructionAlerts = useMemo(() => 
+  const activeInstructionAlerts = useMemo(() =>
     instructionAlerts.filter(alert => alert.status === 'active'),
     [instructionAlerts]
   );
 
-  // Stats par cabinet
   const alertStatsByCabinet = useMemo(() => {
     const stats = { '1': 0, '2': 0, '3': 0, '4': 0 };
     activeInstructionAlerts.forEach(alert => {
@@ -252,7 +251,7 @@ export const useInstructionAlerts = (instructions: EnqueteInstruction[]) => {
   return {
     instructionAlerts: activeInstructionAlerts,
     allInstructionAlerts: instructionAlerts,
-    isLoading,
+    isLoading: prefsLoading,
     alertStatsByCabinet,
     updateInstructionAlerts,
     handleValidateInstructionAlert,

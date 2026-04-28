@@ -10,6 +10,8 @@
 
 import { ElectronBridge } from '@/utils/electronBridge';
 import { UserPreferencesFile } from '@/types/globalSyncTypes';
+import { AlertValidations, AlertValidation, VisualAlertRule, AlerteInstruction } from '@/types/interfaces';
+import { ContentieuxId } from '@/types/userTypes';
 import {
   getCurrentUserInfo,
   buildMetadata,
@@ -55,6 +57,10 @@ function empty(username: string): UserPreferencesFile {
     computerName: 'init',
     windowsUsername: username,
     weeklyRecap: { subscribedContentieux: [] },
+    serviceOrganization: { seeded: false, sections: [], tagSections: {} },
+    alertValidations: { seeded: false, entries: {} },
+    visualAlertRules: { seeded: false, rules: [] },
+    instructionAlerts: { seeded: false, alerts: [] },
   };
 }
 
@@ -126,6 +132,7 @@ export class UserPreferencesSyncService {
     const user = await getCurrentUserInfo();
     const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
     const next: UserPreferencesFile = {
+      ...current,
       ...buildMetadata(current.version || 0, user),
       windowsUsername: this.currentUsername,
       weeklyRecap: {
@@ -136,6 +143,256 @@ export class UserPreferencesSyncService {
     await writeLocal(this.currentUsername, next);
     emitSyncCompleted('userPreferences');
     this.schedulePush();
+  }
+
+  /** Remplace la liste ordonnée de sections de l'utilisateur courant. */
+  async setServiceOrganizationSections(sections: string[]): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      serviceOrganization: {
+        seeded: true,
+        sections: [...sections],
+        tagSections: { ...(current.serviceOrganization?.tagSections || {}) },
+      },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
+  /**
+   * Affecte (ou désaffecte si `section === null`) un tag à une section
+   * dans l'organisation personnelle de l'utilisateur courant.
+   */
+  async setServiceOrganizationTagSection(tagId: string, section: string | null): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const tagSections = { ...(current.serviceOrganization?.tagSections || {}) };
+    if (section && section.trim()) {
+      tagSections[tagId] = section;
+    } else {
+      delete tagSections[tagId];
+    }
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      serviceOrganization: {
+        seeded: true,
+        sections: current.serviceOrganization?.sections ?? [],
+        tagSections,
+      },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
+  /**
+   * Seed idempotent : copie l'organisation globale (sections + rattachements
+   * tag→section) dans la prefs utilisateur, une seule fois. No-op si déjà
+   * seedé. Retourne true si un seed a eu lieu.
+   */
+  async seedServiceOrganization(
+    sections: string[],
+    tagSections: Record<string, string>,
+  ): Promise<boolean> {
+    if (!this.currentUsername) return false;
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    if (current.serviceOrganization?.seeded) return false;
+    const user = await getCurrentUserInfo();
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      serviceOrganization: {
+        seeded: true,
+        sections: [...sections],
+        tagSections: { ...tagSections },
+      },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+    return true;
+  }
+
+  // ─── Abonnement aux alertes partagées par contentieux ───────────────────
+
+  async setContentieuxAlertsSubscriptions(ids: ContentieuxId[]): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      subscribedContentieuxAlerts: Array.from(new Set(ids)),
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
+  async setCrDelayHighlight(enabled: boolean): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      crDelayHighlight: enabled,
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
+  // ─── Validations d'alertes ───────────────────────────────────────────────
+
+  async setAlertValidation(key: string, validation: AlertValidation): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const entries = { ...(current.alertValidations?.entries || {}) };
+    entries[key] = validation;
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      alertValidations: {
+        seeded: true,
+        entries,
+      },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
+  async setAlertValidations(entries: AlertValidations): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      alertValidations: {
+        seeded: true,
+        entries: { ...entries },
+      },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
+  async seedAlertValidations(entries: AlertValidations): Promise<boolean> {
+    if (!this.currentUsername) return false;
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    if (current.alertValidations?.seeded) return false;
+    const user = await getCurrentUserInfo();
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      alertValidations: {
+        seeded: true,
+        entries: { ...entries },
+      },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+    return true;
+  }
+
+  // ─── Règles d'alertes visuelles ──────────────────────────────────────────
+
+  async setVisualAlertRules(rules: VisualAlertRule[]): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      visualAlertRules: {
+        seeded: true,
+        rules: [...rules],
+      },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
+  async seedVisualAlertRules(rules: VisualAlertRule[]): Promise<boolean> {
+    if (!this.currentUsername) return false;
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    if (current.visualAlertRules?.seeded) return false;
+    const user = await getCurrentUserInfo();
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      visualAlertRules: {
+        seeded: true,
+        rules: [...rules],
+      },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+    return true;
+  }
+
+  // ─── Snapshot des alertes d'instruction ──────────────────────────────────
+
+  async setInstructionAlerts(alerts: AlerteInstruction[]): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      instructionAlerts: {
+        seeded: true,
+        alerts: [...alerts],
+      },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
+  async seedInstructionAlerts(alerts: AlerteInstruction[]): Promise<boolean> {
+    if (!this.currentUsername) return false;
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    if (current.instructionAlerts?.seeded) return false;
+    const user = await getCurrentUserInfo();
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      instructionAlerts: {
+        seeded: true,
+        alerts: [...alerts],
+      },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+    return true;
   }
 
   async sync(): Promise<void> {

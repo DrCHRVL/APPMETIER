@@ -12,6 +12,7 @@ import { tagSyncService } from './TagSyncService';
 import { audienceSyncService } from './AudienceSyncService';
 import { alertSyncService } from './AlertSyncService';
 import { deletedIdsSyncService } from './DeletedIdsSyncService';
+import { contentieuxAlertsSyncService } from './ContentieuxAlertsSyncService';
 import {
   SyncData,
   SyncStatus,
@@ -493,22 +494,31 @@ export class MultiSyncManager {
     }
 
     // Démarrer les autres pipelines globaux (tag-data.json, audience-data.json,
-    // alerts-data.json). Ces services sont indépendants des contentieux : ils
-    // ont leur propre fichier serveur, leur propre fusion et leur propre timer.
+    // alerts-data.json legacy, et contentieux-alerts/{id}.json par contentieux).
+    // Chaque service a son propre fichier serveur, sa propre fusion et son
+    // propre timer. alertSyncService reste pour le seed legacy → laissé en
+    // arrière-plan, sera retiré quand tous les postes auront migré.
     try {
       await Promise.allSettled([
         tagSyncService.sync(),
         audienceSyncService.sync(),
         alertSyncService.sync(),
+        ...accessibleIds.map(id => contentieuxAlertsSyncService.sync(id)),
       ]);
     } catch {}
     tagSyncService.startPeriodic();
     audienceSyncService.startPeriodic();
     alertSyncService.startPeriodic();
     deletedIdsSyncService.startPeriodic();
+    for (const id of accessibleIds) {
+      contentieuxAlertsSyncService.startPeriodic(id);
+    }
   }
 
   public stopAll(): void {
+    for (const id of this.instances.keys()) {
+      contentieuxAlertsSyncService.stopPeriodic(id);
+    }
     for (const instance of this.instances.values()) {
       instance.stop();
     }

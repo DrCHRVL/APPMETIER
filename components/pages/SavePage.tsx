@@ -51,6 +51,20 @@ export const SavePage = ({ lastSaveDate, onRepairServer, onRestoreFromServerBack
   const [selectedServerBackup, setSelectedServerBackup] = useState('');
   const [serverBackups, setServerBackups] = useState<string[]>([]);
   const [isLoadingServerBackups, setIsLoadingServerBackups] = useState(false);
+
+  // Backups admin (admin/backups/) : per-user prefs + per-contentieux alerts
+  // + autres fichiers globaux (tag-data, audience-data, etc.).
+  type AdminBackup = {
+    filename: string;
+    kind: 'user-preferences' | 'contentieux-alerts' | 'tag-data' | 'audience-data' | 'alerts-data' | 'deleted-ids';
+    identifier: string | null;
+    rawTimestamp: string;
+  };
+  const [adminBackups, setAdminBackups] = useState<AdminBackup[]>([]);
+  const [isLoadingAdminBackups, setIsLoadingAdminBackups] = useState(false);
+  const [showAdminRestoreConfirm, setShowAdminRestoreConfirm] = useState(false);
+  const [selectedAdminBackup, setSelectedAdminBackup] = useState<AdminBackup | null>(null);
+  const [isRestoringAdmin, setIsRestoringAdmin] = useState(false);
   const [integrityStatus, setIntegrityStatus] = useState<'unknown' | 'good' | 'warning' | 'error'>('unknown');
   const { showToast } = useToast();
 
@@ -267,6 +281,38 @@ export const SavePage = ({ lastSaveDate, onRepairServer, onRestoreFromServerBack
       showToast('❌ Erreur lors de la restauration depuis le backup serveur', 'error');
     } finally {
       setOperations(prev => ({ ...prev, restoringServerBackup: false }));
+    }
+  };
+
+  const loadAdminBackups = async () => {
+    if (!window.electronAPI?.dataSync_listAdminBackups) return;
+    setIsLoadingAdminBackups(true);
+    try {
+      const list = await window.electronAPI.dataSync_listAdminBackups();
+      setAdminBackups(list);
+    } catch (error) {
+      console.error('Erreur chargement admin backups:', error);
+    } finally {
+      setIsLoadingAdminBackups(false);
+    }
+  };
+
+  const handleRestoreAdminBackup = async () => {
+    setShowAdminRestoreConfirm(false);
+    if (!window.electronAPI?.dataSync_restoreAdminBackup || !selectedAdminBackup) return;
+    setIsRestoringAdmin(true);
+    try {
+      const ok = await window.electronAPI.dataSync_restoreAdminBackup(selectedAdminBackup.filename);
+      if (ok) {
+        showToast('✅ Backup restauré. Rechargement…', 'success');
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        showToast('❌ Échec de la restauration du backup admin', 'error');
+      }
+    } catch (error) {
+      showToast('❌ Erreur lors de la restauration', 'error');
+    } finally {
+      setIsRestoringAdmin(false);
     }
   };
 
@@ -587,6 +633,81 @@ export const SavePage = ({ lastSaveDate, onRepairServer, onRestoreFromServerBack
         </Card>
       )}
 
+      {/* 🗂️ BACKUPS ADMIN (préfs utilisateur + alertes par contentieux + globaux) */}
+      <Card className="border-slate-200">
+        <CardHeader>
+          <CardTitle className="flex items-center text-slate-700">
+            <HardDriveDownload className="h-5 w-5 mr-2" />
+            Sauvegardes serveur (admin/backups/)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-gray-600">
+            Copies horodatées créées automatiquement à chaque écriture des fichiers
+            partagés (préférences utilisateur, règles d'alertes par contentieux, tags,
+            audiences). 10 versions retenues par fichier.
+          </p>
+          <Button
+            onClick={loadAdminBackups}
+            variant="outline"
+            size="sm"
+            disabled={isLoadingAdminBackups}
+          >
+            {isLoadingAdminBackups ? 'Chargement…' : adminBackups.length > 0 ? 'Rafraîchir la liste' : 'Charger la liste'}
+          </Button>
+          {adminBackups.length > 0 && (
+            <div className="max-h-96 overflow-y-auto border rounded divide-y">
+              {(['user-preferences', 'contentieux-alerts', 'tag-data', 'audience-data', 'alerts-data', 'deleted-ids'] as const).map(kind => {
+                const items = adminBackups.filter(b => b.kind === kind);
+                if (items.length === 0) return null;
+                const kindLabel = {
+                  'user-preferences': 'Préférences utilisateur',
+                  'contentieux-alerts': 'Alertes par contentieux',
+                  'tag-data': 'Tags partagés',
+                  'audience-data': 'Audiences partagées',
+                  'alerts-data': 'Alertes (legacy)',
+                  'deleted-ids': 'Tombstones (suppressions)',
+                }[kind];
+                return (
+                  <div key={kind}>
+                    <div className="bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 sticky top-0">
+                      {kindLabel} ({items.length})
+                    </div>
+                    {items.map(b => {
+                      const iso = b.rawTimestamp.replace(/T(\d{2})-(\d{2})-(\d{2})/, 'T$1:$2:$3');
+                      const d = new Date(iso);
+                      const human = isNaN(d.getTime())
+                        ? b.rawTimestamp
+                        : d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                      return (
+                        <div key={b.filename} className="px-3 py-2 flex items-center justify-between gap-3 text-xs">
+                          <div className="min-w-0">
+                            {b.identifier && (
+                              <span className="font-medium text-gray-700">{b.identifier}</span>
+                            )}
+                            <span className="text-gray-500 ml-2">{human}</span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => { setSelectedAdminBackup(b); setShowAdminRestoreConfirm(true); }}
+                            disabled={isRestoringAdmin}
+                          >
+                            <RotateCcw className="h-3 w-3 mr-1" />
+                            Restaurer
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* 🔧 RÉPARATION DU SERVEUR */}
       {onRepairServer && (
         <Card className="border-orange-200">
@@ -651,6 +772,19 @@ export const SavePage = ({ lastSaveDate, onRepairServer, onRestoreFromServerBack
         title="Restauration depuis backup serveur"
         message={`⚠️ Cette action va écraser vos données locales ET le fichier serveur principal avec le contenu du backup :\n\n"${selectedServerBackup}"\n\nÀ effectuer depuis la machine de la personne dont les données ont été perdues.`}
         confirmLabel={operations.restoringServerBackup ? 'Restauration...' : 'Restaurer depuis ce backup'}
+        cancelLabel="Annuler"
+      />
+
+      {/* 🗂️ DIALOGUE DE CONFIRMATION RESTAURATION BACKUP ADMIN */}
+      <ConfirmationDialog
+        isOpen={showAdminRestoreConfirm}
+        onClose={() => setShowAdminRestoreConfirm(false)}
+        onConfirm={handleRestoreAdminBackup}
+        title="Restaurer ce backup"
+        message={selectedAdminBackup
+          ? `⚠️ Cette action va écraser le fichier serveur correspondant avec le contenu de ce backup :\n\n${selectedAdminBackup.filename}\n\nL'état actuel sera lui-même sauvegardé dans admin/backups/ avant écrasement.`
+          : ''}
+        confirmLabel={isRestoringAdmin ? 'Restauration…' : 'Restaurer ce backup'}
         cancelLabel="Annuler"
       />
 
