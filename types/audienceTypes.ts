@@ -90,6 +90,20 @@ export function emptyConfiscations(): Confiscations {
   };
 }
 
+/** Vrai si au moins une saisie est renseignée (toutes catégories confondues). */
+export function hasAnySaisies(s: Confiscations | undefined | null): boolean {
+  if (!s) return false;
+  return (
+    s.vehicules.length > 0 ||
+    s.immeubles.length > 0 ||
+    (s.numeraire || 0) > 0 ||
+    s.saisiesBancaires.length > 0 ||
+    s.cryptomonnaies.length > 0 ||
+    s.objetsMobiliers.length > 0 ||
+    (s.stupefiants?.types?.length ?? 0) > 0
+  );
+}
+
 /** Migre l'ancien format (compteurs simples) vers le nouveau format détaillé */
 export function migrateConfiscations(raw: any): Confiscations {
   if (!raw) return emptyConfiscations();
@@ -124,6 +138,16 @@ export interface ResultatAudience {
   isDirectResult?: boolean;
   isOI?: boolean; // Pour marquer les ouvertures d'information
   isAudiencePending?: boolean; // Pour marquer les enquêtes en attente d'audience
+  /**
+   * Brouillon créé depuis le détail d'une enquête en cours pour stocker
+   * progressivement les saisies pendant l'enquête préliminaire.
+   * - dateAudience est vide tant que l'enquête n'est pas archivée
+   * - les stats l'ignorent (filtrées par dateAudience non vide)
+   * - le cleanup périodique le préserve s'il contient des saisies
+   * Au moment de l'archivage, ce flag est remplacé par isAudiencePending /
+   * isClassement / isOI selon le choix de l'utilisateur, et dateAudience est rempli.
+   */
+  isPreArchiveSaisies?: boolean;
   service?: string;
   isClassement?: boolean;
   motifClassement?: string; // Nouveau champ pour le motif de classement

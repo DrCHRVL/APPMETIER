@@ -1,4 +1,4 @@
-import { ResultatAudience, AudienceStats, PeineParInfraction, migrateConfiscations } from '@/types/audienceTypes';
+import { ResultatAudience, AudienceStats, PeineParInfraction, migrateConfiscations, hasAnySaisies } from '@/types/audienceTypes';
 import { Enquete } from '@/types/interfaces';
 
 export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<string, ResultatAudience>, enquetes: Enquete[]): AudienceStats | null => {
@@ -461,14 +461,24 @@ export const getMonthlyStats = (
 };
 
 export const cleanupAudienceResults = (
-  resultats: Record<string, ResultatAudience>, 
+  resultats: Record<string, ResultatAudience>,
   enquetes: Enquete[]
 ) => {
   const cleanedResultats: Record<string, ResultatAudience> = {};
-  
+  const enqueteIds = new Set(enquetes.map(e => e.id));
+
   Object.entries(resultats).forEach(([id, resultat]) => {
+    // Brouillon de saisies pré-archivage : pas de dateAudience, mais on conserve
+    // tant que l'enquête existe ET qu'il y a au moins une saisie renseignée.
+    if (resultat.isPreArchiveSaisies) {
+      if (enqueteIds.has(resultat.enqueteId) && hasAnySaisies(resultat.saisies)) {
+        cleanedResultats[id] = resultat;
+      }
+      return;
+    }
+
     // Pour les résultats directs, OI, classements ou en attente d'audience
-    if ((resultat.isDirectResult || resultat.isOI || resultat.isClassement || resultat.isAudiencePending) && 
+    if ((resultat.isDirectResult || resultat.isOI || resultat.isClassement || resultat.isAudiencePending) &&
         resultat.dateAudience && resultat.dateAudience !== '') {
       cleanedResultats[id] = resultat;
       return;
@@ -481,7 +491,7 @@ export const cleanupAudienceResults = (
       cleanedResultats[id] = resultat;
     }
   });
-  
+
   return cleanedResultats;
 };
 

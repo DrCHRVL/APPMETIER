@@ -11,6 +11,7 @@ import { ActeSection } from '../sections/ActeSection';
 import { MisEnCauseSection } from '../sections/MisEnCauseSection';
 import { DocumentsSection } from '../sections/DocumentsSection';
 import { ToDoSection } from '../sections/ToDoSection';
+import { SaisiesSection } from '../sections/SaisiesSection';
 import { DeleteEnqueteModal } from './DeleteEnqueteModal';
 import { ClotureSummaryModal } from './ClotureSummaryModal';
 import { Trash2, Siren, FileText, Plus, X, Star } from 'lucide-react';
@@ -364,6 +365,11 @@ export const EnqueteDetailModal = ({
                   enquete={enquete}
                   onUpdate={handleUpdateWithToast}
                   isEditing={isEditing}
+                />
+
+                <SaisiesSection
+                  enqueteId={enquete.id}
+                  readOnly={readOnly}
                 />
 
                 <Button
