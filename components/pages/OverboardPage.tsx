@@ -280,7 +280,15 @@ export const OverboardPage = ({
           </h2>
         </div>
         {allEnquetes.length > 0 ? (
-          <OPTimeline enquetesByContentieux={enquetesByContentieux} contentieuxDefs={contentieuxDefs} />
+          <OPTimeline
+            enquetesByContentieux={enquetesByContentieux}
+            contentieuxDefs={contentieuxDefs}
+            onEnqueteClick={onEnqueteClick ? (enqueteId, contentieuxId) => {
+              const enquetes = enquetesByContentieux.get(contentieuxId as ContentieuxId);
+              const enquete = enquetes?.find(e => e.id === enqueteId);
+              if (enquete) onEnqueteClick(enquete, contentieuxId as ContentieuxId);
+            } : undefined}
+          />
         ) : (
           <p className="text-sm text-gray-400 italic">Aucune OP programmée</p>
         )}
