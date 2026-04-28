@@ -3,7 +3,11 @@ import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Enquete, CompteRendu } from '@/types/interfaces';
+import { Enquete, CompteRendu, ModificationEntry } from '@/types/interfaces';
+import { useEnquetesStore } from '@/stores/useEnquetesStore';
+import { useUser } from '@/contexts/UserContext';
+import { getUnseenModifications } from '@/utils/modificationLogger';
+import { ModificationsPopup } from './ModificationsPopup';
 import { CompteRenduSection } from '../sections/CompteRenduSection';
 import { GeolocSection } from '../sections/GeolocSection';
 import { EcouteSection } from '../sections/EcouteSection';
@@ -80,8 +84,28 @@ export const EnqueteDetailModal = ({
   const [showSuiviAlert, setShowSuiviAlert] = useState(false);
   const [suiviAlertContext, setSuiviAlertContext] = useState<'dateOP' | 'archive' | 'audience'>('dateOP');
   const [localNumero, setLocalNumero] = useState(enquete.numero);
+  const [unseenModifications, setUnseenModifications] = useState<ModificationEntry[]>([]);
+  const [showModificationsPopup, setShowModificationsPopup] = useState(false);
   useEffect(() => { setLocalNumero(enquete.numero); }, [enquete.numero]);
   const { showToast } = useToast();
+  const { user } = useUser();
+  const markEnqueteAsSeen = useEnquetesStore(s => s.markEnqueteAsSeen);
+
+  // À l'ouverture (changement d'id d'enquête) : capturer les modifications non vues
+  // PUIS marquer comme vu. La capture utilise l'enquête avant le mark, donc le
+  // popup reste cohérent même si le state se met à jour ensuite.
+  useEffect(() => {
+    if (!user) return;
+    const unseen = getUnseenModifications(enquete, user.windowsUsername);
+    if (unseen.length > 0) {
+      setUnseenModifications(unseen);
+      setShowModificationsPopup(true);
+    }
+    markEnqueteAsSeen(enquete.id);
+    // On ne se ré-exécute pas quand `enquete` change par effet de bord (mark as seen,
+    // édition en cours…) : seulement quand on switch d'enquête.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enquete.id]);
 
   const hasSuiviRef = useRef(enquete.tags.some(t => t.category === 'suivi'));
   hasSuiviRef.current = enquete.tags.some(t => t.category === 'suivi');
@@ -401,6 +425,13 @@ export const EnqueteDetailModal = ({
         enqueteTags={enquete.tags}
         triggerContext={suiviAlertContext}
         onCreateTodo={onCreateGlobalTodo}
+      />
+
+      <ModificationsPopup
+        isOpen={showModificationsPopup}
+        onClose={() => setShowModificationsPopup(false)}
+        modifications={unseenModifications}
+        enqueteNumero={enquete.numero}
       />
     </>
   );

@@ -15,6 +15,15 @@ import { ContentieuxId } from '@/types/userTypes';
 import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
 import { ContentieuxManager } from '@/utils/contentieuxManager';
 import { trackDeletedEnqueteId, trackDeletedCRId } from '@/utils/acteUtils';
+import {
+  appendModifications,
+  diffEnqueteUpdates,
+  markEnqueteAsSeenForUser,
+  makeCRAddedEntry,
+  makeCRModifiedEntry,
+  makeCRDeletedEntry,
+} from '@/utils/modificationLogger';
+import { useUserStore } from '@/stores/useUserStore';
 import throttle from 'lodash/throttle';
 
 const SAVE_THROTTLE = 2500;
@@ -102,6 +111,10 @@ interface EnquetesState {
   ajoutCR: (enqueteId: number, cr: CompteRendu | Omit<CompteRendu, 'id'>) => void;
   updateCR: (enqueteId: number, crId: number, updates: Partial<CompteRendu>) => void;
   deleteCR: (enqueteId: number, crId: number) => void;
+
+  // ── Suivi des modifications ──
+  /** Marque l'enquête comme vue par l'utilisateur courant (sans ajouter d'entrée d'historique). */
+  markEnqueteAsSeen: (enqueteId: number) => void;
 
   // ── Co-saisine ──
   isSharedEnquete: (enqueteId: number) => boolean;
@@ -279,7 +292,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
   addEnquete: (data: NewEnqueteData): Enquete => {
     const maxId = _enquetesRef.reduce((max, e) => Math.max(max, e.id || 0), 0);
     const now = new Date().toISOString();
-    const newEnquete: Enquete = {
+    const baseEnquete: Enquete = {
       ...data,
       id: maxId + 1,
       dateCreation: now,
@@ -288,6 +301,9 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       documents: data.documents || [],
       toDos: [],
     };
+    const newEnquete = appendModifications(baseEnquete, [
+      { type: 'enquete_created', label: `Création de l'enquête ${baseEnquete.numero}` },
+    ]);
     set(state => updateOwn(state, prev => [...prev, newEnquete]));
     _saveThrottled();
     return newEnquete;
@@ -296,13 +312,25 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
   updateEnquete: (id: number, updates: Partial<Enquete>) => {
     const now = new Date().toISOString();
     set(state => {
+      const previous = state.ownEnquetes.find(e => e.id === id);
+      // Si le patch ne contient que des champs techniques (pas de sens métier),
+      // on n'enregistre pas d'entrée de modification.
+      const techKeys = new Set(['lastViewedBy', 'modifications', 'dateMiseAJour']);
+      const isTechOnly = Object.keys(updates).every(k => techKeys.has(k));
+      const entries = previous && !isTechOnly ? diffEnqueteUpdates(previous, updates) : [];
+
       const changes = updateOwn(state, prev =>
-        prev.map(e => e.id === id ? { ...e, ...updates, dateMiseAJour: now } : e)
+        prev.map(e => {
+          if (e.id !== id) return e;
+          const next = { ...e, ...updates, dateMiseAJour: now };
+          return entries.length > 0 ? appendModifications(next, entries) : next;
+        })
       );
       // Synchroniser selectedEnquete si c'est celui qu'on édite
       const selected = state.selectedEnquete;
       if (selected && selected.id === id) {
-        changes.selectedEnquete = { ...selected, ...updates, dateMiseAJour: now };
+        const updated = changes.ownEnquetes?.find(e => e.id === id);
+        changes.selectedEnquete = updated || { ...selected, ...updates, dateMiseAJour: now };
       }
       return changes;
     });
@@ -324,11 +352,13 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     const now = new Date().toISOString();
     set(state => ({
       ...updateOwn(state, prev =>
-        prev.map(e =>
-          e.id === id
-            ? { ...e, statut: 'archive' as const, dateArchivage: now, dateMiseAJour: now }
-            : e
-        )
+        prev.map(e => {
+          if (e.id !== id) return e;
+          const archived: Enquete = { ...e, statut: 'archive', dateArchivage: now, dateMiseAJour: now };
+          return appendModifications(archived, [
+            { type: 'enquete_archived', label: 'Enquête archivée' },
+          ]);
+        })
       ),
       selectedEnquete: null,
     }));
@@ -339,11 +369,13 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     const now = new Date().toISOString();
     set(state =>
       updateOwn(state, prev =>
-        prev.map(e =>
-          e.id === id
-            ? { ...e, statut: 'en_cours' as const, dateMiseAJour: now }
-            : e
-        )
+        prev.map(e => {
+          if (e.id !== id) return e;
+          const unarchived: Enquete = { ...e, statut: 'en_cours', dateMiseAJour: now };
+          return appendModifications(unarchived, [
+            { type: 'enquete_unarchived', label: 'Enquête désarchivée' },
+          ]);
+        })
       )
     );
     _saveThrottled();
@@ -370,7 +402,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
 
   ajoutCR: (enqueteId: number, cr: CompteRendu | Omit<CompteRendu, 'id'>) => {
     const { contentieuxId, sharedEnquetes } = get();
-    const newCR = 'id' in cr
+    const newCR: CompteRendu = 'id' in cr
       ? { ...cr, contentieuxSource: contentieuxId }
       : { ...cr, id: Date.now(), contentieuxSource: contentieuxId };
 
@@ -379,11 +411,11 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     if (shared?.contentieuxOrigine) {
       const manager = ContentieuxManager.getInstance();
       const originEnquetes = manager.getEnquetes(shared.contentieuxOrigine);
-      const updated = originEnquetes.map(e =>
-        e.id === enqueteId
-          ? { ...e, comptesRendus: [...e.comptesRendus, newCR], dateMiseAJour: new Date().toISOString() }
-          : e
-      );
+      const updated = originEnquetes.map(e => {
+        if (e.id !== enqueteId) return e;
+        const next: Enquete = { ...e, comptesRendus: [...e.comptesRendus, newCR], dateMiseAJour: new Date().toISOString() };
+        return appendModifications(next, [makeCRAddedEntry(newCR)]);
+      });
       manager.setEnquetes(shared.contentieuxOrigine, updated);
       persistOriginContentieux(shared.contentieuxOrigine, updated);
       get().loadSharedEnquetes();
@@ -393,18 +425,15 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     const now = new Date().toISOString();
     set(state => {
       const changes = updateOwn(state, prev =>
-        prev.map(e =>
-          e.id === enqueteId
-            ? { ...e, comptesRendus: [...e.comptesRendus, newCR], dateMiseAJour: now }
-            : e
-        )
+        prev.map(e => {
+          if (e.id !== enqueteId) return e;
+          const next: Enquete = { ...e, comptesRendus: [...e.comptesRendus, newCR], dateMiseAJour: now };
+          return appendModifications(next, [makeCRAddedEntry(newCR)]);
+        })
       );
       if (state.selectedEnquete?.id === enqueteId) {
-        changes.selectedEnquete = {
-          ...state.selectedEnquete,
-          comptesRendus: [...state.selectedEnquete.comptesRendus, newCR],
-          dateMiseAJour: now,
-        };
+        const updatedSelected = changes.ownEnquetes?.find(e => e.id === enqueteId);
+        if (updatedSelected) changes.selectedEnquete = updatedSelected;
       }
       return changes;
     });
@@ -417,11 +446,13 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     if (shared?.contentieuxOrigine) {
       const manager = ContentieuxManager.getInstance();
       const originEnquetes = manager.getEnquetes(shared.contentieuxOrigine);
-      const updated = originEnquetes.map(e =>
-        e.id === enqueteId
-          ? { ...e, comptesRendus: e.comptesRendus.map(cr => cr.id === crId ? { ...cr, ...updates } : cr), dateMiseAJour: new Date().toISOString() }
-          : e
-      );
+      const updated = originEnquetes.map(e => {
+        if (e.id !== enqueteId) return e;
+        const updatedCRs = e.comptesRendus.map(cr => cr.id === crId ? { ...cr, ...updates } : cr);
+        const targetCR = updatedCRs.find(cr => cr.id === crId);
+        const next: Enquete = { ...e, comptesRendus: updatedCRs, dateMiseAJour: new Date().toISOString() };
+        return targetCR ? appendModifications(next, [makeCRModifiedEntry(targetCR)]) : next;
+      });
       manager.setEnquetes(shared.contentieuxOrigine, updated);
       persistOriginContentieux(shared.contentieuxOrigine, updated);
       get().loadSharedEnquetes();
@@ -431,20 +462,17 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     const now = new Date().toISOString();
     set(state => {
       const changes = updateOwn(state, prev =>
-        prev.map(e =>
-          e.id === enqueteId
-            ? { ...e, comptesRendus: e.comptesRendus.map(cr => cr.id === crId ? { ...cr, ...updates } : cr), dateMiseAJour: now }
-            : e
-        )
+        prev.map(e => {
+          if (e.id !== enqueteId) return e;
+          const updatedCRs = e.comptesRendus.map(cr => cr.id === crId ? { ...cr, ...updates } : cr);
+          const targetCR = updatedCRs.find(cr => cr.id === crId);
+          const next: Enquete = { ...e, comptesRendus: updatedCRs, dateMiseAJour: now };
+          return targetCR ? appendModifications(next, [makeCRModifiedEntry(targetCR)]) : next;
+        })
       );
       if (state.selectedEnquete?.id === enqueteId) {
-        changes.selectedEnquete = {
-          ...state.selectedEnquete,
-          comptesRendus: state.selectedEnquete.comptesRendus.map(cr =>
-            cr.id === crId ? { ...cr, ...updates } : cr
-          ),
-          dateMiseAJour: now,
-        };
+        const updatedSelected = changes.ownEnquetes?.find(e => e.id === enqueteId);
+        if (updatedSelected) changes.selectedEnquete = updatedSelected;
       }
       return changes;
     });
@@ -459,11 +487,16 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     if (shared?.contentieuxOrigine) {
       const manager = ContentieuxManager.getInstance();
       const originEnquetes = manager.getEnquetes(shared.contentieuxOrigine);
-      const updated = originEnquetes.map(e =>
-        e.id === enqueteId
-          ? { ...e, comptesRendus: e.comptesRendus.filter(cr => cr.id !== crId), dateMiseAJour: new Date().toISOString() }
-          : e
-      );
+      const updated = originEnquetes.map(e => {
+        if (e.id !== enqueteId) return e;
+        const removedCR = e.comptesRendus.find(cr => cr.id === crId);
+        const next: Enquete = {
+          ...e,
+          comptesRendus: e.comptesRendus.filter(cr => cr.id !== crId),
+          dateMiseAJour: new Date().toISOString(),
+        };
+        return appendModifications(next, [makeCRDeletedEntry(removedCR, crId)]);
+      });
       manager.setEnquetes(shared.contentieuxOrigine, updated);
       persistOriginContentieux(shared.contentieuxOrigine, updated);
       get().loadSharedEnquetes();
@@ -473,18 +506,20 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     const now = new Date().toISOString();
     set(state => {
       const changes = updateOwn(state, prev =>
-        prev.map(e =>
-          e.id === enqueteId
-            ? { ...e, comptesRendus: e.comptesRendus.filter(cr => cr.id !== crId), dateMiseAJour: now }
-            : e
-        )
+        prev.map(e => {
+          if (e.id !== enqueteId) return e;
+          const removedCR = e.comptesRendus.find(cr => cr.id === crId);
+          const next: Enquete = {
+            ...e,
+            comptesRendus: e.comptesRendus.filter(cr => cr.id !== crId),
+            dateMiseAJour: now,
+          };
+          return appendModifications(next, [makeCRDeletedEntry(removedCR, crId)]);
+        })
       );
       if (state.selectedEnquete?.id === enqueteId) {
-        changes.selectedEnquete = {
-          ...state.selectedEnquete,
-          comptesRendus: state.selectedEnquete.comptesRendus.filter(cr => cr.id !== crId),
-          dateMiseAJour: now,
-        };
+        const updatedSelected = changes.ownEnquetes?.find(e => e.id === enqueteId);
+        if (updatedSelected) changes.selectedEnquete = updatedSelected;
       }
       return changes;
     });
@@ -501,20 +536,18 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
 
   shareEnquete: async (enqueteId: number, targetContentieuxIds: string[]) => {
     const now = new Date().toISOString();
+    const label = `Co-saisine partagée${targetContentieuxIds.length > 0 ? ` avec ${targetContentieuxIds.join(', ')}` : ''}`;
     set(state => {
       const changes = updateOwn(state, prev =>
-        prev.map(e =>
-          e.id === enqueteId
-            ? { ...e, sharedWith: targetContentieuxIds, dateMiseAJour: now }
-            : e
-        )
+        prev.map(e => {
+          if (e.id !== enqueteId) return e;
+          const next: Enquete = { ...e, sharedWith: targetContentieuxIds, dateMiseAJour: now };
+          return appendModifications(next, [{ type: 'enquete_shared', label }]);
+        })
       );
       if (state.selectedEnquete?.id === enqueteId) {
-        changes.selectedEnquete = {
-          ...state.selectedEnquete,
-          sharedWith: targetContentieuxIds,
-          dateMiseAJour: now,
-        };
+        const updated = changes.ownEnquetes?.find(e => e.id === enqueteId);
+        if (updated) changes.selectedEnquete = updated;
       }
       return changes;
     });
@@ -527,24 +560,61 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     const now = new Date().toISOString();
     set(state => {
       const changes = updateOwn(state, prev =>
-        prev.map(e =>
-          e.id === enqueteId
-            ? { ...e, sharedWith: undefined, contentieuxOrigine: undefined, dateMiseAJour: now }
-            : e
-        )
+        prev.map(e => {
+          if (e.id !== enqueteId) return e;
+          const next: Enquete = { ...e, sharedWith: undefined, contentieuxOrigine: undefined, dateMiseAJour: now };
+          return appendModifications(next, [{ type: 'enquete_unshared', label: 'Co-saisine retirée' }]);
+        })
       );
       if (state.selectedEnquete?.id === enqueteId) {
-        changes.selectedEnquete = {
-          ...state.selectedEnquete,
-          sharedWith: undefined,
-          contentieuxOrigine: undefined,
-          dateMiseAJour: now,
-        };
+        const updated = changes.ownEnquetes?.find(e => e.id === enqueteId);
+        if (updated) changes.selectedEnquete = updated;
       }
       return changes;
     });
     // Mettre à jour le cache ContentieuxManager pour refléter la suppression du partage
     await ContentieuxManager.getInstance().setEnquetes(get().contentieuxId, get().ownEnquetes);
+    _saveThrottled();
+  },
+
+  markEnqueteAsSeen: (enqueteId: number) => {
+    const username = useUserStore.getState().user?.windowsUsername;
+    if (!username) return;
+    const { sharedEnquetes } = get();
+    const sharedHit = sharedEnquetes.find(e => e.id === enqueteId);
+    if (sharedHit?.contentieuxOrigine) {
+      const manager = ContentieuxManager.getInstance();
+      const originEnquetes = manager.getEnquetes(sharedHit.contentieuxOrigine);
+      const updated = originEnquetes.map(e =>
+        e.id === enqueteId ? markEnqueteAsSeenForUser(e, username) : e
+      );
+      manager.setEnquetes(sharedHit.contentieuxOrigine, updated);
+      persistOriginContentieux(sharedHit.contentieuxOrigine, updated);
+      get().loadSharedEnquetes();
+      // Mettre à jour selectedEnquete localement si on regarde cette enquête
+      const selected = get().selectedEnquete;
+      if (selected && selected.id === enqueteId) {
+        set({ selectedEnquete: markEnqueteAsSeenForUser(selected, username) });
+      }
+      return;
+    }
+
+    set(state => {
+      const newOwn = state.ownEnquetes.map(e =>
+        e.id === enqueteId ? markEnqueteAsSeenForUser(e, username) : e
+      );
+      _enquetesRef = newOwn;
+      _isDirty = true;
+      const next: Partial<EnquetesState> = {
+        ownEnquetes: newOwn,
+        enquetes: [...newOwn, ...state.sharedEnquetes],
+        _isDataDirty: true,
+      };
+      if (state.selectedEnquete?.id === enqueteId) {
+        next.selectedEnquete = markEnqueteAsSeenForUser(state.selectedEnquete, username);
+      }
+      return next;
+    });
     _saveThrottled();
   },
 
