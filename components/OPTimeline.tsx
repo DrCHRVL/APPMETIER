@@ -5,6 +5,8 @@ import { ContentieuxDefinition } from '@/types/userTypes';
 interface OPTimelineProps {
   enquetesByContentieux: Map<string, Enquete[]>;
   contentieuxDefs: ContentieuxDefinition[];
+  /** Callback déclenché au clic sur une enquête de la frise. */
+  onEnqueteClick?: (enqueteId: number, contentieuxId: string) => void;
 }
 
 interface OPEvent {
@@ -21,7 +23,7 @@ const OP_DURATION_DAYS = 4; // 96h
 const DAY_LABELS = ['D', 'L', 'M', 'M', 'J', 'V', 'S']; // index par getDay() (0=Dim)
 const MONTHS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
 
-export const OPTimeline = ({ enquetesByContentieux, contentieuxDefs }: OPTimelineProps) => {
+export const OPTimeline = ({ enquetesByContentieux, contentieuxDefs, onEnqueteClick }: OPTimelineProps) => {
   const today = useMemo(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -168,12 +170,27 @@ export const OPTimeline = ({ enquetesByContentieux, contentieuxDefs }: OPTimelin
                   ? 'en cours'
                   : `J+${event.daysFromToday}`;
 
+              const isClickable = !!onEnqueteClick;
+              const handleClick = () => onEnqueteClick?.(event.enqueteId, event.contentieuxId);
+              const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handleClick();
+                }
+              };
+
               return (
                 <div
                   key={`label-${event.enqueteId}`}
-                  className="absolute flex items-center z-10"
+                  className={`absolute flex items-center z-10 ${
+                    isClickable ? 'cursor-pointer hover:brightness-110 hover:underline focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-400 rounded-sm' : ''
+                  }`}
                   style={{ top: idx * ROW_H + 6, left: `${clampedLeft}%` }}
-                  title={`OP ${event.numero} — dans ${event.daysFromToday} jour(s)`}
+                  title={`OP ${event.numero} — dans ${event.daysFromToday} jour(s)${isClickable ? ' — cliquer pour ouvrir' : ''}`}
+                  onClick={isClickable ? handleClick : undefined}
+                  onKeyDown={isClickable ? handleKeyDown : undefined}
+                  role={isClickable ? 'button' : undefined}
+                  tabIndex={isClickable ? 0 : undefined}
                 >
                   <div
                     className="h-4 w-4 rounded-full border-2 border-white shadow flex-shrink-0"
