@@ -1,9 +1,10 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Enquete, CompteRendu, ModificationEntry } from '@/types/interfaces';
+import { Enquete, CompteRendu, ModificationEntry, OPPhase } from '@/types/interfaces';
+import { getOPPhases, getOPPhaseEndDate, nextOPPhaseId, OP_DEFAULT_DURATION_DAYS } from '@/utils/opPhases';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { useUser } from '@/contexts/UserContext';
 import { getUnseenModifications } from '@/utils/modificationLogger';
@@ -18,7 +19,7 @@ import { ToDoSection } from '../sections/ToDoSection';
 import { SaisiesSection } from '../sections/SaisiesSection';
 import { DeleteEnqueteModal } from './DeleteEnqueteModal';
 import { ClotureSummaryModal } from './ClotureSummaryModal';
-import { Trash2, Siren, FileText, Plus, X, Star } from 'lucide-react';
+import { Trash2, Siren, FileText, Plus, Star } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { EnqueteHeader } from '../sections/EnqueteHeader';
 import { CoSaisineSection } from '../sections/CoSaisineSection';
@@ -81,7 +82,6 @@ export const EnqueteDetailModal = ({
 }: EnqueteDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showClotureSummary, setShowClotureSummary] = useState(false);
-  const [showDateOPEdit, setShowDateOPEdit] = useState(false);
   const [showSuiviAlert, setShowSuiviAlert] = useState(false);
   const [suiviAlertContext, setSuiviAlertContext] = useState<'dateOP' | 'archive' | 'audience'>('dateOP');
   const [localNumero, setLocalNumero] = useState(enquete.numero);
@@ -115,11 +115,38 @@ export const EnqueteDetailModal = ({
   const handleUpdateImmediate = useCallback((id: number, updates: Partial<Enquete>) => {
     onUpdate(id, updates);
     showToast('Modifications enregistrées', 'success');
-    if (updates.dateOP && hasSuiviRef.current) {
+    if ((updates.dateOP || updates.opPhases) && hasSuiviRef.current) {
       setSuiviAlertContext('dateOP');
       setShowSuiviAlert(true);
     }
   }, [onUpdate, showToast]);
+
+  // Met à jour les phases d'OP (et synchronise `dateOP` legacy avec la 1re phase
+  // pour que les consommateurs non encore migrés continuent de fonctionner).
+  const updateOPPhases = useCallback((phases: OPPhase[]) => {
+    const sorted = [...phases].sort((a, b) => a.dateDebut.localeCompare(b.dateDebut));
+    handleUpdateImmediate(enquete.id, {
+      opPhases: sorted.length > 0 ? sorted : undefined,
+      dateOP: sorted[0]?.dateDebut,
+    });
+  }, [enquete.id, handleUpdateImmediate]);
+
+  const opPhases = useMemo(() => getOPPhases(enquete), [enquete]);
+
+  const handleAddOPPhase = useCallback(() => {
+    const id = nextOPPhaseId(enquete.opPhases);
+    const today = new Date().toISOString().slice(0, 10);
+    updateOPPhases([...opPhases, { id, dateDebut: today }]);
+  }, [enquete.opPhases, opPhases, updateOPPhases]);
+
+  const handleUpdateOPPhase = useCallback((id: number, updates: Partial<OPPhase>) => {
+    const next = opPhases.map(p => (p.id === id ? { ...p, ...updates } : p));
+    updateOPPhases(next);
+  }, [opPhases, updateOPPhases]);
+
+  const handleRemoveOPPhase = useCallback((id: number) => {
+    updateOPPhases(opPhases.filter(p => p.id !== id));
+  }, [opPhases, updateOPPhases]);
 
   // Pour la saisie texte : propagation déboncée (400ms), PAS de toast par frappe
   const debouncedOnUpdate = useDebouncedCallback(
@@ -251,97 +278,82 @@ export const EnqueteDetailModal = ({
                   isEditing={isEditing}
                 />
 
-                {/* Date d'OP */}
+                {/* Dates d'OP — supporte plusieurs phases d'interpellation */}
                 <div className="bg-gray-50 p-3 rounded-lg">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 flex-1">
                       <Siren className="h-4 w-4 text-orange-500 flex-shrink-0" />
-                      {!showDateOPEdit && !isEditing ? (
-                        enquete.dateOP ? (
-                          <span className="text-sm">
-                            <span className="font-semibold">Date d'OP :</span>{' '}
-                            <span className="font-medium text-orange-700">
-                              {new Date(enquete.dateOP).toLocaleDateString('fr-FR')}
-                            </span>
-                          </span>
-                        ) : (
-                          <>
-                            <span className="text-sm font-semibold">Date d'OP</span>
-                            <span className="text-xs text-gray-400 italic ml-1">— Non planifiée</span>
-                          </>
-                        )
-                      ) : (
-                        <h3 className="text-sm font-semibold">Date d'OP</h3>
+                      <h3 className="text-sm font-semibold">
+                        {opPhases.length > 1 ? "Dates d'OP" : "Date d'OP"}
+                      </h3>
+                      {opPhases.length === 0 && (
+                        <span className="text-xs text-gray-400 italic ml-1">— Non planifiée</span>
                       )}
                     </div>
-                    {!showDateOPEdit && !isEditing && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0"
-                        title={enquete.dateOP ? "Modifier la date d'OP" : "Planifier une date d'OP"}
-                        onClick={() => setShowDateOPEdit(true)}
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      title={opPhases.length === 0 ? "Planifier une date d'OP" : "Ajouter une phase d'OP"}
+                      onClick={handleAddOPPhase}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
                   </div>
-                  {isEditing ? (
-                    <Input
-                      type="date"
-                      value={enquete.dateOP || ''}
-                      onChange={(e) => handleUpdateWithToast(enquete.id, { dateOP: e.target.value || undefined })}
-                      className="h-7 text-sm mt-2"
-                    />
-                  ) : showDateOPEdit ? (
-                    <div className="flex items-center gap-2 mt-2">
-                      <Input
-                        type="date"
-                        defaultValue={enquete.dateOP || ''}
-                        className="h-7 text-sm flex-1"
-                        autoFocus
-                        onBlur={(e) => {
-                          if (e.target.value) {
-                            handleUpdateWithToast(enquete.id, { dateOP: e.target.value });
-                          }
-                          setShowDateOPEdit(false);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Escape') {
-                            setShowDateOPEdit(false);
-                          }
-                          if (e.key === 'Enter') {
-                            const input = e.currentTarget as HTMLInputElement;
-                            if (input.value) handleUpdateWithToast(enquete.id, { dateOP: input.value });
-                            setShowDateOPEdit(false);
-                          }
-                        }}
-                      />
-                      {enquete.dateOP && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 w-6 p-0 text-gray-400 hover:text-red-500"
-                          title="Supprimer la date d'OP"
-                          onClick={() => {
-                            handleUpdateWithToast(enquete.id, { dateOP: undefined });
-                            setShowDateOPEdit(false);
-                          }}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0 text-gray-400"
-                        title="Annuler"
-                        onClick={() => setShowDateOPEdit(false)}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
+
+                  {opPhases.length > 0 && (
+                    <div className="mt-2 space-y-2">
+                      {opPhases.map((phase, idx) => {
+                        const fallbackEnd = getOPPhaseEndDate({ ...phase, dateFin: undefined });
+                        const fallbackEndIso = fallbackEnd.toISOString().slice(0, 10);
+                        return (
+                          <div key={phase.id} className="flex flex-wrap items-center gap-2 bg-white border border-gray-200 rounded p-2">
+                            {opPhases.length > 1 && (
+                              <span className="text-[10px] font-semibold text-orange-700 bg-orange-100 px-1.5 py-0.5 rounded">
+                                Phase {idx + 1}
+                              </span>
+                            )}
+                            <div className="flex items-center gap-1">
+                              <Label className="text-xs text-gray-600">Début</Label>
+                              <Input
+                                type="date"
+                                value={phase.dateDebut}
+                                className="h-7 text-sm w-[140px]"
+                                onChange={(e) => {
+                                  if (e.target.value) handleUpdateOPPhase(phase.id, { dateDebut: e.target.value });
+                                }}
+                              />
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Label className="text-xs text-gray-600">Fin</Label>
+                              <Input
+                                type="date"
+                                value={phase.dateFin || ''}
+                                placeholder={fallbackEndIso}
+                                title={`Si vide : application du délai habituel de ${OP_DEFAULT_DURATION_DAYS * 24}h (jusqu'au ${fallbackEnd.toLocaleDateString('fr-FR')})`}
+                                className="h-7 text-sm w-[140px]"
+                                onChange={(e) => handleUpdateOPPhase(phase.id, { dateFin: e.target.value || undefined })}
+                              />
+                              {!phase.dateFin && (
+                                <span className="text-[10px] text-gray-500 italic">
+                                  défaut {OP_DEFAULT_DURATION_DAYS * 24}h
+                                </span>
+                              )}
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0 text-gray-400 hover:text-red-500 ml-auto"
+                              title="Supprimer cette phase"
+                              onClick={() => handleRemoveOPPhase(phase.id)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ) : null}
+                  )}
                 </div>
 
                 {/* Co-saisine */}

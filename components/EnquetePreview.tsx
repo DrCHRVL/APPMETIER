@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 import { Archive, Edit, Trash, RotateCcw, Users, Building2, FileText, Calendar, Flag, Clock, Hourglass, Gavel, ArrowDown, Star, EyeOff, Eye, Link2, History } from 'lucide-react';
 import { Enquete, Alert, VisualAlertRule, ToDoItem } from '@/types/interfaces';
 import { getUnseenModifications } from '@/utils/modificationLogger';
+import { getOPPhases, getOPPhaseEndDate } from '@/utils/opPhases';
 import { VISUAL_ALERT_COLOR_PALETTE } from '@/config/constants';
 import { StartEnqueteModal } from './modals/StartEnqueteModal';
 import { AlertsModal } from './modals/AlertsModal';
@@ -123,13 +124,25 @@ export const EnquetePreview = React.memo(({
     return enquete.toDos?.filter(todo => todo.status === 'active').length || 0;
   }, [enquete.toDos]);
 
-  // Calcul des jours vers OP (réutilisé dans l'évaluation des règles visuelles)
+  // Calcul des jours vers OP (réutilisé dans l'évaluation des règles visuelles).
+  // Avec plusieurs phases possibles : on prend la phase non terminée la plus
+  // proche (à venir si dispo, sinon une phase en cours -> daysToOP négatif).
   const daysToOP = useMemo(() => {
-    if (!enquete.dateOP) return null;
-    return Math.ceil(
-      (new Date(enquete.dateOP).setHours(0,0,0,0) - new Date().setHours(0,0,0,0)) / (1000 * 60 * 60 * 24)
-    );
-  }, [enquete.dateOP]);
+    const phases = getOPPhases(enquete);
+    if (phases.length === 0) return null;
+    const todayMs = new Date().setHours(0, 0, 0, 0);
+    const candidates = phases
+      .map(p => {
+        const start = new Date(p.dateDebut).setHours(0, 0, 0, 0);
+        const end = getOPPhaseEndDate(p).getTime();
+        return { days: Math.ceil((start - todayMs) / (1000 * 60 * 60 * 24)), end };
+      })
+      .filter(c => c.end >= todayMs); // ignore les phases déjà terminées
+    if (candidates.length === 0) return null;
+    const upcoming = candidates.filter(c => c.days >= 0);
+    if (upcoming.length > 0) return Math.min(...upcoming.map(c => c.days));
+    return Math.max(...candidates.map(c => c.days));
+  }, [enquete]);
 
   const isSuiviJIRS = enquete.tags.some(tag => tag.category === 'suivi' && tag.value === 'JIRS');
   const isSuiviPG = enquete.tags.some(tag => tag.category === 'suivi' && tag.value === 'PG');

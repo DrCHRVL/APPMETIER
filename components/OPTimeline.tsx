@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Enquete } from '@/types/interfaces';
 import { ContentieuxDefinition } from '@/types/userTypes';
+import { getOPPhases, getOPPhaseEndDate } from '@/utils/opPhases';
 
 interface OPTimelineProps {
   enquetesByContentieux: Map<string, Enquete[]>;
@@ -10,16 +11,17 @@ interface OPTimelineProps {
 }
 
 interface OPEvent {
+  key: string;
   enqueteId: number;
   numero: string;
   dateOP: Date;
+  durationDays: number;
   daysFromToday: number;
   contentieuxId: string;
   color: string; // hex, depuis contentieuxDefs
 }
 
 const DAYS_RANGE = 40; // ~6 semaines
-const OP_DURATION_DAYS = 4; // 96h
 const DAY_LABELS = ['D', 'L', 'M', 'M', 'J', 'V', 'S']; // index par getDay() (0=Dim)
 const MONTHS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
 
@@ -43,26 +45,34 @@ export const OPTimeline = ({ enquetesByContentieux, contentieuxDefs, onEnqueteCl
 
     enquetesByContentieux.forEach((enquetes, ctxId) => {
       enquetes.forEach(e => {
-        if (!e.dateOP || e.statut === 'archive') return;
+        if (e.statut === 'archive') return;
         const ownerCtxId = e.contentieuxOrigine || ctxId;
         const dedupeKey = `${ownerCtxId}_${e.id}`;
         if (seen.has(dedupeKey)) return;
         seen.add(dedupeKey);
 
-        const dateOP = new Date(e.dateOP);
-        dateOP.setHours(0, 0, 0, 0);
-        const opEndDate = new Date(dateOP);
-        opEndDate.setDate(opEndDate.getDate() + OP_DURATION_DAYS);
-        if (opEndDate < today || dateOP > rangeEnd) return;
+        const phases = getOPPhases(e);
+        phases.forEach(phase => {
+          const dateOP = new Date(phase.dateDebut);
+          dateOP.setHours(0, 0, 0, 0);
+          const opEndDate = getOPPhaseEndDate(phase);
+          if (opEndDate < today || dateOP > rangeEnd) return;
 
-        const daysFromToday = Math.round((dateOP.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        events.push({
-          enqueteId: e.id,
-          numero: e.numero,
-          dateOP,
-          daysFromToday,
-          contentieuxId: ownerCtxId,
-          color: ctxColorMap.get(ownerCtxId) || '#6b7280',
+          const daysFromToday = Math.round((dateOP.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          const durationDays = Math.max(
+            1,
+            Math.round((opEndDate.getTime() - dateOP.getTime()) / (1000 * 60 * 60 * 24))
+          );
+          events.push({
+            key: `${ownerCtxId}_${e.id}_${phase.id}`,
+            enqueteId: e.id,
+            numero: e.numero,
+            dateOP,
+            durationDays,
+            daysFromToday,
+            contentieuxId: ownerCtxId,
+            color: ctxColorMap.get(ownerCtxId) || '#6b7280',
+          });
         });
       });
     });
@@ -135,14 +145,14 @@ export const OPTimeline = ({ enquetesByContentieux, contentieuxDefs, onEnqueteCl
               />
             ))}
 
-            {/* Barres 96h (positionnées dans le conteneur relatif) */}
+            {/* Barres (durée par phase : dateFin saisie ou délai 96h par défaut) */}
             {opEvents.map((event, idx) => {
               const leftPct = (event.daysFromToday / DAYS_RANGE) * 100;
               const clampedLeft = Math.max(0, leftPct);
-              const barWidthPct = ((OP_DURATION_DAYS + Math.min(0, event.daysFromToday)) / DAYS_RANGE) * 100;
+              const barWidthPct = ((event.durationDays + Math.min(0, event.daysFromToday)) / DAYS_RANGE) * 100;
               return (
                 <div
-                  key={`bar-${event.enqueteId}`}
+                  key={`bar-${event.key}`}
                   className="absolute rounded-sm pointer-events-none"
                   style={{
                     left: `${clampedLeft}%`,
@@ -181,7 +191,7 @@ export const OPTimeline = ({ enquetesByContentieux, contentieuxDefs, onEnqueteCl
 
               return (
                 <div
-                  key={`label-${event.enqueteId}`}
+                  key={`label-${event.key}`}
                   className={`absolute flex items-center z-10 ${
                     isClickable ? 'cursor-pointer hover:brightness-110 hover:underline focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-400 rounded-sm' : ''
                   }`}
