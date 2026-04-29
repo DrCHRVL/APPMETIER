@@ -179,6 +179,37 @@ export function diffEnqueteUpdates(prev: Enquete, updates: Partial<Enquete>): Pe
   return out;
 }
 
+/**
+ * Égalité profonde tolérante : `undefined` ≡ `null` ≡ absence, ordre des clés
+ * indifférent, NaN considéré égal à lui-même. Évite les faux positifs (entrée
+ * "modifiée" à chaque save sans changement réel) et les faux négatifs liés à
+ * l'ordre de sérialisation que produit `JSON.stringify` sur les objets dont les
+ * clés ont été ré-affectées dans un ordre différent.
+ */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a == null && b == null) return true; // undefined ≡ null
+  if (a == null || b == null) return false;
+  if (typeof a !== typeof b) return false;
+  // NaN
+  if (typeof a === 'number' && typeof b === 'number' && Number.isNaN(a) && Number.isNaN(b)) return true;
+  if (typeof a !== 'object') return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!deepEqual(a[i], b[i])) return false;
+    return true;
+  }
+  const ao = a as Record<string, unknown>;
+  const bo = b as Record<string, unknown>;
+  const aKeys = Object.keys(ao).filter((k) => ao[k] !== undefined);
+  const bKeys = Object.keys(bo).filter((k) => bo[k] !== undefined);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) {
+    if (!deepEqual(ao[k], bo[k])) return false;
+  }
+  return true;
+}
+
 function diffArray<T extends { id: number }>(
   prev: Enquete,
   updates: Partial<Enquete>,
@@ -199,7 +230,7 @@ function diffArray<T extends { id: number }>(
     const old = prevMap.get(id);
     if (!old) {
       out.push({ type: addedType, label: `Ajout : ${describe(item)}`, targetId: id });
-    } else if (JSON.stringify(old) !== JSON.stringify(item)) {
+    } else if (!deepEqual(old, item)) {
       out.push({ type: modifiedType, label: `Modification : ${describe(item)}`, targetId: id });
     }
   }

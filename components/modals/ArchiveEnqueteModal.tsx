@@ -89,14 +89,15 @@ export const ArchiveEnqueteModal = ({
 
   const handleClassementSave = async (data: { dateClassement: string; motifClassement: string }) => {
     try {
-      // Préserver les saisies pré-archivage le cas échéant (même donnée, même clé).
-      const preserved = getResultat(enqueteId)?.saisies;
+      // Le state local `saisies` reflète le brouillon pré-archivage + les
+      // éventuelles modifications faites dans le SaisiesForm avant le choix
+      // "Classement". Source de vérité unique au moment de la décision.
       const classementResultat = {
         enqueteId,
         dateAudience: data.dateClassement,
         condamnations: [],
         confiscations: emptyConfiscations(),
-        saisies: hasAnySaisies(preserved) ? preserved : undefined,
+        saisies: hasAnySaisies(saisies) ? saisies : undefined,
         isClassement: true,
         motifClassement: data.motifClassement
       };
@@ -200,10 +201,11 @@ export const ArchiveEnqueteModal = ({
   // Gestionnaire pour la confirmation de l'OI
   const handleOIConfirm = async (resultat: any) => {
     try {
-      // Préserver les saisies pré-archivage si l'utilisateur en a renseigné depuis
-      // le détail de l'enquête (même donnée, même clé enqueteId).
-      const draftSaisies = getResultat(enqueteId)?.saisies;
-      const preservedSaisies = hasAnySaisies(draftSaisies) ? draftSaisies : undefined;
+      // Le state local `saisies` couvre à la fois le brouillon pré-archivage et
+      // les éventuelles modifications faites dans le SaisiesForm avant le choix
+      // "OI". Le `resultat` venant de OuvertureInformationModal n'inclut pas de
+      // saisies — on injecte donc systématiquement celles du modal.
+      const preservedSaisies = hasAnySaisies(saisies) ? saisies : undefined;
       await saveResultat({ ...resultat, saisies: preservedSaisies });
       
       // Archiver l'enquête

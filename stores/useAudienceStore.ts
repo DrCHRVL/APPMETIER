@@ -5,6 +5,7 @@ import { electronStorage } from '@/services/storage/electronStorage';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { Enquete } from '@/types/interfaces';
 import { audienceSyncService } from '@/utils/dataSync/AudienceSyncService';
+import { UserManager } from '@/utils/userManager';
 
 const AUDIENCE_STORAGE_KEY = 'audience_resultats';
 const CLEANUP_INTERVAL = 30000;
@@ -19,10 +20,29 @@ const readFreshFromStorage = async (): Promise<Record<string, ResultatAudience>>
   }
 };
 
-// Lecture des enquêtes pour le cleanup
+// Lecture des enquêtes pour le cleanup.
+// On énumère TOUS les contentieux connus (y compris désactivés et ajoutés
+// dynamiquement) pour ne pas marquer comme orphelins les résultats qui
+// pointent vers une enquête d'un contentieux non listé. Fallback sur les
+// trois contentieux historiques si UserManager n'est pas encore initialisé
+// (cas du tout premier cycle de cleanup au démarrage).
+const FALLBACK_CONTENTIEUX_IDS = ['crimorg', 'ecofi', 'enviro'];
+
+const getKnownContentieuxIds = (): string[] => {
+  try {
+    const all = UserManager.getInstance().getAllContentieux();
+    if (Array.isArray(all) && all.length > 0) {
+      return all.map((c) => c.id);
+    }
+  } catch {
+    // UserManager pas encore initialisé : on retombe sur la liste historique.
+  }
+  return FALLBACK_CONTENTIEUX_IDS;
+};
+
 const readEnquetesForCleanup = async (): Promise<Enquete[]> => {
   try {
-    const contentieuxIds = ['crimorg', 'ecofi', 'enviro'];
+    const contentieuxIds = getKnownContentieuxIds();
     const all: Enquete[] = [];
     for (const cId of contentieuxIds) {
       const data = await ElectronBridge.getData<Enquete[]>(`ctx_${cId}_enquetes`, []);
