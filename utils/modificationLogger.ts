@@ -169,6 +169,9 @@ export function diffEnqueteUpdates(prev: Enquete, updates: Partial<Enquete>): Pe
       changed.push(label);
     }
   }
+  if ('opPhases' in updates && JSON.stringify(updates.opPhases) !== JSON.stringify(prev.opPhases)) {
+    if (!changed.includes("date d'OP")) changed.push("phases d'OP");
+  }
   if (changed.length > 0) {
     out.push({
       type: 'general_info_updated',

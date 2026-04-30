@@ -170,6 +170,14 @@ export interface Checklist {
   qualificationFinale?: boolean;
 }
 
+// Une phase d'OP : date de début (obligatoire) et, optionnellement, une date de fin
+// explicite. Si `dateFin` est absente, le délai habituel de 96h est appliqué.
+export interface OPPhase {
+  id: number;
+  dateDebut: string;     // ISO (YYYY-MM-DD)
+  dateFin?: string;      // ISO (YYYY-MM-DD) — optionnel, fallback 96h
+}
+
 // Interface pour les données d'une nouvelle enquête
 export interface NewEnqueteData {
   numero: string;
@@ -178,7 +186,8 @@ export interface NewEnqueteData {
   description?: string;
   directeurEnquete?: string;
   numeroParquet?: string;
-  dateOP?: string;          // Date de l'opération d'interpellation
+  dateOP?: string;          // Legacy : date de la (première) opération d'interpellation. Conservé pour compatibilité avec les enquêtes existantes ; toute nouvelle saisie doit aussi alimenter `opPhases[0].dateDebut`.
+  opPhases?: OPPhase[];     // Phases d'OP (interpellations potentiellement en plusieurs vagues). Si vide ou absent, on retombe sur `dateOP`.
   misEnCause: MisEnCause[];
   geolocalisations?: GeolocData[];
   ecoutes?: EcouteData[];
