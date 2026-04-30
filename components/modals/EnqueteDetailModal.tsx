@@ -19,7 +19,9 @@ import { ToDoSection } from '../sections/ToDoSection';
 import { SaisiesSection } from '../sections/SaisiesSection';
 import { DeleteEnqueteModal } from './DeleteEnqueteModal';
 import { ClotureSummaryModal } from './ClotureSummaryModal';
-import { Trash2, Siren, FileText, Plus, Star } from 'lucide-react';
+import { Trash2, Siren, FileText, Plus, Star, Gavel, Eye, EyeOff } from 'lucide-react';
+import { UserManager } from '@/utils/userManager';
+import { hasJldInvolvement } from '@/utils/permissions';
 import { Badge } from '../ui/badge';
 import { EnqueteHeader } from '../sections/EnqueteHeader';
 import { CoSaisineSection } from '../sections/CoSaisineSection';
@@ -91,6 +93,36 @@ export const EnqueteDetailModal = ({
   const { showToast } = useToast();
   const { user } = useUser();
   const markEnqueteAsSeen = useEnquetesStore(s => s.markEnqueteAsSeen);
+
+  // Mode JLD : lecture stricte, pas de "À faire", CR éventuellement masqués.
+  const isJldUser = user?.globalRole === 'jld';
+
+  // Liste des utilisateurs JLD ayant accès à cette enquête (pour afficher le badge
+  // « Visible par le JLD — XXX »). Un JLD voit l'enquête dès qu'une autorisation
+  // ou prolongation a été enregistrée dans une géoloc/écoute.
+  const jldViewers = useMemo(() => {
+    if (!hasJldInvolvement(enquete)) return [] as { username: string; displayName: string }[];
+    try {
+      const all = UserManager.getInstance().getAllUsers();
+      return all
+        .filter(u => u.globalRole === 'jld' && u.approved !== false)
+        .map(u => ({ username: u.windowsUsername, displayName: u.displayName }));
+    } catch {
+      return [];
+    }
+  }, [enquete]);
+
+  const handleToggleHideCRsFromJld = useCallback(() => {
+    const next = !enquete.hideCRsFromJld;
+    onUpdate(enquete.id, { hideCRsFromJld: next });
+    showToast(
+      next ? 'Comptes rendus dissimulés au JLD' : 'Comptes rendus visibles par le JLD',
+      'success'
+    );
+  }, [enquete.id, enquete.hideCRsFromJld, onUpdate, showToast]);
+
+  const effectiveReadOnly = readOnly || isJldUser;
+  const hideCRsForThisUser = isJldUser && !!enquete.hideCRsFromJld;
 
   // À l'ouverture (changement d'id d'enquête) : capturer les modifications non vues
   // PUIS marquer comme vu. La capture utilise l'enquête avant le mark, donc le
@@ -199,7 +231,7 @@ export const EnqueteDetailModal = ({
                     placeholder="Numéro d'enquête"
                   />
                 ) : (
-                  <DialogTitle className="text-base flex items-center gap-2">
+                  <DialogTitle className="text-base flex flex-wrap items-center gap-2">
                     Enquête N° {enquete.numero}
                     {enquete.overboardPins && enquete.overboardPins.length > 0 && (
                       enquete.overboardPins.map(pin => (
@@ -213,11 +245,37 @@ export const EnqueteDetailModal = ({
                         </Badge>
                       ))
                     )}
+                    {jldViewers.map(v => (
+                      <Badge
+                        key={v.username}
+                        variant="outline"
+                        className="text-[10px] py-0 px-1.5 bg-orange-50 text-orange-700 border-orange-200"
+                        title="Le juge des libertés et de la détention peut consulter cette enquête en lecture seule (lecture déclenchée par une autorisation ou prolongation enregistrée)"
+                      >
+                        <Gavel className="h-2.5 w-2.5 mr-1" />
+                        Visible par le JLD — {v.displayName.toUpperCase()}
+                      </Badge>
+                    ))}
                   </DialogTitle>
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {isEditing && onDelete && !readOnly && (
+                {/* Bascule "Dissimuler les CR au JLD" — visible uniquement si un JLD
+                    a accès à cette enquête, et masquée pour le JLD lui-même. */}
+                {!isJldUser && jldViewers.length > 0 && !isEditing && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`h-7 w-7 p-0 transition-colors ${
+                      enquete.hideCRsFromJld ? 'text-red-500 hover:text-red-600' : 'text-gray-400 hover:text-gray-600'
+                    }`}
+                    onClick={handleToggleHideCRsFromJld}
+                    title={enquete.hideCRsFromJld ? 'Rendre les CR visibles au JLD' : 'Dissimuler les CR au JLD'}
+                  >
+                    {enquete.hideCRsFromJld ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                )}
+                {isEditing && onDelete && !effectiveReadOnly && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -227,7 +285,7 @@ export const EnqueteDetailModal = ({
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 )}
-                {!readOnly && (
+                {!effectiveReadOnly && (
                   <Button onClick={onEdit} size="sm" className="mr-12">
                     {isEditing ? 'Terminer' : 'Modifier'}
                   </Button>
@@ -252,31 +310,35 @@ export const EnqueteDetailModal = ({
 
             <div className="grid grid-cols-2 gap-6">
               <div className="space-y-6">
-                <CompteRenduSection
-                  enquete={enquete}
-                  editingCR={editingCR}
-                  onAddCR={onAddCR}
-                  onUpdateCR={onUpdateCR}
-                  onDeleteCR={onDeleteCR}
-                  setEditingCR={setEditingCR}
-                  isEditing={isEditing}
-                  contentieuxId={contentieuxId}
-                />
+                {!hideCRsForThisUser && (
+                  <CompteRenduSection
+                    enquete={enquete}
+                    editingCR={editingCR}
+                    onAddCR={onAddCR}
+                    onUpdateCR={onUpdateCR}
+                    onDeleteCR={onDeleteCR}
+                    setEditingCR={setEditingCR}
+                    isEditing={isEditing && !isJldUser}
+                    contentieuxId={contentieuxId}
+                  />
+                )}
 
                 <MisEnCauseSection
                   enquete={enquete}
                   onUpdate={handleUpdateWithToast}
-                  isEditing={isEditing}
+                  isEditing={isEditing && !isJldUser}
                   allKnownMec={allKnownMec}
                 />
               </div>
 
               <div className="space-y-6">
-                <ToDoSection
-                  enquete={enquete}
-                  onUpdate={handleUpdateWithToast}
-                  isEditing={isEditing}
-                />
+                {!isJldUser && (
+                  <ToDoSection
+                    enquete={enquete}
+                    onUpdate={handleUpdateWithToast}
+                    isEditing={isEditing}
+                  />
+                )}
 
                 {/* Dates d'OP — supporte plusieurs phases d'interpellation */}
                 <div className="bg-gray-50 p-3 rounded-lg">
@@ -405,7 +467,7 @@ export const EnqueteDetailModal = ({
 
                 <SaisiesSection
                   enqueteId={enquete.id}
-                  readOnly={readOnly}
+                  readOnly={effectiveReadOnly}
                 />
 
                 <Button

@@ -12,6 +12,7 @@ import {
   ResolvedPermissions,
   UserPermissionsContext,
 } from '@/types/userTypes';
+import type { Enquete } from '@/types/interfaces';
 
 // ──────────────────────────────────────────────
 // DÉFINITION DES DROITS PAR RÔLE
@@ -30,6 +31,9 @@ const GLOBAL_ROLE_PERMISSIONS: Record<NonNullable<GlobalRole>, Set<PermissionAct
   ]),
   vice_proc: new Set([
     'view', 'view_stats', 'pin_overboard',  // lecture seule + overboard
+  ]),
+  jld: new Set([
+    'view',                                  // strictement lecture seule, aucune autre action
   ]),
 };
 
@@ -112,7 +116,8 @@ export function buildPermissionsContext(
     // Accessible si : rôle global transversal OU affecté à ce contentieux
     const hasGlobalAccess = user.globalRole === 'admin'
       || user.globalRole === 'pra'
-      || user.globalRole === 'vice_proc';
+      || user.globalRole === 'vice_proc'
+      || user.globalRole === 'jld';
     const hasDirectAccess = user.contentieux.some(c => c.contentieuxId === cId);
 
     if (hasGlobalAccess || hasDirectAccess) {
@@ -172,7 +177,45 @@ export function isAdmin(ctx: UserPermissionsContext): boolean {
 export function hasGlobalView(ctx: UserPermissionsContext): boolean {
   return ctx.user.globalRole === 'admin'
     || ctx.user.globalRole === 'pra'
-    || ctx.user.globalRole === 'vice_proc';
+    || ctx.user.globalRole === 'vice_proc'
+    || ctx.user.globalRole === 'jld';
+}
+
+/** Vérifie si l'utilisateur a le rôle global JLD (lecture seule + visibilité conditionnelle) */
+export function isJld(ctx: UserPermissionsContext | { user?: UserProfile | null } | null | undefined): boolean {
+  if (!ctx) return false;
+  const user = (ctx as { user?: UserProfile | null }).user;
+  return user?.globalRole === 'jld';
+}
+
+/**
+ * Détermine si un JLD est "intervenu" dans une enquête, c'est-à-dire
+ * si au moins un acte (géoloc ou écoute) a une autorisation demandée
+ * (en attente, validée, ou refusée), ou une prolongation enregistrée.
+ *
+ * Utilisé pour filtrer les enquêtes visibles par un utilisateur JLD :
+ * une enquête n'apparaît que si le JLD a été invoqué d'une manière ou d'une autre.
+ */
+export function hasJldInvolvement(enquete: Pick<Enquete, 'geolocalisations' | 'ecoutes'>): boolean {
+  const triggers: Array<string | undefined> = [
+    'autorisation_pending',
+    'prolongation_pending',
+    'pose_pending',
+    'en_cours',
+    'a_renouveler',
+    'termine',
+    'refuse',
+  ];
+  const actes = [
+    ...(enquete.geolocalisations || []),
+    ...(enquete.ecoutes || []),
+  ];
+  return actes.some(a => {
+    if (a.statut && triggers.includes(a.statut)) return true;
+    if (a.prolongationsHistory && a.prolongationsHistory.length > 0) return true;
+    if (a.prolongationData) return true;
+    return false;
+  });
 }
 
 /** Retourne le mode de sync pour un contentieux */

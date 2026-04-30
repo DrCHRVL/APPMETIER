@@ -257,6 +257,8 @@ export interface Enquete extends NewEnqueteData {
   overboardPins?: import('@/types/userTypes').OverboardPin[];
   // Dissimulation aux utilisateurs JA
   hiddenFromJA?: boolean;
+  // Dissimulation des comptes rendus à l'utilisateur JLD (l'enquête reste visible)
+  hideCRsFromJld?: boolean;
   // Co-saisine : partage de l'enquête avec d'autres contentieux
   sharedWith?: string[];        // IDs des contentieux avec lesquels l'enquête est partagée
   contentieuxOrigine?: string;  // ID du contentieux propriétaire (celui qui stocke l'enquête)
