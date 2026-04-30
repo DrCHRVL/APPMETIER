@@ -26,7 +26,6 @@ interface Props {
   canManage: boolean;
   isSubscribed: boolean;
   onToggleSubscription: () => void;
-  userHasAIR: boolean;
 }
 
 const getTypeLabel = (type: AlertRule['type']) => {
@@ -39,12 +38,6 @@ const getTypeLabel = (type: AlertRule['type']) => {
       return 'Âge enquête';
     case 'prolongation_pending':
       return 'Prolongation en attente';
-    case 'air_6_mois':
-      return 'Mesure AIR > 6 mois';
-    case 'air_12_mois':
-      return 'Mesure AIR > 12 mois';
-    case 'air_rdv_delai':
-      return 'Délai depuis RDV AIR';
     default:
       return type;
   }
@@ -65,15 +58,6 @@ const getDescription = (rule: AlertRule) => {
     case 'prolongation_pending':
       base = `Alerte pour relancer le JLD après ${rule.threshold} jours d'attente`;
       break;
-    case 'air_6_mois':
-      base = `Alerte lorsqu'une mesure AIR dépasse 6 mois`;
-      break;
-    case 'air_12_mois':
-      base = `Alerte lorsqu'une mesure AIR dépasse 12 mois`;
-      break;
-    case 'air_rdv_delai':
-      base = `Alerte lorsqu'aucun RDV procureur n'a eu lieu depuis ${rule.threshold} jours`;
-      break;
     default:
       base = rule.description || '';
   }
@@ -92,7 +76,6 @@ export const ContentieuxAlertsBubble: React.FC<Props> = ({
   canManage,
   isSubscribed,
   onToggleSubscription,
-  userHasAIR,
 }) => {
   const { rules, updateRule, deleteRule, duplicateRule } = useContentieuxAlertRules(contentieuxId);
 
@@ -157,7 +140,7 @@ export const ContentieuxAlertsBubble: React.FC<Props> = ({
   };
 
   const visibleRules = rules.filter(rule => {
-    if (!userHasAIR && ['air_6_mois', 'air_12_mois', 'air_rdv_delai'].includes(rule.type)) return false;
+    if (['air_6_mois', 'air_12_mois', 'air_rdv_delai'].includes(rule.type)) return false;
     return true;
   });
 
@@ -214,9 +197,6 @@ export const ContentieuxAlertsBubble: React.FC<Props> = ({
               <div>
                 <CardTitle className="text-base flex items-center gap-2">
                   {rule.name || getTypeLabel(rule.type)}
-                  {rule.isSystemRule && (
-                    <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded">Système</span>
-                  )}
                   {rule.recurrence?.enabled && (
                     <span className="text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded flex items-center gap-1">
                       <Clock className="h-3 w-3" />
@@ -380,13 +360,6 @@ export const ContentieuxAlertsBubble: React.FC<Props> = ({
                   <option value="cr_delay">Délai compte rendu</option>
                   <option value="acte_expiration">Expiration acte</option>
                   <option value="enquete_age">Âge enquête</option>
-                  {userHasAIR && (
-                    <>
-                      <option value="air_6_mois">Mesure AIR &gt; 6 mois</option>
-                      <option value="air_12_mois">Mesure AIR &gt; 12 mois</option>
-                      <option value="air_rdv_delai">Délai depuis RDV AIR</option>
-                    </>
-                  )}
                 </Select>
               </div>
 
