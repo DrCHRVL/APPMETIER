@@ -19,6 +19,7 @@ const GLOBAL_ROLE_LABELS: Record<NonNullable<GlobalRole>, string> = {
   admin: 'Administrateur',
   pra: 'PR / PRA',
   vice_proc: 'Vice-procureur',
+  jld: 'JLD',
 };
 
 const CONTENTIEUX_ROLE_LABELS: Record<ContentieuxRole, string> = {
@@ -60,6 +61,19 @@ const GLOBAL_ROLE_EXPLANATIONS: Record<Exclude<NonNullable<GlobalRole>, 'admin'>
     cannot: [
       'Créer, modifier ou supprimer des enquêtes',
       'Gérer les tags, alertes, sauvegardes',
+    ],
+  },
+  jld: {
+    short: "Juge des libertés et de la détention — accès en lecture seule, restreint aux enquêtes dans lesquelles le JLD est intervenu (autorisation ou prolongation).",
+    can: [
+      "Consulter les enquêtes où une autorisation ou prolongation JLD a été demandée",
+      'Consulter les alertes personnelles et de contentieux',
+    ],
+    cannot: [
+      "Voir une enquête tant qu'aucune demande JLD n'y a été enregistrée",
+      'Créer, modifier ou supprimer quoi que ce soit',
+      "Voir la section « À faire » des enquêtes",
+      'Voir les comptes rendus dissimulés au JLD par le magistrat',
     ],
   },
 };
@@ -227,7 +241,7 @@ export const MyProfileContent = () => {
               Vous avez tous les droits sur tous les contentieux ainsi que la gestion des utilisateurs et des modules.
             </p>
           </div>
-        ) : user.globalRole && user.globalRole !== 'admin' ? (
+        ) : user.globalRole ? (
           <div>
             <p className="text-sm text-gray-700">
               Vous disposez du rôle <span className="font-semibold">{GLOBAL_ROLE_LABELS[user.globalRole]}</span>.

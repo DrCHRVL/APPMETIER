@@ -5,7 +5,7 @@
 // ──────────────────────────────────────────────
 
 /** Rôle global (transversal, indépendant d'un contentieux) */
-export type GlobalRole = 'admin' | 'pra' | 'vice_proc' | null;
+export type GlobalRole = 'admin' | 'pra' | 'vice_proc' | 'jld' | null;
 
 /** Rôle au sein d'un contentieux */
 export type ContentieuxRole = 'magistrat' | 'ja';
