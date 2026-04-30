@@ -58,13 +58,16 @@ export const AudienceResultModal = ({
   const [dateAudience, setDateAudience] = useState(initialData?.dateAudience || defaultDate || '');
   const [selectedInfraction, setSelectedInfraction] = useState(initialData?.typeInfraction || '');
 
+  // Date de défèrement issue de l'audience en attente (commune, à pré-remplir sur chaque condamné déféré)
+  const pendingDateDefere = initialData?.dateDefere || '';
+
   // Re-hydrater les pendingCondamnations depuis initialData (résultats partiels)
   const buildInitialCondamnations = (): ExtendedCondamnationData[] => {
     const finalized = (initialData?.condamnations || []).map(c => ({
       ...c,
       isPending: false,
       dateAudiencePending: c.dateAudiencePending || '',
-      dateDefere: c.dateDefere || ''
+      dateDefere: c.dateDefere || (c.defere ? pendingDateDefere : '')
     }));
     const pending = (initialData?.pendingCondamnations || []).map(p => ({
       nom: p.nom,
@@ -76,7 +79,7 @@ export const AudienceResultModal = ({
       interdictionGerer: false,
       typeAudience: 'CRPC-Def' as const,
       defere: true,
-      dateDefere: '',
+      dateDefere: pendingDateDefere,
       isPending: true,
       dateAudiencePending: p.dateAudiencePending || ''
     }));
@@ -157,7 +160,7 @@ export const AudienceResultModal = ({
         interdictionGerer: false,
         typeAudience: 'CRPC-Def' as const,
         defere: true,
-        dateDefere: '',
+        dateDefere: pendingDateDefere,
         isPending: false,
         dateAudiencePending: ''
       };
