@@ -9,7 +9,6 @@ import {
   Background,
   Controls,
   Handle,
-  MiniMap,
   Position,
   ReactFlow,
   ReactFlowProvider,
@@ -243,15 +242,6 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     >
       <Background gap={24} size={1} color="#e2e8f0" />
       <Controls showInteractive={false} />
-      <MiniMap
-        zoomable
-        pannable
-        nodeColor={(n) => {
-          if (n.type === 'mec') return '#475569';
-          const data = n.data as DossierNodeData | undefined;
-          return data?.color || CTX_FALLBACK_COLOR;
-        }}
-      />
     </ReactFlow>
   );
 };
