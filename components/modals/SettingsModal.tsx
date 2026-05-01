@@ -1,15 +1,18 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
-import { ContentieuxId } from '@/types/userTypes';
+import { ContentieuxId, ModuleId } from '@/types/userTypes';
 
 // ──────────────────────────────────────────────
 // TYPES
 // ──────────────────────────────────────────────
 
-type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'a_propos' | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
+type SettingsTab =
+  | 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'a_propos'
+  | 'module_instruction'
+  | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -18,6 +21,8 @@ interface SettingsModalProps {
   tagsContent: React.ReactNode;
   sauvegardesContent: React.ReactNode;
   monProfilContent?: React.ReactNode;
+  /** Panneau du module instruction (visible si l'utilisateur a le module activé) */
+  moduleInstructionContent?: React.ReactNode;
   adminUsersContent?: React.ReactNode;
   adminContentieuxContent?: React.ReactNode;
   adminPathsContent?: React.ReactNode;
@@ -37,28 +42,44 @@ interface SettingsModalProps {
 // TAB DEFINITIONS
 // ──────────────────────────────────────────────
 
+type TabSection = 'general' | 'modules' | 'admin';
+
 interface TabDef {
   id: SettingsTab;
   label: string;
   icon: React.ElementType;
+  section: TabSection;
+  /** Réservé aux admins (admin = isAdmin()) */
   isAdmin?: boolean;
-  isSeparator?: boolean;
+  /** Module requis pour voir cet onglet (l'utilisateur doit l'avoir activé) */
+  requiresModule?: ModuleId;
 }
 
 const TABS: TabDef[] = [
-  { id: 'alertes',        label: 'Alertes',       icon: Bell },
-  { id: 'tags',           label: 'Tags',          icon: Tags },
-  { id: 'sauvegardes',    label: 'Sauvegardes',   icon: Save },
-  { id: 'mon_profil',     label: 'Mon profil',    icon: User },
-  { id: 'a_propos',       label: 'À propos',      icon: Info },
-  // Séparateur admin
-  { id: 'admin_users',       label: 'Utilisateurs',     icon: Users,         isAdmin: true, isSeparator: true },
-  { id: 'admin_contentieux', label: 'Contentieux',      icon: Layers,        isAdmin: true },
-  { id: 'admin_paths',       label: 'Chemins réseau',   icon: Network,       isAdmin: true },
-  { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      isAdmin: true },
-  { id: 'admin_tag_history', label: 'Historique tags',   icon: ClipboardList, isAdmin: true },
-  { id: 'admin_update',      label: 'Mise à jour',      icon: Upload,        isAdmin: true },
+  // Général
+  { id: 'alertes',     label: 'Alertes',     icon: Bell, section: 'general' },
+  { id: 'tags',        label: 'Tags',        icon: Tags, section: 'general' },
+  { id: 'sauvegardes', label: 'Sauvegardes', icon: Save, section: 'general' },
+  { id: 'mon_profil',  label: 'Mon profil',  icon: User, section: 'general' },
+  { id: 'a_propos',    label: 'À propos',    icon: Info, section: 'general' },
+
+  // Modules (visibles selon les modules activés pour l'utilisateur)
+  { id: 'module_instruction', label: 'Instruction', icon: Gavel, section: 'modules', requiresModule: 'instructions' },
+
+  // Administration (admin uniquement)
+  { id: 'admin_users',       label: 'Utilisateurs',     icon: Users,         section: 'admin', isAdmin: true },
+  { id: 'admin_contentieux', label: 'Contentieux',      icon: Layers,        section: 'admin', isAdmin: true },
+  { id: 'admin_paths',       label: 'Chemins réseau',   icon: Network,       section: 'admin', isAdmin: true },
+  { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      section: 'admin', isAdmin: true },
+  { id: 'admin_tag_history', label: 'Historique tags',  icon: ClipboardList, section: 'admin', isAdmin: true },
+  { id: 'admin_update',      label: 'Mise à jour',      icon: Upload,        section: 'admin', isAdmin: true },
 ];
+
+const SECTION_LABELS: Record<TabSection, string> = {
+  general: 'Général',
+  modules: 'Modules',
+  admin:   'Administration',
+};
 
 // Couleurs contentieux
 const CTX_TAB_COLORS: Record<string, { active: string; dot: string }> = {
@@ -78,6 +99,7 @@ export const SettingsModal = ({
   tagsContent,
   sauvegardesContent,
   monProfilContent,
+  moduleInstructionContent,
   adminUsersContent,
   adminContentieuxContent,
   adminPathsContent,
@@ -90,7 +112,7 @@ export const SettingsModal = ({
   pendingUsersCount = 0,
 }: SettingsModalProps) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('alertes');
-  const { isAdmin: checkIsAdmin, accessibleContentieux } = useUser();
+  const { isAdmin: checkIsAdmin, accessibleContentieux, hasModule } = useUser();
   const userIsAdmin = checkIsAdmin();
 
   // Contentieux sélectionné dans les paramètres (indépendant du contentieux actif)
@@ -100,39 +122,43 @@ export const SettingsModal = ({
 
   if (!isOpen) return null;
 
-  const visibleTabs = TABS.filter(t => !t.isAdmin || userIsAdmin);
+  // Filtrer les onglets selon les droits + modules activés
+  const visibleTabs = TABS.filter(t => {
+    if (t.isAdmin && !userIsAdmin) return false;
+    if (t.requiresModule && !hasModule(t.requiresModule)) return false;
+    return true;
+  });
+
+  // Regrouper par section pour insérer les séparateurs
+  const sectionOrder: TabSection[] = ['general', 'modules', 'admin'];
+  const tabsBySection: Record<TabSection, TabDef[]> = { general: [], modules: [], admin: [] };
+  for (const t of visibleTabs) tabsBySection[t.section].push(t);
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'alertes':
-        return alertesContent;
-      case 'tags':
-        return tagsContent;
-      case 'sauvegardes':
-        return sauvegardesContent;
-      case 'mon_profil':
-        return monProfilContent;
-      case 'a_propos':
-        return aProposContent;
-      case 'admin_users':
-        return adminUsersContent;
-      case 'admin_contentieux':
-        return adminContentieuxContent;
-      case 'admin_paths':
-        return adminPathsContent;
-      case 'admin_dashboard':
-        return adminDashboardContent;
-      case 'admin_tag_history':
-        return adminTagHistoryContent;
-      case 'admin_update':
-        return adminUpdateContent;
-      default:
-        return null;
+      case 'alertes':            return alertesContent;
+      case 'tags':               return tagsContent;
+      case 'sauvegardes':        return sauvegardesContent;
+      case 'mon_profil':         return monProfilContent;
+      case 'a_propos':           return aProposContent;
+      case 'module_instruction': return moduleInstructionContent;
+      case 'admin_users':        return adminUsersContent;
+      case 'admin_contentieux':  return adminContentieuxContent;
+      case 'admin_paths':        return adminPathsContent;
+      case 'admin_dashboard':    return adminDashboardContent;
+      case 'admin_tag_history':  return adminTagHistoryContent;
+      case 'admin_update':       return adminUpdateContent;
+      default:                   return null;
     }
   };
 
-  // Onglets contentieux (horizontal en haut)
-  const showContentieuxTabs = accessibleContentieux.length > 1 && !activeTab.startsWith('admin_') && activeTab !== 'a_propos' && activeTab !== 'mon_profil';
+  // Onglets contentieux (horizontal en haut) — pas pour les onglets admin/module/profil/à propos
+  const showContentieuxTabs =
+    accessibleContentieux.length > 1
+    && !activeTab.startsWith('admin_')
+    && !activeTab.startsWith('module_')
+    && activeTab !== 'a_propos'
+    && activeTab !== 'mon_profil';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -187,38 +213,44 @@ export const SettingsModal = ({
         <div className="flex flex-1 overflow-hidden">
           {/* Tabs sidebar */}
           <div className="w-52 border-r border-gray-200 py-3 flex flex-col bg-gray-50">
-            {visibleTabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-
+            {sectionOrder.map((section, sectionIdx) => {
+              const tabs = tabsBySection[section];
+              if (tabs.length === 0) return null;
+              const showSeparator = sectionIdx > 0;
               return (
-                <React.Fragment key={tab.id}>
-                  {/* Séparateur admin */}
-                  {tab.isSeparator && (
+                <React.Fragment key={section}>
+                  {showSeparator && (
                     <div className="mx-3 my-2 border-t border-gray-300">
                       <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-2 px-3">
-                        Administration
+                        {SECTION_LABELS[section]}
                       </span>
                     </div>
                   )}
-                  <button
-                    className={`
-                      flex items-center gap-2.5 px-4 py-2 mx-2 rounded-lg text-sm transition-all
-                      ${isActive
-                        ? 'bg-white shadow-sm font-semibold text-gray-800 border border-gray-200'
-                        : 'text-gray-600 hover:bg-white/60 hover:text-gray-800'
-                      }
-                    `}
-                    onClick={() => setActiveTab(tab.id)}
-                  >
-                    <Icon className={`h-4 w-4 ${isActive ? 'text-emerald-600' : 'text-gray-400'}`} />
-                    <span>{tab.label}</span>
-                    {tab.id === 'admin_users' && pendingUsersCount > 0 && (
-                      <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full">
-                        {pendingUsersCount}
-                      </span>
-                    )}
-                  </button>
+                  {tabs.map(tab => {
+                    const Icon = tab.icon;
+                    const isActive = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        className={`
+                          flex items-center gap-2.5 px-4 py-2 mx-2 rounded-lg text-sm transition-all
+                          ${isActive
+                            ? 'bg-white shadow-sm font-semibold text-gray-800 border border-gray-200'
+                            : 'text-gray-600 hover:bg-white/60 hover:text-gray-800'
+                          }
+                        `}
+                        onClick={() => setActiveTab(tab.id)}
+                      >
+                        <Icon className={`h-4 w-4 ${isActive ? 'text-emerald-600' : 'text-gray-400'}`} />
+                        <span>{tab.label}</span>
+                        {tab.id === 'admin_users' && pendingUsersCount > 0 && (
+                          <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full">
+                            {pendingUsersCount}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </React.Fragment>
               );
             })}
@@ -227,7 +259,7 @@ export const SettingsModal = ({
             <div className="mt-auto px-4 pt-3 border-t border-gray-200 mx-2">
               <p className="text-[10px] leading-tight text-gray-400 font-medium uppercase tracking-wide">APP METIER</p>
               <p className="text-[10px] leading-tight text-gray-400 mt-0.5">
-                {"Conçu par A. CHEVALIER \u2014 Parquet d'Amiens"}
+                {"Conçu par A. CHEVALIER — Parquet d'Amiens"}
               </p>
               <p className="text-[9px] leading-tight text-red-400 font-semibold mt-1">NE PAS DIFFUSER</p>
             </div>

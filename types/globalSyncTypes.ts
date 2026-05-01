@@ -12,6 +12,7 @@ import { TagRequest } from '@/utils/tagRequestManager';
 import { ResultatAudience } from './audienceTypes';
 import { AlertRule, AlertValidations, VisualAlertRule, AlerteInstruction } from './interfaces';
 import { ContentieuxId } from './userTypes';
+import type { InstructionAlertRule } from './instructionTypes';
 
 export interface GlobalSyncMetadata {
   version: number;
@@ -126,6 +127,20 @@ export interface UserPreferencesFile extends GlobalSyncMetadata {
     seeded?: boolean;
     alerts?: AlerteInstruction[];
   };
+  /**
+   * Règles d'alertes du module instruction (tweakables par utilisateur :
+   * seuils en jours, activation, priorité, couleur). Un seed initial est
+   * fait à partir de DEFAULT_INSTRUCTION_ALERT_RULES.
+   */
+  instructionAlertRules?: {
+    seeded?: boolean;
+    rules?: InstructionAlertRule[];
+  };
+  /**
+   * Subscription au rappel hebdomadaire pour le module instruction.
+   * true = inclure les instructions dans le récap hebdo.
+   */
+  instructionWeeklyRecapSubscribed?: boolean;
 }
 
 /**

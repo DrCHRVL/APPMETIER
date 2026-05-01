@@ -1,260 +1,381 @@
 // hooks/useInstructionAlerts.ts
 //
-// Alertes d'instruction (DP expiration, DML retard, délai 175) personnelles.
-// Stockage par utilisateur dans la prefs (`instructionAlerts.alerts`) ; seed
-// initial depuis l'ancienne clé locale `instruction_alerts`.
+// Génère et gère les alertes du module instruction à partir des règles
+// configurables (useInstructionAlertRules) et des dossiers chargés.
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { EnqueteInstruction, AlerteInstruction } from '@/types/interfaces';
-import { calculateDPAlert } from '@/utils/instructionUtils';
-import { ElectronBridge } from '@/utils/electronBridge';
-import { useUserPreferences } from './useUserPreferences';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import throttle from 'lodash/throttle';
+import { useUserPreferences } from './useUserPreferences';
+import { useInstructionAlertRules } from './useInstructionAlertRules';
+import {
+  getMoisRestantsAvantMaxLegal,
+  motivationRenforceeRequise,
+} from '@/utils/instructionUtils';
+import type { AlerteInstruction } from '@/types/interfaces';
+import type {
+  DossierInstruction,
+  InstructionAlertRule,
+  InstructionAlertTrigger,
+} from '@/types/instructionTypes';
 
-const ALERT_CHECK_INTERVAL = 10 * 60 * 1000; // 10 minutes
-const THROTTLE_DELAY = 2000; // 2 secondes
-const LEGACY_STORAGE_KEY = 'instruction_alerts';
+const ALERT_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
+const THROTTLE_DELAY = 2000;
 
-export const useInstructionAlerts = (instructions: EnqueteInstruction[]) => {
-  const {
-    instructionAlerts: instructionAlertsPrefs,
-    isLoading: prefsLoading,
-    setInstructionAlerts: setInstructionAlertsPrefs,
-    seedInstructionAlerts,
-  } = useUserPreferences();
+const dayDiff = (target: Date, today: Date) =>
+  Math.ceil((target.getTime() - today.getTime()) / 86400000);
 
-  const seedAttemptedRef = useRef(false);
+/**
+ * Génère la liste des alertes "actives" pour le set de dossiers donné, en
+ * appliquant les règles tweakables (seuils + activation).
+ */
+const generateAlerts = (
+  dossiers: DossierInstruction[],
+  rules: InstructionAlertRule[],
+): AlerteInstruction[] => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
-  // Seed initial depuis l'ancienne clé locale.
-  useEffect(() => {
-    if (prefsLoading) return;
-    if (instructionAlertsPrefs?.seeded) return;
-    if (seedAttemptedRef.current) return;
-    seedAttemptedRef.current = true;
-    (async () => {
-      try {
-        const legacy = await ElectronBridge.getData<AlerteInstruction[]>(LEGACY_STORAGE_KEY, []);
-        await seedInstructionAlerts(Array.isArray(legacy) ? legacy : []);
-      } catch (error) {
-        console.error('Seed instructionAlerts échoué:', error);
-        seedAttemptedRef.current = false;
-      }
-    })();
-  }, [prefsLoading, instructionAlertsPrefs?.seeded, seedInstructionAlerts]);
+  const ruleMap = new Map<InstructionAlertTrigger, InstructionAlertRule>();
+  for (const r of rules) if (r.enabled) ruleMap.set(r.trigger, r);
 
-  const instructionAlerts = useMemo<AlerteInstruction[]>(
-    () => instructionAlertsPrefs?.alerts || [],
-    [instructionAlertsPrefs?.alerts],
-  );
+  const out: AlerteInstruction[] = [];
+  let id = Date.now();
+  const push = (a: Omit<AlerteInstruction, 'id'>) => {
+    out.push({ ...a, id: id++ });
+  };
 
-  const generateInstructionAlerts = useCallback(() => {
-    const alerts: AlerteInstruction[] = [];
-    let alertId = Date.now();
-
-    instructions.forEach(instruction => {
-      if (instruction.mesuresSurete?.dp) {
-        const dpAlert = calculateDPAlert(instruction.mesuresSurete.dp.dateFin);
-
-        if (dpAlert.alerteActive) {
-          alerts.push({
-            id: alertId++,
-            instructionId: instruction.id,
-            enqueteId: instruction.id,
-            cabinetId: instruction.cabinet,
-            type: 'dp_expiration',
-            alerteType: 'dp_expiration',
-            message: `DP expire dans ${dpAlert.joursRestants} jour${dpAlert.joursRestants > 1 ? 's' : ''}`,
+  for (const dossier of dossiers) {
+    // Dossier dormant
+    const dormantRule = ruleMap.get('dossier_dormant');
+    if (dormantRule) {
+      const lastEvent = lastActivityDate(dossier);
+      if (lastEvent) {
+        const daysSince = Math.floor((today.getTime() - lastEvent.getTime()) / 86400000);
+        if (daysSince >= dormantRule.seuil) {
+          push({
+            instructionId: dossier.id,
+            enqueteId: dossier.id,
+            cabinetId: dossier.cabinetId,
+            type: 'dossier_dormant',
+            alerteType: 'dossier_dormant',
+            message: `Dossier sans activité depuis ${daysSince} j`,
             createdAt: new Date().toISOString(),
             status: 'active',
-            deadline: instruction.mesuresSurete.dp.dateFin
           });
         }
       }
+    }
 
-      instruction.dmls?.forEach(dml => {
-        if (dml.statut === 'en_attente') {
-          const now = new Date();
-          const echeance = new Date(dml.dateEcheance);
+    // Vérification périodique due
+    const verifRule = ruleMap.get('verif_periodique_due');
+    if (verifRule) {
+      const lastVerif = dossier.verifications
+        .map(v => new Date(v.date))
+        .sort((a, b) => b.getTime() - a.getTime())[0];
+      const daysSince = lastVerif
+        ? Math.floor((today.getTime() - lastVerif.getTime()) / 86400000)
+        : Infinity;
+      if (daysSince >= verifRule.seuil) {
+        push({
+          instructionId: dossier.id,
+          enqueteId: dossier.id,
+          cabinetId: dossier.cabinetId,
+          type: 'verif_periodique_due',
+          alerteType: 'verif_periodique_due',
+          message: lastVerif
+            ? `Vérification due (dernière il y a ${daysSince} j)`
+            : `Aucune vérification jamais faite`,
+          createdAt: new Date().toISOString(),
+          status: 'active',
+        });
+      }
+    }
 
-          if (echeance < now) {
-            const joursRetard = Math.ceil((now.getTime() - echeance.getTime()) / (1000 * 60 * 60 * 24));
-
-            alerts.push({
-              id: alertId++,
-              instructionId: instruction.id,
-              enqueteId: instruction.id,
-              cabinetId: instruction.cabinet,
-              type: 'dml_retard',
-              alerteType: 'dml_retard',
-              message: `DML en retard de ${joursRetard} jour${joursRetard > 1 ? 's' : ''} (déposée le ${new Date(dml.dateDepot).toLocaleDateString()})`,
+    // Par MEX
+    for (const mex of dossier.misEnExamen) {
+      // DP fin proche / échue
+      if (mex.mesureSurete.type === 'detenu') {
+        const periode = [...mex.mesureSurete.periodes].sort(
+          (a, b) => new Date(b.dateDebut).getTime() - new Date(a.dateDebut).getTime(),
+        )[0];
+        if (periode?.dateFin) {
+          const fin = new Date(periode.dateFin);
+          fin.setHours(0, 0, 0, 0);
+          const days = dayDiff(fin, today);
+          const echueRule = ruleMap.get('dp_fin_echue');
+          const procheRule = ruleMap.get('dp_fin_proche');
+          if (days < 0 && echueRule) {
+            push({
+              instructionId: dossier.id,
+              enqueteId: dossier.id,
+              cabinetId: dossier.cabinetId,
+              type: 'dp_fin_echue',
+              alerteType: 'dp_fin_echue',
+              message: `Période DP de ${mex.nom} échue depuis ${Math.abs(days)} j`,
               createdAt: new Date().toISOString(),
               status: 'active',
-              deadline: dml.dateEcheance,
-              acteId: dml.id
+              deadline: periode.dateFin,
+              acteId: mex.id,
+            });
+          } else if (days >= 0 && procheRule && days <= procheRule.seuil) {
+            push({
+              instructionId: dossier.id,
+              enqueteId: dossier.id,
+              cabinetId: dossier.cabinetId,
+              type: 'dp_fin_proche',
+              alerteType: 'dp_fin_proche',
+              message: `Fin DP de ${mex.nom} dans ${days} j`,
+              createdAt: new Date().toISOString(),
+              status: 'active',
+              deadline: periode.dateFin,
+              acteId: mex.id,
             });
           }
         }
-      });
 
-      if (instruction.etatReglement === 'instruction') {
-        const hasDetention = instruction.mesuresSurete?.dp !== undefined;
-        const delaiMax = hasDetention ? 30 : 90;
-
-        const joursDepuis = Math.ceil(
-          (new Date().getTime() - new Date(instruction.dateDebut).getTime()) / (1000 * 60 * 60 * 24)
-        );
-
-        if (joursDepuis >= delaiMax - 7) {
-          const joursRestants = delaiMax - joursDepuis;
-
-          alerts.push({
-            id: alertId++,
-            instructionId: instruction.id,
-            enqueteId: instruction.id,
-            cabinetId: instruction.cabinet,
-            type: 'delai_175',
-            alerteType: 'delai_175',
-            message: joursRestants > 0
-              ? `Délai 175 CPP dans ${joursRestants} jour${joursRestants > 1 ? 's' : ''} ${hasDetention ? '(détenu)' : '(libre)'}`
-              : `Délai 175 CPP dépassé de ${Math.abs(joursRestants)} jour${Math.abs(joursRestants) > 1 ? 's' : ''} ${hasDetention ? '(détenu)' : '(libre)'}`,
+        // Motivation renforcée requise
+        const motivRule = ruleMap.get('motivation_renforcee_due');
+        if (motivRule && motivationRenforceeRequise(mex)) {
+          push({
+            instructionId: dossier.id,
+            enqueteId: dossier.id,
+            cabinetId: dossier.cabinetId,
+            type: 'motivation_renforcee_due',
+            alerteType: 'motivation_renforcee_due',
+            message: `${mex.nom} : motivation renforcée DP requise (>8 mois)`,
             createdAt: new Date().toISOString(),
             status: 'active',
-            deadline: new Date(new Date(instruction.dateDebut).getTime() + (delaiMax * 24 * 60 * 60 * 1000)).toISOString()
+            acteId: mex.id,
+          });
+        }
+
+        // Durée légale max atteinte
+        const maxRule = ruleMap.get('dp_max_legal_atteinte');
+        if (maxRule) {
+          const restant = getMoisRestantsAvantMaxLegal(mex);
+          if (restant !== null && restant <= 0) {
+            push({
+              instructionId: dossier.id,
+              enqueteId: dossier.id,
+              cabinetId: dossier.cabinetId,
+              type: 'dp_max_legal_atteinte',
+              alerteType: 'dp_max_legal_atteinte',
+              message: `${mex.nom} : durée légale max DP atteinte`,
+              createdAt: new Date().toISOString(),
+              status: 'active',
+              acteId: mex.id,
+            });
+          }
+        }
+      }
+
+      // DML retard / échéance proche
+      for (const dml of mex.dmls) {
+        if (dml.statut !== 'en_attente') continue;
+        const ech = new Date(dml.dateEcheance);
+        ech.setHours(0, 0, 0, 0);
+        const days = dayDiff(ech, today);
+        const retardRule = ruleMap.get('dml_retard');
+        const procheRule = ruleMap.get('dml_echeance_proche');
+        if (days < 0 && retardRule) {
+          push({
+            instructionId: dossier.id,
+            enqueteId: dossier.id,
+            cabinetId: dossier.cabinetId,
+            type: 'dml_retard',
+            alerteType: 'dml_retard',
+            message: `DML de ${mex.nom} en retard de ${Math.abs(days)} j`,
+            createdAt: new Date().toISOString(),
+            status: 'active',
+            deadline: dml.dateEcheance,
+            acteId: dml.id,
+          });
+        } else if (days >= 0 && procheRule && days <= procheRule.seuil) {
+          push({
+            instructionId: dossier.id,
+            enqueteId: dossier.id,
+            cabinetId: dossier.cabinetId,
+            type: 'dml_echeance_proche',
+            alerteType: 'dml_echeance_proche',
+            message: `Échéance DML de ${mex.nom} dans ${days} j`,
+            createdAt: new Date().toISOString(),
+            status: 'active',
+            deadline: dml.dateEcheance,
+            acteId: dml.id,
           });
         }
       }
-    });
+    }
 
-    return alerts;
-  }, [instructions]);
-
-  const updateInstructionAlerts = useCallback(
-    throttle(async () => {
-      if (prefsLoading || !instructionAlertsPrefs?.seeded) return;
-
-      try {
-        const existingAlerts: AlerteInstruction[] = instructionAlerts;
-        const existingAlertsMap = new Map<string, AlerteInstruction>(
-          existingAlerts.map(alert => [
-            `${alert.instructionId}-${alert.type}-${alert.acteId || ''}`,
-            alert,
-          ] as [string, AlerteInstruction])
-        );
-
-        const newAlerts = generateInstructionAlerts();
-
-        const alertsWithState = newAlerts.map(alert => {
-          const key = `${alert.instructionId}-${alert.type}-${alert.acteId || ''}`;
-          const existing = existingAlertsMap.get(key);
-
-          if (existing?.status === 'snoozed') {
-            const snoozeEndDate = new Date(existing.snoozedUntil!);
-            if (new Date() < snoozeEndDate) {
-              return {
-                ...alert,
-                status: 'snoozed',
-                snoozedUntil: existing.snoozedUntil,
-                snoozedCount: existing.snoozedCount
-              };
-            }
-          }
-
-          return alert;
-        });
-
-        await setInstructionAlertsPrefs(alertsWithState);
-      } catch (error) {
-        console.error('Erreur lors de la mise à jour des alertes instruction:', error);
+    // Débats JLD à venir
+    const jldRule = ruleMap.get('debat_jld_proche');
+    if (jldRule) {
+      for (const debat of dossier.debatsJLD) {
+        const date = new Date(debat.date);
+        const dayOnly = new Date(date);
+        dayOnly.setHours(0, 0, 0, 0);
+        const days = dayDiff(dayOnly, today);
+        if (days >= 0 && days <= jldRule.seuil) {
+          push({
+            instructionId: dossier.id,
+            enqueteId: dossier.id,
+            cabinetId: dossier.cabinetId,
+            type: 'debat_jld_proche',
+            alerteType: 'debat_jld_proche',
+            message: `Débat JLD dans ${days} j${debat.heureExacte ? ` à ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''}`,
+            createdAt: new Date().toISOString(),
+            status: 'active',
+            deadline: debat.date,
+            acteId: debat.id,
+          });
+        }
       }
-    }, THROTTLE_DELAY),
-    [generateInstructionAlerts, prefsLoading, instructionAlertsPrefs?.seeded, instructionAlerts, setInstructionAlertsPrefs]
+    }
+
+    // OP du JI à venir
+    const opRule = ruleMap.get('op_ji_proche');
+    if (opRule) {
+      for (const op of dossier.ops) {
+        const date = new Date(op.date);
+        date.setHours(0, 0, 0, 0);
+        const days = dayDiff(date, today);
+        if (days >= 0 && days <= opRule.seuil) {
+          push({
+            instructionId: dossier.id,
+            enqueteId: dossier.id,
+            cabinetId: dossier.cabinetId,
+            type: 'op_ji_proche',
+            alerteType: 'op_ji_proche',
+            message: `OP du JI dans ${days} j`,
+            createdAt: new Date().toISOString(),
+            status: 'active',
+            deadline: op.date,
+            acteId: op.id,
+          });
+        }
+      }
+    }
+  }
+
+  return out;
+};
+
+/**
+ * Date du dernier événement enregistré sur un dossier (note, vérif, OP, JLD,
+ * DML, période DP, dateMiseAJour). Utile pour détecter un dossier dormant.
+ */
+const lastActivityDate = (d: DossierInstruction): Date | null => {
+  const candidates: number[] = [];
+  if (d.dateMiseAJour) candidates.push(new Date(d.dateMiseAJour).getTime());
+  for (const n of d.notesPerso) candidates.push(new Date(n.date).getTime());
+  for (const v of d.verifications) candidates.push(new Date(v.date).getTime());
+  for (const op of d.ops) candidates.push(new Date(op.date).getTime());
+  for (const j of d.debatsJLD) candidates.push(new Date(j.date).getTime());
+  for (const mex of d.misEnExamen) {
+    for (const dml of mex.dmls) candidates.push(new Date(dml.dateDepot).getTime());
+    if (mex.mesureSurete.type === 'detenu') {
+      for (const p of mex.mesureSurete.periodes) candidates.push(new Date(p.dateDebut).getTime());
+    }
+  }
+  if (candidates.length === 0) return null;
+  return new Date(Math.max(...candidates));
+};
+
+export const useInstructionAlerts = (dossiers: DossierInstruction[]) => {
+  const {
+    instructionAlerts: prefs,
+    isLoading: prefsLoading,
+    setInstructionAlerts,
+  } = useUserPreferences();
+  const { rules, isLoading: rulesLoading } = useInstructionAlertRules();
+
+  const allAlerts = useMemo<AlerteInstruction[]>(
+    () => prefs?.alerts || [],
+    [prefs?.alerts],
   );
 
-  useEffect(() => {
-    if (!prefsLoading && instructionAlertsPrefs?.seeded) {
-      const initialTimeout = setTimeout(() => {
-        updateInstructionAlerts();
-      }, 1000);
+  const refreshAlerts = useCallback(
+    throttle(async () => {
+      if (prefsLoading || rulesLoading) return;
 
-      const interval = setInterval(updateInstructionAlerts, ALERT_CHECK_INTERVAL);
-
-      return () => {
-        clearTimeout(initialTimeout);
-        clearInterval(interval);
-        updateInstructionAlerts.cancel();
-      };
-    }
-  }, [updateInstructionAlerts, prefsLoading, instructionAlertsPrefs?.seeded]);
-
-  const handleValidateInstructionAlert = useCallback(
-    throttle(async (alertId: number | number[]) => {
-      const alertsToValidate = Array.isArray(alertId)
-        ? instructionAlerts.filter(a => alertId.includes(a.id))
-        : instructionAlerts.filter(a => a.id === alertId);
-
-      // Conserver le marqueur de validation per-user pour ne pas régénérer.
-      // Conservé sous l'ancienne clé local-only (par machine) car la
-      // régénération se fait par poste ; pas critique de migrer.
-      for (const alert of alertsToValidate) {
-        const validationKey = `instruction_alert_validated_${alert.instructionId}_${alert.type}_${alert.acteId || 'none'}`;
-        await ElectronBridge.setData(validationKey, {
-          validatedAt: new Date().toISOString(),
-          alertType: alert.type
-        });
+      const generated = generateAlerts(dossiers, rules);
+      const existingMap = new Map<string, AlerteInstruction>();
+      for (const a of allAlerts) {
+        const key = `${a.instructionId}-${a.type}-${a.acteId || ''}`;
+        existingMap.set(key, a);
       }
 
-      const updatedAlerts = instructionAlerts.filter(alert => {
-        return !(Array.isArray(alertId) ? alertId.includes(alert.id) : alert.id === alertId);
+      const merged = generated.map(a => {
+        const key = `${a.instructionId}-${a.type}-${a.acteId || ''}`;
+        const existing = existingMap.get(key);
+        if (existing?.status === 'snoozed' && existing.snoozedUntil) {
+          if (new Date() < new Date(existing.snoozedUntil)) {
+            return {
+              ...a,
+              status: 'snoozed' as const,
+              snoozedUntil: existing.snoozedUntil,
+              snoozedCount: existing.snoozedCount,
+            };
+          }
+        }
+        return a;
       });
 
-      await setInstructionAlertsPrefs(updatedAlerts);
+      await setInstructionAlerts(merged);
     }, THROTTLE_DELAY),
-    [instructionAlerts, setInstructionAlertsPrefs]
+    [dossiers, rules, prefsLoading, rulesLoading, allAlerts, setInstructionAlerts],
   );
 
-  const handleSnoozeInstructionAlert = useCallback(
-    throttle(async (alertId: number) => {
-      const snoozeDate = new Date();
-      snoozeDate.setDate(snoozeDate.getDate() + 7);
+  // Refresh initial + interval
+  useEffect(() => {
+    if (prefsLoading || rulesLoading) return;
+    const t0 = setTimeout(() => refreshAlerts(), 800);
+    const interval = setInterval(refreshAlerts, ALERT_REFRESH_INTERVAL);
+    return () => {
+      clearTimeout(t0);
+      clearInterval(interval);
+      refreshAlerts.cancel();
+    };
+  }, [refreshAlerts, prefsLoading, rulesLoading]);
 
-      const updatedAlerts = instructionAlerts.map(alert =>
-        alert.id === alertId
+  const handleValidateAlert = useCallback(
+    async (alertId: number | number[]) => {
+      const ids = Array.isArray(alertId) ? alertId : [alertId];
+      await setInstructionAlerts(allAlerts.filter(a => !ids.includes(a.id)));
+    },
+    [allAlerts, setInstructionAlerts],
+  );
+
+  const handleSnoozeAlert = useCallback(
+    async (alertId: number, days = 7) => {
+      const snoozedUntil = new Date();
+      snoozedUntil.setDate(snoozedUntil.getDate() + days);
+      const next = allAlerts.map(a =>
+        a.id === alertId
           ? {
-              ...alert,
-              status: 'snoozed',
-              snoozedUntil: snoozeDate.toISOString(),
-              snoozedCount: (alert.snoozedCount || 0) + 1
+              ...a,
+              status: 'snoozed' as const,
+              snoozedUntil: snoozedUntil.toISOString(),
+              snoozedCount: (a.snoozedCount || 0) + 1,
             }
-          : alert
+          : a,
       );
-
-      await setInstructionAlertsPrefs(updatedAlerts);
-    }, THROTTLE_DELAY),
-    [instructionAlerts, setInstructionAlertsPrefs]
+      await setInstructionAlerts(next);
+    },
+    [allAlerts, setInstructionAlerts],
   );
 
-  const activeInstructionAlerts = useMemo(() =>
-    instructionAlerts.filter(alert => alert.status === 'active'),
-    [instructionAlerts]
+  const activeAlerts = useMemo(
+    () => allAlerts.filter(a => a.status === 'active'),
+    [allAlerts],
   );
-
-  const alertStatsByCabinet = useMemo(() => {
-    const stats = { '1': 0, '2': 0, '3': 0, '4': 0 };
-    activeInstructionAlerts.forEach(alert => {
-      if (alert.cabinetId in stats) {
-        stats[alert.cabinetId as keyof typeof stats]++;
-      }
-    });
-    return stats;
-  }, [activeInstructionAlerts]);
 
   return {
-    instructionAlerts: activeInstructionAlerts,
-    allInstructionAlerts: instructionAlerts,
-    isLoading: prefsLoading,
-    alertStatsByCabinet,
-    updateInstructionAlerts,
-    handleValidateInstructionAlert,
-    handleSnoozeInstructionAlert
+    instructionAlerts: activeAlerts,
+    allInstructionAlerts: allAlerts,
+    isLoading: prefsLoading || rulesLoading,
+    updateInstructionAlerts: refreshAlerts,
+    handleValidateInstructionAlert: handleValidateAlert,
+    handleSnoozeInstructionAlert: handleSnoozeAlert,
   };
 };

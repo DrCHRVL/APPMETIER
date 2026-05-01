@@ -45,6 +45,7 @@ export const APP_CONFIG = {
   STORAGE_KEYS: {
     ENQUETES: 'enquetes',
     INSTRUCTIONS: 'instructions', // CLÉ SÉPARÉE POUR LES INSTRUCTIONS
+    INSTRUCTION_CONFIG: 'instructionConfig', // Cabinets et autres réglages du module instruction
     ALERT_RULES: 'alertRules',
     CUSTOM_TAGS: 'customTags',
     SAVE_HISTORY: 'saveHistory',
