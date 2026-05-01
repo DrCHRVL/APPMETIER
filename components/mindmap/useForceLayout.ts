@@ -29,8 +29,8 @@ interface SimNode extends SimulationNodeDatum {
 const ITERATIONS = 300;
 const CENTER_X = 0;
 const CENTER_Y = 0;
-const LINK_DISTANCE = 140;
-const CHARGE_STRENGTH = -350;
+const LINK_DISTANCE = 180;
+const CHARGE_STRENGTH = -550;
 
 function radiusOf(node: GraphNode): number {
   if (node.type === 'mec') {
@@ -40,6 +40,17 @@ function radiusOf(node: GraphNode): number {
   // dossier : 24 → 56 selon nb MEC (capé à 8)
   const cap = Math.min(node.nbMec, 8);
   return 24 + Math.round((cap / 8) * 32);
+}
+
+// Rayon utilisé pour la détection de collision : pour un dossier (rectangle),
+// on prend la demi-diagonale de la boîte réelle, sinon les dossiers larges
+// se chevauchent puisque d3-force les considère comme des cercles.
+function collisionRadiusOf(node: GraphNode): number {
+  const r = radiusOf(node);
+  if (node.type === 'mec') return r;
+  const width = Math.max(120, r * 4);
+  const height = Math.max(48, r * 1.6);
+  return Math.sqrt(width * width + height * height) / 2;
 }
 
 /**
@@ -56,7 +67,7 @@ export function useForceLayout(
 
     const simNodes: SimNode[] = nodes.map(n => ({
       id: n.id,
-      radius: radiusOf(n),
+      radius: collisionRadiusOf(n),
     }));
 
     const simLinks: SimulationLinkDatum<SimNode>[] = edges.map(e => ({
@@ -74,7 +85,7 @@ export function useForceLayout(
       )
       .force('charge', forceManyBody<SimNode>().strength(CHARGE_STRENGTH))
       .force('center', forceCenter(CENTER_X, CENTER_Y))
-      .force('collide', forceCollide<SimNode>().radius(d => d.radius + 8).strength(0.9))
+      .force('collide', forceCollide<SimNode>().radius(d => d.radius + 12).strength(1))
       .stop();
 
     for (let i = 0; i < ITERATIONS; i++) sim.tick();

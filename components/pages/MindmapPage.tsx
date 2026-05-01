@@ -44,7 +44,10 @@ interface BreadcrumbEntry {
   type: 'mec' | 'dossier';
 }
 
-const FOCUS_DEPTH = 1;
+// Profondeur 2 : pour un MEC focus, on voit ses dossiers (saut 1) + les autres
+// MEC liés à ces dossiers (saut 2). Pour un dossier focus, ses MEC + les autres
+// dossiers où ces MEC apparaissent. C'est la lecture "réseau" attendue.
+const FOCUS_DEPTH = 2;
 
 // ──────────────────────────────────────────────
 // COMPOSANT

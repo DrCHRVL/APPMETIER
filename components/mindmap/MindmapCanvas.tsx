@@ -8,7 +8,9 @@ import React, { useCallback, useMemo } from 'react';
 import {
   Background,
   Controls,
+  Handle,
   MiniMap,
+  Position,
   ReactFlow,
   ReactFlowProvider,
   type Edge,
@@ -47,6 +49,17 @@ type DossierNodeData = DossierNode & {
   contentieuxLabel: string;
 };
 
+const HIDDEN_HANDLE_STYLE: React.CSSProperties = {
+  opacity: 0,
+  width: 1,
+  height: 1,
+  minWidth: 0,
+  minHeight: 0,
+  border: 'none',
+  background: 'transparent',
+  pointerEvents: 'none',
+};
+
 const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
   const { displayName, dossierIds, focused, radius, recent } = data;
   const size = radius * 2;
@@ -63,6 +76,8 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
         }
       `}
     >
+      <Handle type="target" position={Position.Top} style={HIDDEN_HANDLE_STYLE} isConnectable={false} />
+      <Handle type="source" position={Position.Bottom} style={HIDDEN_HANDLE_STYLE} isConnectable={false} />
       <div
         className="absolute inset-0 rounded-full"
         style={{
@@ -96,7 +111,7 @@ const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
         borderColor: color,
       }}
       className={`
-        flex flex-col items-center justify-center rounded-lg border-2
+        relative flex flex-col items-center justify-center rounded-lg border-2
         text-center select-none transition-all duration-150
         ${focused
           ? 'ring-4 ring-yellow-300 shadow-lg scale-105'
@@ -105,6 +120,8 @@ const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
         ${archived ? 'opacity-60' : ''}
       `}
     >
+      <Handle type="target" position={Position.Top} style={HIDDEN_HANDLE_STYLE} isConnectable={false} />
+      <Handle type="source" position={Position.Bottom} style={HIDDEN_HANDLE_STYLE} isConnectable={false} />
       <span
         className="font-mono font-semibold leading-tight"
         style={{ color, fontSize: Math.max(11, Math.min(14, radius / 3)) }}
@@ -181,17 +198,18 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   }, [nodes, positions, focusedId, ctxColorById]);
 
   const rfEdges: Edge[] = useMemo(() => {
-    return edges.map(e => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      style: {
-        stroke: focusedId && (e.source === focusedId || e.target === focusedId)
-          ? '#facc15'
-          : '#cbd5e1',
-        strokeWidth: focusedId && (e.source === focusedId || e.target === focusedId) ? 2 : 1,
-      },
-    }));
+    return edges.map(e => {
+      const highlighted = focusedId && (e.source === focusedId || e.target === focusedId);
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        style: {
+          stroke: highlighted ? '#facc15' : '#94a3b8',
+          strokeWidth: highlighted ? 2.5 : 1.5,
+        },
+      };
+    });
   }, [edges, focusedId]);
 
   const handleClick: NodeMouseHandler = useCallback(
