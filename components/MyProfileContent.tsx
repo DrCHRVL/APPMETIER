@@ -30,6 +30,7 @@ const CONTENTIEUX_ROLE_LABELS: Record<ContentieuxRole, string> = {
 const MODULE_LABELS: Record<ModuleId, string> = {
   air: 'Suivi AIR',
   instructions: 'Instructions judiciaires',
+  mindmap: 'Cartographie mis en cause',
 };
 
 // Explications publiques (admin intentionnellement absent — reste confidentiel)

@@ -32,6 +32,8 @@ import { hasJldInvolvement } from '@/utils/permissions';
 import { PermanencePage } from '@/components/pages/PermanencePage';
 import { ArchivePage } from '@/components/pages/ArchivePage';
 import { AIRPage } from '@/components/pages/AIRPage';
+import { MindmapPage } from '@/components/pages/MindmapPage';
+import type { EnqueteWithContext } from '@/utils/mindmapGraph';
 import { useTags } from '@/hooks/useTags';
 import { useSections } from '@/hooks/useSections';
 import { useUserServiceOrganization } from '@/hooks/useUserServiceOrganization';
@@ -743,6 +745,22 @@ function AppContent() {
     [enquetes]
   );
 
+  // Sources pour le module Mindmap : toutes enquêtes accessibles + instructions
+  const mindmapSources = useMemo<EnqueteWithContext[]>(() => {
+    const out: EnqueteWithContext[] = [];
+    for (const [ctxId, list] of overboardData) {
+      for (const e of list) out.push({ enquete: e, contentieuxId: ctxId });
+    }
+    for (const inst of instructions) {
+      out.push({
+        enquete: inst,
+        contentieuxId: 'instructions',
+        misEnExamen: inst.misEnExamen,
+      });
+    }
+    return out;
+  }, [overboardData, instructions]);
+
   // Recherche dans le contenu des documents (async, avec cache)
   const { documentMatchIds, isSearchingDocs } = useDocumentSearch(enquetes, debouncedSearchTerm);
 
@@ -1241,6 +1259,35 @@ return (
 
           {baseView === 'stats' && (
             <StatsPage enquetes={enquetes} contentieuxId={currentContentieuxId} />
+          )}
+
+          {/* 🗺️ Mindmap (cartographie MEC ↔ dossiers, transversal) */}
+          {baseView === 'mindmap' && (
+            <MindmapPage
+              sources={mindmapSources}
+              contentieuxDefs={[
+                ...contentieuxDefs,
+                {
+                  id: 'instructions',
+                  label: 'Instructions judiciaires',
+                  color: '#7c3aed',
+                  serverFolder: '',
+                  order: 9999,
+                },
+              ]}
+              onOpenEnquete={(enquete, contentieuxId) => {
+                if (contentieuxId === 'instructions') {
+                  setSelectedInstruction(enquete as any);
+                  return;
+                }
+                if (contentieuxId && contentieuxId !== activeContentieux) {
+                  setActiveContentieux(contentieuxId);
+                  setCurrentView(`enquetes_${contentieuxId}`);
+                }
+                setSelectedEnquete(enquete);
+                setIsEditing(false);
+              }}
+            />
           )}
 
           {/* 🆕 Overboard (vue transversale) */}
