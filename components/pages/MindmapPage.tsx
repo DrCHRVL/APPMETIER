@@ -1,19 +1,17 @@
 // components/pages/MindmapPage.tsx
-// Module Cartographie : graphe biparti MEC ↔ Dossier.
-// 3 modes :
-//   - top10  : entrée par les MEC les plus mentionnés (cartes cliquables)
-//   - focus  : sous-graphe centré sur un nœud, à N sauts
-//   - overview : graphe complet (tous contentieux accessibles)
+// Module Cartographie : graphe biparti MEC ↔ Dossier en vue unique.
+// La barre de recherche et le panneau "Top 10" recentrent la caméra sur
+// le nœud choisi sans changer de graphe — l'utilisateur garde son
+// contexte visuel à tout moment.
 
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { Network, Search, ArrowLeft, ChevronRight, Home, Users, Layers } from 'lucide-react';
+import { Network, Search, Trophy, X } from 'lucide-react';
 import type { ContentieuxDefinition } from '@/types/userTypes';
 import type { Enquete } from '@/types/interfaces';
 import {
   buildMindmapGraph,
-  extractFocusSubgraph,
   getTopMec,
   type DossierNode,
   type EnqueteWithContext,
@@ -36,19 +34,6 @@ interface MindmapPageProps {
   onOpenEnquete?: (enquete: Enquete, contentieuxId: string) => void;
 }
 
-type Mode = 'top10' | 'focus' | 'overview';
-
-interface BreadcrumbEntry {
-  id: string;
-  label: string;
-  type: 'mec' | 'dossier';
-}
-
-// Profondeur 2 : pour un MEC focus, on voit ses dossiers (saut 1) + les autres
-// MEC liés à ces dossiers (saut 2). Pour un dossier focus, ses MEC + les autres
-// dossiers où ces MEC apparaissent. C'est la lecture "réseau" attendue.
-const FOCUS_DEPTH = 2;
-
 // ──────────────────────────────────────────────
 // COMPOSANT
 // ──────────────────────────────────────────────
@@ -58,26 +43,17 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   contentieuxDefs,
   onOpenEnquete,
 }) => {
-  const [mode, setMode] = useState<Mode>('top10');
-  const [focusedId, setFocusedId] = useState<string | undefined>();
+  const [selectedId, setSelectedId] = useState<string | undefined>();
   const [sidePanelMecId, setSidePanelMecId] = useState<string | undefined>();
-  const [breadcrumb, setBreadcrumb] = useState<BreadcrumbEntry[]>([]);
   const [search, setSearch] = useState('');
+  const [showTop10, setShowTop10] = useState(false);
+  // centerRequest change → MindmapCanvas anime la caméra vers le nœud.
+  // Le compteur force le re-trigger même si on cible deux fois le même id.
+  const [centerRequest, setCenterRequest] = useState<{ id: string; seq: number } | undefined>();
 
-  // Construction du graphe global (cache memo sur sources)
   const graph = useMemo(() => buildMindmapGraph(sources), [sources]);
   const top10 = useMemo(() => getTopMec(graph, 10), [graph]);
 
-  // Sous-graphe affiché selon le mode
-  const visibleGraph = useMemo(() => {
-    if (mode === 'overview') return graph;
-    if (mode === 'focus' && focusedId) {
-      return extractFocusSubgraph(graph, focusedId, FOCUS_DEPTH);
-    }
-    return null;
-  }, [mode, focusedId, graph]);
-
-  // Recherche : filtre les MEC + dossiers par nom/numéro
   const searchResults = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (q.length < 2) return [] as GraphNode[];
@@ -100,42 +76,15 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   // ACTIONS
   // ────────────────────────────────────────────
 
-  const goToFocus = (node: GraphNode) => {
-    setFocusedId(node.id);
-    setMode('focus');
-    setSidePanelMecId(undefined);
-    setBreadcrumb(prev => {
-      // Évite les doublons consécutifs
-      if (prev.length > 0 && prev[prev.length - 1].id === node.id) return prev;
-      const label = node.type === 'mec' ? node.displayName : node.numero;
-      return [...prev, { id: node.id, label, type: node.type }];
-    });
-  };
-
-  const goToOverview = () => {
-    setMode('overview');
-    setFocusedId(undefined);
-    setSidePanelMecId(undefined);
-  };
-
-  const goHome = () => {
-    setMode('top10');
-    setFocusedId(undefined);
-    setSidePanelMecId(undefined);
-    setBreadcrumb([]);
-  };
-
-  const goToBreadcrumb = (index: number) => {
-    const entry = breadcrumb[index];
-    if (!entry) return;
-    setBreadcrumb(breadcrumb.slice(0, index + 1));
-    setFocusedId(entry.id);
-    setMode('focus');
-    setSidePanelMecId(undefined);
+  const focusOnNode = (node: GraphNode) => {
+    setSelectedId(node.id);
+    setCenterRequest(prev => ({ id: node.id, seq: (prev?.seq ?? 0) + 1 }));
+    if (node.type === 'mec') setSidePanelMecId(node.id);
   };
 
   const handleNodeClick = (node: GraphNode) => {
-    goToFocus(node);
+    setSelectedId(node.id);
+    if (node.type === 'mec') setSidePanelMecId(node.id);
   };
 
   const handleNodeDoubleClick = (node: GraphNode) => {
@@ -143,7 +92,6 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       setSidePanelMecId(node.id);
       return;
     }
-    // dossier : retrouver l'enquête source et déclencher le modal
     const src = sources.find(
       s => s.enquete.id === node.enqueteId && s.contentieuxId === node.contentieuxId,
     );
@@ -152,11 +100,11 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
 
   const handleSearchSelect = (node: GraphNode) => {
     setSearch('');
-    goToFocus(node);
+    focusOnNode(node);
   };
 
   const handleDossierFromPanel = (dossier: DossierNode) => {
-    goToFocus(dossier);
+    focusOnNode(dossier);
   };
 
   const handleDossierOpenFromPanel = (dossier: DossierNode) => {
@@ -181,19 +129,6 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         <div className="flex items-center gap-2 mr-2">
           <Network className="h-5 w-5 text-slate-600" />
           <h1 className="text-lg font-semibold text-slate-900">Cartographie</h1>
-        </div>
-
-        {/* Mode toggle */}
-        <div className="flex bg-slate-100 rounded-lg p-1 gap-1">
-          <ModeButton active={mode === 'top10'} onClick={goHome} icon={<Home className="h-3.5 w-3.5" />} label="Top 10" />
-          <ModeButton
-            active={mode === 'focus'}
-            onClick={() => focusedId && setMode('focus')}
-            icon={<Users className="h-3.5 w-3.5" />}
-            label="Focus"
-            disabled={!focusedId}
-          />
-          <ModeButton active={mode === 'overview'} onClick={goToOverview} icon={<Layers className="h-3.5 w-3.5" />} label="Vue d'ensemble" />
         </div>
 
         {/* Search */}
@@ -227,96 +162,76 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           )}
         </div>
 
-        {/* Stats sur la droite */}
+        {/* Top 10 toggle */}
+        <button
+          onClick={() => setShowTop10(s => !s)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+            showTop10
+              ? 'bg-slate-900 text-white border-slate-900'
+              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          <Trophy className="h-3.5 w-3.5" />
+          Top 10
+        </button>
+
         <div className="text-xs text-slate-500 hidden md:block">
           {graph.mecById.size} MEC · {graph.dossierById.size} dossiers
         </div>
       </div>
 
-      {/* BREADCRUMB (mode focus) */}
-      {mode === 'focus' && breadcrumb.length > 0 && (
-        <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center gap-1 text-sm overflow-x-auto">
-          <button
-            onClick={goHome}
-            className="flex items-center gap-1 text-slate-500 hover:text-slate-900 px-2 py-1 rounded hover:bg-slate-100"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Top 10
-          </button>
-          {breadcrumb.map((entry, i) => (
-            <React.Fragment key={`${entry.id}-${i}`}>
-              <ChevronRight className="h-3.5 w-3.5 text-slate-300 flex-shrink-0" />
-              <button
-                onClick={() => goToBreadcrumb(i)}
-                className={`px-2 py-1 rounded whitespace-nowrap ${
-                  i === breadcrumb.length - 1
-                    ? 'text-slate-900 font-semibold bg-slate-100'
-                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-              >
-                <span className="text-[10px] uppercase mr-1 text-slate-400">
-                  {entry.type === 'mec' ? 'MEC' : 'Dossier'}
-                </span>
-                {entry.label}
-              </button>
-            </React.Fragment>
-          ))}
-        </div>
-      )}
-
       {/* CONTENU */}
       <div className="flex-1 relative overflow-hidden">
-        {mode === 'top10' && (
-          <Top10View
-            top={top10}
-            graph={graph}
-            onSelect={goToFocus}
-            onShowAll={goToOverview}
+        {graph.nodes.length === 0 && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 gap-2">
+            <Network className="h-10 w-10" />
+            <div className="text-sm">Aucun mis en cause à afficher pour le moment.</div>
+            <div className="text-xs text-slate-400 max-w-md text-center">
+              La cartographie se peuplera dès qu'au moins un dossier accessible
+              contiendra un mis en cause.
+            </div>
+          </div>
+        )}
+
+        {graph.nodes.length > 0 && (
+          <MindmapCanvas
+            nodes={graph.nodes}
+            edges={graph.edges}
+            contentieuxDefs={contentieuxDefs}
+            focusedId={selectedId}
+            centerRequest={centerRequest}
+            onNodeClick={handleNodeClick}
+            onNodeDoubleClick={handleNodeDoubleClick}
           />
         )}
 
-        {(mode === 'focus' || mode === 'overview') && visibleGraph && visibleGraph.nodes.length > 0 && (
-          <>
-            <MindmapCanvas
-              nodes={visibleGraph.nodes}
-              edges={visibleGraph.edges}
-              contentieuxDefs={contentieuxDefs}
-              focusedId={focusedId}
-              onNodeClick={handleNodeClick}
-              onNodeDoubleClick={handleNodeDoubleClick}
-            />
-            {sidePanelMec && (
-              <MindmapSidePanel
-                mec={sidePanelMec}
-                graph={graph}
-                contentieuxDefs={contentieuxDefs}
-                onClose={() => setSidePanelMecId(undefined)}
-                onDossierClick={handleDossierFromPanel}
-                onDossierOpen={handleDossierOpenFromPanel}
-              />
-            )}
-          </>
+        {sidePanelMec && (
+          <MindmapSidePanel
+            mec={sidePanelMec}
+            graph={graph}
+            contentieuxDefs={contentieuxDefs}
+            onClose={() => setSidePanelMecId(undefined)}
+            onDossierClick={handleDossierFromPanel}
+            onDossierOpen={handleDossierOpenFromPanel}
+          />
         )}
 
-        {(mode === 'focus' || mode === 'overview') && (!visibleGraph || visibleGraph.nodes.length === 0) && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 gap-2">
-            <Network className="h-10 w-10" />
-            <div className="text-sm">Aucun nœud à afficher.</div>
-            <button
-              onClick={goHome}
-              className="text-xs text-slate-600 hover:text-slate-900 underline"
-            >
-              Retour au Top 10
-            </button>
-          </div>
+        {showTop10 && (
+          <Top10Panel
+            top={top10}
+            onClose={() => setShowTop10(false)}
+            onSelect={(mec) => {
+              focusOnNode(mec);
+            }}
+          />
         )}
       </div>
 
       {/* HINT bas de page */}
       <div className="border-t border-slate-200 bg-white px-4 py-2 text-[11px] text-slate-500 flex items-center gap-4 flex-wrap">
-        <span><kbd className="px-1 bg-slate-100 rounded border border-slate-200">Clic</kbd> recentrer</span>
-        <span><kbd className="px-1 bg-slate-100 rounded border border-slate-200">Double-clic MEC</kbd> fiche détaillée</span>
+        <span><kbd className="px-1 bg-slate-100 rounded border border-slate-200">Clic MEC</kbd> fiche détaillée</span>
         <span><kbd className="px-1 bg-slate-100 rounded border border-slate-200">Double-clic dossier</kbd> ouvrir l'enquête</span>
+        <span><kbd className="px-1 bg-slate-100 rounded border border-slate-200">Recherche</kbd> centre la caméra sur le nœud</span>
         <span><kbd className="px-1 bg-slate-100 rounded border border-slate-200">Molette</kbd> zoom</span>
       </div>
     </div>
@@ -324,126 +239,73 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
 };
 
 // ──────────────────────────────────────────────
-// SOUS-COMPOSANTS
+// SOUS-COMPOSANT : Panneau Top 10 flottant
 // ──────────────────────────────────────────────
 
-const ModeButton: React.FC<{
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-  disabled?: boolean;
-}> = ({ active, onClick, icon, label, disabled }) => (
-  <button
-    onClick={onClick}
-    disabled={disabled}
-    className={`
-      flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors
-      ${active
-        ? 'bg-white text-slate-900 shadow-sm'
-        : disabled
-          ? 'text-slate-400 cursor-not-allowed'
-          : 'text-slate-600 hover:text-slate-900'
-      }
-    `}
-  >
-    {icon}
-    {label}
-  </button>
-);
-
-const Top10View: React.FC<{
+const Top10Panel: React.FC<{
   top: MecNode[];
-  graph: ReturnType<typeof buildMindmapGraph>;
   onSelect: (mec: MecNode) => void;
-  onShowAll: () => void;
-}> = ({ top, graph, onSelect, onShowAll }) => {
-  if (top.length === 0) {
-    return (
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 gap-2 p-6">
-        <Network className="h-10 w-10" />
-        <div className="text-sm">Aucun mis en cause à afficher pour le moment.</div>
-        <div className="text-xs text-slate-400 max-w-md text-center">
-          La cartographie se peuplera dès qu'au moins un dossier accessible
-          contiendra un mis en cause.
-        </div>
-      </div>
-    );
-  }
-  const maxScore = top[0].rawScore || 1;
+  onClose: () => void;
+}> = ({ top, onSelect, onClose }) => {
+  const maxScore = top[0]?.rawScore || 1;
   return (
-    <div className="absolute inset-0 overflow-y-auto p-6">
-      <div className="max-w-5xl mx-auto">
-        <div className="mb-6 flex items-end justify-between flex-wrap gap-3">
-          <div>
-            <h2 className="text-xl font-semibold text-slate-900">Top 10 mis en cause</h2>
-            <p className="text-sm text-slate-500 mt-1">
-              Triés par score composite (mentions, mises en examen, chefs, activité récente).
-              Cliquez pour explorer leur réseau.
-            </p>
-          </div>
-          <button
-            onClick={onShowAll}
-            className="flex items-center gap-1.5 text-sm text-slate-700 hover:text-slate-900 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50"
-          >
-            <Layers className="h-4 w-4" />
-            Voir le réseau complet
-          </button>
+    <div className="absolute top-3 left-3 z-20 w-72 max-h-[calc(100%-1.5rem)] flex flex-col bg-white border border-slate-200 rounded-lg shadow-lg">
+      <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Trophy className="h-4 w-4 text-slate-600" />
+          <span className="text-sm font-semibold text-slate-900">Top 10 mis en cause</span>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {top.map((mec, i) => {
+        <button
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-700 p-1 rounded hover:bg-slate-100"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-2">
+        {top.length === 0 ? (
+          <div className="text-xs text-slate-400 px-2 py-3 text-center">
+            Aucun mis en cause indexé.
+          </div>
+        ) : (
+          top.map((mec, i) => {
             const ratio = mec.rawScore / maxScore;
             const dossiers = mec.dossierIds.length;
             return (
               <button
                 key={mec.id}
                 onClick={() => onSelect(mec)}
-                className="text-left bg-white border border-slate-200 rounded-lg p-4 hover:border-slate-400 hover:shadow-md transition-all group"
+                className="w-full text-left px-2 py-2 rounded hover:bg-slate-50 group"
               >
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-400 w-5">#{i + 1}</span>
-                    <span
-                      className="font-semibold text-slate-900 group-hover:text-slate-950 truncate"
-                      title={mec.displayName}
-                    >
-                      {mec.displayName}
-                    </span>
-                  </div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-bold text-slate-400 w-4">#{i + 1}</span>
+                  <span
+                    className="text-sm font-medium text-slate-900 truncate flex-1"
+                    title={mec.displayName}
+                  >
+                    {mec.displayName}
+                  </span>
                   {mec.recent && (
-                    <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded flex-shrink-0">
+                    <span className="text-[9px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 rounded flex-shrink-0">
                       récent
                     </span>
                   )}
                 </div>
-
-                {/* Barre de score */}
-                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden mb-3">
+                <div className="h-1 bg-slate-100 rounded-full overflow-hidden mb-1 ml-6">
                   <div
                     className="h-full bg-gradient-to-r from-slate-600 to-slate-800 rounded-full"
                     style={{ width: `${Math.max(8, ratio * 100)}%` }}
                   />
                 </div>
-
-                <div className="flex items-center gap-3 text-xs text-slate-600">
-                  <span><strong className="text-slate-900">{dossiers}</strong> dossier{dossiers > 1 ? 's' : ''}</span>
-                  {mec.nbMisEnExamen > 0 && (
-                    <span><strong className="text-slate-900">{mec.nbMisEnExamen}</strong> ME</span>
-                  )}
-                  {mec.nbChefs > 0 && (
-                    <span><strong className="text-slate-900">{mec.nbChefs}</strong> chef{mec.nbChefs > 1 ? 's' : ''}</span>
-                  )}
-                  <span className="ml-auto text-slate-400">score {mec.rawScore.toFixed(1)}</span>
+                <div className="flex items-center gap-2 text-[10px] text-slate-500 ml-6">
+                  <span>{dossiers} dossier{dossiers > 1 ? 's' : ''}</span>
+                  {mec.nbMisEnExamen > 0 && <span>· {mec.nbMisEnExamen} ME</span>}
+                  {mec.nbChefs > 0 && <span>· {mec.nbChefs} chef{mec.nbChefs > 1 ? 's' : ''}</span>}
                 </div>
               </button>
             );
-          })}
-        </div>
-
-        <div className="mt-8 pt-6 border-t border-slate-200 text-xs text-slate-500">
-          {graph.mecById.size} mis en cause au total · {graph.dossierById.size} dossiers indexés
-        </div>
+          })
+        )}
       </div>
     </div>
   );

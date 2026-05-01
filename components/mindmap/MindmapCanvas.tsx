@@ -1,10 +1,11 @@
 // components/mindmap/MindmapCanvas.tsx
-// Canvas react-flow rendant le sous-graphe (focus ou vue d'ensemble).
-// Layout figé via d3-force, drag/zoom/pan gérés par react-flow.
+// Canvas react-flow rendant le graphe complet. Layout figé via d3-force,
+// drag/zoom/pan gérés par react-flow. La prop centerRequest permet à
+// l'extérieur de demander un recentrage animé sur un nœud précis.
 
 'use client';
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import {
   Background,
   Controls,
@@ -12,6 +13,7 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  useReactFlow,
   type Edge,
   type Node,
   type NodeMouseHandler,
@@ -30,8 +32,11 @@ interface MindmapCanvasProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
   contentieuxDefs: ContentieuxDefinition[];
-  /** ID du nœud sous focus (highlight visuel) */
+  /** ID du nœud sélectionné (highlight visuel) */
   focusedId?: string;
+  /** Demande de recentrage de la caméra. Le seq sert à re-déclencher l'animation
+   *  même si on cible deux fois de suite le même nœud. */
+  centerRequest?: { id: string; seq: number };
   onNodeClick?: (node: GraphNode) => void;
   onNodeDoubleClick?: (node: GraphNode) => void;
 }
@@ -150,10 +155,19 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   edges,
   contentieuxDefs,
   focusedId,
+  centerRequest,
   onNodeClick,
   onNodeDoubleClick,
 }) => {
   const positions = useForceLayout(nodes, edges);
+  const { setCenter } = useReactFlow();
+
+  useEffect(() => {
+    if (!centerRequest) return;
+    const pos = positions.get(centerRequest.id);
+    if (!pos) return;
+    setCenter(pos.x, pos.y, { zoom: 1.2, duration: 600 });
+  }, [centerRequest, positions, setCenter]);
 
   const ctxColorById = useMemo(() => {
     const m = new Map<ContentieuxId, { color: string; label: string }>();
