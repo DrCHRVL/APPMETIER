@@ -35,6 +35,8 @@ export interface MecNode {
   variants: string[];
   /** Dossiers où ce MEC apparaît */
   dossierIds: string[];
+  /** Contentieux distincts dans lesquels il apparaît (signal de transversalité) */
+  contentieuxIds: ContentieuxId[];
   /** Nombre de mises en examen formelles (via misEnExamen sur les instructions) */
   nbMisEnExamen: number;
   /** Total des chefs d'inculpation cumulés */
@@ -110,16 +112,22 @@ export function normalizeMecName(name: string): string {
 // ──────────────────────────────────────────────
 // SCORE COMPOSITE
 // ──────────────────────────────────────────────
+//
+// Formule "réseau" : récompense la transversalité (apparaître dans
+// plusieurs contentieux distincts pèse plus qu'être ME plusieurs fois
+// sur le même dossier).
 
-const SCORE_DOSSIER = 1;
-const SCORE_MISE_EN_EXAMEN = 3;
-const SCORE_CHEF = 0.5;
+const SCORE_DOSSIER = 2;
+const SCORE_CONTENTIEUX = 3;
+const SCORE_MISE_EN_EXAMEN = 1;
+const SCORE_CHEF = 0.3;
 const RECENT_MULTIPLIER = 1.2;
 const RECENT_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
 
 function computeRawScore(mec: Omit<MecNode, 'score' | 'rawScore' | 'type'>): number {
   let raw =
     mec.dossierIds.length * SCORE_DOSSIER +
+    mec.contentieuxIds.length * SCORE_CONTENTIEUX +
     mec.nbMisEnExamen * SCORE_MISE_EN_EXAMEN +
     mec.nbChefs * SCORE_CHEF;
   if (mec.recent) raw *= RECENT_MULTIPLIER;
@@ -200,6 +208,7 @@ export function buildMindmapGraph(sources: EnqueteWithContext[]): MindmapGraph {
           displayName: mec.nom,
           variants: [],
           dossierIds: [],
+          contentieuxIds: [],
           nbMisEnExamen: 0,
           nbChefs: 0,
           recent: false,
@@ -212,6 +221,9 @@ export function buildMindmapGraph(sources: EnqueteWithContext[]): MindmapGraph {
 
       if (!mecNode.dossierIds.includes(dossierId)) {
         mecNode.dossierIds.push(dossierId);
+      }
+      if (!mecNode.contentieuxIds.includes(contentieuxId)) {
+        mecNode.contentieuxIds.push(contentieuxId);
       }
       if (mec.statut && !mecNode.statuts.includes(mec.statut)) {
         mecNode.statuts.push(mec.statut);
@@ -338,8 +350,31 @@ export function extractFocusSubgraph(
 // TOP 10
 // ──────────────────────────────────────────────
 
-export function getTopMec(graph: MindmapGraph, limit: number = 10): MecNode[] {
-  return [...graph.mecById.values()]
-    .sort((a, b) => b.rawScore - a.rawScore)
-    .slice(0, limit);
+/**
+ * Retourne les MEC à afficher dans le Top 10. Les MEC épinglés sont
+ * toujours présents en tête (triés entre eux par score), suivis des
+ * autres MEC complétant jusqu'à `limit`. Si plus de `limit` MEC sont
+ * épinglés, ils sont tous retournés (la liste peut donc dépasser
+ * `limit`).
+ */
+export function getTopMec(
+  graph: MindmapGraph,
+  limit: number = 10,
+  pinnedIds?: Iterable<string>,
+): MecNode[] {
+  const pinned = pinnedIds ? new Set(pinnedIds) : null;
+  const all = [...graph.mecById.values()].sort((a, b) => b.rawScore - a.rawScore);
+
+  if (!pinned || pinned.size === 0) {
+    return all.slice(0, limit);
+  }
+
+  const pinnedMecs: MecNode[] = [];
+  const others: MecNode[] = [];
+  for (const mec of all) {
+    if (pinned.has(mec.id)) pinnedMecs.push(mec);
+    else others.push(mec);
+  }
+  const fillCount = Math.max(0, limit - pinnedMecs.length);
+  return [...pinnedMecs, ...others.slice(0, fillCount)];
 }

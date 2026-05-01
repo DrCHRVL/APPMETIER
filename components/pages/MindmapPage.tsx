@@ -6,8 +6,8 @@
 
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { Network, Search, Trophy, X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Network, Pin, PinOff, Search, Trophy, X } from 'lucide-react';
 import type { ContentieuxDefinition } from '@/types/userTypes';
 import type { Enquete } from '@/types/interfaces';
 import {
@@ -18,6 +18,7 @@ import {
   type GraphNode,
   type MecNode,
 } from '@/utils/mindmapGraph';
+import { useCartographieOverlayStore } from '@/stores/useCartographieOverlayStore';
 import { MindmapCanvas } from '../mindmap/MindmapCanvas';
 import { MindmapSidePanel } from '../mindmap/MindmapSidePanel';
 
@@ -51,8 +52,17 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   // Le compteur force le re-trigger même si on cible deux fois le même id.
   const [centerRequest, setCenterRequest] = useState<{ id: string; seq: number } | undefined>();
 
+  const pinnedMecIds = useCartographieOverlayStore(s => s.pinnedMecIds);
+  const overlayLoaded = useCartographieOverlayStore(s => s.isLoaded);
+  const loadOverlay = useCartographieOverlayStore(s => s.load);
+  const togglePinMec = useCartographieOverlayStore(s => s.togglePinMec);
+
+  useEffect(() => {
+    if (!overlayLoaded) loadOverlay();
+  }, [overlayLoaded, loadOverlay]);
+
   const graph = useMemo(() => buildMindmapGraph(sources), [sources]);
-  const top10 = useMemo(() => getTopMec(graph, 10), [graph]);
+  const top10 = useMemo(() => getTopMec(graph, 10, pinnedMecIds), [graph, pinnedMecIds]);
 
   const searchResults = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -219,10 +229,12 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         {showTop10 && (
           <Top10Panel
             top={top10}
+            pinnedIds={pinnedMecIds}
             onClose={() => setShowTop10(false)}
             onSelect={(mec) => {
               focusOnNode(mec);
             }}
+            onTogglePin={togglePinMec}
           />
         )}
       </div>
@@ -244,16 +256,19 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
 
 const Top10Panel: React.FC<{
   top: MecNode[];
+  pinnedIds: string[];
   onSelect: (mec: MecNode) => void;
   onClose: () => void;
-}> = ({ top, onSelect, onClose }) => {
-  const maxScore = top[0]?.rawScore || 1;
+  onTogglePin: (mecId: string) => void;
+}> = ({ top, pinnedIds, onSelect, onClose, onTogglePin }) => {
+  const maxScore = top.reduce((m, mec) => Math.max(m, mec.rawScore), 0) || 1;
+  const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds]);
   return (
     <div className="absolute top-3 left-3 z-20 w-72 max-h-[calc(100%-1.5rem)] flex flex-col bg-white border border-slate-200 rounded-lg shadow-lg">
       <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Trophy className="h-4 w-4 text-slate-600" />
-          <span className="text-sm font-semibold text-slate-900">Top 10 mis en cause</span>
+          <span className="text-sm font-semibold text-slate-900">Top mis en cause</span>
         </div>
         <button
           onClick={onClose}
@@ -271,41 +286,66 @@ const Top10Panel: React.FC<{
           top.map((mec, i) => {
             const ratio = mec.rawScore / maxScore;
             const dossiers = mec.dossierIds.length;
+            const isPinned = pinnedSet.has(mec.id);
             return (
-              <button
+              <div
                 key={mec.id}
-                onClick={() => onSelect(mec)}
-                className="w-full text-left px-2 py-2 rounded hover:bg-slate-50 group"
+                className={`group flex items-start gap-1 px-2 py-2 rounded ${
+                  isPinned ? 'bg-amber-50/70 hover:bg-amber-50' : 'hover:bg-slate-50'
+                }`}
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[10px] font-bold text-slate-400 w-4">#{i + 1}</span>
-                  <span
-                    className="text-sm font-medium text-slate-900 truncate flex-1"
-                    title={mec.displayName}
-                  >
-                    {mec.displayName}
-                  </span>
-                  {mec.recent && (
-                    <span className="text-[9px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 rounded flex-shrink-0">
-                      récent
+                <button
+                  onClick={() => onSelect(mec)}
+                  className="flex-1 text-left min-w-0"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-bold text-slate-400 w-4">#{i + 1}</span>
+                    <span
+                      className="text-sm font-medium text-slate-900 truncate flex-1"
+                      title={mec.displayName}
+                    >
+                      {mec.displayName}
                     </span>
-                  )}
-                </div>
-                <div className="h-1 bg-slate-100 rounded-full overflow-hidden mb-1 ml-6">
-                  <div
-                    className="h-full bg-gradient-to-r from-slate-600 to-slate-800 rounded-full"
-                    style={{ width: `${Math.max(8, ratio * 100)}%` }}
-                  />
-                </div>
-                <div className="flex items-center gap-2 text-[10px] text-slate-500 ml-6">
-                  <span>{dossiers} dossier{dossiers > 1 ? 's' : ''}</span>
-                  {mec.nbMisEnExamen > 0 && <span>· {mec.nbMisEnExamen} ME</span>}
-                  {mec.nbChefs > 0 && <span>· {mec.nbChefs} chef{mec.nbChefs > 1 ? 's' : ''}</span>}
-                </div>
-              </button>
+                    {mec.recent && (
+                      <span className="text-[9px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 rounded flex-shrink-0">
+                        récent
+                      </span>
+                    )}
+                  </div>
+                  <div className="h-1 bg-slate-100 rounded-full overflow-hidden mb-1 ml-6">
+                    <div
+                      className="h-full bg-gradient-to-r from-slate-600 to-slate-800 rounded-full"
+                      style={{ width: `${Math.max(8, ratio * 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] text-slate-500 ml-6">
+                    <span>{dossiers} dossier{dossiers > 1 ? 's' : ''}</span>
+                    {mec.contentieuxIds.length > 1 && (
+                      <span>· {mec.contentieuxIds.length} contentieux</span>
+                    )}
+                    {mec.nbMisEnExamen > 0 && <span>· {mec.nbMisEnExamen} ME</span>}
+                    {mec.nbChefs > 0 && <span>· {mec.nbChefs} chef{mec.nbChefs > 1 ? 's' : ''}</span>}
+                  </div>
+                </button>
+                <button
+                  onClick={() => onTogglePin(mec.id)}
+                  title={isPinned ? 'Désépingler' : 'Épingler en tête du Top'}
+                  className={`p-1 rounded flex-shrink-0 transition-colors ${
+                    isPinned
+                      ? 'text-amber-600 hover:text-amber-800'
+                      : 'text-slate-300 hover:text-slate-700 opacity-0 group-hover:opacity-100'
+                  }`}
+                >
+                  {isPinned ? <Pin className="h-3.5 w-3.5 fill-current" /> : <PinOff className="h-3.5 w-3.5" />}
+                </button>
+              </div>
             );
           })
         )}
+      </div>
+      <div className="px-3 py-2 border-t border-slate-200 text-[10px] text-slate-400">
+        Score : dossiers × 2 + contentieux × 3 + ME × 1 + chefs × 0.3 (×1.2 si récent).
+        Les épinglés restent en tête.
       </div>
     </div>
   );
