@@ -395,6 +395,63 @@ export class UserPreferencesSyncService {
     return true;
   }
 
+  // ─── Règles d'alertes du module instruction ──────────────────────────────
+
+  async setInstructionAlertRules(rules: import('@/types/instructionTypes').InstructionAlertRule[]): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      instructionAlertRules: {
+        seeded: true,
+        rules: [...rules],
+      },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
+  async seedInstructionAlertRules(rules: import('@/types/instructionTypes').InstructionAlertRule[]): Promise<boolean> {
+    if (!this.currentUsername) return false;
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    if (current.instructionAlertRules?.seeded) return false;
+    const user = await getCurrentUserInfo();
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      instructionAlertRules: {
+        seeded: true,
+        rules: [...rules],
+      },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+    return true;
+  }
+
+  // ─── Subscription rappel hebdo instruction ───────────────────────────────
+
+  async setInstructionWeeklyRecapSubscribed(subscribed: boolean): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      instructionWeeklyRecapSubscribed: subscribed,
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
   async sync(): Promise<void> {
     if (!isAvailable() || !this.currentUsername) return;
     if (this.inFlight) {

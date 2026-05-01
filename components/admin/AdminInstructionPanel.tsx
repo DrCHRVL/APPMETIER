@@ -1,11 +1,13 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Plus, Edit2, X, Check, Power, PowerOff, AlertTriangle, Trash2 } from 'lucide-react';
+import { Plus, Edit2, X, Check, Power, PowerOff, AlertTriangle, Trash2, Bell, RotateCcw } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
-import { CABINET_COLOR_PALETTE } from '@/config/instructionConfig';
+import { useInstructionAlertRules } from '@/hooks/useInstructionAlertRules';
+import { useUserPreferences } from '@/hooks/useUserPreferences';
+import { CABINET_COLOR_PALETTE, INSTRUCTION_TRIGGER_LABELS } from '@/config/instructionConfig';
 import { cabinetSlug } from '@/utils/instructionConfigManager';
 import type { Cabinet } from '@/types/instructionTypes';
 
@@ -120,7 +122,9 @@ export const AdminInstructionPanel = () => {
   const enabledCount = allCabinets.filter(c => c.enabled !== false).length;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
+      {/* ─── CABINETS ─── */}
+      <section className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold text-gray-800">Cabinets d'instruction</h3>
@@ -414,6 +418,136 @@ export const AdminInstructionPanel = () => {
           </div>
         </div>
       )}
+      </section>
+
+      {/* ─── ALERTES TWEAKABLES ─── */}
+      <AlertRulesSection />
+
+      {/* ─── RAPPEL HEBDO ─── */}
+      <WeeklyRecapSection />
     </div>
+  );
+};
+
+const WeeklyRecapSection = () => {
+  const {
+    instructionWeeklyRecapSubscribed,
+    setInstructionWeeklyRecapSubscribed,
+  } = useUserPreferences();
+  const { showToast } = useToast();
+  return (
+    <section className="space-y-2">
+      <h3 className="text-base font-semibold text-gray-800">Rappel hebdomadaire</h3>
+      <label className="flex items-start gap-2 text-sm cursor-pointer p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
+        <input
+          type="checkbox"
+          checked={!!instructionWeeklyRecapSubscribed}
+          onChange={async (e) => {
+            await setInstructionWeeklyRecapSubscribed(e.target.checked);
+            showToast(
+              e.target.checked
+                ? 'Récap hebdomadaire instruction activé'
+                : 'Récap hebdomadaire instruction désactivé',
+              'success',
+            );
+          }}
+          className="mt-0.5"
+        />
+        <div>
+          <div className="font-medium text-gray-800">Inclure les instructions dans le récap hebdomadaire</div>
+          <div className="text-xs text-gray-500 mt-0.5">
+            Quand activé, le pop-up hebdomadaire affichera un encart instruction avec les DML en retard,
+            les fins de DP imminentes (≤30 j) et les débats JLD à venir (≤14 j).
+          </div>
+        </div>
+      </label>
+    </section>
+  );
+};
+
+// ──────────────────────────────────────────────
+// SECTION ALERTES TWEAKABLES
+// ──────────────────────────────────────────────
+
+const AlertRulesSection = () => {
+  const { rules, isLoading, updateRule, resetToDefaults } = useInstructionAlertRules();
+  const { showToast } = useToast();
+
+  const sorted = [...rules].sort((a, b) => a.priority - b.priority || a.id - b.id);
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-1.5">
+            <Bell className="h-4 w-4 text-gray-500" />
+            Règles d'alertes
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Personnalisez les seuils (en jours) et l'activation de chaque alerte. Préférences propres à votre compte.
+          </p>
+        </div>
+        <button
+          onClick={async () => {
+            if (confirm('Réinitialiser toutes les règles aux valeurs par défaut ?')) {
+              await resetToDefaults();
+              showToast('Règles d\'alertes réinitialisées', 'success');
+            }
+          }}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          Réinitialiser
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="text-sm text-gray-500">Chargement…</div>
+      ) : (
+        <div className="space-y-1.5">
+          {sorted.map(rule => (
+            <div
+              key={rule.id}
+              className={`flex items-center gap-3 p-2.5 rounded-lg border transition-all ${
+                rule.enabled ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-200 opacity-60'
+              }`}
+            >
+              <div
+                className="w-3 h-3 rounded-full shrink-0"
+                style={{ backgroundColor: rule.color || '#6b7280' }}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-gray-800">
+                  {INSTRUCTION_TRIGGER_LABELS[rule.trigger]}
+                </div>
+                <div className="text-[11px] text-gray-500 font-mono">{rule.trigger}</div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <label className="flex items-center gap-1 text-xs text-gray-600">
+                  Seuil
+                  <input
+                    type="number"
+                    min={0}
+                    value={rule.seuil}
+                    onChange={(e) => updateRule(rule.id, { seuil: Number(e.target.value) || 0 })}
+                    className="w-14 h-7 text-xs border border-gray-300 rounded px-1.5"
+                    title="Seuil en jours (0 = trigger immédiat dès condition remplie)"
+                  />
+                  <span className="text-[10px] text-gray-400">j</span>
+                </label>
+                <label className="inline-flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={rule.enabled}
+                    onChange={(e) => updateRule(rule.id, { enabled: e.target.checked })}
+                  />
+                  Activée
+                </label>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 };

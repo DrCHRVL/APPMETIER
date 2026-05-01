@@ -24,6 +24,9 @@ import { Label } from '../ui/label';
 import { MisEnExamenSection } from '../instruction/mex/MisEnExamenSection';
 import { OpsSection } from '../instruction/OpsSection';
 import { DebatsJLDSection } from '../instruction/DebatsJLDSection';
+import { NotesPersoSection } from '../instruction/NotesPersoSection';
+import { VerificationsSection } from '../instruction/VerificationsSection';
+import { DossierTimelineSection } from '../instruction/DossierTimelineSection';
 import type {
   DossierInstruction,
   EtatReglement,
@@ -31,6 +34,8 @@ import type {
   MisEnExamen,
   OPInstruction,
   DebatJLDPlanifie,
+  NotePersoInstruction,
+  VerificationPeriodique,
 } from '@/types/instructionTypes';
 
 interface InstructionDetailModalProps {
@@ -42,12 +47,13 @@ interface InstructionDetailModalProps {
   onDelete: (id: number) => void;
 }
 
-type TabKey = 'apercu' | 'mex' | 'echeances' | 'notes' | 'verifs' | 'orientation';
+type TabKey = 'apercu' | 'mex' | 'echeances' | 'timeline' | 'notes' | 'verifs' | 'orientation';
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: 'apercu',      label: 'Aperçu',         icon: FileText },
   { key: 'mex',         label: 'Mis en examen',  icon: Users },
   { key: 'echeances',   label: 'OP & JLD',       icon: Calendar },
+  { key: 'timeline',    label: 'Timeline',       icon: ListChecks },
   { key: 'notes',       label: 'Notes perso',    icon: NotebookPen },
   { key: 'verifs',      label: 'Vérifications',  icon: ClipboardCheck },
   { key: 'orientation', label: 'Orientation',    icon: Briefcase },
@@ -333,16 +339,22 @@ export const InstructionDetailModal = ({
             </div>
           )}
 
+          {activeTab === 'timeline' && (
+            <DossierTimelineSection dossier={dossier} />
+          )}
+
           {activeTab === 'notes' && (
-            <ComingSoon>
-              Les notes personnelles (distinctes des CR enquête) arrivent en <strong>PR3</strong>.
-            </ComingSoon>
+            <NotesPersoSection
+              notes={dossier.notesPerso}
+              onChange={(notesPerso: NotePersoInstruction[]) => onUpdate(dossier.id, { notesPerso })}
+            />
           )}
 
           {activeTab === 'verifs' && (
-            <ComingSoon>
-              Les vérifications périodiques avec rappels (point dossier, relance JI, alertes DP) arrivent en <strong>PR3</strong>.
-            </ComingSoon>
+            <VerificationsSection
+              verifications={dossier.verifications}
+              onChange={(verifications: VerificationPeriodique[]) => onUpdate(dossier.id, { verifications })}
+            />
           )}
 
           {activeTab === 'orientation' && (

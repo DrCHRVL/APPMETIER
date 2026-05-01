@@ -357,3 +357,36 @@ export type NewDossierInstructionData = Omit<
   DossierInstruction,
   'id' | 'dateCreation' | 'dateMiseAJour'
 >;
+
+// ──────────────────────────────────────────────
+// RÈGLES D'ALERTES INSTRUCTION (tweakables)
+// ──────────────────────────────────────────────
+
+/** Déclencheurs d'alertes du module instruction */
+export type InstructionAlertTrigger =
+  | 'dp_fin_proche'             // fin de période DP dans X jours
+  | 'dp_fin_echue'              // fin de période DP dépassée
+  | 'debat_jld_proche'          // débat JLD planifié dans X jours
+  | 'dml_echeance_proche'       // échéance DML dans X jours
+  | 'dml_retard'                // DML en retard (échéance dépassée, statut en_attente)
+  | 'op_ji_proche'              // OP du JI programmée dans X jours
+  | 'dossier_dormant'           // pas d'activité (CR/note/vérif) depuis X jours
+  | 'verif_periodique_due'      // pas de vérification depuis X jours
+  | 'motivation_renforcee_due'  // DP correctionnelle > 8 mois cumulés
+  | 'dp_max_legal_atteinte';    // durée légale max de DP atteinte
+
+/** Règle d'alerte instruction tweakable (seuil + activation + couleur) */
+export interface InstructionAlertRule {
+  id: number;
+  trigger: InstructionAlertTrigger;
+  label: string;
+  /** Seuil en jours (sens dépend du trigger : avant échéance, après dernier événement…) */
+  seuil: number;
+  enabled: boolean;
+  /** Priorité d'affichage (1 = plus important) */
+  priority: number;
+  /** Couleur d'identification (clé de palette ou hex) */
+  color?: string;
+  /** Règle système (livrée par défaut, non supprimable mais éditable) */
+  isSystemRule?: boolean;
+}

@@ -180,7 +180,7 @@ function AppContent() {
     contentieuxColor?: string;
     enquetes: any[];
   }>>([]);
-  const { subscribedContentieux: weeklySubscribedIds, crDelayHighlight } = useUserPreferences();
+  const { subscribedContentieux: weeklySubscribedIds, crDelayHighlight, instructionWeeklyRecapSubscribed } = useUserPreferences();
 
   // Construit les buckets pour le récap hebdo : intersection des contentieux
   // abonnés et des contentieux actuellement accessibles à l'utilisateur, en
@@ -1645,6 +1645,7 @@ return (
         onClose={() => setShowWeeklyPopup(false)}
         buckets={weeklyBuckets}
         alertRules={alertRules}
+        instructionDossiers={instructionWeeklyRecapSubscribed ? instructions : undefined}
       />
 
       {/* 🆕 Modal Paramètres multi-onglets */}

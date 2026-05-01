@@ -2,7 +2,13 @@
 //
 // Configuration par défaut du module Instruction (cabinets, palettes, libellés).
 
-import type { Cabinet, EtatReglement, OrientationPrevisible } from '@/types/instructionTypes';
+import type {
+  Cabinet,
+  EtatReglement,
+  OrientationPrevisible,
+  InstructionAlertRule,
+  InstructionAlertTrigger,
+} from '@/types/instructionTypes';
 
 // ──────────────────────────────────────────────
 // CABINETS PAR DÉFAUT (4 cabinets, configurables ensuite via l'admin)
@@ -58,3 +64,136 @@ export const ORIENTATION_LABELS: Record<OrientationPrevisible, string> = {
 // ──────────────────────────────────────────────
 
 export const FALLBACK_CABINET_COLOR = '#6b7280'; // gris
+
+// ──────────────────────────────────────────────
+// RÈGLES D'ALERTES INSTRUCTION PAR DÉFAUT
+// ──────────────────────────────────────────────
+
+export const INSTRUCTION_TRIGGER_LABELS: Record<InstructionAlertTrigger, string> = {
+  dp_fin_proche:           'Fin de période DP imminente',
+  dp_fin_echue:            'Période DP échue',
+  debat_jld_proche:        'Débat JLD imminent',
+  dml_echeance_proche:     'Échéance DML imminente',
+  dml_retard:              'DML en retard',
+  op_ji_proche:            'OP du JI imminente',
+  dossier_dormant:         'Dossier sans activité',
+  verif_periodique_due:    'Vérification périodique due',
+  motivation_renforcee_due:'DP correctionnelle > 8 mois (motivation renforcée)',
+  dp_max_legal_atteinte:   'Durée légale max DP atteinte',
+};
+
+export const INSTRUCTION_TRIGGER_COLORS: Record<InstructionAlertTrigger, string> = {
+  dp_fin_proche:            '#dc2626',
+  dp_fin_echue:             '#7f1d1d',
+  debat_jld_proche:         '#4f46e5',
+  dml_echeance_proche:      '#9333ea',
+  dml_retard:               '#b91c1c',
+  op_ji_proche:             '#2563eb',
+  dossier_dormant:          '#6b7280',
+  verif_periodique_due:     '#d97706',
+  motivation_renforcee_due: '#ea580c',
+  dp_max_legal_atteinte:    '#7f1d1d',
+};
+
+export const DEFAULT_INSTRUCTION_ALERT_RULES: InstructionAlertRule[] = [
+  {
+    id: 1,
+    trigger: 'dp_fin_proche',
+    label: INSTRUCTION_TRIGGER_LABELS.dp_fin_proche,
+    seuil: 30,
+    enabled: true,
+    priority: 1,
+    color: INSTRUCTION_TRIGGER_COLORS.dp_fin_proche,
+    isSystemRule: true,
+  },
+  {
+    id: 2,
+    trigger: 'dp_fin_echue',
+    label: INSTRUCTION_TRIGGER_LABELS.dp_fin_echue,
+    seuil: 0,
+    enabled: true,
+    priority: 1,
+    color: INSTRUCTION_TRIGGER_COLORS.dp_fin_echue,
+    isSystemRule: true,
+  },
+  {
+    id: 3,
+    trigger: 'debat_jld_proche',
+    label: INSTRUCTION_TRIGGER_LABELS.debat_jld_proche,
+    seuil: 14,
+    enabled: true,
+    priority: 2,
+    color: INSTRUCTION_TRIGGER_COLORS.debat_jld_proche,
+    isSystemRule: true,
+  },
+  {
+    id: 4,
+    trigger: 'dml_echeance_proche',
+    label: INSTRUCTION_TRIGGER_LABELS.dml_echeance_proche,
+    seuil: 3,
+    enabled: true,
+    priority: 1,
+    color: INSTRUCTION_TRIGGER_COLORS.dml_echeance_proche,
+    isSystemRule: true,
+  },
+  {
+    id: 5,
+    trigger: 'dml_retard',
+    label: INSTRUCTION_TRIGGER_LABELS.dml_retard,
+    seuil: 0,
+    enabled: true,
+    priority: 1,
+    color: INSTRUCTION_TRIGGER_COLORS.dml_retard,
+    isSystemRule: true,
+  },
+  {
+    id: 6,
+    trigger: 'op_ji_proche',
+    label: INSTRUCTION_TRIGGER_LABELS.op_ji_proche,
+    seuil: 7,
+    enabled: true,
+    priority: 3,
+    color: INSTRUCTION_TRIGGER_COLORS.op_ji_proche,
+    isSystemRule: true,
+  },
+  {
+    id: 7,
+    trigger: 'dossier_dormant',
+    label: INSTRUCTION_TRIGGER_LABELS.dossier_dormant,
+    seuil: 60,
+    enabled: true,
+    priority: 4,
+    color: INSTRUCTION_TRIGGER_COLORS.dossier_dormant,
+    isSystemRule: true,
+  },
+  {
+    id: 8,
+    trigger: 'verif_periodique_due',
+    label: INSTRUCTION_TRIGGER_LABELS.verif_periodique_due,
+    seuil: 30,
+    enabled: true,
+    priority: 4,
+    color: INSTRUCTION_TRIGGER_COLORS.verif_periodique_due,
+    isSystemRule: true,
+  },
+  {
+    id: 9,
+    trigger: 'motivation_renforcee_due',
+    label: INSTRUCTION_TRIGGER_LABELS.motivation_renforcee_due,
+    seuil: 0,
+    enabled: true,
+    priority: 2,
+    color: INSTRUCTION_TRIGGER_COLORS.motivation_renforcee_due,
+    isSystemRule: true,
+  },
+  {
+    id: 10,
+    trigger: 'dp_max_legal_atteinte',
+    label: INSTRUCTION_TRIGGER_LABELS.dp_max_legal_atteinte,
+    seuil: 0,
+    enabled: true,
+    priority: 1,
+    color: INSTRUCTION_TRIGGER_COLORS.dp_max_legal_atteinte,
+    isSystemRule: true,
+  },
+];

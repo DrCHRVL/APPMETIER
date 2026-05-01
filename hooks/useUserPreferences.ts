@@ -10,6 +10,7 @@ import { userPreferencesSyncService } from '@/utils/dataSync/UserPreferencesSync
 import type { UserPreferencesFile } from '@/types/globalSyncTypes';
 import type { AlertValidation, AlertValidations, VisualAlertRule, AlerteInstruction } from '@/types/interfaces';
 import type { ContentieuxId } from '@/types/userTypes';
+import type { InstructionAlertRule } from '@/types/instructionTypes';
 
 export interface WeeklyRecapPrefs {
   subscribedContentieux: string[];
@@ -128,6 +129,22 @@ export function useUserPreferences() {
     return seeded;
   }, [refresh]);
 
+  const setInstructionAlertRules = useCallback(async (rules: InstructionAlertRule[]) => {
+    await userPreferencesSyncService.setInstructionAlertRules(rules);
+    await refresh();
+  }, [refresh]);
+
+  const seedInstructionAlertRules = useCallback(async (rules: InstructionAlertRule[]) => {
+    const seeded = await userPreferencesSyncService.seedInstructionAlertRules(rules);
+    if (seeded) await refresh();
+    return seeded;
+  }, [refresh]);
+
+  const setInstructionWeeklyRecapSubscribed = useCallback(async (subscribed: boolean) => {
+    await userPreferencesSyncService.setInstructionWeeklyRecapSubscribed(subscribed);
+    await refresh();
+  }, [refresh]);
+
   const subscribedContentieux: string[] = prefs?.weeklyRecap?.subscribedContentieux || [];
   const serviceOrganization = prefs?.serviceOrganization;
   const subscribedContentieuxAlerts = prefs?.subscribedContentieuxAlerts;
@@ -135,6 +152,8 @@ export function useUserPreferences() {
   const alertValidations = prefs?.alertValidations;
   const visualAlertRules = prefs?.visualAlertRules;
   const instructionAlerts = prefs?.instructionAlerts;
+  const instructionAlertRules = prefs?.instructionAlertRules;
+  const instructionWeeklyRecapSubscribed = prefs?.instructionWeeklyRecapSubscribed ?? false;
 
   return {
     prefs,
@@ -159,6 +178,11 @@ export function useUserPreferences() {
     instructionAlerts,
     setInstructionAlerts,
     seedInstructionAlerts,
+    instructionAlertRules,
+    setInstructionAlertRules,
+    seedInstructionAlertRules,
+    instructionWeeklyRecapSubscribed,
+    setInstructionWeeklyRecapSubscribed,
     refresh,
   };
 }

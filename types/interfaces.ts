@@ -528,21 +528,28 @@ export interface SyncOptions {
 
 // Alerte d'instruction — conservée ici car référencée par la sync
 // (UserPreferencesSyncService, globalSyncTypes). La logique de génération est
-// dans `hooks/useInstructionAlerts`.
+// dans `hooks/useInstructionAlerts`. Le set de valeurs est volontairement
+// large pour couvrir l'ancien et le nouveau modèle d'alertes.
 export interface AlerteInstruction extends Alert {
   instructionId: number;
   /** Cabinet d'instruction (id libre, géré par InstructionConfigManager) */
   cabinetId: string;
   alerteType:
+    // Nouveaux triggers (PR3)
     | 'dp_fin_proche'
+    | 'dp_fin_echue'
+    | 'debat_jld_proche'
+    | 'dml_echeance_proche'
+    | 'dml_retard'
+    | 'op_ji_proche'
+    | 'dossier_dormant'
+    | 'verif_periodique_due'
+    | 'motivation_renforcee_due'
+    | 'dp_max_legal_atteinte'
+    // Anciens triggers conservés pour compatibilité avec les alertes en cache
+    | 'dp_expiration'
     | 'dp_debat_jld'
     | 'dml_echeance'
-    | 'dossier_dormant'
-    | 'op_ji_proche'
-    | 'verif_periodique_due'
-    // Anciens types conservés pour compatibilité avec les alertes en cache
-    | 'dp_expiration'
-    | 'dml_retard'
     | 'delai_175'
     | 'expertise_echeance';
 }

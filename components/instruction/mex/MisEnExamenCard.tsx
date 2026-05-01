@@ -320,7 +320,7 @@ const Section = ({
 }: {
   title: string;
   actions?: React.ReactNode;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }) => (
   <div>
     <div className="flex items-center justify-between mb-1">

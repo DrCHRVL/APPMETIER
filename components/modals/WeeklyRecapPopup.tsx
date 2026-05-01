@@ -3,8 +3,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Enquete, AlertRule } from '@/types/interfaces';
-import { Calendar, FileText, Clock, AlertTriangle } from 'lucide-react';
+import { Calendar, FileText, Clock, AlertTriangle, Gavel } from 'lucide-react';
 import { getLastCR } from '@/utils/compteRenduUtils';
+import type { DossierInstruction } from '@/types/instructionTypes';
+import {
+  getDMLsEnRetard,
+  getJoursRestantsAvantFinDP,
+  countDMLsEnAttente,
+} from '@/utils/instructionUtils';
 
 interface ContentieuxBucket {
   contentieuxId: string;
@@ -19,6 +25,11 @@ interface WeeklyRecapPopupProps {
   /** Une entrée par contentieux abonné. Peut être vide → popup "rien à signaler". */
   buckets: ContentieuxBucket[];
   alertRules: AlertRule[];
+  /**
+   * Dossiers d'instruction (si l'utilisateur s'est abonné au récap instruction).
+   * Affiche un encart résumé avec DML en retard, fins DP imminentes, débats JLD.
+   */
+  instructionDossiers?: DossierInstruction[];
 }
 
 // Seuil "urgence rouge" : actes/écoutes/géoloc à <=2j, et enquêtes sans CR
@@ -39,7 +50,7 @@ interface RelanceItem {
   days: number;
 }
 
-export const WeeklyRecapPopup = ({ isOpen, onClose, buckets, alertRules }: WeeklyRecapPopupProps) => {
+export const WeeklyRecapPopup = ({ isOpen, onClose, buckets, alertRules, instructionDossiers }: WeeklyRecapPopupProps) => {
   const today = new Date();
 
   const crRule = alertRules.find(r => r.type === 'cr_delay' && r.enabled);
@@ -102,7 +113,43 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, buckets, alertRules }: Weekl
 
   const hasUrgent = urgentActes.length + urgentRelances.length > 0;
   const totalItems = perContentieux.reduce((acc, p) => acc + p.actes.length + p.relances.length, 0);
-  const hasSubscriptions = buckets.length > 0;
+  const hasSubscriptions = buckets.length > 0 || (instructionDossiers && instructionDossiers.length > 0);
+
+  // Résumé instruction (dossiers urgents)
+  const instructionSummary = React.useMemo(() => {
+    if (!instructionDossiers || instructionDossiers.length === 0) return null;
+    const dpProches: { dossierLabel: string; mexNom: string; days: number }[] = [];
+    const dmlsRetard: { dossierLabel: string; mexNom: string; joursRetard: number }[] = [];
+    const debatsProches: { dossierLabel: string; type: string; days: number }[] = [];
+    const todayMs = today.getTime();
+    for (const d of instructionDossiers) {
+      const label = d.numeroInstruction;
+      for (const mex of d.misEnExamen) {
+        if (mex.mesureSurete.type === 'detenu') {
+          const j = getJoursRestantsAvantFinDP(mex);
+          if (j !== null && j >= 0 && j <= 30) {
+            dpProches.push({ dossierLabel: label, mexNom: mex.nom, days: j });
+          }
+        }
+      }
+      for (const r of getDMLsEnRetard(d)) {
+        dmlsRetard.push({ dossierLabel: label, mexNom: r.mex.nom, joursRetard: r.joursRetard });
+      }
+      for (const debat of d.debatsJLD) {
+        const dt = new Date(debat.date);
+        const dayMs = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
+        const days = Math.ceil((dayMs - todayMs) / 86400000);
+        if (days >= 0 && days <= 14) debatsProches.push({ dossierLabel: label, type: debat.type, days });
+      }
+    }
+    return { dpProches, dmlsRetard, debatsProches };
+  }, [instructionDossiers, today]);
+
+  const hasInstructionItems = !!instructionSummary && (
+    instructionSummary.dpProches.length > 0
+    || instructionSummary.dmlsRetard.length > 0
+    || instructionSummary.debatsProches.length > 0
+  );
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -118,10 +165,73 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, buckets, alertRules }: Weekl
           <p className="text-sm text-gray-500 py-4 text-center">
             Aucun contentieux coché dans les paramètres du récapitulatif.
           </p>
-        ) : totalItems === 0 ? (
+        ) : (totalItems === 0 && !hasInstructionItems) ? (
           <p className="text-sm text-gray-500 py-4 text-center">Aucun élément à signaler cette semaine.</p>
         ) : (
           <div className="space-y-5 py-2">
+
+            {/* ── INSTRUCTIONS (encart dédié) ── */}
+            {hasInstructionItems && instructionSummary && (
+              <div className="border border-purple-300 bg-purple-50 rounded-lg p-3">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-purple-700 flex items-center gap-1 mb-2">
+                  <Gavel className="h-3.5 w-3.5" />
+                  Module instruction (
+                  {instructionSummary.dpProches.length
+                    + instructionSummary.dmlsRetard.length
+                    + instructionSummary.debatsProches.length}
+                  )
+                </h4>
+                {instructionSummary.dmlsRetard.length > 0 && (
+                  <div className="mb-2">
+                    <div className="text-[11px] font-semibold text-red-700 mb-1">DML en retard</div>
+                    <ul className="space-y-1">
+                      {instructionSummary.dmlsRetard.map((d, i) => (
+                        <li key={`dmlr-${i}`} className="rounded bg-white border border-red-200 px-2 py-1 text-xs flex items-center justify-between gap-2">
+                          <span><strong>{d.dossierLabel}</strong> — {d.mexNom}</span>
+                          <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300">
+                            {d.joursRetard}j de retard
+                          </Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {instructionSummary.dpProches.length > 0 && (
+                  <div className="mb-2">
+                    <div className="text-[11px] font-semibold text-red-700 mb-1">Fins de DP imminentes (≤30j)</div>
+                    <ul className="space-y-1">
+                      {instructionSummary.dpProches
+                        .sort((a, b) => a.days - b.days)
+                        .map((d, i) => (
+                          <li key={`dp-${i}`} className="rounded bg-white border border-purple-200 px-2 py-1 text-xs flex items-center justify-between gap-2">
+                            <span><strong>{d.dossierLabel}</strong> — {d.mexNom}</span>
+                            <Badge variant="outline" className={d.days <= 7 ? 'bg-red-100 text-red-700 border-red-300' : 'bg-amber-100 text-amber-700 border-amber-300'}>
+                              J+{d.days}
+                            </Badge>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
+                {instructionSummary.debatsProches.length > 0 && (
+                  <div>
+                    <div className="text-[11px] font-semibold text-indigo-700 mb-1">Débats JLD à venir (≤14j)</div>
+                    <ul className="space-y-1">
+                      {instructionSummary.debatsProches
+                        .sort((a, b) => a.days - b.days)
+                        .map((d, i) => (
+                          <li key={`dbt-${i}`} className="rounded bg-white border border-indigo-200 px-2 py-1 text-xs flex items-center justify-between gap-2">
+                            <span><strong>{d.dossierLabel}</strong> — {d.type.replace('_', ' ')}</span>
+                            <Badge variant="outline" className="bg-indigo-100 text-indigo-700 border-indigo-300">
+                              J+{d.days}
+                            </Badge>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ── URGENCES ROUGES (tous contentieux confondus) ── */}
             {hasUrgent && (

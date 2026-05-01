@@ -108,7 +108,9 @@ export const InstructionsPage = ({
     }
     // Cabinets orphelins / désactivés (dossiers attachés à un cabinet inconnu)
     const knownIds = new Set(cabinets.map(c => c.id));
-    const orphanIds = new Set(filtered.filter(d => !knownIds.has(d.cabinetId)).map(d => d.cabinetId));
+    const orphanIds = new Set<string>(
+      filtered.filter(d => !knownIds.has(d.cabinetId)).map(d => d.cabinetId),
+    );
     for (const id of orphanIds) {
       groups.push({ cabinetId: id, dossiers: filtered.filter(d => d.cabinetId === id) });
     }
