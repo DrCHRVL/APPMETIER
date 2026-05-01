@@ -7,7 +7,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Network, Pin, PinOff, Search, Trophy, X } from 'lucide-react';
+import { ChevronDown, FileText, Layers, Link as LinkIcon, Network, Pin, PinOff, Plus, Search, Trophy, User, X } from 'lucide-react';
 import type { ContentieuxDefinition } from '@/types/userTypes';
 import type { Enquete } from '@/types/interfaces';
 import {
@@ -18,9 +18,16 @@ import {
   type GraphNode,
   type MecNode,
 } from '@/utils/mindmapGraph';
-import { useCartographieOverlayStore } from '@/stores/useCartographieOverlayStore';
+import {
+  useCartographieOverlayStore,
+  type DossierExNihilo,
+  type LienRenseignement,
+  type MecExNihilo,
+} from '@/stores/useCartographieOverlayStore';
 import { MindmapCanvas } from '../mindmap/MindmapCanvas';
 import { MindmapSidePanel } from '../mindmap/MindmapSidePanel';
+import { AddDossierModal, AddLienModal, AddMecModal } from '../mindmap/OverlayModals';
+import { ManageOverlayPanel } from '../mindmap/ManageOverlayPanel';
 
 // ──────────────────────────────────────────────
 // PROPS
@@ -48,20 +55,46 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const [sidePanelMecId, setSidePanelMecId] = useState<string | undefined>();
   const [search, setSearch] = useState('');
   const [showTop10, setShowTop10] = useState(false);
+  const [showManage, setShowManage] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [editingMec, setEditingMec] = useState<MecExNihilo | null | undefined>(undefined); // null = nouveau, undefined = fermé
+  const [editingDossier, setEditingDossier] = useState<DossierExNihilo | null | undefined>(undefined);
+  const [editingLien, setEditingLien] = useState<LienRenseignement | null | undefined>(undefined);
   // centerRequest change → MindmapCanvas anime la caméra vers le nœud.
   // Le compteur force le re-trigger même si on cible deux fois le même id.
   const [centerRequest, setCenterRequest] = useState<{ id: string; seq: number } | undefined>();
 
   const pinnedMecIds = useCartographieOverlayStore(s => s.pinnedMecIds);
+  const mecsExNihilo = useCartographieOverlayStore(s => s.mecsExNihilo);
+  const dossiersExNihilo = useCartographieOverlayStore(s => s.dossiersExNihilo);
+  const liensRenseignement = useCartographieOverlayStore(s => s.liensRenseignement);
   const overlayLoaded = useCartographieOverlayStore(s => s.isLoaded);
   const loadOverlay = useCartographieOverlayStore(s => s.load);
   const togglePinMec = useCartographieOverlayStore(s => s.togglePinMec);
+  const addMec = useCartographieOverlayStore(s => s.addMec);
+  const updateMec = useCartographieOverlayStore(s => s.updateMec);
+  const removeMec = useCartographieOverlayStore(s => s.removeMec);
+  const addDossier = useCartographieOverlayStore(s => s.addDossier);
+  const updateDossier = useCartographieOverlayStore(s => s.updateDossier);
+  const removeDossier = useCartographieOverlayStore(s => s.removeDossier);
+  const addLien = useCartographieOverlayStore(s => s.addLien);
+  const updateLien = useCartographieOverlayStore(s => s.updateLien);
+  const removeLien = useCartographieOverlayStore(s => s.removeLien);
 
   useEffect(() => {
     if (!overlayLoaded) loadOverlay();
   }, [overlayLoaded, loadOverlay]);
 
-  const graph = useMemo(() => buildMindmapGraph(sources), [sources]);
+  const overlayInput = useMemo(() => ({
+    mecsExNihilo,
+    dossiersExNihilo,
+    liensRenseignement,
+  }), [mecsExNihilo, dossiersExNihilo, liensRenseignement]);
+
+  const graph = useMemo(
+    () => buildMindmapGraph(sources, overlayInput),
+    [sources, overlayInput],
+  );
   const top10 = useMemo(() => getTopMec(graph, 10, pinnedMecIds), [graph, pinnedMecIds]);
 
   const searchResults = useMemo(() => {
@@ -102,10 +135,21 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       setSidePanelMecId(node.id);
       return;
     }
+    if (node.isExNihilo) {
+      // Dossier manuel : pas d'enquête source à ouvrir, on permet l'édition.
+      const found = dossiersExNihilo.find(d => d.id === node.id);
+      if (found) setEditingDossier(found);
+      return;
+    }
     const src = sources.find(
       s => s.enquete.id === node.enqueteId && s.contentieuxId === node.contentieuxId,
     );
     if (src && onOpenEnquete) onOpenEnquete(src.enquete, node.contentieuxId);
+  };
+
+  const centerOnId = (nodeId: string) => {
+    const node: GraphNode | undefined = graph.mecById.get(nodeId) || graph.dossierById.get(nodeId);
+    if (node) focusOnNode(node);
   };
 
   const handleSearchSelect = (node: GraphNode) => {
@@ -172,6 +216,67 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           )}
         </div>
 
+        {/* Ajouter (dropdown) */}
+        <div className="relative">
+          <button
+            onClick={() => setAddMenuOpen(o => !o)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-slate-900 text-white border border-slate-900 hover:bg-slate-800 transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Ajouter
+            <ChevronDown className="h-3 w-3" />
+          </button>
+          {addMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setAddMenuOpen(false)} />
+              <div className="absolute top-full right-0 mt-1 bg-white border border-slate-200 rounded-md shadow-lg z-40 min-w-[200px]">
+                <button
+                  onClick={() => { setAddMenuOpen(false); setEditingMec(null); }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2"
+                >
+                  <User className="h-3.5 w-3.5 text-slate-500" />
+                  Mis en cause
+                </button>
+                <button
+                  onClick={() => { setAddMenuOpen(false); setEditingDossier(null); }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2"
+                >
+                  <FileText className="h-3.5 w-3.5 text-slate-500" />
+                  Dossier
+                </button>
+                <button
+                  onClick={() => { setAddMenuOpen(false); setEditingLien(null); }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2"
+                >
+                  <LinkIcon className="h-3.5 w-3.5 text-slate-500" />
+                  Lien renseignement
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Mes ajouts toggle */}
+        <button
+          onClick={() => setShowManage(s => !s)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+            showManage
+              ? 'bg-slate-900 text-white border-slate-900'
+              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+          }`}
+          title="Voir mes ajouts manuels"
+        >
+          <Layers className="h-3.5 w-3.5" />
+          Mes ajouts
+          {(mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length) > 0 && (
+            <span className={`text-[10px] rounded px-1 ${
+              showManage ? 'bg-white/20' : 'bg-slate-200'
+            }`}>
+              {mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length}
+            </span>
+          )}
+        </button>
+
         {/* Top 10 toggle */}
         <button
           onClick={() => setShowTop10(s => !s)}
@@ -237,7 +342,66 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             onTogglePin={togglePinMec}
           />
         )}
+
+        {showManage && (
+          <ManageOverlayPanel
+            mecs={mecsExNihilo}
+            dossiers={dossiersExNihilo}
+            liens={liensRenseignement}
+            graph={graph}
+            onClose={() => setShowManage(false)}
+            onCenterNode={centerOnId}
+            onEditMec={(m) => setEditingMec(m)}
+            onEditDossier={(d) => setEditingDossier(d)}
+            onEditLien={(l) => setEditingLien(l)}
+            onDeleteMec={(id) => removeMec(id)}
+            onDeleteDossier={(id) => removeDossier(id)}
+            onDeleteLien={(id) => removeLien(id)}
+          />
+        )}
       </div>
+
+      {/* MODALES */}
+      <AddMecModal
+        isOpen={editingMec !== undefined}
+        onClose={() => setEditingMec(undefined)}
+        initial={editingMec || undefined}
+        onSubmit={(data) => {
+          if (editingMec) {
+            updateMec(editingMec.id, data);
+          } else {
+            addMec(data);
+          }
+        }}
+      />
+
+      <AddDossierModal
+        isOpen={editingDossier !== undefined}
+        onClose={() => setEditingDossier(undefined)}
+        graph={graph}
+        initial={editingDossier || undefined}
+        onSubmit={(data) => {
+          if (editingDossier) {
+            updateDossier(editingDossier.id, data);
+          } else {
+            addDossier(data);
+          }
+        }}
+      />
+
+      <AddLienModal
+        isOpen={editingLien !== undefined}
+        onClose={() => setEditingLien(undefined)}
+        graph={graph}
+        initial={editingLien || undefined}
+        onSubmit={(data) => {
+          if (editingLien) {
+            updateLien(editingLien.id, data);
+          } else {
+            addLien(data);
+          }
+        }}
+      />
 
       {/* HINT bas de page */}
       <div className="border-t border-slate-200 bg-white px-4 py-2 text-[11px] text-slate-500 flex items-center gap-4 flex-wrap">

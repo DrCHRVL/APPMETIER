@@ -51,6 +51,7 @@ type DossierNodeData = DossierNode & {
   radius: number;
   color: string;
   contentieuxLabel: string;
+  isExNihilo: boolean;
 };
 
 const HIDDEN_HANDLE_STYLE: React.CSSProperties = {
@@ -101,18 +102,19 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
 };
 
 const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
-  const { numero, statut, focused, radius, color, contentieuxLabel, nbMec } = data;
+  const { numero, statut, focused, radius, color, contentieuxLabel, nbMec, isExNihilo } = data;
   const width = Math.max(120, radius * 4);
   const height = Math.max(48, radius * 1.6);
-  const archived = statut === 'archive';
+  const archived = statut === 'archive' && !isExNihilo;
   return (
     <div
-      title={`${contentieuxLabel} • ${numero} • ${nbMec} MEC`}
+      title={`${isExNihilo ? 'Dossier manuel' : contentieuxLabel} • ${numero} • ${nbMec} MEC`}
       style={{
         width,
         height,
-        background: archived ? '#f3f4f6' : `${color}15`,
+        background: isExNihilo ? '#fff' : (archived ? '#f3f4f6' : `${color}15`),
         borderColor: color,
+        borderStyle: isExNihilo ? 'dashed' : 'solid',
       }}
       className={`
         relative flex flex-col items-center justify-center rounded-lg border-2
@@ -133,7 +135,9 @@ const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
         {numero}
       </span>
       <span className="text-[10px] text-slate-600 mt-0.5">
-        {nbMec} MEC{statut === 'instruction' ? ' • instruction' : ''}
+        {isExNihilo
+          ? `${nbMec} MEC • manuel`
+          : `${nbMec} MEC${statut === 'instruction' ? ' • instruction' : ''}`}
       </span>
     </div>
   );
@@ -191,12 +195,14 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
         } satisfies Node;
       }
       const ctx = ctxColorById.get(n.contentieuxId);
+      const isExNihilo = !!n.isExNihilo;
       const data: DossierNodeData = {
         ...n,
         focused,
         radius,
-        color: ctx?.color || CTX_FALLBACK_COLOR,
+        color: isExNihilo ? '#7c3aed' : (ctx?.color || CTX_FALLBACK_COLOR),
         contentieuxLabel: ctx?.label || n.contentieuxId,
+        isExNihilo,
       };
       const width = Math.max(120, radius * 4);
       const height = Math.max(48, radius * 1.6);
@@ -213,14 +219,26 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   const rfEdges: Edge[] = useMemo(() => {
     return edges.map(e => {
       const highlighted = focusedId && (e.source === focusedId || e.target === focusedId);
+      const isRens = e.kind === 'renseignement';
       return {
         id: e.id,
         source: e.source,
         target: e.target,
-        style: {
-          stroke: highlighted ? '#facc15' : '#94a3b8',
-          strokeWidth: highlighted ? 2.5 : 1.5,
-        },
+        label: isRens ? e.label : undefined,
+        labelStyle: isRens ? { fill: '#1d4ed8', fontSize: 10, fontWeight: 600 } : undefined,
+        labelBgStyle: isRens ? { fill: '#eff6ff' } : undefined,
+        labelBgPadding: isRens ? ([4, 2] as [number, number]) : undefined,
+        labelBgBorderRadius: isRens ? 3 : undefined,
+        style: isRens
+          ? {
+              stroke: highlighted ? '#1e40af' : '#3b82f6',
+              strokeWidth: highlighted ? 2.5 : 1.8,
+              strokeDasharray: '6 4',
+            }
+          : {
+              stroke: highlighted ? '#facc15' : '#94a3b8',
+              strokeWidth: highlighted ? 2.5 : 1.5,
+            },
       };
     });
   }, [edges, focusedId]);

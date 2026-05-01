@@ -49,31 +49,77 @@ export interface MecNode {
   rawScore: number;
   /** Statuts uniques rencontrés (pour coloration éventuelle) */
   statuts: string[];
+  /** Notes manuelles (issues d'une fiche ex nihilo) */
+  manualNotes?: string;
+  /** Alias manuels — fusionnés avec les variants */
+  manualAlias?: string[];
+  /** Statut renseigné manuellement */
+  manualStatut?: string;
+  /** True si le MEC n'apparaît dans aucun dossier réel */
+  isManualOnly?: boolean;
 }
 
 export interface DossierNode {
   type: 'dossier';
-  /** Identifiant unique : `${contentieuxId}_${enqueteId}` */
+  /** Identifiant unique. Pour un dossier réel : `${contentieuxId}_${enqueteId}`.
+   *  Pour un dossier ex nihilo : préfixé `dexn_…`. */
   id: string;
   enqueteId: number;
   contentieuxId: ContentieuxId;
-  /** Numéro de l'enquête (affichage) */
+  /** Numéro de l'enquête ou label du dossier ex nihilo */
   numero: string;
-  /** Statut : en_cours, archive, instruction */
+  /** Statut : en_cours, archive, instruction (pour les dossiers réels) */
   statut: Enquete['statut'];
   /** Date de création (ISO) */
   dateCreation: string;
   /** Nombre de MEC dans ce dossier (taille du nœud dossier) */
   nbMec: number;
+  /** True pour un dossier créé manuellement par l'utilisateur */
+  isExNihilo?: boolean;
+  /** Notes manuelles */
+  notes?: string;
 }
 
 export type GraphNode = MecNode | DossierNode;
 
 export interface GraphEdge {
-  /** Identifiant unique : `${mecId}__${dossierId}` */
+  /** Identifiant unique. Pour les arêtes de données : `${mecId}__${dossierId}`.
+   *  Pour les liens renseignement : `lien_…`. */
   id: string;
-  source: string; // mecId
-  target: string; // dossierId
+  source: string;
+  target: string;
+  /** 'data' = arête déduite des dossiers ; 'renseignement' = lien manuel utilisateur. */
+  kind: 'data' | 'renseignement';
+  /** Libellé optionnel (utile pour les liens renseignement) */
+  label?: string;
+  /** Notes manuelles (liens renseignement) */
+  notes?: string;
+}
+
+// Snapshot des données overlay nécessaires à la construction du graphe.
+// Importé sans référence circulaire vers le store.
+export interface OverlayInput {
+  mecsExNihilo?: Array<{
+    id: string;
+    displayName: string;
+    alias?: string[];
+    statut?: string;
+    notes?: string;
+  }>;
+  dossiersExNihilo?: Array<{
+    id: string;
+    label: string;
+    dateApprox?: string;
+    mecIds: string[];
+    notes?: string;
+  }>;
+  liensRenseignement?: Array<{
+    id: string;
+    source: string;
+    target: string;
+    label?: string;
+    notes?: string;
+  }>;
 }
 
 export interface MindmapGraph {
@@ -139,10 +185,18 @@ function computeRawScore(mec: Omit<MecNode, 'score' | 'rawScore' | 'type'>): num
 // ──────────────────────────────────────────────
 
 /**
- * Construit le graphe biparti à partir d'une liste d'enquêtes contextualisées.
- * Les MEC portant le même nom normalisé sont fusionnés en un seul nœud.
+ * Construit le graphe biparti à partir d'une liste d'enquêtes contextualisées,
+ * éventuellement enrichi par les données overlay (MEC ex nihilo, dossiers ex
+ * nihilo, liens renseignement).
+ *
+ * Les MEC portant le même nom normalisé sont fusionnés en un seul nœud — un MEC
+ * ex nihilo qui partage son canonical avec un MEC réel se fond dans le nœud
+ * existant et lui apporte ses notes/alias/statut manuels.
  */
-export function buildMindmapGraph(sources: EnqueteWithContext[]): MindmapGraph {
+export function buildMindmapGraph(
+  sources: EnqueteWithContext[],
+  overlay?: OverlayInput,
+): MindmapGraph {
   const mecById = new Map<string, MecNode>();
   const dossierById = new Map<string, DossierNode>();
   const edges: GraphEdge[] = [];
@@ -239,8 +293,115 @@ export function buildMindmapGraph(sources: EnqueteWithContext[]): MindmapGraph {
       const edgeKey = `${canonical}__${dossierId}`;
       if (!edgeKeys.has(edgeKey)) {
         edgeKeys.add(edgeKey);
-        edges.push({ id: edgeKey, source: canonical, target: dossierId });
+        edges.push({ id: edgeKey, source: canonical, target: dossierId, kind: 'data' });
       }
+    }
+  }
+
+  // ── Overlay : MEC ex nihilo ─────────────────
+  // Création ou fusion (par canonical) avec les MEC déjà extraits des dossiers.
+  if (overlay?.mecsExNihilo) {
+    for (const m of overlay.mecsExNihilo) {
+      const canonical = m.id || normalizeMecName(m.displayName);
+      if (!canonical) continue;
+      let mecNode = mecById.get(canonical);
+      if (!mecNode) {
+        mecNode = {
+          type: 'mec',
+          id: canonical,
+          displayName: m.displayName,
+          variants: m.alias ? [...m.alias] : [],
+          dossierIds: [],
+          contentieuxIds: [],
+          nbMisEnExamen: 0,
+          nbChefs: 0,
+          recent: false,
+          score: 0,
+          rawScore: 0,
+          statuts: [],
+          isManualOnly: true,
+        };
+        mecById.set(canonical, mecNode);
+      }
+      mecNode.manualNotes = m.notes;
+      mecNode.manualAlias = m.alias;
+      mecNode.manualStatut = m.statut;
+      // Enrichit la liste des variants pour la recherche
+      if (m.alias && m.alias.length > 0) {
+        const merged = new Set([...mecNode.variants, ...m.alias]);
+        mecNode.variants = Array.from(merged).filter(v => v !== mecNode!.displayName);
+      }
+    }
+  }
+
+  // ── Overlay : dossiers ex nihilo ────────────
+  if (overlay?.dossiersExNihilo) {
+    for (const d of overlay.dossiersExNihilo) {
+      const node: DossierNode = {
+        type: 'dossier',
+        id: d.id,
+        enqueteId: -1,
+        contentieuxId: 'autre' as ContentieuxId,
+        numero: d.label,
+        statut: 'archive',
+        dateCreation: d.dateApprox || new Date().toISOString(),
+        nbMec: d.mecIds.length,
+        isExNihilo: true,
+        notes: d.notes,
+      };
+      dossierById.set(d.id, node);
+
+      for (const rawMecId of d.mecIds) {
+        const canonical = normalizeMecName(rawMecId) || rawMecId;
+        if (!canonical) continue;
+        // Crée un nœud MEC fantôme si le canonical n'existe pas encore (cas rare,
+        // ex. on a référencé un MEC ex nihilo qui a été supprimé entre-temps).
+        if (!mecById.has(canonical)) {
+          mecById.set(canonical, {
+            type: 'mec',
+            id: canonical,
+            displayName: rawMecId,
+            variants: [],
+            dossierIds: [],
+            contentieuxIds: [],
+            nbMisEnExamen: 0,
+            nbChefs: 0,
+            recent: false,
+            score: 0,
+            rawScore: 0,
+            statuts: [],
+            isManualOnly: true,
+          });
+        }
+        const mec = mecById.get(canonical)!;
+        if (!mec.dossierIds.includes(d.id)) mec.dossierIds.push(d.id);
+        // Le fait d'être lié à un dossier (même ex nihilo) annule l'isolement
+        mec.isManualOnly = false;
+
+        const edgeKey = `${canonical}__${d.id}`;
+        if (!edgeKeys.has(edgeKey)) {
+          edgeKeys.add(edgeKey);
+          edges.push({ id: edgeKey, source: canonical, target: d.id, kind: 'data' });
+        }
+      }
+    }
+  }
+
+  // ── Overlay : liens renseignement ───────────
+  // Filtrés : les endpoints doivent exister dans le graphe.
+  if (overlay?.liensRenseignement) {
+    for (const l of overlay.liensRenseignement) {
+      const sourceExists = mecById.has(l.source) || dossierById.has(l.source);
+      const targetExists = mecById.has(l.target) || dossierById.has(l.target);
+      if (!sourceExists || !targetExists) continue;
+      edges.push({
+        id: l.id,
+        source: l.source,
+        target: l.target,
+        kind: 'renseignement',
+        label: l.label,
+        notes: l.notes,
+      });
     }
   }
 
