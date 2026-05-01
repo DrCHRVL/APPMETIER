@@ -5,15 +5,18 @@ import { Plus, Filter, Search, X, BarChart3 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { InstructionPreview } from '../instruction/InstructionPreview';
 import { InstructionsTimeline } from '../instruction/InstructionsTimeline';
+import { RequisitionsHebdoWidget } from '../instruction/RequisitionsHebdoWidget';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
 import { useToast } from '@/contexts/ToastContext';
 import {
   ETAT_REGLEMENT_LABELS,
+  ORIENTATION_LABELS,
   FALLBACK_CABINET_COLOR,
 } from '@/config/instructionConfig';
 import type {
   DossierInstruction,
   EtatReglement,
+  OrientationPrevisible,
 } from '@/types/instructionTypes';
 
 type SortKey = 'date-desc' | 'date-asc' | 'numero-asc' | 'cabinet';
@@ -43,6 +46,7 @@ export const InstructionsPage = ({
   const [showFilters, setShowFilters] = useState(false);
   const [filterCabinet, setFilterCabinet] = useState<string>('');
   const [filterEtat, setFilterEtat] = useState<EtatReglement | ''>('');
+  const [filterOrientation, setFilterOrientation] = useState<OrientationPrevisible | '' | '__none__'>('');
   const [sortOrder, setSortOrder] = useState<SortKey>('date-desc');
   // Affichage groupé par cabinet (par défaut) ou liste à plat
   const [groupByCabinet, setGroupByCabinet] = useState(true);
@@ -61,6 +65,11 @@ export const InstructionsPage = ({
     }
     if (filterCabinet) list = list.filter(d => d.cabinetId === filterCabinet);
     if (filterEtat) list = list.filter(d => d.etatReglement === filterEtat);
+    if (filterOrientation === '__none__') {
+      list = list.filter(d => !d.orientationPrevisible);
+    } else if (filterOrientation) {
+      list = list.filter(d => d.orientationPrevisible === filterOrientation);
+    }
 
     return [...list].sort((a, b) => {
       switch (sortOrder) {
@@ -79,7 +88,7 @@ export const InstructionsPage = ({
           return 0;
       }
     });
-  }, [dossiers, searchTerm, filterCabinet, filterEtat, sortOrder, getCabinetById]);
+  }, [dossiers, searchTerm, filterCabinet, filterEtat, filterOrientation, sortOrder, getCabinetById]);
 
   // Stats par cabinet (sur tous les dossiers, pas seulement filtrés)
   const statsByCabinet = useMemo(() => {
@@ -96,6 +105,16 @@ export const InstructionsPage = ({
       ),
     [dossiers],
   );
+
+  // Stats par orientation prévisible (pour aider à la planification audience)
+  const statsByOrientation = useMemo(() => {
+    const map = new Map<OrientationPrevisible | '__none__', number>();
+    for (const d of dossiers) {
+      const k: OrientationPrevisible | '__none__' = d.orientationPrevisible || '__none__';
+      map.set(k, (map.get(k) || 0) + 1);
+    }
+    return map;
+  }, [dossiers]);
 
   // Regroupement par cabinet
   const groupedByCabinet = useMemo(() => {
@@ -198,6 +217,32 @@ export const InstructionsPage = ({
           </div>
         )}
 
+        {/* Stats orientation prévisible (compact, seulement si pertinent) */}
+        {dossiers.some(d => d.orientationPrevisible) && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-3 text-xs">
+            <span className="text-gray-500 mr-1">Orientation prévisible :</span>
+            {(Object.keys(ORIENTATION_LABELS) as OrientationPrevisible[]).map(k => {
+              const count = statsByOrientation.get(k) || 0;
+              if (count === 0) return null;
+              const isFiltered = filterOrientation === k;
+              return (
+                <button
+                  key={k}
+                  onClick={() => setFilterOrientation(isFiltered ? '' : k)}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border transition-colors ${
+                    isFiltered
+                      ? 'bg-indigo-100 text-indigo-800 border-indigo-300 ring-1 ring-indigo-400'
+                      : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                  }`}
+                  title={isFiltered ? 'Cliquer pour retirer le filtre' : `Filtrer ${ORIENTATION_LABELS[k]}`}
+                >
+                  {ORIENTATION_LABELS[k]} <strong>{count}</strong>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* Filtres */}
         {showFilters && (
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2 mb-2">
@@ -244,6 +289,22 @@ export const InstructionsPage = ({
                 <option value="cabinet">Par cabinet</option>
               </select>
             </div>
+            {/* 2e ligne : orientation */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+              <select
+                value={filterOrientation}
+                onChange={(e) => setFilterOrientation(e.target.value as typeof filterOrientation)}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-lg md:col-span-2"
+              >
+                <option value="">Toutes orientations prévisibles</option>
+                <option value="__none__">Sans orientation définie ({statsByOrientation.get('__none__') || 0})</option>
+                {(Object.keys(ORIENTATION_LABELS) as OrientationPrevisible[]).map(k => (
+                  <option key={k} value={k}>
+                    {ORIENTATION_LABELS[k]} ({statsByOrientation.get(k) || 0})
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="flex justify-between items-center text-xs text-gray-600">
               <label className="flex items-center gap-2">
                 <input
@@ -253,11 +314,12 @@ export const InstructionsPage = ({
                 />
                 Grouper par cabinet
               </label>
-              {(filterCabinet || filterEtat || searchTerm) && (
+              {(filterCabinet || filterEtat || filterOrientation || searchTerm) && (
                 <button
                   onClick={() => {
                     setFilterCabinet('');
                     setFilterEtat('');
+                    setFilterOrientation('');
                     onSearchChange('');
                   }}
                   className="text-blue-600 hover:underline"
@@ -277,6 +339,17 @@ export const InstructionsPage = ({
           <InstructionsTimeline
             dossiers={dossiers}
             onDossierClick={(id) => {
+              const d = dossiers.find(x => x.id === id);
+              if (d) onOpenDossier(d);
+            }}
+          />
+        )}
+
+        {/* Échéancier hebdo des réquisitions */}
+        {dossiers.length > 0 && (
+          <RequisitionsHebdoWidget
+            dossiers={dossiers}
+            onOpenDossier={(id) => {
               const d = dossiers.find(x => x.id === id);
               if (d) onOpenDossier(d);
             }}

@@ -24,6 +24,8 @@ import {
   getJoursRestantsAvantFinDP,
   getDossierAgeJours,
   formatDossierAge,
+  getRythmeJugeJours,
+  qualifyRythme,
 } from '@/utils/instructionUtils';
 import {
   ETAT_REGLEMENT_LABELS,
@@ -72,6 +74,7 @@ export const InstructionPreview = React.memo(({
 
   const stats = useMemo(() => {
     const byStatut = countMexByStatut(dossier);
+    const rythme = getRythmeJugeJours(dossier);
     return {
       nbMex: dossier.misEnExamen.length,
       nbDetenu: byStatut.detenu,
@@ -85,6 +88,8 @@ export const InstructionPreview = React.memo(({
       nbCotes: dossier.cotesTomes || 0,
       nbOps: dossier.ops?.length || 0,
       nbDebatsJLD: dossier.debatsJLD?.length || 0,
+      rythmeJours: rythme,
+      rythmeMeta: qualifyRythme(rythme),
     };
   }, [dossier]);
 
@@ -263,6 +268,27 @@ export const InstructionPreview = React.memo(({
             )}
             {!ageWarning && stats.ageJours >= 90 && (
               <span className="text-xs text-gray-500">{formatDossierAge(stats.ageJours)}</span>
+            )}
+
+            {/* Indicateur rythme du juge */}
+            {stats.rythmeJours !== null && (
+              <Badge
+                variant="outline"
+                className={`text-xs py-0.5 px-2 ${
+                  stats.rythmeMeta.tone === 'green'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : stats.rythmeMeta.tone === 'blue'
+                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    : stats.rythmeMeta.tone === 'amber'
+                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                    : stats.rythmeMeta.tone === 'red'
+                    ? 'bg-red-50 text-red-700 border-red-200'
+                    : 'bg-gray-50 text-gray-600 border-gray-200'
+                }`}
+                title={`Rythme du juge : 1 événement tous les ${stats.rythmeJours} j en moyenne`}
+              >
+                Rythme : {stats.rythmeMeta.label} ({stats.rythmeJours}j)
+              </Badge>
             )}
 
             <div className="flex items-center gap-1 text-xs">

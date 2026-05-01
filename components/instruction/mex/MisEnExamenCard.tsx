@@ -9,6 +9,7 @@ import { InfractionsManager } from './InfractionsManager';
 import { PersonnaliteManager } from './PersonnaliteManager';
 import { DMLsManager } from './DMLsManager';
 import { MesureSureteEditor } from './MesureSureteEditor';
+import { VerificationLegaleDP } from './VerificationLegaleDP';
 import { getJoursRestantsAvantFinDP, getDateFinDPCourante } from '@/utils/instructionUtils';
 import { getCasDPById } from '@/config/dpRegimes';
 import type {
@@ -265,6 +266,9 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
           {/* Mesures de sûreté */}
           <Section title="Mesures de sûreté">
             <MesureSureteEditor mex={mex} onChange={handleChangeMesureSurete} readOnly={readOnly} />
+            <div className="mt-2">
+              <VerificationLegaleDP mex={mex} />
+            </div>
           </Section>
 
           {/* DMLs */}

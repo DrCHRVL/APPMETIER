@@ -232,3 +232,52 @@ export const motivationRenforceeRequise = (mex: MisEnExamen): boolean => {
   if (!cas || cas.regime !== 'correctionnel') return false;
   return getDureeCumuleeDPMois(mex) >= SEUIL_MOTIVATION_RENFORCEE_MOIS;
 };
+
+// ──────────────────────────────────────────────
+// RYTHME DU JUGE (mesure d'activité du dossier)
+// ──────────────────────────────────────────────
+
+/**
+ * Calcule le « rythme du juge » : intervalle moyen en jours entre deux
+ * événements significatifs (OP du JI, débats JLD, vérifications, notes).
+ * Renvoie null si moins de 2 événements pour calculer une moyenne.
+ */
+export const getRythmeJugeJours = (dossier: DossierInstruction): number | null => {
+  const dates: number[] = [];
+
+  for (const op of dossier.ops) dates.push(new Date(op.date).getTime());
+  for (const debat of dossier.debatsJLD) dates.push(new Date(debat.date).getTime());
+  for (const v of dossier.verifications) dates.push(new Date(v.date).getTime());
+  for (const n of dossier.notesPerso) dates.push(new Date(n.date).getTime());
+  for (const mex of dossier.misEnExamen) {
+    if (mex.mesureSurete.type === 'detenu') {
+      for (const p of mex.mesureSurete.periodes) dates.push(new Date(p.dateDebut).getTime());
+    }
+  }
+  if (dates.length < 2) return null;
+
+  dates.sort((a, b) => a - b);
+  const intervals: number[] = [];
+  for (let i = 1; i < dates.length; i++) {
+    intervals.push((dates[i] - dates[i - 1]) / 86400000);
+  }
+  const sum = intervals.reduce((a, b) => a + b, 0);
+  return Math.round(sum / intervals.length);
+};
+
+/**
+ * Qualification visuelle du rythme :
+ * - <14 jours : actif
+ * - 14-45 jours : normal
+ * - 46-90 jours : lent
+ * - >90 jours : très lent (à pousser)
+ */
+export const qualifyRythme = (
+  joursMoyens: number | null,
+): { label: string; tone: 'green' | 'blue' | 'amber' | 'red' | 'gray' } => {
+  if (joursMoyens === null) return { label: '—', tone: 'gray' };
+  if (joursMoyens < 14)  return { label: 'Actif',     tone: 'green' };
+  if (joursMoyens <= 45) return { label: 'Normal',    tone: 'blue' };
+  if (joursMoyens <= 90) return { label: 'Lent',      tone: 'amber' };
+  return { label: 'Très lent', tone: 'red' };
+};
