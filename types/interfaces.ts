@@ -516,176 +516,33 @@ export interface SyncOptions {
   conflictResolution: 'manual' | 'air_priority' | 'greffe_priority';
 }
 
-// Interface pour les DML (nouvelles loi : 10 jours)
-export interface DML {
-  id: number;
-  dateDepot: string;
-  dateEcheance: string; // Auto: +10 jours ouvrables (nouvelle loi)
-  statut: 'en_attente' | 'rejetee' | 'accordee';
-  notes?: string;
-  concernedDetenus?: number[]; // IDs des détenus concernés
-}
+// ──────────────────────────────────────────────
+// MODULE INSTRUCTION
+// ──────────────────────────────────────────────
+// Le modèle de données du module instruction a été déplacé dans
+// `types/instructionTypes.ts` lors de la refonte. Les anciens types
+// (EnqueteInstruction, MisEnExamen, DML, OP, DebatParquet, MesuresSurete,
+// RDData, RapportAppel, TimelineEvent, CABINET_COLORS) ont été retirés.
+//
+// Voir `types/instructionTypes.ts` pour le nouveau modèle.
 
-// Interface pour les OP (phases interpellation) - VERSION CORRIGÉE
-export interface OP {
-  id: number;
-  date: string;
-  dureeJours?: number;
-  description?: string;
-  
-  // Interpellations dans cette phase
-  interpellations?: {
-    id: number;
-    nomPersonne: string;
-    misEnExamenId?: number; // Lien vers le mis en examen si applicable
-    dateInterpellation: string;
-    debatParquetId?: number; // Lien vers le débat si placement DP
-  }[];
-  
-  // Compteurs automatiques
-  nbInterpellations?: number; // Calculé depuis interpellations.length
-  nbDebats?: number; // Calculé depuis les débats générés par cette OP
-}
-
-// Interface pour les mis en examen (VERSION CORRIGÉE)
-export interface MisEnExamen {
-  id: number;
-  nom: string;
-  dateExamen: string;
-  chefs: string[]; // Chefs d'inculpation
-  role?: 'libre' | 'detenu'; // Statut du mis en examen (pour compatibilité)
-  statut?: 'libre' | 'cj' | 'detenu' | 'arse'; // Statut étendu
-  description?: string; // Observations optionnelles
-  
-  // Gestion détention provisoire
-  datePlacementDP?: string;     // Date de placement en DP
-  dureeInitialeDP?: number;     // Durée initiale en mois
-  dateFinDP?: string;           // Date de fin calculée automatiquement
-  dateRenouvellementDP?: string; // Date du renouvellement s'il y en a eu
-  dureeRenouvellementDP?: number; // Durée du renouvellement en mois
-  dateFinRenouvellementDP?: string; // Date de fin après renouvellement
-  
-  // Historique des débats liés à cette personne
-  debatsHistory?: {
-    debatId: number;
-    type: 'placement_dp' | 'prolongation_dp';
-    date: string;
-    decision: string;
-  }[];
-}
-
-// Interface pour les débats parquet (VERSION CORRIGÉE)
-export interface DebatParquet {
-  id: number;
-  date: string;
-  type: 'placement_dp' | 'prolongation_dp' | 'dml' | 'autre';
-  issue?: string;
-  notes?: string;
-  
-  // Liens pour éviter les doubles comptages
-  concernedDetenu?: number; // ID du mis en examen concerné
-  originatedFromOP?: number; // ID de l'OP qui a généré ce débat (si applicable)
-  sourceType?: 'manual' | 'op_generated' | 'renouvellement'; // Source du débat
-}
-
-// Interface pour les mesures de sûreté
-export interface MesuresSurete {
-  dp?: {
-    dateDebut: string;
-    dateFin: string;
-    alerteActive: boolean;
-    joursRestants?: number;
-  };
-  cj?: {
-    dateDebut: string;
-    dateFin: string;
-    obligations: string[];
-  };
-  arse?: {
-    dateDebut: string;
-    dateFin: string;
-  };
-}
-
-// Interface pour RD et rapports
-export interface RDData {
-  rendu: boolean;
-  nbPages?: number;
-  dateRendu?: string;
-}
-
-export interface RapportAppel {
-  rendu: boolean;
-  nbPages?: number;
-  dateRendu?: string;
-}
-
-// Extension de l'interface Enquete pour les instructions
-export interface EnqueteInstruction extends Enquete {
-  // Champs obligatoires création
-  numeroParquet: string;           // "24.139.217"
-  numeroInstruction: string;       // "JIRS AC 23/05"
-  cabinet: '1' | '2' | '3' | '4';  // Couleurs : rose, crème, vert, bleu
-  origineEnquete: 'preliminaire' | 'flagrance';
-  serviceEnqueteur: string;        // Réutilise tags services existants
-  
-  // État règlement avec curseur
-  etatReglement: 'instruction' | '175_rendu' | 'rd_fait' | 'ordonnance_rendue';
-  
-  // Compteurs automatiques (calculés)
-  readonly nbDML: number;          // Auto-calculé depuis dmls.length
-  readonly nbCotes: number;        // Incrémentable manuellement
-  readonly nbDebatsParquet: number; // Auto-calculé
-  readonly nbMisEnExamen: number;  // Auto-calculé depuis misEnExamen.length
-  readonly nbPagesTotal: number;   // RD + rapport (règle spéciale si même dossier)
-  
-  // Listes de données
-  dmls: DML[];
-  ops: OP[];
-  misEnExamen: MisEnExamen[];
-  debatsParquet: DebatParquet[];
-  
-  // Mesures de sûreté avec alertes
-  mesuresSurete?: MesuresSurete;
-  
-  // Orientation finale
-  orientation?: 'TC' | 'CCD' | 'Assises' | 'TPE' | 'CAM' | 'non_lieu';
-  
-  // RD et rapports
-  rdData?: RDData;
-  rapportAppel?: RapportAppel;
-  
-  // Côtes/tomes incrémentable
-  cotesTomes: number;
-  
-  // Victimes
-  victimes?: Array<{ id: number; nom: string }>;
-
-  // Timeline personnalisée
-  timeline?: TimelineEvent[];
-}
-
-// Interface pour la timeline
-export interface TimelineEvent {
-  id: number;
-  date: string;
-  type: 'ouverture' | 'dml' | 'debat' | 'rd' | 'rapport' | 'ordonnance' | 'expertise' | 'cr' | 'audition' | 'interrogatoire' | 'placement_dp' | 'ipc' | 'op' | 'autre';
-  title: string;
-  description?: string;
-  automatic?: boolean;
-}
-
-// Couleurs par cabinet - EXPORTÉ
-export const CABINET_COLORS = {
-  '1': 'bg-rose-50 border-rose-200 hover:bg-rose-100',     // Rose pâle
-  '2': 'bg-amber-50 border-amber-200 hover:bg-amber-100',  // Crème
-  '3': 'bg-green-50 border-green-200 hover:bg-green-100',  // Vert pâle
-  '4': 'bg-blue-50 border-blue-200 hover:bg-blue-100'     // Bleu pâle
-} as const;
-
-// Types pour les alertes instruction
+// Alerte d'instruction — conservée ici car référencée par la sync
+// (UserPreferencesSyncService, globalSyncTypes). La logique de génération est
+// dans `hooks/useInstructionAlerts`.
 export interface AlerteInstruction extends Alert {
   instructionId: number;
+  /** Cabinet d'instruction (id libre, géré par InstructionConfigManager) */
   cabinetId: string;
-  alerteType: 'dp_expiration' | 'dml_retard' | 'delai_175' | 'expertise_echeance';
+  alerteType:
+    | 'dp_fin_proche'
+    | 'dp_debat_jld'
+    | 'dml_echeance'
+    | 'dossier_dormant'
+    | 'op_ji_proche'
+    | 'verif_periodique_due'
+    // Anciens types conservés pour compatibilité avec les alertes en cache
+    | 'dp_expiration'
+    | 'dml_retard'
+    | 'delai_175'
+    | 'expertise_echeance';
 }

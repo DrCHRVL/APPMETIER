@@ -18,7 +18,8 @@
 // La formule sera affinée à l'usage — l'objectif ici est d'avoir un signal
 // visuel cohérent dès le MVP.
 
-import { Enquete, MisEnCause, MisEnExamen } from '@/types/interfaces';
+import { Enquete, MisEnCause } from '@/types/interfaces';
+import type { MisEnExamen } from '@/types/instructionTypes';
 import { ContentieuxId } from '@/types/userTypes';
 
 // ──────────────────────────────────────────────
@@ -160,7 +161,7 @@ export function buildMindmapGraph(sources: EnqueteWithContext[]): MindmapGraph {
         examenedCanonical.add(canonical);
         chefsByCanonical.set(
           canonical,
-          (chefsByCanonical.get(canonical) || 0) + (exa.chefs?.length || 0),
+          (chefsByCanonical.get(canonical) || 0) + (exa.infractions?.length || 0),
         );
       }
     }

@@ -38,12 +38,14 @@ import { useTags } from '@/hooks/useTags';
 import { useSections } from '@/hooks/useSections';
 import { useUserServiceOrganization } from '@/hooks/useUserServiceOrganization';
 
-// Imports pour les instructions judiciaires
+// Imports pour les instructions judiciaires (refonte PR1)
 import { InstructionsPage } from '@/components/pages/InstructionsPage';
 import { NewInstructionModal } from '@/components/modals/NewInstructionModal';
 import dynamic from 'next/dynamic';
 const InstructionDetailModal = dynamic(() => import('@/components/modals/InstructionDetailModal').then(m => ({ default: m.InstructionDetailModal })), { ssr: false });
 import { useInstructions } from '@/hooks/useInstructions';
+import { useInstructionAlerts } from '@/hooks/useInstructionAlerts';
+import type { DossierInstruction } from '@/types/instructionTypes';
 
 import { useAIR } from '@/hooks/useAIR';
 import { useCombinedAlerts } from '@/hooks/useCombinedAlerts';
@@ -73,6 +75,7 @@ import { useCrossSearch } from '@/hooks/useCrossSearch';
 const AdminUsersPanel = dynamic(() => import('@/components/AdminUsersPanel').then(m => ({ default: m.AdminUsersPanel })), { ssr: false });
 import { UserManager } from '@/utils/userManager';
 const AdminContentieuxPanel = dynamic(() => import('@/components/admin/AdminContentieuxPanel').then(m => ({ default: m.AdminContentieuxPanel })), { ssr: false });
+const AdminInstructionPanel = dynamic(() => import('@/components/admin/AdminInstructionPanel').then(m => ({ default: m.AdminInstructionPanel })), { ssr: false });
 const AdminPathsPanel = dynamic(() => import('@/components/admin/AdminPathsPanel').then(m => ({ default: m.AdminPathsPanel })), { ssr: false });
 const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashboardPanel').then(m => ({ default: m.AdminDashboardPanel })), { ssr: false });
 const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHistoryPanel').then(m => ({ default: m.AdminTagHistoryPanel })), { ssr: false });
@@ -275,25 +278,21 @@ function AppContent() {
   // Hook Overboard — données transversales (tous contentieux)
   const { enquetesByContentieux: overboardData, refresh: refreshOverboard } = useOverboardData(contentieuxDefs);
 
-  // Hook pour les instructions judiciaires
+  // Hook pour les instructions judiciaires (refonte PR1 — modèle DossierInstruction)
   const {
-    instructions,
-    selectedInstruction,
-    isEditing: isEditingInstruction,
-    editingCR: editingCRInstruction,
-    instructionAlerts,
-    setSelectedInstruction,
-    setIsEditing: setIsEditingInstruction,
-    setEditingCR: setEditingCRInstruction,
-    handleAddInstruction,
-    handleUpdateInstruction,
-    handleDeleteInstruction,
-    handleAjoutCR: handleAjoutCRInstruction,
-    handleUpdateCR: handleUpdateCRInstruction,
-    handleDeleteCR: handleDeleteCRInstruction,
-    handleValidateInstructionAlert,
-    handleSnoozeInstructionAlert
+    dossiers: instructions,
+    addDossier: handleAddInstruction,
+    updateDossier: handleUpdateInstruction,
+    deleteDossier: handleDeleteInstruction,
   } = useInstructions();
+  const [selectedInstruction, setSelectedInstruction] = useState<DossierInstruction | null>(null);
+  const [isEditingInstruction, setIsEditingInstruction] = useState(false);
+  // Stub d'alertes instruction (PR3 réimplémentera la génération automatique)
+  const {
+    instructionAlerts,
+    handleValidateInstructionAlert,
+    handleSnoozeInstructionAlert,
+  } = useInstructionAlerts(instructions);
 
   // Hook pour les mesures AIR
   const {
@@ -746,14 +745,35 @@ function AppContent() {
   );
 
   // Sources pour le module Mindmap : toutes enquêtes accessibles + instructions
+  // Les dossiers d'instruction (nouveau modèle) sont enveloppés dans une
+  // pseudo-Enquete pour rester compatibles avec le builder de graphe.
   const mindmapSources = useMemo<EnqueteWithContext[]>(() => {
     const out: EnqueteWithContext[] = [];
     for (const [ctxId, list] of overboardData) {
       for (const e of list) out.push({ enquete: e, contentieuxId: ctxId });
     }
     for (const inst of instructions) {
+      const pseudoEnquete = {
+        id: inst.id,
+        numero: inst.numeroInstruction,
+        statut: 'instruction' as const,
+        dateCreation: inst.dateCreation,
+        dateMiseAJour: inst.dateMiseAJour,
+        dateDebut: inst.dateOuverture,
+        services: [],
+        actes: [],
+        comptesRendus: [],
+        documents: [],
+        notes: '',
+        tags: inst.tags || [],
+        misEnCause: inst.misEnExamen.map(m => ({
+          id: m.id,
+          nom: m.nom,
+          statut: m.mesureSurete.type,
+        })),
+      } as unknown as import('@/types/interfaces').Enquete;
       out.push({
-        enquete: inst,
+        enquete: pseudoEnquete,
         contentieuxId: 'instructions',
         misEnExamen: inst.misEnExamen,
       });
@@ -1218,12 +1238,16 @@ return (
 
           {baseView === 'instructions' && (
             <InstructionsPage
-              instructions={instructions}
+              dossiers={instructions}
               searchTerm={searchTerm}
               onSearchChange={handleSearchChange}
-              onUpdateInstruction={handleUpdateInstruction}
-              onAddInstruction={handleAddInstruction}
-              onDeleteInstruction={handleDeleteInstruction}
+              onOpenDossier={(d) => {
+                setSelectedInstruction(d);
+                setIsEditingInstruction(false);
+              }}
+              onCreateDossier={() => setShowNewInstructionModal(true)}
+              onUpdateDossier={handleUpdateInstruction}
+              onDeleteDossier={handleDeleteInstruction}
             />
           )}
 
@@ -1358,12 +1382,15 @@ return (
       />
 
       {selectedInstruction && (
-        <InstructionDetailModal 
-          instruction={selectedInstruction}
+        <InstructionDetailModal
+          dossier={selectedInstruction}
           isEditing={isEditingInstruction}
           onClose={() => setSelectedInstruction(null)}
-          onEdit={() => setIsEditingInstruction(!isEditingInstruction)}
-          onUpdate={handleUpdateInstruction}
+          onEdit={() => setIsEditingInstruction(v => !v)}
+          onUpdate={(id, updates) => {
+            handleUpdateInstruction(id, updates);
+            setSelectedInstruction(prev => (prev && prev.id === id ? { ...prev, ...updates } : prev));
+          }}
           onDelete={handleDeleteInstruction}
         />
       )}
@@ -1657,6 +1684,7 @@ return (
         }
         adminUsersContent={<AdminUsersPanel />}
         adminContentieuxContent={<AdminContentieuxPanel />}
+        adminInstructionContent={<AdminInstructionPanel />}
         adminPathsContent={<AdminPathsPanel />}
         adminDashboardContent={<AdminDashboardPanel />}
         adminTagHistoryContent={<AdminTagHistoryPanel />}

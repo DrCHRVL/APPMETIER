@@ -4,14 +4,14 @@ import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import { Select } from '../ui/select';
 import { Label } from '../ui/label';
-import { Enquete, CompteRendu, EnqueteInstruction } from '@/types/interfaces';
+import { Enquete, CompteRendu } from '@/types/interfaces';
 import { X, FileText, Calendar, User } from 'lucide-react';
 import { useMemo, useState, useRef, useEffect, useCallback, memo, MouseEvent } from 'react';
 import { useUser } from '@/contexts/UserContext';
 import { renderFormattedText, stripClipboardNoise } from '@/lib/formatCR';
 
 interface CompteRenduSectionProps {
-  enquete: Enquete | EnqueteInstruction;
+  enquete: Enquete;
   editingCR: CompteRendu | null;
   onAddCR: (cr: Omit<CompteRendu, 'id'>) => void;
   onUpdateCR: (id: number, updates: Partial<CompteRendu>) => void;
@@ -493,7 +493,7 @@ export const CompteRenduSection = memo(({
   const generateTimelineEvent = async (cr: CompteRenduInstruction) => {
     if (!isInstruction || !cr.acteType || !cr.dateActe) return;
 
-    const instruction = enquete as EnqueteInstruction;
+    const instruction = enquete as Enquete & { id: number; timeline?: unknown[] };
     
     // Mapper le type d'acte vers le type timeline
     const getTimelineType = (acteType: string): string => {

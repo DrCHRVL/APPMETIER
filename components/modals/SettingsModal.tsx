@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId } from '@/types/userTypes';
 
@@ -9,7 +9,7 @@ import { ContentieuxId } from '@/types/userTypes';
 // TYPES
 // ──────────────────────────────────────────────
 
-type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'a_propos' | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
+type SettingsTab = 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'a_propos' | 'admin_users' | 'admin_contentieux' | 'admin_instruction' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -20,6 +20,7 @@ interface SettingsModalProps {
   monProfilContent?: React.ReactNode;
   adminUsersContent?: React.ReactNode;
   adminContentieuxContent?: React.ReactNode;
+  adminInstructionContent?: React.ReactNode;
   adminPathsContent?: React.ReactNode;
   adminDashboardContent?: React.ReactNode;
   adminTagHistoryContent?: React.ReactNode;
@@ -54,6 +55,7 @@ const TABS: TabDef[] = [
   // Séparateur admin
   { id: 'admin_users',       label: 'Utilisateurs',     icon: Users,         isAdmin: true, isSeparator: true },
   { id: 'admin_contentieux', label: 'Contentieux',      icon: Layers,        isAdmin: true },
+  { id: 'admin_instruction', label: 'Module instruction', icon: Gavel,       isAdmin: true },
   { id: 'admin_paths',       label: 'Chemins réseau',   icon: Network,       isAdmin: true },
   { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      isAdmin: true },
   { id: 'admin_tag_history', label: 'Historique tags',   icon: ClipboardList, isAdmin: true },
@@ -80,6 +82,7 @@ export const SettingsModal = ({
   monProfilContent,
   adminUsersContent,
   adminContentieuxContent,
+  adminInstructionContent,
   adminPathsContent,
   adminDashboardContent,
   adminTagHistoryContent,
@@ -118,6 +121,8 @@ export const SettingsModal = ({
         return adminUsersContent;
       case 'admin_contentieux':
         return adminContentieuxContent;
+      case 'admin_instruction':
+        return adminInstructionContent;
       case 'admin_paths':
         return adminPathsContent;
       case 'admin_dashboard':
