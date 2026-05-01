@@ -1685,7 +1685,7 @@ return (
         }
         adminUsersContent={<AdminUsersPanel />}
         adminContentieuxContent={<AdminContentieuxPanel />}
-        adminInstructionContent={<AdminInstructionPanel />}
+        moduleInstructionContent={hasModule('instructions') ? <AdminInstructionPanel /> : null}
         adminPathsContent={<AdminPathsPanel />}
         adminDashboardContent={<AdminDashboardPanel />}
         adminTagHistoryContent={<AdminTagHistoryPanel />}

@@ -39,9 +39,10 @@ export const AdminInstructionPanel = () => {
   const [editColor, setEditColor] = useState('');
   const [editMagistrat, setEditMagistrat] = useState('');
 
-  if (!checkIsAdmin()) {
-    return <div className="text-gray-500">Accès réservé à l'administrateur.</div>;
-  }
+  // Cabinets : édition réservée aux admins. Les utilisateurs non-admin voient
+  // simplement la liste en lecture seule (les sections alertes / rappel hebdo
+  // restent par contre éditables car elles sont per-user).
+  const isAdmin = checkIsAdmin();
 
   const resetAddForm = () => {
     setShowAddForm(false);
@@ -134,10 +135,12 @@ export const AdminInstructionPanel = () => {
               : `${enabledCount} actif${enabledCount > 1 ? 's' : ''} sur ${allCabinets.length}`}
           </p>
           <p className="text-xs text-gray-500 mt-1">
-            Configurez ici les cabinets de votre tribunal. Vous pouvez en ajouter, modifier la
-            couleur ou le magistrat affecté, désactiver ou supprimer un cabinet vide.
+            {isAdmin
+              ? 'Configurez ici les cabinets de votre tribunal. Vous pouvez en ajouter, modifier la couleur ou le magistrat affecté, désactiver ou supprimer un cabinet vide.'
+              : 'Liste des cabinets configurés. La gestion (ajout / suppression / modification) est réservée à l\'administrateur.'}
           </p>
         </div>
+        {isAdmin && (
         <button
           onClick={() => setShowAddForm(!showAddForm)}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition-colors"
@@ -145,10 +148,11 @@ export const AdminInstructionPanel = () => {
           <Plus className="h-3.5 w-3.5" />
           Ajouter un cabinet
         </button>
+        )}
       </div>
 
       {/* Add form */}
-      {showAddForm && (
+      {isAdmin && showAddForm && (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
           <h4 className="text-sm font-semibold text-gray-700">Nouveau cabinet</h4>
           <div className="grid grid-cols-2 gap-3">
@@ -301,6 +305,7 @@ export const AdminInstructionPanel = () => {
                 )}
               </div>
 
+              {isAdmin && (
               <div className="flex items-center gap-1 shrink-0">
                 {isEditing ? (
                   <>
@@ -349,6 +354,7 @@ export const AdminInstructionPanel = () => {
                   </>
                 )}
               </div>
+              )}
             </div>
           );
         })}
