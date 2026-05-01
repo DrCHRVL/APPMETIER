@@ -248,9 +248,6 @@ const VisualAlertsSection = ({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium truncate">{rule.label}</span>
-                  {rule.isSystemRule && (
-                    <span className="text-[10px] bg-green-100 text-green-800 px-1.5 py-0.5 rounded">Système</span>
-                  )}
                 </div>
                 <div className="text-xs text-gray-500">
                   {VISUAL_ALERT_TRIGGER_LABELS[rule.trigger] || rule.trigger}
@@ -398,8 +395,7 @@ interface AlertsPageProps {
 }
 
 export const AlertsPage = ({ onShowWeeklyPopup, visualAlertRules = [], onUpdateVisualAlertRule, onDeleteVisualAlertRule, onReorderVisualAlertRules }: AlertsPageProps) => {
-  const { hasModule, accessibleContentieux, canDo } = useUser();
-  const userHasAIR = hasModule('air');
+  const { accessibleContentieux, canDo } = useUser();
   const {
     subscribedContentieux,
     setWeeklyRecapSubscriptions,
@@ -608,7 +604,6 @@ export const AlertsPage = ({ onShowWeeklyPopup, visualAlertRules = [], onUpdateV
             canManage={canManage}
             isSubscribed={isSubscribed}
             onToggleSubscription={() => toggleAlertsSubscription(c.id)}
-            userHasAIR={userHasAIR}
           />
         );
       })}
