@@ -32,7 +32,7 @@ export interface ContentieuxDefinition {
 // ──────────────────────────────────────────────
 
 /** Modules activables par l'admin */
-export type ModuleId = 'air' | 'instructions';
+export type ModuleId = 'air' | 'instructions' | 'mindmap';
 
 // ──────────────────────────────────────────────
 // UTILISATEUR
