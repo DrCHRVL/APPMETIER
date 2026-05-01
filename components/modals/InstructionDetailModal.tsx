@@ -21,10 +21,16 @@ import {
 } from '@/utils/instructionUtils';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { MisEnExamenSection } from '../instruction/mex/MisEnExamenSection';
+import { OpsSection } from '../instruction/OpsSection';
+import { DebatsJLDSection } from '../instruction/DebatsJLDSection';
 import type {
   DossierInstruction,
   EtatReglement,
   OrientationPrevisible,
+  MisEnExamen,
+  OPInstruction,
+  DebatJLDPlanifie,
 } from '@/types/instructionTypes';
 
 interface InstructionDetailModalProps {
@@ -291,22 +297,40 @@ export const InstructionDetailModal = ({
           )}
 
           {activeTab === 'mex' && (
-            <ComingSoon>
-              La carte détaillée par mis en examen (identité, infractions, personnalité, mesures de sûreté DP/CJ/ARSE,
-              DML, vérifications légales) arrive en <strong>PR2</strong>.
-              <div className="mt-2 text-xs">
-                Pour l'instant, ce dossier contient {stats.nbMex} mis en examen.
-              </div>
-            </ComingSoon>
+            <MisEnExamenSection
+              misEnExamen={dossier.misEnExamen}
+              onChange={(misEnExamen: MisEnExamen[]) =>
+                onUpdate(dossier.id, { misEnExamen })
+              }
+            />
           )}
 
           {activeTab === 'echeances' && (
-            <ComingSoon>
-              La gestion des OP fixées par le JI et des débats JLD planifiés (avec leurs réquisitions) arrive en <strong>PR2</strong>.
-              <div className="mt-2 text-xs">
-                {dossier.ops.length} OP · {dossier.debatsJLD.length} débats JLD enregistrés.
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-blue-600" />
+                  OP programmées par le juge d'instruction
+                </h3>
+                <OpsSection
+                  ops={dossier.ops}
+                  onChange={(ops: OPInstruction[]) => onUpdate(dossier.id, { ops })}
+                />
               </div>
-            </ComingSoon>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-indigo-600" />
+                  Débats JLD
+                </h3>
+                <DebatsJLDSection
+                  debats={dossier.debatsJLD}
+                  misEnExamen={dossier.misEnExamen}
+                  onChange={(debatsJLD: DebatJLDPlanifie[]) =>
+                    onUpdate(dossier.id, { debatsJLD })
+                  }
+                />
+              </div>
+            </div>
           )}
 
           {activeTab === 'notes' && (

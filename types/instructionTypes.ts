@@ -123,8 +123,15 @@ export type MesureSurete =
       depuis: string;
       /** Régime principal applicable au MEX */
       regime: RegimeDetentionProvisoire;
+      /**
+       * Identifiant du cas légal applicable (cf. config/dpRegimes.ts).
+       * Détermine la durée initiale, la durée max et la tranche de prolongation.
+       */
+      casDPId?: string;
       /** Liste chronologique des périodes (placement initial + prolongations) */
       periodes: PeriodeDetentionProvisoire[];
+      /** Compteur des prolongations exceptionnelles CHINS déjà accordées */
+      nbProlongationsExceptionnelles?: number;
       notes?: string;
     };
 

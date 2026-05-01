@@ -10,6 +10,7 @@ import type {
   RegimeDetentionProvisoire,
   DemandeMiseEnLiberte,
 } from '@/types/instructionTypes';
+import { getCasDPById, SEUIL_MOTIVATION_RENFORCEE_MOIS } from '@/config/dpRegimes';
 
 // ──────────────────────────────────────────────
 // DML
@@ -167,3 +168,67 @@ export const buildPeriodeDP = (
   regime,
   type,
 });
+
+// ──────────────────────────────────────────────
+// HELPERS LIÉS AU CAS LÉGAL DE DP
+// ──────────────────────────────────────────────
+
+/**
+ * Pour un MEX détenu, calcule combien de mois de DP ont été cumulés.
+ * (somme des dureeMois des périodes triées chronologiquement)
+ */
+export const getDureeCumuleeDPMois = (mex: MisEnExamen): number => {
+  if (mex.mesureSurete.type !== 'detenu') return 0;
+  return mex.mesureSurete.periodes.reduce((sum, p) => sum + (p.dureeMois || 0), 0);
+};
+
+/**
+ * Mois restants avant d'atteindre la durée maximale légale (selon le cas DP).
+ * Renvoie null si pas de cas légal défini ou MEX non détenu.
+ * Renvoie une valeur négative si on a déjà dépassé.
+ */
+export const getMoisRestantsAvantMaxLegal = (mex: MisEnExamen): number | null => {
+  if (mex.mesureSurete.type !== 'detenu') return null;
+  const cas = getCasDPById(mex.mesureSurete.casDPId);
+  if (!cas) return null;
+  return cas.dureeMaxMois - getDureeCumuleeDPMois(mex);
+};
+
+/**
+ * Indique si une nouvelle prolongation (de tranche standard) est encore
+ * possible dans la durée légale. Pour un cas sans prolongation possible
+ * (ex: délit ≥3 ans ≤5 ans), renvoie false.
+ */
+export const peutEtreProlonge = (mex: MisEnExamen): boolean => {
+  if (mex.mesureSurete.type !== 'detenu') return false;
+  const cas = getCasDPById(mex.mesureSurete.casDPId);
+  if (!cas || cas.trancheProlongationMois === 0) return false;
+  const cumule = getDureeCumuleeDPMois(mex);
+  return cumule + cas.trancheProlongationMois <= cas.dureeMaxMois;
+};
+
+/**
+ * Indique si la prolongation exceptionnelle CHINS peut être sollicitée.
+ * (le cas légal le permet ET on a atteint la durée max ET le quota n'est
+ * pas épuisé)
+ */
+export const peutDemanderProlongationExceptionnelle = (mex: MisEnExamen): boolean => {
+  if (mex.mesureSurete.type !== 'detenu') return false;
+  const cas = getCasDPById(mex.mesureSurete.casDPId);
+  if (!cas?.prolongationExceptionnelleCHINS || !cas.prolongationExceptionnelle) return false;
+  const cumule = getDureeCumuleeDPMois(mex);
+  if (cumule < cas.dureeMaxMois) return false;
+  const dejaAccordees = mex.mesureSurete.nbProlongationsExceptionnelles || 0;
+  return dejaAccordees < cas.prolongationExceptionnelle.nbMax;
+};
+
+/**
+ * Indique si la motivation renforcée est requise (correctionnel, > 8 mois cumulés).
+ * Référence : art 137-3 + dépêche 23 décembre 2021.
+ */
+export const motivationRenforceeRequise = (mex: MisEnExamen): boolean => {
+  if (mex.mesureSurete.type !== 'detenu') return false;
+  const cas = getCasDPById(mex.mesureSurete.casDPId);
+  if (!cas || cas.regime !== 'correctionnel') return false;
+  return getDureeCumuleeDPMois(mex) >= SEUIL_MOTIVATION_RENFORCEE_MOIS;
+};
