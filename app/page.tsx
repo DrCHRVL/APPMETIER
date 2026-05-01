@@ -32,7 +32,6 @@ import { hasJldInvolvement } from '@/utils/permissions';
 import { PermanencePage } from '@/components/pages/PermanencePage';
 import { ArchivePage } from '@/components/pages/ArchivePage';
 import { AIRPage } from '@/components/pages/AIRPage';
-import { MindmapPage } from '@/components/pages/MindmapPage';
 import type { EnqueteWithContext } from '@/utils/mindmapGraph';
 import { useTags } from '@/hooks/useTags';
 import { useSections } from '@/hooks/useSections';
@@ -42,6 +41,21 @@ import { useUserServiceOrganization } from '@/hooks/useUserServiceOrganization';
 import { InstructionsPage } from '@/components/pages/InstructionsPage';
 import { NewInstructionModal } from '@/components/modals/NewInstructionModal';
 import dynamic from 'next/dynamic';
+const MindmapPage = dynamic(
+  () => import('@/components/pages/MindmapPage').then(m => ({ default: m.MindmapPage })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex flex-col items-center justify-center h-full gap-5 text-white/50">
+        <div className="w-9 h-9 rounded-full border-2 border-violet-400/30 border-t-violet-400 animate-spin" />
+        <p className="text-sm tracking-wide">Chargement de la cartographie…</p>
+        <div className="w-56 h-1.5 bg-white/10 rounded-full overflow-hidden">
+          <div className="h-full w-2/3 bg-violet-400/70 rounded-full animate-pulse" />
+        </div>
+      </div>
+    ),
+  }
+);
 const InstructionDetailModal = dynamic(() => import('@/components/modals/InstructionDetailModal').then(m => ({ default: m.InstructionDetailModal })), { ssr: false });
 import { useInstructions } from '@/hooks/useInstructions';
 import { useInstructionAlerts } from '@/hooks/useInstructionAlerts';
