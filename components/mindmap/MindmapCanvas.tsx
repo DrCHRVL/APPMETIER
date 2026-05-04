@@ -1,16 +1,19 @@
 // components/mindmap/MindmapCanvas.tsx
-// Canvas react-flow rendant le sous-graphe (focus ou vue d'ensemble).
-// Layout figé via d3-force, drag/zoom/pan gérés par react-flow.
+// Canvas react-flow rendant le graphe complet. Layout figé via d3-force,
+// drag/zoom/pan gérés par react-flow. La prop centerRequest permet à
+// l'extérieur de demander un recentrage animé sur un nœud précis.
 
 'use client';
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import {
   Background,
   Controls,
-  MiniMap,
+  Handle,
+  Position,
   ReactFlow,
   ReactFlowProvider,
+  useReactFlow,
   type Edge,
   type Node,
   type NodeMouseHandler,
@@ -29,8 +32,11 @@ interface MindmapCanvasProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
   contentieuxDefs: ContentieuxDefinition[];
-  /** ID du nœud sous focus (highlight visuel) */
+  /** ID du nœud sélectionné (highlight visuel) */
   focusedId?: string;
+  /** Demande de recentrage de la caméra. Le seq sert à re-déclencher l'animation
+   *  même si on cible deux fois de suite le même nœud. */
+  centerRequest?: { id: string; seq: number };
   onNodeClick?: (node: GraphNode) => void;
   onNodeDoubleClick?: (node: GraphNode) => void;
 }
@@ -45,6 +51,18 @@ type DossierNodeData = DossierNode & {
   radius: number;
   color: string;
   contentieuxLabel: string;
+  isExNihilo: boolean;
+};
+
+const HIDDEN_HANDLE_STYLE: React.CSSProperties = {
+  opacity: 0,
+  width: 1,
+  height: 1,
+  minWidth: 0,
+  minHeight: 0,
+  border: 'none',
+  background: 'transparent',
+  pointerEvents: 'none',
 };
 
 const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
@@ -63,6 +81,8 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
         }
       `}
     >
+      <Handle type="target" position={Position.Top} style={HIDDEN_HANDLE_STYLE} isConnectable={false} />
+      <Handle type="source" position={Position.Bottom} style={HIDDEN_HANDLE_STYLE} isConnectable={false} />
       <div
         className="absolute inset-0 rounded-full"
         style={{
@@ -82,21 +102,22 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
 };
 
 const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
-  const { numero, statut, focused, radius, color, contentieuxLabel, nbMec } = data;
+  const { numero, statut, focused, radius, color, contentieuxLabel, nbMec, isExNihilo } = data;
   const width = Math.max(120, radius * 4);
   const height = Math.max(48, radius * 1.6);
-  const archived = statut === 'archive';
+  const archived = statut === 'archive' && !isExNihilo;
   return (
     <div
-      title={`${contentieuxLabel} • ${numero} • ${nbMec} MEC`}
+      title={`${isExNihilo ? 'Dossier manuel' : contentieuxLabel} • ${numero} • ${nbMec} MEC`}
       style={{
         width,
         height,
-        background: archived ? '#f3f4f6' : `${color}15`,
+        background: isExNihilo ? '#fff' : (archived ? '#f3f4f6' : `${color}15`),
         borderColor: color,
+        borderStyle: isExNihilo ? 'dashed' : 'solid',
       }}
       className={`
-        flex flex-col items-center justify-center rounded-lg border-2
+        relative flex flex-col items-center justify-center rounded-lg border-2
         text-center select-none transition-all duration-150
         ${focused
           ? 'ring-4 ring-yellow-300 shadow-lg scale-105'
@@ -105,6 +126,8 @@ const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
         ${archived ? 'opacity-60' : ''}
       `}
     >
+      <Handle type="target" position={Position.Top} style={HIDDEN_HANDLE_STYLE} isConnectable={false} />
+      <Handle type="source" position={Position.Bottom} style={HIDDEN_HANDLE_STYLE} isConnectable={false} />
       <span
         className="font-mono font-semibold leading-tight"
         style={{ color, fontSize: Math.max(11, Math.min(14, radius / 3)) }}
@@ -112,7 +135,9 @@ const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
         {numero}
       </span>
       <span className="text-[10px] text-slate-600 mt-0.5">
-        {nbMec} MEC{statut === 'instruction' ? ' • instruction' : ''}
+        {isExNihilo
+          ? `${nbMec} MEC • manuel`
+          : `${nbMec} MEC${statut === 'instruction' ? ' • instruction' : ''}`}
       </span>
     </div>
   );
@@ -134,10 +159,19 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   edges,
   contentieuxDefs,
   focusedId,
+  centerRequest,
   onNodeClick,
   onNodeDoubleClick,
 }) => {
   const positions = useForceLayout(nodes, edges);
+  const { setCenter } = useReactFlow();
+
+  useEffect(() => {
+    if (!centerRequest) return;
+    const pos = positions.get(centerRequest.id);
+    if (!pos) return;
+    setCenter(pos.x, pos.y, { zoom: 1.2, duration: 600 });
+  }, [centerRequest, positions, setCenter]);
 
   const ctxColorById = useMemo(() => {
     const m = new Map<ContentieuxId, { color: string; label: string }>();
@@ -161,12 +195,14 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
         } satisfies Node;
       }
       const ctx = ctxColorById.get(n.contentieuxId);
+      const isExNihilo = !!n.isExNihilo;
       const data: DossierNodeData = {
         ...n,
         focused,
         radius,
-        color: ctx?.color || CTX_FALLBACK_COLOR,
+        color: isExNihilo ? '#7c3aed' : (ctx?.color || CTX_FALLBACK_COLOR),
         contentieuxLabel: ctx?.label || n.contentieuxId,
+        isExNihilo,
       };
       const width = Math.max(120, radius * 4);
       const height = Math.max(48, radius * 1.6);
@@ -181,17 +217,30 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   }, [nodes, positions, focusedId, ctxColorById]);
 
   const rfEdges: Edge[] = useMemo(() => {
-    return edges.map(e => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      style: {
-        stroke: focusedId && (e.source === focusedId || e.target === focusedId)
-          ? '#facc15'
-          : '#cbd5e1',
-        strokeWidth: focusedId && (e.source === focusedId || e.target === focusedId) ? 2 : 1,
-      },
-    }));
+    return edges.map(e => {
+      const highlighted = focusedId && (e.source === focusedId || e.target === focusedId);
+      const isRens = e.kind === 'renseignement';
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        label: isRens ? e.label : undefined,
+        labelStyle: isRens ? { fill: '#1d4ed8', fontSize: 10, fontWeight: 600 } : undefined,
+        labelBgStyle: isRens ? { fill: '#eff6ff' } : undefined,
+        labelBgPadding: isRens ? ([4, 2] as [number, number]) : undefined,
+        labelBgBorderRadius: isRens ? 3 : undefined,
+        style: isRens
+          ? {
+              stroke: highlighted ? '#1e40af' : '#3b82f6',
+              strokeWidth: highlighted ? 2.5 : 1.8,
+              strokeDasharray: '6 4',
+            }
+          : {
+              stroke: highlighted ? '#facc15' : '#94a3b8',
+              strokeWidth: highlighted ? 2.5 : 1.5,
+            },
+      };
+    });
   }, [edges, focusedId]);
 
   const handleClick: NodeMouseHandler = useCallback(
@@ -225,15 +274,6 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     >
       <Background gap={24} size={1} color="#e2e8f0" />
       <Controls showInteractive={false} />
-      <MiniMap
-        zoomable
-        pannable
-        nodeColor={(n) => {
-          if (n.type === 'mec') return '#475569';
-          const data = n.data as DossierNodeData | undefined;
-          return data?.color || CTX_FALLBACK_COLOR;
-        }}
-      />
     </ReactFlow>
   );
 };

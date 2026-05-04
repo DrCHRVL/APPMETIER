@@ -36,6 +36,8 @@ export interface MecNode {
   variants: string[];
   /** Dossiers où ce MEC apparaît */
   dossierIds: string[];
+  /** Contentieux distincts dans lesquels il apparaît (signal de transversalité) */
+  contentieuxIds: ContentieuxId[];
   /** Nombre de mises en examen formelles (via misEnExamen sur les instructions) */
   nbMisEnExamen: number;
   /** Total des chefs d'inculpation cumulés */
@@ -48,31 +50,77 @@ export interface MecNode {
   rawScore: number;
   /** Statuts uniques rencontrés (pour coloration éventuelle) */
   statuts: string[];
+  /** Notes manuelles (issues d'une fiche ex nihilo) */
+  manualNotes?: string;
+  /** Alias manuels — fusionnés avec les variants */
+  manualAlias?: string[];
+  /** Statut renseigné manuellement */
+  manualStatut?: string;
+  /** True si le MEC n'apparaît dans aucun dossier réel */
+  isManualOnly?: boolean;
 }
 
 export interface DossierNode {
   type: 'dossier';
-  /** Identifiant unique : `${contentieuxId}_${enqueteId}` */
+  /** Identifiant unique. Pour un dossier réel : `${contentieuxId}_${enqueteId}`.
+   *  Pour un dossier ex nihilo : préfixé `dexn_…`. */
   id: string;
   enqueteId: number;
   contentieuxId: ContentieuxId;
-  /** Numéro de l'enquête (affichage) */
+  /** Numéro de l'enquête ou label du dossier ex nihilo */
   numero: string;
-  /** Statut : en_cours, archive, instruction */
+  /** Statut : en_cours, archive, instruction (pour les dossiers réels) */
   statut: Enquete['statut'];
   /** Date de création (ISO) */
   dateCreation: string;
   /** Nombre de MEC dans ce dossier (taille du nœud dossier) */
   nbMec: number;
+  /** True pour un dossier créé manuellement par l'utilisateur */
+  isExNihilo?: boolean;
+  /** Notes manuelles */
+  notes?: string;
 }
 
 export type GraphNode = MecNode | DossierNode;
 
 export interface GraphEdge {
-  /** Identifiant unique : `${mecId}__${dossierId}` */
+  /** Identifiant unique. Pour les arêtes de données : `${mecId}__${dossierId}`.
+   *  Pour les liens renseignement : `lien_…`. */
   id: string;
-  source: string; // mecId
-  target: string; // dossierId
+  source: string;
+  target: string;
+  /** 'data' = arête déduite des dossiers ; 'renseignement' = lien manuel utilisateur. */
+  kind: 'data' | 'renseignement';
+  /** Libellé optionnel (utile pour les liens renseignement) */
+  label?: string;
+  /** Notes manuelles (liens renseignement) */
+  notes?: string;
+}
+
+// Snapshot des données overlay nécessaires à la construction du graphe.
+// Importé sans référence circulaire vers le store.
+export interface OverlayInput {
+  mecsExNihilo?: Array<{
+    id: string;
+    displayName: string;
+    alias?: string[];
+    statut?: string;
+    notes?: string;
+  }>;
+  dossiersExNihilo?: Array<{
+    id: string;
+    label: string;
+    dateApprox?: string;
+    mecIds: string[];
+    notes?: string;
+  }>;
+  liensRenseignement?: Array<{
+    id: string;
+    source: string;
+    target: string;
+    label?: string;
+    notes?: string;
+  }>;
 }
 
 export interface MindmapGraph {
@@ -111,16 +159,22 @@ export function normalizeMecName(name: string): string {
 // ──────────────────────────────────────────────
 // SCORE COMPOSITE
 // ──────────────────────────────────────────────
+//
+// Formule "réseau" : récompense la transversalité (apparaître dans
+// plusieurs contentieux distincts pèse plus qu'être ME plusieurs fois
+// sur le même dossier).
 
-const SCORE_DOSSIER = 1;
-const SCORE_MISE_EN_EXAMEN = 3;
-const SCORE_CHEF = 0.5;
+const SCORE_DOSSIER = 2;
+const SCORE_CONTENTIEUX = 3;
+const SCORE_MISE_EN_EXAMEN = 1;
+const SCORE_CHEF = 0.3;
 const RECENT_MULTIPLIER = 1.2;
 const RECENT_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
 
 function computeRawScore(mec: Omit<MecNode, 'score' | 'rawScore' | 'type'>): number {
   let raw =
     mec.dossierIds.length * SCORE_DOSSIER +
+    mec.contentieuxIds.length * SCORE_CONTENTIEUX +
     mec.nbMisEnExamen * SCORE_MISE_EN_EXAMEN +
     mec.nbChefs * SCORE_CHEF;
   if (mec.recent) raw *= RECENT_MULTIPLIER;
@@ -132,10 +186,18 @@ function computeRawScore(mec: Omit<MecNode, 'score' | 'rawScore' | 'type'>): num
 // ──────────────────────────────────────────────
 
 /**
- * Construit le graphe biparti à partir d'une liste d'enquêtes contextualisées.
- * Les MEC portant le même nom normalisé sont fusionnés en un seul nœud.
+ * Construit le graphe biparti à partir d'une liste d'enquêtes contextualisées,
+ * éventuellement enrichi par les données overlay (MEC ex nihilo, dossiers ex
+ * nihilo, liens renseignement).
+ *
+ * Les MEC portant le même nom normalisé sont fusionnés en un seul nœud — un MEC
+ * ex nihilo qui partage son canonical avec un MEC réel se fond dans le nœud
+ * existant et lui apporte ses notes/alias/statut manuels.
  */
-export function buildMindmapGraph(sources: EnqueteWithContext[]): MindmapGraph {
+export function buildMindmapGraph(
+  sources: EnqueteWithContext[],
+  overlay?: OverlayInput,
+): MindmapGraph {
   const mecById = new Map<string, MecNode>();
   const dossierById = new Map<string, DossierNode>();
   const edges: GraphEdge[] = [];
@@ -201,6 +263,7 @@ export function buildMindmapGraph(sources: EnqueteWithContext[]): MindmapGraph {
           displayName: mec.nom,
           variants: [],
           dossierIds: [],
+          contentieuxIds: [],
           nbMisEnExamen: 0,
           nbChefs: 0,
           recent: false,
@@ -213,6 +276,9 @@ export function buildMindmapGraph(sources: EnqueteWithContext[]): MindmapGraph {
 
       if (!mecNode.dossierIds.includes(dossierId)) {
         mecNode.dossierIds.push(dossierId);
+      }
+      if (!mecNode.contentieuxIds.includes(contentieuxId)) {
+        mecNode.contentieuxIds.push(contentieuxId);
       }
       if (mec.statut && !mecNode.statuts.includes(mec.statut)) {
         mecNode.statuts.push(mec.statut);
@@ -228,8 +294,115 @@ export function buildMindmapGraph(sources: EnqueteWithContext[]): MindmapGraph {
       const edgeKey = `${canonical}__${dossierId}`;
       if (!edgeKeys.has(edgeKey)) {
         edgeKeys.add(edgeKey);
-        edges.push({ id: edgeKey, source: canonical, target: dossierId });
+        edges.push({ id: edgeKey, source: canonical, target: dossierId, kind: 'data' });
       }
+    }
+  }
+
+  // ── Overlay : MEC ex nihilo ─────────────────
+  // Création ou fusion (par canonical) avec les MEC déjà extraits des dossiers.
+  if (overlay?.mecsExNihilo) {
+    for (const m of overlay.mecsExNihilo) {
+      const canonical = m.id || normalizeMecName(m.displayName);
+      if (!canonical) continue;
+      let mecNode = mecById.get(canonical);
+      if (!mecNode) {
+        mecNode = {
+          type: 'mec',
+          id: canonical,
+          displayName: m.displayName,
+          variants: m.alias ? [...m.alias] : [],
+          dossierIds: [],
+          contentieuxIds: [],
+          nbMisEnExamen: 0,
+          nbChefs: 0,
+          recent: false,
+          score: 0,
+          rawScore: 0,
+          statuts: [],
+          isManualOnly: true,
+        };
+        mecById.set(canonical, mecNode);
+      }
+      mecNode.manualNotes = m.notes;
+      mecNode.manualAlias = m.alias;
+      mecNode.manualStatut = m.statut;
+      // Enrichit la liste des variants pour la recherche
+      if (m.alias && m.alias.length > 0) {
+        const merged = new Set([...mecNode.variants, ...m.alias]);
+        mecNode.variants = Array.from(merged).filter(v => v !== mecNode!.displayName);
+      }
+    }
+  }
+
+  // ── Overlay : dossiers ex nihilo ────────────
+  if (overlay?.dossiersExNihilo) {
+    for (const d of overlay.dossiersExNihilo) {
+      const node: DossierNode = {
+        type: 'dossier',
+        id: d.id,
+        enqueteId: -1,
+        contentieuxId: 'autre' as ContentieuxId,
+        numero: d.label,
+        statut: 'archive',
+        dateCreation: d.dateApprox || new Date().toISOString(),
+        nbMec: d.mecIds.length,
+        isExNihilo: true,
+        notes: d.notes,
+      };
+      dossierById.set(d.id, node);
+
+      for (const rawMecId of d.mecIds) {
+        const canonical = normalizeMecName(rawMecId) || rawMecId;
+        if (!canonical) continue;
+        // Crée un nœud MEC fantôme si le canonical n'existe pas encore (cas rare,
+        // ex. on a référencé un MEC ex nihilo qui a été supprimé entre-temps).
+        if (!mecById.has(canonical)) {
+          mecById.set(canonical, {
+            type: 'mec',
+            id: canonical,
+            displayName: rawMecId,
+            variants: [],
+            dossierIds: [],
+            contentieuxIds: [],
+            nbMisEnExamen: 0,
+            nbChefs: 0,
+            recent: false,
+            score: 0,
+            rawScore: 0,
+            statuts: [],
+            isManualOnly: true,
+          });
+        }
+        const mec = mecById.get(canonical)!;
+        if (!mec.dossierIds.includes(d.id)) mec.dossierIds.push(d.id);
+        // Le fait d'être lié à un dossier (même ex nihilo) annule l'isolement
+        mec.isManualOnly = false;
+
+        const edgeKey = `${canonical}__${d.id}`;
+        if (!edgeKeys.has(edgeKey)) {
+          edgeKeys.add(edgeKey);
+          edges.push({ id: edgeKey, source: canonical, target: d.id, kind: 'data' });
+        }
+      }
+    }
+  }
+
+  // ── Overlay : liens renseignement ───────────
+  // Filtrés : les endpoints doivent exister dans le graphe.
+  if (overlay?.liensRenseignement) {
+    for (const l of overlay.liensRenseignement) {
+      const sourceExists = mecById.has(l.source) || dossierById.has(l.source);
+      const targetExists = mecById.has(l.target) || dossierById.has(l.target);
+      if (!sourceExists || !targetExists) continue;
+      edges.push({
+        id: l.id,
+        source: l.source,
+        target: l.target,
+        kind: 'renseignement',
+        label: l.label,
+        notes: l.notes,
+      });
     }
   }
 
@@ -339,8 +512,31 @@ export function extractFocusSubgraph(
 // TOP 10
 // ──────────────────────────────────────────────
 
-export function getTopMec(graph: MindmapGraph, limit: number = 10): MecNode[] {
-  return [...graph.mecById.values()]
-    .sort((a, b) => b.rawScore - a.rawScore)
-    .slice(0, limit);
+/**
+ * Retourne les MEC à afficher dans le Top 10. Les MEC épinglés sont
+ * toujours présents en tête (triés entre eux par score), suivis des
+ * autres MEC complétant jusqu'à `limit`. Si plus de `limit` MEC sont
+ * épinglés, ils sont tous retournés (la liste peut donc dépasser
+ * `limit`).
+ */
+export function getTopMec(
+  graph: MindmapGraph,
+  limit: number = 10,
+  pinnedIds?: Iterable<string>,
+): MecNode[] {
+  const pinned = pinnedIds ? new Set(pinnedIds) : null;
+  const all = [...graph.mecById.values()].sort((a, b) => b.rawScore - a.rawScore);
+
+  if (!pinned || pinned.size === 0) {
+    return all.slice(0, limit);
+  }
+
+  const pinnedMecs: MecNode[] = [];
+  const others: MecNode[] = [];
+  for (const mec of all) {
+    if (pinned.has(mec.id)) pinnedMecs.push(mec);
+    else others.push(mec);
+  }
+  const fillCount = Math.max(0, limit - pinnedMecs.length);
+  return [...pinnedMecs, ...others.slice(0, fillCount)];
 }
