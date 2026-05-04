@@ -35,6 +35,31 @@ import type { EnqueteWithContext } from '@/utils/mindmapGraph';
 import { useTags } from '@/hooks/useTags';
 import { useSections } from '@/hooks/useSections';
 import { useUserServiceOrganization } from '@/hooks/useUserServiceOrganization';
+import { useInstructions } from '@/hooks/useInstructions';
+import { useInstructionAlerts } from '@/hooks/useInstructionAlerts';
+import type { DossierInstruction } from '@/types/instructionTypes';
+import { useAIR } from '@/hooks/useAIR';
+import { useCombinedAlerts } from '@/hooks/useCombinedAlerts';
+import { useVisualAlerts } from '@/hooks/useVisualAlerts';
+import { contentieuxAlertsSyncService } from '@/utils/dataSync/ContentieuxAlertsSyncService';
+import { backupManager } from '@/utils/backupManager';
+import { WeeklyPopupConfig } from '@/types/interfaces';
+import { ElectronBridge } from '@/utils/electronBridge';
+import { OPTimeline } from '@/components/OPTimeline';
+import { TodoReminderBar } from '@/components/TodoReminderBar';
+import { PendingActsJLD } from '@/components/PendingActsJLD';
+import { useDataSync } from '@/hooks/useDataSync';
+import { DataSyncConflictModal } from '@/components/modals/DataSyncConflictModal';
+import { ConflictAction } from '@/types/dataSyncTypes';
+import { DataSyncManager } from '@/utils/dataSync/DataSyncManager';
+import { UpdateChangelogModal } from '@/components/modals/UpdateChangelogModal';
+import { ContentieuxId } from '@/types/userTypes';
+import { useCrossSearch } from '@/hooks/useCrossSearch';
+import { UserManager } from '@/utils/userManager';
+import { useOverboardData } from '@/hooks/useOverboardData';
+import { HeartbeatManager } from '@/utils/heartbeatManager';
+import { SharedEventManager } from '@/utils/sharedEventManager';
+import { AuditLogger } from '@/utils/auditLogger';
 import dynamic from 'next/dynamic';
 
 const AIRPage = dynamic(
@@ -89,37 +114,13 @@ const MindmapPage = dynamic(
   }
 );
 const InstructionDetailModal = dynamic(() => import('@/components/modals/InstructionDetailModal').then(m => ({ default: m.InstructionDetailModal })), { ssr: false });
-import { useInstructions } from '@/hooks/useInstructions';
-import { useInstructionAlerts } from '@/hooks/useInstructionAlerts';
-import type { DossierInstruction } from '@/types/instructionTypes';
-
-import { useAIR } from '@/hooks/useAIR';
-import { useCombinedAlerts } from '@/hooks/useCombinedAlerts';
-import { useVisualAlerts } from '@/hooks/useVisualAlerts';
-import { contentieuxAlertsSyncService } from '@/utils/dataSync/ContentieuxAlertsSyncService';
-import { backupManager } from '@/utils/backupManager';
 const WeeklyRecapPopup = dynamic(() => import('@/components/modals/WeeklyRecapPopup').then(m => ({ default: m.WeeklyRecapPopup })), { ssr: false });
-import { WeeklyPopupConfig } from '@/types/interfaces';
-import { ElectronBridge } from '@/utils/electronBridge';
-import { OPTimeline } from '@/components/OPTimeline';
-import { TodoReminderBar } from '@/components/TodoReminderBar';
-import { PendingActsJLD } from '@/components/PendingActsJLD';
-
-// 🆕 Imports pour la synchronisation des données
-import { useDataSync } from '@/hooks/useDataSync';
-import { DataSyncConflictModal } from '@/components/modals/DataSyncConflictModal';
-import { ConflictAction } from '@/types/dataSyncTypes';
-import { DataSyncManager } from '@/utils/dataSync/DataSyncManager';
-import { UpdateChangelogModal } from '@/components/modals/UpdateChangelogModal';
 
 // 🆕 Multi-contentieux
 const SettingsModal = dynamic(() => import('@/components/modals/SettingsModal').then(m => ({ default: m.SettingsModal })), { ssr: false });
 const OverboardPage = dynamic(() => import('@/components/pages/OverboardPage').then(m => ({ default: m.OverboardPage })), { ssr: false });
 const GlobalStatsPage = dynamic(() => import('@/components/pages/GlobalStatsPage').then(m => ({ default: m.GlobalStatsPage })), { ssr: false });
-import { ContentieuxId } from '@/types/userTypes';
-import { useCrossSearch } from '@/hooks/useCrossSearch';
 const AdminUsersPanel = dynamic(() => import('@/components/AdminUsersPanel').then(m => ({ default: m.AdminUsersPanel })), { ssr: false });
-import { UserManager } from '@/utils/userManager';
 const AdminContentieuxPanel = dynamic(() => import('@/components/admin/AdminContentieuxPanel').then(m => ({ default: m.AdminContentieuxPanel })), { ssr: false });
 const AdminInstructionPanel = dynamic(() => import('@/components/admin/AdminInstructionPanel').then(m => ({ default: m.AdminInstructionPanel })), { ssr: false });
 const AdminPathsPanel = dynamic(() => import('@/components/admin/AdminPathsPanel').then(m => ({ default: m.AdminPathsPanel })), { ssr: false });
@@ -128,10 +129,6 @@ const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHi
 const AdminUpdatePanel = dynamic(() => import('@/components/admin/AdminUpdatePanel').then(m => ({ default: m.AdminUpdatePanel })), { ssr: false });
 const AboutContent = dynamic(() => import('@/components/AboutContent').then(m => ({ default: m.AboutContent })), { ssr: false });
 const MyProfileContent = dynamic(() => import('@/components/MyProfileContent').then(m => ({ default: m.MyProfileContent })), { ssr: false });
-import { useOverboardData } from '@/hooks/useOverboardData';
-import { HeartbeatManager } from '@/utils/heartbeatManager';
-import { SharedEventManager } from '@/utils/sharedEventManager';
-import { AuditLogger } from '@/utils/auditLogger';
 
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
 
