@@ -3,16 +3,16 @@
 // cartographie : MEC ex nihilo, dossiers ex nihilo, liens "renseignement"
 // manuels, et MEC épinglés au Top 10.
 //
-// Persistance via ElectronBridge (clé `cartographie_overlays`), écriture
-// throttlée à 2.5 s — calque le pattern de useEnquetesStore.
+// Persistance via ElectronBridge (clé `cartographie_overlays`).
+// Mode offline : on charge à l'ouverture du module et on flush à la fermeture
+// (les écritures intermédiaires sont juste marquées dirty en mémoire) —
+// la cartographie est trop lourde pour supporter une écriture par modification.
 
 import { create } from '@/lib/zustand';
-import throttle from 'lodash/throttle';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { normalizeMecName } from '@/utils/mindmapGraph';
 
 const STORAGE_KEY = 'cartographie_overlays';
-const SAVE_THROTTLE = 2500;
 
 export type MecExNihiloStatut = 'actif' | 'dormant' | 'decede' | 'libere';
 
@@ -59,6 +59,10 @@ interface PersistedOverlay {
 interface OverlayState extends PersistedOverlay {
   isLoaded: boolean;
   load: () => Promise<void>;
+  /** Persiste immédiatement les modifications en attente sur disque. */
+  flush: () => Promise<void>;
+  /** True si des modifications locales attendent d'être persistées. */
+  hasPendingChanges: () => boolean;
 
   // épinglage
   pinMec: (mecId: string) => void;
@@ -98,7 +102,7 @@ function uniqueId(prefix: string): string {
 
 let _isDirty = false;
 
-const _saveThrottled = throttle(async () => {
+async function _flush(): Promise<void> {
   if (!_isDirty) return;
   try {
     const s = useCartographieOverlayStore.getState();
@@ -113,11 +117,10 @@ const _saveThrottled = throttle(async () => {
   } catch (error) {
     console.error('❌ CartographieOverlayStore: erreur sauvegarde', error);
   }
-}, SAVE_THROTTLE);
+}
 
 function markDirty(): void {
   _isDirty = true;
-  _saveThrottled();
 }
 
 export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
@@ -140,6 +143,10 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
       set({ isLoaded: true });
     }
   },
+
+  flush: () => _flush(),
+
+  hasPendingChanges: () => _isDirty,
 
   // ── Épinglage ────────────────────────────────
 

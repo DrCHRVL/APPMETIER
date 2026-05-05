@@ -224,20 +224,26 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
         id: e.id,
         source: e.source,
         target: e.target,
+        // Trait droit point-à-point — beaucoup plus lisible qu'une bezier
+        // qui se tortille entre des nœuds positionnés par d3-force.
+        type: 'straight',
         label: isRens ? e.label : undefined,
-        labelStyle: isRens ? { fill: '#1d4ed8', fontSize: 10, fontWeight: 600 } : undefined,
+        labelStyle: isRens ? { fill: '#1d4ed8', fontSize: 11, fontWeight: 600 } : undefined,
         labelBgStyle: isRens ? { fill: '#eff6ff' } : undefined,
         labelBgPadding: isRens ? ([4, 2] as [number, number]) : undefined,
         labelBgBorderRadius: isRens ? 3 : undefined,
         style: isRens
           ? {
               stroke: highlighted ? '#1e40af' : '#3b82f6',
-              strokeWidth: highlighted ? 2.5 : 1.8,
-              strokeDasharray: '6 4',
+              strokeWidth: highlighted ? 4 : 3,
+              strokeDasharray: '8 5',
+              strokeLinecap: 'round',
             }
           : {
-              stroke: highlighted ? '#facc15' : '#94a3b8',
-              strokeWidth: highlighted ? 2.5 : 1.5,
+              stroke: highlighted ? '#f59e0b' : '#64748b',
+              strokeWidth: highlighted ? 4 : 2.5,
+              strokeOpacity: highlighted ? 1 : 0.85,
+              strokeLinecap: 'round',
             },
       };
     });

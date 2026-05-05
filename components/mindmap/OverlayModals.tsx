@@ -7,7 +7,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { X, Search, ArrowRight } from 'lucide-react';
+import { X, Search, ArrowRight, UserPlus, ChevronUp } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -152,14 +152,40 @@ interface AddDossierModalProps {
   graph: MindmapGraph;
   initial?: DossierExNihilo;
   onSubmit: (data: { label: string; dateApprox?: string; mecIds: string[]; notes?: string }) => void;
+  /** Crée un MEC ex nihilo et renvoie son id canonique (à ajouter aux mecIds liés). */
+  onCreateMec?: (data: { displayName: string; alias: string[]; statut?: MecExNihiloStatut; notes?: string }) => string;
 }
 
-export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClose, graph, initial, onSubmit }) => {
+interface InlineCreatedMec {
+  id: string;
+  displayName: string;
+}
+
+export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClose, graph, initial, onSubmit, onCreateMec }) => {
   const [label, setLabel] = useState(initial?.label || '');
   const [dateApprox, setDateApprox] = useState(initial?.dateApprox || '');
   const [mecIds, setMecIds] = useState<string[]>(initial?.mecIds || []);
   const [notes, setNotes] = useState(initial?.notes || '');
   const [search, setSearch] = useState('');
+
+  // ── Création inline d'un MEC (mêmes champs que AddMecModal) ───
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newAliasInput, setNewAliasInput] = useState('');
+  const [newAlias, setNewAlias] = useState<string[]>([]);
+  const [newStatut, setNewStatut] = useState<MecExNihiloStatut | ''>('');
+  const [newNotes, setNewNotes] = useState('');
+  /** Filet de sécurité : si le graphe ne s'est pas encore mis à jour, on
+   *  garde les MEC fraîchement créés en local pour les afficher en pastille. */
+  const [createdLocally, setCreatedLocally] = useState<InlineCreatedMec[]>([]);
+
+  const resetCreateForm = () => {
+    setNewName('');
+    setNewAliasInput('');
+    setNewAlias([]);
+    setNewStatut('');
+    setNewNotes('');
+  };
 
   React.useEffect(() => {
     if (isOpen) {
@@ -168,8 +194,34 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
       setMecIds(initial?.mecIds || []);
       setNotes(initial?.notes || '');
       setSearch('');
+      setCreateOpen(false);
+      setCreatedLocally([]);
+      resetCreateForm();
     }
   }, [isOpen, initial]);
+
+  const addNewAlias = () => {
+    const v = newAliasInput.trim();
+    if (v && !newAlias.includes(v)) setNewAlias([...newAlias, v]);
+    setNewAliasInput('');
+  };
+
+  const handleCreateMec = () => {
+    if (!onCreateMec) return;
+    const name = newName.trim();
+    if (!name) return;
+    const id = onCreateMec({
+      displayName: name,
+      alias: newAlias,
+      statut: newStatut || undefined,
+      notes: newNotes.trim() || undefined,
+    });
+    if (!id) return;
+    setMecIds(prev => prev.includes(id) ? prev : [...prev, id]);
+    setCreatedLocally(prev => prev.some(m => m.id === id) ? prev : [...prev, { id, displayName: name }]);
+    resetCreateForm();
+    setCreateOpen(false);
+  };
 
   const allMecs = useMemo(() => Array.from(graph.mecById.values()), [graph]);
   const matchingMecs = useMemo(() => {
@@ -183,8 +235,14 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
 
   const selectedMecs = useMemo(() => {
     const set = new Set(mecIds);
-    return allMecs.filter(m => set.has(m.id));
-  }, [allMecs, mecIds]);
+    const fromGraph = allMecs.filter(m => set.has(m.id));
+    const knownIds = new Set(fromGraph.map(m => m.id));
+    // Inclut les MEC tout juste créés que le graphe ne connaît pas encore.
+    const fromLocal = createdLocally
+      .filter(m => set.has(m.id) && !knownIds.has(m.id))
+      .map(m => ({ id: m.id, displayName: m.displayName, dossierIds: [] as string[] }));
+    return [...fromGraph, ...fromLocal];
+  }, [allMecs, mecIds, createdLocally]);
 
   const toggleMec = (id: string) => {
     setMecIds(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
@@ -268,6 +326,91 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
                     </button>
                   );
                 })}
+              </div>
+            )}
+            {onCreateMec && (
+              <div className="mt-2 border border-slate-200 rounded-md">
+                <button
+                  type="button"
+                  onClick={() => setCreateOpen(o => !o)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  {createOpen ? <ChevronUp className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
+                  <span className="flex-1 text-left">
+                    {createOpen ? 'Fermer le formulaire' : 'Créer un nouveau mis en cause'}
+                  </span>
+                </button>
+                {createOpen && (
+                  <div className="border-t border-slate-200 p-3 space-y-2 bg-slate-50/50">
+                    <div>
+                      <Label>Nom affiché *</Label>
+                      <Input
+                        value={newName}
+                        onChange={e => setNewName(e.target.value)}
+                        placeholder="ex. ZOUAOUI Fadel"
+                      />
+                    </div>
+                    <div>
+                      <Label>Alias / surnoms</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          value={newAliasInput}
+                          onChange={e => setNewAliasInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addNewAlias(); } }}
+                          placeholder="entrée pour valider"
+                        />
+                        <Button type="button" variant="outline" onClick={addNewAlias}>Ajouter</Button>
+                      </div>
+                      {newAlias.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {newAlias.map(a => (
+                            <span key={a} className="inline-flex items-center gap-1 text-xs bg-white border border-slate-200 rounded px-2 py-0.5">
+                              {a}
+                              <button onClick={() => setNewAlias(newAlias.filter(x => x !== a))} className="text-slate-400 hover:text-slate-700">
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <Label>Statut</Label>
+                      <select
+                        value={newStatut}
+                        onChange={e => setNewStatut(e.target.value as MecExNihiloStatut | '')}
+                        className="w-full text-sm border border-slate-200 rounded-md px-3 py-2 bg-white"
+                      >
+                        <option value="">— non précisé —</option>
+                        <option value="actif">Actif</option>
+                        <option value="dormant">Dormant</option>
+                        <option value="libere">Sorti / libéré</option>
+                        <option value="decede">Décédé</option>
+                      </select>
+                    </div>
+                    <div>
+                      <Label>Notes</Label>
+                      <Textarea
+                        value={newNotes}
+                        onChange={e => setNewNotes(e.target.value)}
+                        placeholder="Pourquoi tu le surveilles, contexte, liens connus…"
+                        rows={3}
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => { resetCreateForm(); setCreateOpen(false); }}
+                      >
+                        Annuler
+                      </Button>
+                      <Button type="button" onClick={handleCreateMec} disabled={!newName.trim()}>
+                        Créer et lier
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             <p className="text-[11px] text-slate-400 mt-1">
