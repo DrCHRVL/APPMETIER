@@ -158,15 +158,22 @@ function loadData() {
     return {}
   }
 }
-// Fonction pour sauvegarder toutes les données (invalide le cache)
-function saveData(data) {
+// Sauvegarde non bloquante : écriture asynchrone + atomique (tmp → rename) pour
+// éviter de geler le main process pendant l'écriture du JSON et pour protéger
+// le fichier d'une corruption en cas de crash en cours d'écriture. Le cache
+// mémoire est mis à jour immédiatement pour que les `getData` qui suivent
+// n'attendent pas la fin du write disque.
+async function saveData(data) {
+  _dataCache = data
+  const tmpPath = userDataPath + '.tmp'
   try {
-    fs.writeFileSync(userDataPath, JSON.stringify(data, null, 2))
-    _dataCache = data
+    await fs.promises.writeFile(tmpPath, JSON.stringify(data))
+    await fs.promises.rename(tmpPath, userDataPath)
     return true
   } catch (error) {
     console.error('Erreur de sauvegarde:', error)
     _dataCache = null
+    try { await fs.promises.unlink(tmpPath) } catch {}
     return false
   }
 }

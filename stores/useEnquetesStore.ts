@@ -26,7 +26,7 @@ import {
 import { useUserStore } from '@/stores/useUserStore';
 import throttle from 'lodash/throttle';
 
-const SAVE_THROTTLE = 2500;
+const SAVE_THROTTLE = 8000;
 
 function storageKey(contentieuxId: ContentieuxId): string {
   return `ctx_${contentieuxId}_enquetes`;

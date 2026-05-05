@@ -61,7 +61,7 @@ interface EnqueteDetailModalProps {
   isSharedEnquete?: boolean;
 }
 
-export const EnqueteDetailModal = ({
+const EnqueteDetailModalImpl = ({
   enquete,
   isEditing,
   editingCR,
@@ -516,3 +516,25 @@ export const EnqueteDetailModal = ({
     </>
   );
 };
+
+export const EnqueteDetailModal = React.memo(EnqueteDetailModalImpl, (a, b) =>
+  a.enquete === b.enquete &&
+  a.editingCR === b.editingCR &&
+  a.isEditing === b.isEditing &&
+  a.contentieuxId === b.contentieuxId &&
+  a.readOnly === b.readOnly &&
+  a.isSharedEnquete === b.isSharedEnquete &&
+  a.allKnownMec === b.allKnownMec &&
+  a.onClose === b.onClose &&
+  a.onEdit === b.onEdit &&
+  a.onUpdate === b.onUpdate &&
+  a.onAddCR === b.onAddCR &&
+  a.onUpdateCR === b.onUpdateCR &&
+  a.onDeleteCR === b.onDeleteCR &&
+  a.setEditingCR === b.setEditingCR &&
+  a.onDelete === b.onDelete &&
+  a.onCreateGlobalTodo === b.onCreateGlobalTodo &&
+  a.onShareEnquete === b.onShareEnquete &&
+  a.onUnshareEnquete === b.onUnshareEnquete &&
+  a.onTransferEnquete === b.onTransferEnquete
+);
