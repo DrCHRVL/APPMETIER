@@ -348,10 +348,13 @@ async function probeNetwork() {
   const start = Date.now()
   try {
     const dir = path.join(getGeneralServerPath(), 'events')
+    // readdir plutôt que stat : SMB met fréquemment en cache les métadonnées
+    // de répertoire (stat retourne en quelques ms même quand les vraies
+    // opérations sont lentes). readdir doit lister, ce qui reflète bien la
+    // latence réelle d'accès au partage.
     await withTimeout(
-      fs.promises.stat(dir).catch(err => {
-        // ENOENT = dossier pas encore créé, mais le serveur répond → réseau OK
-        if (err.code === 'ENOENT') return null
+      fs.promises.readdir(dir).catch(err => {
+        if (err.code === 'ENOENT') return []
         throw err
       }),
       NETWORK_SLOW_MAX_MS,
@@ -1387,51 +1390,70 @@ function setupIpcHandlers() {
    * Vérifie si le serveur commun est accessible pour la sync des données
    */
   ipcMain.handle('dataSync:checkAccess', async () => {
+    if (skipIfUnreachable()) return false
     try {
-      return fs.existsSync(COMMON_SERVER_PATH);
-    } catch (error) {
-      return false;
+      await withTimeout(
+        fs.promises.access(COMMON_SERVER_PATH, fs.constants.F_OK),
+        NET_READ_TIMEOUT_MS,
+        'dataSync:checkAccess'
+      )
+      return true
+    } catch {
+      return false
     }
   });
 
-  /**
-   * Récupère les données du serveur commun (fichier principal app-data.json)
-   */
   ipcMain.handle('dataSync:pull', async () => {
+    if (skipIfUnreachable()) return null
     try {
-      if (!fs.existsSync(DATA_SYNC_PATH)) {
-        console.log('ℹ️ DataSync: Pas de données sur le serveur (première sync)');
-        return null;
-      }
-      const dataContent = fs.readFileSync(DATA_SYNC_PATH, 'utf8');
+      const dataContent = await withTimeout(
+        fs.promises.readFile(DATA_SYNC_PATH, 'utf8').catch(err => {
+          if (err.code === 'ENOENT') return ''
+          throw err
+        }),
+        NET_READ_TIMEOUT_MS,
+        'dataSync:pull data'
+      );
+      if (!dataContent || !dataContent.trim()) return null;
       const data = JSON.parse(dataContent);
       let metadata = null;
-      if (fs.existsSync(DATA_SYNC_METADATA_PATH)) {
-        const metadataContent = fs.readFileSync(DATA_SYNC_METADATA_PATH, 'utf8');
-        metadata = JSON.parse(metadataContent);
+      try {
+        const metadataContent = await withTimeout(
+          fs.promises.readFile(DATA_SYNC_METADATA_PATH, 'utf8'),
+          NET_READ_TIMEOUT_MS,
+          'dataSync:pull meta'
+        );
+        if (metadataContent && metadataContent.trim()) metadata = JSON.parse(metadataContent);
+      } catch {
+        // Pas de metadata, OK
       }
-      console.log('✅ DataSync: Données récupérées du serveur');
       return { data, metadata };
     } catch (error) {
-      console.error('❌ DataSync: Erreur lecture serveur:', error);
+      console.error('❌ DataSync: Erreur lecture serveur:', error.message);
       throw new Error(`Erreur lecture serveur: ${error.message}`);
     }
   });
 
-  /**
-   * Envoie les données vers le serveur commun (fichier principal app-data.json)
-   */
   ipcMain.handle('dataSync:push', async (event, data, metadata) => {
+    if (skipIfUnreachable()) {
+      throw new Error('Serveur injoignable, push reporté');
+    }
     try {
-      if (!fs.existsSync(COMMON_SERVER_PATH)) {
-        throw new Error('Serveur commun inaccessible');
-      }
-      fs.writeFileSync(DATA_SYNC_PATH, JSON.stringify(data, null, 2), 'utf8');
-      fs.writeFileSync(DATA_SYNC_METADATA_PATH, JSON.stringify(metadata, null, 2), 'utf8');
-      console.log('✅ DataSync: Données envoyées au serveur');
+      await Promise.all([
+        withTimeout(
+          fs.promises.writeFile(DATA_SYNC_PATH, JSON.stringify(data), 'utf8'),
+          NET_WRITE_TIMEOUT_MS,
+          'dataSync:push data'
+        ),
+        withTimeout(
+          fs.promises.writeFile(DATA_SYNC_METADATA_PATH, JSON.stringify(metadata), 'utf8'),
+          NET_WRITE_TIMEOUT_MS,
+          'dataSync:push meta'
+        ),
+      ]);
       return true;
     } catch (error) {
-      console.error('❌ DataSync: Erreur envoi serveur:', error);
+      console.error('❌ DataSync: Erreur envoi serveur:', error.message);
       throw new Error(`Erreur envoi serveur: ${error.message}`);
     }
   });
@@ -1673,39 +1695,53 @@ function setupIpcHandlers() {
    * Lit users.json depuis le serveur partagé
    */
   ipcMain.handle('dataSync:pullUsersConfig', async () => {
+    if (skipIfUnreachable()) return null
     try {
-      if (!fs.existsSync(USERS_CONFIG_PATH)) {
-        console.log('ℹ️ MultiSync: users.json introuvable (premier lancement)')
-        return null
-      }
-      const content = fs.readFileSync(USERS_CONFIG_PATH, 'utf8')
+      const content = await withTimeout(
+        fs.promises.readFile(USERS_CONFIG_PATH, 'utf8').catch(err => {
+          if (err.code === 'ENOENT') return ''
+          throw err
+        }),
+        NET_READ_TIMEOUT_MS,
+        'pullUsersConfig'
+      )
+      if (!content || !content.trim()) return null
       return JSON.parse(content)
     } catch (error) {
-      console.error('❌ MultiSync: Erreur lecture users.json:', error)
+      console.error('❌ MultiSync: Erreur lecture users.json:', error.message)
       return null
     }
   })
 
-  /**
-   * Écrit users.json sur le serveur partagé
-   */
   ipcMain.handle('dataSync:pushUsersConfig', async (event, config) => {
+    if (skipIfUnreachable()) return false
     try {
-      if (!fs.existsSync(COMMON_SERVER_PATH)) {
-        throw new Error('Serveur commun inaccessible')
-      }
-      // Backup avant écriture
-      if (fs.existsSync(USERS_CONFIG_PATH)) {
-        const backupPath = path.join(COMMON_SERVER_PATH, 'admin', 'backups')
-        if (!fs.existsSync(backupPath)) fs.mkdirSync(backupPath, { recursive: true })
+      const backupPath = path.join(COMMON_SERVER_PATH, 'admin', 'backups')
+      await withTimeout(
+        fs.promises.mkdir(backupPath, { recursive: true }).catch(() => {}),
+        NET_WRITE_TIMEOUT_MS,
+        'pushUsersConfig mkdir'
+      )
+      // Backup non bloquant : si users.json n'existe pas, copyFile rejette
+      // ENOENT et on continue.
+      try {
         const timestamp = new Date().toISOString().replace(/:/g, '-')
-        fs.copyFileSync(USERS_CONFIG_PATH, path.join(backupPath, `users-${timestamp}.json`))
+        await withTimeout(
+          fs.promises.copyFile(USERS_CONFIG_PATH, path.join(backupPath, `users-${timestamp}.json`)),
+          NET_WRITE_TIMEOUT_MS,
+          'pushUsersConfig copy'
+        )
+      } catch {
+        // Premier write
       }
-      fs.writeFileSync(USERS_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8')
-      console.log('✅ MultiSync: users.json sauvegardé')
+      await withTimeout(
+        fs.promises.writeFile(USERS_CONFIG_PATH, JSON.stringify(config), 'utf8'),
+        NET_WRITE_TIMEOUT_MS,
+        'pushUsersConfig write'
+      )
       return true
     } catch (error) {
-      console.error('❌ MultiSync: Erreur écriture users.json:', error)
+      console.error('❌ MultiSync: Erreur écriture users.json:', error.message)
       return false
     }
   })
@@ -1723,113 +1759,163 @@ function setupIpcHandlers() {
   const globalFilePath = (name) => path.join(COMMON_SERVER_PATH, name)
   const globalBackupDir = () => path.join(COMMON_SERVER_PATH, 'admin', 'backups')
 
-  const readGlobalFile = (name) => {
+  // Si l'état réseau est 'unreachable' on ne tente même pas l'opération : le
+  // moniteur a déjà constaté que le partage ne répond pas. Économise un
+  // timeout complet (jusqu'à NET_*_TIMEOUT_MS bloqué) à chaque appel.
+  const skipIfUnreachable = () => _networkStatus.state === 'unreachable'
+
+  const readGlobalFile = async (name) => {
+    if (skipIfUnreachable()) return null
     try {
       const filePath = globalFilePath(name)
-      if (!fs.existsSync(filePath)) return null
-      const content = fs.readFileSync(filePath, 'utf8')
+      const content = await withTimeout(
+        fs.promises.readFile(filePath, 'utf8').catch(err => {
+          if (err.code === 'ENOENT') return ''
+          throw err
+        }),
+        NET_READ_TIMEOUT_MS,
+        `readGlobalFile ${name}`
+      )
       if (!content || !content.trim()) return null
       return JSON.parse(content)
     } catch (error) {
-      console.error(`❌ GlobalSync: Erreur lecture ${name}:`, error)
+      console.error(`❌ GlobalSync: Erreur lecture ${name}:`, error.message)
       return null
     }
   }
 
-  const writeGlobalFile = (name, payload) => {
-    if (!fs.existsSync(COMMON_SERVER_PATH)) {
-      throw new Error('Serveur commun inaccessible')
+  const writeGlobalFile = async (name, payload) => {
+    if (skipIfUnreachable()) {
+      throw new Error('Serveur commun injoignable (réseau)')
     }
     const filePath = globalFilePath(name)
     const backupDir = globalBackupDir()
-    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true })
-    if (fs.existsSync(filePath)) {
+    // mkdir -p : pas d'erreur si le dossier existe déjà.
+    await withTimeout(
+      fs.promises.mkdir(backupDir, { recursive: true }).catch(() => {}),
+      NET_WRITE_TIMEOUT_MS,
+      `writeGlobalFile mkdir ${name}`
+    )
+    // Backup non bloquant : si le fichier n'existe pas, copyFile échoue avec
+    // ENOENT, on continue. Sinon copie avant écriture.
+    try {
       const timestamp = new Date().toISOString().replace(/:/g, '-')
       const base = name.replace(/\.json$/i, '')
-      fs.copyFileSync(filePath, path.join(backupDir, `${base}-${timestamp}.json`))
+      await withTimeout(
+        fs.promises.copyFile(filePath, path.join(backupDir, `${base}-${timestamp}.json`)),
+        NET_WRITE_TIMEOUT_MS,
+        `writeGlobalFile copy ${name}`
+      )
+    } catch {
+      // Pas de fichier source → premier write, normal
     }
-    fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8')
+    await withTimeout(
+      fs.promises.writeFile(filePath, JSON.stringify(payload), 'utf8'),
+      NET_WRITE_TIMEOUT_MS,
+      `writeGlobalFile write ${name}`
+    )
     return true
   }
 
-  // Nettoyage : on ne garde que les N backups les plus récents par type
-  const pruneGlobalBackups = (basename, keep = 20) => {
+  // Nettoyage : on ne garde que les N backups les plus récents par type.
+  // Async + non bloquant : si le réseau est lent, on abandonne et on retentera
+  // au prochain push. Pas critique.
+  const pruneGlobalBackups = async (basename, keep = 20) => {
+    if (skipIfUnreachable()) return
     try {
       const backupDir = globalBackupDir()
-      if (!fs.existsSync(backupDir)) return
+      const allFiles = await withTimeout(
+        fs.promises.readdir(backupDir).catch(err => { if (err.code === 'ENOENT') return []; throw err }),
+        NET_READ_TIMEOUT_MS,
+        `pruneGlobalBackups readdir ${basename}`
+      )
+      if (allFiles.length === 0) return
       const prefix = `${basename}-`
-      const files = fs.readdirSync(backupDir)
-        .filter(f => f.startsWith(prefix) && f.endsWith('.json'))
-        .map(f => ({ name: f, mtime: fs.statSync(path.join(backupDir, f)).mtimeMs }))
-        .sort((a, b) => b.mtime - a.mtime)
-      files.slice(keep).forEach(f => {
-        try { fs.unlinkSync(path.join(backupDir, f.name)) } catch {}
-      })
+      const matching = allFiles.filter(f => f.startsWith(prefix) && f.endsWith('.json'))
+      if (matching.length <= keep) return
+      // stat parallélisé avec timeout par opération
+      const stats = await Promise.all(matching.map(async name => {
+        try {
+          const s = await withTimeout(
+            fs.promises.stat(path.join(backupDir, name)),
+            NET_READ_TIMEOUT_MS,
+            `pruneGlobalBackups stat ${name}`
+          )
+          return { name, mtime: s.mtimeMs }
+        } catch {
+          return null
+        }
+      }))
+      const sorted = stats.filter(Boolean).sort((a, b) => b.mtime - a.mtime)
+      // Suppression parallèle des backups au-delà de la fenêtre de rétention
+      await Promise.all(sorted.slice(keep).map(f =>
+        withTimeout(
+          fs.promises.unlink(path.join(backupDir, f.name)).catch(() => {}),
+          NET_WRITE_TIMEOUT_MS,
+          `pruneGlobalBackups unlink ${f.name}`
+        ).catch(() => {})
+      ))
     } catch {
-      // non bloquant
+      // non bloquant : les backups seront réessayés au prochain push
     }
   }
 
   ipcMain.handle('globalSync:pullTags', async () => {
-    return readGlobalFile('tag-data.json')
+    return await readGlobalFile('tag-data.json')
   })
 
   ipcMain.handle('globalSync:pushTags', async (event, payload) => {
     try {
-      writeGlobalFile('tag-data.json', payload)
-      pruneGlobalBackups('tag-data')
-      console.log('✅ GlobalSync: tag-data.json sauvegardé')
+      await writeGlobalFile('tag-data.json', payload)
+      pruneGlobalBackups('tag-data').catch(() => {})
       return true
     } catch (error) {
-      console.error('❌ GlobalSync: Erreur écriture tag-data.json:', error)
+      console.error('❌ GlobalSync: Erreur écriture tag-data.json:', error.message)
       return false
     }
   })
 
   ipcMain.handle('globalSync:pullAudience', async () => {
-    return readGlobalFile('audience-data.json')
+    return await readGlobalFile('audience-data.json')
   })
 
   ipcMain.handle('globalSync:pushAudience', async (event, payload) => {
     try {
-      writeGlobalFile('audience-data.json', payload)
-      pruneGlobalBackups('audience-data')
-      console.log('✅ GlobalSync: audience-data.json sauvegardé')
+      await writeGlobalFile('audience-data.json', payload)
+      pruneGlobalBackups('audience-data').catch(() => {})
       return true
     } catch (error) {
-      console.error('❌ GlobalSync: Erreur écriture audience-data.json:', error)
+      console.error('❌ GlobalSync: Erreur écriture audience-data.json:', error.message)
       return false
     }
   })
 
   ipcMain.handle('globalSync:pullAlerts', async () => {
-    return readGlobalFile('alerts-data.json')
+    return await readGlobalFile('alerts-data.json')
   })
 
   ipcMain.handle('globalSync:pushAlerts', async (event, payload) => {
     try {
-      writeGlobalFile('alerts-data.json', payload)
-      pruneGlobalBackups('alerts-data')
-      console.log('✅ GlobalSync: alerts-data.json sauvegardé')
+      await writeGlobalFile('alerts-data.json', payload)
+      pruneGlobalBackups('alerts-data').catch(() => {})
       return true
     } catch (error) {
-      console.error('❌ GlobalSync: Erreur écriture alerts-data.json:', error)
+      console.error('❌ GlobalSync: Erreur écriture alerts-data.json:', error.message)
       return false
     }
   })
 
   ipcMain.handle('globalSync:pullDeletedIds', async () => {
-    return readGlobalFile('deleted-ids.json')
+    return await readGlobalFile('deleted-ids.json')
   })
 
   ipcMain.handle('globalSync:pushDeletedIds', async (event, payload) => {
     try {
-      writeGlobalFile('deleted-ids.json', payload)
-      pruneGlobalBackups('deleted-ids')
-      console.log('✅ GlobalSync: deleted-ids.json sauvegardé')
+      await writeGlobalFile('deleted-ids.json', payload)
+      pruneGlobalBackups('deleted-ids').catch(() => {})
       return true
     } catch (error) {
-      console.error('❌ GlobalSync: Erreur écriture deleted-ids.json:', error)
+      console.error('❌ GlobalSync: Erreur écriture deleted-ids.json:', error.message)
       return false
     }
   })
@@ -1842,42 +1928,60 @@ function setupIpcHandlers() {
   const sanitizeUsername = (u) => String(u || '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 64)
 
   ipcMain.handle('globalSync:pullUserPreferences', async (event, username) => {
+    if (skipIfUnreachable()) return null
     try {
       const safe = sanitizeUsername(username)
       if (!safe) return null
       const filePath = path.join(userPrefsFolder(), `${safe}.json`)
-      if (!fs.existsSync(filePath)) return null
-      const content = fs.readFileSync(filePath, 'utf8')
+      const content = await withTimeout(
+        fs.promises.readFile(filePath, 'utf8').catch(err => {
+          if (err.code === 'ENOENT') return ''
+          throw err
+        }),
+        NET_READ_TIMEOUT_MS,
+        `pullUserPreferences ${safe}`
+      )
       if (!content || !content.trim()) return null
       return JSON.parse(content)
     } catch (error) {
-      console.error('❌ GlobalSync: Erreur lecture user-preferences:', error)
+      console.error('❌ GlobalSync: Erreur lecture user-preferences:', error.message)
       return null
     }
   })
 
   ipcMain.handle('globalSync:pushUserPreferences', async (event, username, payload) => {
+    if (skipIfUnreachable()) return false
     try {
-      if (!fs.existsSync(COMMON_SERVER_PATH)) {
-        throw new Error('Serveur commun inaccessible')
-      }
       const safe = sanitizeUsername(username)
       if (!safe) return false
       const folder = userPrefsFolder()
-      if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true })
       const filePath = path.join(folder, `${safe}.json`)
       const backupDir = globalBackupDir()
-      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true })
-      if (fs.existsSync(filePath)) {
+      // mkdir parallèles, idempotents
+      await Promise.all([
+        withTimeout(fs.promises.mkdir(folder, { recursive: true }).catch(() => {}), NET_WRITE_TIMEOUT_MS, 'mkdir user-prefs'),
+        withTimeout(fs.promises.mkdir(backupDir, { recursive: true }).catch(() => {}), NET_WRITE_TIMEOUT_MS, 'mkdir backups'),
+      ])
+      // Backup non bloquant
+      try {
         const timestamp = new Date().toISOString().replace(/:/g, '-')
-        fs.copyFileSync(filePath, path.join(backupDir, `user-preferences-${safe}-${timestamp}.json`))
+        await withTimeout(
+          fs.promises.copyFile(filePath, path.join(backupDir, `user-preferences-${safe}-${timestamp}.json`)),
+          NET_WRITE_TIMEOUT_MS,
+          'copy user-prefs'
+        )
+      } catch {
+        // Premier write : pas de fichier source, normal
       }
-      fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8')
-      pruneGlobalBackups(`user-preferences-${safe}`, 10)
-      console.log(`✅ GlobalSync: user-preferences/${safe}.json sauvegardé`)
+      await withTimeout(
+        fs.promises.writeFile(filePath, JSON.stringify(payload), 'utf8'),
+        NET_WRITE_TIMEOUT_MS,
+        `pushUserPreferences write ${safe}`
+      )
+      pruneGlobalBackups(`user-preferences-${safe}`, 10).catch(() => {})
       return true
     } catch (error) {
-      console.error('❌ GlobalSync: Erreur écriture user-preferences:', error)
+      console.error('❌ GlobalSync: Erreur écriture user-preferences:', error.message)
       return false
     }
   })
@@ -1890,42 +1994,58 @@ function setupIpcHandlers() {
   const sanitizeContentieuxId = (id) => String(id || '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 64)
 
   ipcMain.handle('globalSync:pullContentieuxAlerts', async (event, contentieuxId) => {
+    if (skipIfUnreachable()) return null
     try {
       const safe = sanitizeContentieuxId(contentieuxId)
       if (!safe) return null
       const filePath = path.join(contentieuxAlertsFolder(), `${safe}.json`)
-      if (!fs.existsSync(filePath)) return null
-      const content = fs.readFileSync(filePath, 'utf8')
+      const content = await withTimeout(
+        fs.promises.readFile(filePath, 'utf8').catch(err => {
+          if (err.code === 'ENOENT') return ''
+          throw err
+        }),
+        NET_READ_TIMEOUT_MS,
+        `pullContentieuxAlerts ${safe}`
+      )
       if (!content || !content.trim()) return null
       return JSON.parse(content)
     } catch (error) {
-      console.error('❌ GlobalSync: Erreur lecture contentieux-alerts:', error)
+      console.error('❌ GlobalSync: Erreur lecture contentieux-alerts:', error.message)
       return null
     }
   })
 
   ipcMain.handle('globalSync:pushContentieuxAlerts', async (event, contentieuxId, payload) => {
+    if (skipIfUnreachable()) return false
     try {
-      if (!fs.existsSync(COMMON_SERVER_PATH)) {
-        throw new Error('Serveur commun inaccessible')
-      }
       const safe = sanitizeContentieuxId(contentieuxId)
       if (!safe) return false
       const folder = contentieuxAlertsFolder()
-      if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true })
       const filePath = path.join(folder, `${safe}.json`)
       const backupDir = globalBackupDir()
-      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true })
-      if (fs.existsSync(filePath)) {
+      await Promise.all([
+        withTimeout(fs.promises.mkdir(folder, { recursive: true }).catch(() => {}), NET_WRITE_TIMEOUT_MS, 'mkdir alerts'),
+        withTimeout(fs.promises.mkdir(backupDir, { recursive: true }).catch(() => {}), NET_WRITE_TIMEOUT_MS, 'mkdir backups'),
+      ])
+      try {
         const timestamp = new Date().toISOString().replace(/:/g, '-')
-        fs.copyFileSync(filePath, path.join(backupDir, `contentieux-alerts-${safe}-${timestamp}.json`))
+        await withTimeout(
+          fs.promises.copyFile(filePath, path.join(backupDir, `contentieux-alerts-${safe}-${timestamp}.json`)),
+          NET_WRITE_TIMEOUT_MS,
+          'copy alerts'
+        )
+      } catch {
+        // Premier write
       }
-      fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8')
-      pruneGlobalBackups(`contentieux-alerts-${safe}`, 10)
-      console.log(`✅ GlobalSync: contentieux-alerts/${safe}.json sauvegardé`)
+      await withTimeout(
+        fs.promises.writeFile(filePath, JSON.stringify(payload), 'utf8'),
+        NET_WRITE_TIMEOUT_MS,
+        `pushContentieuxAlerts write ${safe}`
+      )
+      pruneGlobalBackups(`contentieux-alerts-${safe}`, 10).catch(() => {})
       return true
     } catch (error) {
-      console.error('❌ GlobalSync: Erreur écriture contentieux-alerts:', error)
+      console.error('❌ GlobalSync: Erreur écriture contentieux-alerts:', error.message)
       return false
     }
   })
@@ -1935,28 +2055,42 @@ function setupIpcHandlers() {
    * (renvoie la clé customTags telle qu'elle existe, format legacy ou non)
    */
   ipcMain.handle('globalSync:readLegacyAppData', async () => {
+    if (skipIfUnreachable()) return null
     try {
       const legacyPath = globalFilePath('app-data.json')
-      if (!fs.existsSync(legacyPath)) return null
-      const content = fs.readFileSync(legacyPath, 'utf8')
+      const content = await withTimeout(
+        fs.promises.readFile(legacyPath, 'utf8').catch(err => {
+          if (err.code === 'ENOENT') return ''
+          throw err
+        }),
+        NET_READ_TIMEOUT_MS,
+        'readLegacyAppData'
+      )
       if (!content || !content.trim()) return null
       return JSON.parse(content)
     } catch (error) {
-      console.error('❌ GlobalSync: Erreur lecture app-data.json legacy:', error)
+      console.error('❌ GlobalSync: Erreur lecture app-data.json legacy:', error.message)
       return null
     }
   })
 
   /**
-   * Vérifie l'accès au dossier d'un contentieux
+   * Vérifie l'accès au dossier d'un contentieux.
+   * Si l'état réseau global est 'unreachable', on retourne false sans tenter
+   * d'accès — évite un timeout complet à chaque sync.
    */
   ipcMain.handle('dataSync:checkContentieuxAccess', async (event, contentieuxId) => {
+    if (skipIfUnreachable()) return false
     try {
       const folder = getContentieuxFolder(contentieuxId)
       if (!folder) return false
-      // Le dossier parent doit être accessible
       const parentDir = path.dirname(folder)
-      return fs.existsSync(parentDir)
+      await withTimeout(
+        fs.promises.access(parentDir, fs.constants.F_OK),
+        NET_READ_TIMEOUT_MS,
+        'checkContentieuxAccess'
+      )
+      return true
     } catch {
       return false
     }
@@ -2124,57 +2258,67 @@ function setupIpcHandlers() {
    * Lit app-data.json d'un contentieux spécifique
    */
   ipcMain.handle('dataSync:pullContentieux', async (event, contentieuxId) => {
+    if (skipIfUnreachable()) return null
     try {
       const folder = getContentieuxFolder(contentieuxId)
       const dataPath = path.join(folder, 'app-data.json')
-      if (!fs.existsSync(dataPath)) {
-        console.log(`ℹ️ MultiSync[${contentieuxId}]: Pas de données (première sync)`)
-        return null
-      }
-      const content = fs.readFileSync(dataPath, 'utf8')
+      const content = await withTimeout(
+        fs.promises.readFile(dataPath, 'utf8').catch(err => {
+          if (err.code === 'ENOENT') return ''
+          throw err
+        }),
+        NET_READ_TIMEOUT_MS,
+        `pullContentieux ${contentieuxId}`
+      )
+      if (!content || !content.trim()) return null
       const parsed = JSON.parse(content)
-      console.log(`✅ MultiSync[${contentieuxId}]: Données récupérées`)
       return {
         data: parsed.data || parsed,
         metadata: parsed.metadata || null
       }
     } catch (error) {
-      console.error(`❌ MultiSync[${contentieuxId}]: Erreur lecture:`, error)
+      console.error(`❌ MultiSync[${contentieuxId}]: Erreur lecture:`, error.message)
       throw new Error(`Erreur lecture serveur ${contentieuxId}: ${error.message}`)
     }
   })
 
-  /**
-   * Écrit app-data.json d'un contentieux spécifique
-   */
   ipcMain.handle('dataSync:pushContentieux', async (event, contentieuxId, data, metadata) => {
+    if (skipIfUnreachable()) {
+      throw new Error(`Réseau injoignable, push ${contentieuxId} reporté`)
+    }
     try {
       const folder = getContentieuxFolder(contentieuxId)
       const dataPath = path.join(folder, 'app-data.json')
       const payload = { data, metadata }
-      fs.writeFileSync(dataPath, JSON.stringify(payload, null, 2), 'utf8')
-      console.log(`✅ MultiSync[${contentieuxId}]: Données envoyées`)
+      await withTimeout(
+        fs.promises.writeFile(dataPath, JSON.stringify(payload), 'utf8'),
+        NET_WRITE_TIMEOUT_MS,
+        `pushContentieux ${contentieuxId}`
+      )
       return true
     } catch (error) {
-      console.error(`❌ MultiSync[${contentieuxId}]: Erreur écriture:`, error)
+      console.error(`❌ MultiSync[${contentieuxId}]: Erreur écriture:`, error.message)
       throw new Error(`Erreur envoi serveur ${contentieuxId}: ${error.message}`)
     }
   })
 
-  /**
-   * Crée un backup du app-data.json d'un contentieux avant push
-   */
   ipcMain.handle('dataSync:backupContentieux', async (event, contentieuxId, backupFilename) => {
+    if (skipIfUnreachable()) return false
     try {
       const folder = getContentieuxFolder(contentieuxId)
       const dataPath = path.join(folder, 'app-data.json')
-      if (!fs.existsSync(dataPath)) return false
       const backupDir = getContentieuxBackupFolder(contentieuxId)
-      fs.copyFileSync(dataPath, path.join(backupDir, backupFilename))
-      console.log(`✅ MultiSync[${contentieuxId}]: Backup créé → ${backupFilename}`)
+      await withTimeout(
+        fs.promises.copyFile(dataPath, path.join(backupDir, backupFilename)).catch(err => {
+          if (err.code === 'ENOENT') return null
+          throw err
+        }),
+        NET_WRITE_TIMEOUT_MS,
+        `backupContentieux ${contentieuxId}`
+      )
       return true
     } catch (error) {
-      console.error(`❌ MultiSync[${contentieuxId}]: Erreur backup:`, error)
+      console.error(`❌ MultiSync[${contentieuxId}]: Erreur backup:`, error.message)
       return false
     }
   })
