@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { AIRImportData } from '@/types/interfaces';
-import { FileUp, Check, AlertCircle, Info, CheckCircle, XCircle } from 'lucide-react';
+import { FileUp, Check, AlertCircle, Info, CheckCircle, XCircle, ChevronLeft, ChevronRight, Wand2, RotateCcw, Pencil, EyeOff } from 'lucide-react';
 import ImportProgressBar from '@/components/ImportProgressBar';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import * as XLSX from 'xlsx';
@@ -26,18 +26,76 @@ interface AIRImportModalProps {
 }
 
 
-// 🛠️ FONCTION UTILITAIRE : Convertir un index de colonne en lettres Excel (A, B, ..., Z, AA, AB, ..., BQ)
 const getExcelColumnName = (index: number): string => {
   let columnName = '';
   let num = index;
-  
+
   while (num >= 0) {
     columnName = String.fromCharCode(65 + (num % 26)) + columnName;
     num = Math.floor(num / 26) - 1;
   }
-  
+
   return columnName;
 };
+
+const FIELD_LABELS: Record<string, string> = {
+  refAEM: 'Réf. AEM',
+  dateReception: 'Date réception',
+  origine: 'Origine',
+  magistrat: 'Magistrat',
+  dprEnCharge: 'DPR en charge',
+  typeProcedure: 'Type de procédure',
+  faits1: 'Faits (principal)',
+  faits2: 'Faits (secondaire)',
+  nomPrenom: 'Nom / Prénom',
+  adresse: 'Adresse',
+  telephone: 'Téléphone',
+  dateNaissance: 'Date de naissance',
+  lieuNaissance: 'Lieu de naissance',
+  secteurGeographique: 'Secteur géographique',
+  commentaires: 'Commentaires',
+  referent: 'En charge de',
+  origine2: 'Origine (2)',
+  airNonEngage: 'AIR non engagée',
+  nombreEntretiensAIR: 'Entretiens AIR',
+  nombreRencontresPR: 'Rencontres PR',
+  nombreCarences: 'Carences',
+  lieuConvocation: 'Lieu de convocation',
+  dateFinPriseEnCharge: 'Fin prise en charge',
+  typesAddiction: "Types d'addiction",
+  mesuresPrises: 'Mesures prises',
+  suiviAddictologique: 'Suivi addictologique',
+  bilanPsychologique: 'Bilan psychologique',
+  suiviPsychologique: 'Suivi psychologique',
+  suiviPsychiatrique: 'Suivi psychiatrique',
+  hospitalisationPsy: 'Hospitalisation psy',
+  situationHandicap: 'Situation de handicap',
+  natureFinAIR: 'Nature fin AIR',
+  resultatMesure: 'Résultat',
+  dureeEnMois: 'Durée (mois)',
+  orientationFinMesure: 'Orientation fin mesure',
+  dateCloture: 'Date de clôture',
+  sexe: 'Sexe',
+  nationalite: 'Nationalité',
+  age: 'Âge',
+  situationFamiliale: 'Situation familiale',
+  nombreEnfants: "Nombre d'enfants",
+  entourageImpacte: 'Entourage impacté',
+  mesureProtectionMajeur: 'Mesure de protection',
+  hebergementDebut: 'Hébergement (début)',
+  hebergementFin: 'Hébergement (fin)',
+  demandeLogement: 'Demande de logement',
+  activiteProfessionnelleDebut: 'Activité pro. (début)',
+  activiteProfessionnelleFin: 'Activité pro. (fin)',
+  repriseActivite: 'Reprise activité',
+  suiviProjetPro: 'Suivi projet pro',
+  permisDeConduire: 'Permis de conduire',
+  suivisMesure: 'Suivi de mesure',
+  activiteSocioCulturelle: 'Activité socio-culturelle',
+  accompagnementParentalite: 'Accompagnement parentalité'
+};
+
+const labelFor = (field: string): string => FIELD_LABELS[field] ?? field;
 
 export const AIRImportModal = ({
   isOpen,
@@ -65,7 +123,8 @@ export const AIRImportModal = ({
   const [availableHeaders, setAvailableHeaders] = useState<string[]>([]);
   const [previewRowCount, setPreviewRowCount] = useState(5);
   const [hoveredHeader, setHoveredHeader] = useState<string | null>(null);
-  
+  const [isDragging, setIsDragging] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
 
@@ -252,13 +311,44 @@ export const AIRImportModal = ({
     console.log(info);
   };
 
-  // Gérer la sélection du fichier
+  const acceptFile = async (selectedFile: File) => {
+    const name = selectedFile.name.toLowerCase();
+    if (!name.endsWith('.xlsx') && !name.endsWith('.xls')) {
+      showToast('Format non supporté. Utilisez un fichier .xlsx ou .xls', 'error');
+      return;
+    }
+    setFile(selectedFile);
+    setErrors([]);
+    await loadWorkbook(selectedFile);
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
-      setFile(selectedFile);
-      setErrors([]);
-      await loadWorkbook(selectedFile);
+      await acceptFile(selectedFile);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isProcessing) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (isProcessing) return;
+    const droppedFile = e.dataTransfer.files?.[0];
+    if (droppedFile) {
+      await acceptFile(droppedFile);
     }
   };
 
@@ -484,16 +574,24 @@ export const AIRImportModal = ({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Importer des mesures AIR (format amélioré)</DialogTitle>
+          <DialogTitle>Importer des mesures AIR</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           {/* Zone de dépôt de fichier */}
-          <div 
+          <div
             className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
-              file ? 'border-green-500 bg-green-50' : 'border-gray-300 hover:border-gray-400'
+              file
+                ? 'border-green-500 bg-green-50'
+                : isDragging
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-300 hover:border-gray-400'
             }`}
             onClick={() => fileInputRef.current?.click()}
+            onDragOver={handleDragOver}
+            onDragEnter={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
           >
             <input
               type="file"
@@ -503,7 +601,7 @@ export const AIRImportModal = ({
               onChange={handleFileChange}
               disabled={isProcessing}
             />
-            
+
             {file ? (
               <div className="flex flex-col items-center">
                 <Check className="h-10 w-10 text-green-500 mb-2" />
@@ -511,9 +609,9 @@ export const AIRImportModal = ({
                 <p className="text-xs text-gray-500">
                   {(file.size / 1024).toFixed(2)} KB
                 </p>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+                <Button
+                  variant="outline"
+                  size="sm"
                   className="mt-2"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -527,15 +625,31 @@ export const AIRImportModal = ({
             ) : (
               <div className="flex flex-col items-center">
                 <FileUp className="h-10 w-10 text-gray-400 mb-2" />
-                <p className="text-sm font-medium">Cliquez pour sélectionner un fichier Excel</p>
-                <p className="text-xs text-gray-500">
-                  Format accepté: XLSX (détection automatique du format)
+                <p className="text-sm font-medium">
+                  {isDragging ? 'Déposez le fichier ici' : 'Glissez un fichier Excel ou cliquez pour parcourir'}
                 </p>
+                <p className="text-xs text-gray-500">Formats acceptés : .xlsx, .xls</p>
               </div>
             )}
           </div>
 
-          {/* 🆕 INFORMATIONS DE VALIDATION ET MAPPING */}
+          {/* Sélection de la feuille */}
+          {sheets.length > 1 && (
+            <div className="space-y-2">
+              <Label>Feuille à importer</Label>
+              <select
+                value={selectedSheet}
+                onChange={(e) => setSelectedSheet(e.target.value)}
+                className="w-full p-2 border rounded text-sm"
+                disabled={isProcessing}
+              >
+                {sheets.map(sheet => (
+                  <option key={sheet} value={sheet}>{sheet}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {validation && mappingResult && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -583,32 +697,29 @@ export const AIRImportModal = ({
                 </Alert>
               </div>
               
-              {/* Message si mapping dynamique déjà utilisé */}
               {forceDynamicMapping && (
                 <div className="flex justify-center">
-                  <div className="text-sm text-green-600 bg-green-50 px-3 py-1 rounded">
-                    ✅ Mapping automatique activé
+                  <div className="inline-flex items-center gap-1.5 text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-1 rounded">
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    Détection automatique active
                   </div>
                 </div>
               )}
-              
-              {/* 🆕 BOUTONS DE CONTRÔLE DU MAPPING */}
+
               <div className="flex justify-center gap-2">
-                {!forceDynamicMapping && (
-                  <Button 
-                    variant="outline" 
+                {!forceDynamicMapping ? (
+                  <Button
+                    variant="outline"
                     size="sm"
                     onClick={handleForceRemapping}
                     disabled={isProcessing}
-                    className="text-blue-600 border-blue-300 hover:bg-blue-50"
                   >
-                    🔧 Mapping automatique
+                    <Wand2 className="h-4 w-4 mr-1.5" />
+                    Détection auto
                   </Button>
-                )}
-                
-                {forceDynamicMapping && (
-                  <Button 
-                    variant="outline" 
+                ) : (
+                  <Button
+                    variant="outline"
                     size="sm"
                     onClick={() => {
                       setForceDynamicMapping(false);
@@ -617,37 +728,41 @@ export const AIRImportModal = ({
                       }
                     }}
                     disabled={isProcessing}
-                    className="text-gray-600 border-gray-300 hover:bg-gray-50"
                   >
-                    ↩️ Mapping standard
+                    <RotateCcw className="h-4 w-4 mr-1.5" />
+                    Revenir au standard
                   </Button>
                 )}
-                
-                <Button 
-                  variant="outline" 
+
+                <Button
+                  variant="outline"
                   size="sm"
                   onClick={() => setShowMappingEditor(!showMappingEditor)}
                   disabled={isProcessing}
-                  className="text-purple-600 border-purple-300 hover:bg-purple-50"
                 >
-                  {showMappingEditor ? '📋 Masquer éditeur' : '✏️ Ajuster le mapping'}
+                  {showMappingEditor ? (
+                    <>
+                      <EyeOff className="h-4 w-4 mr-1.5" />
+                      Masquer l'éditeur
+                    </>
+                  ) : (
+                    <>
+                      <Pencil className="h-4 w-4 mr-1.5" />
+                      Ajuster les colonnes
+                    </>
+                  )}
                 </Button>
               </div>
-              
-              {/* Ancien code conditionnel supprimé */}
-              
-              {/* 🆕 AFFICHAGE DES CHAMPS MANQUANTS */}
+
               {mappingResult.missingFields.length > 0 && (
                 <Alert className="border-orange-200 bg-orange-50">
                   <AlertCircle className="h-4 w-4 text-orange-600" />
                   <AlertTitle>Champs non détectés</AlertTitle>
                   <AlertDescription>
                     <div className="text-sm">
-                      Les champs suivants n'ont pas pu être détectés automatiquement : 
-                      <div className="mt-1 text-xs">
-                        <code className="bg-white px-1 rounded">
-                          {mappingResult.missingFields.join(', ')}
-                        </code>
+                      Ces champs n'ont pas pu être détectés automatiquement :
+                      <div className="mt-1 text-xs text-gray-700">
+                        {mappingResult.missingFields.map(labelFor).join(', ')}
                       </div>
                     </div>
                   </AlertDescription>
@@ -656,13 +771,12 @@ export const AIRImportModal = ({
             </div>
           )}
 
-          {/* 🆕 ÉDITEUR DE MAPPING PERSONNALISÉ */}
           {showMappingEditor && availableHeaders.length > 0 && (
             <div className="space-y-4 border rounded-lg p-4 bg-gray-50">
               <div className="flex justify-between items-center">
-                <h3 className="text-sm font-medium">🔧 Ajuster le mapping des colonnes</h3>
+                <h3 className="text-sm font-medium">Ajuster les colonnes</h3>
                 <div className="flex gap-2">
-                  <Button 
+                  <Button
                     variant="outline"
                     size="sm"
                     onClick={() => {
@@ -672,37 +786,30 @@ export const AIRImportModal = ({
                       }
                     }}
                     disabled={isProcessing}
-                    className="text-gray-600"
                   >
-                    ↻ Réinitialiser
+                    <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                    Réinitialiser
                   </Button>
-                  <Button 
+                  <Button
                     size="sm"
                     onClick={handleApplyCustomMapping}
                     disabled={isProcessing || Object.keys(customMapping).length === 0}
-                    className="bg-purple-600 hover:bg-purple-700"
                   >
-                    ✅ Appliquer
+                    <Check className="h-3.5 w-3.5 mr-1.5" />
+                    Appliquer
                   </Button>
                 </div>
               </div>
-              
+
               <div className="text-xs text-gray-600 mb-3">
-                Mapping actuel pré-rempli. Modifiez les associations incorrectes et cliquez "Appliquer" :
+                Le mapping détecté est pré-rempli. Corrigez les associations incorrectes puis cliquez sur Appliquer.
               </div>
 
               <div className="grid grid-cols-2 gap-4 max-h-60 overflow-y-auto">
                 {Object.keys(FIXED_AIR_COLUMN_MAPPINGS).map(fieldName => (
                   <div key={fieldName} className="flex items-center gap-2">
-                    <Label className="text-xs font-medium w-24 text-right">
-                      {fieldName === 'refAEM' ? 'Réf AEM' :
-                       fieldName === 'nomPrenom' ? 'Nom/Prénom' :
-                       fieldName === 'dateReception' ? 'Date réception' :
-                       fieldName === 'resultatMesure' ? 'Résultat' :
-                       fieldName === 'dateCloture' ? 'Date clôture' :
-                       fieldName === 'nombreEntretiensAIR' ? 'Entretiens' :
-                       fieldName === 'nombreCarences' ? 'Carences' :
-                       fieldName}:
+                    <Label className="text-xs font-medium w-32 text-right">
+                      {labelFor(fieldName)}
                     </Label>
                     <select
                       value={customMapping[fieldName] ?? ''}
@@ -722,7 +829,7 @@ export const AIRImportModal = ({
                       className="flex-1 text-xs p-1 border rounded"
                       disabled={isProcessing}
                     >
-                      <option value="">-- Non assigné --</option>
+                      <option value="">— Non assigné —</option>
                       {availableHeaders.map((header, index) => (
                         <option key={index} value={index}>
                           {header}
@@ -733,14 +840,13 @@ export const AIRImportModal = ({
                 ))}
               </div>
 
-              {/* Aperçu du mapping actuel */}
               {Object.keys(customMapping).length > 0 && (
                 <div className="mt-3 p-2 bg-white rounded border">
-                  <div className="text-xs font-medium mb-1">Mapping configuré :</div>
-                  <div className="text-xs text-gray-600">
+                  <div className="text-xs font-medium mb-1">Mapping configuré</div>
+                  <div className="text-xs text-gray-600 grid grid-cols-2 gap-x-4 gap-y-0.5">
                     {Object.entries(customMapping).map(([field, colIndex]) => (
                       <div key={field}>
-                        <strong>{field}</strong> → Colonne {getExcelColumnName(colIndex)} ({colIndex + 1})
+                        <strong>{labelFor(field)}</strong> → Col. {getExcelColumnName(colIndex)}
                       </div>
                     ))}
                   </div>
@@ -749,26 +855,9 @@ export const AIRImportModal = ({
             </div>
           )}
 
-          {/* Sélection de la feuille */}
-          {sheets.length > 1 && (
-            <div className="space-y-2">
-              <Label>Sélectionner une feuille:</Label>
-              <select
-                value={selectedSheet}
-                onChange={(e) => setSelectedSheet(e.target.value)}
-                className="w-full p-2 border rounded"
-                disabled={isProcessing}
-              >
-                {sheets.map(sheet => (
-                  <option key={sheet} value={sheet}>{sheet}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Options d'importation avec radio buttons simples */}
+          {/* Options d'importation */}
           <div className="space-y-3">
-            <h3 className="text-sm font-medium">Mode d'importation:</h3>
+            <h3 className="text-sm font-medium">Mode d'importation</h3>
             <div className="space-y-2">
               <div className="flex items-center space-x-2">
                 <input
@@ -780,8 +869,9 @@ export const AIRImportModal = ({
                   onChange={(e) => setImportStrategy(e.target.value as 'merge' | 'replace')}
                   disabled={isProcessing}
                 />
-                <Label htmlFor="merge">
-                  Fusionner - Ajouter et mettre à jour les mesures existantes
+                <Label htmlFor="merge" className="cursor-pointer">
+                  <span className="font-medium">Fusionner</span>
+                  <span className="text-gray-600"> — ajoute et met à jour les mesures existantes</span>
                 </Label>
               </div>
               <div className="flex items-center space-x-2">
@@ -794,8 +884,9 @@ export const AIRImportModal = ({
                   onChange={(e) => setImportStrategy(e.target.value as 'merge' | 'replace')}
                   disabled={isProcessing}
                 />
-                <Label htmlFor="replace">
-                  Remplacer - Supprimer toutes les mesures existantes
+                <Label htmlFor="replace" className="cursor-pointer">
+                  <span className="font-medium">Remplacer</span>
+                  <span className="text-gray-600"> — supprime toutes les mesures existantes</span>
                 </Label>
               </div>
             </div>
@@ -806,35 +897,24 @@ export const AIRImportModal = ({
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <h3 className="text-sm font-medium">
-                  Aperçu des données ({previewData.length} sur {completeData.length} mesures)
+                  Aperçu ({previewData.length} sur {completeData.length} mesures)
                 </h3>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <Label className="text-xs">Lignes:</Label>
-                    <select
-                      value={previewRowCount}
-                      onChange={(e) => {
-                        const newCount = parseInt(e.target.value);
-                        setPreviewRowCount(newCount);
-                        setPreviewData(completeData.slice(0, newCount));
-                      }}
-                      className="text-xs p-1 border rounded w-16"
-                    >
-                      <option value={5}>5</option>
-                      <option value={10}>10</option>
-                      <option value={15}>15</option>
-                      <option value={20}>20</option>
-                    </select>
-                  </div>
-                  {/* 🆕 BOUTON POUR VALIDER LE MAPPING AJUSTÉ */}
-                  <Button 
-                    size="sm"
-                    onClick={handleApplyCustomMapping}
-                    disabled={isProcessing}
-                    className="bg-green-600 hover:bg-green-700 text-white"
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs">Lignes affichées :</Label>
+                  <select
+                    value={previewRowCount}
+                    onChange={(e) => {
+                      const newCount = parseInt(e.target.value);
+                      setPreviewRowCount(newCount);
+                      setPreviewData(completeData.slice(0, newCount));
+                    }}
+                    className="text-xs p-1 border rounded w-16"
                   >
-                    ✅ Valider ce mapping
-                  </Button>
+                    <option value={5}>5</option>
+                    <option value={10}>10</option>
+                    <option value={15}>15</option>
+                    <option value={20}>20</option>
+                  </select>
                 </div>
               </div>
               
@@ -858,42 +938,47 @@ export const AIRImportModal = ({
                         { key: 'dateCloture', label: 'Date clôture', width: 'w-24' },
                         { key: 'statut', label: 'Statut', width: 'w-20' }
                       ].map(({ key, label, width }) => (
-                        <th 
+                        <th
                           key={key}
-                          className={`border p-2 text-left relative group cursor-pointer ${width}`}
+                          className={`border p-2 text-left relative ${width}`}
                           onMouseEnter={() => setHoveredHeader(key)}
                           onMouseLeave={() => setHoveredHeader(null)}
                         >
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between gap-1">
                             <span>{label}</span>
-                            {hoveredHeader === key && customMapping[key] !== undefined && (
-                              <div className="flex items-center gap-1">
+                            {customMapping[key] !== undefined && (
+                              <div
+                                className={`flex items-center gap-0.5 transition-opacity ${
+                                  hoveredHeader === key ? 'opacity-100' : 'opacity-30'
+                                }`}
+                              >
                                 <button
+                                  type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     adjustMapping(key, 'left');
                                   }}
-                                  className="w-4 h-4 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center justify-center text-xs"
-                                  title="Décaler vers la gauche"
+                                  className="h-5 w-5 rounded text-gray-600 hover:bg-blue-100 hover:text-blue-700 disabled:opacity-50 flex items-center justify-center"
+                                  title="Colonne précédente"
                                   disabled={isProcessing}
                                 >
-                                  −
+                                  <ChevronLeft className="h-3.5 w-3.5" />
                                 </button>
                                 <button
+                                  type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     adjustMapping(key, 'right');
                                   }}
-                                  className="w-4 h-4 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center justify-center text-xs"
-                                  title="Décaler vers la droite"
+                                  className="h-5 w-5 rounded text-gray-600 hover:bg-blue-100 hover:text-blue-700 disabled:opacity-50 flex items-center justify-center"
+                                  title="Colonne suivante"
                                   disabled={isProcessing}
                                 >
-                                  +
+                                  <ChevronRight className="h-3.5 w-3.5" />
                                 </button>
                               </div>
                             )}
                           </div>
-                          {/* Indicateur de colonne Excel */}
                           {customMapping[key] !== undefined && (
                             <div className="text-[10px] text-gray-400 mt-1">
                               Col. {getExcelColumnName(customMapping[key])}
@@ -979,10 +1064,11 @@ export const AIRImportModal = ({
                 </table>
               </div>
               
-              {/* Légende des contrôles */}
-              <div className="text-xs text-gray-500 bg-blue-50 p-2 rounded">
-                💡 <strong>Astuce:</strong> Survolez les en-têtes de colonnes et utilisez les boutons <strong>−</strong> et <strong>+</strong> 
-                pour ajuster le mapping en temps réel. Les données se mettent à jour automatiquement.
+              <div className="text-xs text-gray-600 bg-blue-50 border border-blue-100 p-2 rounded flex items-start gap-2">
+                <Info className="h-3.5 w-3.5 mt-0.5 text-blue-600 flex-shrink-0" />
+                <span>
+                  Utilisez les flèches sur les en-têtes pour décaler une colonne d'un cran. L'aperçu se met à jour automatiquement.
+                </span>
               </div>
             </div>
           )}
