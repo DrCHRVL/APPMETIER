@@ -327,6 +327,68 @@ function ensureDir(dirPath) {
   return dirPath
 }
 
+// ── DÉTECTEUR D'ÉTAT RÉSEAU ────────────────────────────────────────────────
+// Sonde périodique du partage SMB pour adapter le comportement de l'app à la
+// latence réelle. Trois états :
+//   - 'healthy'      : latence < 800ms, opérations réseau normales
+//   - 'slow'         : 800ms ≤ latence ≤ 3s, on continue mais l'UI prévient
+//   - 'unreachable'  : latence > 3s ou échec, on suspend les pushes (outbox)
+//
+// La sonde fait un fs.stat sur le dossier events/, opération minimale qui
+// reflète bien la latence d'accès SMB sans charge supplémentaire.
+
+const NETWORK_PROBE_INTERVAL_MS = 20_000
+const NETWORK_HEALTHY_MAX_MS = 800
+const NETWORK_SLOW_MAX_MS = 3000
+
+let _networkStatus = { state: 'healthy', latency: 0, lastProbeAt: 0 }
+let _networkProbeTimer = null
+
+async function probeNetwork() {
+  const start = Date.now()
+  try {
+    const dir = path.join(getGeneralServerPath(), 'events')
+    await withTimeout(
+      fs.promises.stat(dir).catch(err => {
+        // ENOENT = dossier pas encore créé, mais le serveur répond → réseau OK
+        if (err.code === 'ENOENT') return null
+        throw err
+      }),
+      NETWORK_SLOW_MAX_MS,
+      'probeNetwork'
+    )
+    const latency = Date.now() - start
+    const state = latency <= NETWORK_HEALTHY_MAX_MS ? 'healthy' : 'slow'
+    return { state, latency, lastProbeAt: Date.now() }
+  } catch {
+    return { state: 'unreachable', latency: Date.now() - start, lastProbeAt: Date.now() }
+  }
+}
+
+async function runNetworkProbe() {
+  const next = await probeNetwork()
+  const changed =
+    next.state !== _networkStatus.state ||
+    Math.abs(next.latency - _networkStatus.latency) > 200
+  _networkStatus = next
+  if (changed && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('network:status', _networkStatus)
+  }
+}
+
+function startNetworkMonitor() {
+  if (_networkProbeTimer) return
+  runNetworkProbe()
+  _networkProbeTimer = setInterval(runNetworkProbe, NETWORK_PROBE_INTERVAL_MS)
+}
+
+function stopNetworkMonitor() {
+  if (_networkProbeTimer) {
+    clearInterval(_networkProbeTimer)
+    _networkProbeTimer = null
+  }
+}
+
 // ── FILE WATCHER pour événements partagés (niveau module pour accès depuis powerMonitor) ──
 let eventsWatcher = null
 let eventsWatcherRestartTimeout = null
@@ -2341,6 +2403,72 @@ function setupIpcHandlers() {
   ipcMain.handle('sharedEvent:startWatcher', async () => {
     startEventsWatcher()
     return true
+  })
+
+  // Lecture en lot des événements partagés récents (sync prioritaire au lancement).
+  // Le watcher ne voit que les nouveaux fichiers (rename) ; au démarrage on doit
+  // récupérer ce qui existe déjà dans events/ pour rattraper l'activité des
+  // collègues. Plafonné à 8 s : au-delà on rend la main et le watcher prendra
+  // le relais en arrière-plan.
+  ipcMain.handle('sharedEvent:readRecent', async (event, maxAgeMs) => {
+    const LAUNCH_SYNC_BUDGET_MS = 8000
+    const start = Date.now()
+    try {
+      const dir = path.join(getGeneralServerPath(), 'events')
+      const files = await withTimeout(
+        fs.promises.readdir(dir).catch(err => { if (err.code === 'ENOENT') return []; throw err }),
+        NET_READ_TIMEOUT_MS,
+        'sharedEvent:readRecent readdir'
+      )
+      const jsonFiles = files.filter(f => f.endsWith('.json'))
+      const cutoff = Date.now() - (maxAgeMs || 24 * 60 * 60 * 1000)
+      const events = []
+      // Lectures parallèles, mais on s'interrompt si on dépasse le budget global.
+      const reads = jsonFiles.map(file =>
+        withTimeout(
+          fs.promises.readFile(path.join(dir, file), 'utf8'),
+          NET_READ_TIMEOUT_MS,
+          `sharedEvent:readRecent ${file}`
+        ).then(raw => {
+          if (Date.now() - start > LAUNCH_SYNC_BUDGET_MS) return null
+          const content = JSON.parse(raw)
+          const ts = new Date(content.timestamp).getTime()
+          if (ts >= cutoff) return content
+          return null
+        }).catch(() => null)
+      )
+      const results = await withTimeout(
+        Promise.all(reads),
+        LAUNCH_SYNC_BUDGET_MS,
+        'sharedEvent:readRecent global'
+      ).catch(() => [])
+      for (const r of results) if (r) events.push(r)
+      events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      return { events, partial: Date.now() - start > LAUNCH_SYNC_BUDGET_MS }
+    } catch (error) {
+      console.error('❌ SharedEvent readRecent error:', error.message)
+      return { events: [], partial: true }
+    }
+  })
+
+  // Sonde réseau à la demande (utilisée par le renderer au démarrage).
+  ipcMain.handle('network:probe', async () => {
+    return probeNetwork()
+  })
+
+  // Démarrer / arrêter le moniteur réseau (appelé après login).
+  ipcMain.handle('network:startMonitor', async () => {
+    startNetworkMonitor()
+    return _networkStatus
+  })
+
+  ipcMain.handle('network:stopMonitor', async () => {
+    stopNetworkMonitor()
+    return true
+  })
+
+  ipcMain.handle('network:getStatus', async () => {
+    return _networkStatus
   })
 
   // ── JOURNAL D'AUDIT ──

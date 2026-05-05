@@ -28,11 +28,21 @@ export class SharedEventManager {
     // Écouter les événements envoyés depuis le main process (file watcher)
     if (typeof window !== 'undefined') {
       window.electronAPI?.onSharedEvent?.((event: SharedEvent) => {
-        // Ignorer ses propres événements
-        if (event.username === this.username) return;
-        this.listeners.forEach(fn => fn(event));
+        this.dispatchInternal(event);
       });
     }
+  }
+
+  /** Distribue un événement aux listeners en filtrant les self-emits.
+   *  Utilisé à la fois par le watcher et par la sync prioritaire au lancement. */
+  static dispatch(event: SharedEvent): void {
+    SharedEventManager.getInstance().dispatchInternal(event);
+  }
+
+  private dispatchInternal(event: SharedEvent): void {
+    // Ignorer ses propres événements
+    if (event.username === this.username) return;
+    this.listeners.forEach(fn => fn(event));
   }
 
   /** Enregistre un listener d'événements */

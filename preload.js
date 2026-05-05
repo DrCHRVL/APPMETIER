@@ -209,6 +209,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onSharedEvent: (callback) =>
     ipcRenderer.on('sharedEvent:received', (event, data) => callback(data)),
 
+  // Récupère les événements partagés des dernières maxAgeMs (24h par défaut).
+  // Utilisé au lancement de l'app pour rattraper l'activité récente des collègues.
+  // Retourne { events, partial } — partial=true si on a manqué de temps (8s max).
+  readRecentSharedEvents: (maxAgeMs) =>
+    ipcRenderer.invoke('sharedEvent:readRecent', maxAgeMs),
+
+  // ── ÉTAT RÉSEAU ──
+  // Démarre le moniteur réseau périodique (sonde toutes les 20s).
+  startNetworkMonitor: () =>
+    ipcRenderer.invoke('network:startMonitor'),
+
+  stopNetworkMonitor: () =>
+    ipcRenderer.invoke('network:stopMonitor'),
+
+  // Sonde unique à la demande (lancement, action utilisateur).
+  probeNetwork: () =>
+    ipcRenderer.invoke('network:probe'),
+
+  getNetworkStatus: () =>
+    ipcRenderer.invoke('network:getStatus'),
+
+  // Notification de changement d'état réseau ('healthy' | 'slow' | 'unreachable').
+  onNetworkStatus: (callback) =>
+    ipcRenderer.on('network:status', (event, status) => callback(status)),
+
   appendAuditLog: (entry, maxEntries) =>
     ipcRenderer.invoke('auditLog:append', entry, maxEntries),
 
