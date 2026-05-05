@@ -22,30 +22,63 @@ export interface NetworkStatus {
 type Listener = (status: NetworkStatus) => void;
 
 class NetworkStatusManagerImpl {
-  private status: NetworkStatus = { state: 'healthy', latency: 0, lastProbeAt: 0 };
+  private realStatus: NetworkStatus = { state: 'healthy', latency: 0, lastProbeAt: 0 };
+  private forcedOffline = false;
   private listeners = new Set<Listener>();
   private started = false;
 
+  private effective(): NetworkStatus {
+    if (this.forcedOffline) {
+      return { ...this.realStatus, state: 'unreachable' };
+    }
+    return this.realStatus;
+  }
+
+  private emit(next: NetworkStatus) {
+    this.realStatus = next;
+    const eff = this.effective();
+    this.listeners.forEach(l => l(eff));
+  }
+
   async start(): Promise<NetworkStatus> {
-    if (this.started) return this.status;
+    if (this.started) return this.effective();
     this.started = true;
     const api = (window as unknown as { electronAPI?: any }).electronAPI;
-    if (!api?.startNetworkMonitor) return this.status;
+    if (!api?.startNetworkMonitor) return this.effective();
 
     api.onNetworkStatus?.((next: NetworkStatus) => {
-      this.status = next;
-      this.listeners.forEach(l => l(next));
+      this.emit(next);
     });
     const initial = await api.startNetworkMonitor();
     if (initial) {
-      this.status = initial;
-      this.listeners.forEach(l => l(initial));
+      this.emit(initial);
     }
-    return this.status;
+    return this.effective();
   }
 
   getStatus(): NetworkStatus {
-    return this.status;
+    return this.effective();
+  }
+
+  /** État réel du probe, sans tenir compte du mode hors ligne forcé. */
+  getRealStatus(): NetworkStatus {
+    return this.realStatus;
+  }
+
+  isForcedOffline(): boolean {
+    return this.forcedOffline;
+  }
+
+  /**
+   * Active/désactive le mode hors ligne forcé. Volatile : non persisté entre
+   * deux lancements de l'application (au prochain démarrage on repart en
+   * ligne).
+   */
+  setForcedOffline(value: boolean): void {
+    if (this.forcedOffline === value) return;
+    this.forcedOffline = value;
+    const eff = this.effective();
+    this.listeners.forEach(l => l(eff));
   }
 
   on(listener: Listener): () => void {
@@ -56,13 +89,12 @@ class NetworkStatusManagerImpl {
   /** Sonde unique à la demande (utilisée au lancement). */
   async probeOnce(): Promise<NetworkStatus> {
     const api = (window as unknown as { electronAPI?: any }).electronAPI;
-    if (!api?.probeNetwork) return this.status;
+    if (!api?.probeNetwork) return this.effective();
     const next = await api.probeNetwork();
     if (next) {
-      this.status = next;
-      this.listeners.forEach(l => l(next));
+      this.emit(next);
     }
-    return next || this.status;
+    return this.effective();
   }
 }
 
