@@ -70,6 +70,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const liensRenseignement = useCartographieOverlayStore(s => s.liensRenseignement);
   const overlayLoaded = useCartographieOverlayStore(s => s.isLoaded);
   const loadOverlay = useCartographieOverlayStore(s => s.load);
+  const flushOverlay = useCartographieOverlayStore(s => s.flush);
   const togglePinMec = useCartographieOverlayStore(s => s.togglePinMec);
   const addMec = useCartographieOverlayStore(s => s.addMec);
   const updateMec = useCartographieOverlayStore(s => s.updateMec);
@@ -84,6 +85,17 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   useEffect(() => {
     if (!overlayLoaded) loadOverlay();
   }, [overlayLoaded, loadOverlay]);
+
+  // Mode offline : on persiste à la fermeture du module (ou de l'app), pas
+  // pendant l'utilisation, pour ne pas faire ramer la cartographie.
+  useEffect(() => {
+    const onBeforeUnload = () => { void flushOverlay(); };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      void flushOverlay();
+    };
+  }, [flushOverlay]);
 
   const overlayInput = useMemo(() => ({
     mecsExNihilo,
@@ -387,6 +399,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             addDossier(data);
           }
         }}
+        onCreateMec={(data) => addMec(data)}
       />
 
       <AddLienModal
