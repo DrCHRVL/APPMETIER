@@ -366,13 +366,18 @@ async function probeNetwork() {
 }
 
 async function runNetworkProbe() {
+  const previousState = _networkStatus.state
   const next = await probeNetwork()
   const changed =
-    next.state !== _networkStatus.state ||
+    next.state !== previousState ||
     Math.abs(next.latency - _networkStatus.latency) > 200
   _networkStatus = next
   if (changed && mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('network:status', _networkStatus)
+  }
+  // Si on revient à un état utilisable depuis 'unreachable', vider l'outbox.
+  if (previousState === 'unreachable' && next.state !== 'unreachable') {
+    flushOutbox().catch(() => {})
   }
 }
 
@@ -380,6 +385,8 @@ function startNetworkMonitor() {
   if (_networkProbeTimer) return
   runNetworkProbe()
   _networkProbeTimer = setInterval(runNetworkProbe, NETWORK_PROBE_INTERVAL_MS)
+  // Démarrer aussi le flusher de l'outbox : il a besoin du même cycle de vie.
+  startOutboxFlusher()
 }
 
 function stopNetworkMonitor() {
@@ -402,6 +409,106 @@ function stopEventsWatcher() {
     clearTimeout(eventsWatcherRestartTimeout)
     eventsWatcherRestartTimeout = null
   }
+}
+
+// ── OUTBOX ÉVÉNEMENTS PARTAGÉS ─────────────────────────────────────────────
+// File d'attente locale pour les événements à pousser sur le partage SMB.
+// Permet de découpler l'expérience utilisateur de la latence réseau :
+//   - L'enqueue est instantané (ajout en mémoire + persistance locale).
+//   - Le flush vers events/ tourne en arrière-plan.
+//   - Si le réseau est injoignable, les events s'accumulent localement
+//     jusqu'au retour du réseau, puis se vident automatiquement.
+//
+// Persistance : pending-events.json dans dataFolder local (PAS sur le réseau).
+// Garantit zéro perte y compris en cas de crash : au prochain démarrage on
+// reprend la file là où elle était.
+
+const OUTBOX_PATH = path.join(dataFolder, 'pending-events.json')
+const OUTBOX_FLUSH_INTERVAL_MS = 30_000
+
+let _outboxQueue = []
+let _outboxLoaded = false
+let _outboxFlushing = false
+let _outboxFlushTimer = null
+
+async function loadOutbox() {
+  if (_outboxLoaded) return
+  _outboxLoaded = true
+  try {
+    const raw = await fs.promises.readFile(OUTBOX_PATH, 'utf8')
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed?.events)) _outboxQueue = parsed.events
+  } catch {
+    // Fichier absent ou illisible → on part d'une file vide.
+    _outboxQueue = []
+  }
+}
+
+async function persistOutbox() {
+  // Écriture locale uniquement, atomique (tmp + rename) pour éviter la
+  // corruption de la file en cas de crash entre l'écriture et le rename.
+  const tmp = OUTBOX_PATH + '.tmp'
+  try {
+    await fs.promises.writeFile(tmp, JSON.stringify({ events: _outboxQueue }), 'utf8')
+    await fs.promises.rename(tmp, OUTBOX_PATH)
+  } catch (error) {
+    console.error('❌ Outbox persist error:', error.message)
+    try { await fs.promises.unlink(tmp) } catch {}
+  }
+}
+
+async function flushOutbox() {
+  if (_outboxFlushing) return
+  if (_networkStatus.state === 'unreachable') return
+  if (_outboxQueue.length === 0) return
+
+  _outboxFlushing = true
+  try {
+    while (_outboxQueue.length > 0) {
+      // Re-vérifier l'état réseau à chaque itération : si le réseau bascule
+      // en 'unreachable' au milieu du flush, on s'arrête proprement.
+      if (_networkStatus.state === 'unreachable') break
+
+      const event = _outboxQueue[0]
+      try {
+        const dir = ensureDir(path.join(getGeneralServerPath(), 'events'))
+        const filePath = path.join(dir, `${event.id}.json`)
+        await withTimeout(
+          fs.promises.writeFile(filePath, JSON.stringify(event), 'utf8'),
+          NET_WRITE_TIMEOUT_MS,
+          'outbox flush'
+        )
+        // Succès : retirer de la file et persister.
+        _outboxQueue.shift()
+        await persistOutbox()
+      } catch {
+        // Échec : on garde l'event en tête de file et on s'arrête. La
+        // prochaine sonde réseau ou le timer de fallback retentera.
+        break
+      }
+    }
+  } finally {
+    _outboxFlushing = false
+  }
+}
+
+async function enqueueOutbox(event) {
+  await loadOutbox()
+  _outboxQueue.push(event)
+  await persistOutbox()
+  // Tentative de flush immédiate (fire-and-forget). Si le réseau est sain
+  // ça part tout de suite ; sinon ça restera dans la file.
+  flushOutbox().catch(() => {})
+}
+
+function startOutboxFlusher() {
+  if (_outboxFlushTimer) return
+  loadOutbox().then(() => flushOutbox().catch(() => {}))
+  // Filet de sécurité : retenter périodiquement même si aucun changement
+  // d'état réseau n'est intervenu (ex. un timeout silencieux).
+  _outboxFlushTimer = setInterval(() => {
+    flushOutbox().catch(() => {})
+  }, OUTBOX_FLUSH_INTERVAL_MS)
 }
 
 function startEventsWatcher() {
@@ -2346,18 +2453,14 @@ function setupIpcHandlers() {
 
   // ── ÉVÉNEMENTS PARTAGÉS ──
 
+  // L'écriture d'un event passe désormais par l'outbox : retour instantané
+  // à l'utilisateur, push réseau en arrière-plan avec retry automatique.
   ipcMain.handle('sharedEvent:write', async (event, sharedEvent) => {
     try {
-      const dir = ensureDir(path.join(getGeneralServerPath(), 'events'))
-      const filePath = path.join(dir, `${sharedEvent.id}.json`)
-      await withTimeout(
-        fs.promises.writeFile(filePath, JSON.stringify(sharedEvent), 'utf8'),
-        NET_WRITE_TIMEOUT_MS,
-        'sharedEvent:write'
-      )
+      await enqueueOutbox(sharedEvent)
       return true
     } catch (error) {
-      console.error('❌ SharedEvent write error:', error.message)
+      console.error('❌ SharedEvent enqueue error:', error.message)
       return false
     }
   })
