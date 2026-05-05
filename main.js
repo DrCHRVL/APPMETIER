@@ -290,6 +290,24 @@ function createWindow() {
   mainWindow.loadURL('http://localhost:3000')
 }
 // ── UTILITAIRES RÉSEAU (niveau module pour accès depuis watcher et powerMonitor) ──
+
+// Timeouts spécifiques au réseau (SMB peut être lent ou injoignable). Au-delà,
+// la promesse rejette et la couche appelante traite ça comme un échec
+// silencieux (le `try/catch` des handlers retourne false / []).
+const NET_READ_TIMEOUT_MS = 2000
+const NET_WRITE_TIMEOUT_MS = 3000
+
+// Race une promesse contre un timeout. L'opération sous-jacente continue
+// d'exister en arrière-plan, on ne fait qu'arrêter d'attendre — ce qui suffit
+// à débloquer le main process et la file IPC.
+function withTimeout(promise, ms, label) {
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timeout ${label} (${ms}ms)`)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
 function getGeneralServerPath() {
   try {
     if (fs.existsSync(USERS_CONFIG_PATH)) {
@@ -328,17 +346,22 @@ function startEventsWatcher() {
   try {
     const dir = ensureDir(path.join(getGeneralServerPath(), 'events'))
     stopEventsWatcher()
-    eventsWatcher = fs.watch(dir, (eventType, filename) => {
-      if (eventType === 'rename' && filename && filename.endsWith('.json')) {
-        const filePath = path.join(dir, filename)
-        try {
-          if (fs.existsSync(filePath)) {
-            const content = JSON.parse(fs.readFileSync(filePath, 'utf8'))
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('sharedEvent:received', content)
-            }
-          }
-        } catch {}
+    eventsWatcher = fs.watch(dir, async (eventType, filename) => {
+      if (eventType !== 'rename' || !filename || !filename.endsWith('.json')) return
+      const filePath = path.join(dir, filename)
+      try {
+        const raw = await withTimeout(
+          fs.promises.readFile(filePath, 'utf8'),
+          NET_READ_TIMEOUT_MS,
+          'watcher readFile'
+        )
+        const content = JSON.parse(raw)
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('sharedEvent:received', content)
+        }
+      } catch {
+        // Le fichier peut avoir disparu (rename de suppression), être en cours
+        // d'écriture, ou le réseau peut être lent — on ignore silencieusement.
       }
     })
     // Handler d'erreur pour éviter le crash (ex. ECONNRESET au retour de veille)
@@ -2207,7 +2230,11 @@ function setupIpcHandlers() {
     try {
       const dir = ensureDir(path.join(getGeneralServerPath(), 'heartbeats'))
       const filePath = path.join(dir, `${username}.json`)
-      fs.writeFileSync(filePath, JSON.stringify(heartbeat, null, 2), 'utf8')
+      await withTimeout(
+        fs.promises.writeFile(filePath, JSON.stringify(heartbeat), 'utf8'),
+        NET_WRITE_TIMEOUT_MS,
+        'heartbeat:write'
+      )
       return true
     } catch (error) {
       console.error('❌ Heartbeat write error:', error.message)
@@ -2218,9 +2245,11 @@ function setupIpcHandlers() {
   ipcMain.handle('heartbeat:remove', async (event, username) => {
     try {
       const filePath = path.join(getGeneralServerPath(), 'heartbeats', `${username}.json`)
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath)
-      }
+      await withTimeout(
+        fs.promises.unlink(filePath).catch(err => { if (err.code !== 'ENOENT') throw err }),
+        NET_WRITE_TIMEOUT_MS,
+        'heartbeat:remove'
+      )
       return true
     } catch (error) {
       console.error('❌ Heartbeat remove error:', error.message)
@@ -2231,16 +2260,22 @@ function setupIpcHandlers() {
   ipcMain.handle('heartbeat:readAll', async () => {
     try {
       const dir = path.join(getGeneralServerPath(), 'heartbeats')
-      if (!fs.existsSync(dir)) return []
-      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'))
-      const heartbeats = []
-      for (const file of files) {
-        try {
-          const content = fs.readFileSync(path.join(dir, file), 'utf8')
-          heartbeats.push(JSON.parse(content))
-        } catch {}
-      }
-      return heartbeats
+      const files = await withTimeout(
+        fs.promises.readdir(dir).catch(err => { if (err.code === 'ENOENT') return []; throw err }),
+        NET_READ_TIMEOUT_MS,
+        'heartbeat:readAll readdir'
+      )
+      const jsonFiles = files.filter(f => f.endsWith('.json'))
+      // Lectures parallèles avec timeout global cumulé via Promise.all + map(withTimeout)
+      const reads = jsonFiles.map(file =>
+        withTimeout(
+          fs.promises.readFile(path.join(dir, file), 'utf8'),
+          NET_READ_TIMEOUT_MS,
+          `heartbeat:readAll ${file}`
+        ).then(content => JSON.parse(content)).catch(() => null)
+      )
+      const results = await Promise.all(reads)
+      return results.filter(r => r !== null)
     } catch (error) {
       console.error('❌ Heartbeat readAll error:', error.message)
       return []
@@ -2253,7 +2288,11 @@ function setupIpcHandlers() {
     try {
       const dir = ensureDir(path.join(getGeneralServerPath(), 'events'))
       const filePath = path.join(dir, `${sharedEvent.id}.json`)
-      fs.writeFileSync(filePath, JSON.stringify(sharedEvent, null, 2), 'utf8')
+      await withTimeout(
+        fs.promises.writeFile(filePath, JSON.stringify(sharedEvent), 'utf8'),
+        NET_WRITE_TIMEOUT_MS,
+        'sharedEvent:write'
+      )
       return true
     } catch (error) {
       console.error('❌ SharedEvent write error:', error.message)
@@ -2264,18 +2303,32 @@ function setupIpcHandlers() {
   ipcMain.handle('sharedEvent:cleanup', async (event, ttlMs) => {
     try {
       const dir = path.join(getGeneralServerPath(), 'events')
-      if (!fs.existsSync(dir)) return true
+      const files = await withTimeout(
+        fs.promises.readdir(dir).catch(err => { if (err.code === 'ENOENT') return []; throw err }),
+        NET_READ_TIMEOUT_MS,
+        'sharedEvent:cleanup readdir'
+      )
       const now = Date.now()
-      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'))
-      for (const file of files) {
+      const jsonFiles = files.filter(f => f.endsWith('.json'))
+      // Lecture + suppression en parallèle, chaque opération avec son propre timeout
+      await Promise.all(jsonFiles.map(async file => {
+        const filePath = path.join(dir, file)
         try {
-          const filePath = path.join(dir, file)
-          const content = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+          const raw = await withTimeout(
+            fs.promises.readFile(filePath, 'utf8'),
+            NET_READ_TIMEOUT_MS,
+            `sharedEvent:cleanup read ${file}`
+          )
+          const content = JSON.parse(raw)
           if (now - new Date(content.timestamp).getTime() > ttlMs) {
-            fs.unlinkSync(filePath)
+            await withTimeout(
+              fs.promises.unlink(filePath),
+              NET_WRITE_TIMEOUT_MS,
+              `sharedEvent:cleanup unlink ${file}`
+            )
           }
         } catch {}
-      }
+      }))
       return true
     } catch (error) {
       console.error('❌ SharedEvent cleanup error:', error.message)
@@ -2297,16 +2350,25 @@ function setupIpcHandlers() {
       const dir = ensureDir(path.join(getGeneralServerPath(), 'audit'))
       const filePath = path.join(dir, 'audit_log.json')
       let entries = []
-      if (fs.existsSync(filePath)) {
-        try {
-          entries = JSON.parse(fs.readFileSync(filePath, 'utf8'))
-        } catch {}
+      try {
+        const raw = await withTimeout(
+          fs.promises.readFile(filePath, 'utf8'),
+          NET_READ_TIMEOUT_MS,
+          'auditLog:append read'
+        )
+        entries = JSON.parse(raw)
+      } catch {
+        // Fichier absent, illisible ou réseau lent → on repart de []
       }
       entries.unshift(entry)
       if (entries.length > maxEntries) {
         entries.length = maxEntries
       }
-      fs.writeFileSync(filePath, JSON.stringify(entries, null, 2), 'utf8')
+      await withTimeout(
+        fs.promises.writeFile(filePath, JSON.stringify(entries), 'utf8'),
+        NET_WRITE_TIMEOUT_MS,
+        'auditLog:append write'
+      )
       return true
     } catch (error) {
       console.error('❌ AuditLog append error:', error.message)
@@ -2317,8 +2379,15 @@ function setupIpcHandlers() {
   ipcMain.handle('auditLog:read', async () => {
     try {
       const filePath = path.join(getGeneralServerPath(), 'audit', 'audit_log.json')
-      if (!fs.existsSync(filePath)) return []
-      return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+      const raw = await withTimeout(
+        fs.promises.readFile(filePath, 'utf8').catch(err => {
+          if (err.code === 'ENOENT') return '[]'
+          throw err
+        }),
+        NET_READ_TIMEOUT_MS,
+        'auditLog:read'
+      )
+      return JSON.parse(raw)
     } catch (error) {
       console.error('❌ AuditLog read error:', error.message)
       return []
