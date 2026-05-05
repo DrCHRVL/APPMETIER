@@ -912,8 +912,9 @@ export const CompteRenduSection = memo(({
                   ref={editorRef}
                   contentEditable
                   suppressContentEditableWarning
+                  spellCheck={false}
                   className="w-full min-h-[200px] max-h-[55vh] overflow-y-auto p-2 border rounded-b rounded-t-none focus:outline-none focus:ring-1 focus:ring-ring"
-                  style={{ wordBreak: 'break-word', hyphens: 'auto' }}
+                  style={{ wordBreak: 'break-word' }}
                   data-placeholder={isInstruction && (localCR as CompteRenduInstruction)?.type === 'synthese'
                     ? "Synthèse de l'acte procédural..."
                     : "Description"}

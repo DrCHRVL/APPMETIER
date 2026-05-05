@@ -9,6 +9,7 @@ import { fr } from 'date-fns/locale';
 import { useMemo } from 'react';
 
 import { DataSyncIndicator } from './sync/DataSyncIndicator';
+import { NetworkStatusIndicator } from './NetworkStatusIndicator';
 import { SyncStatus } from '@/types/dataSyncTypes';
 
 interface HeaderProps {
@@ -117,6 +118,9 @@ export const Header = ({
         </div>
 
         <div className="flex items-center gap-1">
+          {/* État du partage réseau (P:\) */}
+          <NetworkStatusIndicator />
+
           {/* Sauvegarde locale */}
           <TooltipProvider>
             <TooltipRoot>

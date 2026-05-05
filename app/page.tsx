@@ -131,6 +131,7 @@ const MyProfileContent = dynamic(() => import('@/components/MyProfileContent').t
 import { useOverboardData } from '@/hooks/useOverboardData';
 import { HeartbeatManager } from '@/utils/heartbeatManager';
 import { SharedEventManager } from '@/utils/sharedEventManager';
+import { NetworkStatusManager } from '@/utils/networkStatusManager';
 import { AuditLogger } from '@/utils/auditLogger';
 
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
@@ -443,6 +444,39 @@ function AppContent() {
   useEffect(() => {
     if (!user || !isAuthenticated) return;
 
+    // Démarrer le moniteur réseau en premier : les autres services réagiront
+    // à l'état initial via leurs propres timeouts (pas de coordination dure
+    // pour l'instant, juste de la transparence côté UI).
+    let cancelled = false;
+    (async () => {
+      const initial = await NetworkStatusManager.start();
+      if (cancelled) return;
+
+      // Sync prioritaire au lancement : récupérer les événements partagés
+      // récents (24 h) avec un plafond de 8 s côté main process. Si le réseau
+      // est injoignable, on toast et on bascule en mode dégradé.
+      if (initial.state === 'unreachable') {
+        showToast('Réseau injoignable — modifications enregistrées localement', 'warning');
+      } else {
+        try {
+          const api = (window as any).electronAPI;
+          const result = await api?.readRecentSharedEvents?.(24 * 60 * 60 * 1000);
+          if (result?.events?.length) {
+            // Rejouer les événements via SharedEventManager (déclenche les listeners
+            // déjà branchés par les hooks métier).
+            for (const ev of result.events) {
+              SharedEventManager.dispatch(ev);
+            }
+          }
+          if (result?.partial) {
+            showToast('Synchronisation initiale partielle — réseau lent', 'info');
+          }
+        } catch {
+          // Silencieux : le watcher prendra le relais
+        }
+      }
+    })();
+
     // Heartbeat
     const hb = HeartbeatManager.getInstance();
     hb.start(user.windowsUsername, user.displayName);
@@ -464,10 +498,11 @@ function AppContent() {
     }, 5 * 60_000);
 
     return () => {
+      cancelled = true;
       hb.stop();
       clearInterval(cleanupInterval);
     };
-  }, [user, isAuthenticated]);
+  }, [user, isAuthenticated, showToast]);
 
   // Mise à jour du contexte heartbeat quand la vue change
   useEffect(() => {

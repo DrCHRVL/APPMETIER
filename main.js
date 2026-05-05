@@ -158,15 +158,22 @@ function loadData() {
     return {}
   }
 }
-// Fonction pour sauvegarder toutes les données (invalide le cache)
-function saveData(data) {
+// Sauvegarde non bloquante : écriture asynchrone + atomique (tmp → rename) pour
+// éviter de geler le main process pendant l'écriture du JSON et pour protéger
+// le fichier d'une corruption en cas de crash en cours d'écriture. Le cache
+// mémoire est mis à jour immédiatement pour que les `getData` qui suivent
+// n'attendent pas la fin du write disque.
+async function saveData(data) {
+  _dataCache = data
+  const tmpPath = userDataPath + '.tmp'
   try {
-    fs.writeFileSync(userDataPath, JSON.stringify(data, null, 2))
-    _dataCache = data
+    await fs.promises.writeFile(tmpPath, JSON.stringify(data))
+    await fs.promises.rename(tmpPath, userDataPath)
     return true
   } catch (error) {
     console.error('Erreur de sauvegarde:', error)
     _dataCache = null
+    try { await fs.promises.unlink(tmpPath) } catch {}
     return false
   }
 }
@@ -283,6 +290,24 @@ function createWindow() {
   mainWindow.loadURL('http://localhost:3000')
 }
 // ── UTILITAIRES RÉSEAU (niveau module pour accès depuis watcher et powerMonitor) ──
+
+// Timeouts spécifiques au réseau (SMB peut être lent ou injoignable). Au-delà,
+// la promesse rejette et la couche appelante traite ça comme un échec
+// silencieux (le `try/catch` des handlers retourne false / []).
+const NET_READ_TIMEOUT_MS = 2000
+const NET_WRITE_TIMEOUT_MS = 3000
+
+// Race une promesse contre un timeout. L'opération sous-jacente continue
+// d'exister en arrière-plan, on ne fait qu'arrêter d'attendre — ce qui suffit
+// à débloquer le main process et la file IPC.
+function withTimeout(promise, ms, label) {
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timeout ${label} (${ms}ms)`)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
 function getGeneralServerPath() {
   try {
     if (fs.existsSync(USERS_CONFIG_PATH)) {
@@ -302,6 +327,75 @@ function ensureDir(dirPath) {
   return dirPath
 }
 
+// ── DÉTECTEUR D'ÉTAT RÉSEAU ────────────────────────────────────────────────
+// Sonde périodique du partage SMB pour adapter le comportement de l'app à la
+// latence réelle. Trois états :
+//   - 'healthy'      : latence < 800ms, opérations réseau normales
+//   - 'slow'         : 800ms ≤ latence ≤ 3s, on continue mais l'UI prévient
+//   - 'unreachable'  : latence > 3s ou échec, on suspend les pushes (outbox)
+//
+// La sonde fait un fs.stat sur le dossier events/, opération minimale qui
+// reflète bien la latence d'accès SMB sans charge supplémentaire.
+
+const NETWORK_PROBE_INTERVAL_MS = 20_000
+const NETWORK_HEALTHY_MAX_MS = 800
+const NETWORK_SLOW_MAX_MS = 3000
+
+let _networkStatus = { state: 'healthy', latency: 0, lastProbeAt: 0 }
+let _networkProbeTimer = null
+
+async function probeNetwork() {
+  const start = Date.now()
+  try {
+    const dir = path.join(getGeneralServerPath(), 'events')
+    await withTimeout(
+      fs.promises.stat(dir).catch(err => {
+        // ENOENT = dossier pas encore créé, mais le serveur répond → réseau OK
+        if (err.code === 'ENOENT') return null
+        throw err
+      }),
+      NETWORK_SLOW_MAX_MS,
+      'probeNetwork'
+    )
+    const latency = Date.now() - start
+    const state = latency <= NETWORK_HEALTHY_MAX_MS ? 'healthy' : 'slow'
+    return { state, latency, lastProbeAt: Date.now() }
+  } catch {
+    return { state: 'unreachable', latency: Date.now() - start, lastProbeAt: Date.now() }
+  }
+}
+
+async function runNetworkProbe() {
+  const previousState = _networkStatus.state
+  const next = await probeNetwork()
+  const changed =
+    next.state !== previousState ||
+    Math.abs(next.latency - _networkStatus.latency) > 200
+  _networkStatus = next
+  if (changed && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('network:status', _networkStatus)
+  }
+  // Si on revient à un état utilisable depuis 'unreachable', vider l'outbox.
+  if (previousState === 'unreachable' && next.state !== 'unreachable') {
+    flushOutbox().catch(() => {})
+  }
+}
+
+function startNetworkMonitor() {
+  if (_networkProbeTimer) return
+  runNetworkProbe()
+  _networkProbeTimer = setInterval(runNetworkProbe, NETWORK_PROBE_INTERVAL_MS)
+  // Démarrer aussi le flusher de l'outbox : il a besoin du même cycle de vie.
+  startOutboxFlusher()
+}
+
+function stopNetworkMonitor() {
+  if (_networkProbeTimer) {
+    clearInterval(_networkProbeTimer)
+    _networkProbeTimer = null
+  }
+}
+
 // ── FILE WATCHER pour événements partagés (niveau module pour accès depuis powerMonitor) ──
 let eventsWatcher = null
 let eventsWatcherRestartTimeout = null
@@ -317,21 +411,126 @@ function stopEventsWatcher() {
   }
 }
 
+// ── OUTBOX ÉVÉNEMENTS PARTAGÉS ─────────────────────────────────────────────
+// File d'attente locale pour les événements à pousser sur le partage SMB.
+// Permet de découpler l'expérience utilisateur de la latence réseau :
+//   - L'enqueue est instantané (ajout en mémoire + persistance locale).
+//   - Le flush vers events/ tourne en arrière-plan.
+//   - Si le réseau est injoignable, les events s'accumulent localement
+//     jusqu'au retour du réseau, puis se vident automatiquement.
+//
+// Persistance : pending-events.json dans dataFolder local (PAS sur le réseau).
+// Garantit zéro perte y compris en cas de crash : au prochain démarrage on
+// reprend la file là où elle était.
+
+const OUTBOX_PATH = path.join(dataFolder, 'pending-events.json')
+const OUTBOX_FLUSH_INTERVAL_MS = 30_000
+
+let _outboxQueue = []
+let _outboxLoaded = false
+let _outboxFlushing = false
+let _outboxFlushTimer = null
+
+async function loadOutbox() {
+  if (_outboxLoaded) return
+  _outboxLoaded = true
+  try {
+    const raw = await fs.promises.readFile(OUTBOX_PATH, 'utf8')
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed?.events)) _outboxQueue = parsed.events
+  } catch {
+    // Fichier absent ou illisible → on part d'une file vide.
+    _outboxQueue = []
+  }
+}
+
+async function persistOutbox() {
+  // Écriture locale uniquement, atomique (tmp + rename) pour éviter la
+  // corruption de la file en cas de crash entre l'écriture et le rename.
+  const tmp = OUTBOX_PATH + '.tmp'
+  try {
+    await fs.promises.writeFile(tmp, JSON.stringify({ events: _outboxQueue }), 'utf8')
+    await fs.promises.rename(tmp, OUTBOX_PATH)
+  } catch (error) {
+    console.error('❌ Outbox persist error:', error.message)
+    try { await fs.promises.unlink(tmp) } catch {}
+  }
+}
+
+async function flushOutbox() {
+  if (_outboxFlushing) return
+  if (_networkStatus.state === 'unreachable') return
+  if (_outboxQueue.length === 0) return
+
+  _outboxFlushing = true
+  try {
+    while (_outboxQueue.length > 0) {
+      // Re-vérifier l'état réseau à chaque itération : si le réseau bascule
+      // en 'unreachable' au milieu du flush, on s'arrête proprement.
+      if (_networkStatus.state === 'unreachable') break
+
+      const event = _outboxQueue[0]
+      try {
+        const dir = ensureDir(path.join(getGeneralServerPath(), 'events'))
+        const filePath = path.join(dir, `${event.id}.json`)
+        await withTimeout(
+          fs.promises.writeFile(filePath, JSON.stringify(event), 'utf8'),
+          NET_WRITE_TIMEOUT_MS,
+          'outbox flush'
+        )
+        // Succès : retirer de la file et persister.
+        _outboxQueue.shift()
+        await persistOutbox()
+      } catch {
+        // Échec : on garde l'event en tête de file et on s'arrête. La
+        // prochaine sonde réseau ou le timer de fallback retentera.
+        break
+      }
+    }
+  } finally {
+    _outboxFlushing = false
+  }
+}
+
+async function enqueueOutbox(event) {
+  await loadOutbox()
+  _outboxQueue.push(event)
+  await persistOutbox()
+  // Tentative de flush immédiate (fire-and-forget). Si le réseau est sain
+  // ça part tout de suite ; sinon ça restera dans la file.
+  flushOutbox().catch(() => {})
+}
+
+function startOutboxFlusher() {
+  if (_outboxFlushTimer) return
+  loadOutbox().then(() => flushOutbox().catch(() => {}))
+  // Filet de sécurité : retenter périodiquement même si aucun changement
+  // d'état réseau n'est intervenu (ex. un timeout silencieux).
+  _outboxFlushTimer = setInterval(() => {
+    flushOutbox().catch(() => {})
+  }, OUTBOX_FLUSH_INTERVAL_MS)
+}
+
 function startEventsWatcher() {
   try {
     const dir = ensureDir(path.join(getGeneralServerPath(), 'events'))
     stopEventsWatcher()
-    eventsWatcher = fs.watch(dir, (eventType, filename) => {
-      if (eventType === 'rename' && filename && filename.endsWith('.json')) {
-        const filePath = path.join(dir, filename)
-        try {
-          if (fs.existsSync(filePath)) {
-            const content = JSON.parse(fs.readFileSync(filePath, 'utf8'))
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('sharedEvent:received', content)
-            }
-          }
-        } catch {}
+    eventsWatcher = fs.watch(dir, async (eventType, filename) => {
+      if (eventType !== 'rename' || !filename || !filename.endsWith('.json')) return
+      const filePath = path.join(dir, filename)
+      try {
+        const raw = await withTimeout(
+          fs.promises.readFile(filePath, 'utf8'),
+          NET_READ_TIMEOUT_MS,
+          'watcher readFile'
+        )
+        const content = JSON.parse(raw)
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('sharedEvent:received', content)
+        }
+      } catch {
+        // Le fichier peut avoir disparu (rename de suppression), être en cours
+        // d'écriture, ou le réseau peut être lent — on ignore silencieusement.
       }
     })
     // Handler d'erreur pour éviter le crash (ex. ECONNRESET au retour de veille)
@@ -2200,7 +2399,11 @@ function setupIpcHandlers() {
     try {
       const dir = ensureDir(path.join(getGeneralServerPath(), 'heartbeats'))
       const filePath = path.join(dir, `${username}.json`)
-      fs.writeFileSync(filePath, JSON.stringify(heartbeat, null, 2), 'utf8')
+      await withTimeout(
+        fs.promises.writeFile(filePath, JSON.stringify(heartbeat), 'utf8'),
+        NET_WRITE_TIMEOUT_MS,
+        'heartbeat:write'
+      )
       return true
     } catch (error) {
       console.error('❌ Heartbeat write error:', error.message)
@@ -2211,9 +2414,11 @@ function setupIpcHandlers() {
   ipcMain.handle('heartbeat:remove', async (event, username) => {
     try {
       const filePath = path.join(getGeneralServerPath(), 'heartbeats', `${username}.json`)
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath)
-      }
+      await withTimeout(
+        fs.promises.unlink(filePath).catch(err => { if (err.code !== 'ENOENT') throw err }),
+        NET_WRITE_TIMEOUT_MS,
+        'heartbeat:remove'
+      )
       return true
     } catch (error) {
       console.error('❌ Heartbeat remove error:', error.message)
@@ -2224,16 +2429,22 @@ function setupIpcHandlers() {
   ipcMain.handle('heartbeat:readAll', async () => {
     try {
       const dir = path.join(getGeneralServerPath(), 'heartbeats')
-      if (!fs.existsSync(dir)) return []
-      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'))
-      const heartbeats = []
-      for (const file of files) {
-        try {
-          const content = fs.readFileSync(path.join(dir, file), 'utf8')
-          heartbeats.push(JSON.parse(content))
-        } catch {}
-      }
-      return heartbeats
+      const files = await withTimeout(
+        fs.promises.readdir(dir).catch(err => { if (err.code === 'ENOENT') return []; throw err }),
+        NET_READ_TIMEOUT_MS,
+        'heartbeat:readAll readdir'
+      )
+      const jsonFiles = files.filter(f => f.endsWith('.json'))
+      // Lectures parallèles avec timeout global cumulé via Promise.all + map(withTimeout)
+      const reads = jsonFiles.map(file =>
+        withTimeout(
+          fs.promises.readFile(path.join(dir, file), 'utf8'),
+          NET_READ_TIMEOUT_MS,
+          `heartbeat:readAll ${file}`
+        ).then(content => JSON.parse(content)).catch(() => null)
+      )
+      const results = await Promise.all(reads)
+      return results.filter(r => r !== null)
     } catch (error) {
       console.error('❌ Heartbeat readAll error:', error.message)
       return []
@@ -2242,14 +2453,14 @@ function setupIpcHandlers() {
 
   // ── ÉVÉNEMENTS PARTAGÉS ──
 
+  // L'écriture d'un event passe désormais par l'outbox : retour instantané
+  // à l'utilisateur, push réseau en arrière-plan avec retry automatique.
   ipcMain.handle('sharedEvent:write', async (event, sharedEvent) => {
     try {
-      const dir = ensureDir(path.join(getGeneralServerPath(), 'events'))
-      const filePath = path.join(dir, `${sharedEvent.id}.json`)
-      fs.writeFileSync(filePath, JSON.stringify(sharedEvent, null, 2), 'utf8')
+      await enqueueOutbox(sharedEvent)
       return true
     } catch (error) {
-      console.error('❌ SharedEvent write error:', error.message)
+      console.error('❌ SharedEvent enqueue error:', error.message)
       return false
     }
   })
@@ -2257,18 +2468,32 @@ function setupIpcHandlers() {
   ipcMain.handle('sharedEvent:cleanup', async (event, ttlMs) => {
     try {
       const dir = path.join(getGeneralServerPath(), 'events')
-      if (!fs.existsSync(dir)) return true
+      const files = await withTimeout(
+        fs.promises.readdir(dir).catch(err => { if (err.code === 'ENOENT') return []; throw err }),
+        NET_READ_TIMEOUT_MS,
+        'sharedEvent:cleanup readdir'
+      )
       const now = Date.now()
-      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'))
-      for (const file of files) {
+      const jsonFiles = files.filter(f => f.endsWith('.json'))
+      // Lecture + suppression en parallèle, chaque opération avec son propre timeout
+      await Promise.all(jsonFiles.map(async file => {
+        const filePath = path.join(dir, file)
         try {
-          const filePath = path.join(dir, file)
-          const content = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+          const raw = await withTimeout(
+            fs.promises.readFile(filePath, 'utf8'),
+            NET_READ_TIMEOUT_MS,
+            `sharedEvent:cleanup read ${file}`
+          )
+          const content = JSON.parse(raw)
           if (now - new Date(content.timestamp).getTime() > ttlMs) {
-            fs.unlinkSync(filePath)
+            await withTimeout(
+              fs.promises.unlink(filePath),
+              NET_WRITE_TIMEOUT_MS,
+              `sharedEvent:cleanup unlink ${file}`
+            )
           }
         } catch {}
-      }
+      }))
       return true
     } catch (error) {
       console.error('❌ SharedEvent cleanup error:', error.message)
@@ -2283,6 +2508,72 @@ function setupIpcHandlers() {
     return true
   })
 
+  // Lecture en lot des événements partagés récents (sync prioritaire au lancement).
+  // Le watcher ne voit que les nouveaux fichiers (rename) ; au démarrage on doit
+  // récupérer ce qui existe déjà dans events/ pour rattraper l'activité des
+  // collègues. Plafonné à 8 s : au-delà on rend la main et le watcher prendra
+  // le relais en arrière-plan.
+  ipcMain.handle('sharedEvent:readRecent', async (event, maxAgeMs) => {
+    const LAUNCH_SYNC_BUDGET_MS = 8000
+    const start = Date.now()
+    try {
+      const dir = path.join(getGeneralServerPath(), 'events')
+      const files = await withTimeout(
+        fs.promises.readdir(dir).catch(err => { if (err.code === 'ENOENT') return []; throw err }),
+        NET_READ_TIMEOUT_MS,
+        'sharedEvent:readRecent readdir'
+      )
+      const jsonFiles = files.filter(f => f.endsWith('.json'))
+      const cutoff = Date.now() - (maxAgeMs || 24 * 60 * 60 * 1000)
+      const events = []
+      // Lectures parallèles, mais on s'interrompt si on dépasse le budget global.
+      const reads = jsonFiles.map(file =>
+        withTimeout(
+          fs.promises.readFile(path.join(dir, file), 'utf8'),
+          NET_READ_TIMEOUT_MS,
+          `sharedEvent:readRecent ${file}`
+        ).then(raw => {
+          if (Date.now() - start > LAUNCH_SYNC_BUDGET_MS) return null
+          const content = JSON.parse(raw)
+          const ts = new Date(content.timestamp).getTime()
+          if (ts >= cutoff) return content
+          return null
+        }).catch(() => null)
+      )
+      const results = await withTimeout(
+        Promise.all(reads),
+        LAUNCH_SYNC_BUDGET_MS,
+        'sharedEvent:readRecent global'
+      ).catch(() => [])
+      for (const r of results) if (r) events.push(r)
+      events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      return { events, partial: Date.now() - start > LAUNCH_SYNC_BUDGET_MS }
+    } catch (error) {
+      console.error('❌ SharedEvent readRecent error:', error.message)
+      return { events: [], partial: true }
+    }
+  })
+
+  // Sonde réseau à la demande (utilisée par le renderer au démarrage).
+  ipcMain.handle('network:probe', async () => {
+    return probeNetwork()
+  })
+
+  // Démarrer / arrêter le moniteur réseau (appelé après login).
+  ipcMain.handle('network:startMonitor', async () => {
+    startNetworkMonitor()
+    return _networkStatus
+  })
+
+  ipcMain.handle('network:stopMonitor', async () => {
+    stopNetworkMonitor()
+    return true
+  })
+
+  ipcMain.handle('network:getStatus', async () => {
+    return _networkStatus
+  })
+
   // ── JOURNAL D'AUDIT ──
 
   ipcMain.handle('auditLog:append', async (event, entry, maxEntries) => {
@@ -2290,16 +2581,25 @@ function setupIpcHandlers() {
       const dir = ensureDir(path.join(getGeneralServerPath(), 'audit'))
       const filePath = path.join(dir, 'audit_log.json')
       let entries = []
-      if (fs.existsSync(filePath)) {
-        try {
-          entries = JSON.parse(fs.readFileSync(filePath, 'utf8'))
-        } catch {}
+      try {
+        const raw = await withTimeout(
+          fs.promises.readFile(filePath, 'utf8'),
+          NET_READ_TIMEOUT_MS,
+          'auditLog:append read'
+        )
+        entries = JSON.parse(raw)
+      } catch {
+        // Fichier absent, illisible ou réseau lent → on repart de []
       }
       entries.unshift(entry)
       if (entries.length > maxEntries) {
         entries.length = maxEntries
       }
-      fs.writeFileSync(filePath, JSON.stringify(entries, null, 2), 'utf8')
+      await withTimeout(
+        fs.promises.writeFile(filePath, JSON.stringify(entries), 'utf8'),
+        NET_WRITE_TIMEOUT_MS,
+        'auditLog:append write'
+      )
       return true
     } catch (error) {
       console.error('❌ AuditLog append error:', error.message)
@@ -2310,8 +2610,15 @@ function setupIpcHandlers() {
   ipcMain.handle('auditLog:read', async () => {
     try {
       const filePath = path.join(getGeneralServerPath(), 'audit', 'audit_log.json')
-      if (!fs.existsSync(filePath)) return []
-      return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+      const raw = await withTimeout(
+        fs.promises.readFile(filePath, 'utf8').catch(err => {
+          if (err.code === 'ENOENT') return '[]'
+          throw err
+        }),
+        NET_READ_TIMEOUT_MS,
+        'auditLog:read'
+      )
+      return JSON.parse(raw)
     } catch (error) {
       console.error('❌ AuditLog read error:', error.message)
       return []
