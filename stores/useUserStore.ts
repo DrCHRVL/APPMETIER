@@ -54,7 +54,26 @@ export const useUserStore = create<UserState>((set, get) => ({
       }
 
       const manager = UserManager.getInstance();
-      const ctx = await manager.initialize();
+      let ctx: Awaited<ReturnType<typeof manager.initialize>> = null;
+      let unreachable = false;
+      try {
+        ctx = await manager.initialize();
+      } catch (initErr: any) {
+        if (initErr?.message === 'UNREACHABLE_NO_CACHE') {
+          unreachable = true;
+        } else {
+          throw initErr;
+        }
+      }
+
+      if (unreachable) {
+        set({
+          error:
+            "Serveur partagé injoignable et aucune configuration locale disponible. Vérifiez votre connexion réseau puis relancez l'application — ne pas continuer évite d'écraser la liste des utilisateurs sur le serveur.",
+          isAuthenticated: false,
+        });
+        return;
+      }
 
       if (ctx) {
         const defs = manager.getContentieux();

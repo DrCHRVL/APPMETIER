@@ -1694,22 +1694,30 @@ function setupIpcHandlers() {
   /**
    * Lit users.json depuis le serveur partagé
    */
+  // Retourne un statut explicite pour que le client puisse distinguer
+  // "fichier absent" (légitime → init par défaut) de "serveur injoignable"
+  // (transitoire → ne PAS écraser le users.json existant).
   ipcMain.handle('dataSync:pullUsersConfig', async () => {
-    if (skipIfUnreachable()) return null
+    if (skipIfUnreachable()) return { status: 'unreachable' }
+    let fileMissing = false
     try {
       const content = await withTimeout(
         fs.promises.readFile(USERS_CONFIG_PATH, 'utf8').catch(err => {
-          if (err.code === 'ENOENT') return ''
+          if (err.code === 'ENOENT') {
+            fileMissing = true
+            return ''
+          }
           throw err
         }),
         NET_READ_TIMEOUT_MS,
         'pullUsersConfig'
       )
-      if (!content || !content.trim()) return null
-      return JSON.parse(content)
+      if (fileMissing) return { status: 'missing' }
+      if (!content || !content.trim()) return { status: 'missing' }
+      return { status: 'ok', config: JSON.parse(content) }
     } catch (error) {
       console.error('❌ MultiSync: Erreur lecture users.json:', error.message)
-      return null
+      return { status: 'unreachable', error: error.message }
     }
   })
 
