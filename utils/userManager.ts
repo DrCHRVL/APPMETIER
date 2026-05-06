@@ -56,7 +56,9 @@ export class UserManager {
    * 3. Identifie l'utilisateur courant
    * 4. Construit le contexte de permissions
    *
-   * Retourne null si l'utilisateur n'est pas trouvé dans users.json.
+   * Retourne null si l'utilisateur n'est pas trouvé dans users.json
+   * ou si le serveur est injoignable et qu'aucun cache local n'existe
+   * (refus explicite d'écraser le users.json serveur avec une config par défaut).
    */
   public async initialize(): Promise<UserPermissionsContext | null> {
     try {
@@ -67,12 +69,23 @@ export class UserManager {
         return null;
       }
 
-      // 2. Charger users.json depuis le serveur
-      this.config = await this.loadUsersConfig();
+      // 2. Charger users.json depuis le serveur (avec statut explicite)
+      const loadResult = await this.loadUsersConfig();
 
-      // 3. Si pas de config (premier lancement / migration), créer une config par défaut
+      if (loadResult.status === 'unreachable') {
+        // Le serveur est injoignable ET aucun cache local n'a été trouvé.
+        // NE PAS créer de config par défaut : on risquerait d'écraser le
+        // users.json serveur dès que la connexion revient (bug "j'ai perdu
+        // tous mes utilisateurs après mise à jour"). On abandonne l'init.
+        console.error('UserManager: serveur injoignable et aucun cache local — init annulée pour éviter d\'écraser users.json');
+        throw new Error('UNREACHABLE_NO_CACHE');
+      }
+
+      this.config = loadResult.config;
+
+      // 3. Config absente sur le serveur (premier lancement / migration) → créer une config par défaut
       if (!this.config) {
-        console.warn('UserManager: users.json introuvable, création de la config initiale');
+        console.warn('UserManager: users.json introuvable côté serveur, création de la config initiale');
         this.config = this.createDefaultConfig(systemUser.displayName);
         // Persister immédiatement sur le serveur pour que les prochains lancements la trouvent
         await this.saveConfig();
@@ -97,6 +110,11 @@ export class UserManager {
 
       return this.permissionsCtx;
     } catch (error) {
+      // Cas critique : serveur injoignable + cache vide. On propage pour que
+      // le store affiche une erreur claire au lieu de fallback silencieux.
+      if (error instanceof Error && error.message === 'UNREACHABLE_NO_CACHE') {
+        throw error;
+      }
       console.error('UserManager: erreur lors de l\'initialisation', error);
       return null;
     }
@@ -340,34 +358,59 @@ export class UserManager {
 
   /**
    * Charge users.json depuis le serveur partagé.
-   * Utilise l'IPC dataSync pour lire le fichier.
+   *
+   * Statuts retournés :
+   * - 'ok' + config : lue depuis le serveur ou cache local
+   * - 'missing' + config=null : confirmé absent côté serveur (premier lancement)
+   * - 'unreachable' + config=null : serveur injoignable ET pas de cache local
+   *   → l'appelant NE DOIT PAS créer/pousser de config par défaut.
    */
-  private async loadUsersConfig(): Promise<UsersConfig | null> {
+  private async loadUsersConfig(): Promise<{
+    status: 'ok' | 'missing' | 'unreachable';
+    config: UsersConfig | null;
+  }> {
+    let serverStatus: 'ok' | 'missing' | 'unreachable' = 'unreachable';
+
     // 1. Essayer de lire depuis le serveur partagé
     if (typeof window !== 'undefined' && (window as any).electronAPI?.dataSync_pullUsersConfig) {
       try {
-        const serverConfig = await (window as any).electronAPI.dataSync_pullUsersConfig();
-        if (serverConfig) {
-          // Mettre à jour le cache local pour le mode offline
-          await ElectronBridge.setData('users_config', serverConfig);
-          return serverConfig;
+        const result = await (window as any).electronAPI.dataSync_pullUsersConfig();
+
+        // Compat : ancien format (config | null) toléré au cas où
+        if (result && typeof result === 'object' && 'status' in result) {
+          serverStatus = result.status;
+          if (result.status === 'ok' && result.config) {
+            await ElectronBridge.setData('users_config', result.config);
+            return { status: 'ok', config: result.config };
+          }
+        } else if (result) {
+          await ElectronBridge.setData('users_config', result);
+          return { status: 'ok', config: result };
+        } else {
+          // null/undefined ancien format : on ne peut pas distinguer missing/unreachable.
+          // Par sécurité on traite comme injoignable.
+          serverStatus = 'unreachable';
         }
       } catch (error) {
         console.warn('UserManager: serveur inaccessible, tentative depuis le cache local', error);
+        serverStatus = 'unreachable';
       }
     }
 
-    // 2. Fallback : lire depuis le cache local (mode offline)
+    // 2. Fallback : lire depuis le cache local
     try {
       const localConfig = await ElectronBridge.getData<UsersConfig>('users_config', null as any);
       if (localConfig) {
         console.log('UserManager: config chargée depuis le cache local (mode offline)');
+        return { status: 'ok', config: localConfig };
       }
-      return localConfig;
     } catch (error) {
       console.error('UserManager: erreur lecture cache local', error);
-      return null;
     }
+
+    // 3. Pas de cache local : remonter le statut serveur tel quel.
+    // 'missing' déclenche createDefaultConfig ; 'unreachable' annule l'init.
+    return { status: serverStatus, config: null };
   }
 
   /**
