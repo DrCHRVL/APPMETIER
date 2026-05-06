@@ -9,28 +9,72 @@ import { audienceSyncService } from '@/utils/dataSync/AudienceSyncService';
 const AUDIENCE_STORAGE_KEY = 'audience_resultats';
 const CLEANUP_INTERVAL = 30000;
 
-// Lecture fraîche depuis le storage (source de vérité)
+// Contentieux par défaut affecté aux résultats legacy (clé numérique nue dans
+// le stockage avant l'introduction du namespace par contentieux). Avant le
+// refactor, seul crimorg utilisait correctement ce flux : tous les résultats
+// existants en base sont donc rattachés à ce contentieux.
+const LEGACY_CONTENTIEUX_ID = 'crimorg';
+
+// Construit la clé composite stockée dans `audience_resultats`.
+// Format : `${contentieuxId}__${enqueteId}` — double underscore pour éviter
+// toute collision avec un id de contentieux contenant un underscore.
+export const buildResultatKey = (contentieuxId: string, enqueteId: number): string =>
+  `${contentieuxId}__${enqueteId}`;
+
+// Migre un dictionnaire de résultats : ré-encode toutes les clés purement
+// numériques (legacy) en clés composites `crimorg__N` et y écrit aussi le
+// champ `contentieuxId` sur le résultat lui-même. Idempotent : les clés déjà
+// composites sont laissées telles quelles.
+const migrateLegacyResultats = (
+  data: Record<string, ResultatAudience>
+): { migrated: Record<string, ResultatAudience>; changed: boolean } => {
+  let changed = false;
+  const migrated: Record<string, ResultatAudience> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (/^\d+$/.test(key)) {
+      const newKey = buildResultatKey(LEGACY_CONTENTIEUX_ID, value.enqueteId);
+      migrated[newKey] = { ...value, contentieuxId: value.contentieuxId || LEGACY_CONTENTIEUX_ID };
+      changed = true;
+    } else if (!value.contentieuxId) {
+      // Clé déjà composite mais champ contentieuxId manquant : on extrait
+      // l'id du contentieux depuis la clé pour rester cohérent.
+      const [ctxFromKey] = key.split('__');
+      migrated[key] = { ...value, contentieuxId: ctxFromKey || LEGACY_CONTENTIEUX_ID };
+      changed = true;
+    } else {
+      migrated[key] = value;
+    }
+  }
+  return { migrated, changed };
+};
+
+// Lecture fraîche depuis le storage (source de vérité) avec migration des
+// clés legacy à la volée. La migration n'est PAS persistée ici — elle l'est
+// au moment de `initialize` (un seul écrit suffit).
 const readFreshFromStorage = async (): Promise<Record<string, ResultatAudience>> => {
   try {
     const data = await electronStorage.read<Record<string, ResultatAudience>>(AUDIENCE_STORAGE_KEY);
-    return data || {};
+    if (!data) return {};
+    return migrateLegacyResultats(data).migrated;
   } catch {
     return {};
   }
 };
 
-// Lecture des enquêtes pour le cleanup
-const readEnquetesForCleanup = async (): Promise<Enquete[]> => {
+// Lecture des paires (contentieuxId, enqueteId) existantes pour le cleanup.
+const readEnquetePairsForCleanup = async (): Promise<Set<string>> => {
   try {
     const contentieuxIds = ['crimorg', 'ecofi', 'enviro'];
-    const all: Enquete[] = [];
+    const pairs = new Set<string>();
     for (const cId of contentieuxIds) {
       const data = await ElectronBridge.getData<Enquete[]>(`ctx_${cId}_enquetes`, []);
-      if (Array.isArray(data)) all.push(...data);
+      if (Array.isArray(data)) {
+        for (const e of data) pairs.add(buildResultatKey(cId, e.id));
+      }
     }
-    return all;
+    return pairs;
   } catch {
-    return [];
+    return new Set();
   }
 };
 
@@ -43,13 +87,13 @@ interface AudienceState {
   // Actions
   initialize: () => Promise<void>;
   saveResultat: (resultat: ResultatAudience) => Promise<boolean>;
-  deleteResultat: (enqueteId: number) => Promise<boolean>;
+  deleteResultat: (contentieuxId: string, enqueteId: number) => Promise<boolean>;
   startCleanup: () => void;
   stopCleanup: () => void;
 
   // Helpers (stables, lisent via get())
-  getResultat: (enqueteId: number) => ResultatAudience | null;
-  hasResultat: (enqueteId: number) => boolean;
+  getResultat: (contentieuxId: string, enqueteId: number) => ResultatAudience | null;
+  hasResultat: (contentieuxId: string, enqueteId: number) => boolean;
 }
 
 export const useAudienceStore = create<AudienceState>((set, get) => ({
@@ -68,8 +112,14 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
       // de lire le local, pour que les nouveaux postes voient tout de suite les
       // résultats OI/CSS/CRPC de leurs collègues.
       await audienceSyncService.sync();
-      const savedResultats = await readFreshFromStorage();
-      set({ resultats: savedResultats });
+      const raw = await electronStorage.read<Record<string, ResultatAudience>>(AUDIENCE_STORAGE_KEY);
+      const { migrated, changed } = migrateLegacyResultats(raw || {});
+      // Persiste la migration une seule fois si nécessaire (clé legacy → composite).
+      if (changed) {
+        await electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, migrated);
+        audienceSyncService.schedulePush();
+      }
+      set({ resultats: migrated });
     } catch (error) {
       console.error('AudienceStore: erreur chargement', error);
       set({ resultats: {} });
@@ -97,10 +147,12 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
   },
 
   saveResultat: async (resultat: ResultatAudience): Promise<boolean> => {
+    const ctxId = resultat.contentieuxId || LEGACY_CONTENTIEUX_ID;
+    const key = buildResultatKey(ctxId, resultat.enqueteId);
     const freshResultats = await readFreshFromStorage();
     const newResultats = {
       ...freshResultats,
-      [resultat.enqueteId]: { ...resultat, modifiedAt: new Date().toISOString() },
+      [key]: { ...resultat, contentieuxId: ctxId, modifiedAt: new Date().toISOString() },
     };
 
     const success = await electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, newResultats);
@@ -112,10 +164,11 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
     throw new Error('Échec de la sauvegarde');
   },
 
-  deleteResultat: async (enqueteId: number): Promise<boolean> => {
+  deleteResultat: async (contentieuxId: string, enqueteId: number): Promise<boolean> => {
+    const key = buildResultatKey(contentieuxId, enqueteId);
     const freshResultats = await readFreshFromStorage();
     const newResultats = { ...freshResultats };
-    delete newResultats[enqueteId];
+    delete newResultats[key];
 
     const success = await electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, newResultats);
     if (success) {
@@ -137,10 +190,10 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
       const freshResultats = await readFreshFromStorage();
       if (Object.keys(freshResultats).length === 0) return;
 
-      const enquetes = await readEnquetesForCleanup();
-      if (enquetes.length === 0) return;
+      const enquetePairs = await readEnquetePairsForCleanup();
+      if (enquetePairs.size === 0) return;
 
-      const cleanedResultats = cleanupAudienceResults(freshResultats, enquetes);
+      const cleanedResultats = cleanupAudienceResults(freshResultats, enquetePairs);
       set({ resultats: cleanedResultats });
 
       if (Object.keys(cleanedResultats).length !== Object.keys(freshResultats).length) {
@@ -161,11 +214,16 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
   },
 
   // Helpers stables — n'entraînent jamais de re-render
-  getResultat: (enqueteId: number): ResultatAudience | null => {
-    return get().resultats[enqueteId] || null;
+  getResultat: (contentieuxId: string, enqueteId: number): ResultatAudience | null => {
+    return get().resultats[buildResultatKey(contentieuxId, enqueteId)] || null;
   },
 
-  hasResultat: (enqueteId: number): boolean => {
-    return !!get().resultats[enqueteId];
+  hasResultat: (contentieuxId: string, enqueteId: number): boolean => {
+    const r = get().resultats[buildResultatKey(contentieuxId, enqueteId)];
+    if (!r) return false;
+    // Un brouillon de saisies pré-archivage n'est pas un résultat d'audience :
+    // il ne doit ni allumer le marteau, ni bloquer l'archivage.
+    if (r.isPreArchiveSaisies) return false;
+    return true;
   },
 }));

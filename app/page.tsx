@@ -1248,6 +1248,7 @@ return (
                     <EnquetePreview
                       key={enquete.id}
                       enquete={enquete}
+                      contentieuxId={enquete.contentieuxOrigine || currentContentieuxId}
                       onView={handleViewEnquete}
                       onEdit={isJldUser ? undefined : handleEditEnquete}
                       onArchive={isJldUser ? undefined : handleArchiveEnquete}

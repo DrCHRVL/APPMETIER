@@ -11,38 +11,42 @@ interface EditPendingAudienceModalProps {
   isOpen: boolean;
   onClose: () => void;
   enqueteId: number;
+  /** Contentieux propriétaire — requis pour le namespacing des résultats. */
+  contentieuxId: string;
 }
 
 export const EditPendingAudienceModal = ({
   isOpen,
   onClose,
-  enqueteId
+  enqueteId,
+  contentieuxId,
 }: EditPendingAudienceModalProps) => {
-  const { audienceState, saveResultat } = useAudience();
+  const { getResultat, saveResultat } = useAudience();
   const { showToast } = useToast();
-  
+
   const [audienceDate, setAudienceDate] = useState('');
   const [dateDefere, setDateDefere] = useState('');
   const [nombreDeferes, setNombreDeferes] = useState(0);
   const [saisies, setSaisies] = useState<Confiscations>(emptyConfiscations());
 
   useEffect(() => {
-    const resultat = audienceState?.resultats?.[enqueteId];
+    const resultat = getResultat(contentieuxId, enqueteId);
     if (resultat) {
       setAudienceDate(resultat.dateAudience || '');
       setDateDefere(resultat.dateDefere || '');
       setNombreDeferes(resultat.nombreDeferes || 0);
       setSaisies(resultat.saisies || emptyConfiscations());
     }
-  }, [enqueteId, audienceState]);
+  }, [enqueteId, contentieuxId, getResultat]);
 
   const handleSave = async () => {
     try {
-      const currentResultat = audienceState?.resultats?.[enqueteId];
+      const currentResultat = getResultat(contentieuxId, enqueteId);
       if (!currentResultat) return;
 
       const updatedResultat = {
         ...currentResultat,
+        contentieuxId,
         dateAudience: audienceDate,
         dateDefere: dateDefere || undefined,
         nombreDeferes: nombreDeferes > 0 ? nombreDeferes : undefined,

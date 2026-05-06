@@ -53,7 +53,7 @@ export const StatsPage = ({ enquetes, contentieuxId }: StatsPageProps) => {
               </select>
             </div>
           </div>
-          <ExportPdfButton selectedYear={selectedYear} enquetes={enquetes} />
+          <ExportPdfButton selectedYear={selectedYear} enquetes={enquetes} contentieuxId={contentieuxId} />
         </div>
 
         {/* En-tête pour l'impression uniquement */}

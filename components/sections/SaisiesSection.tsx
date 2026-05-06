@@ -13,6 +13,8 @@ import { SaisiesForm } from './SaisiesForm';
 
 interface SaisiesSectionProps {
   enqueteId: number;
+  /** Contentieux propriétaire — requis pour le namespacing des résultats. */
+  contentieuxId: string;
   /** Mode lecture seule (enquête partagée d'un autre contentieux) */
   readOnly?: boolean;
 }
@@ -27,7 +29,7 @@ interface SaisiesSectionProps {
  * l'utilisateur retrouve ce qu'il a déjà saisi ici (et peut continuer à l'enrichir).
  */
 export const SaisiesSection = React.memo(
-  ({ enqueteId, readOnly = false }: SaisiesSectionProps) => {
+  ({ enqueteId, contentieuxId, readOnly = false }: SaisiesSectionProps) => {
     const { getResultat, saveResultat, deleteResultat } = useAudience();
     const { showToast } = useToast();
 
@@ -41,10 +43,10 @@ export const SaisiesSection = React.memo(
     // déclencheurs (pas à chaque rendu / changement du store).
     useEffect(() => {
       if (!expanded) return;
-      const resultat = getResultat(enqueteId);
+      const resultat = getResultat(contentieuxId, enqueteId);
       setSaisies(resultat?.saisies || emptyConfiscations());
       setDirty(false);
-    }, [expanded, enqueteId, getResultat]);
+    }, [expanded, enqueteId, contentieuxId, getResultat]);
 
     const handleChange = (updater: (prev: Confiscations) => Confiscations) => {
       setSaisies(updater);
@@ -55,7 +57,7 @@ export const SaisiesSection = React.memo(
       if (saving) return;
       setSaving(true);
       try {
-        const existing = getResultat(enqueteId);
+        const existing = getResultat(contentieuxId, enqueteId);
         const hasSaisies = hasAnySaisies(saisies);
 
         // Cas 1 : aucun résultat existant
@@ -67,6 +69,7 @@ export const SaisiesSection = React.memo(
           }
           const draft: ResultatAudience = {
             enqueteId,
+            contentieuxId,
             dateAudience: '',
             condamnations: [],
             confiscations: emptyConfiscations(),
@@ -85,7 +88,7 @@ export const SaisiesSection = React.memo(
         if (existing.isPreArchiveSaisies && !hasSaisies) {
           // Brouillon vidé de toutes ses saisies : supprimer le draft pour ne pas
           // laisser de record fantôme sans aucune donnée utile.
-          await deleteResultat(enqueteId);
+          await deleteResultat(contentieuxId, enqueteId);
           setDirty(false);
           showToast('Saisies effacées', 'success');
           return;
@@ -93,6 +96,7 @@ export const SaisiesSection = React.memo(
 
         const updated: ResultatAudience = {
           ...existing,
+          contentieuxId,
           saisies: hasSaisies ? saisies : undefined,
         };
         await saveResultat(updated);
@@ -107,7 +111,7 @@ export const SaisiesSection = React.memo(
     };
 
     // Compteur affiché dans l'entête (depuis le store, pas l'état local non sauvegardé)
-    const stored = getResultat(enqueteId);
+    const stored = getResultat(contentieuxId, enqueteId);
     const storedSaisies = stored?.saisies;
     const counts = {
       vehicules: storedSaisies?.vehicules?.length || 0,

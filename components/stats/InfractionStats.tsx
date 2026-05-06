@@ -74,8 +74,15 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
     const enquetesFiltered = enquetes.filter(e => {
       if (e.statut !== 'archive') return false;
 
+      // Filtrer par contentieuxId pour éviter qu'un id d'enquête identique entre
+      // contentieux ne renvoie le résultat de l'autre contentieux.
       const audienceResult = Object.values(audienceState?.resultats || {})
-        .find(r => r.enqueteId === e.id);
+        .find(r => {
+          if (r.enqueteId !== e.id) return false;
+          if (!contentieuxId || contentieuxId === 'global') return true;
+          const ctx = r.contentieuxId || 'crimorg';
+          return ctx === contentieuxId;
+        });
 
       if (!audienceResult?.dateAudience) return false;
       if (audienceResult.isClassement || audienceResult.isOI) return false;

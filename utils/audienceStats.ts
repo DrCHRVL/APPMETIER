@@ -460,18 +460,24 @@ export const getMonthlyStats = (
   return calculateAudienceStats(validResultats, enquetes);
 };
 
+/**
+ * Nettoie les résultats orphelins.
+ * @param resultats     Dictionnaire des résultats indexés par clé composite.
+ * @param enquetePairs  Set des clés composites `${contentieuxId}__${enqueteId}`
+ *                      des enquêtes encore existantes (toutes contentieux confondus).
+ */
 export const cleanupAudienceResults = (
   resultats: Record<string, ResultatAudience>,
-  enquetes: Enquete[]
+  enquetePairs: Set<string>
 ) => {
   const cleanedResultats: Record<string, ResultatAudience> = {};
-  const enqueteIds = new Set(enquetes.map(e => e.id));
 
   Object.entries(resultats).forEach(([id, resultat]) => {
     // Brouillon de saisies pré-archivage : pas de dateAudience, mais on conserve
-    // tant que l'enquête existe ET qu'il y a au moins une saisie renseignée.
+    // tant que l'enquête existe (paire contentieux+id présente) ET qu'il y a au
+    // moins une saisie renseignée.
     if (resultat.isPreArchiveSaisies) {
-      if (enqueteIds.has(resultat.enqueteId) && hasAnySaisies(resultat.saisies)) {
+      if (enquetePairs.has(id) && hasAnySaisies(resultat.saisies)) {
         cleanedResultats[id] = resultat;
       }
       return;

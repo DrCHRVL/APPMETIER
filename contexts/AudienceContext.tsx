@@ -2,11 +2,11 @@
  * AudienceContext — wrapper rétro-compatible autour du store Zustand.
  *
  * Le AudienceProvider initialise le store au montage.
- * useAudience() continue de fonctionner partout — aucun changement nécessaire
- * dans les 15 fichiers consommateurs.
  *
- * Avantage Zustand : le cleanup périodique (30s) ne re-rend plus les composants
- * qui n'ont pas de résultat d'audience.
+ * Les helpers `getResultat` / `hasResultat` / `deleteResultat` /
+ * `deleteAudienceResultat` requièrent désormais un `contentieuxId` en plus de
+ * l'enqueteId, parce que les ids d'enquête sont propres à chaque contentieux
+ * et se collisionneraient sinon dans le stockage global.
  */
 
 import React, { useEffect } from 'react';

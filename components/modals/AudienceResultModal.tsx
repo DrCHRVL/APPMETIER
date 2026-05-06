@@ -29,6 +29,8 @@ interface AudienceResultModalProps {
   onClose: () => void;
   onSave: (resultat: ResultatAudience) => void;
   enqueteId: number;
+  /** Contentieux propriétaire — propagé sur tout résultat sauvegardé. */
+  contentieuxId: string;
   defaultDate?: string;
   initialData?: ResultatAudience;
   isDirectResult?: boolean;
@@ -44,6 +46,7 @@ export const AudienceResultModal = ({
   onClose,
   onSave,
   enqueteId,
+  contentieuxId,
   defaultDate,
   initialData,
   isDirectResult,
@@ -226,6 +229,7 @@ export const AudienceResultModal = ({
 
       const resultat: ResultatAudience = {
         enqueteId,
+        contentieuxId,
         dateAudience,
         condamnations: finalizedCondamnations.filter(c => 
           c.peinePrison > 0 || c.sursisProbatoire > 0 || 

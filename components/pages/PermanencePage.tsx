@@ -8,6 +8,10 @@ import { ViewAudienceResultModal } from '../modals/ViewAudienceResultModal';
 import { AudienceResultModal } from '../modals/AudienceResultModal';
 import { FileText, Plus, Archive, Timer, Tags, Bell, Save, BarChart } from 'lucide-react';
 
+// Les procédures de permanence sont propres à crimorg : c'est dans ce contentieux
+// qu'elles ont historiquement été définies (flagrances, défèrements directs).
+const PERMANENCE_CONTENTIEUX_ID = 'crimorg';
+
 export const PermanencePage = () => {
   const { audienceState, saveResultat } = useAudience();
   const { showToast } = useToast();
@@ -17,7 +21,7 @@ export const PermanencePage = () => {
 
   // Grouper les résultats par mois
   const groupedResults = Object.values(audienceState?.resultats || {})
-    .filter(r => r.isDirectResult)
+    .filter(r => r.isDirectResult && (r.contentieuxId || PERMANENCE_CONTENTIEUX_ID) === PERMANENCE_CONTENTIEUX_ID)
     .reduce((acc, resultat) => {
       const date = new Date(resultat.dateAudience);
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -31,7 +35,7 @@ export const PermanencePage = () => {
 
   const handleUpdateResultat = async (resultat: ResultatAudience) => {
     try {
-      await saveResultat(resultat);
+      await saveResultat({ ...resultat, contentieuxId: PERMANENCE_CONTENTIEUX_ID });
       setEditResultat(null);
       showToast('Résultat mis à jour avec succès', 'success');
     } catch (error) {
@@ -44,9 +48,10 @@ export const PermanencePage = () => {
     const directResultat = {
       ...resultat,
       isDirectResult: true,
+      contentieuxId: PERMANENCE_CONTENTIEUX_ID,
       enqueteId: Math.floor(Math.random() * 1e15) + Date.now()
     };
-    
+
     await saveResultat(directResultat);
     setShowDirectResultModal(false);
     showToast('Résultat enregistré avec succès', 'success');
@@ -127,16 +132,18 @@ export const PermanencePage = () => {
           isOpen={!!viewResultat}
           onClose={() => setViewResultat(null)}
           enqueteId={viewResultat.enqueteId}
+          contentieuxId={PERMANENCE_CONTENTIEUX_ID}
           onUpdate={handleUpdateResultat}
         />
       )}
-      
+
       {editResultat && (
         <AudienceResultModal
           isOpen={!!editResultat}
           onClose={() => setEditResultat(null)}
           onSave={handleUpdateResultat}
           enqueteId={editResultat.enqueteId}
+          contentieuxId={PERMANENCE_CONTENTIEUX_ID}
           initialData={editResultat}
           isDirectResult={true}
         />
@@ -147,6 +154,7 @@ export const PermanencePage = () => {
         onClose={() => setShowDirectResultModal(false)}
         onSave={handleSaveDirectResult}
         enqueteId={Date.now()}
+        contentieuxId={PERMANENCE_CONTENTIEUX_ID}
         isDirectResult={true}
       />
     )}

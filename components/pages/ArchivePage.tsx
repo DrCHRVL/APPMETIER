@@ -11,6 +11,7 @@ import { EditPendingAudienceModal } from '../modals/EditPendingAudienceModal';
 import { RotateCcw, Trash, Gavel, FileText, ArrowUpRight, Clock, AlertCircle, Plus, Edit } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { ClassementModal } from '../modals/ClassementModal';
+import { buildResultatKey } from '@/stores/useAudienceStore';
 
 
 interface ArchivePageProps {
@@ -38,6 +39,13 @@ export const ArchivePage = ({
 }: ArchivePageProps) => {
   const { showToast } = useToast();
   const { hasResultat, isLoading, audienceState, getResultat, saveResultat } = useAudience();
+
+  // Contentieux courant — fallback `crimorg` pour les vues legacy.
+  const ctxId = contentieuxId || 'crimorg';
+  // Lookup d'un résultat par son enqueteId (numérique) en utilisant la clé
+  // composite. Centralisé pour ne pas répéter `audienceState.resultats[buildResultatKey(...)]`.
+  const lookupResultat = (itemId: number) =>
+    audienceState?.resultats?.[buildResultatKey(ctxId, itemId)];
   const [selectedEnquete, setSelectedEnquete] = useState<Enquete | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editingCR, setEditingCR] = useState<CompteRendu | null>(null);
@@ -132,9 +140,11 @@ export const ArchivePage = ({
   }, [enquetes, searchTerm]);
   
   // Récupérer les flagrances "orphelines" (procédures de permanence sans enquête correspondante)
-  // Uniquement pour crimorg — les procédures de permanence sont un héritage de cette subdivision
-  const orphanedFlagrances = (contentieuxId !== 'crimorg' ? [] : Object.values(audienceState?.resultats || {})
-    .filter(r => r.isDirectResult === true)
+  // Uniquement pour crimorg — les procédures de permanence sont un héritage de cette subdivision.
+  // Filtre supplémentaire par `contentieuxId` du résultat (legacy → crimorg) pour
+  // ne pas remonter une éventuelle flagrance d'un autre contentieux.
+  const orphanedFlagrances = (ctxId !== 'crimorg' ? [] : Object.values(audienceState?.resultats || {})
+    .filter(r => r.isDirectResult === true && (r.contentieuxId || 'crimorg') === 'crimorg')
     .filter(r => !archivedEnquetes.some(e => e.id === r.enqueteId)))
     .map(r => ({
       // Créer un objet "enquête-like" pour les flagrances orphelines
@@ -169,88 +179,71 @@ export const ArchivePage = ({
   
   // Fonction pour vérifier si c'est une flagrance (même critère que PermanencePage.tsx)
   const isFlagrance = (itemId: number): boolean => {
-    if (!audienceState?.resultats || !audienceState.resultats[itemId]) return false;
-    return audienceState.resultats[itemId].isDirectResult === true;
+    return lookupResultat(itemId)?.isDirectResult === true;
   };
 
   // Fonctions pour déterminer le type de résultat
   const isOI = (itemId: number): boolean => {
-    if (!audienceState?.resultats || !audienceState.resultats[itemId]) return false;
-    return audienceState.resultats[itemId].isOI === true;
+    return lookupResultat(itemId)?.isOI === true;
   };
 
   const isPending = (itemId: number): boolean => {
-    if (!audienceState?.resultats || !audienceState.resultats[itemId]) return false;
-    return audienceState.resultats[itemId].isAudiencePending === true;
+    return lookupResultat(itemId)?.isAudiencePending === true;
   };
 
   const isClassement = (itemId: number): boolean => {
-    if (!audienceState?.resultats || !audienceState.resultats[itemId]) return false;
-    return audienceState.resultats[itemId].isClassement === true;
+    return lookupResultat(itemId)?.isClassement === true;
   };
 
   const isPartiallyPending = (itemId: number): boolean => {
-    if (!audienceState?.resultats || !audienceState.resultats[itemId]) return false;
-    return audienceState.resultats[itemId].isPartiallyPending === true;
+    return lookupResultat(itemId)?.isPartiallyPending === true;
   };
 
   // Fonction pour obtenir les noms des condamnés en attente
   const getPendingNames = (itemId: number): string => {
-    if (!audienceState?.resultats || !audienceState.resultats[itemId]) return '';
-    const resultat = audienceState.resultats[itemId];
-    if (resultat.pendingCondamnations) {
-      return resultat.pendingCondamnations.map(p => p.nom).join(', ');
-    }
-    return '';
+    const resultat = lookupResultat(itemId);
+    if (!resultat?.pendingCondamnations) return '';
+    return resultat.pendingCondamnations.map(p => p.nom).join(', ');
   };
 
   // Fonction pour obtenir la prochaine date d'audience en attente
   const getNextPendingDate = (itemId: number): string => {
-    if (!audienceState?.resultats || !audienceState.resultats[itemId]) return '';
-    const resultat = audienceState.resultats[itemId];
-    if (resultat.pendingCondamnations && resultat.pendingCondamnations.length > 0) {
-      // Retourner la date la plus proche
-      const dates = resultat.pendingCondamnations
-        .map(p => p.dateAudiencePending)
-        .filter(d => d)
-        .sort();
-      return dates[0] || '';
-    }
-    return '';
+    const resultat = lookupResultat(itemId);
+    if (!resultat?.pendingCondamnations || resultat.pendingCondamnations.length === 0) return '';
+    const dates = resultat.pendingCondamnations
+      .map(p => p.dateAudiencePending)
+      .filter(d => d)
+      .sort();
+    return dates[0] || '';
   };
 
   // Fonction pour vérifier si l'audience est passée
   const isAudiencePassed = (itemId: number): boolean => {
-    if (!audienceState?.resultats || !audienceState.resultats[itemId]) return false;
-    const resultat = audienceState.resultats[itemId];
-    if (!resultat.dateAudience) return false;
-    
+    const resultat = lookupResultat(itemId);
+    if (!resultat?.dateAudience) return false;
+
     const audienceDate = new Date(resultat.dateAudience);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     return audienceDate < today;
   };
 
   // Fonction pour obtenir les noms des condamnés depuis les résultats d'audience
   const getCondamnesNames = (itemId: number): string => {
-    if (!audienceState?.resultats || !audienceState.resultats[itemId]) return '';
-    const resultat = audienceState.resultats[itemId];
-    if (resultat.condamnations && resultat.condamnations.length > 0) {
-      return resultat.condamnations
-        .map(c => c.nom)
-        .filter(nom => nom)
-        .join(', ');
-    }
-    return '';
+    const resultat = lookupResultat(itemId);
+    if (!resultat?.condamnations || resultat.condamnations.length === 0) return '';
+    return resultat.condamnations
+      .map(c => c.nom)
+      .filter(nom => nom)
+      .join(', ');
   };
 
   // Fonction pour obtenir le service enquêteur
   const getServiceEnqueteur = (item: any): string => {
     // D'abord vérifier dans les résultats d'audience
-    if (audienceState?.resultats?.[item.id]?.service) {
-      return audienceState.resultats[item.id].service;
-    }
+    const service = lookupResultat(item.id)?.service;
+    if (service) return service;
     // Sinon, utiliser les services de l'enquête
     if (item.services && item.services.length > 0) {
       return item.services.filter(Boolean).join(' / ');
@@ -262,29 +255,30 @@ export const ArchivePage = ({
   
   // Séparer les enquêtes en attente de résultats des enquêtes terminées
   const pendingEnquetes = allArchivedItems.filter(item => {
-    if (!audienceState?.resultats || !audienceState.resultats[item.id]) return false;
-    const resultat = audienceState.resultats[item.id];
+    const resultat = lookupResultat(item.id);
+    if (!resultat) return false;
     return resultat.isAudiencePending === true || resultat.isPartiallyPending === true;
   });
 
   const completedEnquetes = allArchivedItems.filter(item => {
-    if (!audienceState?.resultats || !audienceState.resultats[item.id]) return true;
-    const resultat = audienceState.resultats[item.id];
+    const resultat = lookupResultat(item.id);
+    if (!resultat) return true;
     return resultat.isAudiencePending !== true; // Inclut les partiellement terminées
   });
-  
+
   // Grouper les enquêtes terminées par mois/année de la date de clôture
   const groupedCompletedEnquetes = completedEnquetes.reduce((acc, item) => {
     // Utiliser la date de clôture de l'enquête (quand elle a été archivée)
     let clotureDateToUse;
-    
+    const resultat = lookupResultat(item.id);
+
     // Pour les flagrances orphelines, utiliser la dateAudience comme date de clôture
-    if (isFlagrance(item.id) && audienceState?.resultats?.[item.id]) {
-      clotureDateToUse = new Date(audienceState.resultats[item.id].dateAudience);
+    if (isFlagrance(item.id) && resultat) {
+      clotureDateToUse = new Date(resultat.dateAudience);
     }
     // Pour les enquêtes avec résultat d'audience, utiliser la date d'audience (plus pertinente que dateMiseAJour)
-    else if (audienceState?.resultats?.[item.id]?.dateAudience) {
-      clotureDateToUse = new Date(audienceState.resultats[item.id].dateAudience);
+    else if (resultat?.dateAudience) {
+      clotureDateToUse = new Date(resultat.dateAudience);
     }
     // Pour les enquêtes sans résultat (ne devrait pas arriver), utiliser dateMiseAJour
     else {
@@ -305,10 +299,11 @@ export const ArchivePage = ({
     // Récupérer la date de clôture réelle de la première enquête de chaque groupe
     const getClotureDate = (monthKey: string) => {
       const firstItem = groupedCompletedEnquetes[monthKey][0];
-      if (isFlagrance(firstItem.id) && audienceState?.resultats?.[firstItem.id]) {
-        return new Date(audienceState.resultats[firstItem.id].dateAudience);
-      } else if (audienceState?.resultats?.[firstItem.id]?.dateAudience) {
-        return new Date(audienceState.resultats[firstItem.id].dateAudience);
+      const resultat = lookupResultat(firstItem.id);
+      if (isFlagrance(firstItem.id) && resultat) {
+        return new Date(resultat.dateAudience);
+      } else if (resultat?.dateAudience) {
+        return new Date(resultat.dateAudience);
       } else {
         return new Date(firstItem.dateMiseAJour);
       }
@@ -322,8 +317,8 @@ export const ArchivePage = ({
   // ====== FONCTIONS HANDLERS ======
   
   const formatAudienceType = (itemId: number): JSX.Element | null => {
-    if (!audienceState?.resultats || !audienceState.resultats[itemId]) return null;
-    const resultat = audienceState.resultats[itemId];
+    const resultat = lookupResultat(itemId);
+    if (!resultat) return null;
     
     // Vérifier si c'est un classement sans suite
     if (resultat.isClassement) {
@@ -380,7 +375,7 @@ export const ArchivePage = ({
 
   const handleSaveResults = async (enqueteId: number, resultat: any) => {
     try {
-      await saveResultat({ ...resultat, enqueteId });
+      await saveResultat({ ...resultat, enqueteId, contentieuxId: ctxId });
       setShowResultModal(null);
       window.dispatchEvent(new Event('audience-stats-update'));
       showToast('Résultats mis à jour avec succès', 'success');
@@ -395,9 +390,10 @@ export const ArchivePage = ({
       const directResultat = {
         ...resultat,
         isDirectResult: true,
+        contentieuxId: ctxId,
         enqueteId: Math.floor(Math.random() * 1e15) + Date.now()
       };
-      
+
       await saveResultat(directResultat);
       setShowDirectResultModal(false);
       showToast('Procédure de permanence enregistrée avec succès', 'success');
@@ -554,17 +550,18 @@ export const ArchivePage = ({
                 <CardContent className="space-y-1">
                   {groupedCompletedEnquetes[monthYear]
                     .sort((a, b) => {
-                      const dateA = audienceState?.resultats?.[a.id]?.dateAudience 
-                        ? new Date(audienceState.resultats[a.id].dateAudience).getTime()
+                      const dateA = lookupResultat(a.id)?.dateAudience
+                        ? new Date(lookupResultat(a.id)!.dateAudience).getTime()
                         : new Date(a.dateMiseAJour).getTime();
-                      const dateB = audienceState?.resultats?.[b.id]?.dateAudience
-                        ? new Date(audienceState.resultats[b.id].dateAudience).getTime()
+                      const dateB = lookupResultat(b.id)?.dateAudience
+                        ? new Date(lookupResultat(b.id)!.dateAudience).getTime()
                         : new Date(b.dateMiseAJour).getTime();
                       return dateB - dateA;
                     })
                     .map(item => {
-                      const audienceDate = audienceState?.resultats?.[item.id]?.dateAudience 
-                        ? new Date(audienceState.resultats[item.id].dateAudience).toLocaleDateString()
+                      const itemResultat = lookupResultat(item.id);
+                      const audienceDate = itemResultat?.dateAudience
+                        ? new Date(itemResultat.dateAudience).toLocaleDateString()
                         : null;
                       
                       const isOIResult = isOI(item.id);
@@ -646,7 +643,7 @@ export const ArchivePage = ({
                           </div>
                           
                           <div className="flex gap-1 flex-shrink-0">
-                            {!isLoading && hasResultat(item.id) && (
+                            {!isLoading && hasResultat(ctxId, item.id) && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -733,6 +730,7 @@ export const ArchivePage = ({
       {selectedEnquete && (
         <EnqueteDetailModal
           enquete={selectedEnquete}
+          contentieuxId={ctxId}
           isEditing={isEditing}
           editingCR={editingCR}
           onClose={() => setSelectedEnquete(null)}
@@ -752,6 +750,7 @@ export const ArchivePage = ({
           isOpen={!!viewResultat}
           onClose={() => setViewResultat(null)}
           enqueteId={viewResultat}
+          contentieuxId={ctxId}
         />
       )}
 
@@ -760,11 +759,10 @@ export const ArchivePage = ({
           isOpen={!!showResultModal}
           onClose={() => setShowResultModal(null)}
           enqueteId={showResultModal}
+          contentieuxId={ctxId}
           onSave={(resultat) => handleSaveResults(showResultModal, resultat)}
-          defaultDate={
-            audienceState?.resultats?.[showResultModal]?.dateAudience || ''
-          }
-          initialData={audienceState?.resultats?.[showResultModal]}
+          defaultDate={lookupResultat(showResultModal)?.dateAudience || ''}
+          initialData={lookupResultat(showResultModal)}
           misEnCause={allArchivedItems.find(e => e.id === showResultModal)?.misEnCause}
         />
       )}
@@ -775,6 +773,7 @@ export const ArchivePage = ({
           onClose={() => setShowDirectResultModal(false)}
           onSave={handleSaveDirectResult}
           enqueteId={Date.now()}
+          contentieuxId={ctxId}
           isDirectResult={true}
         />
       )}
@@ -787,6 +786,7 @@ export const ArchivePage = ({
             setEditingPendingId(null);
           }}
           enqueteId={editingPendingId}
+          contentieuxId={ctxId}
         />
       )}
     </div>

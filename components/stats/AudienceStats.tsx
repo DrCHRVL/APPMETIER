@@ -196,14 +196,17 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
   // IDs des enquêtes du contentieux actif
   const enqueteIds = useMemo(() => new Set(enquetes.map(e => e.id)), [enquetes]);
 
-  // Résultats d'audience scopés au contentieux actif (ou tous si global)
+  // Résultats d'audience scopés au contentieux actif (ou tous si global).
+  // Les clés sont composites (`${contentieuxId}__${enqueteId}`) depuis le
+  // refactor : on filtre sur `r.contentieuxId` (champ explicite) et on tombe
+  // back sur `crimorg` pour les résultats legacy non migrés.
   const scopedResultats = useMemo(() => {
     const all = audienceState?.resultats || {};
     if (contentieuxId === 'global') return all;
     return Object.fromEntries(
-      Object.entries(all).filter(([key, r]) => {
-        if (r.isDirectResult) return contentieuxId === 'crimorg';
-        return enqueteIds.has(Number(key));
+      Object.entries(all).filter(([, r]) => {
+        const ctx = r.contentieuxId || 'crimorg';
+        return ctx === contentieuxId && enqueteIds.has(r.enqueteId);
       })
     );
   }, [audienceState?.resultats, enqueteIds, contentieuxId]);
@@ -245,9 +248,9 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
       const cEnqueteIds = new Set(cEnquetes.map(e => e.id));
 
       const cResultats = Object.fromEntries(
-        Object.entries(allResultats).filter(([key, r]) => {
-          if (r.isDirectResult) return def.id === 'crimorg';
-          return cEnqueteIds.has(Number(key));
+        Object.entries(allResultats).filter(([, r]) => {
+          const ctx = r.contentieuxId || 'crimorg';
+          return ctx === def.id && cEnqueteIds.has(r.enqueteId);
         })
       );
 
