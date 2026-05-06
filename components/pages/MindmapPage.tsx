@@ -20,13 +20,15 @@ import {
 } from '@/utils/mindmapGraph';
 import {
   useCartographieOverlayStore,
+  type ClusterAnnotation,
   type DossierExNihilo,
   type LienRenseignement,
   type MecExNihilo,
 } from '@/stores/useCartographieOverlayStore';
+import type { InfluenceCluster } from '../mindmap/influenceHull';
 import { MindmapCanvas } from '../mindmap/MindmapCanvas';
 import { MindmapSidePanel } from '../mindmap/MindmapSidePanel';
-import { AddDossierModal, AddLienModal, AddMecModal } from '../mindmap/OverlayModals';
+import { AddClusterAnnotationModal, AddDossierModal, AddLienModal, AddMecModal } from '../mindmap/OverlayModals';
 import { ManageOverlayPanel } from '../mindmap/ManageOverlayPanel';
 
 // ──────────────────────────────────────────────
@@ -66,6 +68,11 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const [editingMec, setEditingMec] = useState<MecExNihilo | null | undefined>(undefined); // null = nouveau, undefined = fermé
   const [editingDossier, setEditingDossier] = useState<DossierExNihilo | null | undefined>(undefined);
   const [editingLien, setEditingLien] = useState<LienRenseignement | null | undefined>(undefined);
+  // Annotation d'aire en cours d'édition. cluster = cible (toujours présent
+  // quand le modal est ouvert) ; existing = annotation déjà attachée si on édite.
+  const [editingClusterAnnotation, setEditingClusterAnnotation] = useState<
+    { cluster: InfluenceCluster; existing?: ClusterAnnotation } | undefined
+  >(undefined);
   // centerRequest change → MindmapCanvas anime la caméra vers le nœud.
   // Le compteur force le re-trigger même si on cible deux fois le même id.
   const [centerRequest, setCenterRequest] = useState<{ id: string; seq: number } | undefined>();
@@ -96,6 +103,10 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const addLien = useCartographieOverlayStore(s => s.addLien);
   const updateLien = useCartographieOverlayStore(s => s.updateLien);
   const removeLien = useCartographieOverlayStore(s => s.removeLien);
+  const clusterAnnotations = useCartographieOverlayStore(s => s.clusterAnnotations);
+  const addClusterAnnotation = useCartographieOverlayStore(s => s.addClusterAnnotation);
+  const updateClusterAnnotation = useCartographieOverlayStore(s => s.updateClusterAnnotation);
+  const removeClusterAnnotation = useCartographieOverlayStore(s => s.removeClusterAnnotation);
 
   useEffect(() => {
     if (!overlayLoaded) loadOverlay();
@@ -183,6 +194,10 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const handleRefresh = () => {
     setRefreshKey(k => k + 1);
     if (onRefresh) onRefresh();
+  };
+
+  const handleAnnotateCluster = (cluster: InfluenceCluster, existing?: ClusterAnnotation) => {
+    setEditingClusterAnnotation({ cluster, existing });
   };
 
   const toggleContentieux = (id: ContentieuxId) => {
@@ -417,11 +432,11 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         >
           <Layers className="h-3.5 w-3.5" />
           Mes ajouts
-          {(mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length) > 0 && (
+          {(mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length + clusterAnnotations.length) > 0 && (
             <span className={`text-[10px] rounded px-1 ${
               showManage ? 'bg-white/20' : 'bg-slate-200'
             }`}>
-              {mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length}
+              {mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length + clusterAnnotations.length}
             </span>
           )}
         </button>
@@ -466,6 +481,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             focusedId={selectedId}
             centerRequest={centerRequest}
             refreshKey={refreshKey}
+            clusterAnnotations={clusterAnnotations}
+            onAnnotateCluster={handleAnnotateCluster}
             onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
           />
@@ -499,15 +516,32 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             mecs={mecsExNihilo}
             dossiers={dossiersExNihilo}
             liens={liensRenseignement}
+            clusterAnnotations={clusterAnnotations}
             graph={graph}
             onClose={() => setShowManage(false)}
             onCenterNode={centerOnId}
             onEditMec={(m) => setEditingMec(m)}
             onEditDossier={(d) => setEditingDossier(d)}
             onEditLien={(l) => setEditingLien(l)}
+            onEditClusterAnnotation={(a) => {
+              // Édition depuis le panneau : on n'a plus le cluster vivant en
+              // main, on synthétise un cluster minimal à partir des nodeIds
+              // ancrés. Le canvas matchera pour l'aperçu visuel via Jaccard.
+              setEditingClusterAnnotation({
+                cluster: {
+                  id: a.id,
+                  nodeIds: a.nodeIds,
+                  polygon: [],
+                  bbox: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
+                  color: a.color || '#94a3b8',
+                },
+                existing: a,
+              });
+            }}
             onDeleteMec={(id) => removeMec(id)}
             onDeleteDossier={(id) => removeDossier(id)}
             onDeleteLien={(id) => removeLien(id)}
+            onDeleteClusterAnnotation={(id) => removeClusterAnnotation(id)}
           />
         )}
       </div>
@@ -553,6 +587,27 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             addLien(data);
           }
         }}
+      />
+
+      <AddClusterAnnotationModal
+        isOpen={editingClusterAnnotation !== undefined}
+        onClose={() => setEditingClusterAnnotation(undefined)}
+        cluster={editingClusterAnnotation ? {
+          nodeIds: editingClusterAnnotation.cluster.nodeIds,
+          color: editingClusterAnnotation.cluster.color,
+          nbMembers: editingClusterAnnotation.cluster.nodeIds.length,
+        } : undefined}
+        initial={editingClusterAnnotation?.existing}
+        onSubmit={(data) => {
+          if (editingClusterAnnotation?.existing) {
+            updateClusterAnnotation(editingClusterAnnotation.existing.id, data);
+          } else {
+            addClusterAnnotation(data);
+          }
+        }}
+        onDelete={editingClusterAnnotation?.existing ? () => {
+          removeClusterAnnotation(editingClusterAnnotation.existing!.id);
+        } : undefined}
       />
 
       {/* HINT bas de page */}

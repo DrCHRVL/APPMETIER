@@ -22,8 +22,9 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { DossierNode, GraphEdge, GraphNode, MecNode } from '@/utils/mindmapGraph';
+import type { ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
 import { getCollisionRadius, getDossierBox, getNodeRadius, useForceLayout } from './useForceLayout';
-import { buildInfluenceClusters, polygonToPath, type InfluenceCluster } from './influenceHull';
+import { buildInfluenceClusters, matchAnnotation, polygonToPath, type InfluenceCluster } from './influenceHull';
 
 // ──────────────────────────────────────────────
 // PROPS
@@ -43,6 +44,11 @@ interface MindmapCanvasProps {
   refreshKey?: number;
   /** Active/désactive le rendu des aires d'influence (par défaut activé). */
   showInfluence?: boolean;
+  /** Annotations manuelles des clusters (matchées par recouvrement Jaccard). */
+  clusterAnnotations?: ClusterAnnotation[];
+  /** Appelé quand l'utilisateur clique sur le label d'un cluster (création
+   *  si existing absent, édition sinon). */
+  onAnnotateCluster?: (cluster: InfluenceCluster, existing?: ClusterAnnotation) => void;
   onNodeClick?: (node: GraphNode) => void;
   onNodeDoubleClick?: (node: GraphNode) => void;
 }
@@ -68,6 +74,17 @@ type DossierNodeData = DossierNode & {
 type HullNodeData = {
   cluster: InfluenceCluster;
   containsFocus: boolean;
+  /** Couleur effective : couleur custom de l'annotation si présente, sinon
+   *  contentieux dominant. */
+  effectiveColor: string;
+};
+
+type ClusterLabelData = {
+  cluster: InfluenceCluster;
+  annotation?: ClusterAnnotation;
+  effectiveColor: string;
+  /** Largeur disponible (= bbox du hull) pour caler la longueur du label. */
+  width: number;
 };
 
 // Handles centrés (top:50%, left:50%) pour que les arêtes convergent au centre
@@ -173,7 +190,7 @@ const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
 // Aire d'influence : SVG rendu en arrière-plan (zIndex négatif) qui suit
 // pan/zoom comme un nœud normal.
 const HullNodeView = ({ data }: NodeProps<Node<HullNodeData>>) => {
-  const { cluster, containsFocus } = data;
+  const { cluster, containsFocus, effectiveColor } = data;
   const w = cluster.bbox.maxX - cluster.bbox.minX;
   const h = cluster.bbox.maxY - cluster.bbox.minY;
   const path = polygonToPath(cluster.polygon, cluster.bbox.minX, cluster.bbox.minY);
@@ -190,9 +207,9 @@ const HullNodeView = ({ data }: NodeProps<Node<HullNodeData>>) => {
     >
       <path
         d={path}
-        fill={cluster.color}
+        fill={effectiveColor}
         fillOpacity={containsFocus ? 0.18 : 0.10}
-        stroke={cluster.color}
+        stroke={effectiveColor}
         strokeOpacity={containsFocus ? 0.55 : 0.30}
         strokeWidth={containsFocus ? 2 : 1.25}
         strokeLinejoin="round"
@@ -201,10 +218,49 @@ const HullNodeView = ({ data }: NodeProps<Node<HullNodeData>>) => {
   );
 };
 
+// Label de cluster : pill cliquable centrée au-dessus du blob. Affiche le nom
+// si annoté, ou un placeholder "+ Nommer ce réseau" sinon. Le clic est
+// géré au niveau MindmapCanvas via onNodeClick (router par node.type).
+const ClusterLabelView = ({ data }: NodeProps<Node<ClusterLabelData>>) => {
+  const { annotation, effectiveColor } = data;
+  const annotated = !!annotation;
+  return (
+    <div
+      title={annotated ? `${annotation!.label}${annotation!.notes ? ` — ${annotation!.notes}` : ''}` : 'Nommer ce réseau'}
+      className={`
+        inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+        text-[11px] font-semibold whitespace-nowrap select-none
+        cursor-pointer transition-all duration-150 hover:scale-105
+        ${annotated
+          ? 'bg-white shadow-md border-2'
+          : 'bg-white/70 hover:bg-white border border-dashed text-slate-500 hover:text-slate-800'
+        }
+      `}
+      style={annotated ? {
+        borderColor: effectiveColor,
+        color: effectiveColor,
+      } : { borderColor: '#cbd5e1' }}
+    >
+      {annotated ? (
+        <>
+          <span
+            className="inline-block w-1.5 h-1.5 rounded-full"
+            style={{ background: effectiveColor }}
+          />
+          {annotation!.label}
+        </>
+      ) : (
+        <>+ Nommer ce réseau</>
+      )}
+    </div>
+  );
+};
+
 const NODE_TYPES = {
   mec: MecNodeView,
   dossier: DossierNodeView,
   hull: HullNodeView,
+  clusterLabel: ClusterLabelView,
 } as const;
 
 // ──────────────────────────────────────────────
@@ -281,6 +337,8 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   centerRequest,
   refreshKey = 0,
   showInfluence = true,
+  clusterAnnotations,
+  onAnnotateCluster,
   onNodeClick,
   onNodeDoubleClick,
 }) => {
@@ -338,10 +396,18 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
 
   const rfNodes: Node[] = useMemo(() => {
     const out: Node[] = [];
+    const annotations: ClusterAnnotation[] = clusterAnnotations || [];
 
     // Hulls d'abord (zIndex négatif) : ils restent derrière les nœuds réels.
+    // Le label de cluster est rendu en sus, posé sur le bord supérieur du hull.
     for (const c of influenceClusters) {
-      const data: HullNodeData = { cluster: c, containsFocus: c.id === focusedClusterId };
+      const annotation = matchAnnotation<ClusterAnnotation>(c, annotations);
+      const effectiveColor = annotation?.color || c.color;
+      const data: HullNodeData = {
+        cluster: c,
+        containsFocus: c.id === focusedClusterId,
+        effectiveColor,
+      };
       out.push({
         id: `hull_${c.id}`,
         type: 'hull',
@@ -351,6 +417,28 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
         selectable: false,
         zIndex: -1,
         style: { pointerEvents: 'none' },
+      } satisfies Node);
+
+      // Label centré horizontalement, posé sur le bord haut du blob.
+      // On laisse react-flow gérer le centrage horizontal via une largeur
+      // fixe : on positionne à (centerX - 100) et on laisse le contenu se
+      // centrer dans une boîte de 200px (le pill auto-shrink à son contenu).
+      const cx = (c.bbox.minX + c.bbox.maxX) / 2;
+      const labelData: ClusterLabelData = {
+        cluster: c,
+        annotation,
+        effectiveColor,
+        width: c.bbox.maxX - c.bbox.minX,
+      };
+      out.push({
+        id: `clusterLabel_${c.id}`,
+        type: 'clusterLabel',
+        position: { x: cx - 100, y: c.bbox.minY - 22 },
+        data: labelData as unknown as Record<string, unknown>,
+        draggable: false,
+        selectable: false,
+        zIndex: 10,
+        style: { width: 200, display: 'flex', justifyContent: 'center' },
       } satisfies Node);
     }
 
@@ -392,7 +480,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       } satisfies Node);
     }
     return out;
-  }, [nodes, positions, focusedId, ctxColorById, dossierRotations, influenceClusters, focusedClusterId]);
+  }, [nodes, positions, focusedId, ctxColorById, dossierRotations, influenceClusters, focusedClusterId, clusterAnnotations]);
 
   const rfEdges: Edge[] = useMemo(() => {
     return edges.map(e => {
@@ -431,10 +519,17 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
 
   const handleClick: NodeMouseHandler = useCallback(
     (_, node) => {
+      // Clic sur un label de cluster → ouvre le modal d'annotation.
+      if (node.type === 'clusterLabel') {
+        if (!onAnnotateCluster) return;
+        const labelData = node.data as unknown as ClusterLabelData;
+        onAnnotateCluster(labelData.cluster, labelData.annotation);
+        return;
+      }
       const original = nodes.find(n => n.id === node.id);
       if (original && onNodeClick) onNodeClick(original);
     },
-    [nodes, onNodeClick],
+    [nodes, onNodeClick, onAnnotateCluster],
   );
 
   const handleDoubleClick: NodeMouseHandler = useCallback(

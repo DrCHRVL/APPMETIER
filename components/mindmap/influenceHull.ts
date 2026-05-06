@@ -24,6 +24,36 @@ export interface InfluenceCluster {
   dominantContentieux?: ContentieuxId;
 }
 
+/**
+ * Tente de retrouver l'annotation manuelle qui correspond à un cluster.
+ * Match par index Jaccard (intersection / union des nodeIds) ≥ seuil.
+ * En cas d'égalité, on retourne la plus récente (le tri se fait côté
+ * appelant si besoin — ici on prend simplement le meilleur score).
+ */
+export function matchAnnotation<T extends { nodeIds: string[] }>(
+  cluster: InfluenceCluster,
+  annotations: T[],
+  threshold = 0.5,
+): T | undefined {
+  if (annotations.length === 0) return undefined;
+  const clusterSet = new Set(cluster.nodeIds);
+  let best: T | undefined;
+  let bestScore = 0;
+  for (const ann of annotations) {
+    if (ann.nodeIds.length === 0) continue;
+    let inter = 0;
+    for (const id of ann.nodeIds) if (clusterSet.has(id)) inter++;
+    const union = clusterSet.size + ann.nodeIds.length - inter;
+    if (union === 0) continue;
+    const jaccard = inter / union;
+    if (jaccard >= threshold && jaccard > bestScore) {
+      bestScore = jaccard;
+      best = ann;
+    }
+  }
+  return best;
+}
+
 // ──────────────────────────────────────────────
 // COMPOSANTES CONNEXES
 // ──────────────────────────────────────────────

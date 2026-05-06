@@ -49,11 +49,31 @@ export interface LienRenseignement {
   createdAt: number;
 }
 
+/**
+ * Annotation manuelle d'une aire d'influence ("réseau Marseille",
+ * "groupe TAURUS"...). Ancrée à un ensemble d'IDs de nœuds : on considère
+ * que l'annotation s'applique à un cluster détecté si le recouvrement
+ * Jaccard est ≥ 0.5 (cf. matchAnnotation côté influenceHull). Cette
+ * tolérance permet aux annotations de survivre à l'ajout/retrait de
+ * quelques membres au cluster sans devoir être ré-attachées à la main.
+ */
+export interface ClusterAnnotation {
+  id: string;
+  label: string;
+  notes?: string;
+  /** Couleur custom optionnelle (sinon couleur héritée du contentieux dominant). */
+  color?: string;
+  /** Snapshot des IDs de nœuds composant le cluster au moment de l'annotation. */
+  nodeIds: string[];
+  createdAt: number;
+}
+
 interface PersistedOverlay {
   pinnedMecIds: string[];
   mecsExNihilo: MecExNihilo[];
   dossiersExNihilo: DossierExNihilo[];
   liensRenseignement: LienRenseignement[];
+  clusterAnnotations: ClusterAnnotation[];
 }
 
 interface OverlayState extends PersistedOverlay {
@@ -84,6 +104,11 @@ interface OverlayState extends PersistedOverlay {
   addLien: (input: { source: string; target: string; label?: string; notes?: string }) => string;
   updateLien: (id: string, patch: Partial<Omit<LienRenseignement, 'id' | 'createdAt'>>) => void;
   removeLien: (id: string) => void;
+
+  // Annotations de cluster
+  addClusterAnnotation: (input: { label: string; notes?: string; color?: string; nodeIds: string[] }) => string;
+  updateClusterAnnotation: (id: string, patch: Partial<Omit<ClusterAnnotation, 'id' | 'createdAt'>>) => void;
+  removeClusterAnnotation: (id: string) => void;
 }
 
 const EMPTY: PersistedOverlay = {
@@ -91,10 +116,12 @@ const EMPTY: PersistedOverlay = {
   mecsExNihilo: [],
   dossiersExNihilo: [],
   liensRenseignement: [],
+  clusterAnnotations: [],
 };
 
 const DOSSIER_EXN_PREFIX = 'dexn_';
 const LIEN_PREFIX = 'lien_';
+const CLUSTER_PREFIX = 'cluster_';
 
 function uniqueId(prefix: string): string {
   return `${prefix}${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -111,6 +138,7 @@ async function _flush(): Promise<void> {
       mecsExNihilo: s.mecsExNihilo,
       dossiersExNihilo: s.dossiersExNihilo,
       liensRenseignement: s.liensRenseignement,
+      clusterAnnotations: s.clusterAnnotations,
     };
     await ElectronBridge.setData(STORAGE_KEY, payload);
     _isDirty = false;
@@ -136,6 +164,7 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
         mecsExNihilo: data.mecsExNihilo || [],
         dossiersExNihilo: data.dossiersExNihilo || [],
         liensRenseignement: data.liensRenseignement || [],
+        clusterAnnotations: data.clusterAnnotations || [],
         isLoaded: true,
       });
     } catch (error) {
@@ -324,6 +353,42 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
     const list = get().liensRenseignement;
     if (!list.some(l => l.id === id)) return;
     set({ liensRenseignement: list.filter(l => l.id !== id) });
+    markDirty();
+  },
+
+  // ── Annotations de cluster ───────────────────
+
+  addClusterAnnotation: (input) => {
+    const label = (input.label || '').trim();
+    if (!label || input.nodeIds.length === 0) return '';
+    const id = uniqueId(CLUSTER_PREFIX);
+    const created: ClusterAnnotation = {
+      id,
+      label,
+      notes: input.notes,
+      color: input.color,
+      nodeIds: [...input.nodeIds],
+      createdAt: Date.now(),
+    };
+    set({ clusterAnnotations: [...get().clusterAnnotations, created] });
+    markDirty();
+    return id;
+  },
+
+  updateClusterAnnotation: (id, patch) => {
+    const list = get().clusterAnnotations;
+    const idx = list.findIndex(c => c.id === id);
+    if (idx < 0) return;
+    const next = [...list];
+    next[idx] = { ...next[idx], ...patch };
+    set({ clusterAnnotations: next });
+    markDirty();
+  },
+
+  removeClusterAnnotation: (id) => {
+    const list = get().clusterAnnotations;
+    if (!list.some(c => c.id === id)) return;
+    set({ clusterAnnotations: list.filter(c => c.id !== id) });
     markDirty();
   },
 }));
