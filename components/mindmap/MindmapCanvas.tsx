@@ -625,13 +625,17 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       const isRens = e.kind === 'renseignement';
       // Bezier doux dès qu'un des deux endpoints est connecté à plus d'un autre
       // nœud — sinon trait droit (cas dyade isolée, plus net).
+      // Les liens "renseignement" utilisent toujours une courbe : leurs
+      // endpoints peuvent être très éloignés et un trait droit traverse
+      // alors littéralement d'autres nœuds (MEC, dossiers) qui n'ont rien
+      // à voir avec le lien — l'utilisateur lit ça comme une fausse relation.
       const dMax = Math.max(nodeDegree.get(e.source) || 0, nodeDegree.get(e.target) || 0);
-      const useCurve = !isRens && dMax > 1;
+      const useCurve = isRens || dMax > 1;
       return {
         id: e.id,
         source: e.source,
         target: e.target,
-        type: isRens ? 'straight' : (useCurve ? 'simplebezier' : 'straight'),
+        type: useCurve ? 'simplebezier' : 'straight',
         label: isRens ? e.label : undefined,
         labelStyle: isRens ? { fill: '#1d4ed8', fontSize: 11, fontWeight: 600 } : undefined,
         labelBgStyle: isRens ? { fill: '#eff6ff' } : undefined,

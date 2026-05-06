@@ -231,12 +231,15 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   );
   const top10 = useMemo(() => getTopMec(graph, 10, pinnedMecIds), [graph, pinnedMecIds]);
 
-  // Tags présents dans les sources actuelles (toutes catégories) + comptage
-  // pour ordonner le panneau d'assignation par utilité décroissante.
+  // Tags présents dans les sources actuelles + comptage. Filtré sur la
+  // catégorie "services" uniquement : la fonctionnalité Zone est dédiée aux
+  // services d'enquête (ancrage géographique). Les tags d'infraction, suivi,
+  // statut, etc. n'ont pas de sens spatial et polluaient le panneau.
   const availableTagsByCount = useMemo(() => {
     const counts = new Map<string, number>();
     for (const s of sources) {
       for (const t of s.enquete.tags || []) {
+        if (t.category !== 'services') continue;
         const v = (t.value || '').trim();
         if (!v) continue;
         counts.set(v, (counts.get(v) || 0) + 1);
@@ -618,11 +621,11 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         >
           <Layers className="h-3.5 w-3.5" />
           Mes ajouts
-          {(mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length + clusterAnnotations.length + tagZones.length) > 0 && (
+          {(mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length + tagZones.length) > 0 && (
             <span className={`text-[10px] rounded px-1 ${
               showManage ? 'bg-white/20' : 'bg-slate-200'
             }`}>
-              {mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length + clusterAnnotations.length + tagZones.length}
+              {mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length + tagZones.length}
             </span>
           )}
         </button>
@@ -705,7 +708,6 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             mecs={mecsExNihilo}
             dossiers={dossiersExNihilo}
             liens={liensRenseignement}
-            clusterAnnotations={clusterAnnotations}
             availableTags={availableTagsByCount}
             tagZones={tagZones}
             graph={graph}
@@ -716,25 +718,9 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             onEditMec={(m) => setEditingMec(m)}
             onEditDossier={(d) => setEditingDossier(d)}
             onEditLien={(l) => setEditingLien(l)}
-            onEditClusterAnnotation={(a) => {
-              // Édition depuis le panneau : on n'a plus le cluster vivant en
-              // main, on synthétise un cluster minimal à partir des nodeIds
-              // ancrés. Le canvas matchera pour l'aperçu visuel via Jaccard.
-              setEditingClusterAnnotation({
-                cluster: {
-                  id: a.id,
-                  nodeIds: a.nodeIds,
-                  polygon: [],
-                  bbox: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
-                  color: a.color || '#94a3b8',
-                },
-                existing: a,
-              });
-            }}
             onDeleteMec={(id) => removeMec(id)}
             onDeleteDossier={(id) => removeDossier(id)}
             onDeleteLien={(id) => removeLien(id)}
-            onDeleteClusterAnnotation={(id) => removeClusterAnnotation(id)}
           />
         )}
       </div>

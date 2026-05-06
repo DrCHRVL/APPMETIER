@@ -6,24 +6,22 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Pencil, Trash2, MapPin, FileText, User, Link as LinkIcon, Layers, Compass } from 'lucide-react';
+import { X, Pencil, Trash2, MapPin, FileText, User, Link as LinkIcon, Compass } from 'lucide-react';
 import type {
   MecExNihilo,
   DossierExNihilo,
   LienRenseignement,
-  ClusterAnnotation,
   TagZoneAssignment,
 } from '@/stores/useCartographieOverlayStore';
 import type { MindmapGraph } from '@/utils/mindmapGraph';
 import { ZONE_GRID_POSITION, ZONE_LABELS, type ZoneId } from './zones';
 
-type Tab = 'mecs' | 'dossiers' | 'liens' | 'reseaux' | 'zones';
+type Tab = 'mecs' | 'dossiers' | 'liens' | 'zones';
 
 interface Props {
   mecs: MecExNihilo[];
   dossiers: DossierExNihilo[];
   liens: LienRenseignement[];
-  clusterAnnotations: ClusterAnnotation[];
   /** Tags présents dans les sources (valeur, count) — pré-trié par fréquence. */
   availableTags: Array<[string, number]>;
   /** Assignations tag → zone actuellement persistées. */
@@ -34,20 +32,18 @@ interface Props {
   onEditMec: (mec: MecExNihilo) => void;
   onEditDossier: (dossier: DossierExNihilo) => void;
   onEditLien: (lien: LienRenseignement) => void;
-  onEditClusterAnnotation: (annotation: ClusterAnnotation) => void;
   onDeleteMec: (id: string) => void;
   onDeleteDossier: (id: string) => void;
   onDeleteLien: (id: string) => void;
-  onDeleteClusterAnnotation: (id: string) => void;
   onSetTagZone: (tag: string, zone: ZoneId) => void;
   onRemoveTagZone: (tag: string) => void;
 }
 
 export const ManageOverlayPanel: React.FC<Props> = ({
-  mecs, dossiers, liens, clusterAnnotations, availableTags, tagZones, graph,
+  mecs, dossiers, liens, availableTags, tagZones, graph,
   onClose, onCenterNode,
-  onEditMec, onEditDossier, onEditLien, onEditClusterAnnotation,
-  onDeleteMec, onDeleteDossier, onDeleteLien, onDeleteClusterAnnotation,
+  onEditMec, onEditDossier, onEditLien,
+  onDeleteMec, onDeleteDossier, onDeleteLien,
   onSetTagZone, onRemoveTagZone,
 }) => {
   const [tab, setTab] = useState<Tab>('mecs');
@@ -74,7 +70,6 @@ export const ManageOverlayPanel: React.FC<Props> = ({
         <TabButton active={tab === 'mecs'} onClick={() => setTab('mecs')} icon={<User className="h-3 w-3" />} label="MEC" count={mecs.length} />
         <TabButton active={tab === 'dossiers'} onClick={() => setTab('dossiers')} icon={<FileText className="h-3 w-3" />} label="Dossiers" count={dossiers.length} />
         <TabButton active={tab === 'liens'} onClick={() => setTab('liens')} icon={<LinkIcon className="h-3 w-3" />} label="Liens" count={liens.length} />
-        <TabButton active={tab === 'reseaux'} onClick={() => setTab('reseaux')} icon={<Layers className="h-3 w-3" />} label="Réseaux" count={clusterAnnotations.length} />
         <TabButton active={tab === 'zones'} onClick={() => setTab('zones')} icon={<Compass className="h-3 w-3" />} label="Zones" count={tagZones.length} />
       </div>
 
@@ -128,25 +123,6 @@ export const ManageOverlayPanel: React.FC<Props> = ({
                   onEdit={() => onEditLien(l)}
                   onDelete={() => onDeleteLien(l.id)}
                   deleteConfirm="Supprimer ce lien renseignement ?"
-                />
-              ))
-        )}
-
-        {tab === 'reseaux' && (
-          clusterAnnotations.length === 0
-            ? <Empty>Aucun réseau nommé. Cliquez sur le label "+ Nommer ce réseau" au-dessus d'une aire d'influence.</Empty>
-            : clusterAnnotations.map(a => (
-                <Row
-                  key={a.id}
-                  title={a.label}
-                  subtitle={[
-                    `${a.nodeIds.length} membre${a.nodeIds.length > 1 ? 's' : ''} ancré${a.nodeIds.length > 1 ? 's' : ''}`,
-                    a.notes && 'notes renseignées',
-                  ].filter(Boolean).join(' · ')}
-                  colorDot={a.color}
-                  onEdit={() => onEditClusterAnnotation(a)}
-                  onDelete={() => onDeleteClusterAnnotation(a.id)}
-                  deleteConfirm={`Supprimer l'annotation "${a.label}" ?`}
                 />
               ))
         )}

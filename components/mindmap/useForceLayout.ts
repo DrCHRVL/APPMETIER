@@ -40,11 +40,44 @@ const CHARGE_STRENGTH = -550;
 // peuvent se chevaucher visuellement même sans aucun lien entre les nœuds.
 // Ajustée empiriquement : assez forte pour séparer 2 clusters de 5 nœuds,
 // pas trop pour éviter les explosions sur des graphes de 100+ nœuds.
-const COMPONENT_REPULSION_STRENGTH = 12_000;
+const COMPONENT_REPULSION_STRENGTH = 30_000;
 // Force d'attraction d'un nœud vers le centre de sa zone géographique
-// assignée. Volontairement faible pour ne pas écraser la dynamique
-// link/charge/collide — on veut "incliner" le layout, pas le forcer.
-const ZONE_GRAVITY_STRENGTH = 0.06;
+// assignée. Plus forte qu'avant car les zones sont désormais très
+// éloignées (R=2200) — sans pull suffisant, les composantes resteraient
+// agglutinées au centre malgré l'assignation.
+const ZONE_GRAVITY_STRENGTH = 0.08;
+// Rayon de dispersion (jitter déterministe) autour du centre de zone : sans
+// ça, toutes les composantes assignées à la même zone étaient tirées au
+// même point exact et finissaient empilées les unes sur les autres. On
+// répartit les nœuds dans un disque autour du centre, en utilisant un hash
+// stable de l'id pour que la position reste identique entre deux rendus.
+const ZONE_JITTER_RADIUS = 600;
+
+/**
+ * Hash 32-bit stable (FNV-1a) — déterministe, pas de dépendance crypto.
+ * Utilisé pour générer un offset reproductible par composante/zone afin
+ * que deux rendus successifs du même graphe placent les clusters au même
+ * endroit.
+ */
+function fnv1a(str: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h >>> 0;
+}
+
+function stableJitter(seed: string, radius: number): { x: number; y: number } {
+  const h = fnv1a(seed);
+  // Deux coordonnées indépendantes en [0, 1) via deux moitiés du hash.
+  const u = (h & 0xffff) / 0x10000;
+  const v = ((h >>> 16) & 0xffff) / 0x10000;
+  // Distribution uniforme dans le disque (sqrt sinon biais vers le centre).
+  const r = Math.sqrt(u) * radius;
+  const theta = v * 2 * Math.PI;
+  return { x: r * Math.cos(theta), y: r * Math.sin(theta) };
+}
 
 function radiusOf(node: GraphNode): number {
   if (node.type === 'mec') {
@@ -266,12 +299,29 @@ export function useForceLayout(
 
     const componentByNode = buildComponentIndex(nodes, edges);
 
-    // Pré-calcul des cibles de gravité par nœud (centre moyen des zones).
+    // Pré-calcul des cibles de gravité par nœud (centre moyen des zones,
+    // décalé par un jitter stable pour éviter que toutes les composantes
+    // d'une même zone soient tirées au même point exact).
+    // Cible mutualisée par composante : tous les nœuds d'un même cluster
+    // visent le même point de la zone (sinon le link/collide se battrait
+    // contre le jitter et casserait la cohésion du cluster).
     const targetByNodeId = new Map<string, { x: number; y: number }>();
     if (nodeZones) {
+      const componentTarget = new Map<number, { x: number; y: number }>();
       for (const [id, zones] of nodeZones) {
-        const t = meanZoneCenter(zones);
-        if (t) targetByNodeId.set(id, t);
+        const base = meanZoneCenter(zones);
+        if (!base) continue;
+        const comp = componentByNode.get(id);
+        let target = comp !== undefined ? componentTarget.get(comp) : undefined;
+        if (!target) {
+          // Anchor de jitter : id de la composante (ou de la zone moyenne
+          // pour les nœuds isolés) → angle/rayon déterministes.
+          const seed = comp !== undefined ? `comp_${comp}_${zones.join(',')}` : id;
+          const j = stableJitter(seed, ZONE_JITTER_RADIUS);
+          target = { x: base.x + j.x, y: base.y + j.y };
+          if (comp !== undefined) componentTarget.set(comp, target);
+        }
+        targetByNodeId.set(id, target);
       }
     }
     const hasZones = targetByNodeId.size > 0;

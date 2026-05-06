@@ -106,6 +106,10 @@ export interface CartographieOverlaySyncFile extends GlobalSyncMetadata {
   deletedLienIds?: CartographieTombstone[];
   deletedClusterAnnotationIds?: CartographieTombstone[];
   deletedMecScoreBoostIds?: CartographieTombstone[];
+  // Tombstones tag → zone (clé = tag). Sans ça, supprimer une assignation
+  // côté local était silencieusement annulé par le re-push d'un poste qui
+  // avait encore l'entrée.
+  deletedTagZones?: CartographieTombstone[];
 }
 
 /**

@@ -22,10 +22,11 @@ export const ZONE_LABELS: Record<ZoneId, string> = {
 };
 
 // Rayon virtuel en pixels monde des zones cardinales depuis le centre.
-// Choisi pour que les puits de gravité soient au-delà de la zone naturelle
-// d'agrégation d'un cluster (LINK_DISTANCE = 180) sans pour autant éclater
-// le graphe. À tuner si besoin.
-const R = 600;
+// "Galaxie" plutôt que "sac de billes" : les puits doivent être très
+// éloignés pour qu'on perçoive des constellations distinctes plutôt qu'un
+// magma collé. Diamètre 2R = 4400px laisse de la place à plusieurs
+// composantes par zone sans qu'elles débordent sur la zone voisine.
+const R = 2200;
 const D = R * 0.7071;
 
 export const ZONE_CENTERS: Record<ZoneId, { x: number; y: number }> = {
