@@ -46,6 +46,7 @@ export const APP_CONFIG = {
     ENQUETES: 'enquetes',
     INSTRUCTIONS: 'instructions', // CLÉ SÉPARÉE POUR LES INSTRUCTIONS
     INSTRUCTION_CONFIG: 'instructionConfig', // Cabinets et autres réglages du module instruction
+    CARTOGRAPHIE_CONFIG: 'cartographieConfig', // Pondérations du score top 10 (carto)
     ALERT_RULES: 'alertRules',
     CUSTOM_TAGS: 'customTags',
     SAVE_HISTORY: 'saveHistory',

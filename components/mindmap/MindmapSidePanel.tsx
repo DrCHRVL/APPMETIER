@@ -98,6 +98,10 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
           <Stat label="Dossiers" value={mec.dossierIds.length} />
           <Stat label="Mises en examen" value={mec.nbMisEnExamen} />
           <Stat label="Chefs cumulés" value={mec.nbChefs} />
+          <Stat label="Liens renseignement" value={mec.nbLiensRenseignement} />
+          {mec.infractionWeight > 0 && (
+            <Stat label="Bonus infraction" value={`+${mec.infractionWeight.toFixed(1)}`} />
+          )}
           <Stat label="Score brut" value={mec.rawScore.toFixed(1)} />
         </div>
         {mec.recent && (

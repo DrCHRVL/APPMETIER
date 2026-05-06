@@ -26,6 +26,8 @@ import {
   type MecExNihilo,
 } from '@/stores/useCartographieOverlayStore';
 import { cartographieOverlaySyncService } from '@/utils/dataSync/CartographieOverlaySyncService';
+import { useCartographieConfig } from '@/hooks/useCartographieConfig';
+import { useTags } from '@/hooks/useTags';
 import type { InfluenceCluster } from '../mindmap/influenceHull';
 import { MindmapCanvas } from '../mindmap/MindmapCanvas';
 import { MindmapSidePanel } from '../mindmap/MindmapSidePanel';
@@ -166,6 +168,23 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     mecScoreBoosts,
   }), [mecsExNihilo, dossiersExNihilo, liensRenseignement, mecScoreBoosts]);
 
+  // Configuration de scoring (pondérations éditables + poids par tag d'infraction).
+  // Reconstruite quand la config carto change ou que la liste des tags
+  // d'infraction évolue (utile pour le matching qualifications ↔ valeur de tag).
+  const { config: cartoConfig } = useCartographieConfig();
+  const { getTagsByCategory } = useTags();
+  const scoreConfig = useMemo(() => {
+    const valueById: Record<string, string> = {};
+    for (const tag of getTagsByCategory('infractions')) {
+      valueById[tag.id] = tag.value;
+    }
+    return {
+      weights: cartoConfig.weights,
+      tagInfractionWeights: cartoConfig.tagInfractionWeights,
+      tagInfractionValueById: valueById,
+    };
+  }, [cartoConfig, getTagsByCategory]);
+
   // Contentieux effectifs : on enrichit la liste des defs reçue en prop avec
   // les ids présents dans les sources mais inconnus des defs (typiquement
   // les dossiers d'instruction sans contentieuxId qui retombent sur l'id
@@ -226,8 +245,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   );
 
   const graph = useMemo(
-    () => buildMindmapGraph(filteredSources, overlayInput),
-    [filteredSources, overlayInput],
+    () => buildMindmapGraph(filteredSources, overlayInput, scoreConfig),
+    [filteredSources, overlayInput, scoreConfig],
   );
   const top10 = useMemo(() => getTopMec(graph, 10, pinnedMecIds), [graph, pinnedMecIds]);
 

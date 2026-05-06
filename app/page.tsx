@@ -122,6 +122,7 @@ const AdminUsersPanel = dynamic(() => import('@/components/AdminUsersPanel').the
 import { UserManager } from '@/utils/userManager';
 const AdminContentieuxPanel = dynamic(() => import('@/components/admin/AdminContentieuxPanel').then(m => ({ default: m.AdminContentieuxPanel })), { ssr: false });
 const AdminInstructionPanel = dynamic(() => import('@/components/admin/AdminInstructionPanel').then(m => ({ default: m.AdminInstructionPanel })), { ssr: false });
+const AdminCartographyPanel = dynamic(() => import('@/components/admin/AdminCartographyPanel').then(m => ({ default: m.AdminCartographyPanel })), { ssr: false });
 const AdminPathsPanel = dynamic(() => import('@/components/admin/AdminPathsPanel').then(m => ({ default: m.AdminPathsPanel })), { ssr: false });
 const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashboardPanel').then(m => ({ default: m.AdminDashboardPanel })), { ssr: false });
 const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHistoryPanel').then(m => ({ default: m.AdminTagHistoryPanel })), { ssr: false });
@@ -1789,6 +1790,7 @@ return (
         adminUsersContent={<AdminUsersPanel />}
         adminContentieuxContent={<AdminContentieuxPanel />}
         moduleInstructionContent={hasModule('instructions') ? <AdminInstructionPanel /> : null}
+        moduleCartographieContent={hasModule('mindmap') ? <AdminCartographyPanel /> : null}
         adminPathsContent={<AdminPathsPanel />}
         adminDashboardContent={<AdminDashboardPanel />}
         adminTagHistoryContent={<AdminTagHistoryPanel />}

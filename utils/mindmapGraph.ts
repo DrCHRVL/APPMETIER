@@ -9,18 +9,26 @@
 //     instruction).
 //   - Une arête relie un MEC à chaque dossier où il est cité.
 //
-// Le score d'un MEC (taille du nœud) suit la formule MVP :
-//   score = (nb_dossiers × 1)
-//         + (nb_mises_en_examen × 3)
-//         + (nb_chefs_inculpation × 0.5)
-//   × 1.2 si au moins une mention sur les 12 derniers mois
+// Le score d'un MEC (taille du nœud) est paramétrable depuis l'écran
+// Paramètres > Module Cartographie. Formule de base :
+//   score = (nb_dossiers × w_dossier)
+//         + (nb_contentieux × w_contentieux)
+//         + (nb_mises_en_examen × w_me)
+//         + (nb_chefs × w_chef)
+//         + (nb_liens_renseignement × w_lien)
+//         + bonus_infraction (somme par tag d'infraction associé)
+//   × multiplicateur_recent si au moins un dossier a été touché dans la
+//     fenêtre glissante de 12 mois.
 //
-// La formule sera affinée à l'usage — l'objectif ici est d'avoir un signal
-// visuel cohérent dès le MVP.
+// Les valeurs par défaut sont définies dans types/cartographieTypes.ts.
 
 import { Enquete, MisEnCause } from '@/types/interfaces';
 import type { MisEnExamen } from '@/types/instructionTypes';
 import { ContentieuxId } from '@/types/userTypes';
+import {
+  DEFAULT_CARTO_WEIGHTS,
+  type CartographieScoreWeights,
+} from '@/types/cartographieTypes';
 
 // ──────────────────────────────────────────────
 // TYPES
@@ -42,6 +50,13 @@ export interface MecNode {
   nbMisEnExamen: number;
   /** Total des chefs d'inculpation cumulés */
   nbChefs: number;
+  /** Nombre de liens renseignement (manuels) attachés au MEC. */
+  nbLiensRenseignement: number;
+  /** Bonus cumulé issu des tags d'infraction (pondéré par config). Pour
+   *  chaque dossier ex nihilo (ou DI réelle) auquel le MEC est lié, on
+   *  additionne les poids des tags d'infraction associés. La récidive
+   *  est donc gratuite : 2× "trafic stups" = 2× le poids. */
+  infractionWeight: number;
   /** A été mentionné au moins une fois dans les 12 derniers mois */
   recent: boolean;
   /** Score composite normalisé entre 0 et 1 (max du graphe = 1) */
@@ -116,6 +131,9 @@ export interface OverlayInput {
     label: string;
     dateApprox?: string;
     mecIds: string[];
+    /** Tags d'infraction associés (par id). Pondère le score MEC quand
+     *  ces tags ont un poids configuré dans la config carto. */
+    typeInfractionTagIds?: string[];
     notes?: string;
   }>;
   liensRenseignement?: Array<{
@@ -172,28 +190,43 @@ export function normalizeMecName(name: string): string {
 //
 // Formule "réseau" : récompense la transversalité (apparaître dans
 // plusieurs contentieux distincts pèse plus qu'être ME plusieurs fois
-// sur le même dossier).
+// sur le même dossier). Les pondérations sont éditables par l'utilisateur
+// depuis Paramètres > Module Cartographie.
 
-const SCORE_DOSSIER = 2;
-const SCORE_CONTENTIEUX = 3;
-const SCORE_MISE_EN_EXAMEN = 1;
-const SCORE_CHEF = 0.3;
-const RECENT_MULTIPLIER = 1.2;
 const RECENT_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
 
-function computeRawScore(mec: Omit<MecNode, 'score' | 'rawScore' | 'type'>): number {
+function computeRawScore(
+  mec: Omit<MecNode, 'score' | 'rawScore' | 'type'>,
+  weights: CartographieScoreWeights,
+): number {
   let raw =
-    mec.dossierIds.length * SCORE_DOSSIER +
-    mec.contentieuxIds.length * SCORE_CONTENTIEUX +
-    mec.nbMisEnExamen * SCORE_MISE_EN_EXAMEN +
-    mec.nbChefs * SCORE_CHEF;
-  if (mec.recent) raw *= RECENT_MULTIPLIER;
+    mec.dossierIds.length * weights.dossier +
+    mec.contentieuxIds.length * weights.contentieux +
+    mec.nbMisEnExamen * weights.miseEnExamen +
+    mec.nbChefs * weights.chefDefault +
+    mec.nbLiensRenseignement * weights.lienRenseignement +
+    mec.infractionWeight;
+  if (mec.recent) raw *= weights.recentMultiplier;
   return raw;
 }
 
 // ──────────────────────────────────────────────
 // CONSTRUCTION DU GRAPHE
 // ──────────────────────────────────────────────
+
+/**
+ * Configuration de scoring passée à buildMindmapGraph. Si `weights` est
+ * omis, les valeurs par défaut s'appliquent (formule MVP historique).
+ */
+export interface ScoreConfigInput {
+  weights?: CartographieScoreWeights;
+  /** Pondérations par tag d'infraction (clé = Tag.id). */
+  tagInfractionWeights?: Record<string, number>;
+  /** Map id → value des tags d'infraction. Sert à matcher les
+   *  qualifications libres des `MisEnExamen.infractions[].qualification`
+   *  (best-effort : on cherche la valeur du tag comme sous-chaîne). */
+  tagInfractionValueById?: Record<string, string>;
+}
 
 /**
  * Construit le graphe biparti à partir d'une liste d'enquêtes contextualisées,
@@ -207,7 +240,18 @@ function computeRawScore(mec: Omit<MecNode, 'score' | 'rawScore' | 'type'>): num
 export function buildMindmapGraph(
   sources: EnqueteWithContext[],
   overlay?: OverlayInput,
+  scoreConfig?: ScoreConfigInput,
 ): MindmapGraph {
+  const weights = scoreConfig?.weights ?? DEFAULT_CARTO_WEIGHTS;
+  const tagInfractionWeights = scoreConfig?.tagInfractionWeights ?? {};
+  const tagInfractionValueById = scoreConfig?.tagInfractionValueById ?? {};
+  /** Pré-calcule [valueLowerCase, weight] pour matcher les qualifications. */
+  const tagWeightByValueLc: Array<[string, number]> = [];
+  for (const [tagId, w] of Object.entries(tagInfractionWeights)) {
+    const v = tagInfractionValueById[tagId];
+    if (!v || !w) continue;
+    tagWeightByValueLc.push([v.toLowerCase(), w]);
+  }
   const mecById = new Map<string, MecNode>();
   const dossierById = new Map<string, DossierNode>();
   const edges: GraphEdge[] = [];
@@ -223,8 +267,12 @@ export function buildMindmapGraph(
     const dossierDate = new Date(enquete.dateMiseAJour || enquete.dateCreation).getTime();
     const isRecent = !Number.isNaN(dossierDate) && now - dossierDate <= RECENT_WINDOW_MS;
 
-    // Index des chefs d'inculpation par nom canonique (côté MisEnExamen)
+    // Index des chefs d'inculpation par nom canonique (côté MisEnExamen).
+    // En parallèle, on calcule le bonus "type d'infraction" pour chaque ME :
+    // chaque qualification de chef est matchée best-effort contre la valeur
+    // (lowercase) des tags d'infraction pondérés.
     const chefsByCanonical = new Map<string, number>();
+    const infractionWeightByCanonical = new Map<string, number>();
     const examenedCanonical = new Set<string>();
     if (misEnExamen) {
       for (const exa of misEnExamen) {
@@ -235,6 +283,22 @@ export function buildMindmapGraph(
           canonical,
           (chefsByCanonical.get(canonical) || 0) + (exa.infractions?.length || 0),
         );
+        if (tagWeightByValueLc.length > 0 && exa.infractions) {
+          let bonus = 0;
+          for (const inf of exa.infractions) {
+            const q = (inf.qualification || '').toLowerCase();
+            if (!q) continue;
+            for (const [tagValueLc, w] of tagWeightByValueLc) {
+              if (q.includes(tagValueLc)) bonus += w;
+            }
+          }
+          if (bonus > 0) {
+            infractionWeightByCanonical.set(
+              canonical,
+              (infractionWeightByCanonical.get(canonical) || 0) + bonus,
+            );
+          }
+        }
       }
     }
 
@@ -276,6 +340,8 @@ export function buildMindmapGraph(
           contentieuxIds: [],
           nbMisEnExamen: 0,
           nbChefs: 0,
+          nbLiensRenseignement: 0,
+          infractionWeight: 0,
           recent: false,
           score: 0,
           rawScore: 0,
@@ -299,6 +365,8 @@ export function buildMindmapGraph(
       if (examenedCanonical.has(canonical)) {
         mecNode.nbMisEnExamen += 1;
         mecNode.nbChefs += chefsByCanonical.get(canonical) || 0;
+        const w = infractionWeightByCanonical.get(canonical);
+        if (w) mecNode.infractionWeight += w;
       }
 
       // Arête MEC ↔ Dossier (déduplique si plusieurs MisEnCause portent le même nom dans le dossier)
@@ -327,6 +395,8 @@ export function buildMindmapGraph(
           contentieuxIds: [],
           nbMisEnExamen: 0,
           nbChefs: 0,
+          nbLiensRenseignement: 0,
+          infractionWeight: 0,
           recent: false,
           score: 0,
           rawScore: 0,
@@ -364,6 +434,16 @@ export function buildMindmapGraph(
       };
       dossierById.set(d.id, node);
 
+      // Calcule le bonus infraction du dossier (somme des poids des tags
+      // associés). Appliqué une fois à chaque MEC du dossier.
+      let dossierInfractionBonus = 0;
+      if (d.typeInfractionTagIds && d.typeInfractionTagIds.length > 0) {
+        for (const tagId of d.typeInfractionTagIds) {
+          const w = tagInfractionWeights[tagId];
+          if (w) dossierInfractionBonus += w;
+        }
+      }
+
       for (const rawMecId of d.mecIds) {
         const canonical = normalizeMecName(rawMecId) || rawMecId;
         if (!canonical) continue;
@@ -379,6 +459,8 @@ export function buildMindmapGraph(
             contentieuxIds: [],
             nbMisEnExamen: 0,
             nbChefs: 0,
+            nbLiensRenseignement: 0,
+            infractionWeight: 0,
             recent: false,
             score: 0,
             rawScore: 0,
@@ -391,6 +473,7 @@ export function buildMindmapGraph(
         if (!mec.dossierIds.includes(d.id)) mec.dossierIds.push(d.id);
         // Le fait d'être lié à un dossier (même ex nihilo) annule l'isolement
         mec.isManualOnly = false;
+        if (dossierInfractionBonus > 0) mec.infractionWeight += dossierInfractionBonus;
 
         const edgeKey = `${canonical}__${d.id}`;
         if (!edgeKeys.has(edgeKey)) {
@@ -403,6 +486,8 @@ export function buildMindmapGraph(
 
   // ── Overlay : liens renseignement ───────────
   // Filtrés : les endpoints doivent exister dans le graphe.
+  // En passant on incrémente le compteur de liens renseignement attaché à
+  // chaque MEC concerné (pour la pondération du score).
   if (overlay?.liensRenseignement) {
     for (const l of overlay.liensRenseignement) {
       const sourceExists = mecById.has(l.source) || dossierById.has(l.source);
@@ -416,6 +501,10 @@ export function buildMindmapGraph(
         label: l.label,
         notes: l.notes,
       });
+      const srcMec = mecById.get(l.source);
+      if (srcMec) srcMec.nbLiensRenseignement += 1;
+      const tgtMec = mecById.get(l.target);
+      if (tgtMec) tgtMec.nbLiensRenseignement += 1;
     }
   }
 
@@ -449,7 +538,7 @@ export function buildMindmapGraph(
     const boost = boostByMec.get(canonical);
     mecNode.manualBonus = boost?.bonus ?? 0;
     mecNode.manualBonusReason = boost?.reason;
-    mecNode.rawScore = Math.max(0, computeRawScore(mecNode) + mecNode.manualBonus);
+    mecNode.rawScore = Math.max(0, computeRawScore(mecNode, weights) + mecNode.manualBonus);
     if (mecNode.rawScore > maxRaw) maxRaw = mecNode.rawScore;
   }
 

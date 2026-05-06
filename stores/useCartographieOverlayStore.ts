@@ -43,6 +43,10 @@ export interface DossierExNihilo {
   dateApprox?: string;
   /** IDs canoniques des MEC liés (réels ou ex nihilo) */
   mecIds: string[];
+  /** IDs des tags de type d'infraction associés (catégorie 'infractions').
+   *  Utilisé uniquement par la cartographie pour pondérer le score top 10 —
+   *  ces tags ne remontent PAS dans les stats globales. */
+  typeInfractionTagIds?: string[];
   notes?: string;
   createdAt: number;
   updatedAt?: number;
@@ -163,7 +167,7 @@ interface OverlayState extends PersistedOverlay {
   removeMec: (id: string) => void;
 
   // Dossier ex nihilo
-  addDossier: (input: { label: string; dateApprox?: string; mecIds?: string[]; notes?: string }) => string;
+  addDossier: (input: { label: string; dateApprox?: string; mecIds?: string[]; typeInfractionTagIds?: string[]; notes?: string }) => string;
   updateDossier: (id: string, patch: Partial<Omit<DossierExNihilo, 'id' | 'createdAt'>>) => void;
   removeDossier: (id: string) => void;
 
@@ -455,6 +459,9 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
       label: input.label,
       dateApprox: input.dateApprox,
       mecIds: (input.mecIds || []).map(m => normalizeMecName(m) || m).filter(Boolean),
+      typeInfractionTagIds: input.typeInfractionTagIds && input.typeInfractionTagIds.length > 0
+        ? [...input.typeInfractionTagIds]
+        : undefined,
       notes: input.notes,
       createdAt: now,
       updatedAt: now,
