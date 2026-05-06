@@ -148,6 +148,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('globalSync:pullDeletedIds'),
   globalSync_pushDeletedIds: (payload) =>
     ipcRenderer.invoke('globalSync:pushDeletedIds', payload),
+  globalSync_pullCartographie: () =>
+    ipcRenderer.invoke('globalSync:pullCartographie'),
+  globalSync_pushCartographie: (payload) =>
+    ipcRenderer.invoke('globalSync:pushCartographie', payload),
   globalSync_readLegacyAppData: () =>
     ipcRenderer.invoke('globalSync:readLegacyAppData'),
   globalSync_pullUserPreferences: (username) =>

@@ -25,6 +25,7 @@ import {
   type LienRenseignement,
   type MecExNihilo,
 } from '@/stores/useCartographieOverlayStore';
+import { cartographieOverlaySyncService } from '@/utils/dataSync/CartographieOverlaySyncService';
 import type { InfluenceCluster } from '../mindmap/influenceHull';
 import { MindmapCanvas } from '../mindmap/MindmapCanvas';
 import { MindmapSidePanel } from '../mindmap/MindmapSidePanel';
@@ -123,6 +124,17 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     if (!overlayLoaded) loadOverlay();
   }, [overlayLoaded, loadOverlay]);
 
+  // Démarre le service de sync au montage du module : pull initial du serveur
+  // commun + listener pour pousser après chaque mutation. Stop au unmount
+  // pour ne pas continuer à pinger inutilement quand l'utilisateur a quitté
+  // la cartographie.
+  useEffect(() => {
+    cartographieOverlaySyncService.start();
+    return () => {
+      cartographieOverlaySyncService.stop();
+    };
+  }, []);
+
   // Mode offline : on persiste à la fermeture du module (ou de l'app), pas
   // pendant l'utilisation, pour ne pas faire ramer la cartographie. ATTENTION :
   // le flush async lancé sur beforeunload n'est PAS garanti d'avoir le temps
@@ -220,7 +232,12 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const handleSave = async () => {
     setSaveState('saving');
     try {
+      // Persistance locale d'abord (rapide, garantie même hors ligne).
       await flushOverlay();
+      // Puis push immédiat vers le serveur commun (peut échouer silencieusement
+      // si le partage est injoignable — la prochaine sync périodique
+      // retentera dès que le réseau revient).
+      await cartographieOverlaySyncService.flushPending();
       setSaveState('saved');
       setTimeout(() => setSaveState('idle'), 2000);
     } catch {
