@@ -307,6 +307,15 @@ export interface DossierInstruction {
   /** Magistrat instructeur en charge */
   magistratInstructeur?: string;
 
+  /**
+   * Contentieux principal du dossier (crimorg, ecofi, enviro, …). Utilisé
+   * pour le filtrage cartographie : sans ce champ, toutes les instructions
+   * tombent sous une étiquette unique "instructions" et on ne peut pas
+   * isoler un domaine. Optionnel pour rétrocompat ; les fiches existantes
+   * sans valeur tombent en "instructions" générique.
+   */
+  contentieuxId?: string;
+
   // Données générales
   description?: string;
   origine?: OrigineDossier;

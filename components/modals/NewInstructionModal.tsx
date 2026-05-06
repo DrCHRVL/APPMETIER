@@ -11,14 +11,25 @@ import type {
   NewDossierInstructionData,
   OrigineDossier,
 } from '@/types/instructionTypes';
+import type { ContentieuxDefinition } from '@/types/userTypes';
 
 interface NewInstructionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: NewDossierInstructionData) => void;
+  /** Liste des contentieux pour le sélecteur (récupérée du UserStore parent). */
+  contentieuxDefs?: ContentieuxDefinition[];
+  /** Pré-sélection éventuelle (ex. contentieux courant de l'utilisateur). */
+  defaultContentieuxId?: string;
 }
 
-export const NewInstructionModal = ({ isOpen, onClose, onSubmit }: NewInstructionModalProps) => {
+export const NewInstructionModal = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  contentieuxDefs = [],
+  defaultContentieuxId,
+}: NewInstructionModalProps) => {
   const { showToast } = useToast();
   const { cabinets, getCabinetById } = useInstructionCabinets();
 
@@ -29,6 +40,13 @@ export const NewInstructionModal = ({ isOpen, onClose, onSubmit }: NewInstructio
   const [dateRI, setDateRI] = useState(() => new Date().toISOString().split('T')[0]);
   const [origine, setOrigine] = useState<OrigineDossier>('preliminaire');
   const [description, setDescription] = useState('');
+  const [contentieuxId, setContentieuxId] = useState<string>(defaultContentieuxId || '');
+
+  // Si la prop `defaultContentieuxId` change pendant que la modal est ouverte
+  // (rare, mais possible si le contentieux actif change), on re-synchronise.
+  useEffect(() => {
+    if (defaultContentieuxId) setContentieuxId(defaultContentieuxId);
+  }, [defaultContentieuxId]);
 
   // Pré-sélectionne le 1er cabinet quand la liste arrive
   useEffect(() => {
@@ -54,6 +72,7 @@ export const NewInstructionModal = ({ isOpen, onClose, onSubmit }: NewInstructio
     setDateRI(new Date().toISOString().split('T')[0]);
     setOrigine('preliminaire');
     setDescription('');
+    setContentieuxId(defaultContentieuxId || '');
   };
 
   const handleClose = () => {
@@ -84,6 +103,7 @@ export const NewInstructionModal = ({ isOpen, onClose, onSubmit }: NewInstructio
       numeroParquet: numeroParquet.trim(),
       cabinetId,
       magistratInstructeur: magistratInstructeur.trim() || undefined,
+      contentieuxId: contentieuxId || undefined,
       dateOuverture: dateRI,
       dateRI,
       origine,
@@ -194,6 +214,29 @@ export const NewInstructionModal = ({ isOpen, onClose, onSubmit }: NewInstructio
               </select>
             </div>
           </div>
+
+          {/* Contentieux : permet de filtrer/colorier le dossier sur la
+              cartographie. Optionnel pour le formulaire (les fiches anciennes
+              sans valeur tombent en "Instructions" générique côté carto). */}
+          {contentieuxDefs.length > 0 && (
+            <div>
+              <Label htmlFor="contentieuxId">Contentieux</Label>
+              <select
+                id="contentieuxId"
+                value={contentieuxId}
+                onChange={(e) => setContentieuxId(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
+              >
+                <option value="">— non précisé —</option>
+                {contentieuxDefs.map(c => (
+                  <option key={c.id} value={c.id}>{c.label}</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-gray-500 mt-1">
+                Détermine la couleur et le filtrage de ce dossier sur la cartographie.
+              </p>
+            </div>
+          )}
 
           <div>
             <Label htmlFor="description">Description / synthèse (optionnel)</Label>

@@ -853,9 +853,13 @@ function AppContent() {
           statut: m.mesureSurete.type,
         })),
       } as unknown as import('@/types/interfaces').Enquete;
+      // Si le dossier précise un contentieux, on l'utilise (= dossier d'instruction
+      // typé crimorg/ecofi/etc.). Sinon fallback "instructions" générique pour
+      // les fiches existantes pré-migration : elles restent visibles sur la carto
+      // sous une étiquette commune jusqu'à ce que l'utilisateur les complète.
       out.push({
         enquete: pseudoEnquete,
-        contentieuxId: 'instructions',
+        contentieuxId: inst.contentieuxId || 'instructions',
         misEnExamen: inst.misEnExamen,
       });
     }
@@ -1456,10 +1460,12 @@ return (
       )}
 
       {/* Modales pour instructions judiciaires */}
-      <NewInstructionModal 
+      <NewInstructionModal
         isOpen={showNewInstructionModal}
         onClose={() => setShowNewInstructionModal(false)}
         onSubmit={handleAddInstruction}
+        contentieuxDefs={contentieuxDefs}
+        defaultContentieuxId={effectiveContentieux || undefined}
       />
 
       {selectedInstruction && (
@@ -1473,6 +1479,7 @@ return (
             setSelectedInstruction(prev => (prev && prev.id === id ? { ...prev, ...updates } : prev));
           }}
           onDelete={handleDeleteInstruction}
+          contentieuxDefs={contentieuxDefs}
         />
       )}
 

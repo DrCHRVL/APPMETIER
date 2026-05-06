@@ -45,6 +45,8 @@ interface InstructionDetailModalProps {
   onEdit: () => void;
   onUpdate: (id: number, updates: Partial<DossierInstruction>) => void;
   onDelete: (id: number) => void;
+  /** Liste des contentieux pour le sélecteur en mode édition. */
+  contentieuxDefs?: import('@/types/userTypes').ContentieuxDefinition[];
 }
 
 type TabKey = 'apercu' | 'mex' | 'echeances' | 'timeline' | 'notes' | 'verifs' | 'orientation';
@@ -73,6 +75,7 @@ export const InstructionDetailModal = ({
   onEdit,
   onUpdate,
   onDelete,
+  contentieuxDefs = [],
 }: InstructionDetailModalProps) => {
   const { showToast } = useToast();
   const { getCabinetById } = useInstructionCabinets();
@@ -87,6 +90,7 @@ export const InstructionDetailModal = ({
     numeroParquet: dossier.numeroParquet,
     cabinetId: dossier.cabinetId,
     magistratInstructeur: dossier.magistratInstructeur,
+    contentieuxId: dossier.contentieuxId,
     description: dossier.description,
     dateOuverture: dossier.dateOuverture,
     dateRI: dossier.dateRI,
@@ -267,6 +271,24 @@ export const InstructionDetailModal = ({
                     onChange={(e) => setEditData(d => ({ ...d, cotesTomes: Number(e.target.value) || 0 }))}
                   />
                 </div>
+                {contentieuxDefs.length > 0 && (
+                  <div>
+                    <Label>Contentieux</Label>
+                    <select
+                      value={editData.contentieuxId || ''}
+                      onChange={(e) => setEditData(d => ({ ...d, contentieuxId: e.target.value || undefined }))}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
+                    >
+                      <option value="">— non précisé —</option>
+                      {contentieuxDefs.map(c => (
+                        <option key={c.id} value={c.id}>{c.label}</option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Couleur et filtrage cartographie.
+                    </p>
+                  </div>
+                )}
                 <div className="col-span-2">
                   <Label>Description</Label>
                   <textarea
@@ -288,6 +310,37 @@ export const InstructionDetailModal = ({
                   <Stat label="DML en cours" value={stats.nbDMLenAttente} highlight={stats.nbDMLenAttente > 0 ? 'amber' : undefined} />
                   <Stat label="Cotes" value={dossier.cotesTomes || 0} />
                 </div>
+
+                {/* Contentieux : pastille colorée si défini, message d'incitation
+                    sinon (pour pousser à compléter les fiches existantes). */}
+                {(() => {
+                  const ctx = dossier.contentieuxId
+                    ? contentieuxDefs.find(c => c.id === dossier.contentieuxId)
+                    : null;
+                  if (ctx) {
+                    return (
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="text-gray-500 uppercase font-semibold">Contentieux</span>
+                        <span
+                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-medium"
+                          style={{ background: `${ctx.color}20`, color: ctx.color, border: `1px solid ${ctx.color}` }}
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full" style={{ background: ctx.color }} />
+                          {ctx.label}
+                        </span>
+                      </div>
+                    );
+                  }
+                  if (contentieuxDefs.length > 0) {
+                    return (
+                      <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                        Contentieux non précisé. Renseignez-le en mode édition pour
+                        que ce dossier apparaisse dans le bon filtre cartographique.
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
 
                 {/* Description */}
                 {dossier.description ? (

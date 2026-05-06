@@ -162,18 +162,44 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     mecScoreBoosts,
   }), [mecsExNihilo, dossiersExNihilo, liensRenseignement, mecScoreBoosts]);
 
+  // Contentieux effectifs : on enrichit la liste des defs reçue en prop avec
+  // les ids présents dans les sources mais inconnus des defs (typiquement
+  // les dossiers d'instruction sans contentieuxId qui retombent sur l'id
+  // virtuel "instructions"). Sans ça, leur filtre serait absent et ils
+  // disparaîtraient du graphe. Couleur indigo distinctive pour qu'ils
+  // soient repérables tels quels.
+  const effectiveContentieuxDefs = useMemo<ContentieuxDefinition[]>(() => {
+    const known = new Set(contentieuxDefs.map(d => d.id));
+    const orphans = new Set<ContentieuxId>();
+    for (const s of sources) {
+      if (!known.has(s.contentieuxId)) orphans.add(s.contentieuxId);
+    }
+    if (orphans.size === 0) return contentieuxDefs;
+    const virtuals: ContentieuxDefinition[] = [];
+    for (const id of orphans) {
+      virtuals.push({
+        id,
+        label: id === 'instructions' ? 'Instructions (non triées)' : id,
+        color: '#6366f1',
+      } as ContentieuxDefinition);
+    }
+    return [...contentieuxDefs, ...virtuals];
+  }, [contentieuxDefs, sources]);
+
   // Si un nouveau contentieux apparaît dans les defs (ex. ajouté par l'admin),
-  // on l'ajoute au filtre actif pour ne rien masquer par surprise.
+  // on l'ajoute au filtre actif pour ne rien masquer par surprise. Idem
+  // pour les contentieux virtuels orphelins (ex. "instructions" pour les
+  // dossiers d'instruction sans contentieuxId précisé).
   useEffect(() => {
     setSelectedContentieux(prev => {
       const next = new Set(prev);
       let changed = false;
-      for (const def of contentieuxDefs) {
+      for (const def of effectiveContentieuxDefs) {
         if (!next.has(def.id)) { next.add(def.id); changed = true; }
       }
       return changed ? next : prev;
     });
-  }, [contentieuxDefs]);
+  }, [effectiveContentieuxDefs]);
 
   // Compte de dossiers par contentieux (pour les badges du filtre).
   const sourcesCountByContentieux = useMemo(() => {
@@ -267,7 +293,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     });
   };
 
-  const allContentieuxSelected = selectedContentieux.size === contentieuxDefs.length;
+  const allContentieuxSelected = selectedContentieux.size === effectiveContentieuxDefs.length;
 
   const handleNodeClick = (node: GraphNode) => {
     setSelectedId(node.id);
@@ -378,7 +404,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             <span className={`text-[10px] rounded px-1 ${
               !allContentieuxSelected ? 'bg-amber-200 text-amber-900' : 'bg-slate-200'
             }`}>
-              {selectedContentieux.size}/{contentieuxDefs.length}
+              {selectedContentieux.size}/{effectiveContentieuxDefs.length}
             </span>
             <ChevronDown className="h-3 w-3" />
           </button>
@@ -390,7 +416,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
                   <span className="text-[10px] uppercase font-semibold text-slate-500">Contentieux affichés</span>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setSelectedContentieux(new Set(contentieuxDefs.map(d => d.id)))}
+                      onClick={() => setSelectedContentieux(new Set(effectiveContentieuxDefs.map(d => d.id)))}
                       className="text-[10px] text-slate-600 hover:text-slate-900 underline"
                     >
                       tout
@@ -403,7 +429,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
                     </button>
                   </div>
                 </div>
-                {contentieuxDefs.map(def => {
+                {effectiveContentieuxDefs.map(def => {
                   const checked = selectedContentieux.has(def.id);
                   const count = sourcesCountByContentieux.get(def.id) || 0;
                   return (
@@ -560,7 +586,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             <Network className="h-10 w-10" />
             <div className="text-sm">Aucun mis en cause à afficher pour le moment.</div>
             <div className="text-xs text-slate-400 max-w-md text-center">
-              {selectedContentieux.size < contentieuxDefs.length
+              {selectedContentieux.size < effectiveContentieuxDefs.length
                 ? "Aucun dossier ne correspond au filtre contentieux actif. Élargissez la sélection."
                 : "La cartographie se peuplera dès qu'au moins un dossier accessible contiendra un mis en cause."}
             </div>
@@ -571,7 +597,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           <MindmapCanvas
             nodes={graph.nodes}
             edges={graph.edges}
-            contentieuxDefs={contentieuxDefs}
+            contentieuxDefs={effectiveContentieuxDefs}
             focusedId={selectedId}
             centerRequest={centerRequest}
             refreshKey={refreshKey}
@@ -587,7 +613,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           <MindmapSidePanel
             mec={sidePanelMec}
             graph={graph}
-            contentieuxDefs={contentieuxDefs}
+            contentieuxDefs={effectiveContentieuxDefs}
             onClose={() => setSidePanelMecId(undefined)}
             onDossierClick={handleDossierFromPanel}
             onDossierOpen={handleDossierOpenFromPanel}
