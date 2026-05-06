@@ -256,6 +256,7 @@ export class CartographieOverlaySyncService {
           deletedLienIds: tombstonesToWire(merged.deletedLienIds),
           deletedClusterAnnotationIds: tombstonesToWire(merged.deletedClusterAnnotationIds),
           deletedMecScoreBoostIds: tombstonesToWire(merged.deletedMecScoreBoostIds),
+          deletedTagZones: tombstonesToWire(merged.deletedTagZones),
         };
         const ok = await this.pushServer(payload);
         if (ok) {
@@ -287,6 +288,7 @@ export class CartographieOverlaySyncService {
       deletedLienIds: s.deletedLienIds || [],
       deletedClusterAnnotationIds: s.deletedClusterAnnotationIds || [],
       deletedMecScoreBoostIds: s.deletedMecScoreBoostIds || [],
+      deletedTagZones: s.deletedTagZones || [],
     };
   }
 
@@ -305,6 +307,7 @@ export class CartographieOverlaySyncService {
       deletedLienIds: tombstonesFromWire(file.deletedLienIds),
       deletedClusterAnnotationIds: tombstonesFromWire(file.deletedClusterAnnotationIds),
       deletedMecScoreBoostIds: tombstonesFromWire(file.deletedMecScoreBoostIds),
+      deletedTagZones: tombstonesFromWire(file.deletedTagZones),
     };
   }
 
@@ -317,6 +320,7 @@ export class CartographieOverlaySyncService {
     const deletedLien = mergeTombstones(local.deletedLienIds, serverFile?.deletedLienIds);
     const deletedCluster = mergeTombstones(local.deletedClusterAnnotationIds, serverFile?.deletedClusterAnnotationIds);
     const deletedBoost = mergeTombstones(local.deletedMecScoreBoostIds, serverFile?.deletedMecScoreBoostIds);
+    const deletedTagZone = mergeTombstones(local.deletedTagZones, serverFile?.deletedTagZones);
 
     return {
       // Pinned : union simple des deux ensembles, déduplication par id.
@@ -333,14 +337,15 @@ export class CartographieOverlaySyncService {
           void _id;
           return rest as MecScoreBoost;
         }),
-      // tagZones : key = tag, last-write-wins via updatedAt. Pas de tombstones
-      // (la suppression locale est rare et l'utilisateur peut juste réassigner).
-      tagZones: mergeTagZones(local.tagZones, server.tagZones),
+      // tagZones : key = tag, last-write-wins via updatedAt + tombstones par
+      // tag pour que la suppression d'une assignation se propage entre postes.
+      tagZones: mergeTagZones(local.tagZones, server.tagZones, deletedTagZone),
       deletedMecExNihiloIds: deletedMec,
       deletedDossierExNihiloIds: deletedDossier,
       deletedLienIds: deletedLien,
       deletedClusterAnnotationIds: deletedCluster,
       deletedMecScoreBoostIds: deletedBoost,
+      deletedTagZones: deletedTagZone,
     };
   }
 
@@ -379,6 +384,7 @@ interface LocalSnapshot {
   deletedLienIds: CartographieTombstoneEntry[];
   deletedClusterAnnotationIds: CartographieTombstoneEntry[];
   deletedMecScoreBoostIds: CartographieTombstoneEntry[];
+  deletedTagZones: CartographieTombstoneEntry[];
 }
 
 type MergedSnapshot = Omit<LocalSnapshot, 'mecScoreBoosts'> & {
@@ -399,6 +405,7 @@ function emptySnapshot(): LocalSnapshot {
     deletedLienIds: [],
     deletedClusterAnnotationIds: [],
     deletedMecScoreBoostIds: [],
+    deletedTagZones: [],
   };
 }
 
@@ -440,20 +447,27 @@ function canonicalSnapshot(s: LocalSnapshot | MergedSnapshot): string {
     deletedLienIds: sortBy(s.deletedLienIds, e => e.id),
     deletedClusterAnnotationIds: sortBy(s.deletedClusterAnnotationIds, e => e.id),
     deletedMecScoreBoostIds: sortBy(s.deletedMecScoreBoostIds, e => e.id),
+    deletedTagZones: sortBy(s.deletedTagZones, e => e.id),
   };
   return JSON.stringify(norm);
 }
 
 /**
- * Merge tagZones par `tag` avec last-write-wins via `updatedAt`. Si un
- * `updatedAt` manque (entrée legacy), on traite comme `0` (perd contre
- * toute valeur récente). Pas de tombstones — pour supprimer une assignation,
- * l'utilisateur réassigne ou l'entrée disparaît côté local sans propagation.
+ * Merge tagZones par `tag` avec last-write-wins via `updatedAt`, en filtrant
+ * les tags présents dans les tombstones (clé tombstone.id = tag). Sans
+ * tombstones, supprimer une assignation localement était silencieusement
+ * annulé au prochain pull car le serveur conservait l'entrée.
  */
 function mergeTagZones(
   local: TagZoneAssignment[],
   server: TagZoneAssignment[],
+  tombstones: CartographieTombstoneEntry[],
 ): TagZoneAssignment[] {
+  const tombMap = new Map<string, number>();
+  for (const t of tombstones) {
+    const prev = tombMap.get(t.id) || 0;
+    if (t.deletedAt > prev) tombMap.set(t.id, t.deletedAt);
+  }
   const byTag = new Map<string, TagZoneAssignment>();
   for (const entry of [...server, ...local]) {
     const cur = byTag.get(entry.tag);
@@ -461,7 +475,14 @@ function mergeTagZones(
     const newTs = entry.updatedAt || 0;
     if (!cur || newTs >= curTs) byTag.set(entry.tag, entry);
   }
-  return Array.from(byTag.values());
+  // Filtrer les entrées dont le tombstone est plus récent que l'updatedAt.
+  const out: TagZoneAssignment[] = [];
+  for (const [tag, entry] of byTag) {
+    const tombTs = tombMap.get(tag);
+    if (tombTs !== undefined && tombTs >= (entry.updatedAt || 0)) continue;
+    out.push(entry);
+  }
+  return out;
 }
 
 export const cartographieOverlaySyncService = CartographieOverlaySyncService.getInstance();

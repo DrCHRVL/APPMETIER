@@ -137,6 +137,8 @@ interface PersistedOverlay {
   deletedLienIds?: CartographieTombstoneEntry[];
   deletedClusterAnnotationIds?: CartographieTombstoneEntry[];
   deletedMecScoreBoostIds?: CartographieTombstoneEntry[];
+  // tag → zone : id = tag (cf. mergeTagZones côté sync service).
+  deletedTagZones?: CartographieTombstoneEntry[];
 }
 
 interface OverlayState extends PersistedOverlay {
@@ -197,6 +199,7 @@ const EMPTY: PersistedOverlay = {
   deletedLienIds: [],
   deletedClusterAnnotationIds: [],
   deletedMecScoreBoostIds: [],
+  deletedTagZones: [],
 };
 
 /**
@@ -260,6 +263,7 @@ async function _flush(): Promise<void> {
       deletedLienIds: s.deletedLienIds,
       deletedClusterAnnotationIds: s.deletedClusterAnnotationIds,
       deletedMecScoreBoostIds: s.deletedMecScoreBoostIds,
+      deletedTagZones: s.deletedTagZones,
     };
     await ElectronBridge.setData(STORAGE_KEY, payload);
     _isDirty = false;
@@ -296,6 +300,7 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
         deletedLienIds: data.deletedLienIds || [],
         deletedClusterAnnotationIds: data.deletedClusterAnnotationIds || [],
         deletedMecScoreBoostIds: data.deletedMecScoreBoostIds || [],
+        deletedTagZones: data.deletedTagZones || [],
         isLoaded: true,
       });
     } catch (error) {
@@ -324,6 +329,7 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
       deletedLienIds: snapshot.deletedLienIds ?? get().deletedLienIds,
       deletedClusterAnnotationIds: snapshot.deletedClusterAnnotationIds ?? get().deletedClusterAnnotationIds,
       deletedMecScoreBoostIds: snapshot.deletedMecScoreBoostIds ?? get().deletedMecScoreBoostIds,
+      deletedTagZones: snapshot.deletedTagZones ?? get().deletedTagZones,
     });
     _isDirty = true;
   },
@@ -628,13 +634,24 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
       updated[idx] = next;
       set({ tagZones: updated });
     }
+    // Réassignation après suppression : retirer un éventuel tombstone pour
+    // que la nouvelle valeur ne soit pas re-supprimée par le merge.
+    const tombs = get().deletedTagZones || [];
+    if (tombs.some(x => x.id === t)) {
+      set({ deletedTagZones: tombs.filter(x => x.id !== t) });
+    }
     markDirty();
   },
 
   removeTagZone: (tag) => {
     const list = get().tagZones;
     if (!list.some(a => a.tag === tag)) return;
-    set({ tagZones: list.filter(a => a.tag !== tag) });
+    // Tombstone obligatoire : sans ça, le sync inter-postes ressuscitait
+    // l'assignation au prochain pull (le serveur avait encore l'entrée).
+    set({
+      tagZones: list.filter(a => a.tag !== tag),
+      deletedTagZones: appendTombstone(get().deletedTagZones, tag),
+    });
     markDirty();
   },
 }));
@@ -651,6 +668,7 @@ export function pruneCartographieTombstones(): void {
     deletedLienIds: pruneTombstones(s.deletedLienIds, now),
     deletedClusterAnnotationIds: pruneTombstones(s.deletedClusterAnnotationIds, now),
     deletedMecScoreBoostIds: pruneTombstones(s.deletedMecScoreBoostIds, now),
+    deletedTagZones: pruneTombstones(s.deletedTagZones, now),
   });
 }
 
