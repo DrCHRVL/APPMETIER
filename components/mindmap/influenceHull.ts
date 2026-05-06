@@ -269,3 +269,139 @@ export function polygonToPath(points: Pt[], offsetX = 0, offsetY = 0): string {
   d += ' Z';
   return d;
 }
+
+// ──────────────────────────────────────────────
+// SOUS-CLUSTERS INTRA-COMPOSANTE
+// ──────────────────────────────────────────────
+//
+// À l'intérieur d'un cluster, on regroupe les MEC par dossier "primaire" :
+// un MEC connecté à un seul dossier du cluster est attaché à ce dossier.
+// Les MEC connectés à ≥ 2 dossiers du cluster sont des "ponts" et ne sont
+// dans aucun sub-cluster (ils restent dans le grand blob, mais n'ont pas
+// de mini-aire propre — ce qui est exactement ce qu'on veut visuellement :
+// le pont sort visuellement de tous les sous-groupes).
+
+export interface SubClusterOptions {
+  /** Padding radial autour de chaque nœud du sub-cluster (px monde). */
+  nodePadding?: number;
+  /** Échantillons par cercle pour le hull. */
+  samples?: number;
+  /** Itérations Chaikin (généralement plus faible que pour le main hull,
+   *  pour garder une silhouette nette qui se distingue du grand blob). */
+  smoothIterations?: number;
+  /** Taille minimale d'un sub-cluster (dossier + MECs) pour être rendu. */
+  minNodes?: number;
+}
+
+export function buildSubClusters(
+  cluster: InfluenceCluster,
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  positions: Map<string, PositionedNode>,
+  collisionRadiusOf: (n: GraphNode) => number,
+  options: SubClusterOptions = {},
+): InfluenceCluster[] {
+  const padding = options.nodePadding ?? 18;
+  const samples = options.samples ?? 8;
+  const smoothIterations = options.smoothIterations ?? 2;
+  const minNodes = options.minNodes ?? 3;
+
+  // Index rapide des nœuds du cluster.
+  const clusterIds = new Set(cluster.nodeIds);
+  const inCluster = (id: string) => clusterIds.has(id);
+  const nodeById = new Map<string, GraphNode>();
+  for (const n of nodes) if (clusterIds.has(n.id)) nodeById.set(n.id, n);
+
+  // Adjacence restreinte au cluster.
+  const adj = new Map<string, string[]>();
+  for (const id of clusterIds) adj.set(id, []);
+  for (const e of edges) {
+    if (e.kind !== 'data') continue; // les liens renseignement ne définissent pas l'appartenance
+    if (!inCluster(e.source) || !inCluster(e.target)) continue;
+    adj.get(e.source)!.push(e.target);
+    adj.get(e.target)!.push(e.source);
+  }
+
+  // Liste des dossiers du cluster.
+  const dossierIds: string[] = [];
+  for (const id of clusterIds) {
+    const n = nodeById.get(id);
+    if (n?.type === 'dossier') dossierIds.push(id);
+  }
+  // Un seul dossier dans le cluster → pas de sous-structure utile, le grand
+  // blob est déjà parfaitement clair.
+  if (dossierIds.length < 2) return [];
+
+  // Pour chaque MEC, compte combien de dossiers du cluster il touche.
+  const mecDossierCount = new Map<string, number>();
+  for (const id of clusterIds) {
+    const n = nodeById.get(id);
+    if (n?.type !== 'mec') continue;
+    let count = 0;
+    for (const nb of adj.get(id) || []) {
+      const nbNode = nodeById.get(nb);
+      if (nbNode?.type === 'dossier') count++;
+    }
+    mecDossierCount.set(id, count);
+  }
+
+  const subClusters: InfluenceCluster[] = [];
+
+  for (const dId of dossierIds) {
+    const dNode = nodeById.get(dId);
+    if (!dNode) continue;
+    const dPos = positions.get(dId);
+    if (!dPos) continue;
+
+    const members: GraphNode[] = [dNode];
+    for (const nb of adj.get(dId) || []) {
+      const m = nodeById.get(nb);
+      if (m?.type === 'mec' && (mecDossierCount.get(m.id) || 0) === 1) {
+        members.push(m);
+      }
+    }
+    if (members.length < minNodes) continue;
+
+    // Échantillonnage cercles → hull → Chaikin (mêmes étapes que le main hull
+    // mais avec un padding plus serré, pour visuellement "rentrer" dans le
+    // grand blob).
+    const sampled: Pt[] = [];
+    for (const m of members) {
+      const p = positions.get(m.id);
+      if (!p) continue;
+      const r = collisionRadiusOf(m) + padding;
+      for (let i = 0; i < samples; i++) {
+        const a = (i / samples) * Math.PI * 2;
+        sampled.push([p.x + Math.cos(a) * r, p.y + Math.sin(a) * r]);
+      }
+    }
+    if (sampled.length < 3) continue;
+
+    const hull = convexHull(sampled);
+    if (hull.length < 3) continue;
+    const polygon = chaikin(hull, smoothIterations);
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of polygon) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+
+    subClusters.push({
+      id: `sub_${dId}`,
+      nodeIds: members.map(m => m.id),
+      polygon,
+      bbox: { minX, minY, maxX, maxY },
+      // Couleur héritée du cluster parent (le contentieux dominant). On
+      // pourrait raffiner par contentieux du dossier mais le sous-blob
+      // doit être lisible comme variation du grand, pas comme entité
+      // autonome.
+      color: cluster.color,
+      dominantContentieux: cluster.dominantContentieux,
+    });
+  }
+
+  return subClusters;
+}

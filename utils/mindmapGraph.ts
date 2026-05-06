@@ -48,6 +48,10 @@ export interface MecNode {
   score: number;
   /** Score brut avant normalisation */
   rawScore: number;
+  /** Bonus de score appliqué manuellement (peut être négatif). 0 = pas de boost. */
+  manualBonus: number;
+  /** Justification du bonus manuel, libre. */
+  manualBonusReason?: string;
   /** Statuts uniques rencontrés (pour coloration éventuelle) */
   statuts: string[];
   /** Notes manuelles (issues d'une fiche ex nihilo) */
@@ -120,6 +124,12 @@ export interface OverlayInput {
     target: string;
     label?: string;
     notes?: string;
+  }>;
+  /** Bonus de score manuels par MEC canonique. */
+  mecScoreBoosts?: Array<{
+    mecId: string;
+    bonus: number;
+    reason?: string;
   }>;
 }
 
@@ -269,6 +279,7 @@ export function buildMindmapGraph(
           recent: false,
           score: 0,
           rawScore: 0,
+          manualBonus: 0,
           statuts: [],
         };
         mecById.set(canonical, mecNode);
@@ -319,6 +330,7 @@ export function buildMindmapGraph(
           recent: false,
           score: 0,
           rawScore: 0,
+          manualBonus: 0,
           statuts: [],
           isManualOnly: true,
         };
@@ -370,6 +382,7 @@ export function buildMindmapGraph(
             recent: false,
             score: 0,
             rawScore: 0,
+            manualBonus: 0,
             statuts: [],
             isManualOnly: true,
           });
@@ -406,6 +419,17 @@ export function buildMindmapGraph(
     }
   }
 
+  // Index des boosts manuels par mecId canonique (pré-finalisation : on les
+  // applique après la formule mais avant la normalisation max).
+  const boostByMec = new Map<string, { bonus: number; reason?: string }>();
+  if (overlay?.mecScoreBoosts) {
+    for (const b of overlay.mecScoreBoosts) {
+      const id = normalizeMecName(b.mecId) || b.mecId;
+      if (!id) continue;
+      boostByMec.set(id, { bonus: b.bonus, reason: b.reason });
+    }
+  }
+
   // Finalisation : displayName le plus fréquent + score normalisé
   let maxRaw = 0;
   for (const [canonical, mecNode] of mecById) {
@@ -422,7 +446,10 @@ export function buildMindmapGraph(
       mecNode.displayName = bestName;
       mecNode.variants = Array.from(variants.keys()).filter(v => v !== bestName);
     }
-    mecNode.rawScore = computeRawScore(mecNode);
+    const boost = boostByMec.get(canonical);
+    mecNode.manualBonus = boost?.bonus ?? 0;
+    mecNode.manualBonusReason = boost?.reason;
+    mecNode.rawScore = Math.max(0, computeRawScore(mecNode) + mecNode.manualBonus);
     if (mecNode.rawScore > maxRaw) maxRaw = mecNode.rawScore;
   }
 

@@ -7,7 +7,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronDown, FileText, Filter, Layers, Link as LinkIcon, Network, Pin, PinOff, Plus, RefreshCw, Search, Trophy, User, X } from 'lucide-react';
+import { Check, ChevronDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pin, PinOff, Plus, RefreshCw, Save, Search, Trophy, User, X } from 'lucide-react';
 import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { Enquete } from '@/types/interfaces';
 import {
@@ -60,6 +60,9 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
 }) => {
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [sidePanelMecId, setSidePanelMecId] = useState<string | undefined>();
+  // Mode ego-network : id du nœud focus, ou undefined pour vue globale.
+  // Toggle en single click sur un nœud (re-clic même nœud → désactive).
+  const [egoNodeId, setEgoNodeId] = useState<string | undefined>();
   const [search, setSearch] = useState('');
   const [showTop10, setShowTop10] = useState(false);
   const [showManage, setShowManage] = useState(false);
@@ -80,6 +83,12 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   // pour forcer le recalcul du layout (utile en mode offline quand des liens
   // ont été ajoutés ailleurs sans changement d'identité de la source).
   const [refreshKey, setRefreshKey] = useState(0);
+  // État du bouton Enregistrer : "idle" (rien à faire ou rien fait), "saving"
+  // (flush en cours), "saved" (vient de réussir, retombe en idle après 2s).
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  // Re-render quand le drapeau dirty change pour mettre à jour le badge.
+  // hasPendingChanges() lit un module-level flag, donc on tick à chaque action.
+  const [, forceTick] = useState(0);
   // Filtre contentieux : sélection multiple, tout coché par défaut. Un set
   // vide = aucun filtre actif (équivalent tout coché) pour rester safe.
   const [selectedContentieux, setSelectedContentieux] = useState<Set<ContentieuxId>>(
@@ -107,15 +116,26 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const addClusterAnnotation = useCartographieOverlayStore(s => s.addClusterAnnotation);
   const updateClusterAnnotation = useCartographieOverlayStore(s => s.updateClusterAnnotation);
   const removeClusterAnnotation = useCartographieOverlayStore(s => s.removeClusterAnnotation);
+  const mecScoreBoosts = useCartographieOverlayStore(s => s.mecScoreBoosts);
+  const setMecScoreBoost = useCartographieOverlayStore(s => s.setMecScoreBoost);
 
   useEffect(() => {
     if (!overlayLoaded) loadOverlay();
   }, [overlayLoaded, loadOverlay]);
 
   // Mode offline : on persiste à la fermeture du module (ou de l'app), pas
-  // pendant l'utilisation, pour ne pas faire ramer la cartographie.
+  // pendant l'utilisation, pour ne pas faire ramer la cartographie. ATTENTION :
+  // le flush async lancé sur beforeunload n'est PAS garanti d'avoir le temps
+  // de finir. Si le store est dirty, on prévient l'utilisateur via la dialog
+  // native — il peut alors annuler et cliquer Enregistrer explicitement.
   useEffect(() => {
-    const onBeforeUnload = () => { void flushOverlay(); };
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      void flushOverlay();
+      if (useCartographieOverlayStore.getState().hasPendingChanges()) {
+        e.preventDefault();
+        e.returnValue = ''; // requis par certains navigateurs
+      }
+    };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', onBeforeUnload);
@@ -127,7 +147,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     mecsExNihilo,
     dossiersExNihilo,
     liensRenseignement,
-  }), [mecsExNihilo, dossiersExNihilo, liensRenseignement]);
+    mecScoreBoosts,
+  }), [mecsExNihilo, dossiersExNihilo, liensRenseignement, mecScoreBoosts]);
 
   // Si un nouveau contentieux apparaît dans les defs (ex. ajouté par l'admin),
   // on l'ajoute au filtre actif pour ne rien masquer par surprise.
@@ -196,6 +217,27 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     if (onRefresh) onRefresh();
   };
 
+  const handleSave = async () => {
+    setSaveState('saving');
+    try {
+      await flushOverlay();
+      setSaveState('saved');
+      setTimeout(() => setSaveState('idle'), 2000);
+    } catch {
+      setSaveState('idle');
+    }
+  };
+
+  // Tick toutes les 1.5s pour rafraîchir l'indicateur "modifs en attente".
+  // Le store n'expose pas de subscription pour le drapeau dirty (c'est un
+  // module-level flag), un poll léger est largement suffisant pour cet usage.
+  useEffect(() => {
+    const i = setInterval(() => forceTick(t => t + 1), 1500);
+    return () => clearInterval(i);
+  }, []);
+
+  const hasPendingChanges = useCartographieOverlayStore.getState().hasPendingChanges();
+
   const handleAnnotateCluster = (cluster: InfluenceCluster, existing?: ClusterAnnotation) => {
     setEditingClusterAnnotation({ cluster, existing });
   };
@@ -213,6 +255,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const handleNodeClick = (node: GraphNode) => {
     setSelectedId(node.id);
     if (node.type === 'mec') setSidePanelMecId(node.id);
+    // Toggle ego-network : re-cliquer sur le même nœud sort du mode.
+    setEgoNodeId(prev => prev === node.id ? undefined : node.id);
   };
 
   const handleNodeDoubleClick = (node: GraphNode) => {
@@ -380,6 +424,39 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           Actualiser
         </button>
 
+        {/* Enregistrer : flush explicite des overlays sur disque. Indispensable
+            avant une sync globale ou avant de fermer l'onglet — la sauvegarde
+            auto sur beforeunload n'est pas garantie de s'exécuter à temps
+            (le navigateur peut couper la promise async). */}
+        <button
+          onClick={handleSave}
+          disabled={saveState === 'saving'}
+          title={
+            saveState === 'saved' ? 'Modifications enregistrées'
+            : hasPendingChanges ? 'Modifications en attente — cliquer pour enregistrer'
+            : 'Tout est à jour'
+          }
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+            saveState === 'saved'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+              : hasPendingChanges
+                ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600 animate-pulse'
+                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          {saveState === 'saving' ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : saveState === 'saved' ? (
+            <Check className="h-3.5 w-3.5" />
+          ) : (
+            <Save className="h-3.5 w-3.5" />
+          )}
+          {saveState === 'saving' ? 'Enregistrement…'
+            : saveState === 'saved' ? 'Enregistré'
+            : hasPendingChanges ? 'Enregistrer*'
+            : 'Enregistrer'}
+        </button>
+
         {/* Ajouter (dropdown) */}
         <div className="relative">
           <button
@@ -483,6 +560,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             refreshKey={refreshKey}
             clusterAnnotations={clusterAnnotations}
             onAnnotateCluster={handleAnnotateCluster}
+            egoNodeId={egoNodeId}
             onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
           />
@@ -496,6 +574,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             onClose={() => setSidePanelMecId(undefined)}
             onDossierClick={handleDossierFromPanel}
             onDossierOpen={handleDossierOpenFromPanel}
+            onSetScoreBoost={setMecScoreBoost}
           />
         )}
 

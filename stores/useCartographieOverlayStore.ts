@@ -68,12 +68,29 @@ export interface ClusterAnnotation {
   createdAt: number;
 }
 
+/**
+ * Bonus de score appliqué manuellement à un MEC. L'utilisateur peut booster
+ * (ou minorer) la pondération d'une personne qu'il sait plus importante que
+ * ce que la formule automatique calcule. Additionné après la formule
+ * (dossier × 2 + contentieux × 3 + ME × 1 + chefs × 0.3) × 1.2 si récent.
+ */
+export interface MecScoreBoost {
+  /** ID canonique du MEC (cf. normalizeMecName). */
+  mecId: string;
+  /** Bonus en points bruts (typiquement -10 à +20). */
+  bonus: number;
+  /** Justification libre (visible dans le side panel). */
+  reason?: string;
+  updatedAt: number;
+}
+
 interface PersistedOverlay {
   pinnedMecIds: string[];
   mecsExNihilo: MecExNihilo[];
   dossiersExNihilo: DossierExNihilo[];
   liensRenseignement: LienRenseignement[];
   clusterAnnotations: ClusterAnnotation[];
+  mecScoreBoosts: MecScoreBoost[];
 }
 
 interface OverlayState extends PersistedOverlay {
@@ -109,6 +126,10 @@ interface OverlayState extends PersistedOverlay {
   addClusterAnnotation: (input: { label: string; notes?: string; color?: string; nodeIds: string[] }) => string;
   updateClusterAnnotation: (id: string, patch: Partial<Omit<ClusterAnnotation, 'id' | 'createdAt'>>) => void;
   removeClusterAnnotation: (id: string) => void;
+
+  // Boosts de score MEC
+  setMecScoreBoost: (mecId: string, bonus: number, reason?: string) => void;
+  removeMecScoreBoost: (mecId: string) => void;
 }
 
 const EMPTY: PersistedOverlay = {
@@ -117,6 +138,7 @@ const EMPTY: PersistedOverlay = {
   dossiersExNihilo: [],
   liensRenseignement: [],
   clusterAnnotations: [],
+  mecScoreBoosts: [],
 };
 
 const DOSSIER_EXN_PREFIX = 'dexn_';
@@ -139,6 +161,7 @@ async function _flush(): Promise<void> {
       dossiersExNihilo: s.dossiersExNihilo,
       liensRenseignement: s.liensRenseignement,
       clusterAnnotations: s.clusterAnnotations,
+      mecScoreBoosts: s.mecScoreBoosts,
     };
     await ElectronBridge.setData(STORAGE_KEY, payload);
     _isDirty = false;
@@ -165,6 +188,7 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
         dossiersExNihilo: data.dossiersExNihilo || [],
         liensRenseignement: data.liensRenseignement || [],
         clusterAnnotations: data.clusterAnnotations || [],
+        mecScoreBoosts: data.mecScoreBoosts || [],
         isLoaded: true,
       });
     } catch (error) {
@@ -389,6 +413,39 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
     const list = get().clusterAnnotations;
     if (!list.some(c => c.id === id)) return;
     set({ clusterAnnotations: list.filter(c => c.id !== id) });
+    markDirty();
+  },
+
+  // ── Boosts de score MEC ──────────────────────
+
+  setMecScoreBoost: (mecId, bonus, reason) => {
+    const id = normalizeMecName(mecId) || mecId;
+    if (!id) return;
+    const list = get().mecScoreBoosts;
+    const idx = list.findIndex(b => b.mecId === id);
+    // Bonus = 0 (et pas de raison) → on retire l'entrée pour rester clean.
+    if (bonus === 0 && !reason) {
+      if (idx < 0) return;
+      set({ mecScoreBoosts: list.filter(b => b.mecId !== id) });
+      markDirty();
+      return;
+    }
+    const next: MecScoreBoost = { mecId: id, bonus, reason, updatedAt: Date.now() };
+    if (idx < 0) {
+      set({ mecScoreBoosts: [...list, next] });
+    } else {
+      const updated = [...list];
+      updated[idx] = next;
+      set({ mecScoreBoosts: updated });
+    }
+    markDirty();
+  },
+
+  removeMecScoreBoost: (mecId) => {
+    const id = normalizeMecName(mecId) || mecId;
+    const list = get().mecScoreBoosts;
+    if (!list.some(b => b.mecId === id)) return;
+    set({ mecScoreBoosts: list.filter(b => b.mecId !== id) });
     markDirty();
   },
 }));
