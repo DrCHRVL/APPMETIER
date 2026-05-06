@@ -30,6 +30,7 @@ import {
   type LienRenseignement,
   type MecExNihilo,
   type MecScoreBoost,
+  type TagZoneAssignment,
 } from '@/stores/useCartographieOverlayStore';
 import {
   buildMetadata,
@@ -249,6 +250,7 @@ export class CartographieOverlaySyncService {
           liensRenseignement: merged.liensRenseignement,
           clusterAnnotations: merged.clusterAnnotations,
           mecScoreBoosts: merged.mecScoreBoosts,
+          tagZones: merged.tagZones,
           deletedMecExNihiloIds: tombstonesToWire(merged.deletedMecExNihiloIds),
           deletedDossierExNihiloIds: tombstonesToWire(merged.deletedDossierExNihiloIds),
           deletedLienIds: tombstonesToWire(merged.deletedLienIds),
@@ -279,6 +281,7 @@ export class CartographieOverlaySyncService {
       liensRenseignement: s.liensRenseignement,
       clusterAnnotations: s.clusterAnnotations,
       mecScoreBoosts: s.mecScoreBoosts.map(b => ({ ...b, id: b.mecId })),
+      tagZones: s.tagZones || [],
       deletedMecExNihiloIds: s.deletedMecExNihiloIds || [],
       deletedDossierExNihiloIds: s.deletedDossierExNihiloIds || [],
       deletedLienIds: s.deletedLienIds || [],
@@ -296,6 +299,7 @@ export class CartographieOverlaySyncService {
       clusterAnnotations: (file.clusterAnnotations || []) as ClusterAnnotation[],
       mecScoreBoosts: ((file.mecScoreBoosts || []) as MecScoreBoost[])
         .map(b => ({ ...b, id: b.mecId })),
+      tagZones: (file.tagZones || []) as TagZoneAssignment[],
       deletedMecExNihiloIds: tombstonesFromWire(file.deletedMecExNihiloIds),
       deletedDossierExNihiloIds: tombstonesFromWire(file.deletedDossierExNihiloIds),
       deletedLienIds: tombstonesFromWire(file.deletedLienIds),
@@ -329,6 +333,9 @@ export class CartographieOverlaySyncService {
           void _id;
           return rest as MecScoreBoost;
         }),
+      // tagZones : key = tag, last-write-wins via updatedAt. Pas de tombstones
+      // (la suppression locale est rare et l'utilisateur peut juste réassigner).
+      tagZones: mergeTagZones(local.tagZones, server.tagZones),
       deletedMecExNihiloIds: deletedMec,
       deletedDossierExNihiloIds: deletedDossier,
       deletedLienIds: deletedLien,
@@ -366,6 +373,7 @@ interface LocalSnapshot {
   // On ajoute virtuellement un `id` (= mecId) pour que les boosts passent
   // par le même algo de merge que les autres entités.
   mecScoreBoosts: (MecScoreBoost & { id: string })[];
+  tagZones: TagZoneAssignment[];
   deletedMecExNihiloIds: CartographieTombstoneEntry[];
   deletedDossierExNihiloIds: CartographieTombstoneEntry[];
   deletedLienIds: CartographieTombstoneEntry[];
@@ -385,12 +393,33 @@ function emptySnapshot(): LocalSnapshot {
     liensRenseignement: [],
     clusterAnnotations: [],
     mecScoreBoosts: [],
+    tagZones: [],
     deletedMecExNihiloIds: [],
     deletedDossierExNihiloIds: [],
     deletedLienIds: [],
     deletedClusterAnnotationIds: [],
     deletedMecScoreBoostIds: [],
   };
+}
+
+/**
+ * Merge tagZones par `tag` avec last-write-wins via `updatedAt`. Si un
+ * `updatedAt` manque (entrée legacy), on traite comme `0` (perd contre
+ * toute valeur récente). Pas de tombstones — pour supprimer une assignation,
+ * l'utilisateur réassigne ou l'entrée disparaît côté local sans propagation.
+ */
+function mergeTagZones(
+  local: TagZoneAssignment[],
+  server: TagZoneAssignment[],
+): TagZoneAssignment[] {
+  const byTag = new Map<string, TagZoneAssignment>();
+  for (const entry of [...server, ...local]) {
+    const cur = byTag.get(entry.tag);
+    const curTs = cur?.updatedAt || 0;
+    const newTs = entry.updatedAt || 0;
+    if (!cur || newTs >= curTs) byTag.set(entry.tag, entry);
+  }
+  return Array.from(byTag.values());
 }
 
 export const cartographieOverlaySyncService = CartographieOverlaySyncService.getInstance();

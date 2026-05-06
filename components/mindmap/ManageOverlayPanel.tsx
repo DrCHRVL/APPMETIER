@@ -6,22 +6,28 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Pencil, Trash2, MapPin, FileText, User, Link as LinkIcon, Layers } from 'lucide-react';
+import { X, Pencil, Trash2, MapPin, FileText, User, Link as LinkIcon, Layers, Compass } from 'lucide-react';
 import type {
   MecExNihilo,
   DossierExNihilo,
   LienRenseignement,
   ClusterAnnotation,
+  TagZoneAssignment,
 } from '@/stores/useCartographieOverlayStore';
 import type { MindmapGraph } from '@/utils/mindmapGraph';
+import { ZONE_GRID_POSITION, ZONE_LABELS, type ZoneId } from './zones';
 
-type Tab = 'mecs' | 'dossiers' | 'liens' | 'reseaux';
+type Tab = 'mecs' | 'dossiers' | 'liens' | 'reseaux' | 'zones';
 
 interface Props {
   mecs: MecExNihilo[];
   dossiers: DossierExNihilo[];
   liens: LienRenseignement[];
   clusterAnnotations: ClusterAnnotation[];
+  /** Tags présents dans les sources (valeur, count) — pré-trié par fréquence. */
+  availableTags: Array<[string, number]>;
+  /** Assignations tag → zone actuellement persistées. */
+  tagZones: TagZoneAssignment[];
   graph: MindmapGraph;
   onClose: () => void;
   onCenterNode: (nodeId: string) => void;
@@ -33,15 +39,19 @@ interface Props {
   onDeleteDossier: (id: string) => void;
   onDeleteLien: (id: string) => void;
   onDeleteClusterAnnotation: (id: string) => void;
+  onSetTagZone: (tag: string, zone: ZoneId) => void;
+  onRemoveTagZone: (tag: string) => void;
 }
 
 export const ManageOverlayPanel: React.FC<Props> = ({
-  mecs, dossiers, liens, clusterAnnotations, graph,
+  mecs, dossiers, liens, clusterAnnotations, availableTags, tagZones, graph,
   onClose, onCenterNode,
   onEditMec, onEditDossier, onEditLien, onEditClusterAnnotation,
   onDeleteMec, onDeleteDossier, onDeleteLien, onDeleteClusterAnnotation,
+  onSetTagZone, onRemoveTagZone,
 }) => {
   const [tab, setTab] = useState<Tab>('mecs');
+  const tagZoneMap = new Map(tagZones.map(a => [a.tag, a.zone]));
 
   const labelOf = (id: string): string => {
     const mec = graph.mecById.get(id);
@@ -65,6 +75,7 @@ export const ManageOverlayPanel: React.FC<Props> = ({
         <TabButton active={tab === 'dossiers'} onClick={() => setTab('dossiers')} icon={<FileText className="h-3 w-3" />} label="Dossiers" count={dossiers.length} />
         <TabButton active={tab === 'liens'} onClick={() => setTab('liens')} icon={<LinkIcon className="h-3 w-3" />} label="Liens" count={liens.length} />
         <TabButton active={tab === 'reseaux'} onClick={() => setTab('reseaux')} icon={<Layers className="h-3 w-3" />} label="Réseaux" count={clusterAnnotations.length} />
+        <TabButton active={tab === 'zones'} onClick={() => setTab('zones')} icon={<Compass className="h-3 w-3" />} label="Zones" count={tagZones.length} />
       </div>
 
       <div className="flex-1 overflow-y-auto p-2">
@@ -139,6 +150,85 @@ export const ManageOverlayPanel: React.FC<Props> = ({
                 />
               ))
         )}
+
+        {tab === 'zones' && (
+          availableTags.length === 0
+            ? <Empty>Aucun tag dans les enquêtes affichées. Ajoutez des tags (ex. service d'enquête) pour pouvoir les ancrer à une zone.</Empty>
+            : (
+              <div className="space-y-2">
+                <div className="px-2 py-1 text-[11px] text-slate-500 leading-snug">
+                  Assigne chaque tag à une zone cardinale. Les enquêtes (et leurs MEC)
+                  seront attirés vers cette zone — sans qu'un nœud "service" apparaisse.
+                </div>
+                {availableTags.map(([tag, count]) => (
+                  <TagZoneRow
+                    key={tag}
+                    tag={tag}
+                    count={count}
+                    current={tagZoneMap.get(tag)}
+                    onAssign={(z) => onSetTagZone(tag, z)}
+                    onClear={() => onRemoveTagZone(tag)}
+                  />
+                ))}
+              </div>
+            )
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Sélecteur de zone pour un tag : grille 3×3 de boutons cardinaux + bouton
+// "aucune". Visuel compact pour rester dans le panneau étroit.
+const TagZoneRow: React.FC<{
+  tag: string;
+  count: number;
+  current: ZoneId | undefined;
+  onAssign: (zone: ZoneId) => void;
+  onClear: () => void;
+}> = ({ tag, count, current, onAssign, onClear }) => {
+  const cells: (ZoneId | null)[][] = [
+    [null, null, null], [null, null, null], [null, null, null],
+  ];
+  for (const [zone, pos] of Object.entries(ZONE_GRID_POSITION) as [ZoneId, { col: 0 | 1 | 2; row: 0 | 1 | 2 }][]) {
+    cells[pos.row][pos.col] = zone;
+  }
+  return (
+    <div className="px-2 py-2 border border-slate-200 rounded">
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="text-sm font-medium text-slate-900 truncate" title={tag}>{tag}</div>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <span className="text-[10px] bg-slate-100 text-slate-600 px-1 rounded">{count}</span>
+          {current && (
+            <button
+              onClick={onClear}
+              title="Retirer l'assignation"
+              className="text-[10px] text-slate-400 hover:text-red-600"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-0.5">
+        {cells.flatMap((row, ri) => row.map((zone, ci) => {
+          if (!zone) return <div key={`${ri}_${ci}`} />;
+          const active = current === zone;
+          return (
+            <button
+              key={zone}
+              onClick={() => onAssign(zone)}
+              title={ZONE_LABELS[zone]}
+              className={`h-7 text-[10px] rounded transition-colors ${
+                active
+                  ? 'bg-slate-900 text-white font-semibold'
+                  : 'bg-slate-50 text-slate-500 hover:bg-slate-200 hover:text-slate-900'
+              }`}
+            >
+              {zone === 'centre' ? '·' : zone}
+            </button>
+          );
+        }))}
       </div>
     </div>
   );

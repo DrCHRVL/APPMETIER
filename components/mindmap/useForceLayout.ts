@@ -10,10 +10,13 @@ import {
   forceLink,
   forceManyBody,
   forceSimulation,
+  forceX,
+  forceY,
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from 'd3-force';
 import type { GraphEdge, GraphNode } from '@/utils/mindmapGraph';
+import { meanZoneCenter, type ZoneId } from './zones';
 
 export interface PositionedNode {
   id: string;
@@ -38,6 +41,10 @@ const CHARGE_STRENGTH = -550;
 // Ajustée empiriquement : assez forte pour séparer 2 clusters de 5 nœuds,
 // pas trop pour éviter les explosions sur des graphes de 100+ nœuds.
 const COMPONENT_REPULSION_STRENGTH = 12_000;
+// Force d'attraction d'un nœud vers le centre de sa zone géographique
+// assignée. Volontairement faible pour ne pas écraser la dynamique
+// link/charge/collide — on veut "incliner" le layout, pas le forcer.
+const ZONE_GRAVITY_STRENGTH = 0.06;
 
 function radiusOf(node: GraphNode): number {
   if (node.type === 'mec') {
@@ -221,12 +228,29 @@ function componentRepulsion(componentByNode: Map<string, number>) {
  * `refreshKey` permet de forcer un recalcul même quand `nodes`/`edges` ont une
  * identité stable (utile en mode offline pour redistribuer le layout après un
  * ajout extérieur).
+ *
+ * `nodeZones` (optionnel) attire chaque nœud vers le centre de gravité de
+ * la moyenne de ses zones assignées. Force volontairement douce pour incliner
+ * la carte sans casser sa cohérence interne (clusters restent groupés).
  */
 export function useForceLayout(
   nodes: GraphNode[],
   edges: GraphEdge[],
   refreshKey: number = 0,
+  nodeZones?: Map<string, ZoneId[]>,
 ): Map<string, PositionedNode> {
+  // On dérive un identifiant stable pour la map de zones — sinon une nouvelle
+  // référence d'objet à chaque rendu re-déclencherait le useMemo et donc le
+  // recalcul complet du layout, ce qui ferait sauter la position figée.
+  const zoneSignature = useMemo(() => {
+    if (!nodeZones || nodeZones.size === 0) return '';
+    const entries: string[] = [];
+    for (const [id, zones] of nodeZones) {
+      entries.push(`${id}:${zones.slice().sort().join(',')}`);
+    }
+    return entries.sort().join('|');
+  }, [nodeZones]);
+
   return useMemo(() => {
     if (nodes.length === 0) return new Map();
 
@@ -242,6 +266,16 @@ export function useForceLayout(
 
     const componentByNode = buildComponentIndex(nodes, edges);
 
+    // Pré-calcul des cibles de gravité par nœud (centre moyen des zones).
+    const targetByNodeId = new Map<string, { x: number; y: number }>();
+    if (nodeZones) {
+      for (const [id, zones] of nodeZones) {
+        const t = meanZoneCenter(zones);
+        if (t) targetByNodeId.set(id, t);
+      }
+    }
+    const hasZones = targetByNodeId.size > 0;
+
     const sim = forceSimulation(simNodes)
       .force(
         'link',
@@ -253,9 +287,23 @@ export function useForceLayout(
       .force('charge', forceManyBody<SimNode>().strength(CHARGE_STRENGTH))
       .force('center', forceCenter(CENTER_X, CENTER_Y))
       .force('collide', forceCollide<SimNode>().radius(d => d.radius + COLLIDE_PADDING).strength(1))
-      .force('componentRepulsion', componentRepulsion(componentByNode))
-      .stop();
+      .force('componentRepulsion', componentRepulsion(componentByNode));
 
+    if (hasZones) {
+      sim
+        .force(
+          'zoneX',
+          forceX<SimNode>(d => targetByNodeId.get(d.id)?.x ?? 0)
+            .strength(d => (targetByNodeId.has(d.id) ? ZONE_GRAVITY_STRENGTH : 0)),
+        )
+        .force(
+          'zoneY',
+          forceY<SimNode>(d => targetByNodeId.get(d.id)?.y ?? 0)
+            .strength(d => (targetByNodeId.has(d.id) ? ZONE_GRAVITY_STRENGTH : 0)),
+        );
+    }
+
+    sim.stop();
     for (let i = 0; i < ITERATIONS; i++) sim.tick();
 
     const positions = new Map<string, PositionedNode>();
@@ -265,7 +313,7 @@ export function useForceLayout(
     }
     return positions;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, edges, refreshKey]);
+  }, [nodes, edges, refreshKey, zoneSignature]);
 }
 
 export function getNodeRadius(node: GraphNode): number {

@@ -31,6 +31,7 @@ import { MindmapCanvas } from '../mindmap/MindmapCanvas';
 import { MindmapSidePanel } from '../mindmap/MindmapSidePanel';
 import { AddClusterAnnotationModal, AddDossierModal, AddLienModal, AddMecModal } from '../mindmap/OverlayModals';
 import { ManageOverlayPanel } from '../mindmap/ManageOverlayPanel';
+import type { ZoneId } from '../mindmap/zones';
 
 // ──────────────────────────────────────────────
 // PROPS
@@ -119,6 +120,9 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const removeClusterAnnotation = useCartographieOverlayStore(s => s.removeClusterAnnotation);
   const mecScoreBoosts = useCartographieOverlayStore(s => s.mecScoreBoosts);
   const setMecScoreBoost = useCartographieOverlayStore(s => s.setMecScoreBoost);
+  const tagZones = useCartographieOverlayStore(s => s.tagZones);
+  const setTagZone = useCartographieOverlayStore(s => s.setTagZone);
+  const removeTagZone = useCartographieOverlayStore(s => s.removeTagZone);
 
   useEffect(() => {
     if (!overlayLoaded) loadOverlay();
@@ -221,6 +225,63 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     [filteredSources, overlayInput],
   );
   const top10 = useMemo(() => getTopMec(graph, 10, pinnedMecIds), [graph, pinnedMecIds]);
+
+  // Tags présents dans les sources actuelles (toutes catégories) + comptage
+  // pour ordonner le panneau d'assignation par utilité décroissante.
+  const availableTagsByCount = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of sources) {
+      for (const t of s.enquete.tags || []) {
+        const v = (t.value || '').trim();
+        if (!v) continue;
+        counts.set(v, (counts.get(v) || 0) + 1);
+      }
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [sources]);
+
+  // Map nœud → zones, dérivée des tags du dossier (ou des dossiers liés
+  // pour un MEC). Les services d'enquête deviennent ainsi des aimants
+  // directionnels invisibles.
+  const nodeZones = useMemo(() => {
+    if (tagZones.length === 0) return undefined;
+    const tagToZone = new Map<string, ZoneId>();
+    for (const a of tagZones) tagToZone.set(a.tag, a.zone);
+
+    // Zones par enqueteId (les dossiers ex nihilo n'ont pas de tags).
+    const zonesByEnqueteId = new Map<number, ZoneId[]>();
+    for (const s of filteredSources) {
+      const zones: ZoneId[] = [];
+      for (const t of s.enquete.tags || []) {
+        const z = tagToZone.get(t.value);
+        if (z && !zones.includes(z)) zones.push(z);
+      }
+      if (zones.length > 0) zonesByEnqueteId.set(s.enquete.id, zones);
+    }
+    if (zonesByEnqueteId.size === 0) return undefined;
+
+    const out = new Map<string, ZoneId[]>();
+    // Dossiers : zones directes via enqueteId.
+    for (const d of graph.dossierById.values()) {
+      if (d.isExNihilo) continue;
+      const zones = zonesByEnqueteId.get(d.enqueteId);
+      if (zones && zones.length > 0) out.set(d.id, zones);
+    }
+    // MEC : héritent de l'union des zones de leurs dossiers.
+    for (const m of graph.mecById.values()) {
+      const acc: ZoneId[] = [];
+      for (const did of m.dossierIds) {
+        const dossier = graph.dossierById.get(did);
+        if (!dossier || dossier.isExNihilo) continue;
+        const zs = zonesByEnqueteId.get(dossier.enqueteId);
+        if (!zs) continue;
+        for (const z of zs) if (!acc.includes(z)) acc.push(z);
+      }
+      if (acc.length > 0) out.set(m.id, acc);
+    }
+    return out.size > 0 ? out : undefined;
+  }, [tagZones, filteredSources, graph]);
 
   const searchResults = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -552,11 +613,11 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         >
           <Layers className="h-3.5 w-3.5" />
           Mes ajouts
-          {(mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length + clusterAnnotations.length) > 0 && (
+          {(mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length + clusterAnnotations.length + tagZones.length) > 0 && (
             <span className={`text-[10px] rounded px-1 ${
               showManage ? 'bg-white/20' : 'bg-slate-200'
             }`}>
-              {mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length + clusterAnnotations.length}
+              {mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length + clusterAnnotations.length + tagZones.length}
             </span>
           )}
         </button>
@@ -604,6 +665,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             clusterAnnotations={clusterAnnotations}
             onAnnotateCluster={handleAnnotateCluster}
             egoNodeId={egoNodeId}
+            nodeZones={nodeZones}
             onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
           />
@@ -639,9 +701,13 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             dossiers={dossiersExNihilo}
             liens={liensRenseignement}
             clusterAnnotations={clusterAnnotations}
+            availableTags={availableTagsByCount}
+            tagZones={tagZones}
             graph={graph}
             onClose={() => setShowManage(false)}
             onCenterNode={centerOnId}
+            onSetTagZone={setTagZone}
+            onRemoveTagZone={removeTagZone}
             onEditMec={(m) => setEditingMec(m)}
             onEditDossier={(d) => setEditingDossier(d)}
             onEditLien={(l) => setEditingLien(l)}

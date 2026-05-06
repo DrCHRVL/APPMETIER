@@ -25,6 +25,7 @@ import type { DossierNode, GraphEdge, GraphNode, MecNode } from '@/utils/mindmap
 import type { ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
 import { getCollisionRadius, getDossierBox, getNodeRadius, useForceLayout } from './useForceLayout';
 import { buildInfluenceClusters, buildSubClusters, matchAnnotation, type InfluenceCluster } from './influenceHull';
+import type { ZoneId } from './zones';
 
 // ──────────────────────────────────────────────
 // PROPS
@@ -53,6 +54,9 @@ interface MindmapCanvasProps {
    *  jusqu'à `egoDepth` du nœud. Le reste passe en opacity dimmed. */
   egoNodeId?: string;
   egoDepth?: number;
+  /** Map id de nœud → zones géographiques héritées (via tags). Force le
+   *  layout à attirer les nœuds vers les puits cardinaux correspondants. */
+  nodeZones?: Map<string, ZoneId[]>;
   onNodeClick?: (node: GraphNode) => void;
   onNodeDoubleClick?: (node: GraphNode) => void;
 }
@@ -387,10 +391,11 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   onAnnotateCluster,
   egoNodeId,
   egoDepth = 2,
+  nodeZones,
   onNodeClick,
   onNodeDoubleClick,
 }) => {
-  const positions = useForceLayout(nodes, edges, refreshKey);
+  const positions = useForceLayout(nodes, edges, refreshKey, nodeZones);
   const { setCenter } = useReactFlow();
 
   useEffect(() => {

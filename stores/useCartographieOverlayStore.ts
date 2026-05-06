@@ -107,6 +107,22 @@ export interface MecScoreBoost {
   updatedAt: number;
 }
 
+/**
+ * Assignation d'un tag (typiquement un service d'enquête, mais peut être
+ * n'importe quelle valeur de tag) à une zone géographique. Sert à structurer
+ * la cartographie : tous les dossiers portant ce tag (et leurs MEC associés)
+ * sont attirés vers le puits de gravité de la zone correspondante. Les
+ * services eux-mêmes ne sont pas matérialisés comme des nœuds — seule la
+ * direction d'attraction est visible.
+ */
+export interface TagZoneAssignment {
+  /** Valeur exacte du tag (cf. Tag.value). Utilisé en clé. */
+  tag: string;
+  /** Zone parmi les 9 cardinales (cf. components/mindmap/zones.ts). */
+  zone: 'centre' | 'N' | 'NE' | 'E' | 'SE' | 'S' | 'SW' | 'W' | 'NW';
+  updatedAt: number;
+}
+
 interface PersistedOverlay {
   pinnedMecIds: string[];
   mecsExNihilo: MecExNihilo[];
@@ -114,6 +130,7 @@ interface PersistedOverlay {
   liensRenseignement: LienRenseignement[];
   clusterAnnotations: ClusterAnnotation[];
   mecScoreBoosts: MecScoreBoost[];
+  tagZones: TagZoneAssignment[];
   // Tombstones par catégorie (toutes optionnelles pour rétrocompat).
   deletedMecExNihiloIds?: CartographieTombstoneEntry[];
   deletedDossierExNihiloIds?: CartographieTombstoneEntry[];
@@ -161,6 +178,10 @@ interface OverlayState extends PersistedOverlay {
   // Boosts de score MEC
   setMecScoreBoost: (mecId: string, bonus: number, reason?: string) => void;
   removeMecScoreBoost: (mecId: string) => void;
+
+  // Assignation tag → zone géographique
+  setTagZone: (tag: string, zone: TagZoneAssignment['zone']) => void;
+  removeTagZone: (tag: string) => void;
 }
 
 const EMPTY: PersistedOverlay = {
@@ -170,6 +191,7 @@ const EMPTY: PersistedOverlay = {
   liensRenseignement: [],
   clusterAnnotations: [],
   mecScoreBoosts: [],
+  tagZones: [],
   deletedMecExNihiloIds: [],
   deletedDossierExNihiloIds: [],
   deletedLienIds: [],
@@ -232,6 +254,7 @@ async function _flush(): Promise<void> {
       liensRenseignement: s.liensRenseignement,
       clusterAnnotations: s.clusterAnnotations,
       mecScoreBoosts: s.mecScoreBoosts,
+      tagZones: s.tagZones,
       deletedMecExNihiloIds: s.deletedMecExNihiloIds,
       deletedDossierExNihiloIds: s.deletedDossierExNihiloIds,
       deletedLienIds: s.deletedLienIds,
@@ -267,6 +290,7 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
         liensRenseignement: data.liensRenseignement || [],
         clusterAnnotations: data.clusterAnnotations || [],
         mecScoreBoosts: data.mecScoreBoosts || [],
+        tagZones: data.tagZones || [],
         deletedMecExNihiloIds: data.deletedMecExNihiloIds || [],
         deletedDossierExNihiloIds: data.deletedDossierExNihiloIds || [],
         deletedLienIds: data.deletedLienIds || [],
@@ -294,6 +318,7 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
       liensRenseignement: snapshot.liensRenseignement ?? get().liensRenseignement,
       clusterAnnotations: snapshot.clusterAnnotations ?? get().clusterAnnotations,
       mecScoreBoosts: snapshot.mecScoreBoosts ?? get().mecScoreBoosts,
+      tagZones: snapshot.tagZones ?? get().tagZones,
       deletedMecExNihiloIds: snapshot.deletedMecExNihiloIds ?? get().deletedMecExNihiloIds,
       deletedDossierExNihiloIds: snapshot.deletedDossierExNihiloIds ?? get().deletedDossierExNihiloIds,
       deletedLienIds: snapshot.deletedLienIds ?? get().deletedLienIds,
@@ -585,6 +610,31 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
       mecScoreBoosts: list.filter(b => b.mecId !== id),
       deletedMecScoreBoostIds: appendTombstone(get().deletedMecScoreBoostIds, id),
     });
+    markDirty();
+  },
+
+  // ── Assignation tag → zone géographique ─────
+
+  setTagZone: (tag, zone) => {
+    const t = (tag || '').trim();
+    if (!t) return;
+    const list = get().tagZones;
+    const idx = list.findIndex(a => a.tag === t);
+    const next: TagZoneAssignment = { tag: t, zone, updatedAt: Date.now() };
+    if (idx < 0) {
+      set({ tagZones: [...list, next] });
+    } else {
+      const updated = [...list];
+      updated[idx] = next;
+      set({ tagZones: updated });
+    }
+    markDirty();
+  },
+
+  removeTagZone: (tag) => {
+    const list = get().tagZones;
+    if (!list.some(a => a.tag === tag)) return;
+    set({ tagZones: list.filter(a => a.tag !== tag) });
     markDirty();
   },
 }));
