@@ -318,6 +318,13 @@ export const ViewAudienceResultModal = ({
                   const typeImmLabels: Record<string, string> = { appartement: 'Appartement', maison: 'Maison', terrain: 'Terrain', local_commercial: 'Local commercial', autre: 'Autre' };
                   const catObjLabels: Record<string, string> = { electronique: 'Électronique', luxe: 'Luxe', transport_leger: 'Transport léger', informatique: 'Informatique', autre: 'Autre' };
                   const stupLabels: Record<string, string> = { cocaine: 'Cocaïne', heroine: 'Héroïne', cannabis: 'Cannabis', synthese: 'Synthèse', autre: 'Autre' };
+                  const avoirLabels: Record<string, string> = { compte_courant: 'Compte courant', livret: 'Livret', assurance_vie: 'Assurance vie', numeraire: 'Numéraire', autre: 'Autre' };
+                  const flagLabel = (it: { remiseAvantJugement?: boolean; venteAvantJugement?: boolean }) => {
+                    const flags = [];
+                    if (it.remiseAvantJugement) flags.push('remise avant jugement');
+                    if (it.venteAvantJugement) flags.push('vente avant jugement');
+                    return flags.length ? ` [${flags.join(', ')}]` : '';
+                  };
                   return (
                     <div className="bg-gray-50 p-4 rounded-lg space-y-3 text-sm">
                       {conf.vehicules.length > 0 && (
@@ -325,7 +332,7 @@ export const ViewAudienceResultModal = ({
                           <span className="text-gray-600 font-medium">Véhicules ({conf.vehicules.length}) :</span>
                           <ul className="ml-4 mt-1 space-y-1">
                             {conf.vehicules.map((v, i) => (
-                              <li key={i}>{typeVehLabels[v.type] || v.type}{v.marqueModele ? ` - ${v.marqueModele}` : ''}{v.immatriculation ? ` (${v.immatriculation})` : ''}{v.valeurEstimee ? ` — ${formatEur(v.valeurEstimee)}` : ''}</li>
+                              <li key={i}>{typeVehLabels[v.type] || v.type}{v.marqueModele ? ` - ${v.marqueModele}` : ''}{v.immatriculation ? ` (${v.immatriculation})` : ''}{v.valeurEstimee ? ` — ${formatEur(v.valeurEstimee)}` : ''}{flagLabel(v)}</li>
                             ))}
                           </ul>
                         </div>
@@ -335,7 +342,7 @@ export const ViewAudienceResultModal = ({
                           <span className="text-gray-600 font-medium">Immeubles ({conf.immeubles.length}) :</span>
                           <ul className="ml-4 mt-1 space-y-1">
                             {conf.immeubles.map((im, i) => (
-                              <li key={i}>{typeImmLabels[im.type] || im.type}{im.adresse ? ` - ${im.adresse}` : ''}{im.valeurEstimee ? ` — ${formatEur(im.valeurEstimee)}` : ''}</li>
+                              <li key={i}>{typeImmLabels[im.type] || im.type}{im.adresse ? ` - ${im.adresse}` : ''}{im.valeurEstimee ? ` — ${formatEur(im.valeurEstimee)}` : ''}{flagLabel(im)}</li>
                             ))}
                           </ul>
                         </div>
@@ -345,10 +352,10 @@ export const ViewAudienceResultModal = ({
                       )}
                       {conf.saisiesBancaires.length > 0 && (
                         <div>
-                          <span className="text-gray-600 font-medium">Saisies bancaires ({formatEur(totalBancaire)}) :</span>
+                          <span className="text-gray-600 font-medium">Avoirs financiers ({formatEur(totalBancaire)}) :</span>
                           <ul className="ml-4 mt-1 space-y-1">
                             {conf.saisiesBancaires.map((sb, i) => (
-                              <li key={i}>{formatEur(sb.montant)}{sb.banque ? ` (${sb.banque})` : ''}{sb.referenceAgrasc ? ` — AGRASC: ${sb.referenceAgrasc}` : ''}</li>
+                              <li key={i}>{avoirLabels[sb.type || 'compte_courant'] || sb.type} — {formatEur(sb.montant)}{sb.banque ? ` (${sb.banque})` : ''}{flagLabel(sb)}</li>
                             ))}
                           </ul>
                         </div>
@@ -368,7 +375,7 @@ export const ViewAudienceResultModal = ({
                           <span className="text-gray-600 font-medium">Objets mobiliers ({conf.objetsMobiliers.length}) :</span>
                           <ul className="ml-4 mt-1 space-y-1">
                             {conf.objetsMobiliers.map((obj, i) => (
-                              <li key={i}>{catObjLabels[obj.categorie] || obj.categorie}{obj.description ? ` - ${obj.description}` : ''} ×{obj.quantite}{obj.valeurEstimee ? ` — ${formatEur(obj.valeurEstimee)}` : ''}</li>
+                              <li key={i}>{catObjLabels[obj.categorie] || obj.categorie}{obj.description ? ` - ${obj.description}` : ''} ×{obj.quantite}{obj.valeurEstimee ? ` — ${formatEur(obj.valeurEstimee)}` : ''}{flagLabel(obj)}</li>
                             ))}
                           </ul>
                         </div>

@@ -72,6 +72,29 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
   let totalSaisiesBancaire = 0;
   let totalSaisiesCrypto = 0;
   let totalSaisiesObjets = 0;
+  // Compteurs des biens/avoirs marqués "remise/vente avant jugement"
+  // (toutes catégories : véhicules, immeubles, avoirs, objets, crypto). On
+  // additionne saisies (phase enquête) ET confiscations (audience) pour ne pas
+  // double-compter selon où l'utilisateur saisit l'info.
+  let nombreRemisesAvantJugement = 0;
+  let nombreVentesAvantJugement = 0;
+
+  /** Itère tous les items d'un Confiscations et incrémente les compteurs remise/vente. */
+  const countPreJugementFlags = (c: ReturnType<typeof migrateConfiscations>) => {
+    const lists: { remiseAvantJugement?: boolean; venteAvantJugement?: boolean }[][] = [
+      c.vehicules,
+      c.immeubles,
+      c.saisiesBancaires,
+      c.cryptomonnaies,
+      c.objetsMobiliers,
+    ];
+    for (const list of lists) {
+      for (const item of list) {
+        if (item.remiseAvantJugement) nombreRemisesAvantJugement++;
+        if (item.venteAvantJugement) nombreVentesAvantJugement++;
+      }
+    }
+  };
 
   // Compteurs pour les types d'orientation
   const audiencesUniques = new Set<string>();
@@ -143,6 +166,7 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
       totalSaisiesCrypto += sCrypto;
       totalSaisiesArgent += (sais.numeraire || 0) + sBancaire + sCrypto;
       totalSaisiesObjets += sais.objetsMobiliers.reduce((s, o) => s + (o.quantite || 1), 0);
+      countPreJugementFlags(sais);
     }
   }
 
@@ -284,6 +308,7 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
       totalArgent += (conf.numeraire || 0) + bancaire + crypto;
       totalObjets += conf.objetsMobiliers.reduce((s, o) => s + (o.quantite || 1), 0);
       if (conf.stupefiants?.types?.length) totalStupefiants++;
+      countPreJugementFlags(conf);
     }
 
     // Traitement des saisies (phase enquête)
@@ -298,6 +323,7 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
       totalSaisiesCrypto += sCrypto;
       totalSaisiesArgent += (sais.numeraire || 0) + sBancaire + sCrypto;
       totalSaisiesObjets += sais.objetsMobiliers.reduce((s, o) => s + (o.quantite || 1), 0);
+      countPreJugementFlags(sais);
     }
   });
 
@@ -357,6 +383,8 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
     totalSaisiesBancaire,
     totalSaisiesCrypto,
     totalSaisiesObjets,
+    nombreRemisesAvantJugement,
+    nombreVentesAvantJugement,
     ratioConfiscations: totalCondamnations > 0 ? (totalVehicules + totalImmeubles + totalObjets) / totalCondamnations : 0,
     peinesParInfraction,
     totalInterdictionsParaitre,
