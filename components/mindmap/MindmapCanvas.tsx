@@ -22,7 +22,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { DossierNode, GraphEdge, GraphNode, MecNode } from '@/utils/mindmapGraph';
-import { getNodeRadius, useForceLayout } from './useForceLayout';
+import { getDossierBox, getNodeRadius, useForceLayout } from './useForceLayout';
 
 // ──────────────────────────────────────────────
 // PROPS
@@ -49,6 +49,8 @@ type MecNodeData = MecNode & { focused: boolean; radius: number };
 type DossierNodeData = DossierNode & {
   focused: boolean;
   radius: number;
+  width: number;
+  height: number;
   color: string;
   contentieuxLabel: string;
   isExNihilo: boolean;
@@ -102,9 +104,7 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
 };
 
 const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
-  const { numero, statut, focused, radius, color, contentieuxLabel, nbMec, isExNihilo } = data;
-  const width = Math.max(120, radius * 4);
-  const height = Math.max(48, radius * 1.6);
+  const { numero, statut, focused, radius, width, height, color, contentieuxLabel, nbMec, isExNihilo } = data;
   const archived = statut === 'archive' && !isExNihilo;
   return (
     <div
@@ -196,16 +196,17 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       }
       const ctx = ctxColorById.get(n.contentieuxId);
       const isExNihilo = !!n.isExNihilo;
+      const { width, height } = getDossierBox(n);
       const data: DossierNodeData = {
         ...n,
         focused,
         radius,
+        width,
+        height,
         color: isExNihilo ? '#7c3aed' : (ctx?.color || CTX_FALLBACK_COLOR),
         contentieuxLabel: ctx?.label || n.contentieuxId,
         isExNihilo,
       };
-      const width = Math.max(120, radius * 4);
-      const height = Math.max(48, radius * 1.6);
       return {
         id: n.id,
         type: 'dossier',

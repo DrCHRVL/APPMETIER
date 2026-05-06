@@ -42,14 +42,40 @@ function radiusOf(node: GraphNode): number {
   return 24 + Math.round((cap / 8) * 32);
 }
 
+// Padding ajouté autour de chaque rectangle dossier pour empêcher le contenu
+// de deux badges de se toucher visuellement (même quand les rectangles eux-mêmes
+// n'ont pas formellement de pixels en commun — l'œil lit ça comme un chevauchement).
+const DOSSIER_BOX_PADDING = 8;
+const COLLIDE_PADDING = 20;
+
+/**
+ * Dimensions réelles du rectangle dossier, calculées à partir du `numero`.
+ * Doit rester synchronisée avec le rendu de DossierNodeView (MindmapCanvas) :
+ * même formule de font-size, même chaîne mesurée. Mutualisée ici pour que
+ * la collision et le placement utilisent strictement la même boîte.
+ */
+export function getDossierBox(node: GraphNode): { width: number; height: number } {
+  const r = radiusOf(node);
+  if (node.type === 'mec') {
+    const d = r * 2;
+    return { width: d, height: d };
+  }
+  const fontSize = Math.max(11, Math.min(14, r / 3));
+  // ~0.62em par caractère en font-mono ; on prend la chaîne la plus longue
+  // affichée (numero) et on ajoute le padding visuel + bordure.
+  const charCount = (node.numero || '').length;
+  const textWidth = charCount * fontSize * 0.62;
+  const width = Math.max(120, Math.min(360, Math.ceil(textWidth + 2 * DOSSIER_BOX_PADDING + 16)));
+  const height = Math.max(48, Math.round(r * 1.6));
+  return { width, height };
+}
+
 // Rayon utilisé pour la détection de collision : pour un dossier (rectangle),
 // on prend la demi-diagonale de la boîte réelle, sinon les dossiers larges
 // se chevauchent puisque d3-force les considère comme des cercles.
 function collisionRadiusOf(node: GraphNode): number {
-  const r = radiusOf(node);
-  if (node.type === 'mec') return r;
-  const width = Math.max(120, r * 4);
-  const height = Math.max(48, r * 1.6);
+  if (node.type === 'mec') return radiusOf(node);
+  const { width, height } = getDossierBox(node);
   return Math.sqrt(width * width + height * height) / 2;
 }
 
@@ -85,7 +111,7 @@ export function useForceLayout(
       )
       .force('charge', forceManyBody<SimNode>().strength(CHARGE_STRENGTH))
       .force('center', forceCenter(CENTER_X, CENTER_Y))
-      .force('collide', forceCollide<SimNode>().radius(d => d.radius + 12).strength(1))
+      .force('collide', forceCollide<SimNode>().radius(d => d.radius + COLLIDE_PADDING).strength(1))
       .stop();
 
     for (let i = 0; i < ITERATIONS; i++) sim.tick();
