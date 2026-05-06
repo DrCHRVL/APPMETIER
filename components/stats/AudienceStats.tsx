@@ -688,6 +688,26 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                       </div>
                     </div>
                   )}
+                  {(yearlyStats.nombreRemisesAvantJugement > 0 ||
+                    yearlyStats.nombreVentesAvantJugement > 0) && (
+                    <div className="border-t pt-2 space-y-2">
+                      <p className="text-xs text-gray-500 font-medium uppercase">
+                        Disposition avant jugement
+                      </p>
+                      {yearlyStats.nombreRemisesAvantJugement > 0 && (
+                        <div className="flex justify-between">
+                          <span>Remises avant jugement</span>
+                          <span className="font-bold">{yearlyStats.nombreRemisesAvantJugement}</span>
+                        </div>
+                      )}
+                      {yearlyStats.nombreVentesAvantJugement > 0 && (
+                        <div className="flex justify-between">
+                          <span>Ventes avant jugement</span>
+                          <span className="font-bold">{yearlyStats.nombreVentesAvantJugement}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })()}

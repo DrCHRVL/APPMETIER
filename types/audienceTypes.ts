@@ -23,9 +23,18 @@ export interface CondamnationData {
 
 // --- Types détaillés pour les saisies ---
 
+/**
+ * Champs partagés par tous les types d'avoirs/biens saisis pour permettre
+ * de tracer une remise ou une vente avant jugement (récupéré dans les stats).
+ */
+export interface SaisieFlags {
+  remiseAvantJugement?: boolean;
+  venteAvantJugement?: boolean;
+}
+
 export type TypeVehicule = 'voiture' | 'moto' | 'scooter' | 'utilitaire' | 'poids_lourd' | 'bateau' | 'autre';
 
-export interface VehiculeSaisi {
+export interface VehiculeSaisi extends SaisieFlags {
   type: TypeVehicule;
   marqueModele?: string;
   immatriculation?: string;
@@ -34,26 +43,31 @@ export interface VehiculeSaisi {
 
 export type TypeImmeuble = 'appartement' | 'maison' | 'terrain' | 'local_commercial' | 'autre';
 
-export interface ImmeubleSaisi {
+export interface ImmeubleSaisi extends SaisieFlags {
   type: TypeImmeuble;
   adresse?: string;
   valeurEstimee?: number;
 }
 
-export interface SaisieBancaire {
+export type TypeAvoir = 'compte_courant' | 'livret' | 'assurance_vie' | 'numeraire' | 'autre';
+
+export interface SaisieBancaire extends SaisieFlags {
+  /** Type d'avoir financier. Optionnel pour compat ascendante (ancien format sans type). */
+  type?: TypeAvoir;
   montant: number;
   banque?: string;
+  /** @deprecated conservé pour relire les anciennes données ; n'est plus saisi dans l'UI. */
   referenceAgrasc?: string;
 }
 
-export interface CryptoSaisie {
+export interface CryptoSaisie extends SaisieFlags {
   montantEur: number;
   typeCrypto?: string;
 }
 
 export type CategorieObjet = 'electronique' | 'luxe' | 'transport_leger' | 'informatique' | 'autre';
 
-export interface ObjetMobilier {
+export interface ObjetMobilier extends SaisieFlags {
   categorie: CategorieObjet;
   description?: string;
   quantite: number;
@@ -120,6 +134,7 @@ export function migrateConfiscations(raw: any): Confiscations {
     objetsMobiliers: [],
   };
 }
+
 
 export interface PendingCondamnation {
   nom: string;
@@ -193,6 +208,10 @@ export interface AudienceStats {
   totalSaisiesBancaire: number;
   totalSaisiesCrypto: number;
   totalSaisiesObjets: number;
+  /** Nombre de biens/avoirs marqués "remise avant jugement" (toutes catégories). */
+  nombreRemisesAvantJugement: number;
+  /** Nombre de biens/avoirs marqués "vente avant jugement" (toutes catégories). */
+  nombreVentesAvantJugement: number;
   nombreAudiences: number;
   nombreCondamnations: number;
   totalPeinePrison: number;
