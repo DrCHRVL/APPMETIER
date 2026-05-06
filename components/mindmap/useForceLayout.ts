@@ -40,17 +40,18 @@ const CHARGE_STRENGTH = -550;
 // peuvent se chevaucher visuellement même sans aucun lien entre les nœuds.
 // Ajustée empiriquement : assez forte pour séparer 2 clusters de 5 nœuds,
 // pas trop pour éviter les explosions sur des graphes de 100+ nœuds.
-const COMPONENT_REPULSION_STRENGTH = 12_000;
+const COMPONENT_REPULSION_STRENGTH = 30_000;
 // Force d'attraction d'un nœud vers le centre de sa zone géographique
-// assignée. Volontairement faible pour ne pas écraser la dynamique
-// link/charge/collide — on veut "incliner" le layout, pas le forcer.
-const ZONE_GRAVITY_STRENGTH = 0.035;
+// assignée. Plus forte qu'avant car les zones sont désormais très
+// éloignées (R=2200) — sans pull suffisant, les composantes resteraient
+// agglutinées au centre malgré l'assignation.
+const ZONE_GRAVITY_STRENGTH = 0.08;
 // Rayon de dispersion (jitter déterministe) autour du centre de zone : sans
 // ça, toutes les composantes assignées à la même zone étaient tirées au
 // même point exact et finissaient empilées les unes sur les autres. On
 // répartit les nœuds dans un disque autour du centre, en utilisant un hash
 // stable de l'id pour que la position reste identique entre deux rendus.
-const ZONE_JITTER_RADIUS = 320;
+const ZONE_JITTER_RADIUS = 600;
 
 /**
  * Hash 32-bit stable (FNV-1a) — déterministe, pas de dépendance crypto.

@@ -22,12 +22,11 @@ export const ZONE_LABELS: Record<ZoneId, string> = {
 };
 
 // Rayon virtuel en pixels monde des zones cardinales depuis le centre.
-// Doit être suffisamment large pour éviter que plusieurs composantes
-// assignées à des zones différentes se retrouvent visuellement empilées :
-// avec R=600 et 5+ composantes par zone, les aires d'influence se
-// chevauchaient et le graphe devenait illisible. Diamètre = 2R doit
-// dépasser la somme des "tailles naturelles" des clusters par zone.
-const R = 1100;
+// "Galaxie" plutôt que "sac de billes" : les puits doivent être très
+// éloignés pour qu'on perçoive des constellations distinctes plutôt qu'un
+// magma collé. Diamètre 2R = 4400px laisse de la place à plusieurs
+// composantes par zone sans qu'elles débordent sur la zone voisine.
+const R = 2200;
 const D = R * 0.7071;
 
 export const ZONE_CENTERS: Record<ZoneId, { x: number; y: number }> = {
