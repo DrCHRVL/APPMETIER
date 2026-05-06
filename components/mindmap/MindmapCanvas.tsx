@@ -24,7 +24,7 @@ import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { DossierNode, GraphEdge, GraphNode, MecNode } from '@/utils/mindmapGraph';
 import type { ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
 import { getCollisionRadius, getDossierBox, getNodeRadius, useForceLayout } from './useForceLayout';
-import { buildInfluenceClusters, buildSubClusters, matchAnnotation, polygonToPath, type InfluenceCluster } from './influenceHull';
+import { buildInfluenceClusters, buildSubClusters, matchAnnotation, type InfluenceCluster } from './influenceHull';
 
 // ──────────────────────────────────────────────
 // PROPS
@@ -208,19 +208,23 @@ const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
 // Aire d'influence : SVG rendu en arrière-plan (zIndex négatif) qui suit
 // pan/zoom comme un nœud normal. variant 'sub' = mini-aire dossier-centrée
 // rendue par-dessus le grand blob avec un fill plus marqué.
+//
+// La forme est l'union d'un cercle par membre et d'une capsule par arête
+// intra-cluster. Group opacity (et non fillOpacity) sur le <g> : les
+// chevauchements internes ne s'additionnent pas en surbrillance, et la
+// silhouette résultante n'englobe que les vrais membres et leurs liens —
+// jamais un nœud non-membre piégé spatialement entre eux.
 const HullNodeView = ({ data }: NodeProps<Node<HullNodeData>>) => {
   const { cluster, containsFocus, effectiveColor, variant, dimmed } = data;
   const w = cluster.bbox.maxX - cluster.bbox.minX;
   const h = cluster.bbox.maxY - cluster.bbox.minY;
-  const path = polygonToPath(cluster.polygon, cluster.bbox.minX, cluster.bbox.minY);
+  const ox = cluster.bbox.minX;
+  const oy = cluster.bbox.minY;
 
   const isSub = variant === 'sub';
-  const baseFillOpacity = isSub
-    ? (containsFocus ? 0.22 : 0.14)
-    : (containsFocus ? 0.18 : 0.10);
-  const baseStrokeOpacity = isSub
-    ? (containsFocus ? 0.45 : 0.25)
-    : (containsFocus ? 0.55 : 0.30);
+  const fillOpacity = isSub
+    ? (containsFocus ? 0.28 : 0.18)
+    : (containsFocus ? 0.22 : 0.14);
 
   return (
     <svg
@@ -233,16 +237,29 @@ const HullNodeView = ({ data }: NodeProps<Node<HullNodeData>>) => {
         transition: 'opacity 200ms',
       }}
     >
-      <path
-        d={path}
-        fill={effectiveColor}
-        fillOpacity={baseFillOpacity}
-        stroke={effectiveColor}
-        strokeOpacity={baseStrokeOpacity}
-        strokeWidth={isSub ? 1 : (containsFocus ? 2 : 1.25)}
-        strokeDasharray={isSub ? '4 4' : undefined}
-        strokeLinejoin="round"
-      />
+      <g opacity={fillOpacity} fill={effectiveColor} stroke={effectiveColor}>
+        {cluster.capsules.map((cap, i) => (
+          <line
+            key={`cap_${i}`}
+            x1={cap.x1 - ox}
+            y1={cap.y1 - oy}
+            x2={cap.x2 - ox}
+            y2={cap.y2 - oy}
+            strokeWidth={2 * cap.r}
+            strokeLinecap="round"
+            fill="none"
+          />
+        ))}
+        {cluster.circles.map((c, i) => (
+          <circle
+            key={`c_${i}`}
+            cx={c.x - ox}
+            cy={c.y - oy}
+            r={c.r}
+            stroke="none"
+          />
+        ))}
+      </g>
     </svg>
   );
 };
@@ -415,7 +432,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       positions,
       getCollisionRadius,
       (id) => ctxColorById.get(id)?.color,
-      { minNodes: 3, nodePadding: 32, samples: 10, smoothIterations: 3 },
+      { minNodes: 3, nodePadding: 32 },
     );
   }, [nodes, edges, positions, ctxColorById, showInfluence]);
 
@@ -429,7 +446,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     for (const c of influenceClusters) {
       out.push(...buildSubClusters(
         c, nodes, edges, positions, getCollisionRadius,
-        { nodePadding: 18, samples: 8, smoothIterations: 2, minNodes: 3 },
+        { nodePadding: 18, minNodes: 3 },
       ));
     }
     return out;
