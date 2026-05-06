@@ -1,7 +1,11 @@
 // components/mindmap/influenceHull.ts
-// Outils géométriques pour les "aires d'influence" : détection de composantes
-// connexes, hull convexe enrichi, lissage Chaikin pour produire des blobs
-// organiques par cluster.
+// Outils géométriques pour les "aires d'influence". L'aire d'un cluster est
+// rendue comme l'union d'un cercle par membre (rayon = collisionRadius +
+// padding) et d'une capsule par arête intra-cluster (tube de largeur
+// 2 * padding). Ce choix géométrique évite l'écueil des hulls convexes :
+// un nœud spatialement piégé dans le triangle des membres n'est jamais
+// englobé visuellement, parce que la forme suit les membres et leurs
+// liens, jamais leur enveloppe externe.
 //
 // Tout est pur (pas de dépendance React/d3) — testable et réutilisable.
 
@@ -9,14 +13,29 @@ import type { ContentieuxId } from '@/types/userTypes';
 import type { GraphEdge, GraphNode } from '@/utils/mindmapGraph';
 import type { PositionedNode } from './useForceLayout';
 
-export type Pt = [number, number];
+export interface ClusterCircle {
+  x: number;
+  y: number;
+  r: number;
+}
+
+export interface ClusterCapsule {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  /** Demi-largeur du tube (= padding). */
+  r: number;
+}
 
 export interface InfluenceCluster {
   id: string;                 // identifiant stable (concat des ids de nœuds triés)
   nodeIds: string[];
-  /** Polygone lissé prêt à être rendu en SVG (coordonnées monde). */
-  polygon: Pt[];
-  /** Bounding box du polygone (utile pour positionner un nœud SVG englobant). */
+  /** Cercles centrés sur chaque membre (rayon = collisionRadius + padding). */
+  circles: ClusterCircle[];
+  /** Capsules le long des arêtes intra-cluster (tubes à bouts arrondis). */
+  capsules: ClusterCapsule[];
+  /** Bounding box de l'union circles+capsules (utile pour positionner un nœud SVG englobant). */
   bbox: { minX: number; minY: number; maxX: number; maxY: number };
   /** Couleur dérivée du contentieux dominant de la composante. */
   color: string;
@@ -95,74 +114,6 @@ export function connectedComponents(
 }
 
 // ──────────────────────────────────────────────
-// CONVEX HULL (Andrew's monotone chain)
-// ──────────────────────────────────────────────
-
-function cross(o: Pt, a: Pt, b: Pt): number {
-  return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
-}
-
-export function convexHull(points: Pt[]): Pt[] {
-  if (points.length <= 1) return points.slice();
-  const pts = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  const lower: Pt[] = [];
-  for (const p of pts) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
-      lower.pop();
-    }
-    lower.push(p);
-  }
-  const upper: Pt[] = [];
-  for (let i = pts.length - 1; i >= 0; i--) {
-    const p = pts[i];
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
-      upper.pop();
-    }
-    upper.push(p);
-  }
-  lower.pop();
-  upper.pop();
-  return lower.concat(upper);
-}
-
-// ──────────────────────────────────────────────
-// CHAIKIN SMOOTHING (closed polygon)
-// ──────────────────────────────────────────────
-
-export function chaikin(points: Pt[], iterations = 3): Pt[] {
-  if (points.length < 3) return points.slice();
-  let pts = points.slice();
-  for (let it = 0; it < iterations; it++) {
-    const next: Pt[] = [];
-    for (let i = 0; i < pts.length; i++) {
-      const p0 = pts[i];
-      const p1 = pts[(i + 1) % pts.length];
-      next.push([0.75 * p0[0] + 0.25 * p1[0], 0.75 * p0[1] + 0.25 * p1[1]]);
-      next.push([0.25 * p0[0] + 0.75 * p1[0], 0.25 * p0[1] + 0.75 * p1[1]]);
-    }
-    pts = next;
-  }
-  return pts;
-}
-
-// ──────────────────────────────────────────────
-// PADDING PAR ÉCHANTILLONNAGE DE CERCLES
-// ──────────────────────────────────────────────
-// Plutôt que d'offsetter le polygone (calculs d'intersection d'arêtes
-// parallèles, fragile aux concavités), on génère N points sur un cercle
-// autour de chaque nœud puis on prend le hull convexe de l'ensemble. Le
-// résultat épouse naturellement chaque nœud avec le padding voulu.
-
-function circleSamples(cx: number, cy: number, radius: number, samples: number): Pt[] {
-  const out: Pt[] = [];
-  for (let i = 0; i < samples; i++) {
-    const a = (i / samples) * Math.PI * 2;
-    out.push([cx + Math.cos(a) * radius, cy + Math.sin(a) * radius]);
-  }
-  return out;
-}
-
-// ──────────────────────────────────────────────
 // CALCUL DES CLUSTERS PRÊTS À RENDRE
 // ──────────────────────────────────────────────
 
@@ -171,10 +122,72 @@ export interface BuildInfluenceOptions {
   minNodes?: number;
   /** Padding visuel autour de chaque nœud, en pixels monde. */
   nodePadding?: number;
-  /** Nombre d'échantillons par cercle (8 = bon compromis vitesse/lissage). */
-  samples?: number;
-  /** Itérations Chaikin (3 = blob doux ; 1 = quasi-polygone). */
-  smoothIterations?: number;
+}
+
+/**
+ * Construit la géométrie d'un cluster (cercles + capsules) à partir d'une
+ * liste de membres et de leurs arêtes internes. Calcule aussi la bbox de
+ * l'union pour le positionnement SVG.
+ */
+function buildClusterShape(
+  members: GraphNode[],
+  intraEdges: GraphEdge[],
+  positions: Map<string, PositionedNode>,
+  collisionRadiusOf: (n: GraphNode) => number,
+  nodePadding: number,
+): {
+  circles: ClusterCircle[];
+  capsules: ClusterCapsule[];
+  bbox: { minX: number; minY: number; maxX: number; maxY: number };
+} | undefined {
+  const circles: ClusterCircle[] = [];
+  const positionByNodeId = new Map<string, PositionedNode>();
+
+  for (const n of members) {
+    const pos = positions.get(n.id);
+    if (!pos) continue;
+    const r = collisionRadiusOf(n) + nodePadding;
+    circles.push({ x: pos.x, y: pos.y, r });
+    positionByNodeId.set(n.id, pos);
+  }
+  if (circles.length === 0) return undefined;
+
+  // Capsules : pour chaque arête entre deux membres, un tube de demi-largeur
+  // = padding (le rayon du cercle aux extrémités est plus grand mais c'est ok :
+  // l'union absorbe l'étranglement éventuel).
+  const capsules: ClusterCapsule[] = [];
+  for (const e of intraEdges) {
+    const a = positionByNodeId.get(e.source);
+    const b = positionByNodeId.get(e.target);
+    if (!a || !b) continue;
+    capsules.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, r: nodePadding });
+  }
+
+  // Bbox de l'union : suffisant de borner par les cercles, puisque les
+  // capsules vivent entre deux centres dont les disques sont déjà dans la bbox
+  // (le rayon de capsule ≤ rayon de cercle pour un nœud non dégénéré).
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const c of circles) {
+    if (c.x - c.r < minX) minX = c.x - c.r;
+    if (c.y - c.r < minY) minY = c.y - c.r;
+    if (c.x + c.r > maxX) maxX = c.x + c.r;
+    if (c.y + c.r > maxY) maxY = c.y + c.r;
+  }
+  // Sécurité : étend par max(rayon capsule) au cas où un membre a un rayon
+  // de cercle inférieur au padding (peu probable, mais stable).
+  for (const cap of capsules) {
+    const pad = cap.r;
+    if (cap.x1 - pad < minX) minX = cap.x1 - pad;
+    if (cap.y1 - pad < minY) minY = cap.y1 - pad;
+    if (cap.x1 + pad > maxX) maxX = cap.x1 + pad;
+    if (cap.y1 + pad > maxY) maxY = cap.y1 + pad;
+    if (cap.x2 - pad < minX) minX = cap.x2 - pad;
+    if (cap.y2 - pad < minY) minY = cap.y2 - pad;
+    if (cap.x2 + pad > maxX) maxX = cap.x2 + pad;
+    if (cap.y2 + pad > maxY) maxY = cap.y2 + pad;
+  }
+
+  return { circles, capsules, bbox: { minX, minY, maxX, maxY } };
 }
 
 export function buildInfluenceClusters(
@@ -187,8 +200,6 @@ export function buildInfluenceClusters(
 ): InfluenceCluster[] {
   const minNodes = options.minNodes ?? 3;
   const nodePadding = options.nodePadding ?? 28;
-  const samples = options.samples ?? 8;
-  const smoothIterations = options.smoothIterations ?? 3;
 
   const components = connectedComponents(nodes, edges);
   const clusters: InfluenceCluster[] = [];
@@ -196,33 +207,13 @@ export function buildInfluenceClusters(
   for (const comp of components) {
     if (comp.length < minNodes) continue;
 
-    // 1. Échantillonnage : un cercle autour de chaque nœud.
-    const sampled: Pt[] = [];
-    for (const n of comp) {
-      const pos = positions.get(n.id);
-      if (!pos) continue;
-      const r = collisionRadiusOf(n) + nodePadding;
-      sampled.push(...circleSamples(pos.x, pos.y, r, samples));
-    }
-    if (sampled.length < 3) continue;
+    const compIds = new Set(comp.map(n => n.id));
+    const intraEdges = edges.filter(e => compIds.has(e.source) && compIds.has(e.target));
 
-    // 2. Hull convexe.
-    const hull = convexHull(sampled);
-    if (hull.length < 3) continue;
+    const shape = buildClusterShape(comp, intraEdges, positions, collisionRadiusOf, nodePadding);
+    if (!shape) continue;
 
-    // 3. Lissage Chaikin → blob organique.
-    const polygon = chaikin(hull, smoothIterations);
-
-    // 4. Bounding box.
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const [x, y] of polygon) {
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-    }
-
-    // 5. Couleur : contentieux dominant (compté sur les nœuds dossier).
+    // Couleur : contentieux dominant (compté sur les nœuds dossier).
     const ctxCount = new Map<ContentieuxId, number>();
     for (const n of comp) {
       if (n.type !== 'dossier') continue;
@@ -239,35 +230,21 @@ export function buildInfluenceClusters(
     }
     const color = (dominantContentieux && contentieuxColor(dominantContentieux)) || '#94a3b8';
 
-    // 6. Identifiant stable pour la mémoïsation côté React.
+    // Identifiant stable pour la mémoïsation côté React.
     const id = comp.map(n => n.id).sort().join('|');
 
     clusters.push({
       id,
       nodeIds: comp.map(n => n.id),
-      polygon,
-      bbox: { minX, minY, maxX, maxY },
+      circles: shape.circles,
+      capsules: shape.capsules,
+      bbox: shape.bbox,
       color,
       dominantContentieux,
     });
   }
 
   return clusters;
-}
-
-// ──────────────────────────────────────────────
-// SÉRIALISATION SVG
-// ──────────────────────────────────────────────
-
-/** Convertit un polygone (liste de points monde) en attribut `d` SVG. */
-export function polygonToPath(points: Pt[], offsetX = 0, offsetY = 0): string {
-  if (points.length === 0) return '';
-  let d = `M ${(points[0][0] - offsetX).toFixed(1)} ${(points[0][1] - offsetY).toFixed(1)}`;
-  for (let i = 1; i < points.length; i++) {
-    d += ` L ${(points[i][0] - offsetX).toFixed(1)} ${(points[i][1] - offsetY).toFixed(1)}`;
-  }
-  d += ' Z';
-  return d;
 }
 
 // ──────────────────────────────────────────────
@@ -284,11 +261,6 @@ export function polygonToPath(points: Pt[], offsetX = 0, offsetY = 0): string {
 export interface SubClusterOptions {
   /** Padding radial autour de chaque nœud du sub-cluster (px monde). */
   nodePadding?: number;
-  /** Échantillons par cercle pour le hull. */
-  samples?: number;
-  /** Itérations Chaikin (généralement plus faible que pour le main hull,
-   *  pour garder une silhouette nette qui se distingue du grand blob). */
-  smoothIterations?: number;
   /** Taille minimale d'un sub-cluster (dossier + MECs) pour être rendu. */
   minNodes?: number;
 }
@@ -302,8 +274,6 @@ export function buildSubClusters(
   options: SubClusterOptions = {},
 ): InfluenceCluster[] {
   const padding = options.nodePadding ?? 18;
-  const samples = options.samples ?? 8;
-  const smoothIterations = options.smoothIterations ?? 2;
   const minNodes = options.minNodes ?? 3;
 
   // Index rapide des nœuds du cluster.
@@ -350,8 +320,6 @@ export function buildSubClusters(
   for (const dId of dossierIds) {
     const dNode = nodeById.get(dId);
     if (!dNode) continue;
-    const dPos = positions.get(dId);
-    if (!dPos) continue;
 
     const members: GraphNode[] = [dNode];
     for (const nb of adj.get(dId) || []) {
@@ -362,38 +330,22 @@ export function buildSubClusters(
     }
     if (members.length < minNodes) continue;
 
-    // Échantillonnage cercles → hull → Chaikin (mêmes étapes que le main hull
-    // mais avec un padding plus serré, pour visuellement "rentrer" dans le
-    // grand blob).
-    const sampled: Pt[] = [];
-    for (const m of members) {
-      const p = positions.get(m.id);
-      if (!p) continue;
-      const r = collisionRadiusOf(m) + padding;
-      for (let i = 0; i < samples; i++) {
-        const a = (i / samples) * Math.PI * 2;
-        sampled.push([p.x + Math.cos(a) * r, p.y + Math.sin(a) * r]);
-      }
-    }
-    if (sampled.length < 3) continue;
+    // Capsules : seules les arêtes dossier↔MEC (sub-cluster en étoile autour
+    // du dossier).
+    const memberIds = new Set(members.map(m => m.id));
+    const intraEdges = edges.filter(e =>
+      e.kind === 'data' && memberIds.has(e.source) && memberIds.has(e.target),
+    );
 
-    const hull = convexHull(sampled);
-    if (hull.length < 3) continue;
-    const polygon = chaikin(hull, smoothIterations);
-
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const [x, y] of polygon) {
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-    }
+    const shape = buildClusterShape(members, intraEdges, positions, collisionRadiusOf, padding);
+    if (!shape) continue;
 
     subClusters.push({
       id: `sub_${dId}`,
       nodeIds: members.map(m => m.id),
-      polygon,
-      bbox: { minX, minY, maxX, maxY },
+      circles: shape.circles,
+      capsules: shape.capsules,
+      bbox: shape.bbox,
       // Couleur héritée du cluster parent (le contentieux dominant). On
       // pourrait raffiner par contentieux du dossier mais le sous-blob
       // doit être lisible comme variation du grand, pas comme entité

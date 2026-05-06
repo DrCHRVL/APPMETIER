@@ -43,36 +43,30 @@ export const useInstructions = () => {
   const isLoadingRef = useRef(true);
 
   // ──────────────────────────────────────────────
-  // Chargement initial
+  // Chargement (initial + sur demande via `refresh`)
   // ──────────────────────────────────────────────
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        setIsLoading(true);
-        const stored = await ElectronBridge.getData<unknown>(
-          APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS,
-          [],
-        );
-        const list = Array.isArray(stored) ? stored.filter(isNewModelDossier) : [];
-        if (!cancelled) {
-          setDossiers(list);
-          dossiersRef.current = list;
-        }
-      } catch (e) {
-        console.error('useInstructions: erreur de chargement', e);
-        if (!cancelled) setDossiers([]);
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-          isLoadingRef.current = false;
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const reload = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const stored = await ElectronBridge.getData<unknown>(
+        APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS,
+        [],
+      );
+      const list = Array.isArray(stored) ? stored.filter(isNewModelDossier) : [];
+      setDossiers(list);
+      dossiersRef.current = list;
+    } catch (e) {
+      console.error('useInstructions: erreur de chargement', e);
+      setDossiers([]);
+    } finally {
+      setIsLoading(false);
+      isLoadingRef.current = false;
+    }
   }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
 
   useEffect(() => {
     dossiersRef.current = dossiers;
@@ -178,5 +172,6 @@ export const useInstructions = () => {
     addDossier,
     updateDossier,
     deleteDossier,
+    refresh: reload,
   };
 };

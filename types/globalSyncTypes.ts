@@ -98,6 +98,8 @@ export interface CartographieOverlaySyncFile extends GlobalSyncMetadata {
   clusterAnnotations: any[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mecScoreBoosts: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tagZones?: any[];
   // Tombstones de suppression
   deletedMecExNihiloIds?: CartographieTombstone[];
   deletedDossierExNihiloIds?: CartographieTombstone[];
