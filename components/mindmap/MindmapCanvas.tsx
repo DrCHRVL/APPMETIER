@@ -22,7 +22,9 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { DossierNode, GraphEdge, GraphNode, MecNode } from '@/utils/mindmapGraph';
-import { getNodeRadius, useForceLayout } from './useForceLayout';
+import type { ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
+import { getCollisionRadius, getDossierBox, getNodeRadius, useForceLayout } from './useForceLayout';
+import { buildInfluenceClusters, buildSubClusters, matchAnnotation, polygonToPath, type InfluenceCluster } from './influenceHull';
 
 // ──────────────────────────────────────────────
 // PROPS
@@ -37,6 +39,20 @@ interface MindmapCanvasProps {
   /** Demande de recentrage de la caméra. Le seq sert à re-déclencher l'animation
    *  même si on cible deux fois de suite le même nœud. */
   centerRequest?: { id: string; seq: number };
+  /** Compteur incrémenté à chaque clic "actualiser" : force le recalcul du
+   *  layout même si les références nodes/edges sont stables. */
+  refreshKey?: number;
+  /** Active/désactive le rendu des aires d'influence (par défaut activé). */
+  showInfluence?: boolean;
+  /** Annotations manuelles des clusters (matchées par recouvrement Jaccard). */
+  clusterAnnotations?: ClusterAnnotation[];
+  /** Appelé quand l'utilisateur clique sur le label d'un cluster (création
+   *  si existing absent, édition sinon). */
+  onAnnotateCluster?: (cluster: InfluenceCluster, existing?: ClusterAnnotation) => void;
+  /** Mode ego-network : si défini, ne montre clairement que les voisins
+   *  jusqu'à `egoDepth` du nœud. Le reste passe en opacity dimmed. */
+  egoNodeId?: string;
+  egoDepth?: number;
   onNodeClick?: (node: GraphNode) => void;
   onNodeDoubleClick?: (node: GraphNode) => void;
 }
@@ -45,16 +61,45 @@ interface MindmapCanvasProps {
 // NŒUDS PERSONNALISÉS
 // ──────────────────────────────────────────────
 
-type MecNodeData = MecNode & { focused: boolean; radius: number };
+type MecNodeData = MecNode & { focused: boolean; radius: number; dimmed: boolean };
 type DossierNodeData = DossierNode & {
   focused: boolean;
   radius: number;
+  width: number;
+  height: number;
+  /** Rotation appliquée au contenu (radians). Calculée pour minimiser le
+   *  chevauchement visuel avec les arêtes entrantes. */
+  rotation: number;
   color: string;
   contentieuxLabel: string;
   isExNihilo: boolean;
+  dimmed: boolean;
 };
 
-const HIDDEN_HANDLE_STYLE: React.CSSProperties = {
+type HullNodeData = {
+  cluster: InfluenceCluster;
+  containsFocus: boolean;
+  /** Couleur effective : couleur custom de l'annotation si présente, sinon
+   *  contentieux dominant. */
+  effectiveColor: string;
+  /** Variant visuel : main (grand blob) ou sub (mini-aire intra-composante). */
+  variant: 'main' | 'sub';
+  /** Si true, dim opacity (mode ego). */
+  dimmed: boolean;
+};
+
+type ClusterLabelData = {
+  cluster: InfluenceCluster;
+  annotation?: ClusterAnnotation;
+  effectiveColor: string;
+  /** Largeur disponible (= bbox du hull) pour caler la longueur du label. */
+  width: number;
+};
+
+// Handles centrés (top:50%, left:50%) pour que les arêtes convergent au centre
+// visuel de chaque nœud — indispensable pour que la rotation des dossiers
+// n'introduise pas de décalage entre rectangle dessiné et endpoint d'arête.
+const CENTERED_HANDLE_STYLE: React.CSSProperties = {
   opacity: 0,
   width: 1,
   height: 1,
@@ -63,26 +108,37 @@ const HIDDEN_HANDLE_STYLE: React.CSSProperties = {
   border: 'none',
   background: 'transparent',
   pointerEvents: 'none',
+  top: '50%',
+  left: '50%',
+  transform: 'translate(-50%, -50%)',
 };
 
 const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
-  const { displayName, dossierIds, focused, radius, recent } = data;
+  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus } = data;
   const size = radius * 2;
+  // MEC "pont" : présent sur ≥ 2 contentieux distincts → halo violet pour
+  // matérialiser la transversalité (signal du score, mais visuel).
+  const isBridge = contentieuxIds.length > 1;
+  const isBoosted = (manualBonus || 0) > 0;
   return (
     <div
-      title={`${displayName} — ${dossierIds.length} dossier(s)`}
-      style={{ width: size, height: size }}
+      title={`${displayName} — ${dossierIds.length} dossier(s)${isBridge ? ` • ${contentieuxIds.length} contentieux` : ''}${isBoosted ? ' • importance manuelle' : ''}`}
+      style={{ width: size, height: size, opacity: dimmed ? 0.18 : 1, transition: 'opacity 200ms' }}
       className={`
         flex items-center justify-center rounded-full text-white text-center
         font-medium select-none transition-all duration-150
         ${focused
           ? 'ring-4 ring-yellow-300 shadow-lg scale-105'
-          : 'shadow-md hover:scale-105'
+          : isBoosted
+            ? 'ring-2 ring-amber-400 shadow-md hover:scale-105'
+            : isBridge
+              ? 'ring-2 ring-violet-400/70 shadow-md hover:scale-105'
+              : 'shadow-md hover:scale-105'
         }
       `}
     >
-      <Handle type="target" position={Position.Top} style={HIDDEN_HANDLE_STYLE} isConnectable={false} />
-      <Handle type="source" position={Position.Bottom} style={HIDDEN_HANDLE_STYLE} isConnectable={false} />
+      <Handle type="target" position={Position.Top} style={CENTERED_HANDLE_STYLE} isConnectable={false} />
+      <Handle type="source" position={Position.Bottom} style={CENTERED_HANDLE_STYLE} isConnectable={false} />
       <div
         className="absolute inset-0 rounded-full"
         style={{
@@ -102,32 +158,38 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
 };
 
 const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
-  const { numero, statut, focused, radius, color, contentieuxLabel, nbMec, isExNihilo } = data;
-  const width = Math.max(120, radius * 4);
-  const height = Math.max(48, radius * 1.6);
+  const { numero, statut, focused, radius, width, height, rotation, color, contentieuxLabel, nbMec, isExNihilo, dimmed } = data;
   const archived = statut === 'archive' && !isExNihilo;
+  // Le dossier doit être visuellement plus présent qu'un MEC périphérique :
+  // fond plus saturé (`30` au lieu de `15`), bordure + épaisse, ombre marquée.
+  const baseAlpha = isExNihilo ? '#fff' : (archived ? '#f3f4f6' : `${color}30`);
   return (
     <div
       title={`${isExNihilo ? 'Dossier manuel' : contentieuxLabel} • ${numero} • ${nbMec} MEC`}
       style={{
         width,
         height,
-        background: isExNihilo ? '#fff' : (archived ? '#f3f4f6' : `${color}15`),
+        background: baseAlpha,
         borderColor: color,
+        borderWidth: 3,
         borderStyle: isExNihilo ? 'dashed' : 'solid',
+        transform: rotation ? `rotate(${rotation}rad)` : undefined,
+        transformOrigin: '50% 50%',
+        boxShadow: focused ? undefined : '0 2px 8px rgba(15, 23, 42, 0.15)',
+        opacity: dimmed ? 0.18 : (archived ? 0.6 : 1),
+        transition: 'opacity 200ms',
       }}
       className={`
-        relative flex flex-col items-center justify-center rounded-lg border-2
+        relative flex flex-col items-center justify-center rounded-lg
         text-center select-none transition-all duration-150
         ${focused
           ? 'ring-4 ring-yellow-300 shadow-lg scale-105'
-          : 'shadow-sm hover:scale-105'
+          : 'hover:scale-105'
         }
-        ${archived ? 'opacity-60' : ''}
       `}
     >
-      <Handle type="target" position={Position.Top} style={HIDDEN_HANDLE_STYLE} isConnectable={false} />
-      <Handle type="source" position={Position.Bottom} style={HIDDEN_HANDLE_STYLE} isConnectable={false} />
+      <Handle type="target" position={Position.Top} style={CENTERED_HANDLE_STYLE} isConnectable={false} />
+      <Handle type="source" position={Position.Bottom} style={CENTERED_HANDLE_STYLE} isConnectable={false} />
       <span
         className="font-mono font-semibold leading-tight"
         style={{ color, fontSize: Math.max(11, Math.min(14, radius / 3)) }}
@@ -143,10 +205,152 @@ const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
   );
 };
 
+// Aire d'influence : SVG rendu en arrière-plan (zIndex négatif) qui suit
+// pan/zoom comme un nœud normal. variant 'sub' = mini-aire dossier-centrée
+// rendue par-dessus le grand blob avec un fill plus marqué.
+const HullNodeView = ({ data }: NodeProps<Node<HullNodeData>>) => {
+  const { cluster, containsFocus, effectiveColor, variant, dimmed } = data;
+  const w = cluster.bbox.maxX - cluster.bbox.minX;
+  const h = cluster.bbox.maxY - cluster.bbox.minY;
+  const path = polygonToPath(cluster.polygon, cluster.bbox.minX, cluster.bbox.minY);
+
+  const isSub = variant === 'sub';
+  const baseFillOpacity = isSub
+    ? (containsFocus ? 0.22 : 0.14)
+    : (containsFocus ? 0.18 : 0.10);
+  const baseStrokeOpacity = isSub
+    ? (containsFocus ? 0.45 : 0.25)
+    : (containsFocus ? 0.55 : 0.30);
+
+  return (
+    <svg
+      width={w}
+      height={h}
+      style={{
+        pointerEvents: 'none',
+        overflow: 'visible',
+        opacity: dimmed ? 0.15 : (containsFocus ? 1 : 0.85),
+        transition: 'opacity 200ms',
+      }}
+    >
+      <path
+        d={path}
+        fill={effectiveColor}
+        fillOpacity={baseFillOpacity}
+        stroke={effectiveColor}
+        strokeOpacity={baseStrokeOpacity}
+        strokeWidth={isSub ? 1 : (containsFocus ? 2 : 1.25)}
+        strokeDasharray={isSub ? '4 4' : undefined}
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+};
+
+// Label de cluster : pill cliquable centrée au-dessus du blob. Affiche le nom
+// si annoté, ou un placeholder "+ Nommer ce réseau" sinon. Le clic est
+// géré au niveau MindmapCanvas via onNodeClick (router par node.type).
+const ClusterLabelView = ({ data }: NodeProps<Node<ClusterLabelData>>) => {
+  const { annotation, effectiveColor } = data;
+  const annotated = !!annotation;
+  return (
+    <div
+      title={annotated ? `${annotation!.label}${annotation!.notes ? ` — ${annotation!.notes}` : ''}` : 'Nommer ce réseau'}
+      className={`
+        inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+        text-[11px] font-semibold whitespace-nowrap select-none
+        cursor-pointer transition-all duration-150 hover:scale-105
+        ${annotated
+          ? 'bg-white shadow-md border-2'
+          : 'bg-white/70 hover:bg-white border border-dashed text-slate-500 hover:text-slate-800'
+        }
+      `}
+      style={annotated ? {
+        borderColor: effectiveColor,
+        color: effectiveColor,
+      } : { borderColor: '#cbd5e1' }}
+    >
+      {annotated ? (
+        <>
+          <span
+            className="inline-block w-1.5 h-1.5 rounded-full"
+            style={{ background: effectiveColor }}
+          />
+          {annotation!.label}
+        </>
+      ) : (
+        <>+ Nommer ce réseau</>
+      )}
+    </div>
+  );
+};
+
 const NODE_TYPES = {
   mec: MecNodeView,
   dossier: DossierNodeView,
+  hull: HullNodeView,
+  clusterLabel: ClusterLabelView,
 } as const;
+
+// ──────────────────────────────────────────────
+// CALCUL DES ROTATIONS DOSSIER
+// ──────────────────────────────────────────────
+//
+// Chaque dossier est tourné pour que son grand axe soit perpendiculaire à
+// la direction moyenne de ses arêtes : les liens entrent par les côtés
+// courts plutôt que de traverser le label. Capé à ±20° pour que le texte
+// reste lisible, snappé à 0° en deçà de ~7° pour éviter les rotations
+// minuscules visuellement bruitées.
+
+const ROTATION_CAP = Math.PI / 9;       // 20°
+const ROTATION_SNAP_THRESHOLD = Math.PI / 24; // ~7.5°
+
+function computeDossierRotations(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  positions: Map<string, { x: number; y: number }>,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  const adj = new Map<string, string[]>();
+  for (const e of edges) {
+    if (!adj.has(e.source)) adj.set(e.source, []);
+    if (!adj.has(e.target)) adj.set(e.target, []);
+    adj.get(e.source)!.push(e.target);
+    adj.get(e.target)!.push(e.source);
+  }
+  for (const n of nodes) {
+    if (n.type !== 'dossier') continue;
+    const pos = positions.get(n.id);
+    if (!pos) { out.set(n.id, 0); continue; }
+    const neighbors = adj.get(n.id) || [];
+    if (neighbors.length < 2) { out.set(n.id, 0); continue; }
+
+    let mx = 0, my = 0, count = 0;
+    for (const nbId of neighbors) {
+      const np = positions.get(nbId);
+      if (!np) continue;
+      const dx = np.x - pos.x;
+      const dy = np.y - pos.y;
+      const len = Math.hypot(dx, dy) || 1;
+      mx += dx / len;
+      my += dy / len;
+      count++;
+    }
+    if (count === 0) { out.set(n.id, 0); continue; }
+
+    // Direction moyenne des arêtes → on veut le grand axe perpendiculaire.
+    let angle = Math.atan2(my, mx) + Math.PI / 2;
+    // Normalise dans (-π/2, π/2] : le rectangle est symétrique à 180°.
+    while (angle > Math.PI / 2) angle -= Math.PI;
+    while (angle <= -Math.PI / 2) angle += Math.PI;
+    if (angle > ROTATION_CAP) angle = ROTATION_CAP;
+    if (angle < -ROTATION_CAP) angle = -ROTATION_CAP;
+    if (Math.abs(angle) < ROTATION_SNAP_THRESHOLD) angle = 0;
+
+    out.set(n.id, angle);
+  }
+  return out;
+}
 
 // ──────────────────────────────────────────────
 // CANVAS
@@ -160,10 +364,16 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   contentieuxDefs,
   focusedId,
   centerRequest,
+  refreshKey = 0,
+  showInfluence = true,
+  clusterAnnotations,
+  onAnnotateCluster,
+  egoNodeId,
+  egoDepth = 2,
   onNodeClick,
   onNodeDoubleClick,
 }) => {
-  const positions = useForceLayout(nodes, edges);
+  const positions = useForceLayout(nodes, edges, refreshKey);
   const { setCenter } = useReactFlow();
 
   useEffect(() => {
@@ -179,54 +389,227 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     return m;
   }, [contentieuxDefs]);
 
+  // Degré (data edges uniquement) par nœud → utilisé pour décider quelles
+  // arêtes courber : un MEC à plusieurs dossiers gagne des bezier pour
+  // séparer visuellement la "patte d'oie" qu'on aurait en lignes droites.
+  const nodeDegree = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of edges) {
+      if (e.kind !== 'data') continue;
+      m.set(e.source, (m.get(e.source) || 0) + 1);
+      m.set(e.target, (m.get(e.target) || 0) + 1);
+    }
+    return m;
+  }, [edges]);
+
+  const dossierRotations = useMemo(
+    () => computeDossierRotations(nodes, edges, positions),
+    [nodes, edges, positions],
+  );
+
+  const influenceClusters = useMemo(() => {
+    if (!showInfluence) return [];
+    return buildInfluenceClusters(
+      nodes,
+      edges,
+      positions,
+      getCollisionRadius,
+      (id) => ctxColorById.get(id)?.color,
+      { minNodes: 3, nodePadding: 32, samples: 10, smoothIterations: 3 },
+    );
+  }, [nodes, edges, positions, ctxColorById, showInfluence]);
+
+  // Sous-clusters : pour chaque grand blob, on calcule des mini-aires
+  // centrées sur chaque dossier (regroupant ses MEC exclusifs). Les MEC
+  // pivots restent hors des sub-clusters et restent ainsi visuellement
+  // entre les sous-groupes.
+  const subClusters = useMemo(() => {
+    if (!showInfluence) return [];
+    const out: InfluenceCluster[] = [];
+    for (const c of influenceClusters) {
+      out.push(...buildSubClusters(
+        c, nodes, edges, positions, getCollisionRadius,
+        { nodePadding: 18, samples: 8, smoothIterations: 2, minNodes: 3 },
+      ));
+    }
+    return out;
+  }, [influenceClusters, nodes, edges, positions, showInfluence]);
+
+  // Mode ego-network : calcule l'ensemble des nœuds visibles (= ego + voisins
+  // jusqu'à `egoDepth`). En dehors du mode, tout est visible.
+  const egoVisibleSet = useMemo(() => {
+    if (!egoNodeId) return null;
+    const adj = new Map<string, string[]>();
+    for (const e of edges) {
+      if (!adj.has(e.source)) adj.set(e.source, []);
+      if (!adj.has(e.target)) adj.set(e.target, []);
+      adj.get(e.source)!.push(e.target);
+      adj.get(e.target)!.push(e.source);
+    }
+    const visited = new Set<string>([egoNodeId]);
+    let frontier = new Set<string>([egoNodeId]);
+    for (let i = 0; i < egoDepth; i++) {
+      const next = new Set<string>();
+      for (const id of frontier) {
+        for (const nb of adj.get(id) || []) {
+          if (!visited.has(nb)) { visited.add(nb); next.add(nb); }
+        }
+      }
+      frontier = next;
+      if (frontier.size === 0) break;
+    }
+    return visited;
+  }, [egoNodeId, edges, egoDepth]);
+
+  const isDimmed = useCallback((id: string) => {
+    if (!egoVisibleSet) return false;
+    return !egoVisibleSet.has(id);
+  }, [egoVisibleSet]);
+
+  // Composante connexe contenant le nœud focus → on l'illumine plus fort.
+  const focusedClusterId = useMemo(() => {
+    if (!focusedId) return undefined;
+    return influenceClusters.find(c => c.nodeIds.includes(focusedId))?.id;
+  }, [influenceClusters, focusedId]);
+
   const rfNodes: Node[] = useMemo(() => {
-    return nodes.map(n => {
+    const out: Node[] = [];
+    const annotations: ClusterAnnotation[] = clusterAnnotations || [];
+
+    // Hulls d'abord (zIndex négatif) : ils restent derrière les nœuds réels.
+    // Le label de cluster est rendu en sus, posé sur le bord supérieur du hull.
+    for (const c of influenceClusters) {
+      const annotation = matchAnnotation<ClusterAnnotation>(c, annotations);
+      const effectiveColor = annotation?.color || c.color;
+      // En mode ego, un cluster est "dimmed" si aucun de ses nœuds n'est
+      // dans la zone visible.
+      const clusterDimmed = !!egoVisibleSet && !c.nodeIds.some(id => egoVisibleSet.has(id));
+      const data: HullNodeData = {
+        cluster: c,
+        containsFocus: c.id === focusedClusterId,
+        effectiveColor,
+        variant: 'main',
+        dimmed: clusterDimmed,
+      };
+      out.push({
+        id: `hull_${c.id}`,
+        type: 'hull',
+        position: { x: c.bbox.minX, y: c.bbox.minY },
+        data: data as unknown as Record<string, unknown>,
+        draggable: false,
+        selectable: false,
+        zIndex: -2,
+        style: { pointerEvents: 'none' },
+      } satisfies Node);
+
+      // Label centré horizontalement, posé sur le bord haut du blob.
+      // On laisse react-flow gérer le centrage horizontal via une largeur
+      // fixe : on positionne à (centerX - 100) et on laisse le contenu se
+      // centrer dans une boîte de 200px (le pill auto-shrink à son contenu).
+      const cx = (c.bbox.minX + c.bbox.maxX) / 2;
+      const labelData: ClusterLabelData = {
+        cluster: c,
+        annotation,
+        effectiveColor,
+        width: c.bbox.maxX - c.bbox.minX,
+      };
+      out.push({
+        id: `clusterLabel_${c.id}`,
+        type: 'clusterLabel',
+        position: { x: cx - 100, y: c.bbox.minY - 22 },
+        data: labelData as unknown as Record<string, unknown>,
+        draggable: false,
+        selectable: false,
+        zIndex: 10,
+        style: {
+          width: 200,
+          display: 'flex',
+          justifyContent: 'center',
+          opacity: clusterDimmed ? 0.2 : 1,
+          transition: 'opacity 200ms',
+        },
+      } satisfies Node);
+    }
+
+    // Sous-clusters : rendus par-dessus le grand blob mais sous les nœuds
+    // (zIndex -1, le grand blob est à -2). Pas de label, le dossier au
+    // centre fait office de titre visuel.
+    for (const sc of subClusters) {
+      const subDimmed = !!egoVisibleSet && !sc.nodeIds.some(id => egoVisibleSet.has(id));
+      const data: HullNodeData = {
+        cluster: sc,
+        containsFocus: focusedId ? sc.nodeIds.includes(focusedId) : false,
+        effectiveColor: sc.color,
+        variant: 'sub',
+        dimmed: subDimmed,
+      };
+      out.push({
+        id: `subhull_${sc.id}`,
+        type: 'hull',
+        position: { x: sc.bbox.minX, y: sc.bbox.minY },
+        data: data as unknown as Record<string, unknown>,
+        draggable: false,
+        selectable: false,
+        zIndex: -1,
+        style: { pointerEvents: 'none' },
+      } satisfies Node);
+    }
+
+    for (const n of nodes) {
       const pos = positions.get(n.id);
       const radius = getNodeRadius(n);
       const focused = focusedId === n.id;
+      const dimmed = isDimmed(n.id);
       if (n.type === 'mec') {
-        const data: MecNodeData = { ...n, focused, radius };
-        return {
+        const data: MecNodeData = { ...n, focused, radius, dimmed };
+        out.push({
           id: n.id,
           type: 'mec',
           position: { x: (pos?.x ?? 0) - radius, y: (pos?.y ?? 0) - radius },
           data: data as unknown as Record<string, unknown>,
           draggable: true,
-        } satisfies Node;
+        } satisfies Node);
+        continue;
       }
       const ctx = ctxColorById.get(n.contentieuxId);
       const isExNihilo = !!n.isExNihilo;
+      const { width, height } = getDossierBox(n);
       const data: DossierNodeData = {
         ...n,
         focused,
         radius,
+        width,
+        height,
+        rotation: dossierRotations.get(n.id) ?? 0,
         color: isExNihilo ? '#7c3aed' : (ctx?.color || CTX_FALLBACK_COLOR),
         contentieuxLabel: ctx?.label || n.contentieuxId,
         isExNihilo,
+        dimmed,
       };
-      const width = Math.max(120, radius * 4);
-      const height = Math.max(48, radius * 1.6);
-      return {
+      out.push({
         id: n.id,
         type: 'dossier',
         position: { x: (pos?.x ?? 0) - width / 2, y: (pos?.y ?? 0) - height / 2 },
         data: data as unknown as Record<string, unknown>,
         draggable: true,
-      } satisfies Node;
-    });
-  }, [nodes, positions, focusedId, ctxColorById]);
+      } satisfies Node);
+    }
+    return out;
+  }, [nodes, positions, focusedId, ctxColorById, dossierRotations, influenceClusters, subClusters, focusedClusterId, clusterAnnotations, egoVisibleSet, isDimmed]);
 
   const rfEdges: Edge[] = useMemo(() => {
     return edges.map(e => {
       const highlighted = focusedId && (e.source === focusedId || e.target === focusedId);
       const isRens = e.kind === 'renseignement';
+      // Bezier doux dès qu'un des deux endpoints est connecté à plus d'un autre
+      // nœud — sinon trait droit (cas dyade isolée, plus net).
+      const dMax = Math.max(nodeDegree.get(e.source) || 0, nodeDegree.get(e.target) || 0);
+      const useCurve = !isRens && dMax > 1;
       return {
         id: e.id,
         source: e.source,
         target: e.target,
-        // Trait droit point-à-point — beaucoup plus lisible qu'une bezier
-        // qui se tortille entre des nœuds positionnés par d3-force.
-        type: 'straight',
+        type: isRens ? 'straight' : (useCurve ? 'simplebezier' : 'straight'),
         label: isRens ? e.label : undefined,
         labelStyle: isRens ? { fill: '#1d4ed8', fontSize: 11, fontWeight: 600 } : undefined,
         labelBgStyle: isRens ? { fill: '#eff6ff' } : undefined,
@@ -247,14 +630,21 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
             },
       };
     });
-  }, [edges, focusedId]);
+  }, [edges, focusedId, nodeDegree]);
 
   const handleClick: NodeMouseHandler = useCallback(
     (_, node) => {
+      // Clic sur un label de cluster → ouvre le modal d'annotation.
+      if (node.type === 'clusterLabel') {
+        if (!onAnnotateCluster) return;
+        const labelData = node.data as unknown as ClusterLabelData;
+        onAnnotateCluster(labelData.cluster, labelData.annotation);
+        return;
+      }
       const original = nodes.find(n => n.id === node.id);
       if (original && onNodeClick) onNodeClick(original);
     },
-    [nodes, onNodeClick],
+    [nodes, onNodeClick, onAnnotateCluster],
   );
 
   const handleDoubleClick: NodeMouseHandler = useCallback(

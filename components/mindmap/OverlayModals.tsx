@@ -20,7 +20,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import type { GraphNode, MindmapGraph } from '@/utils/mindmapGraph';
-import type { MecExNihilo, DossierExNihilo, LienRenseignement, MecExNihiloStatut } from '@/stores/useCartographieOverlayStore';
+import type { MecExNihilo, DossierExNihilo, LienRenseignement, MecExNihiloStatut, ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
 
 // ─────────────────────────────────────────────────
 // AddMecModal
@@ -608,5 +608,145 @@ const NodePicker: React.FC<{
         </div>
       )}
     </div>
+  );
+};
+
+// ─────────────────────────────────────────────────
+// AddClusterAnnotationModal
+// ─────────────────────────────────────────────────
+// Nommer (ou renommer) une aire d'influence détectée. Snapshote les nodeIds
+// actuels du cluster pour permettre le matching tolérant après évolution
+// du graphe.
+
+const CLUSTER_COLOR_PRESETS = [
+  '#dc2626', // rouge
+  '#ea580c', // orange
+  '#ca8a04', // ambre
+  '#16a34a', // vert
+  '#0891b2', // cyan
+  '#2563eb', // bleu
+  '#7c3aed', // violet
+  '#db2777', // rose
+  '#475569', // ardoise
+];
+
+interface AddClusterAnnotationModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  /** Métadonnées du cluster cible (issu de InfluenceCluster) */
+  cluster?: { nodeIds: string[]; color: string; nbMembers: number };
+  /** Annotation existante si on est en édition */
+  initial?: ClusterAnnotation;
+  onSubmit: (data: { label: string; notes?: string; color?: string; nodeIds: string[] }) => void;
+  /** Si fourni et qu'on édite, propose un bouton "Supprimer". */
+  onDelete?: () => void;
+}
+
+export const AddClusterAnnotationModal: React.FC<AddClusterAnnotationModalProps> = ({
+  isOpen, onClose, cluster, initial, onSubmit, onDelete,
+}) => {
+  const [label, setLabel] = useState(initial?.label || '');
+  const [notes, setNotes] = useState(initial?.notes || '');
+  const [color, setColor] = useState<string>(initial?.color || cluster?.color || CLUSTER_COLOR_PRESETS[0]);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setLabel(initial?.label || '');
+      setNotes(initial?.notes || '');
+      setColor(initial?.color || cluster?.color || CLUSTER_COLOR_PRESETS[0]);
+    }
+  }, [isOpen, initial, cluster]);
+
+  const handleSubmit = () => {
+    const trimmed = label.trim();
+    if (!trimmed || !cluster) return;
+    onSubmit({
+      label: trimmed,
+      notes: notes.trim() || undefined,
+      color,
+      // Snapshot les nodeIds actuels du cluster — c'est ce snapshot qui
+      // servira de référence pour matcher l'annotation aux clusters futurs.
+      nodeIds: cluster.nodeIds,
+    });
+    onClose();
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{initial ? 'Renommer le réseau' : 'Nommer ce réseau'}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          <div>
+            <Label htmlFor="cluster-label">Nom du réseau *</Label>
+            <Input
+              id="cluster-label"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="ex. Réseau Marseille, Groupe TAURUS…"
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <Label>Couleur</Label>
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {CLUSTER_COLOR_PRESETS.map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setColor(c)}
+                  className={`h-7 w-7 rounded-full border-2 transition-all ${
+                    color === c ? 'ring-2 ring-offset-2 ring-slate-400 scale-110' : 'border-white shadow-sm hover:scale-110'
+                  }`}
+                  style={{ background: c }}
+                  title={c}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <Label htmlFor="cluster-notes">Notes (optionnel)</Label>
+            <Textarea
+              id="cluster-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="Contexte, hypothèse d'enquête, précisions…"
+            />
+          </div>
+
+          {cluster && (
+            <div className="text-xs text-slate-500">
+              {cluster.nbMembers} membre(s) ancrés à cette annotation. L'annotation
+              survivra à l'ajout/retrait de quelques membres ; en cas de
+              recomposition majeure, elle se détachera et pourra être réappliquée.
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="flex justify-between">
+          {initial && onDelete ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-red-600 hover:text-red-800 hover:bg-red-50"
+              onClick={() => { onDelete(); onClose(); }}
+            >
+              Supprimer
+            </Button>
+          ) : <div />}
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={onClose}>Annuler</Button>
+            <Button type="button" onClick={handleSubmit} disabled={!label.trim()}>
+              {initial ? 'Enregistrer' : 'Créer'}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };

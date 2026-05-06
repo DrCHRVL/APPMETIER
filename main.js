@@ -1536,7 +1536,7 @@ function setupIpcHandlers() {
       if (!fs.existsSync(backupDir)) return []
       const files = fs.readdirSync(backupDir)
       const parsed = []
-      const pattern = /^(user-preferences|contentieux-alerts|tag-data|audience-data|alerts-data|deleted-ids)(?:-(.+?))?-(\d{4}-\d{2}-\d{2}T[\d.\-]+Z)\.json$/
+      const pattern = /^(user-preferences|contentieux-alerts|tag-data|audience-data|alerts-data|deleted-ids|cartographie-overlays)(?:-(.+?))?-(\d{4}-\d{2}-\d{2}T[\d.\-]+Z)\.json$/
       for (const f of files) {
         const m = f.match(pattern)
         if (!m) continue
@@ -1580,7 +1580,7 @@ function setupIpcHandlers() {
         return false
       }
 
-      const pattern = /^(user-preferences|contentieux-alerts|tag-data|audience-data|alerts-data|deleted-ids)(?:-(.+?))?-(\d{4}-\d{2}-\d{2}T[\d.\-]+Z)\.json$/
+      const pattern = /^(user-preferences|contentieux-alerts|tag-data|audience-data|alerts-data|deleted-ids|cartographie-overlays)(?:-(.+?))?-(\d{4}-\d{2}-\d{2}T[\d.\-]+Z)\.json$/
       const m = filename.match(pattern)
       if (!m) {
         console.error(`❌ DataSync: nom de backup non reconnu : ${filename}`)
@@ -1605,7 +1605,7 @@ function setupIpcHandlers() {
         if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true })
         destPath = path.join(folder, `${safe}.json`)
         backupBaseName = `contentieux-alerts-${safe}`
-      } else if (kind === 'tag-data' || kind === 'audience-data' || kind === 'alerts-data' || kind === 'deleted-ids') {
+      } else if (kind === 'tag-data' || kind === 'audience-data' || kind === 'alerts-data' || kind === 'deleted-ids' || kind === 'cartographie-overlays') {
         destPath = path.join(COMMON_SERVER_PATH, `${kind}.json`)
         backupBaseName = kind
       } else {
@@ -1924,6 +1924,25 @@ function setupIpcHandlers() {
       return true
     } catch (error) {
       console.error('❌ GlobalSync: Erreur écriture deleted-ids.json:', error.message)
+      return false
+    }
+  })
+
+  // Cartographie : annotations manuelles partagées (MEC ex nihilo, dossiers
+  // ex nihilo, liens renseignement, annotations de cluster, boosts de score,
+  // épinglages Top10). Tout poste qui ouvre le module récupère les ajouts
+  // de ses collègues via ce fichier.
+  ipcMain.handle('globalSync:pullCartographie', async () => {
+    return await readGlobalFile('cartographie-overlays.json')
+  })
+
+  ipcMain.handle('globalSync:pushCartographie', async (event, payload) => {
+    try {
+      await writeGlobalFile('cartographie-overlays.json', payload)
+      pruneGlobalBackups('cartographie-overlays').catch(() => {})
+      return true
+    } catch (error) {
+      console.error('❌ GlobalSync: Erreur écriture cartographie-overlays.json:', error.message)
       return false
     }
   })

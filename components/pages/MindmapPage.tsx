@@ -7,8 +7,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, FileText, Layers, Link as LinkIcon, Network, Pin, PinOff, Plus, Search, Trophy, User, X } from 'lucide-react';
-import type { ContentieuxDefinition } from '@/types/userTypes';
+import { Check, ChevronDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pin, PinOff, Plus, RefreshCw, Save, Search, Trophy, User, X } from 'lucide-react';
+import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { Enquete } from '@/types/interfaces';
 import {
   buildMindmapGraph,
@@ -20,13 +20,16 @@ import {
 } from '@/utils/mindmapGraph';
 import {
   useCartographieOverlayStore,
+  type ClusterAnnotation,
   type DossierExNihilo,
   type LienRenseignement,
   type MecExNihilo,
 } from '@/stores/useCartographieOverlayStore';
+import { cartographieOverlaySyncService } from '@/utils/dataSync/CartographieOverlaySyncService';
+import type { InfluenceCluster } from '../mindmap/influenceHull';
 import { MindmapCanvas } from '../mindmap/MindmapCanvas';
 import { MindmapSidePanel } from '../mindmap/MindmapSidePanel';
-import { AddDossierModal, AddLienModal, AddMecModal } from '../mindmap/OverlayModals';
+import { AddClusterAnnotationModal, AddDossierModal, AddLienModal, AddMecModal } from '../mindmap/OverlayModals';
 import { ManageOverlayPanel } from '../mindmap/ManageOverlayPanel';
 
 // ──────────────────────────────────────────────
@@ -40,6 +43,10 @@ interface MindmapPageProps {
   contentieuxDefs: ContentieuxDefinition[];
   /** Callback pour ouvrir le modal détail d'une enquête (double-click sur un dossier) */
   onOpenEnquete?: (enquete: Enquete, contentieuxId: string) => void;
+  /** Optionnel : appelé quand l'utilisateur clique "Actualiser". Le parent peut
+   *  recharger les sources depuis le disque (utile en mode offline). Le bump
+   *  interne de refreshKey relance le layout dans tous les cas. */
+  onRefresh?: () => void;
 }
 
 // ──────────────────────────────────────────────
@@ -50,19 +57,44 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   sources,
   contentieuxDefs,
   onOpenEnquete,
+  onRefresh,
 }) => {
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [sidePanelMecId, setSidePanelMecId] = useState<string | undefined>();
+  // Mode ego-network : id du nœud focus, ou undefined pour vue globale.
+  // Toggle en single click sur un nœud (re-clic même nœud → désactive).
+  const [egoNodeId, setEgoNodeId] = useState<string | undefined>();
   const [search, setSearch] = useState('');
   const [showTop10, setShowTop10] = useState(false);
   const [showManage, setShowManage] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [editingMec, setEditingMec] = useState<MecExNihilo | null | undefined>(undefined); // null = nouveau, undefined = fermé
   const [editingDossier, setEditingDossier] = useState<DossierExNihilo | null | undefined>(undefined);
   const [editingLien, setEditingLien] = useState<LienRenseignement | null | undefined>(undefined);
+  // Annotation d'aire en cours d'édition. cluster = cible (toujours présent
+  // quand le modal est ouvert) ; existing = annotation déjà attachée si on édite.
+  const [editingClusterAnnotation, setEditingClusterAnnotation] = useState<
+    { cluster: InfluenceCluster; existing?: ClusterAnnotation } | undefined
+  >(undefined);
   // centerRequest change → MindmapCanvas anime la caméra vers le nœud.
   // Le compteur force le re-trigger même si on cible deux fois le même id.
   const [centerRequest, setCenterRequest] = useState<{ id: string; seq: number } | undefined>();
+  // Compteur "actualiser" : incrémenté à chaque clic sur le bouton refresh
+  // pour forcer le recalcul du layout (utile en mode offline quand des liens
+  // ont été ajoutés ailleurs sans changement d'identité de la source).
+  const [refreshKey, setRefreshKey] = useState(0);
+  // État du bouton Enregistrer : "idle" (rien à faire ou rien fait), "saving"
+  // (flush en cours), "saved" (vient de réussir, retombe en idle après 2s).
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  // Re-render quand le drapeau dirty change pour mettre à jour le badge.
+  // hasPendingChanges() lit un module-level flag, donc on tick à chaque action.
+  const [, forceTick] = useState(0);
+  // Filtre contentieux : sélection multiple, tout coché par défaut. Un set
+  // vide = aucun filtre actif (équivalent tout coché) pour rester safe.
+  const [selectedContentieux, setSelectedContentieux] = useState<Set<ContentieuxId>>(
+    () => new Set(contentieuxDefs.map(d => d.id)),
+  );
 
   const pinnedMecIds = useCartographieOverlayStore(s => s.pinnedMecIds);
   const mecsExNihilo = useCartographieOverlayStore(s => s.mecsExNihilo);
@@ -81,15 +113,41 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const addLien = useCartographieOverlayStore(s => s.addLien);
   const updateLien = useCartographieOverlayStore(s => s.updateLien);
   const removeLien = useCartographieOverlayStore(s => s.removeLien);
+  const clusterAnnotations = useCartographieOverlayStore(s => s.clusterAnnotations);
+  const addClusterAnnotation = useCartographieOverlayStore(s => s.addClusterAnnotation);
+  const updateClusterAnnotation = useCartographieOverlayStore(s => s.updateClusterAnnotation);
+  const removeClusterAnnotation = useCartographieOverlayStore(s => s.removeClusterAnnotation);
+  const mecScoreBoosts = useCartographieOverlayStore(s => s.mecScoreBoosts);
+  const setMecScoreBoost = useCartographieOverlayStore(s => s.setMecScoreBoost);
 
   useEffect(() => {
     if (!overlayLoaded) loadOverlay();
   }, [overlayLoaded, loadOverlay]);
 
-  // Mode offline : on persiste à la fermeture du module (ou de l'app), pas
-  // pendant l'utilisation, pour ne pas faire ramer la cartographie.
+  // Démarre le service de sync au montage du module : pull initial du serveur
+  // commun + listener pour pousser après chaque mutation. Stop au unmount
+  // pour ne pas continuer à pinger inutilement quand l'utilisateur a quitté
+  // la cartographie.
   useEffect(() => {
-    const onBeforeUnload = () => { void flushOverlay(); };
+    cartographieOverlaySyncService.start();
+    return () => {
+      cartographieOverlaySyncService.stop();
+    };
+  }, []);
+
+  // Mode offline : on persiste à la fermeture du module (ou de l'app), pas
+  // pendant l'utilisation, pour ne pas faire ramer la cartographie. ATTENTION :
+  // le flush async lancé sur beforeunload n'est PAS garanti d'avoir le temps
+  // de finir. Si le store est dirty, on prévient l'utilisateur via la dialog
+  // native — il peut alors annuler et cliquer Enregistrer explicitement.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      void flushOverlay();
+      if (useCartographieOverlayStore.getState().hasPendingChanges()) {
+        e.preventDefault();
+        e.returnValue = ''; // requis par certains navigateurs
+      }
+    };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', onBeforeUnload);
@@ -101,11 +159,66 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     mecsExNihilo,
     dossiersExNihilo,
     liensRenseignement,
-  }), [mecsExNihilo, dossiersExNihilo, liensRenseignement]);
+    mecScoreBoosts,
+  }), [mecsExNihilo, dossiersExNihilo, liensRenseignement, mecScoreBoosts]);
+
+  // Contentieux effectifs : on enrichit la liste des defs reçue en prop avec
+  // les ids présents dans les sources mais inconnus des defs (typiquement
+  // les dossiers d'instruction sans contentieuxId qui retombent sur l'id
+  // virtuel "instructions"). Sans ça, leur filtre serait absent et ils
+  // disparaîtraient du graphe. Couleur indigo distinctive pour qu'ils
+  // soient repérables tels quels.
+  const effectiveContentieuxDefs = useMemo<ContentieuxDefinition[]>(() => {
+    const known = new Set(contentieuxDefs.map(d => d.id));
+    const orphans = new Set<ContentieuxId>();
+    for (const s of sources) {
+      if (!known.has(s.contentieuxId)) orphans.add(s.contentieuxId);
+    }
+    if (orphans.size === 0) return contentieuxDefs;
+    const virtuals: ContentieuxDefinition[] = [];
+    for (const id of orphans) {
+      virtuals.push({
+        id,
+        label: id === 'instructions' ? 'Instructions (non triées)' : id,
+        color: '#6366f1',
+      } as ContentieuxDefinition);
+    }
+    return [...contentieuxDefs, ...virtuals];
+  }, [contentieuxDefs, sources]);
+
+  // Si un nouveau contentieux apparaît dans les defs (ex. ajouté par l'admin),
+  // on l'ajoute au filtre actif pour ne rien masquer par surprise. Idem
+  // pour les contentieux virtuels orphelins (ex. "instructions" pour les
+  // dossiers d'instruction sans contentieuxId précisé).
+  useEffect(() => {
+    setSelectedContentieux(prev => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const def of effectiveContentieuxDefs) {
+        if (!next.has(def.id)) { next.add(def.id); changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [effectiveContentieuxDefs]);
+
+  // Compte de dossiers par contentieux (pour les badges du filtre).
+  const sourcesCountByContentieux = useMemo(() => {
+    const m = new Map<ContentieuxId, number>();
+    for (const s of sources) {
+      m.set(s.contentieuxId, (m.get(s.contentieuxId) || 0) + 1);
+    }
+    return m;
+  }, [sources]);
+
+  // Sources filtrées : recalculé → graph rebuild → layout rebuild.
+  const filteredSources = useMemo(
+    () => sources.filter(s => selectedContentieux.has(s.contentieuxId)),
+    [sources, selectedContentieux],
+  );
 
   const graph = useMemo(
-    () => buildMindmapGraph(sources, overlayInput),
-    [sources, overlayInput],
+    () => buildMindmapGraph(filteredSources, overlayInput),
+    [filteredSources, overlayInput],
   );
   const top10 = useMemo(() => getTopMec(graph, 10, pinnedMecIds), [graph, pinnedMecIds]);
 
@@ -137,9 +250,56 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     if (node.type === 'mec') setSidePanelMecId(node.id);
   };
 
+  const handleRefresh = () => {
+    setRefreshKey(k => k + 1);
+    if (onRefresh) onRefresh();
+  };
+
+  const handleSave = async () => {
+    setSaveState('saving');
+    try {
+      // Persistance locale d'abord (rapide, garantie même hors ligne).
+      await flushOverlay();
+      // Puis push immédiat vers le serveur commun (peut échouer silencieusement
+      // si le partage est injoignable — la prochaine sync périodique
+      // retentera dès que le réseau revient).
+      await cartographieOverlaySyncService.flushPending();
+      setSaveState('saved');
+      setTimeout(() => setSaveState('idle'), 2000);
+    } catch {
+      setSaveState('idle');
+    }
+  };
+
+  // Tick toutes les 1.5s pour rafraîchir l'indicateur "modifs en attente".
+  // Le store n'expose pas de subscription pour le drapeau dirty (c'est un
+  // module-level flag), un poll léger est largement suffisant pour cet usage.
+  useEffect(() => {
+    const i = setInterval(() => forceTick(t => t + 1), 1500);
+    return () => clearInterval(i);
+  }, []);
+
+  const hasPendingChanges = useCartographieOverlayStore.getState().hasPendingChanges();
+
+  const handleAnnotateCluster = (cluster: InfluenceCluster, existing?: ClusterAnnotation) => {
+    setEditingClusterAnnotation({ cluster, existing });
+  };
+
+  const toggleContentieux = (id: ContentieuxId) => {
+    setSelectedContentieux(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const allContentieuxSelected = selectedContentieux.size === effectiveContentieuxDefs.length;
+
   const handleNodeClick = (node: GraphNode) => {
     setSelectedId(node.id);
     if (node.type === 'mec') setSidePanelMecId(node.id);
+    // Toggle ego-network : re-cliquer sur le même nœud sort du mode.
+    setEgoNodeId(prev => prev === node.id ? undefined : node.id);
   };
 
   const handleNodeDoubleClick = (node: GraphNode) => {
@@ -228,6 +388,118 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           )}
         </div>
 
+        {/* Filtre contentieux */}
+        <div className="relative">
+          <button
+            onClick={() => setFilterMenuOpen(o => !o)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+              !allContentieuxSelected
+                ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+            }`}
+            title="Filtrer par contentieux"
+          >
+            <Filter className="h-3.5 w-3.5" />
+            Contentieux
+            <span className={`text-[10px] rounded px-1 ${
+              !allContentieuxSelected ? 'bg-amber-200 text-amber-900' : 'bg-slate-200'
+            }`}>
+              {selectedContentieux.size}/{effectiveContentieuxDefs.length}
+            </span>
+            <ChevronDown className="h-3 w-3" />
+          </button>
+          {filterMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setFilterMenuOpen(false)} />
+              <div className="absolute top-full right-0 mt-1 bg-white border border-slate-200 rounded-md shadow-lg z-40 min-w-[240px] py-1">
+                <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100">
+                  <span className="text-[10px] uppercase font-semibold text-slate-500">Contentieux affichés</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSelectedContentieux(new Set(effectiveContentieuxDefs.map(d => d.id)))}
+                      className="text-[10px] text-slate-600 hover:text-slate-900 underline"
+                    >
+                      tout
+                    </button>
+                    <button
+                      onClick={() => setSelectedContentieux(new Set())}
+                      className="text-[10px] text-slate-600 hover:text-slate-900 underline"
+                    >
+                      aucun
+                    </button>
+                  </div>
+                </div>
+                {effectiveContentieuxDefs.map(def => {
+                  const checked = selectedContentieux.has(def.id);
+                  const count = sourcesCountByContentieux.get(def.id) || 0;
+                  return (
+                    <button
+                      key={def.id}
+                      onClick={() => toggleContentieux(def.id)}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 text-left"
+                    >
+                      <span
+                        className={`flex items-center justify-center h-4 w-4 rounded border ${
+                          checked ? 'border-transparent' : 'border-slate-300 bg-white'
+                        }`}
+                        style={{ background: checked ? def.color : undefined }}
+                      >
+                        {checked && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+                      </span>
+                      <span className="text-sm text-slate-800 flex-1">{def.label}</span>
+                      <span className="text-[10px] text-slate-400">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Actualiser : recalcule la cartographie (utile en mode offline après
+            un ajout de MEC à un dossier, ou si les sources ont changé en arrière-plan). */}
+        <button
+          onClick={handleRefresh}
+          title="Actualiser la cartographie"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 transition-colors"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Actualiser
+        </button>
+
+        {/* Enregistrer : flush explicite des overlays sur disque. Indispensable
+            avant une sync globale ou avant de fermer l'onglet — la sauvegarde
+            auto sur beforeunload n'est pas garantie de s'exécuter à temps
+            (le navigateur peut couper la promise async). */}
+        <button
+          onClick={handleSave}
+          disabled={saveState === 'saving'}
+          title={
+            saveState === 'saved' ? 'Modifications enregistrées'
+            : hasPendingChanges ? 'Modifications en attente — cliquer pour enregistrer'
+            : 'Tout est à jour'
+          }
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+            saveState === 'saved'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+              : hasPendingChanges
+                ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600 animate-pulse'
+                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          {saveState === 'saving' ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : saveState === 'saved' ? (
+            <Check className="h-3.5 w-3.5" />
+          ) : (
+            <Save className="h-3.5 w-3.5" />
+          )}
+          {saveState === 'saving' ? 'Enregistrement…'
+            : saveState === 'saved' ? 'Enregistré'
+            : hasPendingChanges ? 'Enregistrer*'
+            : 'Enregistrer'}
+        </button>
+
         {/* Ajouter (dropdown) */}
         <div className="relative">
           <button
@@ -280,11 +552,11 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         >
           <Layers className="h-3.5 w-3.5" />
           Mes ajouts
-          {(mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length) > 0 && (
+          {(mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length + clusterAnnotations.length) > 0 && (
             <span className={`text-[10px] rounded px-1 ${
               showManage ? 'bg-white/20' : 'bg-slate-200'
             }`}>
-              {mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length}
+              {mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length + clusterAnnotations.length}
             </span>
           )}
         </button>
@@ -314,8 +586,9 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             <Network className="h-10 w-10" />
             <div className="text-sm">Aucun mis en cause à afficher pour le moment.</div>
             <div className="text-xs text-slate-400 max-w-md text-center">
-              La cartographie se peuplera dès qu'au moins un dossier accessible
-              contiendra un mis en cause.
+              {selectedContentieux.size < effectiveContentieuxDefs.length
+                ? "Aucun dossier ne correspond au filtre contentieux actif. Élargissez la sélection."
+                : "La cartographie se peuplera dès qu'au moins un dossier accessible contiendra un mis en cause."}
             </div>
           </div>
         )}
@@ -324,9 +597,13 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           <MindmapCanvas
             nodes={graph.nodes}
             edges={graph.edges}
-            contentieuxDefs={contentieuxDefs}
+            contentieuxDefs={effectiveContentieuxDefs}
             focusedId={selectedId}
             centerRequest={centerRequest}
+            refreshKey={refreshKey}
+            clusterAnnotations={clusterAnnotations}
+            onAnnotateCluster={handleAnnotateCluster}
+            egoNodeId={egoNodeId}
             onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
           />
@@ -336,10 +613,11 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           <MindmapSidePanel
             mec={sidePanelMec}
             graph={graph}
-            contentieuxDefs={contentieuxDefs}
+            contentieuxDefs={effectiveContentieuxDefs}
             onClose={() => setSidePanelMecId(undefined)}
             onDossierClick={handleDossierFromPanel}
             onDossierOpen={handleDossierOpenFromPanel}
+            onSetScoreBoost={setMecScoreBoost}
           />
         )}
 
@@ -360,15 +638,32 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             mecs={mecsExNihilo}
             dossiers={dossiersExNihilo}
             liens={liensRenseignement}
+            clusterAnnotations={clusterAnnotations}
             graph={graph}
             onClose={() => setShowManage(false)}
             onCenterNode={centerOnId}
             onEditMec={(m) => setEditingMec(m)}
             onEditDossier={(d) => setEditingDossier(d)}
             onEditLien={(l) => setEditingLien(l)}
+            onEditClusterAnnotation={(a) => {
+              // Édition depuis le panneau : on n'a plus le cluster vivant en
+              // main, on synthétise un cluster minimal à partir des nodeIds
+              // ancrés. Le canvas matchera pour l'aperçu visuel via Jaccard.
+              setEditingClusterAnnotation({
+                cluster: {
+                  id: a.id,
+                  nodeIds: a.nodeIds,
+                  polygon: [],
+                  bbox: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
+                  color: a.color || '#94a3b8',
+                },
+                existing: a,
+              });
+            }}
             onDeleteMec={(id) => removeMec(id)}
             onDeleteDossier={(id) => removeDossier(id)}
             onDeleteLien={(id) => removeLien(id)}
+            onDeleteClusterAnnotation={(id) => removeClusterAnnotation(id)}
           />
         )}
       </div>
@@ -414,6 +709,27 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             addLien(data);
           }
         }}
+      />
+
+      <AddClusterAnnotationModal
+        isOpen={editingClusterAnnotation !== undefined}
+        onClose={() => setEditingClusterAnnotation(undefined)}
+        cluster={editingClusterAnnotation ? {
+          nodeIds: editingClusterAnnotation.cluster.nodeIds,
+          color: editingClusterAnnotation.cluster.color,
+          nbMembers: editingClusterAnnotation.cluster.nodeIds.length,
+        } : undefined}
+        initial={editingClusterAnnotation?.existing}
+        onSubmit={(data) => {
+          if (editingClusterAnnotation?.existing) {
+            updateClusterAnnotation(editingClusterAnnotation.existing.id, data);
+          } else {
+            addClusterAnnotation(data);
+          }
+        }}
+        onDelete={editingClusterAnnotation?.existing ? () => {
+          removeClusterAnnotation(editingClusterAnnotation.existing!.id);
+        } : undefined}
       />
 
       {/* HINT bas de page */}

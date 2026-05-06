@@ -67,6 +67,46 @@ export interface DeletedIdsSyncFile extends GlobalSyncMetadata {
 }
 
 /**
+ * Tombstone string-id pour les overlays cartographie (les ids y sont des
+ * chaînes : ids canoniques de MEC, dexn_xxx, lien_xxx, cluster_xxx).
+ */
+export interface CartographieTombstone {
+  id: string;
+  deletedAt: string;
+}
+
+/**
+ * Fichier serveur des overlays cartographie partagés par tous les utilisateurs.
+ * Une copie du PersistedOverlay du store + des tombstones par catégorie pour
+ * que les suppressions survivent à un re-push depuis un poste désynchronisé.
+ *
+ * Stratégie de merge (cf. CartographieOverlaySyncService) :
+ *   - chaque entité porte un updatedAt → "le plus récent gagne par id"
+ *   - tombstone pour un id → l'entité est supprimée des deux côtés
+ *   - pinnedMecIds : union simple (les épingles ne se "suppriment" pas)
+ */
+export interface CartographieOverlaySyncFile extends GlobalSyncMetadata {
+  // Données effectives — voir useCartographieOverlayStore pour les types.
+  pinnedMecIds: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mecsExNihilo: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  dossiersExNihilo: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  liensRenseignement: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  clusterAnnotations: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mecScoreBoosts: any[];
+  // Tombstones de suppression
+  deletedMecExNihiloIds?: CartographieTombstone[];
+  deletedDossierExNihiloIds?: CartographieTombstone[];
+  deletedLienIds?: CartographieTombstone[];
+  deletedClusterAnnotationIds?: CartographieTombstone[];
+  deletedMecScoreBoostIds?: CartographieTombstone[];
+}
+
+/**
  * Préférences utilisateur synchronisées sur le serveur commun.
  * Un fichier par utilisateur : user-preferences/{windowsUsername}.json.
  * Structure volontairement ouverte (chaque clé est optionnelle) pour pouvoir

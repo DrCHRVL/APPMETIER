@@ -6,36 +6,40 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Pencil, Trash2, MapPin, FileText, User, Link as LinkIcon } from 'lucide-react';
+import { X, Pencil, Trash2, MapPin, FileText, User, Link as LinkIcon, Layers } from 'lucide-react';
 import type {
   MecExNihilo,
   DossierExNihilo,
   LienRenseignement,
+  ClusterAnnotation,
 } from '@/stores/useCartographieOverlayStore';
 import type { MindmapGraph } from '@/utils/mindmapGraph';
 
-type Tab = 'mecs' | 'dossiers' | 'liens';
+type Tab = 'mecs' | 'dossiers' | 'liens' | 'reseaux';
 
 interface Props {
   mecs: MecExNihilo[];
   dossiers: DossierExNihilo[];
   liens: LienRenseignement[];
+  clusterAnnotations: ClusterAnnotation[];
   graph: MindmapGraph;
   onClose: () => void;
   onCenterNode: (nodeId: string) => void;
   onEditMec: (mec: MecExNihilo) => void;
   onEditDossier: (dossier: DossierExNihilo) => void;
   onEditLien: (lien: LienRenseignement) => void;
+  onEditClusterAnnotation: (annotation: ClusterAnnotation) => void;
   onDeleteMec: (id: string) => void;
   onDeleteDossier: (id: string) => void;
   onDeleteLien: (id: string) => void;
+  onDeleteClusterAnnotation: (id: string) => void;
 }
 
 export const ManageOverlayPanel: React.FC<Props> = ({
-  mecs, dossiers, liens, graph,
+  mecs, dossiers, liens, clusterAnnotations, graph,
   onClose, onCenterNode,
-  onEditMec, onEditDossier, onEditLien,
-  onDeleteMec, onDeleteDossier, onDeleteLien,
+  onEditMec, onEditDossier, onEditLien, onEditClusterAnnotation,
+  onDeleteMec, onDeleteDossier, onDeleteLien, onDeleteClusterAnnotation,
 }) => {
   const [tab, setTab] = useState<Tab>('mecs');
 
@@ -60,6 +64,7 @@ export const ManageOverlayPanel: React.FC<Props> = ({
         <TabButton active={tab === 'mecs'} onClick={() => setTab('mecs')} icon={<User className="h-3 w-3" />} label="MEC" count={mecs.length} />
         <TabButton active={tab === 'dossiers'} onClick={() => setTab('dossiers')} icon={<FileText className="h-3 w-3" />} label="Dossiers" count={dossiers.length} />
         <TabButton active={tab === 'liens'} onClick={() => setTab('liens')} icon={<LinkIcon className="h-3 w-3" />} label="Liens" count={liens.length} />
+        <TabButton active={tab === 'reseaux'} onClick={() => setTab('reseaux')} icon={<Layers className="h-3 w-3" />} label="Réseaux" count={clusterAnnotations.length} />
       </div>
 
       <div className="flex-1 overflow-y-auto p-2">
@@ -115,6 +120,25 @@ export const ManageOverlayPanel: React.FC<Props> = ({
                 />
               ))
         )}
+
+        {tab === 'reseaux' && (
+          clusterAnnotations.length === 0
+            ? <Empty>Aucun réseau nommé. Cliquez sur le label "+ Nommer ce réseau" au-dessus d'une aire d'influence.</Empty>
+            : clusterAnnotations.map(a => (
+                <Row
+                  key={a.id}
+                  title={a.label}
+                  subtitle={[
+                    `${a.nodeIds.length} membre${a.nodeIds.length > 1 ? 's' : ''} ancré${a.nodeIds.length > 1 ? 's' : ''}`,
+                    a.notes && 'notes renseignées',
+                  ].filter(Boolean).join(' · ')}
+                  colorDot={a.color}
+                  onEdit={() => onEditClusterAnnotation(a)}
+                  onDelete={() => onDeleteClusterAnnotation(a.id)}
+                  deleteConfirm={`Supprimer l'annotation "${a.label}" ?`}
+                />
+              ))
+        )}
       </div>
     </div>
   );
@@ -142,14 +166,23 @@ const TabButton: React.FC<{
 const Row: React.FC<{
   title: string;
   subtitle?: string;
+  colorDot?: string;
   onCenter?: () => void;
   onEdit: () => void;
   onDelete: () => void;
   deleteConfirm: string;
-}> = ({ title, subtitle, onCenter, onEdit, onDelete, deleteConfirm }) => (
+}> = ({ title, subtitle, colorDot, onCenter, onEdit, onDelete, deleteConfirm }) => (
   <div className="flex items-start gap-1 px-2 py-2 rounded hover:bg-slate-50 group">
     <div className="flex-1 min-w-0">
-      <div className="text-sm font-medium text-slate-900 truncate" title={title}>{title}</div>
+      <div className="text-sm font-medium text-slate-900 truncate flex items-center gap-1.5" title={title}>
+        {colorDot && (
+          <span
+            className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+            style={{ background: colorDot }}
+          />
+        )}
+        <span className="truncate">{title}</span>
+      </div>
       {subtitle && <div className="text-[11px] text-slate-500 truncate">{subtitle}</div>}
     </div>
     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
