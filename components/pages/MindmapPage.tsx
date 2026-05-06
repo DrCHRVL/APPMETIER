@@ -7,8 +7,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, FileText, Layers, Link as LinkIcon, Network, Pin, PinOff, Plus, Search, Trophy, User, X } from 'lucide-react';
-import type { ContentieuxDefinition } from '@/types/userTypes';
+import { Check, ChevronDown, FileText, Filter, Layers, Link as LinkIcon, Network, Pin, PinOff, Plus, RefreshCw, Search, Trophy, User, X } from 'lucide-react';
+import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { Enquete } from '@/types/interfaces';
 import {
   buildMindmapGraph,
@@ -40,6 +40,10 @@ interface MindmapPageProps {
   contentieuxDefs: ContentieuxDefinition[];
   /** Callback pour ouvrir le modal détail d'une enquête (double-click sur un dossier) */
   onOpenEnquete?: (enquete: Enquete, contentieuxId: string) => void;
+  /** Optionnel : appelé quand l'utilisateur clique "Actualiser". Le parent peut
+   *  recharger les sources depuis le disque (utile en mode offline). Le bump
+   *  interne de refreshKey relance le layout dans tous les cas. */
+  onRefresh?: () => void;
 }
 
 // ──────────────────────────────────────────────
@@ -50,6 +54,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   sources,
   contentieuxDefs,
   onOpenEnquete,
+  onRefresh,
 }) => {
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [sidePanelMecId, setSidePanelMecId] = useState<string | undefined>();
@@ -57,12 +62,22 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const [showTop10, setShowTop10] = useState(false);
   const [showManage, setShowManage] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [editingMec, setEditingMec] = useState<MecExNihilo | null | undefined>(undefined); // null = nouveau, undefined = fermé
   const [editingDossier, setEditingDossier] = useState<DossierExNihilo | null | undefined>(undefined);
   const [editingLien, setEditingLien] = useState<LienRenseignement | null | undefined>(undefined);
   // centerRequest change → MindmapCanvas anime la caméra vers le nœud.
   // Le compteur force le re-trigger même si on cible deux fois le même id.
   const [centerRequest, setCenterRequest] = useState<{ id: string; seq: number } | undefined>();
+  // Compteur "actualiser" : incrémenté à chaque clic sur le bouton refresh
+  // pour forcer le recalcul du layout (utile en mode offline quand des liens
+  // ont été ajoutés ailleurs sans changement d'identité de la source).
+  const [refreshKey, setRefreshKey] = useState(0);
+  // Filtre contentieux : sélection multiple, tout coché par défaut. Un set
+  // vide = aucun filtre actif (équivalent tout coché) pour rester safe.
+  const [selectedContentieux, setSelectedContentieux] = useState<Set<ContentieuxId>>(
+    () => new Set(contentieuxDefs.map(d => d.id)),
+  );
 
   const pinnedMecIds = useCartographieOverlayStore(s => s.pinnedMecIds);
   const mecsExNihilo = useCartographieOverlayStore(s => s.mecsExNihilo);
@@ -103,9 +118,37 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     liensRenseignement,
   }), [mecsExNihilo, dossiersExNihilo, liensRenseignement]);
 
+  // Si un nouveau contentieux apparaît dans les defs (ex. ajouté par l'admin),
+  // on l'ajoute au filtre actif pour ne rien masquer par surprise.
+  useEffect(() => {
+    setSelectedContentieux(prev => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const def of contentieuxDefs) {
+        if (!next.has(def.id)) { next.add(def.id); changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [contentieuxDefs]);
+
+  // Compte de dossiers par contentieux (pour les badges du filtre).
+  const sourcesCountByContentieux = useMemo(() => {
+    const m = new Map<ContentieuxId, number>();
+    for (const s of sources) {
+      m.set(s.contentieuxId, (m.get(s.contentieuxId) || 0) + 1);
+    }
+    return m;
+  }, [sources]);
+
+  // Sources filtrées : recalculé → graph rebuild → layout rebuild.
+  const filteredSources = useMemo(
+    () => sources.filter(s => selectedContentieux.has(s.contentieuxId)),
+    [sources, selectedContentieux],
+  );
+
   const graph = useMemo(
-    () => buildMindmapGraph(sources, overlayInput),
-    [sources, overlayInput],
+    () => buildMindmapGraph(filteredSources, overlayInput),
+    [filteredSources, overlayInput],
   );
   const top10 = useMemo(() => getTopMec(graph, 10, pinnedMecIds), [graph, pinnedMecIds]);
 
@@ -136,6 +179,21 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     setCenterRequest(prev => ({ id: node.id, seq: (prev?.seq ?? 0) + 1 }));
     if (node.type === 'mec') setSidePanelMecId(node.id);
   };
+
+  const handleRefresh = () => {
+    setRefreshKey(k => k + 1);
+    if (onRefresh) onRefresh();
+  };
+
+  const toggleContentieux = (id: ContentieuxId) => {
+    setSelectedContentieux(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const allContentieuxSelected = selectedContentieux.size === contentieuxDefs.length;
 
   const handleNodeClick = (node: GraphNode) => {
     setSelectedId(node.id);
@@ -228,6 +286,85 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           )}
         </div>
 
+        {/* Filtre contentieux */}
+        <div className="relative">
+          <button
+            onClick={() => setFilterMenuOpen(o => !o)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+              !allContentieuxSelected
+                ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+            }`}
+            title="Filtrer par contentieux"
+          >
+            <Filter className="h-3.5 w-3.5" />
+            Contentieux
+            <span className={`text-[10px] rounded px-1 ${
+              !allContentieuxSelected ? 'bg-amber-200 text-amber-900' : 'bg-slate-200'
+            }`}>
+              {selectedContentieux.size}/{contentieuxDefs.length}
+            </span>
+            <ChevronDown className="h-3 w-3" />
+          </button>
+          {filterMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setFilterMenuOpen(false)} />
+              <div className="absolute top-full right-0 mt-1 bg-white border border-slate-200 rounded-md shadow-lg z-40 min-w-[240px] py-1">
+                <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100">
+                  <span className="text-[10px] uppercase font-semibold text-slate-500">Contentieux affichés</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSelectedContentieux(new Set(contentieuxDefs.map(d => d.id)))}
+                      className="text-[10px] text-slate-600 hover:text-slate-900 underline"
+                    >
+                      tout
+                    </button>
+                    <button
+                      onClick={() => setSelectedContentieux(new Set())}
+                      className="text-[10px] text-slate-600 hover:text-slate-900 underline"
+                    >
+                      aucun
+                    </button>
+                  </div>
+                </div>
+                {contentieuxDefs.map(def => {
+                  const checked = selectedContentieux.has(def.id);
+                  const count = sourcesCountByContentieux.get(def.id) || 0;
+                  return (
+                    <button
+                      key={def.id}
+                      onClick={() => toggleContentieux(def.id)}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 text-left"
+                    >
+                      <span
+                        className={`flex items-center justify-center h-4 w-4 rounded border ${
+                          checked ? 'border-transparent' : 'border-slate-300 bg-white'
+                        }`}
+                        style={{ background: checked ? def.color : undefined }}
+                      >
+                        {checked && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+                      </span>
+                      <span className="text-sm text-slate-800 flex-1">{def.label}</span>
+                      <span className="text-[10px] text-slate-400">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Actualiser : recalcule la cartographie (utile en mode offline après
+            un ajout de MEC à un dossier, ou si les sources ont changé en arrière-plan). */}
+        <button
+          onClick={handleRefresh}
+          title="Actualiser la cartographie"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 transition-colors"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Actualiser
+        </button>
+
         {/* Ajouter (dropdown) */}
         <div className="relative">
           <button
@@ -314,8 +451,9 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             <Network className="h-10 w-10" />
             <div className="text-sm">Aucun mis en cause à afficher pour le moment.</div>
             <div className="text-xs text-slate-400 max-w-md text-center">
-              La cartographie se peuplera dès qu'au moins un dossier accessible
-              contiendra un mis en cause.
+              {selectedContentieux.size < contentieuxDefs.length
+                ? "Aucun dossier ne correspond au filtre contentieux actif. Élargissez la sélection."
+                : "La cartographie se peuplera dès qu'au moins un dossier accessible contiendra un mis en cause."}
             </div>
           </div>
         )}
@@ -327,6 +465,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             contentieuxDefs={contentieuxDefs}
             focusedId={selectedId}
             centerRequest={centerRequest}
+            refreshKey={refreshKey}
             onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
           />

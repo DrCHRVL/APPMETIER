@@ -73,7 +73,7 @@ export function getDossierBox(node: GraphNode): { width: number; height: number 
 // Rayon utilisé pour la détection de collision : pour un dossier (rectangle),
 // on prend la demi-diagonale de la boîte réelle, sinon les dossiers larges
 // se chevauchent puisque d3-force les considère comme des cercles.
-function collisionRadiusOf(node: GraphNode): number {
+export function getCollisionRadius(node: GraphNode): number {
   if (node.type === 'mec') return radiusOf(node);
   const { width, height } = getDossierBox(node);
   return Math.sqrt(width * width + height * height) / 2;
@@ -83,17 +83,22 @@ function collisionRadiusOf(node: GraphNode): number {
  * Retourne une Map id → {x, y} stable tant que la liste des nœuds/arêtes ne change pas.
  * La structure des positions est figée après le calcul ; les drags utilisateur
  * sont gérés par react-flow indépendamment.
+ *
+ * `refreshKey` permet de forcer un recalcul même quand `nodes`/`edges` ont une
+ * identité stable (utile en mode offline pour redistribuer le layout après un
+ * ajout extérieur).
  */
 export function useForceLayout(
   nodes: GraphNode[],
   edges: GraphEdge[],
+  refreshKey: number = 0,
 ): Map<string, PositionedNode> {
   return useMemo(() => {
     if (nodes.length === 0) return new Map();
 
     const simNodes: SimNode[] = nodes.map(n => ({
       id: n.id,
-      radius: collisionRadiusOf(n),
+      radius: getCollisionRadius(n),
     }));
 
     const simLinks: SimulationLinkDatum<SimNode>[] = edges.map(e => ({
@@ -122,7 +127,8 @@ export function useForceLayout(
       positions.set(sn.id, { id: sn.id, x: sn.x ?? 0, y: sn.y ?? 0 });
     }
     return positions;
-  }, [nodes, edges]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, edges, refreshKey]);
 }
 
 export function getNodeRadius(node: GraphNode): number {
