@@ -75,7 +75,7 @@ export const OverboardPage = ({
       const enqueteIdSet = new Set(enquetes.map(e => e.id));
       const pending: { enquete: Enquete; resultat: ResultatAudience }[] = [];
 
-      for (const [key, resultat] of Object.entries(allResultats)) {
+      for (const resultat of Object.values(allResultats)) {
         // Soit l'audience est marquée pending, soit elle a des condamnations pending
         const isPending = resultat.isAudiencePending ||
           resultat.hasPartialResults ||
@@ -84,10 +84,14 @@ export const OverboardPage = ({
 
         if (!isPending) continue;
 
-        const eId = Number(key);
-        if (!enqueteIdSet.has(eId)) continue;
+        // Filtrer par contentieux propriétaire (legacy → crimorg) avant le test
+        // de présence d'enquête, sinon un résultat d'un autre contentieux avec le
+        // même enqueteId polluerait la liste.
+        const resCtx = resultat.contentieuxId || 'crimorg';
+        if (resCtx !== cId) continue;
+        if (!enqueteIdSet.has(resultat.enqueteId)) continue;
 
-        const enquete = enquetes.find(e => e.id === eId);
+        const enquete = enquetes.find(e => e.id === resultat.enqueteId);
         if (enquete) {
           pending.push({ enquete, resultat });
         }
@@ -182,7 +186,7 @@ export const OverboardPage = ({
 
   // Nouveautés postérieures à l'épinglage, triées du plus récent au plus ancien, max 4.
   // CR.date et Acte.dateDebut/datePose sont auto-déclarés (approximation sans champ createdAt).
-  const getRecentActivitySincePin = (enquete: Enquete): { date: string; label: string }[] => {
+  const getRecentActivitySincePin = (enquete: Enquete, ctxId: ContentieuxId): { date: string; label: string }[] => {
     const pins = enquete.overboardPins || [];
     if (pins.length === 0) return [];
     const myPin = currentUsername ? pins.find(p => p.pinnedBy === currentUsername) : null;
@@ -202,7 +206,8 @@ export const OverboardPage = ({
         events.push({ date: d, label: 'Nouvel acte enregistré' });
       }
     }
-    const audienceResultat = audienceState?.resultats?.[String(enquete.id)];
+    const ownerCtx = enquete.contentieuxOrigine || ctxId;
+    const audienceResultat = audienceState?.resultats?.[`${ownerCtx}__${enquete.id}`];
     if (audienceResultat?.modifiedAt && audienceResultat.modifiedAt > since) {
       events.push({ date: audienceResultat.modifiedAt, label: "Date d'audience fixée" });
     }
@@ -384,7 +389,7 @@ export const OverboardPage = ({
                     <div className={`border ${colors.border} border-t-0 rounded-b-lg p-3`}>
                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                         {pinned.map(enquete => {
-                          const recentActivity = getRecentActivitySincePin(enquete);
+                          const recentActivity = getRecentActivitySincePin(enquete, ctxDef.id);
                           return (
                           <div key={enquete.id} className="flex flex-col gap-1">
                             {renderEnqueteCard ? (

@@ -467,6 +467,7 @@ const EnqueteDetailModalImpl = ({
 
                 <SaisiesSection
                   enqueteId={enquete.id}
+                  contentieuxId={enquete.contentieuxOrigine || contentieuxId || 'crimorg'}
                   readOnly={effectiveReadOnly}
                 />
 

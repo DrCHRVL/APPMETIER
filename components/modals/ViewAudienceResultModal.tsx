@@ -13,6 +13,9 @@ interface ViewAudienceResultModalProps {
   isOpen: boolean;
   onClose: () => void;
   enqueteId: number;
+  /** Contentieux propriétaire — requis pour ne pas confondre des enquêtes de
+      contentieux différents qui partagent le même id. */
+  contentieuxId: string;
   onReset?: () => void;
   onUpdate?: (resultat: ResultatAudience) => void;
   isOverboardPinned?: boolean;
@@ -22,6 +25,7 @@ export const ViewAudienceResultModal = ({
   isOpen,
   onClose,
   enqueteId,
+  contentieuxId,
   onReset,
   onUpdate,
   isOverboardPinned = false,
@@ -44,8 +48,8 @@ export const ViewAudienceResultModal = ({
   };
 
   const handleEdit = () => {
-    const resultat = getResultat(enqueteId);
-    
+    const resultat = getResultat(contentieuxId, enqueteId);
+
     // Si c'est un classement, ouvrir le modal spécialisé
     if (resultat?.isClassement) {
       setShowClassementModal(true);
@@ -58,6 +62,7 @@ export const ViewAudienceResultModal = ({
     try {
       const compatibleResult = {
         ...updatedResult,
+        contentieuxId,
         confiscations: migrateConfiscations(updatedResult.confiscations),
         condamnations: updatedResult.condamnations.map(condamnation => ({
           nom: condamnation.nom || '',
@@ -89,11 +94,12 @@ export const ViewAudienceResultModal = ({
 
   const handleClassementUpdate = async (data: { dateClassement: string; motifClassement: string }) => {
     try {
-      const resultat = getResultat(enqueteId);
+      const resultat = getResultat(contentieuxId, enqueteId);
       if (!resultat) return;
 
       const updatedResult = {
         ...resultat,
+        contentieuxId,
         dateAudience: data.dateClassement, // Utiliser la nouvelle date
         motifClassement: data.motifClassement
       };
@@ -114,7 +120,7 @@ export const ViewAudienceResultModal = ({
 
   const handleClassementDelete = async () => {
     try {
-      await deleteAudienceResultat(enqueteId);
+      await deleteAudienceResultat(contentieuxId, enqueteId);
       setShowClassementModal(false);
       showToast('Classement supprimé avec succès', 'success');
       onClose();
@@ -127,7 +133,7 @@ export const ViewAudienceResultModal = ({
     return null;
   }
 
-  const resultat = getResultat(enqueteId);
+  const resultat = getResultat(contentieuxId, enqueteId);
   if (!resultat) return null;
 
   if (isEditing) {
@@ -140,6 +146,7 @@ export const ViewAudienceResultModal = ({
         }}
         onSave={handleUpdateSubmit}
         enqueteId={enqueteId}
+        contentieuxId={contentieuxId}
         defaultDate={resultat.dateAudience}
         initialData={resultat}
         isOverboardPinned={isOverboardPinned}

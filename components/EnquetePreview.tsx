@@ -25,6 +25,9 @@ import { OverboardPin } from '@/types/userTypes';
 
 interface EnquetePreviewProps {
   enquete: Enquete;
+  /** Id du contentieux propriétaire de l'enquête. Indispensable pour les
+      lookups dans le store de résultats d'audience (clé composite). */
+  contentieuxId: string;
   isArchived?: boolean;
   onView: (id: number) => void;
   onEdit?: (id: number) => void;
@@ -50,6 +53,7 @@ interface EnquetePreviewProps {
 
 export const EnquetePreview = React.memo(({
   enquete,
+  contentieuxId,
   isArchived = false,
   onView,
   onEdit,
@@ -252,7 +256,7 @@ export const EnquetePreview = React.memo(({
   // Handlers
   const handleUnarchive = async () => {
     try {
-      const success = await deleteAudienceResultat(enquete.id);
+      const success = await deleteAudienceResultat(contentieuxId, enquete.id);
       if (!success) {
         showToast('Erreur lors de la suppression des résultats d\'audience', 'error');
         return;
@@ -347,7 +351,7 @@ return (
             </Button>
           )}
 
-         {!isLoading && hasResultat(enquete.id) && (
+         {!isLoading && hasResultat(contentieuxId, enquete.id) && (
   <Button
     variant="ghost"
     size="sm"
@@ -495,7 +499,7 @@ return (
                       <Edit className="h-3 w-3" />
                     </Button>
                   )}
-                  {onArchive && !hasResultat(enquete.id) && (
+                  {onArchive && !hasResultat(contentieuxId, enquete.id) && (
                     <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setShowArchiveModal(true)}>
                       <Archive className="h-3 w-3" />
                     </Button>
@@ -617,6 +621,7 @@ return (
           isOpen={showArchiveModal}
           onClose={() => setShowArchiveModal(false)}
           enqueteId={enquete.id}
+          contentieuxId={contentieuxId}
           onArchive={onArchive}
           misEnCause={enquete.misEnCause}
           enqueteNumero={enquete.numero}
@@ -630,10 +635,11 @@ return (
   isOpen={showAudienceResultModal}
   onClose={() => setShowAudienceResultModal(false)}
   enqueteId={enquete.id}
+  contentieuxId={contentieuxId}
   isOverboardPinned={!!(enquete.overboardPins && enquete.overboardPins.length > 0)}
   onReset={async () => {
     try {
-      await deleteAudienceResultat(enquete.id);
+      await deleteAudienceResultat(contentieuxId, enquete.id);
       showToast('Résultats supprimés avec succès', 'success');
       // Déclencher une mise à jour des stats
       window.dispatchEvent(new Event('audience-stats-update'));

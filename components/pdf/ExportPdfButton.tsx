@@ -10,11 +10,13 @@ import { exportStatsPdf, PdfExportData } from '@/utils/generateStatsPdf';
 interface ExportPdfButtonProps {
   selectedYear?: number;
   enquetes: Enquete[];
+  contentieuxId?: string;
 }
 
 export const ExportPdfButton = ({
   selectedYear = new Date().getFullYear(),
   enquetes,
+  contentieuxId,
 }: ExportPdfButtonProps) => {
   const [isExporting, setIsExporting] = useState(false);
   const { audienceState } = useAudience();
@@ -24,7 +26,14 @@ export const ExportPdfButton = ({
     setIsExporting(true);
 
     try {
-      const resultats = audienceState?.resultats || {};
+      const allResultats = audienceState?.resultats || {};
+      // Pour les vues par contentieux, ne retenir que les résultats du contentieux
+      // courant (legacy → crimorg). En vue globale, on garde tout.
+      const resultats: typeof allResultats = (!contentieuxId || contentieuxId === 'global')
+        ? allResultats
+        : Object.fromEntries(
+            Object.entries(allResultats).filter(([, r]) => (r.contentieuxId || 'crimorg') === contentieuxId)
+          );
       const directResults = Object.values(resultats)
         .filter(r => r.isDirectResult && new Date(r.dateAudience).getFullYear() === selectedYear);
 

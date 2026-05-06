@@ -19,6 +19,8 @@ interface ArchiveEnqueteModalProps {
   onClose: () => void;
   onArchive: (id: number) => void;
   enqueteId: number;
+  /** Contentieux propriétaire — requis pour le namespacing des résultats. */
+  contentieuxId: string;
   misEnCause?: { id: number; nom: string }[];
   enqueteNumero?: string;
   enqueteTags?: Tag[];
@@ -31,6 +33,7 @@ export const ArchiveEnqueteModal = ({
   onClose,
   onArchive,
   enqueteId,
+  contentieuxId,
   misEnCause = [],
   enqueteNumero = '',
   enqueteTags = [],
@@ -53,7 +56,7 @@ export const ArchiveEnqueteModal = ({
 
   // Brouillon de saisies déjà enregistré depuis le détail de l'enquête (s'il existe).
   // C'est la même donnée — on la pré-charge pour éviter toute perte/duplication.
-  const existingResultat = getResultat(enqueteId);
+  const existingResultat = getResultat(contentieuxId, enqueteId);
   const existingSaisies = existingResultat?.saisies;
 
   // Pré-charge les saisies dès l'ouverture du modal pour les rendre visibles à
@@ -90,9 +93,10 @@ export const ArchiveEnqueteModal = ({
   const handleClassementSave = async (data: { dateClassement: string; motifClassement: string }) => {
     try {
       // Préserver les saisies pré-archivage le cas échéant (même donnée, même clé).
-      const preserved = getResultat(enqueteId)?.saisies;
+      const preserved = getResultat(contentieuxId, enqueteId)?.saisies;
       const classementResultat = {
         enqueteId,
+        contentieuxId,
         dateAudience: data.dateClassement,
         condamnations: [],
         confiscations: emptyConfiscations(),
@@ -134,6 +138,7 @@ export const ArchiveEnqueteModal = ({
       // est implicitement remplacé par isAudiencePending dans le record sauvegardé.
       const pendingResultat = {
         enqueteId,
+        contentieuxId,
         dateAudience: audienceDate,
         condamnations: [],
         confiscations: emptyConfiscations(),
@@ -170,7 +175,7 @@ export const ArchiveEnqueteModal = ({
       // Si AudienceResultModal n'a pas renseigné de saisies, conserver celles du
       // brouillon pré-archivage pour ne pas perdre le travail effectué pendant
       // l'enquête.
-      const draftSaisies = getResultat(enqueteId)?.saisies;
+      const draftSaisies = getResultat(contentieuxId, enqueteId)?.saisies;
       const preservedSaisies = resultat.saisies && hasAnySaisies(resultat.saisies)
         ? resultat.saisies
         : (hasAnySaisies(draftSaisies) ? draftSaisies : undefined);
@@ -179,6 +184,7 @@ export const ArchiveEnqueteModal = ({
       await saveResultat({
         ...resultat,
         enqueteId,
+        contentieuxId,
         saisies: preservedSaisies,
       });
 
@@ -202,9 +208,9 @@ export const ArchiveEnqueteModal = ({
     try {
       // Préserver les saisies pré-archivage si l'utilisateur en a renseigné depuis
       // le détail de l'enquête (même donnée, même clé enqueteId).
-      const draftSaisies = getResultat(enqueteId)?.saisies;
+      const draftSaisies = getResultat(contentieuxId, enqueteId)?.saisies;
       const preservedSaisies = hasAnySaisies(draftSaisies) ? draftSaisies : undefined;
-      await saveResultat({ ...resultat, saisies: preservedSaisies });
+      await saveResultat({ ...resultat, contentieuxId, saisies: preservedSaisies });
       
       // Archiver l'enquête
       handleArchiveWithToast(enqueteId);
@@ -371,6 +377,7 @@ export const ArchiveEnqueteModal = ({
             onClose();
           }}
           enqueteId={enqueteId}
+          contentieuxId={contentieuxId}
           onSave={handleSaveResults}
           misEnCause={misEnCause}
           enqueteNumero={enqueteNumero}

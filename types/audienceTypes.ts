@@ -128,6 +128,13 @@ export interface PendingCondamnation {
 
 export interface ResultatAudience {
   enqueteId: number;
+  /**
+   * Contentieux propriétaire de l'enquête. Indispensable pour que les IDs
+   * d'enquête identiques entre contentieux ne se collisionnent pas dans le
+   * stockage global des résultats. Optionnel uniquement pour les données
+   * legacy (migrées au démarrage vers `crimorg`).
+   */
+  contentieuxId?: string;
   dateAudience: string;
   modifiedAt?: string; // Horodatage de la dernière modification (pour résolution automatique des conflits de sync)
   condamnations: CondamnationData[];
