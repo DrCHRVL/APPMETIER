@@ -431,19 +431,19 @@ return (
                   </Badge>
                 ))}
 
-              {/* Badge co-saisine */}
-              {enquete.sharedWith && enquete.sharedWith.length > 0 && (
-                <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-purple-50 text-purple-700 border-purple-300">
-                  <Link2 className="h-3 w-3 mr-0.5" />
-                  Co-saisine
-                </Badge>
-              )}
-              {enquete.contentieuxOrigine && (
+              {/* Badge co-saisine : un seul badge selon qu'on est origine (a partagé)
+                  ou destinataire (a reçu). On ne cumule jamais les deux. */}
+              {enquete.contentieuxOrigine ? (
                 <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-amber-50 text-amber-700 border-amber-300">
                   <Link2 className="h-3 w-3 mr-0.5" />
                   Partagée · {enquete.contentieuxOrigine}
                 </Badge>
-              )}
+              ) : enquete.sharedWith && enquete.sharedWith.length > 0 ? (
+                <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-purple-50 text-purple-700 border-purple-300">
+                  <Link2 className="h-3 w-3 mr-0.5" />
+                  Co-saisine
+                </Badge>
+              ) : null}
             </div>
 
             {descriptionPreview && (
