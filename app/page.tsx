@@ -331,6 +331,7 @@ function AppContent() {
     addDossier: handleAddInstruction,
     updateDossier: handleUpdateInstruction,
     deleteDossier: handleDeleteInstruction,
+    refresh: refreshInstructions,
   } = useInstructions();
   const [selectedInstruction, setSelectedInstruction] = useState<DossierInstruction | null>(null);
   const [isEditingInstruction, setIsEditingInstruction] = useState(false);
@@ -866,6 +867,24 @@ function AppContent() {
     return out;
   }, [overboardData, instructions]);
 
+  // Liste stable des contentieux pour le module Mindmap : on ajoute le
+  // pseudo-contentieux "instructions" une fois et on mémoïse, sinon le
+  // tableau créé inline change de référence à chaque rendu — ce qui fait
+  // recalculer en cascade le filtre, le graphe et le layout côté carto.
+  const mindmapContentieuxDefs = useMemo(
+    () => [
+      ...contentieuxDefs,
+      {
+        id: 'instructions',
+        label: 'Instructions judiciaires',
+        color: '#7c3aed',
+        serverFolder: '',
+        order: 9999,
+      },
+    ] as typeof contentieuxDefs,
+    [contentieuxDefs],
+  );
+
   // Recherche dans le contenu des documents (async, avec cache)
   const { documentMatchIds, isSearchingDocs } = useDocumentSearch(enquetes, debouncedSearchTerm);
 
@@ -1375,16 +1394,11 @@ return (
           {baseView === 'mindmap' && (
             <MindmapPage
               sources={mindmapSources}
-              contentieuxDefs={[
-                ...contentieuxDefs,
-                {
-                  id: 'instructions',
-                  label: 'Instructions judiciaires',
-                  color: '#7c3aed',
-                  serverFolder: '',
-                  order: 9999,
-                },
-              ]}
+              onRefresh={() => {
+                void refreshOverboard();
+                void refreshInstructions();
+              }}
+              contentieuxDefs={mindmapContentieuxDefs}
               onOpenEnquete={(enquete, contentieuxId) => {
                 if (contentieuxId === 'instructions') {
                   setSelectedInstruction(enquete as any);

@@ -348,7 +348,7 @@ export class CartographieOverlaySyncService {
     a: LocalSnapshot | MergedSnapshot,
     b: LocalSnapshot | MergedSnapshot,
   ): boolean {
-    return JSON.stringify(a) === JSON.stringify(b);
+    return canonicalSnapshot(a) === canonicalSnapshot(b);
   }
 
   private async pullServer(): Promise<CartographieOverlaySyncFile | null> {
@@ -400,6 +400,48 @@ function emptySnapshot(): LocalSnapshot {
     deletedClusterAnnotationIds: [],
     deletedMecScoreBoostIds: [],
   };
+}
+
+/**
+ * Sérialise un snapshot de manière déterministe pour comparaison d'égalité.
+ *
+ * Les comparaisons naïves via JSON.stringify produisent des faux positifs
+ * "localChanged" pour deux raisons subtiles :
+ *   1. `mecScoreBoosts` a un champ `id` synthétique côté LocalSnapshot
+ *      (= mecId), strippé côté MergedSnapshot — donc les deux ne stringify
+ *      jamais à la même chose même quand les données sont identiques.
+ *   2. L'ordre des entrées dans les listes peut varier entre local et serveur
+ *      (deux postes peuvent stocker les mêmes entités dans un ordre différent).
+ *
+ * On normalise donc en triant chaque liste par son identifiant naturel et
+ * en strippant les champs synthétiques, avant le stringify final.
+ */
+function canonicalSnapshot(s: LocalSnapshot | MergedSnapshot): string {
+  const stripId = <T extends { id?: unknown }>(arr: T[] | undefined): Omit<T, 'id'>[] =>
+    (arr || []).map(e => {
+      const { id: _id, ...rest } = e;
+      void _id;
+      return rest;
+    });
+  const sortBy = <T>(arr: T[] | undefined, key: (e: T) => string): T[] =>
+    [...(arr || [])].sort((a, b) => key(a).localeCompare(key(b)));
+
+  const norm = {
+    pinnedMecIds: [...(s.pinnedMecIds || [])].sort(),
+    mecsExNihilo: sortBy(s.mecsExNihilo, e => e.id),
+    dossiersExNihilo: sortBy(s.dossiersExNihilo, e => e.id),
+    liensRenseignement: sortBy(s.liensRenseignement, e => e.id),
+    clusterAnnotations: sortBy(s.clusterAnnotations, e => e.id),
+    // strippe `id` synthétique avant tri (clé = mecId).
+    mecScoreBoosts: sortBy(stripId(s.mecScoreBoosts as { id?: string; mecId: string }[]), e => e.mecId),
+    tagZones: sortBy(s.tagZones, e => e.tag),
+    deletedMecExNihiloIds: sortBy(s.deletedMecExNihiloIds, e => e.id),
+    deletedDossierExNihiloIds: sortBy(s.deletedDossierExNihiloIds, e => e.id),
+    deletedLienIds: sortBy(s.deletedLienIds, e => e.id),
+    deletedClusterAnnotationIds: sortBy(s.deletedClusterAnnotationIds, e => e.id),
+    deletedMecScoreBoostIds: sortBy(s.deletedMecScoreBoostIds, e => e.id),
+  };
+  return JSON.stringify(norm);
 }
 
 /**

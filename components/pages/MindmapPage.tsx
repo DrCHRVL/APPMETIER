@@ -6,7 +6,7 @@
 
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pin, PinOff, Plus, RefreshCw, Save, Search, Trophy, User, X } from 'lucide-react';
 import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { Enquete } from '@/types/interfaces';
@@ -191,14 +191,19 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   }, [contentieuxDefs, sources]);
 
   // Si un nouveau contentieux apparaît dans les defs (ex. ajouté par l'admin),
-  // on l'ajoute au filtre actif pour ne rien masquer par surprise. Idem
-  // pour les contentieux virtuels orphelins (ex. "instructions" pour les
-  // dossiers d'instruction sans contentieuxId précisé).
+  // on l'ajoute au filtre actif pour ne rien masquer par surprise. On utilise
+  // un ref "seen" pour ne le faire qu'une seule fois par id : sinon, à chaque
+  // re-render des props (très fréquent vu le nombre de syncs/refreshs), on
+  // ré-ajoutait tous les ids — ce qui ressuscitait silencieusement les filtres
+  // que l'utilisateur venait de décocher.
+  const seenContentieuxRef = useRef<Set<ContentieuxId>>(new Set());
   useEffect(() => {
     setSelectedContentieux(prev => {
       const next = new Set(prev);
       let changed = false;
       for (const def of effectiveContentieuxDefs) {
+        if (seenContentieuxRef.current.has(def.id)) continue;
+        seenContentieuxRef.current.add(def.id);
         if (!next.has(def.id)) { next.add(def.id); changed = true; }
       }
       return changed ? next : prev;
