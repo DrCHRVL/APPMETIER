@@ -85,6 +85,11 @@ export function connectedComponents(
   const adj = new Map<string, Set<string>>();
   for (const n of nodes) adj.set(n.id, new Set());
   for (const e of edges) {
+    // Cohérent avec buildSubClusters et useForceLayout : seuls les liens
+    // `data` définissent l'appartenance à une composante. Un lien
+    // renseignement entre deux réseaux distincts ne doit pas fusionner
+    // leurs aires d'influence en une seule excroissance visuelle.
+    if (e.kind !== 'data') continue;
     if (!adj.has(e.source) || !adj.has(e.target)) continue;
     adj.get(e.source)!.add(e.target);
     adj.get(e.target)!.add(e.source);

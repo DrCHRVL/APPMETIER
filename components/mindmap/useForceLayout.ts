@@ -130,6 +130,13 @@ export function getCollisionRadius(node: GraphNode): number {
  * Calcule l'index de composante connexe pour chaque nœud (Union-Find suffirait,
  * BFS suffit ici). Utilisé par la force `componentRepulsion` pour identifier
  * quels nœuds appartiennent au même "îlot gravitationnel".
+ *
+ * Seules les arêtes `data` (déduites des dossiers) définissent l'appartenance :
+ * un lien `renseignement` est un overlay manuel d'annotation, il n'a pas
+ * vocation à fusionner deux réseaux en une seule composante structurelle.
+ * Sinon un simple lien renseignement entre deux trafics indépendants suffit
+ * à les agglutiner visuellement (plus de répulsion inter-clusters), ce qui
+ * trahit la topologie réelle.
  */
 function buildComponentIndex(
   nodes: GraphNode[],
@@ -138,6 +145,7 @@ function buildComponentIndex(
   const adj = new Map<string, string[]>();
   for (const n of nodes) adj.set(n.id, []);
   for (const e of edges) {
+    if (e.kind !== 'data') continue;
     if (!adj.has(e.source) || !adj.has(e.target)) continue;
     adj.get(e.source)!.push(e.target);
     adj.get(e.target)!.push(e.source);
@@ -292,10 +300,13 @@ export function useForceLayout(
       radius: getCollisionRadius(n),
     }));
 
-    const simLinks: SimulationLinkDatum<SimNode>[] = edges.map(e => ({
-      source: e.source,
-      target: e.target,
-    }));
+    // Seules les arêtes `data` exercent une force de ressort. Les liens
+    // renseignement sont un overlay d'annotation : leur tracé reste affiché
+    // (cf. MindmapCanvas.rfEdges) mais ils ne doivent pas tirer deux
+    // réseaux indépendants l'un vers l'autre.
+    const simLinks: SimulationLinkDatum<SimNode>[] = edges
+      .filter(e => e.kind === 'data')
+      .map(e => ({ source: e.source, target: e.target }));
 
     const componentByNode = buildComponentIndex(nodes, edges);
 
