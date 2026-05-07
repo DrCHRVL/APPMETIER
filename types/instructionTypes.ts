@@ -291,6 +291,77 @@ export type OrigineDossier =
   | 'autre';
 
 // ──────────────────────────────────────────────
+// ÉVÉNEMENTS RICHES DE TIMELINE
+// (CR enquêteur, expertises, IPC/APC, interrogatoires, interpellations…)
+// ──────────────────────────────────────────────
+
+/** Catégorie d'expertise judiciaire */
+export type CategorieExpertise =
+  | 'psychologique'
+  | 'psychiatrique'
+  | 'balistique'
+  | 'adn'
+  | 'papillaire'
+  | 'medico_legale'
+  | 'autopsie'
+  | 'autre';
+
+/** Type d'événement libre saisissable dans la timeline */
+export type EvenementInstructionType =
+  | 'lancement_cr'
+  | 'retour_cr'
+  | 'expertise'
+  | 'ipc'
+  | 'apc'
+  | 'interrogatoire_fond'
+  | 'phase_interpellation';
+
+/**
+ * Événement libre dans la timeline du dossier.
+ * Enrichit la chronologie au-delà des éléments structurés (DP, DML, OP, JLD…).
+ */
+export interface EvenementInstruction {
+  id: number;
+  type: EvenementInstructionType;
+  /** Date de l'événement (ISO) */
+  date: string;
+  /** Titre court (ex : "CR investigations Brigadier X") */
+  titre?: string;
+  /** Description / contenu (HTML autorisé) */
+  description?: string;
+  /** MEX concerné (IPC, expertise psy/psy, interrogatoire au fond…) */
+  misEnExamenId?: number;
+  /** Victime/partie civile concernée (expertise psy, APC) */
+  victimeId?: number;
+  /** Référence à une OP existante (phase d'interpellation) */
+  opId?: number;
+  /** Lien vers le lancement de CR associé (sur retour_cr) */
+  lancementCrId?: number;
+  /** Catégorie pour les expertises */
+  categorieExpertise?: CategorieExpertise;
+  /** Libellé libre pour expertise "autre" */
+  expertiseLibelle?: string;
+}
+
+// ──────────────────────────────────────────────
+// ACTES À FAIRE / À DEMANDER À LA JI
+// ──────────────────────────────────────────────
+
+export type ActeStatut = 'a_faire' | 'demande' | 'fait';
+
+export interface ActeADemander {
+  id: number;
+  contenu: string;
+  statut: ActeStatut;
+  dateCreation: string;
+  /** Date à laquelle on a demandé l'acte au JI (statut = demande) */
+  dateDemande?: string;
+  /** Date à laquelle l'acte a été fait (statut = fait) */
+  dateFait?: string;
+  notes?: string;
+}
+
+// ──────────────────────────────────────────────
 // DOSSIER D'INSTRUCTION (entité racine)
 // ──────────────────────────────────────────────
 
@@ -339,7 +410,15 @@ export interface DossierInstruction {
   ops: OPInstruction[];
   debatsJLD: DebatJLDPlanifie[];
   notesPerso: NotePersoInstruction[];
+  /**
+   * Vérifications périodiques (legacy — l'onglet a été retiré de l'UI mais
+   * les données existantes sont conservées pour rétrocompat).
+   */
   verifications: VerificationPeriodique[];
+  /** Événements libres : CR enquêteur, expertises, IPC/APC, interrogatoires… */
+  evenements?: EvenementInstruction[];
+  /** Liste des actes à faire ou à demander au juge d'instruction */
+  actesADemander?: ActeADemander[];
 
   // État règlement & orientation
   etatReglement: EtatReglement;

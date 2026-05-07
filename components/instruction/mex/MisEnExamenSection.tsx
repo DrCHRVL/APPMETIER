@@ -28,6 +28,7 @@ export const MisEnExamenSection = ({ misEnExamen, onChange, readOnly }: Props) =
       nom: draftNom.trim(),
       dateMiseEnExamen: draftDate,
       infractions: [],
+      // elementsPersonnalite : champ legacy (UI retirée), conservé vide pour le type
       elementsPersonnalite: [],
       mesureSurete: { type: 'libre', depuis: draftDate },
       dmls: [],
@@ -53,7 +54,8 @@ export const MisEnExamenSection = ({ misEnExamen, onChange, readOnly }: Props) =
         </div>
       )}
 
-      <div className="space-y-2">
+      {/* Grille 2 colonnes pour éviter les bulles trop larges sur grand écran. */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 items-start">
         {misEnExamen.map(mex => (
           <MisEnExamenCard
             key={mex.id}

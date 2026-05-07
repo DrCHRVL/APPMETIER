@@ -114,6 +114,8 @@ export const NewInstructionModal = ({
       debatsJLD: [],
       notesPerso: [],
       verifications: [],
+      evenements: [],
+      actesADemander: [],
       etatReglement: 'en_cours',
       tags: [],
     };

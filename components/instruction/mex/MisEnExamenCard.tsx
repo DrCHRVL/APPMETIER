@@ -6,17 +6,16 @@ import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { InfractionsManager } from './InfractionsManager';
-import { PersonnaliteManager } from './PersonnaliteManager';
 import { DMLsManager } from './DMLsManager';
 import { MesureSureteEditor } from './MesureSureteEditor';
 import { VerificationLegaleDP } from './VerificationLegaleDP';
+import { RichTextEditor } from '../RichTextEditor';
 import { getJoursRestantsAvantFinDP, getDateFinDPCourante } from '@/utils/instructionUtils';
 import { getCasDPById } from '@/config/dpRegimes';
 import type {
   MisEnExamen,
   MesureSurete,
   InfractionReproche,
-  ElementPersonnalite,
   DemandeMiseEnLiberte,
 } from '@/types/instructionTypes';
 
@@ -43,8 +42,6 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
     dateNaissance: mex.dateNaissance || '',
     lieuNaissance: mex.lieuNaissance || '',
     nationalite: mex.nationalite || '',
-    profession: mex.profession || '',
-    adresse: mex.adresse || '',
     dateMiseEnExamen: mex.dateMiseEnExamen,
   });
 
@@ -54,7 +51,10 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
   const joursRestantsDP = getJoursRestantsAvantFinDP(mex);
   const cas = mex.mesureSurete.type === 'detenu' ? getCasDPById(mex.mesureSurete.casDPId) : undefined;
 
-  const dmlEnAttenteCount = mex.dmls.filter(d => d.statut === 'en_attente').length;
+  // Les DML n'ont de sens que pour un MEX détenu (Demande de Mise en Liberté).
+  // On masque la section et le compteur pour les autres statuts.
+  const showDMLs = mex.mesureSurete.type === 'detenu';
+  const dmlEnAttenteCount = showDMLs ? mex.dmls.filter(d => d.statut === 'en_attente').length : 0;
 
   const handleSaveIdentite = () => {
     onChange({
@@ -63,8 +63,6 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
       dateNaissance: draftIdentite.dateNaissance || undefined,
       lieuNaissance: draftIdentite.lieuNaissance.trim() || undefined,
       nationalite: draftIdentite.nationalite.trim() || undefined,
-      profession: draftIdentite.profession.trim() || undefined,
-      adresse: draftIdentite.adresse.trim() || undefined,
       dateMiseEnExamen: draftIdentite.dateMiseEnExamen,
     });
     setEditing(false);
@@ -73,20 +71,14 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
   const handleChangeInfractions = (infractions: InfractionReproche[]) =>
     onChange({ ...mex, infractions });
 
-  const handleChangePersonnalite = (elementsPersonnalite: ElementPersonnalite[]) =>
-    onChange({ ...mex, elementsPersonnalite });
-
   const handleChangeDMLs = (dmls: DemandeMiseEnLiberte[]) =>
     onChange({ ...mex, dmls });
 
   const handleChangeMesureSurete = (mesureSurete: MesureSurete) =>
     onChange({ ...mex, mesureSurete });
 
-  const handleChangeCharges = (elementsCharge: string) =>
-    onChange({ ...mex, elementsCharge: elementsCharge.trim() || undefined });
-
-  const handleChangeNotes = (notes: string) =>
-    onChange({ ...mex, notes: notes.trim() || undefined });
+  const handleChangeNotes = (html: string) =>
+    onChange({ ...mex, elementsCharge: html.trim() || undefined });
 
   return (
     <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
@@ -99,7 +91,7 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
         <UserIcon className="h-4 w-4 text-gray-500 shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center flex-wrap gap-1.5">
-            <span className="font-semibold text-gray-800">{mex.nom}</span>
+            <span className="font-semibold text-gray-800 truncate">{mex.nom}</span>
             <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border ${meta.color}`} title={meta.full}>
               <Icon className="h-2.5 w-2.5" />
               {meta.short}
@@ -137,7 +129,7 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
       {/* Détails */}
       {expanded && (
         <div className="border-t border-gray-200 p-3 space-y-4 bg-gray-50/40">
-          {/* Identité */}
+          {/* Identité (sans profession ni adresse) */}
           <Section
             title="Identité"
             actions={
@@ -161,7 +153,7 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
           >
             {editing ? (
               <div className="grid grid-cols-2 gap-2">
-                <div>
+                <div className="col-span-2">
                   <Label className="text-xs">Nom complet *</Label>
                   <Input
                     value={draftIdentite.nom}
@@ -203,29 +195,11 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
                     className="h-7 text-xs"
                   />
                 </div>
-                <div>
-                  <Label className="text-xs">Profession</Label>
-                  <Input
-                    value={draftIdentite.profession}
-                    onChange={(e) => setDraftIdentite(d => ({ ...d, profession: e.target.value }))}
-                    className="h-7 text-xs"
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Label className="text-xs">Adresse</Label>
-                  <Input
-                    value={draftIdentite.adresse}
-                    onChange={(e) => setDraftIdentite(d => ({ ...d, adresse: e.target.value }))}
-                    className="h-7 text-xs"
-                  />
-                </div>
               </div>
             ) : (
               <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-700">
                 <div><dt className="inline text-gray-500">Naissance : </dt><dd className="inline">{mex.dateNaissance ? new Date(mex.dateNaissance).toLocaleDateString() : '—'}{mex.lieuNaissance ? ` à ${mex.lieuNaissance}` : ''}</dd></div>
                 <div><dt className="inline text-gray-500">Nationalité : </dt><dd className="inline">{mex.nationalite || '—'}</dd></div>
-                <div><dt className="inline text-gray-500">Profession : </dt><dd className="inline">{mex.profession || '—'}</dd></div>
-                <div><dt className="inline text-gray-500">Adresse : </dt><dd className="inline">{mex.adresse || '—'}</dd></div>
               </dl>
             )}
           </Section>
@@ -235,30 +209,15 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
             <InfractionsManager value={mex.infractions} onChange={handleChangeInfractions} readOnly={readOnly} />
           </Section>
 
-          {/* Éléments à charge */}
-          <Section title="Éléments à charge">
-            {readOnly ? (
-              mex.elementsCharge ? (
-                <div className="text-sm text-gray-700 whitespace-pre-wrap">{mex.elementsCharge}</div>
-              ) : (
-                <div className="text-xs text-gray-400 italic">Aucun élément renseigné.</div>
-              )
-            ) : (
-              <textarea
-                value={mex.elementsCharge || ''}
-                onChange={(e) => handleChangeCharges(e.target.value)}
-                rows={3}
-                placeholder="Synthèse des éléments à charge contre ce mis en examen…"
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded resize-y"
-              />
-            )}
-          </Section>
-
-          {/* Personnalité */}
-          <Section title={`Éléments de personnalité (${mex.elementsPersonnalite.length})`}>
-            <PersonnaliteManager
-              value={mex.elementsPersonnalite}
-              onChange={handleChangePersonnalite}
+          {/* NOTES (ex-éléments à charge) avec éditeur riche */}
+          <Section title="Notes">
+            <RichTextEditor
+              id={`mex-notes-${mex.id}`}
+              value={mex.elementsCharge || ''}
+              onChange={handleChangeNotes}
+              placeholder="Notes sur ce mis en examen, éléments à charge, observations…"
+              minHeight={120}
+              maxHeight="35vh"
               readOnly={readOnly}
             />
           </Section>
@@ -271,29 +230,12 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
             </div>
           </Section>
 
-          {/* DMLs */}
-          <Section title={`Demandes de mise en liberté (${mex.dmls.length})`}>
-            <DMLsManager value={mex.dmls} onChange={handleChangeDMLs} readOnly={readOnly} />
-          </Section>
-
-          {/* Notes */}
-          <Section title="Notes brèves">
-            {readOnly ? (
-              mex.notes ? (
-                <div className="text-sm text-gray-700 whitespace-pre-wrap">{mex.notes}</div>
-              ) : (
-                <div className="text-xs text-gray-400 italic">Aucune note.</div>
-              )
-            ) : (
-              <textarea
-                value={mex.notes || ''}
-                onChange={(e) => handleChangeNotes(e.target.value)}
-                rows={2}
-                placeholder="Notes spécifiques à ce mis en examen…"
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded resize-y"
-              />
-            )}
-          </Section>
+          {/* DMLs : uniquement pour les MEX détenus */}
+          {showDMLs && (
+            <Section title={`Demandes de mise en liberté (${mex.dmls.length})`}>
+              <DMLsManager value={mex.dmls} onChange={handleChangeDMLs} readOnly={readOnly} />
+            </Section>
+          )}
 
           {/* Suppression */}
           {!readOnly && (
