@@ -34,13 +34,22 @@ const CENTER_X = 0;
 const CENTER_Y = 0;
 const LINK_DISTANCE = 180;
 const CHARGE_STRENGTH = -550;
-// Répulsion entre composantes connexes : force custom qui pousse les
-// centroïdes de clusters disjoints les uns loin des autres. Sans elle,
-// `forceCenter` les attire tous vers (0,0) et leurs aires d'influence
-// peuvent se chevaucher visuellement même sans aucun lien entre les nœuds.
-// Ajustée empiriquement : assez forte pour séparer 2 clusters de 5 nœuds,
-// pas trop pour éviter les explosions sur des graphes de 100+ nœuds.
-const COMPONENT_REPULSION_STRENGTH = 30_000;
+// Répulsion entre composantes connexes : force custom de type "ressort de
+// séparation minimale". Pour chaque paire (A, B) de composantes, on calcule
+// une distance cible = rayonA + rayonB + gap, où le rayon dépend de la
+// taille (√ du nb de nœuds). Si la distance entre centroïdes est inférieure,
+// on applique une force linéaire qui pousse jusqu'à atteindre la cible.
+// Au-delà, force nulle : on laisse les autres forces (gravité de zone,
+// charge, link) piloter sans bruit parasite à longue distance.
+//
+// Cette formulation a remplacé une répulsion Coulomb-like (1/d²) qui était
+// inopérante dès que d dépassait quelques centaines de px : deux composantes
+// assignées à la même zone (même puits de gravité) étaient agglutinées
+// car la répulsion à d ≈ 1000 px tendait vers zéro pendant que la gravité
+// de zone tirait continuellement vers le même point.
+const COMPONENT_RADIUS_PER_SQRTNODE = 130;
+const COMPONENT_MIN_GAP = 350;
+const COMPONENT_SEPARATION_STRENGTH = 5;
 // Force d'attraction d'un nœud vers le centre de sa zone géographique
 // assignée. Plus forte qu'avant car les zones sont désormais très
 // éloignées (R=2200) — sans pull suffisant, les composantes resteraient
@@ -170,18 +179,20 @@ function buildComponentIndex(
 }
 
 /**
- * Force d3 custom : répulsion entre composantes connexes.
+ * Force d3 custom : ressort de séparation minimale entre composantes connexes.
  *
  * À chaque tick :
  *   1. Calcule le centroïde de chaque composante.
- *   2. Pour chaque paire de centroïdes, calcule un vecteur d'éloignement
- *      proportionnel à √(taille_A × taille_B) / distance² (Coulomb-like).
- *   3. Applique le vecteur résultant à tous les nœuds de chaque composante,
- *      modulé par alpha (refroidit avec la simulation).
+ *   2. Pour chaque paire (A, B), calcule une distance cible
+ *      target = rayonA + rayonB + gap, où rayon ≈ k·√(taille).
+ *   3. Si la distance courante d est inférieure à target, applique une
+ *      force linéaire `STRENGTH · (target - d) · alpha` qui pousse les
+ *      centroïdes à s'écarter jusqu'à atteindre target. Au-delà, force nulle.
  *
- * C'est cette force qui garantit que deux clusters sans lien n'auront pas
- * leurs aires d'influence qui se chevauchent visuellement, même quand
- * `forceCenter` les attire tous vers (0,0).
+ * Cette formulation a remplacé une répulsion Coulomb-like (1/d²) qui
+ * tendait vers zéro avant d'avoir séparé deux composantes assignées à la
+ * même zone : la gravité de zone tirait continuellement vers le même puits
+ * pendant que la répulsion devenait inopérante au-delà de ~500 px.
  */
 function componentRepulsion(componentByNode: Map<string, number>) {
   let nodes: SimNode[] = [];
@@ -205,12 +216,14 @@ function componentRepulsion(componentByNode: Map<string, number>) {
 
     const cx = new Map<number, number>();
     const cy = new Map<number, number>();
+    const radius = new Map<number, number>();
     for (const [c, n] of counts) {
       cx.set(c, (sumX.get(c) || 0) / n);
       cy.set(c, (sumY.get(c) || 0) / n);
+      radius.set(c, COMPONENT_RADIUS_PER_SQRTNODE * Math.sqrt(n));
     }
 
-    // 2. Force par composante (somme des répulsions vis-à-vis des autres).
+    // 2. Force par composante : ressort unilatéral si centroïdes trop proches.
     const fx = new Map<number, number>();
     const fy = new Map<number, number>();
     const components = Array.from(counts.keys());
@@ -230,8 +243,9 @@ function componentRepulsion(componentByNode: Map<string, number>) {
           d2 = dx * dx + dy * dy + 0.01;
         }
         const d = Math.sqrt(d2);
-        const sizeFactor = Math.sqrt((counts.get(ci) || 1) * (counts.get(cj) || 1));
-        const magnitude = COMPONENT_REPULSION_STRENGTH * sizeFactor * alpha / d2;
+        const target = (radius.get(ci) || 0) + (radius.get(cj) || 0) + COMPONENT_MIN_GAP;
+        if (d >= target) continue; // assez éloignés : pas de force
+        const magnitude = COMPONENT_SEPARATION_STRENGTH * (target - d) * alpha;
         const ufx = (dx / d) * magnitude;
         const ufy = (dy / d) * magnitude;
         fx.set(ci, (fx.get(ci) || 0) + ufx);
