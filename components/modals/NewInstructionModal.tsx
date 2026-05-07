@@ -115,7 +115,6 @@ export const NewInstructionModal = ({
       notesPerso: [],
       verifications: [],
       evenements: [],
-      actesADemander: [],
       etatReglement: 'en_cours',
       tags: [],
     };

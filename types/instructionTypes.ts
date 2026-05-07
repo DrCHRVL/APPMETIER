@@ -344,24 +344,6 @@ export interface EvenementInstruction {
 }
 
 // ──────────────────────────────────────────────
-// ACTES À FAIRE / À DEMANDER À LA JI
-// ──────────────────────────────────────────────
-
-export type ActeStatut = 'a_faire' | 'demande' | 'fait';
-
-export interface ActeADemander {
-  id: number;
-  contenu: string;
-  statut: ActeStatut;
-  dateCreation: string;
-  /** Date à laquelle on a demandé l'acte au JI (statut = demande) */
-  dateDemande?: string;
-  /** Date à laquelle l'acte a été fait (statut = fait) */
-  dateFait?: string;
-  notes?: string;
-}
-
-// ──────────────────────────────────────────────
 // DOSSIER D'INSTRUCTION (entité racine)
 // ──────────────────────────────────────────────
 
@@ -417,8 +399,12 @@ export interface DossierInstruction {
   verifications: VerificationPeriodique[];
   /** Événements libres : CR enquêteur, expertises, IPC/APC, interrogatoires… */
   evenements?: EvenementInstruction[];
-  /** Liste des actes à faire ou à demander au juge d'instruction */
-  actesADemander?: ActeADemander[];
+  /**
+   * Bloc-notes libre (HTML) affiché en colonne droite de la timeline :
+   * « Actes à faire ou à demander à la JI ». Saisie au kilomètre, sans
+   * workflow ni statuts.
+   */
+  notesActesJI?: string;
 
   // État règlement & orientation
   etatReglement: EtatReglement;

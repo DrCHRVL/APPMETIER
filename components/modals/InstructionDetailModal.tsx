@@ -40,7 +40,6 @@ import type {
   DebatJLDPlanifie,
   NotePersoInstruction,
   EvenementInstruction,
-  ActeADemander,
   MesureSurete,
 } from '@/types/instructionTypes';
 
@@ -425,8 +424,8 @@ export const InstructionDetailModal = ({
               onChangeEvenements={(evenements: EvenementInstruction[]) =>
                 onUpdate(dossier.id, { evenements })
               }
-              onChangeActes={(actesADemander: ActeADemander[]) =>
-                onUpdate(dossier.id, { actesADemander })
+              onChangeNotesActesJI={(notesActesJI: string) =>
+                onUpdate(dossier.id, { notesActesJI })
               }
             />
           )}

@@ -36,15 +36,14 @@ import type {
   EvenementInstruction,
   EvenementInstructionType,
   CategorieExpertise,
-  ActeADemander,
-  ActeStatut,
 } from '@/types/instructionTypes';
 
 interface Props {
   dossier: DossierInstruction;
-  /** Persistance des événements libres et des actes à demander. */
+  /** Persistance des événements libres saisis dans la timeline. */
   onChangeEvenements?: (next: EvenementInstruction[]) => void;
-  onChangeActes?: (next: ActeADemander[]) => void;
+  /** Persistance du bloc-notes libre « Actes à faire / à demander à la JI ». */
+  onChangeNotesActesJI?: (html: string) => void;
   readOnly?: boolean;
 }
 
@@ -129,7 +128,7 @@ const EXPERTISE_PEUT_VISER_VICTIME = (cat?: CategorieExpertise): boolean =>
 export const DossierTimelineSection: React.FC<Props> = ({
   dossier,
   onChangeEvenements,
-  onChangeActes,
+  onChangeNotesActesJI,
   readOnly,
 }) => {
   const today = useMemo(() => {
@@ -139,7 +138,6 @@ export const DossierTimelineSection: React.FC<Props> = ({
   }, []);
 
   const evenements = dossier.evenements || [];
-  const actes = dossier.actesADemander || [];
 
   const derivedEvents = useMemo<DerivedEvt[]>(() => {
     const list: DerivedEvt[] = [];
@@ -340,11 +338,11 @@ export const DossierTimelineSection: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Colonne droite : Actes à demander à la JI (1/3) */}
+      {/* Colonne droite : Actes à faire / à demander à la JI (1/3) — bloc-notes libre */}
       <div className="lg:col-span-1">
-        <ActesADemanderColumn
-          actes={actes}
-          onChange={onChangeActes}
+        <NotesActesJI
+          value={dossier.notesActesJI || ''}
+          onChange={onChangeNotesActesJI}
           readOnly={readOnly}
         />
       </div>
@@ -798,187 +796,30 @@ const EvenementEditor: React.FC<{
 };
 
 // ─────────────────────────────────────────────────────────────────
-// Colonne droite : Actes à faire ou à demander à la JI
+// Colonne droite : Actes à faire / à demander à la JI
+// Bloc-notes libre (rich text), sans workflow ni statut.
 // ─────────────────────────────────────────────────────────────────
 
-const STATUT_META: Record<ActeStatut, { label: string; color: string; bg: string }> = {
-  a_faire: { label: 'À faire',    color: 'text-amber-800',   bg: 'bg-amber-100 border-amber-300' },
-  demande: { label: 'Demandé',    color: 'text-blue-800',    bg: 'bg-blue-100 border-blue-300' },
-  fait:    { label: 'Fait',       color: 'text-emerald-800', bg: 'bg-emerald-100 border-emerald-300' },
-};
-
-const ActesADemanderColumn: React.FC<{
-  actes: ActeADemander[];
-  onChange?: (next: ActeADemander[]) => void;
+const NotesActesJI: React.FC<{
+  value: string;
+  onChange?: (html: string) => void;
   readOnly?: boolean;
-}> = ({ actes, onChange, readOnly }) => {
-  const [showForm, setShowForm] = useState(false);
-  const [draft, setDraft] = useState('');
-
-  const sorted = useMemo(() => {
-    const order: Record<ActeStatut, number> = { a_faire: 0, demande: 1, fait: 2 };
-    return [...actes].sort((a, b) => {
-      const so = order[a.statut] - order[b.statut];
-      if (so !== 0) return so;
-      return new Date(b.dateCreation).getTime() - new Date(a.dateCreation).getTime();
-    });
-  }, [actes]);
-
-  const handleAdd = () => {
-    if (!draft.trim() || !onChange) return;
-    onChange([
-      ...actes,
-      {
-        id: Date.now() + Math.floor(Math.random() * 1000),
-        contenu: draft.trim(),
-        statut: 'a_faire',
-        dateCreation: new Date().toISOString(),
-      },
-    ]);
-    setDraft('');
-    setShowForm(false);
-  };
-
-  const handleStatut = (id: number, statut: ActeStatut) => {
-    if (!onChange) return;
-    onChange(
-      actes.map(a => {
-        if (a.id !== id) return a;
-        const next: ActeADemander = { ...a, statut };
-        if (statut === 'demande' && !next.dateDemande) next.dateDemande = new Date().toISOString();
-        if (statut === 'fait' && !next.dateFait) next.dateFait = new Date().toISOString();
-        return next;
-      }),
-    );
-  };
-
-  const handleRemove = (id: number) => {
-    if (!onChange) return;
-    if (!confirm('Supprimer cet acte ?')) return;
-    onChange(actes.filter(a => a.id !== id));
-  };
-
-  const counts = useMemo(() => {
-    const c = { a_faire: 0, demande: 0, fait: 0 };
-    for (const a of actes) c[a.statut] += 1;
-    return c;
-  }, [actes]);
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg p-3 sticky top-2">
-      <div className="flex items-center gap-2 mb-2">
-        <ClipboardList className="h-4 w-4 text-gray-600" />
-        <h3 className="text-sm font-semibold text-gray-800">Actes à faire / à demander à la JI</h3>
-      </div>
-      <div className="flex gap-1 mb-3 text-[10px]">
-        <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
-          {counts.a_faire} à faire
-        </span>
-        <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
-          {counts.demande} demandés
-        </span>
-        <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
-          {counts.fait} faits
-        </span>
-      </div>
-
-      {sorted.length === 0 && !showForm && (
-        <div className="text-xs text-gray-400 italic text-center py-4 bg-gray-50 border border-dashed border-gray-200 rounded">
-          Aucun acte enregistré.
-        </div>
-      )}
-
-      <ul className="space-y-1.5">
-        {sorted.map(a => {
-          const meta = STATUT_META[a.statut];
-          return (
-            <li
-              key={a.id}
-              className={`border rounded p-2 text-xs ${meta.bg} ${a.statut === 'fait' ? 'opacity-70' : ''}`}
-            >
-              <div className={`${a.statut === 'fait' ? 'line-through' : ''} text-gray-800`}>
-                {a.contenu}
-              </div>
-              <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                <span className={`text-[10px] uppercase font-semibold ${meta.color}`}>
-                  {meta.label}
-                </span>
-                {!readOnly && onChange && (
-                  <>
-                    <span className="text-gray-300">·</span>
-                    <button
-                      onClick={() => handleStatut(a.id, 'a_faire')}
-                      className="text-[10px] text-gray-600 hover:text-amber-700"
-                      disabled={a.statut === 'a_faire'}
-                    >
-                      À faire
-                    </button>
-                    <button
-                      onClick={() => handleStatut(a.id, 'demande')}
-                      className="text-[10px] text-gray-600 hover:text-blue-700"
-                      disabled={a.statut === 'demande'}
-                    >
-                      Demandé
-                    </button>
-                    <button
-                      onClick={() => handleStatut(a.id, 'fait')}
-                      className="text-[10px] text-gray-600 hover:text-emerald-700"
-                      disabled={a.statut === 'fait'}
-                    >
-                      Fait
-                    </button>
-                    <button
-                      onClick={() => handleRemove(a.id)}
-                      className="ml-auto text-gray-400 hover:text-red-600"
-                      title="Supprimer"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-
-      {!readOnly && onChange && (
-        showForm ? (
-          <div className="mt-2 space-y-1.5">
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              rows={2}
-              autoFocus
-              placeholder="Acte à faire / à demander au JI…"
-              className="w-full px-2 py-1 text-xs border border-gray-300 rounded resize-y"
-            />
-            <div className="flex justify-end gap-1">
-              <Button variant="ghost" size="sm" onClick={() => { setShowForm(false); setDraft(''); }} className="h-6 text-xs">
-                <X className="h-3 w-3 mr-1" />
-                Annuler
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleAdd}
-                disabled={!draft.trim()}
-                className="h-6 text-xs bg-emerald-600 hover:bg-emerald-700"
-              >
-                <Plus className="h-3 w-3 mr-1" />
-                Ajouter
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <button
-            onClick={() => setShowForm(true)}
-            className="mt-2 w-full text-xs text-emerald-700 hover:bg-emerald-50 py-1.5 rounded border-2 border-dashed border-emerald-300 inline-flex items-center justify-center gap-1"
-          >
-            <Plus className="h-3 w-3" />
-            Ajouter un acte
-          </button>
-        )
-      )}
+}> = ({ value, onChange, readOnly }) => (
+  <div className="bg-white border border-gray-200 rounded-lg p-3 sticky top-2">
+    <div className="flex items-center gap-2 mb-2">
+      <ClipboardList className="h-4 w-4 text-gray-600" />
+      <h3 className="text-sm font-semibold text-gray-800">
+        Actes à faire / à demander à la JI
+      </h3>
     </div>
-  );
-};
+    <RichTextEditor
+      id="notes-actes-ji"
+      value={value}
+      onChange={(html) => onChange?.(html)}
+      placeholder="Notes libres : actes à faire, à demander au juge d'instruction…"
+      minHeight={300}
+      maxHeight="60vh"
+      readOnly={readOnly || !onChange}
+    />
+  </div>
+);
