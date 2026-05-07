@@ -836,6 +836,10 @@ function AppContent() {
       for (const e of list) out.push({ enquete: e, contentieuxId: ctxId });
     }
     for (const inst of instructions) {
+      // Un dossier d'instruction n'apparaît sur la cartographie que s'il est
+      // rattaché à un contentieux explicite (crimorg / ecofi / enviro / ...).
+      // Les fiches "non précisé" sont volontairement masquées de la mindmap.
+      if (!inst.contentieuxId) continue;
       const pseudoEnquete = {
         id: inst.id,
         numero: inst.numeroInstruction,
@@ -855,36 +859,19 @@ function AppContent() {
           statut: m.mesureSurete.type,
         })),
       } as unknown as import('@/types/interfaces').Enquete;
-      // Si le dossier précise un contentieux, on l'utilise (= dossier d'instruction
-      // typé crimorg/ecofi/etc.). Sinon fallback "instructions" générique pour
-      // les fiches existantes pré-migration : elles restent visibles sur la carto
-      // sous une étiquette commune jusqu'à ce que l'utilisateur les complète.
       out.push({
         enquete: pseudoEnquete,
-        contentieuxId: inst.contentieuxId || 'instructions',
+        contentieuxId: inst.contentieuxId,
         misEnExamen: inst.misEnExamen,
       });
     }
     return out;
   }, [overboardData, instructions]);
 
-  // Liste stable des contentieux pour le module Mindmap : on ajoute le
-  // pseudo-contentieux "instructions" une fois et on mémoïse, sinon le
-  // tableau créé inline change de référence à chaque rendu — ce qui fait
-  // recalculer en cascade le filtre, le graphe et le layout côté carto.
-  const mindmapContentieuxDefs = useMemo(
-    () => [
-      ...contentieuxDefs,
-      {
-        id: 'instructions',
-        label: 'Instructions judiciaires',
-        color: '#7c3aed',
-        serverFolder: '',
-        order: 9999,
-      },
-    ] as typeof contentieuxDefs,
-    [contentieuxDefs],
-  );
+  // Les dossiers d'instruction sans contentieux ne sont pas projetés sur la
+  // mindmap, donc on n'a plus besoin du pseudo-contentieux "instructions" :
+  // seuls les vrais contentieux (crimorg / ecofi / enviro / ...) sont exposés.
+  const mindmapContentieuxDefs = contentieuxDefs;
 
   // Recherche dans le contenu des documents (async, avec cache)
   const { documentMatchIds, isSearchingDocs } = useDocumentSearch(enquetes, debouncedSearchTerm);
@@ -1401,8 +1388,12 @@ return (
               }}
               contentieuxDefs={mindmapContentieuxDefs}
               onOpenEnquete={(enquete, contentieuxId) => {
-                if (contentieuxId === 'instructions') {
-                  setSelectedInstruction(enquete as any);
+                // Les dossiers d'instruction projetés sur la mindmap portent
+                // statut='instruction' : on retombe sur la fiche dossier
+                // d'instruction quel que soit le contentieux choisi.
+                if ((enquete as any)?.statut === 'instruction') {
+                  const dossier = instructions.find(d => d.id === enquete.id);
+                  if (dossier) setSelectedInstruction(dossier);
                   return;
                 }
                 if (contentieuxId && contentieuxId !== activeContentieux) {
