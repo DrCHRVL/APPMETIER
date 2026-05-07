@@ -33,6 +33,14 @@ const ITERATIONS = 300;
 const CENTER_X = 0;
 const CENTER_Y = 0;
 const LINK_DISTANCE = 180;
+// Rigidité du ressort de lien. Plus elle est élevée, plus les voisins
+// directs restent collés. Quand un nœud a plusieurs voisins répartis dans
+// des sous-zones de la composante, les ressorts tirent en sens contraire :
+// si la rigidité est faible, le nœud le moins représenté (= ayant le moins
+// de ressorts vers lui) se laisse étirer car son unique ressort ne pèse
+// pas lourd face aux N ressorts du côté opposé. Une rigidité haute égalise
+// la résistance et garde les sous-groupes structurellement cohérents.
+const LINK_STRENGTH = 1.0;
 const CHARGE_STRENGTH = -550;
 // Répulsion entre composantes connexes : force custom de type "ressort de
 // séparation minimale". Pour chaque paire (A, B) de composantes, on calcule
@@ -357,7 +365,7 @@ export function useForceLayout(
         forceLink<SimNode, SimulationLinkDatum<SimNode>>(simLinks)
           .id(d => d.id)
           .distance(LINK_DISTANCE)
-          .strength(0.6),
+          .strength(LINK_STRENGTH),
       )
       .force('charge', forceManyBody<SimNode>().strength(CHARGE_STRENGTH))
       .force('center', forceCenter(CENTER_X, CENTER_Y))
