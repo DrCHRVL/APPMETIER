@@ -29,7 +29,20 @@ interface SimNode extends SimulationNodeDatum {
   radius: number;
 }
 
-const ITERATIONS = 300;
+// Itérations en démarrage à froid (aucun nœud connu en cache) : il faut
+// laisser à la simulation le temps de trouver un équilibre depuis zéro.
+const ITERATIONS_COLD = 300;
+// Itérations en démarrage à chaud (positions précédentes restaurées) : on
+// raffine seulement, donc beaucoup moins de ticks suffisent et la carte
+// reste quasi-immobile pour l'utilisateur.
+const ITERATIONS_WARM = 90;
+// Alpha initial en warm start (vs alpha=1 par défaut en cold). Plus bas =
+// la simulation perd vite son énergie, les nœuds existants ne dérivent que
+// de quelques pixels au lieu de se réorganiser globalement.
+const WARM_ALPHA = 0.35;
+// Seuil au-delà duquel on considère le graphe comme "essentiellement connu"
+// (donc warm start). En dessous, on retombe en cold start.
+const WARM_KNOWN_RATIO = 0.6;
 const CENTER_X = 0;
 const CENTER_Y = 0;
 const LINK_DISTANCE = 180;
@@ -41,6 +54,12 @@ const CHARGE_STRENGTH = -550;
 // Ajustée empiriquement : assez forte pour séparer 2 clusters de 5 nœuds,
 // pas trop pour éviter les explosions sur des graphes de 100+ nœuds.
 const COMPONENT_REPULSION_STRENGTH = 30_000;
+// Marge (px) ajoutée au rayon englobant d'une composante étrangère : tout
+// nœud d'une autre composante qui pénètre cette zone est repoussé vers
+// l'extérieur. Empêche un petit cluster de venir s'étaler visuellement
+// dans la silhouette d'un voisin sans lien — sans ça, l'œil lit une
+// fausse proximité (cf. BOULEFRAD posé dans l'aire CAPELLE).
+const COMPONENT_AREA_MARGIN = 80;
 // Force d'attraction d'un nœud vers le centre de sa zone géographique
 // assignée. Plus forte qu'avant car les zones sont désormais très
 // éloignées (R=2200) — sans pull suffisant, les composantes resteraient
@@ -52,6 +71,10 @@ const ZONE_GRAVITY_STRENGTH = 0.08;
 // répartit les nœuds dans un disque autour du centre, en utilisant un hash
 // stable de l'id pour que la position reste identique entre deux rendus.
 const ZONE_JITTER_RADIUS = 600;
+// Clé localStorage pour persister les positions calculées entre deux sessions.
+// Le cache mémoire vit en plus du localStorage pour répondre instantanément
+// aux re-render dans la même session sans toucher l'IO.
+const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v1';
 
 /**
  * Hash 32-bit stable (FNV-1a) — déterministe, pas de dépendance crypto.
@@ -254,6 +277,158 @@ function componentRepulsion(componentByNode: Map<string, number>) {
 }
 
 /**
+ * Force d3 custom : répulsion d'aire de composante.
+ *
+ * À chaque tick, pour chaque nœud N (composante A) et chaque autre composante
+ * B, si N pénètre le disque englobant (centroïde + rayon + marge) de B, on
+ * applique à N une poussée radiale vers l'extérieur de B. Profondeur de
+ * pénétration → magnitude (le nœud près du bord est doucement remis en
+ * place, un nœud profondément piégé est éjecté plus fort).
+ *
+ * Différence avec `componentRepulsion` : celle-ci pousse les centroïdes
+ * dans leur ensemble (déplace tout le cluster) ; celle-ci ne corrige que
+ * les nœuds qui chevauchent visuellement la silhouette d'un voisin, ce qui
+ * traite spécifiquement les "intrusions" sans perturber les clusters
+ * correctement séparés.
+ */
+function componentAreaRepulsion(componentByNode: Map<string, number>) {
+  let nodes: SimNode[] = [];
+  type SimNodeWithPos = SimNode & { x?: number; y?: number; vx?: number; vy?: number };
+
+  function force(alpha: number) {
+    if (nodes.length === 0) return;
+
+    const sumX = new Map<number, number>();
+    const sumY = new Map<number, number>();
+    const counts = new Map<number, number>();
+    for (const n of nodes as SimNodeWithPos[]) {
+      const c = componentByNode.get(n.id);
+      if (c === undefined) continue;
+      sumX.set(c, (sumX.get(c) || 0) + (n.x || 0));
+      sumY.set(c, (sumY.get(c) || 0) + (n.y || 0));
+      counts.set(c, (counts.get(c) || 0) + 1);
+    }
+    if (counts.size < 2) return;
+
+    const cx = new Map<number, number>();
+    const cy = new Map<number, number>();
+    for (const [c, k] of counts) {
+      cx.set(c, (sumX.get(c) || 0) / k);
+      cy.set(c, (sumY.get(c) || 0) / k);
+    }
+
+    // Rayon englobant d'une composante : plus grande distance d'un nœud à
+    // son centroïde (+ son propre rayon de collision pour englober sa
+    // silhouette). C'est la "taille" perçue de la composante à l'écran.
+    const compRadius = new Map<number, number>();
+    for (const n of nodes as SimNodeWithPos[]) {
+      const c = componentByNode.get(n.id);
+      if (c === undefined) continue;
+      const ccx = cx.get(c) || 0;
+      const ccy = cy.get(c) || 0;
+      const dx = (n.x || 0) - ccx;
+      const dy = (n.y || 0) - ccy;
+      const d = Math.sqrt(dx * dx + dy * dy) + (n.radius || 0);
+      const cur = compRadius.get(c) || 0;
+      if (d > cur) compRadius.set(c, d);
+    }
+
+    // Pour chaque nœud, pour chaque composante étrangère, vérifier
+    // l'intrusion. O(N × K) avec K = nb composantes — acceptable.
+    const components = Array.from(counts.keys());
+    for (const n of nodes as SimNodeWithPos[]) {
+      const cN = componentByNode.get(n.id);
+      if (cN === undefined) continue;
+      for (const c of components) {
+        if (c === cN) continue;
+        const tx = cx.get(c) || 0;
+        const ty = cy.get(c) || 0;
+        const dx = (n.x || 0) - tx;
+        const dy = (n.y || 0) - ty;
+        const d2 = dx * dx + dy * dy;
+        const limit = (compRadius.get(c) || 0) + COMPONENT_AREA_MARGIN;
+        if (d2 >= limit * limit) continue;
+        const d = Math.sqrt(d2) || 0.001;
+        const penetration = limit - d;
+        // Magnitude proportionnelle à la profondeur d'intrusion. alpha
+        // intervient pour que l'effet diminue avec la simulation comme
+        // les autres forces (sinon on aurait des oscillations infinies).
+        const k = penetration * alpha * 0.3;
+        n.vx = (n.vx || 0) + (dx / d) * k;
+        n.vy = (n.vy || 0) + (dy / d) * k;
+      }
+    }
+  }
+
+  force.initialize = (n: SimNode[]) => { nodes = n; };
+  return force;
+}
+
+// ──────────────────────────────────────────────
+// CACHE DE POSITIONS (persistance entre rendus + sessions)
+// ──────────────────────────────────────────────
+//
+// Module-level : survit au démontage du composant React mais reste local à
+// l'onglet. Hydraté depuis localStorage au premier accès.
+const positionCache = new Map<string, { x: number; y: number }>();
+let positionCacheHydrated = false;
+
+function hydratePositionCache(): void {
+  if (positionCacheHydrated) return;
+  positionCacheHydrated = true;
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = window.localStorage.getItem(POSITIONS_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, { x: number; y: number }>;
+    if (!parsed || typeof parsed !== 'object') return;
+    for (const [id, pos] of Object.entries(parsed)) {
+      if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
+        positionCache.set(id, { x: pos.x, y: pos.y });
+      }
+    }
+  } catch {
+    // Quota plein, JSON corrompu : on repart sans cache, pas dramatique.
+  }
+}
+
+function persistPositionCache(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const obj: Record<string, { x: number; y: number }> = {};
+    for (const [id, pos] of positionCache) obj[id] = pos;
+    window.localStorage.setItem(POSITIONS_STORAGE_KEY, JSON.stringify(obj));
+  } catch {
+    // Idem : si l'écriture échoue, on continue sans persistance disque
+    // — la session courante garde son cache mémoire.
+  }
+}
+
+/**
+ * Position de démarrage pour un nœud nouvellement apparu (pas dans le cache).
+ * Stratégie : se placer auprès d'un voisin déjà connu pour éviter d'arriver
+ * à l'origine et de devoir traverser tout le graphe pour trouver son cluster.
+ * Si aucun voisin n'est connu, on retombe sur un jitter stable autour de
+ * l'origine (comportement par défaut de d3-force).
+ */
+function seedNewNode(
+  id: string,
+  adj: Map<string, string[]>,
+): { x: number; y: number } | undefined {
+  const neighbors = adj.get(id);
+  if (!neighbors || neighbors.length === 0) return undefined;
+  let sumX = 0, sumY = 0, count = 0;
+  for (const nb of neighbors) {
+    const cached = positionCache.get(nb);
+    if (cached) { sumX += cached.x; sumY += cached.y; count++; }
+  }
+  if (count === 0) return undefined;
+  // Léger offset stable pour ne pas atterrir exactement sur le voisin.
+  const j = stableJitter(`seed_${id}`, 40);
+  return { x: sumX / count + j.x, y: sumY / count + j.y };
+}
+
+/**
  * Retourne une Map id → {x, y} stable tant que la liste des nœuds/arêtes ne change pas.
  * La structure des positions est figée après le calcul ; les drags utilisateur
  * sont gérés par react-flow indépendamment.
@@ -287,10 +462,41 @@ export function useForceLayout(
   return useMemo(() => {
     if (nodes.length === 0) return new Map();
 
-    const simNodes: SimNode[] = nodes.map(n => ({
-      id: n.id,
-      radius: getCollisionRadius(n),
-    }));
+    hydratePositionCache();
+
+    // Adjacence : utile pour seeder les nouveaux nœuds près d'un voisin connu
+    // au lieu de l'origine (sinon ils traversent tout le graphe au cours
+    // des ticks et déplacent des clusters au passage).
+    const adj = new Map<string, string[]>();
+    for (const n of nodes) adj.set(n.id, []);
+    for (const e of edges) {
+      if (!adj.has(e.source) || !adj.has(e.target)) continue;
+      adj.get(e.source)!.push(e.target);
+      adj.get(e.target)!.push(e.source);
+    }
+
+    // Comptage warm/cold avant création des SimNode : si la majorité des
+    // nœuds sont déjà en cache, on lance une simulation à basse énergie.
+    let knownCount = 0;
+    for (const n of nodes) if (positionCache.has(n.id)) knownCount++;
+    const knownRatio = knownCount / nodes.length;
+    const isWarmStart = knownRatio >= WARM_KNOWN_RATIO;
+    const iterations = isWarmStart ? ITERATIONS_WARM : ITERATIONS_COLD;
+    const initialAlpha = isWarmStart ? WARM_ALPHA : 1;
+
+    const simNodes: SimNode[] = nodes.map(n => {
+      const cached = positionCache.get(n.id);
+      const seed = cached || seedNewNode(n.id, adj);
+      const sn: SimNode & { x?: number; y?: number } = {
+        id: n.id,
+        radius: getCollisionRadius(n),
+      };
+      if (seed) {
+        sn.x = seed.x;
+        sn.y = seed.y;
+      }
+      return sn;
+    });
 
     const simLinks: SimulationLinkDatum<SimNode>[] = edges.map(e => ({
       source: e.source,
@@ -327,6 +533,7 @@ export function useForceLayout(
     const hasZones = targetByNodeId.size > 0;
 
     const sim = forceSimulation(simNodes)
+      .alpha(initialAlpha)
       .force(
         'link',
         forceLink<SimNode, SimulationLinkDatum<SimNode>>(simLinks)
@@ -337,7 +544,8 @@ export function useForceLayout(
       .force('charge', forceManyBody<SimNode>().strength(CHARGE_STRENGTH))
       .force('center', forceCenter(CENTER_X, CENTER_Y))
       .force('collide', forceCollide<SimNode>().radius(d => d.radius + COLLIDE_PADDING).strength(1))
-      .force('componentRepulsion', componentRepulsion(componentByNode));
+      .force('componentRepulsion', componentRepulsion(componentByNode))
+      .force('componentArea', componentAreaRepulsion(componentByNode));
 
     if (hasZones) {
       sim
@@ -354,13 +562,22 @@ export function useForceLayout(
     }
 
     sim.stop();
-    for (let i = 0; i < ITERATIONS; i++) sim.tick();
+    for (let i = 0; i < iterations; i++) sim.tick();
 
     const positions = new Map<string, PositionedNode>();
     for (const n of simNodes) {
       const sn = n as SimNode & { x?: number; y?: number };
-      positions.set(sn.id, { id: sn.id, x: sn.x ?? 0, y: sn.y ?? 0 });
+      const x = sn.x ?? 0;
+      const y = sn.y ?? 0;
+      positions.set(sn.id, { id: sn.id, x, y });
+      positionCache.set(sn.id, { x, y });
     }
+    // On ne purge PAS les positions des nœuds absents du rendu courant : le
+    // filtrage par contentieux peut masquer temporairement des nœuds, et on
+    // veut retrouver leur position d'origine quand le filtre est retiré.
+    // Un nœud vraiment supprimé (id jamais réutilisé) reste inerte dans le
+    // cache, sans coût visible.
+    persistPositionCache();
     return positions;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, edges, refreshKey, zoneSignature]);
@@ -368,4 +585,17 @@ export function useForceLayout(
 
 export function getNodeRadius(node: GraphNode): number {
   return radiusOf(node);
+}
+
+/**
+ * Vide le cache de positions (mémoire + localStorage). Au prochain layout,
+ * un démarrage à froid (alpha=1, 300 ticks) repositionne tout depuis zéro.
+ * Utile pour offrir un bouton "Réorganiser" si l'utilisateur trouve la
+ * disposition courante figée dans une mauvaise configuration.
+ */
+export function clearLayoutCache(): void {
+  positionCache.clear();
+  if (typeof window !== 'undefined') {
+    try { window.localStorage.removeItem(POSITIONS_STORAGE_KEY); } catch { /* ignore */ }
+  }
 }
