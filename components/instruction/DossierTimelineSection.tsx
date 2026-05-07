@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { Calendar, Lock, Gavel, FileText, NotebookPen, ClipboardCheck, AlertTriangle } from 'lucide-react';
+import { Calendar, Lock, Gavel, FileText, Pencil, ClipboardCheck, AlertTriangle } from 'lucide-react';
 import type { DossierInstruction } from '@/types/instructionTypes';
 
 interface Props {
@@ -37,7 +37,7 @@ const KIND_META: Record<Kind, { label: string; bg: string; icon: React.ElementTy
   op_ji:           { label: 'OP JI',         bg: 'bg-blue-500',    icon: Calendar },
   dml_depot:       { label: 'DML déposée',   bg: 'bg-purple-400',  icon: FileText },
   dml_echeance:    { label: 'Échéance DML',  bg: 'bg-purple-600',  icon: AlertTriangle },
-  note:            { label: 'Note',          bg: 'bg-gray-400',    icon: NotebookPen },
+  note:            { label: 'Note',          bg: 'bg-gray-400',    icon: Pencil },
   verification:    { label: 'Vérification',  bg: 'bg-amber-500',   icon: ClipboardCheck },
 };
 
