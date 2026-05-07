@@ -417,6 +417,12 @@ export interface DossierInstruction {
   suiviJIRS?: boolean;
   suiviPG?: boolean;
 
+  // ── Archivage / résultat ──────────────────────────────────────
+  /** Vrai = dossier archivé (sorti de la liste des informations en cours) */
+  archived?: boolean;
+  /** Date à laquelle le dossier a été archivé (ISO) */
+  dateArchivage?: string;
+
   // Métadonnées
   dateCreation: string;
   dateMiseAJour: string;

@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import {
   X, Edit, Trash2, Save, FileText, Users, Calendar, ListChecks, NotebookPen,
-  Lock, Scale, MapPin, ShieldOff, AlertTriangle,
+  Lock, Scale, MapPin, ShieldOff, AlertTriangle, Archive, RotateCcw,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -120,6 +120,27 @@ export const InstructionDetailModal = ({
     }
   };
 
+  const handleArchive = () => {
+    if (!confirm(
+      `Archiver "${dossier.numeroInstruction}" ?\n\n`
+      + `Le dossier sortira des informations en cours et sera disponible dans `
+      + `« Archives instruction » pour saisir le résultat d'audience.`,
+    )) return;
+    onUpdate(dossier.id, {
+      archived: true,
+      dateArchivage: new Date().toISOString(),
+    });
+    showToast('Dossier archivé', 'success');
+    onClose();
+  };
+
+  const handleUnarchive = () => {
+    if (!confirm(`Restaurer "${dossier.numeroInstruction}" dans les informations en cours ?`)) return;
+    onUpdate(dossier.id, { archived: false, dateArchivage: undefined });
+    showToast('Dossier restauré', 'success');
+    onClose();
+  };
+
   const stats = (() => {
     const byStatut = countMexByStatut(dossier);
     return {
@@ -180,6 +201,27 @@ export const InstructionDetailModal = ({
                 <Button variant="ghost" size="sm" onClick={onEdit} title="Modifier">
                   <Edit className="h-4 w-4" />
                 </Button>
+                {dossier.archived ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleUnarchive}
+                    title="Restaurer dans les informations en cours"
+                    className="text-emerald-700 hover:text-emerald-800"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleArchive}
+                    title="Archiver le dossier"
+                    className="text-amber-700 hover:text-amber-800"
+                  >
+                    <Archive className="h-4 w-4" />
+                  </Button>
+                )}
                 <Button variant="ghost" size="sm" onClick={handleDelete} title="Supprimer" className="text-red-600 hover:text-red-700">
                   <Trash2 className="h-4 w-4" />
                 </Button>

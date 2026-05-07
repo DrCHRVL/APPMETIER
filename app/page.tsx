@@ -21,6 +21,7 @@ import { StorageManager } from '@/utils/storage';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ToastProvider, useToast } from '@/contexts/ToastContext';
 import { AudienceProvider } from '@/contexts/AudienceContext';
+import { InstructionResultatsProvider } from '@/contexts/InstructionResultatsContext';
 import { UserProvider, useUser } from '@/contexts/UserContext';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
 import { ProlongationModal } from '@/components/modals/ProlongationModal';
@@ -71,6 +72,10 @@ const InstructionsPage = dynamic(
 );
 const NewInstructionModal = dynamic(
   () => import('@/components/modals/NewInstructionModal').then(m => ({ default: m.NewInstructionModal })),
+  { ssr: false }
+);
+const InstructionArchivesPage = dynamic(
+  () => import('@/components/pages/InstructionArchivesPage').then(m => ({ default: m.InstructionArchivesPage })),
   { ssr: false }
 );
 const MindmapPage = dynamic(
@@ -1357,6 +1362,16 @@ return (
             />
           )}
 
+          {baseView === 'instructions_archives' && (
+            <InstructionArchivesPage
+              dossiers={instructions}
+              searchTerm={searchTerm}
+              onSearchChange={handleSearchChange}
+              onUpdateDossier={handleUpdateInstruction}
+              onDeleteDossier={handleDeleteInstruction}
+            />
+          )}
+
           {baseView === 'archives' && (
             <ArchivePage
               enquetes={enquetes}
@@ -1980,7 +1995,9 @@ export default function App() {
     <UserProvider>
       <ToastProvider>
         <AudienceProvider>
-          <AppContent />
+          <InstructionResultatsProvider>
+            <AppContent />
+          </InstructionResultatsProvider>
         </AudienceProvider>
       </ToastProvider>
     </UserProvider>

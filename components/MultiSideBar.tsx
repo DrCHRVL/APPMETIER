@@ -209,6 +209,23 @@ export const MultiSideBar = ({
               {isOpen && <span className="truncate">Instructions</span>}
               {instructionAlertCount > 0 && <AlertBadge count={instructionAlertCount} />}
             </button>
+            <button
+              className={`
+                w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm mt-0.5
+                transition-all duration-150 relative group
+                ${currentView === 'instructions_archives'
+                  ? 'bg-white/20 text-white font-semibold shadow-sm'
+                  : 'font-medium text-white/65 hover:bg-white/8 hover:text-white'
+                }
+              `}
+              style={currentView === 'instructions_archives' ? {
+                boxShadow: 'inset 3px 0 0 rgba(255,255,255,0.85)'
+              } : {}}
+              onClick={() => onViewChange('instructions_archives')}
+            >
+              <Archive className={`h-4 w-4 flex-shrink-0 ${currentView === 'instructions_archives' ? 'text-white' : 'text-white/55'}`} />
+              {isOpen && <span className="truncate">Archives</span>}
+            </button>
           </>
         )}
 

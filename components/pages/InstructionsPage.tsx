@@ -52,7 +52,9 @@ export const InstructionsPage = ({
   const [groupByCabinet, setGroupByCabinet] = useState(true);
 
   const filtered = useMemo(() => {
-    let list = dossiers;
+    // On exclut systématiquement les dossiers archivés : ils sont gérés
+    // depuis la page Archives instruction (sidebar dédiée).
+    let list = dossiers.filter(d => d.archived !== true);
     const term = searchTerm.trim().toLowerCase();
     if (term) {
       list = list.filter(d =>
@@ -90,10 +92,13 @@ export const InstructionsPage = ({
     });
   }, [dossiers, searchTerm, filterCabinet, filterEtat, filterOrientation, sortOrder, getCabinetById]);
 
-  // Stats par cabinet (sur tous les dossiers, pas seulement filtrés)
+  // Stats par cabinet (sur tous les dossiers en cours, archivés exclus)
   const statsByCabinet = useMemo(() => {
     const map = new Map<string, number>();
-    for (const d of dossiers) map.set(d.cabinetId, (map.get(d.cabinetId) || 0) + 1);
+    for (const d of dossiers) {
+      if (d.archived === true) continue;
+      map.set(d.cabinetId, (map.get(d.cabinetId) || 0) + 1);
+    }
     return map;
   }, [dossiers]);
 
