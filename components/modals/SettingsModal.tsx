@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId, ModuleId } from '@/types/userTypes';
 
@@ -11,7 +11,7 @@ import { ContentieuxId, ModuleId } from '@/types/userTypes';
 
 type SettingsTab =
   | 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'a_propos'
-  | 'module_instruction'
+  | 'module_instruction' | 'module_cartographie'
   | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
 
 interface SettingsModalProps {
@@ -23,6 +23,8 @@ interface SettingsModalProps {
   monProfilContent?: React.ReactNode;
   /** Panneau du module instruction (visible si l'utilisateur a le module activé) */
   moduleInstructionContent?: React.ReactNode;
+  /** Panneau du module cartographie (pondérations du score top 10) */
+  moduleCartographieContent?: React.ReactNode;
   adminUsersContent?: React.ReactNode;
   adminContentieuxContent?: React.ReactNode;
   adminPathsContent?: React.ReactNode;
@@ -64,7 +66,8 @@ const TABS: TabDef[] = [
   { id: 'a_propos',    label: 'À propos',    icon: Info, section: 'general' },
 
   // Modules (visibles selon les modules activés pour l'utilisateur)
-  { id: 'module_instruction', label: 'Instruction', icon: Gavel, section: 'modules', requiresModule: 'instructions' },
+  { id: 'module_instruction',   label: 'Instruction',  icon: Gavel, section: 'modules', requiresModule: 'instructions' },
+  { id: 'module_cartographie',  label: 'Cartographie', icon: Map,   section: 'modules', requiresModule: 'mindmap' },
 
   // Administration (admin uniquement)
   { id: 'admin_users',       label: 'Utilisateurs',     icon: Users,         section: 'admin', isAdmin: true },
@@ -100,6 +103,7 @@ export const SettingsModal = ({
   sauvegardesContent,
   monProfilContent,
   moduleInstructionContent,
+  moduleCartographieContent,
   adminUsersContent,
   adminContentieuxContent,
   adminPathsContent,
@@ -141,7 +145,8 @@ export const SettingsModal = ({
       case 'sauvegardes':        return sauvegardesContent;
       case 'mon_profil':         return monProfilContent;
       case 'a_propos':           return aProposContent;
-      case 'module_instruction': return moduleInstructionContent;
+      case 'module_instruction':  return moduleInstructionContent;
+      case 'module_cartographie': return moduleCartographieContent;
       case 'admin_users':        return adminUsersContent;
       case 'admin_contentieux':  return adminContentieuxContent;
       case 'admin_paths':        return adminPathsContent;

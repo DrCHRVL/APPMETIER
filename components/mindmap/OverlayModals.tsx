@@ -21,6 +21,7 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import type { GraphNode, MindmapGraph } from '@/utils/mindmapGraph';
 import type { MecExNihilo, DossierExNihilo, LienRenseignement, MecExNihiloStatut, ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
+import { useTags } from '@/hooks/useTags';
 
 // ─────────────────────────────────────────────────
 // AddMecModal
@@ -151,7 +152,7 @@ interface AddDossierModalProps {
   onClose: () => void;
   graph: MindmapGraph;
   initial?: DossierExNihilo;
-  onSubmit: (data: { label: string; dateApprox?: string; mecIds: string[]; notes?: string }) => void;
+  onSubmit: (data: { label: string; dateApprox?: string; mecIds: string[]; typeInfractionTagIds?: string[]; notes?: string }) => void;
   /** Crée un MEC ex nihilo et renvoie son id canonique (à ajouter aux mecIds liés). */
   onCreateMec?: (data: { displayName: string; alias: string[]; statut?: MecExNihiloStatut; notes?: string }) => string;
 }
@@ -165,8 +166,13 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
   const [label, setLabel] = useState(initial?.label || '');
   const [dateApprox, setDateApprox] = useState(initial?.dateApprox || '');
   const [mecIds, setMecIds] = useState<string[]>(initial?.mecIds || []);
+  const [typeInfractionTagIds, setTypeInfractionTagIds] = useState<string[]>(initial?.typeInfractionTagIds || []);
   const [notes, setNotes] = useState(initial?.notes || '');
   const [search, setSearch] = useState('');
+
+  // Tags d'infraction disponibles (alimentés par Paramètres > Tags).
+  const { getTagsByCategory } = useTags();
+  const infractionTags = useMemo(() => getTagsByCategory('infractions'), [getTagsByCategory]);
 
   // ── Création inline d'un MEC (mêmes champs que AddMecModal) ───
   const [createOpen, setCreateOpen] = useState(false);
@@ -192,6 +198,7 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
       setLabel(initial?.label || '');
       setDateApprox(initial?.dateApprox || '');
       setMecIds(initial?.mecIds || []);
+      setTypeInfractionTagIds(initial?.typeInfractionTagIds || []);
       setNotes(initial?.notes || '');
       setSearch('');
       setCreateOpen(false);
@@ -248,12 +255,17 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
     setMecIds(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
   };
 
+  const toggleInfractionTag = (tagId: string) => {
+    setTypeInfractionTagIds(prev => prev.includes(tagId) ? prev.filter(t => t !== tagId) : [...prev, tagId]);
+  };
+
   const handleSubmit = () => {
     if (!label.trim()) return;
     onSubmit({
       label: label.trim(),
       dateApprox: dateApprox.trim() || undefined,
       mecIds,
+      typeInfractionTagIds: typeInfractionTagIds.length > 0 ? typeInfractionTagIds : undefined,
       notes: notes.trim() || undefined,
     });
     onClose();
@@ -416,6 +428,38 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
             <p className="text-[11px] text-slate-400 mt-1">
               Astuce : pour matérialiser un réseau, crée un dossier "Réseau X" et lie tous les membres ici.
             </p>
+          </div>
+          <div>
+            <Label>Type(s) d&apos;infraction</Label>
+            <p className="text-[11px] text-slate-400 mb-1.5">
+              Pondère le score top 10 selon les poids configurés dans
+              Paramètres &gt; Cartographie. N&apos;apparaît pas dans les stats.
+            </p>
+            {infractionTags.length === 0 ? (
+              <div className="text-xs text-slate-400 italic px-2 py-1.5 border border-dashed border-slate-200 rounded">
+                Aucun tag d&apos;infraction défini (Paramètres &gt; Tags).
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {infractionTags.map(tag => {
+                  const sel = typeInfractionTagIds.includes(tag.id);
+                  return (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => toggleInfractionTag(tag.id)}
+                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                        sel
+                          ? 'bg-emerald-100 border-emerald-300 text-emerald-800'
+                          : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      {tag.value}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <div>
             <Label>Notes</Label>
