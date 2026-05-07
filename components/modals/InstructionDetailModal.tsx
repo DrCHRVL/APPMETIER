@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Edit, Trash2, Save, FileText, Users, Calendar, ListChecks, ClipboardCheck, NotebookPen, Briefcase } from 'lucide-react';
+import { X, Edit, Trash2, Save, FileText, Users, Calendar, ListChecks, ClipboardCheck, Pencil, Briefcase } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { useToast } from '@/contexts/ToastContext';
@@ -56,7 +56,7 @@ const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: 'mex',         label: 'Mis en examen',  icon: Users },
   { key: 'echeances',   label: 'OP & JLD',       icon: Calendar },
   { key: 'timeline',    label: 'Timeline',       icon: ListChecks },
-  { key: 'notes',       label: 'Notes perso',    icon: NotebookPen },
+  { key: 'notes',       label: 'Notes perso',    icon: Pencil },
   { key: 'verifs',      label: 'Vérifications',  icon: ClipboardCheck },
   { key: 'orientation', label: 'Orientation',    icon: Briefcase },
 ];
