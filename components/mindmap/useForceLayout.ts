@@ -75,6 +75,14 @@ const ZONE_JITTER_RADIUS = 600;
 // Le cache mémoire vit en plus du localStorage pour répondre instantanément
 // aux re-render dans la même session sans toucher l'IO.
 const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v1';
+// Borne dure des coordonnées finales. Les zones cardinales s'étalent à
+// ±2200 + jitter 600, soit ~±2800 max. Une cluster sain s'étend rarement
+// au-delà de ±5000. Au-delà de ±15000 on est en présence d'une explosion
+// de la simulation (componentRepulsion peut dégénérer si deux centroïdes
+// se confondent et que la force diverge avant d'amortir). Sans ce clamp,
+// fitView de react-flow s'écraserait à minZoom=0.1 et tous les nœuds
+// deviendraient invisibles (canvas en apparence vide).
+const POSITION_CLAMP = 15_000;
 
 /**
  * Hash 32-bit stable (FNV-1a) — déterministe, pas de dépendance crypto.
@@ -383,9 +391,14 @@ function hydratePositionCache(): void {
     const parsed = JSON.parse(raw) as Record<string, { x: number; y: number }>;
     if (!parsed || typeof parsed !== 'object') return;
     for (const [id, pos] of Object.entries(parsed)) {
-      if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
-        positionCache.set(id, { x: pos.x, y: pos.y });
-      }
+      if (!pos) continue;
+      if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) continue;
+      // On rejette aussi les positions clairement aberrantes : un cache
+      // antérieur (ou une session précédente où la simulation a explosé)
+      // peut avoir stocké des coords énormes. Les laisser ferait que tout
+      // démarrage à chaud reproduise immédiatement la même explosion.
+      if (Math.abs(pos.x) > POSITION_CLAMP || Math.abs(pos.y) > POSITION_CLAMP) continue;
+      positionCache.set(id, { x: pos.x, y: pos.y });
     }
   } catch {
     // Quota plein, JSON corrompu : on repart sans cache, pas dramatique.
@@ -567,8 +580,17 @@ export function useForceLayout(
     const positions = new Map<string, PositionedNode>();
     for (const n of simNodes) {
       const sn = n as SimNode & { x?: number; y?: number };
-      const x = sn.x ?? 0;
-      const y = sn.y ?? 0;
+      // Garde-fou : NaN / Infinity / explosion → on ramène au centre.
+      // Sans ça, react-flow tente de rendre des nœuds à des coords absurdes,
+      // fitView s'écrase à minZoom et le canvas paraît entièrement vide.
+      const rawX = sn.x;
+      const rawY = sn.y;
+      let x = Number.isFinite(rawX) ? (rawX as number) : 0;
+      let y = Number.isFinite(rawY) ? (rawY as number) : 0;
+      if (x > POSITION_CLAMP) x = POSITION_CLAMP;
+      else if (x < -POSITION_CLAMP) x = -POSITION_CLAMP;
+      if (y > POSITION_CLAMP) y = POSITION_CLAMP;
+      else if (y < -POSITION_CLAMP) y = -POSITION_CLAMP;
       positions.set(sn.id, { id: sn.id, x, y });
       positionCache.set(sn.id, { x, y });
     }

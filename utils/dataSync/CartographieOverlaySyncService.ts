@@ -22,6 +22,7 @@
 import { CartographieOverlaySyncFile, CartographieTombstone } from '@/types/globalSyncTypes';
 import {
   useCartographieOverlayStore,
+  forceFlushCartographieOverlay,
   pruneCartographieTombstones,
   registerCartographieOverlayMutationListener,
   type CartographieTombstoneEntry,
@@ -226,11 +227,18 @@ export class CartographieOverlaySyncService {
       // 3. Merge intelligent côté entités + tombstones.
       const merged = this.merge(local, serverFile);
 
-      // 4. Si le merge change l'état local, on l'applique au store puis on
-      //    laisse le flush local persister sur disque.
+      // 4. Si le merge change l'état local, on l'applique au store et on
+      //    persiste *immédiatement* sur disque (force flush) : applyServerSnapshot
+      //    ne marque PAS dirty (sinon l'utilisateur verrait "Enregistrer*"
+      //    juste après l'ouverture du module sans avoir rien modifié).
       const localChanged = !this.snapshotsEqual(local, merged);
       if (localChanged) {
         useCartographieOverlayStore.getState().applyServerSnapshot(merged);
+        try {
+          await forceFlushCartographieOverlay();
+        } catch (err) {
+          console.error('CartographieSync: forceFlush after merge failed', err);
+        }
         emitSyncCompleted('audience'); // pas de scope dédié pour l'instant — réutilise le scope existant
       }
 

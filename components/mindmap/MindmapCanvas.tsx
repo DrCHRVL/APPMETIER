@@ -406,7 +406,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   onNodeDoubleClick,
 }) => {
   const positions = useForceLayout(nodes, edges, refreshKey, nodeZones);
-  const { setCenter } = useReactFlow();
+  const { setCenter, fitView } = useReactFlow();
 
   useEffect(() => {
     if (!centerRequest) return;
@@ -414,6 +414,16 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     if (!pos) return;
     setCenter(pos.x, pos.y, { zoom: 1.2, duration: 600 });
   }, [centerRequest, positions, setCenter]);
+
+  // Re-fit la caméra quand l'utilisateur clique "Actualiser" : la prop
+  // `fitView` de ReactFlow ne tire qu'au montage, et ne corrige donc pas
+  // les cas où la simulation a redistribué les nœuds très loin (cluster
+  // explosé, cache désynchronisé, etc.). On relance fit explicitement
+  // après chaque bump de refreshKey.
+  useEffect(() => {
+    if (refreshKey === 0) return; // mount initial : `fitView` du composant ReactFlow s'en charge
+    fitView({ padding: 0.2, duration: 400 });
+  }, [refreshKey, fitView]);
 
   const ctxColorById = useMemo(() => {
     const m = new Map<ContentieuxId, { color: string; label: string }>();
@@ -726,7 +736,10 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       nodeTypes={NODE_TYPES}
       fitView
       fitViewOptions={{ padding: 0.2 }}
-      minZoom={0.1}
+      // minZoom bas pour que fitView puisse réellement contenir des layouts
+      // très étalés (zones cardinales à ±2200 + clusters). À 0.1 on s'écrase
+      // sur la borne et le canvas se présente blanc — symptôme observé.
+      minZoom={0.02}
       maxZoom={2.5}
       onNodeClick={handleClick}
       onNodeDoubleClick={handleDoubleClick}
