@@ -250,8 +250,18 @@ export function registerCartographieOverlayMutationListener(cb: (() => void) | n
   _onMutateListener = cb;
 }
 
-async function _flush(): Promise<void> {
-  if (!_isDirty) return;
+/**
+ * Persiste l'état actuel du store sur disque sans dépendre du drapeau dirty.
+ * Utilisé par le sync service après applyServerSnapshot pour qu'un merge
+ * serveur soit immédiatement écrit en local, sans faire apparaître
+ * "Enregistrer*" à l'utilisateur (qui n'a rien modifié).
+ */
+export function forceFlushCartographieOverlay(): Promise<void> {
+  return _flush(true);
+}
+
+async function _flush(force = false): Promise<void> {
+  if (!force && !_isDirty) return;
   try {
     const s = useCartographieOverlayStore.getState();
     const payload: PersistedOverlay = {
@@ -317,8 +327,10 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
 
   hasPendingChanges: () => _isDirty,
 
-  // Hydratation depuis un snapshot serveur déjà mergé. Marque dirty pour
-  // que le prochain flush local persiste l'état mergé.
+  // Hydratation depuis un snapshot serveur déjà mergé. NE marque PAS dirty :
+  // l'utilisateur n'a rien modifié, c'est le serveur qui s'est mis à jour.
+  // C'est au sync service d'appeler ensuite forceFlush() pour persister
+  // l'état mergé sur le disque local sans faire clignoter "Enregistrer*".
   applyServerSnapshot: (snapshot) => {
     set({
       pinnedMecIds: snapshot.pinnedMecIds ?? get().pinnedMecIds,
@@ -335,7 +347,6 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
       deletedMecScoreBoostIds: snapshot.deletedMecScoreBoostIds ?? get().deletedMecScoreBoostIds,
       deletedTagZones: snapshot.deletedTagZones ?? get().deletedTagZones,
     });
-    _isDirty = true;
   },
 
   // ── Épinglage ────────────────────────────────
