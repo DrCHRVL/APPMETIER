@@ -425,7 +425,7 @@ export const ArchivePage = ({
             ) : (
               pendingEnquetes.map(item => {
                 const isPartialResult = isPartiallyPending(item.id);
-                const audienceDate = audienceState?.resultats?.[item.id]?.dateAudience;
+                const audienceDate = lookupResultat(item.id)?.dateAudience;
                 const isPassed = audienceDate && isAudiencePassed(item.id);
                 const nextPendingDate = isPartialResult ? getNextPendingDate(item.id) : null;
 

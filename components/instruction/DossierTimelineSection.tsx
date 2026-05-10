@@ -6,7 +6,7 @@ import {
   Lock,
   Gavel,
   FileText,
-  NotebookPen,
+  Pencil,
   AlertTriangle,
   Plus,
   X,
@@ -78,7 +78,7 @@ const DERIVED_META: Record<DerivedKind, { label: string; bg: string; icon: React
   op_ji:           { label: 'OP JI',         bg: 'bg-blue-500',    icon: Calendar },
   dml_depot:       { label: 'DML déposée',   bg: 'bg-purple-400',  icon: FileText },
   dml_echeance:    { label: 'Échéance DML',  bg: 'bg-purple-600',  icon: AlertTriangle },
-  note:            { label: 'Note',          bg: 'bg-gray-400',    icon: NotebookPen },
+  note:            { label: 'Note',          bg: 'bg-gray-400',    icon: Pencil },
 };
 
 // ─────────────────────────────────────────────────────────────────

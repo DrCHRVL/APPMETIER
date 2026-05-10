@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import {
-  X, Edit, Trash2, Save, FileText, Users, Calendar, ListChecks, NotebookPen,
+  X, Edit, Trash2, Save, FileText, Users, Calendar, ListChecks, Pencil,
   Lock, Scale, MapPin, ShieldOff, AlertTriangle, Archive, RotateCcw,
 } from 'lucide-react';
 import { Button } from '../ui/button';
@@ -61,7 +61,7 @@ const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: 'mex',       label: 'Mis en examen',  icon: Users },
   { key: 'echeances', label: 'OP & JLD',       icon: Calendar },
   { key: 'timeline',  label: 'Timeline',       icon: ListChecks },
-  { key: 'notes',     label: 'Notes perso',    icon: NotebookPen },
+  { key: 'notes',     label: 'Notes perso',    icon: Pencil },
 ];
 
 const MESURE_BADGE: Record<MesureSurete['type'], { short: string; color: string; icon: React.ElementType }> = {
