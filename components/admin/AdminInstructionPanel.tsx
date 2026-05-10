@@ -6,6 +6,7 @@ import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
 import { useInstructionAlertRules } from '@/hooks/useInstructionAlertRules';
+import { useInstructionCustomTypes } from '@/hooks/useInstructionCustomTypes';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
 import { CABINET_COLOR_PALETTE, INSTRUCTION_TRIGGER_LABELS } from '@/config/instructionConfig';
 import { cabinetSlug } from '@/utils/instructionConfigManager';
@@ -429,9 +430,186 @@ export const AdminInstructionPanel = () => {
       {/* ─── ALERTES TWEAKABLES ─── */}
       <AlertRulesSection />
 
+      {/* ─── TYPES PERSONNALISÉS (timeline + expertises) ─── */}
+      <CustomTypesSection />
+
       {/* ─── RAPPEL HEBDO ─── */}
       <WeeklyRecapSection />
     </div>
+  );
+};
+
+// ──────────────────────────────────────────────
+// SECTION TYPES PERSONNALISÉS (événements timeline + expertises)
+// ──────────────────────────────────────────────
+
+const CustomTypesSection = () => {
+  const {
+    evenementTypes,
+    categoriesExpertise,
+    isLoading,
+    addEvenementType,
+    removeEvenementType,
+    addCategorieExpertise,
+    removeCategorieExpertise,
+  } = useInstructionCustomTypes();
+  const { showToast } = useToast();
+
+  const [newEvtLabel, setNewEvtLabel] = useState('');
+  const [newCatLabel, setNewCatLabel] = useState('');
+
+  const handleAddEvt = async () => {
+    if (!newEvtLabel.trim()) return;
+    const r = await addEvenementType({ id: '', label: newEvtLabel.trim() });
+    if (r.ok) {
+      showToast('Type d\'événement ajouté', 'success');
+      setNewEvtLabel('');
+    } else {
+      showToast(r.reason || 'Échec de l\'ajout', 'error');
+    }
+  };
+
+  const handleAddCat = async () => {
+    if (!newCatLabel.trim()) return;
+    const r = await addCategorieExpertise({ id: '', label: newCatLabel.trim() });
+    if (r.ok) {
+      showToast('Catégorie d\'expertise ajoutée', 'success');
+      setNewCatLabel('');
+    } else {
+      showToast(r.reason || 'Échec de l\'ajout', 'error');
+    }
+  };
+
+  return (
+    <section className="space-y-4">
+      <div>
+        <h3 className="text-base font-semibold text-gray-800">Types personnalisés</h3>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Ajoutez des types d'événement supplémentaires pour la timeline et des
+          catégories d'expertise. Les types système restent toujours présents.
+        </p>
+      </div>
+
+      {/* Types d'événement */}
+      <div className="bg-white border border-gray-200 rounded-lg p-3">
+        <h4 className="text-sm font-semibold text-gray-700 mb-2">
+          Types d'événement timeline ({evenementTypes.length})
+        </h4>
+        {isLoading ? (
+          <div className="text-xs text-gray-500">Chargement…</div>
+        ) : (
+          <div className="space-y-1.5">
+            {evenementTypes.length === 0 && (
+              <div className="text-xs text-gray-400 italic">
+                Aucun type personnalisé. Les types système (lancement_cr, retour_cr,
+                expertise, ipc, apc, interrogatoire au fond, phase d'interpellation)
+                restent toujours disponibles.
+              </div>
+            )}
+            {evenementTypes.map(t => (
+              <div
+                key={t.id}
+                className="flex items-center gap-2 p-2 rounded border border-gray-200"
+              >
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-gray-800">{t.label}</div>
+                  <div className="text-[11px] text-gray-400 font-mono">{t.id}</div>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!confirm(`Retirer le type "${t.label}" ? Les événements existants conserveront leur libellé d'origine.`)) return;
+                    const ok = await removeEvenementType(t.id);
+                    if (ok) showToast('Type retiré', 'success');
+                  }}
+                  className="p-1.5 text-red-500 hover:bg-red-50 rounded"
+                  title="Retirer"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2 mt-3">
+          <input
+            type="text"
+            value={newEvtLabel}
+            onChange={(e) => setNewEvtLabel(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAddEvt(); }}
+            placeholder="Nouveau type (ex : audition libre, perquisition…)"
+            className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg"
+          />
+          <button
+            onClick={handleAddEvt}
+            disabled={!newEvtLabel.trim()}
+            className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50"
+          >
+            <Plus className="h-3.5 w-3.5 inline mr-1" />
+            Ajouter
+          </button>
+        </div>
+      </div>
+
+      {/* Catégories d'expertise */}
+      <div className="bg-white border border-gray-200 rounded-lg p-3">
+        <h4 className="text-sm font-semibold text-gray-700 mb-2">
+          Catégories d'expertise ({categoriesExpertise.length})
+        </h4>
+        {isLoading ? (
+          <div className="text-xs text-gray-500">Chargement…</div>
+        ) : (
+          <div className="space-y-1.5">
+            {categoriesExpertise.length === 0 && (
+              <div className="text-xs text-gray-400 italic">
+                Aucune catégorie personnalisée. Les catégories système (psychologique,
+                psychiatrique, balistique, ADN, papillaire, médico-légale, autopsie,
+                autre) restent toujours disponibles.
+              </div>
+            )}
+            {categoriesExpertise.map(c => (
+              <div
+                key={c.id}
+                className="flex items-center gap-2 p-2 rounded border border-gray-200"
+              >
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-gray-800">{c.label}</div>
+                  <div className="text-[11px] text-gray-400 font-mono">{c.id}</div>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!confirm(`Retirer la catégorie "${c.label}" ?`)) return;
+                    const ok = await removeCategorieExpertise(c.id);
+                    if (ok) showToast('Catégorie retirée', 'success');
+                  }}
+                  className="p-1.5 text-red-500 hover:bg-red-50 rounded"
+                  title="Retirer"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2 mt-3">
+          <input
+            type="text"
+            value={newCatLabel}
+            onChange={(e) => setNewCatLabel(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAddCat(); }}
+            placeholder="Nouvelle catégorie (ex : toxicologique, comptable…)"
+            className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg"
+          />
+          <button
+            onClick={handleAddCat}
+            disabled={!newCatLabel.trim()}
+            className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50"
+          >
+            <Plus className="h-3.5 w-3.5 inline mr-1" />
+            Ajouter
+          </button>
+        </div>
+      </div>
+    </section>
   );
 };
 

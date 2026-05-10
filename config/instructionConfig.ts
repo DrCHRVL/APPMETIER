@@ -80,6 +80,7 @@ export const INSTRUCTION_TRIGGER_LABELS: Record<InstructionAlertTrigger, string>
   verif_periodique_due:    'Vérification périodique due',
   motivation_renforcee_due:'DP correctionnelle > 8 mois (motivation renforcée)',
   dp_max_legal_atteinte:   'Durée légale max DP atteinte',
+  dp_max_proche:           'Durée légale max DP imminente',
 };
 
 export const INSTRUCTION_TRIGGER_COLORS: Record<InstructionAlertTrigger, string> = {
@@ -93,6 +94,7 @@ export const INSTRUCTION_TRIGGER_COLORS: Record<InstructionAlertTrigger, string>
   verif_periodique_due:     '#d97706',
   motivation_renforcee_due: '#ea580c',
   dp_max_legal_atteinte:    '#7f1d1d',
+  dp_max_proche:            '#b91c1c',
 };
 
 export const DEFAULT_INSTRUCTION_ALERT_RULES: InstructionAlertRule[] = [
@@ -100,7 +102,7 @@ export const DEFAULT_INSTRUCTION_ALERT_RULES: InstructionAlertRule[] = [
     id: 1,
     trigger: 'dp_fin_proche',
     label: INSTRUCTION_TRIGGER_LABELS.dp_fin_proche,
-    seuil: 30,
+    seuil: 21,
     enabled: true,
     priority: 1,
     color: INSTRUCTION_TRIGGER_COLORS.dp_fin_proche,
@@ -194,6 +196,16 @@ export const DEFAULT_INSTRUCTION_ALERT_RULES: InstructionAlertRule[] = [
     enabled: true,
     priority: 1,
     color: INSTRUCTION_TRIGGER_COLORS.dp_max_legal_atteinte,
+    isSystemRule: true,
+  },
+  {
+    id: 11,
+    trigger: 'dp_max_proche',
+    label: INSTRUCTION_TRIGGER_LABELS.dp_max_proche,
+    seuil: 90,
+    enabled: true,
+    priority: 1,
+    color: INSTRUCTION_TRIGGER_COLORS.dp_max_proche,
     isSystemRule: true,
   },
 ];

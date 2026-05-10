@@ -10,8 +10,15 @@ import { DMLsManager } from './DMLsManager';
 import { MesureSureteEditor } from './MesureSureteEditor';
 import { VerificationLegaleDP } from './VerificationLegaleDP';
 import { RichTextEditor } from '../RichTextEditor';
-import { getJoursRestantsAvantFinDP, getDateFinDPCourante } from '@/utils/instructionUtils';
+import {
+  getJoursRestantsAvantFinDP,
+  getDateFinDPCourante,
+  getDateFinMaxLegale,
+  getJoursRestantsAvantMaxLegal,
+  getPeriodeDPCourante,
+} from '@/utils/instructionUtils';
 import { getCasDPById } from '@/config/dpRegimes';
+import { useInstructionAlertRules } from '@/hooks/useInstructionAlertRules';
 import type {
   MisEnExamen,
   MesureSurete,
@@ -49,7 +56,22 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
   const Icon = meta.icon;
   const dateFinDP = getDateFinDPCourante(mex);
   const joursRestantsDP = getJoursRestantsAvantFinDP(mex);
+  const dateFinMaxDP = getDateFinMaxLegale(mex);
+  const joursMaxDP = getJoursRestantsAvantMaxLegal(mex);
+  const periodeDPCourante = getPeriodeDPCourante(mex);
   const cas = mex.mesureSurete.type === 'detenu' ? getCasDPById(mex.mesureSurete.casDPId) : undefined;
+  const { rules: alertRules } = useInstructionAlertRules();
+  const seuilFinDP = alertRules.find(r => r.trigger === 'dp_fin_proche')?.seuil ?? 21;
+  const seuilMaxDP = alertRules.find(r => r.trigger === 'dp_max_proche')?.seuil ?? 90;
+
+  /** Aperçu plein-texte (sans HTML) des notes pour la vue compactée */
+  const notesPreview = mex.elementsCharge
+    ? mex.elementsCharge
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    : '';
 
   // Les DML n'ont de sens que pour un MEX détenu (Demande de Mise en Liberté).
   // On masque la section et le compteur pour les autres statuts.
@@ -101,17 +123,6 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
                 {dmlEnAttenteCount} DML en cours
               </span>
             )}
-            {dateFinDP && joursRestantsDP !== null && (
-              <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded border ${
-                joursRestantsDP < 0
-                  ? 'bg-red-200 text-red-900 border-red-300'
-                  : joursRestantsDP <= 30
-                  ? 'bg-red-100 text-red-700 border-red-200'
-                  : 'bg-gray-50 text-gray-600 border-gray-200'
-              }`}>
-                {joursRestantsDP < 0 ? 'DP échue' : `Fin DP J+${joursRestantsDP}`}
-              </span>
-            )}
             {cas && (
               <span className="text-[10px] text-gray-500 font-mono">{cas.article}</span>
             )}
@@ -122,6 +133,75 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
               <> · {mex.infractions.length} chef{mex.infractions.length > 1 ? 's' : ''} d'inculpation</>
             )}
           </div>
+
+          {/* Dates DP en aperçu rapide (uniquement si MEX détenu) */}
+          {mex.mesureSurete.type === 'detenu' && (dateFinDP || dateFinMaxDP) && (
+            <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
+              {periodeDPCourante?.dateDebut && (
+                <span className="px-1.5 py-0.5 rounded border bg-gray-50 text-gray-600 border-gray-200">
+                  Début&nbsp;: {new Date(periodeDPCourante.dateDebut).toLocaleDateString()}
+                </span>
+              )}
+              {dateFinDP && (
+                <span
+                  className={`px-1.5 py-0.5 rounded border ${
+                    joursRestantsDP !== null && joursRestantsDP < 0
+                      ? 'bg-red-200 text-red-900 border-red-300'
+                      : joursRestantsDP !== null && joursRestantsDP <= seuilFinDP
+                      ? 'bg-red-100 text-red-700 border-red-300 font-semibold'
+                      : 'bg-gray-50 text-gray-600 border-gray-200'
+                  }`}
+                  title="Fin de la période DP courante"
+                >
+                  Fin&nbsp;: {new Date(dateFinDP).toLocaleDateString()}
+                </span>
+              )}
+              {dateFinMaxDP && (
+                <span
+                  className={`px-1.5 py-0.5 rounded border ${
+                    joursMaxDP !== null && joursMaxDP < 0
+                      ? 'bg-red-200 text-red-900 border-red-300'
+                      : joursMaxDP !== null && joursMaxDP <= seuilMaxDP
+                      ? 'bg-red-100 text-red-700 border-red-300 font-semibold'
+                      : 'bg-gray-50 text-gray-600 border-gray-200'
+                  }`}
+                  title="Date à laquelle la durée légale max sera atteinte"
+                >
+                  Fin maximal&nbsp;: {new Date(dateFinMaxDP).toLocaleDateString()}
+                </span>
+              )}
+              {dmlEnAttenteCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200">
+                  {dmlEnAttenteCount} DML en cours
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Aperçu rapide infractions */}
+          {mex.infractions.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {mex.infractions.slice(0, 4).map(inf => (
+                <span
+                  key={inf.id}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200 truncate max-w-[220px]"
+                  title={inf.qualification}
+                >
+                  {inf.qualification}
+                </span>
+              ))}
+              {mex.infractions.length > 4 && (
+                <span className="text-[10px] text-gray-400">+{mex.infractions.length - 4}</span>
+              )}
+            </div>
+          )}
+
+          {/* Aperçu rapide notes */}
+          {notesPreview && (
+            <div className="mt-1 text-[11px] text-gray-600 italic line-clamp-2">
+              {notesPreview}
+            </div>
+          )}
         </div>
         {expanded ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
       </button>
