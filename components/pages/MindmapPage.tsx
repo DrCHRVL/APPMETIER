@@ -383,14 +383,33 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
 
   const allContentieuxSelected = selectedContentieux.size === effectiveContentieuxDefs.length;
 
+  // Single-click et double-click sur un nœud doivent cohabiter : le simple-clic
+  // toggle l'ego-network (changement d'état → re-render de Canvas → React Flow
+  // peut remonter le DOM du nœud entre les deux clics, ce qui empêche le
+  // navigateur d'émettre l'événement `dblclick`). On diffère donc le simple-clic
+  // d'un délai standard ; un double-clic survenu dans cette fenêtre l'annule.
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPendingClick = () => {
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+  };
+  useEffect(() => () => cancelPendingClick(), []);
+
   const handleNodeClick = (node: GraphNode) => {
-    setSelectedId(node.id);
-    if (node.type === 'mec') setSidePanelMecId(node.id);
-    // Toggle ego-network : re-cliquer sur le même nœud sort du mode.
-    setEgoNodeId(prev => prev === node.id ? undefined : node.id);
+    cancelPendingClick();
+    clickTimerRef.current = setTimeout(() => {
+      clickTimerRef.current = null;
+      setSelectedId(node.id);
+      if (node.type === 'mec') setSidePanelMecId(node.id);
+      // Toggle ego-network : re-cliquer sur le même nœud sort du mode.
+      setEgoNodeId(prev => prev === node.id ? undefined : node.id);
+    }, 220);
   };
 
   const handleNodeDoubleClick = (node: GraphNode) => {
+    cancelPendingClick();
     if (node.type === 'mec') {
       setSidePanelMecId(node.id);
       return;

@@ -25,6 +25,7 @@ import type { DossierNode, GraphEdge, GraphNode, MecNode } from '@/utils/mindmap
 import type { ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
 import { getCollisionRadius, getDossierBox, getNodeRadius, useForceLayout } from './useForceLayout';
 import { buildInfluenceClusters, buildSubClusters, matchAnnotation, type InfluenceCluster } from './influenceHull';
+import { computeClusterColors } from './clusterColors';
 import type { ZoneId } from './zones';
 
 // ──────────────────────────────────────────────
@@ -74,7 +75,12 @@ type DossierNodeData = DossierNode & {
   /** Rotation appliquée au contenu (radians). Calculée pour minimiser le
    *  chevauchement visuel avec les arêtes entrantes. */
   rotation: number;
+  /** Couleur de fond, dérivée du réseau (composante connexe), pâlie selon
+   *  la distance au noyau du cluster. */
   color: string;
+  /** Couleur de bordure, codant le contentieux d'origine (gardée même quand
+   *  le fond est dérivé du réseau). */
+  borderColor: string;
   contentieuxLabel: string;
   isExNihilo: boolean;
   dimmed: boolean;
@@ -162,11 +168,15 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
 };
 
 const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
-  const { numero, statut, focused, radius, width, height, rotation, color, contentieuxLabel, nbMec, isExNihilo, dimmed } = data;
+  const { numero, statut, focused, radius, width, height, rotation, color, borderColor, contentieuxLabel, nbMec, isExNihilo, dimmed } = data;
   const archived = statut === 'archive' && !isExNihilo;
-  // Le dossier doit être visuellement plus présent qu'un MEC périphérique :
-  // fond plus saturé (`30` au lieu de `15`), bordure + épaisse, ombre marquée.
-  const baseAlpha = isExNihilo ? '#fff' : (archived ? '#f3f4f6' : `${color}30`);
+  // Double codage couleur : le fond suit la couleur du réseau (atténuée
+  // selon la distance au noyau) ; la bordure garde la couleur du
+  // contentieux pour qu'on lise à la fois "réseau" et "type d'affaire".
+  // Pour les ex nihilo, on ne sait pas dériver de réseau utile → fond blanc
+  // pour rester neutre, bordure violette dashed comme avant.
+  const baseAlpha = isExNihilo ? '#fff' : (archived ? '#f3f4f6' : color);
+  const labelColor = borderColor;
   return (
     <div
       title={`${isExNihilo ? 'Dossier manuel' : contentieuxLabel} • ${numero} • ${nbMec} MEC`}
@@ -174,7 +184,7 @@ const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
         width,
         height,
         background: baseAlpha,
-        borderColor: color,
+        borderColor,
         borderWidth: 3,
         borderStyle: isExNihilo ? 'dashed' : 'solid',
         transform: rotation ? `rotate(${rotation}rad)` : undefined,
@@ -196,7 +206,7 @@ const DossierNodeView = ({ data }: NodeProps<Node<DossierNodeData>>) => {
       <Handle type="source" position={Position.Bottom} style={CENTERED_HANDLE_STYLE} isConnectable={false} />
       <span
         className="font-mono font-semibold leading-tight"
-        style={{ color, fontSize: Math.max(11, Math.min(14, radius / 3)) }}
+        style={{ color: labelColor, fontSize: Math.max(11, Math.min(14, radius / 3)) }}
       >
         {numero}
       </span>
@@ -411,6 +421,16 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     return m;
   }, [contentieuxDefs]);
 
+  // Palette par réseau (composante connexe) : chaque réseau a une teinte
+  // distincte, et au sein d'un réseau les nœuds sont pâlis selon leur
+  // distance BFS au noyau (MEC le plus haut score / dossier le plus
+  // central). Mémoïsé sur (nodes, edges) — recalculé seulement quand la
+  // structure du graphe change, pas à chaque drag.
+  const clusterColors = useMemo(
+    () => computeClusterColors(nodes, edges),
+    [nodes, edges],
+  );
+
   // Degré (data edges uniquement) par nœud → utilisé pour décider quelles
   // arêtes courber : un MEC à plusieurs dossiers gagne des bezier pour
   // séparer visuellement la "patte d'oie" qu'on aurait en lignes droites.
@@ -431,7 +451,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
 
   const influenceClusters = useMemo(() => {
     if (!showInfluence) return [];
-    return buildInfluenceClusters(
+    const built = buildInfluenceClusters(
       nodes,
       edges,
       positions,
@@ -439,7 +459,14 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       (id) => ctxColorById.get(id)?.color,
       { minNodes: 3, nodePadding: 32 },
     );
-  }, [nodes, edges, positions, ctxColorById, showInfluence]);
+    // Override de la couleur du hull : on prend la teinte du réseau (palette
+    // cluster) plutôt que celle du contentieux dominant. Deux réseaux du
+    // même contentieux sont ainsi visuellement distincts.
+    return built.map(c => {
+      const networkColor = clusterColors.byComponent.get(c.id);
+      return networkColor ? { ...c, color: networkColor } : c;
+    });
+  }, [nodes, edges, positions, ctxColorById, showInfluence, clusterColors]);
 
   // Sous-clusters : pour chaque grand blob, on calcule des mini-aires
   // centrées sur chaque dossier (regroupant ses MEC exclusifs). Les MEC
@@ -596,6 +623,16 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       const ctx = ctxColorById.get(n.contentieuxId);
       const isExNihilo = !!n.isExNihilo;
       const { width, height } = getDossierBox(n);
+      const networkColor = clusterColors.byNode.get(n.id);
+      // Bordure : couleur du contentieux (pour ex nihilo on garde le violet
+      // historique). Fond : couleur du réseau (cluster), à 28% d'alpha pour
+      // rester un tint discret. Le RGBA via hsl(...) n'étant pas trivial,
+      // on superpose simplement la couleur HSL du réseau sur le fond clair
+      // par opacity côté style — voir DossierNodeView.
+      const borderColor = isExNihilo ? '#7c3aed' : (ctx?.color || CTX_FALLBACK_COLOR);
+      const fill = isExNihilo
+        ? '#fff'
+        : (networkColor?.fill || (ctx?.color ? `${ctx.color}30` : CTX_FALLBACK_COLOR));
       const data: DossierNodeData = {
         ...n,
         focused,
@@ -603,7 +640,8 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
         width,
         height,
         rotation: dossierRotations.get(n.id) ?? 0,
-        color: isExNihilo ? '#7c3aed' : (ctx?.color || CTX_FALLBACK_COLOR),
+        color: fill,
+        borderColor,
         contentieuxLabel: ctx?.label || n.contentieuxId,
         isExNihilo,
         dimmed,
@@ -617,7 +655,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       } satisfies Node);
     }
     return out;
-  }, [nodes, positions, focusedId, ctxColorById, dossierRotations, influenceClusters, subClusters, focusedClusterId, clusterAnnotations, egoVisibleSet, isDimmed]);
+  }, [nodes, positions, focusedId, ctxColorById, dossierRotations, influenceClusters, subClusters, focusedClusterId, clusterAnnotations, egoVisibleSet, isDimmed, clusterColors]);
 
   const rfEdges: Edge[] = useMemo(() => {
     return edges.map(e => {
