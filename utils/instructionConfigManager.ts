@@ -6,7 +6,12 @@
 import { ElectronBridge } from './electronBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { DEFAULT_CABINETS } from '@/config/instructionConfig';
-import type { Cabinet, InstructionModuleConfig } from '@/types/instructionTypes';
+import type {
+  Cabinet,
+  InstructionModuleConfig,
+  CustomEvenementType,
+  CustomCategorieExpertise,
+} from '@/types/instructionTypes';
 
 const CONFIG_KEY = APP_CONFIG.STORAGE_KEYS.INSTRUCTION_CONFIG;
 
@@ -142,6 +147,98 @@ class InstructionConfigManagerService {
     const next: InstructionModuleConfig = { ...config, cabinets: remaining };
     const ok = await this.save(next);
     return { ok };
+  }
+
+  // ──────────────────────────────────────────────
+  // TYPES D'ÉVÉNEMENT TIMELINE PERSONNALISÉS
+  // ──────────────────────────────────────────────
+
+  async getCustomEvenementTypes(): Promise<CustomEvenementType[]> {
+    const config = await this.load();
+    return config.customEvenementTypes || [];
+  }
+
+  async addCustomEvenementType(
+    input: CustomEvenementType,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const id = input.id?.trim() || cabinetSlug(input.label);
+    if (!id) return { ok: false, reason: 'ID invalide' };
+    if (!input.label.trim()) return { ok: false, reason: 'Libellé requis' };
+    const config = await this.load();
+    const existing = config.customEvenementTypes || [];
+    if (existing.some(c => c.id === id)) {
+      return { ok: false, reason: 'Un type avec cet ID existe déjà' };
+    }
+    const next: InstructionModuleConfig = {
+      ...config,
+      customEvenementTypes: [
+        ...existing,
+        { id, label: input.label.trim(), color: input.color },
+      ],
+    };
+    return { ok: await this.save(next) };
+  }
+
+  async removeCustomEvenementType(id: string): Promise<boolean> {
+    const config = await this.load();
+    const next: InstructionModuleConfig = {
+      ...config,
+      customEvenementTypes: (config.customEvenementTypes || []).filter(c => c.id !== id),
+    };
+    return this.save(next);
+  }
+
+  async updateCustomEvenementType(
+    id: string,
+    updates: Partial<Omit<CustomEvenementType, 'id'>>,
+  ): Promise<boolean> {
+    const config = await this.load();
+    const list = config.customEvenementTypes || [];
+    if (!list.some(c => c.id === id)) return false;
+    const next: InstructionModuleConfig = {
+      ...config,
+      customEvenementTypes: list.map(c => (c.id === id ? { ...c, ...updates, id: c.id } : c)),
+    };
+    return this.save(next);
+  }
+
+  // ──────────────────────────────────────────────
+  // CATÉGORIES D'EXPERTISE PERSONNALISÉES
+  // ──────────────────────────────────────────────
+
+  async getCustomCategoriesExpertise(): Promise<CustomCategorieExpertise[]> {
+    const config = await this.load();
+    return config.customCategoriesExpertise || [];
+  }
+
+  async addCustomCategorieExpertise(
+    input: CustomCategorieExpertise,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const id = input.id?.trim() || cabinetSlug(input.label);
+    if (!id) return { ok: false, reason: 'ID invalide' };
+    if (!input.label.trim()) return { ok: false, reason: 'Libellé requis' };
+    const config = await this.load();
+    const existing = config.customCategoriesExpertise || [];
+    if (existing.some(c => c.id === id)) {
+      return { ok: false, reason: 'Une catégorie avec cet ID existe déjà' };
+    }
+    const next: InstructionModuleConfig = {
+      ...config,
+      customCategoriesExpertise: [
+        ...existing,
+        { id, label: input.label.trim() },
+      ],
+    };
+    return { ok: await this.save(next) };
+  }
+
+  async removeCustomCategorieExpertise(id: string): Promise<boolean> {
+    const config = await this.load();
+    const next: InstructionModuleConfig = {
+      ...config,
+      customCategoriesExpertise: (config.customCategoriesExpertise || []).filter(c => c.id !== id),
+    };
+    return this.save(next);
   }
 
   /** Active / désactive un cabinet */

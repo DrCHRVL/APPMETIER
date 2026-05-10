@@ -2,8 +2,9 @@
 
 import React, { useState } from 'react';
 import {
-  X, Edit, Trash2, Save, FileText, Users, Calendar, ListChecks, Pencil,
+  X, Edit, Trash2, Save, FileText, Users, Calendar, ListChecks,
   Lock, Scale, MapPin, ShieldOff, AlertTriangle, Archive, RotateCcw,
+  ShieldCheck, Plus,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -18,12 +19,14 @@ import {
 import {
   countMexByStatut,
   countTotalDMLs,
-  countDMLsEnAttente,
   getDossierAgeJours,
   formatDossierAge,
   getJoursRestantsAvantFinDP,
+  getJoursRestantsAvantMaxLegal,
   getDateFinDPCourante,
+  getDateFinMaxLegale,
 } from '@/utils/instructionUtils';
+import { useInstructionAlertRules } from '@/hooks/useInstructionAlertRules';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { MisEnExamenSection } from '../instruction/mex/MisEnExamenSection';
@@ -41,6 +44,7 @@ import type {
   NotePersoInstruction,
   EvenementInstruction,
   MesureSurete,
+  Victime,
 } from '@/types/instructionTypes';
 
 interface InstructionDetailModalProps {
@@ -54,14 +58,13 @@ interface InstructionDetailModalProps {
   contentieuxDefs?: import('@/types/userTypes').ContentieuxDefinition[];
 }
 
-type TabKey = 'apercu' | 'mex' | 'echeances' | 'timeline' | 'notes';
+type TabKey = 'apercu' | 'mex' | 'echeances' | 'timeline';
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: 'apercu',    label: 'Aperçu',         icon: FileText },
   { key: 'mex',       label: 'Mis en examen',  icon: Users },
   { key: 'echeances', label: 'OP & JLD',       icon: Calendar },
   { key: 'timeline',  label: 'Timeline',       icon: ListChecks },
-  { key: 'notes',     label: 'Notes perso',    icon: Pencil },
 ];
 
 const MESURE_BADGE: Record<MesureSurete['type'], { short: string; color: string; icon: React.ElementType }> = {
@@ -86,6 +89,7 @@ export const InstructionDetailModal = ({
   const cabinetColor = cabinet?.color || FALLBACK_CABINET_COLOR;
 
   const [activeTab, setActiveTab] = useState<TabKey>('apercu');
+  const [showVictimesModal, setShowVictimesModal] = useState(false);
 
   // État local pour l'édition
   const [editData, setEditData] = useState<Partial<DossierInstruction>>({
@@ -141,6 +145,10 @@ export const InstructionDetailModal = ({
     onClose();
   };
 
+  const { rules: alertRules } = useInstructionAlertRules();
+  const seuilFinDPJours = alertRules.find(r => r.trigger === 'dp_fin_proche')?.seuil ?? 21;
+  const seuilMaxDPJours = alertRules.find(r => r.trigger === 'dp_max_proche')?.seuil ?? 90;
+
   const stats = (() => {
     const byStatut = countMexByStatut(dossier);
     return {
@@ -149,7 +157,6 @@ export const InstructionDetailModal = ({
       nbCJ: byStatut.cj,
       nbARSE: byStatut.arse,
       nbDML: countTotalDMLs(dossier),
-      nbDMLenAttente: countDMLsEnAttente(dossier),
       ageJours: getDossierAgeJours(dossier),
     };
   })();
@@ -265,113 +272,122 @@ export const InstructionDetailModal = ({
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {activeTab === 'apercu' && (
             isEditing ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>N° instruction</Label>
-                  <Input
-                    value={editData.numeroInstruction || ''}
-                    onChange={(e) => setEditData(d => ({ ...d, numeroInstruction: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <Label>N° parquet</Label>
-                  <Input
-                    value={editData.numeroParquet || ''}
-                    onChange={(e) => setEditData(d => ({ ...d, numeroParquet: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <Label>Magistrat instructeur</Label>
-                  <Input
-                    value={editData.magistratInstructeur || ''}
-                    onChange={(e) => setEditData(d => ({ ...d, magistratInstructeur: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <Label>Date du RI</Label>
-                  <Input
-                    type="date"
-                    value={editData.dateRI || ''}
-                    onChange={(e) => setEditData(d => ({ ...d, dateRI: e.target.value, dateOuverture: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <Label>État de règlement</Label>
-                  <select
-                    value={editData.etatReglement || 'en_cours'}
-                    onChange={(e) => setEditData(d => ({ ...d, etatReglement: e.target.value as EtatReglement }))}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
-                  >
-                    {(Object.keys(ETAT_REGLEMENT_LABELS) as EtatReglement[]).map(k => (
-                      <option key={k} value={k}>{ETAT_REGLEMENT_LABELS[k]}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <Label>Côtes / tomes</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={editData.cotesTomes ?? 0}
-                    onChange={(e) => setEditData(d => ({ ...d, cotesTomes: Number(e.target.value) || 0 }))}
-                  />
-                </div>
-                <div>
-                  <Label>Orientation prévisible</Label>
-                  <select
-                    value={editData.orientationPrevisible || ''}
-                    onChange={(e) =>
-                      setEditData(d => ({
-                        ...d,
-                        orientationPrevisible: (e.target.value || undefined) as OrientationPrevisible | undefined,
-                      }))
-                    }
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
-                  >
-                    <option value="">— Non définie —</option>
-                    {(Object.keys(ORIENTATION_LABELS) as OrientationPrevisible[]).map(k => (
-                      <option key={k} value={k}>{ORIENTATION_LABELS[k]}</option>
-                    ))}
-                  </select>
-                </div>
-                {contentieuxDefs.length > 0 && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label>Contentieux</Label>
+                    <Label>N° instruction</Label>
+                    <Input
+                      value={editData.numeroInstruction || ''}
+                      onChange={(e) => setEditData(d => ({ ...d, numeroInstruction: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label>N° parquet</Label>
+                    <Input
+                      value={editData.numeroParquet || ''}
+                      onChange={(e) => setEditData(d => ({ ...d, numeroParquet: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label>Magistrat instructeur</Label>
+                    <Input
+                      value={editData.magistratInstructeur || ''}
+                      onChange={(e) => setEditData(d => ({ ...d, magistratInstructeur: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label>Date du RI</Label>
+                    <Input
+                      type="date"
+                      value={editData.dateRI || ''}
+                      onChange={(e) => setEditData(d => ({ ...d, dateRI: e.target.value, dateOuverture: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label>État de règlement</Label>
                     <select
-                      value={editData.contentieuxId || ''}
-                      onChange={(e) => setEditData(d => ({ ...d, contentieuxId: e.target.value || undefined }))}
+                      value={editData.etatReglement || 'en_cours'}
+                      onChange={(e) => setEditData(d => ({ ...d, etatReglement: e.target.value as EtatReglement }))}
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
                     >
-                      <option value="">— non précisé —</option>
-                      {contentieuxDefs.map(c => (
-                        <option key={c.id} value={c.id}>{c.label}</option>
+                      {(Object.keys(ETAT_REGLEMENT_LABELS) as EtatReglement[]).map(k => (
+                        <option key={k} value={k}>{ETAT_REGLEMENT_LABELS[k]}</option>
                       ))}
                     </select>
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      Couleur et filtrage cartographie.
-                    </p>
                   </div>
-                )}
-                <div className="col-span-2">
+                  <div>
+                    <Label>Côtes / tomes</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={editData.cotesTomes ?? 0}
+                      onChange={(e) => setEditData(d => ({ ...d, cotesTomes: Number(e.target.value) || 0 }))}
+                    />
+                  </div>
+                  <div>
+                    <Label>Orientation prévisible</Label>
+                    <select
+                      value={editData.orientationPrevisible || ''}
+                      onChange={(e) =>
+                        setEditData(d => ({
+                          ...d,
+                          orientationPrevisible: (e.target.value || undefined) as OrientationPrevisible | undefined,
+                        }))
+                      }
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
+                    >
+                      <option value="">— Non définie —</option>
+                      {(Object.keys(ORIENTATION_LABELS) as OrientationPrevisible[]).map(k => (
+                        <option key={k} value={k}>{ORIENTATION_LABELS[k]}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {contentieuxDefs.length > 0 && (
+                    <div>
+                      <Label>Contentieux</Label>
+                      <select
+                        value={editData.contentieuxId || ''}
+                        onChange={(e) => setEditData(d => ({ ...d, contentieuxId: e.target.value || undefined }))}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
+                      >
+                        <option value="">— non précisé —</option>
+                        {contentieuxDefs.map(c => (
+                          <option key={c.id} value={c.id}>{c.label}</option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        Couleur et filtrage cartographie.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Description sur une largeur restreinte pour rester lisible */}
+                <div className="max-w-2xl">
                   <Label>Description</Label>
                   <textarea
                     value={editData.description || ''}
                     onChange={(e) => setEditData(d => ({ ...d, description: e.target.value }))}
-                    rows={4}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md resize-none"
+                    rows={6}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
                   />
                 </div>
               </div>
             ) : (
               <div className="space-y-4">
                 {/* Stats rapides */}
-                <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+                <div className="grid grid-cols-3 md:grid-cols-7 gap-2">
                   <Stat label="MEX" value={stats.nbMex} />
                   <Stat label="En DP" value={stats.nbDetenu} highlight={stats.nbDetenu > 0 ? 'red' : undefined} />
                   <Stat label="CJ" value={stats.nbCJ} />
                   <Stat label="ARSE" value={stats.nbARSE} />
-                  <Stat label="DML en cours" value={stats.nbDMLenAttente} highlight={stats.nbDMLenAttente > 0 ? 'amber' : undefined} />
+                  <Stat label="DML total" value={stats.nbDML} />
                   <Stat label="Cotes" value={dossier.cotesTomes || 0} />
+                  <Stat
+                    label="Victimes"
+                    value={(dossier.victimes || []).length}
+                    onClick={() => setShowVictimesModal(true)}
+                  />
                 </div>
 
                 {/* Contentieux */}
@@ -404,21 +420,36 @@ export const InstructionDetailModal = ({
                   return null;
                 })()}
 
-                {/* Description */}
-                {dossier.description ? (
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                    <div className="text-xs font-semibold text-gray-500 uppercase mb-1">Description</div>
-                    <div className="text-sm text-gray-700 whitespace-pre-wrap">{dossier.description}</div>
+                {/* 3 colonnes : Description / Notes perso / Mis en examen */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 min-w-0">
+                    <div className="text-xs font-semibold text-gray-500 uppercase mb-1.5">Description</div>
+                    {dossier.description ? (
+                      <div className="text-sm text-gray-700 whitespace-pre-wrap break-words">
+                        {dossier.description}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-400 italic">Aucune description.</div>
+                    )}
                   </div>
-                ) : (
-                  <div className="text-sm text-gray-400 italic">Aucune description.</div>
-                )}
 
-                {/* Liste condensée des mis en examen */}
-                <MexCondenseList
-                  misEnExamen={dossier.misEnExamen}
-                  onJumpToMex={() => setActiveTab('mex')}
-                />
+                  <div className="bg-white border border-gray-200 rounded-lg p-3 min-w-0">
+                    <div className="text-xs font-semibold text-gray-500 uppercase mb-1.5">Notes perso</div>
+                    <NotesPersoSection
+                      notes={dossier.notesPerso}
+                      onChange={(notesPerso: NotePersoInstruction[]) => onUpdate(dossier.id, { notesPerso })}
+                    />
+                  </div>
+
+                  <div className="min-w-0">
+                    <MexCondenseList
+                      misEnExamen={dossier.misEnExamen}
+                      onJumpToMex={() => setActiveTab('mex')}
+                      seuilFinDPJours={seuilFinDPJours}
+                      seuilMaxDPJours={seuilMaxDPJours}
+                    />
+                  </div>
+                </div>
               </div>
             )
           )}
@@ -471,14 +502,15 @@ export const InstructionDetailModal = ({
               }
             />
           )}
-
-          {activeTab === 'notes' && (
-            <NotesPersoSection
-              notes={dossier.notesPerso}
-              onChange={(notesPerso: NotePersoInstruction[]) => onUpdate(dossier.id, { notesPerso })}
-            />
-          )}
         </div>
+
+        {showVictimesModal && (
+          <VictimesModal
+            victimes={dossier.victimes || []}
+            onChange={(victimes: Victime[]) => onUpdate(dossier.id, { victimes })}
+            onClose={() => setShowVictimesModal(false)}
+          />
+        )}
       </div>
     </div>
   );
@@ -492,10 +524,12 @@ const Stat = ({
   label,
   value,
   highlight,
+  onClick,
 }: {
   label: string;
   value: number;
   highlight?: 'red' | 'amber';
+  onClick?: () => void;
 }) => {
   const colors =
     highlight === 'red'
@@ -503,10 +537,113 @@ const Stat = ({
       : highlight === 'amber'
       ? 'bg-amber-50 border-amber-200 text-amber-700'
       : 'bg-gray-50 border-gray-200 text-gray-700';
+  const interactive = onClick
+    ? 'hover:bg-emerald-50 hover:border-emerald-300 cursor-pointer transition-colors'
+    : '';
   return (
-    <div className={`border rounded-lg px-2 py-1.5 ${colors}`}>
+    <div
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') onClick(); } : undefined}
+      className={`border rounded-lg px-2 py-1.5 ${colors} ${interactive}`}
+    >
       <div className="text-lg font-bold leading-none">{value}</div>
       <div className="text-[10px] uppercase tracking-wide font-medium">{label}</div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Modal de gestion des victimes (ajout / suppression rapide)
+// ─────────────────────────────────────────────────────────────────
+
+const VictimesModal: React.FC<{
+  victimes: Victime[];
+  onChange: (next: Victime[]) => void;
+  onClose: () => void;
+}> = ({ victimes, onChange, onClose }) => {
+  const [draft, setDraft] = useState('');
+
+  const handleAdd = () => {
+    const nom = draft.trim();
+    if (!nom) return;
+    onChange([
+      ...victimes,
+      { id: Date.now() + Math.floor(Math.random() * 1000), nom },
+    ]);
+    setDraft('');
+  };
+
+  const handleRemove = (id: number) =>
+    onChange(victimes.filter(v => v.id !== id));
+
+  const handleRename = (id: number, nom: string) =>
+    onChange(victimes.map(v => (v.id === id ? { ...v, nom } : v)));
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-lg shadow-2xl w-full max-w-md mx-4 p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-emerald-600" />
+            Victimes / parties civiles ({victimes.length})
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-1.5 max-h-72 overflow-y-auto mb-3">
+          {victimes.length === 0 && (
+            <div className="text-xs text-gray-400 italic py-3 text-center">
+              Aucune victime enregistrée pour ce dossier.
+            </div>
+          )}
+          {victimes.map(v => (
+            <div key={v.id} className="flex items-center gap-2">
+              <Input
+                value={v.nom}
+                onChange={(e) => handleRename(v.id, e.target.value)}
+                className="h-8 text-sm flex-1"
+              />
+              <button
+                onClick={() => handleRemove(v.id)}
+                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                title="Retirer"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2 border-t border-gray-200 pt-3">
+          <Input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
+            placeholder="Nom et prénom (ex : MARTIN Sophie)"
+            className="h-8 text-sm flex-1"
+            autoFocus
+          />
+          <Button
+            size="sm"
+            onClick={handleAdd}
+            disabled={!draft.trim()}
+            className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700"
+          >
+            <Plus className="h-3 w-3 mr-1" />
+            Ajouter
+          </Button>
+        </div>
+      </div>
     </div>
   );
 };
@@ -518,7 +655,9 @@ const Stat = ({
 const MexCondenseList: React.FC<{
   misEnExamen: MisEnExamen[];
   onJumpToMex: () => void;
-}> = ({ misEnExamen, onJumpToMex }) => {
+  seuilFinDPJours: number;
+  seuilMaxDPJours: number;
+}> = ({ misEnExamen, onJumpToMex, seuilFinDPJours, seuilMaxDPJours }) => {
   if (misEnExamen.length === 0) {
     return (
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-400 italic">
@@ -540,15 +679,29 @@ const MexCondenseList: React.FC<{
           Voir les détails →
         </button>
       </div>
-      <ul className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+      <ul className="grid grid-cols-1 gap-1.5">
         {misEnExamen.map(mex => {
           const meta = MESURE_BADGE[mex.mesureSurete.type];
           const Icon = meta.icon;
           const finDP = getDateFinDPCourante(mex);
           const joursRestants = getJoursRestantsAvantFinDP(mex);
+          const finMax = getDateFinMaxLegale(mex);
+          const joursMax = getJoursRestantsAvantMaxLegal(mex);
           const dmlEnAttente = mex.mesureSurete.type === 'detenu'
             ? mex.dmls.filter(d => d.statut === 'en_attente').length
             : 0;
+          const finDPClass =
+            joursRestants !== null && joursRestants < 0
+              ? 'bg-red-200 text-red-900 border-red-300'
+              : joursRestants !== null && joursRestants <= seuilFinDPJours
+              ? 'bg-red-100 text-red-700 border-red-300 font-semibold'
+              : 'bg-gray-50 text-gray-600 border-gray-200';
+          const finMaxClass =
+            joursMax !== null && joursMax < 0
+              ? 'bg-red-200 text-red-900 border-red-300'
+              : joursMax !== null && joursMax <= seuilMaxDPJours
+              ? 'bg-red-100 text-red-700 border-red-300 font-semibold'
+              : 'bg-gray-50 text-gray-600 border-gray-200';
           return (
             <li
               key={mex.id}
@@ -568,20 +721,6 @@ const MexCondenseList: React.FC<{
                       {dmlEnAttente} DML
                     </span>
                   )}
-                  {finDP && joursRestants !== null && (
-                    <span
-                      className={`text-[10px] uppercase px-1.5 py-0.5 rounded border inline-flex items-center gap-0.5 ${
-                        joursRestants < 0
-                          ? 'bg-red-200 text-red-900 border-red-300'
-                          : joursRestants <= 30
-                          ? 'bg-red-100 text-red-700 border-red-200'
-                          : 'bg-gray-50 text-gray-600 border-gray-200'
-                      }`}
-                    >
-                      {joursRestants < 0 && <AlertTriangle className="h-2.5 w-2.5" />}
-                      {joursRestants < 0 ? 'DP échue' : `Fin DP J+${joursRestants}`}
-                    </span>
-                  )}
                 </div>
                 <div className="text-[11px] text-gray-500 mt-0.5">
                   MEX le {mex.dateMiseEnExamen ? new Date(mex.dateMiseEnExamen).toLocaleDateString() : '—'}
@@ -589,6 +728,26 @@ const MexCondenseList: React.FC<{
                     <> · {mex.infractions.length} chef{mex.infractions.length > 1 ? 's' : ''}</>
                   )}
                 </div>
+                {finDP && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded border inline-flex items-center gap-0.5 ${finDPClass}`}
+                      title={`Fin de la période DP courante${joursRestants !== null ? ` — J${joursRestants >= 0 ? '+' : ''}${joursRestants}` : ''}`}
+                    >
+                      {joursRestants !== null && joursRestants < 0 && <AlertTriangle className="h-2.5 w-2.5" />}
+                      Fin&nbsp;: {new Date(finDP).toLocaleDateString()}
+                    </span>
+                    {finMax && (
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded border inline-flex items-center gap-0.5 ${finMaxClass}`}
+                        title={`Date à laquelle la durée légale max sera atteinte${joursMax !== null ? ` — J${joursMax >= 0 ? '+' : ''}${joursMax}` : ''}`}
+                      >
+                        {joursMax !== null && joursMax < 0 && <AlertTriangle className="h-2.5 w-2.5" />}
+                        Fin maximal&nbsp;: {new Date(finMax).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                )}
                 {mex.infractions.length > 0 && (
                   <div className="mt-1 flex flex-wrap gap-1">
                     {mex.infractions.slice(0, 3).map(inf => (

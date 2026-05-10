@@ -54,8 +54,8 @@ export const MisEnExamenSection = ({ misEnExamen, onChange, readOnly }: Props) =
         </div>
       )}
 
-      {/* Grille 2 colonnes pour éviter les bulles trop larges sur grand écran. */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 items-start">
+      {/* Grille adaptative : 1 col petit écran, 2 cols écran moyen, 3 cols grand écran. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-2 items-start">
         {misEnExamen.map(mex => (
           <MisEnExamenCard
             key={mex.id}

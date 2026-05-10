@@ -195,6 +195,30 @@ export const getMoisRestantsAvantMaxLegal = (mex: MisEnExamen): number | null =>
 };
 
 /**
+ * Date absolue à laquelle la durée légale max de DP serait atteinte
+ * (= date de premier placement + dureeMaxMois).
+ */
+export const getDateFinMaxLegale = (mex: MisEnExamen): string | undefined => {
+  if (mex.mesureSurete.type !== 'detenu') return undefined;
+  const cas = getCasDPById(mex.mesureSurete.casDPId);
+  if (!cas) return undefined;
+  const depuis = mex.mesureSurete.depuis;
+  if (!depuis) return undefined;
+  return calculatePeriodeDPEnd(depuis, cas.dureeMaxMois);
+};
+
+/** Jours restants avant la fin légale max de DP (négatif si dépassé). */
+export const getJoursRestantsAvantMaxLegal = (mex: MisEnExamen): number | null => {
+  const dateMax = getDateFinMaxLegale(mex);
+  if (!dateMax) return null;
+  const fin = new Date(dateMax);
+  fin.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.ceil((fin.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+};
+
+/**
  * Indique si une nouvelle prolongation (de tranche standard) est encore
  * possible dans la durée légale. Pour un cas sans prolongation possible
  * (ex: délit ≥3 ans ≤5 ans), renvoie false.

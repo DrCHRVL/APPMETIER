@@ -26,9 +26,32 @@ export interface Cabinet {
   enabled?: boolean;
 }
 
+/**
+ * Type d'événement timeline configurable. Vient enrichir la liste des
+ * événements de base (lancement_cr, retour_cr, expertise, ipc, apc,
+ * interrogatoire_fond, phase_interpellation).
+ */
+export interface CustomEvenementType {
+  /** Identifiant stable (slug, distinct des types de base) */
+  id: string;
+  label: string;
+  /** Couleur tailwind (ex: "bg-emerald-500") ou hex */
+  color?: string;
+}
+
+/** Catégorie d'expertise configurable (en plus des catégories de base). */
+export interface CustomCategorieExpertise {
+  id: string;
+  label: string;
+}
+
 /** Configuration globale du module instruction (côté serveur partagé) */
 export interface InstructionModuleConfig {
   cabinets: Cabinet[];
+  /** Types d'événement personnalisés ajoutés par l'utilisateur (en plus des types système). */
+  customEvenementTypes?: CustomEvenementType[];
+  /** Catégories d'expertise personnalisées (en plus des catégories système). */
+  customCategoriesExpertise?: CustomCategorieExpertise[];
   /** Version pour la sync future */
   version: number;
   updatedAt: string;
@@ -295,7 +318,12 @@ export type OrigineDossier =
 // (CR enquêteur, expertises, IPC/APC, interrogatoires, interpellations…)
 // ──────────────────────────────────────────────
 
-/** Catégorie d'expertise judiciaire */
+/**
+ * Catégorie d'expertise judiciaire.
+ * Les valeurs de base sont listées dans BASE_CATEGORIES_EXPERTISE
+ * (config/dpRegimes ou utils). Le type est élargi à `string` pour
+ * accepter les catégories personnalisées ajoutées via l'admin.
+ */
 export type CategorieExpertise =
   | 'psychologique'
   | 'psychiatrique'
@@ -304,9 +332,13 @@ export type CategorieExpertise =
   | 'papillaire'
   | 'medico_legale'
   | 'autopsie'
-  | 'autre';
+  | 'autre'
+  | (string & {});
 
-/** Type d'événement libre saisissable dans la timeline */
+/**
+ * Type d'événement libre saisissable dans la timeline.
+ * Élargi à `string` pour accepter les types personnalisés ajoutés via l'admin.
+ */
 export type EvenementInstructionType =
   | 'lancement_cr'
   | 'retour_cr'
@@ -314,7 +346,8 @@ export type EvenementInstructionType =
   | 'ipc'
   | 'apc'
   | 'interrogatoire_fond'
-  | 'phase_interpellation';
+  | 'phase_interpellation'
+  | (string & {});
 
 /**
  * Événement libre dans la timeline du dossier.
@@ -446,6 +479,7 @@ export type NewDossierInstructionData = Omit<
 export type InstructionAlertTrigger =
   | 'dp_fin_proche'             // fin de période DP dans X jours
   | 'dp_fin_echue'              // fin de période DP dépassée
+  | 'dp_max_proche'             // durée légale max DP dans X jours
   | 'debat_jld_proche'          // débat JLD planifié dans X jours
   | 'dml_echeance_proche'       // échéance DML dans X jours
   | 'dml_retard'                // DML en retard (échéance dépassée, statut en_attente)

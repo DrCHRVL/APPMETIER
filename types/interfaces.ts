@@ -546,6 +546,7 @@ export interface AlerteInstruction extends Alert {
     | 'verif_periodique_due'
     | 'motivation_renforcee_due'
     | 'dp_max_legal_atteinte'
+    | 'dp_max_proche'
     // Anciens triggers conservés pour compatibilité avec les alertes en cache
     | 'dp_expiration'
     | 'dp_debat_jld'

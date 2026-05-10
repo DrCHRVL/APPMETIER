@@ -140,40 +140,6 @@ export const VerificationLegaleDP = ({ mex }: Props) => {
             </Bloc>
           )}
 
-          {/* Critères généraux art 144 */}
-          <Bloc title="Critères de placement / prolongation (art 144)" icon={Scale} tone="blue">
-            <p className="mb-1">
-              La DP ne peut être ordonnée ou prolongée que si elle constitue
-              <strong> l'unique moyen</strong> de parvenir à l'un des objectifs suivants, et qu'aucun
-              CJ ou ARSE ne suffirait (<RefArt>art 137</RefArt>) :
-            </p>
-            <ol className="list-decimal pl-5 space-y-0.5">
-              <li>Conserver les preuves ou indices matériels nécessaires à la manifestation de la vérité</li>
-              <li>Empêcher une pression sur les témoins / victimes / leurs familles</li>
-              <li>Empêcher une concertation frauduleuse avec coauteurs ou complices</li>
-              <li>Protéger la personne mise en examen <span className="text-gray-400">(rare)</span></li>
-              <li>Garantir le maintien à disposition de la justice (risque de fuite)</li>
-              <li>Mettre fin à l'infraction ou prévenir son renouvellement</li>
-              <li>
-                Mettre fin au trouble exceptionnel et persistant à l'ordre public — ce trouble ne peut résulter
-                du seul retentissement médiatique ; <strong>non mobilisable en correctionnelle</strong>
-              </li>
-            </ol>
-          </Bloc>
-
-          {/* Statut suspects */}
-          <Bloc title="Statut des suspects à l'instruction" icon={Info} tone="blue">
-            <ul className="list-disc pl-5 space-y-0.5">
-              <li>Aucun indice → <strong>simple témoin</strong></li>
-              <li>Simples indices de culpabilité → simple témoin ; le JI <em>peut</em> placer sous statut de TA</li>
-              <li>Indice grave OU plusieurs indices légers et concordants → simple témoin / TA / MEX (art 80-1)</li>
-              <li>
-                Indices graves <strong>ET</strong> concordants → mise en examen ou TA obligatoire (
-                <RefArt>art 105</RefArt>, <RefArt>art 113-6 al 2</RefArt> ; Crim. 15 février 2011)
-              </li>
-            </ul>
-          </Bloc>
-
           {/* DML */}
           <Bloc title="DML — délais procéduraux" icon={Gavel} tone="purple">
             <p>

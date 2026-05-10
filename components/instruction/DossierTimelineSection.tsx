@@ -31,6 +31,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { RichTextEditor } from './RichTextEditor';
 import { renderFormattedText } from '@/lib/formatCR';
+import { useInstructionCustomTypes } from '@/hooks/useInstructionCustomTypes';
 import type {
   DossierInstruction,
   EvenementInstruction,
@@ -85,7 +86,14 @@ const DERIVED_META: Record<DerivedKind, { label: string; bg: string; icon: React
 // Évts saisis manuellement (CR, expertises, IPC/APC, interrogatoires, interpellations)
 // ─────────────────────────────────────────────────────────────────
 
-const EVT_META: Record<EvenementInstructionType, { label: string; bg: string; text: string; icon: React.ElementType }> = {
+interface EvtMeta {
+  label: string;
+  bg: string;
+  text: string;
+  icon: React.ElementType;
+}
+
+const EVT_META_BASE: Record<string, EvtMeta> = {
   lancement_cr:        { label: 'Lancement CR',        bg: 'bg-cyan-500',    text: 'text-cyan-700',    icon: ArrowRight },
   retour_cr:           { label: 'Retour CR',           bg: 'bg-teal-500',    text: 'text-teal-700',    icon: Check },
   expertise:           { label: 'Expertise',           bg: 'bg-fuchsia-500', text: 'text-fuchsia-700', icon: Microscope },
@@ -95,7 +103,29 @@ const EVT_META: Record<EvenementInstructionType, { label: string; bg: string; te
   phase_interpellation:{ label: 'Phase d\'interpellation', bg: 'bg-red-600',  text: 'text-red-700',    icon: Crosshair },
 };
 
-const EXPERTISE_LABELS: Record<CategorieExpertise, string> = {
+const FALLBACK_EVT_META: EvtMeta = {
+  label: 'Événement', bg: 'bg-slate-500', text: 'text-slate-700', icon: ClipboardList,
+};
+
+const getEvtMeta = (
+  type: EvenementInstructionType,
+  customTypes: { id: string; label: string; color?: string }[],
+): EvtMeta => {
+  const base = EVT_META_BASE[type as string];
+  if (base) return base;
+  const custom = customTypes.find(c => c.id === type);
+  if (custom) {
+    return {
+      label: custom.label,
+      bg: custom.color || 'bg-slate-500',
+      text: 'text-slate-700',
+      icon: ClipboardList,
+    };
+  }
+  return FALLBACK_EVT_META;
+};
+
+const EXPERTISE_LABELS_BASE: Record<string, string> = {
   psychologique: 'Psychologique',
   psychiatrique: 'Psychiatrique',
   balistique: 'Balistique',
@@ -106,7 +136,7 @@ const EXPERTISE_LABELS: Record<CategorieExpertise, string> = {
   autre: 'Autre',
 };
 
-const EXPERTISE_ICON: Record<CategorieExpertise, React.ElementType> = {
+const EXPERTISE_ICON_BASE: Record<string, React.ElementType> = {
   psychologique: Brain,
   psychiatrique: Brain,
   balistique: Crosshair,
@@ -116,6 +146,19 @@ const EXPERTISE_ICON: Record<CategorieExpertise, React.ElementType> = {
   autopsie: Skull,
   autre: Microscope,
 };
+
+const getExpertiseLabel = (
+  cat: CategorieExpertise | undefined,
+  customCats: { id: string; label: string }[],
+): string => {
+  if (!cat) return '';
+  return EXPERTISE_LABELS_BASE[cat as string]
+    || customCats.find(c => c.id === cat)?.label
+    || (cat as string);
+};
+
+const getExpertiseIcon = (cat: CategorieExpertise | undefined): React.ElementType =>
+  (cat && EXPERTISE_ICON_BASE[cat as string]) || Microscope;
 
 /** Le type d'expertise concerne une victime plutôt qu'un MEX (psy/psy/APC). */
 const EXPERTISE_PEUT_VISER_VICTIME = (cat?: CategorieExpertise): boolean =>
@@ -131,6 +174,9 @@ export const DossierTimelineSection: React.FC<Props> = ({
   onChangeNotesActesJI,
   readOnly,
 }) => {
+  const { evenementTypes: customEvtTypes, categoriesExpertise: customExpCats } =
+    useInstructionCustomTypes();
+
   const today = useMemo(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -273,6 +319,8 @@ export const DossierTimelineSection: React.FC<Props> = ({
             victimes={dossier.victimes || []}
             ops={dossier.ops}
             evenementsExistants={evenements}
+            customEvtTypes={customEvtTypes}
+            customExpCats={customExpCats}
             onAdd={handleAddEvenement}
           />
         )}
@@ -301,6 +349,8 @@ export const DossierTimelineSection: React.FC<Props> = ({
                   victimes={dossier.victimes || []}
                   ops={dossier.ops}
                   evenementsExistants={evenements}
+                  customEvtTypes={customEvtTypes}
+                  customExpCats={customExpCats}
                   onUpdate={handleUpdateEvenement}
                   onRemove={handleRemoveEvenement}
                   readOnly={readOnly}
@@ -328,6 +378,8 @@ export const DossierTimelineSection: React.FC<Props> = ({
                   victimes={dossier.victimes || []}
                   ops={dossier.ops}
                   evenementsExistants={evenements}
+                  customEvtTypes={customEvtTypes}
+                  customExpCats={customExpCats}
                   onUpdate={handleUpdateEvenement}
                   onRemove={handleRemoveEvenement}
                   readOnly={readOnly}
@@ -362,6 +414,8 @@ interface TimelineItemProps {
   victimes: NonNullable<DossierInstruction['victimes']>;
   ops: DossierInstruction['ops'];
   evenementsExistants: EvenementInstruction[];
+  customEvtTypes: { id: string; label: string; color?: string }[];
+  customExpCats: { id: string; label: string }[];
   onUpdate: (id: number, updates: Partial<EvenementInstruction>) => void;
   onRemove: (id: number) => void;
   readOnly?: boolean;
@@ -375,6 +429,8 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
   victimes,
   ops,
   evenementsExistants,
+  customEvtTypes,
+  customExpCats,
   onUpdate,
   onRemove,
   readOnly,
@@ -408,9 +464,9 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
 
   // Événement custom
   const evt = item.evt!;
-  const meta = EVT_META[evt.type];
+  const meta = getEvtMeta(evt.type, customEvtTypes);
   const Icon = evt.type === 'expertise' && evt.categorieExpertise
-    ? EXPERTISE_ICON[evt.categorieExpertise]
+    ? getExpertiseIcon(evt.categorieExpertise)
     : meta.icon;
   const days = isPast
     ? Math.floor((today.getTime() - item.date.getTime()) / 86400000)
@@ -437,7 +493,7 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
 
   const titreAffiche = evt.titre || (
     evt.type === 'expertise' && evt.categorieExpertise
-      ? `Expertise ${EXPERTISE_LABELS[evt.categorieExpertise]}${evt.categorieExpertise === 'autre' && evt.expertiseLibelle ? ' — ' + evt.expertiseLibelle : ''}`
+      ? `Expertise ${getExpertiseLabel(evt.categorieExpertise, customExpCats)}${evt.categorieExpertise === 'autre' && evt.expertiseLibelle ? ' — ' + evt.expertiseLibelle : ''}`
       : meta.label
   );
 
@@ -451,6 +507,8 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
           victimes={victimes}
           ops={ops}
           evenementsExistants={evenementsExistants}
+          customEvtTypes={customEvtTypes}
+          customExpCats={customExpCats}
           onSave={(updates) => {
             onUpdate(evt.id, updates);
             setEditing(false);
@@ -515,8 +573,10 @@ const EvenementForm: React.FC<{
   victimes: NonNullable<DossierInstruction['victimes']>;
   ops: DossierInstruction['ops'];
   evenementsExistants: EvenementInstruction[];
+  customEvtTypes: { id: string; label: string; color?: string }[];
+  customExpCats: { id: string; label: string }[];
   onAdd: (e: EvenementInstruction) => void;
-}> = ({ misEnExamen, victimes, ops, evenementsExistants, onAdd }) => {
+}> = ({ misEnExamen, victimes, ops, evenementsExistants, customEvtTypes, customExpCats, onAdd }) => {
   const [open, setOpen] = useState(false);
 
   if (!open) {
@@ -544,6 +604,8 @@ const EvenementForm: React.FC<{
         victimes={victimes}
         ops={ops}
         evenementsExistants={evenementsExistants}
+        customEvtTypes={customEvtTypes}
+        customExpCats={customExpCats}
         onSave={(updates) => {
           const e: EvenementInstruction = {
             id: Date.now() + Math.floor(Math.random() * 1000),
@@ -570,9 +632,11 @@ const EvenementEditor: React.FC<{
   victimes: NonNullable<DossierInstruction['victimes']>;
   ops: DossierInstruction['ops'];
   evenementsExistants: EvenementInstruction[];
+  customEvtTypes: { id: string; label: string; color?: string }[];
+  customExpCats: { id: string; label: string }[];
   onSave: (data: Partial<EvenementInstruction>) => void;
   onCancel: () => void;
-}> = ({ evenement, misEnExamen, victimes, ops, evenementsExistants, onSave, onCancel }) => {
+}> = ({ evenement, misEnExamen, victimes, ops, evenementsExistants, customEvtTypes, customExpCats, onSave, onCancel }) => {
   const [type, setType] = useState<EvenementInstructionType>(evenement?.type || 'lancement_cr');
   const [date, setDate] = useState(evenement?.date?.split('T')[0] || new Date().toISOString().split('T')[0]);
   const [titre, setTitre] = useState(evenement?.titre || '');
@@ -638,6 +702,13 @@ const EvenementEditor: React.FC<{
             <option value="apc">APC (Audition de partie civile)</option>
             <option value="interrogatoire_fond">Interrogatoire au fond</option>
             <option value="phase_interpellation">Phase d'interpellation</option>
+            {customEvtTypes.length > 0 && (
+              <optgroup label="Types personnalisés">
+                {customEvtTypes.map(t => (
+                  <option key={t.id} value={t.id}>{t.label}</option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
         <div>
@@ -660,9 +731,16 @@ const EvenementEditor: React.FC<{
               onChange={(e) => setCategorieExpertise(e.target.value as CategorieExpertise)}
               className="w-full h-8 px-2 text-sm border border-gray-300 rounded"
             >
-              {(Object.keys(EXPERTISE_LABELS) as CategorieExpertise[]).map(k => (
-                <option key={k} value={k}>{EXPERTISE_LABELS[k]}</option>
+              {Object.keys(EXPERTISE_LABELS_BASE).map(k => (
+                <option key={k} value={k}>{EXPERTISE_LABELS_BASE[k]}</option>
               ))}
+              {customExpCats.length > 0 && (
+                <optgroup label="Catégories personnalisées">
+                  {customExpCats.map(c => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </div>
           {categorieExpertise === 'autre' && (
