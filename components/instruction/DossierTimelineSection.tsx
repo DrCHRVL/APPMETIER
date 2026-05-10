@@ -33,7 +33,7 @@ import {
   Download,
   List as ListIcon,
 } from 'lucide-react';
-import { copyHtmlToClipboard, downloadAsDoc, stripHtml } from '@/utils/richTextExport';
+import { copyHtmlToClipboard, downloadAsDocx, stripHtml } from '@/utils/richTextExport';
 import { useToast } from '@/contexts/ToastContext';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -1130,10 +1130,10 @@ const SynthesePanel: React.FC<{
     showToast(ok ? 'Synthèse copiée — collez dans Word' : 'Échec de la copie', ok ? 'success' : 'error');
   };
 
-  const handleDownloadOne = () => {
+  const handleDownloadOne = async () => {
     if (!selectedKey) return;
     const baseName = `synthese-${(selectedTitle || selectedKey).replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 60)}`;
-    downloadAsDoc(
+    await downloadAsDocx(
       syntheses[selectedKey] || '',
       baseName,
       selectedTitle || 'Synthèse',
@@ -1150,15 +1150,15 @@ const SynthesePanel: React.FC<{
     showToast(ok ? `${count} synthèses copiées — collez dans Word` : 'Échec de la copie', ok ? 'success' : 'error');
   };
 
-  const handleDownloadAll = () => {
+  const handleDownloadAll = async () => {
     const { html, count } = buildAggregateHtml();
     if (count === 0) {
       showToast('Aucune synthèse à exporter', 'error');
       return;
     }
     const baseName = `syntheses-${(dossierNumber || 'dossier').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
-    downloadAsDoc(html, baseName, `Synthèses ${dossierNumber || ''}`);
-    showToast(`${count} synthèses téléchargées (.doc)`, 'success');
+    await downloadAsDocx(html, baseName, `Synthèses ${dossierNumber || ''}`);
+    showToast(`${count} synthèses téléchargées (.docx)`, 'success');
   };
 
   return (
@@ -1247,10 +1247,10 @@ const SynthesePanel: React.FC<{
               onClick={handleDownloadOne}
               disabled={!value || !stripHtml(value).trim()}
               className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Télécharger en .doc (ouvrable dans Word)"
+              title="Télécharger en .docx (Word)"
             >
               <Download className="h-3 w-3" />
-              .doc
+              .docx
             </button>
           </div>
 
@@ -1317,10 +1317,10 @@ const AggregateView: React.FC<{
           onClick={onDownloadAll}
           disabled={filled.length === 0}
           className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
-          title="Télécharger un fichier .doc compatible Word avec toutes les synthèses"
+          title="Télécharger un fichier .docx avec toutes les synthèses"
         >
           <Download className="h-3 w-3" />
-          .doc
+          .docx
         </button>
       </div>
 

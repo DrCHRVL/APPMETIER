@@ -66,19 +66,14 @@ export const stripHtml = (html: string): string => {
 };
 
 /**
- * Télécharge un fichier .doc compatible Word à partir d'un fragment HTML.
- * Utilise l'astuce historique « HTML déguisé en .doc » : Word reconnaît
- * l'en-tête mso et préserve la mise en forme (titres, gras, listes,
- * couleurs) sans nécessiter de lib docx côté client.
+ * Construit le HTML « complet » envoyé aux convertisseurs Word/.doc, avec
+ * une feuille de style minimale alignée sur la mise en forme attendue
+ * dans un réquisitoire (Calibri 11pt, titres calibrés, listes propres).
  */
-export const downloadAsDoc = (
-  bodyHtml: string,
-  filename: string,
-  title?: string,
-): void => {
+const buildWordHtml = (bodyHtml: string, title: string): string => {
   const head = `
     <meta charset="utf-8" />
-    <title>${escapeXml(title || filename)}</title>
+    <title>${escapeXml(title)}</title>
     <style>
       body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.5; }
       h1 { font-size: 16pt; }
@@ -92,21 +87,57 @@ export const downloadAsDoc = (
       .acte-date { color: #666; font-size: 10pt; margin-bottom: 4pt; }
     </style>
   `;
-  const html =
+  return (
     '<html xmlns:o="urn:schemas-microsoft-com:office:office" '
     + 'xmlns:w="urn:schemas-microsoft-com:office:word" '
     + 'xmlns="http://www.w3.org/TR/REC-html40">'
-    + `<head>${head}</head><body>${bodyHtml}</body></html>`;
+    + `<head>${head}</head><body>${bodyHtml}</body></html>`
+  );
+};
 
+/**
+ * Télécharge un vrai fichier .docx via html-docx-js (Word natif).
+ * Préserve gras / italique / titres / listes / couleurs / liens.
+ * Tombe en .doc si la lib n'est pas installée (cas dégradé).
+ */
+export const downloadAsDocx = async (
+  bodyHtml: string,
+  filename: string,
+  title?: string,
+): Promise<void> => {
+  const fullTitle = title || filename;
+  const html = buildWordHtml(bodyHtml, fullTitle);
+  try {
+    // Import dynamique pour ne pas charger la lib si l'utilisateur n'exporte pas.
+    const mod: any = await import('html-docx-js/dist/html-docx');
+    const htmlDocx = mod?.default || mod;
+    const blob: Blob = htmlDocx.asBlob(html);
+    triggerDownload(
+      blob,
+      filename.endsWith('.docx') ? filename : `${filename}.docx`,
+    );
+  } catch (err) {
+    console.warn('html-docx-js indisponible, fallback .doc :', err);
+    downloadAsDoc(bodyHtml, filename, title);
+  }
+};
+
+/**
+ * Télécharge un fichier .doc compatible Word à partir d'un fragment HTML.
+ * Utilise l'astuce historique « HTML déguisé en .doc » : Word reconnaît
+ * l'en-tête mso et préserve la mise en forme (titres, gras, listes,
+ * couleurs) sans nécessiter de lib docx côté client. Conservé comme
+ * fallback de downloadAsDocx.
+ */
+export const downloadAsDoc = (
+  bodyHtml: string,
+  filename: string,
+  title?: string,
+): void => {
+  const html = buildWordHtml(bodyHtml, title || filename);
+  // BOM utf-8 en tête → Word détecte correctement l'encodage
   const blob = new Blob(['﻿', html], { type: 'application/msword' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename.endsWith('.doc') ? filename : `${filename}.doc`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  triggerDownload(blob, filename.endsWith('.doc') ? filename : `${filename}.doc`);
 };
 
 /** Variante : téléchargement HTML pur (universel, plus léger). */
@@ -120,10 +151,15 @@ export const downloadAsHtml = (
     + `<title>${escapeXml(title || filename)}</title></head>`
     + `<body>${bodyHtml}</body></html>`;
   const blob = new Blob([html], { type: 'text/html' });
+  triggerDownload(blob, filename.endsWith('.html') ? filename : `${filename}.html`);
+};
+
+/** Déclenche un téléchargement navigateur d'un Blob donné. */
+const triggerDownload = (blob: Blob, filename: string): void => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename.endsWith('.html') ? filename : `${filename}.html`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
