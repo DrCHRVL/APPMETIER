@@ -1,13 +1,14 @@
 /**
  * Store dédié aux résultats d'audience des dossiers d'instruction.
  *
- * Stockage : `instruction_resultats` (JSON séparé du store des enquêtes
- * audience_resultats), pour éviter toute corruption croisée. Mêmes shape de
- * données que `ResultatAudience` (réutilisation du type pour bénéficier des
- * modales et statistiques existantes), mais le champ `enqueteId` y stocke
- * l'identifiant du `DossierInstruction`.
+ * Stockage : `instruction_resultats__<windowsUsername>` (JSON séparé du
+ * store des enquêtes audience_resultats), pour éviter toute corruption
+ * croisée et **isoler les résultats par utilisateur** (chaque magistrat
+ * a sa propre liste).
  *
- * Pas de service de sync serveur dédié pour l'instant (local uniquement).
+ * Mêmes shape de données que `ResultatAudience` (réutilisation du type
+ * pour bénéficier des modales et statistiques existantes), mais le champ
+ * `enqueteId` y stocke l'identifiant du `DossierInstruction`.
  */
 
 import { create } from '@/lib/zustand';
@@ -15,12 +16,17 @@ import type { ResultatAudience } from '@/types/audienceTypes';
 import { electronStorage } from '@/services/storage/electronStorage';
 import { APP_CONFIG } from '@/config/constants';
 
-const STORAGE_KEY = APP_CONFIG.STORAGE_KEYS.INSTRUCTION_RESULTATS;
+const STORAGE_PREFIX = APP_CONFIG.STORAGE_KEYS.INSTRUCTION_RESULTATS;
+
+/**
+ * Construit la clé de stockage user-scoped. `null` si pas d'utilisateur.
+ */
+const buildStorageKey = (username: string | null): string | null =>
+  username ? `${STORAGE_PREFIX}__${username}` : null;
 
 /**
  * Construit la clé composite stockée dans le dictionnaire des résultats.
- * Format : `${contentieuxId}__${dossierId}` (parallèle à buildResultatKey
- * côté audience, mais pour les instructions).
+ * Format : `${contentieuxId}__${dossierId}`.
  */
 export const buildInstructionResultatKey = (
   contentieuxId: string,
@@ -29,9 +35,11 @@ export const buildInstructionResultatKey = (
 
 const FALLBACK_CONTENTIEUX = 'instructions';
 
-const readFreshFromStorage = async (): Promise<Record<string, ResultatAudience>> => {
+const readFreshFromStorage = async (
+  storageKey: string,
+): Promise<Record<string, ResultatAudience>> => {
   try {
-    const data = await electronStorage.read<Record<string, ResultatAudience>>(STORAGE_KEY);
+    const data = await electronStorage.read<Record<string, ResultatAudience>>(storageKey);
     return data || {};
   } catch {
     return {};
@@ -41,9 +49,16 @@ const readFreshFromStorage = async (): Promise<Record<string, ResultatAudience>>
 interface InstructionResultatsState {
   resultats: Record<string, ResultatAudience>;
   isLoading: boolean;
-  _initialized: boolean;
+  /** Username courant ; toutes les opérations utilisent la clé dérivée. */
+  currentUsername: string | null;
 
-  initialize: () => Promise<void>;
+  /**
+   * Initialise le store pour un utilisateur donné. Idempotent : si déjà
+   * initialisé pour le même username, ne fait rien. Si l'username change,
+   * recharge depuis la nouvelle clé.
+   */
+  setUser: (username: string | null) => Promise<void>;
+
   saveResultat: (resultat: ResultatAudience) => Promise<boolean>;
   deleteResultat: (contentieuxId: string, dossierId: number) => Promise<boolean>;
   getResultat: (contentieuxId: string, dossierId: number) => ResultatAudience | null;
@@ -53,13 +68,20 @@ interface InstructionResultatsState {
 export const useInstructionResultatsStore = create<InstructionResultatsState>((set, get) => ({
   resultats: {},
   isLoading: true,
-  _initialized: false,
+  currentUsername: null,
 
-  initialize: async () => {
-    if (get()._initialized) return;
-    set({ _initialized: true, isLoading: true });
+  setUser: async (username: string | null) => {
+    const previous = get().currentUsername;
+    if (previous === username) return;
+
+    set({ currentUsername: username, isLoading: true, resultats: {} });
+    const key = buildStorageKey(username);
+    if (!key) {
+      set({ isLoading: false });
+      return;
+    }
     try {
-      const data = await readFreshFromStorage();
+      const data = await readFreshFromStorage(key);
       set({ resultats: data });
     } catch (e) {
       console.error('InstructionResultatsStore: erreur chargement', e);
@@ -70,14 +92,19 @@ export const useInstructionResultatsStore = create<InstructionResultatsState>((s
   },
 
   saveResultat: async (resultat: ResultatAudience): Promise<boolean> => {
+    const username = get().currentUsername;
+    const storageKey = buildStorageKey(username);
+    if (!storageKey) {
+      throw new Error('Aucun utilisateur connecté — impossible d\'enregistrer le résultat');
+    }
     const ctxId = resultat.contentieuxId || FALLBACK_CONTENTIEUX;
     const key = buildInstructionResultatKey(ctxId, resultat.enqueteId);
-    const fresh = await readFreshFromStorage();
+    const fresh = await readFreshFromStorage(storageKey);
     const next = {
       ...fresh,
       [key]: { ...resultat, contentieuxId: ctxId, modifiedAt: new Date().toISOString() },
     };
-    const ok = await electronStorage.createOrUpdate(STORAGE_KEY, next);
+    const ok = await electronStorage.createOrUpdate(storageKey, next);
     if (ok) {
       set({ resultats: next });
       return true;
@@ -86,11 +113,16 @@ export const useInstructionResultatsStore = create<InstructionResultatsState>((s
   },
 
   deleteResultat: async (contentieuxId: string, dossierId: number): Promise<boolean> => {
+    const username = get().currentUsername;
+    const storageKey = buildStorageKey(username);
+    if (!storageKey) {
+      throw new Error('Aucun utilisateur connecté — impossible de supprimer');
+    }
     const key = buildInstructionResultatKey(contentieuxId, dossierId);
-    const fresh = await readFreshFromStorage();
+    const fresh = await readFreshFromStorage(storageKey);
     const next = { ...fresh };
     delete next[key];
-    const ok = await electronStorage.createOrUpdate(STORAGE_KEY, next);
+    const ok = await electronStorage.createOrUpdate(storageKey, next);
     if (ok) {
       set({ resultats: next });
       return true;
