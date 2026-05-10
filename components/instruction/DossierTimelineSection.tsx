@@ -29,7 +29,12 @@ import {
   MessageSquarePlus,
   ChevronDown,
   ChevronUp,
+  Copy,
+  Download,
+  List as ListIcon,
 } from 'lucide-react';
+import { copyHtmlToClipboard, downloadAsDoc, stripHtml } from '@/utils/richTextExport';
+import { useToast } from '@/contexts/ToastContext';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -461,6 +466,9 @@ export const DossierTimelineSection: React.FC<Props> = ({
           onClose={() => setSelectedKey(null)}
           readOnly={readOnly || !onChangeActeSyntheses}
           totalCount={Object.values(acteSyntheses).filter(v => v?.trim()).length}
+          allItems={sortedAll}
+          getItemLabel={getItemLabel}
+          dossierNumber={dossier.numeroInstruction}
         />
       </div>
     </div>
@@ -1052,6 +1060,14 @@ const SyntheseBubbleButton: React.FC<{
 // L'utilisateur clique sur un acte de la timeline → l'éditeur s'ouvre ici.
 // ─────────────────────────────────────────────────────────────────
 
+type AllItemEntry = {
+  key: string;
+  date: Date;
+  isCustom: boolean;
+  evt?: EvenementInstruction;
+  derived?: any;
+};
+
 const SynthesePanel: React.FC<{
   selectedKey: string | null;
   selectedTitle?: string;
@@ -1061,22 +1077,125 @@ const SynthesePanel: React.FC<{
   onClose: () => void;
   readOnly?: boolean;
   totalCount: number;
-}> = ({ selectedKey, selectedTitle, selectedDate, syntheses, onChange, onClose, readOnly, totalCount }) => {
+  allItems: AllItemEntry[];
+  getItemLabel: (item: AllItemEntry) => { title: string; date: Date };
+  dossierNumber?: string;
+}> = ({
+  selectedKey,
+  selectedTitle,
+  selectedDate,
+  syntheses,
+  onChange,
+  onClose,
+  readOnly,
+  totalCount,
+  allItems,
+  getItemLabel,
+  dossierNumber,
+}) => {
+  const { showToast } = useToast();
+  const [showAll, setShowAll] = useState(false);
   const value = selectedKey ? syntheses[selectedKey] || '' : '';
+
+  /** Construit le HTML agrégé de toutes les synthèses, dans l'ordre chronologique. */
+  const buildAggregateHtml = (): { html: string; count: number } => {
+    const ordered = [...allItems].sort(
+      (a, b) => a.date.getTime() - b.date.getTime(),
+    );
+    const blocs: string[] = [];
+    let count = 0;
+    for (const item of ordered) {
+      const html = syntheses[item.key];
+      if (!html || !html.trim() || !stripHtml(html).trim()) continue;
+      count += 1;
+      const meta = getItemLabel(item);
+      blocs.push(
+        `<div class="acte-bloc">`
+          + `<div class="acte-titre">${escapeBasic(meta.title)}</div>`
+          + `<div class="acte-date">${meta.date.toLocaleDateString('fr-FR')}</div>`
+          + `<div>${html}</div>`
+          + `</div>`,
+      );
+    }
+    const header = dossierNumber
+      ? `<h1>Synthèses des actes — ${escapeBasic(dossierNumber)}</h1>`
+      : '<h1>Synthèses des actes</h1>';
+    const intro = `<p class="acte-date">Document généré le ${new Date().toLocaleDateString('fr-FR')} — ${count} acte${count > 1 ? 's' : ''} rédigé${count > 1 ? 's' : ''}.</p><hr/>`;
+    return { html: header + intro + blocs.join('<hr/>'), count };
+  };
+
+  const handleCopyOne = async () => {
+    if (!selectedKey) return;
+    const ok = await copyHtmlToClipboard(syntheses[selectedKey] || '');
+    showToast(ok ? 'Synthèse copiée — collez dans Word' : 'Échec de la copie', ok ? 'success' : 'error');
+  };
+
+  const handleDownloadOne = () => {
+    if (!selectedKey) return;
+    const baseName = `synthese-${(selectedTitle || selectedKey).replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 60)}`;
+    downloadAsDoc(
+      syntheses[selectedKey] || '',
+      baseName,
+      selectedTitle || 'Synthèse',
+    );
+  };
+
+  const handleCopyAll = async () => {
+    const { html, count } = buildAggregateHtml();
+    if (count === 0) {
+      showToast('Aucune synthèse à exporter', 'error');
+      return;
+    }
+    const ok = await copyHtmlToClipboard(html);
+    showToast(ok ? `${count} synthèses copiées — collez dans Word` : 'Échec de la copie', ok ? 'success' : 'error');
+  };
+
+  const handleDownloadAll = () => {
+    const { html, count } = buildAggregateHtml();
+    if (count === 0) {
+      showToast('Aucune synthèse à exporter', 'error');
+      return;
+    }
+    const baseName = `syntheses-${(dossierNumber || 'dossier').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
+    downloadAsDoc(html, baseName, `Synthèses ${dossierNumber || ''}`);
+    showToast(`${count} synthèses téléchargées (.doc)`, 'success');
+  };
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-3 sticky top-2">
       <div className="flex items-center gap-2 mb-2">
         <MessageSquare className="h-4 w-4 text-emerald-600" />
         <h3 className="text-sm font-semibold text-gray-800">
-          Synthèse de l'acte
+          {showAll ? 'Toutes les synthèses' : "Synthèse de l'acte"}
         </h3>
         <span className="text-[10px] text-gray-500 ml-auto">
           {totalCount} rédigée{totalCount > 1 ? 's' : ''}
         </span>
+        <button
+          type="button"
+          onClick={() => setShowAll(s => !s)}
+          className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border transition-colors ${
+            showAll
+              ? 'bg-emerald-600 text-white border-emerald-700'
+              : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300 hover:text-emerald-700'
+          }`}
+          title={showAll ? 'Revenir à l\'acte sélectionné' : 'Afficher toutes les synthèses rédigées'}
+        >
+          <ListIcon className="h-3 w-3" />
+          {showAll ? 'Vue acte' : 'Tout voir'}
+        </button>
       </div>
 
-      {selectedKey && selectedTitle ? (
+      {showAll ? (
+        <AggregateView
+          allItems={allItems}
+          syntheses={syntheses}
+          getItemLabel={getItemLabel}
+          onCopyAll={handleCopyAll}
+          onDownloadAll={handleDownloadAll}
+          dossierNumber={dossierNumber}
+        />
+      ) : selectedKey && selectedTitle ? (
         <div className="space-y-2">
           <div className="bg-emerald-50/60 border border-emerald-200 rounded px-2 py-1.5 relative">
             {/* Petite acolade pointant vers la gauche (la timeline) */}
@@ -1113,9 +1232,31 @@ const SynthesePanel: React.FC<{
             readOnly={readOnly}
           />
 
+          {/* Boutons d'export pour la synthèse en cours d'édition */}
+          <div className="flex flex-wrap gap-1.5 justify-end pt-1 border-t border-gray-100">
+            <button
+              onClick={handleCopyOne}
+              disabled={!value || !stripHtml(value).trim()}
+              className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Copier la synthèse formatée (collage dans Word avec mise en forme)"
+            >
+              <Copy className="h-3 w-3" />
+              Copier
+            </button>
+            <button
+              onClick={handleDownloadOne}
+              disabled={!value || !stripHtml(value).trim()}
+              className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Télécharger en .doc (ouvrable dans Word)"
+            >
+              <Download className="h-3 w-3" />
+              .doc
+            </button>
+          </div>
+
           <p className="text-[10px] text-gray-500 italic">
-            Astuce : les synthèses sont conservées par dossier et pourront être
-            agrégées plus tard pour bâtir le réquisitoire définitif.
+            Astuce : « Tout voir » agrège toutes les synthèses pour copie/export
+            d'un coup vers Word.
           </p>
         </div>
       ) : (
@@ -1130,6 +1271,90 @@ const SynthesePanel: React.FC<{
             <MessageSquare className="inline h-3 w-3 mx-1 text-emerald-600" />.
           </div>
         </div>
+      )}
+    </div>
+  );
+};
+
+/** Échappement minimal pour éviter de casser le HTML d'agrégation. */
+const escapeBasic = (s: string): string =>
+  s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+// ─────────────────────────────────────────────────────────────────
+// Vue d'agrégation (toutes les synthèses du dossier)
+// ─────────────────────────────────────────────────────────────────
+
+const AggregateView: React.FC<{
+  allItems: AllItemEntry[];
+  syntheses: Record<string, string>;
+  getItemLabel: (item: AllItemEntry) => { title: string; date: Date };
+  onCopyAll: () => void;
+  onDownloadAll: () => void;
+  dossierNumber?: string;
+}> = ({ allItems, syntheses, getItemLabel, onCopyAll, onDownloadAll, dossierNumber }) => {
+  const ordered = [...allItems].sort((a, b) => a.date.getTime() - b.date.getTime());
+  const filled = ordered.filter(it => {
+    const v = syntheses[it.key];
+    return !!v && stripHtml(v).trim().length > 0;
+  });
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5 justify-end">
+        <button
+          onClick={onCopyAll}
+          disabled={filled.length === 0}
+          className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Copier toutes les synthèses formatées vers le presse-papiers"
+        >
+          <Copy className="h-3 w-3" />
+          Tout copier
+        </button>
+        <button
+          onClick={onDownloadAll}
+          disabled={filled.length === 0}
+          className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Télécharger un fichier .doc compatible Word avec toutes les synthèses"
+        >
+          <Download className="h-3 w-3" />
+          .doc
+        </button>
+      </div>
+
+      {filled.length === 0 ? (
+        <div className="border-2 border-dashed border-gray-200 rounded p-4 text-xs text-gray-500 text-center">
+          Aucune synthèse rédigée pour le moment.
+        </div>
+      ) : (
+        <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
+          {filled.map(it => {
+            const meta = getItemLabel(it);
+            return (
+              <div
+                key={it.key}
+                className="border border-gray-200 rounded p-2 bg-gray-50/60"
+              >
+                <div className="text-xs font-semibold text-gray-800">{meta.title}</div>
+                <div className="text-[10px] text-gray-500 mb-1">
+                  {meta.date.toLocaleDateString('fr-FR')}
+                </div>
+                <div
+                  className="text-xs text-gray-700 prose-sm max-w-none"
+                  dangerouslySetInnerHTML={{ __html: syntheses[it.key] }}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {dossierNumber && (
+        <p className="text-[10px] text-gray-400 italic">
+          Document généré pour {dossierNumber}.
+        </p>
       )}
     </div>
   );
