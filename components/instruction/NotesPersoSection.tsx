@@ -5,6 +5,8 @@ import { Plus, Trash2, X, Tag as TagIcon, Calendar as CalendarIcon, User as User
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { useUser } from '@/contexts/UserContext';
+import { RichTextEditor } from './RichTextEditor';
+import { renderFormattedText } from '@/lib/formatCR';
 import type { NotePersoInstruction } from '@/types/instructionTypes';
 
 interface Props {
@@ -116,11 +118,12 @@ export const NotesPersoSection = ({ notes, onChange, readOnly }: Props) => {
               </div>
               {isEditing ? (
                 <div className="space-y-1.5">
-                  <textarea
+                  <RichTextEditor
+                    id={`note-edit-${note.id}`}
                     value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    rows={3}
-                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded resize-y"
+                    onChange={setEditContent}
+                    placeholder="Contenu de la note…"
+                    minHeight={120}
                   />
                   <Input
                     value={editTags}
@@ -140,7 +143,10 @@ export const NotesPersoSection = ({ notes, onChange, readOnly }: Props) => {
                 </div>
               ) : (
                 <>
-                  <div className="text-gray-700 whitespace-pre-wrap">{note.contenu}</div>
+                  <div
+                    className="text-gray-700 prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: renderFormattedText(note.contenu) }}
+                  />
                   {note.tags && note.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1.5">
                       {note.tags.map(t => (
@@ -165,13 +171,12 @@ export const NotesPersoSection = ({ notes, onChange, readOnly }: Props) => {
         showForm ? (
           <div className="border-2 border-dashed border-emerald-300 rounded p-3 bg-emerald-50/30 space-y-2">
             <h4 className="text-sm font-semibold text-gray-700">Nouvelle note</h4>
-            <textarea
+            <RichTextEditor
+              id="note-new"
               value={draftContent}
-              onChange={(e) => setDraftContent(e.target.value)}
-              rows={3}
-              autoFocus
-              placeholder="Votre note…"
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded resize-y"
+              onChange={setDraftContent}
+              placeholder="Votre note (gras, surligner, listes, italique…)"
+              minHeight={140}
             />
             <Input
               value={draftTags}
@@ -180,7 +185,7 @@ export const NotesPersoSection = ({ notes, onChange, readOnly }: Props) => {
               className="h-8 text-xs"
             />
             <div className="flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setShowForm(false)} className="h-7 text-xs">
+              <Button variant="ghost" size="sm" onClick={() => { setShowForm(false); setDraftContent(''); setDraftTags(''); }} className="h-7 text-xs">
                 <X className="h-3 w-3 mr-1" />
                 Annuler
               </Button>

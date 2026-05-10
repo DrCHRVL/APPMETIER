@@ -1,7 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Edit, Trash2, Save, FileText, Users, Calendar, ListChecks, ClipboardCheck, Pencil, Briefcase } from 'lucide-react';
+import {
+  X, Edit, Trash2, Save, FileText, Users, Calendar, ListChecks, Pencil,
+  Lock, Scale, MapPin, ShieldOff, AlertTriangle, Archive, RotateCcw,
+} from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { useToast } from '@/contexts/ToastContext';
@@ -18,6 +21,8 @@ import {
   countDMLsEnAttente,
   getDossierAgeJours,
   formatDossierAge,
+  getJoursRestantsAvantFinDP,
+  getDateFinDPCourante,
 } from '@/utils/instructionUtils';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -25,7 +30,6 @@ import { MisEnExamenSection } from '../instruction/mex/MisEnExamenSection';
 import { OpsSection } from '../instruction/OpsSection';
 import { DebatsJLDSection } from '../instruction/DebatsJLDSection';
 import { NotesPersoSection } from '../instruction/NotesPersoSection';
-import { VerificationsSection } from '../instruction/VerificationsSection';
 import { DossierTimelineSection } from '../instruction/DossierTimelineSection';
 import type {
   DossierInstruction,
@@ -35,7 +39,8 @@ import type {
   OPInstruction,
   DebatJLDPlanifie,
   NotePersoInstruction,
-  VerificationPeriodique,
+  EvenementInstruction,
+  MesureSurete,
 } from '@/types/instructionTypes';
 
 interface InstructionDetailModalProps {
@@ -49,24 +54,22 @@ interface InstructionDetailModalProps {
   contentieuxDefs?: import('@/types/userTypes').ContentieuxDefinition[];
 }
 
-type TabKey = 'apercu' | 'mex' | 'echeances' | 'timeline' | 'notes' | 'verifs' | 'orientation';
+type TabKey = 'apercu' | 'mex' | 'echeances' | 'timeline' | 'notes';
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
-  { key: 'apercu',      label: 'Aperçu',         icon: FileText },
-  { key: 'mex',         label: 'Mis en examen',  icon: Users },
-  { key: 'echeances',   label: 'OP & JLD',       icon: Calendar },
-  { key: 'timeline',    label: 'Timeline',       icon: ListChecks },
-  { key: 'notes',       label: 'Notes perso',    icon: Pencil },
-  { key: 'verifs',      label: 'Vérifications',  icon: ClipboardCheck },
-  { key: 'orientation', label: 'Orientation',    icon: Briefcase },
+  { key: 'apercu',    label: 'Aperçu',         icon: FileText },
+  { key: 'mex',       label: 'Mis en examen',  icon: Users },
+  { key: 'echeances', label: 'OP & JLD',       icon: Calendar },
+  { key: 'timeline',  label: 'Timeline',       icon: ListChecks },
+  { key: 'notes',     label: 'Notes perso',    icon: Pencil },
 ];
 
-const ComingSoon = ({ children }: { children: React.ReactNode }) => (
-  <div className="border border-dashed border-gray-300 rounded-lg p-6 text-center bg-gray-50">
-    <ListChecks className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-    <div className="text-sm text-gray-500">{children}</div>
-  </div>
-);
+const MESURE_BADGE: Record<MesureSurete['type'], { short: string; color: string; icon: React.ElementType }> = {
+  libre:  { short: 'Libre', color: 'bg-gray-100 text-gray-700 border-gray-300', icon: ShieldOff },
+  cj:     { short: 'CJ',    color: 'bg-amber-100 text-amber-800 border-amber-300', icon: Scale },
+  arse:   { short: 'ARSE',  color: 'bg-purple-100 text-purple-800 border-purple-300', icon: MapPin },
+  detenu: { short: 'DP',    color: 'bg-red-100 text-red-800 border-red-300', icon: Lock },
+};
 
 export const InstructionDetailModal = ({
   dossier,
@@ -117,6 +120,27 @@ export const InstructionDetailModal = ({
     }
   };
 
+  const handleArchive = () => {
+    if (!confirm(
+      `Archiver "${dossier.numeroInstruction}" ?\n\n`
+      + `Le dossier sortira des informations en cours et sera disponible dans `
+      + `« Archives instruction » pour saisir le résultat d'audience.`,
+    )) return;
+    onUpdate(dossier.id, {
+      archived: true,
+      dateArchivage: new Date().toISOString(),
+    });
+    showToast('Dossier archivé', 'success');
+    onClose();
+  };
+
+  const handleUnarchive = () => {
+    if (!confirm(`Restaurer "${dossier.numeroInstruction}" dans les informations en cours ?`)) return;
+    onUpdate(dossier.id, { archived: false, dateArchivage: undefined });
+    showToast('Dossier restauré', 'success');
+    onClose();
+  };
+
   const stats = (() => {
     const byStatut = countMexByStatut(dossier);
     return {
@@ -132,7 +156,7 @@ export const InstructionDetailModal = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-xl shadow-2xl w-[95vw] max-w-[1100px] h-[90vh] flex flex-col">
+      <div className="bg-white rounded-xl shadow-2xl w-[97vw] max-w-[1500px] h-[92vh] flex flex-col">
         {/* Header */}
         <div
           className="flex items-center justify-between px-5 py-3 border-b border-gray-200"
@@ -177,6 +201,27 @@ export const InstructionDetailModal = ({
                 <Button variant="ghost" size="sm" onClick={onEdit} title="Modifier">
                   <Edit className="h-4 w-4" />
                 </Button>
+                {dossier.archived ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleUnarchive}
+                    title="Restaurer dans les informations en cours"
+                    className="text-emerald-700 hover:text-emerald-800"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleArchive}
+                    title="Archiver le dossier"
+                    className="text-amber-700 hover:text-amber-800"
+                  >
+                    <Archive className="h-4 w-4" />
+                  </Button>
+                )}
                 <Button variant="ghost" size="sm" onClick={handleDelete} title="Supprimer" className="text-red-600 hover:text-red-700">
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -271,6 +316,24 @@ export const InstructionDetailModal = ({
                     onChange={(e) => setEditData(d => ({ ...d, cotesTomes: Number(e.target.value) || 0 }))}
                   />
                 </div>
+                <div>
+                  <Label>Orientation prévisible</Label>
+                  <select
+                    value={editData.orientationPrevisible || ''}
+                    onChange={(e) =>
+                      setEditData(d => ({
+                        ...d,
+                        orientationPrevisible: (e.target.value || undefined) as OrientationPrevisible | undefined,
+                      }))
+                    }
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
+                  >
+                    <option value="">— Non définie —</option>
+                    {(Object.keys(ORIENTATION_LABELS) as OrientationPrevisible[]).map(k => (
+                      <option key={k} value={k}>{ORIENTATION_LABELS[k]}</option>
+                    ))}
+                  </select>
+                </div>
                 {contentieuxDefs.length > 0 && (
                   <div>
                     <Label>Contentieux</Label>
@@ -311,8 +374,7 @@ export const InstructionDetailModal = ({
                   <Stat label="Cotes" value={dossier.cotesTomes || 0} />
                 </div>
 
-                {/* Contentieux : pastille colorée si défini, message d'incitation
-                    sinon (pour pousser à compléter les fiches existantes). */}
+                {/* Contentieux */}
                 {(() => {
                   const ctx = dossier.contentieuxId
                     ? contentieuxDefs.find(c => c.id === dossier.contentieuxId)
@@ -351,6 +413,12 @@ export const InstructionDetailModal = ({
                 ) : (
                   <div className="text-sm text-gray-400 italic">Aucune description.</div>
                 )}
+
+                {/* Liste condensée des mis en examen */}
+                <MexCondenseList
+                  misEnExamen={dossier.misEnExamen}
+                  onJumpToMex={() => setActiveTab('mex')}
+                />
               </div>
             )
           )}
@@ -393,7 +461,15 @@ export const InstructionDetailModal = ({
           )}
 
           {activeTab === 'timeline' && (
-            <DossierTimelineSection dossier={dossier} />
+            <DossierTimelineSection
+              dossier={dossier}
+              onChangeEvenements={(evenements: EvenementInstruction[]) =>
+                onUpdate(dossier.id, { evenements })
+              }
+              onChangeNotesActesJI={(notesActesJI: string) =>
+                onUpdate(dossier.id, { notesActesJI })
+              }
+            />
           )}
 
           {activeTab === 'notes' && (
@@ -402,54 +478,15 @@ export const InstructionDetailModal = ({
               onChange={(notesPerso: NotePersoInstruction[]) => onUpdate(dossier.id, { notesPerso })}
             />
           )}
-
-          {activeTab === 'verifs' && (
-            <VerificationsSection
-              verifications={dossier.verifications}
-              onChange={(verifications: VerificationPeriodique[]) => onUpdate(dossier.id, { verifications })}
-            />
-          )}
-
-          {activeTab === 'orientation' && (
-            isEditing ? (
-              <div className="max-w-md">
-                <Label>Orientation prévisible</Label>
-                <select
-                  value={editData.orientationPrevisible || ''}
-                  onChange={(e) =>
-                    setEditData(d => ({
-                      ...d,
-                      orientationPrevisible: (e.target.value || undefined) as OrientationPrevisible | undefined,
-                    }))
-                  }
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
-                >
-                  <option value="">— Non définie —</option>
-                  {(Object.keys(ORIENTATION_LABELS) as OrientationPrevisible[]).map(k => (
-                    <option key={k} value={k}>{ORIENTATION_LABELS[k]}</option>
-                  ))}
-                </select>
-              </div>
-            ) : (
-              <div className="text-sm">
-                {dossier.orientationPrevisible ? (
-                  <div className="inline-flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded px-3 py-1.5">
-                    <Briefcase className="h-4 w-4 text-indigo-600" />
-                    <span className="font-medium text-indigo-700">
-                      {ORIENTATION_LABELS[dossier.orientationPrevisible]}
-                    </span>
-                  </div>
-                ) : (
-                  <span className="text-gray-400 italic">Aucune orientation prévisible définie.</span>
-                )}
-              </div>
-            )
-          )}
         </div>
       </div>
     </div>
   );
 };
+
+// ─────────────────────────────────────────────────────────────────
+// Tuile statistique compacte
+// ─────────────────────────────────────────────────────────────────
 
 const Stat = ({
   label,
@@ -470,6 +507,108 @@ const Stat = ({
     <div className={`border rounded-lg px-2 py-1.5 ${colors}`}>
       <div className="text-lg font-bold leading-none">{value}</div>
       <div className="text-[10px] uppercase tracking-wide font-medium">{label}</div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Liste condensée des mis en examen (Aperçu)
+// ─────────────────────────────────────────────────────────────────
+
+const MexCondenseList: React.FC<{
+  misEnExamen: MisEnExamen[];
+  onJumpToMex: () => void;
+}> = ({ misEnExamen, onJumpToMex }) => {
+  if (misEnExamen.length === 0) {
+    return (
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-400 italic">
+        Aucun mis en examen pour ce dossier.
+      </div>
+    );
+  }
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-3">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 flex items-center gap-1.5">
+          <Users className="h-3.5 w-3.5" />
+          Mis en examen ({misEnExamen.length})
+        </h3>
+        <button
+          onClick={onJumpToMex}
+          className="text-xs text-emerald-700 hover:underline"
+        >
+          Voir les détails →
+        </button>
+      </div>
+      <ul className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+        {misEnExamen.map(mex => {
+          const meta = MESURE_BADGE[mex.mesureSurete.type];
+          const Icon = meta.icon;
+          const finDP = getDateFinDPCourante(mex);
+          const joursRestants = getJoursRestantsAvantFinDP(mex);
+          const dmlEnAttente = mex.mesureSurete.type === 'detenu'
+            ? mex.dmls.filter(d => d.statut === 'en_attente').length
+            : 0;
+          return (
+            <li
+              key={mex.id}
+              className="border border-gray-200 rounded p-2 text-xs flex items-start gap-2 hover:bg-gray-50 cursor-pointer"
+              onClick={onJumpToMex}
+              title="Cliquez pour ouvrir l'onglet Mis en examen"
+            >
+              <Icon className="h-4 w-4 text-gray-500 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center flex-wrap gap-1.5">
+                  <span className="font-semibold text-gray-800 truncate">{mex.nom}</span>
+                  <span className={`inline-flex items-center gap-0.5 text-[10px] uppercase px-1.5 py-0.5 rounded border ${meta.color}`}>
+                    {meta.short}
+                  </span>
+                  {dmlEnAttente > 0 && (
+                    <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200">
+                      {dmlEnAttente} DML
+                    </span>
+                  )}
+                  {finDP && joursRestants !== null && (
+                    <span
+                      className={`text-[10px] uppercase px-1.5 py-0.5 rounded border inline-flex items-center gap-0.5 ${
+                        joursRestants < 0
+                          ? 'bg-red-200 text-red-900 border-red-300'
+                          : joursRestants <= 30
+                          ? 'bg-red-100 text-red-700 border-red-200'
+                          : 'bg-gray-50 text-gray-600 border-gray-200'
+                      }`}
+                    >
+                      {joursRestants < 0 && <AlertTriangle className="h-2.5 w-2.5" />}
+                      {joursRestants < 0 ? 'DP échue' : `Fin DP J+${joursRestants}`}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] text-gray-500 mt-0.5">
+                  MEX le {mex.dateMiseEnExamen ? new Date(mex.dateMiseEnExamen).toLocaleDateString() : '—'}
+                  {mex.infractions.length > 0 && (
+                    <> · {mex.infractions.length} chef{mex.infractions.length > 1 ? 's' : ''}</>
+                  )}
+                </div>
+                {mex.infractions.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {mex.infractions.slice(0, 3).map(inf => (
+                      <span
+                        key={inf.id}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200 truncate max-w-[200px]"
+                      >
+                        {inf.qualification}
+                      </span>
+                    ))}
+                    {mex.infractions.length > 3 && (
+                      <span className="text-[10px] text-gray-400">+{mex.infractions.length - 3}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 };

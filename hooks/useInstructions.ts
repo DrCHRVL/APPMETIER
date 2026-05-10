@@ -1,14 +1,17 @@
 // hooks/useInstructions.ts
 //
-// Hook de gestion des dossiers d'instruction (refonte complète).
-// Stockage : `instructions` via ElectronBridge (table rase, ancien format
-// abandonné — les dossiers existants au format `EnqueteInstruction` sont
-// ignorés au chargement).
+// Hook de gestion des dossiers d'instruction.
+//
+// Stockage : `instructions__<windowsUsername>` via ElectronBridge.
+// Les dossiers d'instruction sont **par utilisateur** : chaque magistrat
+// (ou utilisateur Windows) a sa propre liste, isolée des autres. Les
+// cabinets (config) restent en revanche partagés via instructionConfig.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import throttle from 'lodash/throttle';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { APP_CONFIG } from '@/config/constants';
+import { useUser } from '@/contexts/UserContext';
 import type {
   DossierInstruction,
   NewDossierInstructionData,
@@ -17,7 +20,16 @@ import type {
 const SAVE_DEBOUNCE = 2500;
 
 /**
- * Vérifie qu'un objet stocké correspond au nouveau modèle DossierInstruction.
+ * Construit la clé de stockage user-scoped pour un utilisateur donné.
+ * Retourne `null` si pas d'utilisateur (cas de chargement initial avant login).
+ */
+const buildStorageKey = (windowsUsername: string | null | undefined): string | null => {
+  if (!windowsUsername) return null;
+  return `${APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS}__${windowsUsername}`;
+};
+
+/**
+ * Vérifie qu'un objet stocké correspond au modèle DossierInstruction.
  * Les anciens dossiers (format `EnqueteInstruction`) sont rejetés.
  */
 const isNewModelDossier = (raw: unknown): raw is DossierInstruction => {
@@ -35,23 +47,34 @@ const isNewModelDossier = (raw: unknown): raw is DossierInstruction => {
 };
 
 export const useInstructions = () => {
+  const { user } = useUser();
+  const username = user?.windowsUsername || null;
+
   const [dossiers, setDossiers] = useState<DossierInstruction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const dossiersRef = useRef<DossierInstruction[]>([]);
   const isDirtyRef = useRef(false);
   const isLoadingRef = useRef(true);
+  // Clé courante : indispensable pour que `persist` (throttled) écrive
+  // toujours sur la bonne clé même quand l'utilisateur change.
+  const storageKeyRef = useRef<string | null>(buildStorageKey(username));
 
   // ──────────────────────────────────────────────
   // Chargement (initial + sur demande via `refresh`)
   // ──────────────────────────────────────────────
   const reload = useCallback(async () => {
+    const key = storageKeyRef.current;
+    if (!key) {
+      setDossiers([]);
+      dossiersRef.current = [];
+      setIsLoading(false);
+      isLoadingRef.current = false;
+      return;
+    }
     try {
       setIsLoading(true);
-      const stored = await ElectronBridge.getData<unknown>(
-        APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS,
-        [],
-      );
+      const stored = await ElectronBridge.getData<unknown>(key, []);
       const list = Array.isArray(stored) ? stored.filter(isNewModelDossier) : [];
       setDossiers(list);
       dossiersRef.current = list;
@@ -64,9 +87,11 @@ export const useInstructions = () => {
     }
   }, []);
 
+  // Recharge dès que le username change (clé de stockage différente)
   useEffect(() => {
+    storageKeyRef.current = buildStorageKey(username);
     void reload();
-  }, [reload]);
+  }, [username, reload]);
 
   useEffect(() => {
     dossiersRef.current = dossiers;
@@ -81,11 +106,10 @@ export const useInstructions = () => {
   const persist = useCallback(
     throttle(async () => {
       if (!isDirtyRef.current || isLoadingRef.current) return;
+      const key = storageKeyRef.current;
+      if (!key) return; // pas d'utilisateur connecté → on n'écrit nulle part
       try {
-        const ok = await ElectronBridge.setData(
-          APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS,
-          dossiersRef.current,
-        );
+        const ok = await ElectronBridge.setData(key, dossiersRef.current);
         if (ok) isDirtyRef.current = false;
       } catch (e) {
         console.error('useInstructions: erreur de sauvegarde', e);
@@ -156,12 +180,12 @@ export const useInstructions = () => {
   useEffect(() => {
     return () => {
       persist.cancel();
-      if (isDirtyRef.current && !isLoadingRef.current) {
+      const key = storageKeyRef.current;
+      if (key && isDirtyRef.current && !isLoadingRef.current) {
         // sauvegarde synchrone-ish (best-effort)
-        ElectronBridge.setData(
-          APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS,
-          dossiersRef.current,
-        ).catch(e => console.error('useInstructions: sauvegarde finale échouée', e));
+        ElectronBridge.setData(key, dossiersRef.current).catch(e =>
+          console.error('useInstructions: sauvegarde finale échouée', e),
+        );
       }
     };
   }, [persist]);
