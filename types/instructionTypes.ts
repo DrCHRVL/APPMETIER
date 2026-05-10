@@ -438,6 +438,12 @@ export interface DossierInstruction {
    * workflow ni statuts.
    */
   notesActesJI?: string;
+  /**
+   * Pré-rédactions de synthèses par acte de timeline (HTML).
+   * Clé = identifiant de l'événement (item.key dans DossierTimelineSection),
+   * valeur = synthèse rédigée pour le réquisitoire définitif.
+   */
+  acteSyntheses?: Record<string, string>;
 
   // État règlement & orientation
   etatReglement: EtatReglement;

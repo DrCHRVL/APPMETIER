@@ -500,6 +500,9 @@ export const InstructionDetailModal = ({
               onChangeNotesActesJI={(notesActesJI: string) =>
                 onUpdate(dossier.id, { notesActesJI })
               }
+              onChangeActeSyntheses={(acteSyntheses: Record<string, string>) =>
+                onUpdate(dossier.id, { acteSyntheses })
+              }
             />
           )}
         </div>

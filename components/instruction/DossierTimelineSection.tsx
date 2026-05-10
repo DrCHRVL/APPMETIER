@@ -25,6 +25,10 @@ import {
   Users,
   Crosshair,
   ArrowRight,
+  MessageSquare,
+  MessageSquarePlus,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -45,6 +49,8 @@ interface Props {
   onChangeEvenements?: (next: EvenementInstruction[]) => void;
   /** Persistance du bloc-notes libre « Actes à faire / à demander à la JI ». */
   onChangeNotesActesJI?: (html: string) => void;
+  /** Persistance des pré-rédactions de synthèses (clé = item.key). */
+  onChangeActeSyntheses?: (next: Record<string, string>) => void;
   readOnly?: boolean;
 }
 
@@ -172,10 +178,23 @@ export const DossierTimelineSection: React.FC<Props> = ({
   dossier,
   onChangeEvenements,
   onChangeNotesActesJI,
+  onChangeActeSyntheses,
   readOnly,
 }) => {
   const { evenementTypes: customEvtTypes, categoriesExpertise: customExpCats } =
     useInstructionCustomTypes();
+
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [showActesJI, setShowActesJI] = useState(false);
+  const acteSyntheses = dossier.acteSyntheses || {};
+
+  const handleChangeSynthese = (key: string, html: string) => {
+    if (!onChangeActeSyntheses) return;
+    const next = { ...acteSyntheses };
+    if (html.trim()) next[key] = html;
+    else delete next[key];
+    onChangeActeSyntheses(next);
+  };
 
   const today = useMemo(() => {
     const d = new Date();
@@ -309,10 +328,41 @@ export const DossierTimelineSection: React.FC<Props> = ({
     onChangeEvenements?.(evenements.filter(e => e.id !== id));
   };
 
+  /** Résolution du libellé d'un item (utilisé par le panneau de synthèse). */
+  const getItemLabel = (
+    item: typeof sortedAll[number],
+  ): { title: string; date: Date } => {
+    if (!item.isCustom && item.derived) {
+      return { title: item.derived.title, date: item.date };
+    }
+    const evt = item.evt!;
+    const meta = getEvtMeta(evt.type, customEvtTypes);
+    const titre = evt.titre || (
+      evt.type === 'expertise' && evt.categorieExpertise
+        ? `Expertise ${getExpertiseLabel(evt.categorieExpertise, customExpCats)}`
+        : meta.label
+    );
+    return { title: titre, date: item.date };
+  };
+
+  const selectedItem = selectedKey
+    ? sortedAll.find(x => x.key === selectedKey) || null
+    : null;
+  const selectedMeta = selectedItem ? getItemLabel(selectedItem) : null;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       {/* Colonne gauche/centre : timeline (2/3) */}
       <div className="lg:col-span-2 space-y-4">
+        {/* Bandeau "Actes à demander à la JI" — déplacé ici, replié par défaut */}
+        <ActesJIBanner
+          value={dossier.notesActesJI || ''}
+          onChange={onChangeNotesActesJI}
+          readOnly={readOnly}
+          open={showActesJI}
+          onToggle={() => setShowActesJI(o => !o)}
+        />
+
         {!readOnly && onChangeEvenements && (
           <EvenementForm
             misEnExamen={dossier.misEnExamen}
@@ -354,6 +404,11 @@ export const DossierTimelineSection: React.FC<Props> = ({
                   onUpdate={handleUpdateEvenement}
                   onRemove={handleRemoveEvenement}
                   readOnly={readOnly}
+                  hasSynthese={Boolean(acteSyntheses[item.key]?.trim())}
+                  isSelected={selectedKey === item.key}
+                  onSelectForSynthese={
+                    onChangeActeSyntheses ? () => setSelectedKey(item.key) : undefined
+                  }
                 />
               ))}
             </ol>
@@ -383,6 +438,11 @@ export const DossierTimelineSection: React.FC<Props> = ({
                   onUpdate={handleUpdateEvenement}
                   onRemove={handleRemoveEvenement}
                   readOnly={readOnly}
+                  hasSynthese={Boolean(acteSyntheses[item.key]?.trim())}
+                  isSelected={selectedKey === item.key}
+                  onSelectForSynthese={
+                    onChangeActeSyntheses ? () => setSelectedKey(item.key) : undefined
+                  }
                 />
               ))}
             </ol>
@@ -390,12 +450,17 @@ export const DossierTimelineSection: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Colonne droite : Actes à faire / à demander à la JI (1/3) — bloc-notes libre */}
+      {/* Colonne droite : pré-rédaction de la synthèse de l'acte sélectionné */}
       <div className="lg:col-span-1">
-        <NotesActesJI
-          value={dossier.notesActesJI || ''}
-          onChange={onChangeNotesActesJI}
-          readOnly={readOnly}
+        <SynthesePanel
+          selectedKey={selectedKey}
+          selectedTitle={selectedMeta?.title}
+          selectedDate={selectedMeta?.date}
+          syntheses={acteSyntheses}
+          onChange={handleChangeSynthese}
+          onClose={() => setSelectedKey(null)}
+          readOnly={readOnly || !onChangeActeSyntheses}
+          totalCount={Object.values(acteSyntheses).filter(v => v?.trim()).length}
         />
       </div>
     </div>
@@ -419,6 +484,12 @@ interface TimelineItemProps {
   onUpdate: (id: number, updates: Partial<EvenementInstruction>) => void;
   onRemove: (id: number) => void;
   readOnly?: boolean;
+  /** Vrai si une synthèse est déjà rédigée pour cet acte. */
+  hasSynthese?: boolean;
+  /** Vrai si cet acte est actuellement sélectionné dans la colonne synthèse. */
+  isSelected?: boolean;
+  /** Callback déclenché au clic sur l'item ou son bouton bulle pour pré-rédiger sa synthèse. */
+  onSelectForSynthese?: () => void;
 }
 
 const TimelineItem: React.FC<TimelineItemProps> = ({
@@ -434,6 +505,9 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
   onUpdate,
   onRemove,
   readOnly,
+  hasSynthese,
+  isSelected,
+  onSelectForSynthese,
 }) => {
   const [editing, setEditing] = useState(false);
 
@@ -444,7 +518,13 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
       ? Math.floor((today.getTime() - e.date.getTime()) / 86400000)
       : Math.ceil((e.date.getTime() - today.getTime()) / 86400000);
     return (
-      <li className="ml-4 pl-2">
+      <li
+        className={`ml-4 pl-2 rounded transition-colors ${
+          onSelectForSynthese ? 'cursor-pointer hover:bg-emerald-50/50' : ''
+        } ${isSelected ? 'bg-emerald-50 ring-1 ring-emerald-300' : ''}`}
+        onClick={onSelectForSynthese}
+        title={onSelectForSynthese ? 'Cliquer pour rédiger / éditer la synthèse de cet acte →' : undefined}
+      >
         <div className={`absolute -left-[7px] w-3 h-3 rounded-full ${e.color} ${isPast ? 'opacity-70' : ''}`} />
         <div className="text-xs">
           <div className="flex items-center gap-2 flex-wrap">
@@ -455,6 +535,11 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
               {' · '}
               {isPast ? `il y a ${days} j` : days === 0 ? 'auj.' : days === 1 ? 'demain' : `J+${days}`}
             </span>
+            <SyntheseBubbleButton
+              hasSynthese={hasSynthese}
+              isSelected={isSelected}
+              onClick={onSelectForSynthese}
+            />
           </div>
           {e.detail && <div className={isPast ? 'text-gray-500 mt-0.5' : 'text-gray-600 mt-0.5'}>{e.detail}</div>}
         </div>
@@ -498,7 +583,12 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
   );
 
   return (
-    <li className="ml-4 pl-2">
+    <li
+      className={`ml-4 pl-2 rounded transition-colors ${
+        onSelectForSynthese && !editing ? 'cursor-pointer hover:bg-emerald-50/50' : ''
+      } ${isSelected && !editing ? 'bg-emerald-50 ring-1 ring-emerald-300' : ''}`}
+      onClick={editing ? undefined : onSelectForSynthese}
+    >
       <div className={`absolute -left-[7px] w-3 h-3 rounded-full ${meta.bg} ${isPast ? 'opacity-70' : ''}`} />
       {editing && !readOnly ? (
         <EvenementEditor
@@ -527,8 +617,13 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
               {' · '}
               {isPast ? `il y a ${days} j` : days === 0 ? 'auj.' : days === 1 ? 'demain' : `J+${days}`}
             </span>
+            <SyntheseBubbleButton
+              hasSynthese={hasSynthese}
+              isSelected={isSelected}
+              onClick={onSelectForSynthese}
+            />
             {!readOnly && (
-              <span className="ml-auto flex items-center gap-1">
+              <span className="ml-auto flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                 <button
                   onClick={() => setEditing(true)}
                   title="Modifier"
@@ -874,30 +969,168 @@ const EvenementEditor: React.FC<{
 };
 
 // ─────────────────────────────────────────────────────────────────
-// Colonne droite : Actes à faire / à demander à la JI
-// Bloc-notes libre (rich text), sans workflow ni statut.
+// Bandeau « Actes à faire / à demander à la JI »
+// Repositionné au-dessus de la timeline, replié par défaut pour laisser
+// la place à la colonne synthèses.
 // ─────────────────────────────────────────────────────────────────
 
-const NotesActesJI: React.FC<{
+const ActesJIBanner: React.FC<{
   value: string;
   onChange?: (html: string) => void;
   readOnly?: boolean;
-}> = ({ value, onChange, readOnly }) => (
-  <div className="bg-white border border-gray-200 rounded-lg p-3 sticky top-2">
-    <div className="flex items-center gap-2 mb-2">
-      <ClipboardList className="h-4 w-4 text-gray-600" />
-      <h3 className="text-sm font-semibold text-gray-800">
-        Actes à faire / à demander à la JI
-      </h3>
+  open: boolean;
+  onToggle: () => void;
+}> = ({ value, onChange, readOnly, open, onToggle }) => {
+  const hasContent = !!value && value.replace(/<[^>]+>/g, '').trim().length > 0;
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors text-left"
+      >
+        <ClipboardList className="h-4 w-4 text-gray-600" />
+        <h3 className="text-sm font-semibold text-gray-800">
+          Actes à faire / à demander à la JI
+        </h3>
+        {hasContent && !open && (
+          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+            Notes
+          </span>
+        )}
+        <span className="ml-auto text-gray-400">
+          {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 pt-1">
+          <RichTextEditor
+            id="notes-actes-ji"
+            value={value}
+            onChange={(html) => onChange?.(html)}
+            placeholder="Notes libres : actes à faire, à demander au juge d'instruction…"
+            minHeight={140}
+            maxHeight="40vh"
+            readOnly={readOnly || !onChange}
+          />
+        </div>
+      )}
     </div>
-    <RichTextEditor
-      id="notes-actes-ji"
-      value={value}
-      onChange={(html) => onChange?.(html)}
-      placeholder="Notes libres : actes à faire, à demander au juge d'instruction…"
-      minHeight={300}
-      maxHeight="60vh"
-      readOnly={readOnly || !onChange}
-    />
-  </div>
-);
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Bouton « bulle » sur chaque acte (indicateur + déclencheur d'édition)
+// ─────────────────────────────────────────────────────────────────
+
+const SyntheseBubbleButton: React.FC<{
+  hasSynthese?: boolean;
+  isSelected?: boolean;
+  onClick?: () => void;
+}> = ({ hasSynthese, isSelected, onClick }) => {
+  if (!onClick) return null;
+  const Icon = hasSynthese ? MessageSquare : MessageSquarePlus;
+  const cls = isSelected
+    ? 'bg-emerald-600 text-white border-emerald-700'
+    : hasSynthese
+    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+    : 'bg-white text-gray-400 border-gray-200 hover:text-emerald-600 hover:border-emerald-300';
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      title={hasSynthese ? 'Synthèse rédigée — éditer' : 'Pré-rédiger la synthèse de cet acte'}
+      className={`inline-flex items-center justify-center h-5 w-5 rounded-full border ${cls} transition-colors`}
+    >
+      <Icon className="h-3 w-3" />
+    </button>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Colonne droite : panneau de pré-rédaction des synthèses d'actes
+// L'utilisateur clique sur un acte de la timeline → l'éditeur s'ouvre ici.
+// ─────────────────────────────────────────────────────────────────
+
+const SynthesePanel: React.FC<{
+  selectedKey: string | null;
+  selectedTitle?: string;
+  selectedDate?: Date;
+  syntheses: Record<string, string>;
+  onChange: (key: string, html: string) => void;
+  onClose: () => void;
+  readOnly?: boolean;
+  totalCount: number;
+}> = ({ selectedKey, selectedTitle, selectedDate, syntheses, onChange, onClose, readOnly, totalCount }) => {
+  const value = selectedKey ? syntheses[selectedKey] || '' : '';
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-3 sticky top-2">
+      <div className="flex items-center gap-2 mb-2">
+        <MessageSquare className="h-4 w-4 text-emerald-600" />
+        <h3 className="text-sm font-semibold text-gray-800">
+          Synthèse de l'acte
+        </h3>
+        <span className="text-[10px] text-gray-500 ml-auto">
+          {totalCount} rédigée{totalCount > 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {selectedKey && selectedTitle ? (
+        <div className="space-y-2">
+          <div className="bg-emerald-50/60 border border-emerald-200 rounded px-2 py-1.5 relative">
+            {/* Petite acolade pointant vers la gauche (la timeline) */}
+            <div
+              className="absolute -left-2 top-3 w-0 h-0
+                border-y-[6px] border-y-transparent
+                border-r-[8px] border-r-emerald-200"
+              aria-hidden
+            />
+            <div className="text-xs font-semibold text-emerald-900 truncate" title={selectedTitle}>
+              {selectedTitle}
+            </div>
+            {selectedDate && (
+              <div className="text-[10px] text-emerald-700">
+                {selectedDate.toLocaleDateString('fr-FR')}
+              </div>
+            )}
+            <button
+              onClick={onClose}
+              className="absolute top-1 right-1 text-emerald-700 hover:text-emerald-900"
+              title="Fermer"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+
+          <RichTextEditor
+            id={`synthese-${selectedKey}`}
+            value={value}
+            onChange={(html) => onChange(selectedKey, html)}
+            placeholder="Pré-rédigez ici la synthèse de cet acte pour le réquisitoire définitif…"
+            minHeight={280}
+            maxHeight="65vh"
+            readOnly={readOnly}
+          />
+
+          <p className="text-[10px] text-gray-500 italic">
+            Astuce : les synthèses sont conservées par dossier et pourront être
+            agrégées plus tard pour bâtir le réquisitoire définitif.
+          </p>
+        </div>
+      ) : (
+        <div className="border-2 border-dashed border-gray-200 rounded p-4 text-xs text-gray-500 text-center space-y-1">
+          <MessageSquarePlus className="h-5 w-5 text-gray-400 mx-auto" />
+          <div>
+            Cliquez sur un acte de la timeline pour pré-rédiger sa synthèse
+            ici.
+          </div>
+          <div className="text-[10px] text-gray-400">
+            Les actes déjà rédigés sont signalés par une bulle pleine
+            <MessageSquare className="inline h-3 w-3 mx-1 text-emerald-600" />.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
