@@ -736,10 +736,10 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       nodeTypes={NODE_TYPES}
       fitView
       fitViewOptions={{ padding: 0.2 }}
-      // minZoom bas pour que fitView puisse réellement contenir des layouts
-      // très étalés (zones cardinales à ±2200 + clusters). À 0.1 on s'écrase
-      // sur la borne et le canvas se présente blanc — symptôme observé.
-      minZoom={0.02}
+      // minZoom à 0.1 : avec R=1100 et le plafond de magnitude dans
+      // componentRepulsion, fitView contient sans souci le layout sans
+      // avoir à dézoomer à 0.02 (qui rendait tout en miniature).
+      minZoom={0.1}
       maxZoom={2.5}
       onNodeClick={handleClick}
       onNodeDoubleClick={handleDoubleClick}
