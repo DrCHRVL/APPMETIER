@@ -354,3 +354,242 @@ export function hullSatRelax(
   }
   return deltas;
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// LAYOUT ORBITAL INTRA-SYSTÈME
+// ──────────────────────────────────────────────────────────────────────
+
+/** Largeur angulaire (rad) masquée autour de la direction d'un voisin
+ *  proche. ±27° → on évite que les planètes pointent vers le voisin. */
+const NEIGHBOR_MASK_HALF_WIDTH = (27 * Math.PI) / 180;
+/** Au-delà de ce ratio (distance voisin / rayon orbite), le voisin n'est
+ *  plus considéré comme "proche" et ne masque plus de secteur. */
+const NEIGHBOR_MASK_RANGE_RATIO = 4;
+/** Espacement angulaire minimal entre deux planètes adjacentes (rad).
+ *  Avec ≈6° on a au max 60 planètes par anneau ; au-delà on bascule sur
+ *  un 2ème anneau. */
+const MIN_PLANET_ARC_GAP = (6 * Math.PI) / 180;
+/** Diamètre nominal d'une planète (collision radius + padding) utilisé
+ *  pour estimer le rayon d'anneau nécessaire. */
+const NOMINAL_PLANET_DIAMETER = 90;
+
+/**
+ * Place chaque planète (MEC exclusif d'un dossier) sur un anneau autour
+ * de son étoile. Les positions des étoiles et des comètes ne sont pas
+ * touchées — seules les planètes sont repositionnées.
+ *
+ * Pour chaque étoile :
+ *   1. On identifie les directions de ses voisines proches (autres
+ *      dossiers de la même galaxie à portée).
+ *   2. On masque un secteur angulaire autour de chacune (les bras de
+ *      planètes ne se déploient pas vers le voisin).
+ *   3. On distribue les planètes uniformément dans les secteurs libres.
+ *      Si trop nombreuses pour un seul anneau, on en crée un 2ème.
+ *   4. Si une planète a un angle en cache compatible avec un secteur
+ *      libre, on le préserve (stabilité inter-rendus).
+ */
+export function applyOrbitalLayout(
+  galaxies: Galaxy[],
+  nodes: GraphNode[],
+  positions: Map<string, { x: number; y: number }>,
+  cachedAngleByMecId?: Map<string, number>,
+): Map<string, number> {
+  // Nouvelle map angle par MEC (sortie + nouveau cache).
+  const newAngles = new Map<string, number>();
+
+  const dossierToPlanets = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (n.type !== 'mec') continue;
+    if (n.dossierIds.length !== 1) continue;
+    const did = n.dossierIds[0];
+    if (!dossierToPlanets.has(did)) dossierToPlanets.set(did, []);
+    dossierToPlanets.get(did)!.push(n.id);
+  }
+
+  for (const galaxy of galaxies) {
+    const galaxyDossiers = Array.from(galaxy.dossierIds);
+
+    for (const starId of galaxyDossiers) {
+      const planets = dossierToPlanets.get(starId);
+      if (!planets || planets.length === 0) continue;
+      const starPos = positions.get(starId);
+      if (!starPos) continue;
+
+      // Calcul du rayon d'anneau : dépend du nombre de planètes et de
+      // la fraction angulaire disponible (après masques).
+      // On itère 2 fois max : 1er passage à mask connu, 2e passage si
+      // r grandit (le mask peut diminuer si voisins reculent du fait du
+      // changement d'échelle — en pratique stable au 1er passage).
+      let ringRadius = 140;
+      let maskedSectors: Array<[number, number]> = [];
+
+      const computeMasks = (r: number): Array<[number, number]> => {
+        const masks: Array<[number, number]> = [];
+        for (const otherId of galaxyDossiers) {
+          if (otherId === starId) continue;
+          const op = positions.get(otherId);
+          if (!op) continue;
+          const dx = op.x - starPos.x;
+          const dy = op.y - starPos.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist > r * NEIGHBOR_MASK_RANGE_RATIO) continue;
+          const theta = Math.atan2(dy, dx);
+          // Largeur de masque qui s'étend quand le voisin est proche :
+          // ±MASK_HALF_WIDTH ajusté par (1 - dist/range) pour rapprocher
+          // les planètes du côté libre quand le voisin est très près.
+          const proximity = Math.max(0, 1 - dist / (r * NEIGHBOR_MASK_RANGE_RATIO));
+          const halfWidth = NEIGHBOR_MASK_HALF_WIDTH * (1 + proximity);
+          masks.push([theta - halfWidth, theta + halfWidth]);
+        }
+        return masks;
+      };
+
+      for (let pass = 0; pass < 2; pass++) {
+        maskedSectors = computeMasks(ringRadius);
+        const unmaskedFraction = computeUnmaskedFraction(maskedSectors);
+        // Slots équivalents si la totalité du cercle était disponible.
+        const effectiveSlots = unmaskedFraction > 0.05
+          ? planets.length / unmaskedFraction
+          : planets.length;
+        // Rayon minimum pour que les planètes ne se chevauchent pas sur
+        // l'anneau : circ ≥ N * diamètre → r ≥ N * d / (2π).
+        const needed = Math.max(
+          140,
+          effectiveSlots * NOMINAL_PLANET_DIAMETER / (2 * Math.PI),
+        );
+        if (Math.abs(needed - ringRadius) < 10) { ringRadius = needed; break; }
+        ringRadius = needed;
+      }
+
+      // Si trop de planètes pour un seul anneau (densité angulaire trop
+      // forte même au rayon calculé), on bascule sur 2 anneaux.
+      const angularDensity = planets.length / Math.max(0.01, computeUnmaskedFraction(maskedSectors));
+      const useTwoRings = angularDensity > (2 * Math.PI) / (MIN_PLANET_ARC_GAP * 1.2);
+
+      const ringAssignments = useTwoRings
+        ? splitTwoRings(planets, ringRadius)
+        : [{ radius: ringRadius, planets }];
+
+      for (const ring of ringAssignments) {
+        // Préserve les angles en cache compatibles avec les secteurs libres.
+        const preserved: Array<{ id: string; angle: number }> = [];
+        const remaining: string[] = [];
+        for (const pid of ring.planets) {
+          const cached = cachedAngleByMecId?.get(pid);
+          if (cached !== undefined && !isAngleMasked(cached, maskedSectors)) {
+            preserved.push({ id: pid, angle: normalizeAngle(cached) });
+          } else {
+            remaining.push(pid);
+          }
+        }
+        // Tri des préservées par angle pour pouvoir intercaler les nouvelles
+        // dans les écarts entre angles existants.
+        preserved.sort((a, b) => a.angle - b.angle);
+
+        const placed = preserved.slice();
+        for (const pid of remaining) {
+          const ang = pickNextAngle(placed.map(p => p.angle), maskedSectors);
+          placed.push({ id: pid, angle: ang });
+          placed.sort((a, b) => a.angle - b.angle);
+        }
+
+        for (const { id, angle } of placed) {
+          positions.set(id, {
+            x: starPos.x + Math.cos(angle) * ring.radius,
+            y: starPos.y + Math.sin(angle) * ring.radius,
+          });
+          newAngles.set(id, angle);
+        }
+      }
+    }
+  }
+  return newAngles;
+}
+
+/** Normalise un angle dans [0, 2π[. */
+function normalizeAngle(a: number): number {
+  const TWO_PI = 2 * Math.PI;
+  let x = a % TWO_PI;
+  if (x < 0) x += TWO_PI;
+  return x;
+}
+
+/** Vrai si l'angle (rad) tombe dans l'un des secteurs masqués. */
+function isAngleMasked(angle: number, masks: Array<[number, number]>): boolean {
+  const a = normalizeAngle(angle);
+  const TWO_PI = 2 * Math.PI;
+  for (const [lo, hi] of masks) {
+    // Le secteur peut chevaucher 2π → on teste sur la version normalisée.
+    const nlo = normalizeAngle(lo);
+    const nhi = normalizeAngle(hi);
+    if (nlo <= nhi) {
+      if (a >= nlo && a <= nhi) return true;
+    } else {
+      // Secteur qui enjambe l'origine (ex. 350° → 10°)
+      if (a >= nlo || a <= nhi) return true;
+    }
+    // Cas non-normalisé original : intervalle simple si large
+    if (hi - lo < TWO_PI && angle >= lo && angle <= hi) return true;
+  }
+  return false;
+}
+
+/** Calcule la fraction du cercle [0, 2π] non couverte par les secteurs. */
+function computeUnmaskedFraction(masks: Array<[number, number]>): number {
+  if (masks.length === 0) return 1;
+  // On échantillonne le cercle pour une mesure robuste face aux
+  // chevauchements de secteurs (résolution 1° → 360 points).
+  const samples = 360;
+  let free = 0;
+  for (let i = 0; i < samples; i++) {
+    const a = (i / samples) * 2 * Math.PI;
+    if (!isAngleMasked(a, masks)) free++;
+  }
+  return free / samples;
+}
+
+/** Choisit le prochain angle pour une planète : l'angle qui maximise la
+ *  distance angulaire au voisin le plus proche parmi les planètes déjà
+ *  placées, en évitant les secteurs masqués. */
+function pickNextAngle(existing: number[], masks: Array<[number, number]>): number {
+  // Échantillonnage à 1° : on prend le meilleur candidat libre.
+  const samples = 360;
+  let bestAngle = 0;
+  let bestScore = -1;
+  for (let i = 0; i < samples; i++) {
+    const a = (i / samples) * 2 * Math.PI;
+    if (isAngleMasked(a, masks)) continue;
+    // Distance au plus proche voisin (rad), avec wrap-around.
+    let minDist = Math.PI;
+    for (const e of existing) {
+      const d = Math.abs(a - e);
+      const dd = Math.min(d, 2 * Math.PI - d);
+      if (dd < minDist) minDist = dd;
+    }
+    // Si pas de voisin, on prend le 1er angle libre.
+    if (existing.length === 0) return a;
+    if (minDist > bestScore) {
+      bestScore = minDist;
+      bestAngle = a;
+    }
+  }
+  return bestAngle;
+}
+
+/** Répartit les planètes sur 2 anneaux. Les "grandes" planètes (plus
+ *  haute priorité — proxy : ordre des ids triés) vont sur l'anneau
+ *  interne ; les autres sur l'anneau externe. */
+function splitTwoRings(
+  planets: string[],
+  baseRadius: number,
+): Array<{ radius: number; planets: string[] }> {
+  // Anneau interne : ~40% des planètes, externe : ~60%. Cette répartition
+  // donne une densité angulaire équivalente sur les 2 anneaux (le grand
+  // anneau accueille plus de monde à densité égale).
+  const sorted = planets.slice().sort();
+  const innerCount = Math.ceil(planets.length * 0.4);
+  return [
+    { radius: baseRadius, planets: sorted.slice(0, innerCount) },
+    { radius: baseRadius * 1.7, planets: sorted.slice(innerCount) },
+  ];
+}

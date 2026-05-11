@@ -42,8 +42,7 @@ import {
   type SimulationNodeDatum,
 } from 'd3-force';
 import type { GraphEdge, GraphNode } from '@/utils/mindmapGraph';
-import type { ZoneId } from './zones';
-import { detectGalaxies, hullSatRelax, layoutGalaxyCenters } from './galaxies';
+import { applyOrbitalLayout, detectGalaxies, hullSatRelax, layoutGalaxyCenters } from './galaxies';
 
 export interface PositionedNode {
   id: string;
@@ -85,6 +84,9 @@ const ORPHAN_RECALL_STRENGTH = 0.01;
 const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v4';
 // Cache séparé pour les centres de galaxies (clé = anchorId).
 const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v1';
+// Cache des angles orbitaux par MEC (clé = id MEC). Préserve l'angle
+// d'une planète entre rendus quand le secteur libre le permet.
+const ORBITAL_ANGLES_STORAGE_KEY = 'mindmap.layout.orbits.v1';
 // Borne dure des coordonnées finales (filet de sécurité NaN/explosion).
 const POSITION_CLAMP = 15_000;
 // Seuil de bascule remous / warm full.
@@ -134,8 +136,10 @@ interface CachedPosition {
 }
 const positionCache = new Map<string, CachedPosition>();
 const galaxyCenterCache = new Map<string, { x: number; y: number }>();
+const orbitalAngleCache = new Map<string, number>();
 let positionCacheHydrated = false;
 let galaxyCenterCacheHydrated = false;
+let orbitalAngleCacheHydrated = false;
 let lastSeenRefreshKey: number | null = null;
 
 function hydratePositionCache(): void {
@@ -195,6 +199,31 @@ function persistGalaxyCenterCache(): void {
   } catch { /* ignore */ }
 }
 
+function hydrateOrbitalAngleCache(): void {
+  if (orbitalAngleCacheHydrated) return;
+  orbitalAngleCacheHydrated = true;
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = window.localStorage.getItem(ORBITAL_ANGLES_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    if (!parsed || typeof parsed !== 'object') return;
+    for (const [id, a] of Object.entries(parsed)) {
+      if (typeof a !== 'number' || !Number.isFinite(a)) continue;
+      orbitalAngleCache.set(id, a);
+    }
+  } catch { /* ignore */ }
+}
+
+function persistOrbitalAngleCache(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const obj: Record<string, number> = {};
+    for (const [id, a] of orbitalAngleCache) obj[id] = a;
+    window.localStorage.setItem(ORBITAL_ANGLES_STORAGE_KEY, JSON.stringify(obj));
+  } catch { /* ignore */ }
+}
+
 /**
  * Position de démarrage pour un nœud nouvellement apparu. On vise le
  * voisin connu le plus proche pour éviter une traversée du graphe.
@@ -227,25 +256,20 @@ function seedNewNode(
 /**
  * Retourne une Map id → {x, y} stable tant que la liste des nœuds/arêtes ne change pas.
  *
- * `refreshKey` : incrémenter pour forcer un warm full (bouton "Recompacter").
- * `nodeZones`  : conservé pour stabilité API. **Ignoré par le nouveau layout.**
- *                Les puits de gravité viennent maintenant des galaxies, pas
- *                des cardinaux. Le paramètre reste pour ne pas casser
- *                MindmapCanvas/MindmapPage ; il sera retiré quand le code
- *                appelant aura été nettoyé.
+ * `refreshKey` : incrémenter pour forcer un warm full ; appeler aussi
+ *                `clearLayoutCache()` avant pour un véritable "recompacter".
  */
 export function useForceLayout(
   nodes: GraphNode[],
   edges: GraphEdge[],
   refreshKey: number = 0,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _nodeZones?: Map<string, ZoneId[]>,
 ): Map<string, PositionedNode> {
   return useMemo(() => {
     if (nodes.length === 0) return new Map();
 
     hydratePositionCache();
     hydrateGalaxyCenterCache();
+    hydrateOrbitalAngleCache();
 
     // ─────────────────────────────────────────────────────────────
     // 1. Adjacence + détection des galaxies
@@ -422,28 +446,41 @@ export function useForceLayout(
     for (let i = 0; i < iterations; i++) sim.tick();
 
     // ─────────────────────────────────────────────────────────────
-    // 9. Hull-SAT post-pass : éjecte les galaxies qui se chevauchent
-    //    encore après la simu intra-cluster.
+    // 9. Layout orbital : on extrait d3-force du jeu pour les planètes
+    //    et on les pose proprement sur un (ou deux) anneau(x) autour
+    //    de leur étoile, en masquant le secteur tourné vers le voisin
+    //    le plus proche pour éviter les bras qui dépassent.
     // ─────────────────────────────────────────────────────────────
-    // En mode remous on ne déplace pas les galaxies figées : seules les
-    // galaxies libérées peuvent se voir corrigées. Le hull-SAT s'applique
-    // donc sur l'ensemble (les figées sont des contraintes immobiles via
-    // un delta de 0).
-    const posByNodeIdForSat = new Map<string, { x: number; y: number }>();
+    const positionsForOrbits = new Map<string, { x: number; y: number }>();
     for (const sn of simNodes as Array<SimNode & { x?: number; y?: number }>) {
-      posByNodeIdForSat.set(sn.id, { x: sn.x ?? 0, y: sn.y ?? 0 });
+      positionsForOrbits.set(sn.id, { x: sn.x ?? 0, y: sn.y ?? 0 });
     }
-    const deltas = hullSatRelax(galaxies, posByNodeIdForSat);
+    // En remous on ne touche pas aux planètes des galaxies figées : on
+    // restreint l'orbital pass aux galaxies libérées.
+    const orbitalGalaxies = mode === 'remous'
+      ? galaxies.filter(g => Array.from(g.memberIds).some(id => releasedNodes.has(id)))
+      : galaxies;
+    const newAngles = applyOrbitalLayout(orbitalGalaxies, nodes, positionsForOrbits, orbitalAngleCache);
+    for (const [mecId, ang] of newAngles) orbitalAngleCache.set(mecId, ang);
 
     // ─────────────────────────────────────────────────────────────
-    // 10. Export + mise à jour des caches
+    // 10. Hull-SAT post-pass : éjecte les galaxies qui se chevauchent
+    //     encore après l'expansion orbitale.
+    // ─────────────────────────────────────────────────────────────
+    const deltas = hullSatRelax(galaxies, positionsForOrbits);
+
+    // ─────────────────────────────────────────────────────────────
+    // 11. Export + mise à jour des caches
     // ─────────────────────────────────────────────────────────────
     const positions = new Map<string, PositionedNode>();
     for (const sn of simNodes as Array<SimNode & { x?: number; y?: number }>) {
       const idx = galaxyIdxByNodeId.get(sn.id);
       const delta = idx !== undefined ? deltas.get(idx) : undefined;
-      let x = Number.isFinite(sn.x) ? (sn.x as number) : 0;
-      let y = Number.isFinite(sn.y) ? (sn.y as number) : 0;
+      // Si l'orbital layout a réécrit la position de cette planète,
+      // on l'utilise comme base ; sinon on prend la position de la simu.
+      const orbital = positionsForOrbits.get(sn.id);
+      let x = orbital?.x ?? (Number.isFinite(sn.x) ? (sn.x as number) : 0);
+      let y = orbital?.y ?? (Number.isFinite(sn.y) ? (sn.y as number) : 0);
       if (delta) { x += delta.dx; y += delta.dy; }
       if (x > POSITION_CLAMP) x = POSITION_CLAMP;
       else if (x < -POSITION_CLAMP) x = -POSITION_CLAMP;
@@ -466,6 +503,7 @@ export function useForceLayout(
 
     persistPositionCache();
     persistGalaxyCenterCache();
+    persistOrbitalAngleCache();
     return positions;
   }, [nodes, edges, refreshKey]);
 }
@@ -482,8 +520,10 @@ export function getNodeRadius(node: GraphNode): number {
 export function clearLayoutCache(): void {
   positionCache.clear();
   galaxyCenterCache.clear();
+  orbitalAngleCache.clear();
   if (typeof window !== 'undefined') {
     try { window.localStorage.removeItem(POSITIONS_STORAGE_KEY); } catch { /* ignore */ }
     try { window.localStorage.removeItem(GALAXY_CENTERS_STORAGE_KEY); } catch { /* ignore */ }
+    try { window.localStorage.removeItem(ORBITAL_ANGLES_STORAGE_KEY); } catch { /* ignore */ }
   }
 }
