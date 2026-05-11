@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>APP MÉTIER — Présentation</title>
+<style>
+  @page { size: A4; margin: 2cm 1.8cm; }
+  html, body { font-family: "Calibri", "Helvetica", "Arial", sans-serif; color: #1f2937; font-size: 11pt; line-height: 1.5; }
+  body { margin: 0; }
+  h1, h2, h3, h4 { color: #064e3b; font-weight: 700; line-height: 1.2; }
+  h1 { font-size: 28pt; margin: 0 0 6pt 0; }
+  h2 { font-size: 18pt; margin: 28pt 0 8pt 0; border-bottom: 2px solid #059669; padding-bottom: 4pt; page-break-after: avoid; }
+  h3 { font-size: 13pt; margin: 16pt 0 4pt 0; color: #047857; page-break-after: avoid; }
+  h4 { font-size: 11pt; margin: 10pt 0 2pt 0; color: #065f46; }
+  p { margin: 6pt 0; text-align: justify; }
+  ul, ol { margin: 6pt 0 6pt 18pt; padding: 0; }
+  li { margin: 2pt 0; }
+  code { font-family: "Consolas", "Courier New", monospace; background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 10pt; color: #be123c; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 10pt; border-radius: 6pt; font-size: 9.5pt; overflow-x: auto; line-height: 1.4; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 8pt 0; font-size: 10pt; page-break-inside: avoid; }
+  th, td { border: 1px solid #d1d5db; padding: 5pt 7pt; text-align: left; vertical-align: top; }
+  th { background: #ecfdf5; color: #064e3b; font-weight: 700; }
+  tr:nth-child(even) td { background: #f9fafb; }
+  .cover { text-align: center; padding-top: 4cm; page-break-after: always; }
+  .cover-logo { display: inline-block; width: 90px; height: 90px; border-radius: 18px; background: linear-gradient(135deg, #059669 0%, #065f46 100%); color: white; font-size: 56pt; line-height: 90px; margin-bottom: 18pt; box-shadow: 0 8px 24px rgba(5,150,105,0.25); }
+  .cover h1 { font-size: 40pt; letter-spacing: 2pt; margin: 0; }
+  .cover .tagline { font-size: 13pt; text-transform: uppercase; letter-spacing: 4pt; color: #6b7280; margin: 8pt 0 28pt 0; }
+  .cover .meta { color: #4b5563; font-size: 11pt; margin-top: 1cm; }
+  .cover .meta strong { color: #064e3b; }
+  .badge { display: inline-block; padding: 1pt 8pt; border-radius: 999px; font-size: 9pt; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5pt; }
+  .badge-red { background: #fee2e2; color: #991b1b; }
+  .badge-blue { background: #dbeafe; color: #1e40af; }
+  .badge-green { background: #dcfce7; color: #166534; }
+  .badge-gray { background: #f3f4f6; color: #374151; }
+  .callout { background: #ecfdf5; border-left: 4pt solid #059669; padding: 10pt 14pt; margin: 12pt 0; border-radius: 0 6pt 6pt 0; }
+  .callout.warn { background: #fffbeb; border-color: #d97706; }
+  .callout.info { background: #eff6ff; border-color: #2563eb; }
+  .grid-2 { display: table; width: 100%; border-spacing: 12pt 0; margin: 8pt 0; }
+  .grid-2 > div { display: table-cell; width: 50%; vertical-align: top; background: #f9fafb; border: 1px solid #e5e7eb; padding: 10pt; border-radius: 6pt; }
+  .figure { margin: 14pt 0; text-align: center; page-break-inside: avoid; }
+  .figure img { max-width: 100%; max-height: 14cm; border: 1px solid #d1d5db; border-radius: 4pt; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+  .figure .caption { font-size: 9.5pt; color: #6b7280; font-style: italic; margin-top: 4pt; }
+  .placeholder { display: block; width: 100%; height: 9cm; background: repeating-linear-gradient(45deg, #f3f4f6, #f3f4f6 10px, #e5e7eb 10px, #e5e7eb 20px); border: 2pt dashed #9ca3af; border-radius: 6pt; color: #6b7280; text-align: center; line-height: 9cm; font-style: italic; font-size: 11pt; }
+  .toc { columns: 1; margin: 12pt 0; }
+  .toc ul { list-style: none; margin-left: 0; }
+  .toc li { padding: 2pt 0; border-bottom: 1px dotted #d1d5db; }
+  .toc .num { color: #059669; font-weight: 700; margin-right: 8pt; }
+  .page-break { page-break-before: always; }
+  .small { font-size: 9.5pt; color: #6b7280; }
+  .kv { width: 100%; }
+  .kv td { border: none; padding: 3pt 4pt; }
+  .kv td:first-child { width: 38%; color: #6b7280; font-weight: 600; }
+  hr { border: none; border-top: 1px solid #e5e7eb; margin: 18pt 0; }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     COUVERTURE
+     ════════════════════════════════════════════════════════════════════ -->
+<section class="cover">
+  <div class="cover-logo">⚖</div>
+  <h1>APP MÉTIER</h1>
+  <div class="tagline">Gestion des enquêtes pénales</div>
+
+  <p style="font-size: 13pt; color: #374151; max-width: 14cm; margin: 0 auto;">
+    Plateforme de gestion intégrée des enquêtes et dossiers d'instruction
+    pour un parquet de tribunal judiciaire — multi-contentieux, multi-utilisateurs,
+    avec synchronisation, alertes et cartographie relationnelle.
+  </p>
+
+  <div class="meta">
+    <p><strong>Auteur :</strong> Audran Chevalier</p>
+    <p><strong>Contexte :</strong> Parquet du Tribunal Judiciaire d'Amiens</p>
+    <p><strong>Version :</strong> 1.0 &nbsp;·&nbsp; <strong>Document :</strong> Présentation générale</p>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     SOMMAIRE
+     ════════════════════════════════════════════════════════════════════ -->
+<h2>Sommaire</h2>
+<div class="toc">
+<ul>
+  <li><span class="num">1</span> En bref</li>
+  <li><span class="num">2</span> Contexte et public visé</li>
+  <li><span class="num">3</span> Architecture en un coup d'œil</li>
+  <li><span class="num">4</span> Tour des fonctionnalités
+    <ul style="list-style: none; margin-left: 18pt; font-size: 10pt;">
+      <li>4.1 — Tableau de bord et navigation multi-contentieux</li>
+      <li>4.2 — Enquêtes : cycle de vie complet</li>
+      <li>4.3 — Instructions judiciaires</li>
+      <li>4.4 — Cartographie relationnelle</li>
+      <li>4.5 — Statistiques</li>
+      <li>4.6 — Alertes et échéances</li>
+      <li>4.7 — Permanence</li>
+      <li>4.8 — Imports : AIR &amp; greffe</li>
+      <li>4.9 — Documents et analyse OCR</li>
+      <li>4.10 — Sauvegarde et synchronisation</li>
+      <li>4.11 — Administration et rôles</li>
+    </ul>
+  </li>
+  <li><span class="num">5</span> Pile technique</li>
+  <li><span class="num">6</span> Architecture détaillée</li>
+  <li><span class="num">7</span> Sécurité et confidentialité</li>
+  <li><span class="num">8</span> Déploiement et exploitation</li>
+  <li><span class="num">9</span> Pour aller plus loin</li>
+</ul>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     1. EN BREF
+     ════════════════════════════════════════════════════════════════════ -->
+<h2 class="page-break">1. En bref</h2>
+
+<p>
+APP MÉTIER est une <strong>application de bureau Windows</strong> (Electron + Next.js)
+développée pour le Parquet du Tribunal Judiciaire d'Amiens. Elle outille le quotidien
+des magistrats et des juristes assistants pour le suivi des enquêtes pénales
+sur trois contentieux spécialisés :
+</p>
+
+<p>
+  <span class="badge badge-red">● CRIMORG</span> &nbsp; Criminalité organisée
+  &nbsp;&nbsp; <span class="badge badge-blue">● ECOFI</span> &nbsp; Économique &amp; financier
+  &nbsp;&nbsp; <span class="badge badge-green">● ENVIRO</span> &nbsp; Environnement
+</p>
+
+<div class="callout">
+<strong>Cas d'usage type.</strong> Un magistrat ouvre une nouvelle enquête,
+y rattache un ou plusieurs mis en cause, suit les actes (géolocalisation,
+écoute, saisies), reçoit des alertes avant les échéances de prolongation,
+consulte la cartographie relationnelle des dossiers du contentieux, génère
+des statistiques d'audience, puis archive le dossier. Les données sont
+synchronisées en temps quasi-réel entre les postes via un partage réseau,
+avec gestion fine des permissions par rôle et par contentieux.
+</div>
+
+<h3>Chiffres clés du projet</h3>
+<table class="kv">
+  <tr><td>Lignes de code</td><td>≈ 47 000 (TypeScript / TSX)</td></tr>
+  <tr><td>Composants UI</td><td>≈ 133 fichiers React</td></tr>
+  <tr><td>Hooks personnalisés</td><td>25+</td></tr>
+  <tr><td>Modules utilitaires</td><td>30+</td></tr>
+  <tr><td>Handlers IPC Electron</td><td>150+ méthodes exposées au renderer</td></tr>
+  <tr><td>Cible</td><td>Windows portable (exécutable autonome)</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     2. CONTEXTE
+     ════════════════════════════════════════════════════════════════════ -->
+<h2>2. Contexte et public visé</h2>
+
+<h3>Le besoin métier</h3>
+<p>
+Les magistrats du parquet jonglent quotidiennement avec un grand nombre de
+procédures, chacune ponctuée d'<strong>échéances légales strictes</strong>
+(prolongations d'actes, durées maximales de détention provisoire, délais
+JLD). Les outils nationaux existants ne couvrent pas finement le suivi
+opérationnel par contentieux spécialisé ni la vision transversale entre
+dossiers. APP MÉTIER vient combler ce vide en offrant :
+</p>
+<ul>
+  <li>Un <strong>poste de pilotage unique</strong> pour les enquêtes en cours et les instructions ouvertes.</li>
+  <li>Des <strong>alertes paramétrables</strong> sur les délais critiques propres à chaque contentieux.</li>
+  <li>Une <strong>vision transversale</strong> (cartographie) des liens entre enquêtes et personnes.</li>
+  <li>Un <strong>partage multi-utilisateur fiable</strong> via le réseau interne, sans serveur applicatif central.</li>
+</ul>
+
+<h3>Profils utilisateurs</h3>
+<table>
+  <tr><th>Rôle</th><th>Périmètre</th><th>Capacités principales</th></tr>
+  <tr><td><strong>Administrateur</strong></td><td>Global</td><td>Gestion des utilisateurs, paramétrage serveur, validation des mises à jour.</td></tr>
+  <tr><td><strong>PRA / Vice-procureur</strong></td><td>Global</td><td>Vision et édition tous contentieux, gestion alertes globales.</td></tr>
+  <tr><td><strong>Magistrat</strong></td><td>Par contentieux</td><td>Création, édition, archivage d'enquêtes et d'instructions sur ses contentieux.</td></tr>
+  <tr><td><strong>JA (juriste assistant)</strong></td><td>Par contentieux</td><td>Saisie, suivi, contribution sur les contentieux affectés.</td></tr>
+  <tr><td><strong>JLD</strong></td><td>Global, lecture seule</td><td>Consultation des dossiers, suivi des décisions à valider.</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     3. ARCHITECTURE EN UN COUP D'ŒIL
+     ════════════════════════════════════════════════════════════════════ -->
+<h2 class="page-break">3. Architecture en un coup d'œil</h2>
+
+<p>
+APP MÉTIER est une application <strong>Electron</strong> qui embarque une
+application <strong>Next.js</strong> côté interface. Les données vivent en
+fichiers JSON locaux et sont synchronisées vers un <strong>partage réseau</strong>
+(SMB) accessible à tous les utilisateurs autorisés.
+</p>
+
+<pre><code>┌─────────────────────────────────────────────────────────────────┐
+│  POSTE UTILISATEUR (Windows)                                    │
+│                                                                 │
+│   ┌──────────────────────┐        ┌─────────────────────────┐   │
+│   │  Renderer Next.js     │  IPC   │  Main process Electron  │   │
+│   │  (React 18 + Tailwind)│ ◄────► │  (Node.js — main.js)    │   │
+│   │   • UI                │        │   • Fichiers locaux     │   │
+│   │   • State (Zustand)   │        │   • OCR (Tesseract)     │   │
+│   │   • Charts, Mindmap   │        │   • Sync SMB            │   │
+│   └──────────────────────┘        │   • Audit / Heartbeat   │   │
+│                                    └────────────┬────────────┘   │
+└─────────────────────────────────────────────────┼────────────────┘
+                                                  │
+                                  ┌───────────────┴───────────────┐
+                                  │   PARTAGE RÉSEAU (SMB)        │
+                                  │   • app-data-{contentieux}.json
+                                  │   • users.json, tag-data.json │
+                                  │   • shared-events, heartbeat  │
+                                  │   • backups horodatés         │
+                                  └───────────────────────────────┘
+</code></pre>
+
+<p>
+Aucun serveur applicatif n'est requis : la synchronisation repose sur des
+écritures atomiques sur un partage Windows partagé, avec gestion des conflits,
+journal d'événements partagés et présence (<em>heartbeat</em>) des utilisateurs.
+</p>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     4. TOUR DES FONCTIONNALITÉS
+     ════════════════════════════════════════════════════════════════════ -->
+<h2 class="page-break">4. Tour des fonctionnalités</h2>
+
+<!-- 4.1 Dashboard -->
+<h3>4.1 — Tableau de bord et navigation multi-contentieux</h3>
+
+<p>
+La fenêtre principale présente, à gauche, une <strong>barre latérale verticale</strong>
+qui regroupe la navigation par contentieux (chacun avec sa couleur identifiante).
+Sous chaque contentieux apparaissent les vues <em>Enquêtes</em>, <em>Archives</em>
+et <em>Statistiques</em>. Les modules transverses (Instructions, Cartographie,
+Permanence, Alertes, Tags, Sauvegarde) sont accessibles en bas de la barre.
+</p>
+
+<div class="figure">
+  <img src="screenshots/01-dashboard.png" alt="Tableau de bord principal" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>01-dashboard.png</strong> — Tableau de bord ]</div>
+  <div class="caption">Figure 1 — Tableau de bord, vue Enquêtes du contentieux CRIMORG.</div>
+</div>
+
+<p>
+Le <strong>header supérieur</strong> contient la recherche globale (qui scanne aussi
+le contenu des documents indexés par OCR), un indicateur de synchronisation, un
+bouton de sauvegarde manuelle, l'indicateur d'état réseau, et la cloche d'alertes.
+</p>
+
+<div class="figure">
+  <img src="screenshots/02-sidebar.png" alt="Barre latérale" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>02-sidebar.png</strong> — Sidebar développée ]</div>
+  <div class="caption">Figure 2 — Barre latérale avec les trois contentieux, badges d'alertes et lecture seule.</div>
+</div>
+
+<!-- 4.2 Enquêtes -->
+<h3>4.2 — Enquêtes : cycle de vie complet</h3>
+
+<p>
+Une enquête est représentée sous forme d'une <strong>carte</strong> dans la grille
+principale. Filtres et tri sont disponibles en barre supérieure (par service,
+infraction, durée, statut, présence de JLD, tags).
+</p>
+
+<div class="figure">
+  <img src="screenshots/03-enquete-detail.png" alt="Détail d'une enquête" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>03-enquete-detail.png</strong> — Modale de détail ]</div>
+  <div class="caption">Figure 3 — Modale de détail d'une enquête, vue d'ensemble.</div>
+</div>
+
+<p>L'ouverture d'une enquête déploie une <strong>modale structurée en 13 sections</strong> :</p>
+<ul>
+  <li><strong>En-tête</strong> : numéro, dates, statut, contentieux, tags, services rattachés.</li>
+  <li><strong>Mis en cause</strong> : identité, alias, B1, ressortissants, mineurs.</li>
+  <li><strong>Géolocalisation</strong> : périodes, autorisations, prolongations.</li>
+  <li><strong>Écoutes</strong> : lignes interceptées, périodes, autorité de prescription.</li>
+  <li><strong>Actes divers</strong> (perquisitions, sonorisations, captations, etc.).</li>
+  <li><strong>Saisies</strong> : véhicules, immobilier, comptes, cryptoactifs, stupéfiants.</li>
+  <li><strong>Co-saisine</strong> : autres contentieux ou unités impliqués.</li>
+  <li><strong>To-do</strong> : check-list opérationnelle.</li>
+  <li><strong>Transfert contentieux</strong> : historique des déplacements de dossier.</li>
+  <li><strong>Compte rendu</strong> : rédaction libre, export DOCX possible.</li>
+  <li><strong>Documents</strong> : pièces jointes, OCR, catégorisation automatique.</li>
+  <li><strong>Audience</strong> et <strong>Résultat d'audience</strong>.</li>
+</ul>
+
+<div class="figure">
+  <img src="screenshots/04-enquete-actes.png" alt="Section actes d'une enquête" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>04-enquete-actes.png</strong> — Section Actes ]</div>
+  <div class="caption">Figure 4 — Section "Actes" : géolocalisation, écoute, autres actes, prolongations.</div>
+</div>
+
+<!-- 4.3 Instructions -->
+<h3>4.3 — Instructions judiciaires</h3>
+
+<p>
+Le module <strong>Instructions</strong> couvre les dossiers ouverts à l'instruction
+(post-information judiciaire). Il modélise :
+</p>
+<ul>
+  <li>Les <strong>cabinets</strong> et magistrats / juristes assistants affectés.</li>
+  <li>Les <strong>mis en examen</strong> avec leurs <em>infractions reprochées</em>.</li>
+  <li>Une <strong>timeline d'événements</strong> (interpellation, DP, DML, débats JLD…).</li>
+  <li>Les <strong>mesures de sûreté</strong> et leurs prolongations (durée légale et alertes 175 jours).</li>
+  <li>Les <strong>résultats</strong> de vérifications et contrôles de légalité.</li>
+</ul>
+
+<div class="figure">
+  <img src="screenshots/05-instructions-list.png" alt="Liste des instructions" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>05-instructions-list.png</strong> — Page Instructions ]</div>
+  <div class="caption">Figure 5 — Liste des dossiers d'instruction avec filtres par cabinet.</div>
+</div>
+
+<div class="figure">
+  <img src="screenshots/06-instruction-detail.png" alt="Détail d'une instruction" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>06-instruction-detail.png</strong> — Modale d'instruction ]</div>
+  <div class="caption">Figure 6 — Détail d'une instruction : mis en examen, timeline, mesures.</div>
+</div>
+
+<!-- 4.4 Mindmap -->
+<h3>4.4 — Cartographie relationnelle</h3>
+
+<p>
+La <strong>cartographie</strong> (mindmap) propose une vue <em>force-directed</em>
+des dossiers d'un contentieux. Chaque nœud représente un mis en cause ; les
+liens matérialisent les co-occurrences entre enquêtes. Les nœuds sont regroupés
+en <em>galaxies</em> par type d'infraction et peuvent être enrichis d'<em>overlays</em>
+(focus CRIM ORG, influence convex hull). Un système de score paramétrable
+(degré, centralité, fréquence, présence cross-contentieux) hiérarchise visuellement
+les acteurs clés.
+</p>
+
+<div class="figure">
+  <img src="screenshots/07-mindmap.png" alt="Cartographie" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>07-mindmap.png</strong> — Cartographie ]</div>
+  <div class="caption">Figure 7 — Cartographie relationnelle : graphe interactif avec overlays.</div>
+</div>
+
+<!-- 4.5 Stats -->
+<h3>4.5 — Statistiques</h3>
+
+<p>
+Trois tableaux de bord statistiques sont disponibles :
+</p>
+<ul>
+  <li><strong>Statistiques générales</strong> : volumes d'enquêtes, statuts, ventilations par service et infraction.</li>
+  <li><strong>Statistiques d'audience</strong> : type de poursuite (CRPC, CI, COPJ, OI, CDD), peines prononcées, saisies décidées.</li>
+  <li><strong>Statistiques d'infraction</strong> : répartition par catégorie, évolution temporelle.</li>
+</ul>
+<p>
+Les graphiques sont exportables en PDF ou intégrés à un rapport via le bouton
+dédié (utilise <code>html2pdf.js</code> et <code>pdf-lib</code>).
+</p>
+
+<div class="figure">
+  <img src="screenshots/08-stats.png" alt="Statistiques" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>08-stats.png</strong> — Page Statistiques ]</div>
+  <div class="caption">Figure 8 — Page Statistiques avec graphiques audience &amp; infractions.</div>
+</div>
+
+<!-- 4.6 Alertes -->
+<h3>4.6 — Alertes et échéances</h3>
+
+<p>
+Le moteur d'alertes (<code>utils/alerts/alertManager.ts</code>) évalue en
+continu les <strong>règles configurables</strong> par contentieux :
+</p>
+<ul>
+  <li>Échéance de prolongation d'acte (géoloc, écoute, autres).</li>
+  <li>Délai de présentation au JLD.</li>
+  <li>Plafonds de durée pour la détention provisoire (DP, DML, seuil 175 jours).</li>
+  <li>Suivi des audiences en attente.</li>
+</ul>
+<p>
+Chaque utilisateur peut affiner les seuils. Les alertes apparaissent sous
+forme de <strong>badges</strong> dans la barre latérale, d'une <strong>cloche</strong> dans
+le header, et de <em>toasts</em>. Une page dédiée centralise la consultation
+et la gestion des règles.
+</p>
+
+<div class="figure">
+  <img src="screenshots/11-alerts.png" alt="Page Alertes" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>11-alerts.png</strong> — Page Alertes ]</div>
+  <div class="caption">Figure 9 — Configuration des règles d'alerte et alertes actives.</div>
+</div>
+
+<!-- 4.7 Permanence -->
+<h3>4.7 — Permanence</h3>
+
+<p>
+La page <strong>Permanence</strong> affiche la grille hebdomadaire des magistrats
+et JLD de garde, filtrable et exportable en PDF. Elle s'appuie sur les
+préférences utilisateur synchronisées sur le serveur (voir §4.10).
+</p>
+
+<div class="figure">
+  <img src="screenshots/10-permanence.png" alt="Page Permanence" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>10-permanence.png</strong> — Page Permanence ]</div>
+  <div class="caption">Figure 10 — Grille hebdomadaire des permanences.</div>
+</div>
+
+<!-- 4.8 Imports -->
+<h3>4.8 — Imports : AIR &amp; greffe</h3>
+
+<div class="grid-2">
+  <div>
+    <h4>Import AIR</h4>
+    <p>Le module <strong>AIR</strong> permet l'import en masse depuis un fichier
+    métier (CSV/Excel). Le flux comprend la sélection du fichier, le mapping
+    automatique, la <em>vérification de doublons</em> et la création en lot.</p>
+  </div>
+  <div>
+    <h4>Import greffe</h4>
+    <p>L'import <strong>greffe</strong> rapatrie les éléments enregistrés au
+    registre du tribunal pour les intégrer comme champs structurés dans les
+    enquêtes (numéro de parquet, dates, parties).</p>
+  </div>
+</div>
+
+<div class="figure">
+  <img src="screenshots/09-air-import.png" alt="Import AIR" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>09-air-import.png</strong> — Import AIR ]</div>
+  <div class="caption">Figure 11 — Assistant d'import AIR, étape de vérification des doublons.</div>
+</div>
+
+<!-- 4.9 Documents OCR -->
+<h3>4.9 — Documents et analyse OCR</h3>
+
+<p>
+Chaque enquête peut accueillir des <strong>pièces jointes</strong> (PDF, DOCX, MSG,
+images). L'application :
+</p>
+<ul>
+  <li>Stocke les documents en local (<code>data/documentenquete</code>) et/ou sur un chemin externe.</li>
+  <li>Effectue une <strong>analyse OCR</strong> via <em>Tesseract.js</em> (données embarquées dans <code>tessdata/</code>).</li>
+  <li>Extrait les métadonnées (dates, numéros, tribunal) et <strong>catégorise automatiquement</strong> (prolongation d'écoute, nouvelle écoute, autorisation, etc.).</li>
+  <li>Permet la <strong>recherche plein texte</strong> dans le contenu indexé (recherche globale du header).</li>
+</ul>
+
+<!-- 4.10 Sync -->
+<h3>4.10 — Sauvegarde et synchronisation</h3>
+
+<p>
+Le module <strong>Sauvegarde</strong> est le poste de contrôle du
+multi-utilisateur. Il affiche :
+</p>
+<ul>
+  <li>L'état du réseau (sain / lent / inaccessible) — sonde SMB toutes les 20 s.</li>
+  <li>L'historique des sauvegardes horodatées (rotation paramétrable).</li>
+  <li>L'outil de comparaison &amp; restauration depuis une sauvegarde.</li>
+  <li>Le suivi des conflits éventuels lors d'écritures simultanées.</li>
+</ul>
+
+<div class="figure">
+  <img src="screenshots/12-save-sync.png" alt="Sauvegarde et synchronisation" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>12-save-sync.png</strong> — Page Sauvegarde ]</div>
+  <div class="caption">Figure 12 — Page Sauvegarde / Synchronisation.</div>
+</div>
+
+<p>
+La synchronisation est <strong>par contentieux</strong> et orchestrée par
+<code>MultiSyncManager</code>. Chaque écriture déclenche également un
+<em>shared event</em> côté serveur permettant aux autres postes d'être notifiés
+des changements pertinents (création, modification, archivage).
+</p>
+
+<!-- 4.11 Admin -->
+<h3>4.11 — Administration et rôles</h3>
+
+<p>
+Les administrateurs disposent de panneaux dédiés :
+</p>
+<ul>
+  <li><strong>Utilisateurs</strong> : création, validation, attribution des rôles globaux et par contentieux.</li>
+  <li><strong>Contentieux</strong> : chemins serveur, ordre d'affichage, libellés.</li>
+  <li><strong>Cabinets &amp; types d'événements</strong> : configuration du module Instructions.</li>
+  <li><strong>Scoring cartographie</strong> : poids des critères de centralité.</li>
+  <li><strong>Historique des tags</strong> : audit des modifications.</li>
+  <li><strong>Mises à jour</strong> : validation centralisée avant déploiement sur les postes.</li>
+</ul>
+
+<div class="figure">
+  <img src="screenshots/13-settings.png" alt="Paramètres / Administration" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>13-settings.png</strong> — Panneau Admin ]</div>
+  <div class="caption">Figure 13 — Panneau d'administration (utilisateurs).</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     5. STACK TECHNIQUE
+     ════════════════════════════════════════════════════════════════════ -->
+<h2 class="page-break">5. Pile technique</h2>
+
+<table>
+  <tr><th>Couche</th><th>Technologies</th><th>Rôle</th></tr>
+  <tr>
+    <td><strong>Application desktop</strong></td>
+    <td>Electron 30, Node.js (Windows portable)</td>
+    <td>Conteneur, accès système, IPC vers le rendu.</td>
+  </tr>
+  <tr>
+    <td><strong>Interface</strong></td>
+    <td>Next.js 13.5 (app router), React 18, TypeScript 5</td>
+    <td>Rendu de l'UI, navigation, lazy loading des modules lourds.</td>
+  </tr>
+  <tr>
+    <td><strong>Styles</strong></td>
+    <td>Tailwind CSS, Radix UI (15+ primitives), lucide-react</td>
+    <td>Design system cohérent, composants accessibles, icônes.</td>
+  </tr>
+  <tr>
+    <td><strong>État</strong></td>
+    <td>Zustand (6 stores), Jotai, React Context</td>
+    <td>État partagé performant, séparation par domaine.</td>
+  </tr>
+  <tr>
+    <td><strong>Formulaires &amp; validation</strong></td>
+    <td>react-hook-form, zod</td>
+    <td>Saisie performante, validation par schéma.</td>
+  </tr>
+  <tr>
+    <td><strong>Graphiques</strong></td>
+    <td>Chart.js + react-chartjs-2, Recharts</td>
+    <td>Tableaux de bord statistiques.</td>
+  </tr>
+  <tr>
+    <td><strong>Cartographie</strong></td>
+    <td>@xyflow/react, d3-force</td>
+    <td>Graphe interactif, layout force-directed.</td>
+  </tr>
+  <tr>
+    <td><strong>Documents</strong></td>
+    <td>pdf-lib, pdfjs-dist, html2pdf.js, html-docx-js, xlsx</td>
+    <td>Export PDF/DOCX/XLSX, lecture de PDF.</td>
+  </tr>
+  <tr>
+    <td><strong>OCR</strong></td>
+    <td>tesseract.js (données <code>tessdata/</code> embarquées)</td>
+    <td>Extraction de texte depuis images et PDFs scannés.</td>
+  </tr>
+  <tr>
+    <td><strong>Persistance &amp; sync</strong></td>
+    <td>Fichiers JSON locaux, partage SMB Windows</td>
+    <td>Multi-utilisateur sans serveur applicatif.</td>
+  </tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     6. ARCHITECTURE DÉTAILLÉE
+     ════════════════════════════════════════════════════════════════════ -->
+<h2>6. Architecture détaillée</h2>
+
+<h3>Processus Electron principal (<code>main.js</code>)</h3>
+<p>
+~3 300 lignes. Responsable de l'ensemble des accès système, exposés au
+renderer via un <strong>context bridge</strong> sécurisé (<code>preload.js</code>).
+Catégories de handlers IPC :
+</p>
+<ul>
+  <li><strong>Stockage local</strong> : <code>getData</code>, <code>setData</code>, écritures atomiques par contentieux, gestion des dossiers <code>data/</code>, <code>casiers/</code>, <code>documentenquete/</code>, <code>backups/</code>.</li>
+  <li><strong>Documents</strong> : copie vers chemin externe, scan, catégorisation, OCR.</li>
+  <li><strong>Synchronisation</strong> : <code>dataSync:pull/push</code> par contentieux (MultiSyncManager), <code>globalSync:*</code> pour les ressources globales (tags, alertes, audience, IDs supprimés, cartographie, préférences utilisateur).</li>
+  <li><strong>Présence et événements</strong> : <code>heartbeat:write/readAll</code>, <code>sharedEvent:write/readRecent</code>.</li>
+  <li><strong>Audit</strong> : <code>auditLog:append</code> pour la traçabilité des modifications.</li>
+  <li><strong>Mises à jour</strong> : <code>app:checkUpdate/applyUpdate</code> avec validation administrateur centralisée.</li>
+  <li><strong>Résilience</strong> : sonde réseau périodique, gestion des reconnexions, reprise après veille (<code>powerMonitor</code>).</li>
+</ul>
+
+<h3>Pont de pré-chargement (<code>preload.js</code>)</h3>
+<p>
+Isolation de contexte stricte : aucune API Node n'est exposée à la page rendue.
+Seules les méthodes énumérées sur <code>window.electronAPI</code> sont disponibles.
+</p>
+
+<h3>Renderer Next.js</h3>
+<p>Architecture orientée modules. Points d'entrée :</p>
+<ul>
+  <li><code>app/layout.tsx</code> : layout racine, polices, styles globaux.</li>
+  <li><code>app/page.tsx</code> : composition principale (sidebar + header + vue active).</li>
+  <li><strong>Pages dynamiques</strong> chargées en lazy : <em>AIRPage</em>, <em>InstructionsPage</em>, <em>InstructionArchivesPage</em>, <em>MindmapPage</em> — pour limiter le poids initial.</li>
+  <li><strong>Contextes</strong> : <em>UserContext</em> (auth, rôles), <em>ToastContext</em>, <em>AudienceContext</em>, <em>InstructionResultatsContext</em>.</li>
+</ul>
+
+<h3>Flux de données type</h3>
+<pre><code>Saisie utilisateur
+   │
+   ▼
+Composant React  ──►  Hook (useContentieuxEnquetes, useInstructions, …)
+   │                       │
+   │                       ▼
+   │                  Store Zustand  ──►  re-render filtré (useMemo)
+   │
+   ▼
+StorageManager  ──►  electronAPI.dataSync_push()
+                        │
+                        ▼
+                 main.js / MultiSyncManager
+                        │
+                        ▼
+                 Partage réseau (SMB)
+                        │
+                        ▼
+                 sharedEvent: notif aux autres postes</code></pre>
+
+<h3>Modèle de données (extraits)</h3>
+<table>
+  <tr><th>Domaine</th><th>Type principal</th><th>Champs clés</th></tr>
+  <tr><td>Enquête</td><td><code>Enquete</code></td><td>numéro, dates, statut, misEnCause[], geoloc, ecoutes, actes, saisies, tags, todos, documents, modifications[]</td></tr>
+  <tr><td>Instruction</td><td><code>DossierInstruction</code></td><td>cabinet, magistrat, misEnExamen[], infractions[], timeline[], mesures[], resultats[]</td></tr>
+  <tr><td>Audience</td><td><code>ResultatAudience</code></td><td>type (CRPC-Def, CI, COPJ, OI, CDD), peine, saisies décidées</td></tr>
+  <tr><td>Utilisateur</td><td><code>UserProfile</code></td><td>roles globaux, roles par contentieux, préférences</td></tr>
+  <tr><td>Cartographie</td><td><code>CartographieConfig</code></td><td>poids scoring (degré, centralité, fréquence, cross-contentieux)</td></tr>
+</table>
+
+<h3>Migrations de schéma</h3>
+<p>
+Le dossier <code>migrations/</code> définit les versions de schéma (<code>v1</code>, <code>v2</code>)
+et un <code>MigrationManager</code> qui applique les transformations au chargement
+si la version locale est antérieure. Garantit la compatibilité ascendante des
+données existantes lors des évolutions.
+</p>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     7. SÉCURITÉ ET CONFIDENTIALITÉ
+     ════════════════════════════════════════════════════════════════════ -->
+<h2 class="page-break">7. Sécurité et confidentialité</h2>
+
+<div class="callout warn">
+<strong>Données sensibles.</strong> L'application manipule des informations
+judiciaires (identités, infractions, mesures de sûreté). Toutes les couches
+intègrent des dispositifs de cloisonnement et de traçabilité.
+</div>
+
+<h3>Cloisonnement</h3>
+<ul>
+  <li><strong>Isolation de contexte Electron</strong> : aucun accès Node depuis la page rendue ; toute interaction passe par le bridge typé du <code>preload.js</code>.</li>
+  <li><strong>RBAC fin</strong> : matrice de permissions par couple <em>(rôle, contentieux)</em>. Le mode <em>lecture seule</em> est appliqué automatiquement pour les rôles JLD/JA sur les contentieux non écritures.</li>
+  <li><strong>Chemins serveurs</strong> définis par l'administrateur, vérifiés au lancement.</li>
+</ul>
+
+<h3>Traçabilité</h3>
+<ul>
+  <li><strong>Audit log</strong> : toute modification (enquête, instruction, tags) consignée avec utilisateur, horodatage, type.</li>
+  <li><strong>Modifications par dossier</strong> : historique embarqué dans chaque enquête/instruction, consultable en interface.</li>
+  <li><strong>Présence (heartbeat)</strong> et <strong>shared events</strong> : permet de retracer qui agissait au moment d'un conflit.</li>
+</ul>
+
+<h3>Robustesse</h3>
+<ul>
+  <li>Désactivation des <em>source maps</em> en production (protection du code).</li>
+  <li>Suppression de l'en-tête <code>X-Powered-By</code> (masquage de la stack).</li>
+  <li>Écritures atomiques (fichier temporaire + renommage) pour éviter la corruption en cas d'interruption.</li>
+  <li>Gestion explicite des <code>ECONNRESET</code> et reprises après veille.</li>
+  <li>Rotation et conservation paramétrables des sauvegardes.</li>
+</ul>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     8. DÉPLOIEMENT
+     ════════════════════════════════════════════════════════════════════ -->
+<h2>8. Déploiement et exploitation</h2>
+
+<h3>Distribution</h3>
+<p>
+L'application est packagée en <strong>exécutable Windows portable</strong>
+(<code>electron-builder</code> cible <code>portable</code>). Les utilisateurs
+lancent l'application via <code>launcher.bat</code> qui détecte
+automatiquement Node.js portable et démarre Electron. Aucune installation
+système n'est nécessaire.
+</p>
+
+<h3>Première configuration</h3>
+<ol>
+  <li>L'administrateur définit les chemins du partage réseau pour chaque contentieux.</li>
+  <li>Création du premier compte administrateur, puis ajout des utilisateurs et de leurs rôles.</li>
+  <li>Configuration des règles d'alertes par défaut.</li>
+  <li>Import initial (AIR/greffe) ou saisie manuelle des premiers dossiers.</li>
+</ol>
+
+<h3>Mises à jour</h3>
+<p>
+Un mécanisme de vérification des mises à jour interroge un dépôt distant
+(<em>GitHub releases</em>). Une fois une nouvelle version repérée,
+l'administrateur la <strong>valide</strong> pour qu'elle soit proposée aux autres
+postes — empêchant les déploiements non maîtrisés.
+</p>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     9. POUR ALLER PLUS LOIN
+     ════════════════════════════════════════════════════════════════════ -->
+<h2>9. Pour aller plus loin</h2>
+
+<h3>Pistes d'évolution envisagées</h3>
+<ul>
+  <li>Module de <strong>reporting périodique</strong> automatisé (génération d'un PDF mensuel synthétique).</li>
+  <li>Ouverture aux <strong>contentieux additionnels</strong> (paramétrage purement configuration).</li>
+  <li>Connecteur <strong>messagerie chiffrée</strong> pour le partage inter-juridictions.</li>
+  <li>Amélioration de la <strong>recherche transverse</strong> avec un index plein texte persistant.</li>
+</ul>
+
+<h3>Ressources</h3>
+<table class="kv">
+  <tr><td>Code source</td><td>Dépôt Git interne (branche de présentation : <code>claude/app-presentation-docs-O818B</code>)</td></tr>
+  <tr><td>Captures d'écran</td><td><code>docs/presentation/screenshots/</code></td></tr>
+  <tr><td>Build PDF</td><td><code>bash docs/presentation/build-pdf.sh</code></td></tr>
+  <tr><td>Auteur</td><td>Audran Chevalier — Parquet du TJ d'Amiens</td></tr>
+</table>
+
+<div class="figure">
+  <img src="screenshots/14-about.png" alt="À propos" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>14-about.png</strong> — Écran À propos ]</div>
+  <div class="caption">Figure 14 — Écran "À propos" : auteur, version, mention légale.</div>
+</div>
+
+<hr>
+<p class="small" style="text-align: center;">
+  APP MÉTIER — v1.0 &nbsp;·&nbsp; © 2025–2026 Audran Chevalier &nbsp;·&nbsp;
+  Document généré pour présentation interne.<br>
+  Propriété intellectuelle exclusive — toute reproduction, diffusion ou utilisation non autorisée est strictement interdite.
+</p>
+
+</body>
+</html>
