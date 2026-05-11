@@ -7,7 +7,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pin, PinOff, Plus, RefreshCw, Save, Search, Trophy, User, X } from 'lucide-react';
+import { Check, ChevronDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pin, PinOff, Plus, RefreshCw, Save, Search, Shrink, Trophy, User, X } from 'lucide-react';
 import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { Enquete } from '@/types/interfaces';
 import {
@@ -33,7 +33,7 @@ import { MindmapCanvas } from '../mindmap/MindmapCanvas';
 import { MindmapSidePanel } from '../mindmap/MindmapSidePanel';
 import { AddClusterAnnotationModal, AddDossierModal, AddLienModal, AddMecModal } from '../mindmap/OverlayModals';
 import { ManageOverlayPanel } from '../mindmap/ManageOverlayPanel';
-import type { ZoneId } from '../mindmap/zones';
+import { clearLayoutCache } from '../mindmap/useForceLayout';
 
 // ──────────────────────────────────────────────
 // PROPS
@@ -122,9 +122,6 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const removeClusterAnnotation = useCartographieOverlayStore(s => s.removeClusterAnnotation);
   const mecScoreBoosts = useCartographieOverlayStore(s => s.mecScoreBoosts);
   const setMecScoreBoost = useCartographieOverlayStore(s => s.setMecScoreBoost);
-  const tagZones = useCartographieOverlayStore(s => s.tagZones);
-  const setTagZone = useCartographieOverlayStore(s => s.setTagZone);
-  const removeTagZone = useCartographieOverlayStore(s => s.removeTagZone);
 
   useEffect(() => {
     if (!overlayLoaded) loadOverlay();
@@ -250,66 +247,6 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   );
   const top10 = useMemo(() => getTopMec(graph, 10, pinnedMecIds), [graph, pinnedMecIds]);
 
-  // Tags présents dans les sources actuelles + comptage. Filtré sur la
-  // catégorie "services" uniquement : la fonctionnalité Zone est dédiée aux
-  // services d'enquête (ancrage géographique). Les tags d'infraction, suivi,
-  // statut, etc. n'ont pas de sens spatial et polluaient le panneau.
-  const availableTagsByCount = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const s of sources) {
-      for (const t of s.enquete.tags || []) {
-        if (t.category !== 'services') continue;
-        const v = (t.value || '').trim();
-        if (!v) continue;
-        counts.set(v, (counts.get(v) || 0) + 1);
-      }
-    }
-    return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  }, [sources]);
-
-  // Map nœud → zones, dérivée des tags du dossier (ou des dossiers liés
-  // pour un MEC). Les services d'enquête deviennent ainsi des aimants
-  // directionnels invisibles.
-  const nodeZones = useMemo(() => {
-    if (tagZones.length === 0) return undefined;
-    const tagToZone = new Map<string, ZoneId>();
-    for (const a of tagZones) tagToZone.set(a.tag, a.zone);
-
-    // Zones par enqueteId (les dossiers ex nihilo n'ont pas de tags).
-    const zonesByEnqueteId = new Map<number, ZoneId[]>();
-    for (const s of filteredSources) {
-      const zones: ZoneId[] = [];
-      for (const t of s.enquete.tags || []) {
-        const z = tagToZone.get(t.value);
-        if (z && !zones.includes(z)) zones.push(z);
-      }
-      if (zones.length > 0) zonesByEnqueteId.set(s.enquete.id, zones);
-    }
-    if (zonesByEnqueteId.size === 0) return undefined;
-
-    const out = new Map<string, ZoneId[]>();
-    // Dossiers : zones directes via enqueteId.
-    for (const d of graph.dossierById.values()) {
-      if (d.isExNihilo) continue;
-      const zones = zonesByEnqueteId.get(d.enqueteId);
-      if (zones && zones.length > 0) out.set(d.id, zones);
-    }
-    // MEC : héritent de l'union des zones de leurs dossiers.
-    for (const m of graph.mecById.values()) {
-      const acc: ZoneId[] = [];
-      for (const did of m.dossierIds) {
-        const dossier = graph.dossierById.get(did);
-        if (!dossier || dossier.isExNihilo) continue;
-        const zs = zonesByEnqueteId.get(dossier.enqueteId);
-        if (!zs) continue;
-        for (const z of zs) if (!acc.includes(z)) acc.push(z);
-      }
-      if (acc.length > 0) out.set(m.id, acc);
-    }
-    return out.size > 0 ? out : undefined;
-  }, [tagZones, filteredSources, graph]);
-
   const searchResults = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (q.length < 2) return [] as GraphNode[];
@@ -341,6 +278,19 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const handleRefresh = () => {
     setRefreshKey(k => k + 1);
     if (onRefresh) onRefresh();
+  };
+
+  // Recompacter : vide complètement le cache de positions puis relance
+  // un layout à froid (alpha=1, 300 ticks). Utile quand l'ajout
+  // progressif a saturé la carte ou laissé des trous, et qu'on veut
+  // retrouver une disposition optimale.
+  const handleRecompact = () => {
+    if (!window.confirm(
+      'Recompacter la carte va recalculer toutes les positions depuis zéro. '
+      + 'Les nœuds que tu as déplacés manuellement seront repositionnés. Continuer ?',
+    )) return;
+    clearLayoutCache();
+    setRefreshKey(k => k + 1);
   };
 
   const handleSave = async () => {
@@ -574,6 +524,17 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           Actualiser
         </button>
 
+        {/* Recompacter : layout à froid complet. Vide le cache des positions
+            et reconstruit la carte depuis zéro. Plus radical qu'Actualiser. */}
+        <button
+          onClick={handleRecompact}
+          title="Recompacter la carte (recalcul complet des positions)"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 transition-colors"
+        >
+          <Shrink className="h-3.5 w-3.5" />
+          Recompacter
+        </button>
+
         {/* Enregistrer : flush explicite des overlays sur disque. Indispensable
             avant une sync globale ou avant de fermer l'onglet — la sauvegarde
             auto sur beforeunload n'est pas garantie de s'exécuter à temps
@@ -659,11 +620,11 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         >
           <Layers className="h-3.5 w-3.5" />
           Mes ajouts
-          {(mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length + tagZones.length) > 0 && (
+          {(mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length) > 0 && (
             <span className={`text-[10px] rounded px-1 ${
               showManage ? 'bg-white/20' : 'bg-slate-200'
             }`}>
-              {mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length + tagZones.length}
+              {mecsExNihilo.length + dossiersExNihilo.length + liensRenseignement.length}
             </span>
           )}
         </button>
@@ -711,7 +672,6 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             clusterAnnotations={clusterAnnotations}
             onAnnotateCluster={handleAnnotateCluster}
             egoNodeId={egoNodeId}
-            nodeZones={nodeZones}
             onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
           />
@@ -746,13 +706,9 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             mecs={mecsExNihilo}
             dossiers={dossiersExNihilo}
             liens={liensRenseignement}
-            availableTags={availableTagsByCount}
-            tagZones={tagZones}
             graph={graph}
             onClose={() => setShowManage(false)}
             onCenterNode={centerOnId}
-            onSetTagZone={setTagZone}
-            onRemoveTagZone={removeTagZone}
             onEditMec={(m) => setEditingMec(m)}
             onEditDossier={(d) => setEditingDossier(d)}
             onEditLien={(l) => setEditingLien(l)}
