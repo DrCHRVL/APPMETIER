@@ -736,9 +736,10 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       nodeTypes={NODE_TYPES}
       fitView
       fitViewOptions={{ padding: 0.2 }}
-      // minZoom à 0.1 : avec R=1100 et le plafond de magnitude dans
-      // componentRepulsion, fitView contient sans souci le layout sans
-      // avoir à dézoomer à 0.02 (qui rendait tout en miniature).
+      // minZoom à 0.1 : avec R=2200 + jitter 600, un cluster sain reste
+      // sous ±3000 px (POSITION_CLAMP=15000 est un filet hors champ qui
+      // ne devrait jamais se déclencher). fitView dimensionne donc à un
+      // zoom typique de ~0.2–0.3, bien au-dessus de la borne basse.
       minZoom={0.1}
       maxZoom={2.5}
       onNodeClick={handleClick}

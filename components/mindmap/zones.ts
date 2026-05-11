@@ -22,12 +22,16 @@ export const ZONE_LABELS: Record<ZoneId, string> = {
 };
 
 // Rayon virtuel en pixels monde des zones cardinales depuis le centre.
-// Doit être suffisamment large pour éviter que plusieurs composantes
-// assignées à des zones différentes se retrouvent visuellement empilées,
-// mais pas trop : avec R=2200 la carte devenait illisible (fitView
-// dézoomait jusqu'à minZoom et tout passait en miniature, plus quelques
-// composantes explosaient et finissaient clampées sur la bordure).
-const R = 1100;
+// "Galaxie" : les puits sont volontairement très éloignés pour qu'on
+// perçoive des constellations distinctes plutôt qu'un magma collé.
+// 2R = 4400 px laisse de la place à plusieurs composantes par zone sans
+// qu'elles débordent sur la voisine. Les anciennes valeurs basses
+// (R=600, puis R=1100) entassaient les centroïdes : la force inter-
+// clusters en 1/d² devenait virulente à mesure que la distance baissait,
+// pendant que la gravité de zone (0.08) ne pouvait plus tenir les nœuds
+// proche de leur puit. Le couple R=2200 + gravity=0.08 reste l'équilibre
+// le plus stable trouvé empiriquement.
+const R = 2200;
 const D = R * 0.7071;
 
 export const ZONE_CENTERS: Record<ZoneId, { x: number; y: number }> = {

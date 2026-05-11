@@ -9,6 +9,7 @@ import {
   forceCollide,
   forceLink,
   forceManyBody,
+  forceRadial,
   forceSimulation,
   forceX,
   forceY,
@@ -53,14 +54,7 @@ const CHARGE_STRENGTH = -550;
 // peuvent se chevaucher visuellement même sans aucun lien entre les nœuds.
 // Ajustée empiriquement : assez forte pour séparer 2 clusters de 5 nœuds,
 // pas trop pour éviter les explosions sur des graphes de 100+ nœuds.
-const COMPONENT_REPULSION_STRENGTH = 12_000;
-// Plafond de magnitude par composante et par tick. La loi en 1/d² peut
-// diverger lorsque deux centroïdes se rapprochent (force → ∞), envoyant
-// des nœuds très loin en quelques ticks puis butant sur POSITION_CLAMP
-// — visuellement, on se retrouvait avec des dossiers écrasés sur la
-// bordure de la caméra. Plafonner la magnitude évite la divergence à
-// la source plutôt que de la rattraper après coup.
-const COMPONENT_REPULSION_MAX = 1_500;
+const COMPONENT_REPULSION_STRENGTH = 30_000;
 // Marge (px) ajoutée au rayon englobant d'une composante étrangère : tout
 // nœud d'une autre composante qui pénètre cette zone est repoussé vers
 // l'extérieur. Empêche un petit cluster de venir s'étaler visuellement
@@ -68,29 +62,48 @@ const COMPONENT_REPULSION_MAX = 1_500;
 // fausse proximité (cf. BOULEFRAD posé dans l'aire CAPELLE).
 const COMPONENT_AREA_MARGIN = 80;
 // Force d'attraction d'un nœud vers le centre de sa zone géographique
-// assignée. Volontairement faible pour ne pas écraser la dynamique
-// link/charge/collide — on veut "incliner" le layout, pas le forcer.
-const ZONE_GRAVITY_STRENGTH = 0.035;
+// assignée. Calibrée avec R=2200 : sans ce couple "zones très éloignées
+// + gravité franche", soit les composantes restent collées au centre,
+// soit la répulsion inter-clusters les disperse n'importe où. C'est elle
+// qui, à chaque tick, ramène les nœuds vers leur puit et empêche toute
+// dérive de fond.
+const ZONE_GRAVITY_STRENGTH = 0.08;
 // Rayon de dispersion (jitter déterministe) autour du centre de zone : sans
 // ça, toutes les composantes assignées à la même zone étaient tirées au
 // même point exact et finissaient empilées les unes sur les autres. On
 // répartit les nœuds dans un disque autour du centre, en utilisant un hash
 // stable de l'id pour que la position reste identique entre deux rendus.
-const ZONE_JITTER_RADIUS = 320;
-// Clé localStorage pour persister les positions calculées entre deux sessions.
-// Le cache mémoire vit en plus du localStorage pour répondre instantanément
-// aux re-render dans la même session sans toucher l'IO.
-// v2 : invalide les positions persistées avec l'ancien R=2200 (coords
-// ~±2800+). Sans bump, les utilisateurs avec un cache existant
-// continueraient à voir l'ancien layout très étalé même après ce fix.
-const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v2';
-// Borne dure des coordonnées finales. Les zones cardinales s'étalent à
-// ±1100 + jitter 320, soit ~±1420 max. Un cluster sain s'étend rarement
-// au-delà de ±3000. Au-delà de ±6000 on est en présence d'une explosion
-// résiduelle de la simulation — combiné au plafond de magnitude dans
-// componentRepulsion, ce clamp ne devrait plus se déclencher en
-// pratique, mais reste un filet de sécurité.
-const POSITION_CLAMP = 6_000;
+const ZONE_JITTER_RADIUS = 600;
+// Rappel central très doux appliqué aux nœuds *sans zone assignée*. Sans
+// ce filet, un dossier non tagué n'a aucune corde de rappel (zoneX/Y
+// strength=0) et finissait par dériver sous l'effet cumulé de
+// componentRepulsion → empilement aux angles de POSITION_CLAMP.
+// Volontairement très inférieur à ZONE_GRAVITY_STRENGTH : il ne doit
+// jamais concurrencer un nœud bien arrimé à sa zone.
+const NO_ZONE_RECALL_STRENGTH = 0.005;
+// Clé localStorage pour persister les positions + signature de zone.
+// v3 : ajout du champ zoneSig dans chaque entrée pour détecter qu'un
+// nœud a changé de zone entre deux runs et ne réveiller que sa
+// composante (mode "remous local").
+const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v3';
+// Borne dure des coordonnées finales. Avec R=2200 + jitter 600, les
+// zones cardinales s'étalent à ~±2800 ; un cluster sain reste sous
+// ±5000. Le clamp à ±15000 reste *hors champ* (fitView ne montrera
+// jamais des coords > ~3000 en pratique). C'est un filet de sécurité
+// pour les NaN/Infinity, pas une borne d'affichage — toute valeur
+// clampée signale une anomalie, mais elle reste hors champ utilisateur
+// au lieu de s'empiler visiblement aux angles du cadre.
+const POSITION_CLAMP = 15_000;
+// Seuil de bascule entre "remous local" et "rejeu complet". Si plus de
+// 10 % des nœuds ont changé (nouveaux ou zone modifiée), on retombe sur
+// le warm start global, sinon on fige tout sauf les composantes
+// impactées.
+const REMOUS_CHANGE_RATIO = 0.10;
+// Paramètres du remous local : alpha modéré et peu de ticks. On veut
+// juste laisser les nouveaux nœuds (+ leur composante) trouver une
+// place auprès des nœuds figés, pas relancer une simulation globale.
+const ITERATIONS_REMOUS = 30;
+const REMOUS_ALPHA = 0.30;
 
 /**
  * Hash 32-bit stable (FNV-1a) — déterministe, pas de dépendance crypto.
@@ -262,10 +275,12 @@ function componentRepulsion(componentByNode: Map<string, number>) {
         }
         const d = Math.sqrt(d2);
         const sizeFactor = Math.sqrt((counts.get(ci) || 1) * (counts.get(cj) || 1));
-        // Plafond pour éviter la divergence quand deux centroïdes
-        // se rapprochent (1/d² → ∞).
-        const raw = COMPONENT_REPULSION_STRENGTH * sizeFactor * alpha / d2;
-        const magnitude = Math.min(raw, COMPONENT_REPULSION_MAX * sizeFactor * alpha);
+        // Pas de plafond explicite : la gravité de zone (0.08) sert
+        // d'ancrage opposé et tient les nœuds proche de leur puit
+        // même quand deux centroïdes se rapprochent ponctuellement.
+        // Le rapprochement à d→0 est en pratique prévenu par la
+        // perturbation injectée plus haut quand d² < 1.
+        const magnitude = COMPONENT_REPULSION_STRENGTH * sizeFactor * alpha / d2;
         const ufx = (dx / d) * magnitude;
         const ufy = (dy / d) * magnitude;
         fx.set(ci, (fx.get(ci) || 0) + ufx);
@@ -388,9 +403,24 @@ function componentAreaRepulsion(componentByNode: Map<string, number>) {
 // ──────────────────────────────────────────────
 //
 // Module-level : survit au démontage du composant React mais reste local à
-// l'onglet. Hydraté depuis localStorage au premier accès.
-const positionCache = new Map<string, { x: number; y: number }>();
+// l'onglet. Hydraté depuis localStorage au premier accès. Chaque entrée
+// porte sa position ET la signature de zone au moment du calcul, pour
+// permettre au prochain run de détecter une réassignation de zone et de
+// "réveiller" uniquement la composante concernée.
+interface CachedPosition {
+  x: number;
+  y: number;
+  /** Signature des zones du nœud lors du calcul (zones triées + jointes).
+   *  Permet de détecter "ce nœud a changé de zone depuis la dernière
+   *  simulation" et de libérer sa composante en mode remous. */
+  zoneSig?: string;
+}
+const positionCache = new Map<string, CachedPosition>();
 let positionCacheHydrated = false;
+// Mémorise la dernière valeur de refreshKey observée. Un changement vaut
+// "Actualiser" → force un warm full au lieu d'un remous local, même si
+// rien n'a structurellement changé côté nœuds/zones.
+let lastSeenRefreshKey: number | null = null;
 
 function hydratePositionCache(): void {
   if (positionCacheHydrated) return;
@@ -399,7 +429,7 @@ function hydratePositionCache(): void {
   try {
     const raw = window.localStorage.getItem(POSITIONS_STORAGE_KEY);
     if (!raw) return;
-    const parsed = JSON.parse(raw) as Record<string, { x: number; y: number }>;
+    const parsed = JSON.parse(raw) as Record<string, CachedPosition>;
     if (!parsed || typeof parsed !== 'object') return;
     for (const [id, pos] of Object.entries(parsed)) {
       if (!pos) continue;
@@ -409,7 +439,9 @@ function hydratePositionCache(): void {
       // peut avoir stocké des coords énormes. Les laisser ferait que tout
       // démarrage à chaud reproduise immédiatement la même explosion.
       if (Math.abs(pos.x) > POSITION_CLAMP || Math.abs(pos.y) > POSITION_CLAMP) continue;
-      positionCache.set(id, { x: pos.x, y: pos.y });
+      const entry: CachedPosition = { x: pos.x, y: pos.y };
+      if (typeof pos.zoneSig === 'string') entry.zoneSig = pos.zoneSig;
+      positionCache.set(id, entry);
     }
   } catch {
     // Quota plein, JSON corrompu : on repart sans cache, pas dramatique.
@@ -488,9 +520,12 @@ export function useForceLayout(
 
     hydratePositionCache();
 
-    // Adjacence : utile pour seeder les nouveaux nœuds près d'un voisin connu
-    // au lieu de l'origine (sinon ils traversent tout le graphe au cours
-    // des ticks et déplacent des clusters au passage).
+    // ─────────────────────────────────────────────────────────────
+    // 1. Adjacence + composantes connexes
+    // ─────────────────────────────────────────────────────────────
+    // Utile pour seeder les nouveaux nœuds près d'un voisin connu au lieu
+    // de l'origine (sinon ils traversent tout le graphe au cours des ticks
+    // et déplacent des clusters au passage).
     const adj = new Map<string, string[]>();
     for (const n of nodes) adj.set(n.id, []);
     for (const e of edges) {
@@ -499,25 +534,124 @@ export function useForceLayout(
       adj.get(e.target)!.push(e.source);
     }
 
-    // Comptage warm/cold avant création des SimNode : si la majorité des
-    // nœuds sont déjà en cache, on lance une simulation à basse énergie.
-    let knownCount = 0;
-    for (const n of nodes) if (positionCache.has(n.id)) knownCount++;
-    const knownRatio = knownCount / nodes.length;
-    const isWarmStart = knownRatio >= WARM_KNOWN_RATIO;
-    const iterations = isWarmStart ? ITERATIONS_WARM : ITERATIONS_COLD;
-    const initialAlpha = isWarmStart ? WARM_ALPHA : 1;
+    const componentByNode = buildComponentIndex(nodes, edges);
 
+    // ─────────────────────────────────────────────────────────────
+    // 2. Détection des changements depuis le dernier run
+    // ─────────────────────────────────────────────────────────────
+    // Pour chaque nœud on calcule sa signature de zone courante (zones
+    // triées + jointes) et on la compare à celle enregistrée dans le
+    // cache. Un nœud "changé" = absent du cache OU dont la zone diffère.
+    const currentZoneSigByNode = new Map<string, string>();
+    if (nodeZones) {
+      for (const [id, zones] of nodeZones) {
+        currentZoneSigByNode.set(id, zones.slice().sort().join(','));
+      }
+    }
+
+    const newNodes = new Set<string>();
+    const zoneChangedNodes = new Set<string>();
+    let knownCount = 0;
+    for (const n of nodes) {
+      const cached = positionCache.get(n.id);
+      if (!cached) {
+        newNodes.add(n.id);
+        continue;
+      }
+      knownCount++;
+      const cachedSig = cached.zoneSig ?? '';
+      const currentSig = currentZoneSigByNode.get(n.id) ?? '';
+      if (cachedSig !== currentSig) zoneChangedNodes.add(n.id);
+    }
+    const changedNodes = new Set<string>([...newNodes, ...zoneChangedNodes]);
+    const knownRatio = knownCount / nodes.length;
+    const changedRatio = changedNodes.size / nodes.length;
+
+    // ─────────────────────────────────────────────────────────────
+    // 3. Choix du mode de simulation
+    // ─────────────────────────────────────────────────────────────
+    // - cold       : peu de cache, on calcule tout depuis zéro.
+    // - warmFull   : majorité du cache présent mais beaucoup de
+    //                changements (ou bump explicite de refreshKey :
+    //                l'utilisateur a cliqué "Actualiser") → on rejoue
+    //                la simulation globale à basse énergie.
+    // - remous     : majorité du cache + petite quantité de changements
+    //                → on fige (fx/fy) tous les nœuds inchangés et on
+    //                ne libère que les composantes contenant un nœud
+    //                changé. La carte ne bouge pas, seuls les voisins
+    //                immédiats du nouveau nœud (ou de la nouvelle zone)
+    //                s'ajustent.
+    // - cached     : aucun changement détecté → on retourne les
+    //                positions du cache sans rejouer la simulation.
+    const isExplicitStir =
+      lastSeenRefreshKey !== null && lastSeenRefreshKey !== refreshKey;
+    lastSeenRefreshKey = refreshKey;
+
+    type Mode = 'cold' | 'warmFull' | 'remous' | 'cached';
+    let mode: Mode;
+    if (knownRatio < WARM_KNOWN_RATIO) mode = 'cold';
+    else if (isExplicitStir) mode = 'warmFull';
+    else if (changedNodes.size === 0) mode = 'cached';
+    else if (changedRatio > REMOUS_CHANGE_RATIO) mode = 'warmFull';
+    else mode = 'remous';
+
+    if (mode === 'cached') {
+      // Aucune simulation. On reconstitue uniquement le rendu depuis le
+      // cache pour les nœuds courants (un nœud filtré côté React peut
+      // réapparaître plus tard avec sa position d'origine).
+      const positions = new Map<string, PositionedNode>();
+      for (const n of nodes) {
+        const c = positionCache.get(n.id);
+        if (!c) continue;
+        positions.set(n.id, { id: n.id, x: c.x, y: c.y });
+      }
+      return positions;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 4. Calcul du set libéré (mode remous uniquement)
+    // ─────────────────────────────────────────────────────────────
+    // Quand un nœud change, on libère toute sa composante connexe :
+    // l'utilisateur a explicitement demandé que "le nœud concerné et
+    // sa composante soient libérés, le reste reste figé".
+    const releasedNodes = new Set<string>();
+    if (mode === 'remous') {
+      const releasedComponents = new Set<number>();
+      for (const id of changedNodes) {
+        const c = componentByNode.get(id);
+        if (c !== undefined) releasedComponents.add(c);
+      }
+      for (const n of nodes) {
+        const c = componentByNode.get(n.id);
+        if (c !== undefined && releasedComponents.has(c)) releasedNodes.add(n.id);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 5. SimNodes (pinning des inchangés en mode remous)
+    // ─────────────────────────────────────────────────────────────
+    type SimNodePinnable = SimNode & {
+      x?: number; y?: number;
+      fx?: number | null; fy?: number | null;
+    };
     const simNodes: SimNode[] = nodes.map(n => {
       const cached = positionCache.get(n.id);
       const seed = cached || seedNewNode(n.id, adj);
-      const sn: SimNode & { x?: number; y?: number } = {
+      const sn: SimNodePinnable = {
         id: n.id,
         radius: getCollisionRadius(n),
       };
       if (seed) {
         sn.x = seed.x;
         sn.y = seed.y;
+      }
+      // Pinning : en remous, tout nœud non libéré dont la position est
+      // en cache devient immobile (fx/fy). d3-force ignore alors les
+      // forces sur ce nœud, mais sa position reste prise en compte par
+      // les forces des autres (link, charge, collide, componentRepulsion).
+      if (mode === 'remous' && cached && !releasedNodes.has(n.id)) {
+        sn.fx = cached.x;
+        sn.fy = cached.y;
       }
       return sn;
     });
@@ -527,14 +661,27 @@ export function useForceLayout(
       target: e.target,
     }));
 
-    const componentByNode = buildComponentIndex(nodes, edges);
+    // ─────────────────────────────────────────────────────────────
+    // 6. Cibles de gravité par zone (mutualisées par composante)
+    // ─────────────────────────────────────────────────────────────
+    // Tous les nœuds d'un même cluster visent le même point de la zone
+    // (sinon link/collide se battrait contre le jitter et casserait la
+    // cohésion du cluster).
+    //
+    // Seed du jitter : on prend le min lexicographique des id de la
+    // composante, pas l'index de composante du BFS. L'index renumérote
+    // dès qu'un nœud est ajouté/supprimé ; le min id, lui, reste stable
+    // tant que le nœud ancre est présent → la composante revient au
+    // même point d'une exécution à l'autre, ce qui est indispensable au
+    // mode remous (cluster figé doit retrouver sa cible).
+    const componentAnchor = new Map<number, string>();
+    for (const n of nodes) {
+      const c = componentByNode.get(n.id);
+      if (c === undefined) continue;
+      const cur = componentAnchor.get(c);
+      if (cur === undefined || n.id < cur) componentAnchor.set(c, n.id);
+    }
 
-    // Pré-calcul des cibles de gravité par nœud (centre moyen des zones,
-    // décalé par un jitter stable pour éviter que toutes les composantes
-    // d'une même zone soient tirées au même point exact).
-    // Cible mutualisée par composante : tous les nœuds d'un même cluster
-    // visent le même point de la zone (sinon le link/collide se battrait
-    // contre le jitter et casserait la cohésion du cluster).
     const targetByNodeId = new Map<string, { x: number; y: number }>();
     if (nodeZones) {
       const componentTarget = new Map<number, { x: number; y: number }>();
@@ -544,9 +691,8 @@ export function useForceLayout(
         const comp = componentByNode.get(id);
         let target = comp !== undefined ? componentTarget.get(comp) : undefined;
         if (!target) {
-          // Anchor de jitter : id de la composante (ou de la zone moyenne
-          // pour les nœuds isolés) → angle/rayon déterministes.
-          const seed = comp !== undefined ? `comp_${comp}_${zones.join(',')}` : id;
+          const anchor = comp !== undefined ? componentAnchor.get(comp) ?? id : id;
+          const seed = `${anchor}:${zones.slice().sort().join(',')}`;
           const j = stableJitter(seed, ZONE_JITTER_RADIUS);
           target = { x: base.x + j.x, y: base.y + j.y };
           if (comp !== undefined) componentTarget.set(comp, target);
@@ -555,6 +701,15 @@ export function useForceLayout(
       }
     }
     const hasZones = targetByNodeId.size > 0;
+
+    // ─────────────────────────────────────────────────────────────
+    // 7. Simulation
+    // ─────────────────────────────────────────────────────────────
+    let iterations: number;
+    let initialAlpha: number;
+    if (mode === 'cold') { iterations = ITERATIONS_COLD; initialAlpha = 1; }
+    else if (mode === 'warmFull') { iterations = ITERATIONS_WARM; initialAlpha = WARM_ALPHA; }
+    else { iterations = ITERATIONS_REMOUS; initialAlpha = REMOUS_ALPHA; }
 
     const sim = forceSimulation(simNodes)
       .alpha(initialAlpha)
@@ -569,7 +724,16 @@ export function useForceLayout(
       .force('center', forceCenter(CENTER_X, CENTER_Y))
       .force('collide', forceCollide<SimNode>().radius(d => d.radius + COLLIDE_PADDING).strength(1))
       .force('componentRepulsion', componentRepulsion(componentByNode))
-      .force('componentArea', componentAreaRepulsion(componentByNode));
+      .force('componentArea', componentAreaRepulsion(componentByNode))
+      // Rappel central pour les nœuds *sans zone* : ferme la fuite des
+      // dossiers non tagués. Strength = 0 pour les nœuds zonés (la
+      // gravité de zone fait déjà le travail, on ne veut pas ajouter un
+      // biais inward parasite).
+      .force(
+        'noZoneRecall',
+        forceRadial<SimNode>(0, 0, 0)
+          .strength(d => (targetByNodeId.has(d.id) ? 0 : NO_ZONE_RECALL_STRENGTH)),
+      );
 
     if (hasZones) {
       sim
@@ -588,12 +752,13 @@ export function useForceLayout(
     sim.stop();
     for (let i = 0; i < iterations; i++) sim.tick();
 
+    // ─────────────────────────────────────────────────────────────
+    // 8. Export + mise à jour du cache (positions + zoneSig)
+    // ─────────────────────────────────────────────────────────────
     const positions = new Map<string, PositionedNode>();
     for (const n of simNodes) {
       const sn = n as SimNode & { x?: number; y?: number };
       // Garde-fou : NaN / Infinity / explosion → on ramène au centre.
-      // Sans ça, react-flow tente de rendre des nœuds à des coords absurdes,
-      // fitView s'écrase à minZoom et le canvas paraît entièrement vide.
       const rawX = sn.x;
       const rawY = sn.y;
       let x = Number.isFinite(rawX) ? (rawX as number) : 0;
@@ -603,7 +768,8 @@ export function useForceLayout(
       if (y > POSITION_CLAMP) y = POSITION_CLAMP;
       else if (y < -POSITION_CLAMP) y = -POSITION_CLAMP;
       positions.set(sn.id, { id: sn.id, x, y });
-      positionCache.set(sn.id, { x, y });
+      const zoneSig = currentZoneSigByNode.get(sn.id) ?? '';
+      positionCache.set(sn.id, { x, y, zoneSig });
     }
     // On ne purge PAS les positions des nœuds absents du rendu courant : le
     // filtrage par contentieux peut masquer temporairement des nœuds, et on
