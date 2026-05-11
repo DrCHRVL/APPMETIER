@@ -53,7 +53,14 @@ const CHARGE_STRENGTH = -550;
 // peuvent se chevaucher visuellement même sans aucun lien entre les nœuds.
 // Ajustée empiriquement : assez forte pour séparer 2 clusters de 5 nœuds,
 // pas trop pour éviter les explosions sur des graphes de 100+ nœuds.
-const COMPONENT_REPULSION_STRENGTH = 30_000;
+const COMPONENT_REPULSION_STRENGTH = 12_000;
+// Plafond de magnitude par composante et par tick. La loi en 1/d² peut
+// diverger lorsque deux centroïdes se rapprochent (force → ∞), envoyant
+// des nœuds très loin en quelques ticks puis butant sur POSITION_CLAMP
+// — visuellement, on se retrouvait avec des dossiers écrasés sur la
+// bordure de la caméra. Plafonner la magnitude évite la divergence à
+// la source plutôt que de la rattraper après coup.
+const COMPONENT_REPULSION_MAX = 1_500;
 // Marge (px) ajoutée au rayon englobant d'une composante étrangère : tout
 // nœud d'une autre composante qui pénètre cette zone est repoussé vers
 // l'extérieur. Empêche un petit cluster de venir s'étaler visuellement
@@ -61,28 +68,29 @@ const COMPONENT_REPULSION_STRENGTH = 30_000;
 // fausse proximité (cf. BOULEFRAD posé dans l'aire CAPELLE).
 const COMPONENT_AREA_MARGIN = 80;
 // Force d'attraction d'un nœud vers le centre de sa zone géographique
-// assignée. Plus forte qu'avant car les zones sont désormais très
-// éloignées (R=2200) — sans pull suffisant, les composantes resteraient
-// agglutinées au centre malgré l'assignation.
-const ZONE_GRAVITY_STRENGTH = 0.08;
+// assignée. Volontairement faible pour ne pas écraser la dynamique
+// link/charge/collide — on veut "incliner" le layout, pas le forcer.
+const ZONE_GRAVITY_STRENGTH = 0.035;
 // Rayon de dispersion (jitter déterministe) autour du centre de zone : sans
 // ça, toutes les composantes assignées à la même zone étaient tirées au
 // même point exact et finissaient empilées les unes sur les autres. On
 // répartit les nœuds dans un disque autour du centre, en utilisant un hash
 // stable de l'id pour que la position reste identique entre deux rendus.
-const ZONE_JITTER_RADIUS = 600;
+const ZONE_JITTER_RADIUS = 320;
 // Clé localStorage pour persister les positions calculées entre deux sessions.
 // Le cache mémoire vit en plus du localStorage pour répondre instantanément
 // aux re-render dans la même session sans toucher l'IO.
-const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v1';
+// v2 : invalide les positions persistées avec l'ancien R=2200 (coords
+// ~±2800+). Sans bump, les utilisateurs avec un cache existant
+// continueraient à voir l'ancien layout très étalé même après ce fix.
+const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v2';
 // Borne dure des coordonnées finales. Les zones cardinales s'étalent à
-// ±2200 + jitter 600, soit ~±2800 max. Une cluster sain s'étend rarement
-// au-delà de ±5000. Au-delà de ±15000 on est en présence d'une explosion
-// de la simulation (componentRepulsion peut dégénérer si deux centroïdes
-// se confondent et que la force diverge avant d'amortir). Sans ce clamp,
-// fitView de react-flow s'écraserait à minZoom=0.1 et tous les nœuds
-// deviendraient invisibles (canvas en apparence vide).
-const POSITION_CLAMP = 15_000;
+// ±1100 + jitter 320, soit ~±1420 max. Un cluster sain s'étend rarement
+// au-delà de ±3000. Au-delà de ±6000 on est en présence d'une explosion
+// résiduelle de la simulation — combiné au plafond de magnitude dans
+// componentRepulsion, ce clamp ne devrait plus se déclencher en
+// pratique, mais reste un filet de sécurité.
+const POSITION_CLAMP = 6_000;
 
 /**
  * Hash 32-bit stable (FNV-1a) — déterministe, pas de dépendance crypto.
@@ -254,7 +262,10 @@ function componentRepulsion(componentByNode: Map<string, number>) {
         }
         const d = Math.sqrt(d2);
         const sizeFactor = Math.sqrt((counts.get(ci) || 1) * (counts.get(cj) || 1));
-        const magnitude = COMPONENT_REPULSION_STRENGTH * sizeFactor * alpha / d2;
+        // Plafond pour éviter la divergence quand deux centroïdes
+        // se rapprochent (1/d² → ∞).
+        const raw = COMPONENT_REPULSION_STRENGTH * sizeFactor * alpha / d2;
+        const magnitude = Math.min(raw, COMPONENT_REPULSION_MAX * sizeFactor * alpha);
         const ufx = (dx / d) * magnitude;
         const ufy = (dy / d) * magnitude;
         fx.set(ci, (fx.get(ci) || 0) + ufx);
