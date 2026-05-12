@@ -15,7 +15,7 @@
 // Le layout intra-système (nœuds dans une galaxie) reste géré par d3-force
 // dans useForceLayout.ts, qui consomme les ancres galactiques calculées ici.
 
-import { forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationLinkDatum, type SimulationNodeDatum } from 'd3-force';
+import { forceCollide, forceManyBody, forceSimulation, type SimulationNodeDatum } from 'd3-force';
 import type { GraphEdge, GraphNode, MecNode } from '@/utils/mindmapGraph';
 
 export interface Galaxy {
@@ -225,12 +225,6 @@ interface GalaxySimNode extends SimulationNodeDatum {
 export function layoutGalaxyCenters(
   galaxies: Galaxy[],
   cachedCenters?: Map<string, { x: number; y: number }>,
-  /** Paires de galaxies (par index) reliées par ≥1 lien renseignement.
-   *  On les attire faiblement au niveau macro pour qu'elles atterrissent
-   *  côte à côte au lieu de finir aux 2 bouts de la carte. La collision
-   *  les empêche de se chevaucher → l'attraction se traduit par "voisines
-   *  immédiates" et donc des liens visuellement courts. */
-  interGalaxyPairs?: Array<[number, number]>,
 ): Map<number, GalaxyPlacement> {
   const result = new Map<number, GalaxyPlacement>();
   if (galaxies.length === 0) return result;
@@ -254,28 +248,6 @@ export function layoutGalaxyCenters(
     return { index: g.index, r: g.estimatedRadius, x: r * Math.cos(theta), y: r * Math.sin(theta) };
   });
 
-  const simNodesByIdx = new Map<number, GalaxySimNode>();
-  for (const sn of simNodes) simNodesByIdx.set(sn.index, sn);
-
-  // Liens inter-galactiques pour les paires partageant ≥1 renseignement.
-  // Cible = somme des rayons + padding : exactement "côte à côte sans
-  // chevauchement". Force faible (0.25) pour ne pas écraser la collision
-  // ni faire entrer en collision une 3e galaxie non liée.
-  const simLinks: SimulationLinkDatum<GalaxySimNode>[] = [];
-  if (interGalaxyPairs) {
-    const seen = new Set<string>();
-    for (const [a, b] of interGalaxyPairs) {
-      if (a === b) continue;
-      const key = a < b ? `${a}|${b}` : `${b}|${a}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const sa = simNodesByIdx.get(a);
-      const sb = simNodesByIdx.get(b);
-      if (!sa || !sb) continue;
-      simLinks.push({ source: sa, target: sb });
-    }
-  }
-
   const sim = forceSimulation(simNodes)
     .alpha(1)
     // Charge faible : la collision tient déjà le terrain, la charge n'aide
@@ -292,21 +264,6 @@ export function layoutGalaxyCenters(
         .strength(1)
         .iterations(2),
     );
-
-  if (simLinks.length > 0) {
-    sim.force(
-      'interGalaxyLink',
-      forceLink<GalaxySimNode, SimulationLinkDatum<GalaxySimNode>>(simLinks)
-        .distance(l => {
-          const s = l.source as GalaxySimNode;
-          const t = l.target as GalaxySimNode;
-          // "Bord à bord + une marge" : on vise pas zéro distance, juste
-          // assez près pour que le trait soit court.
-          return s.r + t.r + INTER_GALAXY_PADDING + 40;
-        })
-        .strength(0.25),
-    );
-  }
 
   sim.stop();
   for (let i = 0; i < GALAXY_SIM_ITERATIONS; i++) sim.tick();

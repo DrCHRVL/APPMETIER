@@ -83,10 +83,10 @@ const ORPHAN_RECALL_STRENGTH = 0.01;
 // (v5) le retrait des liens renseignement de la détection des galaxies +
 // la prise en compte des tailles réelles des planètes, puis (v6) l'ajout
 // d'un halo de répulsion proportionnel à la masse des galaxies.
-const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v7';
-// Cache séparé pour les centres de galaxies (clé = anchorId). v4 = halo
-// de masse + attraction inter-galactique pour les liens renseignement.
-const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v4';
+const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v6';
+// Cache séparé pour les centres de galaxies (clé = anchorId). v3 = halo
+// de masse → les centres bougent, on invalide.
+const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v3';
 // Cache des angles orbitaux par MEC (clé = id MEC). v2 : prise en compte
 // des directions préférées (liens renseignement) → invalidation pour que
 // les planètes liées se réorientent vers leur partenaire.
@@ -341,30 +341,10 @@ export function useForceLayout(
     // ─────────────────────────────────────────────────────────────
     // 4. Placement des centres de galaxies (étage macro)
     // ─────────────────────────────────────────────────────────────
-    // Paires de galaxies reliées par ≥1 lien renseignement : on les
-    // attire faiblement au niveau macro pour qu'elles atterrissent
-    // côte à côte (le trait rens ne traverse plus toute la carte). La
-    // collision inter-galactique garantit qu'elles ne se chevauchent
-    // pas pour autant — la fusion de galaxies reste interdite (cf. la
-    // détection qui ignore les rens).
-    const interGalaxyPairs: Array<[number, number]> = [];
-    {
-      const seen = new Set<string>();
-      for (const e of edges) {
-        if (e.kind !== 'renseignement') continue;
-        const ai = galaxyIdxByNodeId.get(e.source);
-        const bi = galaxyIdxByNodeId.get(e.target);
-        if (ai === undefined || bi === undefined || ai === bi) continue;
-        const key = ai < bi ? `${ai}|${bi}` : `${bi}|${ai}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        interGalaxyPairs.push([ai, bi]);
-      }
-    }
     // En remous on garde les centres en cache pour ne pas faire bouger
     // les galaxies non concernées. En cold/warmFull on les recalcule mais
     // le seed depuis le cache préserve la disposition globale.
-    const galaxyCenters = layoutGalaxyCenters(galaxies, galaxyCenterCache, interGalaxyPairs);
+    const galaxyCenters = layoutGalaxyCenters(galaxies, galaxyCenterCache);
 
     // ─────────────────────────────────────────────────────────────
     // 5. Set libéré (mode remous uniquement)
