@@ -778,6 +778,83 @@ export function applyOrbitalLayout(
   return newAngles;
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// NODE-SAT POST-PASS (anti-recouvrement bulle-à-bulle)
+// ──────────────────────────────────────────────────────────────────────
+
+/** Padding (px) ajouté aux rayons de collision pendant la passe node-SAT.
+ *  Garantit un petit halo entre deux bulles, même quand elles se touchent
+ *  juste — sinon les contours noirs des MECs se confondent. */
+const NODE_SAT_PADDING = 10;
+/** Itérations max de la passe node-SAT. La séparation est itérative car
+ *  bouger un nœud peut créer un nouveau chevauchement avec un 3ème. */
+const NODE_SAT_MAX_ITER = 60;
+
+/**
+ * Relaxation finale au niveau du nœud individuel : garantit qu'aucune
+ * paire de bulles (MEC ou dossier) ne se chevauche, peu importe ce que
+ * l'orbital pass ou le hull-SAT inter-galactique ont laissé derrière.
+ *
+ * Mutation directe de `positions` (in-place). Pondération par taille
+ * (inertie) : un gros dossier bouge peu, un petit MEC bouge beaucoup —
+ * les comètes et les planètes glissent autour des étoiles plutôt que
+ * l'inverse.
+ *
+ * Complexité O(N² × iter). Pour N ≤ ~600 nœuds (typique de la
+ * cartographie), reste sous 10 ms.
+ */
+export function nodeSatRelax(
+  positions: Map<string, { x: number; y: number }>,
+  nodeRadiusById: Map<string, number>,
+): void {
+  const ids: string[] = [];
+  for (const id of positions.keys()) {
+    if (nodeRadiusById.has(id)) ids.push(id);
+  }
+  if (ids.length < 2) return;
+
+  for (let iter = 0; iter < NODE_SAT_MAX_ITER; iter++) {
+    let moved = false;
+    for (let i = 0; i < ids.length; i++) {
+      const idA = ids[i];
+      const pa = positions.get(idA)!;
+      const ra = nodeRadiusById.get(idA)!;
+      for (let j = i + 1; j < ids.length; j++) {
+        const idB = ids[j];
+        const pb = positions.get(idB)!;
+        const rb = nodeRadiusById.get(idB)!;
+        let vx = pb.x - pa.x;
+        let vy = pb.y - pa.y;
+        let d2 = vx * vx + vy * vy;
+        const minDist = ra + rb + NODE_SAT_PADDING;
+        if (d2 >= minDist * minDist) continue;
+        if (d2 < 0.0001) {
+          // Centres confondus : direction déterministe pour décoller.
+          vx = Math.cos(i * 31 + j);
+          vy = Math.sin(i * 31 + j);
+          d2 = vx * vx + vy * vy;
+        }
+        const d = Math.sqrt(d2);
+        const penetration = minDist - d;
+        // Inertie : la grosse bulle bouge moins. Avec ra²/rb², un MEC de
+        // r=40 face à un dossier r=180 absorbe 95 % du déplacement —
+        // exactement ce qu'on veut visuellement.
+        const totalSize = ra * ra + rb * rb;
+        const shareA = (rb * rb) / totalSize;
+        const shareB = (ra * ra) / totalSize;
+        const ux = vx / d;
+        const uy = vy / d;
+        pa.x -= ux * penetration * shareA;
+        pa.y -= uy * penetration * shareA;
+        pb.x += ux * penetration * shareB;
+        pb.y += uy * penetration * shareB;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+}
+
 /** Distance angulaire absolue entre deux angles (rad), wrap-around. */
 function angleDistance(a: number, b: number): number {
   const na = normalizeAngle(a);

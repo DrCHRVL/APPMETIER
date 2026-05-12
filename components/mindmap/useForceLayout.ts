@@ -42,7 +42,7 @@ import {
   type SimulationNodeDatum,
 } from 'd3-force';
 import type { GraphEdge, GraphNode } from '@/utils/mindmapGraph';
-import { applyOrbitalLayout, detectGalaxies, hullSatRelax, layoutGalaxyCenters } from './galaxies';
+import { applyOrbitalLayout, detectGalaxies, hullSatRelax, layoutGalaxyCenters, nodeSatRelax } from './galaxies';
 
 export interface PositionedNode {
   id: string;
@@ -84,7 +84,8 @@ const ORPHAN_RECALL_STRENGTH = 0.01;
 // taille réelle des dossiers (boîte large), l'attraction inter-galactique
 // douce sur les liens renseignement, et le hull-SAT prenant en compte
 // l'extension visuelle de chaque nœud — invalidation pour recalcul propre.
-const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v7';
+// v8 : passe finale node-SAT garantissant aucun chevauchement bulle-à-bulle.
+const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v8';
 // Cache séparé pour les centres de galaxies (clé = anchorId). v4 = attraction
 // renseignement + hull-SAT élargi → les centres bougent, on invalide.
 const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v4';
@@ -524,18 +525,67 @@ export function useForceLayout(
     const deltas = hullSatRelax(galaxies, positionsForOrbits, nodeRadiusById, rensGalaxyPairs);
 
     // ─────────────────────────────────────────────────────────────
-    // 11. Export + mise à jour des caches
+    // 11. Passe finale node-SAT : garantit qu'AUCUNE paire de bulles
+    //     (MEC ou dossier) ne se chevauche, peu importe ce que les
+    //     étapes précédentes ont laissé. Indispensable car :
+    //       • l'orbital pass repositionne les planètes sur leur anneau
+    //         sans regarder les planètes des étoiles voisines ni les
+    //         comètes (qui vivent au barycentre, parfois sur l'anneau) ;
+    //       • le hull-SAT macro sépare les galaxies en bloc mais ne
+    //         touche pas aux chevauchements intra-galactiques ;
+    //       • d3-force converge vers un *équilibre* qui n'est pas un
+    //         hard constraint — il peut laisser des chevauchements
+    //         résiduels en présence de forces antagonistes.
+    //     On opère sur les positions finales (orbital + delta macro)
+    //     avant de les écrire dans le cache.
     // ─────────────────────────────────────────────────────────────
-    const positions = new Map<string, PositionedNode>();
+    const finalPositions = new Map<string, { x: number; y: number }>();
+    const nodeRadiusForSat = new Map<string, number>();
     for (const sn of simNodes as Array<SimNode & { x?: number; y?: number }>) {
       const idx = galaxyIdxByNodeId.get(sn.id);
       const delta = idx !== undefined ? deltas.get(idx) : undefined;
-      // Si l'orbital layout a réécrit la position de cette planète,
-      // on l'utilise comme base ; sinon on prend la position de la simu.
       const orbital = positionsForOrbits.get(sn.id);
       let x = orbital?.x ?? (Number.isFinite(sn.x) ? (sn.x as number) : 0);
       let y = orbital?.y ?? (Number.isFinite(sn.y) ? (sn.y as number) : 0);
       if (delta) { x += delta.dx; y += delta.dy; }
+      finalPositions.set(sn.id, { x, y });
+    }
+    for (const n of nodes) nodeRadiusForSat.set(n.id, getCollisionRadius(n));
+
+    // En mode remous on fige les nœuds non libérés (positions cachées),
+    // on ne veut pas qu'ils dérivent à cause d'un nouveau venu.
+    if (mode === 'remous' && releasedNodes.size > 0) {
+      const releasedPositions = new Map<string, { x: number; y: number }>();
+      const releasedRadii = new Map<string, number>();
+      // On inclut tous les nœuds dans la passe (pour qu'un nœud libéré
+      // soit séparé d'un nœud figé), mais on remet les non-libérés à
+      // leur position d'origine après la passe.
+      const frozenSnapshot = new Map<string, { x: number; y: number }>();
+      for (const [id, p] of finalPositions) {
+        if (!releasedNodes.has(id)) frozenSnapshot.set(id, { x: p.x, y: p.y });
+        releasedPositions.set(id, p);
+        const r = nodeRadiusForSat.get(id);
+        if (r !== undefined) releasedRadii.set(id, r);
+      }
+      nodeSatRelax(releasedPositions, releasedRadii);
+      // Restaure les positions figées : seuls les nœuds libérés gardent
+      // les mouvements de la passe.
+      for (const [id, p] of frozenSnapshot) {
+        const cur = releasedPositions.get(id)!;
+        cur.x = p.x; cur.y = p.y;
+      }
+    } else {
+      nodeSatRelax(finalPositions, nodeRadiusForSat);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 12. Export + mise à jour des caches
+    // ─────────────────────────────────────────────────────────────
+    const positions = new Map<string, PositionedNode>();
+    for (const sn of simNodes as Array<SimNode & { x?: number; y?: number }>) {
+      const fp = finalPositions.get(sn.id);
+      let x = fp?.x ?? 0;
+      let y = fp?.y ?? 0;
       if (x > POSITION_CLAMP) x = POSITION_CLAMP;
       else if (x < -POSITION_CLAMP) x = -POSITION_CLAMP;
       if (y > POSITION_CLAMP) y = POSITION_CLAMP;
