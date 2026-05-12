@@ -15,7 +15,14 @@
 // Le layout intra-système (nœuds dans une galaxie) reste géré par d3-force
 // dans useForceLayout.ts, qui consomme les ancres galactiques calculées ici.
 
-import { forceCollide, forceManyBody, forceSimulation, type SimulationNodeDatum } from 'd3-force';
+import {
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  type SimulationLinkDatum,
+  type SimulationNodeDatum,
+} from 'd3-force';
 import type { GraphEdge, GraphNode, MecNode } from '@/utils/mindmapGraph';
 
 export interface Galaxy {
@@ -59,8 +66,13 @@ export const PLANET_ORBIT_RADIUS = 110;
 /** Rayon nominal d'un système (étoile + 1 anneau de planètes). */
 const SYSTEM_RADIUS = 160;
 /** Marge ajoutée entre deux galaxies pour le placement inter-galactique
- *  (≈ moitié d'un système). Au-dessous, hull-SAT garantit le décollage. */
-const INTER_GALAXY_PADDING = 80;
+ *  (≈ un système complet de respiration). Au-dessous, hull-SAT garantit le
+ *  décollage en tenant compte de l'extension visuelle réelle des nœuds. */
+const INTER_GALAXY_PADDING = 140;
+/** Marge réduite entre deux galaxies reliées par un lien renseignement :
+ *  on veut qu'elles soient *proches* (lecture du lien immédiate) sans pour
+ *  autant fusionner ni se superposer. Hull-SAT garantit le non-recouvrement. */
+const INTER_GALAXY_PADDING_RENS = 60;
 /** Bonus de répulsion proportionnel à la "masse" de la galaxie : plus une
  *  galaxie est grosse (rayon estimé au-delà du système nominal), plus elle
  *  pousse ses voisines loin. Effet : un gros amas ne se laisse pas coller
@@ -225,6 +237,7 @@ interface GalaxySimNode extends SimulationNodeDatum {
 export function layoutGalaxyCenters(
   galaxies: Galaxy[],
   cachedCenters?: Map<string, { x: number; y: number }>,
+  rensGalaxyPairs?: Array<{ aIdx: number; bIdx: number }>,
 ): Map<number, GalaxyPlacement> {
   const result = new Map<number, GalaxyPlacement>();
   if (galaxies.length === 0) return result;
@@ -265,6 +278,53 @@ export function layoutGalaxyCenters(
         .iterations(2),
     );
 
+  // Attraction inter-galactique sur les liens renseignement : on tisse un
+  // forceLink macro entre les *centres* de galaxies reliées par ≥1 lien
+  // renseignement. Distance cible = juste de quoi se toucher hull-à-hull
+  // (collision les empêchera de fusionner), strength bien inférieure à
+  // celle des liens data intra-galactique (0.6) pour rester un effet de
+  // "gravité douce" et non un lien dur.
+  //
+  //   Important : on NE FUSIONNE PAS les galaxies (detectGalaxies les a
+  //   gardées distinctes), on NE COLORE PAS différemment (les hulls
+  //   d'influence ignorent aussi les liens rens), on rapproche juste les
+  //   *centres*. Le résultat visuel : deux réseaux qui se "frôlent" sans
+  //   se mélanger, et le trait renseignement court devient court et
+  //   lisible au lieu de traverser toute la carte.
+  if (rensGalaxyPairs && rensGalaxyPairs.length > 0) {
+    const simNodeByIdx = new Map<number, GalaxySimNode>();
+    for (const sn of simNodes) simNodeByIdx.set(sn.index, sn);
+    // Dédupliquer les paires (plusieurs liens rens entre deux galaxies ne
+    // doivent pas multiplier la force d'attraction).
+    const seen = new Set<string>();
+    const macroLinks: SimulationLinkDatum<GalaxySimNode>[] = [];
+    for (const p of rensGalaxyPairs) {
+      if (p.aIdx === p.bIdx) continue;
+      const a = simNodeByIdx.get(p.aIdx);
+      const b = simNodeByIdx.get(p.bIdx);
+      if (!a || !b) continue;
+      const key = p.aIdx < p.bIdx ? `${p.aIdx}|${p.bIdx}` : `${p.bIdx}|${p.aIdx}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      macroLinks.push({ source: a, target: b });
+    }
+    if (macroLinks.length > 0) {
+      sim.force(
+        'rensLink',
+        forceLink<GalaxySimNode, SimulationLinkDatum<GalaxySimNode>>(macroLinks)
+          .distance(l => {
+            const a = l.source as GalaxySimNode;
+            const b = l.target as GalaxySimNode;
+            // Distance cible = somme des rayons + un padding réduit. La
+            // collision (rayon + INTER_GALAXY_PADDING) empêche d'aller plus
+            // près : les galaxies se posent au minimum admissible.
+            return a.r + b.r + INTER_GALAXY_PADDING_RENS + (massHalo(a.r) + massHalo(b.r)) / 2;
+          })
+          .strength(0.18),
+      );
+    }
+  }
+
   sim.stop();
   for (let i = 0; i < GALAXY_SIM_ITERATIONS; i++) sim.tick();
 
@@ -296,12 +356,35 @@ export function layoutGalaxyCenters(
 export function hullSatRelax(
   galaxies: Galaxy[],
   positionsByNodeId: Map<string, { x: number; y: number }>,
+  nodeRadiusById?: Map<string, number>,
+  rensGalaxyPairs?: Array<{ aIdx: number; bIdx: number }>,
 ): Map<number, { dx: number; dy: number }> {
   const deltas = new Map<number, { dx: number; dy: number }>();
   if (galaxies.length < 2) return deltas;
 
+  // Index des paires de galaxies reliées par un lien renseignement : pour
+  // celles-ci, hull-SAT autorise une proximité plus serrée (padding réduit)
+  // — on veut qu'elles se touchent presque sans pour autant se chevaucher.
+  const rensPairSet = new Set<string>();
+  if (rensGalaxyPairs) {
+    for (const p of rensGalaxyPairs) {
+      if (p.aIdx === p.bIdx) continue;
+      const k = p.aIdx < p.bIdx ? `${p.aIdx}|${p.bIdx}` : `${p.bIdx}|${p.aIdx}`;
+      rensPairSet.add(k);
+    }
+  }
+  const isRensPair = (a: number, b: number) => {
+    const k = a < b ? `${a}|${b}` : `${b}|${a}`;
+    return rensPairSet.has(k);
+  };
+
   // Cercles englobants effectifs (post-layout). Le rayon estimé peut
   // sur-estimer la réalité (galaxie compacte) → on prend le vrai max.
+  // IMPORTANT : on inclut la *taille visuelle* de chaque nœud (collisionRadius)
+  // au bout de la distance au centroïde, sinon un gros dossier sur le bord
+  // de la galaxie déborde du disque englobant et finit par chevaucher la
+  // galaxie voisine — c'est la cause principale des galaxies "qui se
+  // superposent alors qu'elles n'ont aucun lien".
   const discs = galaxies.map(g => {
     let cx = 0, cy = 0, count = 0;
     for (const id of g.memberIds) {
@@ -314,13 +397,14 @@ export function hullSatRelax(
     for (const id of g.memberIds) {
       const p = positionsByNodeId.get(id);
       if (!p) continue;
-      const d = Math.hypot(p.x - cx, p.y - cy);
+      const visualR = nodeRadiusById?.get(id) ?? 0;
+      const d = Math.hypot(p.x - cx, p.y - cy) + visualR;
       if (d > r) r = d;
     }
-    // Disque effectif = enveloppe + demi-padding + demi-halo de masse :
-    // garantit que le post-pass respecte aussi le "halo" appliqué pendant
-    // le placement initial, sinon la simulation pousse mais hull-SAT
-    // ramène au contact.
+    // Disque effectif = enveloppe (incluant la taille des nœuds) + plein
+    // padding + halo de masse. Hull-SAT applique désormais le MÊME budget
+    // d'espace que la simulation macro — pas de marche d'escalier où le
+    // post-pass relâche un contact que la simu avait soigneusement écarté.
     return { idx: g.index, x: cx, y: cy, r: r + INTER_GALAXY_PADDING / 2 + massHalo(r) / 2 };
   });
 
@@ -349,7 +433,14 @@ export function hullSatRelax(
           d2 = vx * vx + vy * vy;
         }
         const d = Math.sqrt(d2);
-        const minDist = a.r + b.r;
+        // Paires reliées par un lien renseignement : on autorise un
+        // rapprochement plus serré (réduit le padding mais garde la
+        // somme des rayons → toujours pas de chevauchement, juste un
+        // espace inter-galactique plus court).
+        const rensShrink = isRensPair(a.idx, b.idx)
+          ? (INTER_GALAXY_PADDING - INTER_GALAXY_PADDING_RENS)
+          : 0;
+        const minDist = a.r + b.r - rensShrink;
         const penetration = minDist - d;
         if (penetration <= 0) continue;
         // On translate chacun de moitié dans la direction opposée. Pondération
@@ -482,6 +573,18 @@ export function applyOrbitalLayout(
       }
       if (maxPlanetDiameter === 0) maxPlanetDiameter = FALLBACK_PLANET_DIAMETER;
 
+      // Taille visuelle réelle de l'étoile (dossier) : la box d'un dossier
+      // peut atteindre ~360 px de large (collisionRadius ≈ 180). Avec
+      // l'ancien minRingRadius=140 fixe, les planètes étaient placées
+      // *à l'intérieur* du rectangle du dossier — leur nom passait sous
+      // le numéro du dossier ("noms de dossier par dessus les noms de
+      // mis en cause"). On dimensionne désormais le rayon minimal au
+      // contact étoile↔planète, plus une marge de respiration.
+      const starNode = nodeById.get(starId);
+      const starRadius = starNode && options.collisionRadiusOf
+        ? options.collisionRadiusOf(starNode)
+        : 80;
+
       // Direction préférée par planète (vers son partenaire renseignement
       // le plus proche, le cas échéant). On l'utilisera comme biais lors
       // du choix d'angle.
@@ -511,6 +614,7 @@ export function applyOrbitalLayout(
 
       const computeMasks = (r: number): Array<[number, number]> => {
         const masks: Array<[number, number]> = [];
+        // Voisins = autres étoiles (dossiers) de la galaxie.
         for (const otherId of galaxyDossiers) {
           if (otherId === starId) continue;
           const op = positions.get(otherId);
@@ -525,6 +629,30 @@ export function applyOrbitalLayout(
           // les planètes du côté libre quand le voisin est très près.
           const proximity = Math.max(0, 1 - dist / (r * NEIGHBOR_MASK_RANGE_RATIO));
           const halfWidth = NEIGHBOR_MASK_HALF_WIDTH * (1 + proximity);
+          masks.push([theta - halfWidth, theta + halfWidth]);
+        }
+        // Comètes (MEC partagés) de la galaxie : elles vivent au barycentre
+        // de leurs dossiers, donc parfois sur l'anneau cible d'une planète.
+        // Sans masquage on a vu deux MEC s'empiler visuellement ("noms de
+        // mis en cause qui se superposent"). On masque un petit secteur
+        // angulaire centré sur la comète quand elle se trouve dans la zone
+        // de l'anneau.
+        for (const cometId of galaxy.cometMecIds) {
+          const cp = positions.get(cometId);
+          if (!cp) continue;
+          const dx = cp.x - starPos.x;
+          const dy = cp.y - starPos.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist < 1 || dist > r * NEIGHBOR_MASK_RANGE_RATIO) continue;
+          const theta = Math.atan2(dy, dx);
+          // Masque proportionnel à la taille visuelle (estimée) de la
+          // comète : on bloque un cône qui équivaut à un diamètre de
+          // planète sur l'anneau le plus représentatif. Toujours capé
+          // pour ne pas dévorer un demi-cercle.
+          const halfWidth = Math.min(
+            NEIGHBOR_MASK_HALF_WIDTH,
+            Math.atan2(maxPlanetDiameter / 2, dist),
+          );
           masks.push([theta - halfWidth, theta + halfWidth]);
         }
         return masks;
@@ -545,7 +673,14 @@ export function applyOrbitalLayout(
       // poignée d'anneaux) — une planète ne dérive donc plus à 1000 px
       // de son étoile, elle reste dans un disque ≤ ~500 px.
       const ringGap = maxPlanetDiameter * 1.1;
-      const minRingRadius = Math.max(140, maxPlanetDiameter);
+      // Rayon minimal = étoile (rayon de collision réel) + demi-diamètre
+      // d'une planète + marge. Garantit qu'aucune planète n'empiète sur
+      // la boîte du dossier, même quand la boîte est très large.
+      const minRingRadius = Math.max(
+        140,
+        starRadius + maxPlanetDiameter / 2 + 20,
+        maxPlanetDiameter,
+      );
       const ringCapacity = (r: number): number => Math.max(
         1,
         Math.floor((2 * Math.PI * r * unmaskedFraction) / maxPlanetDiameter),
