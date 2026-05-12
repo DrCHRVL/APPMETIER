@@ -399,6 +399,10 @@ const MIN_PLANET_ARC_GAP = (6 * Math.PI) / 180;
 const FALLBACK_PLANET_DIAMETER = 140;
 /** Padding additionnel entre planètes sur l'anneau (px). */
 const PLANET_RING_PADDING = 18;
+/** Rayon maximal cible d'un anneau avant qu'on ne crée un anneau
+ *  supplémentaire. Au-delà, les planètes "dérivent" visuellement loin de
+ *  leur étoile — on préfère empiler plusieurs anneaux concentriques. */
+const MAX_RING_RADIUS = 420;
 /** Demi-largeur (rad) du secteur préféré autour de la direction d'un lien
  *  renseignement. Quand une planète a un lien rens, on essaye de la placer
  *  dans cette plage ±15° vers le partenaire pour raccourcir le trait et
@@ -505,14 +509,6 @@ export function applyOrbitalLayout(
         }
       }
 
-      // Calcul du rayon d'anneau : dépend du nombre de planètes et de
-      // la fraction angulaire disponible (après masques).
-      // On itère 2 fois max : 1er passage à mask connu, 2e passage si
-      // r grandit (le mask peut diminuer si voisins reculent du fait du
-      // changement d'échelle — en pratique stable au 1er passage).
-      let ringRadius = Math.max(140, maxPlanetDiameter * planets.length / (2 * Math.PI));
-      let maskedSectors: Array<[number, number]> = [];
-
       const computeMasks = (r: number): Array<[number, number]> => {
         const masks: Array<[number, number]> = [];
         for (const otherId of galaxyDossiers) {
@@ -534,31 +530,63 @@ export function applyOrbitalLayout(
         return masks;
       };
 
-      for (let pass = 0; pass < 2; pass++) {
-        maskedSectors = computeMasks(ringRadius);
-        const unmaskedFraction = computeUnmaskedFraction(maskedSectors);
-        // Slots équivalents si la totalité du cercle était disponible.
-        const effectiveSlots = unmaskedFraction > 0.05
-          ? planets.length / unmaskedFraction
-          : planets.length;
-        // Rayon minimum pour que les planètes ne se chevauchent pas sur
-        // l'anneau : circ ≥ N * diamètre → r ≥ N * d / (2π).
-        const needed = Math.max(
-          140,
-          effectiveSlots * maxPlanetDiameter / (2 * Math.PI),
-        );
-        if (Math.abs(needed - ringRadius) < 10) { ringRadius = needed; break; }
-        ringRadius = needed;
+      // Masque calculé une seule fois sur un rayon d'estimation (les
+      // voisins ne bougent pas pendant cette passe). On prend le rayon
+      // minimal sensé pour ne pas perdre des voisins par "trop loin".
+      const maskedSectors = computeMasks(MAX_RING_RADIUS);
+      const unmaskedFraction = Math.max(0.08, computeUnmaskedFraction(maskedSectors));
+
+      // ─── Construction multi-anneaux ────────────────────────────────
+      // Au lieu de gonfler un seul anneau jusqu'à ce que toutes les
+      // planètes tiennent (formule N×d/2π → ∞ quand N grandit ou que
+      // les voisins masquent), on EMPILE des anneaux concentriques.
+      // Chaque anneau est cappé à MAX_RING_RADIUS (sauf en dernier
+      // recours, si le compte de planètes excède la capacité d'une
+      // poignée d'anneaux) — une planète ne dérive donc plus à 1000 px
+      // de son étoile, elle reste dans un disque ≤ ~500 px.
+      const ringGap = maxPlanetDiameter * 1.1;
+      const minRingRadius = Math.max(140, maxPlanetDiameter);
+      const ringCapacity = (r: number): number => Math.max(
+        1,
+        Math.floor((2 * Math.PI * r * unmaskedFraction) / maxPlanetDiameter),
+      );
+
+      const ringRadii: number[] = [];
+      const ringCapacities: number[] = [];
+      let remaining = planets.length;
+      let nextRadius = minRingRadius;
+      // Plafond logiciel : 8 anneaux suffisent pour des systèmes
+      // pathologiques (≈ 200+ planètes). Au-delà, on dépasse MAX
+      // plutôt que d'empiler à l'infini.
+      while (remaining > 0 && ringRadii.length < 8) {
+        const r = Math.min(nextRadius, MAX_RING_RADIUS);
+        const cap = ringCapacity(r);
+        ringRadii.push(r);
+        ringCapacities.push(Math.min(cap, remaining));
+        remaining -= cap;
+        nextRadius += ringGap;
+        // Une fois MAX atteint, les anneaux suivants doivent pousser
+        // plus loin pour ne pas se confondre — sinon deux anneaux à
+        // MAX_RING_RADIUS se superposeraient.
+        if (r >= MAX_RING_RADIUS) nextRadius = MAX_RING_RADIUS + ringRadii.length * ringGap;
+      }
+      // Si remaining > 0, on a vraiment trop de planètes : on étend
+      // un dernier anneau en débordement plutôt que de jeter des nœuds.
+      if (remaining > 0) {
+        ringCapacities[ringCapacities.length - 1] += remaining;
       }
 
-      // Si trop de planètes pour un seul anneau (densité angulaire trop
-      // forte même au rayon calculé), on bascule sur 2 anneaux.
-      const angularDensity = planets.length / Math.max(0.01, computeUnmaskedFraction(maskedSectors));
-      const useTwoRings = angularDensity > (2 * Math.PI) / (MIN_PLANET_ARC_GAP * 1.2);
-
-      const ringAssignments = useTwoRings
-        ? splitTwoRings(planets, ringRadius)
-        : [{ radius: ringRadius, planets }];
+      // Distribution des planètes : on remplit anneau par anneau dans
+      // l'ordre fourni (les angles préférés/cachés seront triés ensuite
+      // dans la boucle de placement).
+      const ringAssignments: Array<{ radius: number; planets: string[] }> = [];
+      let cursor = 0;
+      for (let i = 0; i < ringRadii.length; i++) {
+        const slice = planets.slice(cursor, cursor + ringCapacities[i]);
+        if (slice.length === 0) continue;
+        ringAssignments.push({ radius: ringRadii[i], planets: slice });
+        cursor += slice.length;
+      }
 
       for (const ring of ringAssignments) {
         // Préserve les angles en cache compatibles avec les secteurs libres.
@@ -722,20 +750,3 @@ function pickNextAngle(
   return bestAngle;
 }
 
-/** Répartit les planètes sur 2 anneaux. Les "grandes" planètes (plus
- *  haute priorité — proxy : ordre des ids triés) vont sur l'anneau
- *  interne ; les autres sur l'anneau externe. */
-function splitTwoRings(
-  planets: string[],
-  baseRadius: number,
-): Array<{ radius: number; planets: string[] }> {
-  // Anneau interne : ~40% des planètes, externe : ~60%. Cette répartition
-  // donne une densité angulaire équivalente sur les 2 anneaux (le grand
-  // anneau accueille plus de monde à densité égale).
-  const sorted = planets.slice().sort();
-  const innerCount = Math.ceil(planets.length * 0.4);
-  return [
-    { radius: baseRadius, planets: sorted.slice(0, innerCount) },
-    { radius: baseRadius * 1.7, planets: sorted.slice(innerCount) },
-  ];
-}

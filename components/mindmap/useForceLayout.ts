@@ -90,7 +90,7 @@ const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v3';
 // Cache des angles orbitaux par MEC (clé = id MEC). v2 : prise en compte
 // des directions préférées (liens renseignement) → invalidation pour que
 // les planètes liées se réorientent vers leur partenaire.
-const ORBITAL_ANGLES_STORAGE_KEY = 'mindmap.layout.orbits.v2';
+const ORBITAL_ANGLES_STORAGE_KEY = 'mindmap.layout.orbits.v3';
 // Borne dure des coordonnées finales (filet de sécurité NaN/explosion).
 const POSITION_CLAMP = 15_000;
 // Seuil de bascule remous / warm full.
