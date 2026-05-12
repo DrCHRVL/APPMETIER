@@ -98,11 +98,13 @@ export function detectGalaxies(nodes: GraphNode[], edges: GraphEdge[]): {
     else mecs.set(n.id, n);
   }
 
-  // 1. Adjacence du graphe complet (dossiers + MECs).
-  //    On unifie les arêtes "data" (MEC ↔ dossier via mec.dossierIds) et
-  //    "renseignement" (peuvent connecter n'importe quels nœuds, y compris
-  //    MEC↔MEC ou MEC↔dossier hors dossierIds). BFS sur ce graphe donne
-  //    directement les composantes connexes = galaxies.
+  // 1. Adjacence pour la détection des galaxies. SEULES les arêtes "data"
+  //    (MEC ↔ dossier via mec.dossierIds) définissent l'appartenance à une
+  //    galaxie. Les liens "renseignement" sont volontairement IGNORÉS ici :
+  //    un simple lien de renseignement entre deux réseaux ne doit pas les
+  //    fusionner en une seule galaxie (même couleur, même hull). Ils restent
+  //    rendus visuellement (force d'attraction au layer micro) mais les deux
+  //    réseaux gardent leur identité distincte.
   const adj = new Map<string, Set<string>>();
   for (const n of nodes) adj.set(n.id, new Set());
   for (const mec of mecs.values()) {
@@ -113,6 +115,7 @@ export function detectGalaxies(nodes: GraphNode[], edges: GraphEdge[]): {
     }
   }
   for (const e of edges) {
+    if (e.kind === 'renseignement') continue;
     if (!adj.has(e.source) || !adj.has(e.target)) continue;
     adj.get(e.source)!.add(e.target);
     adj.get(e.target)!.add(e.source);
@@ -369,9 +372,18 @@ const NEIGHBOR_MASK_RANGE_RATIO = 4;
  *  Avec ≈6° on a au max 60 planètes par anneau ; au-delà on bascule sur
  *  un 2ème anneau. */
 const MIN_PLANET_ARC_GAP = (6 * Math.PI) / 180;
-/** Diamètre nominal d'une planète (collision radius + padding) utilisé
- *  pour estimer le rayon d'anneau nécessaire. */
-const NOMINAL_PLANET_DIAMETER = 90;
+/** Diamètre nominal de secours (collision radius * 2 + padding) si aucune
+ *  fonction de mesure n'est fournie. Calibré sur un MEC de score moyen.
+ *  En pratique le caller fournit collisionRadiusOf et on utilise la
+ *  taille réelle, qui peut atteindre ~180 px pour un gros MEC. */
+const FALLBACK_PLANET_DIAMETER = 140;
+/** Padding additionnel entre planètes sur l'anneau (px). */
+const PLANET_RING_PADDING = 18;
+/** Demi-largeur (rad) du secteur préféré autour de la direction d'un lien
+ *  renseignement. Quand une planète a un lien rens, on essaye de la placer
+ *  dans cette plage ±15° vers le partenaire pour raccourcir le trait et
+ *  éviter qu'il traverse la galaxie. */
+const RENSEIGNEMENT_PREFERRED_HALF_WIDTH = (15 * Math.PI) / 180;
 
 /**
  * Place chaque planète (MEC exclusif d'un dossier) sur un anneau autour
@@ -388,15 +400,30 @@ const NOMINAL_PLANET_DIAMETER = 90;
  *   4. Si une planète a un angle en cache compatible avec un secteur
  *      libre, on le préserve (stabilité inter-rendus).
  */
+export interface OrbitalLayoutOptions {
+  /** Rayon de collision réel par nœud (≈ taille visuelle + padding). Si
+   *  fourni, l'anneau est dimensionné à partir de la planète la plus grosse
+   *  du système au lieu d'un diamètre nominal — évite les chevauchements
+   *  visibles entre deux gros MEC voisins sur le même anneau. */
+  collisionRadiusOf?: (node: GraphNode) => number;
+  /** Pour chaque MEC, ids des autres nœuds auxquels il est lié par un
+   *  lien renseignement (toutes galaxies confondues). Si fourni, on
+   *  privilégie un angle orbital tourné VERS le partenaire pour que le
+   *  trait soit court et ne traverse pas le reste du système. */
+  renseignementTargetsByMecId?: Map<string, string[]>;
+}
+
 export function applyOrbitalLayout(
   galaxies: Galaxy[],
   nodes: GraphNode[],
   positions: Map<string, { x: number; y: number }>,
   cachedAngleByMecId?: Map<string, number>,
+  options: OrbitalLayoutOptions = {},
 ): Map<string, number> {
   // Nouvelle map angle par MEC (sortie + nouveau cache).
   const newAngles = new Map<string, number>();
 
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
   const dossierToPlanets = new Map<string, string[]>();
   for (const n of nodes) {
     if (n.type !== 'mec') continue;
@@ -405,6 +432,12 @@ export function applyOrbitalLayout(
     if (!dossierToPlanets.has(did)) dossierToPlanets.set(did, []);
     dossierToPlanets.get(did)!.push(n.id);
   }
+
+  const planetDiameter = (id: string): number => {
+    const n = nodeById.get(id);
+    if (!n || !options.collisionRadiusOf) return FALLBACK_PLANET_DIAMETER;
+    return options.collisionRadiusOf(n) * 2 + PLANET_RING_PADDING;
+  };
 
   for (const galaxy of galaxies) {
     const galaxyDossiers = Array.from(galaxy.dossierIds);
@@ -415,12 +448,49 @@ export function applyOrbitalLayout(
       const starPos = positions.get(starId);
       if (!starPos) continue;
 
+      // Diamètre effectif d'une planète sur l'anneau (max sur le système :
+      // le plus gros MEC dicte la maille). Padding inclus pour ne pas que
+      // deux planètes voisines se touchent visuellement.
+      let maxPlanetDiameter = 0;
+      for (const pid of planets) {
+        const d = planetDiameter(pid);
+        if (d > maxPlanetDiameter) maxPlanetDiameter = d;
+      }
+      if (maxPlanetDiameter === 0) maxPlanetDiameter = FALLBACK_PLANET_DIAMETER;
+
+      // Direction préférée par planète (vers son partenaire renseignement
+      // le plus proche, le cas échéant). On l'utilisera comme biais lors
+      // du choix d'angle.
+      const preferredAngleByPlanet = new Map<string, number>();
+      const rensTargets = options.renseignementTargetsByMecId;
+      if (rensTargets) {
+        for (const pid of planets) {
+          const targets = rensTargets.get(pid);
+          if (!targets || targets.length === 0) continue;
+          // Barycentre des positions des partenaires connus → un seul
+          // angle préféré (et si plusieurs partenaires, c'est le compromis
+          // qui minimise les liens longs).
+          let sx = 0, sy = 0, count = 0;
+          for (const tid of targets) {
+            const tp = positions.get(tid);
+            if (!tp) continue;
+            sx += tp.x; sy += tp.y; count++;
+          }
+          if (count === 0) continue;
+          const cx = sx / count, cy = sy / count;
+          const dx = cx - starPos.x;
+          const dy = cy - starPos.y;
+          if (dx === 0 && dy === 0) continue;
+          preferredAngleByPlanet.set(pid, normalizeAngle(Math.atan2(dy, dx)));
+        }
+      }
+
       // Calcul du rayon d'anneau : dépend du nombre de planètes et de
       // la fraction angulaire disponible (après masques).
       // On itère 2 fois max : 1er passage à mask connu, 2e passage si
       // r grandit (le mask peut diminuer si voisins reculent du fait du
       // changement d'échelle — en pratique stable au 1er passage).
-      let ringRadius = 140;
+      let ringRadius = Math.max(140, maxPlanetDiameter * planets.length / (2 * Math.PI));
       let maskedSectors: Array<[number, number]> = [];
 
       const computeMasks = (r: number): Array<[number, number]> => {
@@ -455,7 +525,7 @@ export function applyOrbitalLayout(
         // l'anneau : circ ≥ N * diamètre → r ≥ N * d / (2π).
         const needed = Math.max(
           140,
-          effectiveSlots * NOMINAL_PLANET_DIAMETER / (2 * Math.PI),
+          effectiveSlots * maxPlanetDiameter / (2 * Math.PI),
         );
         if (Math.abs(needed - ringRadius) < 10) { ringRadius = needed; break; }
         ringRadius = needed;
@@ -476,8 +546,16 @@ export function applyOrbitalLayout(
         const remaining: string[] = [];
         for (const pid of ring.planets) {
           const cached = cachedAngleByMecId?.get(pid);
-          if (cached !== undefined && !isAngleMasked(cached, maskedSectors)) {
-            preserved.push({ id: pid, angle: normalizeAngle(cached) });
+          // Si la planète a un partenaire renseignement, on ne préserve
+          // le cache que s'il est déjà proche de la direction préférée :
+          // sinon on rebascule pour la rapprocher du partenaire.
+          const preferred = preferredAngleByPlanet.get(pid);
+          const cachedIsAcceptable = cached !== undefined
+            && !isAngleMasked(cached, maskedSectors)
+            && (preferred === undefined
+                || angleDistance(cached, preferred) <= RENSEIGNEMENT_PREFERRED_HALF_WIDTH * 2);
+          if (cachedIsAcceptable) {
+            preserved.push({ id: pid, angle: normalizeAngle(cached!) });
           } else {
             remaining.push(pid);
           }
@@ -486,9 +564,20 @@ export function applyOrbitalLayout(
         // dans les écarts entre angles existants.
         preserved.sort((a, b) => a.angle - b.angle);
 
+        // Ordre de placement des "remaining" : d'abord celles qui ont une
+        // direction préférée (lien renseignement), pour qu'elles obtiennent
+        // un secteur libre orienté vers leur partenaire avant que les
+        // autres ne le prennent.
+        remaining.sort((a, b) => {
+          const ap = preferredAngleByPlanet.has(a) ? 0 : 1;
+          const bp = preferredAngleByPlanet.has(b) ? 0 : 1;
+          return ap - bp;
+        });
+
         const placed = preserved.slice();
         for (const pid of remaining) {
-          const ang = pickNextAngle(placed.map(p => p.angle), maskedSectors);
+          const preferred = preferredAngleByPlanet.get(pid);
+          const ang = pickNextAngle(placed.map(p => p.angle), maskedSectors, preferred);
           placed.push({ id: pid, angle: ang });
           placed.sort((a, b) => a.angle - b.angle);
         }
@@ -504,6 +593,14 @@ export function applyOrbitalLayout(
     }
   }
   return newAngles;
+}
+
+/** Distance angulaire absolue entre deux angles (rad), wrap-around. */
+function angleDistance(a: number, b: number): number {
+  const na = normalizeAngle(a);
+  const nb = normalizeAngle(b);
+  const d = Math.abs(na - nb);
+  return Math.min(d, 2 * Math.PI - d);
 }
 
 /** Normalise un angle dans [0, 2π[. */
@@ -548,25 +645,54 @@ function computeUnmaskedFraction(masks: Array<[number, number]>): number {
   return free / samples;
 }
 
-/** Choisit le prochain angle pour une planète : l'angle qui maximise la
- *  distance angulaire au voisin le plus proche parmi les planètes déjà
- *  placées, en évitant les secteurs masqués. */
-function pickNextAngle(existing: number[], masks: Array<[number, number]>): number {
-  // Échantillonnage à 1° : on prend le meilleur candidat libre.
+/** Choisit le prochain angle pour une planète. Combine deux objectifs :
+ *   - maximiser la distance au voisin le plus proche (étalement)
+ *   - rester proche d'une direction préférée si fournie (lien
+ *     renseignement vers un partenaire externe au système). Quand la
+ *     préférence est exprimée, on cherche d'abord un angle libre dans la
+ *     fenêtre ±RENSEIGNEMENT_PREFERRED_HALF_WIDTH ; à défaut on tombe
+ *     sur le pur étalement.
+ *  Toujours en évitant les secteurs masqués (direction d'un voisin
+ *  proche). */
+function pickNextAngle(
+  existing: number[],
+  masks: Array<[number, number]>,
+  preferredAngle?: number,
+): number {
   const samples = 360;
+  // 1. Si une direction préférée est donnée : on cherche dans la fenêtre
+  //    préférée l'angle qui maximise l'écart aux voisins. Si la fenêtre
+  //    est entièrement masquée ou collée à un voisin (<MIN_PLANET_ARC_GAP),
+  //    on retombe sur le pur étalement.
+  if (preferredAngle !== undefined) {
+    let bestPref = -1;
+    let bestPrefAngle = preferredAngle;
+    for (let i = 0; i < samples; i++) {
+      const a = (i / samples) * 2 * Math.PI;
+      if (isAngleMasked(a, masks)) continue;
+      if (angleDistance(a, preferredAngle) > RENSEIGNEMENT_PREFERRED_HALF_WIDTH) continue;
+      let minDist = Math.PI;
+      for (const e of existing) {
+        const d = angleDistance(a, e);
+        if (d < minDist) minDist = d;
+      }
+      if (minDist < MIN_PLANET_ARC_GAP) continue;
+      if (minDist > bestPref) { bestPref = minDist; bestPrefAngle = a; }
+    }
+    if (bestPref > 0) return bestPrefAngle;
+  }
+
+  // 2. Étalement classique : angle qui maximise la distance au plus proche.
   let bestAngle = 0;
   let bestScore = -1;
   for (let i = 0; i < samples; i++) {
     const a = (i / samples) * 2 * Math.PI;
     if (isAngleMasked(a, masks)) continue;
-    // Distance au plus proche voisin (rad), avec wrap-around.
     let minDist = Math.PI;
     for (const e of existing) {
-      const d = Math.abs(a - e);
-      const dd = Math.min(d, 2 * Math.PI - d);
-      if (dd < minDist) minDist = dd;
+      const d = angleDistance(a, e);
+      if (d < minDist) minDist = d;
     }
-    // Si pas de voisin, on prend le 1er angle libre.
     if (existing.length === 0) return a;
     if (minDist > bestScore) {
       bestScore = minDist;

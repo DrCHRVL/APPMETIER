@@ -51,8 +51,8 @@ function hsl(h: number, s: number, l: number): string {
 
 /**
  * BFS distance depuis un nœud source vers tous les autres dans une composante.
- * Utilise une adjacence pré-calculée (data + renseignement confondus pour
- * cohérence avec les liens visuellement présents).
+ * Utilise une adjacence pré-calculée (data uniquement — les liens
+ * renseignement ne définissent pas l'appartenance à un réseau).
  */
 function bfsDistances(
   sourceId: string,
@@ -120,12 +120,16 @@ export function computeClusterColors(
   const byComponent = new Map<string, string>();
   if (nodes.length === 0) return { byNode, byComponent };
 
-  // Adjacence (toutes les arêtes : data ET renseignement — un lien visible
-  // doit influencer la couleur perçue, sinon le réseau "renseignement" ne
-  // serait jamais marqué comme tel).
+  // Adjacence pour la détection de réseau : SEULES les arêtes "data"
+  // comptent. Un simple lien de renseignement entre deux réseaux ne doit
+  // pas les fusionner en une seule composante (et donc une seule couleur),
+  // sinon le code "réseau partagé" devient indiscernable d'un vrai
+  // partage de MEC. Les renseignement restent visibles côté rendu et
+  // tirent les nœuds visuellement proches via la force de lien.
   const adj = new Map<string, string[]>();
   for (const n of nodes) adj.set(n.id, []);
   for (const e of edges) {
+    if (e.kind === 'renseignement') continue;
     if (!adj.has(e.source) || !adj.has(e.target)) continue;
     adj.get(e.source)!.push(e.target);
     adj.get(e.target)!.push(e.source);

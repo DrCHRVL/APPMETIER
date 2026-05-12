@@ -85,6 +85,10 @@ export function connectedComponents(
   const adj = new Map<string, Set<string>>();
   for (const n of nodes) adj.set(n.id, new Set());
   for (const e of edges) {
+    // Les liens renseignement n'agrègent PAS les réseaux : ils sont
+    // visuellement présents mais ne fusionnent pas deux composantes en
+    // un même hull d'influence.
+    if (e.kind === 'renseignement') continue;
     if (!adj.has(e.source) || !adj.has(e.target)) continue;
     adj.get(e.source)!.add(e.target);
     adj.get(e.target)!.add(e.source);
