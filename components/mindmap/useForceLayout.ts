@@ -79,13 +79,14 @@ const GALAXY_GRAVITY_STRENGTH = 0.18;
 // MEC partagé ni voisin). Sans ce filet, ils pourraient dériver.
 const ORPHAN_RECALL_STRENGTH = 0.01;
 
-// Cache localStorage : positions de nœuds + signature de galaxie. v5 marque
-// le retrait des liens renseignement de la détection des galaxies (un
-// simple lien rens ne fusionne plus deux réseaux) et la prise en compte
-// des tailles réelles des planètes sur l'anneau orbital.
-const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v5';
-// Cache séparé pour les centres de galaxies (clé = anchorId).
-const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v2';
+// Cache localStorage : positions de nœuds + signature de galaxie. v6 marque
+// (v5) le retrait des liens renseignement de la détection des galaxies +
+// la prise en compte des tailles réelles des planètes, puis (v6) l'ajout
+// d'un halo de répulsion proportionnel à la masse des galaxies.
+const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v6';
+// Cache séparé pour les centres de galaxies (clé = anchorId). v3 = halo
+// de masse → les centres bougent, on invalide.
+const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v3';
 // Cache des angles orbitaux par MEC (clé = id MEC). v2 : prise en compte
 // des directions préférées (liens renseignement) → invalidation pour que
 // les planètes liées se réorientent vers leur partenaire.

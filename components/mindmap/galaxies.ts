@@ -61,6 +61,11 @@ const SYSTEM_RADIUS = 160;
 /** Marge ajoutée entre deux galaxies pour le placement inter-galactique
  *  (≈ moitié d'un système). Au-dessous, hull-SAT garantit le décollage. */
 const INTER_GALAXY_PADDING = 80;
+/** Bonus de répulsion proportionnel à la "masse" de la galaxie : plus une
+ *  galaxie est grosse (rayon estimé au-delà du système nominal), plus elle
+ *  pousse ses voisines loin. Effet : un gros amas ne se laisse pas coller
+ *  par un petit dossier indépendant — il y a un halo de respiration. */
+const GALAXY_MASS_PADDING_RATIO = 0.35;
 /** Pas du relâchement hull-SAT (px) : on translate au max de cette
  *  amplitude par itération pour éviter les sur-corrections. */
 const HULL_SAT_STEP = 0.5;
@@ -68,6 +73,13 @@ const HULL_SAT_STEP = 0.5;
 const HULL_SAT_MAX_ITER = 60;
 /** Itérations / alpha pour la simulation inter-galactique. */
 const GALAXY_SIM_ITERATIONS = 200;
+
+/** Halo de répulsion supplémentaire d'une galaxie au-delà de son rayon
+ *  estimé. Croit linéairement avec la "taille au-dessus du système
+ *  nominal", capé pour rester raisonnable sur les très gros graphes. */
+function massHalo(r: number): number {
+  return Math.min(220, Math.max(0, r - SYSTEM_RADIUS) * GALAXY_MASS_PADDING_RATIO);
+}
 
 // ──────────────────────────────────────────────────────────────────────
 // DÉTECTION DES GALAXIES
@@ -243,8 +255,12 @@ export function layoutGalaxyCenters(
     .force('charge', forceManyBody<GalaxySimNode>().strength(d => -150 * d.r / 100))
     .force(
       'collide',
+      // Rayon de collision = rayon estimé + padding fixe + halo de masse.
+      // Le halo donne aux grosses galaxies un "espace personnel" plus grand
+      // que les petites : un dossier indépendant ne vient plus se coller
+      // au bord d'un gros amas, il reste à distance respectueuse.
       forceCollide<GalaxySimNode>()
-        .radius(d => d.r + INTER_GALAXY_PADDING)
+        .radius(d => d.r + INTER_GALAXY_PADDING + massHalo(d.r))
         .strength(1)
         .iterations(2),
     );
@@ -301,7 +317,11 @@ export function hullSatRelax(
       const d = Math.hypot(p.x - cx, p.y - cy);
       if (d > r) r = d;
     }
-    return { idx: g.index, x: cx, y: cy, r: r + INTER_GALAXY_PADDING / 2 };
+    // Disque effectif = enveloppe + demi-padding + demi-halo de masse :
+    // garantit que le post-pass respecte aussi le "halo" appliqué pendant
+    // le placement initial, sinon la simulation pousse mais hull-SAT
+    // ramène au contact.
+    return { idx: g.index, x: cx, y: cy, r: r + INTER_GALAXY_PADDING / 2 + massHalo(r) / 2 };
   });
 
   // Translations cumulées par galaxie.
