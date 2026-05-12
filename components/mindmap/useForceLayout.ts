@@ -79,18 +79,19 @@ const GALAXY_GRAVITY_STRENGTH = 0.18;
 // MEC partagé ni voisin). Sans ce filet, ils pourraient dériver.
 const ORPHAN_RECALL_STRENGTH = 0.01;
 
-// Cache localStorage : positions de nœuds + signature de galaxie. v6 marque
-// (v5) le retrait des liens renseignement de la détection des galaxies +
-// la prise en compte des tailles réelles des planètes, puis (v6) l'ajout
-// d'un halo de répulsion proportionnel à la masse des galaxies.
-const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v6';
-// Cache séparé pour les centres de galaxies (clé = anchorId). v3 = halo
-// de masse → les centres bougent, on invalide.
-const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v3';
-// Cache des angles orbitaux par MEC (clé = id MEC). v2 : prise en compte
-// des directions préférées (liens renseignement) → invalidation pour que
-// les planètes liées se réorientent vers leur partenaire.
-const ORBITAL_ANGLES_STORAGE_KEY = 'mindmap.layout.orbits.v3';
+// Cache localStorage : positions de nœuds + signature de galaxie. v7 marque
+// (v6) le halo de masse, puis (v7) le rayon orbital tenant compte de la
+// taille réelle des dossiers (boîte large), l'attraction inter-galactique
+// douce sur les liens renseignement, et le hull-SAT prenant en compte
+// l'extension visuelle de chaque nœud — invalidation pour recalcul propre.
+const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v7';
+// Cache séparé pour les centres de galaxies (clé = anchorId). v4 = attraction
+// renseignement + hull-SAT élargi → les centres bougent, on invalide.
+const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v4';
+// Cache des angles orbitaux par MEC (clé = id MEC). v4 : rayons d'anneau
+// recalculés en fonction de la taille de l'étoile (dossier large) → les
+// anciens angles cachés étaient valides mais on relance proprement.
+const ORBITAL_ANGLES_STORAGE_KEY = 'mindmap.layout.orbits.v4';
 // Borne dure des coordonnées finales (filet de sécurité NaN/explosion).
 const POSITION_CLAMP = 15_000;
 // Seuil de bascule remous / warm full.
@@ -344,7 +345,22 @@ export function useForceLayout(
     // En remous on garde les centres en cache pour ne pas faire bouger
     // les galaxies non concernées. En cold/warmFull on les recalcule mais
     // le seed depuis le cache préserve la disposition globale.
-    const galaxyCenters = layoutGalaxyCenters(galaxies, galaxyCenterCache);
+    //
+    // Liens renseignement inter-galactiques : on extrait les paires de
+    // galaxies (a, b) reliées par ≥1 lien rens. Ces paires sont passées
+    // au layout macro pour générer une attraction *douce* entre galaxies
+    // (gravité), sans fusion ni partage de couleur — la détection des
+    // galaxies a déjà filtré les liens rens.
+    const rensGalaxyPairs: Array<{ aIdx: number; bIdx: number }> = [];
+    for (const e of edges) {
+      if (e.kind !== 'renseignement') continue;
+      const aIdx = galaxyIdxByNodeId.get(e.source);
+      const bIdx = galaxyIdxByNodeId.get(e.target);
+      if (aIdx === undefined || bIdx === undefined) continue;
+      if (aIdx === bIdx) continue; // intra-galactique : la gravité macro n'a pas de sens
+      rensGalaxyPairs.push({ aIdx, bIdx });
+    }
+    const galaxyCenters = layoutGalaxyCenters(galaxies, galaxyCenterCache, rensGalaxyPairs);
 
     // ─────────────────────────────────────────────────────────────
     // 5. Set libéré (mode remous uniquement)
@@ -496,8 +512,16 @@ export function useForceLayout(
     // ─────────────────────────────────────────────────────────────
     // 10. Hull-SAT post-pass : éjecte les galaxies qui se chevauchent
     //     encore après l'expansion orbitale.
+    //     On lui passe les rayons visuels réels (collisionRadius) pour
+    //     que les grosses boîtes dossier sur le bord d'une galaxie ne
+    //     dépassent plus du disque englobant — sinon deux galaxies sans
+    //     lien finissaient par se "superposer alors qu'elles n'ont
+    //     aucun lien". Les paires renseignement ont droit à un padding
+    //     réduit (proximité tolérée, mais pas de chevauchement).
     // ─────────────────────────────────────────────────────────────
-    const deltas = hullSatRelax(galaxies, positionsForOrbits);
+    const nodeRadiusById = new Map<string, number>();
+    for (const n of nodes) nodeRadiusById.set(n.id, getCollisionRadius(n));
+    const deltas = hullSatRelax(galaxies, positionsForOrbits, nodeRadiusById, rensGalaxyPairs);
 
     // ─────────────────────────────────────────────────────────────
     // 11. Export + mise à jour des caches
