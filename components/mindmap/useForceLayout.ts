@@ -79,14 +79,18 @@ const GALAXY_GRAVITY_STRENGTH = 0.18;
 // MEC partagé ni voisin). Sans ce filet, ils pourraient dériver.
 const ORPHAN_RECALL_STRENGTH = 0.01;
 
-// Cache localStorage : positions de nœuds + signature de galaxie. v4 marque
-// le passage du modèle "zones cardinales" au modèle "galaxies".
-const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v4';
-// Cache séparé pour les centres de galaxies (clé = anchorId).
-const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v1';
-// Cache des angles orbitaux par MEC (clé = id MEC). Préserve l'angle
-// d'une planète entre rendus quand le secteur libre le permet.
-const ORBITAL_ANGLES_STORAGE_KEY = 'mindmap.layout.orbits.v1';
+// Cache localStorage : positions de nœuds + signature de galaxie. v6 marque
+// (v5) le retrait des liens renseignement de la détection des galaxies +
+// la prise en compte des tailles réelles des planètes, puis (v6) l'ajout
+// d'un halo de répulsion proportionnel à la masse des galaxies.
+const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v6';
+// Cache séparé pour les centres de galaxies (clé = anchorId). v3 = halo
+// de masse → les centres bougent, on invalide.
+const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v3';
+// Cache des angles orbitaux par MEC (clé = id MEC). v2 : prise en compte
+// des directions préférées (liens renseignement) → invalidation pour que
+// les planètes liées se réorientent vers leur partenaire.
+const ORBITAL_ANGLES_STORAGE_KEY = 'mindmap.layout.orbits.v3';
 // Borne dure des coordonnées finales (filet de sécurité NaN/explosion).
 const POSITION_CLAMP = 15_000;
 // Seuil de bascule remous / warm full.
@@ -460,7 +464,33 @@ export function useForceLayout(
     const orbitalGalaxies = mode === 'remous'
       ? galaxies.filter(g => Array.from(g.memberIds).some(id => releasedNodes.has(id)))
       : galaxies;
-    const newAngles = applyOrbitalLayout(orbitalGalaxies, nodes, positionsForOrbits, orbitalAngleCache);
+    // Cibles renseignement par MEC : permet d'orienter la planète sur son
+    // anneau vers son partenaire renseignement (lien plus court, ne
+    // traverse plus le système).
+    const renseignementTargetsByMecId = new Map<string, string[]>();
+    for (const e of edges) {
+      if (e.kind !== 'renseignement') continue;
+      const sn = nodes.find(n => n.id === e.source);
+      const tn = nodes.find(n => n.id === e.target);
+      if (sn?.type === 'mec' && sn.dossierIds.length === 1) {
+        if (!renseignementTargetsByMecId.has(sn.id)) renseignementTargetsByMecId.set(sn.id, []);
+        renseignementTargetsByMecId.get(sn.id)!.push(e.target);
+      }
+      if (tn?.type === 'mec' && tn.dossierIds.length === 1) {
+        if (!renseignementTargetsByMecId.has(tn.id)) renseignementTargetsByMecId.set(tn.id, []);
+        renseignementTargetsByMecId.get(tn.id)!.push(e.source);
+      }
+    }
+    const newAngles = applyOrbitalLayout(
+      orbitalGalaxies,
+      nodes,
+      positionsForOrbits,
+      orbitalAngleCache,
+      {
+        collisionRadiusOf: getCollisionRadius,
+        renseignementTargetsByMecId,
+      },
+    );
     for (const [mecId, ang] of newAngles) orbitalAngleCache.set(mecId, ang);
 
     // ─────────────────────────────────────────────────────────────
