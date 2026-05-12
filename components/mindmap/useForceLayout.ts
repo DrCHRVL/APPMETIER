@@ -85,14 +85,19 @@ const ORPHAN_RECALL_STRENGTH = 0.01;
 // douce sur les liens renseignement, et le hull-SAT prenant en compte
 // l'extension visuelle de chaque nœud — invalidation pour recalcul propre.
 // v8 : passe finale node-SAT garantissant aucun chevauchement bulle-à-bulle.
-const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v8';
+// v9 : masque géométrique des dossiers voisins dans l'orbital pass + buffer
+//      MEC ↔ dossier non-parent dans node-SAT → planètes plus aérées et
+//      visiblement rattachées à leur étoile.
+const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v9';
 // Cache séparé pour les centres de galaxies (clé = anchorId). v4 = attraction
 // renseignement + hull-SAT élargi → les centres bougent, on invalide.
 const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v4';
 // Cache des angles orbitaux par MEC (clé = id MEC). v4 : rayons d'anneau
 // recalculés en fonction de la taille de l'étoile (dossier large) → les
 // anciens angles cachés étaient valides mais on relance proprement.
-const ORBITAL_ANGLES_STORAGE_KEY = 'mindmap.layout.orbits.v4';
+// v5 : masques par anneau (géométriques sur les dossiers voisins) →
+//      anciens angles potentiellement masqués, recalcul propre.
+const ORBITAL_ANGLES_STORAGE_KEY = 'mindmap.layout.orbits.v5';
 // Borne dure des coordonnées finales (filet de sécurité NaN/explosion).
 const POSITION_CLAMP = 15_000;
 // Seuil de bascule remous / warm full.
@@ -552,6 +557,26 @@ export function useForceLayout(
     }
     for (const n of nodes) nodeRadiusForSat.set(n.id, getCollisionRadius(n));
 
+    // Maps annexes pour le buffer "MEC ↔ dossier non-parent même galaxie" :
+    // on veut qu'une planète ne puisse pas se coller à un dossier voisin
+    // dans sa galaxie — c'est ce qui rendait la carte illisible (planète
+    // qui semble appartenir à 2 dossiers à la fois).
+    const isDossierSet = new Set<string>();
+    const parentDossiersByMecId = new Map<string, Set<string>>();
+    for (const n of nodes) {
+      if (n.type === 'dossier') isDossierSet.add(n.id);
+      else parentDossiersByMecId.set(n.id, new Set(n.dossierIds));
+    }
+    const nodeSatOptions = {
+      galaxyIdxByNodeId,
+      parentDossiersByMecId,
+      isDossier: (id: string) => isDossierSet.has(id),
+      // 40 px : largement au-delà du chevauchement géométrique. Donne
+      // un blanc visuel net entre une planète et un dossier qui n'est
+      // pas le sien → "ça appartient à l'étoile X, pas à l'étoile Y".
+      foreignDossierBuffer: 40,
+    };
+
     // En mode remous on fige les nœuds non libérés (positions cachées),
     // on ne veut pas qu'ils dérivent à cause d'un nouveau venu.
     if (mode === 'remous' && releasedNodes.size > 0) {
@@ -567,7 +592,7 @@ export function useForceLayout(
         const r = nodeRadiusForSat.get(id);
         if (r !== undefined) releasedRadii.set(id, r);
       }
-      nodeSatRelax(releasedPositions, releasedRadii);
+      nodeSatRelax(releasedPositions, releasedRadii, nodeSatOptions);
       // Restaure les positions figées : seuls les nœuds libérés gardent
       // les mouvements de la passe.
       for (const [id, p] of frozenSnapshot) {
@@ -575,7 +600,7 @@ export function useForceLayout(
         cur.x = p.x; cur.y = p.y;
       }
     } else {
-      nodeSatRelax(finalPositions, nodeRadiusForSat);
+      nodeSatRelax(finalPositions, nodeRadiusForSat, nodeSatOptions);
     }
 
     // ─────────────────────────────────────────────────────────────
