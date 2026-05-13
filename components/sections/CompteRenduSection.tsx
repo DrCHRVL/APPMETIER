@@ -550,8 +550,15 @@ export const CompteRenduSection = memo(({
         }
       };
       removeComments(tmp);
-      // Supprimer les balises style, script, meta, link + éléments à classe Mso*
-      tmp.querySelectorAll('style, script, meta, link, title, xml, [class^="Mso"]').forEach(el => el.remove());
+      // Supprimer les balises sans contenu utile (style/script/meta/link/title/xml).
+      tmp.querySelectorAll('style, script, meta, link, title, xml').forEach(el => el.remove());
+      // Déballer (unwrap) les éléments à classe Office (MsoNormal, MsoListParagraph…).
+      // Word/Outlook enveloppe CHAQUE paragraphe dans `<p class="MsoNormal">…</p>` :
+      // un `.remove()` jetterait l'élément ET son texte, ce qui rendait le collage
+      // vide depuis Word. On conserve le contenu en remplaçant l'élément par ses enfants.
+      tmp.querySelectorAll('[class^="Mso"]').forEach(el => {
+        el.replaceWith(...el.childNodes);
+      });
       // Supprimer tous les attributs sauf href sur <a>
       const walk = (node: Element) => {
         const attrs = [...node.attributes];
