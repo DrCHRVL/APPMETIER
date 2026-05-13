@@ -115,7 +115,7 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
-      <DialogContent className="max-w-2xl bg-white relative">
+      <DialogContent className="max-w-2xl bg-white">
         <DialogHeader>
           <DialogTitle className="text-base">
             Récapitulatif de clôture — Enquête N° {enquete.numero}
