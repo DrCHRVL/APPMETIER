@@ -32,8 +32,15 @@ export const stripClipboardNoise = (html: string): string => {
 // avec entités (où `<` est devenu `&lt;`) — sans ça, ce contenu tombe dans la
 // branche markdown qui re-échappe `&` → `&amp;` et affiche littéralement
 // « <!--[if gte mso 9]> » à l'écran.
+// La 3ᵉ regex couvre le cas crucial du contenu sorti d'`innerHTML` : la
+// sérialisation HTML standard remplace `&`, `<`, `>`, U+00A0 par leurs entités.
+// Un texte plat « Relance > à clôturer » saisi dans contentEditable est lu
+// `Relance &gt; à clôturer` ; sans cette détection on retombait dans la branche
+// markdown qui ré-échappait `&` → `&amp;` et affichait « &gt; » littéralement.
 const looksLikeHtml = (text: string): boolean =>
-  /<[a-z][\s\S]*?>/i.test(text) || /&lt;[!a-z]/i.test(text);
+  /<[a-z][\s\S]*?>/i.test(text) ||
+  /&lt;[!a-z]/i.test(text) ||
+  /&(?:amp|lt|gt|nbsp|quot|apos|#\d+|#x[0-9a-f]+);/i.test(text);
 
 // Désescape une seule passe d'entités HTML sur les marqueurs MSO détectés.
 // Utilisé pour « réparer » les CR historiquement stockés avec entités avant
