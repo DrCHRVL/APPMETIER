@@ -476,6 +476,17 @@ export function hullSatRelax(
 /** Largeur angulaire (rad) masquée autour de la direction d'un voisin
  *  proche. ±27° → on évite que les planètes pointent vers le voisin. */
 const NEIGHBOR_MASK_HALF_WIDTH = (27 * Math.PI) / 180;
+/** Plafond du masque géométrique d'un dossier voisin : on ne laisse jamais
+ *  un seul voisin manger plus de ±60° du cercle, sinon une étoile entourée
+ *  de 3 dossiers larges n'a plus aucun angle valide. Le reste est résolu
+ *  par le node-SAT final qui pousse hors collision. */
+const FOREIGN_DOSSIER_MASK_MAX_HALF_WIDTH = (60 * Math.PI) / 180;
+/** Buffer (px) entre une planète et un dossier *non-parent* de la même
+ *  galaxie. Ajouté en plus du rayon de collision visuel pour que la
+ *  planète reste lisiblement "à l'écart" du dossier voisin et qu'on
+ *  voie clairement à quelle étoile elle appartient. Volontairement
+ *  généreux : la lisibilité prime sur la compacité. */
+const FOREIGN_DOSSIER_BUFFER = 40;
 /** Au-delà de ce ratio (distance voisin / rayon orbite), le voisin n'est
  *  plus considéré comme "proche" et ne masque plus de secteur. */
 const NEIGHBOR_MASK_RANGE_RATIO = 4;
@@ -624,11 +635,32 @@ export function applyOrbitalLayout(
           const dist = Math.hypot(dx, dy);
           if (dist > r * NEIGHBOR_MASK_RANGE_RATIO) continue;
           const theta = Math.atan2(dy, dx);
-          // Largeur de masque qui s'étend quand le voisin est proche :
-          // ±MASK_HALF_WIDTH ajusté par (1 - dist/range) pour rapprocher
-          // les planètes du côté libre quand le voisin est très près.
+          // Masque directionnel original (proximité du voisin → planètes
+          // poussées de l'autre côté). Reste utile pour la respiration
+          // visuelle même quand la géométrie n'imposerait rien.
           const proximity = Math.max(0, 1 - dist / (r * NEIGHBOR_MASK_RANGE_RATIO));
-          const halfWidth = NEIGHBOR_MASK_HALF_WIDTH * (1 + proximity);
+          const directionalHalf = NEIGHBOR_MASK_HALF_WIDTH * (1 + proximity);
+          // Masque géométrique exact : arc d'angles autour de θ pour
+          // lesquels la planète posée à (star + r·(cos a, sin a)) tombe
+          // dans le disque de rayon (R_voisin + buffer) autour du voisin.
+          //   Distance² planète↔voisin = r² + D² − 2rD·cos(a−θ)
+          //   Interdit ssi cette distance < R²
+          //   ⇔ cos(a−θ) > (r² + D² − R²) / (2rD)
+          // Capé à FOREIGN_DOSSIER_MASK_MAX_HALF_WIDTH pour ne pas
+          // condamner une étoile cernée par 3 dossiers à 0 angle libre.
+          const otherNode = nodeById.get(otherId);
+          let geometricHalf = 0;
+          if (otherNode && options.collisionRadiusOf) {
+            const R = options.collisionRadiusOf(otherNode) + FOREIGN_DOSSIER_BUFFER;
+            const cosThreshold = (r * r + dist * dist - R * R) / (2 * r * dist);
+            if (cosThreshold < 1) {
+              // cosThreshold ≤ −1 = anneau entièrement dedans : on
+              // mettrait π → on cape juste après.
+              const raw = cosThreshold <= -1 ? Math.PI : Math.acos(cosThreshold);
+              geometricHalf = Math.min(raw, FOREIGN_DOSSIER_MASK_MAX_HALF_WIDTH);
+            }
+          }
+          const halfWidth = Math.max(directionalHalf, geometricHalf);
           masks.push([theta - halfWidth, theta + halfWidth]);
         }
         // Comètes (MEC partagés) de la galaxie : elles vivent au barycentre
@@ -658,11 +690,13 @@ export function applyOrbitalLayout(
         return masks;
       };
 
-      // Masque calculé une seule fois sur un rayon d'estimation (les
-      // voisins ne bougent pas pendant cette passe). On prend le rayon
-      // minimal sensé pour ne pas perdre des voisins par "trop loin".
-      const maskedSectors = computeMasks(MAX_RING_RADIUS);
-      const unmaskedFraction = Math.max(0.08, computeUnmaskedFraction(maskedSectors));
+      // Masque "estimation" : sert UNIQUEMENT au calcul de capacité
+      // d'anneau (combien de planètes par anneau). Calculé au rayon
+      // max pour capter tous les voisins. La passe de placement utilise
+      // un masque RECALCULÉ par anneau (le masque géométrique d'un
+      // dossier voisin dépend du rayon de l'anneau).
+      const capacityMasks = computeMasks(MAX_RING_RADIUS);
+      const unmaskedFraction = Math.max(0.08, computeUnmaskedFraction(capacityMasks));
 
       // ─── Construction multi-anneaux ────────────────────────────────
       // Au lieu de gonfler un seul anneau jusqu'à ce que toutes les
@@ -724,6 +758,10 @@ export function applyOrbitalLayout(
       }
 
       for (const ring of ringAssignments) {
+        // Masque recalculé spécifiquement pour ce rayon : un dossier
+        // voisin large impose une fenêtre interdite plus ou moins
+        // grande selon la distance et le rayon de l'anneau.
+        const ringMasks = computeMasks(ring.radius);
         // Préserve les angles en cache compatibles avec les secteurs libres.
         const preserved: Array<{ id: string; angle: number }> = [];
         const remaining: string[] = [];
@@ -734,7 +772,7 @@ export function applyOrbitalLayout(
           // sinon on rebascule pour la rapprocher du partenaire.
           const preferred = preferredAngleByPlanet.get(pid);
           const cachedIsAcceptable = cached !== undefined
-            && !isAngleMasked(cached, maskedSectors)
+            && !isAngleMasked(cached, ringMasks)
             && (preferred === undefined
                 || angleDistance(cached, preferred) <= RENSEIGNEMENT_PREFERRED_HALF_WIDTH * 2);
           if (cachedIsAcceptable) {
@@ -760,7 +798,7 @@ export function applyOrbitalLayout(
         const placed = preserved.slice();
         for (const pid of remaining) {
           const preferred = preferredAngleByPlanet.get(pid);
-          const ang = pickNextAngle(placed.map(p => p.angle), maskedSectors, preferred);
+          const ang = pickNextAngle(placed.map(p => p.angle), ringMasks, preferred);
           placed.push({ id: pid, angle: ang });
           placed.sort((a, b) => a.angle - b.angle);
         }
@@ -776,6 +814,128 @@ export function applyOrbitalLayout(
     }
   }
   return newAngles;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// NODE-SAT POST-PASS (anti-recouvrement bulle-à-bulle)
+// ──────────────────────────────────────────────────────────────────────
+
+/** Padding (px) ajouté aux rayons de collision pendant la passe node-SAT.
+ *  Garantit un petit halo entre deux bulles, même quand elles se touchent
+ *  juste — sinon les contours noirs des MECs se confondent. */
+const NODE_SAT_PADDING = 10;
+/** Itérations max de la passe node-SAT. La séparation est itérative car
+ *  bouger un nœud peut créer un nouveau chevauchement avec un 3ème. */
+const NODE_SAT_MAX_ITER = 60;
+
+export interface NodeSatOptions {
+  /** Index de galaxie par node id. Requis pour appliquer le buffer
+   *  foreignDossierBuffer. */
+  galaxyIdxByNodeId?: Map<string, number>;
+  /** Pour chaque MEC, les ids de dossier qui sont ses parents (typique :
+   *  1 parent pour une planète, ≥2 pour une comète). */
+  parentDossiersByMecId?: Map<string, Set<string>>;
+  /** Prédicat : true si l'id désigne un dossier. */
+  isDossier?: (id: string) => boolean;
+  /** Padding additionnel pour les paires MEC ↔ dossier *non-parent* de la
+   *  même galaxie. Quand on a une planète qui dérive vers un autre dossier
+   *  de sa galaxie, ce buffer la fait reculer franchement pour qu'il soit
+   *  visuellement évident qu'elle n'appartient pas à ce dossier-là.
+   *  0 = comportement par défaut (juste le NODE_SAT_PADDING). */
+  foreignDossierBuffer?: number;
+}
+
+/**
+ * Relaxation finale au niveau du nœud individuel : garantit qu'aucune
+ * paire de bulles (MEC ou dossier) ne se chevauche, peu importe ce que
+ * l'orbital pass ou le hull-SAT inter-galactique ont laissé derrière.
+ *
+ * Mutation directe de `positions` (in-place). Pondération par taille
+ * (inertie) : un gros dossier bouge peu, un petit MEC bouge beaucoup —
+ * les comètes et les planètes glissent autour des étoiles plutôt que
+ * l'inverse.
+ *
+ * Si `foreignDossierBuffer > 0` est fourni avec les maps associées, on
+ * applique en plus un padding renforcé entre chaque MEC et les dossiers
+ * de SA galaxie qui ne sont PAS ses parents → empêche une planète de se
+ * coller à un dossier voisin.
+ *
+ * Complexité O(N² × iter). Pour N ≤ ~600 nœuds (typique de la
+ * cartographie), reste sous 10 ms.
+ */
+export function nodeSatRelax(
+  positions: Map<string, { x: number; y: number }>,
+  nodeRadiusById: Map<string, number>,
+  options: NodeSatOptions = {},
+): void {
+  const ids: string[] = [];
+  for (const id of positions.keys()) {
+    if (nodeRadiusById.has(id)) ids.push(id);
+  }
+  if (ids.length < 2) return;
+
+  const foreignBuffer = options.foreignDossierBuffer ?? 0;
+  const canCheckForeign = foreignBuffer > 0
+    && !!options.galaxyIdxByNodeId
+    && !!options.parentDossiersByMecId
+    && !!options.isDossier;
+
+  // Padding effectif pour la paire (idA, idB).
+  const padFor = (idA: string, idB: string): number => {
+    if (!canCheckForeign) return NODE_SAT_PADDING;
+    const aIsD = options.isDossier!(idA);
+    const bIsD = options.isDossier!(idB);
+    if (aIsD === bIsD) return NODE_SAT_PADDING; // dossier↔dossier ou mec↔mec
+    const mecId = aIsD ? idB : idA;
+    const dossierId = aIsD ? idA : idB;
+    const gA = options.galaxyIdxByNodeId!.get(idA);
+    const gB = options.galaxyIdxByNodeId!.get(idB);
+    if (gA === undefined || gA !== gB) return NODE_SAT_PADDING; // pas même galaxie
+    const parents = options.parentDossiersByMecId!.get(mecId);
+    if (parents && parents.has(dossierId)) return NODE_SAT_PADDING; // c'est son parent
+    return NODE_SAT_PADDING + foreignBuffer;
+  };
+
+  for (let iter = 0; iter < NODE_SAT_MAX_ITER; iter++) {
+    let moved = false;
+    for (let i = 0; i < ids.length; i++) {
+      const idA = ids[i];
+      const pa = positions.get(idA)!;
+      const ra = nodeRadiusById.get(idA)!;
+      for (let j = i + 1; j < ids.length; j++) {
+        const idB = ids[j];
+        const pb = positions.get(idB)!;
+        const rb = nodeRadiusById.get(idB)!;
+        let vx = pb.x - pa.x;
+        let vy = pb.y - pa.y;
+        let d2 = vx * vx + vy * vy;
+        const minDist = ra + rb + padFor(idA, idB);
+        if (d2 >= minDist * minDist) continue;
+        if (d2 < 0.0001) {
+          // Centres confondus : direction déterministe pour décoller.
+          vx = Math.cos(i * 31 + j);
+          vy = Math.sin(i * 31 + j);
+          d2 = vx * vx + vy * vy;
+        }
+        const d = Math.sqrt(d2);
+        const penetration = minDist - d;
+        // Inertie : la grosse bulle bouge moins. Avec ra²/rb², un MEC de
+        // r=40 face à un dossier r=180 absorbe 95 % du déplacement —
+        // exactement ce qu'on veut visuellement.
+        const totalSize = ra * ra + rb * rb;
+        const shareA = (rb * rb) / totalSize;
+        const shareB = (ra * ra) / totalSize;
+        const ux = vx / d;
+        const uy = vy / d;
+        pa.x -= ux * penetration * shareA;
+        pa.y -= uy * penetration * shareA;
+        pb.x += ux * penetration * shareB;
+        pb.y += uy * penetration * shareB;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
 }
 
 /** Distance angulaire absolue entre deux angles (rad), wrap-around. */
