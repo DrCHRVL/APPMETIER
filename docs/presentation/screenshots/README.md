@@ -1,6 +1,6 @@
 # Captures d'écran — Guide
 
-Ce dossier accueille les captures d'écran référencées par `PRESENTATION.md`.
+Ce dossier accueille les captures d'écran référencées par `PRESENTATION.html`.
 Toutes les images sont au format **PNG**, nommées **strictement** comme indiqué
 ci-dessous : le document et le script de génération PDF s'appuient sur ces noms.
 
@@ -11,17 +11,20 @@ ci-dessous : le document et le script de génération PDF s'appuient sur ces nom
 | `01-dashboard.png` | Tableau de bord principal (vue Enquêtes d'un contentieux) | Plein écran, barre latérale visible, header visible, plusieurs cartes d'enquêtes. |
 | `02-sidebar.png` | Barre latérale développée avec les 3 contentieux | Zoom sur la sidebar uniquement (largeur ~260 px), avec badges d'alertes. |
 | `03-enquete-detail.png` | Modale de détail d'une enquête (vue principale) | Ouvrir une enquête, capturer la modale entière avec ses sections visibles. |
-| `04-enquete-actes.png` | Section "Actes" d'une enquête (géoloc, écoute, saisies) | Modale d'enquête, scroll jusqu'à la section Actes. |
+| `04-enquete-actes.png` | Section "Actes" et "Documents" d'une enquête | Modale d'enquête, scroll jusqu'à la section Actes + zones glisser-déposer Documents. |
 | `05-instructions-list.png` | Page Instructions (liste de dossiers) | Vue liste, filtres visibles. |
-| `06-instruction-detail.png` | Modale de détail d'une instruction (mis en examen, infractions, timeline) | Modale ouverte, timeline et infractions visibles. |
-| `07-mindmap.png` | Cartographie / Mindmap (graphe force-directed) | Vue principale avec plusieurs nœuds et liens, overlay actif si possible. |
+| `06-instruction-detail.png` | Modale de détail d'une instruction | Modale ouverte, timeline et infractions visibles. |
+| `07-mindmap.png` | Cartographie / Mindmap | Vue principale avec plusieurs nœuds et liens, overlay actif si possible. |
 | `08-stats.png` | Page Statistiques (graphiques audience / infractions) | Au moins 2 graphiques visibles. |
-| `09-air-import.png` | Modale d'import AIR | Étape de prévisualisation / vérification des doublons. |
-| `10-permanence.png` | Page Permanence (grille hebdo JLD / magistrats) | Grille semaine complète. |
 | `11-alerts.png` | Page Alertes (règles + alertes actives) | Vue avec règles configurées et badges. |
 | `12-save-sync.png` | Page Sauvegarde / Synchronisation | Statut réseau, historique des sauvegardes. |
-| `13-settings.png` | Modale Paramètres ou panneau Admin | Onglet utilisateurs si possible. |
+| `13-settings.png` | Modale Paramètres ou panneau Admin (utilisateurs) | Onglet utilisateurs si possible. |
 | `14-about.png` | Écran "À propos" (logo, auteur, version) | Carte centrale entière. |
+| `15-modifications.png` | Popup « modifications non vues » | Popup ouverte avec plusieurs modifs listées. |
+
+> ℹ️ Les fichiers `09-air-import.png` et `10-permanence.png` ne sont plus
+> référencés depuis la nouvelle version (modules retirés de la présentation).
+> Vous pouvez les supprimer du dossier ou les laisser sans effet sur le PDF.
 
 ## Comment capturer rapidement (Windows)
 

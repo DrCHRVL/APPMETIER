@@ -16,17 +16,16 @@ SHOTS = [
     ("01-dashboard.png",        "Tableau de bord (vue Enquêtes)"),
     ("02-sidebar.png",          "Barre latérale développée"),
     ("03-enquete-detail.png",   "Modale de détail d'une enquête"),
-    ("04-enquete-actes.png",    "Section Actes d'une enquête"),
+    ("04-enquete-actes.png",    "Section Actes + Documents"),
     ("05-instructions-list.png","Liste des instructions"),
     ("06-instruction-detail.png","Détail d'une instruction"),
     ("07-mindmap.png",          "Cartographie relationnelle"),
     ("08-stats.png",            "Page Statistiques"),
-    ("09-air-import.png",       "Assistant d'import AIR"),
-    ("10-permanence.png",       "Grille Permanence hebdo"),
     ("11-alerts.png",           "Page Alertes"),
     ("12-save-sync.png",        "Page Sauvegarde / Sync"),
     ("13-settings.png",         "Panneau Administration"),
     ("14-about.png",            "Écran À propos"),
+    ("15-modifications.png",    "Popup « modifications non vues »"),
 ]
 
 W, H = 1280, 800

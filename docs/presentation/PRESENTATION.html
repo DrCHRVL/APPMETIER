@@ -88,17 +88,15 @@
   <li><span class="num">3</span> Architecture en un coup d'œil</li>
   <li><span class="num">4</span> Tour des fonctionnalités
     <ul style="list-style: none; margin-left: 18pt; font-size: 10pt;">
-      <li>4.1 — Tableau de bord et navigation multi-contentieux</li>
+      <li>4.1 — Tableau de bord et pilotage temps réel</li>
       <li>4.2 — Enquêtes : cycle de vie complet</li>
       <li>4.3 — Instructions judiciaires</li>
       <li>4.4 — Cartographie relationnelle</li>
-      <li>4.5 — Statistiques</li>
-      <li>4.6 — Alertes et échéances</li>
-      <li>4.7 — Permanence</li>
-      <li>4.8 — Imports : AIR &amp; greffe</li>
-      <li>4.9 — Documents et analyse OCR</li>
-      <li>4.10 — Sauvegarde et synchronisation</li>
-      <li>4.11 — Administration et rôles</li>
+      <li>4.5 — Statistiques et reporting hiérarchique</li>
+      <li>4.6 — Alertes, échéances et rappels</li>
+      <li>4.7 — Import greffe</li>
+      <li>4.8 — Sauvegarde et synchronisation</li>
+      <li>4.9 — Administration et rôles</li>
     </ul>
   </li>
   <li><span class="num">5</span> Pile technique</li>
@@ -162,21 +160,47 @@ opérationnel par contentieux spécialisé ni la vision transversale entre
 dossiers. APP MÉTIER vient combler ce vide en offrant :
 </p>
 <ul>
-  <li>Un <strong>poste de pilotage unique</strong> pour les enquêtes en cours et les instructions ouvertes.</li>
+  <li>Un <strong>poste de pilotage unique</strong> pour les enquêtes en cours et les instructions ouvertes — l'<em>overboard</em> regroupe l'essentiel à l'ouverture de l'application.</li>
+  <li>Un <strong>pilotage hiérarchique fort</strong> : le chef de service et la direction du parquet disposent d'une vue d'ensemble immédiate des dossiers en cours, sans dépendre de remontées manuelles.</li>
+  <li>Un <strong>suivi temps réel</strong> des actualisations : lorsqu'un dossier est modifié par un collègue, les autres utilisateurs en sont informés (popup « modifications non vues » au prochain accès au dossier).</li>
+  <li>Une <strong>timeline des dates d'opération (OP)</strong> qui permet d'organiser le service au jour le jour, d'adapter le tour de permanence, et de mobiliser les bonnes ressources avant chaque opération sensible.</li>
+  <li>Une <strong>surveillance du calendrier d'audiences</strong> à venir — particulièrement utile sur ces contentieux où les audiences sont souvent longues (dossiers complexes) — pour <strong>adapter l'audiencement</strong> et anticiper les conflits d'agenda.</li>
   <li>Des <strong>alertes paramétrables</strong> sur les délais critiques propres à chaque contentieux.</li>
   <li>Une <strong>vision transversale</strong> (cartographie) des liens entre enquêtes et personnes.</li>
   <li>Un <strong>partage multi-utilisateur fiable</strong> via le réseau interne, sans serveur applicatif central.</li>
 </ul>
 
 <h3>Profils utilisateurs</h3>
+<p>
+La gestion multi-profils répond à deux exigences : la <strong>sécurité des
+données</strong> sensibles (cloisonnement par contentieux, lecture seule pour
+certains rôles) et la <strong>vision hiérarchique globale</strong> indispensable
+au pilotage du service. Un utilisateur ne peut accéder à l'application
+qu'après <strong>création de son profil par un administrateur</strong> puis
+<strong>validation explicite</strong> de ce profil : aucun accès anonyme,
+aucune auto-inscription.
+</p>
 <table>
   <tr><th>Rôle</th><th>Périmètre</th><th>Capacités principales</th></tr>
   <tr><td><strong>Administrateur</strong></td><td>Global</td><td>Gestion des utilisateurs, paramétrage serveur, validation des mises à jour.</td></tr>
   <tr><td><strong>PRA / Vice-procureur</strong></td><td>Global</td><td>Vision et édition tous contentieux, gestion alertes globales.</td></tr>
   <tr><td><strong>Magistrat</strong></td><td>Par contentieux</td><td>Création, édition, archivage d'enquêtes et d'instructions sur ses contentieux.</td></tr>
   <tr><td><strong>JA (juriste assistant)</strong></td><td>Par contentieux</td><td>Saisie, suivi, contribution sur les contentieux affectés.</td></tr>
-  <tr><td><strong>JLD</strong></td><td>Global, lecture seule</td><td>Consultation des dossiers, suivi des décisions à valider.</td></tr>
+  <tr><td><strong>JLD</strong></td><td>Global, lecture seule</td><td>Consultation des dossiers, suivi des décisions à valider — comptes rendus masqués.</td></tr>
 </table>
+
+<div class="callout info">
+<strong>Pourquoi un accès JLD ?</strong> Le JLD est associé à l'application
+dans un <em>esprit de coopération</em> entre magistrats du siège et du parquet :
+il dispose, par sa fonction, d'un <strong>pouvoir de contrôle sur les actes
+qu'il autorise</strong> (prolongations, mesures de sûreté…), il est donc
+légitime à les consulter directement plutôt que via des allers-retours
+papier. Son accès est néanmoins :
+<ul style="margin-top: 4pt;">
+  <li><strong>en lecture seule</strong> — il n'est pas parquetier et ne doit pas pouvoir modifier les dossiers ;</li>
+  <li><strong>sans accès aux comptes rendus internes</strong> du parquet — il contrôle l'acte, il n'a pas vocation à tout voir de la stratégie d'enquête.</li>
+</ul>
+</div>
 
 <!-- ════════════════════════════════════════════════════════════════════
      3. ARCHITECTURE EN UN COUP D'ŒIL
@@ -218,20 +242,33 @@ Aucun serveur applicatif n'est requis : la synchronisation repose sur des
 journal d'événements partagés et présence (<em>heartbeat</em>) des utilisateurs.
 </p>
 
+<div class="callout info">
+<strong>Pourquoi un partage Windows ?</strong> La grande majorité des
+tribunaux judiciaires <strong>fonctionnent déjà ainsi</strong> : un partage
+réseau interne est disponible sur chaque poste, géré par le service
+informatique du TJ. APP MÉTIER s'appuie sur cette infrastructure existante
+plutôt que d'imposer un serveur applicatif dédié, ce qui simplifie
+considérablement le déploiement. Les données sont consolidées dans un
+<strong>fichier commun unique par contentieux</strong>, dont l'accès est
+<strong>restreint par les droits NTFS du serveur</strong> : seuls les
+utilisateurs autorisés par le service informatique peuvent ouvrir le
+partage, ce qui limite mécaniquement la consultation des données sensibles.
+</div>
+
 <!-- ════════════════════════════════════════════════════════════════════
      4. TOUR DES FONCTIONNALITÉS
      ════════════════════════════════════════════════════════════════════ -->
 <h2 class="page-break">4. Tour des fonctionnalités</h2>
 
 <!-- 4.1 Dashboard -->
-<h3>4.1 — Tableau de bord et navigation multi-contentieux</h3>
+<h3>4.1 — Tableau de bord et pilotage temps réel</h3>
 
 <p>
 La fenêtre principale présente, à gauche, une <strong>barre latérale verticale</strong>
 qui regroupe la navigation par contentieux (chacun avec sa couleur identifiante).
 Sous chaque contentieux apparaissent les vues <em>Enquêtes</em>, <em>Archives</em>
 et <em>Statistiques</em>. Les modules transverses (Instructions, Cartographie,
-Permanence, Alertes, Tags, Sauvegarde) sont accessibles en bas de la barre.
+Alertes, Tags, Sauvegarde) sont accessibles en bas de la barre.
 </p>
 
 <div class="figure">
@@ -241,9 +278,45 @@ Permanence, Alertes, Tags, Sauvegarde) sont accessibles en bas de la barre.
 </div>
 
 <p>
-Le <strong>header supérieur</strong> contient la recherche globale (qui scanne aussi
-le contenu des documents indexés par OCR), un indicateur de synchronisation, un
-bouton de sauvegarde manuelle, l'indicateur d'état réseau, et la cloche d'alertes.
+Le <strong>header supérieur</strong> contient un indicateur de synchronisation,
+un bouton de sauvegarde manuelle, l'indicateur d'état réseau, et la cloche
+d'alertes.
+</p>
+
+<h4>Recherche complète (transverse)</h4>
+<p>
+La <strong>barre de recherche</strong> du header est l'un des outils les plus
+puissants de l'application. Elle interroge en un seul geste :
+</p>
+<ul>
+  <li>le <strong>contenu de toutes les enquêtes et instructions</strong> du contentieux courant (numéro, parties, descriptions, comptes rendus, tags) ;</li>
+  <li>le <strong>contenu textuel des documents joints</strong> (PDF, DOCX) ;</li>
+  <li>les <strong>autres contentieux</strong> en parallèle : si une occurrence est trouvée ailleurs (par exemple un nom recherché côté ECOFI mais qui apparaît aussi côté ENVIRO), une pastille « <em>Aussi trouvé :</em> » s'affiche et permet de basculer vers le bon contentieux en un clic.</li>
+</ul>
+<p>
+Cette recherche transverse est précieuse pour <strong>recouper des affaires</strong>
+qui semblent isolées et pour identifier les <strong>signaux faibles</strong>
+qu'on aurait manqués sans cette vision croisée.
+</p>
+
+<h4>Overboard : la vue pilotage</h4>
+<p>
+L'<strong>overboard</strong> est l'écran d'ouverture orienté pilotage. Il
+agrège ce qui est <strong>réellement à surveiller</strong> :
+</p>
+<ul>
+  <li><strong>Enquêtes épinglées</strong> : les dossiers qu'un utilisateur (ou le chef de service) souhaite garder en vue permanente, indépendamment du contentieux.</li>
+  <li>Les alertes actives et les <strong>résultats de recherche transverse</strong> entre contentieux.</li>
+  <li>Le <strong>récapitulatif hebdomadaire</strong> (popup au début de chaque semaine) qui restitue l'activité de la semaine passée et les échéances à venir.</li>
+</ul>
+
+<h4>Suivi temps réel des dossiers</h4>
+<p>
+Dès qu'un utilisateur ouvre un dossier modifié par un collègue depuis sa
+dernière consultation, une <strong>popup « modifications non vues »</strong>
+détaille horodate par horodate ce qui a changé (ajout/suppression d'un mis
+en cause, modification du compte rendu, ajout de document, etc.). Aucune mise
+à jour silencieuse — chaque évolution est tracée et restituée à l'utilisateur.
 </p>
 
 <div class="figure">
@@ -252,42 +325,115 @@ bouton de sauvegarde manuelle, l'indicateur d'état réseau, et la cloche d'aler
   <div class="caption">Figure 2 — Barre latérale avec les trois contentieux, badges d'alertes et lecture seule.</div>
 </div>
 
+<div class="figure">
+  <img src="screenshots/15-modifications.png" alt="Popup modifications non vues" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+  <div class="placeholder" style="display:none;">[ Capture : <strong>15-modifications.png</strong> — Popup modifications non vues ]</div>
+  <div class="caption">Figure 3 — Popup « modifications non vues » : tout ce qui a changé depuis la dernière consultation du dossier.</div>
+</div>
+
 <!-- 4.2 Enquêtes -->
 <h3>4.2 — Enquêtes : cycle de vie complet</h3>
 
 <p>
 Une enquête est représentée sous forme d'une <strong>carte</strong> dans la grille
 principale. Filtres et tri sont disponibles en barre supérieure (par service,
-infraction, durée, statut, présence de JLD, tags).
+infraction, durée, statut, présence de JLD, tags, mention <strong>JIRS</strong>
+ou <strong>PG</strong>).
 </p>
 
 <div class="figure">
   <img src="screenshots/03-enquete-detail.png" alt="Détail d'une enquête" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
   <div class="placeholder" style="display:none;">[ Capture : <strong>03-enquete-detail.png</strong> — Modale de détail ]</div>
-  <div class="caption">Figure 3 — Modale de détail d'une enquête, vue d'ensemble.</div>
+  <div class="caption">Figure 4 — Modale de détail d'une enquête, vue d'ensemble.</div>
 </div>
 
-<p>L'ouverture d'une enquête déploie une <strong>modale structurée en 13 sections</strong> :</p>
+<p>L'ouverture d'une enquête déploie une <strong>modale structurée</strong> couvrant l'intégralité du cycle de vie du dossier :</p>
 <ul>
-  <li><strong>En-tête</strong> : numéro, dates, statut, contentieux, tags, services rattachés.</li>
-  <li><strong>Mis en cause</strong> : identité, alias, B1, ressortissants, mineurs.</li>
-  <li><strong>Géolocalisation</strong> : périodes, autorisations, prolongations.</li>
-  <li><strong>Écoutes</strong> : lignes interceptées, périodes, autorité de prescription.</li>
-  <li><strong>Actes divers</strong> (perquisitions, sonorisations, captations, etc.).</li>
+  <li><strong>En-tête</strong> : numéro de PV, numéro parquet, dates, statut, contentieux, tags, services rattachés (BR, GIR…), type d'infractions.</li>
+  <li><strong>Mis en cause</strong> : identité, alias, B1, ressortissants, mineurs — avec <em>rappel des noms déjà rencontrés</em> (voir ci-après).</li>
+  <li><strong>Géolocalisation, Écoutes, Autres actes</strong> : périodes, autorisations, prolongations, autorité de prescription.</li>
   <li><strong>Saisies</strong> : véhicules, immobilier, comptes, cryptoactifs, stupéfiants.</li>
-  <li><strong>Co-saisine</strong> : autres contentieux ou unités impliqués.</li>
-  <li><strong>To-do</strong> : check-list opérationnelle.</li>
-  <li><strong>Transfert contentieux</strong> : historique des déplacements de dossier.</li>
-  <li><strong>Compte rendu</strong> : rédaction libre, export DOCX possible.</li>
-  <li><strong>Documents</strong> : pièces jointes, OCR, catégorisation automatique.</li>
-  <li><strong>Audience</strong> et <strong>Résultat d'audience</strong>.</li>
+  <li><strong>Co-saisine</strong>, <strong>Transfert contentieux</strong>, <strong>Audience</strong> &amp; <strong>Résultat d'audience</strong>.</li>
+  <li><strong>Comptes rendus</strong>, <strong>À faire</strong>, <strong>Date d'OP</strong>, <strong>Documents</strong>.</li>
+</ul>
+
+<div class="callout">
+<strong>Dimension pédagogique.</strong> Chaque section qui touche à un acte
+légal rappelle <strong>les délais applicables et les articles du code de
+procédure pénale</strong> concernés. Lorsqu'un magistrat saisit une
+prolongation, l'interface vérifie la cohérence des durées et alerte en cas
+de dépassement potentiel. Objectif : <strong>limiter les erreurs et les
+délais manqués ou erronés</strong>, et offrir aux juristes assistants un
+outil qui les forme en même temps qu'il les outille.
+</div>
+
+<h4>Mis en cause : mémoire transverse</h4>
+<p>
+À la saisie d'un nom de mis en cause, l'application <strong>rappelle les
+occurrences précédentes</strong> du même nom dans la base — toutes
+enquêtes confondues, y compris les archives. Ce mécanisme permet
+d'identifier rapidement les <strong>noms qui reviennent souvent</strong>,
+de repérer un récidiviste, ou de croiser deux dossiers qui partagent un
+acteur sans que les magistrats l'aient initialement rapproché.
+</p>
+
+<h4>Comptes rendus : tracés et différenciés</h4>
+<p>
+Les comptes rendus s'ajoutent à la suite, datés et signés du rédacteur.
+Ils sont <strong>colorés différemment selon leur catégorie</strong>
+(compte rendu d'enquête, compte rendu d'audience, échange avec le service…)
+ce qui permet de retrouver visuellement le bon CR sans avoir à tout
+relire. Les passages clés (« Exploitation des comptes », « Immobilisation »…)
+peuvent être surlignés pour gagner en lisibilité.
+</p>
+
+<h4>À faire et Date d'OP</h4>
+<p>
+Chaque dossier embarque sa propre liste <strong>« À faire »</strong> (check-list
+opérationnelle) et une <strong>date d'opération (OP)</strong> planifiée. Ces
+informations remontent dans la timeline collective du service (voir §4.1)
+pour permettre au chef de service de répartir les présences et d'éviter
+les conflits de date entre opérations sensibles.
+</p>
+
+<h4>Documents : glisser-déposer et stockage commun</h4>
+<p>
+Les pièces du dossier sont rattachées par simple <strong>glisser-déposer</strong>
+dans la modale (zones « Géolocalisations », « Écoutes », « Documents »
+visibles à droite). Chaque dépôt :
+</p>
+<ul>
+  <li>est <strong>copié dans le dossier commun du serveur</strong> dans une arborescence rangée par contentieux et par enquête ;</li>
+  <li>reste accessible à tous les utilisateurs autorisés depuis n'importe quel poste, sans avoir à chercher un PDF perdu sur le bureau d'un collègue ;</li>
+  <li>peut être ouvert directement depuis l'application ou via le bouton <em>« Ouvrir dossier »</em> qui pointe sur l'emplacement réseau du dossier complet.</li>
+</ul>
+
+<h4>Mini-fonctionnalités à fort impact</h4>
+<ul>
+  <li><strong>Récapitulatif de clôture</strong> : un bouton génère automatiquement un récapitulatif structuré de l'enquête (parties, actes, saisies, audience) prêt à être intégré à un courrier ou un rapport.</li>
+  <li><strong>Saisies suivies en cours d'enquête</strong> : la saisie est tracée dès qu'elle est décidée, et reliée au sort final (confiscation prononcée ou non). Cela permet :
+    <ul>
+      <li>d'<strong>obtenir des statistiques fines</strong> sur l'écart entre <em>saisies</em> et <em>confiscations effectivement prononcées</em> ;</li>
+      <li>de <strong>dynamiser la gestion des biens saisis</strong> avant audience (par exemple proposer la vente anticipée d'un véhicule qui perd de la valeur, avant jugement) — outil concret de bonne administration de la justice.</li>
+    </ul>
+  </li>
 </ul>
 
 <div class="figure">
   <img src="screenshots/04-enquete-actes.png" alt="Section actes d'une enquête" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-  <div class="placeholder" style="display:none;">[ Capture : <strong>04-enquete-actes.png</strong> — Section Actes ]</div>
-  <div class="caption">Figure 4 — Section "Actes" : géolocalisation, écoute, autres actes, prolongations.</div>
+  <div class="placeholder" style="display:none;">[ Capture : <strong>04-enquete-actes.png</strong> — Section Actes &amp; Documents ]</div>
+  <div class="caption">Figure 5 — Section "Actes" : géolocalisation, écoute, autres actes + zones glisser-déposer.</div>
 </div>
+
+<h4>Co-saisine et transfert de contentieux</h4>
+<p>
+Un dossier rarement reste isolé. Deux mécanismes l'inscrivent dans le
+fonctionnement collectif du parquet :
+</p>
+<ul>
+  <li><strong>Co-saisine</strong> : un dossier peut être partagé entre plusieurs contentieux (par exemple ECOFI + CRIMORG sur un dossier de blanchiment lié à la criminalité organisée). Chaque service le voit dans sa liste, avec une mention claire des autres services co-saisis, et les modifications faites par l'un sont immédiatement visibles par l'autre.</li>
+  <li><strong>Transfert de contentieux</strong> : si la qualification évolue (par exemple une affaire reclassée d'ECOFI vers ENVIRO), le dossier peut être basculé vers le contentieux pertinent. L'historique du transfert est conservé pour la traçabilité.</li>
+</ul>
 
 <!-- 4.3 Instructions -->
 <h3>4.3 — Instructions judiciaires</h3>
@@ -304,16 +450,27 @@ Le module <strong>Instructions</strong> couvre les dossiers ouverts à l'instruc
   <li>Les <strong>résultats</strong> de vérifications et contrôles de légalité.</li>
 </ul>
 
+<div class="callout">
+<strong>Même logique pédagogique qu'en enquête.</strong> Le module Instructions
+rappelle systématiquement <strong>les délais applicables</strong> à chaque
+mesure (détention provisoire, contrôle judiciaire, ARSE) et les
+<strong>articles correspondants</strong>. Les seuils critiques (notamment le
+seuil des 175 jours) déclenchent des alertes en amont pour qu'aucune
+échéance ne soit manquée — un appui précieux pour les juristes assistants
+moins familiers du formalisme, et un filet de sécurité pour les magistrats
+expérimentés.
+</div>
+
 <div class="figure">
   <img src="screenshots/05-instructions-list.png" alt="Liste des instructions" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
   <div class="placeholder" style="display:none;">[ Capture : <strong>05-instructions-list.png</strong> — Page Instructions ]</div>
-  <div class="caption">Figure 5 — Liste des dossiers d'instruction avec filtres par cabinet.</div>
+  <div class="caption">Figure 6 — Liste des dossiers d'instruction avec filtres par cabinet.</div>
 </div>
 
 <div class="figure">
   <img src="screenshots/06-instruction-detail.png" alt="Détail d'une instruction" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
   <div class="placeholder" style="display:none;">[ Capture : <strong>06-instruction-detail.png</strong> — Modale d'instruction ]</div>
-  <div class="caption">Figure 6 — Détail d'une instruction : mis en examen, timeline, mesures.</div>
+  <div class="caption">Figure 7 — Détail d'une instruction : mis en examen, timeline, mesures.</div>
 </div>
 
 <!-- 4.4 Mindmap -->
@@ -332,44 +489,50 @@ les acteurs clés.
 <div class="figure">
   <img src="screenshots/07-mindmap.png" alt="Cartographie" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
   <div class="placeholder" style="display:none;">[ Capture : <strong>07-mindmap.png</strong> — Cartographie ]</div>
-  <div class="caption">Figure 7 — Cartographie relationnelle : graphe interactif avec overlays.</div>
+  <div class="caption">Figure 8 — Cartographie relationnelle : graphe interactif avec overlays.</div>
 </div>
 
 <!-- 4.5 Stats -->
-<h3>4.5 — Statistiques</h3>
+<h3>4.5 — Statistiques et reporting hiérarchique</h3>
 
 <p>
-Trois tableaux de bord statistiques sont disponibles :
+Les statistiques sont l'un des points forts de l'outil pour le pilotage du
+service. Elles sont disponibles à deux niveaux :
 </p>
 <ul>
-  <li><strong>Statistiques générales</strong> : volumes d'enquêtes, statuts, ventilations par service et infraction.</li>
-  <li><strong>Statistiques d'audience</strong> : type de poursuite (CRPC, CI, COPJ, OI, CDD), peines prononcées, saisies décidées.</li>
-  <li><strong>Statistiques d'infraction</strong> : répartition par catégorie, évolution temporelle.</li>
+  <li><strong>Par contentieux</strong> : trois tableaux de bord — statistiques générales (volumes, statuts, ventilation par service et infraction), statistiques d'audience (type de poursuite : CRPC, CI, COPJ, OI, CDD, peines prononcées, saisies décidées), et statistiques d'infraction (répartition par catégorie, évolution temporelle).</li>
+  <li><strong>Globales</strong> : la vue <em>Statistiques globales</em> consolide les indicateurs des trois contentieux sur un même écran, pour les besoins de pilotage du chef de service et de la direction du parquet.</li>
 </ul>
-<p>
-Les graphiques sont exportables en PDF ou intégrés à un rapport via le bouton
-dédié (utilise <code>html2pdf.js</code> et <code>pdf-lib</code>).
-</p>
+
+<div class="callout">
+<strong>Pourquoi c'est essentiel.</strong> APP MÉTIER offre un <strong>contrôle
+en temps réel des statistiques</strong> : il n'est plus nécessaire d'attendre
+une remontée trimestrielle ou un export manuel — les chiffres reflètent
+l'état exact de la base au moment de la consultation. Tous les tableaux et
+graphiques sont <strong>exportables en PDF</strong> en un clic, prêts à
+être joints à un <strong>rapport pour la hiérarchie</strong> (chef de service,
+procureur de la République, procureur général, ministère).
+</div>
 
 <div class="figure">
   <img src="screenshots/08-stats.png" alt="Statistiques" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
   <div class="placeholder" style="display:none;">[ Capture : <strong>08-stats.png</strong> — Page Statistiques ]</div>
-  <div class="caption">Figure 8 — Page Statistiques avec graphiques audience &amp; infractions.</div>
+  <div class="caption">Figure 9 — Page Statistiques avec graphiques audience &amp; infractions.</div>
 </div>
 
 <!-- 4.6 Alertes -->
-<h3>4.6 — Alertes et échéances</h3>
+<h3>4.6 — Alertes, échéances et rappels</h3>
 
 <p>
-Le moteur d'alertes (<code>utils/alerts/alertManager.ts</code>) évalue en
-continu les <strong>règles configurables</strong> par contentieux :
+Le moteur d'alertes évalue en continu les <strong>règles configurables</strong>
+par contentieux. Trois familles cohabitent :
 </p>
 <ul>
-  <li>Échéance de prolongation d'acte (géoloc, écoute, autres).</li>
-  <li>Délai de présentation au JLD.</li>
-  <li>Plafonds de durée pour la détention provisoire (DP, DML, seuil 175 jours).</li>
-  <li>Suivi des audiences en attente.</li>
+  <li><strong>Échéances légales</strong> : prolongation d'actes (géoloc, écoute, autres), délai de présentation au JLD, plafonds de durée pour la détention provisoire (DP, DML, seuil 175 jours).</li>
+  <li><strong>Attente JLD</strong> : un widget dédié remonte en permanence les actes en attente de décision JLD (autorisations, prolongations), avec leur ancienneté. Aucune autorisation ne tombe dans l'oubli, aucun acte « en cours » n'est manqué.</li>
+  <li><strong>Suivi JIRS / PG</strong> : les dossiers signalés JIRS (juridiction inter-régionale spécialisée) ou requérant un compte rendu au procureur général déclenchent des <strong>rappels périodiques</strong> pour que la remontée ne soit pas oubliée.</li>
 </ul>
+
 <p>
 Chaque utilisateur peut affiner les seuils. Les alertes apparaissent sous
 forme de <strong>badges</strong> dans la barre latérale, d'une <strong>cloche</strong> dans
@@ -377,67 +540,32 @@ le header, et de <em>toasts</em>. Une page dédiée centralise la consultation
 et la gestion des règles.
 </p>
 
+<h4>Récapitulatif hebdomadaire</h4>
+<p>
+Au premier lancement de chaque semaine, une popup <strong>« récapitulatif
+hebdomadaire »</strong> synthétise pour l'utilisateur : les enquêtes
+nouvellement créées, les actes posés, les échéances à venir dans les sept
+prochains jours, et les dossiers qui n'ont pas évolué depuis longtemps.
+Un point de situation rapide, sans avoir à fouiller la base.
+</p>
+
 <div class="figure">
   <img src="screenshots/11-alerts.png" alt="Page Alertes" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
   <div class="placeholder" style="display:none;">[ Capture : <strong>11-alerts.png</strong> — Page Alertes ]</div>
-  <div class="caption">Figure 9 — Configuration des règles d'alerte et alertes actives.</div>
+  <div class="caption">Figure 10 — Configuration des règles d'alerte et alertes actives.</div>
 </div>
 
-<!-- 4.7 Permanence -->
-<h3>4.7 — Permanence</h3>
-
+<!-- 4.7 Import greffe (remplace ancienne section 4.8) -->
+<h3>4.7 — Import greffe</h3>
 <p>
-La page <strong>Permanence</strong> affiche la grille hebdomadaire des magistrats
-et JLD de garde, filtrable et exportable en PDF. Elle s'appuie sur les
-préférences utilisateur synchronisées sur le serveur (voir §4.10).
+L'<strong>import greffe</strong> rapatrie les éléments enregistrés au registre
+du tribunal pour les intégrer comme champs structurés dans les enquêtes
+(numéro de parquet, dates, parties). Cela évite la double saisie et garantit
+la cohérence avec les références officielles du dossier.
 </p>
 
-<div class="figure">
-  <img src="screenshots/10-permanence.png" alt="Page Permanence" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-  <div class="placeholder" style="display:none;">[ Capture : <strong>10-permanence.png</strong> — Page Permanence ]</div>
-  <div class="caption">Figure 10 — Grille hebdomadaire des permanences.</div>
-</div>
-
-<!-- 4.8 Imports -->
-<h3>4.8 — Imports : AIR &amp; greffe</h3>
-
-<div class="grid-2">
-  <div>
-    <h4>Import AIR</h4>
-    <p>Le module <strong>AIR</strong> permet l'import en masse depuis un fichier
-    métier (CSV/Excel). Le flux comprend la sélection du fichier, le mapping
-    automatique, la <em>vérification de doublons</em> et la création en lot.</p>
-  </div>
-  <div>
-    <h4>Import greffe</h4>
-    <p>L'import <strong>greffe</strong> rapatrie les éléments enregistrés au
-    registre du tribunal pour les intégrer comme champs structurés dans les
-    enquêtes (numéro de parquet, dates, parties).</p>
-  </div>
-</div>
-
-<div class="figure">
-  <img src="screenshots/09-air-import.png" alt="Import AIR" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-  <div class="placeholder" style="display:none;">[ Capture : <strong>09-air-import.png</strong> — Import AIR ]</div>
-  <div class="caption">Figure 11 — Assistant d'import AIR, étape de vérification des doublons.</div>
-</div>
-
-<!-- 4.9 Documents OCR -->
-<h3>4.9 — Documents et analyse OCR</h3>
-
-<p>
-Chaque enquête peut accueillir des <strong>pièces jointes</strong> (PDF, DOCX, MSG,
-images). L'application :
-</p>
-<ul>
-  <li>Stocke les documents en local (<code>data/documentenquete</code>) et/ou sur un chemin externe.</li>
-  <li>Effectue une <strong>analyse OCR</strong> via <em>Tesseract.js</em> (données embarquées dans <code>tessdata/</code>).</li>
-  <li>Extrait les métadonnées (dates, numéros, tribunal) et <strong>catégorise automatiquement</strong> (prolongation d'écoute, nouvelle écoute, autorisation, etc.).</li>
-  <li>Permet la <strong>recherche plein texte</strong> dans le contenu indexé (recherche globale du header).</li>
-</ul>
-
-<!-- 4.10 Sync -->
-<h3>4.10 — Sauvegarde et synchronisation</h3>
+<!-- 4.8 Sync (renumérotée) -->
+<h3>4.8 — Sauvegarde et synchronisation</h3>
 
 <p>
 Le module <strong>Sauvegarde</strong> est le poste de contrôle du
@@ -453,7 +581,7 @@ multi-utilisateur. Il affiche :
 <div class="figure">
   <img src="screenshots/12-save-sync.png" alt="Sauvegarde et synchronisation" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
   <div class="placeholder" style="display:none;">[ Capture : <strong>12-save-sync.png</strong> — Page Sauvegarde ]</div>
-  <div class="caption">Figure 12 — Page Sauvegarde / Synchronisation.</div>
+  <div class="caption">Figure 11 — Page Sauvegarde / Synchronisation.</div>
 </div>
 
 <p>
@@ -463,8 +591,8 @@ La synchronisation est <strong>par contentieux</strong> et orchestrée par
 des changements pertinents (création, modification, archivage).
 </p>
 
-<!-- 4.11 Admin -->
-<h3>4.11 — Administration et rôles</h3>
+<!-- 4.9 Admin -->
+<h3>4.9 — Administration et rôles</h3>
 
 <p>
 Les administrateurs disposent de panneaux dédiés :
@@ -481,7 +609,7 @@ Les administrateurs disposent de panneaux dédiés :
 <div class="figure">
   <img src="screenshots/13-settings.png" alt="Paramètres / Administration" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
   <div class="placeholder" style="display:none;">[ Capture : <strong>13-settings.png</strong> — Panneau Admin ]</div>
-  <div class="caption">Figure 13 — Panneau d'administration (utilisateurs).</div>
+  <div class="caption">Figure 12 — Panneau d'administration (utilisateurs).</div>
 </div>
 
 <!-- ════════════════════════════════════════════════════════════════════
@@ -631,26 +759,32 @@ intègrent des dispositifs de cloisonnement et de traçabilité.
 
 <h3>Cloisonnement</h3>
 <ul>
+  <li><strong>Accès uniquement sur profil validé</strong> : pas d'auto-inscription, l'administrateur crée et active chaque utilisateur.</li>
   <li><strong>Isolation de contexte Electron</strong> : aucun accès Node depuis la page rendue ; toute interaction passe par le bridge typé du <code>preload.js</code>.</li>
-  <li><strong>RBAC fin</strong> : matrice de permissions par couple <em>(rôle, contentieux)</em>. Le mode <em>lecture seule</em> est appliqué automatiquement pour les rôles JLD/JA sur les contentieux non écritures.</li>
-  <li><strong>Chemins serveurs</strong> définis par l'administrateur, vérifiés au lancement.</li>
+  <li><strong>RBAC fin</strong> : matrice de permissions par couple <em>(rôle, contentieux)</em>. Le mode <em>lecture seule</em> est appliqué automatiquement pour les rôles JLD / JA sur les contentieux non écritures.</li>
+  <li><strong>Dissimulation d'enquête</strong> : une enquête sensible peut être marquée comme <em>masquée aux juristes assistants</em>. Seuls les magistrats du contentieux y ont alors accès — pratique sur des dossiers à forte sensibilité (mis en cause à protéger, source confidentielle, dossier en cours d'arbitrage hiérarchique).</li>
+  <li><strong>Comptes rendus masqués aux JLD</strong> : le JLD voit les actes qu'il a vocation à contrôler, mais pas la rédaction interne du parquet.</li>
+  <li><strong>Chemins serveurs</strong> définis par l'administrateur, vérifiés au lancement, et protégés au niveau du partage par les droits NTFS du TJ.</li>
 </ul>
 
 <h3>Traçabilité</h3>
 <ul>
   <li><strong>Audit log</strong> : toute modification (enquête, instruction, tags) consignée avec utilisateur, horodatage, type.</li>
-  <li><strong>Modifications par dossier</strong> : historique embarqué dans chaque enquête/instruction, consultable en interface.</li>
-  <li><strong>Présence (heartbeat)</strong> et <strong>shared events</strong> : permet de retracer qui agissait au moment d'un conflit.</li>
+  <li><strong>Modifications par dossier</strong> : historique embarqué dans chaque enquête / instruction, consultable en interface, restitué à l'ouverture sous forme de popup « modifications non vues ».</li>
+  <li><strong>Présence (heartbeat)</strong> et <strong>shared events</strong> : permettent de retracer qui agissait au moment d'un conflit.</li>
 </ul>
 
-<h3>Robustesse</h3>
-<ul>
-  <li>Désactivation des <em>source maps</em> en production (protection du code).</li>
-  <li>Suppression de l'en-tête <code>X-Powered-By</code> (masquage de la stack).</li>
-  <li>Écritures atomiques (fichier temporaire + renommage) pour éviter la corruption en cas d'interruption.</li>
-  <li>Gestion explicite des <code>ECONNRESET</code> et reprises après veille.</li>
-  <li>Rotation et conservation paramétrables des sauvegardes.</li>
-</ul>
+<h3>En cours de développement</h3>
+<div class="callout warn">
+<strong>Chiffrement applicatif des noms et numéros d'enquête.</strong>
+Un travail est en cours pour ajouter une couche de chiffrement <em>au niveau
+applicatif</em> sur les <strong>noms des mis en cause</strong> et les
+<strong>numéros d'enquête</strong> stockés dans le fichier commun. Objectif :
+en cas d'accès non autorisé direct au partage réseau (en dehors de
+l'application), les données sensibles resteraient inexploitables sans la
+clé portée par l'application. Cette évolution viendra renforcer le
+cloisonnement déjà assuré par les droits du partage.
+</div>
 
 <!-- ════════════════════════════════════════════════════════════════════
      8. DÉPLOIEMENT
@@ -706,7 +840,7 @@ postes — empêchant les déploiements non maîtrisés.
 <div class="figure">
   <img src="screenshots/14-about.png" alt="À propos" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
   <div class="placeholder" style="display:none;">[ Capture : <strong>14-about.png</strong> — Écran À propos ]</div>
-  <div class="caption">Figure 14 — Écran "À propos" : auteur, version, mention légale.</div>
+  <div class="caption">Figure 13 — Écran "À propos" : auteur, version, mention légale.</div>
 </div>
 
 <hr>
