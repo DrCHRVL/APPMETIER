@@ -15,12 +15,21 @@
 set -e
 cd "$(dirname "$0")"
 
-# 1) S'assurer qu'on a au moins des placeholders pour toutes les captures
+# 1) Caviardage : si des captures brutes sont présentes dans _raw/,
+#    appliquer le manifeste pour produire les versions caviardées.
+if command -v python3 >/dev/null 2>&1; then
+  if [ -d "screenshots/_raw" ] && [ -n "$(ls -A screenshots/_raw 2>/dev/null)" ]; then
+    echo "→ Caviardage des captures brutes…"
+    python3 redact.py 2>&1 | sed 's/^/    /'
+  fi
+fi
+
+# 2) S'assurer qu'on a au moins des placeholders pour les captures absentes
 if command -v python3 >/dev/null 2>&1; then
   python3 _gen_placeholders.py >/dev/null 2>&1 || true
 fi
 
-# 2) Conversion HTML -> PDF via WeasyPrint
+# 3) Conversion HTML -> PDF via WeasyPrint
 echo "→ Conversion HTML → PDF via WeasyPrint…"
 python3 - <<'PY'
 from weasyprint import HTML

@@ -1,0 +1,516 @@
+{
+  "_comment": [
+    "Manifeste de caviardage des captures d'écran.",
+    "Chaque clé est un nom de fichier dans 'screenshots/_raw/'.",
+    "Les coordonnées des zones sont en POURCENTAGE de la largeur/hauteur",
+    "de l'image (de 0.0 à 1.0), donc indépendantes de la résolution.",
+    "Format zone : [x, y, largeur, hauteur].",
+    "Effet par défaut : pixelisation légère (block 12 px) + flou Gaussien.",
+    "Lancer : python3 docs/presentation/redact.py"
+  ],
+  "_defaults": {
+    "block_size": 12,
+    "blur_radius": 2.5
+  },
+  "01-dashboard.png": {
+    "zones": [
+      {
+        "label": "timeline-bar-1",
+        "rect": [
+          0.165,
+          0.155,
+          0.3,
+          0.03
+        ]
+      },
+      {
+        "label": "timeline-bar-2",
+        "rect": [
+          0.52,
+          0.155,
+          0.1,
+          0.03
+        ]
+      },
+      {
+        "label": "timeline-bar-3",
+        "rect": [
+          0.815,
+          0.165,
+          0.13,
+          0.03
+        ]
+      },
+      {
+        "label": "afaire-line1",
+        "rect": [
+          0.155,
+          0.245,
+          0.34,
+          0.03
+        ]
+      },
+      {
+        "label": "afaire-line2",
+        "rect": [
+          0.51,
+          0.245,
+          0.34,
+          0.03
+        ]
+      },
+      {
+        "label": "afaire-row2-1",
+        "rect": [
+          0.155,
+          0.275,
+          0.34,
+          0.03
+        ]
+      },
+      {
+        "label": "afaire-row2-2",
+        "rect": [
+          0.51,
+          0.275,
+          0.34,
+          0.03
+        ]
+      },
+      {
+        "label": "afaire-row2-3",
+        "rect": [
+          0.155,
+          0.305,
+          0.2,
+          0.03
+        ]
+      },
+      {
+        "label": "afaire-row3-1",
+        "rect": [
+          0.155,
+          0.305,
+          0.34,
+          0.03
+        ]
+      },
+      {
+        "label": "afaire-row3-2",
+        "rect": [
+          0.51,
+          0.305,
+          0.34,
+          0.03
+        ]
+      },
+      {
+        "label": "card1-title",
+        "rect": [
+          0.115,
+          0.385,
+          0.2,
+          0.025
+        ]
+      },
+      {
+        "label": "card1-mec",
+        "rect": [
+          0.115,
+          0.435,
+          0.2,
+          0.075
+        ]
+      },
+      {
+        "label": "card1-cr",
+        "rect": [
+          0.345,
+          0.445,
+          0.2,
+          0.13
+        ]
+      },
+      {
+        "label": "card1-tags",
+        "rect": [
+          0.115,
+          0.535,
+          0.34,
+          0.085
+        ]
+      },
+      {
+        "label": "card2-title",
+        "rect": [
+          0.495,
+          0.385,
+          0.18,
+          0.025
+        ]
+      },
+      {
+        "label": "card2-desc",
+        "rect": [
+          0.495,
+          0.42,
+          0.34,
+          0.04
+        ]
+      },
+      {
+        "label": "card2-mec",
+        "rect": [
+          0.495,
+          0.475,
+          0.2,
+          0.075
+        ]
+      },
+      {
+        "label": "card2-cr",
+        "rect": [
+          0.685,
+          0.445,
+          0.2,
+          0.05
+        ]
+      },
+      {
+        "label": "card3-title",
+        "rect": [
+          0.875,
+          0.385,
+          0.18,
+          0.025
+        ]
+      },
+      {
+        "label": "card3-mec",
+        "rect": [
+          0.875,
+          0.46,
+          0.2,
+          0.18
+        ]
+      },
+      {
+        "label": "card3-cr",
+        "rect": [
+          1.085,
+          0.43,
+          0.2,
+          0.18
+        ]
+      },
+      {
+        "label": "card3-addr",
+        "rect": [
+          1.085,
+          0.52,
+          0.2,
+          0.11
+        ]
+      },
+      {
+        "label": "card4-title",
+        "rect": [
+          0.115,
+          0.685,
+          0.18,
+          0.025
+        ]
+      },
+      {
+        "label": "card4-desc",
+        "rect": [
+          0.115,
+          0.73,
+          0.34,
+          0.075
+        ]
+      },
+      {
+        "label": "card4-mec",
+        "rect": [
+          0.115,
+          0.795,
+          0.2,
+          0.11
+        ]
+      },
+      {
+        "label": "card4-cr",
+        "rect": [
+          0.345,
+          0.745,
+          0.2,
+          0.13
+        ]
+      },
+      {
+        "label": "card4-tags",
+        "rect": [
+          0.115,
+          0.91,
+          0.34,
+          0.07
+        ]
+      }
+    ]
+  },
+  "02-sidebar.png": {
+    "_note": "Sidebar : pas de PII à caviarder. Aucune zone par défaut.",
+    "zones": []
+  },
+  "03-enquete-detail.png": {
+    "_note": "Modale détail enquête (image 5 reçue : bloc Mis en cause). Zones à ajuster après cadrage final.",
+    "zones": [
+      {
+        "label": "mec-line1",
+        "rect": [
+          0.05,
+          0.3,
+          0.85,
+          0.13
+        ]
+      },
+      {
+        "label": "mec-line2",
+        "rect": [
+          0.05,
+          0.45,
+          0.85,
+          0.13
+        ]
+      },
+      {
+        "label": "mec-line3",
+        "rect": [
+          0.05,
+          0.6,
+          0.85,
+          0.13
+        ]
+      }
+    ]
+  },
+  "04-enquete-actes.png": {
+    "_note": "Capture des sections Documents + Saisies. Caviarde les noms de fichiers (qui contiennent des noms).",
+    "zones": [
+      {
+        "label": "doc-filename-1",
+        "rect": [
+          0.05,
+          0.3,
+          0.4,
+          0.04
+        ]
+      },
+      {
+        "label": "doc-filename-2",
+        "rect": [
+          0.05,
+          0.35,
+          0.4,
+          0.04
+        ]
+      },
+      {
+        "label": "doc-filename-3",
+        "rect": [
+          0.05,
+          0.4,
+          0.4,
+          0.04
+        ]
+      },
+      {
+        "label": "doc-filename-4",
+        "rect": [
+          0.5,
+          0.3,
+          0.4,
+          0.04
+        ]
+      },
+      {
+        "label": "doc-filename-5",
+        "rect": [
+          0.5,
+          0.35,
+          0.4,
+          0.04
+        ]
+      },
+      {
+        "label": "doc-filename-6",
+        "rect": [
+          0.5,
+          0.4,
+          0.4,
+          0.04
+        ]
+      },
+      {
+        "label": "doc-filename-7",
+        "rect": [
+          0.05,
+          0.6,
+          0.4,
+          0.04
+        ]
+      },
+      {
+        "label": "doc-filename-8",
+        "rect": [
+          0.05,
+          0.65,
+          0.4,
+          0.04
+        ]
+      },
+      {
+        "label": "doc-filename-9",
+        "rect": [
+          0.05,
+          0.7,
+          0.4,
+          0.04
+        ]
+      },
+      {
+        "label": "doc-filename-10",
+        "rect": [
+          0.5,
+          0.6,
+          0.4,
+          0.04
+        ]
+      },
+      {
+        "label": "doc-filename-11",
+        "rect": [
+          0.5,
+          0.65,
+          0.4,
+          0.04
+        ]
+      },
+      {
+        "label": "doc-chemin",
+        "rect": [
+          0.05,
+          0.9,
+          0.9,
+          0.07
+        ]
+      }
+    ]
+  },
+  "05-instructions-list.png": {
+    "_note": "Liste des instructions. Caviarde nom JI + numéro parquet + intitulé + description.",
+    "zones": [
+      { "label": "ji-name",       "rect": [0.345, 0.460, 0.10, 0.025] },
+      { "label": "dossier-title", "rect": [0.190, 0.460, 0.10, 0.025] },
+      { "label": "parquet-num",   "rect": [0.190, 0.485, 0.20, 0.025] },
+      { "label": "description",   "rect": [0.190, 0.495, 0.35, 0.030] }
+    ]
+  },
+  "06-instruction-detail.png": {
+    "_note": "Détail d'instruction. Caviarde l'identité MEX + description d'infraction + notes. Garde le panneau 'Vérification légale' visible (pédagogie).",
+    "zones": [
+      { "label": "mex-header-name",  "rect": [0.030, 0.110, 0.20, 0.030] },
+      { "label": "mex-date-mex",     "rect": [0.030, 0.135, 0.30, 0.020] },
+      { "label": "mex-notes-text",   "rect": [0.030, 0.165, 0.50, 0.020] },
+      { "label": "infraction-desc",  "rect": [0.030, 0.355, 0.45, 0.025] },
+      { "label": "notes-perso",      "rect": [0.030, 0.490, 0.45, 0.050] }
+    ]
+  },
+  "15-modifications.png": {
+    "_note": "Caviarde le nom de l'enquête en tête, l'identifiant utilisateur, et les lignes mentionnant des noms.",
+    "zones": [
+      {
+        "label": "header-enquete",
+        "rect": [
+          0.1,
+          0.07,
+          0.8,
+          0.05
+        ]
+      },
+      {
+        "label": "user-chip",
+        "rect": [
+          0.05,
+          0.16,
+          0.4,
+          0.04
+        ]
+      },
+      {
+        "label": "rows-name1",
+        "rect": [
+          0.35,
+          0.62,
+          0.55,
+          0.03
+        ]
+      },
+      {
+        "label": "rows-name2",
+        "rect": [
+          0.35,
+          0.65,
+          0.55,
+          0.03
+        ]
+      },
+      {
+        "label": "rows-name3",
+        "rect": [
+          0.35,
+          0.78,
+          0.55,
+          0.03
+        ]
+      },
+      {
+        "label": "rows-name4",
+        "rect": [
+          0.35,
+          0.81,
+          0.55,
+          0.03
+        ]
+      },
+      {
+        "label": "rows-name5",
+        "rect": [
+          0.35,
+          0.84,
+          0.55,
+          0.03
+        ]
+      },
+      {
+        "label": "rows-name6",
+        "rect": [
+          0.35,
+          0.87,
+          0.55,
+          0.03
+        ]
+      },
+      {
+        "label": "rows-name7",
+        "rect": [
+          0.35,
+          0.9,
+          0.55,
+          0.03
+        ]
+      }
+    ]
+  }
+}
