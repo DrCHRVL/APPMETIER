@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>APP MÉTIER — Présentation</title>
+<title>SUIVI DU CONTENTIEUX SPÉCIALISÉ — Présentation</title>
 <style>
   @page { size: A4; margin: 2cm 1.8cm; }
   html, body { font-family: "Calibri", "Helvetica", "Arial", sans-serif; color: #1f2937; font-size: 11pt; line-height: 1.5; }
@@ -61,7 +61,7 @@
      ════════════════════════════════════════════════════════════════════ -->
 <section class="cover">
   <div class="cover-logo">⚖</div>
-  <h1>APP MÉTIER</h1>
+  <h1 style="font-size: 32pt;">SUIVI DU CONTENTIEUX SPÉCIALISÉ</h1>
   <div class="tagline">Gestion des enquêtes pénales</div>
 
   <p style="font-size: 13pt; color: #374151; max-width: 14cm; margin: 0 auto;">
@@ -103,7 +103,6 @@
   <li><span class="num">6</span> Architecture détaillée</li>
   <li><span class="num">7</span> Sécurité et confidentialité</li>
   <li><span class="num">8</span> Déploiement et exploitation</li>
-  <li><span class="num">9</span> Pour aller plus loin</li>
 </ul>
 </div>
 
@@ -113,7 +112,7 @@
 <h2 class="page-break">1. En bref</h2>
 
 <p>
-APP MÉTIER est une <strong>application de bureau Windows</strong> (Electron + Next.js)
+SUIVI DU CONTENTIEUX SPÉCIALISÉ est une <strong>application de bureau Windows</strong> (Electron + Next.js)
 développée pour le Parquet du Tribunal Judiciaire d'Amiens. Elle outille le quotidien
 des magistrats et des juristes assistants pour le suivi des enquêtes pénales
 sur trois contentieux spécialisés :
@@ -157,7 +156,7 @@ procédures, chacune ponctuée d'<strong>échéances légales strictes</strong>
 (prolongations d'actes, durées maximales de détention provisoire, délais
 JLD). Les outils nationaux existants ne couvrent pas finement le suivi
 opérationnel par contentieux spécialisé ni la vision transversale entre
-dossiers. APP MÉTIER vient combler ce vide en offrant :
+dossiers. SUIVI DU CONTENTIEUX SPÉCIALISÉ vient combler ce vide en offrant :
 </p>
 <ul>
   <li>Un <strong>poste de pilotage unique</strong> pour les enquêtes en cours et les instructions ouvertes — l'<em>overboard</em> regroupe l'essentiel à l'ouverture de l'application.</li>
@@ -208,7 +207,7 @@ papier. Son accès est néanmoins :
 <h2 class="page-break">3. Architecture en un coup d'œil</h2>
 
 <p>
-APP MÉTIER est une application <strong>Electron</strong> qui embarque une
+SUIVI DU CONTENTIEUX SPÉCIALISÉ est une application <strong>Electron</strong> qui embarque une
 application <strong>Next.js</strong> côté interface. Les données vivent en
 fichiers JSON locaux et sont synchronisées vers un <strong>partage réseau</strong>
 (SMB) accessible à tous les utilisateurs autorisés.
@@ -246,7 +245,7 @@ journal d'événements partagés et présence (<em>heartbeat</em>) des utilisate
 <strong>Pourquoi un partage Windows ?</strong> La grande majorité des
 tribunaux judiciaires <strong>fonctionnent déjà ainsi</strong> : un partage
 réseau interne est disponible sur chaque poste, géré par le service
-informatique du TJ. APP MÉTIER s'appuie sur cette infrastructure existante
+informatique du TJ. SUIVI DU CONTENTIEUX SPÉCIALISÉ s'appuie sur cette infrastructure existante
 plutôt que d'imposer un serveur applicatif dédié, ce qui simplifie
 considérablement le déploiement. Les données sont consolidées dans un
 <strong>fichier commun unique par contentieux</strong>, dont l'accès est
@@ -505,7 +504,7 @@ service. Elles sont disponibles à deux niveaux :
 </ul>
 
 <div class="callout">
-<strong>Pourquoi c'est essentiel.</strong> APP MÉTIER offre un <strong>contrôle
+<strong>Pourquoi c'est essentiel.</strong> SUIVI DU CONTENTIEUX SPÉCIALISÉ offre un <strong>contrôle
 en temps réel des statistiques</strong> : il n'est plus nécessaire d'attendre
 une remontée trimestrielle ou un export manuel — les chiffres reflètent
 l'état exact de la base au moment de la consultation. Tous les tableaux et
@@ -618,56 +617,46 @@ Les administrateurs disposent de panneaux dédiés :
 <h2 class="page-break">5. Pile technique</h2>
 
 <table>
-  <tr><th>Couche</th><th>Technologies</th><th>Rôle</th></tr>
+  <tr><th>Couche</th><th>Technologies</th></tr>
   <tr>
     <td><strong>Application desktop</strong></td>
     <td>Electron 30, Node.js (Windows portable)</td>
-    <td>Conteneur, accès système, IPC vers le rendu.</td>
   </tr>
   <tr>
     <td><strong>Interface</strong></td>
     <td>Next.js 13.5 (app router), React 18, TypeScript 5</td>
-    <td>Rendu de l'UI, navigation, lazy loading des modules lourds.</td>
   </tr>
   <tr>
     <td><strong>Styles</strong></td>
     <td>Tailwind CSS, Radix UI (15+ primitives), lucide-react</td>
-    <td>Design system cohérent, composants accessibles, icônes.</td>
   </tr>
   <tr>
     <td><strong>État</strong></td>
     <td>Zustand (6 stores), Jotai, React Context</td>
-    <td>État partagé performant, séparation par domaine.</td>
   </tr>
   <tr>
     <td><strong>Formulaires &amp; validation</strong></td>
     <td>react-hook-form, zod</td>
-    <td>Saisie performante, validation par schéma.</td>
   </tr>
   <tr>
     <td><strong>Graphiques</strong></td>
     <td>Chart.js + react-chartjs-2, Recharts</td>
-    <td>Tableaux de bord statistiques.</td>
   </tr>
   <tr>
     <td><strong>Cartographie</strong></td>
     <td>@xyflow/react, d3-force</td>
-    <td>Graphe interactif, layout force-directed.</td>
   </tr>
   <tr>
     <td><strong>Documents</strong></td>
     <td>pdf-lib, pdfjs-dist, html2pdf.js, html-docx-js, xlsx</td>
-    <td>Export PDF/DOCX/XLSX, lecture de PDF.</td>
   </tr>
   <tr>
     <td><strong>OCR</strong></td>
     <td>tesseract.js (données <code>tessdata/</code> embarquées)</td>
-    <td>Extraction de texte depuis images et PDFs scannés.</td>
   </tr>
   <tr>
     <td><strong>Persistance &amp; sync</strong></td>
     <td>Fichiers JSON locaux, partage SMB Windows</td>
-    <td>Multi-utilisateur sans serveur applicatif.</td>
   </tr>
 </table>
 
@@ -728,24 +717,6 @@ StorageManager  ──►  electronAPI.dataSync_push()
                         ▼
                  sharedEvent: notif aux autres postes</code></pre>
 
-<h3>Modèle de données (extraits)</h3>
-<table>
-  <tr><th>Domaine</th><th>Type principal</th><th>Champs clés</th></tr>
-  <tr><td>Enquête</td><td><code>Enquete</code></td><td>numéro, dates, statut, misEnCause[], geoloc, ecoutes, actes, saisies, tags, todos, documents, modifications[]</td></tr>
-  <tr><td>Instruction</td><td><code>DossierInstruction</code></td><td>cabinet, magistrat, misEnExamen[], infractions[], timeline[], mesures[], resultats[]</td></tr>
-  <tr><td>Audience</td><td><code>ResultatAudience</code></td><td>type (CRPC-Def, CI, COPJ, OI, CDD), peine, saisies décidées</td></tr>
-  <tr><td>Utilisateur</td><td><code>UserProfile</code></td><td>roles globaux, roles par contentieux, préférences</td></tr>
-  <tr><td>Cartographie</td><td><code>CartographieConfig</code></td><td>poids scoring (degré, centralité, fréquence, cross-contentieux)</td></tr>
-</table>
-
-<h3>Migrations de schéma</h3>
-<p>
-Le dossier <code>migrations/</code> définit les versions de schéma (<code>v1</code>, <code>v2</code>)
-et un <code>MigrationManager</code> qui applique les transformations au chargement
-si la version locale est antérieure. Garantit la compatibilité ascendante des
-données existantes lors des évolutions.
-</p>
-
 <!-- ════════════════════════════════════════════════════════════════════
      7. SÉCURITÉ ET CONFIDENTIALITÉ
      ════════════════════════════════════════════════════════════════════ -->
@@ -791,13 +762,24 @@ cloisonnement déjà assuré par les droits du partage.
      ════════════════════════════════════════════════════════════════════ -->
 <h2>8. Déploiement et exploitation</h2>
 
-<h3>Distribution</h3>
+<h3>Installation : un seul double-clic</h3>
 <p>
 L'application est packagée en <strong>exécutable Windows portable</strong>
-(<code>electron-builder</code> cible <code>portable</code>). Les utilisateurs
-lancent l'application via <code>launcher.bat</code> qui détecte
-automatiquement Node.js portable et démarre Electron. Aucune installation
-système n'est nécessaire.
+(<code>electron-builder</code> cible <code>portable</code>). Sur un poste vierge,
+l'utilisateur lance simplement <code>installer.bat</code> : <strong>tout se
+fait automatiquement</strong>.
+</p>
+<ul>
+  <li>Détection du dossier projet et du runtime portable.</li>
+  <li>Installation des dépendances éventuelles via le proxy interne (RIE) si nécessaire.</li>
+  <li>Configuration initiale du partage réseau.</li>
+  <li>Création des dossiers de données locaux.</li>
+</ul>
+<p>
+Aucune compétence informatique n'est requise : l'expérience est
+<strong>ultra simple pour un premier utilisateur</strong>. Une fois installé,
+le lancement quotidien se fait par <code>launcher.bat</code> qui démarre
+l'application sans aucune autre manipulation.
 </p>
 
 <h3>Première configuration</h3>
@@ -805,37 +787,30 @@ système n'est nécessaire.
   <li>L'administrateur définit les chemins du partage réseau pour chaque contentieux.</li>
   <li>Création du premier compte administrateur, puis ajout des utilisateurs et de leurs rôles.</li>
   <li>Configuration des règles d'alertes par défaut.</li>
-  <li>Import initial (AIR/greffe) ou saisie manuelle des premiers dossiers.</li>
+  <li>Import initial (greffe) ou saisie manuelle des premiers dossiers.</li>
 </ol>
 
 <h3>Mises à jour</h3>
 <p>
-Un mécanisme de vérification des mises à jour interroge un dépôt distant
-(<em>GitHub releases</em>). Une fois une nouvelle version repérée,
-l'administrateur la <strong>valide</strong> pour qu'elle soit proposée aux autres
-postes — empêchant les déploiements non maîtrisés.
+Un mécanisme de vérification des mises à jour interroge un dépôt distant.
+Une fois une nouvelle version repérée, l'administrateur la <strong>valide</strong>
+pour qu'elle soit proposée aux autres postes — empêchant les déploiements
+non maîtrisés.
 </p>
 
-<!-- ════════════════════════════════════════════════════════════════════
-     9. POUR ALLER PLUS LOIN
-     ════════════════════════════════════════════════════════════════════ -->
-<h2>9. Pour aller plus loin</h2>
-
-<h3>Pistes d'évolution envisagées</h3>
-<ul>
-  <li>Module de <strong>reporting périodique</strong> automatisé (génération d'un PDF mensuel synthétique).</li>
-  <li>Ouverture aux <strong>contentieux additionnels</strong> (paramétrage purement configuration).</li>
-  <li>Connecteur <strong>messagerie chiffrée</strong> pour le partage inter-juridictions.</li>
-  <li>Amélioration de la <strong>recherche transverse</strong> avec un index plein texte persistant.</li>
-</ul>
-
-<h3>Ressources</h3>
-<table class="kv">
-  <tr><td>Code source</td><td>Dépôt Git interne (branche de présentation : <code>claude/app-presentation-docs-O818B</code>)</td></tr>
-  <tr><td>Captures d'écran</td><td><code>docs/presentation/screenshots/</code></td></tr>
-  <tr><td>Build PDF</td><td><code>bash docs/presentation/build-pdf.sh</code></td></tr>
-  <tr><td>Auteur</td><td>Audran Chevalier — Parquet du TJ d'Amiens</td></tr>
-</table>
+<h3>Compatibilité « web sécurisé » du ministère de la Justice</h3>
+<div class="callout info">
+L'architecture retenue (Next.js + React côté interface, fichiers de
+données structurés côté serveur) est <strong>compatible avec le modèle
+d'applications web utilisées par le ministère de la Justice</strong>
+(à l'image de <strong>LMP</strong>). L'application peut donc, sans
+refonte majeure, être portée en <strong>application web hébergée sur
+un serveur sécurisé</strong> du ministère : le cœur métier (composants,
+hooks, logique de gestion des enquêtes et des instructions) est
+réutilisable tel quel ; seules les couches de stockage et de
+synchronisation seraient à adapter pour exploiter une base de données
+et un backend HTTP plutôt qu'un partage réseau.
+</div>
 
 <div class="figure">
   <img src="screenshots/14-about.png" alt="À propos" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
@@ -845,7 +820,7 @@ postes — empêchant les déploiements non maîtrisés.
 
 <hr>
 <p class="small" style="text-align: center;">
-  APP MÉTIER — v1.0 &nbsp;·&nbsp; © 2025–2026 Audran Chevalier &nbsp;·&nbsp;
+  SUIVI DU CONTENTIEUX SPÉCIALISÉ — v1.0 &nbsp;·&nbsp; © 2025–2026 Audran Chevalier &nbsp;·&nbsp;
   Document généré pour présentation interne.<br>
   Propriété intellectuelle exclusive — toute reproduction, diffusion ou utilisation non autorisée est strictement interdite.
 </p>
