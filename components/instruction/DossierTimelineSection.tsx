@@ -6,7 +6,6 @@ import {
   Lock,
   Gavel,
   FileText,
-  Pencil,
   AlertTriangle,
   Plus,
   X,
@@ -69,9 +68,7 @@ type DerivedKind =
   | 'fin_periode_dp'
   | 'debat_jld'
   | 'op_ji'
-  | 'dml_depot'
-  | 'dml_echeance'
-  | 'note';
+  | 'dml_depot';
 
 interface DerivedEvt {
   key: string;
@@ -89,8 +86,6 @@ const DERIVED_META: Record<DerivedKind, { label: string; bg: string; icon: React
   debat_jld:       { label: 'Débat JLD',     bg: 'bg-indigo-500',  icon: Gavel },
   op_ji:           { label: 'OP JI',         bg: 'bg-blue-500',    icon: Calendar },
   dml_depot:       { label: 'DML déposée',   bg: 'bg-purple-400',  icon: FileText },
-  dml_echeance:    { label: 'Échéance DML',  bg: 'bg-purple-600',  icon: AlertTriangle },
-  note:            { label: 'Note',          bg: 'bg-gray-400',    icon: Pencil },
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -253,16 +248,6 @@ export const DossierTimelineSection: React.FC<Props> = ({
           detail: `Statut : ${dml.statut.replace('_', ' ')}`,
           color: DERIVED_META.dml_depot.bg,
         });
-        if (dml.statut === 'en_attente') {
-          list.push({
-            key: `dml-e-${mex.id}-${dml.id}`,
-            date: new Date(dml.dateEcheance),
-            kind: 'dml_echeance',
-            title: `Échéance DML — ${mex.nom}`,
-            detail: 'Réquisitions à rendre',
-            color: DERIVED_META.dml_echeance.bg,
-          });
-        }
       }
     }
 
@@ -285,17 +270,6 @@ export const DossierTimelineSection: React.FC<Props> = ({
         title: `Débat JLD${debat.heureExacte ? ' à ' + new Date(debat.date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''}`,
         detail: debat.type.replace('_', ' '),
         color: DERIVED_META.debat_jld.bg,
-      });
-    }
-
-    for (const n of dossier.notesPerso) {
-      list.push({
-        key: `note-${n.id}`,
-        date: new Date(n.date),
-        kind: 'note',
-        title: 'Note perso',
-        detail: n.contenu.length > 80 ? n.contenu.substring(0, 80) + '…' : n.contenu,
-        color: DERIVED_META.note.bg,
       });
     }
 
@@ -1226,7 +1200,7 @@ const SynthesePanel: React.FC<{
             id={`synthese-${selectedKey}`}
             value={value}
             onChange={(html) => onChange(selectedKey, html)}
-            placeholder="Pré-rédigez ici la synthèse de cet acte pour le réquisitoire définitif…"
+            placeholder=""
             minHeight={280}
             maxHeight="65vh"
             readOnly={readOnly}
@@ -1254,10 +1228,6 @@ const SynthesePanel: React.FC<{
             </button>
           </div>
 
-          <p className="text-[10px] text-gray-500 italic">
-            Astuce : « Tout voir » agrège toutes les synthèses pour copie/export
-            d'un coup vers Word.
-          </p>
         </div>
       ) : (
         <div className="border-2 border-dashed border-gray-200 rounded p-4 text-xs text-gray-500 text-center space-y-1">
