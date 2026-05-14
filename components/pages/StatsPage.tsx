@@ -91,11 +91,7 @@ export const StatsPage = ({ enquetes, contentieuxId, instructions }: StatsPagePr
           {Array.isArray(instructions) && (
             <div className="pdf-section">
               <h3>Statistiques instruction</h3>
-              <InstructionStats
-                dossiers={instructions}
-                contentieuxId={contentieuxId}
-                selectedYear={selectedYear}
-              />
+              <InstructionStats dossiers={instructions} selectedYear={selectedYear} />
             </div>
           )}
         </div>

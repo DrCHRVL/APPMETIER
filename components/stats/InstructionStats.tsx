@@ -19,8 +19,8 @@ import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, ChartDataLabels);
 
 interface InstructionStatsProps {
+  /** Dossiers déjà filtrés par contentieux en amont (cf. app/page.tsx). */
   dossiers: DossierInstruction[];
-  contentieuxId?: string;
   selectedYear?: number;
 }
 
@@ -42,18 +42,8 @@ const formatDays = (j: number): string => {
 const formatNumber = (n: number, digits = 1): string =>
   Number.isInteger(n) ? String(n) : n.toFixed(digits);
 
-export const InstructionStats: React.FC<InstructionStatsProps> = ({
-  dossiers,
-  contentieuxId,
-}) => {
-  // Filtrage par contentieux : on garde uniquement les dossiers du contentieux
-  // courant ; sans contentieuxId ou en mode global on prend tout.
-  const dossiersFiltres = useMemo(() => {
-    if (!contentieuxId || contentieuxId === 'global') return dossiers;
-    return dossiers.filter(d => (d.contentieuxId || '') === contentieuxId);
-  }, [dossiers, contentieuxId]);
-
-  const stats = useInstructionStats(dossiersFiltres);
+export const InstructionStats: React.FC<InstructionStatsProps> = ({ dossiers }) => {
+  const stats = useInstructionStats(dossiers);
   const { allCabinets } = useInstructionCabinets();
 
   const cabinetLabel = (id: string) =>
