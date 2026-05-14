@@ -1390,7 +1390,7 @@ return (
           )}
 
           {baseView === 'stats' && (
-            <StatsPage enquetes={enquetes} contentieuxId={currentContentieuxId} />
+            <StatsPage enquetes={enquetes} contentieuxId={currentContentieuxId} instructions={instructions} />
           )}
 
           {/* 🗺️ Mindmap (cartographie MEC ↔ dossiers, transversal) */}

@@ -2,23 +2,31 @@ import React, { useState } from 'react';
 import { useAudience } from '@/hooks/useAudience';
 
 import { Enquete } from '@/types/interfaces';
+import type { DossierInstruction } from '@/types/instructionTypes';
 import { GeneralStats } from '../stats/GeneralStats';
 import { AudienceStats } from '../stats/AudienceStats';
 import { InfractionStats } from '../stats/InfractionStats';
+import { InstructionStats } from '../stats/InstructionStats';
 import { ExportPdfButton } from '../pdf/ExportPdfButton';
+
+type StatsTab = 'enquetes' | 'instruction';
 
 interface StatsPageProps {
   enquetes: Enquete[];
   contentieuxId?: string;
+  instructions?: DossierInstruction[];
 }
 
-export const StatsPage = ({ enquetes, contentieuxId }: StatsPageProps) => {
+export const StatsPage = ({ enquetes, contentieuxId, instructions }: StatsPageProps) => {
   const { isLoading } = useAudience();
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [activeTab, setActiveTab] = useState<StatsTab>('enquetes');
 
   if (isLoading) {
     return <div>Chargement des statistiques...</div>;
   }
+
+  const hasInstructionTab = Array.isArray(instructions);
 
   return (
     <>
@@ -56,6 +64,34 @@ export const StatsPage = ({ enquetes, contentieuxId }: StatsPageProps) => {
           <ExportPdfButton selectedYear={selectedYear} enquetes={enquetes} contentieuxId={contentieuxId} />
         </div>
 
+        {/* Onglets : enquêtes / instruction */}
+        {hasInstructionTab && (
+          <div className="flex gap-1 border-b no-print">
+            <button
+              type="button"
+              onClick={() => setActiveTab('enquetes')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'enquetes'
+                  ? 'border-slate-800 text-slate-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-800'
+              }`}
+            >
+              Enquêtes
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('instruction')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'instruction'
+                  ? 'border-slate-800 text-slate-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-800'
+              }`}
+            >
+              Instruction
+            </button>
+          </div>
+        )}
+
         {/* En-tête pour l'impression uniquement */}
         <div className="print-header" style={{ display: 'none' }}>
           <h1>Rapport Statistiques - Année {selectedYear}</h1>
@@ -70,20 +106,35 @@ export const StatsPage = ({ enquetes, contentieuxId }: StatsPageProps) => {
 
         {/* Contenu des statistiques - année synchronisée */}
         <div className="print-container">
-          <div className="pdf-section">
-            <h3>Statistiques générales</h3>
-            <GeneralStats enquetes={enquetes} selectedYear={selectedYear} contentieuxId={contentieuxId} />
-          </div>
+          {activeTab === 'enquetes' && (
+            <>
+              <div className="pdf-section">
+                <h3>Statistiques générales</h3>
+                <GeneralStats enquetes={enquetes} selectedYear={selectedYear} contentieuxId={contentieuxId} />
+              </div>
 
-          <div className="pdf-section">
-            <h3>Types d'infractions</h3>
-            <InfractionStats enquetes={enquetes} selectedYear={selectedYear} contentieuxId={contentieuxId} />
-          </div>
+              <div className="pdf-section">
+                <h3>Types d'infractions</h3>
+                <InfractionStats enquetes={enquetes} selectedYear={selectedYear} contentieuxId={contentieuxId} />
+              </div>
 
-          <div className="pdf-section">
-            <h3>Résultats d'audience</h3>
-            <AudienceStats enquetes={enquetes} selectedYear={selectedYear} contentieuxId={contentieuxId} />
-          </div>
+              <div className="pdf-section">
+                <h3>Résultats d'audience</h3>
+                <AudienceStats enquetes={enquetes} selectedYear={selectedYear} contentieuxId={contentieuxId} />
+              </div>
+            </>
+          )}
+
+          {activeTab === 'instruction' && hasInstructionTab && (
+            <div className="pdf-section">
+              <h3>Statistiques instruction</h3>
+              <InstructionStats
+                dossiers={instructions!}
+                contentieuxId={contentieuxId}
+                selectedYear={selectedYear}
+              />
+            </div>
+          )}
         </div>
 
       </div>
