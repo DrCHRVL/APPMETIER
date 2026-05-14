@@ -31,6 +31,9 @@ interface Props {
   onChange: (next: MisEnExamen) => void;
   onDelete: () => void;
   defaultExpanded?: boolean;
+  /** Mode contrôlé : si fourni, remplace l'état interne d'expansion. */
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
   readOnly?: boolean;
 }
 
@@ -41,8 +44,22 @@ const MESURE_BADGE: Record<MesureSurete['type'], { short: string; full: string; 
   detenu: { short: 'DP',     full: 'Détention provisoire', color: 'bg-red-100 text-red-800 border-red-300', icon: Lock },
 };
 
-export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = false, readOnly }: Props) => {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+export const MisEnExamenCard = ({
+  mex,
+  onChange,
+  onDelete,
+  defaultExpanded = false,
+  expanded: expandedProp,
+  onToggleExpanded,
+  readOnly,
+}: Props) => {
+  const [expandedInternal, setExpandedInternal] = useState(defaultExpanded);
+  const isControlled = expandedProp !== undefined;
+  const expanded = isControlled ? expandedProp : expandedInternal;
+  const toggleExpanded = () => {
+    if (onToggleExpanded) onToggleExpanded();
+    if (!isControlled) setExpandedInternal(e => !e);
+  };
   const [editing, setEditing] = useState(false);
   const [draftIdentite, setDraftIdentite] = useState({
     nom: mex.nom,
@@ -107,7 +124,7 @@ export const MisEnExamenCard = ({ mex, onChange, onDelete, defaultExpanded = fal
       {/* Header (toujours visible) */}
       <button
         type="button"
-        onClick={() => setExpanded(e => !e)}
+        onClick={toggleExpanded}
         className="w-full flex items-center gap-2 p-3 hover:bg-gray-50 transition-colors text-left"
       >
         <UserIcon className="h-4 w-4 text-gray-500 shrink-0" />

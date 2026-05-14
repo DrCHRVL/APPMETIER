@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Plus, X, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
@@ -19,6 +19,29 @@ export const MisEnExamenSection = ({ misEnExamen, onChange, readOnly }: Props) =
   const [draftNom, setDraftNom] = useState('');
   const [draftDate, setDraftDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [lastAddedId, setLastAddedId] = useState<number | null>(null);
+  /** Set des IDs de MEX dépliés (vue contrôlée). */
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(
+    () => new Set(misEnExamen.length === 1 ? [misEnExamen[0].id] : []),
+  );
+
+  // Lorsqu'on ajoute un MEX, on le déplie automatiquement.
+  useEffect(() => {
+    if (lastAddedId !== null && !expandedIds.has(lastAddedId)) {
+      setExpandedIds(prev => new Set(prev).add(lastAddedId));
+    }
+  }, [lastAddedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleExpanded = (id: number) =>
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const allExpanded = misEnExamen.length > 0 && misEnExamen.every(m => expandedIds.has(m.id));
+  const collapseAll = () => setExpandedIds(new Set());
+  const expandAll = () => setExpandedIds(new Set(misEnExamen.map(m => m.id)));
 
   const handleAdd = () => {
     if (!draftNom.trim()) return;
@@ -54,6 +77,29 @@ export const MisEnExamenSection = ({ misEnExamen, onChange, readOnly }: Props) =
         </div>
       )}
 
+      {misEnExamen.length > 1 && (
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={allExpanded ? collapseAll : expandAll}
+            className="h-7 text-xs text-gray-600 hover:text-emerald-700"
+          >
+            {allExpanded ? (
+              <>
+                <ChevronsDownUp className="h-3.5 w-3.5 mr-1" />
+                Tout replier
+              </>
+            ) : (
+              <>
+                <ChevronsUpDown className="h-3.5 w-3.5 mr-1" />
+                Tout déplier
+              </>
+            )}
+          </Button>
+        </div>
+      )}
+
       {/* Grille adaptative : 1 col petit écran, 2 cols écran moyen, 3 cols grand écran. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-2 items-start">
         {misEnExamen.map(mex => (
@@ -62,7 +108,8 @@ export const MisEnExamenSection = ({ misEnExamen, onChange, readOnly }: Props) =
             mex={mex}
             onChange={(next) => handleUpdate(mex.id, next)}
             onDelete={() => handleRemove(mex.id)}
-            defaultExpanded={mex.id === lastAddedId || misEnExamen.length === 1}
+            expanded={expandedIds.has(mex.id)}
+            onToggleExpanded={() => toggleExpanded(mex.id)}
             readOnly={readOnly}
           />
         ))}
