@@ -13,6 +13,7 @@ import { RichTextEditor } from '../RichTextEditor';
 import {
   getJoursRestantsAvantFinDP,
   getDateFinDPCourante,
+  getDateFinDPCouranteEstimee,
   getDateFinMaxLegale,
   getJoursRestantsAvantMaxLegal,
   getPeriodeDPCourante,
@@ -72,7 +73,17 @@ export const MisEnExamenCard = ({
   const meta = MESURE_BADGE[mex.mesureSurete.type];
   const Icon = meta.icon;
   const dateFinDP = getDateFinDPCourante(mex);
+  const dateFinDPEstimee = getDateFinDPCouranteEstimee(mex);
+  const dateFinActuelle = dateFinDP || dateFinDPEstimee;
   const joursRestantsDP = getJoursRestantsAvantFinDP(mex);
+  const joursRestantsActuels = (() => {
+    if (!dateFinActuelle) return null;
+    const fin = new Date(dateFinActuelle);
+    fin.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Math.ceil((fin.getTime() - today.getTime()) / 86400000);
+  })();
   const dateFinMaxDP = getDateFinMaxLegale(mex);
   const joursMaxDP = getJoursRestantsAvantMaxLegal(mex);
   const periodeDPCourante = getPeriodeDPCourante(mex);
@@ -152,25 +163,30 @@ export const MisEnExamenCard = ({
           </div>
 
           {/* Dates DP en aperçu rapide (uniquement si MEX détenu) */}
-          {mex.mesureSurete.type === 'detenu' && (dateFinDP || dateFinMaxDP) && (
+          {mex.mesureSurete.type === 'detenu' && (dateFinActuelle || dateFinMaxDP) && (
             <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
               {periodeDPCourante?.dateDebut && (
                 <span className="px-1.5 py-0.5 rounded border bg-gray-50 text-gray-600 border-gray-200">
                   Début&nbsp;: {new Date(periodeDPCourante.dateDebut).toLocaleDateString()}
                 </span>
               )}
-              {dateFinDP && (
+              {dateFinActuelle && (
                 <span
                   className={`px-1.5 py-0.5 rounded border ${
-                    joursRestantsDP !== null && joursRestantsDP < 0
+                    joursRestantsActuels !== null && joursRestantsActuels < 0
                       ? 'bg-red-200 text-red-900 border-red-300'
-                      : joursRestantsDP !== null && joursRestantsDP <= seuilFinDP
+                      : joursRestantsActuels !== null && joursRestantsActuels <= seuilFinDP
                       ? 'bg-red-100 text-red-700 border-red-300 font-semibold'
                       : 'bg-gray-50 text-gray-600 border-gray-200'
                   }`}
-                  title="Fin de la période DP courante"
+                  title={
+                    dateFinDP
+                      ? 'Fin de la période DP courante'
+                      : 'Fin actuelle estimée (placement initial non encore enregistré — basée sur la durée légale initiale)'
+                  }
                 >
-                  Fin&nbsp;: {new Date(dateFinDP).toLocaleDateString()}
+                  Fin actuelle&nbsp;: {new Date(dateFinActuelle).toLocaleDateString()}
+                  {!dateFinDP && <span className="ml-1 italic text-[9px] opacity-70">(est.)</span>}
                 </span>
               )}
               {dateFinMaxDP && (
