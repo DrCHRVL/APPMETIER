@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import {
   X, Edit, Trash2, Save, FileText, Users, Calendar, ListChecks,
   Lock, Scale, MapPin, ShieldOff, AlertTriangle, Archive, RotateCcw,
-  ShieldCheck, Plus,
+  ShieldCheck, Plus, ExternalLink,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -95,6 +95,7 @@ export const InstructionDetailModal = ({
   const [editData, setEditData] = useState<Partial<DossierInstruction>>({
     numeroInstruction: dossier.numeroInstruction,
     numeroParquet: dossier.numeroParquet,
+    lienNpp: dossier.lienNpp,
     cabinetId: dossier.cabinetId,
     magistratInstructeur: dossier.magistratInstructeur,
     contentieuxId: dossier.contentieuxId,
@@ -106,9 +107,25 @@ export const InstructionDetailModal = ({
     cotesTomes: dossier.cotesTomes,
   });
 
+  const openLienNpp = () => {
+    if (!dossier.lienNpp) return;
+    const api = (typeof window !== 'undefined' ? window.electronAPI : undefined) as
+      | { openExternalUrl?: (url: string) => Promise<boolean> }
+      | undefined;
+    if (api?.openExternalUrl) {
+      void api.openExternalUrl(dossier.lienNpp);
+    } else {
+      window.open(dossier.lienNpp, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   const handleSave = () => {
     if (!editData.numeroInstruction?.trim()) {
       showToast('N° instruction requis', 'error');
+      return;
+    }
+    if (editData.lienNpp && !/^https?:\/\//i.test(editData.lienNpp)) {
+      showToast('Le lien NPP doit commencer par http:// ou https://', 'error');
       return;
     }
     onUpdate(dossier.id, editData);
@@ -194,7 +211,21 @@ export const InstructionDetailModal = ({
               )}
             </div>
             <div className="text-xs text-gray-600 mt-0.5">
-              Parquet : {dossier.numeroParquet}
+              N° instruction : {dossier.numeroInstruction || '—'}
+              {' · '}
+              Parquet : {dossier.lienNpp ? (
+                <button
+                  type="button"
+                  onClick={openLienNpp}
+                  title={`Ouvrir la fiche NPP : ${dossier.lienNpp}`}
+                  className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-900 hover:underline"
+                >
+                  {dossier.numeroParquet}
+                  <ExternalLink className="h-3 w-3" />
+                </button>
+              ) : (
+                dossier.numeroParquet
+              )}
               {dossier.magistratInstructeur && <> · {dossier.magistratInstructeur}</>}
               {' · '}
               Ouvert {dossier.dateOuverture ? new Date(dossier.dateOuverture).toLocaleDateString() : '—'}
@@ -287,6 +318,18 @@ export const InstructionDetailModal = ({
                       value={editData.numeroParquet || ''}
                       onChange={(e) => setEditData(d => ({ ...d, numeroParquet: e.target.value }))}
                     />
+                  </div>
+                  <div className="col-span-2">
+                    <Label>Lien NPP (optionnel)</Label>
+                    <Input
+                      type="url"
+                      placeholder="https://tgi-…npp.intranet.justice.gouv.fr/…"
+                      value={editData.lienNpp || ''}
+                      onChange={(e) => setEditData(d => ({ ...d, lienNpp: e.target.value.trim() || undefined }))}
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Si renseigné, le n° de parquet devient cliquable et ouvre la fiche NPP dans le navigateur par défaut.
+                    </p>
                   </div>
                   <div>
                     <Label>Magistrat instructeur</Label>

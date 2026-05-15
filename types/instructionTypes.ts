@@ -389,6 +389,12 @@ export interface DossierInstruction {
   numeroInstruction: string;
   /** N° de parquet rattaché */
   numeroParquet: string;
+  /**
+   * Lien optionnel vers la fiche NPP (intranet justice). Si renseigné, le
+   * n° de parquet devient cliquable dans le header et ouvre l'URL dans le
+   * navigateur par défaut via shell.openExternal.
+   */
+  lienNpp?: string;
   /** Référence au cabinet (Cabinet.id) */
   cabinetId: string;
   /** Magistrat instructeur en charge */
