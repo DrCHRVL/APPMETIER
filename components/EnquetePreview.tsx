@@ -637,6 +637,8 @@ return (
   enqueteId={enquete.id}
   contentieuxId={contentieuxId}
   isOverboardPinned={!!(enquete.overboardPins && enquete.overboardPins.length > 0)}
+  misEnCause={enquete.misEnCause}
+  enqueteTags={enquete.tags}
   onReset={async () => {
     try {
       await deleteAudienceResultat(contentieuxId, enquete.id);

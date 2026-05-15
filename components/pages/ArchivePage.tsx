@@ -751,6 +751,8 @@ export const ArchivePage = ({
           onClose={() => setViewResultat(null)}
           enqueteId={viewResultat}
           contentieuxId={ctxId}
+          misEnCause={allArchivedItems.find(e => e.id === viewResultat)?.misEnCause}
+          enqueteTags={allArchivedItems.find(e => e.id === viewResultat)?.tags}
         />
       )}
 
@@ -764,6 +766,7 @@ export const ArchivePage = ({
           defaultDate={lookupResultat(showResultModal)?.dateAudience || ''}
           initialData={lookupResultat(showResultModal)}
           misEnCause={allArchivedItems.find(e => e.id === showResultModal)?.misEnCause}
+          enqueteTags={allArchivedItems.find(e => e.id === showResultModal)?.tags}
         />
       )}
 
