@@ -347,6 +347,7 @@ export type EvenementInstructionType =
   | 'apc'
   | 'interrogatoire_fond'
   | 'phase_interpellation'
+  | '175_rendu'
   | (string & {});
 
 /**

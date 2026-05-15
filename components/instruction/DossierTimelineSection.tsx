@@ -107,6 +107,7 @@ const EVT_META_BASE: Record<string, EvtMeta> = {
   apc:                 { label: 'APC (partie civile)', bg: 'bg-pink-500',    text: 'text-pink-700',    icon: Users },
   interrogatoire_fond: { label: 'Interrogatoire au fond', bg: 'bg-amber-600', text: 'text-amber-700',  icon: Mic },
   phase_interpellation:{ label: 'Phase d\'interpellation', bg: 'bg-red-600',  text: 'text-red-700',    icon: Crosshair },
+  '175_rendu':         { label: '175 rendu',             bg: 'bg-purple-600', text: 'text-purple-700', icon: Gavel },
 };
 
 const FALLBACK_EVT_META: EvtMeta = {
@@ -779,6 +780,7 @@ const EvenementEditor: React.FC<{
             <option value="apc">APC (Audition de partie civile)</option>
             <option value="interrogatoire_fond">Interrogatoire au fond</option>
             <option value="phase_interpellation">Phase d'interpellation</option>
+            <option value="175_rendu">175 rendu (avis de fin d'information)</option>
             {customEvtTypes.length > 0 && (
               <optgroup label="Types personnalisés">
                 {customEvtTypes.map(t => (

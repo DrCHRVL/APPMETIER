@@ -2,17 +2,20 @@ import React, { useState } from 'react';
 import { useAudience } from '@/hooks/useAudience';
 
 import { Enquete } from '@/types/interfaces';
+import type { DossierInstruction } from '@/types/instructionTypes';
 import { GeneralStats } from '../stats/GeneralStats';
 import { AudienceStats } from '../stats/AudienceStats';
 import { InfractionStats } from '../stats/InfractionStats';
+import { InstructionStats } from '../stats/InstructionStats';
 import { ExportPdfButton } from '../pdf/ExportPdfButton';
 
 interface StatsPageProps {
   enquetes: Enquete[];
   contentieuxId?: string;
+  instructions?: DossierInstruction[];
 }
 
-export const StatsPage = ({ enquetes, contentieuxId }: StatsPageProps) => {
+export const StatsPage = ({ enquetes, contentieuxId, instructions }: StatsPageProps) => {
   const { isLoading } = useAudience();
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
@@ -84,6 +87,13 @@ export const StatsPage = ({ enquetes, contentieuxId }: StatsPageProps) => {
             <h3>Résultats d'audience</h3>
             <AudienceStats enquetes={enquetes} selectedYear={selectedYear} contentieuxId={contentieuxId} />
           </div>
+
+          {Array.isArray(instructions) && (
+            <div className="pdf-section">
+              <h3>Statistiques instruction</h3>
+              <InstructionStats dossiers={instructions} selectedYear={selectedYear} />
+            </div>
+          )}
         </div>
 
       </div>
