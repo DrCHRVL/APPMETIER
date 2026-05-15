@@ -26,6 +26,7 @@ interface ElectronAPI {
   
   openFileDialog: (options: any) => Promise<string | null>;
   openExternalFile: (filePath: string) => Promise<boolean>;
+  openExternalUrl: (url: string) => Promise<boolean>;
   
   // API pour la gestion des fichiers de sauvegarde
   saveFile: (folder: string, filename: string, content: string) => Promise<boolean>;

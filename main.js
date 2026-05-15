@@ -634,6 +634,22 @@ function setupIpcHandlers() {
       return false
     }
   })
+
+  // Ouverture d'une URL http(s) dans le navigateur par défaut.
+  // Restreint aux schémas http/https pour éviter d'exécuter file://, javascript:, etc.
+  ipcMain.handle('open:externalUrl', async (event, url) => {
+    try {
+      if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+        console.error('URL externe refusée (schéma non autorisé):', url)
+        return false
+      }
+      await shell.openExternal(url)
+      return true
+    } catch (error) {
+      console.error('Erreur lors de l\'ouverture de l\'URL externe:', error)
+      return false
+    }
+  })
   // === GESTIONNAIRES POUR LES DOCUMENTS (NE PAS TOUCHER - SYNC DOCUMENTS) ===
 
   // === SYNCHRONISATION DES DOCUMENTS ===

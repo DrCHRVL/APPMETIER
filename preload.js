@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveCasierFile: (sourcePath, fileName) => ipcRenderer.invoke('casier:save', sourcePath, fileName),
   deleteCasierFile: (filePath) => ipcRenderer.invoke('casier:delete', filePath),
   openExternalFile: (filePath) => ipcRenderer.invoke('open:external', filePath),
+  openExternalUrl: (url) => ipcRenderer.invoke('open:externalUrl', url),
 
   // API pour la gestion des fichiers de sauvegarde
   saveFile: (folder, filename, content) => ipcRenderer.invoke('saveFile', folder, filename, content),
