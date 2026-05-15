@@ -59,7 +59,16 @@ export const AudienceResultModal = ({
   // States
   const { getTagsByCategory } = useTags();
   const [dateAudience, setDateAudience] = useState(initialData?.dateAudience || defaultDate || '');
-  const [selectedInfraction, setSelectedInfraction] = useState(initialData?.typeInfraction || '');
+
+  // Multi-sélection des types d'infraction. À l'initialisation : reprend les types
+  // déjà saisis dans le résultat, sinon pré-remplit avec les tags "infractions"
+  // déjà renseignés sur le dossier (l'utilisateur peut les désélectionner).
+  const initialSelectedInfractions = (() => {
+    if (initialData?.typesInfraction?.length) return initialData.typesInfraction;
+    if (initialData?.typeInfraction) return [initialData.typeInfraction];
+    return enqueteTags.filter(t => t.category === 'infractions').map(t => t.value);
+  })();
+  const [selectedInfractions, setSelectedInfractions] = useState<string[]>(initialSelectedInfractions);
 
   // Date de défèrement issue de l'audience en attente (commune, à pré-remplir sur chaque condamné déféré)
   const pendingDateDefere = initialData?.dateDefere || '';
@@ -80,7 +89,7 @@ export const AudienceResultModal = ({
       peineAmende: 0,
       interdictionParaitre: false,
       interdictionGerer: false,
-      typeAudience: 'CRPC-Def' as const,
+      typeAudience: 'CI' as const,
       defere: true,
       dateDefere: pendingDateDefere,
       isPending: true,
@@ -161,7 +170,7 @@ export const AudienceResultModal = ({
         peineAmende: 0,
         interdictionParaitre: false,
         interdictionGerer: false,
-        typeAudience: 'CRPC-Def' as const,
+        typeAudience: 'CI' as const,
         defere: true,
         dateDefere: pendingDateDefere,
         isPending: false,
@@ -197,8 +206,8 @@ export const AudienceResultModal = ({
 
   const handleSubmit = async () => {
     try {
-      if (!selectedInfraction) {
-        showToast('Veuillez sélectionner un type d\'infraction', 'error');
+      if (selectedInfractions.length === 0) {
+        showToast('Veuillez sélectionner au moins un type d\'infraction', 'error');
         return;
       }
 
@@ -236,7 +245,8 @@ export const AudienceResultModal = ({
           c.sursisSimple > 0 || c.peineAmende > 0
         ),
         confiscations,
-        typeInfraction: selectedInfraction,
+        typeInfraction: selectedInfractions[0],
+        typesInfraction: selectedInfractions,
         isDirectResult,
         service: isDirectResult ? service : undefined,
         // Nouvelles propriétés pour gérer les résultats partiels
@@ -302,22 +312,80 @@ export const AudienceResultModal = ({
             </p>
           </div>
 
-          {/* Type d'infraction */}
+          {/* Type d'infraction (multi-sélection, pré-rempli depuis les tags du dossier) */}
           <div>
-            <Label>Type d'infraction principal</Label>
-            <select
-              className="w-full p-2 border rounded"
-              value={selectedInfraction}
-              onChange={(e) => setSelectedInfraction(e.target.value)}
-              required
-            >
-              <option value="">Sélectionner...</option>
-              {infractions.map((infraction) => (
-                <option key={infraction.id} value={infraction.value}>
-                  {infraction.value}
-                </option>
-              ))}
-            </select>
+            <Label>Types d'infraction</Label>
+            <p className="text-xs text-gray-500 mb-2">
+              Reprend les tags "infractions" du dossier ; cliquez pour ajouter ou retirer.
+              Le premier sélectionné est utilisé comme infraction principale pour les statistiques.
+            </p>
+
+            {/* Tags du dossier d'abord, puis les autres tags de la nomenclature */}
+            {(() => {
+              const dossierValues = new Set(
+                enqueteTags.filter(t => t.category === 'infractions').map(t => t.value)
+              );
+              const catalogValues = new Set(infractions.map(i => i.value));
+              // Inclure les tags du dossier qui ne seraient pas dans le catalogue,
+              // pour ne pas les masquer.
+              const allDossierValues = Array.from(dossierValues);
+              const dossierFirst = [
+                ...infractions.map(i => i.value).filter(v => dossierValues.has(v)),
+                ...allDossierValues.filter(v => !catalogValues.has(v)),
+              ];
+              const others = infractions
+                .map(i => i.value)
+                .filter(v => !dossierValues.has(v));
+
+              const toggle = (value: string) => {
+                setSelectedInfractions(prev =>
+                  prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]
+                );
+              };
+
+              const renderChip = (value: string, fromDossier: boolean) => {
+                const selected = selectedInfractions.includes(value);
+                const principal = selected && selectedInfractions[0] === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => toggle(value)}
+                    className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
+                      selected
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : fromDossier
+                          ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    {principal && <span className="mr-1">★</span>}
+                    {value}
+                  </button>
+                );
+              };
+
+              return (
+                <div className="space-y-2">
+                  {dossierFirst.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-amber-700 mb-1">Tags du dossier</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {dossierFirst.map(v => renderChip(v, true))}
+                      </div>
+                    </div>
+                  )}
+                  {others.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-gray-600 mb-1">Autres infractions</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {others.map(v => renderChip(v, false))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Ajout du champ service uniquement pour les procédures de permanence */}
@@ -393,12 +461,34 @@ export const AudienceResultModal = ({
                       <span className="ml-2 text-xs text-green-600 font-normal">lié au dossier</span>
                     )}
                   </Label>
+                  {misEnCause.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1 mb-1">
+                      {misEnCause.map((m) => {
+                        const isSelected = condamnation.misEnCauseId === m.id;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => updateCondamnationNom(index, m.nom)}
+                            className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                              isSelected
+                                ? 'bg-green-600 text-white border-green-600'
+                                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                            }`}
+                            title="Cliquer pour utiliser ce mis en cause"
+                          >
+                            {m.nom}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                   <MecAutocompleteInput
                     value={condamnation.nom || ''}
                     onChange={(val) => updateCondamnationNom(index, val)}
                     suggestions={misEnCause.map(m => m.nom)}
                     minTriggerLength={2}
-                    placeholder="Nom du condamné"
+                    placeholder="Ou saisir un nom (texte libre)"
                   />
                 </div>
                 
@@ -933,7 +1023,7 @@ export const AudienceResultModal = ({
           <Button variant="outline" onClick={onClose}>Annuler</Button>
           <Button
             onClick={handleSubmit}
-            disabled={!dateAudience || nbCondamnes === 0 || !selectedInfraction}
+            disabled={!dateAudience || nbCondamnes === 0 || selectedInfractions.length === 0}
           >
             Enregistrer
           </Button>

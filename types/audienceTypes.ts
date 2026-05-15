@@ -156,6 +156,9 @@ export interface ResultatAudience {
   confiscations: Confiscations;
   saisies?: Confiscations; // Saisies effectuées par les services d'enquête (phase enquête)
   typeInfraction?: string;
+  /** Liste complète des types d'infraction sélectionnés (multi-sélection).
+      `typeInfraction` reste renseigné avec le premier pour la compat des stats. */
+  typesInfraction?: string[];
   numeroAudience?: string; // Format: "YYYY-MM-DD-N"
   isDirectResult?: boolean;
   isOI?: boolean; // Pour marquer les ouvertures d'information

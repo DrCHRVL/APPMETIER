@@ -8,6 +8,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { ResultatAudience, migrateConfiscations } from '@/types/audienceTypes';
 import { AudienceResultModal } from './AudienceResultModal';
 import { ClassementModal } from './ClassementModal';
+import { Tag } from '@/types/interfaces';
 
 interface ViewAudienceResultModalProps {
   isOpen: boolean;
@@ -19,6 +20,8 @@ interface ViewAudienceResultModalProps {
   onReset?: () => void;
   onUpdate?: (resultat: ResultatAudience) => void;
   isOverboardPinned?: boolean;
+  misEnCause?: { id: number; nom: string }[];
+  enqueteTags?: Tag[];
 }
 
 export const ViewAudienceResultModal = ({
@@ -29,6 +32,8 @@ export const ViewAudienceResultModal = ({
   onReset,
   onUpdate,
   isOverboardPinned = false,
+  misEnCause,
+  enqueteTags,
 }: ViewAudienceResultModalProps) => {
   const { getResultat, isLoading, saveResultat, deleteAudienceResultat } = useAudience();
   const { showToast } = useToast();
@@ -71,7 +76,7 @@ export const ViewAudienceResultModal = ({
           sursisSimple: condamnation.sursisSimple || 0,
           peineAmende: condamnation.peineAmende || 0,
           interdictionParaitre: condamnation.interdictionParaitre || false,
-          typeAudience: condamnation.typeAudience || 'CRPC-Def',
+          typeAudience: condamnation.typeAudience || 'CI',
           defere: condamnation.defere || false
         }))
       };
@@ -150,6 +155,8 @@ export const ViewAudienceResultModal = ({
         defaultDate={resultat.dateAudience}
         initialData={resultat}
         isOverboardPinned={isOverboardPinned}
+        misEnCause={misEnCause}
+        enqueteTags={enqueteTags}
       />
     );
   }
