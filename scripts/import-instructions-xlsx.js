@@ -28,7 +28,27 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 const XLSX = require('xlsx');
+
+// Verifie qu'aucun process electron ne tourne (evite l'ecrasement
+// par la sauvegarde debounced de l'app si elle etait restee ouverte).
+function ensureAppClosed() {
+  if (process.platform !== 'win32') return;
+  try {
+    const out = execSync('tasklist /FI "IMAGENAME eq electron.exe" /FO CSV /NH', { encoding: 'utf8' });
+    if (out && out.toLowerCase().includes('electron.exe')) {
+      throw new Error(
+        'L\'application APPMETIER (electron.exe) est encore en cours d\'execution.\n' +
+        '         Fermez-la completement avant de relancer ce script,\n' +
+        '         sinon ses sauvegardes automatiques ecraseront l\'import.'
+      );
+    }
+  } catch (e) {
+    if (e.message && e.message.startsWith('L\'application')) throw e;
+    // tasklist non dispo ou autre erreur -> on n'empeche pas la suite
+  }
+}
 
 // Mapping JI -> ordre du cabinet (override possible si le data.json
 // contient deja des cabinets nommes ou avec magistratParDefaut).
@@ -105,6 +125,7 @@ function runMigrate(args) {
   if (!args.migrateFrom || !args.migrateTo) {
     throw new Error('--migrate-from <oldUser> ET --migrate-to <newUser> requis');
   }
+  ensureAppClosed();
   const data = loadDataJson(args.dataJson);
   const fromKey = 'instructions__' + args.migrateFrom;
   const toKey = 'instructions__' + args.migrateTo;
@@ -387,6 +408,8 @@ function main() {
     console.log('\n[dry-run] data.json non modifie');
     return;
   }
+
+  ensureAppClosed();
 
   const merged = [...existing, ...fresh];
   const next = { ...data, [storageKey]: merged };
