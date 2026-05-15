@@ -5,48 +5,18 @@ import { electronStorage } from '@/services/storage/electronStorage';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { Enquete } from '@/types/interfaces';
 import { audienceSyncService } from '@/utils/dataSync/AudienceSyncService';
+import {
+  LEGACY_CONTENTIEUX_ID,
+  buildResultatKey,
+  migrateLegacyResultats,
+} from '@/utils/audienceLegacy';
+
+// Re-exports pour préserver les imports existants (`@/stores/useAudienceStore`
+// est l'API publique historique pour ces helpers).
+export { buildResultatKey, migrateLegacyResultats };
 
 const AUDIENCE_STORAGE_KEY = 'audience_resultats';
 const CLEANUP_INTERVAL = 30000;
-
-// Contentieux par défaut affecté aux résultats legacy (clé numérique nue dans
-// le stockage avant l'introduction du namespace par contentieux). Avant le
-// refactor, seul crimorg utilisait correctement ce flux : tous les résultats
-// existants en base sont donc rattachés à ce contentieux.
-const LEGACY_CONTENTIEUX_ID = 'crimorg';
-
-// Construit la clé composite stockée dans `audience_resultats`.
-// Format : `${contentieuxId}__${enqueteId}` — double underscore pour éviter
-// toute collision avec un id de contentieux contenant un underscore.
-export const buildResultatKey = (contentieuxId: string, enqueteId: number): string =>
-  `${contentieuxId}__${enqueteId}`;
-
-// Migre un dictionnaire de résultats : ré-encode toutes les clés purement
-// numériques (legacy) en clés composites `crimorg__N` et y écrit aussi le
-// champ `contentieuxId` sur le résultat lui-même. Idempotent : les clés déjà
-// composites sont laissées telles quelles.
-const migrateLegacyResultats = (
-  data: Record<string, ResultatAudience>
-): { migrated: Record<string, ResultatAudience>; changed: boolean } => {
-  let changed = false;
-  const migrated: Record<string, ResultatAudience> = {};
-  for (const [key, value] of Object.entries(data)) {
-    if (/^\d+$/.test(key)) {
-      const newKey = buildResultatKey(LEGACY_CONTENTIEUX_ID, value.enqueteId);
-      migrated[newKey] = { ...value, contentieuxId: value.contentieuxId || LEGACY_CONTENTIEUX_ID };
-      changed = true;
-    } else if (!value.contentieuxId) {
-      // Clé déjà composite mais champ contentieuxId manquant : on extrait
-      // l'id du contentieux depuis la clé pour rester cohérent.
-      const [ctxFromKey] = key.split('__');
-      migrated[key] = { ...value, contentieuxId: ctxFromKey || LEGACY_CONTENTIEUX_ID };
-      changed = true;
-    } else {
-      migrated[key] = value;
-    }
-  }
-  return { migrated, changed };
-};
 
 // Lecture fraîche depuis le storage (source de vérité) avec migration des
 // clés legacy à la volée. La migration n'est PAS persistée ici — elle l'est
@@ -154,6 +124,10 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
       ...freshResultats,
       [key]: { ...resultat, contentieuxId: ctxId, modifiedAt: new Date().toISOString() },
     };
+    // Ceinture+bretelles : si une entrée legacy nue traîne encore (cas où la
+    // sync vient juste de la ré-injecter depuis app-data.json), on la purge
+    // explicitement pour que `Object.values()` ne la voie plus comme pending.
+    delete newResultats[String(resultat.enqueteId)];
 
     const success = await electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, newResultats);
     if (success) {
@@ -172,6 +146,9 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
     const freshResultats = await readFreshFromStorage();
     const newResultats = { ...freshResultats };
     delete newResultats[key];
+    // Idem saveResultat : purger toute entrée legacy nue résiduelle, sinon le
+    // résultat « supprimé » réapparaît 1 s plus tard via la sync.
+    delete newResultats[String(enqueteId)];
 
     const success = await electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, newResultats);
     if (success) {

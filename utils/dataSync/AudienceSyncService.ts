@@ -8,6 +8,7 @@ import { ElectronBridge } from '@/utils/electronBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { ResultatAudience } from '@/types/audienceTypes';
 import { AudienceSyncFile } from '@/types/globalSyncTypes';
+import { migrateLegacyResultats } from '@/utils/audienceLegacy';
 import {
   getCurrentUserInfo,
   buildMetadata,
@@ -20,6 +21,12 @@ const PERIODIC_SYNC_MS = 30_000;
 // absolue sur la version serveur lors du merge. Couvre largement les pires
 // cas de skew d'horloge (NTP désynchronisé, fuseau, retry réseau).
 const LOCAL_AUTHORITY_WINDOW_MS = 5 * 60_000;
+// Flag persistant signalant que la migration one-shot depuis app-data.json a
+// déjà eu lieu sur ce poste. Tant que ce flag est faux, on relit le legacy à
+// chaque sync (utile pour rattraper un poste qui n'a jamais été initialisé).
+// Une fois passé à true, on ne relit plus jamais le legacy : ça évite la
+// re-injection des clés numériques nues qui ressuscitaient les pending.
+const LEGACY_MIGRATION_DONE_KEY = 'audience_legacyMigrationDone';
 
 function isAudienceSyncAvailable(): boolean {
   return typeof window !== 'undefined'
@@ -78,6 +85,24 @@ async function pullLegacyAudience(): Promise<Record<string, ResultatAudience>> {
     return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   } catch {
     return {};
+  }
+}
+
+async function isLegacyMigrationDone(): Promise<boolean> {
+  try {
+    return await ElectronBridge.getData<boolean>(LEGACY_MIGRATION_DONE_KEY, false);
+  } catch {
+    return false;
+  }
+}
+
+async function markLegacyMigrationDone(): Promise<void> {
+  try {
+    await ElectronBridge.setData(LEGACY_MIGRATION_DONE_KEY, true);
+  } catch {
+    // Sans ce flag, le poste relira app-data.json à chaque sync — gênant mais
+    // pas bloquant : la déduplication via migrateLegacyResultats absorbe
+    // toujours les doublons avant écriture.
   }
 }
 
@@ -142,10 +167,16 @@ export class AudienceSyncService {
     try {
       const localAuthorityKeys = this.getActiveLocalAuthorityKeys();
 
+      // Le legacy n'est lu que si la migration one-shot n'a jamais été faite
+      // sur ce poste. Sinon on évite de ré-injecter les clés numériques nues
+      // (`"123"`) qui ressuscitaient les pending — y compris hors ligne.
+      const legacyMigrationDone = await isLegacyMigrationDone();
       const [serverFile, local, legacy] = await Promise.all([
         pullServer(),
         readLocal(),
-        pullLegacyAudience(),
+        legacyMigrationDone
+          ? Promise.resolve<Record<string, ResultatAudience>>({})
+          : pullLegacyAudience(),
       ]);
 
       const server = serverFile?.audienceResultats ?? {};
@@ -156,16 +187,24 @@ export class AudienceSyncService {
       const mergedFromLegacy = serverFile
         ? server
         : mergeByModifiedAt(legacy, server, new Set());
-      const merged = mergeByModifiedAt(local, mergedFromLegacy, localAuthorityKeys);
+      const rawMerged = mergeByModifiedAt(local, mergedFromLegacy, localAuthorityKeys);
 
       // Suppressions locales récentes : si une clé fait autorité locale et n'est
       // plus dans `local`, on l'efface du merged pour qu'elle ne ressuscite pas
       // depuis le serveur.
       for (const key of localAuthorityKeys) {
-        if (!(key in local) && key in merged) {
-          delete merged[key];
+        if (!(key in local) && key in rawMerged) {
+          delete rawMerged[key];
         }
       }
+
+      // Dédoublonnage final : tout ce qui sort du merge passe par la même
+      // normalisation que le store. Les clés nues `"123"` éventuellement
+      // remontées par le legacy ou par un pair pas encore patché sont
+      // collapsées en `crimorg__123` avec priorité à la version préfixée.
+      // Effet de bord recherché : à chaque sync, le serveur et le local se
+      // nettoient d'eux-mêmes des doublons historiques.
+      const { migrated: merged } = migrateLegacyResultats(rawMerged);
 
       // Écrire le local si différent
       const localChanged = !keysEqual(merged, local)
@@ -197,6 +236,15 @@ export class AudienceSyncService {
         }
       } else {
         this.dirty = false;
+      }
+
+      // Marquer la migration legacy comme faite dès qu'une sync complète a
+      // abouti avec un serverFile valide — même si le legacy était vide.
+      // Condition serverFile non-null : tant qu'on n'a jamais réussi à voir
+      // le partage commun, on garde la possibilité de relire le legacy au
+      // prochain démarrage en ligne.
+      if (!legacyMigrationDone && serverFile) {
+        await markLegacyMigrationDone();
       }
 
       this.initialized = true;
