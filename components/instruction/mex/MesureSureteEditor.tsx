@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, AlertTriangle, Lock, Scale, MapPin, ShieldOff } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
@@ -63,9 +63,12 @@ export const MesureSureteEditor = ({ mex, onChange, readOnly }: Props) => {
         onChange({ type: 'arse', depuis: today });
         break;
       case 'detenu':
+        // Le placement effectif sera saisi ensuite ; on pré-remplit `depuis`
+        // avec la date de mise en examen (cas le plus fréquent) pour que
+        // l'estimation de fin reste cohérente avant la saisie du placement.
         onChange({
           type: 'detenu',
-          depuis: today,
+          depuis: mex.dateMiseEnExamen || today,
           regime: 'correctionnel',
           casDPId: undefined,
           periodes: [],
@@ -95,12 +98,30 @@ export const MesureSureteEditor = ({ mex, onChange, readOnly }: Props) => {
   const [newPlacementDuree, setNewPlacementDuree] = useState<number | ''>('');
   const [newProlongationDate, setNewProlongationDate] = useState('');
 
+  // Pré-remplit la date de placement avec la date de mise en examen
+  // (souvent identique, mais distincte sémantiquement) tant qu'aucune
+  // période n'a été enregistrée et que l'utilisateur n'a rien saisi.
+  useEffect(() => {
+    if (m.type !== 'detenu' || m.periodes.length > 0) return;
+    if (!mex.dateMiseEnExamen) return;
+    setNewPlacementDate(prev => prev || mex.dateMiseEnExamen);
+  }, [m.type, m.periodes.length, mex.dateMiseEnExamen]);
+
+  // Pré-remplit la durée avec la durée initiale légale du cas sélectionné.
+  useEffect(() => {
+    if (m.type !== 'detenu' || m.periodes.length > 0) return;
+    if (!cas?.dureeInitialeMois) return;
+    setNewPlacementDuree(prev => (prev === '' ? cas.dureeInitialeMois : prev));
+  }, [m.type, m.periodes.length, cas?.dureeInitialeMois]);
+
   const addPlacementInitial = () => {
     if (m.type !== 'detenu' || !newPlacementDate || !newPlacementDuree) return;
     const periode = buildPeriodeDP(newPlacementDate, Number(newPlacementDuree), m.regime, 'placement');
     onChange({
       ...m,
-      depuis: m.depuis || newPlacementDate,
+      // La date de placement est la source de vérité du début de DP,
+      // même si elle coïncide souvent avec la mise en examen.
+      depuis: newPlacementDate,
       periodes: [...m.periodes, periode],
     });
     setNewPlacementDate('');
