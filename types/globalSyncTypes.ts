@@ -83,7 +83,8 @@ export interface CartographieTombstone {
  * Stratégie de merge (cf. CartographieOverlaySyncService) :
  *   - chaque entité porte un updatedAt → "le plus récent gagne par id"
  *   - tombstone pour un id → l'entité est supprimée des deux côtés
- *   - pinnedMecIds : union simple (les épingles ne se "suppriment" pas)
+ *   - pinnedMecIds : union des deux côtés moins les tombstones
+ *     (deletedPinnedMecIds), pour qu'un désépinglage se propage entre postes
  */
 export interface CartographieOverlaySyncFile extends GlobalSyncMetadata {
   // Données effectives — voir useCartographieOverlayStore pour les types.
@@ -106,6 +107,10 @@ export interface CartographieOverlaySyncFile extends GlobalSyncMetadata {
   deletedLienIds?: CartographieTombstone[];
   deletedClusterAnnotationIds?: CartographieTombstone[];
   deletedMecScoreBoostIds?: CartographieTombstone[];
+  // Tombstones d'épinglage (clé = id canonique du MEC). Sans ça, le merge
+  // par union ressuscitait une épingle retirée localement dès qu'un poste
+  // avait encore l'entrée côté serveur.
+  deletedPinnedMecIds?: CartographieTombstone[];
   // Tombstones tag → zone (clé = tag). Sans ça, supprimer une assignation
   // côté local était silencieusement annulé par le re-push d'un poste qui
   // avait encore l'entrée.

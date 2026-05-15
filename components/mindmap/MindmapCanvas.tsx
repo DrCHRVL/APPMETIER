@@ -54,6 +54,9 @@ interface MindmapCanvasProps {
    *  jusqu'à `egoDepth` du nœud. Le reste passe en opacity dimmed. */
   egoNodeId?: string;
   egoDepth?: number;
+  /** IDs canoniques des MEC marqués manuellement comme "à surveiller" :
+   *  rendus avec un anneau rouge vif pour les repérer dans la carte. */
+  pinnedIds?: string[];
   onNodeClick?: (node: GraphNode) => void;
   onNodeDoubleClick?: (node: GraphNode) => void;
 }
@@ -62,7 +65,7 @@ interface MindmapCanvasProps {
 // NŒUDS PERSONNALISÉS
 // ──────────────────────────────────────────────
 
-type MecNodeData = MecNode & { focused: boolean; radius: number; dimmed: boolean };
+type MecNodeData = MecNode & { focused: boolean; radius: number; dimmed: boolean; isPinned: boolean };
 type DossierNodeData = DossierNode & {
   focused: boolean;
   radius: number;
@@ -120,27 +123,31 @@ const CENTERED_HANDLE_STYLE: React.CSSProperties = {
 };
 
 const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
-  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus } = data;
+  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus, isPinned } = data;
   const size = radius * 2;
   // MEC "pont" : présent sur ≥ 2 contentieux distincts → halo violet pour
   // matérialiser la transversalité (signal du score, mais visuel).
   const isBridge = contentieuxIds.length > 1;
   const isBoosted = (manualBonus || 0) > 0;
+  // Marqueur de visibilité manuel : prime sur tout autre anneau pour rester
+  // bien repérable dans la carte (l'utilisateur l'a posé exprès).
+  const ringClass = isPinned
+    ? 'ring-4 ring-red-500 shadow-lg'
+    : focused
+      ? 'ring-4 ring-yellow-300 shadow-lg scale-105'
+      : isBoosted
+        ? 'ring-2 ring-amber-400 shadow-md hover:scale-105'
+        : isBridge
+          ? 'ring-2 ring-violet-400/70 shadow-md hover:scale-105'
+          : 'shadow-md hover:scale-105';
   return (
     <div
-      title={`${displayName} — ${dossierIds.length} dossier(s)${isBridge ? ` • ${contentieuxIds.length} contentieux` : ''}${isBoosted ? ' • importance manuelle' : ''}`}
+      title={`${displayName} — ${dossierIds.length} dossier(s)${isBridge ? ` • ${contentieuxIds.length} contentieux` : ''}${isBoosted ? ' • importance manuelle' : ''}${isPinned ? ' • marqué' : ''}`}
       style={{ width: size, height: size, opacity: dimmed ? 0.18 : 1, transition: 'opacity 200ms' }}
       className={`
         flex items-center justify-center rounded-full text-white text-center
         font-medium select-none transition-all duration-150
-        ${focused
-          ? 'ring-4 ring-yellow-300 shadow-lg scale-105'
-          : isBoosted
-            ? 'ring-2 ring-amber-400 shadow-md hover:scale-105'
-            : isBridge
-              ? 'ring-2 ring-violet-400/70 shadow-md hover:scale-105'
-              : 'shadow-md hover:scale-105'
-        }
+        ${ringClass}
       `}
     >
       <Handle type="target" position={Position.Top} style={CENTERED_HANDLE_STYLE} isConnectable={false} />
@@ -397,9 +404,11 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   onAnnotateCluster,
   egoNodeId,
   egoDepth = 2,
+  pinnedIds,
   onNodeClick,
   onNodeDoubleClick,
 }) => {
+  const pinnedSet = useMemo(() => new Set(pinnedIds || []), [pinnedIds]);
   const positions = useForceLayout(nodes, edges, refreshKey);
   const { setCenter, fitView } = useReactFlow();
 
@@ -615,7 +624,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       const focused = focusedId === n.id;
       const dimmed = isDimmed(n.id);
       if (n.type === 'mec') {
-        const data: MecNodeData = { ...n, focused, radius, dimmed };
+        const data: MecNodeData = { ...n, focused, radius, dimmed, isPinned: pinnedSet.has(n.id) };
         out.push({
           id: n.id,
           type: 'mec',
@@ -660,7 +669,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       } satisfies Node);
     }
     return out;
-  }, [nodes, positions, focusedId, ctxColorById, dossierRotations, influenceClusters, subClusters, focusedClusterId, clusterAnnotations, egoVisibleSet, isDimmed, clusterColors]);
+  }, [nodes, positions, focusedId, ctxColorById, dossierRotations, influenceClusters, subClusters, focusedClusterId, clusterAnnotations, egoVisibleSet, isDimmed, clusterColors, pinnedSet]);
 
   const rfEdges: Edge[] = useMemo(() => {
     return edges.map(e => {

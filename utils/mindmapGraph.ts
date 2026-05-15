@@ -629,30 +629,12 @@ export function extractFocusSubgraph(
 // ──────────────────────────────────────────────
 
 /**
- * Retourne les MEC à afficher dans le Top 10. Les MEC épinglés sont
- * toujours présents en tête (triés entre eux par score), suivis des
- * autres MEC complétant jusqu'à `limit`. Si plus de `limit` MEC sont
- * épinglés, ils sont tous retournés (la liste peut donc dépasser
- * `limit`).
+ * Retourne les MEC à afficher dans le Top, strictement triés par rawScore
+ * décroissant. L'épinglage n'influence plus l'ordre : il sert uniquement
+ * de marqueur de visibilité sur la carte (anneau rouge sur le nœud).
  */
-export function getTopMec(
-  graph: MindmapGraph,
-  limit: number = 10,
-  pinnedIds?: Iterable<string>,
-): MecNode[] {
-  const pinned = pinnedIds ? new Set(pinnedIds) : null;
-  const all = [...graph.mecById.values()].sort((a, b) => b.rawScore - a.rawScore);
-
-  if (!pinned || pinned.size === 0) {
-    return all.slice(0, limit);
-  }
-
-  const pinnedMecs: MecNode[] = [];
-  const others: MecNode[] = [];
-  for (const mec of all) {
-    if (pinned.has(mec.id)) pinnedMecs.push(mec);
-    else others.push(mec);
-  }
-  const fillCount = Math.max(0, limit - pinnedMecs.length);
-  return [...pinnedMecs, ...others.slice(0, fillCount)];
+export function getTopMec(graph: MindmapGraph, limit: number = 10): MecNode[] {
+  return [...graph.mecById.values()]
+    .sort((a, b) => b.rawScore - a.rawScore)
+    .slice(0, limit);
 }

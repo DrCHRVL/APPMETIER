@@ -245,7 +245,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     () => buildMindmapGraph(filteredSources, overlayInput, scoreConfig),
     [filteredSources, overlayInput, scoreConfig],
   );
-  const top10 = useMemo(() => getTopMec(graph, 10, pinnedMecIds), [graph, pinnedMecIds]);
+  const top10 = useMemo(() => getTopMec(graph, 10), [graph]);
 
   const searchResults = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -672,6 +672,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             clusterAnnotations={clusterAnnotations}
             onAnnotateCluster={handleAnnotateCluster}
             egoNodeId={egoNodeId}
+            pinnedIds={pinnedMecIds}
             onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
           />
@@ -835,7 +836,7 @@ const Top10Panel: React.FC<{
               <div
                 key={mec.id}
                 className={`group flex items-start gap-1 px-2 py-2 rounded ${
-                  isPinned ? 'bg-amber-50/70 hover:bg-amber-50' : 'hover:bg-slate-50'
+                  isPinned ? 'bg-red-50/70 hover:bg-red-50' : 'hover:bg-slate-50'
                 }`}
               >
                 <button
@@ -873,10 +874,10 @@ const Top10Panel: React.FC<{
                 </button>
                 <button
                   onClick={() => onTogglePin(mec.id)}
-                  title={isPinned ? 'Désépingler' : 'Épingler en tête du Top'}
+                  title={isPinned ? 'Retirer le marqueur sur la carte' : 'Marquer ce MEC sur la carte (anneau rouge)'}
                   className={`p-1 rounded flex-shrink-0 transition-colors ${
                     isPinned
-                      ? 'text-amber-600 hover:text-amber-800'
+                      ? 'text-red-600 hover:text-red-800'
                       : 'text-slate-300 hover:text-slate-700 opacity-0 group-hover:opacity-100'
                   }`}
                 >
@@ -889,7 +890,7 @@ const Top10Panel: React.FC<{
       </div>
       <div className="px-3 py-2 border-t border-slate-200 text-[10px] text-slate-400">
         Score : dossiers × 2 + contentieux × 3 + ME × 1 + chefs × 0.3 (×1.2 si récent).
-        Les épinglés restent en tête.
+        Les MEC marqués sont entourés en rouge sur la carte.
       </div>
     </div>
   );
