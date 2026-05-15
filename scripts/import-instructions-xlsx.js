@@ -54,21 +54,75 @@ const COL = {
 };
 
 function parseArgs(argv) {
-  const args = { dryRun: false };
+  const args = { dryRun: false, listKeys: false };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--dry-run') args.dryRun = true;
+    else if (a === '--list-keys') args.listKeys = true;
     else if (a === '--xlsx') args.xlsx = argv[++i];
     else if (a === '--user') args.user = argv[++i];
     else if (a === '--parquetier') args.parquetier = argv[++i];
     else if (a === '--data-json') args.dataJson = argv[++i];
+    else if (a === '--migrate-from') args.migrateFrom = argv[++i];
+    else if (a === '--migrate-to') args.migrateTo = argv[++i];
     else throw new Error('Argument inconnu : ' + a);
   }
+  args.dataJson = args.dataJson || path.join(__dirname, '..', 'data', 'data.json');
+  if (args.listKeys || args.migrateFrom || args.migrateTo) return args;
   if (!args.xlsx) throw new Error('--xlsx <path> requis');
   if (!args.user) throw new Error('--user <windowsUsername> requis');
   if (!args.parquetier) throw new Error('--parquetier <name> requis');
-  args.dataJson = args.dataJson || path.join(__dirname, '..', 'data', 'data.json');
   return args;
+}
+
+function listInstructionKeys(data) {
+  return Object.keys(data)
+    .filter((k) => k.startsWith('instructions__'))
+    .map((k) => ({
+      key: k,
+      user: k.slice('instructions__'.length),
+      count: Array.isArray(data[k]) ? data[k].length : 0,
+    }));
+}
+
+function runListKeys(args) {
+  const data = loadDataJson(args.dataJson);
+  const keys = listInstructionKeys(data);
+  console.log('Cles instructions__* dans ' + args.dataJson + ' :');
+  if (keys.length === 0) {
+    console.log('  (aucune)');
+    console.log('');
+    console.log('-> Ouvrez l\'app au moins une fois pour qu\'elle cree la cle correspondant');
+    console.log('   a votre nom d\'utilisateur Windows reel, puis relancez --list-keys.');
+    return;
+  }
+  for (const k of keys) {
+    console.log('  - ' + k.key + '  (' + k.count + ' dossier(s))');
+  }
+}
+
+function runMigrate(args) {
+  if (!args.migrateFrom || !args.migrateTo) {
+    throw new Error('--migrate-from <oldUser> ET --migrate-to <newUser> requis');
+  }
+  const data = loadDataJson(args.dataJson);
+  const fromKey = 'instructions__' + args.migrateFrom;
+  const toKey = 'instructions__' + args.migrateTo;
+  const fromArr = Array.isArray(data[fromKey]) ? data[fromKey] : null;
+  if (!fromArr) throw new Error('Cle source introuvable : ' + fromKey);
+  const toArr = Array.isArray(data[toKey]) ? data[toKey] : [];
+  const existingNums = new Set(toArr.map((d) => d.numeroParquet));
+  const fresh = fromArr.filter((d) => !existingNums.has(d.numeroParquet));
+  const next = { ...data, [toKey]: [...toArr, ...fresh] };
+  delete next[fromKey];
+
+  const bak = backupDataJson(args.dataJson);
+  if (bak) console.log('Backup : ' + bak);
+  fs.writeFileSync(args.dataJson, JSON.stringify(next, null, 2), 'utf8');
+  console.log('OK ' + fresh.length + ' dossier(s) deplace(s) de ' + fromKey + ' vers ' + toKey);
+  if (fromArr.length - fresh.length > 0) {
+    console.log('   (' + (fromArr.length - fresh.length) + ' deja present(s) dans la destination, ignore(s))');
+  }
 }
 
 function toIsoDate(v) {
@@ -284,9 +338,30 @@ function backupDataJson(p) {
 
 function main() {
   const args = parseArgs(process.argv);
+  if (args.listKeys) return runListKeys(args);
+  if (args.migrateFrom || args.migrateTo) return runMigrate(args);
   const data = loadDataJson(args.dataJson);
   const config = data['instructionConfig'] || null;
   const resolveCabinetId = buildJiCabinetResolver(config);
+
+  // Affiche d'emblee les cles existantes pour aider au diagnostic
+  // (l'app utilise le username Windows reel, qui peut differer de
+  // ce qui est passe en --user).
+  const existingKeys = listInstructionKeys(data);
+  if (existingKeys.length > 0) {
+    console.log('Cles instructions__* deja dans data.json :');
+    for (const k of existingKeys) {
+      const marker = k.user === args.user ? ' <- cible de l\'import' : '';
+      console.log('  - ' + k.key + '  (' + k.count + ' dossier(s))' + marker);
+    }
+    if (!existingKeys.find((k) => k.user === args.user)) {
+      console.log('  ATTENTION : aucune cle pour --user=' + args.user);
+      console.log('  Si l\'app a deja tourne, votre vrai username est probablement');
+      console.log('  l\'une des cles ci-dessus. Coupez l\'import (Ctrl+C) et relancez');
+      console.log('  avec --user=<le_bon_username>.');
+    }
+    console.log('');
+  }
 
   const rows = readXlsxRows(args.xlsx, args.parquetier);
   console.log(rows.length + ' ligne(s) en cours pour ' + args.parquetier);
