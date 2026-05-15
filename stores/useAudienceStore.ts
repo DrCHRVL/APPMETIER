@@ -158,7 +158,10 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
     const success = await electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, newResultats);
     if (success) {
       set({ resultats: newResultats });
-      audienceSyncService.schedulePush();
+      // Passer la clé touchée → priorité locale dans le prochain merge,
+      // pour éviter qu'un push concurrent ou un skew d'horloge fasse
+      // ressusciter l'ancienne entrée serveur (typiquement l'audience pending).
+      audienceSyncService.schedulePush(key);
       return true;
     }
     throw new Error('Échec de la sauvegarde');
@@ -173,7 +176,9 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
     const success = await electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, newResultats);
     if (success) {
       set({ resultats: newResultats });
-      audienceSyncService.schedulePush();
+      // Suppression : la clé reste marquée autorité locale → le merge
+      // empêchera le serveur de la ressusciter dans la fenêtre.
+      audienceSyncService.schedulePush(key);
       return true;
     }
     throw new Error('Échec de la suppression');

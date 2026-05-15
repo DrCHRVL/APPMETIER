@@ -27,7 +27,7 @@ interface ExtendedCondamnationData extends CondamnationData {
 interface AudienceResultModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (resultat: ResultatAudience) => void;
+  onSave: (resultat: ResultatAudience) => void | Promise<void>;
   enqueteId: number;
   /** Contentieux propriétaire — propagé sur tout résultat sauvegardé. */
   contentieuxId: string;
@@ -195,7 +195,7 @@ export const AudienceResultModal = ({
     setCondamnations(newCondamnations);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     try {
       if (!selectedInfraction) {
         showToast('Veuillez sélectionner un type d\'infraction', 'error');
@@ -252,7 +252,7 @@ export const AudienceResultModal = ({
       };
       
       console.log('Calling onSave with resultat:', resultat);
-      onSave(resultat);
+      await onSave(resultat);
       showToast('Résultats d\'audience enregistrés', 'success');
       if (isOverboardPinned) {
         setShowOverboardAlert(true);

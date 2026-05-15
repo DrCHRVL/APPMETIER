@@ -16,6 +16,10 @@ import {
 
 const PUSH_DEBOUNCE_MS = 800;
 const PERIODIC_SYNC_MS = 30_000;
+// Fenêtre pendant laquelle une clé fraîchement éditée localement a priorité
+// absolue sur la version serveur lors du merge. Couvre largement les pires
+// cas de skew d'horloge (NTP désynchronisé, fuseau, retry réseau).
+const LOCAL_AUTHORITY_WINDOW_MS = 5 * 60_000;
 
 function isAudienceSyncAvailable(): boolean {
   return typeof window !== 'undefined'
@@ -24,14 +28,18 @@ function isAudienceSyncAvailable(): boolean {
 }
 
 // ─── Fusion par timestamp : le plus récent gagne par enqueteId ───────────────
+// `localAuthorityKeys` : clés que l'utilisateur vient de modifier localement.
+// Pour ces clés, le local gagne d'office — y compris une absence locale,
+// gérée par l'appelant après merge (suppression locale récente).
 function mergeByModifiedAt(
   local: Record<string, ResultatAudience>,
   server: Record<string, ResultatAudience>,
+  localAuthorityKeys: Set<string>,
 ): Record<string, ResultatAudience> {
   const result: Record<string, ResultatAudience> = { ...server };
   for (const [key, localEntry] of Object.entries(local)) {
     const serverEntry = result[key];
-    if (!serverEntry) {
+    if (!serverEntry || localAuthorityKeys.has(key)) {
       result[key] = localEntry;
       continue;
     }
@@ -92,6 +100,10 @@ export class AudienceSyncService {
   private initialized = false;
   private inFlight: Promise<void> | null = null;
   private dirty = false;
+  // Clés fraîchement éditées localement → expiration en ms-epoch.
+  // Tant qu'une clé est dans cette table, le merge force la vue locale
+  // (présence ou absence) sur la vue serveur.
+  private localAuthorityUntil = new Map<string, number>();
 
   static getInstance(): AudienceSyncService {
     if (!AudienceSyncService.instance) {
@@ -128,6 +140,8 @@ export class AudienceSyncService {
 
   private async performSync(): Promise<void> {
     try {
+      const localAuthorityKeys = this.getActiveLocalAuthorityKeys();
+
       const [serverFile, local, legacy] = await Promise.all([
         pullServer(),
         readLocal(),
@@ -139,8 +153,19 @@ export class AudienceSyncService {
 
       // Migration one-shot : si le serveur n'existait pas, on intègre aussi
       // l'historique du vieux app-data.json racine
-      const mergedFromLegacy = serverFile ? server : mergeByModifiedAt(legacy, server);
-      const merged = mergeByModifiedAt(local, mergedFromLegacy);
+      const mergedFromLegacy = serverFile
+        ? server
+        : mergeByModifiedAt(legacy, server, new Set());
+      const merged = mergeByModifiedAt(local, mergedFromLegacy, localAuthorityKeys);
+
+      // Suppressions locales récentes : si une clé fait autorité locale et n'est
+      // plus dans `local`, on l'efface du merged pour qu'elle ne ressuscite pas
+      // depuis le serveur.
+      for (const key of localAuthorityKeys) {
+        if (!(key in local) && key in merged) {
+          delete merged[key];
+        }
+      }
 
       // Écrire le local si différent
       const localChanged = !keysEqual(merged, local)
@@ -180,7 +205,17 @@ export class AudienceSyncService {
     }
   }
 
-  schedulePush(): void {
+  /**
+   * @param touchedKey clé composite (`${ctxId}__${enqueteId}`) qui vient
+   *   d'être créée, modifiée ou supprimée localement. Marquée "autorité locale"
+   *   pendant `LOCAL_AUTHORITY_WINDOW_MS` : sa version locale gagnera tout
+   *   merge avec le serveur dans cette fenêtre, même si le serveur prétend
+   *   avoir un `modifiedAt` plus récent (skew d'horloge, push concurrent).
+   */
+  schedulePush(touchedKey?: string): void {
+    if (touchedKey) {
+      this.localAuthorityUntil.set(touchedKey, Date.now() + LOCAL_AUTHORITY_WINDOW_MS);
+    }
     this.dirty = true;
     if (!isAudienceSyncAvailable()) return;
     if (this.pushTimer) clearTimeout(this.pushTimer);
@@ -188,6 +223,16 @@ export class AudienceSyncService {
       this.pushTimer = null;
       this.sync().catch(err => console.error('AudienceSync.schedulePush', err));
     }, PUSH_DEBOUNCE_MS);
+  }
+
+  private getActiveLocalAuthorityKeys(): Set<string> {
+    const now = Date.now();
+    const active = new Set<string>();
+    for (const [key, until] of this.localAuthorityUntil.entries()) {
+      if (until > now) active.add(key);
+      else this.localAuthorityUntil.delete(key);
+    }
+    return active;
   }
 
   async flushPending(): Promise<void> {
