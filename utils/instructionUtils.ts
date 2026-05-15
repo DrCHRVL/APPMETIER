@@ -61,6 +61,23 @@ export const getPeriodeDPCourante = (
 export const getDateFinDPCourante = (mex: MisEnExamen): string | undefined =>
   getPeriodeDPCourante(mex)?.dateFin;
 
+/**
+ * Date de fin courante de la DP, avec repli sur la durée initiale légale
+ * (`depuis + dureeInitialeMois`) lorsque aucune période n'a encore été
+ * formellement enregistrée. Utile pour l'affichage avant que le juge ait
+ * saisi le placement initial.
+ */
+export const getDateFinDPCouranteEstimee = (mex: MisEnExamen): string | undefined => {
+  const fromPeriode = getDateFinDPCourante(mex);
+  if (fromPeriode) return fromPeriode;
+  if (mex.mesureSurete.type !== 'detenu') return undefined;
+  const cas = getCasDPById(mex.mesureSurete.casDPId);
+  if (!cas) return undefined;
+  const depuis = mex.mesureSurete.depuis;
+  if (!depuis) return undefined;
+  return calculatePeriodeDPEnd(depuis, cas.dureeInitialeMois);
+};
+
 /** Nombre de jours restants avant la fin de DP (négatif si dépassé) */
 export const getJoursRestantsAvantFinDP = (mex: MisEnExamen): number | null => {
   const dateFin = getDateFinDPCourante(mex);
