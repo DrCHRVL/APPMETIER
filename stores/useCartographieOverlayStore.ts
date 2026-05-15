@@ -143,6 +143,9 @@ interface PersistedOverlay {
   deletedMecScoreBoostIds?: CartographieTombstoneEntry[];
   // tag → zone : id = tag (cf. mergeTagZones côté sync service).
   deletedTagZones?: CartographieTombstoneEntry[];
+  // Tombstones d'épinglage : trace les MEC désépinglés pour que le merge
+  // de sync ne ressuscite pas l'épingle depuis un poste qui l'a encore.
+  deletedPinnedMecIds?: CartographieTombstoneEntry[];
 }
 
 interface OverlayState extends PersistedOverlay {
@@ -204,6 +207,7 @@ const EMPTY: PersistedOverlay = {
   deletedClusterAnnotationIds: [],
   deletedMecScoreBoostIds: [],
   deletedTagZones: [],
+  deletedPinnedMecIds: [],
 };
 
 /**
@@ -278,6 +282,7 @@ async function _flush(force = false): Promise<void> {
       deletedClusterAnnotationIds: s.deletedClusterAnnotationIds,
       deletedMecScoreBoostIds: s.deletedMecScoreBoostIds,
       deletedTagZones: s.deletedTagZones,
+      deletedPinnedMecIds: s.deletedPinnedMecIds,
     };
     await ElectronBridge.setData(STORAGE_KEY, payload);
     _isDirty = false;
@@ -315,6 +320,7 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
         deletedClusterAnnotationIds: data.deletedClusterAnnotationIds || [],
         deletedMecScoreBoostIds: data.deletedMecScoreBoostIds || [],
         deletedTagZones: data.deletedTagZones || [],
+        deletedPinnedMecIds: data.deletedPinnedMecIds || [],
         isLoaded: true,
       });
     } catch (error) {
@@ -346,6 +352,7 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
       deletedClusterAnnotationIds: snapshot.deletedClusterAnnotationIds ?? get().deletedClusterAnnotationIds,
       deletedMecScoreBoostIds: snapshot.deletedMecScoreBoostIds ?? get().deletedMecScoreBoostIds,
       deletedTagZones: snapshot.deletedTagZones ?? get().deletedTagZones,
+      deletedPinnedMecIds: snapshot.deletedPinnedMecIds ?? get().deletedPinnedMecIds,
     });
   },
 
@@ -355,7 +362,11 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
     const id = normalizeMecName(mecId) || mecId;
     const current = get().pinnedMecIds;
     if (current.includes(id)) return;
-    set({ pinnedMecIds: [...current, id] });
+    // Re-pin après désépinglage : retirer le tombstone pour qu'il ne ré-évince
+    // pas l'épingle au prochain merge serveur.
+    const tombs = get().deletedPinnedMecIds || [];
+    const nextTombs = tombs.some(t => t.id === id) ? tombs.filter(t => t.id !== id) : tombs;
+    set({ pinnedMecIds: [...current, id], deletedPinnedMecIds: nextTombs });
     markDirty();
   },
 
@@ -363,7 +374,10 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
     const id = normalizeMecName(mecId) || mecId;
     const current = get().pinnedMecIds;
     if (!current.includes(id)) return;
-    set({ pinnedMecIds: current.filter(p => p !== id) });
+    set({
+      pinnedMecIds: current.filter(p => p !== id),
+      deletedPinnedMecIds: appendTombstone(get().deletedPinnedMecIds, id),
+    });
     markDirty();
   },
 
@@ -371,9 +385,14 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
     const id = normalizeMecName(mecId) || mecId;
     const { pinnedMecIds } = get();
     if (pinnedMecIds.includes(id)) {
-      set({ pinnedMecIds: pinnedMecIds.filter(p => p !== id) });
+      set({
+        pinnedMecIds: pinnedMecIds.filter(p => p !== id),
+        deletedPinnedMecIds: appendTombstone(get().deletedPinnedMecIds, id),
+      });
     } else {
-      set({ pinnedMecIds: [...pinnedMecIds, id] });
+      const tombs = get().deletedPinnedMecIds || [];
+      const nextTombs = tombs.some(t => t.id === id) ? tombs.filter(t => t.id !== id) : tombs;
+      set({ pinnedMecIds: [...pinnedMecIds, id], deletedPinnedMecIds: nextTombs });
     }
     markDirty();
   },
@@ -687,6 +706,7 @@ export function pruneCartographieTombstones(): void {
     deletedClusterAnnotationIds: pruneTombstones(s.deletedClusterAnnotationIds, now),
     deletedMecScoreBoostIds: pruneTombstones(s.deletedMecScoreBoostIds, now),
     deletedTagZones: pruneTombstones(s.deletedTagZones, now),
+    deletedPinnedMecIds: pruneTombstones(s.deletedPinnedMecIds, now),
   });
 }
 

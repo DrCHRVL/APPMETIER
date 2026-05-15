@@ -16,8 +16,10 @@
 //     30 jours). Au merge, l'entité est retirée des deux côtés. Évite
 //     qu'un poste désynchronisé ressuscite un élément qu'un collègue
 //     vient de supprimer.
-//   - pinnedMecIds : union simple (les épingles ne se "suppriment" pas
-//     globalement, c'est une préférence personnelle qui peut s'agréger).
+//   - pinnedMecIds : union des deux ensembles, moins les ids présents dans
+//     les tombstones `deletedPinnedMecIds`. Sans ce filtrage, désépingler en
+//     local était silencieusement annulé au prochain pull (le serveur avait
+//     encore l'épingle, l'union la ressuscitait).
 
 import { CartographieOverlaySyncFile, CartographieTombstone } from '@/types/globalSyncTypes';
 import {
@@ -265,6 +267,7 @@ export class CartographieOverlaySyncService {
           deletedClusterAnnotationIds: tombstonesToWire(merged.deletedClusterAnnotationIds),
           deletedMecScoreBoostIds: tombstonesToWire(merged.deletedMecScoreBoostIds),
           deletedTagZones: tombstonesToWire(merged.deletedTagZones),
+          deletedPinnedMecIds: tombstonesToWire(merged.deletedPinnedMecIds),
         };
         const ok = await this.pushServer(payload);
         if (ok) {
@@ -297,6 +300,7 @@ export class CartographieOverlaySyncService {
       deletedClusterAnnotationIds: s.deletedClusterAnnotationIds || [],
       deletedMecScoreBoostIds: s.deletedMecScoreBoostIds || [],
       deletedTagZones: s.deletedTagZones || [],
+      deletedPinnedMecIds: s.deletedPinnedMecIds || [],
     };
   }
 
@@ -316,6 +320,7 @@ export class CartographieOverlaySyncService {
       deletedClusterAnnotationIds: tombstonesFromWire(file.deletedClusterAnnotationIds),
       deletedMecScoreBoostIds: tombstonesFromWire(file.deletedMecScoreBoostIds),
       deletedTagZones: tombstonesFromWire(file.deletedTagZones),
+      deletedPinnedMecIds: tombstonesFromWire(file.deletedPinnedMecIds),
     };
   }
 
@@ -329,10 +334,17 @@ export class CartographieOverlaySyncService {
     const deletedCluster = mergeTombstones(local.deletedClusterAnnotationIds, serverFile?.deletedClusterAnnotationIds);
     const deletedBoost = mergeTombstones(local.deletedMecScoreBoostIds, serverFile?.deletedMecScoreBoostIds);
     const deletedTagZone = mergeTombstones(local.deletedTagZones, serverFile?.deletedTagZones);
+    const deletedPinned = mergeTombstones(local.deletedPinnedMecIds, serverFile?.deletedPinnedMecIds);
+
+    // Pinned : union des deux ensembles, moins les ids présents dans les
+    // tombstones. Le re-pinnage côté store retire l'id des tombstones, donc
+    // une nouvelle épingle survit au merge.
+    const pinnedTombSet = new Set(deletedPinned.map(t => t.id));
+    const pinnedUnion = Array.from(new Set([...(local.pinnedMecIds || []), ...(server.pinnedMecIds || [])]));
+    const mergedPinned = pinnedUnion.filter(id => !pinnedTombSet.has(id));
 
     return {
-      // Pinned : union simple des deux ensembles, déduplication par id.
-      pinnedMecIds: Array.from(new Set([...(local.pinnedMecIds || []), ...(server.pinnedMecIds || [])])),
+      pinnedMecIds: mergedPinned,
       mecsExNihilo: mergeWithTombstones(local.mecsExNihilo, server.mecsExNihilo, deletedMec),
       dossiersExNihilo: mergeWithTombstones(local.dossiersExNihilo, server.dossiersExNihilo, deletedDossier),
       liensRenseignement: mergeWithTombstones(local.liensRenseignement, server.liensRenseignement, deletedLien),
@@ -354,6 +366,7 @@ export class CartographieOverlaySyncService {
       deletedClusterAnnotationIds: deletedCluster,
       deletedMecScoreBoostIds: deletedBoost,
       deletedTagZones: deletedTagZone,
+      deletedPinnedMecIds: deletedPinned,
     };
   }
 
@@ -393,6 +406,7 @@ interface LocalSnapshot {
   deletedClusterAnnotationIds: CartographieTombstoneEntry[];
   deletedMecScoreBoostIds: CartographieTombstoneEntry[];
   deletedTagZones: CartographieTombstoneEntry[];
+  deletedPinnedMecIds: CartographieTombstoneEntry[];
 }
 
 type MergedSnapshot = Omit<LocalSnapshot, 'mecScoreBoosts'> & {
@@ -414,6 +428,7 @@ function emptySnapshot(): LocalSnapshot {
     deletedClusterAnnotationIds: [],
     deletedMecScoreBoostIds: [],
     deletedTagZones: [],
+    deletedPinnedMecIds: [],
   };
 }
 
@@ -456,6 +471,7 @@ function canonicalSnapshot(s: LocalSnapshot | MergedSnapshot): string {
     deletedClusterAnnotationIds: sortBy(s.deletedClusterAnnotationIds, e => e.id),
     deletedMecScoreBoostIds: sortBy(s.deletedMecScoreBoostIds, e => e.id),
     deletedTagZones: sortBy(s.deletedTagZones, e => e.id),
+    deletedPinnedMecIds: sortBy(s.deletedPinnedMecIds, e => e.id),
   };
   return JSON.stringify(norm);
 }
