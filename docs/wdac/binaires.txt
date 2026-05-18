@@ -1,0 +1,75 @@
+APPMETIER — Liste exhaustive des binaires à autoriser dans la politique WDAC
+=============================================================================
+
+Format : <SHA256>  <taille en octets>  <chemin relatif d'installation>
+
+Tous les hashes sont calculés sur les fichiers tels qu'extraits des archives
+officielles. Les chemins ci-dessous correspondent au layout produit par
+installer.bat lorsqu'il est lancé depuis le dossier du projet ; <PARENT> est
+le dossier parent du projet (typiquement le dossier qui contient le launcher).
+
+
+### 1. Node.js v20.11.1 win-x64 ###
+### Source : https://nodejs.org/dist/v20.11.1/node-v20.11.1-win-x64.zip
+### Hash ZIP : bc032628d77d206ffa7f133518a6225a9c5d6d9210ead30d67e294ff37044bda
+### Signature : OpenJS Foundation (DigiCert Trusted G4 Code Signing RSA4096 SHA384 2021 CA1)
+
+bc585910690318aaebe3c57669cb83ca9d1e5791efd63195e238f54686e6c2ec    70027928  <PARENT>\nodejs\node.exe
+
+
+### 2. Electron v30.5.1 win32-x64 ###
+### Source : https://github.com/electron/electron/releases/download/v30.5.1/electron-v30.5.1-win32-x64.zip
+### Hash ZIP : 443119bb559fc2ca297a57cf79f2bce532e853ada070c1e71460c9657c13b4b3
+### Signature : aucune (sauf d3dcompiler_47.dll, signe Microsoft)
+
+bc1afa588af303fce744a2965036765136b26bc5e9dacab6a35188973463ea7f   177038336  <PARENT>\electron\electron.exe
+af7b99be1b8770c0e4d18e43b04e81d11bdeb667fa6b07ade7a88f4c5676bf9a     4916728  <PARENT>\electron\d3dcompiler_47.dll
+18b1f088c7a1261c5fedc46eec98f34e79655128110a6f6c0b9bf62be22dbc95     2692608  <PARENT>\electron\ffmpeg.dll
+76efadca4ef6d2abe6ab3701b4071e04470eebfeed8d8d22c7252683bcbb37b1      480768  <PARENT>\electron\libEGL.dll
+150a02e43426a0886f023e88cd88454fb0e78696ea3881347a6256920c7a02ba     7960064  <PARENT>\electron\libGLESv2.dll
+6ff65b7a5faf726cf747eca6d6504e885a70664e37dc5e38e0e0cc68bed3bf6d     5372928  <PARENT>\electron\vk_swiftshader.dll
+715dca5af441dc220a61fb0f8e66600dc4f9f63ecc106fa43bc683098e00fff8      957440  <PARENT>\electron\vulkan-1.dll
+
+
+### 3. @next/swc-win32-x64-msvc 13.5.4 ###
+### Source : https://registry.npmjs.org/@next/swc-win32-x64-msvc/-/swc-win32-x64-msvc-13.5.4.tgz
+### Hash TGZ : 75aad2771482ad4f204565f1596496ffb4bd7c3288e7b216cf0a0b3aad9cbb37
+### Signature : aucune
+### Note : binaire natif Rust installe automatiquement par "npm install" lors
+###        du premier lancement, puis charge par node.exe pendant "next build"
+###        et au demarrage du serveur Next.js.
+
+f3690bcdc24d28a8f89acb5726b99ce523e09bfa07312ac7425a0a56681db8ba   127844864  <PROJET>\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node
+
+
+### Verification independante ###
+
+Sur un poste de reference (admin local, hors WDAC), apres un installer.bat
+suivi d'un premier lancement complet, les hashes peuvent etre recalcules :
+
+  Get-ChildItem -Recurse -Include *.exe,*.dll,*.node "<PARENT>" |
+    Get-FileHash -Algorithm SHA256 |
+    Select-Object Hash,Path
+
+Ces 9 hashes doivent apparaitre exactement parmi le resultat. Tout ecart
+indique soit un changement de version (a documenter), soit une alteration
+(a investiguer).
+
+
+### Editeur Authenticode (pour une regle de type Publisher) ###
+
+Si la DSI prefere une regle par editeur pour node.exe plutot que par hash :
+
+  Subject : CN=OpenJS Foundation,
+            O=OpenJS Foundation,
+            L=San Francisco,
+            S=California,
+            C=US,
+            SERIALNUMBER=5579593,
+            businessCategory=Private Organization,
+            jurisdictionST=Delaware,
+            jurisdictionC=US
+  Issuer  : CN=DigiCert Trusted G4 Code Signing RSA4096 SHA384 2021 CA1,
+            O=DigiCert\, Inc.,
+            C=US
+  Serial  : 024B03048F7651ACD798E7F0A12097C0
