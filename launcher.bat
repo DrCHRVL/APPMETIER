@@ -47,6 +47,13 @@ rem -- Ajouter nodejs au PATH (evite les guillemets imbriques + chemins avec par
 set "PATH=!PORTABLE_ROOT!\nodejs;%PATH%"
 set ELECTRON_SKIP_BINARY_DOWNLOAD=1
 
+rem -- Sanity check : node.exe doit reellement s'executer.
+rem    Sur certaines machines (AV, install partielle, mauvaise arch, fichiers
+rem    laisses par une ancienne version), node.exe existe mais Windows refuse
+rem    de le lancer ("Le systeme ne peut executer le programme specifie").
+"!NODE_EXE!" --version >nul 2>&1
+if !ERRORLEVEL! neq 0 goto :ERR_NODE_BROKEN
+
 cd /d "!PROJECT_DIR!"
 
 if not exist "!FLAG_FILE!" goto :RUN
@@ -65,24 +72,24 @@ echo Arret du serveur Next.js precedent s'il tourne...
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 
 rem -- npm install requis ? (lecture du flag via helper) --
-node scripts\read-update-flag.js "!FLAG_FILE!"
+"!NODE_EXE!" scripts\read-update-flag.js "!FLAG_FILE!"
 if !ERRORLEVEL! neq 0 goto :STEP_BUILD
 
 echo [1/3] Installation des dependances npm...
 echo       Cela peut prendre quelques minutes.
-call npm.cmd config set registry https://registry.npmjs.org/ >nul 2>&1
-call npm.cmd config set strict-ssl false >nul 2>&1
-node scripts\check-registry.js >nul 2>&1
+call "!NPM_CMD!" config set registry https://registry.npmjs.org/ >nul 2>&1
+call "!NPM_CMD!" config set strict-ssl false >nul 2>&1
+"!NODE_EXE!" scripts\check-registry.js >nul 2>&1
 if !ERRORLEVEL! neq 0 goto :USE_PROXY
-call npm.cmd config delete proxy >nul 2>&1
-call npm.cmd config delete https-proxy >nul 2>&1
+call "!NPM_CMD!" config delete proxy >nul 2>&1
+call "!NPM_CMD!" config delete https-proxy >nul 2>&1
 goto :DO_INSTALL
 :USE_PROXY
 echo       Proxy RIE detecte, configuration...
-call npm.cmd config set proxy %RIE_PROXY% >nul 2>&1
-call npm.cmd config set https-proxy %RIE_PROXY% >nul 2>&1
+call "!NPM_CMD!" config set proxy %RIE_PROXY% >nul 2>&1
+call "!NPM_CMD!" config set https-proxy %RIE_PROXY% >nul 2>&1
 :DO_INSTALL
-call npm.cmd install --no-audit --no-fund
+call "!NPM_CMD!" install --no-audit --no-fund
 if !ERRORLEVEL! neq 0 goto :ERR_NPM
 echo       OK
 echo.
@@ -90,14 +97,14 @@ echo.
 :STEP_BUILD
 echo [2/3] Compilation Next.js (next build)...
 echo       Cela peut prendre 1 a 3 minutes.
-node scripts\build-with-timeout.js 600
+"!NODE_EXE!" scripts\build-with-timeout.js 600
 if !ERRORLEVEL! neq 0 goto :ERR_BUILD
 if not exist ".next\standalone\server.js" goto :ERR_BUILD_MISSING
 echo       OK
 echo.
 
 echo [3/3] Signature d'integrite...
-node scripts\generate-integrity.js "." >nul 2>&1
+"!NODE_EXE!" scripts\generate-integrity.js "." >nul 2>&1
 echo       OK
 echo.
 
@@ -119,7 +126,7 @@ echo Demarrage du serveur Next.js...
 start "Next.js" cmd /c "set PORT=3000&& set HOSTNAME=0.0.0.0&& node .next\standalone\server.js 2>.next\server-error.log"
 
 echo Attente du serveur (port 3000)...
-node scripts\wait-for-server.js 3000 60
+"!NODE_EXE!" scripts\wait-for-server.js 3000 60
 if !ERRORLEVEL! neq 0 goto :ERR_TIMEOUT
 
 echo Lancement de l'application...
@@ -146,6 +153,22 @@ goto :END
 :ERR_NO_ELECTRON
 echo ERREUR: "!ELECTRON_EXE!" introuvable.
 echo Lancez d'abord installer.bat.
+set EXITCODE=1
+goto :END
+
+:ERR_NODE_BROKEN
+echo ERREUR: "!NODE_EXE!" existe mais ne peut pas etre execute par Windows.
+echo Message systeme : "Le systeme ne peut executer le programme specifie".
+echo.
+echo Causes habituelles :
+echo   - Un ancien dossier "nodejs" residuel (mauvaise version/architecture).
+echo   - L'antivirus bloque node.exe.
+echo   - L'installation precedente a ete interrompue.
+echo.
+echo Solution :
+echo   1. Fermez cette fenetre.
+echo   2. Supprimez le dossier : !PORTABLE_ROOT!\nodejs
+echo   3. Relancez installer.bat depuis le dossier du projet.
 set EXITCODE=1
 goto :END
 

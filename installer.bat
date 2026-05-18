@@ -59,8 +59,13 @@ rem [1/3] Node.js portable
 rem ------------------------------------------------------------
 echo [1/3] Node.js %NODE_VERSION%
 if exist "%NODE_DIR%\node.exe" (
-    echo       Deja present : OK
-    goto :AFTER_NODE
+    "%NODE_DIR%\node.exe" --version >nul 2>&1
+    if !ERRORLEVEL! equ 0 (
+        echo       Deja present : OK
+        goto :AFTER_NODE
+    )
+    echo       node.exe present mais non executable - reinstallation forcee.
+    rmdir /S /Q "%NODE_DIR%" 2>nul
 )
 echo       Telechargement...
 call :DOWNLOAD "%NODE_URL%" "%WORK_DIR%\%NODE_ZIP%"
@@ -89,8 +94,13 @@ rem [2/3] Electron portable
 rem ------------------------------------------------------------
 echo [2/3] Electron %ELECTRON_VERSION%
 if exist "%ELECTRON_DIR%\electron.exe" (
-    echo       Deja present : OK
-    goto :AFTER_ELECTRON
+    "%ELECTRON_DIR%\electron.exe" --version >nul 2>&1
+    if !ERRORLEVEL! equ 0 (
+        echo       Deja present : OK
+        goto :AFTER_ELECTRON
+    )
+    echo       electron.exe present mais non executable - reinstallation forcee.
+    rmdir /S /Q "%ELECTRON_DIR%" 2>nul
 )
 echo       Telechargement...
 call :DOWNLOAD "%ELECTRON_URL%" "%WORK_DIR%\%ELECTRON_ZIP%"
