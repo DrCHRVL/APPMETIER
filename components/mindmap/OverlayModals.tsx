@@ -531,9 +531,9 @@ export const AddLienModal: React.FC<AddLienModalProps> = ({
           <DialogTitle>{initial ? 'Modifier le lien renseignement' : 'Ajouter un lien renseignement'}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-end">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 items-end">
             <NodePicker label="Source *" graph={graph} value={sourceId} onChange={setSourceId} />
-            <ArrowRight className="h-4 w-4 text-slate-400 mb-3" />
+            <ArrowRight className="h-4 w-4 text-slate-400 mb-2.5" />
             <NodePicker label="Cible *" graph={graph} value={targetId} onChange={setTargetId} excludeId={sourceId} />
           </div>
           <div>
@@ -605,13 +605,13 @@ const NodePicker: React.FC<{
     <div>
       <Label>{label}</Label>
       {selected && !open ? (
-        <div className="flex items-center gap-2 border border-slate-200 rounded-md px-3 py-2 bg-slate-50">
-          <span className={`text-[10px] uppercase font-semibold rounded px-1.5 py-0.5 ${
+        <div className="flex items-center gap-2 border border-slate-200 rounded-md px-3 h-9 bg-slate-50 min-w-0">
+          <span className={`shrink-0 text-[10px] uppercase font-semibold rounded px-1.5 py-0.5 ${
             selected.type === 'mec' ? 'bg-slate-200 text-slate-700' : 'bg-blue-100 text-blue-700'
           }`}>
             {selected.type === 'mec' ? 'MEC' : 'Dossier'}
           </span>
-          <span className="text-sm flex-1 truncate">
+          <span className="text-sm flex-1 min-w-0 truncate">
             {selected.type === 'mec' ? selected.displayName : selected.numero}
           </span>
           <button
