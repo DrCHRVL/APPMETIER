@@ -86,6 +86,18 @@ button[class*="ghost"] svg {
   pointer-events: none;
 }
 
+/* Forcer la sélectabilité du texte dans les comptes-rendus.
+   Les CR historiques collés depuis Word/Outlook contiennent parfois des
+   styles inline `user-select: none` (ou variantes -webkit/-moz) qui empêchent
+   le copier-coller du texte affiché. On neutralise ces styles à l'affichage,
+   sans toucher au HTML stocké. */
+.cr-description,
+.cr-description * {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  user-select: text !important;
+}
+
 /* Alert badge styles */
 .alert-badge {
   @apply absolute -top-1 -right-1 h-4 w-4 bg-red-600 text-white rounded-full flex items-center justify-center text-xs font-bold;
