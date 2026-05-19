@@ -12,6 +12,11 @@ export const ExpandableCR = ({ cr }: ExpandableCRProps) => {
 
   const toggleExpand = (e: React.MouseEvent) => {
     e.stopPropagation();
+    // Si l'utilisateur vient de sélectionner du texte (drag-select, double-clic…),
+    // ne pas (dé)plier : sinon le re-render efface la sélection et empêche le
+    // copier-coller du contenu du compte-rendu.
+    const sel = typeof window !== 'undefined' ? window.getSelection() : null;
+    if (sel && sel.toString().length > 0) return;
     setIsExpanded(!isExpanded);
   };
 
