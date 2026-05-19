@@ -46,7 +46,7 @@ export const ExpandableCR = ({ cr }: ExpandableCRProps) => {
         </button>
       </div>
       <div
-        className={`text-gray-600 mt-1 text-[10px] break-words ${isExpanded ? '' : 'line-clamp-5'}`}
+        className={`cr-description text-gray-600 mt-1 text-[10px] break-words ${isExpanded ? '' : 'line-clamp-5'}`}
         style={{ wordBreak: 'break-word', hyphens: 'auto' }}
         dangerouslySetInnerHTML={{ __html: formattedHtml }}
       />

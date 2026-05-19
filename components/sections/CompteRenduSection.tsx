@@ -181,7 +181,7 @@ const CompteRenduItem = memo(({ cr, isEditing, currentUser, contentieuxId, isIns
           </div>
 
           <div
-            className="text-gray-600 mt-1 text-sm break-words"
+            className="cr-description text-gray-600 mt-1 text-sm break-words"
             style={{ wordBreak: 'break-word', hyphens: 'auto' }}
             dangerouslySetInnerHTML={{ __html: descriptionHtml }}
           />
