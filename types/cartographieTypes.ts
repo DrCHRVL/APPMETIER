@@ -49,6 +49,12 @@ export interface CartographieModuleConfig {
   weights: CartographieScoreWeights;
   /** Pondérations par tag d'infraction (clé = Tag.id). */
   tagInfractionWeights: CartographieInfractionWeights;
+  /** Ancrage zonal par service d'enquête (puits de gravité). Quand activé,
+   *  les galaxies partageant un même service dominant sont doucement
+   *  attirées vers un centroïde commun (recalculé en continu) lors d'un
+   *  recompactage. Purement additif : n'altère ni les liens, ni le layout
+   *  intra-galactique. Prend effet au prochain recompactage de la carte. */
+  groupByService: boolean;
   /** Version du schéma — incrémenté en cas de migration. */
   version: number;
   updatedAt: string;
@@ -68,6 +74,7 @@ export const DEFAULT_CARTO_WEIGHTS: CartographieScoreWeights = {
 export const DEFAULT_CARTO_CONFIG: CartographieModuleConfig = {
   weights: { ...DEFAULT_CARTO_WEIGHTS },
   tagInfractionWeights: {},
+  groupByService: false,
   version: 1,
   updatedAt: new Date(0).toISOString(),
 };

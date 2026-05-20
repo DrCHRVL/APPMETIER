@@ -78,6 +78,12 @@ const GALAXY_GRAVITY_STRENGTH = 0.18;
 // Rappel central très doux pour les nœuds dans une galaxie naine (sans
 // MEC partagé ni voisin). Sans ce filet, ils pourraient dériver.
 const ORPHAN_RECALL_STRENGTH = 0.01;
+// Ancrage zonal par service (option). Intensité de l'attraction des galaxies
+// d'un même service dominant vers leur centroïde commun, au niveau macro.
+// Faible exprès : s'ajoute aux liens (strength 0.6 intra, 0.18 rens macro)
+// sans les écraser → les services se regroupent mais les ponts inter-services
+// restent visibles. Appliquée uniquement hors mode remous.
+const SERVICE_GRAVITY_STRENGTH = 0.06;
 
 // Cache localStorage : positions de nœuds + signature de galaxie. v7 marque
 // (v6) le halo de masse, puis (v7) le rayon orbital tenant compte de la
@@ -270,11 +276,21 @@ function seedNewNode(
  * `refreshKey` : incrémenter pour forcer un warm full ; appeler aussi
  *                `clearLayoutCache()` avant pour un véritable "recompacter".
  */
+export interface ForceLayoutOptions {
+  /** Ancrage zonal : regroupe les galaxies par service d'enquête dominant.
+   *  N'a d'effet qu'au (re)calcul macro complet (cold/warmFull), pas sur
+   *  les ajouts en remous → un dossier ajouté vient s'organiser sans
+   *  perturber la disposition globale. */
+  groupByService?: boolean;
+}
+
 export function useForceLayout(
   nodes: GraphNode[],
   edges: GraphEdge[],
   refreshKey: number = 0,
+  options: ForceLayoutOptions = {},
 ): Map<string, PositionedNode> {
+  const groupByService = options.groupByService ?? false;
   return useMemo(() => {
     if (nodes.length === 0) return new Map();
 
@@ -366,7 +382,50 @@ export function useForceLayout(
       if (aIdx === bIdx) continue; // intra-galactique : la gravité macro n'a pas de sens
       rensGalaxyPairs.push({ aIdx, bIdx });
     }
-    const galaxyCenters = layoutGalaxyCenters(galaxies, galaxyCenterCache, rensGalaxyPairs);
+    // Ancrage zonal par service (option) : on calcule le service *dominant*
+    // de chaque galaxie (majorité parmi les services de ses dossiers ; un
+    // dossier multi-services compte pour chacun) et on le passe au layout
+    // macro comme puits de gravité. Désactivé en remous pour ne pas faire
+    // bouger les galaxies existantes lors d'un simple ajout.
+    let serviceGravity: { serviceByGalaxyIdx: Map<number, string>; strength: number } | undefined;
+    if (groupByService && mode !== 'remous') {
+      const serviceByGalaxyIdx = new Map<number, string>();
+      const dossierServices = new Map<string, string[]>();
+      for (const n of nodes) {
+        if (n.type === 'dossier' && n.services && n.services.length > 0) {
+          dossierServices.set(n.id, n.services);
+        }
+      }
+      for (const g of galaxies) {
+        const counts = new Map<string, number>();
+        for (const did of g.dossierIds) {
+          const svcs = dossierServices.get(did);
+          if (!svcs) continue;
+          for (const svc of svcs) {
+            const key = svc.trim();
+            if (!key) continue;
+            counts.set(key, (counts.get(key) ?? 0) + 1);
+          }
+        }
+        if (counts.size === 0) continue;
+        // Service dominant = max count ; départage déterministe par ordre
+        // lexicographique pour stabilité inter-rendus.
+        let best = '';
+        let bestCount = -1;
+        for (const [svc, c] of counts) {
+          if (c > bestCount || (c === bestCount && svc < best)) {
+            best = svc;
+            bestCount = c;
+          }
+        }
+        if (best) serviceByGalaxyIdx.set(g.index, best);
+      }
+      if (serviceByGalaxyIdx.size > 0) {
+        serviceGravity = { serviceByGalaxyIdx, strength: SERVICE_GRAVITY_STRENGTH };
+      }
+    }
+
+    const galaxyCenters = layoutGalaxyCenters(galaxies, galaxyCenterCache, rensGalaxyPairs, serviceGravity);
 
     // ─────────────────────────────────────────────────────────────
     // 5. Set libéré (mode remous uniquement)
@@ -634,7 +693,7 @@ export function useForceLayout(
     persistGalaxyCenterCache();
     persistOrbitalAngleCache();
     return positions;
-  }, [nodes, edges, refreshKey]);
+  }, [nodes, edges, refreshKey, groupByService]);
 }
 
 export function getNodeRadius(node: GraphNode): number {

@@ -57,6 +57,9 @@ interface MindmapCanvasProps {
   /** IDs canoniques des MEC marqués manuellement comme "à surveiller" :
    *  rendus avec un anneau rouge vif pour les repérer dans la carte. */
   pinnedIds?: string[];
+  /** Ancrage zonal : regroupe les galaxies par service d'enquête dominant
+   *  (puits de gravité doux au niveau macro). Effet au prochain recompactage. */
+  groupByService?: boolean;
   onNodeClick?: (node: GraphNode) => void;
   onNodeDoubleClick?: (node: GraphNode) => void;
 }
@@ -405,11 +408,12 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   egoNodeId,
   egoDepth = 2,
   pinnedIds,
+  groupByService = false,
   onNodeClick,
   onNodeDoubleClick,
 }) => {
   const pinnedSet = useMemo(() => new Set(pinnedIds || []), [pinnedIds]);
-  const positions = useForceLayout(nodes, edges, refreshKey);
+  const positions = useForceLayout(nodes, edges, refreshKey, { groupByService });
   const { setCenter, fitView } = useReactFlow();
 
   useEffect(() => {

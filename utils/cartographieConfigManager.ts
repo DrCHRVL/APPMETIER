@@ -30,6 +30,7 @@ function normalize(stored: Partial<CartographieModuleConfig> | null): Cartograph
   return {
     weights,
     tagInfractionWeights: { ...(stored?.tagInfractionWeights || {}) },
+    groupByService: stored?.groupByService ?? DEFAULT_CARTO_CONFIG.groupByService,
     version: stored?.version ?? DEFAULT_CARTO_CONFIG.version,
     updatedAt: stored?.updatedAt || new Date().toISOString(),
     updatedBy: stored?.updatedBy,
@@ -89,6 +90,12 @@ class CartographieConfigManagerService {
       next[tagId] = weight;
     }
     return this.save({ ...current, tagInfractionWeights: next });
+  }
+
+  /** Active/désactive l'ancrage zonal par service d'enquête. */
+  async setGroupByService(enabled: boolean): Promise<boolean> {
+    const current = await this.load();
+    return this.save({ ...current, groupByService: enabled });
   }
 
   /** Reset complet aux valeurs par défaut. */

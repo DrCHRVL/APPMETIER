@@ -98,6 +98,10 @@ export interface DossierNode {
   isExNihilo?: boolean;
   /** Notes manuelles */
   notes?: string;
+  /** Services d'enquête de l'enquête source. Sert d'ancrage zonal optionnel
+   *  dans la cartographie (regroupement des galaxies par service dominant).
+   *  Vide pour les dossiers ex nihilo. */
+  services?: string[];
 }
 
 export type GraphNode = MecNode | DossierNode;
@@ -312,6 +316,7 @@ export function buildMindmapGraph(
       statut: enquete.statut,
       dateCreation: enquete.dateCreation,
       nbMec: enquete.misEnCause.length,
+      services: enquete.services,
     };
     dossierById.set(dossierId, dossierNode);
 

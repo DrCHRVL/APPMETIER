@@ -65,7 +65,7 @@ const WEIGHT_FIELDS: WeightFieldDef[] = [
 ];
 
 export const AdminCartographyPanel: React.FC = () => {
-  const { config, isLoading, updateWeights, setTagInfractionWeight, reset } = useCartographieConfig();
+  const { config, isLoading, updateWeights, setTagInfractionWeight, setGroupByService, reset } = useCartographieConfig();
   const { getTagsByCategory, isLoading: tagsLoading } = useTags();
   const { showToast } = useToast();
 
@@ -147,6 +147,27 @@ export const AdminCartographyPanel: React.FC = () => {
             «&nbsp;récent&nbsp;» si au moins un dossier date des 12 derniers mois.
           </p>
         </div>
+      </section>
+
+      {/* Ancrage zonal par service */}
+      <section className="bg-white border border-slate-200 rounded-lg p-4">
+        <h3 className="text-sm font-semibold text-gray-800 mb-1">Disposition de la carte</h3>
+        <label className="flex items-start gap-3 mt-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={config.groupByService}
+            onChange={(e) => setGroupByService(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300"
+          />
+          <span>
+            <span className="text-sm font-medium text-gray-800">Regrouper par service</span>
+            <span className="block text-xs text-gray-500 mt-0.5">
+              Rapproche sur la carte les réseaux relevant d&apos;un même service d&apos;enquête,
+              sans casser les liens existants. Effet doux et automatique (aucun emplacement
+              figé). Prend effet au prochain «&nbsp;Recompacter la carte&nbsp;».
+            </span>
+          </span>
+        </label>
       </section>
 
       {/* Pondérations par tag d'infraction */}
