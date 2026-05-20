@@ -42,11 +42,72 @@ export async function isMigrationDone(): Promise<boolean> {
   return flag === true;
 }
 
+// Suffixes (clés legacy → clés ctx_) contenant des tableaux d'éléments métier
+// récupérables. Si la clé ctx_ est vide alors que la clé legacy contient des
+// données, c'est le symptôme d'une migration partielle/perdue : on récupère.
+const RECOVERABLE: Array<{ legacyKey: string; suffix: string }> = [
+  { legacyKey: APP_CONFIG.STORAGE_KEYS.ENQUETES,     suffix: 'enquetes' },
+  { legacyKey: APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS, suffix: 'instructions' },
+];
+
+/**
+ * Récupération auto-réparatrice (s'exécute à CHAQUE démarrage, indépendamment
+ * du drapeau de migration).
+ *
+ * Symptôme corrigé : la vue d'un contentieux est vide alors que les données
+ * existent encore sous l'ANCIENNE clé non préfixée (`enquetes`, `instructions`)
+ * — typiquement quand le drapeau `migration_multi_contentieux_done` a été posé
+ * avant que la copie vers `ctx_<contentieux>_*` ait pu aboutir, ou sur un
+ * portable fraîchement réextrait.
+ *
+ * Règle stricte anti-perte / anti-résurrection :
+ *   on ne copie QUE si `ctx_<defaut>_<suffix>` est vide/absent ET que la clé
+ *   legacy contient un tableau non vide. Dès que la clé ctx_ contient des
+ *   données, on n'y touche plus jamais — une suppression ultérieure ne peut
+ *   donc pas être ré-annulée par cette récupération.
+ *
+ * Retourne le nombre de clés effectivement récupérées.
+ */
+export async function recoverDefaultContentieuxFromLegacy(): Promise<number> {
+  let recovered = 0;
+
+  for (const { legacyKey, suffix } of RECOVERABLE) {
+    try {
+      const ctxKey = newKey(DEFAULT_CONTENTIEUX, suffix);
+      const ctxData = await ElectronBridge.getData<unknown>(ctxKey, null);
+      const ctxIsEmpty = ctxData === null || (Array.isArray(ctxData) && ctxData.length === 0);
+      if (!ctxIsEmpty) continue; // la clé ctx_ contient déjà des données → ne pas toucher
+
+      const legacyData = await ElectronBridge.getData<unknown>(legacyKey, null);
+      if (!Array.isArray(legacyData) || legacyData.length === 0) continue; // rien à récupérer
+
+      await ElectronBridge.setData(ctxKey, legacyData);
+      recovered++;
+      console.warn(
+        `🛟 Récupération : ${legacyData.length} élément(s) restauré(s) ${legacyKey} → ${ctxKey}`
+      );
+    } catch (error) {
+      console.error(`❌ Récupération : erreur pour ${legacyKey}:`, error);
+    }
+  }
+
+  return recovered;
+}
+
 /**
  * Effectue la migration des données vers la structure multi-contentieux.
  * Retourne true si la migration a été effectuée, false si déjà faite.
  */
 export async function migrateToMultiContentieux(): Promise<boolean> {
+  // Récupération auto-réparatrice — TOUJOURS, même si la migration one-shot est
+  // déjà marquée comme faite. Rebranche les données legacy restées orphelines
+  // sur les clés ctx_ quand celles-ci sont vides (cause d'une vue vide).
+  try {
+    await recoverDefaultContentieuxFromLegacy();
+  } catch (recErr) {
+    console.error('Migration : récupération legacy échouée (non bloquante)', recErr);
+  }
+
   // Vérifier si déjà migrée
   if (await isMigrationDone()) {
     console.log('✅ Migration multi-contentieux : déjà effectuée');
