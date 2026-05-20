@@ -115,6 +115,7 @@ import { useDataSync } from '@/hooks/useDataSync';
 import { DataSyncConflictModal } from '@/components/modals/DataSyncConflictModal';
 import { ConflictAction } from '@/types/dataSyncTypes';
 import { DataSyncManager } from '@/utils/dataSync/DataSyncManager';
+import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
 import { UpdateChangelogModal } from '@/components/modals/UpdateChangelogModal';
 
 // 🆕 Multi-contentieux
@@ -648,15 +649,25 @@ function AppContent() {
   const handleManualSync = async () => {
     try {
       showToast('Synchronisation en cours...', 'info');
+
+      // Ancienne synchro racine (app-data.json) : pilote aussi le modal de conflits
       const result = await triggerSync();
-      
-      if (result.action === 'conflicts_detected') {
+
+      // Nouvelle synchro multi-contentieux : met à jour <contentieux>/app-data.json
+      const multiResults = await MultiSyncManager.getInstance().triggerSyncAll();
+      const multiList = Array.from(multiResults.values());
+      const multiHasConflicts = multiList.some(r => r.action === 'conflicts_detected');
+      const multiError = multiList.find(r => !r.success && r.action === 'error');
+
+      if (result.action === 'conflicts_detected' || multiHasConflicts) {
         showToast('Conflits détectés - veuillez choisir une résolution', 'error');
-      } else if (result.success) {
+      } else if (!result.success) {
+        showToast(`Erreur: ${result.error || 'Erreur inconnue'}`, 'error');
+      } else if (multiError) {
+        showToast(`Erreur: ${multiError.error || 'Erreur inconnue'}`, 'error');
+      } else {
         showToast('Synchronisation réussie', 'success');
         window.location.reload();
-      } else {
-        showToast(`Erreur: ${result.error || 'Erreur inconnue'}`, 'error');
       }
     } catch (error) {
       console.error('Erreur sync:', error);
