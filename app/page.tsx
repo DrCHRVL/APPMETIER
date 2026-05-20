@@ -113,8 +113,10 @@ import { PendingActsJLD } from '@/components/PendingActsJLD';
 // 🆕 Imports pour la synchronisation des données
 import { useDataSync } from '@/hooks/useDataSync';
 import { DataSyncConflictModal } from '@/components/modals/DataSyncConflictModal';
-import { ConflictAction } from '@/types/dataSyncTypes';
+import { ConflictAction, SyncConflict, SyncData } from '@/types/dataSyncTypes';
+import { useMultiSyncStatus } from '@/hooks/useMultiSyncStatus';
 import { DataSyncManager } from '@/utils/dataSync/DataSyncManager';
+import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
 import { UpdateChangelogModal } from '@/components/modals/UpdateChangelogModal';
 
 // 🆕 Multi-contentieux
@@ -261,29 +263,29 @@ function AppContent() {
     setShowWeeklyPopup(true);
   }, [buildWeeklyBuckets]);
 
-  // 🆕 Hook de synchronisation des données
-  const {
-    syncStatus,
-    isSyncing,
-    triggerSync,
-    resolveConflicts,
-    repairServer,
-    restoreFromServerBackup,
-    listServerBackups,
-    lastSyncResult,
-    hasConflicts,
-    conflicts
-  } = useDataSync();
+  // Ancien moteur de sync racine : conservé monté en arrière-plan (filet de
+  // sécurité + flush pré-sync). Ses sorties ne pilotent plus l'UI : le statut,
+  // les conflits et la récupération passent désormais par MultiSyncManager.
+  useDataSync();
 
-  // 🆕 État pour le modal de conflits
+  // 🆕 Statut consolidé de la synchronisation multi-contentieux (bandeau + page Sauvegardes)
+  const { syncStatus, isSyncing } = useMultiSyncStatus();
+
+  // 🆕 État pour le modal de conflits (multi-contentieux)
   const [showConflictModal, setShowConflictModal] = useState(false);
+  const [multiConflict, setMultiConflict] = useState<{
+    contentieuxId: ContentieuxId;
+    conflicts: SyncConflict[];
+    localData: SyncData;
+    serverData: SyncData;
+  } | null>(null);
 
   // Auto-fermer le modal de conflits si les conditions deviennent invalides
   useEffect(() => {
-    if (showConflictModal && (!lastSyncResult || !hasConflicts)) {
+    if (showConflictModal && !multiConflict) {
       setShowConflictModal(false);
     }
-  }, [showConflictModal, lastSyncResult, hasConflicts]);
+  }, [showConflictModal, multiConflict]);
 
   // Mise à jour de l'application
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -562,13 +564,6 @@ function AppContent() {
     checkWeeklyPopup();
   }, [accessibleContentieux, weeklySubscribedIds, buildWeeklyBuckets]);
 
-  // 🆕 Effet pour détecter les conflits et afficher le modal
-  useEffect(() => {
-    if (hasConflicts && lastSyncResult?.action === 'conflicts_detected') {
-      setShowConflictModal(true);
-    }
-  }, [hasConflicts, lastSyncResult]);
-
   // Vérification des mises à jour au démarrage (puis toutes les 30 min)
   useEffect(() => {
     const checkUpdate = async () => {
@@ -606,10 +601,19 @@ function AppContent() {
   };
 
   const handleResolveConflicts = async (selections: Map<number, ConflictAction>) => {
+  if (!multiConflict) return;
   try {
-    await resolveConflicts(selections);
+    await MultiSyncManager.getInstance().resolveConflicts(
+      multiConflict.contentieuxId,
+      multiConflict.conflicts,
+      selections,
+      multiConflict.localData,
+      multiConflict.serverData
+    );
     setShowConflictModal(false);
+    setMultiConflict(null);
     showToast('Conflits résolus avec succès', 'success');
+    window.location.reload();
   } catch (error) {
     console.error('Erreur résolution conflits:', error);
     showToast('Erreur lors de la résolution des conflits', 'error');
@@ -648,15 +652,36 @@ function AppContent() {
   const handleManualSync = async () => {
     try {
       showToast('Synchronisation en cours...', 'info');
-      const result = await triggerSync();
-      
-      if (result.action === 'conflicts_detected') {
+
+      // Synchro multi-contentieux uniquement : met à jour <contentieux>/app-data.json.
+      // L'ancien fichier racine app-data.json n'est plus écrit par ce bouton.
+      const multiResults = await MultiSyncManager.getInstance().triggerSyncAll();
+
+      // Premier contentieux en conflit → ouvrir la fenêtre de résolution
+      const conflictEntry = Array.from(multiResults.entries()).find(
+        ([, r]) => r.action === 'conflicts_detected'
+      );
+      if (conflictEntry) {
+        const [contentieuxId, r] = conflictEntry;
+        setMultiConflict({
+          contentieuxId,
+          conflicts: r.conflicts || [],
+          localData: r.localData as SyncData,
+          serverData: r.serverData as SyncData,
+        });
+        setShowConflictModal(true);
         showToast('Conflits détectés - veuillez choisir une résolution', 'error');
-      } else if (result.success) {
+        return;
+      }
+
+      const firstError = Array.from(multiResults.values()).find(
+        r => !r.success && r.action === 'error'
+      );
+      if (firstError) {
+        showToast(`Erreur: ${firstError.error || 'Erreur inconnue'}`, 'error');
+      } else {
         showToast('Synchronisation réussie', 'success');
         window.location.reload();
-      } else {
-        showToast(`Erreur: ${result.error || 'Erreur inconnue'}`, 'error');
       }
     } catch (error) {
       console.error('Erreur sync:', error);
@@ -1733,11 +1758,11 @@ return (
       )}
 
       {/* 🆕 Modal de gestion des conflits de synchronisation */}
-{showConflictModal && lastSyncResult && hasConflicts && (
+{showConflictModal && multiConflict && (
   <DataSyncConflictModal
     isOpen={showConflictModal}
-    onClose={() => setShowConflictModal(false)}
-    conflicts={conflicts || []}
+    onClose={() => { setShowConflictModal(false); setMultiConflict(null); }}
+    conflicts={multiConflict.conflicts}
     onResolve={handleResolveConflicts}
   />
 )}
@@ -1790,9 +1815,10 @@ return (
         sauvegardesContent={
           <SavePage
             lastSaveDate={StorageManager.getLastSave() ?? undefined}
-            onRepairServer={repairServer}
-            onRestoreFromServerBackup={restoreFromServerBackup}
-            onListServerBackups={listServerBackups}
+            contentieuxLabel={currentContentieuxId}
+            onRepairServer={() => MultiSyncManager.getInstance().repairWithLocalData(currentContentieuxId)}
+            onRestoreFromServerBackup={(filename) => MultiSyncManager.getInstance().restoreFromBackup(currentContentieuxId, filename)}
+            onListServerBackups={() => MultiSyncManager.getInstance().listBackups(currentContentieuxId)}
             isSyncing={isSyncing}
             syncStatus={syncStatus}
           />

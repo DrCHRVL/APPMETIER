@@ -25,6 +25,8 @@ interface BackupStats {
 
 interface SavePageProps {
   lastSaveDate?: string;
+  /** Contentieux actuellement actif : les outils de récupération agissent dessus. */
+  contentieuxLabel?: string;
   onRepairServer?: () => Promise<boolean>;
   onRestoreFromServerBackup?: (filename: string) => Promise<boolean>;
   onListServerBackups?: () => Promise<string[]>;
@@ -32,7 +34,7 @@ interface SavePageProps {
   syncStatus?: { isOnline: boolean } | null;
 }
 
-export const SavePage = ({ lastSaveDate, onRepairServer, onRestoreFromServerBackup, onListServerBackups, isSyncing, syncStatus }: SavePageProps) => {
+export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRestoreFromServerBackup, onListServerBackups, isSyncing, syncStatus }: SavePageProps) => {
   const [backups, setBackups] = useState<string[]>([]);
   const [backupStats, setBackupStats] = useState<BackupStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -563,18 +565,19 @@ export const SavePage = ({ lastSaveDate, onRepairServer, onRestoreFromServerBack
           <CardHeader>
             <CardTitle className="flex items-center text-blue-700">
               <HardDriveDownload className="h-5 w-5 mr-2" />
-              Restauration depuis un backup serveur
+              Restauration depuis un backup serveur{contentieuxLabel ? ` — ${contentieuxLabel}` : ''}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="p-3 bg-blue-50 rounded text-sm text-blue-800">
               <p className="font-semibold mb-1">Récupération après écrasement accidentel</p>
               <p>
-                Permet de restaurer les données depuis un fichier backup automatique présent sur le
-                serveur partagé (ex&nbsp;: <code className="bg-blue-100 px-1 rounded">app-data-backup-2026-03-09T14-30-00.json</code>).
+                Permet de restaurer les données du contentieux <strong>{contentieuxLabel || 'actif'}</strong> depuis
+                un fichier backup automatique présent sur le serveur partagé
+                (ex&nbsp;: <code className="bg-blue-100 px-1 rounded">{contentieuxLabel || 'crimorg'}-backup-2026-03-09T14-30-00.json</code>).
               </p>
               <p className="mt-1">
-                Cette opération <strong>écrase les données locales ET le fichier serveur principal</strong> avec
+                Cette opération <strong>écrase les données locales ET le fichier serveur de ce contentieux</strong> avec
                 le contenu du backup sélectionné.
               </p>
             </div>
@@ -714,7 +717,7 @@ export const SavePage = ({ lastSaveDate, onRepairServer, onRestoreFromServerBack
           <CardHeader>
             <CardTitle className="flex items-center text-orange-700">
               <Wrench className="h-5 w-5 mr-2" />
-              Réparation du fichier serveur
+              Réparation du fichier serveur{contentieuxLabel ? ` — ${contentieuxLabel}` : ''}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
