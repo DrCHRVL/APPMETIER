@@ -42,6 +42,10 @@ export const useCartographieConfig = () => {
     [],
   );
 
+  const setGroupByService = useCallback(async (enabled: boolean) => {
+    return CartographieConfigManager.setGroupByService(enabled);
+  }, []);
+
   const reset = useCallback(async () => {
     return CartographieConfigManager.reset();
   }, []);
@@ -51,6 +55,7 @@ export const useCartographieConfig = () => {
     isLoading,
     updateWeights,
     setTagInfractionWeight,
+    setGroupByService,
     reset,
   };
 };

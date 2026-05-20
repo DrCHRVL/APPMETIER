@@ -20,6 +20,7 @@ import {
   forceLink,
   forceManyBody,
   forceSimulation,
+  type Force,
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from 'd3-force';
@@ -234,10 +235,28 @@ interface GalaxySimNode extends SimulationNodeDatum {
  * Si `cachedCenters` est fourni, on initialise les positions depuis le
  * cache pour préserver la disposition entre rendus.
  */
+/**
+ * Ancrage zonal optionnel : attire les galaxies partageant un même service
+ * dominant vers leur centroïde commun. Le centroïde est recalculé à chaque
+ * tick depuis les positions courantes (auto-organisé, aucun puits codé en
+ * dur). Un service présent sur une seule galaxie ne génère aucune force
+ * (centroïde = sa propre position). Force volontairement faible : elle
+ * s'ajoute aux liens data/renseignement existants sans les écraser, donc
+ * une galaxie reliée à une autre de service différent reste tirée entre les
+ * deux (effet "pont" lisible).
+ */
+export interface ServiceGravityInput {
+  /** Service dominant par index de galaxie. Galaxies absentes = pas d'ancrage. */
+  serviceByGalaxyIdx: Map<number, string>;
+  /** Intensité de l'attraction (comparable à une strength forceX/forceY). */
+  strength: number;
+}
+
 export function layoutGalaxyCenters(
   galaxies: Galaxy[],
   cachedCenters?: Map<string, { x: number; y: number }>,
   rensGalaxyPairs?: Array<{ aIdx: number; bIdx: number }>,
+  serviceGravity?: ServiceGravityInput,
 ): Map<number, GalaxyPlacement> {
   const result = new Map<number, GalaxyPlacement>();
   if (galaxies.length === 0) return result;
@@ -323,6 +342,45 @@ export function layoutGalaxyCenters(
           .strength(0.18),
       );
     }
+  }
+
+  // Ancrage zonal par service : force custom d3 qui, à chaque tick, recalcule
+  // le centroïde de chaque service (sur les galaxies qui le portent) puis tire
+  // chaque galaxie vers le centroïde de SON service. Les services à une seule
+  // galaxie sont ignorés (count < 2 → pas de cible). Effet émergent : un
+  // service majoritaire occupe le centre de masse, les services minoritaires
+  // s'agrègent en périphérie.
+  if (serviceGravity && serviceGravity.strength > 0 && serviceGravity.serviceByGalaxyIdx.size > 0) {
+    const { serviceByGalaxyIdx, strength } = serviceGravity;
+    let forceNodes: GalaxySimNode[] = simNodes;
+    const serviceForce: Force<GalaxySimNode, undefined> = Object.assign(
+      (alpha: number) => {
+        const sums = new Map<string, { x: number; y: number; count: number }>();
+        for (const n of forceNodes) {
+          const svc = serviceByGalaxyIdx.get(n.index);
+          if (!svc) continue;
+          const x = Number.isFinite(n.x) ? n.x! : 0;
+          const y = Number.isFinite(n.y) ? n.y! : 0;
+          let s = sums.get(svc);
+          if (!s) { s = { x: 0, y: 0, count: 0 }; sums.set(svc, s); }
+          s.x += x; s.y += y; s.count++;
+        }
+        for (const n of forceNodes) {
+          const svc = serviceByGalaxyIdx.get(n.index);
+          if (!svc) continue;
+          const s = sums.get(svc);
+          if (!s || s.count < 2) continue;
+          const cx = s.x / s.count;
+          const cy = s.y / s.count;
+          const x = Number.isFinite(n.x) ? n.x! : 0;
+          const y = Number.isFinite(n.y) ? n.y! : 0;
+          n.vx = (n.vx ?? 0) + (cx - x) * strength * alpha;
+          n.vy = (n.vy ?? 0) + (cy - y) * strength * alpha;
+        }
+      },
+      { initialize: (nodes: GalaxySimNode[]) => { forceNodes = nodes; } },
+    );
+    sim.force('serviceGravity', serviceForce);
   }
 
   sim.stop();

@@ -673,6 +673,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             onAnnotateCluster={handleAnnotateCluster}
             egoNodeId={egoNodeId}
             pinnedIds={pinnedMecIds}
+            groupByService={cartoConfig.groupByService}
             onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
           />
