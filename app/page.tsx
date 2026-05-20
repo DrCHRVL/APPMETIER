@@ -266,7 +266,6 @@ function AppContent() {
   const {
     syncStatus,
     isSyncing,
-    triggerSync,
     resolveConflicts,
     repairServer,
     restoreFromServerBackup,
@@ -650,21 +649,17 @@ function AppContent() {
     try {
       showToast('Synchronisation en cours...', 'info');
 
-      // Ancienne synchro racine (app-data.json) : pilote aussi le modal de conflits
-      const result = await triggerSync();
-
-      // Nouvelle synchro multi-contentieux : met à jour <contentieux>/app-data.json
+      // Synchro multi-contentieux uniquement : met à jour <contentieux>/app-data.json.
+      // L'ancien fichier racine app-data.json n'est plus écrit par ce bouton.
       const multiResults = await MultiSyncManager.getInstance().triggerSyncAll();
       const multiList = Array.from(multiResults.values());
-      const multiHasConflicts = multiList.some(r => r.action === 'conflicts_detected');
-      const multiError = multiList.find(r => !r.success && r.action === 'error');
+      const hasConflict = multiList.some(r => r.action === 'conflicts_detected');
+      const firstError = multiList.find(r => !r.success && r.action === 'error');
 
-      if (result.action === 'conflicts_detected' || multiHasConflicts) {
+      if (hasConflict) {
         showToast('Conflits détectés - veuillez choisir une résolution', 'error');
-      } else if (!result.success) {
-        showToast(`Erreur: ${result.error || 'Erreur inconnue'}`, 'error');
-      } else if (multiError) {
-        showToast(`Erreur: ${multiError.error || 'Erreur inconnue'}`, 'error');
+      } else if (firstError) {
+        showToast(`Erreur: ${firstError.error || 'Erreur inconnue'}`, 'error');
       } else {
         showToast('Synchronisation réussie', 'success');
         window.location.reload();
