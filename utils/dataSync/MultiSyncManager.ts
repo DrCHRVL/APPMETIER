@@ -40,6 +40,12 @@ class ContentieuxSyncInstance {
   private currentUser = 'Utilisateur Inconnu';
   private computerName = 'Ordinateur Inconnu';
 
+  // Sentinelle anti-crash : posée avant chaque écriture serveur, levée après.
+  // Si elle subsiste au démarrage, la dernière écriture de cette machine a été
+  // interrompue → le fichier serveur de ce contentieux est peut-être corrompu
+  // par cette machine, qui devient responsable de sa réparation.
+  private selfCausedCorruption = false;
+
   private consecutiveFailures = 0;
   private readonly MAX_FAILURES = 3;
   private readonly BACKOFF_TIME = 5 * 60 * 1000;
@@ -66,6 +72,7 @@ class ContentieuxSyncInstance {
 
     try {
       await this.identifyUser();
+      await this.checkWriteSentinel();
       await this.checkServerAccess();
 
       if (this.isOnline) {
@@ -202,6 +209,28 @@ class ContentieuxSyncInstance {
 
       return { success: true, timestamp: this.lastSuccessfulSync, action: 'auto_merged', stats };
     } catch (error) {
+      const msg = error instanceof Error ? error.message : '';
+      const serverCorrupted =
+        msg.includes('JSON') || msg.includes('Unexpected token') || msg.includes('Unexpected end');
+
+      // Si le fichier serveur est illisible ET que cette machine est responsable
+      // (sentinelle d'écriture interrompue), on le répare avec les données locales.
+      // Sinon, on n'écrit rien pour ne pas écraser les données d'un collègue.
+      if (serverCorrupted && this.selfCausedCorruption && this.syncMode === 'read_write') {
+        try {
+          const localData = await this.getLocalData();
+          await this.pushToServer(localData);
+          this.selfCausedCorruption = false;
+          this.lastSuccessfulSync = new Date().toISOString();
+          this.handleSyncSuccess();
+          this.showToast(`[${this.definition.label}] Fichier serveur réparé et synchronisé`, 'success');
+          return { success: true, timestamp: this.lastSuccessfulSync, action: 'first_sync' };
+        } catch {
+          // Réparation échouée : ne pas réessayer d'écraser à l'aveugle
+          this.selfCausedCorruption = false;
+        }
+      }
+
       console.error(`❌ Sync[${this.contentieuxId}]:`, error);
       this.handleSyncFailure();
       return {
@@ -358,8 +387,151 @@ class ContentieuxSyncInstance {
       version: data.version,
     };
 
+    // Poser la sentinelle AVANT d'écrire : si l'app plante pendant l'écriture,
+    // on le détectera au prochain démarrage (checkWriteSentinel).
+    await ElectronBridge.setData(this.sentinelKey(), {
+      timestamp: new Date().toISOString(),
+      user: this.currentUser,
+    });
+
     const success = await (window as any).electronAPI.dataSync_pushContentieux(this.contentieuxId, data, metadata);
     if (!success) throw new Error('Échec envoi vers serveur');
+
+    // Écriture réussie : lever la sentinelle.
+    await ElectronBridge.setData(this.sentinelKey(), null);
+    this.selfCausedCorruption = false;
+  }
+
+  private sentinelKey(): string {
+    return `ctx_${this.contentieuxId}_sync_write_sentinel`;
+  }
+
+  private async checkWriteSentinel(): Promise<void> {
+    try {
+      const sentinel = await ElectronBridge.getData<{ timestamp: string; user: string } | null>(
+        this.sentinelKey(),
+        null
+      );
+      if (sentinel) {
+        this.selfCausedCorruption = true;
+        this.showToast(
+          `[${this.definition.label}] La dernière synchronisation a été interrompue. ` +
+          'Le fichier partagé sera réparé automatiquement si nécessaire.',
+          'error'
+        );
+        // Nettoyer maintenant (réécrite si on re-push)
+        await ElectronBridge.setData(this.sentinelKey(), null);
+      }
+    } catch {
+      // Non bloquant
+    }
+  }
+
+  // ──────────── CONFLITS & RÉCUPÉRATION ────────────
+
+  /** Résout les conflits avec les décisions de l'utilisateur (mirroring de l'ancien
+   *  DataSyncManager mais sur le fichier app-data.json de ce contentieux). */
+  public async resolveConflicts(
+    conflicts: SyncConflict[],
+    selections: Map<number, ConflictAction>,
+    localData: SyncData,
+    serverData: SyncData
+  ): Promise<void> {
+    this.isSync = true;
+    this.notifyStatus();
+    try {
+      const { merged: resolvedData } = DataMergeService.intelligentMerge(localData, serverData);
+
+      conflicts.forEach((conflict, index) => {
+        const action = selections.get(index) || 'merge';
+        if (conflict.type === 'enquete_deleted' && conflict.enqueteId) {
+          const enqueteId = conflict.enqueteId;
+          if (action === 'keep_server' || action === 'skip') {
+            resolvedData.enquetes = resolvedData.enquetes.filter(e => e.id !== enqueteId);
+          }
+        }
+      });
+
+      await this.saveLocalData(resolvedData);
+      if (this.syncMode === 'read_write') {
+        await this.pushToServer(resolvedData);
+      }
+
+      this.lastSuccessfulSync = new Date().toISOString();
+      this.handleSyncSuccess();
+      this.showToast(`[${this.definition.label}] ${conflicts.length} conflit(s) résolu(s)`, 'success');
+    } finally {
+      this.isSync = false;
+      this.notifyStatus();
+    }
+  }
+
+  /** Liste les fichiers backup de ce contentieux (<contentieux>/backups/). */
+  public async listBackups(): Promise<string[]> {
+    const api = (window as any).electronAPI;
+    if (!api?.dataSync_listContentieuxBackups) return [];
+    try {
+      return await api.dataSync_listContentieuxBackups(this.contentieuxId);
+    } catch {
+      return [];
+    }
+  }
+
+  /** Restaure ce contentieux depuis un de ses backups (écrase local + serveur). */
+  public async restoreFromBackup(filename: string): Promise<boolean> {
+    if (this.isSync) return false;
+    const online = await this.checkServerAccess();
+    if (!online) return false;
+    const api = (window as any).electronAPI;
+    if (!api?.dataSync_readContentieuxBackup) return false;
+
+    this.isSync = true;
+    this.notifyStatus();
+    try {
+      const backup = await api.dataSync_readContentieuxBackup(this.contentieuxId, filename);
+      if (!backup) return false;
+      const data: SyncData = backup.data || backup;
+      await this.saveLocalData(data);
+      if (this.syncMode === 'read_write') {
+        await this.pushToServer(data);
+      }
+      this.lastSuccessfulSync = new Date().toISOString();
+      this.handleSyncSuccess();
+      this.showToast(`[${this.definition.label}] Données restaurées depuis "${filename}"`, 'success');
+      return true;
+    } catch (error) {
+      console.error(`❌ Sync[${this.contentieuxId}]: Échec restauration backup:`, error);
+      return false;
+    } finally {
+      this.isSync = false;
+      this.notifyStatus();
+    }
+  }
+
+  /** Force l'écriture des données locales sur le serveur (réparation manuelle). */
+  public async repairWithLocalData(): Promise<boolean> {
+    if (this.isSync) return false;
+    if (this.syncMode !== 'read_write') return false;
+    const online = await this.checkServerAccess();
+    if (!online) return false;
+
+    this.isSync = true;
+    this.notifyStatus();
+    try {
+      const localData = await this.getLocalData();
+      await this.pushToServer(localData);
+      this.selfCausedCorruption = false;
+      this.lastSuccessfulSync = new Date().toISOString();
+      this.handleSyncSuccess();
+      this.showToast(`[${this.definition.label}] Serveur réparé avec vos données locales`, 'success');
+      return true;
+    } catch (error) {
+      console.error(`❌ Sync[${this.contentieuxId}]: Échec réparation serveur:`, error);
+      return false;
+    } finally {
+      this.isSync = false;
+      this.notifyStatus();
+    }
   }
 
   // ──────────── UTILITIES ────────────
@@ -564,6 +736,57 @@ export class MultiSyncManager {
   /** Retourne le statut de sync d'un contentieux */
   public getStatus(contentieuxId: ContentieuxId): SyncStatus | null {
     return this.instances.get(contentieuxId)?.getStatus() || null;
+  }
+
+  /**
+   * Statut consolidé de tous les contentieux, pour l'indicateur global du bandeau.
+   * - online si au moins un contentieux est joignable
+   * - sync en cours si au moins un contentieux synchronise
+   * - dates : la plus récente parmi tous les contentieux
+   * Retourne null tant qu'aucune instance n'existe (affiche « Initialisation… »).
+   */
+  public getAggregateStatus(): SyncStatus | null {
+    const statuses = Array.from(this.instances.values()).map(i => i.getStatus());
+    if (statuses.length === 0) return null;
+    const mostRecent = (dates: Array<string | null>): string | null =>
+      dates.filter((d): d is string => !!d).sort().reverse()[0] || null;
+    return {
+      isOnline: statuses.some(s => s.isOnline),
+      isSync: statuses.some(s => s.isSync),
+      lastSyncAttempt: mostRecent(statuses.map(s => s.lastSyncAttempt)),
+      lastSuccessfulSync: mostRecent(statuses.map(s => s.lastSuccessfulSync)),
+      currentUser: statuses[0].currentUser,
+    };
+  }
+
+  /** Résout les conflits d'un contentieux (décisions utilisateur). */
+  public async resolveConflicts(
+    contentieuxId: ContentieuxId,
+    conflicts: SyncConflict[],
+    selections: Map<number, ConflictAction>,
+    localData: SyncData,
+    serverData: SyncData
+  ): Promise<void> {
+    const inst = this.instances.get(contentieuxId);
+    if (!inst) throw new Error('Contentieux non chargé');
+    return inst.resolveConflicts(conflicts, selections, localData, serverData);
+  }
+
+  /** Liste les backups d'un contentieux. */
+  public async listBackups(contentieuxId: ContentieuxId): Promise<string[]> {
+    return this.instances.get(contentieuxId)?.listBackups() ?? [];
+  }
+
+  /** Restaure un contentieux depuis un de ses backups. */
+  public async restoreFromBackup(contentieuxId: ContentieuxId, filename: string): Promise<boolean> {
+    const inst = this.instances.get(contentieuxId);
+    return inst ? inst.restoreFromBackup(filename) : false;
+  }
+
+  /** Répare le fichier serveur d'un contentieux avec les données locales. */
+  public async repairWithLocalData(contentieuxId: ContentieuxId): Promise<boolean> {
+    const inst = this.instances.get(contentieuxId);
+    return inst ? inst.repairWithLocalData() : false;
   }
 
   /** Vérifie si au moins une sync est en cours */

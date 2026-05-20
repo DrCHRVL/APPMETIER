@@ -2366,6 +2366,55 @@ function setupIpcHandlers() {
     }
   })
 
+  /**
+   * Liste les fichiers backup d'un contentieux (<contentieux>/backups/).
+   * Ne retourne que les fichiers {contentieuxId}-backup-*.json, du plus récent
+   * au plus ancien (le nom contient un timestamp ISO).
+   */
+  ipcMain.handle('dataSync:listContentieuxBackups', async (event, contentieuxId) => {
+    try {
+      const backupDir = getContentieuxBackupFolder(contentieuxId)
+      if (!fs.existsSync(backupDir)) return []
+      const prefix = `${contentieuxId}-backup-`
+      return fs.readdirSync(backupDir)
+        .filter(f => f.startsWith(prefix) && f.endsWith('.json'))
+        .sort()
+        .reverse()
+    } catch (error) {
+      console.error(`❌ MultiSync[${contentieuxId}]: Erreur listage backups:`, error.message)
+      return []
+    }
+  })
+
+  /**
+   * Lit un fichier backup d'un contentieux et retourne { data, metadata }.
+   * Sécurité : seuls les {contentieuxId}-backup-*.json sont lisibles.
+   */
+  ipcMain.handle('dataSync:readContentieuxBackup', async (event, contentieuxId, filename) => {
+    try {
+      const prefix = `${contentieuxId}-backup-`
+      if (!filename || !filename.startsWith(prefix) || !filename.endsWith('.json')) {
+        console.error(`❌ MultiSync[${contentieuxId}]: Lecture refusée pour "${filename}" (nom non autorisé)`)
+        return null
+      }
+      const backupDir = getContentieuxBackupFolder(contentieuxId)
+      const filePath = path.join(backupDir, filename)
+      if (!fs.existsSync(filePath)) {
+        console.error(`❌ MultiSync[${contentieuxId}]: Backup introuvable : ${filename}`)
+        return null
+      }
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+      // Les backups sont des copies de app-data.json, donc au format { data, metadata }.
+      return {
+        data: parsed.data || parsed,
+        metadata: parsed.metadata || null,
+      }
+    } catch (error) {
+      console.error(`❌ MultiSync[${contentieuxId}]: Erreur lecture backup:`, error.message)
+      return null
+    }
+  })
+
   // === SCAN DES DOCUMENTS PDF DU CHEMIN EXTERNE POUR ANALYSE AUTOMATIQUE ===
   ipcMain.handle('documents:scan-external-pdfs', async (event, externalPath, enqueteNumero, useSubfolder = true) => {
     try {

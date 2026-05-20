@@ -126,6 +126,10 @@ interface ElectronAPI {
   dataSync_readServerBackup?: (filename: string) => Promise<{ data: import('./dataSyncTypes').SyncData; metadata: import('./dataSyncTypes').SyncMetadata } | null>;
   /** Liste les fichiers backup présents dans le dossier serveur (app-data-backup-*.json). */
   dataSync_listServerBackups?: () => Promise<string[]>;
+  /** Liste les backups d'un contentieux ({id}-backup-*.json), du plus récent au plus ancien. */
+  dataSync_listContentieuxBackups?: (contentieuxId: string) => Promise<string[]>;
+  /** Lit un backup d'un contentieux (.json) et retourne son contenu parsé { data, metadata }. */
+  dataSync_readContentieuxBackup?: (contentieuxId: string, filename: string) => Promise<{ data: import('./dataSyncTypes').SyncData; metadata: import('./dataSyncTypes').SyncMetadata | null } | null>;
   getCurrentUser?: () => Promise<{ displayName: string; computerName: string }>;
 
   // Heartbeat

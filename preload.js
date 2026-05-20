@@ -189,6 +189,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dataSync_backupContentieux: (contentieuxId, backupFilename) =>
     ipcRenderer.invoke('dataSync:backupContentieux', contentieuxId, backupFilename),
 
+  // Liste les backups d'un contentieux ({id}-backup-*.json), du plus récent au plus ancien.
+  dataSync_listContentieuxBackups: (contentieuxId) =>
+    ipcRenderer.invoke('dataSync:listContentieuxBackups', contentieuxId),
+
+  // Lit un backup d'un contentieux et retourne { data, metadata }.
+  dataSync_readContentieuxBackup: (contentieuxId, filename) =>
+    ipcRenderer.invoke('dataSync:readContentieuxBackup', contentieuxId, filename),
+
   // ========================================================================
   // HEARTBEAT, ÉVÉNEMENTS PARTAGÉS, JOURNAL D'AUDIT
   // ========================================================================
