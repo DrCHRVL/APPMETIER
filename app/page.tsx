@@ -115,6 +115,7 @@ import { useDataSync } from '@/hooks/useDataSync';
 import { DataSyncConflictModal } from '@/components/modals/DataSyncConflictModal';
 import { ConflictAction } from '@/types/dataSyncTypes';
 import { DataSyncManager } from '@/utils/dataSync/DataSyncManager';
+import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
 import { UpdateChangelogModal } from '@/components/modals/UpdateChangelogModal';
 
 // 🆕 Multi-contentieux
@@ -648,8 +649,19 @@ function AppContent() {
   const handleManualSync = async () => {
     try {
       showToast('Synchronisation en cours...', 'info');
+
+      // Synchroniser AUSSI les contentieux (clés ctx_*, fichiers <contentieux>/app-data.json).
+      // Le synchro legacy ci-dessous ne couvre que l'ancien app-data.json racine ;
+      // sans cet appel, les fichiers par contentieux (ex: crimorg/app-data.json)
+      // ne sont jamais mis à jour depuis le bouton de synchro manuelle.
+      try {
+        await MultiSyncManager.getInstance().triggerSyncAll();
+      } catch (multiErr) {
+        console.error('Sync multi-contentieux manuelle échouée', multiErr);
+      }
+
       const result = await triggerSync();
-      
+
       if (result.action === 'conflicts_detected') {
         showToast('Conflits détectés - veuillez choisir une résolution', 'error');
       } else if (result.success) {
