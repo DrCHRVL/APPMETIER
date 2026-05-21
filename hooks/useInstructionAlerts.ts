@@ -95,7 +95,7 @@ const generateAlerts = (
     for (const mex of dossier.misEnExamen) {
       // DP fin proche / échue
       if (mex.mesureSurete.type === 'detenu') {
-        const periode = [...mex.mesureSurete.periodes].sort(
+        const periode = [...(mex.mesureSurete.periodes ?? [])].sort(
           (a, b) => new Date(b.dateDebut).getTime() - new Date(a.dateDebut).getTime(),
         )[0];
         if (periode?.dateFin) {
@@ -274,7 +274,7 @@ const lastActivityDate = (d: DossierInstruction): Date | null => {
   for (const mex of d.misEnExamen) {
     for (const dml of mex.dmls) candidates.push(new Date(dml.dateDepot).getTime());
     if (mex.mesureSurete.type === 'detenu') {
-      for (const p of mex.mesureSurete.periodes) candidates.push(new Date(p.dateDebut).getTime());
+      for (const p of mex.mesureSurete.periodes ?? []) candidates.push(new Date(p.dateDebut).getTime());
     }
   }
   if (candidates.length === 0) return null;

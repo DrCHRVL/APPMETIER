@@ -101,18 +101,22 @@ export const MesureSureteEditor = ({ mex, onChange, readOnly }: Props) => {
   // Pré-remplit la date de placement avec la date de mise en examen
   // (souvent identique, mais distincte sémantiquement) tant qu'aucune
   // période n'a été enregistrée et que l'utilisateur n'a rien saisi.
+  // Nombre de périodes enregistrées, robuste aux données legacy où le tableau
+  // `periodes` peut être absent (sérialisation antérieure / import partiel).
+  const nbPeriodes = m.type === 'detenu' ? (m.periodes?.length ?? 0) : 0;
+
   useEffect(() => {
-    if (m.type !== 'detenu' || m.periodes.length > 0) return;
+    if (m.type !== 'detenu' || nbPeriodes > 0) return;
     if (!mex.dateMiseEnExamen) return;
     setNewPlacementDate(prev => prev || mex.dateMiseEnExamen);
-  }, [m.type, m.periodes.length, mex.dateMiseEnExamen]);
+  }, [m.type, nbPeriodes, mex.dateMiseEnExamen]);
 
   // Pré-remplit la durée avec la durée initiale légale du cas sélectionné.
   useEffect(() => {
-    if (m.type !== 'detenu' || m.periodes.length > 0) return;
+    if (m.type !== 'detenu' || nbPeriodes > 0) return;
     if (!cas?.dureeInitialeMois) return;
     setNewPlacementDuree(prev => (prev === '' ? cas.dureeInitialeMois : prev));
-  }, [m.type, m.periodes.length, cas?.dureeInitialeMois]);
+  }, [m.type, nbPeriodes, cas?.dureeInitialeMois]);
 
   const addPlacementInitial = () => {
     if (m.type !== 'detenu' || !newPlacementDate || !newPlacementDuree) return;
@@ -122,7 +126,7 @@ export const MesureSureteEditor = ({ mex, onChange, readOnly }: Props) => {
       // La date de placement est la source de vérité du début de DP,
       // même si elle coïncide souvent avec la mise en examen.
       depuis: newPlacementDate,
-      periodes: [...m.periodes, periode],
+      periodes: [...(m.periodes ?? []), periode],
     });
     setNewPlacementDate('');
     setNewPlacementDuree('');
@@ -136,7 +140,7 @@ export const MesureSureteEditor = ({ mex, onChange, readOnly }: Props) => {
       m.regime,
       'prolongation',
     );
-    onChange({ ...m, periodes: [...m.periodes, periode] });
+    onChange({ ...m, periodes: [...(m.periodes ?? []), periode] });
     setNewProlongationDate('');
   };
 
@@ -150,7 +154,7 @@ export const MesureSureteEditor = ({ mex, onChange, readOnly }: Props) => {
     );
     onChange({
       ...m,
-      periodes: [...m.periodes, { ...periode, motifProlongation: 'Prolongation exceptionnelle CHINS' }],
+      periodes: [...(m.periodes ?? []), { ...periode, motifProlongation: 'Prolongation exceptionnelle CHINS' }],
       nbProlongationsExceptionnelles: (m.nbProlongationsExceptionnelles || 0) + 1,
     });
     setNewProlongationDate('');
@@ -158,10 +162,10 @@ export const MesureSureteEditor = ({ mex, onChange, readOnly }: Props) => {
 
   const removePeriode = (id: number) => {
     if (m.type !== 'detenu') return;
-    const removed = m.periodes.find(p => p.id === id);
+    const removed = (m.periodes ?? []).find(p => p.id === id);
     onChange({
       ...m,
-      periodes: m.periodes.filter(p => p.id !== id),
+      periodes: (m.periodes ?? []).filter(p => p.id !== id),
       // Si on supprime une prolongation exceptionnelle, on décrémente le compteur
       nbProlongationsExceptionnelles:
         removed?.motifProlongation === 'Prolongation exceptionnelle CHINS' && (m.nbProlongationsExceptionnelles || 0) > 0
@@ -185,7 +189,7 @@ export const MesureSureteEditor = ({ mex, onChange, readOnly }: Props) => {
   // ──────────────────────────────────────────────
   const sortedPeriodes = useMemo(() => {
     if (m.type !== 'detenu') return [];
-    return [...m.periodes].sort(
+    return [...(m.periodes ?? [])].sort(
       (a, b) => new Date(a.dateDebut).getTime() - new Date(b.dateDebut).getTime(),
     );
   }, [m]);

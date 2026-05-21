@@ -50,7 +50,7 @@ export const getPeriodeDPCourante = (
   mex: MisEnExamen,
 ): PeriodeDetentionProvisoire | undefined => {
   if (mex.mesureSurete.type !== 'detenu') return undefined;
-  const periodes = mex.mesureSurete.periodes;
+  const periodes = mex.mesureSurete.periodes ?? [];
   if (periodes.length === 0) return undefined;
   return [...periodes].sort(
     (a, b) => new Date(b.dateDebut).getTime() - new Date(a.dateDebut).getTime(),
@@ -196,7 +196,7 @@ export const buildPeriodeDP = (
  */
 export const getDureeCumuleeDPMois = (mex: MisEnExamen): number => {
   if (mex.mesureSurete.type !== 'detenu') return 0;
-  return mex.mesureSurete.periodes.reduce((sum, p) => sum + (p.dureeMois || 0), 0);
+  return (mex.mesureSurete.periodes ?? []).reduce((sum, p) => sum + (p.dureeMois || 0), 0);
 };
 
 /**
@@ -292,7 +292,7 @@ export const getRythmeJugeJours = (dossier: DossierInstruction): number | null =
   for (const n of dossier.notesPerso) dates.push(new Date(n.date).getTime());
   for (const mex of dossier.misEnExamen) {
     if (mex.mesureSurete.type === 'detenu') {
-      for (const p of mex.mesureSurete.periodes) dates.push(new Date(p.dateDebut).getTime());
+      for (const p of mex.mesureSurete.periodes ?? []) dates.push(new Date(p.dateDebut).getTime());
     }
   }
   if (dates.length < 2) return null;
