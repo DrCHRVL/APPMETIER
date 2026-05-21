@@ -87,6 +87,41 @@ const HULL_SAT_MAX_ITER = 60;
 /** Itérations / alpha pour la simulation inter-galactique. */
 const GALAXY_SIM_ITERATIONS = 200;
 
+/** Séparation inter-service : répulsion entre les centroïdes de services
+ *  *différents*. C'est cette force (et non la cohésion seule) qui creuse un
+ *  "désert" entre les zones et rend les services lisibles à l'œil. Volontairement
+ *  modérée : elle ne s'applique PAS aux galaxies-pont (reliées par un lien
+ *  renseignement à un autre service), pour ne pas casser ces liens. */
+const SERVICE_SEPARATION_STRENGTH = 0.1;
+/** Échelle de distance de la séparation inter-service : la poussée décroît en
+ *  ~RANGE/d, donc reste bornée et n'explose pas quand deux services sont déjà
+ *  loin l'un de l'autre. */
+const SERVICE_SEPARATION_RANGE = 600;
+
+/** Répulsion "de masse" des grosses galaxies sur leurs voisines : plus une
+ *  galaxie est grosse, plus elle repousse les dossiers alentour (qui n'ont
+ *  rien à voir). Indépendant du regroupement par service. Exemptée pour les
+ *  paires reliées par un lien renseignement (on veut qu'elles restent proches). */
+const BIG_GALAXY_REPEL_STRENGTH = 0.035;
+/** Seuil au-delà duquel une galaxie est considérée "grosse" et se met à
+ *  repousser ses voisines (multiple du rayon nominal d'un système). */
+const BIG_GALAXY_REPEL_THRESHOLD = SYSTEM_RADIUS * 1.5;
+/** Portée max de la répulsion de masse (multiple du rayon de la grosse
+ *  galaxie). Au-delà, deux réseaux lointains s'ignorent (comme la gravité,
+ *  qui devient négligeable avec la distance). */
+const BIG_GALAXY_REPEL_RANGE_RATIO = 2.5;
+
+/** Amorçage par secteur de service : rayon nominal auquel une zone de service
+ *  est posée autour du centre. La croissance radiale par galaxie évite
+ *  l'empilement ; la séparation inter-service écarte ensuite les zones. */
+const SERVICE_SECTOR_RADIUS = 600;
+/** Anneau périphérique où sont seedées les galaxies vraiment isolées (ni
+ *  service ni lien) pour qu'elles ne polluent ni le centre ni les zones. */
+const SERVICE_PERIPHERY_RADIUS = 1800;
+/** Ressort radial doux maintenant les galaxies isolées sur l'anneau
+ *  périphérique (force centrifuge bornée). */
+const ORPHAN_CENTRIFUGAL_STRENGTH = 0.05;
+
 /** Halo de répulsion supplémentaire d'une galaxie au-delà de son rayon
  *  estimé. Croit linéairement avec la "taille au-dessus du système
  *  nominal", capé pour rester raisonnable sur les très gros graphes. */
@@ -257,6 +292,7 @@ export function layoutGalaxyCenters(
   cachedCenters?: Map<string, { x: number; y: number }>,
   rensGalaxyPairs?: Array<{ aIdx: number; bIdx: number }>,
   serviceGravity?: ServiceGravityInput,
+  applyBigGalaxyRepel?: boolean,
 ): Map<number, GalaxyPlacement> {
   const result = new Map<number, GalaxyPlacement>();
   if (galaxies.length === 0) return result;
@@ -265,20 +301,100 @@ export function layoutGalaxyCenters(
     return result;
   }
 
-  // Seed : cache si dispo, sinon jitter déterministe sur une spirale.
-  // La spirale donne une distribution initiale propre qui réduit fortement
-  // le nombre de ticks nécessaires à la collision pour décoller les corps.
+  // ── Amorçage par secteur de service ──────────────────────────────────
+  // Quand le regroupement par service est actif, on assigne à chaque service
+  // un secteur angulaire déterministe (tri alphabétique → disposition
+  // reproductible d'un recompactage à l'autre). On pose alors chaque galaxie
+  // dans le secteur de son service dominant ; les galaxies-pont à la frontière
+  // de leurs deux secteurs ; les galaxies vraiment isolées sur un anneau
+  // périphérique. Sans regroupement actif, on garde la spirale d'origine.
+  const serviceByGalaxyIdx = serviceGravity?.serviceByGalaxyIdx;
+  const useSectorSeed = !!serviceByGalaxyIdx && serviceByGalaxyIdx.size > 0;
+  const sectorAngle = new Map<string, number>();
+  if (useSectorSeed) {
+    const services = Array.from(new Set(serviceByGalaxyIdx!.values())).sort();
+    services.forEach((svc, i) => sectorAngle.set(svc, (i / services.length) * Math.PI * 2));
+  }
+  const rensPartners = new Map<number, number[]>();
+  if (rensGalaxyPairs) {
+    const addPartner = (from: number, to: number) => {
+      const list = rensPartners.get(from);
+      if (list) list.push(to);
+      else rensPartners.set(from, [to]);
+    };
+    for (const p of rensGalaxyPairs) {
+      addPartner(p.aIdx, p.bIdx);
+      addPartner(p.bIdx, p.aIdx);
+    }
+  }
+  // Milieu angulaire de deux directions (gère le wrap via somme vectorielle).
+  const midAngle = (a: number, b: number) =>
+    Math.atan2(Math.sin(a) + Math.sin(b), Math.cos(a) + Math.cos(b));
+  const sectorCount = new Map<string, number>();
+  let peripheryCount = 0;
+
   const simNodes: GalaxySimNode[] = galaxies.map((g, i) => {
     const cached = cachedCenters?.get(g.anchorId);
     if (cached && Number.isFinite(cached.x) && Number.isFinite(cached.y)) {
       return { index: g.index, r: g.estimatedRadius, x: cached.x, y: cached.y, seedX: cached.x, seedY: cached.y };
     }
-    // Spirale d'Archimède : θ et r croissent ensemble → aucun chevauchement
-    // initial même quand toutes les galaxies sont nouvelles.
-    const theta = i * 2.4;
-    const r = 200 + i * 60;
-    return { index: g.index, r: g.estimatedRadius, x: r * Math.cos(theta), y: r * Math.sin(theta) };
+    if (!useSectorSeed) {
+      // Spirale d'Archimède : θ et r croissent ensemble → aucun chevauchement
+      // initial même quand toutes les galaxies sont nouvelles.
+      const theta = i * 2.4;
+      const r = 200 + i * 60;
+      return { index: g.index, r: g.estimatedRadius, x: r * Math.cos(theta), y: r * Math.sin(theta) };
+    }
+    const svc = serviceByGalaxyIdx!.get(g.index);
+    const partners = rensPartners.get(g.index) ?? [];
+    let angle: number;
+    let radius: number;
+    if (svc !== undefined && sectorAngle.has(svc)) {
+      // Galaxie-pont ? reliée par renseignement à un service différent.
+      let bridgeAngle: number | undefined;
+      for (const pj of partners) {
+        const psvc = serviceByGalaxyIdx!.get(pj);
+        if (psvc && psvc !== svc && sectorAngle.has(psvc)) {
+          bridgeAngle = midAngle(sectorAngle.get(svc)!, sectorAngle.get(psvc)!);
+          break;
+        }
+      }
+      const k = sectorCount.get(svc) ?? 0;
+      sectorCount.set(svc, k + 1);
+      const halfWidth = (Math.PI * 2 / sectorAngle.size) * 0.35;
+      // Pont : posé pile à la frontière. Sinon : éventail déterministe dans le secteur.
+      angle = bridgeAngle ?? (sectorAngle.get(svc)! + (k % 2 === 0 ? 1 : -1) * halfWidth * ((k + 1) / (k + 3)));
+      radius = SERVICE_SECTOR_RADIUS + k * 80;
+    } else {
+      // Pas de service : si reliée par renseignement à un service, on la pose
+      // près de ce partenaire (lien court). Sinon, vraiment isolée → périphérie.
+      let nearAngle: number | undefined;
+      for (const pj of partners) {
+        const psvc = serviceByGalaxyIdx!.get(pj);
+        if (psvc && sectorAngle.has(psvc)) { nearAngle = sectorAngle.get(psvc); break; }
+      }
+      if (nearAngle !== undefined) {
+        angle = nearAngle;
+        radius = SERVICE_SECTOR_RADIUS + 120;
+      } else {
+        const k = peripheryCount++;
+        angle = k * 2.39996; // angle d'or → répartition uniforme sur l'anneau
+        radius = SERVICE_PERIPHERY_RADIUS + (k % 5) * 90;
+      }
+    }
+    return { index: g.index, r: g.estimatedRadius, x: radius * Math.cos(angle), y: radius * Math.sin(angle) };
   });
+
+  // Ensemble des galaxies vraiment isolées (ni service ni lien) : maintenues
+  // sur l'anneau périphérique par un ressort radial doux.
+  const isolatedSet = new Set<number>();
+  if (useSectorSeed) {
+    for (const g of galaxies) {
+      const svc = serviceByGalaxyIdx!.get(g.index);
+      const hasPartner = (rensPartners.get(g.index)?.length ?? 0) > 0;
+      if ((svc === undefined || !sectorAngle.has(svc)) && !hasPartner) isolatedSet.add(g.index);
+    }
+  }
 
   const sim = forceSimulation(simNodes)
     .alpha(1)
@@ -352,6 +468,17 @@ export function layoutGalaxyCenters(
   // s'agrègent en périphérie.
   if (serviceGravity && serviceGravity.strength > 0 && serviceGravity.serviceByGalaxyIdx.size > 0) {
     const { serviceByGalaxyIdx, strength } = serviceGravity;
+    // Galaxies-pont : reliées par un lien renseignement à une galaxie d'un
+    // service DIFFÉRENT. Exemptées de la séparation inter-service pour ne pas
+    // casser ce lien — elles restent libres de se loger entre les deux zones.
+    const serviceBridge = new Set<number>();
+    if (rensGalaxyPairs) {
+      for (const p of rensGalaxyPairs) {
+        const sa = serviceByGalaxyIdx.get(p.aIdx);
+        const sb = serviceByGalaxyIdx.get(p.bIdx);
+        if (sa && sb && sa !== sb) { serviceBridge.add(p.aIdx); serviceBridge.add(p.bIdx); }
+      }
+    }
     let forceNodes: GalaxySimNode[] = simNodes;
     const serviceForce: Force<GalaxySimNode, undefined> = Object.assign(
       (alpha: number) => {
@@ -368,19 +495,107 @@ export function layoutGalaxyCenters(
         for (const n of forceNodes) {
           const svc = serviceByGalaxyIdx.get(n.index);
           if (!svc) continue;
-          const s = sums.get(svc);
-          if (!s || s.count < 2) continue;
-          const cx = s.x / s.count;
-          const cy = s.y / s.count;
           const x = Number.isFinite(n.x) ? n.x! : 0;
           const y = Number.isFinite(n.y) ? n.y! : 0;
-          n.vx = (n.vx ?? 0) + (cx - x) * strength * alpha;
-          n.vy = (n.vy ?? 0) + (cy - y) * strength * alpha;
+          // Cohésion : attraction vers le centroïde de SON service.
+          const s = sums.get(svc);
+          if (s && s.count >= 2) {
+            const cx = s.x / s.count;
+            const cy = s.y / s.count;
+            n.vx = (n.vx ?? 0) + (cx - x) * strength * alpha;
+            n.vy = (n.vy ?? 0) + (cy - y) * strength * alpha;
+          }
+          // Séparation : répulsion par rapport aux centroïdes des AUTRES
+          // services → creuse le désert entre zones. Pas pour les ponts.
+          if (SERVICE_SEPARATION_STRENGTH > 0 && !serviceBridge.has(n.index)) {
+            for (const [osvc, os] of sums) {
+              if (osvc === svc) continue;
+              const ocx = os.x / os.count;
+              const ocy = os.y / os.count;
+              const dx = x - ocx;
+              const dy = y - ocy;
+              const d = Math.hypot(dx, dy) || 1;
+              const f = SERVICE_SEPARATION_STRENGTH * alpha * (SERVICE_SEPARATION_RANGE / d);
+              n.vx = (n.vx ?? 0) + (dx / d) * f;
+              n.vy = (n.vy ?? 0) + (dy / d) * f;
+            }
+          }
         }
       },
       { initialize: (nodes: GalaxySimNode[]) => { forceNodes = nodes; } },
     );
     sim.force('serviceGravity', serviceForce);
+  }
+
+  // Répulsion de masse : les grosses galaxies poussent leurs voisines au
+  // loin (sauf paires renseignement, qu'on veut proches). Force asymétrique :
+  // seule la voisine bouge, la grosse galaxie reste un point d'ancrage stable.
+  if (applyBigGalaxyRepel) {
+    const rensPairKeys = new Set<string>();
+    if (rensGalaxyPairs) {
+      for (const p of rensGalaxyPairs) {
+        const k = p.aIdx < p.bIdx ? `${p.aIdx}|${p.bIdx}` : `${p.bIdx}|${p.aIdx}`;
+        rensPairKeys.add(k);
+      }
+    }
+    const hasBig = simNodes.some(n => n.r > BIG_GALAXY_REPEL_THRESHOLD);
+    if (hasBig) {
+      let forceNodes: GalaxySimNode[] = simNodes;
+      const bigRepel: Force<GalaxySimNode, undefined> = Object.assign(
+        (alpha: number) => {
+          for (const big of forceNodes) {
+            if (big.r <= BIG_GALAXY_REPEL_THRESHOLD) continue;
+            const mass = big.r - SYSTEM_RADIUS;
+            const bx = Number.isFinite(big.x) ? big.x! : 0;
+            const by = Number.isFinite(big.y) ? big.y! : 0;
+            for (const h of forceNodes) {
+              if (h === big) continue;
+              const key = big.index < h.index ? `${big.index}|${h.index}` : `${h.index}|${big.index}`;
+              if (rensPairKeys.has(key)) continue;
+              const hx = Number.isFinite(h.x) ? h.x! : 0;
+              const hy = Number.isFinite(h.y) ? h.y! : 0;
+              const dx = hx - bx;
+              const dy = hy - by;
+              const d = Math.hypot(dx, dy) || 1;
+              // Portée bornée : au-delà de RANGE_RATIO × rayon, effet nul.
+              const range = big.r * BIG_GALAXY_REPEL_RANGE_RATIO;
+              if (d >= range) continue;
+              // Profil quasi-1/d² (fort tout près, négligeable au loin) + fondu
+              // linéaire jusqu'à 0 à la portée max pour éviter une coupure nette.
+              const taper = 1 - d / range;
+              const f = (BIG_GALAXY_REPEL_STRENGTH * alpha * mass * taper * taper) / d;
+              h.vx = (h.vx ?? 0) + (dx / d) * f;
+              h.vy = (h.vy ?? 0) + (dy / d) * f;
+            }
+          }
+        },
+        { initialize: (nodes: GalaxySimNode[]) => { forceNodes = nodes; } },
+      );
+      sim.force('bigGalaxyRepel', bigRepel);
+    }
+  }
+
+  // Ressort centrifuge : maintient les galaxies isolées (ni service ni lien)
+  // sur l'anneau périphérique, pour qu'elles ne dérivent pas vers le centre
+  // ni dans le désert entre zones.
+  if (isolatedSet.size > 0) {
+    let forceNodes: GalaxySimNode[] = simNodes;
+    const centrifugal: Force<GalaxySimNode, undefined> = Object.assign(
+      (alpha: number) => {
+        for (const n of forceNodes) {
+          if (!isolatedSet.has(n.index)) continue;
+          const x = Number.isFinite(n.x) ? n.x! : 0;
+          const y = Number.isFinite(n.y) ? n.y! : 0;
+          const dist = Math.hypot(x, y) || 1;
+          // Ressort vers l'anneau : pousse dehors si trop au centre, retient si trop loin.
+          const f = (SERVICE_PERIPHERY_RADIUS - dist) * ORPHAN_CENTRIFUGAL_STRENGTH * alpha;
+          n.vx = (n.vx ?? 0) + (x / dist) * f;
+          n.vy = (n.vy ?? 0) + (y / dist) * f;
+        }
+      },
+      { initialize: (nodes: GalaxySimNode[]) => { forceNodes = nodes; } },
+    );
+    sim.force('orphanCentrifugal', centrifugal);
   }
 
   sim.stop();
