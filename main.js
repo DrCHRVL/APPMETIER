@@ -2415,6 +2415,125 @@ function setupIpcHandlers() {
     }
   })
 
+  // ========================================================================
+  // SYNCHRONISATION DU MODULE INSTRUCTION (privée par utilisateur)
+  // ========================================================================
+  // Les dossiers d'instruction sont propres à chaque magistrat. Chaque
+  // utilisateur choisit son propre dossier réseau (basePath) dans les
+  // paramètres ; ses dossiers y sont sauvegardés dans un fichier dédié
+  // <safeUser>-instructions.json, isolé de ceux des autres utilisateurs.
+  // Aucune fusion inter-utilisateurs : c'est une sauvegarde réseau + une
+  // synchro multi-postes pour un seul et même utilisateur.
+  const instructionFileName = (username) => `${sanitizeUsername(username)}-instructions.json`
+  const instructionBackupDir = (basePath) => path.join(basePath, 'backups')
+
+  ipcMain.handle('instructionSync:check', async (event, basePath) => {
+    if (skipIfUnreachable()) return false
+    try {
+      if (!basePath || typeof basePath !== 'string') return false
+      await withTimeout(
+        fs.promises.access(basePath, fs.constants.F_OK),
+        NET_READ_TIMEOUT_MS,
+        'instructionSync check'
+      )
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  ipcMain.handle('instructionSync:pull', async (event, basePath, username) => {
+    if (skipIfUnreachable()) return null
+    try {
+      if (!basePath || !sanitizeUsername(username)) return null
+      const filePath = path.join(basePath, instructionFileName(username))
+      const content = await withTimeout(
+        fs.promises.readFile(filePath, 'utf8').catch(err => {
+          if (err.code === 'ENOENT') return ''
+          throw err
+        }),
+        NET_READ_TIMEOUT_MS,
+        'instructionSync pull'
+      )
+      if (!content || !content.trim()) return null
+      return JSON.parse(content)
+    } catch (error) {
+      console.error('❌ InstructionSync: Erreur lecture:', error.message)
+      throw new Error(`Erreur lecture serveur instruction: ${error.message}`)
+    }
+  })
+
+  ipcMain.handle('instructionSync:push', async (event, basePath, username, payload) => {
+    if (skipIfUnreachable()) {
+      throw new Error('Réseau injoignable, sauvegarde instruction reportée')
+    }
+    try {
+      if (!basePath) throw new Error('Chemin réseau non configuré')
+      if (!sanitizeUsername(username)) throw new Error('Utilisateur invalide')
+      const filePath = path.join(basePath, instructionFileName(username))
+      const backupDir = instructionBackupDir(basePath)
+      await withTimeout(
+        fs.promises.mkdir(backupDir, { recursive: true }).catch(() => {}),
+        NET_WRITE_TIMEOUT_MS,
+        'instructionSync mkdir'
+      )
+      // Backup non bloquant de la version précédente avant écrasement
+      try {
+        const timestamp = new Date().toISOString().replace(/:/g, '-')
+        const base = instructionFileName(username).replace(/\.json$/i, '')
+        await withTimeout(
+          fs.promises.copyFile(filePath, path.join(backupDir, `${base}-backup-${timestamp}.json`)),
+          NET_WRITE_TIMEOUT_MS,
+          'instructionSync backup'
+        )
+      } catch {
+        // Premier write : pas de fichier source, normal
+      }
+      await withTimeout(
+        fs.promises.writeFile(filePath, JSON.stringify(payload), 'utf8'),
+        NET_WRITE_TIMEOUT_MS,
+        'instructionSync push'
+      )
+      return true
+    } catch (error) {
+      console.error('❌ InstructionSync: Erreur écriture:', error.message)
+      throw new Error(`Erreur sauvegarde réseau instruction: ${error.message}`)
+    }
+  })
+
+  ipcMain.handle('instructionSync:listBackups', async (event, basePath, username) => {
+    try {
+      if (!basePath || !sanitizeUsername(username)) return []
+      const backupDir = instructionBackupDir(basePath)
+      if (!fs.existsSync(backupDir)) return []
+      const prefix = `${instructionFileName(username).replace(/\.json$/i, '')}-backup-`
+      return fs.readdirSync(backupDir)
+        .filter(f => f.startsWith(prefix) && f.endsWith('.json'))
+        .sort()
+        .reverse()
+    } catch (error) {
+      console.error('❌ InstructionSync: Erreur listage backups:', error.message)
+      return []
+    }
+  })
+
+  ipcMain.handle('instructionSync:readBackup', async (event, basePath, username, filename) => {
+    try {
+      if (!basePath || !sanitizeUsername(username)) return null
+      const prefix = `${instructionFileName(username).replace(/\.json$/i, '')}-backup-`
+      if (!filename || !filename.startsWith(prefix) || !filename.endsWith('.json')) {
+        console.error(`❌ InstructionSync: Lecture refusée pour "${filename}" (nom non autorisé)`)
+        return null
+      }
+      const filePath = path.join(instructionBackupDir(basePath), filename)
+      if (!fs.existsSync(filePath)) return null
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+    } catch (error) {
+      console.error('❌ InstructionSync: Erreur lecture backup:', error.message)
+      return null
+    }
+  })
+
   // === SCAN DES DOCUMENTS PDF DU CHEMIN EXTERNE POUR ANALYSE AUTOMATIQUE ===
   ipcMain.handle('documents:scan-external-pdfs', async (event, externalPath, enqueteNumero, useSubfolder = true) => {
     try {

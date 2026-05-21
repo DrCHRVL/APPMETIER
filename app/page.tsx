@@ -117,6 +117,7 @@ import { ConflictAction, SyncConflict, SyncData } from '@/types/dataSyncTypes';
 import { useMultiSyncStatus } from '@/hooks/useMultiSyncStatus';
 import { DataSyncManager } from '@/utils/dataSync/DataSyncManager';
 import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
+import { instructionSyncService } from '@/utils/dataSync/InstructionSyncService';
 import { UpdateChangelogModal } from '@/components/modals/UpdateChangelogModal';
 
 // 🆕 Multi-contentieux
@@ -235,7 +236,7 @@ function AppContent() {
     contentieuxColor?: string;
     enquetes: any[];
   }>>([]);
-  const { subscribedContentieux: weeklySubscribedIds, crDelayHighlight, instructionWeeklyRecapSubscribed } = useUserPreferences();
+  const { subscribedContentieux: weeklySubscribedIds, crDelayHighlight, instructionWeeklyRecapSubscribed, instructionNetworkPath } = useUserPreferences();
 
   // Construit les buckets pour le récap hebdo : intersection des contentieux
   // abonnés et des contentieux actuellement accessibles à l'utilisateur, en
@@ -406,6 +407,16 @@ function AppContent() {
       backupManager.stopAutomaticBackup();
     };
   }, []);
+
+  // Sauvegarde réseau privée du module instruction : active uniquement si le
+  // module est activé pour l'utilisateur ET qu'un dossier réseau est configuré.
+  useEffect(() => {
+    const enabled = hasModule('instructions');
+    instructionSyncService.configure(
+      enabled ? (user?.windowsUsername || null) : null,
+      enabled ? instructionNetworkPath : null,
+    );
+  }, [hasModule, user?.windowsUsername, instructionNetworkPath]);
 
   useEffect(() => {
     setIsClient(true);

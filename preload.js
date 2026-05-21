@@ -198,6 +198,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('dataSync:readContentieuxBackup', contentieuxId, filename),
 
   // ========================================================================
+  // SYNCHRONISATION MODULE INSTRUCTION (privée par utilisateur)
+  // basePath = dossier réseau choisi par l'utilisateur dans les paramètres.
+  // ========================================================================
+  instructionSync_check: (basePath) =>
+    ipcRenderer.invoke('instructionSync:check', basePath),
+  instructionSync_pull: (basePath, username) =>
+    ipcRenderer.invoke('instructionSync:pull', basePath, username),
+  instructionSync_push: (basePath, username, payload) =>
+    ipcRenderer.invoke('instructionSync:push', basePath, username, payload),
+  instructionSync_listBackups: (basePath, username) =>
+    ipcRenderer.invoke('instructionSync:listBackups', basePath, username),
+  instructionSync_readBackup: (basePath, username, filename) =>
+    ipcRenderer.invoke('instructionSync:readBackup', basePath, username, filename),
+
+  // ========================================================================
   // HEARTBEAT, ÉVÉNEMENTS PARTAGÉS, JOURNAL D'AUDIT
   // ========================================================================
 

@@ -14,8 +14,11 @@ class BackupManager {
   // Liste des données importantes pour les sauvegardes sélectives
   // Inclut les clés globales (rétrocompat) ET les clés préfixées par contentieux
   private static readonly CONTENTIEUX_IDS = ['crimorg', 'ecofi', 'enviro'];
+  // Note : les dossiers d'instruction ne sont PAS préfixés par contentieux.
+  // Ils sont stockés par utilisateur sous `instructions__<windowsUsername>`
+  // (cf. useInstructions) et capturés dynamiquement dans createBackup().
   private static readonly CONTENTIEUX_SUFFIXES = [
-    'enquetes', 'instructions', 'alertRules', 'alerts', 'alertValidations',
+    'enquetes', 'alertRules', 'alerts', 'alertValidations',
     'customTags', 'visualAlertRules', 'audienceResultats'
   ];
   private static readonly MAIN_DATA_KEYS = [
@@ -27,6 +30,22 @@ class BackupManager {
       BackupManager.CONTENTIEUX_SUFFIXES.map(suffix => `ctx_${ctx}_${suffix}`)
     ),
   ];
+
+  /**
+   * Découvre les clés du module instruction (par utilisateur) à inclure dans
+   * la sauvegarde sélective : `instructions__<user>` et les tombstones
+   * `instructions_deleted__<user>`. Le suffixe utilisateur étant dynamique,
+   * on énumère les clés réellement présentes dans data.json.
+   */
+  private static async getInstructionKeys(): Promise<string[]> {
+    try {
+      const all = (await window.electronAPI?.getAllKeys?.()) || [];
+      const base = APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS;
+      return all.filter(k => k.startsWith(`${base}__`) || k.startsWith(`${base}_deleted__`));
+    } catch {
+      return [];
+    }
+  }
 
   private backupTimerId: NodeJS.Timeout | null = null;
   private dataJsonTimerId: NodeJS.Timeout | null = null;
@@ -268,8 +287,14 @@ class BackupManager {
     try {
       const backupData: Record<string, any> = {};
       let totalDataSize = 0;
-      
-      for (const key of BackupManager.MAIN_DATA_KEYS) {
+
+      // Clés fixes + clés d'instruction par utilisateur (instructions__<user>
+      // et leurs tombstones instructions_deleted__<user>), découvertes
+      // dynamiquement car le nom dépend de l'utilisateur Windows.
+      const dynamicKeys = await BackupManager.getInstructionKeys();
+      const allKeys = [...BackupManager.MAIN_DATA_KEYS, ...dynamicKeys];
+
+      for (const key of allKeys) {
         const data = await ElectronBridge.getData(key, null);
         if (data) {
           backupData[key] = data;
