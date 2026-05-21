@@ -109,6 +109,7 @@ import { ElectronBridge } from '@/utils/electronBridge';
 import { OPTimeline } from '@/components/OPTimeline';
 import { TodoReminderBar } from '@/components/TodoReminderBar';
 import { PendingActsJLD } from '@/components/PendingActsJLD';
+import { PendingPose } from '@/components/PendingPose';
 
 // 🆕 Imports pour la synchronisation des données
 import { useDataSync } from '@/hooks/useDataSync';
@@ -1273,7 +1274,7 @@ return (
                 contentieuxDefs={contentieuxDefs}
                 onEnqueteClick={handleViewEnquete}
               />
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
                 <TodoReminderBar
                   enquetes={activeEnquetes}
                   globalTodos={globalTodos}
@@ -1282,6 +1283,10 @@ return (
                   onOpenEnquete={handleViewEnquete}
                 />
                 <PendingActsJLD
+                  enquetes={activeEnquetes}
+                  onOpenEnquete={handleViewEnquete}
+                />
+                <PendingPose
                   enquetes={activeEnquetes}
                   onOpenEnquete={handleViewEnquete}
                 />
