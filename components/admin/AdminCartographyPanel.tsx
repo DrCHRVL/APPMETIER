@@ -81,6 +81,13 @@ export const AdminCartographyPanel: React.FC = () => {
     [getTagsByCategory],
   );
 
+  // Tampon d'édition local : permet la saisie libre tout en gardant les
+  // champs synchronisés sur la config persistée. On le vide à chaque
+  // changement de `config` (commit, reset…) pour que les inputs reflètent
+  // toujours l'état réel.
+  const [draft, setDraft] = React.useState<Record<string, string>>({});
+  React.useEffect(() => { setDraft({}); }, [config]);
+
   const handleWeightChange = async (key: keyof CartographieScoreWeights, value: string) => {
     const n = parseFloat(value);
     if (Number.isNaN(n)) return;
@@ -138,7 +145,8 @@ export const AdminCartographyPanel: React.FC = () => {
                 type="number"
                 step={f.step ?? 1}
                 min={f.min}
-                defaultValue={config.weights[f.key]}
+                value={draft[`w:${f.key}`] ?? String(config.weights[f.key])}
+                onChange={(e) => setDraft(d => ({ ...d, [`w:${f.key}`]: e.target.value }))}
                 onBlur={(e) => handleWeightChange(f.key, e.target.value)}
                 className="border border-slate-300 rounded-md px-3 py-1.5 text-sm text-right tabular-nums"
               />
@@ -203,7 +211,8 @@ export const AdminCartographyPanel: React.FC = () => {
                   <input
                     type="number"
                     step={0.5}
-                    defaultValue={current}
+                    value={draft[`t:${tag.id}`] ?? String(current)}
+                    onChange={(e) => setDraft(d => ({ ...d, [`t:${tag.id}`]: e.target.value }))}
                     onBlur={(e) => handleTagWeightChange(tag.id, e.target.value)}
                     className="border border-slate-300 rounded-md px-2 py-1 text-sm text-right tabular-nums"
                   />

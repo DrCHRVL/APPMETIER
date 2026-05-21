@@ -57,12 +57,12 @@ class CartographieConfigManagerService {
       ...config,
       updatedAt: new Date().toISOString(),
     };
-    const ok = await ElectronBridge.setData(CONFIG_KEY, next);
-    if (ok) {
-      this.cache = next;
-      this.emit(next);
-    }
-    return ok;
+    await ElectronBridge.setData(CONFIG_KEY, next);
+    this.cache = next;
+    this.emit(next);
+    // Écriture disque immédiate : ces réglages sont souvent modifiés puis on
+    // quitte/recharge l'app aussitôt, avant l'expiration du délai temporisé.
+    return ElectronBridge.flush(CONFIG_KEY);
   }
 
   async refresh(): Promise<CartographieModuleConfig> {
