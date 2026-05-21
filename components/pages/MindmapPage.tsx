@@ -275,8 +275,12 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     if (node.type === 'mec') setSidePanelMecId(node.id);
   };
 
+  // Actualiser : rafraîchit uniquement les données sources, sans toucher au
+  // layout. On NE bump PAS `refreshKey` — sinon useForceLayout repasse en
+  // `warmFull` (re-simulation qui fait pivoter/écarter les nœuds) et la
+  // caméra se recadre via fitView. Les positions existantes restent figées ;
+  // les éventuels nouveaux nœuds sont placés de façon incrémentale.
   const handleRefresh = () => {
-    setRefreshKey(k => k + 1);
     if (onRefresh) onRefresh();
   };
 

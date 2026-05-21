@@ -108,6 +108,20 @@ class ElectronBridgeService {
     return true;
   }
   
+  // Force l'écriture disque immédiate d'une clé en attente (annule le délai
+  // de 2,5 s) et attend le résultat réel. À utiliser pour les réglages qu'on
+  // édite puis quitte/recharge aussitôt, sinon la sauvegarde temporisée peut
+  // être perdue avant son déclenchement.
+  public async flush(key: string): Promise<boolean> {
+    const timeout = this.pendingSaves.get(key);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.pendingSaves.delete(key);
+    }
+    if (!this.dataCache.has(key)) return true;
+    return this.setDataInternal(key, this.dataCache.get(key));
+  }
+
   // Méthode interne qui effectue la sauvegarde réelle
   private async setDataInternal<T>(key: string, value: T): Promise<boolean> {
     if (!this.isElectronAvailable) {
