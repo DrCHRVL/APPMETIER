@@ -145,6 +145,11 @@ export function useUserPreferences() {
     await refresh();
   }, [refresh]);
 
+  const setInstructionNetworkPath = useCallback(async (networkPath: string) => {
+    await userPreferencesSyncService.setInstructionNetworkPath(networkPath);
+    await refresh();
+  }, [refresh]);
+
   const subscribedContentieux: string[] = prefs?.weeklyRecap?.subscribedContentieux || [];
   const serviceOrganization = prefs?.serviceOrganization;
   const subscribedContentieuxAlerts = prefs?.subscribedContentieuxAlerts;
@@ -154,6 +159,7 @@ export function useUserPreferences() {
   const instructionAlerts = prefs?.instructionAlerts;
   const instructionAlertRules = prefs?.instructionAlertRules;
   const instructionWeeklyRecapSubscribed = prefs?.instructionWeeklyRecapSubscribed ?? false;
+  const instructionNetworkPath = prefs?.instructionNetworkPath ?? '';
 
   return {
     prefs,
@@ -183,6 +189,8 @@ export function useUserPreferences() {
     seedInstructionAlertRules,
     instructionWeeklyRecapSubscribed,
     setInstructionWeeklyRecapSubscribed,
+    instructionNetworkPath,
+    setInstructionNetworkPath,
     refresh,
   };
 }

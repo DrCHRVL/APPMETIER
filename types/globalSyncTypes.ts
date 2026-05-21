@@ -192,6 +192,13 @@ export interface UserPreferencesFile extends GlobalSyncMetadata {
    * true = inclure les instructions dans le récap hebdo.
    */
   instructionWeeklyRecapSubscribed?: boolean;
+  /**
+   * Dossier réseau choisi par l'utilisateur pour la sauvegarde / synchro
+   * de ses dossiers d'instruction (module instruction). Vide ou absent =
+   * sauvegarde locale uniquement. Propre à chaque utilisateur ; les
+   * dossiers ne sont jamais partagés avec d'autres magistrats.
+   */
+  instructionNetworkPath?: string;
 }
 
 /**

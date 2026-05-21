@@ -132,6 +132,19 @@ interface ElectronAPI {
   dataSync_readContentieuxBackup?: (contentieuxId: string, filename: string) => Promise<{ data: import('./dataSyncTypes').SyncData; metadata: import('./dataSyncTypes').SyncMetadata | null } | null>;
   getCurrentUser?: () => Promise<{ displayName: string; computerName: string }>;
 
+  // Synchronisation module instruction (sauvegarde réseau privée par utilisateur).
+  // basePath = dossier réseau choisi par l'utilisateur dans les paramètres.
+  /** Vérifie que le dossier réseau instruction est accessible. */
+  instructionSync_check?: (basePath: string) => Promise<boolean>;
+  /** Lit le fichier <user>-instructions.json du dossier réseau. */
+  instructionSync_pull?: (basePath: string, username: string) => Promise<import('./instructionSyncTypes').InstructionSyncFile | null>;
+  /** Écrit le fichier <user>-instructions.json (backup automatique avant écrasement). */
+  instructionSync_push?: (basePath: string, username: string, payload: import('./instructionSyncTypes').InstructionSyncFile) => Promise<boolean>;
+  /** Liste les backups instruction de l'utilisateur, du plus récent au plus ancien. */
+  instructionSync_listBackups?: (basePath: string, username: string) => Promise<string[]>;
+  /** Lit un backup instruction et retourne son contenu parsé. */
+  instructionSync_readBackup?: (basePath: string, username: string, filename: string) => Promise<import('./instructionSyncTypes').InstructionSyncFile | null>;
+
   // Heartbeat
   writeHeartbeat?: (username: string, heartbeat: any) => Promise<boolean>;
   removeHeartbeat?: (username: string) => Promise<boolean>;

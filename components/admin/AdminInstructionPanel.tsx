@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Plus, Edit2, X, Check, Power, PowerOff, AlertTriangle, Trash2, Bell, RotateCcw } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Plus, Edit2, X, Check, Power, PowerOff, AlertTriangle, Trash2, Bell, RotateCcw, Network, FolderOpen, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
 import { useInstructionAlertRules } from '@/hooks/useInstructionAlertRules';
 import { useInstructionCustomTypes } from '@/hooks/useInstructionCustomTypes';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
+import { instructionSyncService } from '@/utils/dataSync/InstructionSyncService';
 import { CABINET_COLOR_PALETTE, INSTRUCTION_TRIGGER_LABELS } from '@/config/instructionConfig';
 import { cabinetSlug } from '@/utils/instructionConfigManager';
 import type { Cabinet } from '@/types/instructionTypes';
@@ -433,9 +434,172 @@ export const AdminInstructionPanel = () => {
       {/* ─── TYPES PERSONNALISÉS (timeline + expertises) ─── */}
       <CustomTypesSection />
 
+      {/* ─── SAUVEGARDE RÉSEAU (privée par utilisateur) ─── */}
+      <NetworkBackupSection />
+
       {/* ─── RAPPEL HEBDO ─── */}
       <WeeklyRecapSection />
     </div>
+  );
+};
+
+// ──────────────────────────────────────────────
+// SECTION SAUVEGARDE RÉSEAU (privée par utilisateur)
+// ──────────────────────────────────────────────
+
+const NetworkBackupSection = () => {
+  const { instructionNetworkPath, setInstructionNetworkPath } = useUserPreferences();
+  const { showToast } = useToast();
+
+  const [pathInput, setPathInput] = useState('');
+  const [validating, setValidating] = useState(false);
+  const [valid, setValid] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<string | null>(null);
+
+  // Synchronise le champ avec la valeur persistée (et au pull réseau des prefs)
+  useEffect(() => {
+    setPathInput(instructionNetworkPath || '');
+  }, [instructionNetworkPath]);
+
+  // Rafraîchit le statut (dernière synchro) périodiquement tant que la section est ouverte
+  useEffect(() => {
+    const tick = () => setLastSync(instructionSyncService.getStatus().lastSuccessfulSync);
+    tick();
+    const id = setInterval(tick, 3000);
+    return () => clearInterval(id);
+  }, []);
+
+  const validatePath = useCallback(async (value: string) => {
+    if (!value.trim()) { setValid(null); return; }
+    setValidating(true);
+    try {
+      const ok = await (window as any).electronAPI?.validatePath?.(value.trim());
+      setValid(!!ok);
+    } catch {
+      setValid(false);
+    }
+    setValidating(false);
+  }, []);
+
+  const handleSelectFolder = async () => {
+    const selected = await (window as any).electronAPI?.selectFolder?.();
+    if (selected) {
+      setPathInput(selected);
+      validatePath(selected);
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await setInstructionNetworkPath(pathInput.trim());
+      showToast(
+        pathInput.trim()
+          ? 'Dossier réseau enregistré. Vos dossiers d\'instruction y seront sauvegardés.'
+          : 'Sauvegarde réseau désactivée (sauvegarde locale uniquement).',
+        'success',
+      );
+    } catch {
+      showToast('Erreur lors de l\'enregistrement', 'error');
+    }
+    setSaving(false);
+  };
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    try {
+      const result = await instructionSyncService.triggerSync();
+      if (result.success) {
+        showToast('Synchronisation réussie', 'success');
+        setLastSync(instructionSyncService.getStatus().lastSuccessfulSync);
+      } else {
+        showToast(result.error || 'Échec de la synchronisation', 'error');
+      }
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const dirty = (instructionNetworkPath || '') !== pathInput.trim();
+
+  return (
+    <section className="space-y-3">
+      <div>
+        <h3 className="text-base font-semibold text-gray-800 flex items-center gap-1.5">
+          <Network className="h-4 w-4 text-gray-500" />
+          Sauvegarde réseau de vos dossiers
+        </h3>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Choisissez un dossier réseau où sauvegarder vos dossiers d'instruction. Ils y
+          seront enregistrés automatiquement et synchronisés entre vos différents postes.
+          Vos dossiers restent <strong>privés</strong> : ils ne sont jamais partagés avec
+          les autres utilisateurs. Laissez vide pour une sauvegarde locale uniquement.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium text-gray-700">Dossier réseau</label>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={pathInput}
+              onChange={(e) => { setPathInput(e.target.value); setValid(null); }}
+              onBlur={() => validatePath(pathInput)}
+              placeholder="Ex: P:\TGI\Parquet\...\Mes instructions"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent pr-8"
+            />
+            <div className="absolute right-2 top-1/2 -translate-y-1/2">
+              {validating && <Loader2 className="h-4 w-4 text-gray-400 animate-spin" />}
+              {!validating && valid === true && <Check className="h-4 w-4 text-green-500" />}
+              {!validating && valid === false && <AlertCircle className="h-4 w-4 text-red-500" />}
+            </div>
+          </div>
+          <button
+            onClick={handleSelectFolder}
+            className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            title="Parcourir"
+          >
+            <FolderOpen className="h-4 w-4 text-gray-600" />
+          </button>
+        </div>
+        {valid === false && (
+          <p className="text-xs text-red-500">Chemin inaccessible ou non inscriptible</p>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div className="text-xs text-gray-500">
+          {instructionNetworkPath
+            ? (lastSync
+                ? `Dernière synchro : ${new Date(lastSync).toLocaleString('fr-FR')}`
+                : 'Sauvegarde réseau active — synchro en attente.')
+            : 'Sauvegarde locale uniquement.'}
+        </div>
+        <div className="flex items-center gap-2">
+          {instructionNetworkPath && !dirty && (
+            <button
+              onClick={handleSyncNow}
+              disabled={syncing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Synchroniser
+            </button>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={saving || !dirty}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+            Enregistrer
+          </button>
+        </div>
+      </div>
+    </section>
   );
 };
 

@@ -12,6 +12,7 @@ import throttle from 'lodash/throttle';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { useUser } from '@/contexts/UserContext';
+import { instructionSyncService } from '@/utils/dataSync/InstructionSyncService';
 import type {
   DossierInstruction,
   NewDossierInstructionData,
@@ -93,6 +94,14 @@ export const useInstructions = () => {
     void reload();
   }, [username, reload]);
 
+  // Re-hydrate quand la synchro réseau (privée par utilisateur) rapatrie des
+  // dossiers modifiés sur un autre poste du même magistrat.
+  useEffect(() => {
+    const onSync = () => { void reload(); };
+    window.addEventListener('instructions-sync-completed', onSync);
+    return () => window.removeEventListener('instructions-sync-completed', onSync);
+  }, [reload]);
+
   useEffect(() => {
     dossiersRef.current = dossiers;
   }, [dossiers]);
@@ -110,7 +119,11 @@ export const useInstructions = () => {
       if (!key) return; // pas d'utilisateur connecté → on n'écrit nulle part
       try {
         const ok = await ElectronBridge.setData(key, dossiersRef.current);
-        if (ok) isDirtyRef.current = false;
+        if (ok) {
+          isDirtyRef.current = false;
+          // Sauvegarde réseau privée (no-op si aucun dossier réseau configuré)
+          instructionSyncService.schedulePush();
+        }
       } catch (e) {
         console.error('useInstructions: erreur de sauvegarde', e);
       }
@@ -169,6 +182,8 @@ export const useInstructions = () => {
 
   const deleteDossier = useCallback(
     (id: number) => {
+      // Tombstone pour propager la suppression aux autres postes du magistrat.
+      void instructionSyncService.recordDeletion(id);
       mutate(prev => prev.filter(d => d.id !== id));
     },
     [mutate],
@@ -183,9 +198,11 @@ export const useInstructions = () => {
       const key = storageKeyRef.current;
       if (key && isDirtyRef.current && !isLoadingRef.current) {
         // sauvegarde synchrone-ish (best-effort)
-        ElectronBridge.setData(key, dossiersRef.current).catch(e =>
-          console.error('useInstructions: sauvegarde finale échouée', e),
-        );
+        ElectronBridge.setData(key, dossiersRef.current)
+          .then(() => instructionSyncService.schedulePush())
+          .catch(e =>
+            console.error('useInstructions: sauvegarde finale échouée', e),
+          );
       }
     };
   }, [persist]);
