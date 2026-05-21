@@ -221,7 +221,7 @@ export const DossierTimelineSection: React.FC<Props> = ({
 
     for (const mex of dossier.misEnExamen) {
       if (mex.mesureSurete.type === 'detenu') {
-        for (const periode of mex.mesureSurete.periodes) {
+        for (const periode of mex.mesureSurete.periodes ?? []) {
           list.push({
             key: `dp-debut-${mex.id}-${periode.id}`,
             date: new Date(periode.dateDebut),

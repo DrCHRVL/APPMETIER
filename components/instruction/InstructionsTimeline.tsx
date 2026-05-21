@@ -75,7 +75,7 @@ export const InstructionsTimeline = ({
       // Fins de DP
       for (const mex of dossier.misEnExamen) {
         if (mex.mesureSurete.type !== 'detenu') continue;
-        const periode = [...mex.mesureSurete.periodes].sort(
+        const periode = [...(mex.mesureSurete.periodes ?? [])].sort(
           (a, b) => new Date(b.dateDebut).getTime() - new Date(a.dateDebut).getTime(),
         )[0];
         if (!periode?.dateFin) continue;
