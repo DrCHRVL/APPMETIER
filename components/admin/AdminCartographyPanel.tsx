@@ -56,6 +56,13 @@ const WEIGHT_FIELDS: WeightFieldDef[] = [
     min: 0,
   },
   {
+    key: 'lienRenseignementInfractionCoef',
+    label: 'Coef. infraction via lien',
+    helper: 'Quand un MEC est rattaché à un dossier (réel ou ex nihilo) par un simple lien de renseignement, il reçoit ce pourcentage du bonus d\'infraction du dossier. 0.8 = 80 %, 0 = ignore.',
+    step: 0.1,
+    min: 0,
+  },
+  {
     key: 'recentMultiplier',
     label: 'Multiplicateur "récent"',
     helper: '×1.0 = neutre. Appliqué si au moins un dossier a été touché dans les 12 derniers mois.',
@@ -143,7 +150,9 @@ export const AdminCartographyPanel: React.FC = () => {
           <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
           <p>
             Score = (dossiers × poids) + (contentieux × poids) + (ME × poids) + (chefs ×
-            poids) + (liens × poids) + bonus infraction. Multiplié par le coefficient
+            poids) + (liens × poids) + bonus infraction. Un MEC relié à un dossier par
+            un lien de renseignement reçoit en plus le bonus d&apos;infraction de ce
+            dossier × le coef. ci-dessus. Le tout est multiplié par le coefficient
             «&nbsp;récent&nbsp;» si au moins un dossier date des 12 derniers mois.
           </p>
         </div>

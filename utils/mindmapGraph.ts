@@ -256,8 +256,15 @@ export function buildMindmapGraph(
     if (!v || !w) continue;
     tagWeightByValueLc.push([v.toLowerCase(), w]);
   }
+  const lienInfractionCoef =
+    weights.lienRenseignementInfractionCoef ??
+    DEFAULT_CARTO_WEIGHTS.lienRenseignementInfractionCoef;
   const mecById = new Map<string, MecNode>();
   const dossierById = new Map<string, DossierNode>();
+  // Bonus d'infraction "au niveau dossier" (réel ou ex nihilo). Sert à
+  // accorder une fraction (coef) de ce bonus aux MEC rattachés au dossier
+  // par un simple lien de renseignement.
+  const dossierInfractionBonusById = new Map<string, number>();
   const edges: GraphEdge[] = [];
   const edgeKeys = new Set<string>();
 
@@ -278,6 +285,9 @@ export function buildMindmapGraph(
     const chefsByCanonical = new Map<string, number>();
     const infractionWeightByCanonical = new Map<string, number>();
     const examenedCanonical = new Set<string>();
+    // Tags d'infraction distincts rencontrés dans tout le dossier (chacun
+    // compté une fois) → bonus "au niveau dossier" pour les liens renseignement.
+    const dossierMatchedTagW = new Map<string, number>();
     if (misEnExamen) {
       for (const exa of misEnExamen) {
         const canonical = normalizeMecName(exa.nom);
@@ -293,7 +303,10 @@ export function buildMindmapGraph(
             const q = (inf.qualification || '').toLowerCase();
             if (!q) continue;
             for (const [tagValueLc, w] of tagWeightByValueLc) {
-              if (q.includes(tagValueLc)) bonus += w;
+              if (q.includes(tagValueLc)) {
+                bonus += w;
+                dossierMatchedTagW.set(tagValueLc, w);
+              }
             }
           }
           if (bonus > 0) {
@@ -319,6 +332,12 @@ export function buildMindmapGraph(
       services: enquete.services,
     };
     dossierById.set(dossierId, dossierNode);
+
+    if (dossierMatchedTagW.size > 0) {
+      let dossierBonus = 0;
+      for (const w of dossierMatchedTagW.values()) dossierBonus += w;
+      if (dossierBonus > 0) dossierInfractionBonusById.set(dossierId, dossierBonus);
+    }
 
     // Parcours des MEC du dossier
     for (const mec of enquete.misEnCause) {
@@ -448,6 +467,7 @@ export function buildMindmapGraph(
           if (w) dossierInfractionBonus += w;
         }
       }
+      if (dossierInfractionBonus > 0) dossierInfractionBonusById.set(d.id, dossierInfractionBonus);
 
       for (const rawMecId of d.mecIds) {
         const canonical = normalizeMecName(rawMecId) || rawMecId;
@@ -510,6 +530,16 @@ export function buildMindmapGraph(
       if (srcMec) srcMec.nbLiensRenseignement += 1;
       const tgtMec = mecById.get(l.target);
       if (tgtMec) tgtMec.nbLiensRenseignement += 1;
+
+      // Lien MEC ↔ dossier : on accorde au MEC une fraction (coef) du bonus
+      // d'infraction du dossier — implication "indirecte", non comptée à plein.
+      if (lienInfractionCoef > 0) {
+        if (srcMec && dossierInfractionBonusById.has(l.target)) {
+          srcMec.infractionWeight += dossierInfractionBonusById.get(l.target)! * lienInfractionCoef;
+        } else if (tgtMec && dossierInfractionBonusById.has(l.source)) {
+          tgtMec.infractionWeight += dossierInfractionBonusById.get(l.source)! * lienInfractionCoef;
+        }
+      }
     }
   }
 

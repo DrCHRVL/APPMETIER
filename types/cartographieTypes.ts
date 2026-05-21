@@ -25,6 +25,11 @@ export interface CartographieScoreWeights {
   chefDefault: number;
   /** Points par lien renseignement attaché au MEC (entrant ou sortant). */
   lienRenseignement: number;
+  /** Coefficient appliqué au bonus d'infraction d'un dossier lorsqu'un MEC y
+   *  est rattaché par un simple lien de renseignement (et non comme mis en
+   *  cause). Permet de récompenser une implication "indirecte" sans la
+   *  compter à plein. 0 = ignore, 0.8 = 80 % du bonus, 1 = plein bonus. */
+  lienRenseignementInfractionCoef: number;
   /** Multiplicateur appliqué si au moins un dossier a été touché dans
    *  la fenêtre "récent" (12 mois). 1.0 = neutralise. */
   recentMultiplier: number;
@@ -68,6 +73,7 @@ export const DEFAULT_CARTO_WEIGHTS: CartographieScoreWeights = {
   miseEnExamen: 1,
   chefDefault: 0.3,
   lienRenseignement: 0,
+  lienRenseignementInfractionCoef: 0.8,
   recentMultiplier: 1.2,
 };
 
