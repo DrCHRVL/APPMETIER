@@ -87,6 +87,26 @@ const HULL_SAT_MAX_ITER = 60;
 /** Itérations / alpha pour la simulation inter-galactique. */
 const GALAXY_SIM_ITERATIONS = 200;
 
+/** Séparation inter-service : répulsion entre les centroïdes de services
+ *  *différents*. C'est cette force (et non la cohésion seule) qui creuse un
+ *  "désert" entre les zones et rend les services lisibles à l'œil. Volontairement
+ *  modérée : elle ne s'applique PAS aux galaxies-pont (reliées par un lien
+ *  renseignement à un autre service), pour ne pas casser ces liens. */
+const SERVICE_SEPARATION_STRENGTH = 0.1;
+/** Échelle de distance de la séparation inter-service : la poussée décroît en
+ *  ~RANGE/d, donc reste bornée et n'explose pas quand deux services sont déjà
+ *  loin l'un de l'autre. */
+const SERVICE_SEPARATION_RANGE = 600;
+
+/** Répulsion "de masse" des grosses galaxies sur leurs voisines : plus une
+ *  galaxie est grosse, plus elle repousse les dossiers alentour (qui n'ont
+ *  rien à voir). Indépendant du regroupement par service. Exemptée pour les
+ *  paires reliées par un lien renseignement (on veut qu'elles restent proches). */
+const BIG_GALAXY_REPEL_STRENGTH = 0.035;
+/** Seuil au-delà duquel une galaxie est considérée "grosse" et se met à
+ *  repousser ses voisines (multiple du rayon nominal d'un système). */
+const BIG_GALAXY_REPEL_THRESHOLD = SYSTEM_RADIUS * 1.5;
+
 /** Halo de répulsion supplémentaire d'une galaxie au-delà de son rayon
  *  estimé. Croit linéairement avec la "taille au-dessus du système
  *  nominal", capé pour rester raisonnable sur les très gros graphes. */
@@ -257,6 +277,7 @@ export function layoutGalaxyCenters(
   cachedCenters?: Map<string, { x: number; y: number }>,
   rensGalaxyPairs?: Array<{ aIdx: number; bIdx: number }>,
   serviceGravity?: ServiceGravityInput,
+  applyBigGalaxyRepel?: boolean,
 ): Map<number, GalaxyPlacement> {
   const result = new Map<number, GalaxyPlacement>();
   if (galaxies.length === 0) return result;
@@ -352,6 +373,17 @@ export function layoutGalaxyCenters(
   // s'agrègent en périphérie.
   if (serviceGravity && serviceGravity.strength > 0 && serviceGravity.serviceByGalaxyIdx.size > 0) {
     const { serviceByGalaxyIdx, strength } = serviceGravity;
+    // Galaxies-pont : reliées par un lien renseignement à une galaxie d'un
+    // service DIFFÉRENT. Exemptées de la séparation inter-service pour ne pas
+    // casser ce lien — elles restent libres de se loger entre les deux zones.
+    const serviceBridge = new Set<number>();
+    if (rensGalaxyPairs) {
+      for (const p of rensGalaxyPairs) {
+        const sa = serviceByGalaxyIdx.get(p.aIdx);
+        const sb = serviceByGalaxyIdx.get(p.bIdx);
+        if (sa && sb && sa !== sb) { serviceBridge.add(p.aIdx); serviceBridge.add(p.bIdx); }
+      }
+    }
     let forceNodes: GalaxySimNode[] = simNodes;
     const serviceForce: Force<GalaxySimNode, undefined> = Object.assign(
       (alpha: number) => {
@@ -368,19 +400,78 @@ export function layoutGalaxyCenters(
         for (const n of forceNodes) {
           const svc = serviceByGalaxyIdx.get(n.index);
           if (!svc) continue;
-          const s = sums.get(svc);
-          if (!s || s.count < 2) continue;
-          const cx = s.x / s.count;
-          const cy = s.y / s.count;
           const x = Number.isFinite(n.x) ? n.x! : 0;
           const y = Number.isFinite(n.y) ? n.y! : 0;
-          n.vx = (n.vx ?? 0) + (cx - x) * strength * alpha;
-          n.vy = (n.vy ?? 0) + (cy - y) * strength * alpha;
+          // Cohésion : attraction vers le centroïde de SON service.
+          const s = sums.get(svc);
+          if (s && s.count >= 2) {
+            const cx = s.x / s.count;
+            const cy = s.y / s.count;
+            n.vx = (n.vx ?? 0) + (cx - x) * strength * alpha;
+            n.vy = (n.vy ?? 0) + (cy - y) * strength * alpha;
+          }
+          // Séparation : répulsion par rapport aux centroïdes des AUTRES
+          // services → creuse le désert entre zones. Pas pour les ponts.
+          if (SERVICE_SEPARATION_STRENGTH > 0 && !serviceBridge.has(n.index)) {
+            for (const [osvc, os] of sums) {
+              if (osvc === svc) continue;
+              const ocx = os.x / os.count;
+              const ocy = os.y / os.count;
+              const dx = x - ocx;
+              const dy = y - ocy;
+              const d = Math.hypot(dx, dy) || 1;
+              const f = SERVICE_SEPARATION_STRENGTH * alpha * (SERVICE_SEPARATION_RANGE / d);
+              n.vx = (n.vx ?? 0) + (dx / d) * f;
+              n.vy = (n.vy ?? 0) + (dy / d) * f;
+            }
+          }
         }
       },
       { initialize: (nodes: GalaxySimNode[]) => { forceNodes = nodes; } },
     );
     sim.force('serviceGravity', serviceForce);
+  }
+
+  // Répulsion de masse : les grosses galaxies poussent leurs voisines au
+  // loin (sauf paires renseignement, qu'on veut proches). Force asymétrique :
+  // seule la voisine bouge, la grosse galaxie reste un point d'ancrage stable.
+  if (applyBigGalaxyRepel) {
+    const rensPairKeys = new Set<string>();
+    if (rensGalaxyPairs) {
+      for (const p of rensGalaxyPairs) {
+        const k = p.aIdx < p.bIdx ? `${p.aIdx}|${p.bIdx}` : `${p.bIdx}|${p.aIdx}`;
+        rensPairKeys.add(k);
+      }
+    }
+    const hasBig = simNodes.some(n => n.r > BIG_GALAXY_REPEL_THRESHOLD);
+    if (hasBig) {
+      let forceNodes: GalaxySimNode[] = simNodes;
+      const bigRepel: Force<GalaxySimNode, undefined> = Object.assign(
+        (alpha: number) => {
+          for (const big of forceNodes) {
+            if (big.r <= BIG_GALAXY_REPEL_THRESHOLD) continue;
+            const mass = big.r - SYSTEM_RADIUS;
+            const bx = Number.isFinite(big.x) ? big.x! : 0;
+            const by = Number.isFinite(big.y) ? big.y! : 0;
+            for (const h of forceNodes) {
+              if (h === big) continue;
+              const key = big.index < h.index ? `${big.index}|${h.index}` : `${h.index}|${big.index}`;
+              if (rensPairKeys.has(key)) continue;
+              const hx = Number.isFinite(h.x) ? h.x! : 0;
+              const hy = Number.isFinite(h.y) ? h.y! : 0;
+              const dx = hx - bx;
+              const dy = hy - by;
+              const d = Math.hypot(dx, dy) || 1;
+              const f = (BIG_GALAXY_REPEL_STRENGTH * alpha * mass) / d;
+              h.vx = (h.vx ?? 0) + (dx / d) * f;
+              h.vy = (h.vy ?? 0) + (dy / d) * f;
+            }
+          }
+        },
+        { initialize: (nodes: GalaxySimNode[]) => { forceNodes = nodes; } },
+      );
+      sim.force('bigGalaxyRepel', bigRepel);
+    }
   }
 
   sim.stop();

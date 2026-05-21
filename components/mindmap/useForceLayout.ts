@@ -83,7 +83,7 @@ const ORPHAN_RECALL_STRENGTH = 0.01;
 // Faible exprès : s'ajoute aux liens (strength 0.6 intra, 0.18 rens macro)
 // sans les écraser → les services se regroupent mais les ponts inter-services
 // restent visibles. Appliquée uniquement hors mode remous.
-const SERVICE_GRAVITY_STRENGTH = 0.06;
+const SERVICE_GRAVITY_STRENGTH = 0.12;
 
 // Cache localStorage : positions de nœuds + signature de galaxie. v7 marque
 // (v6) le halo de masse, puis (v7) le rayon orbital tenant compte de la
@@ -425,7 +425,7 @@ export function useForceLayout(
       }
     }
 
-    const galaxyCenters = layoutGalaxyCenters(galaxies, galaxyCenterCache, rensGalaxyPairs, serviceGravity);
+    const galaxyCenters = layoutGalaxyCenters(galaxies, galaxyCenterCache, rensGalaxyPairs, serviceGravity, mode !== 'remous');
 
     // ─────────────────────────────────────────────────────────────
     // 5. Set libéré (mode remous uniquement)
