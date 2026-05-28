@@ -55,9 +55,13 @@ class ElectronBridgeService {
         return defaultValue;
       }
 
-      // Migration des données, uniquement si nécessaire
-      const migrationNeeded = result.version < CURRENT_VERSION;
-      
+      // Migration des données, uniquement si nécessaire.
+      // En mode consultation (lecture seule), on n'écrit jamais en retour :
+      // on retourne directement les données sans déclencher la migration
+      // (qui appellerait setDataInternal et spammerait le toast "lecture seule").
+      const isReadonly = typeof window !== 'undefined' && (window as any).__APP_READONLY__ === true;
+      const migrationNeeded = !isReadonly && result.version < CURRENT_VERSION;
+
       if (migrationNeeded) {
         // Effectuer la migration en arrière-plan pour ne pas bloquer l'interface
         setTimeout(async () => {

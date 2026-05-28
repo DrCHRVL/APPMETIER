@@ -47,6 +47,21 @@ const nextConfig = {
   // casser le serveur next dev en cours d'exécution
   ...(process.env.NEXT_PUBLISH_BUILD ? { distDir: '.next-publish' } : {}),
 
+  // Mode "consultation" : build statique double-cliquable depuis un partage réseau.
+  // Activé par scripts/export-consultation.js (NEXT_CONSULTATION_BUILD=1).
+  // - output: 'export'  → HTML/JS/CSS purs, pas de serveur Node requis.
+  // - assetPrefix './' + trailingSlash → chemins relatifs, compatible file://.
+  // - distDir séparé pour ne rien casser des builds normaux/Electron.
+  ...(process.env.NEXT_CONSULTATION_BUILD
+    ? {
+        output: 'export',
+        assetPrefix: './',
+        trailingSlash: true,
+        // Note: output:'export' écrit dans ./out/ (non configurable en 13.5).
+        // Le script export-consultation.js déplace ensuite vers out-consultation/.
+      }
+    : {}),
+
   webpack: (config, { isServer }) => {
     if (!isServer) {
       // Ne pas utiliser electron-renderer comme target car cela injecte
