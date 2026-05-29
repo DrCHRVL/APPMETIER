@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserPlus, Trash2, Shield, Save, Edit2, X, Check, ChevronDown, AlertCircle, CheckCircle, Clock } from 'lucide-react';
+import { UserPlus, Trash2, Shield, Save, Edit2, X, Check, ChevronDown, AlertCircle, CheckCircle, Clock, Eye, FolderOpen, RefreshCw } from 'lucide-react';
 import { UserManager } from '@/utils/userManager';
 import {
   UserProfile,
@@ -60,6 +60,97 @@ export const AdminUsersPanel = () => {
   useEffect(() => {
     loadUsers();
   }, [loadUsers]);
+
+  // ── Section "Consultation lecture seule" ──────────────────────────
+  type ConsultationStatus = {
+    enabled: boolean;
+    deployPath: string;
+    targetUsername: string;
+    activatedAt: string | null;
+    lastRefreshedAt: string | null;
+    lastError: string | null;
+    shellAvailable: boolean;
+  };
+  const [consultationStatus, setConsultationStatus] = useState<ConsultationStatus | null>(null);
+  const [showConsultationForm, setShowConsultationForm] = useState(false);
+  const [consTargetUser, setConsTargetUser] = useState('');
+  const [consDeployPath, setConsDeployPath] = useState('');
+  const [consBusy, setConsBusy] = useState(false);
+
+  const loadConsultationStatus = useCallback(async () => {
+    const api = (typeof window !== 'undefined' ? (window as any).electronAPI : null);
+    if (!api?.consultation_getStatus) return;
+    try {
+      const s = await api.consultation_getStatus();
+      setConsultationStatus(s);
+    } catch (e) {
+      // silencieux — pas critique
+    }
+  }, []);
+
+  useEffect(() => { loadConsultationStatus(); }, [loadConsultationStatus]);
+
+  const handleConsultationActivate = async () => {
+    const api = (window as any).electronAPI;
+    if (!consTargetUser || !consDeployPath) {
+      showToast('Choisissez un utilisateur et un dossier de déploiement', 'error');
+      return;
+    }
+    setConsBusy(true);
+    try {
+      const res = await api.consultation_activate(consTargetUser, consDeployPath);
+      if (res.success) {
+        showToast('Consultation activée pour ' + consTargetUser, 'success');
+        setShowConsultationForm(false);
+        setConsTargetUser('');
+        setConsDeployPath('');
+        await loadConsultationStatus();
+      } else {
+        showToast('Échec : ' + (res.error || 'erreur inconnue'), 'error');
+      }
+    } finally {
+      setConsBusy(false);
+    }
+  };
+
+  const handleConsultationDeactivate = async () => {
+    if (!window.confirm('Désactiver la consultation lecture seule ? Les fichiers déposés sur le partage seront supprimés.')) return;
+    const api = (window as any).electronAPI;
+    setConsBusy(true);
+    try {
+      const res = await api.consultation_deactivate();
+      if (res.success) {
+        showToast('Consultation désactivée', 'info');
+        await loadConsultationStatus();
+      } else {
+        showToast('Échec : ' + (res.error || 'erreur inconnue'), 'error');
+      }
+    } finally {
+      setConsBusy(false);
+    }
+  };
+
+  const handleConsultationPickFolder = async () => {
+    const api = (window as any).electronAPI;
+    const p = await api.consultation_pickFolder();
+    if (p) setConsDeployPath(p);
+  };
+
+  const handleConsultationRefresh = async () => {
+    const api = (window as any).electronAPI;
+    setConsBusy(true);
+    try {
+      const res = await api.consultation_refreshNow();
+      if (res.success) {
+        showToast('Données de consultation rafraîchies', 'success');
+        await loadConsultationStatus();
+      } else {
+        showToast('Échec : ' + (res.error || 'erreur inconnue'), 'error');
+      }
+    } finally {
+      setConsBusy(false);
+    }
+  };
 
   if (!checkIsAdmin()) {
     return <div className="text-gray-500">Accès réservé à l'administrateur.</div>;
@@ -320,6 +411,150 @@ export const AdminUsersPanel = () => {
             onRemove={handleRemoveUser}
           />
         ))}
+      </div>
+
+      {/* ─── Consultation lecture seule ─────────────────────────────── */}
+      <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-amber-900 flex items-center gap-2">
+              <Eye className="h-4 w-4" />
+              Consultation lecture seule
+            </h3>
+            <p className="text-xs text-amber-800 mt-1">
+              Publie une copie web de l'app sur un partage réseau, ouvrable dans Edge sans installation.
+              Mise à jour automatique à chaque synchro.
+            </p>
+          </div>
+          {consultationStatus?.enabled ? (
+            <span className="shrink-0 inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 rounded-md text-xs font-semibold">
+              <CheckCircle className="h-3 w-3" /> Active
+            </span>
+          ) : (
+            <span className="shrink-0 inline-flex items-center gap-1 px-2 py-1 bg-gray-200 text-gray-600 rounded-md text-xs font-semibold">
+              Inactive
+            </span>
+          )}
+        </div>
+
+        {consultationStatus?.shellAvailable === false && (
+          <div className="bg-red-50 border border-red-200 text-red-800 rounded-md p-2 text-xs">
+            La coquille statique n'est pas embarquée dans cette version de l'app
+            (<code>consultation-shell/</code> manquant). Reconstruisez avec
+            <code className="mx-1 px-1 py-0.5 bg-red-100 rounded">npm run build:consultation-shell</code>
+            puis repackagez.
+          </div>
+        )}
+
+        {/* État actif → infos + désactiver + rafraîchir */}
+        {consultationStatus?.enabled && (
+          <div className="bg-white border border-amber-200 rounded-lg p-3 space-y-2 text-xs text-gray-700">
+            <div><span className="font-semibold">Profil :</span> {consultationStatus.targetUsername}</div>
+            <div className="break-all"><span className="font-semibold">Dossier :</span> {consultationStatus.deployPath}</div>
+            <div>
+              <span className="font-semibold">Dernier rafraîchissement :</span>{' '}
+              {consultationStatus.lastRefreshedAt
+                ? new Date(consultationStatus.lastRefreshedAt).toLocaleString('fr-FR')
+                : '—'}
+            </div>
+            {consultationStatus.lastError && (
+              <div className="text-red-700">
+                <span className="font-semibold">Dernière erreur :</span> {consultationStatus.lastError}
+              </div>
+            )}
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={handleConsultationRefresh}
+                disabled={consBusy}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 disabled:opacity-50"
+              >
+                <RefreshCw className={'h-3.5 w-3.5 ' + (consBusy ? 'animate-spin' : '')} />
+                Rafraîchir maintenant
+              </button>
+              <button
+                onClick={handleConsultationDeactivate}
+                disabled={consBusy}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-medium hover:bg-red-100 disabled:opacity-50"
+              >
+                <X className="h-3.5 w-3.5" />
+                Désactiver
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* État inactif → bouton "Activer" */}
+        {!consultationStatus?.enabled && !showConsultationForm && (
+          <button
+            onClick={() => setShowConsultationForm(true)}
+            disabled={consultationStatus?.shellAvailable === false}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Eye className="h-4 w-4" />
+            Activer la consultation
+          </button>
+        )}
+
+        {/* Formulaire d'activation */}
+        {!consultationStatus?.enabled && showConsultationForm && (
+          <div className="bg-white border border-amber-200 rounded-lg p-3 space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Pour qui ?
+              </label>
+              <select
+                value={consTargetUser}
+                onChange={e => setConsTargetUser(e.target.value)}
+                className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm"
+              >
+                <option value="">— Choisir un utilisateur —</option>
+                {approvedUsers.map(u => (
+                  <option key={u.windowsUsername} value={u.windowsUsername}>
+                    {u.displayName} ({u.windowsUsername})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Où déposer le mini-site ? (chemin réseau)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={consDeployPath}
+                  onChange={e => setConsDeployPath(e.target.value)}
+                  placeholder="P:\Consultation_AppMetier"
+                  className="flex-1 px-3 py-1.5 border border-gray-300 rounded-md text-sm"
+                />
+                <button
+                  onClick={handleConsultationPickFolder}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-sm"
+                >
+                  <FolderOpen className="h-4 w-4" />
+                  Parcourir
+                </button>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => { setShowConsultationForm(false); setConsTargetUser(''); setConsDeployPath(''); }}
+                disabled={consBusy}
+                className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleConsultationActivate}
+                disabled={consBusy || !consTargetUser || !consDeployPath}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Check className="h-4 w-4" />
+                {consBusy ? 'Activation…' : 'Activer'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

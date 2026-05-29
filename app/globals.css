@@ -154,3 +154,28 @@ button[class*="ghost"] svg {
     margin: 1.5cm;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────────
+   Mode consultation (lecture seule) — activé par shim.js qui pose
+   data-readonly="true" sur <html>. Grise les actions d'écriture tagguées.
+   ────────────────────────────────────────────────────────────────── */
+html[data-readonly="true"] [data-action="write"],
+html[data-readonly="true"] [data-action="delete"],
+html[data-readonly="true"] [data-action="save"],
+html[data-readonly="true"] [data-action="import"],
+html[data-readonly="true"] [data-action="sync"] {
+  opacity: 0.45 !important;
+  pointer-events: none !important;
+  cursor: not-allowed !important;
+  filter: grayscale(60%);
+}
+
+html[data-readonly="true"] [data-dropzone] {
+  opacity: 0.5 !important;
+  pointer-events: none !important;
+}
+
+/* Onglets/panneaux d'administration entièrement masqués */
+html[data-readonly="true"] [data-admin-only] {
+  display: none !important;
+}

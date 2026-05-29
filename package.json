@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "node .next/standalone/server.js",
     "lint": "next lint",
-    "electron": "electron ."
+    "electron": "electron .",
+    "build:consultation-shell": "node scripts/build-consultation-shell.js"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.0.4",
@@ -82,6 +83,13 @@
       "preload.js",
       ".next/**/*",
       "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "consultation-shell",
+        "to": "consultation-shell",
+        "filter": ["**/*"]
+      }
     ]
   }
 }
