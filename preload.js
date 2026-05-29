@@ -288,4 +288,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getApprovedAppUpdate: () =>
     ipcRenderer.invoke('app:getApprovedUpdate'),
 
+  // === CONSULTATION LECTURE SEULE (publication mini-site sur partage réseau) ===
+  consultation_getStatus: () =>
+    ipcRenderer.invoke('consultation:getStatus'),
+  consultation_pickFolder: () =>
+    ipcRenderer.invoke('consultation:pickFolder'),
+  consultation_activate: (targetUsername, deployPath) =>
+    ipcRenderer.invoke('consultation:activate', { targetUsername, deployPath }),
+  consultation_deactivate: () =>
+    ipcRenderer.invoke('consultation:deactivate'),
+  consultation_refreshNow: () =>
+    ipcRenderer.invoke('consultation:refreshNow'),
 })

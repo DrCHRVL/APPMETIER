@@ -1467,6 +1467,11 @@ function setupIpcHandlers() {
           'dataSync:push meta'
         ),
       ]);
+      // Calé sur la sync de l'app : rafraîchit l'instantané de consultation
+      // si elle est active. Fire-and-forget — ne doit pas casser la sync.
+      if (global.__refreshConsultationSnapshotIfActive) {
+        global.__refreshConsultationSnapshotIfActive().catch(() => {})
+      }
       return true;
     } catch (error) {
       console.error('❌ DataSync: Erreur envoi serveur:', error.message);
@@ -2338,6 +2343,10 @@ function setupIpcHandlers() {
         NET_WRITE_TIMEOUT_MS,
         `pushContentieux ${contentieuxId}`
       )
+      // Idem dataSync:push — refresh fire-and-forget de l'instantané consultation
+      if (global.__refreshConsultationSnapshotIfActive) {
+        global.__refreshConsultationSnapshotIfActive().catch(() => {})
+      }
       return true
     } catch (error) {
       console.error(`❌ MultiSync[${contentieuxId}]: Erreur écriture:`, error.message)
@@ -3415,6 +3424,249 @@ function setupIpcHandlers() {
       return { success: false, error: error.message };
     }
   });
+
+  // ════════════════════════════════════════════════════════════════════
+  // CONSULTATION LECTURE SEULE
+  // Publie un mini-site statique sur un partage réseau, qu'un collègue
+  // dépourvu d'Electron peut ouvrir dans Edge. La donnée est ré-écrite
+  // automatiquement à chaque sync réussie (cf. hooks plus haut).
+  // ════════════════════════════════════════════════════════════════════
+  const CONSULTATION_CONFIG_KEY = 'consultation_config'
+  // Fichiers gérés par nous dans le dossier de déploiement (whitelist pour
+  // une désactivation propre — on ne touche jamais à ce qu'on n'a pas écrit).
+  const CONSULTATION_FILES = ['index.html', 'shim.js', 'data-snapshot.js', 'Ouvrir.html', '.consultation-marker.json']
+  const CONSULTATION_DIRS = ['_next']
+
+  function getConsultationShellPath() {
+    return app.isPackaged
+      ? path.join(process.resourcesPath, 'consultation-shell')
+      : path.join(__dirname, 'consultation-shell')
+  }
+
+  function getConsultationConfig() {
+    const all = loadData()
+    return all[CONSULTATION_CONFIG_KEY] || { enabled: false }
+  }
+
+  async function setConsultationConfig(cfg) {
+    const all = loadData()
+    all[CONSULTATION_CONFIG_KEY] = cfg
+    await saveData(all)
+  }
+
+  // Charge users.json depuis le partage et retourne la liste des contentieuxId
+  // accessibles au profil cible. Retourne null en cas d'échec (= "tous").
+  function readAllowedContentieuxFor(targetUsername) {
+    try {
+      if (!fs.existsSync(USERS_CONFIG_PATH)) return null
+      const cfg = JSON.parse(fs.readFileSync(USERS_CONFIG_PATH, 'utf8'))
+      const u = (cfg.users || []).find(x =>
+        (x.windowsUsername || x.username || '').toLowerCase() === String(targetUsername).toLowerCase()
+      )
+      if (!u) return null
+      return (u.contentieux || []).map(c => c.contentieuxId)
+    } catch (e) {
+      console.error('[consultation] readAllowedContentieuxFor:', e.message)
+      return null
+    }
+  }
+
+  function filterDataForConsultation(localData, allowedContentieux) {
+    const ALWAYS_EXCLUDE = new Set(['save_history', 'lastSave', 'audit_log', 'pending_events', 'heartbeats', 'admin_backups_meta', CONSULTATION_CONFIG_KEY])
+    const EXCLUDE_PREFIXES = ['user_prefs_', 'instruction_', 'private_']
+    const out = {}
+    for (const [key, value] of Object.entries(localData)) {
+      if (ALWAYS_EXCLUDE.has(key)) continue
+      if (EXCLUDE_PREFIXES.some(p => key.startsWith(p))) continue
+      const m = key.match(/^ctx_([^_]+)_/)
+      if (m && allowedContentieux && !allowedContentieux.includes(m[1])) continue
+      out[key] = value
+    }
+    return out
+  }
+
+  async function writeConsultationSnapshot(cfg) {
+    const localData = loadData()
+    const allowed = readAllowedContentieuxFor(cfg.targetUsername)
+    const filtered = filterDataForConsultation(localData, allowed)
+
+    const userRecord = (() => {
+      try {
+        if (!fs.existsSync(USERS_CONFIG_PATH)) return null
+        const j = JSON.parse(fs.readFileSync(USERS_CONFIG_PATH, 'utf8'))
+        return (j.users || []).find(u =>
+          (u.windowsUsername || u.username || '').toLowerCase() === String(cfg.targetUsername).toLowerCase()
+        ) || null
+      } catch { return null }
+    })()
+
+    const snapshot = {
+      generatedAt: new Date().toISOString(),
+      forUser: cfg.targetUsername || null,
+      serverRootPath: getServerRootPath() || '',
+      allowedContentieux: allowed,
+      data: filtered,
+      documents: {},
+      users: userRecord ? [userRecord] : [],
+    }
+    const js =
+      '/* Généré automatiquement par AppMetier — ne pas éditer. */\n' +
+      'window.__CONSULTATION_SNAPSHOT__ = ' + JSON.stringify(snapshot) + ';\n'
+    const dst = path.join(cfg.deployPath, 'data-snapshot.js')
+    const tmp = dst + '.tmp'
+    await fs.promises.writeFile(tmp, js, 'utf-8')
+    await fs.promises.rename(tmp, dst)
+  }
+
+  // Refresh fire-and-forget appelé après chaque sync réussie.
+  // Ne lance JAMAIS d'exception — un échec ne doit pas casser la sync principale.
+  async function refreshConsultationSnapshotIfActive() {
+    try {
+      const cfg = getConsultationConfig()
+      if (!cfg || !cfg.enabled || !cfg.deployPath || !cfg.targetUsername) return
+      if (!fs.existsSync(cfg.deployPath)) {
+        console.warn('[consultation] deployPath introuvable, refresh ignoré:', cfg.deployPath)
+        return
+      }
+      await writeConsultationSnapshot(cfg)
+      cfg.lastRefreshedAt = new Date().toISOString()
+      cfg.lastError = null
+      await setConsultationConfig(cfg)
+    } catch (e) {
+      console.error('[consultation] refresh échoué:', e.message)
+      try {
+        const cfg = getConsultationConfig()
+        if (cfg && cfg.enabled) {
+          cfg.lastError = e.message
+          await setConsultationConfig(cfg)
+        }
+      } catch {}
+    }
+  }
+  // Exporté au scope module pour les hooks plus haut
+  global.__refreshConsultationSnapshotIfActive = refreshConsultationSnapshotIfActive
+
+  function copyDirSync(src, dst) {
+    fs.mkdirSync(dst, { recursive: true })
+    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+      const s = path.join(src, entry.name)
+      const d = path.join(dst, entry.name)
+      if (entry.isDirectory()) copyDirSync(s, d)
+      else fs.copyFileSync(s, d)
+    }
+  }
+
+  ipcMain.handle('consultation:getStatus', async () => {
+    const cfg = getConsultationConfig()
+    return {
+      enabled: !!cfg.enabled,
+      deployPath: cfg.deployPath || '',
+      targetUsername: cfg.targetUsername || '',
+      activatedAt: cfg.activatedAt || null,
+      lastRefreshedAt: cfg.lastRefreshedAt || null,
+      lastError: cfg.lastError || null,
+      shellAvailable: fs.existsSync(getConsultationShellPath()),
+    }
+  })
+
+  ipcMain.handle('consultation:pickFolder', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: 'Choisir le dossier de déploiement (partage réseau)',
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    if (canceled || !filePaths.length) return null
+    return filePaths[0]
+  })
+
+  ipcMain.handle('consultation:activate', async (event, { targetUsername, deployPath }) => {
+    try {
+      if (!targetUsername || !deployPath) {
+        return { success: false, error: 'Paramètres manquants.' }
+      }
+      const shell = getConsultationShellPath()
+      if (!fs.existsSync(shell)) {
+        return {
+          success: false,
+          error: 'La coquille de consultation n\'est pas embarquée dans cette version de l\'app. '
+               + 'Construisez-la (npm run build:consultation-shell) puis repackagez.'
+        }
+      }
+      // Crée le dossier de déploiement si nécessaire et copie la coquille.
+      fs.mkdirSync(deployPath, { recursive: true })
+      copyDirSync(shell, deployPath)
+      // Marqueur pour pouvoir désactiver proprement plus tard.
+      fs.writeFileSync(
+        path.join(deployPath, '.consultation-marker.json'),
+        JSON.stringify({ createdBy: 'AppMetier', createdAt: new Date().toISOString(), targetUsername }),
+        'utf-8'
+      )
+      const cfg = {
+        enabled: true,
+        deployPath,
+        targetUsername,
+        activatedAt: new Date().toISOString(),
+        lastRefreshedAt: null,
+        lastError: null,
+      }
+      await setConsultationConfig(cfg)
+      // Écriture du premier instantané, synchrone (utilisateur attend la confirmation).
+      await writeConsultationSnapshot(cfg)
+      cfg.lastRefreshedAt = new Date().toISOString()
+      await setConsultationConfig(cfg)
+      return { success: true, status: cfg }
+    } catch (e) {
+      console.error('[consultation] activate:', e)
+      return { success: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('consultation:deactivate', async () => {
+    try {
+      const cfg = getConsultationConfig()
+      if (!cfg.enabled || !cfg.deployPath) {
+        // Déjà désactivée — on s'assure juste que la config est propre.
+        await setConsultationConfig({ enabled: false })
+        return { success: true }
+      }
+      const dir = cfg.deployPath
+      // Refuse si le marqueur est absent — protège un dossier qu'on n'a pas créé.
+      const markerPath = path.join(dir, '.consultation-marker.json')
+      if (!fs.existsSync(markerPath)) {
+        return {
+          success: false,
+          error: 'Le dossier ne porte pas le marqueur de consultation : suppression refusée. '
+               + 'Videz-le manuellement si besoin.'
+        }
+      }
+      // Suppression sélective : seulement nos fichiers/dossiers connus.
+      for (const f of CONSULTATION_FILES) {
+        try { fs.rmSync(path.join(dir, f), { force: true }) } catch {}
+      }
+      for (const d of CONSULTATION_DIRS) {
+        try { fs.rmSync(path.join(dir, d), { recursive: true, force: true }) } catch {}
+      }
+      await setConsultationConfig({ enabled: false })
+      return { success: true }
+    } catch (e) {
+      console.error('[consultation] deactivate:', e)
+      return { success: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('consultation:refreshNow', async () => {
+    try {
+      const cfg = getConsultationConfig()
+      if (!cfg.enabled) return { success: false, error: 'Consultation non activée.' }
+      await writeConsultationSnapshot(cfg)
+      cfg.lastRefreshedAt = new Date().toISOString()
+      cfg.lastError = null
+      await setConsultationConfig(cfg)
+      return { success: true, lastRefreshedAt: cfg.lastRefreshedAt }
+    } catch (e) {
+      console.error('[consultation] refreshNow:', e)
+      return { success: false, error: e.message }
+    }
+  })
 }
 // ── INTÉGRITÉ : vérification anti-tampering au démarrage ──
 const INTEGRITY_FILE = path.join(__dirname, '.integrity')
