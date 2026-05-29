@@ -66,28 +66,28 @@ export const TodoReminderBar = React.memo(({
 
   return (
     <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-2 shadow-sm">
-      <div className="flex flex-wrap gap-1.5 items-center">
-        {/* Label */}
+      {/* En-tête */}
+      <div className="flex items-center gap-1.5 mb-2">
         <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
           À faire
         </span>
-
-        {/* Badge count */}
         {totalCount > 0 && (
           <span className="text-[10px] bg-violet-500 text-white px-1.5 py-0.5 rounded-full font-bold leading-none">
             {totalCount}
           </span>
         )}
+      </div>
 
-        {/* Pills todos — toutes visibles, wrap automatique */}
+      {/* Liste verticale des tâches */}
+      <ul className="flex flex-col divide-y divide-amber-200/70">
         {allActive.map(todo => {
           const linkedEnquete = todo.enqueteId !== null
             ? enquetes.find(e => e.id === todo.enqueteId)
             : undefined;
           return (
-            <div
+            <li
               key={`${todo.enqueteId ?? 'g'}-${todo.id}`}
-              className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5 group hover:border-violet-300 transition-colors"
+              className="flex items-start gap-2 py-1 group"
             >
               <button
                 onClick={(ev) => {
@@ -96,11 +96,11 @@ export const TodoReminderBar = React.memo(({
                     ? handleCheckEnquete(todo.enqueteId, todo.id)
                     : handleCheckGlobal(todo.id);
                 }}
-                className="w-3 h-3 rounded-sm border border-gray-400 flex-shrink-0 hover:border-violet-500 hover:bg-violet-100 transition-colors"
+                className="w-3.5 h-3.5 mt-0.5 rounded-sm border border-gray-400 flex-shrink-0 hover:border-violet-500 hover:bg-violet-100 transition-colors"
                 title="Marquer comme fait"
               />
               <span
-                className={`text-[11px] text-gray-700 whitespace-nowrap select-none ${linkedEnquete && onOpenEnquete ? 'cursor-pointer hover:text-violet-700 hover:underline' : ''}`}
+                className={`text-xs text-gray-700 leading-snug select-none ${linkedEnquete && onOpenEnquete ? 'cursor-pointer hover:text-violet-700 hover:underline' : ''}`}
                 onClick={linkedEnquete && onOpenEnquete ? () => onOpenEnquete(linkedEnquete) : undefined}
                 title={linkedEnquete && onOpenEnquete ? `Ouvrir l'enquête ${todo.enqueteNumero}` : undefined}
               >
@@ -111,16 +111,22 @@ export const TodoReminderBar = React.memo(({
                   </span>
                 )}
               </span>
-            </div>
+            </li>
           );
         })}
 
-        {/* Input ajout todo général */}
+        {totalCount === 0 && (
+          <li className="text-[11px] text-gray-400 italic py-1">Aucune tâche en cours</li>
+        )}
+      </ul>
+
+      {/* Ajout d'une tâche générale */}
+      <div className="mt-2 pt-2 border-t border-amber-200/70">
         {showInput ? (
           <div className="flex items-center gap-1">
             <input
               autoFocus
-              className="text-xs border border-violet-300 rounded-full px-2 py-0.5 w-40 focus:outline-none focus:ring-1 focus:ring-violet-400"
+              className="text-xs border border-violet-300 rounded-full px-2 py-0.5 flex-1 focus:outline-none focus:ring-1 focus:ring-violet-400"
               placeholder="Nouvelle tâche..."
               value={newText}
               onChange={e => setNewText(e.target.value)}
