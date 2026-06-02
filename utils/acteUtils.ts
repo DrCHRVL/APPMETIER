@@ -58,6 +58,7 @@ export function getStatutBadgeProps(statut: ActeStatus): { label: string; classN
   switch (statut) {
     case 'autorisation_pending': return { label: 'Autorisation en attente', className: 'bg-purple-100 text-purple-700 border-purple-200' };
     case 'pose_pending':         return { label: 'Pose en attente',         className: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+    case 'pose_avortee':         return { label: 'Pose avortée',            className: 'bg-rose-100 text-rose-700 border-rose-200' };
     case 'en_cours':             return { label: 'En cours',                className: 'bg-green-100 text-green-700 border-green-200' };
     case 'prolongation_pending': return { label: 'Prolongation à valider',  className: 'bg-orange-100 text-orange-700 border-orange-200' };
     case 'a_renouveler':         return { label: 'À renouveler',            className: 'bg-amber-100 text-amber-700 border-amber-200' };

@@ -264,6 +264,14 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
     onUpdate(enquete.id, { geolocalisations: updatedGeolocs });
   };
 
+  const handleAvorterPose = (id: number) => {
+    if (!onUpdate || !enquete || !enquete.geolocalisations) return;
+    const updatedGeolocs = enquete.geolocalisations.map(geoloc =>
+      geoloc.id === id ? { ...geoloc, statut: 'pose_avortee' as const } : geoloc
+    );
+    onUpdate(enquete.id, { geolocalisations: updatedGeolocs });
+  };
+
   const now = new Date();
   
   const activeGeolocs = enquete.geolocalisations?.filter(g => {
@@ -355,14 +363,24 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
                   </>
                 )}
                 {geoloc.statut === 'pose_pending' && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setPoseGeolocId(geoloc.id)}
-                    title="Définir la date de pose"
-                  >
-                    <ArrowDown className="h-4 w-4 text-yellow-600" />
-                  </Button>
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPoseGeolocId(geoloc.id)}
+                      title="Définir la date de pose"
+                    >
+                      <ArrowDown className="h-4 w-4 text-yellow-600" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleAvorterPose(geoloc.id)}
+                      title="Pose avortée — géolocalisation annulée avant pose"
+                    >
+                      <Ban className="h-4 w-4 text-rose-500" />
+                    </Button>
+                  </>
                 )}
                 {geoloc.duree && onUpdate && geoloc.statut === 'en_cours' && (
                   <Button 
