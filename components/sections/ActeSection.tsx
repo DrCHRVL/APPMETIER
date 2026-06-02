@@ -308,6 +308,14 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
     onUpdate(enquete.id, { actes: updatedActes });
   };
 
+  const handleAvorterPose = (id: number) => {
+    if (!onUpdate || !enquete) return;
+    const updatedActes = enquete.actes.map(acte =>
+      acte.id === id ? { ...acte, statut: 'pose_avortee' as const } : acte
+    );
+    onUpdate(enquete.id, { actes: updatedActes });
+  };
+
   const now = new Date();
   
   const activeActes = enquete.actes?.filter(a => {
@@ -419,14 +427,24 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
                   </>
                 )}
                 {acte.statut === 'pose_pending' && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setPoseActeId(acte.id)}
-                    title="Définir la date de pose"
-                  >
-                    <ArrowDown className="h-4 w-4 text-yellow-600" />
-                  </Button>
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPoseActeId(acte.id)}
+                      title="Définir la date de pose"
+                    >
+                      <ArrowDown className="h-4 w-4 text-yellow-600" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleAvorterPose(acte.id)}
+                      title="Pose avortée — acte annulé avant pose"
+                    >
+                      <Ban className="h-4 w-4 text-rose-500" />
+                    </Button>
+                  </>
                 )}
                 {acte.duree && onUpdate && acte.statut === 'en_cours' && !prolongLimitAtteinte && (
                   <Button

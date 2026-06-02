@@ -201,6 +201,7 @@ export function hasJldInvolvement(enquete: Pick<Enquete, 'geolocalisations' | 'e
     'autorisation_pending',
     'prolongation_pending',
     'pose_pending',
+    'pose_avortee',
     'en_cours',
     'a_renouveler',
     'termine',

@@ -36,6 +36,12 @@ export const PendingPose = React.memo(({ enquetes, onOpenEnquete }: PendingPoseP
         }
       }
     }
+    // Regroupement par dossier pour permettre des séparateurs visuels entre enquêtes
+    items.sort((a, b) => {
+      const na = a.enquete.numero || String(a.enquete.id);
+      const nb = b.enquete.numero || String(b.enquete.id);
+      return na.localeCompare(nb);
+    });
     return items;
   }, [enquetes]);
 
@@ -59,15 +65,23 @@ export const PendingPose = React.memo(({ enquetes, onOpenEnquete }: PendingPoseP
       {totalCount === 0 ? (
         <span className="text-[11px] text-gray-400 italic">Aucune pose en attente</span>
       ) : (
-        <ul className="flex flex-col divide-y divide-teal-200/70">
-          {pendingPose.map((item, idx) => (
+        <ul className="flex flex-col">
+          {pendingPose.map((item, idx) => {
+            const prev = idx > 0 ? pendingPose[idx - 1] : null;
+            const isNewGroup = prev !== null && prev.enquete.id !== item.enquete.id;
+            const borderClass = idx === 0
+              ? ''
+              : isNewGroup
+                ? 'border-t-2 border-teal-500/60 mt-1 pt-1'
+                : 'border-t border-teal-200/70';
+            return (
             <li
               key={idx}
-              className={`flex items-baseline gap-1.5 py-1 group ${onOpenEnquete ? 'cursor-pointer hover:text-teal-800' : ''}`}
+              className={`flex items-baseline gap-1.5 py-1 group min-w-0 ${borderClass} ${onOpenEnquete ? 'cursor-pointer hover:text-teal-800' : ''}`}
               onClick={() => onOpenEnquete?.(item.enquete)}
-              title={onOpenEnquete ? `Ouvrir l'enquête ${item.enquete.numero}` : undefined}
+              title={`${item.acteType} (${item.enquete.numero})${onOpenEnquete ? " — Ouvrir l'enquête" : ''}`}
             >
-              <span className="text-xs text-gray-700 leading-snug select-none flex-1">
+              <span className="text-xs text-gray-700 leading-snug select-none flex-1 min-w-0 break-words [overflow-wrap:anywhere]">
                 {item.acteType}
                 <span className="text-gray-400 ml-1 text-[10px]">
                   ({item.enquete.numero})
@@ -81,7 +95,8 @@ export const PendingPose = React.memo(({ enquetes, onOpenEnquete }: PendingPoseP
                 {item.daysSince}j
               </span>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </div>

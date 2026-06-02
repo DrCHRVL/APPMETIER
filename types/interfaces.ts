@@ -30,6 +30,7 @@ export type ActeStatus =
   | 'a_renouveler'
   | 'prolongation_pending'
   | 'pose_pending'
+  | 'pose_avortee'
   | 'autorisation_pending'
   | 'refuse';
 

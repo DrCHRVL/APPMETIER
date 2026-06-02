@@ -323,6 +323,14 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
     onUpdate(enquete.id, { ecoutes: updatedEcoutes });
   };
 
+  const handleAvorterPose = (id: number) => {
+    if (!onUpdate || !enquete || !enquete.ecoutes) return;
+    const updatedEcoutes = enquete.ecoutes.map(ecoute =>
+      ecoute.id === id ? { ...ecoute, statut: 'pose_avortee' as const } : ecoute
+    );
+    onUpdate(enquete.id, { ecoutes: updatedEcoutes });
+  };
+
   const now = new Date();
   
   const activeEcoutes = enquete.ecoutes?.filter(e => {
@@ -418,14 +426,24 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
                   </>
                 )}
                 {ecoute.statut === 'pose_pending' && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setPoseEcouteId(ecoute.id)}
-                    title="Définir la date de pose"
-                  >
-                    <ArrowDown className="h-4 w-4 text-yellow-600" />
-                  </Button>
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPoseEcouteId(ecoute.id)}
+                      title="Définir la date de pose"
+                    >
+                      <ArrowDown className="h-4 w-4 text-yellow-600" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleAvorterPose(ecoute.id)}
+                      title="Pose avortée — écoute annulée avant pose"
+                    >
+                      <Ban className="h-4 w-4 text-rose-500" />
+                    </Button>
+                  </>
                 )}
                 {ecoute.duree && onUpdate && ecoute.statut === 'en_cours' && (
                   <div className="flex gap-1">
