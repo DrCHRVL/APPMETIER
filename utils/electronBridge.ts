@@ -201,7 +201,10 @@ class ElectronBridgeService {
     }
 
     try {
-      return await window.electronAPI.setData(key, null);
+      // Suppression intentionnelle via le handler dédié (supprime la clé du
+      // fichier). On n'utilise plus setData(key, null) : ce dernier est désormais
+      // refusé par le garde-fou anti-écrasement côté main process.
+      return await window.electronAPI.clearData(key);
     } catch (error) {
       console.error(`Error clearing data for key ${key}:`, error);
       return false;

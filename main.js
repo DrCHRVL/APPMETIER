@@ -145,37 +145,93 @@ if (!fs.existsSync(documentsEnquetesFolder)) {
 // Cache mémoire pour éviter les lectures disque répétées
 let _dataCache = null
 
-// Fonction pour charger toutes les données (avec cache mémoire)
+// Fonction pour charger toutes les données (avec cache mémoire).
+//
+// Distinction CRUCIALE entre trois cas :
+//   - fichier absent             → {}   (installation neuve, écriture autorisée)
+//   - fichier présent + JSON OK  → objet de données
+//   - fichier présent + illisible (corruption) → null
+//
+// On ne renvoie JAMAIS {} pour un fichier corrompu : sinon le `setData` qui
+// suit fusionnerait sa clé dans un objet vide et réécrirait un data.json
+// quasi-vide, détruisant toutes les autres données. Renvoyer `null` permet
+// aux handlers getData/setData de refuser lecture et écriture le temps que le
+// fichier redevienne lisible.
 function loadData() {
   if (_dataCache !== null) return _dataCache
   try {
-    _dataCache = fs.existsSync(userDataPath)
-      ? JSON.parse(fs.readFileSync(userDataPath, 'utf8'))
-      : {}
+    if (!fs.existsSync(userDataPath)) {
+      _dataCache = {}
+      return _dataCache
+    }
+    _dataCache = JSON.parse(fs.readFileSync(userDataPath, 'utf8'))
     return _dataCache
   } catch (error) {
-    console.error('Erreur de chargement:', error)
-    return {}
+    console.error('Erreur de chargement (data.json illisible, écritures bloquées):', error)
+    // _dataCache reste null → l'échec sera re-signalé à chaque appel.
+    return null
   }
 }
+
+// Extrait la charge utile métier d'une valeur stockée. ElectronBridge enveloppe
+// les valeurs sous la forme { version, data } ; certaines clés internes sont
+// stockées brutes. On déballe pour comparer le contenu réel.
+function extractStoredPayload(v) {
+  if (v && typeof v === 'object' && !Array.isArray(v) && 'data' in v && 'version' in v) {
+    return v.data
+  }
+  return v
+}
+function isEmptyish(v) {
+  if (v === null || v === undefined) return true
+  if (Array.isArray(v)) return v.length === 0
+  if (typeof v === 'object') return Object.keys(v).length === 0
+  return false
+}
+// Garde-fou anti-écrasement : renvoie true si l'écriture remplacerait une
+// liste/objet NON vide par une valeur vide (signature typique d'une lecture
+// ratée recopiée sur le disque). Une suppression réellement voulue passe par
+// le handler dédié `clearData`, qui n'est pas soumis à ce garde-fou.
+function isDestructiveOverwrite(existing, next) {
+  const cur = extractStoredPayload(existing)
+  const nxt = extractStoredPayload(next)
+  if (cur === undefined || cur === null) return false
+  const curNonEmpty =
+    (Array.isArray(cur) && cur.length > 0) ||
+    (typeof cur === 'object' && !Array.isArray(cur) && Object.keys(cur).length > 0)
+  return curNonEmpty && isEmptyish(nxt)
+}
+
 // Sauvegarde non bloquante : écriture asynchrone + atomique (tmp → rename) pour
 // éviter de geler le main process pendant l'écriture du JSON et pour protéger
-// le fichier d'une corruption en cas de crash en cours d'écriture. Le cache
-// mémoire est mis à jour immédiatement pour que les `getData` qui suivent
-// n'attendent pas la fin du write disque.
-async function saveData(data) {
+// le fichier d'une corruption en cas de crash en cours d'écriture.
+//
+// Les écritures sont SÉRIALISÉES (chaînage de promesses) : deux `setData`
+// concurrents ne doivent jamais écrire en même temps dans le même fichier .tmp
+// (flux entrelacés → data.json corrompu) ni se faire la course au rename
+// (« dernier arrivé gagne » → perte d'une mise à jour). À l'exécution on
+// sérialise sur l'état courant `_dataCache`, ce qui coalesce naturellement les
+// écritures successives.
+let _saveChain = Promise.resolve()
+function saveData(data) {
   _dataCache = data
-  const tmpPath = userDataPath + '.tmp'
-  try {
-    await fs.promises.writeFile(tmpPath, JSON.stringify(data))
-    await fs.promises.rename(tmpPath, userDataPath)
-    return true
-  } catch (error) {
-    console.error('Erreur de sauvegarde:', error)
-    _dataCache = null
-    try { await fs.promises.unlink(tmpPath) } catch {}
-    return false
+  const run = async () => {
+    const tmpPath = userDataPath + '.tmp'
+    try {
+      await fs.promises.writeFile(tmpPath, JSON.stringify(_dataCache))
+      await fs.promises.rename(tmpPath, userDataPath)
+      return true
+    } catch (error) {
+      console.error('Erreur de sauvegarde:', error)
+      _dataCache = null
+      try { await fs.promises.unlink(tmpPath) } catch {}
+      return false
+    }
   }
+  const result = _saveChain.then(run, run)
+  // Maintient la chaîne vivante sans propager les rejets éventuels.
+  _saveChain = result.then(() => {}, () => {})
+  return result
 }
 // Fonction pour nettoyer le nom de fichier
 function sanitizeFileName(fileName) {
@@ -562,15 +618,31 @@ function setupIpcHandlers() {
   // === GESTIONNAIRES DE BASE POUR LES DONNÉES ===
   ipcMain.handle('getData', async (event, key, defaultValue) => {
     const data = loadData()
+    if (data === null) {
+      // data.json illisible : on signale l'échec au renderer (rejet) plutôt
+      // que de renvoyer une valeur vide qui serait mise en cache puis réécrite.
+      throw new Error('data.json illisible — lecture refusée pour protéger les données')
+    }
     return key in data ? data[key] : defaultValue
   })
   ipcMain.handle('setData', async (event, key, value) => {
     const data = loadData()
+    if (data === null) {
+      console.error(`[setData] data.json illisible — écriture de "${key}" refusée (anti-perte)`)
+      return false
+    }
+    // Garde-fou anti-écrasement : ne jamais remplacer une valeur "pleine" par
+    // du vide. Une suppression intentionnelle passe par le handler 'clearData'.
+    if (isDestructiveOverwrite(data[key], value)) {
+      console.error(`[setData] écriture vide refusée pour "${key}" : valeur existante non vide → vide (anti-écrasement). Utiliser clearData pour une suppression voulue.`)
+      return false
+    }
     data[key] = value
     return saveData(data)
   })
   ipcMain.handle('clearData', async (event, key) => {
     const data = loadData()
+    if (data === null) return false
     if (key in data) {
       delete data[key]
       return saveData(data)
@@ -579,7 +651,7 @@ function setupIpcHandlers() {
   })
   ipcMain.handle('getAllKeys', async () => {
     const data = loadData()
-    return Object.keys(data)
+    return data === null ? [] : Object.keys(data)
   })
   // === GESTIONNAIRES EXISTANTS POUR LES FICHIERS ===
 

@@ -112,7 +112,6 @@ import { PendingActsJLD } from '@/components/PendingActsJLD';
 import { PendingPose } from '@/components/PendingPose';
 
 // 🆕 Imports pour la synchronisation des données
-import { useDataSync } from '@/hooks/useDataSync';
 import { DataSyncConflictModal } from '@/components/modals/DataSyncConflictModal';
 import { ConflictAction, SyncConflict, SyncData } from '@/types/dataSyncTypes';
 import { useMultiSyncStatus } from '@/hooks/useMultiSyncStatus';
@@ -265,10 +264,12 @@ function AppContent() {
     setShowWeeklyPopup(true);
   }, [buildWeeklyBuckets]);
 
-  // Ancien moteur de sync racine : conservé monté en arrière-plan (filet de
-  // sécurité + flush pré-sync). Ses sorties ne pilotent plus l'UI : le statut,
-  // les conflits et la récupération passent désormais par MultiSyncManager.
-  useDataSync();
+  // Ancien moteur de sync racine (DataSyncManager / useDataSync) : DÉSACTIVÉ.
+  // Il synchronisait contre le fichier serveur racine `app-data.json`, qui
+  // n'est plus alimenté, et écrasait/supprimait la clé locale héritée
+  // `enquetes` (perte de données observée). La synchronisation est désormais
+  // gérée intégralement par MultiSyncManager (clés `ctx_<contentieux>_enquetes`).
+  // Ne pas remonter ce hook sans avoir d'abord retiré ses écritures destructrices.
 
   // 🆕 Statut consolidé de la synchronisation multi-contentieux (bandeau + page Sauvegardes)
   const { syncStatus, isSyncing } = useMultiSyncStatus();
