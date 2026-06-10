@@ -88,15 +88,29 @@ export const AdminCartographyPanel: React.FC = () => {
   const [draft, setDraft] = React.useState<Record<string, string>>({});
   React.useEffect(() => { setDraft({}); }, [config]);
 
+  // Une sauvegarde peut être refusée si la config n'a pas pu être relue
+  // (data.json momentanément illisible) : dans ce cas le manager lève une
+  // erreur plutôt que d'écraser les vrais réglages par des valeurs par défaut.
+  // On en informe l'utilisateur au lieu d'échouer en silence.
+  const guardSave = async (fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+    } catch (e) {
+      window.alert(
+        e instanceof Error ? e.message : 'Échec de l’enregistrement des réglages de cartographie.',
+      );
+    }
+  };
+
   const handleWeightChange = async (key: keyof CartographieScoreWeights, value: string) => {
     const n = parseFloat(value);
     if (Number.isNaN(n)) return;
-    await updateWeights({ [key]: n } as Partial<CartographieScoreWeights>);
+    await guardSave(() => updateWeights({ [key]: n } as Partial<CartographieScoreWeights>));
   };
 
   const handleTagWeightChange = async (tagId: string, value: string) => {
     const n = parseFloat(value);
-    await setTagInfractionWeight(tagId, Number.isFinite(n) ? n : 0);
+    await guardSave(() => setTagInfractionWeight(tagId, Number.isFinite(n) ? n : 0));
   };
 
   const handleReset = async () => {
@@ -173,7 +187,7 @@ export const AdminCartographyPanel: React.FC = () => {
           <input
             type="checkbox"
             checked={config.groupByService}
-            onChange={(e) => setGroupByService(e.target.checked)}
+            onChange={(e) => guardSave(() => setGroupByService(e.target.checked))}
             className="mt-0.5 h-4 w-4 rounded border-slate-300"
           />
           <span>

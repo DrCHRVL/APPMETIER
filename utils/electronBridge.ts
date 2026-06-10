@@ -12,6 +12,11 @@ class ElectronBridgeService {
   private dataCache = new Map<string, any>();
   private lastSaveTime = new Map<string, number>();
   private pendingSaves = new Map<string, NodeJS.Timeout>();
+  // Clés dont la DERNIÈRE lecture a échoué (fichier illisible côté main, qui
+  // rejette alors la requête). À distinguer d'une clé réellement absente : on
+  // ne doit jamais traiter une lecture ratée comme « pas de donnée », sinon on
+  // risque d'écrire une valeur par défaut par-dessus une vraie donnée.
+  private readFailures = new Set<string>();
   
   // Constante pour le délai de sauvegarde
   private readonly SAVE_DELAY = 2500; // 2.5 secondes
@@ -50,6 +55,10 @@ class ElectronBridgeService {
         data: T;
       }>(key);
 
+      // Lecture aboutie (clé réellement absente comprise) : on lève le drapeau
+      // d'échec éventuel d'une tentative précédente.
+      this.readFailures.delete(key);
+
       if (!result) {
         this.dataCache.set(key, defaultValue);
         return defaultValue;
@@ -85,8 +94,21 @@ class ElectronBridgeService {
       return result.data;
     } catch (error) {
       console.error(`Error getting data for key ${key}:`, error);
+      // Lecture en échec (ex. data.json illisible) : on NE met PAS en cache la
+      // valeur par défaut (sinon elle serait gravée pour la session et risquerait
+      // d'être réécrite sur disque). On marque l'échec et on réessaiera au
+      // prochain appel.
+      this.readFailures.add(key);
       return defaultValue;
     }
+  }
+
+  /** True si la dernière lecture de cette clé a échoué (fichier illisible),
+   *  par opposition à une clé réellement absente. Permet aux gestionnaires
+   *  sensibles (ex. config carto) de refuser d'écrire par-dessus une donnée
+   *  qu'ils n'ont pas pu lire. */
+  public didReadFail(key: string): boolean {
+    return this.readFailures.has(key);
   }
 
   public async setData<T>(key: string, value: T): Promise<boolean> {
