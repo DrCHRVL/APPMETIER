@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Maquette 2 — Mode « Nuit d'audience »</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d1411; --panel: #131c17; --panel-2: #18241e; --line: #243029;
+    --ink: #e8efe9; --ink-soft: #9db3a6; --ink-faint: #5f7468;
+    --green: #4ade80; --green-soft: #2e6b4c;
+  }
+  body { font-family: 'Inter', 'Liberation Sans', sans-serif; background: var(--bg); width: 1600px; height: 1000px; overflow: hidden; display: flex; color: var(--ink); -webkit-font-smoothing: antialiased; }
+
+  .sidebar { width: 248px; flex-shrink: 0; background: linear-gradient(170deg, #101a14, #0a100c); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 20px 14px 16px; }
+  .brand { display: flex; align-items: center; gap: 11px; padding: 2px 8px 18px; }
+  .brand-mark { width: 38px; height: 38px; border-radius: 11px; background: linear-gradient(140deg, #4d8a6c, #234b38); display:flex; align-items:center; justify-content:center; font-family:'Fraunces','Liberation Serif',serif; font-size: 19px; font-weight: 700; box-shadow: 0 0 18px rgba(77,138,108,0.45); }
+  .brand-name { font-size: 15px; font-weight: 700; }
+  .brand-sub { font-size: 10.5px; color: var(--ink-faint); margin-top: 1px; }
+  .contentieux { display:flex; gap:6px; padding: 0 6px 16px; }
+  .ctx-pill { flex:1; text-align:center; font-size: 10.5px; font-weight: 700; letter-spacing:.04em; padding: 6px 0; border-radius: 8px; color: var(--ink-faint); background: rgba(255,255,255,0.04); border: 1px solid var(--line); }
+  .ctx-pill.on { background: rgba(74,222,128,0.12); color: var(--green); border-color: rgba(74,222,128,0.35); }
+  .nav-section { font-size: 10px; font-weight: 700; letter-spacing: .12em; color: var(--ink-faint); padding: 14px 10px 6px; text-transform: uppercase; }
+  .nav-item { display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 9px; color: var(--ink-soft); font-size: 13px; font-weight: 500; margin-bottom: 1px; }
+  .nav-item svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; opacity: .75; }
+  .nav-item.active { background: rgba(74,222,128,0.1); color:#d9f5e3; position:relative; }
+  .nav-item.active::before { content:''; position:absolute; left:-14px; top:6px; bottom:6px; width:3px; border-radius:0 3px 3px 0; background:var(--green); box-shadow: 0 0 10px var(--green); }
+  .nav-badge { margin-left:auto; font-size:10.5px; font-weight:700; background:#7f2c2c; color:#ffd9d9; border-radius: 99px; padding: 1px 7px; }
+  .nav-badge.soft { background: rgba(255,255,255,0.08); color: var(--ink-soft); }
+  .sidebar-footer { margin-top:auto; padding: 12px 8px 0; border-top: 1px solid var(--line); display:flex; align-items:center; gap:9px; }
+  .avatar { width: 30px; height: 30px; border-radius: 99px; background: linear-gradient(140deg,#c8a24d,#9a7728); display:flex; align-items:center; justify-content:center; font-size: 11.5px; font-weight:700; color:#1a1407; }
+  .sf-name { font-size: 12px; font-weight: 600; }
+  .sf-role { font-size: 10px; color: var(--ink-faint); }
+  .sync-dot { margin-left:auto; display:flex; align-items:center; gap:5px; font-size:10px; color:var(--green); }
+  .sync-dot i { width:7px; height:7px; border-radius:99px; background:var(--green); box-shadow: 0 0 8px var(--green); }
+
+  .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .topbar { height: 60px; border-bottom: 1px solid var(--line); display:flex; align-items:center; gap:16px; padding: 0 28px; background: rgba(19,28,23,0.6); }
+  .crumb { font-size: 13px; color: var(--ink-faint); }
+  .crumb b { color: var(--ink); font-weight: 600; }
+  .search { margin-left: 8px; flex: 0 0 380px; display:flex; align-items:center; gap:8px; background: rgba(255,255,255,0.04); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; color: var(--ink-faint); }
+  .kbd { margin-left:auto; font-size: 10.5px; border:1px solid var(--line); border-radius:5px; padding: 1px 5px; color: var(--ink-faint); }
+  .top-actions { margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .icon-btn { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel-2); display:flex; align-items:center; justify-content:center; position:relative; }
+  .icon-btn svg { width:16px; height:16px; stroke:var(--ink-soft); fill:none; stroke-width:1.8; }
+  .dot-alert { position:absolute; top:-3px; right:-3px; width:15px; height:15px; background:#e25c5c; color:#fff; font-size:9px; font-weight:700; border-radius:99px; display:flex; align-items:center; justify-content:center; border:2px solid var(--bg); }
+  .btn-primary { display:flex; align-items:center; gap:7px; background: linear-gradient(140deg,#39795a,#27553f); color:#eafff2; font-size: 13px; font-weight:600; border-radius: 10px; padding: 9px 16px; box-shadow: 0 0 16px rgba(74,222,128,0.18), inset 0 1px 0 rgba(255,255,255,0.12); }
+  .btn-primary svg { width:14px; height:14px; stroke:#eafff2; fill:none; stroke-width:2.2; }
+
+  .content { flex:1; overflow:hidden; padding: 26px 28px; display:flex; flex-direction:column; gap: 20px; }
+  .page-head { display:flex; align-items: baseline; gap: 14px; }
+  h1 { font-family: 'Fraunces','Liberation Serif',serif; font-size: 27px; font-weight: 700; letter-spacing: -0.01em; }
+  .page-sub { font-size: 13px; color: var(--ink-soft); }
+
+  .kpis { display:grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .kpi { background: linear-gradient(165deg, var(--panel-2), var(--panel)); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px 14px; position:relative; overflow:hidden; }
+  .kpi-label { font-size: 12px; font-weight: 600; color: var(--ink-soft); display:flex; align-items:center; gap:7px; }
+  .kpi-label svg { width:14px; height:14px; stroke: var(--green); fill:none; stroke-width:2; }
+  .kpi-val { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; margin-top: 6px; }
+  .kpi-val small { font-size: 13px; font-weight: 600; color: var(--ink-faint); }
+  .kpi-delta { font-size: 11.5px; font-weight: 600; margin-top: 2px; }
+  .up { color: #4ade80; } .down { color: #f87171; } .flat { color: var(--ink-faint); }
+  .spark { position:absolute; right: 14px; bottom: 12px; opacity:.95; }
+  .kpi.warn { border-color: #57431f; box-shadow: inset 0 0 30px rgba(217,119,6,0.07); }
+  .kpi.warn .kpi-label svg { stroke: #fbbf24; }
+  .kpi.danger { border-color: #5c2424; box-shadow: inset 0 0 30px rgba(220,38,38,0.09); }
+  .kpi.danger .kpi-label svg { stroke: #f87171; }
+
+  .grid { flex:1; display:grid; grid-template-columns: 1fr 340px; gap: 20px; min-height:0; }
+  .panel { background: var(--panel); border:1px solid var(--line); border-radius: 16px; display:flex; flex-direction:column; overflow:hidden; }
+  .panel-head { display:flex; align-items:center; padding: 16px 20px 12px; }
+  .panel-title { font-size: 15px; font-weight: 700; }
+  .panel-count { margin-left: 8px; font-size: 11px; font-weight:700; color: var(--green); background: rgba(74,222,128,0.1); padding: 2px 8px; border-radius: 99px; }
+  .panel-link { margin-left:auto; font-size: 12px; font-weight:600; color: var(--green); }
+  .filters { display:flex; gap:8px; padding: 0 20px 12px; }
+  .chip { font-size: 11.5px; font-weight: 600; padding: 5px 11px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink-soft); background: transparent; }
+  .chip.on { background: var(--green-soft); color:#eafff2; border-color: var(--green-soft); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align:left; font-size: 10.5px; font-weight: 700; letter-spacing:.08em; text-transform: uppercase; color: var(--ink-faint); padding: 8px 20px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,0.02); }
+  td { padding: 11px 20px; border-bottom: 1px solid #1b2620; vertical-align: middle; }
+  tr:hover td { background: rgba(74,222,128,0.04); }
+  .ref { font-weight: 700; font-size: 12.5px; }
+  .ref small { display:block; font-weight:500; color: var(--ink-faint); font-size: 11px; margin-top:1px; }
+  .status { display:inline-flex; align-items:center; gap:6px; font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 99px; }
+  .status i { width:6px; height:6px; border-radius:99px; }
+  .st-green { background: rgba(74,222,128,0.1); color: #6ee7a0; } .st-green i { background:#4ade80; box-shadow:0 0 6px #4ade80; }
+  .st-amber { background: rgba(251,191,36,0.1); color: #fbbf24; } .st-amber i { background:#f59e0b; box-shadow:0 0 6px #f59e0b; }
+  .st-red { background: rgba(248,113,113,0.12); color: #f87171; } .st-red i { background:#ef4444; box-shadow:0 0 6px #ef4444; }
+  .st-blue { background: rgba(96,165,250,0.12); color: #60a5fa; } .st-blue i { background:#3b82f6; box-shadow:0 0 6px #3b82f6; }
+  .deadline { font-weight: 600; font-size: 12.5px; }
+  .deadline.soon { color: #fbbf24; } .deadline.late { color: #f87171; }
+  .bar { width: 110px; height: 6px; border-radius: 99px; background: #203027; overflow:hidden; }
+  .bar i { display:block; height:100%; border-radius:99px; background: linear-gradient(90deg, #2e6b4c, #4ade80); }
+  .avatars { display:flex; }
+  .avatars span { width: 24px; height: 24px; border-radius: 99px; border: 2px solid var(--panel); font-size: 9px; font-weight:700; color:#fff; display:flex; align-items:center; justify-content:center; margin-left: -7px; }
+  .avatars span:first-child { margin-left:0; }
+
+  .right { display:flex; flex-direction:column; gap: 20px; min-height:0; }
+  .urgent-card { background: linear-gradient(150deg, #2a1414, #1c0e0e); border: 1px solid #4a2020; color:#fff; border-radius: 16px; padding: 16px 18px; }
+  .urgent-card h3 { font-size: 13px; font-weight: 700; display:flex; align-items:center; gap:8px; }
+  .urgent-card h3 svg { width:15px; height:15px; stroke:#fca5a5; fill:none; stroke-width:2; }
+  .u-item { display:flex; align-items:center; gap: 10px; font-size: 12px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.07); }
+  .u-item:last-child { border-bottom:none; padding-bottom:0; }
+  .u-item b { font-weight: 700; }
+  .u-item .when { margin-left:auto; font-size: 10.5px; font-weight:700; color:#fca5a5; background:rgba(252,165,165,0.13); padding: 2px 8px; border-radius: 99px; white-space:nowrap; }
+  .timeline { padding: 4px 20px 16px; overflow:hidden; }
+  .t-item { display:flex; gap: 12px; padding: 9px 0; }
+  .t-time { width: 44px; flex-shrink:0; font-size: 11.5px; font-weight: 700; color: var(--ink-soft); padding-top:1px; }
+  .t-rail { width: 10px; flex-shrink:0; display:flex; flex-direction:column; align-items:center; }
+  .t-rail i { width: 9px; height: 9px; border-radius:99px; background:var(--panel); border: 2.5px solid var(--green); box-shadow: 0 0 8px rgba(74,222,128,0.5); }
+  .t-rail u { flex:1; width:2px; background: var(--line); }
+  .t-body b { font-size: 12.5px; font-weight: 600; display:block; }
+  .t-body span { font-size: 11.5px; color: var(--ink-soft); }
+  .t-tag { display:inline-block; font-size: 10px; font-weight:700; padding: 1px 7px; border-radius: 99px; margin-left: 6px; }
+</style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">M</div>
+      <div>
+        <div class="brand-name">App MÉTIER</div>
+        <div class="brand-sub">Parquet · Gestion de service</div>
+      </div>
+    </div>
+    <div class="contentieux">
+      <div class="ctx-pill on">CRIM ORG</div>
+      <div class="ctx-pill">ECOFI</div>
+      <div class="ctx-pill">ENVIRO</div>
+    </div>
+    <div class="nav-section">Pilotage</div>
+    <div class="nav-item active"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Tableau de bord</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Enquêtes préliminaires<span class="nav-badge soft">42</span></div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg>Instructions judiciaires<span class="nav-badge soft">17</span></div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M21 8v11a2 2 0 01-2 2H5a2 2 0 01-2-2V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>Enquêtes terminées</div>
+    <div class="nav-section">Suivi</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Suivi AIR<span class="nav-badge">3</span></div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>Alertes<span class="nav-badge">5</span></div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M20.6 13.3L13.4 20.5a2 2 0 01-2.8 0L3 12.9V3h9.9l7.7 7.7a2 2 0 010 2.6z"/><circle cx="7.5" cy="7.5" r="1"/></svg>Tags</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="7"/><rect x="12" y="7" width="3" height="11"/><rect x="17" y="13" width="3" height="5"/></svg>Statistiques</div>
+    <div class="nav-section">Système</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Sauvegardes</div>
+    <div class="sidebar-footer">
+      <div class="avatar">AC</div>
+      <div>
+        <div class="sf-name">A. Chevalier</div>
+        <div class="sf-role">Magistrat · Admin</div>
+      </div>
+      <div class="sync-dot"><i></i>Synchro</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="crumb">CRIM ORG / <b>Tableau de bord</b></div>
+      <div class="search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5f7468" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        Rechercher une enquête, un mis en cause, un OPJ…
+        <span class="kbd">Ctrl K</span>
+      </div>
+      <div class="top-actions">
+        <div class="icon-btn"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span class="dot-alert">5</span></div>
+        <div class="icon-btn"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-2.6-6.4"/><path d="M21 3v6h-6"/></svg></div>
+        <div class="btn-primary"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Nouvelle enquête</div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="page-head">
+        <h1>Mode nuit — permanence</h1>
+        <div class="page-sub">Jeudi 11 juin 2026 · 22:41 · dernière synchro il y a 2 min</div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi">
+          <div class="kpi-label"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Enquêtes actives</div>
+          <div class="kpi-val">42</div>
+          <div class="kpi-delta up">▲ 3 ce mois</div>
+          <svg class="spark" width="90" height="30" viewBox="0 0 90 30"><polyline points="0,24 12,20 24,22 36,15 48,17 60,10 72,12 90,5" fill="none" stroke="#4ade80" stroke-width="2"/><circle cx="90" cy="5" r="2.5" fill="#4ade80"/></svg>
+        </div>
+        <div class="kpi warn">
+          <div class="kpi-label"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>En attente JLD</div>
+          <div class="kpi-val">7</div>
+          <div class="kpi-delta flat">dont 2 &gt; 48 h</div>
+          <svg class="spark" width="90" height="30" viewBox="0 0 90 30"><polyline points="0,18 12,16 24,20 36,14 48,18 60,12 72,16 90,10" fill="none" stroke="#fbbf24" stroke-width="2"/><circle cx="90" cy="10" r="2.5" fill="#fbbf24"/></svg>
+        </div>
+        <div class="kpi danger">
+          <div class="kpi-label"><svg viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>Poses en attente</div>
+          <div class="kpi-val">4</div>
+          <div class="kpi-delta down">▼ 1 avortée cette semaine</div>
+          <svg class="spark" width="90" height="30" viewBox="0 0 90 30"><polyline points="0,10 12,14 24,12 36,16 48,14 60,18 72,16 90,20" fill="none" stroke="#f87171" stroke-width="2"/><circle cx="90" cy="20" r="2.5" fill="#f87171"/></svg>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>Audiences à venir</div>
+          <div class="kpi-val">12 <small>/ 30 j</small></div>
+          <div class="kpi-delta flat">prochaine : 16 juin</div>
+          <svg class="spark" width="90" height="30" viewBox="0 0 90 30"><polyline points="0,20 12,18 24,14 36,16 48,12 60,14 72,8 90,10" fill="none" stroke="#60a5fa" stroke-width="2"/><circle cx="90" cy="10" r="2.5" fill="#60a5fa"/></svg>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">Enquêtes prioritaires</div>
+            <div class="panel-count">8 à traiter</div>
+            <div class="panel-link">Tout voir →</div>
+          </div>
+          <div class="filters">
+            <div class="chip on">Toutes</div>
+            <div class="chip">Attente JLD</div>
+            <div class="chip">Pose en attente</div>
+            <div class="chip">Échéance &lt; 7 j</div>
+            <div class="chip">Mes dossiers</div>
+          </div>
+          <table>
+            <tr><th>Dossier</th><th>Statut</th><th>Échéance</th><th>Avancement</th><th>Équipe</th></tr>
+            <tr>
+              <td><div class="ref">N° 26/114 — OP HERMÈS<small>Trafic stupéfiants · réseau import</small></div></td>
+              <td><span class="status st-red"><i></i>Attente JLD — 52 h</span></td>
+              <td><span class="deadline late">Demain</span></td>
+              <td><div class="bar"><i style="width:82%"></i></div></td>
+              <td><div class="avatars"><span style="background:#2B5746">AC</span><span style="background:#7c5c2b">JM</span><span style="background:#46562b">LP</span></div></td>
+            </tr>
+            <tr>
+              <td><div class="ref">N° 26/098 — OP TITAN<small>Criminalité organisée · armes</small></div></td>
+              <td><span class="status st-amber"><i></i>Pose en attente</span></td>
+              <td><span class="deadline soon">Dans 3 j</span></td>
+              <td><div class="bar"><i style="width:64%"></i></div></td>
+              <td><div class="avatars"><span style="background:#5c2b6e">SD</span><span style="background:#2B5746">AC</span></div></td>
+            </tr>
+            <tr>
+              <td><div class="ref">N° 25/441 — OP MISTRAL<small>Blanchiment · réseau hawala</small></div></td>
+              <td><span class="status st-blue"><i></i>Instruction ouverte</span></td>
+              <td><span class="deadline">28 juin</span></td>
+              <td><div class="bar"><i style="width:38%"></i></div></td>
+              <td><div class="avatars"><span style="background:#2b4d6e">RB</span></div></td>
+            </tr>
+            <tr>
+              <td><div class="ref">N° 26/102 — OP CIGALE<small>Trafic stupéfiants · go-fast</small></div></td>
+              <td><span class="status st-green"><i></i>En cours</span></td>
+              <td><span class="deadline">4 juil.</span></td>
+              <td><div class="bar"><i style="width:51%"></i></div></td>
+              <td><div class="avatars"><span style="background:#7c5c2b">JM</span><span style="background:#46562b">LP</span></div></td>
+            </tr>
+            <tr>
+              <td><div class="ref">N° 26/121 — OP BORÉAL<small>Criminalité organisée · extorsions</small></div></td>
+              <td><span class="status st-green"><i></i>En cours</span></td>
+              <td><span class="deadline">11 juil.</span></td>
+              <td><div class="bar"><i style="width:22%"></i></div></td>
+              <td><div class="avatars"><span style="background:#2B5746">AC</span><span style="background:#5c2b6e">SD</span></div></td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="right">
+          <div class="urgent-card">
+            <h3><svg viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>Actions urgentes</h3>
+            <div class="u-item"><b>Réquisitions JLD</b> · OP HERMÈS<span class="when">&lt; 24 h</span></div>
+            <div class="u-item"><b>Renouvellement intercept.</b> · OP TITAN<span class="when">48 h</span></div>
+            <div class="u-item"><b>CR pose à valider</b> · OP CIGALE<span class="when">cette sem.</span></div>
+          </div>
+
+          <div class="panel" style="flex:1">
+            <div class="panel-head">
+              <div class="panel-title">Aujourd'hui</div>
+              <div class="panel-link">Agenda →</div>
+            </div>
+            <div class="timeline">
+              <div class="t-item">
+                <div class="t-time">09:00</div>
+                <div class="t-rail"><i></i><u></u></div>
+                <div class="t-body"><b>Audience JLD — prolongation GAV<span class="t-tag" style="background:rgba(248,113,113,0.15);color:#f87171">URGENT</span></b><span>OP HERMÈS · cabinet 12</span></div>
+              </div>
+              <div class="t-item">
+                <div class="t-time">11:30</div>
+                <div class="t-rail"><i></i><u></u></div>
+                <div class="t-body"><b>Point téléphonique OPJ</b><span>OP TITAN · DIPN 34</span></div>
+              </div>
+              <div class="t-item">
+                <div class="t-time">14:00</div>
+                <div class="t-rail"><i></i><u></u></div>
+                <div class="t-body"><b>Réunion de service<span class="t-tag" style="background:rgba(96,165,250,0.15);color:#60a5fa">ÉQUIPE</span></b><span>Suivi des poses · salle B</span></div>
+              </div>
+              <div class="t-item">
+                <div class="t-time">16:30</div>
+                <div class="t-rail"><i></i></div>
+                <div class="t-body"><b>Rédaction réquisitoire</b><span>OP MISTRAL · échéance 28 juin</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
