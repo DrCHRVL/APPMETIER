@@ -79,14 +79,12 @@ et noms d'opération plutôt que les identités complètes quand c'est possible)
   serveur ».
 
 ### 3.2 Authentification forte
-- **Recommandé : WebAuthn / passkeys** (Windows Hello, Face ID, ou clé physique type
+- **Décision actée : WebAuthn / passkeys** (Windows Hello, Face ID, ou clé physique type
   YubiKey ~50 €). Standard, anti-phishing par construction, zéro mot de passe à retenir,
   support natif des navigateurs. C'est ce qu'il y a de plus fort *et* de plus simple à
   déployer pour une petite équipe.
-- **Carte agent** : techniquement = authentification par certificat client (mTLS). Possible
-  *si* la carte expose un certificat exploitable par le navigateur du poste, mais cela
-  dépend du middleware installé par le ministère — à garder comme option de phase 2, pas
-  comme fondation.
+- ~~Carte agent (certificat client / mTLS)~~ — **écartée** : dépendante du middleware du
+  ministère, complexité disproportionnée pour le gain.
 - **Séparation des rôles** : la passkey **authentifie** (qui entre), une **phrase secrète
   distincte déchiffre** (qui lit). Le serveur ne voit jamais la phrase. Variante élégante :
   l'extension **PRF de WebAuthn** permet de dériver la clé de chiffrement directement de la
@@ -116,7 +114,24 @@ et noms d'opération plutôt que les identités complètes quand c'est possible)
   - la **File System Access API** (Edge/Chrome) permet même d'écrire automatiquement la
     sauvegarde dans un dossier local choisi une fois pour toutes.
 
-### 3.5 OCR / PDF
+### 3.5 Agenda — intégration Google Calendar (lecture seule)
+Objectif : voir dans le panneau « Aujourd'hui » les RDV enquêteurs fixés depuis l'iPhone
+sur Google Agenda, fusionnés avec les échéances internes de l'app (audiences JLD,
+échéances de dossiers).
+
+- **Sens unique, lecture seule** : l'app *lit* le Google Agenda (OAuth 2 ou, plus simple,
+  l'« adresse secrète iCal » du calendrier) et affiche les événements à côté des échéances
+  internes, avec un badge « G » pour distinguer la source.
+- **Règle d'or : rien ne part vers Google.** Les échéances d'enquêtes ne sont jamais
+  écrites dans Google Calendar (serveurs US, hors E2EE). La fusion ne se fait que dans le
+  navigateur, à l'affichage.
+- **Discipline côté téléphone** : garder des intitulés neutres dans Google
+  (« RDV Cne Durand » plutôt qu'un nom d'opération) — c'est le seul point qui dépend de
+  l'utilisateur, pas de la technique.
+- Option ultérieure : un calendrier *interne* à l'app (chiffré E2EE comme le reste) +
+  abonnement iCal sortant volontairement minimal si besoin de rappels sur téléphone.
+
+### 3.6 OCR / PDF
 `tesseract.js`, `pdfjs-dist` et `pdf-parse` tournent déjà en JavaScript : ils peuvent
 s'exécuter **dans le navigateur** (Web Workers). Indispensable de toute façon : avec
 l'E2EE, le serveur ne peut pas traiter le contenu — tout traitement reste côté client.
@@ -186,9 +201,14 @@ le serveur n'est qu'un coffre-fort de blobs illisibles.
 
 Trois maquettes rendues en image dans `docs/presentation/maquettes-v2/` :
 
+**Direction retenue : « Lumière institutionnelle »** (maquette 01, v2 après retours) :
+sidebar complète (dont Overboard, Cartographie, Statistiques globales, Paramètres),
+panneaux détaillés « Autorisations JLD en attente » et « Poses en attente », agenda du
+jour fusionné avec Google Calendar (lecture seule, badge « G » par événement).
+
 | Fichier | Direction |
 |---|---|
-| `01-dashboard-lumiere.png` | **« Lumière institutionnelle »** — thème clair raffiné, titres serif (Fraunces), KPI avec sparklines, table des dossiers prioritaires, panneau « Actions urgentes », timeline du jour |
+| `01-dashboard-lumiere.png` | **« Lumière institutionnelle » — retenue** — thème clair raffiné, titres serif (Fraunces), KPI avec sparklines, table des dossiers prioritaires, panneaux détail JLD/poses, « Actions urgentes », agenda fusionné Google |
 | `02-dashboard-nuit.png` | **« Nuit d'audience »** — mode sombre pour les permanences, accents verts lumineux, mêmes composants |
 | `03-vision-web-mobile.png` | **Vision cible** — écran de connexion web (passkey + déverrouillage E2EE) dans un navigateur, et la PWA iPhone à côté |
 
