@@ -169,9 +169,11 @@ le serveur n'est qu'un coffre-fort de blobs illisibles.
 - [ ] L'app Electron continue de fonctionner normalement pendant toute cette phase
 
 ### Phase 2 — Backend minimal + E2EE (~2-3 semaines)
-- [ ] Serveur : WebAuthn (inscription/connexion), stockage de blobs versionnés, journal d'accès, invitations/révocations
+- [ ] Serveur : WebAuthn (inscription/connexion), stockage de blobs versionnés **immuables**, journal d'accès, invitations/révocations
+- [ ] Auth derrière une interface OIDC enfichable (préparation ProConnect, cf. §6)
+- [ ] Modèle multi-tenant dès le schéma initial : tribunal → contentieux → coffres (cf. §7.2)
 - [ ] Client : AES-GCM (WebCrypto) + Argon2id + key wrapping multi-utilisateurs par contentieux
-- [ ] Script de migration `data.json` → coffre chiffré
+- [ ] Script de migration couvrant **tout l'inventaire §8.1** avec rapport de complétude (comptages + checksums), répété sur copie avant le réel
 - [ ] Kit de récupération (clé de secours imprimable)
 
 ### Phase 3 — PWA, offline, sauvegarde locale (~2 semaines)
@@ -197,7 +199,136 @@ le serveur n'est qu'un coffre-fort de blobs illisibles.
 
 ---
 
-## 6. Montée en gamme visuelle
+## 6. Compatibilité future avec les serveurs du ministère
+
+Objectif : pouvoir un jour « rebrancher » l'app sur l'infrastructure du ministère sans
+réécriture. Trois choix d'architecture le garantissent :
+
+1. **Stack auto-hébergeable et banale** : tout tient dans un `docker compose up`
+   (app Next.js + base + reverse-proxy). Aucune dépendance à un service cloud
+   propriétaire (pas de Firebase, pas de S3 AWS, pas de SaaS d'auth). Toute machine
+   Linux fait l'affaire : VPS perso aujourd'hui, VM du ministère demain — seul le
+   fichier de configuration change.
+2. **Authentification enfichable (OIDC)** : WebAuthn/passkeys est implémenté comme un
+   *fournisseur d'identité* parmi d'autres. Le jour venu, on ajoute **ProConnect**
+   (ex-AgentConnect, la fédération d'identité des agents de l'État, protocole OpenID
+   Connect standard) comme second fournisseur — les comptes existants sont rattachés,
+   rien d'autre ne bouge. C'est la vraie réponse moderne à l'idée « carte agent ».
+3. **E2EE indépendant de l'hébergeur** : le chiffrement étant fait côté client, changer
+   de serveur = déplacer des blobs opaques. La migration vers le ministère est un
+   `rsync` + bascule DNS, sans phase de déchiffrement, et le niveau de protection des
+   données ne dépend jamais de la confiance dans la machine hôte.
+
+À éviter dès maintenant pour ne pas se fermer la porte : tout couplage du code à un
+hébergeur précis (API spécifiques, stockage exotique), et tout secret en dur.
+
+---
+
+## 7. Multi-utilisateurs et multi-tribunaux
+
+### 7.1 Multi-utilisateurs (au sein d'un tribunal)
+L'app a déjà les bons concepts (`users.json` : rôles, `accessibleContentieux`,
+permissions par module — Overboard, mindmap…, validation des inscriptions par l'admin).
+On les formalise côté serveur :
+
+- **Comptes individuels**, plusieurs passkeys par compte (PC bureau + iPhone + clé de
+  secours).
+- **Rôles et permissions reprises du modèle actuel** : admin de service, magistrat,
+  lecture seule ; accès par contentieux et par module. Le badge « inscriptions en
+  attente » des Paramètres devient un vrai workflow d'invitation/approbation.
+- **Cryptographie alignée sur les permissions** : la clé d'un coffre (contentieux)
+  n'est *enveloppée* que pour les membres qui y ont accès. Pas membre = pas de clé =
+  rien à lire, même en cas de bug serveur.
+- **Révocation propre** : départ d'un membre → rotation de la clé du coffre, ré-enveloppe
+  pour les membres restants. (Procédure automatisée, un clic admin.)
+- **Journal d'accès** par compte (qui a ouvert quoi, quand, depuis quel appareil) —
+  l'`audit_log.json` actuel devient un journal serveur infalsifiable (append-only).
+
+### 7.2 Multi-tribunaux (multi-tenant)
+Si l'app est distribuée à d'autres juridictions, chaque tribunal est un **« tenant »
+étanche** :
+
+```
+Instance serveur
+├── Tribunal d'Amiens          ← tenant 1 (ton service)
+│   ├── Utilisateurs + admin propres
+│   ├── Coffre CRIM ORG · Coffre ECOFI · Coffre ENVIRO
+│   └── Clés de chiffrement propres
+├── Tribunal de Lille          ← tenant 2
+│   ├── Utilisateurs + admin propres
+│   └── Coffres + clés propres
+└── …
+```
+
+- **Étanchéité cryptographique, pas seulement logique** : chaque tribunal a ses propres
+  clés de coffre, enveloppées uniquement pour ses membres. Un mélange de dossiers entre
+  tribunaux est *mathématiquement* impossible, pas seulement interdit par le code. Même
+  une erreur de requête serveur ne produirait que des blobs indéchiffrables.
+- **Toi-même, opérateur du serveur, tu ne peux rien lire** des autres tribunaux (zéro
+  connaissance). Argument décisif pour distribuer l'app sereinement : tu héberges, tu ne
+  vois rien.
+- Chaque tribunal a **son admin local** qui gère ses membres et ses contentieux — tu
+  n'administres pas leurs services à leur place.
+- **Une seule instance suffit** au départ (coût marginal d'un tribunal supplémentaire ≈
+  nul). Si un tribunal exige son propre serveur un jour, la stack Docker se duplique
+  telle quelle (cf. §6.1) — y compris sur une machine du ministère.
+
+---
+
+## 8. Migration zéro perte & sauvegarde « à mort »
+
+### 8.1 Inventaire exhaustif de ce qui doit survivre
+Recensé dans le code actuel (`main.js`) — c'est la **check-list contractuelle** de la
+migration, rien ne bascule tant que chaque ligne n'est pas verte :
+
+| Donnée | Source actuelle |
+|---|---|
+| Enquêtes préliminaires + résultats | `data.json` / `app-data.json` (par contentieux) |
+| Instructions judiciaires + résultats | `*-instructions.json`, stores instruction |
+| Cartographie (y compris nœuds/ajouts *ex nihilo*) | `cartographie-overlays.json` + config carto |
+| Audiences | `audience-data.json` |
+| Tags | `tag-data.json` |
+| Alertes | `alerts-data.json` |
+| Suppressions (tombstones, anti-résurrection) | `deleted-ids.json` |
+| Documents d'enquête (PDF, pièces) | `data/documentenquete/`, `data/casiers/` |
+| Utilisateurs, rôles, permissions par module/contentieux | `users.json` |
+| Paramètres généraux + par contentieux + serveur | `server-config.json`, settings divers |
+| Journal | `audit_log.json` |
+| Historique | `data/backups/` (conservé tel quel, archivé) |
+
+### 8.2 Protocole de migration (aucune suppression avant validation)
+1. **Gel + sauvegarde complète horodatée** de tout `data/` + partage réseau (copie froide
+   conservée indéfiniment, c'est l'assurance-vie).
+2. **Répétition générale sur copie** : le script d'import tourne d'abord sur un clone,
+   jamais directement sur les données vivantes.
+3. **Import idempotent avec rapport de complétude** : le script compte tout côté source
+   et côté destination (N enquêtes, N résultats, N nœuds carto dont ex nihilo, N
+   instructions, N documents avec **checksum fichier par fichier**, N tags, N audiences,
+   N utilisateurs, N paramètres) et refuse de conclure si un seul compteur diverge.
+   Le rapport est archivé.
+4. **Double fonctionnement** : l'app Electron reste opérationnelle (et resynchronisée)
+   pendant 4 à 8 semaines. La bascule est un choix, jamais un saut dans le vide.
+5. **Rien n'est supprimé** : l'ancien système est archivé chiffré, pas effacé.
+
+### 8.3 Sauvegarde permanente : règle 3-2-1 (3 copies, 2 supports, 1 hors site)
+1. **Serveur — versionnage immuable** : chaque sauvegarde d'un coffre crée une *nouvelle
+   version* horodatée (append-only, N versions conservées + 1/jour sur 30 j + 1/semaine
+   sur 1 an). Une corruption ou une mauvaise manip n'écrase jamais l'historique — c'est
+   la leçon de l'érosion de `data.json`, réglée par construction.
+2. **Hébergeur — snapshots quotidiens** de la machine entière (option à ~2 €/mois),
+   restauration complète en minutes.
+3. **Local — export chiffré automatique** : à chaque session de travail, l'app écrit une
+   sauvegarde chiffrée dans un dossier local choisi une fois (File System Access API) ;
+   copie manuelle mensuelle sur clé USB conservée au service.
+4. **Tests de restauration trimestriels** : une sauvegarde non testée n'existe pas. La
+   procédure de restauration (depuis serveur, depuis snapshot, depuis export local) est
+   documentée et chronométrée.
+5. **Kit de récupération des clés** sous scellé (sans quoi les sauvegardes chiffrées ne
+   valent rien), dupliqué en deux lieux.
+
+---
+
+## 9. Montée en gamme visuelle
 
 Trois maquettes rendues en image dans `docs/presentation/maquettes-v2/` :
 
