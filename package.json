@@ -1,5 +1,6 @@
 {
-  "name": "enquetes-management",
+  "name": "siral",
+  "description": "SIRAL — Suivi Intégré des Réseaux criminels et Affaires Liées",
   "version": "0.1.0",
   "private": true,
   "main": "main.js",
@@ -74,7 +75,7 @@
     "typescript": "^5.2.2"
   },
   "build": {
-    "appId": "com.enquetes.management",
+    "appId": "fr.justice.siral",
     "win": {
       "target": "portable"
     },

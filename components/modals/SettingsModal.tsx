@@ -262,7 +262,7 @@ export const SettingsModal = ({
 
             {/* Footer propriété intellectuelle */}
             <div className="mt-auto px-4 pt-3 border-t border-gray-200 mx-2">
-              <p className="text-[10px] leading-tight text-gray-400 font-medium uppercase tracking-wide">APP METIER</p>
+              <p className="text-[10px] leading-tight text-gray-400 font-medium uppercase tracking-wide">SIRAL — Suivi Intégré des Réseaux criminels et Affaires Liées</p>
               <p className="text-[10px] leading-tight text-gray-400 mt-0.5">
                 {"Conçu par A. CHEVALIER — Parquet d'Amiens"}
               </p>

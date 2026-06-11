@@ -1,5 +1,9 @@
-# Plan de bataille — Migration vers une app web sécurisée
+# Plan de bataille — SIRAL : migration vers une app web sécurisée
 
+> **SIRAL — Suivi Intégré des Réseaux criminels et Affaires Liées** (nouveau nom de
+> l'app, acté le 11 juin 2026 ; l'édition web sera développée dans un dépôt GitHub
+> dédié `SIRAL`, ce dépôt restant celui de l'app Electron historique).
+>
 > Évaluation du passage de l'app portable Electron vers une application web hébergée,
 > avec chiffrement côté client, identification forte, double stockage (serveur + secours local)
 > et, à terme, un accès mobile iPhone. Rédigé le 11 juin 2026.

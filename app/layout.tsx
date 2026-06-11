@@ -3,8 +3,8 @@ import './print.css'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Enquêtes Statistiques',
-  description: 'Application de gestion des enquêtes',
+  title: 'SIRAL',
+  description: 'SIRAL — Suivi Intégré des Réseaux criminels et Affaires Liées',
   icons: {
     icon: '/favicon.png'
   }
