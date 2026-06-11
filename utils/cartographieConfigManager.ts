@@ -47,6 +47,32 @@ class CartographieConfigManagerService {
       CONFIG_KEY,
       null,
     );
+    // Lecture illisible (≠ config réellement absente) : on renvoie des défauts
+    // ÉPHÉMÈRES pour l'affichage mais on NE les met PAS en cache, afin qu'un
+    // appel ultérieur réessaie et qu'aucune sauvegarde ne parte d'une base
+    // erronée (cf. loadForWrite).
+    if (stored === null && ElectronBridge.didReadFail(CONFIG_KEY)) {
+      return normalize(null);
+    }
+    const config = normalize(stored);
+    this.cache = config;
+    return config;
+  }
+
+  /** Charge une base FIABLE pour une écriture. Si la lecture a échoué, on
+   *  refuse l'opération plutôt que d'écrire des valeurs par défaut par-dessus
+   *  la vraie configuration (cause historique de la perte des pondérations). */
+  private async loadForWrite(): Promise<CartographieModuleConfig> {
+    if (this.cache) return this.cache;
+    const stored = await ElectronBridge.getData<CartographieModuleConfig | null>(
+      CONFIG_KEY,
+      null,
+    );
+    if (stored === null && ElectronBridge.didReadFail(CONFIG_KEY)) {
+      throw new Error(
+        'Configuration cartographie illisible : sauvegarde annulée pour ne pas écraser les réglages existants. Réessayez après rechargement de l’application.',
+      );
+    }
     const config = normalize(stored);
     this.cache = config;
     return config;
@@ -72,7 +98,7 @@ class CartographieConfigManagerService {
 
   /** Mise à jour partielle des pondérations principales. */
   async updateWeights(patch: Partial<CartographieScoreWeights>): Promise<boolean> {
-    const current = await this.load();
+    const current = await this.loadForWrite();
     return this.save({
       ...current,
       weights: { ...current.weights, ...patch },
@@ -82,7 +108,7 @@ class CartographieConfigManagerService {
   /** Définit le poids associé à un tag d'infraction (clé = Tag.id).
    *  Passer 0 supprime l'entrée pour rester clean. */
   async setTagInfractionWeight(tagId: string, weight: number): Promise<boolean> {
-    const current = await this.load();
+    const current = await this.loadForWrite();
     const next = { ...current.tagInfractionWeights };
     if (!weight) {
       delete next[tagId];
@@ -94,7 +120,7 @@ class CartographieConfigManagerService {
 
   /** Active/désactive l'ancrage zonal par service d'enquête. */
   async setGroupByService(enabled: boolean): Promise<boolean> {
-    const current = await this.load();
+    const current = await this.loadForWrite();
     return this.save({ ...current, groupByService: enabled });
   }
 
