@@ -1,8 +1,8 @@
 # Plan de bataille — SIRAL : migration vers une app web sécurisée
 
 > **SIRAL — Suivi Intégré des Réseaux criminels et Affaires Liées** (nouveau nom de
-> l'app, acté le 11 juin 2026 ; l'édition web sera développée dans un dépôt GitHub
-> dédié `SIRAL`, ce dépôt restant celui de l'app Electron historique).
+> l'app, acté le 11 juin 2026). Décision actée : **dépôt unique** — l'édition web est
+> développée ici même, l'app Electron restant fonctionnelle pendant toute la transition.
 >
 > Évaluation du passage de l'app portable Electron vers une application web hébergée,
 > avec chiffrement côté client, identification forte, double stockage (serveur + secours local)
@@ -192,6 +192,42 @@ le serveur n'est qu'un coffre-fort de blobs illisibles.
 ### Phase 5 — Bascule
 - [ ] Double fonctionnement (Electron + web) sur 1-2 mois
 - [ ] L'app portable devient le « mode secours », puis est retirée (la PWA assure le offline)
+
+### Rétro-planning (bascule visée : 2 novembre 2026)
+
+Inventaire technique réalisé le 11 juin : **105 appels IPC** exposés par `preload.js`,
+**102 handlers** dans `main.js`, en 9 familles — `dataSync_*` (16), `globalSync_*` (15),
+`instructionSync_*` (5), `consultation_*` (5), documents/casiers/fichiers, PDF/OCR,
+mises à jour, audit, chemins/réseau. C'est le contrat de la phase 1.
+
+| Phase | Période | Livrable testable (« gate » de sortie) |
+|---|---|---|
+| **0 — Cadrage** | 11 → 19 juin | Hébergeur + domaine choisis ; inventaire IPC ✅ ; décisions actées ✅ |
+| **1 — Découplage Electron** | 22 juin → 17 juil | L'app Electron tourne **entièrement** sur la nouvelle couche `StorageAdapter`, zéro régression |
+| · S1 | 22–26 juin | Interface `StorageAdapter` + adaptateur Electron branché (lecture/écriture cœur) |
+| · S2 | 29 juin – 3 juil | Familles `dataSync_*` et `globalSync_*` derrière l'interface |
+| · S3 | 6–10 juil | `instructionSync_*`, documents/casiers, `paths_*`, consultation |
+| · S4 | 13–17 juil | OCR + extraction PDF en Web Workers navigateur |
+| **2 — Serveur + E2EE** | 20 juil → 21 août | **Migration blanche 100 % verte** (rapport de complétude §8.2) |
+| · S1–S2 | 20 juil – 31 juil | Serveur déployé : WebAuthn, coffres versionnés immuables, journal, invitations |
+| · S3 | 3–7 août | Crypto client : AES-GCM, Argon2id, key wrapping par contentieux |
+| · S4 | 10–14 août | Script de migration + rapport de complétude, répétitions sur copie réelle |
+| · S5 | 17–21 août | Kit de récupération, test de restauration, durcissement serveur |
+| **3 — PWA + offline + sauvegardes** | 24 août → 11 sept | Travail complet hors-ligne + export local chiffré automatique |
+| **4 — UI « Lumière » + iPhone** | 14 sept → 2 oct | Nouveau visuel appliqué ; PWA installée et utilisable sur iPhone |
+| **5 — Double fonctionnement** | 5 oct → 30 oct | Équipe sur le web, Electron en secours synchronisé, corrections |
+| **Bascule** | **2 novembre 2026** | Electron archivé (resté restaurable), SIRAL web devient l'outil principal |
+
+Hypothèses de rythme : le développement avance par sessions ; le facteur limitant est
+**ta validation de chaque gate** (~1 h en fin de jalon). Si un gate échoue, la phase ne
+se ferme pas — le planning glisse plutôt que de basculer du non-vérifié.
+
+**À faire côté Audran (chemin critique)** :
+- avant le 20 juillet : commander le VPS (OVH, gamme avec snapshots) + le domaine —
+  non bloquant avant la phase 2 ;
+- avant le 10 août : fournir une copie réelle des données du service (clé USB chiffrée
+  ou dépôt direct) pour la répétition générale de migration ;
+- à chaque fin de jalon : tester le livrable et valider le gate.
 
 ### Risques principaux
 | Risque | Parade |
