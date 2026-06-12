@@ -102,16 +102,30 @@ Ouvrez **https://votre-domaine** : l'écran de connexion SIRAL apparaît.
 
 ## 4. Premier démarrage (~10 min)
 
+> **Conseil : faites l'import des données (§ 4.1) AVANT votre première
+> connexion.** L'écran de migration s'occupera alors de tout d'un coup.
+
 1. **Enrôlement** : « Premier accès ? Enrôler une passkey » → identifiant
    (utilisez **le même identifiant que dans l'app Electron** — celui de
-   `users.json`, ex. votre login Windows), nom affiché, code d'enrôlement →
-   Windows Hello / Face ID crée la passkey. *Le premier compte créé est
-   administrateur du serveur.*
-2. **Création du coffre** : choisissez la **phrase secrète du service**
-   (longue — quatre mots aléatoires font une excellente phrase). Elle chiffre
-   tout, et **personne ne peut la réinitialiser** : imprimez-la, enveloppe
-   scellée, coffre du service. C'est le kit de récupération.
-3. L'app s'ouvre, vide. Passez à l'import des données.
+   `users.json`, ex. votre login Windows), nom affiché, tribunal, code
+   d'enrôlement → Windows Hello / Face ID crée la passkey. *Le premier compte
+   créé est administrateur du serveur.*
+2. **Votre trousseau personnel** (cloisonnement par clé individuelle) :
+   - *Serveur vierge* : écran « Initialisation du chiffrement » — choisissez
+     votre **phrase personnelle** (longue — quatre mots aléatoires). Des clés
+     neuves sont générées et scellées dans votre trousseau.
+   - *Serveur avec données importées (§ 4.1)* : écran « Passage aux clés
+     individuelles » — saisissez la **phrase utilisée à l'import** une
+     dernière fois, puis votre **phrase personnelle**. Les clés des
+     contentieux sont régénérées et votre trousseau créé.
+   - Votre phrase personnelle est **irrécupérable** : imprimez-la, enveloppe
+     scellée. En cas d'oubli, un collègue admin peut vous ré-inviter.
+3. **Inviter les collègues** : Paramètres → **Accès & clés** → « Inviter »
+   à côté de chaque membre (cochez les contentieux à donner) → un **code
+   d'invitation à usage unique** s'affiche : transmettez-le de vive voix.
+   Le collègue s'enrôle (passkey + code d'enrôlement), saisit son code
+   d'invitation et choisit SA phrase personnelle. Révoquer un membre se fait
+   au même endroit.
 
 ### 4.1 Importer les données existantes
 Sur le serveur, déposez une copie de vos données (depuis votre poste,
@@ -137,6 +151,10 @@ docker compose start siral
 shred -ru ~/import-source ~/import-docs 2>/dev/null || rm -rf ~/import-source ~/import-docs
 ```
 
+La phrase passée à `--passphrase` est une **phrase de transit** : choisissez-en
+une longue, vous la saisirez une seule fois à l'écran « Passage aux clés
+individuelles », puis elle n'aura plus d'usage (les clés sont régénérées).
+
 Le script affiche un **rapport de complétude** (comptages par type) et refuse
 de conclure si quelque chose manque. Rechargez l'app : vos données sont là.
 
@@ -154,8 +172,9 @@ de conclure si quelque chose manque. Rechargez l'app : vos données sont là.
   de passkey. Fonctionne hors-ligne (les données déjà synchronisées restent
   consultables).
 - Chaque membre du service s'enrôle avec **son** identifiant (celui de
-  `users.json`) + le code d'enrôlement, puis déverrouille avec la phrase
-  secrète du service.
+  `users.json`) + le code d'enrôlement, saisit le **code d'invitation** remis
+  par l'admin (Paramètres → Accès & clés), puis choisit sa **phrase
+  personnelle**.
 
 ---
 

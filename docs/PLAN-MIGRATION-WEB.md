@@ -10,6 +10,33 @@
 
 ---
 
+## ⚡ État au 12 juin 2026 — le rétro-planning ci-dessous est largement DÉPASSÉ
+
+Tout le cœur a été construit et testé en avance de phase (49 vérifications
+automatisées vertes : 35 e2e générales + 14 e2e de migration) :
+
+**Fait et testé :**
+- Édition web complète (pont 109/109 fonctions, garde de complétude au build)
+- E2EE, passkeys, PWA iPhone, serveur intégré, versionnage immuable
+- **Cloisonnement par clé individuelle** : trousseau personnel par membre,
+  invitations à code unique, révocation, périmètre par contentieux, rotation
+- **Versement des anciennes données** : `scripts/siral-import.js` + rapport de
+  complétude + écran de migration intégré (testé de bout en bout)
+- **Dossier commun Windows par enquête** dans le navigateur (File System
+  Access, file d'attente hors réseau) — règle 3-2-1 opérationnelle
+- **Mise en page mobile** (tiroir de navigation, modales bornées, iPhone 390px)
+- OCR retiré (inutilisé) ; champ tribunal par compte
+- Maquettes « Lumière » palette Justice (DSFR) + icône
+
+**Reste (dans l'ordre) :**
+1. Déploiement réel par Audran (VPS + domaine — `docs/TUTO-DEPLOIEMENT.md`) et test terrain
+2. Versement de la copie réelle des données (répétition générale puis réel)
+3. Refonte visuelle « Lumière » appliquée à l'app (choix de palette à acter)
+4. Double fonctionnement **optionnel** : simple filet de sécurité, pas une
+   obligation — la bascule peut être directe une fois le versement validé
+
+---
+
 ## 1. Constat : pourquoi le modèle actuel arrive au bout
 
 L'app actuelle est une app **Electron portable Windows** : Next.js embarqué, données dans
