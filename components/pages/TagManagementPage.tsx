@@ -428,14 +428,14 @@ export const TagManagementPage = () => {
 
   if (isLoading) {
     return (
-      <div className="p-6 max-w-6xl mx-auto">
+      <div className="p-3 sm:p-6 max-w-6xl mx-auto">
         <div className="text-center">Chargement des tags...</div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-3 sm:p-6 max-w-6xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">Gestion des Tags</h2>
 

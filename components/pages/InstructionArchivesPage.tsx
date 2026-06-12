@@ -156,9 +156,9 @@ export const InstructionArchivesPage = ({
     : null;
 
   return (
-    <div className="flex gap-4 px-6">
+    <div className="flex flex-col lg:flex-row gap-4 px-3 lg:px-6">
       {/* Colonne gauche : Audiences en attente */}
-      <div className="w-80 flex-shrink-0">
+      <div className="w-full lg:w-80 lg:flex-shrink-0">
         <Card className="shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
@@ -173,7 +173,7 @@ export const InstructionArchivesPage = ({
               )}
             </div>
           </CardHeader>
-          <CardContent className="space-y-1.5 max-h-[calc(100vh-220px)] overflow-y-auto">
+          <CardContent className="space-y-1.5 lg:max-h-[calc(100vh-220px)] lg:overflow-y-auto">
             {pending.length === 0 ? (
               <p className="text-xs text-gray-500 text-center py-6 italic">
                 Aucune audience en attente.
