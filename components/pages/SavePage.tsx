@@ -2,10 +2,11 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
-import { Download, Upload, Save, RotateCcw, Clock, Shield, AlertTriangle, CheckCircle, FileText, Wrench, HardDriveDownload } from 'lucide-react';
+import { Download, Upload, Save, RotateCcw, Clock, Shield, AlertTriangle, CheckCircle, FileText, Wrench, HardDriveDownload, Lock } from 'lucide-react';
 import { backupManager } from '@/utils/backupManager';
 import { useToast } from '@/contexts/ToastContext';
 import { ConfirmationDialog } from '../ui/confirmation-dialog';
+import { DesktopImportPanel } from '../DesktopImportPanel';
 
 interface BackupStats {
   totalBackups: number;
@@ -68,7 +69,13 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
   const [selectedAdminBackup, setSelectedAdminBackup] = useState<AdminBackup | null>(null);
   const [isRestoringAdmin, setIsRestoringAdmin] = useState(false);
   const [integrityStatus, setIntegrityStatus] = useState<'unknown' | 'good' | 'warning' | 'error'>('unknown');
+  // Import depuis un fichier d'export : contenu lu + aperçu, confirmé avant écrasement
+  const [pendingImport, setPendingImport] = useState<{ name: string; content: string; keys: string[] } | null>(null);
+  const [isImportingFile, setIsImportingFile] = useState(false);
   const { showToast } = useToast();
+
+  // Édition web : E2EE actif, data.json ≙ cache navigateur, import bureau disponible
+  const isWeb = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
 
   // Charger les informations au démarrage
   useEffect(() => {
@@ -203,54 +210,51 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
     }
   };
 
-  // 🆕 IMPORT DEPUIS FICHIER (remplace l'ancien import)
-  const handleImportFromFile = async () => {
-    try {
-      // 1. Créer une sauvegarde de sécurité avant import
-      console.log('🔄 Creating safety backup before import...');
-      await backupManager.createBackup();
-      
-      // 2. Ouvrir le sélecteur de fichier
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.json';
-      
-      input.onchange = async (e) => {
-        const file = (e.target as HTMLInputElement).files?.[0];
-        if (!file) return;
-        
+  // 🆕 IMPORT DEPUIS FICHIER — lecture + validation, puis confirmation avant écrasement
+  const handleImportFromFile = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      try {
+        const content = await file.text();
+        let keys: string[];
         try {
-          const reader = new FileReader();
-          reader.onload = async (e) => {
-            try {
-              const importedData = JSON.parse(e.target?.result as string);
-              
-              // 3. Valider les données importées
-              if (!importedData || typeof importedData !== 'object') {
-                throw new Error('Format de fichier invalide');
-              }
-              
-              // 4. TODO: Implémenter la restauration depuis les données importées
-              // Pour l'instant, afficher un message
-              showToast('⚠️ Import de fichier en cours de développement', 'info');
-              console.log('📥 Imported data structure:', Object.keys(importedData));
-              
-            } catch (parseError) {
-              console.error('❌ Error parsing imported file:', parseError);
-              showToast('❌ Fichier invalide ou corrompu', 'error');
-            }
-          };
-          reader.readAsText(file);
-        } catch (error) {
-          console.error('❌ Error reading file:', error);
-          showToast('❌ Erreur lors de la lecture du fichier', 'error');
+          const parsed = JSON.parse(content);
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+          keys = Object.keys(parsed);
+        } catch {
+          showToast('❌ Fichier invalide ou corrompu (JSON attendu)', 'error');
+          return;
         }
-      };
-      
-      input.click();
+        setPendingImport({ name: file.name, content, keys });
+      } catch (error) {
+        console.error('❌ Error reading file:', error);
+        showToast('❌ Erreur lors de la lecture du fichier', 'error');
+      }
+    };
+    input.click();
+  };
+
+  const handleConfirmImportFromFile = async () => {
+    if (!pendingImport) return;
+    setIsImportingFile(true);
+    try {
+      const result = await backupManager.importFromFile(pendingImport.content);
+      if (result.success) {
+        showToast(`✅ ${result.restoredKeys.length} type(s) de données importé(s). Rechargement...`, 'success');
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        showToast(`❌ Import refusé : ${result.error || 'erreur inconnue'}`, 'error');
+      }
     } catch (error) {
       console.error('❌ Error during import process:', error);
       showToast('❌ Erreur lors du processus d\'import', 'error');
+    } finally {
+      setIsImportingFile(false);
+      setPendingImport(null);
     }
   };
 
@@ -415,7 +419,7 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
                 <div className="border-t pt-4">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                     <div>
-                      <p className="font-medium text-gray-700">data.json</p>
+                      <p className="font-medium text-gray-700">{isWeb ? 'Données locales (navigateur)' : 'data.json'}</p>
                       <p className="text-lg font-bold text-green-600">
                         {backupStats.dataJsonInfo.exists ? backupStats.dataJsonInfo.size : 'Non trouvé'}
                       </p>
@@ -474,14 +478,14 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
               <span className="text-xs opacity-75">Sélective</span>
             </Button>
             
-            <Button 
-              onClick={handleCopyDataJson} 
+            <Button
+              onClick={handleCopyDataJson}
               disabled={operations.copyingDataJson}
               className="h-20 flex flex-col bg-green-600 hover:bg-green-700"
             >
               <FileText className="h-6 w-6 mb-2" />
-              {operations.copyingDataJson ? 'Copie...' : 'Copier data.json'}
-              <span className="text-xs opacity-75">Complète</span>
+              {operations.copyingDataJson ? 'Copie...' : isWeb ? 'Copier données locales' : 'Copier data.json'}
+              <span className="text-xs opacity-75">{isWeb ? 'Instantané navigateur' : 'Complète'}</span>
             </Button>
             
             <Button 
@@ -508,6 +512,9 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
           </div>
         </CardContent>
       </Card>
+
+      {/* 🖥️→☁️ IMPORT DEPUIS L'APP BUREAU (édition web uniquement) */}
+      {isWeb && <DesktopImportPanel />}
 
       {/* 📂 SAUVEGARDES DISPONIBLES */}
       <Card>
@@ -753,20 +760,74 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
           <CardTitle>Import depuis fichier externe</CardTitle>
         </CardHeader>
         <CardContent>
-          <Button 
+          <Button
             onClick={handleImportFromFile}
-            variant="outline" 
+            variant="outline"
             className="w-full"
+            disabled={isImportingFile}
           >
             <Upload className="h-4 w-4 mr-2" />
-            Importer depuis un fichier de sauvegarde
+            {isImportingFile ? 'Import en cours…' : 'Importer depuis un fichier de sauvegarde'}
           </Button>
           <p className="text-xs text-gray-500 mt-2">
-            ⚠️ Une sauvegarde de sécurité sera créée automatiquement avant l'import
+            Accepte un « Export sélectif » ou une sauvegarde SIRAL (.json). Le contenu est
+            vérifié et affiché avant import, et une sauvegarde de sécurité est créée automatiquement.
           </p>
         </CardContent>
       </Card>
-      
+
+      {/* 🔐 CHIFFREMENT (édition web : E2EE) */}
+      {isWeb && (
+        <Card className="border-slate-300 bg-slate-50">
+          <CardHeader>
+            <CardTitle className="flex items-center text-slate-800">
+              <Lock className="h-5 w-5 mr-2" />
+              Chiffrement de bout en bout — ce que protège SIRAL
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="text-sm text-slate-700 space-y-2 list-disc list-inside">
+              <li>
+                <b>Chiffré dans votre navigateur, jamais sur le serveur</b> : chaque donnée est scellée
+                en AES-256-GCM avant l&apos;envoi. Le serveur ne stocke que des enveloppes opaques
+                (illisibles même pour l&apos;hébergeur ou un attaquant qui prendrait la machine).
+              </li>
+              <li>
+                <b>Votre phrase personnelle ne quitte pas cet appareil</b> : elle déverrouille votre
+                trousseau de clés localement (dérivation PBKDF2-SHA256, 600&nbsp;000 itérations).
+                Elle est irrécupérable — conservez le kit de récupération sous enveloppe scellée.
+              </li>
+              <li>
+                <b>Cloisonnement par contentieux</b> : une clé distincte par périmètre (CRIM ORG, ECOFI,
+                ENVIRO). Vous ne pouvez déchiffrer que les contentieux auxquels un collègue vous a invité
+                (Paramètres → Accès &amp; clés).
+              </li>
+              <li>
+                <b>Historique immuable</b> : chaque écriture archive la version précédente du coffre
+                sur le serveur — c&apos;est le premier niveau de sauvegarde, automatique.
+              </li>
+              <li>
+                <b>En cas d&apos;oubli de la phrase</b> : aucune réinitialisation possible, mais un
+                administrateur peut vous ré-inviter — l&apos;accès est recréé sans perte de données.
+              </li>
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 📥 DIALOGUE DE CONFIRMATION IMPORT FICHIER */}
+      <ConfirmationDialog
+        isOpen={pendingImport !== null}
+        onClose={() => setPendingImport(null)}
+        onConfirm={handleConfirmImportFromFile}
+        title="Importer ce fichier de sauvegarde"
+        message={pendingImport
+          ? `Fichier : ${pendingImport.name}\n\nTypes de données détectés (${pendingImport.keys.length}) :\n${pendingImport.keys.slice(0, 12).join(', ')}${pendingImport.keys.length > 12 ? '…' : ''}\n\n⚠️ Ces données remplaceront les données locales correspondantes. Une sauvegarde de sécurité sera créée avant l'import.`
+          : ''}
+        confirmLabel={isImportingFile ? 'Import…' : 'Importer'}
+        cancelLabel="Annuler"
+      />
+
       {/* 🔄 DIALOGUE DE CONFIRMATION RESTAURATION DEPUIS BACKUP SERVEUR */}
       <ConfirmationDialog
         isOpen={showServerRestoreConfirm}
