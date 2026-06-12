@@ -74,6 +74,12 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   const [regDisplay, setRegDisplay] = useState('')
   const [regTribunal, setRegTribunal] = useState('')
   const [regCode, setRegCode] = useState('')
+  // connexion / enrôlement par mot de passe (postes sans Windows Hello)
+  const [loginMode, setLoginMode] = useState<'passkey' | 'password'>('passkey')
+  const [regMode, setRegMode] = useState<'passkey' | 'password'>('passkey')
+  const [loginUsername, setLoginUsername] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [regPassword, setRegPassword] = useState('')
   // phrases et code d'invitation
   const [servicePass, setServicePass] = useState('')
   const [inviteCode, setInviteCode] = useState('')
@@ -258,6 +264,39 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       await loadStateAndRoute()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Échec de la connexion')
+    } finally { setBusy(false) }
+  }
+
+  const doPasswordLogin = async () => {
+    setBusy(true); setError('')
+    try {
+      const { status, json } = await apiJson('/api/auth/password-login', {
+        username: loginUsername.trim(), password: loginPassword,
+      })
+      if (status !== 200) throw new Error(String(json.error || 'Connexion refusée'))
+      const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
+      setMe(identity)
+      setLoginPassword('')
+      await loadStateAndRoute()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Échec de la connexion')
+    } finally { setBusy(false) }
+  }
+
+  const doPasswordRegister = async () => {
+    setBusy(true); setError('')
+    try {
+      const { status, json } = await apiJson('/api/auth/password-register', {
+        username: regUsername.trim(), displayName: regDisplay.trim() || regUsername.trim(),
+        tribunal: regTribunal.trim() || undefined, password: regPassword, setupCode: regCode.trim(),
+      })
+      if (status !== 200) throw new Error(String(json.error || 'Enrôlement refusé'))
+      const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
+      setMe(identity)
+      setRegPassword('')
+      await loadStateAndRoute()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Échec de l'enrôlement")
     } finally { setBusy(false) }
   }
 
@@ -474,12 +513,34 @@ export function WebGate({ children }: { children: React.ReactNode }) {
         {phase === 'login' && (
           <>
             <div className="siral-title">Connexion</div>
-            <div className="siral-text">Espace réservé aux membres habilités. Authentification par passkey (Windows Hello, Face ID ou clé de sécurité).</div>
-            <button className="siral-btn" onClick={doLogin} disabled={busy}>
-              {busy ? 'Vérification…' : 'Se connecter avec une passkey'}
-            </button>
+            {loginMode === 'passkey' ? (
+              <>
+                <div className="siral-text">Espace réservé aux membres habilités. Authentification par passkey (Windows Hello, Face ID ou clé de sécurité).</div>
+                <button className="siral-btn" onClick={doLogin} disabled={busy}>
+                  {busy ? 'Vérification…' : 'Se connecter avec une passkey'}
+                </button>
+                <button className="siral-link" onClick={() => { setError(''); setLoginMode('password') }}>
+                  Passkey indisponible ? Se connecter par mot de passe
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="siral-text">Saisissez votre identifiant et votre mot de passe.</div>
+                <input className="siral-input" placeholder="Identifiant" value={loginUsername} autoCapitalize="none"
+                  onChange={(e) => setLoginUsername(e.target.value)} />
+                <input className="siral-input" type="password" placeholder="Mot de passe" value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && loginUsername.trim() && loginPassword) doPasswordLogin() }} />
+                <button className="siral-btn" onClick={doPasswordLogin} disabled={busy || !loginUsername.trim() || !loginPassword}>
+                  {busy ? 'Vérification…' : 'Se connecter'}
+                </button>
+                <button className="siral-link" onClick={() => { setError(''); setLoginMode('passkey') }}>
+                  ← Revenir à la connexion par passkey
+                </button>
+              </>
+            )}
             <button className="siral-link" onClick={() => { setError(''); setPhase('register') }}>
-              Premier accès sur cet appareil ? Enrôler une passkey
+              Premier accès sur cet appareil ? Enrôler
             </button>
             {error && <div className="siral-error">{error}</div>}
           </>
@@ -493,9 +554,27 @@ export function WebGate({ children }: { children: React.ReactNode }) {
             <input className="siral-input" placeholder="Nom affiché (ex. A. Chevalier)" value={regDisplay} onChange={(e) => setRegDisplay(e.target.value)} />
             <input className="siral-input" placeholder="Tribunal / juridiction (ex. TJ Marseille)" value={regTribunal} onChange={(e) => setRegTribunal(e.target.value)} />
             <input className="siral-input" placeholder="Code d'enrôlement" value={regCode} onChange={(e) => setRegCode(e.target.value)} />
-            <button className="siral-btn" onClick={doRegister} disabled={busy || !regUsername.trim() || !regCode.trim()}>
-              {busy ? 'Création…' : 'Créer ma passkey'}
-            </button>
+            {regMode === 'passkey' ? (
+              <>
+                <button className="siral-btn" onClick={doRegister} disabled={busy || !regUsername.trim() || !regCode.trim()}>
+                  {busy ? 'Création…' : 'Créer ma passkey'}
+                </button>
+                <button className="siral-link" onClick={() => { setError(''); setRegMode('password') }}>
+                  Windows Hello bloqué sur ce poste ? Créer un mot de passe
+                </button>
+              </>
+            ) : (
+              <>
+                <input className="siral-input" type="password" placeholder="Mot de passe (10 caractères minimum)" value={regPassword}
+                  onChange={(e) => setRegPassword(e.target.value)} />
+                <button className="siral-btn" onClick={doPasswordRegister} disabled={busy || !regUsername.trim() || !regCode.trim() || regPassword.length < 10}>
+                  {busy ? 'Création…' : 'Créer mon compte (mot de passe)'}
+                </button>
+                <button className="siral-link" onClick={() => { setError(''); setRegMode('passkey') }}>
+                  ← Utiliser plutôt une passkey
+                </button>
+              </>
+            )}
             <button className="siral-link" onClick={() => { setError(''); setPhase('login') }}>← Retour à la connexion</button>
             {error && <div className="siral-error">{error}</div>}
           </>
