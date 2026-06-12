@@ -25,11 +25,29 @@ class ElectronBridgeService {
     this.isElectronAvailable = typeof window !== 'undefined' && !!window.electronAPI;
     this.migrationManager = new MigrationManager();
     
-    // Capture les événements de fermeture de la fenêtre pour sauvegarder
+    // Capture les événements de fermeture/mise en veille pour sauvegarder :
+    // `pagehide` et `visibilitychange` couvrent iOS et la mise en veille,
+    // où `beforeunload` ne se déclenche jamais.
     if (typeof window !== 'undefined') {
-      window.addEventListener('beforeunload', this.saveAllPendingChanges.bind(this));
+      const flush = this.saveAllPendingChanges.bind(this);
+      window.addEventListener('beforeunload', flush);
+      window.addEventListener('pagehide', flush);
+      document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
+
+      // Deux onglets SIRAL ouverts : chaque setData annonce sa clé aux autres
+      // onglets, qui invalident leur cache mémoire — sinon un onglet périmé
+      // peut pousser un état ancien vers le serveur.
+      try {
+        this.crossTab = new BroadcastChannel('siral-data');
+        this.crossTab.onmessage = (ev) => {
+          const k = ev?.data?.key;
+          if (typeof k === 'string') this.dataCache.delete(k);
+        };
+      } catch { /* BroadcastChannel indisponible : navigateur ancien */ }
     }
   }
+
+  private crossTab: BroadcastChannel | null = null;
 
   public static getInstance(): ElectronBridgeService {
     if (!ElectronBridgeService.instance) {
@@ -114,6 +132,7 @@ class ElectronBridgeService {
   public async setData<T>(key: string, value: T): Promise<boolean> {
     // Mettre à jour le cache immédiatement
     this.dataCache.set(key, value);
+    try { this.crossTab?.postMessage({ key }); } catch {}
     
     // Annuler toute sauvegarde en attente pour cette clé
     if (this.pendingSaves.has(key)) {

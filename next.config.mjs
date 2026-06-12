@@ -17,6 +17,12 @@ const nextConfig = {
   // Forcer SWC pour la minification (éviter le fallback vers Terser, beaucoup plus lent)
   swcMinify: true,
 
+  // Production silencieuse : les console.log/info disparaissent du bundle
+  // (les warn/error restent pour le diagnostic)
+  compiler: {
+    removeConsole: { exclude: ['error', 'warn'] },
+  },
+
   experimental: {
     // Limiter les workers pour éviter les problèmes avec le Node.js portable
     cpus: 2,

@@ -45,17 +45,57 @@ export const idb = {
   getAll: <T>(store: string): Promise<T[]> => tx<T[]>(store, 'readonly', (s) => s.getAll()),
 }
 
-/** Exporte tout le magasin kv en un objet (équivalent du data.json complet). */
+/** Exporte tout le magasin kv en un objet (équivalent du data.json complet) — une seule transaction. */
 export async function exportKv(): Promise<Record<string, unknown>> {
-  const keys = await idb.keys('kv')
-  const out: Record<string, unknown> = {}
-  for (const k of keys) out[k] = await idb.get('kv', k)
-  return out
+  const db = await openDb()
+  return new Promise((resolve, reject) => {
+    const store = db.transaction('kv', 'readonly').objectStore('kv')
+    const keysReq = store.getAllKeys()
+    const valsReq = store.getAll()
+    let keys: IDBValidKey[] | null = null
+    let vals: unknown[] | null = null
+    const done = () => {
+      if (!keys || !vals) return
+      const out: Record<string, unknown> = {}
+      keys.forEach((k, i) => { out[String(k)] = vals![i] })
+      resolve(out)
+    }
+    keysReq.onsuccess = () => { keys = keysReq.result; done() }
+    valsReq.onsuccess = () => { vals = valsReq.result; done() }
+    keysReq.onerror = () => reject(keysReq.error)
+    valsReq.onerror = () => reject(valsReq.error)
+  })
 }
 
-/** Remplace tout le magasin kv par l'objet fourni. */
+/** Remplace tout le magasin kv par l'objet fourni — une seule transaction. */
 export async function importKv(data: Record<string, unknown>): Promise<void> {
-  const existing = await idb.keys('kv')
-  for (const k of existing) await idb.del('kv', k)
-  for (const [k, v] of Object.entries(data)) await idb.set('kv', k, v)
+  const db = await openDb()
+  return new Promise((resolve, reject) => {
+    const t = db.transaction('kv', 'readwrite')
+    const store = t.objectStore('kv')
+    store.clear()
+    for (const [k, v] of Object.entries(data)) store.put(v, k)
+    t.oncomplete = () => resolve()
+    t.onerror = () => reject(t.error)
+  })
+}
+
+/** Toutes les entrées d'un magasin (clé + valeur) en une transaction. */
+export async function getAllEntries<T>(store: string): Promise<Array<{ key: string, value: T }>> {
+  const db = await openDb()
+  return new Promise((resolve, reject) => {
+    const s = db.transaction(store, 'readonly').objectStore(store)
+    const keysReq = s.getAllKeys()
+    const valsReq = s.getAll()
+    let keys: IDBValidKey[] | null = null
+    let vals: T[] | null = null
+    const done = () => {
+      if (!keys || !vals) return
+      resolve(keys.map((k, i) => ({ key: String(k), value: vals![i] })))
+    }
+    keysReq.onsuccess = () => { keys = keysReq.result; done() }
+    valsReq.onsuccess = () => { vals = valsReq.result; done() }
+    keysReq.onerror = () => reject(keysReq.error)
+    valsReq.onerror = () => reject(valsReq.error)
+  })
 }

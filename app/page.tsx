@@ -13,7 +13,7 @@ import { TagManagementPage } from '@/components/pages/TagManagementPage';
 import { AlertsPage } from '@/components/pages/AlertsPage';
 import { AlertsModal } from '@/components/modals/AlertsModal';
 import { SavePage } from '@/components/pages/SavePage';
-import { StatsPage } from '@/components/pages/StatsPage';
+const StatsPage = dynamic(() => import('@/components/pages/StatsPage').then(m => ({ default: m.StatsPage })), { ssr: false });
 import { useContentieuxEnquetesStore as useContentieuxEnquetes } from '@/hooks/useContentieuxEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
 import { useDocumentSearch } from '@/hooks/useDocumentSearch';
@@ -1105,6 +1105,12 @@ function AppContent() {
     setSelectedTags(prev => prev.filter(t => t.id !== tagId));
   }, []);
 
+  // Map stable pour OPTimeline (sinon prop neuve à chaque render → recalcul complet)
+  const opTimelineMap = useMemo(
+    () => new Map([[currentContentieuxId, activeEnquetes]]),
+    [currentContentieuxId, activeEnquetes]
+  );
+
   if (!isClient || tagsLoading || userLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-100">
@@ -1305,7 +1311,7 @@ return (
           {baseView === 'enquetes' && (
             <div className="space-y-6">
               <OPTimeline
-                enquetesByContentieux={new Map([[currentContentieuxId, activeEnquetes]])}
+                enquetesByContentieux={opTimelineMap}
                 contentieuxDefs={contentieuxDefs}
                 onEnqueteClick={handleViewEnquete}
               />

@@ -11,7 +11,7 @@
  * fidèlement les contrats des handlers ipcMain de main.js.
  */
 import { encryptJson, decryptJson, encryptBytes, decryptBytes, b64, CipherEnvelope } from './crypto'
-import { idb, exportKv, importKv } from './idb'
+import { idb, exportKv, importKv, getAllEntries } from './idb'
 import { ScopedKeys, scopeOfVault, SCOPE_GLOBAL, generateInvitationCode, deriveRawKey, importAesKey, newKdfParams } from './keyring'
 
 export interface BridgeIdentity { username: string, displayName: string, role: string }
@@ -324,7 +324,13 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     setData: async (key1: unknown, value: unknown) => {
       const k = String(key1)
       const existing = await idb.get('kv', k)
-      if (existing !== undefined && !isEmptyValue(existing) && isEmptyValue(value)) {
+      // ElectronBridge enveloppe en { version, data } : la garde doit comparer
+      // le CONTENU, sinon l'enveloppe n'est jamais « vide » et la garde dort.
+      const unwrap = (v: unknown) => {
+        const o = v as { version?: unknown, data?: unknown } | null
+        return o && typeof o === 'object' && 'data' in o && 'version' in o ? o.data : v
+      }
+      if (existing !== undefined && !isEmptyValue(unwrap(existing)) && isEmptyValue(unwrap(value))) {
         console.warn(`setData(${k}) : écrasement par une valeur vide refusé (garde anti-érosion)`)
         return false
       }
@@ -360,19 +366,15 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       return { currentSize: current, backupSize: backup.size, sizeDifference: current - backup.size, currentModified: new Date(), backupModified: new Date(backup.created) }
     },
     listDataJsonBackups: async () => {
-      const keys = await idb.keys('backups')
-      const out: Array<{ name: string, size: number, created: string, modified: string }> = []
-      for (const k of keys) {
-        const b = await idb.get<{ created: string, size: number }>('backups', k)
-        if (b) out.push({ name: k, size: b.size, created: b.created, modified: b.created })
-      }
-      return out.sort((a, b2) => (a.created < b2.created ? 1 : -1))
+      const entries = await getAllEntries<{ created: string, size: number }>('backups')
+      return entries
+        .map(({ key, value }) => ({ name: key, size: value.size, created: value.created, modified: value.created }))
+        .sort((a, b2) => (a.created < b2.created ? 1 : -1))
     },
     getBackupStats: async () => {
-      const keys = await idb.keys('backups')
-      let total = 0
-      for (const k of keys) total += (await idb.get<{ size: number }>('backups', k))?.size || 0
-      return { count: keys.length, totalSize: total, averageSize: keys.length ? Math.round(total / keys.length) : 0 }
+      const entries = await getAllEntries<{ size: number }>('backups')
+      const total = entries.reduce((acc, e) => acc + (e.value?.size || 0), 0)
+      return { count: entries.length, totalSize: total, averageSize: entries.length ? Math.round(total / entries.length) : 0 }
     },
     cleanOldBackups: async (keepCount: unknown) => {
       const list = await (bridge.listDataJsonBackups as () => Promise<Array<{ name: string, size: number }>>)()

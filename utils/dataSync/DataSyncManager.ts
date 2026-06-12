@@ -223,12 +223,10 @@ export class DataSyncManager {
         return false;
       }
 
+      const wasOnline = this.isOnline;
       this.isOnline = await window.electronAPI.dataSync_checkAccess();
-      
-      if (this.isOnline) {
-        console.log('🌐 DataSync: Serveur accessible');
-      } else {
-        console.log('🚫 DataSync: Serveur inaccessible');
+      if (this.isOnline !== wasOnline) {
+        console.warn(this.isOnline ? '🌐 DataSync: Serveur accessible' : '🚫 DataSync: Serveur inaccessible');
       }
       
       this.notifyStatusChange();
@@ -249,8 +247,7 @@ export class DataSyncManager {
 
     this.syncInterval = setInterval(async () => {
       if (this.isInBackoff()) {
-        console.log('⏸️ DataSync: Sync ignorée (backoff)');
-        return;
+        return; // backoff silencieux : l'état est visible dans l'indicateur réseau
       }
 
       if (this.isSync) return;

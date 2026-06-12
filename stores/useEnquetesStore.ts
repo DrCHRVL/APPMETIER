@@ -59,6 +59,16 @@ const _saveThrottled = throttle(async () => {
   }
 }, SAVE_THROTTLE);
 
+// Fermeture d'onglet / veille iPhone : sans flush, tout ce qui est dans la
+// fenêtre de throttle (8 s) serait définitivement perdu. `pagehide` couvre
+// iOS (où beforeunload ne se déclenche pas), `visibilitychange` couvre la
+// mise en veille et le changement d'app.
+if (typeof window !== 'undefined') {
+  const flushNow = () => { if (_isDirty) _saveThrottled.flush(); };
+  window.addEventListener('pagehide', flushNow);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flushNow(); });
+}
+
 // ── Abonnement au ContentieuxManager pour la réactivité cross-contentieux ──
 // Quand un autre contentieux (ou un pull de sync) met à jour ses enquêtes, on
 // recharge nos sharedEnquetes pour que la grille et les stats reflètent les

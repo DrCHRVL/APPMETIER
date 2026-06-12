@@ -95,6 +95,11 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {})
     }
+    // stockage persistant : sans ça, Safari peut effacer IndexedDB (données
+    // locales ET sauvegardes) après 7 jours sans visite
+    if (navigator.storage?.persist) {
+      navigator.storage.persist().catch(() => {})
+    }
     setPhase('ready')
   }, [])
 

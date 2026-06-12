@@ -25,7 +25,9 @@ const DAYS_RANGE = 40; // ~6 semaines
 const DAY_LABELS = ['D', 'L', 'M', 'M', 'J', 'V', 'S']; // index par getDay() (0=Dim)
 const MONTHS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
 
-export const OPTimeline = ({ enquetesByContentieux, contentieuxDefs, onEnqueteClick }: OPTimelineProps) => {
+// React.memo : la timeline itère toutes les enquêtes × phases — on ne recalcule
+// que si les props changent réellement (la Map est mémoïsée côté parent).
+export const OPTimeline = React.memo(({ enquetesByContentieux, contentieuxDefs, onEnqueteClick }: OPTimelineProps) => {
   const today = useMemo(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -238,4 +240,4 @@ export const OPTimeline = ({ enquetesByContentieux, contentieuxDefs, onEnqueteCl
       </div>
     </div>
   );
-};
+});

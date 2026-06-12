@@ -295,7 +295,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     const interval = setInterval(updateAlerts, ALERT_CHECK_INTERVAL);
     return () => {
       clearInterval(interval);
-      updateAlerts.cancel();
+      updateAlerts.flush(); // ne pas jeter un recalcul en attente : il porte parfois un snooze/validation
     };
   }, [updateAlerts]);
 

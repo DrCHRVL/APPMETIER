@@ -62,6 +62,10 @@ class BackupManager {
       // Démarrer les sauvegardes automatiques
       this.startAutomaticBackup();
       this.startAutomaticDataJsonCopy();
+      // Rattrapage : les timers exigeraient 24 h d'onglet ouvert en continu
+      // avant la première copie — on vérifie l'âge du dernier instantané et
+      // on copie tout de suite s'il date de plus de 24 h (ou n'existe pas).
+      this.catchUpDataJsonCopy();
       
       // Vérification d'intégrité hebdomadaire
       this.scheduleIntegrityCheck();
@@ -123,6 +127,23 @@ class BackupManager {
     }, BackupManager.BACKUP_INTERVAL);
     
     console.log('⏰ Automatic backup scheduled every 3 days');
+  }
+
+  private async catchUpDataJsonCopy(): Promise<void> {
+    try {
+      // le type déclaré (string[]) est inexact : Electron et le pont web
+      // renvoient tous deux des objets { name, size, created, modified }
+      const backups = (await window.electronAPI.listDataJsonBackups()) as unknown as Array<{ created?: string | Date }>;
+      const newest = backups
+        .map(b => new Date(b?.created as string).getTime())
+        .filter(t => Number.isFinite(t))
+        .sort((a, b) => b - a)[0] || 0;
+      if (Date.now() - newest >= BackupManager.DATA_JSON_COPY_INTERVAL) {
+        await this.copyDataJsonToBackups();
+      } else {
+        this.lastDataJsonCopyTime = newest; // évite une copie redondante au prochain tick
+      }
+    } catch { /* API indisponible : les timers prendront le relais */ }
   }
 
   public startAutomaticDataJsonCopy(): void {
