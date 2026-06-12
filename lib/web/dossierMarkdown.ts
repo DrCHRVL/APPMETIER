@@ -1,21 +1,10 @@
 /**
- * SIRAL — préparation du dossier pour la synthèse IA locale.
+ * SIRAL — export du dossier en markdown.
  * Convertit l'enquête (CR, actes, mis en cause, documents PDF) en markdown
- * compact — pas de HTML ni de bruit : chaque token compte sur un LLM local.
+ * compact, à déposer dans une IA externe (Claude…) ou à archiver. Pas de HTML
+ * ni de bruit.
  */
 import type { Enquete } from '@/types/interfaces'
-
-export const IA_PROMPT_KEY = 'ia_synthese_prompt'
-
-export const DEFAULT_IA_PROMPT = `Tu es l'assistant d'un magistrat du parquet. À partir du dossier d'enquête fourni (comptes-rendus, actes, documents), produis en français :
-
-1. **Synthèse** (15 lignes max) : l'affaire, son état, les développements récents.
-2. **Mis en cause** : liste avec rôle supposé et éléments à charge connus.
-3. **Actes d'enquête** : interceptions, géolocalisations et autres actes, avec leurs échéances.
-4. **Éléments matériels** : adresses, véhicules (marque + immatriculation), lignes téléphoniques, sommes/saisies cités dans le dossier.
-5. **Points d'attention** : incohérences, échéances proches, actes manquants.
-
-Règles : ne rien inventer — si une information est absente, l'écrire ; citer la source (CR du JJ/MM ou nom du document) pour chaque élément important ; style sobre et factuel.`
 
 function stripHtml(s: string): string {
   return s.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ')
@@ -102,22 +91,4 @@ export async function exportDossierMarkdown(
   const content = header + buildDossierMarkdown(enquete, docTexts)
   const filename = `dossier-${String(enquete.numero).replace(/[^a-zA-Z0-9._-]/g, '-')}.md`
   return { filename, content, pdfCount: docTexts.length, pdfFailed }
-}
-
-export async function iaStatus(): Promise<{ enabled: boolean, model?: string }> {
-  try {
-    const res = await fetch('/api/ia', { credentials: 'same-origin' })
-    if (!res.ok) return { enabled: false }
-    return await res.json()
-  } catch { return { enabled: false } }
-}
-
-export async function runSynthese(system: string, content: string): Promise<string> {
-  const res = await fetch('/api/ia', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ system, content }), credentials: 'same-origin',
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || 'Synthèse impossible')
-  return String(data.text || '')
 }
