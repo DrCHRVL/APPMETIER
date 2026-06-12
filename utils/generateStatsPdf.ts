@@ -13,6 +13,8 @@ import { Enquete } from '@/types/interfaces';
 
 interface PdfExportData {
   selectedYear: number;
+  /** Libellé du contentieux affiché en titre (ex. « Criminalité Organisée / Stup »). */
+  contentieuxLabel?: string;
   // Stats générales
   enquetesTerminees: number;
   enquetesEnCours: number;
@@ -54,32 +56,53 @@ interface PdfExportData {
   deferementsParMois: { mois: string; count: number }[];
 }
 
+// Charte « Lumière » — palette Justice (DSFR) : Bleu France #000091, bleu nuit
+// #111139, bleu pâle #E3E3FD, rouge Marianne #E1000F réservé à l'alerte, vert
+// succès #18753C. Mêmes codes que docs/presentation/maquettes-v2. Couleurs en
+// dur (pas de var() ni de police web) pour un rendu html2canvas déterministe.
 const CSS_STYLES = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: 'Segoe UI', Arial, sans-serif;
     font-size: 11px;
-    color: #1a1a1a;
-    line-height: 1.4;
+    color: #161616;
+    line-height: 1.45;
     padding: 0;
     max-width: 100%;
     overflow-x: hidden;
   }
 
   .page-header {
-    text-align: center;
-    padding: 15px 0 10px;
-    border-bottom: 3px solid #2c3e50;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(135deg, #111139 0%, #1B1B6E 70%, #000091 100%);
+    border-radius: 10px;
+    color: #fff;
+    padding: 20px 22px 18px 30px;
     margin-bottom: 20px;
   }
+  .page-header .tricolore {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
+    background: linear-gradient(to bottom, #000091 33%, #ffffff 33% 66%, #E1000F 66%);
+  }
+  .page-header .overline {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #A1A1F8;
+    margin-bottom: 6px;
+  }
   .page-header h1 {
+    font-family: Georgia, 'Times New Roman', serif;
     font-size: 22px;
-    color: #2c3e50;
+    font-weight: 600;
+    color: #fff;
     margin-bottom: 4px;
   }
   .page-header .subtitle {
-    font-size: 12px;
-    color: #7f8c8d;
+    font-size: 11px;
+    color: rgba(255,255,255,0.75);
   }
 
   .section {
@@ -90,10 +113,11 @@ const CSS_STYLES = `
     page-break-inside: avoid;
   }
   .section-title {
+    font-family: Georgia, 'Times New Roman', serif;
     font-size: 14px;
     font-weight: bold;
-    color: #2c3e50;
-    border-bottom: 2px solid #3498db;
+    color: #111139;
+    border-bottom: 2px solid #000091;
     padding-bottom: 4px;
     margin-bottom: 10px;
   }
@@ -107,14 +131,14 @@ const CSS_STYLES = `
   .card {
     flex: 1;
     min-width: 140px;
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
-    border-radius: 6px;
+    background: #FAFAFC;
+    border: 1px solid #E5E5E5;
+    border-radius: 8px;
     padding: 10px 12px;
   }
   .card-label {
     font-size: 9px;
-    color: #6c757d;
+    color: #56565E;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 2px;
@@ -122,11 +146,11 @@ const CSS_STYLES = `
   .card-value {
     font-size: 20px;
     font-weight: bold;
-    color: #2c3e50;
+    color: #000091;
   }
   .card-detail {
     font-size: 9px;
-    color: #6c757d;
+    color: #56565E;
     margin-top: 2px;
   }
 
@@ -139,7 +163,7 @@ const CSS_STYLES = `
     word-wrap: break-word;
   }
   th {
-    background: #2c3e50;
+    background: #111139;
     color: white;
     padding: 6px 8px;
     text-align: left;
@@ -148,9 +172,9 @@ const CSS_STYLES = `
   }
   td {
     padding: 5px 8px;
-    border-bottom: 1px solid #e9ecef;
+    border-bottom: 1px solid #E5E5E5;
   }
-  tr:nth-child(even) { background: #f8f9fa; }
+  tr:nth-child(even) { background: #F6F6F6; }
   tr:last-child td { border-bottom: none; }
   .text-right { text-align: right; }
   .text-center { text-align: center; }
@@ -179,7 +203,7 @@ const CSS_STYLES = `
   .bar-track {
     flex: 1;
     height: 16px;
-    background: #e9ecef;
+    background: #EEEEF4;
     border-radius: 3px;
     overflow: hidden;
   }
@@ -205,10 +229,10 @@ const CSS_STYLES = `
   .footer {
     text-align: center;
     font-size: 8px;
-    color: #adb5bd;
+    color: #92929C;
     padding: 15px 5px 5px;
     margin-top: 30px;
-    border-top: 1px solid #e9ecef;
+    border-top: 1px solid #E5E5E5;
   }
 
   @page {
@@ -249,10 +273,10 @@ const CSS_STYLES = `
     display: flex;
     align-items: center;
     gap: 6px;
-    background: #f8f9fa;
+    background: #F5F5FE;
     padding: 4px 10px;
     border-radius: 4px;
-    border: 1px solid #e9ecef;
+    border: 1px solid #E5E5E5;
   }
   .pie-dot {
     width: 12px;
@@ -262,16 +286,18 @@ const CSS_STYLES = `
   }
   .pie-label { font-size: 10px; }
   .pie-value { font-weight: bold; font-size: 11px; margin-left: auto; }
-  .pie-pct { font-size: 9px; color: #6c757d; margin-left: 4px; }
+  .pie-pct { font-size: 9px; color: #56565E; margin-left: 4px; }
 `;
 
+// Couleur = signification (charte Lumière) : bleus pour les orientations de
+// poursuite, vert = validé/terminé, ambre = attente, rouge Marianne = classement.
 const ORIENTATION_COLORS: Record<string, string> = {
-  'CRPC': '#34495e',
-  'CI': '#3498db',
-  'COPJ': '#2ecc71',
-  'OI': '#95a5a6',
-  'CDD': '#E8D0A9',
-  'Classement': '#e74c3c',
+  'CRPC': '#111139',
+  'CI': '#000091',
+  'COPJ': '#18753C',
+  'OI': '#92929C',
+  'CDD': '#B34000',
+  'Classement': '#E1000F',
 };
 
 function formatCurrency(value: number): string {
@@ -288,7 +314,7 @@ function formatMoisEnAnnees(mois: number): string {
 
 function renderPieSubstitute(items: { label: string; value: number; color: string }[]): string {
   const total = items.reduce((s, i) => s + i.value, 0);
-  if (total === 0) return '<p style="color:#6c757d;">Aucune donnée</p>';
+  if (total === 0) return '<p style="color:#56565E;">Aucune donnée</p>';
   return `<div class="pie-substitute">${items.filter(i => i.value > 0).map(item => {
     const pct = ((item.value / total) * 100).toFixed(1);
     return `<div class="pie-item">
@@ -304,7 +330,7 @@ function renderBarChart(items: { label: string; value: number; color?: string }[
   const max = Math.max(...items.map(i => i.value), 1);
   return items.map(item => {
     const width = Math.max(2, (item.value / max) * 100);
-    const color = item.color || '#3498db';
+    const color = item.color || '#000091';
     return `<div class="bar-container">
       <div class="bar-label">${item.label}</div>
       <div class="bar-track">
@@ -345,31 +371,33 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 
 <!-- PAGE 1 : EN-TETE + SYNTHESE GENERALE -->
 <div class="page-header">
-  <h1>Rapport d'activite - Crime organise</h1>
-  <div class="subtitle">Annee ${selectedYear} - Genere le ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+  <div class="tricolore"></div>
+  <div class="overline">SIRAL &middot; Rapport d'activit&eacute; du service</div>
+  <h1>${data.contentieuxLabel || 'Criminalité organisée'}</h1>
+  <div class="subtitle">Année ${selectedYear} — généré le ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })} · Document interne, ne pas diffuser</div>
 </div>
 
 <div class="section-nobreak">
-  <div class="section-title">Synthese generale</div>
+  <div class="section-title">Synthèse générale</div>
   <div class="cards-row">
     <div class="card">
-      <div class="card-label">Procedures terminees</div>
+      <div class="card-label">Procédures terminées</div>
       <div class="card-value">${data.enquetesTerminees}</div>
     </div>
     <div class="card">
-      <div class="card-label">Enquetes en cours</div>
+      <div class="card-label">Enquêtes en cours</div>
       <div class="card-value">${data.enquetesEnCours}</div>
     </div>
     <div class="card">
-      <div class="card-label">Duree moy. terminees</div>
+      <div class="card-label">Durée moy. terminées</div>
       <div class="card-value">${Math.round(data.dureeMoyenneTerminees)}j</div>
     </div>
     <div class="card">
-      <div class="card-label">Duree moy. en cours</div>
+      <div class="card-label">Durée moy. en cours</div>
       <div class="card-value">${Math.round(data.dureeMoyenneEnCours)}j</div>
     </div>
     <div class="card">
-      <div class="card-label">Taux reponse penale</div>
+      <div class="card-label">Taux de réponse pénale</div>
       <div class="card-value">${tauxReponsePenale}%</div>
     </div>
   </div>
@@ -377,30 +405,30 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 
 <!-- Procédures terminées par mois -->
 <div class="section">
-  <div class="section-title">Procedures terminees par mois</div>
+  <div class="section-title">Procédures terminées par mois</div>
   <table>
     <tr><th>Mois</th><th class="text-right">Nombre</th></tr>
     ${data.proceduremoisData.map(d => `<tr><td>${d.mois}</td><td class="text-right font-bold">${d.count}</td></tr>`).join('')}
-    <tr style="background:#e8f4f8;font-weight:bold"><td>TOTAL</td><td class="text-right">${data.enquetesTerminees}</td></tr>
+    <tr style="background:#E3E3FD;font-weight:bold"><td>TOTAL</td><td class="text-right">${data.enquetesTerminees}</td></tr>
   </table>
 </div>
 
 <!-- Actes d'enquête -->
 <div class="section-nobreak">
-  <div class="section-title">Actes d'enquete en preliminaire</div>
+  <div class="section-title">Actes d'enquête en préliminaire</div>
   <div class="cards-row">
     <div class="card">
       <div class="card-label">Total actes + prolongations</div>
       <div class="card-value">${totalAvecProlongations}</div>
-      <div class="card-detail">Temps estime : ${tempsHeures}h${tempsMin > 0 ? tempsMin : ''}</div>
+      <div class="card-detail">Temps estimé : ${tempsHeures}h${tempsMin > 0 ? tempsMin : ''}</div>
     </div>
     <div class="card">
-      <div class="card-label">Ecoutes</div>
+      <div class="card-label">Écoutes</div>
       <div class="card-value">${data.acteStats.ecoutes}</div>
       <div class="card-detail">Prolong. : ${data.acteStats.prolongationsEcoutes}</div>
     </div>
     <div class="card">
-      <div class="card-label">Geolocalisations</div>
+      <div class="card-label">Géolocalisations</div>
       <div class="card-value">${data.acteStats.geolocalisations}</div>
       <div class="card-detail">Prolong. : ${data.acteStats.prolongationsGeo}</div>
     </div>
@@ -414,10 +442,10 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 
 <!-- Répartition par service -->
 <div class="section">
-  <div class="section-title">Repartition par service</div>
+  <div class="section-title">Répartition par service</div>
   <div class="two-cols">
     <div>
-      <h4 style="font-size:11px;margin-bottom:6px;color:#555">Toutes enquetes</h4>
+      <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Toutes enquêtes</h4>
       <table>
         <tr><th>Service</th><th class="text-right">Nombre</th><th class="text-right">%</th></tr>
         ${(() => {
@@ -429,7 +457,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
       </table>
     </div>
     <div>
-      <h4 style="font-size:11px;margin-bottom:6px;color:#555">Enquetes terminees</h4>
+      <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Enquêtes terminées</h4>
       <table>
         <tr><th>Service</th><th class="text-right">Nombre</th><th class="text-right">%</th></tr>
         ${(() => {
@@ -446,7 +474,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 <!-- PAGE 2 : ORIENTATION ET RESULTATS D'AUDIENCE -->
 <div class="page-break"></div>
 <div class="section-nobreak">
-  <div class="section-title">Orientation des procedures</div>
+  <div class="section-title">Orientation des procédures</div>
   ${stats ? renderPieSubstitute([
     { label: 'CRPC', value: stats.nombreCRPC, color: ORIENTATION_COLORS['CRPC'] },
     { label: 'CI', value: stats.nombreCI, color: ORIENTATION_COLORS['CI'] },
@@ -454,9 +482,9 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
     { label: 'OI', value: stats.nombreOI, color: ORIENTATION_COLORS['OI'] },
     { label: 'CDD', value: stats.nombreCDD, color: ORIENTATION_COLORS['CDD'] },
     { label: 'Classement', value: stats.nombreClassements || 0, color: ORIENTATION_COLORS['Classement'] },
-  ]) : '<p>Aucune donnee</p>'}
+  ]) : '<p>Aucune donnée</p>'}
 
-  ${stats ? `<div style="margin-top:6px;font-size:10px;color:#555">Dont ${stats.nombreDeferements} deferement${stats.nombreDeferements > 1 ? 's' : ''}</div>` : ''}
+  ${stats ? `<div style="margin-top:6px;font-size:10px;color:#56565E">Dont ${stats.nombreDeferements} déférement${stats.nombreDeferements > 1 ? 's' : ''}</div>` : ''}
 </div>
 
 <!-- Orientation par mois -->
@@ -492,7 +520,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
         oi: acc.oi + m.oi, cdd: acc.cdd + m.cdd, classement: acc.classement + m.classement
       }), { crpc: 0, ci: 0, copj: 0, oi: 0, cdd: 0, classement: 0 });
       const grand = totals.crpc + totals.ci + totals.copj + totals.oi + totals.cdd + totals.classement;
-      return `<tr style="background:#e8f4f8;font-weight:bold">
+      return `<tr style="background:#E3E3FD;font-weight:bold">
         <td>TOTAL</td>
         <td class="text-center">${totals.crpc}</td>
         <td class="text-center">${totals.ci}</td>
@@ -526,7 +554,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
       const totC = data.monthlyData.reduce((s, m) => s + m.condamnations, 0);
       const totP = data.monthlyData.reduce((s, m) => s + m.moisPrison, 0);
       const totA = data.monthlyData.reduce((s, m) => s + m.amendes, 0);
-      return `<tr style="background:#e8f4f8;font-weight:bold">
+      return `<tr style="background:#E3E3FD;font-weight:bold">
         <td>TOTAL</td>
         <td class="text-right">${totC}</td>
         <td class="text-right">${totP} (${formatMoisEnAnnees(totP)})</td>
@@ -599,12 +627,12 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   <div class="section-title">Interdictions</div>
   <div class="cards-row">
     <div class="card">
-      <div class="card-label">Interdictions de paraitre</div>
+      <div class="card-label">Interdictions de paraître</div>
       <div class="card-value">${stats?.totalInterdictionsParaitre || 0}</div>
       <div class="card-detail">${stats && stats.nombreCondamnations > 0 ? ((stats.totalInterdictionsParaitre / stats.nombreCondamnations) * 100).toFixed(1) : 0}% des condamnations</div>
     </div>
     <div class="card">
-      <div class="card-label">Interdictions de gerer</div>
+      <div class="card-label">Interdictions de gérer</div>
       <div class="card-value">${stats?.totalInterdictionsGerer || 0}</div>
       <div class="card-detail">${stats && stats.nombreCondamnations > 0 ? ((stats.totalInterdictionsGerer / stats.nombreCondamnations) * 100).toFixed(1) : 0}% des condamnations</div>
     </div>
@@ -613,11 +641,11 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 
 <!-- Saisies (phase enquete) -->
 <div class="section-nobreak">
-  <div class="section-title">Saisies (enquete)</div>
+  <div class="section-title">Saisies (enquête)</div>
   ${(stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalSaisiesImmeubles || 0) > 0 || (stats?.totalSaisiesObjets || 0) > 0 ? `
   <div class="cards-row">
     <div class="card">
-      <div class="card-label">Vehicules saisis</div>
+      <div class="card-label">Véhicules saisis</div>
       <div class="card-value">${stats?.totalSaisiesVehicules || 0}</div>
     </div>
     <div class="card">
@@ -631,7 +659,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   </div>
   <div class="cards-row">
     <div class="card">
-      <div class="card-label">Numeraire saisi</div>
+      <div class="card-label">Numéraire saisi</div>
       <div class="card-value">${formatCurrency(stats?.totalSaisiesNumeraire || 0)}</div>
     </div>
     <div class="card">
@@ -647,7 +675,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
       <div class="card-value">${formatCurrency(stats?.totalSaisiesArgent || 0)}</div>
     </div>
   </div>
-  ` : `<div style="font-size:10px;color:#999;font-style:italic">Aucune saisie renseignee pour cette periode</div>`}
+  ` : `<div style="font-size:10px;color:#92929C;font-style:italic">Aucune saisie renseignée pour cette période</div>`}
 </div>
 
 <!-- Confiscations (resultats d'audience) -->
@@ -655,37 +683,37 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   <div class="section-title">Confiscations (audience)</div>
   <div class="cards-row">
     <div class="card">
-      <div class="card-label">Vehicules confisques</div>
+      <div class="card-label">Véhicules confisqués</div>
       <div class="card-value">${stats?.totalVehicules || 0}</div>
     </div>
     <div class="card">
-      <div class="card-label">Immeubles confisques</div>
+      <div class="card-label">Immeubles confisqués</div>
       <div class="card-value">${stats?.totalImmeubles || 0}</div>
     </div>
     <div class="card">
-      <div class="card-label">Objets mobiliers confisques</div>
+      <div class="card-label">Objets mobiliers confisqués</div>
       <div class="card-value">${stats?.totalObjets || 0}</div>
     </div>
   </div>
   <div class="cards-row">
     <div class="card">
-      <div class="card-label">Numeraire confisque</div>
+      <div class="card-label">Numéraire confisqué</div>
       <div class="card-value">${formatCurrency(stats?.totalNumeraire || 0)}</div>
     </div>
     <div class="card">
-      <div class="card-label">Comptes bancaires confisques</div>
+      <div class="card-label">Comptes bancaires confisqués</div>
       <div class="card-value">${formatCurrency(stats?.totalBancaire || 0)}</div>
     </div>
     <div class="card">
-      <div class="card-label">Cryptomonnaies confisquees</div>
+      <div class="card-label">Cryptomonnaies confisquées</div>
       <div class="card-value">${formatCurrency(stats?.totalCrypto || 0)}</div>
     </div>
     <div class="card">
-      <div class="card-label">Total avoirs confisques</div>
+      <div class="card-label">Total avoirs confisqués</div>
       <div class="card-value">${formatCurrency(stats?.totalArgent || 0)}</div>
     </div>
   </div>
-  ${(stats?.totalStupefiants || 0) > 0 ? `<div style="margin-top:6px;font-size:10px;color:#555">${stats?.totalStupefiants} dossier(s) avec stupefiants</div>` : ''}
+  ${(stats?.totalStupefiants || 0) > 0 ? `<div style="margin-top:6px;font-size:10px;color:#56565E">${stats?.totalStupefiants} dossier(s) avec stupéfiants</div>` : ''}
 </div>
 
 <!-- Delta saisies vs confiscations -->
@@ -693,10 +721,10 @@ ${(stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalSaisiesArgent || 0) > 
 <div class="section-nobreak">
   <div class="section-title">Delta saisies vs confiscations</div>
   <table>
-    <tr><th>Categorie</th><th class="text-right">Saisi (enquete)</th><th class="text-right">Confisque (audience)</th><th class="text-right">Delta</th></tr>
-    ${(stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalVehicules || 0) > 0 ? `<tr><td>Vehicules</td><td class="text-right">${stats?.totalSaisiesVehicules || 0}</td><td class="text-right">${stats?.totalVehicules || 0}</td><td class="text-right">${(stats?.totalSaisiesVehicules || 0) - (stats?.totalVehicules || 0)}</td></tr>` : ''}
+    <tr><th>Categorie</th><th class="text-right">Saisi (enquête)</th><th class="text-right">Confisqué (audience)</th><th class="text-right">Delta</th></tr>
+    ${(stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalVehicules || 0) > 0 ? `<tr><td>Véhicules</td><td class="text-right">${stats?.totalSaisiesVehicules || 0}</td><td class="text-right">${stats?.totalVehicules || 0}</td><td class="text-right">${(stats?.totalSaisiesVehicules || 0) - (stats?.totalVehicules || 0)}</td></tr>` : ''}
     ${(stats?.totalSaisiesImmeubles || 0) > 0 || (stats?.totalImmeubles || 0) > 0 ? `<tr><td>Immeubles</td><td class="text-right">${stats?.totalSaisiesImmeubles || 0}</td><td class="text-right">${stats?.totalImmeubles || 0}</td><td class="text-right">${(stats?.totalSaisiesImmeubles || 0) - (stats?.totalImmeubles || 0)}</td></tr>` : ''}
-    ${(stats?.totalSaisiesNumeraire || 0) > 0 || (stats?.totalNumeraire || 0) > 0 ? `<tr><td>Numeraire</td><td class="text-right">${formatCurrency(stats?.totalSaisiesNumeraire || 0)}</td><td class="text-right">${formatCurrency(stats?.totalNumeraire || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesNumeraire || 0) - (stats?.totalNumeraire || 0))}</td></tr>` : ''}
+    ${(stats?.totalSaisiesNumeraire || 0) > 0 || (stats?.totalNumeraire || 0) > 0 ? `<tr><td>Numéraire</td><td class="text-right">${formatCurrency(stats?.totalSaisiesNumeraire || 0)}</td><td class="text-right">${formatCurrency(stats?.totalNumeraire || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesNumeraire || 0) - (stats?.totalNumeraire || 0))}</td></tr>` : ''}
     ${(stats?.totalSaisiesBancaire || 0) > 0 || (stats?.totalBancaire || 0) > 0 ? `<tr><td>Bancaire</td><td class="text-right">${formatCurrency(stats?.totalSaisiesBancaire || 0)}</td><td class="text-right">${formatCurrency(stats?.totalBancaire || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesBancaire || 0) - (stats?.totalBancaire || 0))}</td></tr>` : ''}
     ${(stats?.totalSaisiesCrypto || 0) > 0 || (stats?.totalCrypto || 0) > 0 ? `<tr><td>Crypto</td><td class="text-right">${formatCurrency(stats?.totalSaisiesCrypto || 0)}</td><td class="text-right">${formatCurrency(stats?.totalCrypto || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesCrypto || 0) - (stats?.totalCrypto || 0))}</td></tr>` : ''}
     <tr style="font-weight:bold;border-top:2px solid #333"><td>Total avoirs</td><td class="text-right">${formatCurrency(stats?.totalSaisiesArgent || 0)}</td><td class="text-right">${formatCurrency(stats?.totalArgent || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesArgent || 0) - (stats?.totalArgent || 0))}</td></tr>
@@ -732,19 +760,19 @@ ${stats?.peinesParInfraction && Object.keys(stats.peinesParInfraction).length > 
 <!-- PAGE 4 : INFRACTIONS -->
 <div class="page-break"></div>
 <div class="section">
-  <div class="section-title">Repartition par type d'infraction</div>
+  <div class="section-title">Répartition par type d'infraction</div>
   <div class="two-cols">
     <div>
-      <h4 style="font-size:11px;margin-bottom:6px;color:#555">Enquetes en cours</h4>
+      <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Enquêtes en cours</h4>
       ${data.infractionsEnCours.length > 0
-        ? renderBarChart(data.infractionsEnCours.map(i => ({ label: i.infraction, value: i.count, color: '#3498db' })))
-        : '<p style="color:#6c757d;font-size:10px;">Aucune donnee</p>'}
+        ? renderBarChart(data.infractionsEnCours.map(i => ({ label: i.infraction, value: i.count, color: '#000091' })))
+        : '<p style="color:#56565E;font-size:10px;">Aucune donnée</p>'}
     </div>
     <div>
-      <h4 style="font-size:11px;margin-bottom:6px;color:#555">Enquetes terminees</h4>
+      <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Enquêtes terminées</h4>
       ${data.infractionsTerminees.length > 0
-        ? renderBarChart(data.infractionsTerminees.map(i => ({ label: i.infraction, value: i.count, color: '#2ecc71' })))
-        : '<p style="color:#6c757d;font-size:10px;">Aucune donnee</p>'}
+        ? renderBarChart(data.infractionsTerminees.map(i => ({ label: i.infraction, value: i.count, color: '#18753C' })))
+        : '<p style="color:#56565E;font-size:10px;">Aucune donnée</p>'}
     </div>
   </div>
 </div>
@@ -752,13 +780,13 @@ ${stats?.peinesParInfraction && Object.keys(stats.peinesParInfraction).length > 
 <!-- Déférements par mois -->
 ${data.deferementsParMois.length > 0 ? `
 <div class="section">
-  <div class="section-title">Deferements par mois</div>
-  ${renderBarChart(data.deferementsParMois.map(d => ({ label: d.mois, value: d.count, color: '#e74c3c' })))}
+  <div class="section-title">Déférements par mois</div>
+  ${renderBarChart(data.deferementsParMois.map(d => ({ label: d.mois, value: d.count, color: '#E1000F' })))}
 </div>
 ` : ''}
 
 <div class="footer">
-  Rapport genere automatiquement - Donnees au ${new Date().toLocaleDateString('fr-FR')}
+  SIRAL — Rapport généré automatiquement · Données au ${new Date().toLocaleDateString('fr-FR')} · Usage interne, ne pas diffuser
 </div>
 
 </body>
@@ -806,7 +834,7 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
 
     const opt = {
       margin: [10, 10, 10, 10],
-      filename: `Rapport_Statistiques_${data.selectedYear}.pdf`,
+      filename: `SIRAL_Rapport_activite_${data.selectedYear}.pdf`,
       image: { type: 'jpeg', quality: 0.95 },
       html2canvas: {
         scale: 2,
@@ -828,7 +856,24 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
       },
     };
 
-    await html2pdf().set(opt).from(container).save();
+    // Numérotation des pages : on intercepte le jsPDF produit avant le .save()
+    // (le contenu étant rasterisé par html2canvas, impossible de numéroter en CSS).
+    await html2pdf().set(opt).from(container).toPdf().get('pdf').then((pdf: any) => {
+      const totalPages = pdf.internal.getNumberOfPages();
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i);
+        pdf.setFontSize(8);
+        pdf.setTextColor(146, 146, 156);
+        pdf.text(
+          `SIRAL · Rapport d'activité ${data.selectedYear} — page ${i}/${totalPages}`,
+          pageWidth / 2,
+          pageHeight - 4,
+          { align: 'center' }
+        );
+      }
+    }).save();
   } finally {
     document.body.removeChild(wrapper);
   }

@@ -6,6 +6,7 @@ import { useTags } from '@/hooks/useTags';
 import { Enquete } from '@/types/interfaces';
 import { getYearlyStats, getMonthlyStats } from '@/utils/audienceStats';
 import { exportStatsPdf, PdfExportData } from '@/utils/generateStatsPdf';
+import { UserManager } from '@/utils/userManager';
 
 interface ExportPdfButtonProps {
   selectedYear?: number;
@@ -231,9 +232,16 @@ export const ExportPdfButton = ({
         return { mois: monthName, count };
       }).filter(d => d.count > 0);
 
+      // Titre du rapport : libellé du contentieux courant (vue globale = tous)
+      const contentieuxLabel = (!contentieuxId || contentieuxId === 'global')
+        ? 'Tous contentieux'
+        : (UserManager.getInstance().getAllContentieux().find(c => c.id === contentieuxId)?.label
+          || contentieuxId);
+
       // Assemblage des données
       const pdfData: PdfExportData = {
         selectedYear,
+        contentieuxLabel,
         enquetesTerminees: enquetesTerminees.length + directResults.length,
         enquetesEnCours: activeEnquetes.length,
         dureeMoyenneTerminees,
@@ -268,7 +276,7 @@ export const ExportPdfButton = ({
       {isExporting ? (
         <>
           <Loader2 size={16} className="animate-spin" />
-          Generation du PDF...
+          Génération du PDF…
         </>
       ) : (
         <>
