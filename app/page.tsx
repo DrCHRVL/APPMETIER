@@ -1211,7 +1211,7 @@ return (
       {mobileNavOpen && (
         <div className="no-print fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileNavOpen(false)} />
-          <div className="absolute inset-y-0 left-0 shadow-2xl">
+          <div className="absolute inset-y-0 left-0 shadow-2xl" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
             <MultiSideBar
               isOpen={true}
               currentView={currentView}
@@ -1228,7 +1228,7 @@ return (
         </div>
       )}
       <div className="flex-1 overflow-hidden flex flex-col">
-        <div className="no-print flex items-stretch">
+        <div className="no-print flex items-stretch" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
           <button
             className="lg:hidden flex items-center justify-center w-12 bg-white border-r border-gray-100"
             style={{ borderBottom: '1px solid hsl(214 25% 88%)' }}
