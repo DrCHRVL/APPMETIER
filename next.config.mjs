@@ -24,9 +24,6 @@ const nextConfig = {
     // et jamais par les pages Next.js - évite que le build bloque sur le tracing
     outputFileTracingExcludes: {
       '*': [
-        './tessdata/**',
-        './node_modules/tesseract.js/**',
-        './node_modules/tesseract.js-core/**',
         './node_modules/pdf-parse/**',
         './node_modules/archiver/**',
         './node_modules/pdfjs-dist/**',
