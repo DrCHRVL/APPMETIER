@@ -107,6 +107,9 @@ async function main() {
     await page.fill('input[placeholder*="Confirmez votre phrase"]', 'cheval correct pile batterie agrafe')
     await page.screenshot({ path: SHOTS + '/03-passphrase.png' })
     await page.click('text=Créer mon trousseau')
+    await page.waitForSelector('text=Imprimer le kit de récupération', { timeout: 60000 })
+    check('Kit de récupération proposé après création du trousseau', true)
+    await page.click('text=Continuer vers l\'application')
     // l'app doit se charger derrière la porte
     await page.waitForSelector('.siral-card', { state: 'detached', timeout: 60000 })
     check('Trousseau créé, porte franchie, app en cours de chargement', true)
@@ -265,6 +268,8 @@ async function main() {
     // bon code → trousseau personnel créé, accès aux données
     await page2.fill('input[placeholder*="invitation"]', inviteRes.code)
     await page2.click('text=Activer mon accès')
+    await page2.waitForSelector('text=Imprimer le kit de récupération', { timeout: 30000 })
+    await page2.click('text=Continuer vers l\'application')
     await page2.waitForSelector('.siral-card', { state: 'detached', timeout: 30000 })
     const sharedRead = await page2.evaluate(async () => {
       const pulled = await window.electronAPI.dataSync_pullContentieux('crimorg')
@@ -334,6 +339,28 @@ async function main() {
     // ── 11. API sans session refusée ──
     const noAuth = await fetch(BASE + '/api/vaults/ctx-crimorg')
     check('API sans session : 401', noAuth.status === 401)
+
+    // ── 11b. Rappels push : clé VAPID + calendrier d'horodatages (E2EE-friendly) ──
+    const pushOk = await page2.evaluate(async () => {
+      const key = await fetch('/api/push', { credentials: 'same-origin' }).then(r => r.json())
+      const sched = await fetch('/api/push', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ times: [Date.now() + 3600_000, Date.now() + 7200_000] }),
+        credentials: 'same-origin',
+      }).then(r => r.json())
+      return typeof key.publicKey === 'string' && key.publicKey.length > 30 && sched.ok === true && sched.kept === 2
+    })
+    check('Rappels push : clé VAPID servie + calendrier accepté (horodatages seuls)', pushOk)
+    const schedRaw = fs.readFileSync(path.join(DATA_DIR, 'push-schedule.json'), 'utf8')
+    check('Rappels push : le serveur ne stocke que des horodatages', !schedRaw.includes('OP TEST') && /^[\s{}\[\]"a-zA-Z0-9.,:_-]+$/.test(schedRaw))
+
+    // ── 11c. Synthèse IA : désactivée par défaut (pas de SIRAL_IA_URL) ──
+    const iaOff = await page2.evaluate(async () => {
+      const st = await fetch('/api/ia', { credentials: 'same-origin' }).then(r => r.json())
+      const post = await fetch('/api/ia', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: 'x' }), credentials: 'same-origin' })
+      return st.enabled === false && post.status === 503
+    })
+    check('Synthèse IA : désactivée par défaut, refus propre sans SIRAL_IA_URL', iaOff)
 
     // ── 12. PWA : manifest + service worker + icônes ──
     const manifest = await fetch(BASE + '/manifest.webmanifest')

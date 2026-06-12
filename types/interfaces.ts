@@ -89,6 +89,7 @@ export interface DocumentEnquete {
   taille: number;
   dateAjout: string;
   cheminRelatif: string; // Chemin relatif depuis le dossier de l'enquête
+  copieCommun?: 'ok' | 'attente'; // Copie vers le dossier commun : faite / en file d'attente
   type: 'pdf' | 'doc' | 'docx' | 'odt' | 'image' | 'html' | 'msg' | 'txt' | 'autre';
 }
 

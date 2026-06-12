@@ -10,6 +10,8 @@ import { Edit2, Save, X, Plus, Copy, Clock, RefreshCw, Eye, ChevronUp, ChevronDo
 import { ElectronBridge } from '@/utils/electronBridge';
 import { VISUAL_ALERT_COLOR_PALETTE, VISUAL_ALERT_COLOR_KEYS, VISUAL_ALERT_TRIGGER_LABELS } from '@/config/constants';
 import { useUser } from '@/contexts/UserContext';
+import { isPushSupported, isPushEnabled, enablePushReminders, disablePushReminders } from '@/lib/web/pushReminders';
+import { Bell } from 'lucide-react';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
 import { ContentieuxAlertsBubble } from '@/components/ContentieuxAlertsBubble';
 
@@ -395,6 +397,23 @@ interface AlertsPageProps {
 }
 
 export const AlertsPage = ({ onShowWeeklyPopup, visualAlertRules = [], onUpdateVisualAlertRule, onDeleteVisualAlertRule, onReorderVisualAlertRules }: AlertsPageProps) => {
+  // Rappels d'échéances par notification (iPhone PWA / PC) — édition web
+  const isWebApp = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState('');
+  useEffect(() => { setPushOn(isPushEnabled()); }, []);
+  const togglePush = async () => {
+    setPushBusy(true); setPushError('');
+    try {
+      if (pushOn) { await disablePushReminders(); setPushOn(false); }
+      else {
+        const res = await enablePushReminders();
+        if (res.ok) setPushOn(true);
+        else setPushError(res.reason || 'Activation impossible');
+      }
+    } finally { setPushBusy(false); }
+  };
   const { accessibleContentieux, canDo } = useUser();
   const {
     subscribedContentieux,
@@ -449,6 +468,28 @@ export const AlertsPage = ({ onShowWeeklyPopup, visualAlertRules = [], onUpdateV
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">Gestion des Alertes</h2>
       </div>
+
+      {/* Rappels d'échéances sur iPhone / PC (édition web) */}
+      {isWebApp && (
+        <Card className="mb-6 border-emerald-200 bg-emerald-50">
+          <CardHeader className="flex flex-row items-center justify-between py-4">
+            <div>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Bell className="h-5 w-5 text-emerald-600" />
+                Rappels sur cet appareil
+              </CardTitle>
+              <p className="text-sm text-gray-500 mt-1">
+                Notification la veille et le jour des échéances (prolongations, JLD, DML, audiences…).
+                Sur iPhone : installez d&apos;abord SIRAL sur l&apos;écran d&apos;accueil.
+                La notification est volontairement générique — aucun nom de dossier ne sort du chiffrement.
+              </p>
+              {pushError && <p className="text-xs text-red-600 mt-1">{pushError}</p>}
+              {!isPushSupported() && <p className="text-xs text-amber-700 mt-1">Non pris en charge par ce navigateur (ou app non installée sur l&apos;écran d&apos;accueil).</p>}
+            </div>
+            <Switch checked={pushOn} disabled={pushBusy || !isPushSupported()} onCheckedChange={togglePush} />
+          </CardHeader>
+        </Card>
+      )}
 
       {/* Récapitulatif hebdomadaire */}
       <Card className="mb-6 border-blue-200 bg-blue-50">

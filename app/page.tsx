@@ -138,6 +138,7 @@ const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashbo
 const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHistoryPanel').then(m => ({ default: m.AdminTagHistoryPanel })), { ssr: false });
 const AdminUpdatePanel = dynamic(() => import('@/components/admin/AdminUpdatePanel').then(m => ({ default: m.AdminUpdatePanel })), { ssr: false });
 const AboutContent = dynamic(() => import('@/components/AboutContent').then(m => ({ default: m.AboutContent })), { ssr: false });
+const IASynthesePanel = dynamic(() => import('@/components/IASynthesePanel').then(m => ({ default: m.IASynthesePanel })), { ssr: false });
 const MyProfileContent = dynamic(() => import('@/components/MyProfileContent').then(m => ({ default: m.MyProfileContent })), { ssr: false });
 import { useOverboardData } from '@/hooks/useOverboardData';
 import { HeartbeatManager } from '@/utils/heartbeatManager';
@@ -1453,8 +1454,9 @@ return (
           )}
 
           {baseView === 'air' && (
-            <AIRPage 
+            <AIRPage
               mesures={mesuresAIR}
+              searchTerm={debouncedSearchTerm}
               isLoading={isLoadingAIR}
               onUpdateMesure={handleUpdateMesure}
               onDeleteMesure={handleDeleteMesure} 
@@ -1476,6 +1478,8 @@ return (
           {baseView === 'mindmap' && (
             <MindmapPage
               sources={mindmapSources}
+              searchTerm={debouncedSearchTerm}
+              onSearchChange={handleSearchChange}
               onRefresh={() => {
                 void refreshOverboard();
                 void refreshInstructions();
@@ -1879,6 +1883,7 @@ return (
         moduleCartographieContent={hasModule('mindmap') ? <AdminCartographyPanel /> : null}
         adminPathsContent={<AdminPathsPanel />}
         adminAccessContent={<AdminAccessPanel />}
+        iaSyntheseContent={<IASynthesePanel />}
         adminDashboardContent={<AdminDashboardPanel />}
         adminTagHistoryContent={<AdminTagHistoryPanel />}
         adminUpdateContent={<AdminUpdatePanel onGithubUpdateChange={(hasUpdate, commits) => {

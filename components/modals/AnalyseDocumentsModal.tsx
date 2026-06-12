@@ -16,6 +16,9 @@ interface AnalyseDocumentsModalProps {
   onClose: () => void;
   enquete: Enquete;
   onApplyActes: (updates: Partial<Enquete>) => void;
+  /** Analyse immédiate de documents déjà extraits (texte des PDF tout juste
+   *  téléversés) — court-circuite le scan du dossier externe. */
+  precomputedDocs?: ScannedDocument[];
 }
 
 type Phase = 'idle' | 'scanning' | 'analyzing' | 'results';
@@ -24,7 +27,8 @@ export const AnalyseDocumentsModal = ({
   isOpen,
   onClose,
   enquete,
-  onApplyActes
+  onApplyActes,
+  precomputedDocs
 }: AnalyseDocumentsModalProps) => {
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState('');
@@ -39,7 +43,7 @@ export const AnalyseDocumentsModal = ({
 
   const { showToast } = useToast();
 
-  // Reset on open
+  // Reset on open (+ analyse immédiate si documents pré-extraits)
   useEffect(() => {
     if (isOpen) {
       setPhase('idle');
@@ -47,11 +51,33 @@ export const AnalyseDocumentsModal = ({
       setSelectedActes(new Set());
       setExpandedDetails(new Set());
       setScanError(null);
+      if (precomputedDocs && precomputedDocs.length > 0) startAnalysis();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   // Lancer l'analyse
   const startAnalysis = useCallback(async () => {
+    if (precomputedDocs && precomputedDocs.length > 0) {
+      // analyse directe des PDF qui viennent d'être téléversés
+      setPhase('analyzing');
+      setProgress(`Analyse de ${precomputedDocs.length} PDF en cours...`);
+      setScanError(null);
+      try {
+        const analysisResult = await ServerDocumentScanner.analyzeExternalDocuments(enquete, precomputedDocs);
+        const preSelected = new Set<number>();
+        analysisResult.actesDetectes.forEach((acte, index) => {
+          if (acte.confidence >= 0.6 && acte.errors.length === 0 && !acte.correctionPossible) preSelected.add(index);
+        });
+        setSelectedActes(preSelected);
+        setResult(analysisResult);
+        setPhase('results');
+      } catch (error) {
+        setScanError(`Erreur d'analyse : ${error instanceof Error ? error.message : 'inconnue'}`);
+        setPhase('idle');
+      }
+      return;
+    }
     if (!enquete.cheminExterne) {
       setScanError('Aucun chemin externe configuré. Configurez le chemin dans la section Documents.');
       return;
@@ -156,7 +182,7 @@ export const AnalyseDocumentsModal = ({
       showToast('Erreur lors de l\'analyse des documents', 'error');
       setPhase('idle');
     }
-  }, [enquete]);
+  }, [precomputedDocs, enquete]);
 
   // Appliquer les actes sélectionnés
   const handleApply = useCallback(() => {

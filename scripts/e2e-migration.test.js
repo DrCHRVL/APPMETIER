@@ -100,6 +100,9 @@ async function main() {
     // bonne phrase → migration + rotation
     await page.fill('input[placeholder*="Phrase du service"]', SERVICE_PHRASE)
     await page.click('text=Migrer vers mon trousseau')
+    await page.waitForSelector('text=Imprimer le kit de récupération', { timeout: 60000 })
+    check('Kit de récupération proposé après migration', true)
+    await page.click('text=Continuer vers l\'application')
     await page.waitForSelector('.siral-card', { state: 'detached', timeout: 60000 })
     check('Migration réussie : porte franchie avec le nouveau trousseau', true)
     await page.waitForFunction(() => !!window.__SIRAL_BRIDGE__, null, { timeout: 30000 })

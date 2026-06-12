@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -32,6 +32,7 @@ import { Enquete, DocumentEnquete } from '@/types/interfaces';
 import { useToast } from '@/contexts/ToastContext';
 import { DocumentPathModal } from '../modals/DocumentPathModal';
 import { AnalyseDocumentsModal } from '../modals/AnalyseDocumentsModal';
+import type { ScannedDocument } from '@/utils/documents/ServerDocumentScanner';
 import { DocumentSyncManager, SyncResult } from '@/utils/documents/DocumentSyncManager';
 import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipProvider } from '../ui/tooltip';
 import { format } from 'date-fns';
@@ -126,7 +127,39 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   const [isUploading, setIsUploading] = useState(false);
   const [showPathModal, setShowPathModal] = useState(false);
   const [showAnalyseModal, setShowAnalyseModal] = useState(false);
+  const [autoAnalyseDocs, setAutoAnalyseDocs] = useState<ScannedDocument[] | null>(null);
   const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null);
+  const [pendingCommun, setPendingCommun] = useState(0);
+
+  // compteur de copies « dossier commun » en attente pour cette enquête (édition web)
+  const refreshPendingCommun = useCallback(async () => {
+    try {
+      if (typeof window === 'undefined' || !(window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__) return;
+      const fsa = await import('@/lib/web/folderAccess');
+      const all = await fsa.pendingCopies();
+      setPendingCommun(all.filter(j => j.enquete === String(enquete.numero)).length);
+    } catch { /* hors web ou IndexedDB indisponible */ }
+  }, [enquete.numero]);
+  useEffect(() => { refreshPendingCommun(); }, [refreshPendingCommun, copyStatus]);
+
+  const retryPendingCommun = async () => {
+    if (!enquete.cheminExterne) return;
+    const ok = await window.electronAPI.validatePath(enquete.cheminExterne); // déclenche le rejeu de la file
+    await refreshPendingCommun();
+    if (ok) {
+      const fsa = await import('@/lib/web/folderAccess');
+      const left = (await fsa.pendingCopies()).filter(j => j.enquete === String(enquete.numero)).length;
+      if (left === 0) {
+        const docs = enquete.documents || [];
+        if (docs.some(d => d.copieCommun === 'attente')) {
+          onUpdate(enquete.id, { documents: docs.map(d => d.copieCommun === 'attente' ? { ...d, copieCommun: 'ok' as const } : d) });
+        }
+        showToast('Copies en attente déposées dans le dossier commun', 'success');
+      }
+    } else {
+      showToast('Dossier commun toujours inaccessible', 'warning');
+    }
+  };
 
   // Synchronisation
   const [isSyncing, setIsSyncing] = useState(false);
@@ -273,6 +306,11 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           showToast(`Synchronisation terminée : ${ai.length} ajoutés en interne, ${ae.length} en externe`, 'success');
         }
         if (ai.length > 0) scanForNewDocuments(true);
+        // synchro complète réussie : tous les documents sont au commun
+        const docs = enquete.documents || [];
+        if (docs.some(d => d.copieCommun !== 'ok')) {
+          onUpdate(enquete.id, { documents: docs.map(d => ({ ...d, copieCommun: 'ok' as const })) });
+        }
       }
     } catch (err) {
       console.error('Erreur synchronisation:', err);
@@ -338,22 +376,53 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
       );
 
       if (savedFiles && savedFiles.length > 0) {
-        onUpdate(enquete.id, { documents: [...(enquete.documents || []), ...savedFiles] });
-        showToast(
-          `${savedFiles.length} document(s) ajoutés dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title}`,
-          'success'
-        );
-
+        // Copie vers le dossier commun d'abord, pour annoter chaque document
+        // du badge « copié ✓ » ou « en attente » dès son apparition dans la liste.
+        let copieCommun: 'ok' | 'attente' | undefined;
         if (enquete.cheminExterne) {
           try {
             const ok = await window.electronAPI.copyToExternalPath(
               enquete.numero, enquete.cheminExterne, savedFiles,
               electronCategory, enquete.useSubfolderForExternal ?? true
             );
+            copieCommun = ok ? 'ok' : 'attente';
             setCopyStatus(ok ? 'success' : 'error');
           } catch {
+            copieCommun = 'attente';
             setCopyStatus('error');
           }
+        }
+        const annotated = copieCommun
+          ? savedFiles.map((f: DocumentEnquete) => ({ ...f, copieCommun }))
+          : savedFiles;
+        onUpdate(enquete.id, { documents: [...(enquete.documents || []), ...annotated] });
+        showToast(
+          `${savedFiles.length} document(s) ajoutés dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title}`,
+          'success'
+        );
+
+        // Analyse automatique : texte des PDF téléversés → proposition d'actes
+        // (autorisations/prolongations écoutes et géoloc au format standard).
+        if (window.electronAPI.extractPDFText) {
+          try {
+            const scanned: ScannedDocument[] = [];
+            for (let i = 0; i < filesData.length; i++) {
+              if (!filesData[i].name.toLowerCase().endsWith('.pdf')) continue;
+              const text = String(await window.electronAPI.extractPDFText(new Uint8Array(filesData[i].arrayBuffer)) || '').trim();
+              if (text.length > 50) {
+                scanned.push({
+                  filePath: String(annotated[i]?.cheminRelatif || filesData[i].name),
+                  fileName: filesData[i].name,
+                  sourceFolder: electronCategory,
+                  textContent: text,
+                });
+              }
+            }
+            if (scanned.length > 0) {
+              setAutoAnalyseDocs(scanned);
+              setShowAnalyseModal(true);
+            }
+          } catch { /* PDF illisible : pas d'analyse, le dépôt reste acquis */ }
         }
       } else {
         showToast('Erreur lors de la sauvegarde des documents', 'error');
@@ -733,6 +802,12 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                                     <div className="flex items-center gap-1 text-xs text-gray-500">
                                       <span>{formatFileSize(doc.taille)}</span>
                                       <ExternalLink className="h-2 w-2" />
+                                      {doc.copieCommun === 'ok' && (
+                                        <span className="text-green-600 font-medium" title="Copié dans le dossier commun">✓ commun</span>
+                                      )}
+                                      {doc.copieCommun === 'attente' && (
+                                        <span className="text-amber-600 font-medium" title="Copie vers le dossier commun en attente (dossier injoignable)">⏳ commun</span>
+                                      )}
                                     </div>
                                   </div>
                                 </TooltipTrigger>
@@ -807,6 +882,14 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                   <p className="text-xs text-green-600 mt-1">
                     Mode : {enquete.useSubfolderForExternal !== false ? 'Sous-dossier enquête' : 'Dossier direct'}
                   </p>
+                  {pendingCommun > 0 && (
+                    <p className="text-xs text-amber-700 mt-1 flex items-center gap-2">
+                      ⏳ {pendingCommun} copie{pendingCommun > 1 ? 's' : ''} en attente vers le commun
+                      <button className="underline font-medium hover:text-amber-900" onClick={retryPendingCommun}>
+                        Réessayer
+                      </button>
+                    </p>
+                  )}
                 </div>
               </div>
             ) : (
@@ -853,8 +936,9 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
       />
 
       <AnalyseDocumentsModal
+        precomputedDocs={autoAnalyseDocs ?? undefined}
         isOpen={showAnalyseModal}
-        onClose={() => setShowAnalyseModal(false)}
+        onClose={() => { setShowAnalyseModal(false); setAutoAnalyseDocs(null); }}
         enquete={enquete}
         onApplyActes={(updates) => onUpdate(enquete.id, updates)}
       />

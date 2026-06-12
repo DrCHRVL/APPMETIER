@@ -26,7 +26,7 @@ import {
 } from '@/lib/web/keyring'
 import { idb } from '@/lib/web/idb'
 
-type Phase = 'boot' | 'login' | 'register' | 'unlock' | 'create-fresh' | 'migrate' | 'redeem' | 'no-access' | 'ready'
+type Phase = 'boot' | 'login' | 'register' | 'unlock' | 'create-fresh' | 'migrate' | 'redeem' | 'no-access' | 'recovery-kit' | 'ready'
 
 const KEYRING_STORE = '__siral_keyring__'
 const LEGACY_KEY_STORE = '__siral_cryptokey__'
@@ -81,6 +81,8 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   const [pass2, setPass2] = useState('')
   const [remember, setRemember] = useState(true)
   const installedRef = useRef(false)
+  // trousseau prêt mais porte retenue le temps d'imprimer le kit de récupération
+  const pendingEntryRef = useRef<{ keys: ScopedKeys, identity: BridgeIdentity, scopes: string[] } | null>(null)
 
   const isWeb = mounted && window.__SIRAL_WEB__ === true && window.__APP_READONLY__ !== true
 
@@ -129,14 +131,60 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     if (!res.ok) throw new Error('Dépôt du trousseau refusé (' + res.status + ')')
   }, [])
 
-  const finishUnlock = useCallback(async (payload: KeyringPayload, identity: BridgeIdentity) => {
+  const finishUnlock = useCallback(async (payload: KeyringPayload, identity: BridgeIdentity, offerKit = false) => {
     const scoped = await buildScopedKeys(payload)
     const ok = await verifyOrCreateCanary(scoped.global, identity)
     if (ok !== true) throw new Error(ok)
     if (remember) { try { await idb.set('kv', KEYRING_STORE, payload) } catch {} }
     setServicePass(''); setInviteCode(''); setPass1(''); setPass2('')
+    if (offerKit) {
+      // trousseau tout neuf : proposer le kit de récupération avant d'entrer
+      pendingEntryRef.current = { keys: scoped, identity, scopes: Object.keys(payload.keys) }
+      setPhase('recovery-kit')
+      return
+    }
     installBridge(scoped, identity)
   }, [remember, verifyOrCreateCanary, installBridge])
+
+  /** Ouvre la version imprimable du kit de récupération (à compléter à la main). */
+  const printRecoveryKit = useCallback(() => {
+    const entry = pendingEntryRef.current
+    if (!entry) return
+    const ctxLabels: Record<string, string> = { 'ctx-crimorg': 'CRIM ORG', 'ctx-ecofi': 'ECOFI', 'ctx-enviro': 'ENVIRO' }
+    const scopes = entry.scopes.filter((s) => s !== 'global').map((s) => ctxLabels[s] || s).join(' · ') || '—'
+    const w = window.open('', '_blank', 'width=720,height=900')
+    if (!w) return
+    w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>SIRAL — Kit de récupération</title>
+      <style>
+        body { font-family: Georgia, serif; color: #15201b; max-width: 600px; margin: 40px auto; line-height: 1.5; }
+        h1 { font-size: 22px; border-bottom: 3px double #15201b; padding-bottom: 10px; }
+        .warn { border: 2px solid #b91c1c; padding: 12px 16px; font-weight: bold; margin: 18px 0; }
+        table { width: 100%; border-collapse: collapse; margin: 18px 0; }
+        td { border: 1px solid #888; padding: 9px 12px; font-size: 14px; }
+        td:first-child { width: 38%; background: #f4f4f0; font-weight: bold; }
+        .lines { margin: 6px 0 0; }
+        .lines div { border-bottom: 1.5px solid #15201b; height: 30px; }
+        .foot { font-size: 11.5px; color: #555; margin-top: 24px; }
+        @media print { body { margin: 10mm; } }
+      </style></head><body>
+      <h1>SIRAL — Kit de récupération du trousseau</h1>
+      <div class="warn">À compléter À LA MAIN, sous enveloppe scellée, coffre du service.<br>Ne jamais photographier, scanner ou envoyer par e-mail.</div>
+      <table>
+        <tr><td>Serveur</td><td>${location.origin}</td></tr>
+        <tr><td>Identifiant</td><td>${entry.identity.username}</td></tr>
+        <tr><td>Titulaire</td><td>${entry.identity.displayName}</td></tr>
+        <tr><td>Contentieux accordés</td><td>${scopes}</td></tr>
+        <tr><td>Trousseau créé le</td><td>${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</td></tr>
+      </table>
+      <p><b>Phrase personnelle</b> (écrire lisiblement, mot par mot) :</p>
+      <div class="lines"><div></div><div></div><div></div></div>
+      <p class="foot">Cette phrase déverrouille le trousseau de <b>${entry.identity.username}</b>. Elle est irrécupérable :
+      personne — ni l'hébergeur, ni le développeur — ne peut la réinitialiser. En cas de perte du kit ET de la phrase,
+      un administrateur de SIRAL peut générer une nouvelle invitation (Paramètres → Accès &amp; clés) : l'accès est alors
+      recréé, sans perte de données. Détruire ce kit si le trousseau est révoqué.</p>
+      <script>window.print()<\/script></body></html>`)
+    w.document.close()
+  }, [])
 
   /** Choisit le parcours selon l'état E2EE du serveur pour cet utilisateur. */
   const routeByState = useCallback((state: E2eeState) => {
@@ -264,7 +312,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       requirePersonalPhrase()
       const payload = freshKeyringPayload()
       await pushKeyring(payload, pass1, me)
-      await finishUnlock(payload, me)
+      await finishUnlock(payload, me, true)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Création impossible')
     } finally { setBusy(false) }
@@ -308,7 +356,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       const now = new Date().toISOString()
       const payload: KeyringPayload = { v: 1, keys, createdAt: now, updatedAt: now }
       await pushKeyring(payload, pass1, me)
-      await finishUnlock(payload, me)
+      await finishUnlock(payload, me, true)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Migration impossible')
     } finally { setBusy(false) }
@@ -338,7 +386,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       await pushKeyring(payload, pass1, me)
       // invitation consommée : on la supprime (best effort)
       fetch(`/api/vaults/grant-${encodeURIComponent(me.username)}`, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {})
-      await finishUnlock(payload, me)
+      await finishUnlock(payload, me, true)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Invitation invalide')
     } finally { setBusy(false) }
@@ -526,6 +574,27 @@ export function WebGate({ children }: { children: React.ReactNode }) {
               J&apos;ai reçu mon invitation — vérifier
             </button>
             {error && <div className="siral-error">{error}</div>}
+          </>
+        )}
+
+        {phase === 'recovery-kit' && (
+          <>
+            {me && <span className="siral-user">Connecté : {me.displayName}</span>}
+            <div className="siral-title">Votre trousseau est prêt — imprimez le kit de récupération</div>
+            <div className="siral-text">Une page à imprimer, où vous écrirez votre phrase personnelle <b>à la main</b>.
+              Sous enveloppe scellée, au coffre du service : c&apos;est votre seule porte de sortie en cas d&apos;oubli
+              (avec la ré-invitation par un admin).</div>
+            <button className="siral-btn" onClick={printRecoveryKit}>
+              Imprimer le kit de récupération
+            </button>
+            <button className="siral-btn ghost" onClick={() => {
+              const entry = pendingEntryRef.current
+              if (entry) installBridge(entry.keys, entry.identity)
+            }}>
+              Continuer vers l&apos;application
+            </button>
+            <div className="siral-note"><span>Vous pourrez le réimprimer plus tard uniquement en recréant votre
+              trousseau — faites-le maintenant.</span></div>
           </>
         )}
 

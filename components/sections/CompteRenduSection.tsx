@@ -5,7 +5,8 @@ import { Badge } from '../ui/badge';
 import { Select } from '../ui/select';
 import { Label } from '../ui/label';
 import { Enquete, CompteRendu } from '@/types/interfaces';
-import { X, FileText, Calendar, User } from 'lucide-react';
+import { X, FileText, Calendar, User, Sparkles } from 'lucide-react';
+import { SyntheseIAModal } from '../modals/SyntheseIAModal';
 import { useMemo, useState, useRef, useEffect, useCallback, memo, MouseEvent } from 'react';
 import { useUser } from '@/contexts/UserContext';
 import { renderFormattedText, stripClipboardNoise } from '@/lib/formatCR';
@@ -229,6 +230,7 @@ export const CompteRenduSection = memo(({
   }, [editingCR]);
 
   // États pour l'UX
+  const [showSyntheseIA, setShowSyntheseIA] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Dirty state stocké en ref : la frappe dans l'éditeur WYSIWYG (contentEditable)
@@ -627,14 +629,31 @@ export const CompteRenduSection = memo(({
     <div>
       <div className="flex justify-between items-center mb-2">
         <h3 className="text-lg font-semibold">Comptes rendus</h3>
-        <Button 
-          onClick={handleNewCR}
-          size="sm"
-          variant="ghost"
-        >
-          Nouveau CR
-        </Button>
+        <div className="flex items-center gap-1">
+          {!isInstruction && (
+            <Button
+              onClick={() => setShowSyntheseIA(true)}
+              size="sm"
+              variant="ghost"
+              className="text-violet-600 hover:text-violet-700 hover:bg-violet-50 gap-1"
+              title="Synthèse du dossier par l'IA locale du service"
+            >
+              <Sparkles className="h-3.5 w-3.5" /> Synthèse IA
+            </Button>
+          )}
+          <Button 
+            onClick={handleNewCR}
+            size="sm"
+            variant="ghost"
+          >
+            Nouveau CR
+          </Button>
+        </div>
       </div>
+
+      {!isInstruction && showSyntheseIA && (
+        <SyntheseIAModal isOpen={showSyntheseIA} onClose={() => setShowSyntheseIA(false)} enquete={enquete as Enquete} />
+      )}
 
       <div className="space-y-4">
         {sortedCRs.map(cr => (
