@@ -299,4 +299,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('consultation:deactivate'),
   consultation_refreshNow: () =>
     ipcRenderer.invoke('consultation:refreshNow'),
+
+  // === CLOISONNEMENT PAR CLÉ INDIVIDUELLE (édition web uniquement) ===
+  // Dans l'app de bureau, les trousseaux n'existent pas : surface présente
+  // pour la parité du pont, sans effet.
+  e2ee_myScopes: async () => [],
+  e2ee_listAccounts: async () => { throw new Error('Gestion des accès disponible dans l\'édition web') },
+  e2ee_invite: async () => { throw new Error('Gestion des accès disponible dans l\'édition web') },
+  e2ee_revoke: async () => { throw new Error('Gestion des accès disponible dans l\'édition web') },
 })
