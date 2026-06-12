@@ -38,7 +38,7 @@ export const AgendaPanel = () => {
   };
 
   return (
-    <div className="p-6 space-y-5 max-w-3xl">
+    <div className="p-3 sm:p-6 space-y-5 max-w-3xl">
       <div>
         <h3 className="text-base font-semibold flex items-center gap-2">
           <CalendarDays className="h-4 w-4 text-indigo-600" /> Agenda Google (lecture seule)

@@ -464,7 +464,7 @@ export const AlertsPage = ({ onShowWeeklyPopup, visualAlertRules = [], onUpdateV
 
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-3 sm:p-6 max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">Gestion des Alertes</h2>
       </div>
@@ -472,10 +472,10 @@ export const AlertsPage = ({ onShowWeeklyPopup, visualAlertRules = [], onUpdateV
       {/* Rappels d'échéances sur iPhone / PC (édition web) */}
       {isWebApp && (
         <Card className="mb-6 border-emerald-200 bg-emerald-50">
-          <CardHeader className="flex flex-row items-center justify-between py-4">
-            <div>
+          <CardHeader className="flex flex-row items-start justify-between gap-3 py-4">
+            <div className="flex-1 min-w-0">
               <CardTitle className="text-lg flex items-center gap-2">
-                <Bell className="h-5 w-5 text-emerald-600" />
+                <Bell className="h-5 w-5 text-emerald-600 flex-shrink-0" />
                 Rappels sur cet appareil
               </CardTitle>
               <p className="text-sm text-gray-500 mt-1">
@@ -486,24 +486,24 @@ export const AlertsPage = ({ onShowWeeklyPopup, visualAlertRules = [], onUpdateV
               {pushError && <p className="text-xs text-red-600 mt-1">{pushError}</p>}
               {!isPushSupported() && <p className="text-xs text-amber-700 mt-1">Non pris en charge par ce navigateur (ou app non installée sur l&apos;écran d&apos;accueil).</p>}
             </div>
-            <Switch checked={pushOn} disabled={pushBusy || !isPushSupported()} onCheckedChange={togglePush} />
+            <Switch checked={pushOn} disabled={pushBusy || !isPushSupported()} onCheckedChange={togglePush} className="flex-shrink-0 mt-1" />
           </CardHeader>
         </Card>
       )}
 
       {/* Récapitulatif hebdomadaire */}
       <Card className="mb-6 border-blue-200 bg-blue-50">
-        <CardHeader className="flex flex-row items-center justify-between py-4">
-          <div>
+        <CardHeader className="flex flex-row items-start justify-between gap-3 py-4">
+          <div className="flex-1 min-w-0">
             <CardTitle className="text-lg flex items-center gap-2">
-              <Clock className="h-5 w-5 text-blue-600" />
+              <Clock className="h-5 w-5 text-blue-600 flex-shrink-0" />
               Récapitulatif hebdomadaire
             </CardTitle>
             <p className="text-sm text-gray-500 mt-1">
               Popup au démarrage qui liste les actes à surveiller et les enquêtes à relancer.
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-shrink-0">
             {onShowWeeklyPopup && (
               <Button
                 variant="outline"

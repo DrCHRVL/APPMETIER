@@ -171,7 +171,7 @@ export const SettingsModal = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-xl shadow-2xl w-[90vw] max-w-[1200px] h-[85vh] flex flex-col">
+      <div className="bg-white rounded-xl shadow-2xl w-[90vw] max-w-[1200px] h-[85vh] flex flex-col max-sm:w-screen max-sm:h-[100dvh] max-sm:rounded-none">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
@@ -221,7 +221,7 @@ export const SettingsModal = ({
         {/* Body */}
         <div className="flex flex-1 overflow-hidden">
           {/* Tabs sidebar */}
-          <div className="w-40 sm:w-52 border-r border-gray-200 py-3 flex flex-col bg-gray-50 overflow-y-auto flex-shrink-0">
+          <div className="w-12 sm:w-40 md:w-52 border-r border-gray-200 py-3 flex flex-col bg-gray-50 overflow-y-auto flex-shrink-0">
             {sectionOrder.map((section, sectionIdx) => {
               const tabs = tabsBySection[section];
               if (tabs.length === 0) return null;
@@ -230,7 +230,7 @@ export const SettingsModal = ({
                 <React.Fragment key={section}>
                   {showSeparator && (
                     <div className="mx-3 my-2 border-t border-gray-300">
-                      <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-2 px-3">
+                      <span className="hidden sm:block text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-2 px-3">
                         {SECTION_LABELS[section]}
                       </span>
                     </div>
@@ -242,18 +242,19 @@ export const SettingsModal = ({
                       <button
                         key={tab.id}
                         className={`
-                          flex items-center gap-2.5 px-4 py-2 mx-2 rounded-lg text-sm transition-all
+                          flex items-center gap-2.5 px-1 sm:px-4 py-2 mx-1 sm:mx-2 rounded-lg text-sm transition-all justify-center sm:justify-start
                           ${isActive
                             ? 'bg-white shadow-sm font-semibold text-gray-800 border border-gray-200'
                             : 'text-gray-600 hover:bg-white/60 hover:text-gray-800'
                           }
                         `}
                         onClick={() => setActiveTab(tab.id)}
+                        title={tab.label}
                       >
                         <Icon className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-emerald-600' : 'text-gray-400'}`} />
-                        <span className="truncate">{tab.label}</span>
+                        <span className="hidden sm:inline truncate">{tab.label}</span>
                         {tab.id === 'admin_users' && pendingUsersCount > 0 && (
-                          <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full">
+                          <span className="ml-auto hidden sm:flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full">
                             {pendingUsersCount}
                           </span>
                         )}
@@ -265,7 +266,7 @@ export const SettingsModal = ({
             })}
 
             {/* Footer propriété intellectuelle */}
-            <div className="mt-auto px-4 pt-3 border-t border-gray-200 mx-2">
+            <div className="hidden sm:block mt-auto px-4 pt-3 border-t border-gray-200 mx-2">
               <p className="text-[10px] leading-tight text-gray-400 font-medium uppercase tracking-wide">SIRAL — Suivi Intégré des Réseaux criminels et Affaires Liées</p>
               <p className="text-[10px] leading-tight text-gray-400 mt-0.5">
                 {"Conçu par A. CHEVALIER — Parquet d'Amiens"}
@@ -275,7 +276,7 @@ export const SettingsModal = ({
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-6">
             {renderContent()}
           </div>
         </div>
