@@ -82,7 +82,7 @@ async function main() {
 
     await page.goto('/')
     await page.waitForSelector('.siral-card', { timeout: 20000 })
-    await page.click('text=Enrôler une passkey')
+    await page.click('text=Premier accès')
     await page.fill('input[placeholder*="Identifiant"]', 'a.chevalier')
     await page.fill('input[placeholder*="enrôlement"]', 'CODE-MIG-2026')
     await page.click('text=Créer ma passkey')

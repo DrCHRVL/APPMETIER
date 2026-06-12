@@ -44,5 +44,5 @@ export const ELECTRON_API_NAMES = [
   'consultation_deactivate', 'consultation_refreshNow',
   'e2ee_myScopes', 'e2ee_listAccounts', 'e2ee_invite', 'e2ee_revoke',
   'desktopImport_pushVault', 'desktopImport_uploadDocument',
-  'readDocumentText',
+  'readDocumentText', 'readDocumentData',
 ] as const

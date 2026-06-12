@@ -528,6 +528,10 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       return d ? Math.max(0, d.size - 32) : 0
     },
     extractPDFText: async (buffer: unknown) => extractPdfText(buffer as ArrayBuffer),
+    readDocumentData: async (enqueteNumero: unknown, cheminRelatif: unknown) => {
+      const bytes = await docDownload(String(enqueteNumero), String(cheminRelatif))
+      return bytes ? b64.encode(bytes) : null
+    },
     readDocumentText: async (enqueteNumero: unknown, cheminRelatif: unknown) => {
       if (!String(cheminRelatif).toLowerCase().endsWith('.pdf')) return ''
       const bytes = await docDownload(String(enqueteNumero), String(cheminRelatif))

@@ -33,6 +33,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { DocumentPathModal } from '../modals/DocumentPathModal';
 import { AnalyseDocumentsModal } from '../modals/AnalyseDocumentsModal';
 import type { ScannedDocument } from '@/utils/documents/ServerDocumentScanner';
+import { DocHoverPreview } from '@/components/DocHoverPreview';
 import { DocumentSyncManager, SyncResult } from '@/utils/documents/DocumentSyncManager';
 import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipProvider } from '../ui/tooltip';
 import { format } from 'date-fns';
@@ -866,6 +867,9 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                                   className="bg-white text-gray-800 border border-gray-200 shadow-lg p-0 max-w-xs"
                                 >
                                   <div className="p-2.5 space-y-1">
+                                    {doc.type === 'pdf' && (
+                                      <DocHoverPreview enquete={String(enquete.numero)} rel={doc.cheminRelatif} />
+                                    )}
                                     <p className="font-semibold text-xs leading-tight break-all">
                                       {doc.nomOriginal}
                                     </p>

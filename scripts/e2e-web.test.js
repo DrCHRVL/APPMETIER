@@ -92,7 +92,7 @@ async function main() {
     await page.screenshot({ path: SHOTS + '/01-login.png' })
 
     // ── 2. Enrôlement ──
-    await page.click('text=Enrôler une passkey')
+    await page.click('text=Premier accès')
     await page.fill('input[placeholder*="Identifiant"]', 'a.chevalier')
     await page.fill('input[placeholder*="Nom affiché"]', 'A. Chevalier')
     await page.fill('input[placeholder*="Tribunal"]', 'TJ Test')
@@ -273,7 +273,7 @@ async function main() {
     })
     await page2.goto('/')
     await page2.waitForSelector('.siral-card')
-    await page2.click('text=Enrôler une passkey')
+    await page2.click('text=Premier accès')
     await page2.fill('input[placeholder*="Identifiant"]', 'j.martin')
     await page2.fill('input[placeholder*="Tribunal"]', 'TJ Test')
     await page2.fill('input[placeholder*="enrôlement"]', 'CODE-TEST-2026')

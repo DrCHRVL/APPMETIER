@@ -201,3 +201,22 @@ html {
 body {
   overscroll-behavior-y: none; /* pas de rebond/pull-to-refresh intempestif en PWA */
 }
+
+/* ──────────────────────────────────────────────────────────────────
+   Transitions douces entre vues (effet app native, 150 ms)
+   ────────────────────────────────────────────────────────────────── */
+@keyframes siral-view-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+.view-fade { animation: siral-view-in 150ms cubic-bezier(0.4, 0, 0.2, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .view-fade { animation: none; }
+}
+
+/* Accessibilité légère : focus clavier visible, sans toucher au design souris */
+:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.65);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
