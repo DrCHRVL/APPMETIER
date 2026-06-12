@@ -25,21 +25,7 @@ ChartJS.register(
   ChartDataLabels
 );
 
-const CHART_COLORS = [
-  '#34495e', '#3498db', '#2ecc71', '#16a085', '#e74c3c', '#c0392b',
-  '#f1c40f', '#f39c12', '#9b59b6', '#8e44ad', '#1abc9c', '#7f8c8d',
-  '#d35400', '#27ae60', '#2980b9', '#95a5a6'
-];
-
-// Couleur stable par service (basée sur le hash du nom, pas sur l'index)
-const getServiceColor = (service: string, index: number) => {
-  let hash = 0;
-  for (let i = 0; i < service.length; i++) {
-    hash = service.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const colorIndex = Math.abs(hash) % CHART_COLORS.length;
-  return CHART_COLORS[colorIndex];
-};
+import { getServiceColor } from '@/utils/chartColors';
 
 interface GeneralStatsProps {
   enquetes: Enquete[];

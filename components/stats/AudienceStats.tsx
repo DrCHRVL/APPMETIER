@@ -23,15 +23,7 @@ ChartJS.register(
   ChartDataLabels
 );
 
-// Constantes de couleurs orientations
-const ORIENTATION_DATASETS = [
-  { key: 'nombreCRPC', label: 'CRPC', color: '#34495e' },
-  { key: 'nombreCI', label: 'CI', color: '#3498db' },
-  { key: 'nombreCOPJ', label: 'COPJ', color: '#2ecc71' },
-  { key: 'nombreOI', label: 'OI', color: '#95a5a6' },
-  { key: 'nombreCDD', label: 'CDD', color: '#E8D0A9' },
-  { key: 'nombreClassements', label: 'Classement', color: '#e74c3c' },
-] as const;
+import { ORIENTATION_DATASETS } from '@/utils/chartColors';
 
 // Composant Bar chart factorisé pour un bloc de mois
 const OrientationBarBlock = ({

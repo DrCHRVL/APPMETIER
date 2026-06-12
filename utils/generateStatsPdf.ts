@@ -3,13 +3,18 @@
  * dédié à l'impression, indépendant du DOM de l'application.
  *
  * Avantages vs window.print() sur la page principale :
- * - Pas de dépendance aux canvas Chart.js (qui ne se rendent pas en print)
  * - Contrôle total sur la pagination et le formatage
  * - Tableaux propres, pas de troncature
+ *
+ * Les camemberts sont redessinés sur un canvas hors-écran avec les mêmes
+ * couleurs et étiquettes que les Pie Chart.js de la page Statistiques
+ * (source unique : utils/chartColors), puis incorporés en <img> — ce que
+ * html2canvas capture de façon fiable.
  */
 
 import { AudienceStats } from '@/types/audienceTypes';
 import { Enquete } from '@/types/interfaces';
+import { getServiceColor, ORIENTATION_DATASETS } from '@/utils/chartColors';
 
 interface PdfExportData {
   selectedYear: number;
@@ -287,18 +292,18 @@ const CSS_STYLES = `
   .pie-label { font-size: 10px; }
   .pie-value { font-weight: bold; font-size: 11px; margin-left: auto; }
   .pie-pct { font-size: 9px; color: #56565E; margin-left: 4px; }
-`;
 
-// Couleur = signification (charte Lumière) : bleus pour les orientations de
-// poursuite, vert = validé/terminé, ambre = attente, rouge Marianne = classement.
-const ORIENTATION_COLORS: Record<string, string> = {
-  'CRPC': '#111139',
-  'CI': '#000091',
-  'COPJ': '#18753C',
-  'OI': '#92929C',
-  'CDD': '#B34000',
-  'Classement': '#E1000F',
-};
+  /* Légende verticale à gauche d'un camembert (rendu identique à l'app) */
+  .legend-col .pie-substitute { flex-direction: column; }
+  .svc-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 5px;
+    vertical-align: middle;
+  }
+`;
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value);
@@ -324,6 +329,90 @@ function renderPieSubstitute(items: { label: string; value: number; color: strin
       <span class="pie-pct">(${pct}%)</span>
     </div>`;
   }).join('')}</div>`;
+}
+
+/**
+ * Dessine un camembert sur un canvas hors-écran et le retourne en <img>.
+ * Reproduit le rendu des Pie Chart.js de l'app : tranches bordées de blanc,
+ * étiquettes blanches en gras au centre des tranches (plugin datalabels) —
+ * `pct` : pourcentage seul, masqué sous 5 % (carte Orientation) ;
+ * `valuePct` : valeur + pourcentage, masqués sous 2 occurrences (services).
+ * Retourne '' hors navigateur (SSR/tests) — la légende reste affichée.
+ */
+function renderPieChartImg(
+  items: { label: string; value: number; color: string }[],
+  displaySize: number,
+  labelMode: 'pct' | 'valuePct'
+): string {
+  const data = items.filter(i => i.value > 0);
+  const total = data.reduce((s, i) => s + i.value, 0);
+  if (total === 0 || typeof document === 'undefined') return '';
+
+  const ratio = 2; // sur-échantillonnage pour rester net après rasterisation
+  const size = displaySize * ratio;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size / 2 - 2 * ratio;
+
+  let angle = -Math.PI / 2;
+  for (const item of data) {
+    const slice = (item.value / total) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, angle, angle + slice);
+    ctx.closePath();
+    ctx.fillStyle = item.color;
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2 * ratio;
+    ctx.stroke();
+    angle += slice;
+  }
+
+  angle = -Math.PI / 2;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${11 * ratio}px 'Segoe UI', Arial, sans-serif`;
+  for (const item of data) {
+    const slice = (item.value / total) * Math.PI * 2;
+    const mid = angle + slice / 2;
+    const pct = (item.value / total) * 100;
+    const lx = cx + Math.cos(mid) * r * 0.62;
+    const ly = cy + Math.sin(mid) * r * 0.62;
+    if (labelMode === 'pct') {
+      if (pct >= 5) ctx.fillText(`${pct.toFixed(0)}%`, lx, ly);
+    } else if (item.value >= 2) {
+      ctx.fillText(`${item.value}`, lx, ly - 7 * ratio);
+      ctx.fillText(`${pct.toFixed(0)}%`, lx, ly + 7 * ratio);
+    }
+    angle += slice;
+  }
+
+  return `<img src="${canvas.toDataURL('image/png')}" width="${displaySize}" height="${displaySize}" style="width:${displaySize}px;height:${displaySize}px">`;
+}
+
+/** Camembert + tableau d'une répartition par service (même couleur par service que l'app). */
+function renderServiceBlock(list: { service: string; count: number }[]): string {
+  const total = list.reduce((s, i) => s + i.count, 0);
+  const pie = renderPieChartImg(
+    list.map(s => ({ label: s.service, value: s.count, color: getServiceColor(s.service) })),
+    190,
+    'valuePct'
+  );
+  return `${pie ? `<div style="text-align:center;margin-bottom:8px">${pie}</div>` : ''}
+      <table>
+        <tr><th>Service</th><th class="text-right">Nombre</th><th class="text-right">%</th></tr>
+        ${list.map(s =>
+          `<tr><td><span class="svc-dot" style="background:${getServiceColor(s.service)}"></span>${s.service}</td><td class="text-right font-bold">${s.count}</td><td class="text-right">${total > 0 ? ((s.count / total) * 100).toFixed(1) : 0}%</td></tr>`
+        ).join('')}
+      </table>`;
 }
 
 function renderBarChart(items: { label: string; value: number; color?: string }[]): string {
@@ -440,33 +529,17 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   </div>
 </div>
 
-<!-- Répartition par service -->
+<!-- Répartition par service : camemberts identiques à l'app + tableaux -->
 <div class="section">
   <div class="section-title">Répartition par service</div>
   <div class="two-cols">
     <div>
       <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Toutes enquêtes</h4>
-      <table>
-        <tr><th>Service</th><th class="text-right">Nombre</th><th class="text-right">%</th></tr>
-        ${(() => {
-          const total = data.serviceStats.reduce((s, i) => s + i.count, 0);
-          return data.serviceStats.map(s =>
-            `<tr><td>${s.service}</td><td class="text-right font-bold">${s.count}</td><td class="text-right">${total > 0 ? ((s.count/total)*100).toFixed(1) : 0}%</td></tr>`
-          ).join('');
-        })()}
-      </table>
+      ${renderServiceBlock(data.serviceStats)}
     </div>
     <div>
       <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Enquêtes terminées</h4>
-      <table>
-        <tr><th>Service</th><th class="text-right">Nombre</th><th class="text-right">%</th></tr>
-        ${(() => {
-          const total = data.serviceStatsTerminees.reduce((s, i) => s + i.count, 0);
-          return data.serviceStatsTerminees.map(s =>
-            `<tr><td>${s.service}</td><td class="text-right font-bold">${s.count}</td><td class="text-right">${total > 0 ? ((s.count/total)*100).toFixed(1) : 0}%</td></tr>`
-          ).join('');
-        })()}
-      </table>
+      ${renderServiceBlock(data.serviceStatsTerminees)}
     </div>
   </div>
 </div>
@@ -475,16 +548,22 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 <div class="page-break"></div>
 <div class="section-nobreak">
   <div class="section-title">Orientation des procédures</div>
-  ${stats ? renderPieSubstitute([
-    { label: 'CRPC', value: stats.nombreCRPC, color: ORIENTATION_COLORS['CRPC'] },
-    { label: 'CI', value: stats.nombreCI, color: ORIENTATION_COLORS['CI'] },
-    { label: 'COPJ', value: stats.nombreCOPJ, color: ORIENTATION_COLORS['COPJ'] },
-    { label: 'OI', value: stats.nombreOI, color: ORIENTATION_COLORS['OI'] },
-    { label: 'CDD', value: stats.nombreCDD, color: ORIENTATION_COLORS['CDD'] },
-    { label: 'Classement', value: stats.nombreClassements || 0, color: ORIENTATION_COLORS['Classement'] },
-  ]) : '<p>Aucune donnée</p>'}
-
-  ${stats ? `<div style="margin-top:6px;font-size:10px;color:#56565E">Dont ${stats.nombreDeferements} déférement${stats.nombreDeferements > 1 ? 's' : ''}</div>` : ''}
+  ${stats ? (() => {
+    // Mêmes données et couleurs que le Pie « Orientation » de l'app
+    const items = ORIENTATION_DATASETS.map(d => ({
+      label: d.label,
+      value: (stats[d.key] as number) || 0,
+      color: d.color,
+    }));
+    const pie = renderPieChartImg(items, 220, 'pct');
+    return `<div class="two-cols" style="align-items:center">
+      <div class="legend-col">
+        ${renderPieSubstitute(items)}
+        <div style="margin-top:8px;font-size:10px;color:#56565E">Dont ${stats.nombreDeferements} déférement${stats.nombreDeferements > 1 ? 's' : ''}</div>
+      </div>
+      ${pie ? `<div style="text-align:center">${pie}</div>` : ''}
+    </div>`;
+  })() : '<p>Aucune donnée</p>'}
 </div>
 
 <!-- Orientation par mois -->
