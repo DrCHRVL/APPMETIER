@@ -193,6 +193,12 @@ le serveur n'est qu'un coffre-fort de blobs illisibles.
 - [ ] Double fonctionnement (Electron + web) sur 1-2 mois
 - [ ] L'app portable devient le « mode secours », puis est retirée (la PWA assure le offline)
 
+> **AVANCEMENT (12 juin 2026)** — Les phases 1, 2 et 3 ont été réalisées et
+> testées en session (édition web complète : pont electronAPI 105/105,
+> serveur E2EE, passkeys, PWA, import, Docker). Test e2e : 26/26.
+> Reste : déploiement réel par Audran (cf. `docs/TUTO-DEPLOIEMENT.md`),
+> test terrain, puis phase 4 (refonte visuelle « Lumière ») et bascule.
+
 ### Rétro-planning (bascule visée : 2 novembre 2026)
 
 Inventaire technique réalisé le 11 juin : **105 appels IPC** exposés par `preload.js`,
