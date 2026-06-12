@@ -281,47 +281,78 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   scanRef.current = scanForNewDocuments;
 
   // ── Synchronisation externe ──
-  const synchronizeDocuments = async () => {
-    if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
-    if (!enquete.cheminExterne) { showToast('Aucun chemin externe configuré', 'warning'); return; }
+  // `silent` : pas de toast ni d'indicateur (utilisé par la synchro automatique).
+  const synchronizeDocuments = async (silent = false) => {
+    if (!window.electronAPI) { if (!silent) showToast('API Electron non disponible', 'error'); return; }
+    if (!enquete.cheminExterne) { if (!silent) showToast('Aucun chemin externe configuré', 'warning'); return; }
 
-    setIsSyncing(true);
+    if (!silent) setIsSyncing(true);
     try {
       const syncResult = await DocumentSyncManager.synchronizeDocuments(
         enquete.numero,
         enquete.cheminExterne,
         enquete.useSubfolderForExternal !== false
       );
-      setLastSyncResult(syncResult);
+      if (!silent) setLastSyncResult(syncResult);
 
       if (!syncResult.externalAccessible) {
-        showToast('Chemin externe inaccessible actuellement', 'warning');
+        if (!silent) showToast('Chemin externe inaccessible actuellement', 'warning');
         return;
       }
-      if (syncResult.errors.length > 0) {
-        syncResult.errors.forEach(e => console.error('Erreur sync:', e));
-        showToast('Des erreurs sont survenues lors de la synchronisation', 'warning');
-      } else {
-        const { addedToInternal: ai, addedToExternal: ae } = syncResult;
-        if (ai.length === 0 && ae.length === 0) {
+
+      const { addedToInternal: ai, addedToExternal: ae, importedDocs } = syncResult;
+
+      // Fusionner les documents importés depuis le commun (P:\) dans la liste de
+      // l'enquête, puis marquer l'ensemble comme copié au commun. Dédup par chemin.
+      const current = enquete.documents || [];
+      const knownRels = new Set(current.map(d => d.cheminRelatif));
+      const toAdd = (importedDocs || []).filter(d => !knownRels.has(d.cheminRelatif));
+      const needCommunUpdate = current.some(d => d.copieCommun !== 'ok');
+      if (toAdd.length > 0 || needCommunUpdate) {
+        const merged = [...current, ...toAdd].map(d => ({ ...d, copieCommun: 'ok' as const }));
+        onUpdate(enquete.id, { documents: merged });
+      }
+
+      if (!silent) {
+        if (syncResult.errors.length > 0) {
+          syncResult.errors.forEach(e => console.error('Erreur sync:', e));
+          showToast('Des erreurs sont survenues lors de la synchronisation', 'warning');
+        } else if (ai.length === 0 && ae.length === 0) {
           showToast('Tous les documents sont déjà synchronisés', 'success');
         } else {
           showToast(`Synchronisation terminée : ${ai.length} ajoutés en interne, ${ae.length} en externe`, 'success');
         }
-        if (ai.length > 0) scanForNewDocuments(true);
-        // synchro complète réussie : tous les documents sont au commun
-        const docs = enquete.documents || [];
-        if (docs.some(d => d.copieCommun !== 'ok')) {
-          onUpdate(enquete.id, { documents: docs.map(d => ({ ...d, copieCommun: 'ok' as const })) });
-        }
       }
     } catch (err) {
       console.error('Erreur synchronisation:', err);
-      showToast('Erreur lors de la synchronisation des documents', 'error');
+      if (!silent) showToast('Erreur lors de la synchronisation des documents', 'error');
     } finally {
-      setIsSyncing(false);
+      if (!silent) setIsSyncing(false);
     }
   };
+
+  // Ref toujours à jour vers la synchro, pour que la boucle automatique appelle
+  // la dernière version (liste de documents et chemin courants).
+  const syncRef = useRef<(silent?: boolean) => void>(() => {});
+  syncRef.current = synchronizeDocuments;
+
+  // ── Synchro automatique (web uniquement) ──
+  // Tant que l'app est ouverte sur un poste qui voit le dossier commun (P:\) connecté
+  // au navigateur, on réconcilie P:\ ↔ serveur en silence, en boucle. Conditions :
+  //   - mode web,
+  //   - le chemin est bien une poignée de dossier choisie dans le navigateur (fsa://).
+  // Un ancien chemin Windows brut (P:\…) n'est pas exploitable : on n'essaie pas.
+  useEffect(() => {
+    if (!isWeb) return;
+    const p = enquete.cheminExterne || '';
+    if (!p.startsWith('fsa://')) return;
+    let cancelled = false;
+    const run = () => { if (!cancelled) syncRef.current(true); };
+    const first = setTimeout(run, 4000);             // une fois, peu après l'ouverture
+    const loop = setInterval(run, 5 * 60 * 1000);    // puis toutes les 5 minutes
+    return () => { cancelled = true; clearTimeout(first); clearInterval(loop); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWeb, enquete.cheminExterne, enquete.id]);
 
   // ── Icône selon type de fichier ──
   const getFileIcon = (type: string, size = 'h-4 w-4') => {
@@ -887,14 +918,27 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
               <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
                 <CheckCircle className="h-4 w-4 text-green-600" />
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-green-800">Chemin externe configuré</p>
+                  <p className="text-sm font-medium text-green-800">Dossier commun configuré</p>
                   <p className="text-xs text-green-700 break-all">
-                    {enquete.cheminExterne}
+                    {isWeb ? enquete.cheminExterne.replace(/^fsa:\/\//, '') : enquete.cheminExterne}
                     {enquete.useSubfolderForExternal !== false && ` / ${enquete.numero}`}
                   </p>
                   <p className="text-xs text-green-600 mt-1">
                     Mode : {enquete.useSubfolderForExternal !== false ? 'Sous-dossier enquête' : 'Dossier direct'}
                   </p>
+                  {/* En web : signaler la synchro automatique, ou inviter à reconnecter
+                      un ancien chemin bureau (P:\) non exploitable par le navigateur. */}
+                  {isWeb && enquete.cheminExterne.startsWith('fsa://') && (
+                    <p className="text-xs text-green-600 mt-1">
+                      ↻ Synchronisation automatique active (toutes les 5 min, tant que cet onglet est ouvert)
+                    </p>
+                  )}
+                  {isWeb && !enquete.cheminExterne.startsWith('fsa://') && (
+                    <p className="text-xs text-amber-700 mt-1">
+                      ⚠️ Ce dossier vient de la version bureau et n'est pas reconnu par le navigateur.
+                      Cliquez sur « Modifier chemin » puis « Choisir le dossier » pour activer la synchronisation.
+                    </p>
+                  )}
                   {pendingCommun > 0 && (
                     <p className="text-xs text-amber-700 mt-1 flex items-center gap-2">
                       ⏳ {pendingCommun} copie{pendingCommun > 1 ? 's' : ''} en attente vers le commun
