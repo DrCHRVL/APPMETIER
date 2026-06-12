@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Maquette SIRAL — Dashboard « Lumière institutionnelle »</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --green-900: #111139; --green-800: #1B1B6E; --green-700: #000091; --green-600: #2A2AB8;
+    --green-100: #E3E3FD; --green-50: #F5F5FE;
+    --ink: #161616; --ink-soft: #56565E; --ink-faint: #92929C;
+    --bg: #F6F6F6; --card: #ffffff; --line: #E5E5E5;
+    --amber: #B34000; --amber-bg: #fef3e2;
+    --red: #CE0500; --red-bg: #FFE9E9;
+    --blue: #0063CB; --blue-bg: #e7eefc;
+  }
+  body { font-family: 'Inter', 'Liberation Sans', sans-serif; background: var(--bg); width: 1600px; height: 1180px; overflow: hidden; display: flex; color: var(--ink); -webkit-font-smoothing: antialiased; }
+
+  /* ───── SIDEBAR ───── */
+  .sidebar { width: 248px; flex-shrink: 0; background: linear-gradient(168deg, #22228A 0%, #15154A 70%, #0E0E33 100%); color: #fff; display: flex; flex-direction: column; padding: 20px 14px 16px; position: relative; }
+  .sidebar::after { content:''; position:absolute; inset:0; background: radial-gradient(420px 220px at 0% 0%, rgba(255,255,255,0.07), transparent 60%); pointer-events:none; }
+  .brand { display: flex; align-items: center; gap: 11px; padding: 2px 8px 16px; }
+  .brand-mark { width: 38px; height: 38px; border-radius: 11px; background: linear-gradient(140deg, #6A6AF4, #000091); display:flex; align-items:center; justify-content:center; font-family:'Fraunces', 'Liberation Serif', serif; font-size: 19px; font-weight: 700; box-shadow: 0 4px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.25); }
+  .brand-name { font-size: 15px; font-weight: 700; letter-spacing: 0.01em; }
+  .brand-sub { font-size: 10.5px; color: rgba(255,255,255,0.55); margin-top: 1px; }
+
+  .contentieux { display:flex; gap:6px; padding: 0 6px 14px; }
+  .ctx-pill { flex:1; text-align:center; font-size: 10.5px; font-weight: 700; letter-spacing:.04em; padding: 6px 0; border-radius: 8px; color: rgba(255,255,255,0.55); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); }
+  .ctx-pill.on { background: rgba(255,255,255,0.16); color: #fff; border-color: rgba(255,255,255,0.28); box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
+
+  .nav-section { font-size: 10px; font-weight: 700; letter-spacing: .12em; color: rgba(255,255,255,0.38); padding: 12px 10px 5px; text-transform: uppercase; }
+  .nav-item { display:flex; align-items:center; gap:10px; padding: 7.5px 10px; border-radius: 9px; color: rgba(255,255,255,0.72); font-size: 13px; font-weight: 500; margin-bottom: 1px; }
+  .nav-item svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; opacity: .75; flex-shrink:0; }
+  .nav-item.active { background: rgba(255,255,255,0.13); color:#fff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.1); position: relative; }
+  .nav-item.active::before { content:''; position:absolute; left:-14px; top:6px; bottom:6px; width:3px; border-radius:0 3px 3px 0; background:#A1A1F8; }
+  .nav-badge { margin-left:auto; font-size:10.5px; font-weight:700; background:#e25c5c; color:#fff; border-radius: 99px; padding: 1px 7px; }
+  .nav-badge.soft { background: rgba(255,255,255,0.15); }
+  .sidebar-bottom { margin-top:auto; }
+  .nav-item.settings { border-top: 1px solid rgba(255,255,255,0.1); border-radius: 0; padding-top: 12px; margin-top: 8px; position: relative; }
+  .settings-badge { margin-left:auto; font-size:9.5px; font-weight:700; background:#e25c5c; color:#fff; border-radius: 99px; padding: 1px 6px; }
+  .sidebar-footer { padding: 12px 8px 0; display:flex; align-items:center; gap:9px; }
+  .avatar { width: 30px; height: 30px; border-radius: 99px; background: linear-gradient(140deg,#c8a24d,#9a7728); display:flex; align-items:center; justify-content:center; font-size: 11.5px; font-weight:700; }
+  .sf-name { font-size: 12px; font-weight: 600; }
+  .sf-role { font-size: 10px; color: rgba(255,255,255,0.5); }
+  .sync-dot { margin-left:auto; display:flex; align-items:center; gap:5px; font-size:10px; color:#B1B1F9; }
+  .sync-dot i { width:7px; height:7px; border-radius:99px; background:#8585F6; box-shadow: 0 0 8px #8585F6; }
+
+  /* ───── MAIN ───── */
+  .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .topbar { height: 58px; flex-shrink:0; background: rgba(255,255,255,0.85); border-bottom: 1px solid var(--line); display:flex; align-items:center; gap:16px; padding: 0 28px; }
+  .crumb { font-size: 13px; color: var(--ink-faint); }
+  .crumb b { color: var(--ink); font-weight: 600; }
+  .search { margin-left: 8px; flex: 0 0 380px; display:flex; align-items:center; gap:8px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; color: var(--ink-faint); }
+  .kbd { margin-left:auto; font-size: 10.5px; border:1px solid var(--line); background:#fff; border-radius:5px; padding: 1px 5px; color: var(--ink-faint); }
+  .top-actions { margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .icon-btn { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line); background:#fff; display:flex; align-items:center; justify-content:center; position:relative; }
+  .icon-btn svg { width:16px; height:16px; stroke:#56565E; fill:none; stroke-width:1.8; }
+  .dot-alert { position:absolute; top:-3px; right:-3px; width:15px; height:15px; background:#e25c5c; color:#fff; font-size:9px; font-weight:700; border-radius:99px; display:flex; align-items:center; justify-content:center; border:2px solid #fff; }
+  .btn-primary { display:flex; align-items:center; gap:7px; background: var(--green-700); color:#fff; font-size: 13px; font-weight:600; border-radius: 10px; padding: 9px 16px; box-shadow: 0 2px 6px rgba(0,0,145,0.30), inset 0 1px 0 rgba(255,255,255,0.18); }
+  .btn-primary svg { width:14px; height:14px; stroke:#fff; fill:none; stroke-width:2.2; }
+
+  .content { flex:1; overflow:hidden; padding: 22px 28px; display:flex; flex-direction:column; gap: 16px; }
+  .page-head { display:flex; align-items: baseline; gap: 14px; }
+  h1 { font-family: 'Fraunces', 'Liberation Serif', serif; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+  .page-sub { font-size: 13px; color: var(--ink-soft); }
+
+  /* KPI row */
+  .kpis { display:grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 15px; padding: 15px 18px 12px; position:relative; overflow:hidden; box-shadow: 0 1px 2px rgba(22,22,22,0.04); }
+  .kpi-label { font-size: 12px; font-weight: 600; color: var(--ink-soft); display:flex; align-items:center; gap:7px; }
+  .kpi-label svg { width:14px; height:14px; stroke: var(--green-700); fill:none; stroke-width:2; }
+  .kpi-val { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px; }
+  .kpi-val small { font-size: 13px; font-weight: 600; color: var(--ink-faint); letter-spacing: 0; }
+  .kpi-delta { font-size: 11.5px; font-weight: 600; margin-top: 1px; }
+  .up { color: #18753C; } .down { color: #CE0500; } .flat { color: var(--ink-faint); }
+  .spark { position:absolute; right: 14px; bottom: 12px; opacity:.9; }
+  .kpi.warn { border-color: #f3d9b3; background: linear-gradient(160deg, #fffdf8, #fef6e7); }
+  .kpi.danger { border-color: #f1c4c4; background: linear-gradient(160deg, #fffafa, #FFF0F0); }
+
+  .grid { flex:1; display:grid; grid-template-columns: 1fr 336px; gap: 16px; min-height:0; }
+  .left-col { display:flex; flex-direction:column; gap: 16px; min-height:0; min-width:0; }
+  .panel { background: var(--card); border:1px solid var(--line); border-radius: 15px; box-shadow: 0 1px 2px rgba(22,22,22,0.04); display:flex; flex-direction:column; overflow:hidden; }
+  .panel-head { display:flex; align-items:center; padding: 14px 18px 10px; }
+  .panel-title { font-size: 14.5px; font-weight: 700; display:flex; align-items:center; gap: 8px; }
+  .panel-title svg { width: 15px; height: 15px; stroke: var(--green-700); fill:none; stroke-width:2; }
+  .panel-count { margin-left: 8px; font-size: 11px; font-weight:700; color: var(--green-700); background: var(--green-100); padding: 2px 8px; border-radius: 99px; }
+  .panel-count.amber { color: var(--amber); background: var(--amber-bg); }
+  .panel-count.red { color: var(--red); background: var(--red-bg); }
+  .panel-link { margin-left:auto; font-size: 12px; font-weight:600; color: var(--green-700); }
+  .filters { display:flex; gap:8px; padding: 0 18px 10px; }
+  .chip { font-size: 11.5px; font-weight: 600; padding: 4px 11px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink-soft); background:#fff; }
+  .chip.on { background: var(--green-800); color:#fff; border-color: var(--green-800); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align:left; font-size: 10.5px; font-weight: 700; letter-spacing:.08em; text-transform: uppercase; color: var(--ink-faint); padding: 7px 18px; border-bottom: 1px solid var(--line); background: #FAFAFA; }
+  td { padding: 9.5px 18px; border-bottom: 1px solid #EEEEF4; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--green-50); }
+  .ref { font-weight: 700; font-size: 12.5px; }
+  .ref small { display:block; font-weight:500; color: var(--ink-faint); font-size: 11px; margin-top:1px; }
+  .status { display:inline-flex; align-items:center; gap:6px; font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 99px; white-space:nowrap; }
+  .status i { width:6px; height:6px; border-radius:99px; flex-shrink:0; }
+  .st-green { background: var(--green-100); color: #18753C; } .st-green i { background:#18753C; }
+  .st-amber { background: var(--amber-bg); color: var(--amber); } .st-amber i { background:#d97706; }
+  .st-red { background: var(--red-bg); color: var(--red); } .st-red i { background:#E1000F; }
+  .st-blue { background: var(--blue-bg); color: var(--blue); } .st-blue i { background:#0063CB; }
+  .deadline { font-weight: 600; font-size: 12.5px; }
+  .deadline.soon { color: var(--amber); } .deadline.late { color: var(--red); }
+  .bar { width: 100px; height: 6px; border-radius: 99px; background: #E8E8EE; overflow:hidden; }
+  .bar i { display:block; height:100%; border-radius:99px; background: linear-gradient(90deg, #4D4DC9, #8585F6); }
+  .avatars { display:flex; }
+  .avatars span { width: 24px; height: 24px; border-radius: 99px; border: 2px solid #fff; font-size: 9px; font-weight:700; color:#fff; display:flex; align-items:center; justify-content:center; margin-left: -7px; }
+  .avatars span:first-child { margin-left:0; }
+
+  /* Detail panels JLD / Poses */
+  .detail-row { display:grid; grid-template-columns: 1fr 1fr; gap: 16px; min-height: 0; }
+  .d-list { padding: 2px 10px 10px; overflow:hidden; }
+  .d-item { display:flex; align-items:center; gap: 11px; padding: 8.5px 8px; border-radius: 10px; }
+  .d-item:hover { background: var(--green-50); }
+  .d-item + .d-item { border-top: 1px solid #F0F0F5; }
+  .d-ico { width: 32px; height: 32px; flex-shrink:0; border-radius: 9px; display:flex; align-items:center; justify-content:center; }
+  .d-ico svg { width: 16px; height: 16px; fill:none; stroke-width: 1.9; }
+  .d-ico.amber { background: var(--amber-bg); } .d-ico.amber svg { stroke: var(--amber); }
+  .d-ico.red { background: var(--red-bg); } .d-ico.red svg { stroke: var(--red); }
+  .d-ico.green { background: var(--green-100); } .d-ico.green svg { stroke: var(--green-700); }
+  .d-ico.blue { background: var(--blue-bg); } .d-ico.blue svg { stroke: var(--blue); }
+  .d-main { min-width: 0; }
+  .d-title { font-size: 12.5px; font-weight: 700; white-space: nowrap; overflow:hidden; text-overflow: ellipsis; }
+  .d-sub { font-size: 11px; color: var(--ink-soft); margin-top: 1px; white-space: nowrap; overflow:hidden; text-overflow: ellipsis; }
+  .d-right { margin-left:auto; text-align:right; flex-shrink:0; }
+  .d-chip { display:inline-block; font-size: 10px; font-weight: 700; padding: 2.5px 8px; border-radius: 99px; }
+  .d-since { font-size: 10px; color: var(--ink-faint); margin-top: 3px; font-weight: 600; }
+
+  /* Right column */
+  .right { display:flex; flex-direction:column; gap: 16px; min-height:0; }
+  .urgent-card { background: linear-gradient(150deg, #2a1414, #471f1f); color:#fff; border-radius: 15px; padding: 15px 17px; flex-shrink: 0; }
+  .urgent-card h3 { font-size: 13px; font-weight: 700; display:flex; align-items:center; gap:8px; }
+  .urgent-card h3 svg { width:15px; height:15px; stroke:#fca5a5; fill:none; stroke-width:2; }
+  .u-item { display:flex; align-items:center; gap: 10px; font-size: 12px; padding: 7.5px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  .u-item:last-child { border-bottom:none; padding-bottom:0; }
+  .u-item b { font-weight: 700; }
+  .u-item .when { margin-left:auto; font-size: 10.5px; font-weight:700; color:#fca5a5; background:rgba(252,165,165,0.13); padding: 2px 8px; border-radius: 99px; white-space:nowrap; }
+
+  .g-badge { margin-left: auto; display:flex; align-items:center; gap: 6px; font-size: 10.5px; font-weight: 600; color: var(--ink-soft); background: #fff; border: 1px solid var(--line); border-radius: 99px; padding: 3.5px 10px 3.5px 6px; }
+  .g-logo { width: 15px; height: 15px; border-radius: 99px; background: conic-gradient(from -45deg, #ea4335 0 25%, #fbbc05 0 50%, #34a853 0 75%, #4285f4 0); display:flex; align-items:center; justify-content:center; }
+  .g-logo i { width: 7px; height: 7px; background: #fff; border-radius: 99px; }
+  .g-sync { width: 6px; height: 6px; border-radius: 99px; background: #34a853; box-shadow: 0 0 6px #34a853; }
+
+  .timeline { padding: 2px 18px 14px; overflow:hidden; flex: 1; }
+  .t-item { display:flex; gap: 11px; padding: 7.5px 0; }
+  .t-time { width: 40px; flex-shrink:0; font-size: 11px; font-weight: 700; color: var(--ink-soft); padding-top:1px; }
+  .t-rail { width: 10px; flex-shrink:0; display:flex; flex-direction:column; align-items:center; }
+  .t-rail i { width: 9px; height: 9px; border-radius:99px; background:#fff; border: 2.5px solid var(--green-600); }
+  .t-rail.g i { border-color: #4285f4; }
+  .t-rail u { flex:1; width:2px; background: #E5E5E5; }
+  .t-body { min-width: 0; }
+  .t-body b { font-size: 12px; font-weight: 600; display:block; }
+  .t-body span { font-size: 11px; color: var(--ink-soft); }
+  .t-tag { display:inline-flex; align-items:center; gap:4px; font-size: 9.5px; font-weight:700; padding: 1px 7px; border-radius: 99px; margin-left: 6px; vertical-align: 1px; }
+  .t-tag.google { background: #e8f0fe; color: #1a62d2; }
+  .t-foot { font-size: 10.5px; color: var(--ink-faint); padding: 8px 18px 13px; border-top: 1px solid #F0F0F5; display:flex; align-items:center; gap: 6px; }
+  .t-foot svg { width: 12px; height: 12px; stroke: var(--ink-faint); fill:none; stroke-width: 2; }
+</style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">S</div>
+      <div>
+        <div class="brand-name">SIRAL</div>
+        <div class="brand-sub">Suivi Intégré des Réseaux criminels</div>
+      </div>
+    </div>
+    <div class="contentieux">
+      <div class="ctx-pill on">CRIM ORG</div>
+      <div class="ctx-pill">ECOFI</div>
+      <div class="ctx-pill">ENVIRO</div>
+    </div>
+    <div class="nav-section">Pilotage</div>
+    <div class="nav-item active"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Tableau de bord</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Enquêtes préliminaires<span class="nav-badge soft">42</span></div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg>Instructions judiciaires<span class="nav-badge soft">17</span></div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M21 8v11a2 2 0 01-2 2H5a2 2 0 01-2-2V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>Enquêtes terminées</div>
+    <div class="nav-section">Suivi</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Suivi AIR<span class="nav-badge">3</span></div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>Alertes<span class="nav-badge">5</span></div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M20.6 13.3L13.4 20.5a2 2 0 01-2.8 0L3 12.9V3h9.9l7.7 7.7a2 2 0 010 2.6z"/><circle cx="7.5" cy="7.5" r="1"/></svg>Tags</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="7"/><rect x="12" y="7" width="3" height="11"/><rect x="17" y="13" width="3" height="5"/></svg>Statistiques</div>
+    <div class="nav-section">Transversal</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/></svg>Overboard</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7 7.5l3.5 8M17 7.5l-3.5 8M7.5 6h9"/></svg>Cartographie</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.5 4"/></svg>Statistiques globales</div>
+    <div class="nav-section">Système</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Sauvegardes</div>
+    <div class="sidebar-bottom">
+      <div class="nav-item settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3h0a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.6h0a1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9v0a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Paramètres<span class="settings-badge">2</span></div>
+      <div class="sidebar-footer">
+        <div class="avatar">AC</div>
+        <div>
+          <div class="sf-name">A. Chevalier</div>
+          <div class="sf-role">Magistrat · Admin</div>
+        </div>
+        <div class="sync-dot"><i></i>Synchro</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="crumb">CRIM ORG / <b>Tableau de bord</b></div>
+      <div class="search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#92929C" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        Rechercher une enquête, un mis en cause, un OPJ…
+        <span class="kbd">Ctrl K</span>
+      </div>
+      <div class="top-actions">
+        <div class="icon-btn"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span class="dot-alert">5</span></div>
+        <div class="icon-btn"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-2.6-6.4"/><path d="M21 3v6h-6"/></svg></div>
+        <div class="btn-primary"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Nouvelle enquête</div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="page-head">
+        <h1>Bonjour, voici l'état du service</h1>
+        <div class="page-sub">Jeudi 11 juin 2026 · dernière synchro il y a 2 min</div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi">
+          <div class="kpi-label"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Enquêtes actives</div>
+          <div class="kpi-val">42</div>
+          <div class="kpi-delta up">▲ 3 ce mois</div>
+          <svg class="spark" width="90" height="30" viewBox="0 0 90 30"><polyline points="0,24 12,20 24,22 36,15 48,17 60,10 72,12 90,5" fill="none" stroke="#4D4DC9" stroke-width="2"/><circle cx="90" cy="5" r="2.5" fill="#4D4DC9"/></svg>
+        </div>
+        <div class="kpi warn">
+          <div class="kpi-label"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Autorisations JLD en attente</div>
+          <div class="kpi-val">7</div>
+          <div class="kpi-delta flat">dont 2 &gt; 48 h</div>
+          <svg class="spark" width="90" height="30" viewBox="0 0 90 30"><polyline points="0,18 12,16 24,20 36,14 48,18 60,12 72,16 90,10" fill="none" stroke="#d97706" stroke-width="2"/><circle cx="90" cy="10" r="2.5" fill="#d97706"/></svg>
+        </div>
+        <div class="kpi danger">
+          <div class="kpi-label"><svg viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>Poses en attente</div>
+          <div class="kpi-val">4</div>
+          <div class="kpi-delta down">▼ 1 avortée cette semaine</div>
+          <svg class="spark" width="90" height="30" viewBox="0 0 90 30"><polyline points="0,10 12,14 24,12 36,16 48,14 60,18 72,16 90,20" fill="none" stroke="#E1000F" stroke-width="2"/><circle cx="90" cy="20" r="2.5" fill="#E1000F"/></svg>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>Audiences à venir</div>
+          <div class="kpi-val">12 <small>/ 30 j</small></div>
+          <div class="kpi-delta flat">prochaine : 16 juin</div>
+          <svg class="spark" width="90" height="30" viewBox="0 0 90 30"><polyline points="0,20 12,18 24,14 36,16 48,12 60,14 72,8 90,10" fill="none" stroke="#0063CB" stroke-width="2"/><circle cx="90" cy="10" r="2.5" fill="#0063CB"/></svg>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="left-col">
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title">Enquêtes prioritaires</div>
+              <div class="panel-count">8 à traiter</div>
+              <div class="panel-link">Tout voir →</div>
+            </div>
+            <div class="filters">
+              <div class="chip on">Toutes</div>
+              <div class="chip">Attente JLD</div>
+              <div class="chip">Pose en attente</div>
+              <div class="chip">Échéance &lt; 7 j</div>
+              <div class="chip">Mes dossiers</div>
+            </div>
+            <table>
+              <tr><th>Dossier</th><th>Statut</th><th>Échéance</th><th>Avancement</th><th>Équipe</th></tr>
+              <tr>
+                <td><div class="ref">N° 26/114 — OP HERMÈS<small>Trafic stupéfiants · réseau import</small></div></td>
+                <td><span class="status st-red"><i></i>Attente JLD — 52 h</span></td>
+                <td><span class="deadline late">Demain</span></td>
+                <td><div class="bar"><i style="width:82%"></i></div></td>
+                <td><div class="avatars"><span style="background:#000091">AC</span><span style="background:#7c5c2b">JM</span><span style="background:#46562b">LP</span></div></td>
+              </tr>
+              <tr>
+                <td><div class="ref">N° 26/098 — OP TITAN<small>Criminalité organisée · armes</small></div></td>
+                <td><span class="status st-amber"><i></i>Pose en attente</span></td>
+                <td><span class="deadline soon">Dans 3 j</span></td>
+                <td><div class="bar"><i style="width:64%"></i></div></td>
+                <td><div class="avatars"><span style="background:#5c2b6e">SD</span><span style="background:#000091">AC</span></div></td>
+              </tr>
+              <tr>
+                <td><div class="ref">N° 25/441 — OP MISTRAL<small>Blanchiment · réseau hawala</small></div></td>
+                <td><span class="status st-blue"><i></i>Instruction ouverte</span></td>
+                <td><span class="deadline">28 juin</span></td>
+                <td><div class="bar"><i style="width:38%"></i></div></td>
+                <td><div class="avatars"><span style="background:#2b4d6e">RB</span></div></td>
+              </tr>
+              <tr>
+                <td><div class="ref">N° 26/102 — OP CIGALE<small>Trafic stupéfiants · go-fast</small></div></td>
+                <td><span class="status st-green"><i></i>En cours</span></td>
+                <td><span class="deadline">4 juil.</span></td>
+                <td><div class="bar"><i style="width:51%"></i></div></td>
+                <td><div class="avatars"><span style="background:#7c5c2b">JM</span><span style="background:#46562b">LP</span></div></td>
+              </tr>
+            </table>
+          </div>
+
+          <div class="detail-row">
+            <div class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg>Autorisations JLD en attente</div>
+                <div class="panel-count amber">7</div>
+                <div class="panel-link">Tout voir →</div>
+              </div>
+              <div class="d-list">
+                <div class="d-item">
+                  <div class="d-ico red"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
+                  <div class="d-main">
+                    <div class="d-title">Prolongation GAV — OP HERMÈS</div>
+                    <div class="d-sub">Réquisitions transmises · cabinet JLD 12</div>
+                  </div>
+                  <div class="d-right"><span class="d-chip" style="background:var(--red-bg);color:var(--red)">JLD saisi</span><div class="d-since">il y a 52 h</div></div>
+                </div>
+                <div class="d-item">
+                  <div class="d-ico amber"><svg viewBox="0 0 24 24"><path d="M2 16.1A5 5 0 015.9 20M2 12.05A9 9 0 019.95 20M2 8V6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2h-6"/></svg></div>
+                  <div class="d-main">
+                    <div class="d-title">Renouvellement interceptions — OP TITAN</div>
+                    <div class="d-sub">2 lignes · échéance de l'autorisation : 14 juin</div>
+                  </div>
+                  <div class="d-right"><span class="d-chip" style="background:var(--amber-bg);color:var(--amber)">JLD saisi</span><div class="d-since">il y a 31 h</div></div>
+                </div>
+                <div class="d-item">
+                  <div class="d-ico blue"><svg viewBox="0 0 24 24"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></div>
+                  <div class="d-main">
+                    <div class="d-title">Géolocalisation temps réel — OP CIGALE</div>
+                    <div class="d-sub">1 véhicule · requête déposée ce matin</div>
+                  </div>
+                  <div class="d-right"><span class="d-chip" style="background:var(--blue-bg);color:var(--blue)">Déposée</span><div class="d-since">il y a 8 h</div></div>
+                </div>
+                <div class="d-item">
+                  <div class="d-ico green"><svg viewBox="0 0 24 24"><path d="M3 21v-2a4 4 0 014-4h4"/><circle cx="9" cy="8" r="4"/><path d="M16 11l2 2 4-4"/></svg></div>
+                  <div class="d-main">
+                    <div class="d-title">Perquisition de nuit — OP BORÉAL</div>
+                    <div class="d-sub">Projet de réquisitions en relecture</div>
+                  </div>
+                  <div class="d-right"><span class="d-chip" style="background:var(--green-100);color:#18753C">À déposer</span><div class="d-since">il y a 2 h</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><svg viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>Poses en attente</div>
+                <div class="panel-count red">4</div>
+                <div class="panel-link">Tout voir →</div>
+              </div>
+              <div class="d-list">
+                <div class="d-item">
+                  <div class="d-ico amber"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></div>
+                  <div class="d-main">
+                    <div class="d-title">Balise véhicule — OP TITAN</div>
+                    <div class="d-sub">Équipe technique OK · fenêtre 14–16 juin</div>
+                  </div>
+                  <div class="d-right"><span class="d-chip" style="background:var(--amber-bg);color:var(--amber)">Planifiée</span><div class="d-since">autorisée le 9 juin</div></div>
+                </div>
+                <div class="d-item">
+                  <div class="d-ico amber"><svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 013 3v6a3 3 0 01-6 0V5a3 3 0 013-3z"/><path d="M19 10v1a7 7 0 01-14 0v-1M12 18v4"/></svg></div>
+                  <div class="d-main">
+                    <div class="d-title">Sonorisation local — OP CIGALE</div>
+                    <div class="d-sub">Attente créneau OPJ · repérage fait</div>
+                  </div>
+                  <div class="d-right"><span class="d-chip" style="background:var(--amber-bg);color:var(--amber)">Att. créneau</span><div class="d-since">autorisée le 5 juin</div></div>
+                </div>
+                <div class="d-item">
+                  <div class="d-ico red"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg></div>
+                  <div class="d-main">
+                    <div class="d-title">Balise véhicule — OP HERMÈS</div>
+                    <div class="d-sub">Pose avortée le 8 juin · véhicule déplacé</div>
+                  </div>
+                  <div class="d-right"><span class="d-chip" style="background:var(--red-bg);color:var(--red)">À reprogrammer</span><div class="d-since">échec il y a 3 j</div></div>
+                </div>
+                <div class="d-item">
+                  <div class="d-ico green"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></div>
+                  <div class="d-main">
+                    <div class="d-title">Balise véhicule — OP BORÉAL</div>
+                    <div class="d-sub">Matériel réservé · brief équipe vendredi</div>
+                  </div>
+                  <div class="d-right"><span class="d-chip" style="background:var(--green-100);color:#18753C">Prête</span><div class="d-since">autorisée le 10 juin</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="right">
+          <div class="urgent-card">
+            <h3><svg viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>Actions urgentes</h3>
+            <div class="u-item"><b>Réquisitions JLD</b> · OP HERMÈS<span class="when">&lt; 24 h</span></div>
+            <div class="u-item"><b>Renouvellement intercept.</b> · OP TITAN<span class="when">48 h</span></div>
+            <div class="u-item"><b>CR pose à valider</b> · OP CIGALE<span class="when">cette sem.</span></div>
+          </div>
+
+          <div class="panel" style="flex:1">
+            <div class="panel-head">
+              <div class="panel-title">Aujourd'hui</div>
+              <div class="g-badge"><span class="g-logo"><i></i></span>Google Agenda<span class="g-sync"></span></div>
+            </div>
+            <div class="timeline">
+              <div class="t-item">
+                <div class="t-time">09:00</div>
+                <div class="t-rail"><i></i><u></u></div>
+                <div class="t-body"><b>Audience JLD — prolongation GAV<span class="t-tag" style="background:#FFE9E9;color:#CE0500">URGENT</span></b><span>OP HERMÈS · cabinet 12 · échéance app</span></div>
+              </div>
+              <div class="t-item">
+                <div class="t-time">10:30</div>
+                <div class="t-rail g"><i></i><u></u></div>
+                <div class="t-body"><b>RDV enquêteur — Cne Durand<span class="t-tag google">G · AGENDA</span></b><span>DIPN 34 · créé depuis l'iPhone</span></div>
+              </div>
+              <div class="t-item">
+                <div class="t-time">14:00</div>
+                <div class="t-rail"><i></i><u></u></div>
+                <div class="t-body"><b>Réunion de service<span class="t-tag" style="background:#e7eefc;color:#0063CB">ÉQUIPE</span></b><span>Suivi des poses · salle B</span></div>
+              </div>
+              <div class="t-item">
+                <div class="t-time">16:00</div>
+                <div class="t-rail g"><i></i><u></u></div>
+                <div class="t-body"><b>Point tél. — Lt Morel<span class="t-tag google">G · AGENDA</span></b><span>BR Montpellier</span></div>
+              </div>
+              <div class="t-item">
+                <div class="t-time">17:30</div>
+                <div class="t-rail"><i></i></div>
+                <div class="t-body"><b>Rédaction réquisitoire</b><span>OP MISTRAL · échéance 28 juin</span></div>
+              </div>
+            </div>
+            <div class="t-foot">
+              <svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+              Lecture seule · aucun détail d'enquête n'est envoyé à Google
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>SIRAL — Plaquette refonte « Lumière » palette Justice</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bleu: #000091; --bleu-hover: #2A2AB8; --bleu-chip: #E3E3FD; --bleu-pale: #F5F5FE;
+    --nuit: #111139; --rouge: #E1000F; --ink: #161616; --soft: #56565E; --faint: #92929C;
+    --bg: #F6F6F6; --line: #E5E5E5; --ok: #18753C; --warn: #B34000; --info: #0063CB;
+  }
+  body { width: 1600px; font-family: 'Inter', sans-serif; background: #fff; color: var(--ink); -webkit-font-smoothing: antialiased; }
+
+  .band { background: linear-gradient(135deg, var(--nuit) 0%, #1B1B6E 70%, var(--bleu) 100%); color:#fff; padding: 52px 72px 46px; position:relative; overflow:hidden; }
+  .band::after { content:''; position:absolute; right:-120px; top:-120px; width:420px; height:420px; border-radius:50%; background: radial-gradient(circle, rgba(133,133,246,0.25), transparent 70%); }
+  .band .sur { font-size: 13px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; color: #A1A1F8; margin-bottom: 14px; }
+  .band h1 { font-family: 'Fraunces', serif; font-size: 46px; font-weight: 650; line-height: 1.12; max-width: 900px; }
+  .band p { margin-top: 16px; font-size: 16.5px; color: rgba(255,255,255,0.78); max-width: 880px; line-height: 1.55; }
+  .tricolore { position:absolute; left:0; top:0; bottom:0; width:8px; background: linear-gradient(to bottom, #000091 33%, #ffffff 33% 66%, #E1000F 66%); }
+
+  .section { padding: 44px 72px 8px; }
+  .sec-title { font-family:'Fraunces', serif; font-size: 27px; font-weight: 650; display:flex; align-items:baseline; gap:14px; }
+  .sec-title small { font-family:'Inter'; font-size: 13px; font-weight:600; color: var(--faint); letter-spacing:.06em; text-transform:uppercase; }
+  .sec-sub { margin-top: 8px; font-size: 14.5px; color: var(--soft); max-width: 1000px; line-height: 1.6; }
+
+  .swatches { display:grid; grid-template-columns: repeat(6, 1fr); gap: 16px; margin-top: 26px; }
+  .sw { border:1px solid var(--line); border-radius: 14px; overflow:hidden; background:#fff; }
+  .sw .c { height: 86px; position:relative; }
+  .sw .c span { position:absolute; bottom:8px; left:12px; font-size:11.5px; font-weight:700; letter-spacing:.04em; color:#fff; background:rgba(0,0,0,0.28); padding:2px 8px; border-radius:99px; }
+  .sw .c span.dark { color: var(--ink); background: rgba(255,255,255,0.65); }
+  .sw .t { padding: 10px 12px 12px; }
+  .sw .t b { display:block; font-size: 13px; }
+  .sw .t i { font-style:normal; font-size: 11.5px; color: var(--soft); line-height:1.45; display:block; margin-top:3px; }
+
+  .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 26px; }
+  .pcard { border:1px solid var(--line); border-radius: 16px; padding: 20px 24px; background: linear-gradient(180deg,#fff, #FAFAFC); }
+  .pcard h3 { font-size: 15.5px; display:flex; align-items:center; gap:10px; }
+  .pcard h3 .dot { width: 26px; height:26px; flex-shrink:0; border-radius: 8px; background: var(--bleu-chip); color: var(--bleu); display:flex; align-items:center; justify-content:center; font-size: 13px; font-weight:800; }
+  .pcard p { margin-top: 8px; font-size: 13.5px; color: var(--soft); line-height: 1.6; }
+  .pcard p b { color: var(--ink); font-weight:600; }
+
+  .shot { margin: 30px 72px 14px; border: 1px solid var(--line); border-radius: 18px; overflow:hidden; box-shadow: 0 24px 60px -28px rgba(17,17,57,0.45); }
+  .shot img { display:block; width: 100%; }
+  .caption { margin: 0 72px 8px; font-size: 12.5px; color: var(--faint); text-align:center; }
+
+  .footer { margin-top: 40px; background: var(--bg); border-top: 1px solid var(--line); padding: 26px 72px; display:flex; align-items:center; gap: 18px; font-size: 12.5px; color: var(--soft); }
+  .footer b { color: var(--ink); }
+  .badge { font-size: 11px; font-weight: 700; letter-spacing:.08em; text-transform:uppercase; color: var(--bleu); background: var(--bleu-chip); border-radius: 99px; padding: 5px 12px; }
+</style>
+</head>
+<body>
+
+<div class="band">
+  <div class="tricolore"></div>
+  <div class="sur">SIRAL · Refonte visuelle — proposition</div>
+  <h1>« Lumière », accordée aux couleurs de l’État</h1>
+  <p>Même direction que la maquette retenue — clarté, typographie d’institution, fluidité maximale —
+     mais la palette verte cède la place au <b>Bleu France</b> du système de design de l’État (DSFR),
+     celui du ministère de la Justice. Le rouge Marianne est réservé à l’urgence, le vert aux statuts validés :
+     chaque couleur retrouve un sens.</p>
+</div>
+
+<div class="section">
+  <div class="sec-title">La palette <small>Système de design de l’État (DSFR)</small></div>
+  <div class="sec-sub">Codes officiels du DSFR utilisés par les sites de l’État, dont justice.gouv.fr.
+    Fonds très clairs et contrastes doux : reposant pour les yeux sur de longues sessions, conforme aux exigences d’accessibilité (RGAA).</div>
+  <div class="swatches">
+    <div class="sw"><div class="c" style="background:#000091"><span>#000091</span></div><div class="t"><b>Bleu France</b><i>Actions, liens, accents — la couleur signature</i></div></div>
+    <div class="sw"><div class="c" style="background:#111139"><span>#111139</span></div><div class="t"><b>Bleu nuit</b><i>Barre latérale, en-têtes profonds</i></div></div>
+    <div class="sw"><div class="c" style="background:#E3E3FD"><span class="dark">#E3E3FD</span></div><div class="t"><b>Bleu pâle</b><i>Sélections, badges, survols</i></div></div>
+    <div class="sw"><div class="c" style="background:#E1000F"><span>#E1000F</span></div><div class="t"><b>Rouge Marianne</b><i>Urgences et échéances dépassées uniquement</i></div></div>
+    <div class="sw"><div class="c" style="background:#18753C"><span>#18753C</span></div><div class="t"><b>Vert succès</b><i>Validé, autorisé, en règle</i></div></div>
+    <div class="sw"><div class="c" style="background:#F6F6F6; border-bottom:1px solid #E5E5E5"><span class="dark">#F6F6F6</span></div><div class="t"><b>Gris de fond</b><i>Arrière-plans, zones de lecture</i></div></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="sec-title">Les principes <small>moderne · propre · fluide</small></div>
+  <div class="grid2">
+    <div class="pcard"><h3><span class="dot">Aa</span>Typographie d’institution</h3>
+      <p>Titres en serif d’apparat (<b>Fraunces</b>), corps en Inter. La police officielle <b>Marianne</b> étant réservée à l’État,
+         on bascule dessus le jour d’un éventuel rattachement ministériel — un seul fichier à changer.</p></div>
+    <div class="pcard"><h3><span class="dot">⚡</span>Fluidité maximale</h3>
+      <p>Transitions 150 ms, aucun rechargement de page (PWA), <b>palette de commande Ctrl+K</b> pour tout atteindre au clavier,
+         données locales d’abord (IndexedDB) : l’interface répond instantanément, même hors-ligne.</p></div>
+    <div class="pcard"><h3><span class="dot">☾</span>Agréable pour les yeux</h3>
+      <p>Fonds <b>#F6F6F6</b> jamais blanc pur, ombres légères, coins arrondis 14–16 px, densité maîtrisée.
+         Le mode <b>« Nuit d’audience »</b> reste au programme pour les permanences, décliné dans la même palette.</p></div>
+    <div class="pcard"><h3><span class="dot">▣</span>Couleur = signification</h3>
+      <p><b>Bleu</b> : action et navigation. <b>Rouge Marianne</b> : urgence réelle seulement — il garde son pouvoir d’alerte.
+         <b>Vert</b> : validé. <b>Ambre</b> : en attente. Fini la couleur décorative.</p></div>
+  </div>
+</div>
+
+<div class="section" style="padding-bottom:0">
+  <div class="sec-title">Le tableau de bord <small>maquette 04 — palette Justice appliquée</small></div>
+</div>
+<div class="shot"><img src="04-dashboard-lumiere-justice.png" alt="Tableau de bord SIRAL palette Justice"></div>
+<div class="caption">Mêmes composants que la maquette « Lumière » validée (KPI à tendances, dossiers prioritaires, panneaux JLD/poses, actions urgentes, agenda fusionné) — seule la palette change.</div>
+
+<div class="footer">
+  <span class="badge">Proposition</span>
+  <span><b>Décision à prendre :</b> garder le vert « régalien » actuel, ou adopter cette palette Bleu France ?
+  Le code couleur est centralisé en variables CSS — la bascule (ou un retour arrière) se fait en une fois, sans toucher aux écrans.</span>
+</div>
+
+</body>
+</html>
