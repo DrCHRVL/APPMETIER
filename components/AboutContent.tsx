@@ -66,7 +66,7 @@ export const AboutContent = () => {
 
       {/* Version */}
       <p className="text-xs text-gray-300 mt-8">
-        APP MÉTIER — v1.0
+        SIRAL — v2.0
       </p>
     </div>
   );

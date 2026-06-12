@@ -1,0 +1,15 @@
+node_modules
+.next
+.next-publish
+out
+out-consultation
+consultation-shell
+data
+srv-data
+.git
+docs
+*.bat
+tessdata
+main.js
+preload.js
+.npmrc

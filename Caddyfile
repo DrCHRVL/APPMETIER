@@ -1,0 +1,16 @@
+# SIRAL — reverse proxy avec HTTPS automatique (Let's Encrypt)
+{$SIRAL_DOMAINE} {
+	encode gzip
+
+	# En-têtes de sécurité
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	reverse_proxy siral:3000
+}
