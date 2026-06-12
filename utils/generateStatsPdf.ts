@@ -768,18 +768,25 @@ ${data.deferementsParMois.length > 0 ? `
 export async function exportStatsPdf(data: PdfExportData): Promise<void> {
   const html = generateStatsPdfHtml(data);
 
-  // IMPORTANT : html2canvas ne peut PAS rendre visibility:hidden ni display:none.
-  // On utilise opacity:0 + pointerEvents:none — l'élément est composité normalement
-  // par le navigateur (donc capturables), mais totalement transparent pour l'utilisateur.
-  const container = document.createElement('div');
-  Object.assign(container.style, {
+  // IMPORTANT : html2pdf clone l'élément qu'on lui passe AVEC ses styles inline,
+  // puis le rend via html2canvas. Il ne faut donc surtout pas de opacity:0,
+  // visibility:hidden ou position:fixed sur cet élément : le clone les hériterait
+  // et le PDF sortirait blanc. On masque via un wrapper hors-écran (la même
+  // technique que l'overlay interne de html2pdf), et on passe à html2pdf un
+  // élément interne "propre" sans style de masquage.
+  const wrapper = document.createElement('div');
+  Object.assign(wrapper.style, {
     position: 'fixed',
     top: '0',
-    left: '0',
+    left: '-10000px',
     width: '794px', // A4 à 96dpi (210mm × 96/25.4 ≈ 794px)
-    opacity: '0',
     pointerEvents: 'none',
-    zIndex: '-9999',
+  });
+
+  const container = document.createElement('div');
+  Object.assign(container.style, {
+    width: '794px',
+    background: '#ffffff',
   });
 
   container.innerHTML = html
@@ -791,7 +798,8 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
   styleEl.textContent = CSS_STYLES;
   container.prepend(styleEl);
 
-  document.body.appendChild(container);
+  wrapper.appendChild(container);
+  document.body.appendChild(wrapper);
 
   try {
     const html2pdf = (await import('html2pdf.js')).default;
@@ -822,7 +830,7 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
 
     await html2pdf().set(opt).from(container).save();
   } finally {
-    document.body.removeChild(container);
+    document.body.removeChild(wrapper);
   }
 }
 
