@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserPlus, Trash2, Shield, Save, Edit2, X, Check, ChevronDown, AlertCircle, CheckCircle, Clock, Eye, FolderOpen, RefreshCw } from 'lucide-react';
+import { UserPlus, Trash2, Shield, Save, Edit2, X, Check, ChevronDown, AlertCircle, CheckCircle, Clock, Eye, FolderOpen, RefreshCw, KeyRound } from 'lucide-react';
 import { UserManager } from '@/utils/userManager';
 import {
   UserProfile,
@@ -52,6 +52,8 @@ export const AdminUsersPanel = () => {
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newGlobalRole, setNewGlobalRole] = useState<GlobalRole>(null);
 
+  const isWeb = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
+
   const loadUsers = useCallback(() => {
     const manager = UserManager.getInstance();
     setUsers(manager.getAllUsers());
@@ -60,6 +62,42 @@ export const AdminUsersPanel = () => {
   useEffect(() => {
     loadUsers();
   }, [loadUsers]);
+
+  // ── État d'enrôlement / trousseau (édition web) ───────────────────
+  // username (minuscule) → état du compte serveur correspondant.
+  type AccountState = { exists: boolean; hasKeyring: boolean; hasGrant: boolean };
+  const [accountStates, setAccountStates] = useState<Record<string, AccountState>>({});
+
+  const loadAccountStates = useCallback(async () => {
+    if (!isWeb) return;
+    const api = (typeof window !== 'undefined' ? (window as any).electronAPI : null);
+    if (!api?.e2ee_listAccounts) return;
+    try {
+      const list: Array<{ username: string; displayName: string; role: 'admin' | 'member'; hasKeyring: boolean; hasGrant: boolean }> = await api.e2ee_listAccounts();
+      // Unification : tout compte serveur enrôlé doit avoir un profil d'habilitations.
+      const manager = UserManager.getInstance();
+      const changed = await manager.reconcileWithAccounts(
+        list.map(a => ({ username: a.username, displayName: a.displayName, role: a.role })),
+      );
+      if (changed) { loadUsers(); await refreshUsers(); }
+      const map: Record<string, AccountState> = {};
+      for (const a of list) map[a.username.toLowerCase()] = { exists: true, hasKeyring: a.hasKeyring, hasGrant: a.hasGrant };
+      setAccountStates(map);
+    } catch {
+      // non bloquant : la liste des comptes peut être momentanément indisponible
+    }
+  }, [isWeb, loadUsers, refreshUsers]);
+
+  useEffect(() => { loadAccountStates(); }, [loadAccountStates]);
+
+  /** Rappelle d'aller livrer/retirer la clé après une modification d'habilitation. */
+  const hintReinviteIfEnrolled = useCallback((username: string) => {
+    if (!isWeb) return;
+    const st = accountStates[username.toLowerCase()];
+    if (st && (st.hasKeyring || st.hasGrant)) {
+      showToast('Habilitation modifiée — ré-invitez ce membre dans « Accès & clés » pour mettre son trousseau à jour.', 'info');
+    }
+  }, [isWeb, accountStates, showToast]);
 
   // ── Section "Consultation lecture seule" ──────────────────────────
   type ConsultationStatus = {
@@ -220,6 +258,7 @@ export const AdminUsersPanel = () => {
       loadUsers();
       await refreshUsers();
       showToast('Contentieux attribué', 'success');
+      hintReinviteIfEnrolled(username);
     } else {
       showToast('Erreur lors de l\'affectation', 'error');
     }
@@ -232,6 +271,7 @@ export const AdminUsersPanel = () => {
       loadUsers();
       await refreshUsers();
       showToast('Contentieux retiré', 'info');
+      hintReinviteIfEnrolled(username);
     } else {
       showToast('Erreur lors du retrait du contentieux', 'error');
     }
@@ -294,8 +334,8 @@ export const AdminUsersPanel = () => {
         </button>
       </div>
 
-      {/* Demandes en attente */}
-      {pendingUsers.length > 0 && (
+      {/* Demandes en attente (app de bureau : l'enrôlement serveur fait foi en web) */}
+      {!isWeb && pendingUsers.length > 0 && (
         <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-3">
           <h3 className="text-sm font-bold text-amber-800 flex items-center gap-2">
             <AlertCircle className="h-4 w-4" />
@@ -404,6 +444,8 @@ export const AdminUsersPanel = () => {
             key={user.windowsUsername}
             user={user}
             contentieuxDefs={contentieuxDefs}
+            isWeb={isWeb}
+            accountState={accountStates[user.windowsUsername.toLowerCase()]}
             onUpdateGlobalRole={handleUpdateGlobalRole}
             onAssignContentieux={handleAssignContentieux}
             onUnassignContentieux={handleUnassignContentieux}
@@ -413,19 +455,18 @@ export const AdminUsersPanel = () => {
         ))}
       </div>
 
-      {/* ─── Consultation lecture seule ─────────────────────────────── */}
-      {/* Version serveur : le déploiement sur partage réseau Windows est remplacé
-          par les comptes en lecture seule (Paramètres → Accès & clés). */}
-      {typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true ? (
-        <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 space-y-2">
-          <h3 className="text-sm font-bold text-amber-900 flex items-center gap-2">
-            <Eye className="h-4 w-4" />
-            Consultation lecture seule
+      {/* ─── Accès & clés / Consultation lecture seule ──────────────── */}
+      {isWeb ? (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
+          <h3 className="text-sm font-bold text-emerald-900 flex items-center gap-2">
+            <KeyRound className="h-4 w-4" />
+            Accès & clés
           </h3>
-          <p className="text-xs text-amber-800">
-            Sur la version serveur, la publication d'une copie sur un partage réseau est remplacée
-            par les <strong>comptes en lecture seule</strong> : attribuez le rôle « lecture seule »
-            à l'utilisateur concerné — il consulte l'app directement, toujours à jour, sans copie locale.
+          <p className="text-xs text-emerald-800">
+            Les habilitations contentieux définies ici pilotent les <strong>clés livrées</strong> à chaque membre.
+            Pour ouvrir réellement l'accès, rendez-vous dans <strong>Paramètres → Accès & clés</strong> : vous y
+            invitez le membre (code à usage unique) qui livre exactement les clés des contentieux ci-dessus.
+            Après toute modification d'habilitation, ré-invitez le membre concerné pour mettre son trousseau à jour.
           </p>
         </div>
       ) : (
@@ -583,6 +624,8 @@ export const AdminUsersPanel = () => {
 interface UserCardProps {
   user: UserProfile;
   contentieuxDefs: ContentieuxDefinition[];
+  isWeb?: boolean;
+  accountState?: { exists: boolean; hasKeyring: boolean; hasGrant: boolean };
   onUpdateGlobalRole: (username: string, role: GlobalRole) => void;
   onAssignContentieux: (username: string, cId: ContentieuxId, role: ContentieuxRole) => void;
   onUnassignContentieux: (username: string, cId: ContentieuxId) => void;
@@ -590,9 +633,25 @@ interface UserCardProps {
   onRemove: (username: string) => void;
 }
 
+/** Pastille d'état du trousseau (édition web) — reflète « Accès & clés ». */
+const KeyringBadge = ({ state }: { state?: { exists: boolean; hasKeyring: boolean; hasGrant: boolean } }) => {
+  if (!state?.exists) {
+    return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" title="Aucun compte serveur — la personne ne s'est pas encore enrôlée">Pas encore enrôlé</span>;
+  }
+  if (state.hasKeyring) {
+    return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700" title="Trousseau actif">Trousseau actif</span>;
+  }
+  if (state.hasGrant) {
+    return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700" title="Invitation en attente d'acceptation">Invitation en attente</span>;
+  }
+  return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" title="Enrôlé mais sans trousseau — à inviter dans « Accès & clés »">À inviter</span>;
+};
+
 const UserCard = ({
   user,
   contentieuxDefs,
+  isWeb,
+  accountState,
   onUpdateGlobalRole,
   onAssignContentieux,
   onUnassignContentieux,
@@ -635,6 +694,7 @@ const UserCard = ({
           <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${roleBadgeColor}`}>
             {roleLabel}
           </span>
+          {isWeb && <KeyringBadge state={accountState} />}
           {user.contentieux.length > 0 && (
             <span className="text-xs text-gray-400">
               {user.contentieux.length} contentieux
