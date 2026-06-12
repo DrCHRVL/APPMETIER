@@ -139,7 +139,7 @@ export const MultiSideBar = ({
         {isOpen && <span className="text-[15px] font-bold tracking-tight text-white">SIRAL</span>}
       </div>
 
-      <div className="p-3 flex flex-col flex-1 pt-1 overflow-y-auto scrollbar-thin">
+      <div className="p-3 flex flex-col flex-1 pt-1 overflow-y-auto scrollbar-thin min-h-0">
         {/* ── TABLEAU DE BORD ── */}
         <button
           className={`

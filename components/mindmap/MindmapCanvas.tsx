@@ -738,6 +738,9 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   );
 
   return (
+    // touch-action:none permet à ReactFlow de gérer le pinch-zoom nativement
+    // sur mobile sans conflit avec le scroll système.
+    <div style={{ width: '100%', height: '100%', touchAction: 'none' }}>
     <ReactFlow
       nodes={rfNodes}
       edges={rfEdges}
@@ -757,6 +760,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       <Background gap={24} size={1} color="#e2e8f0" />
       <Controls showInteractive={false} />
     </ReactFlow>
+    </div>
   );
 };
 

@@ -581,8 +581,10 @@ function AppContent() {
     checkWeeklyPopup();
   }, [accessibleContentieux, weeklySubscribedIds, buildWeeklyBuckets]);
 
-  // Vérification des mises à jour au démarrage (puis toutes les 30 min)
+  // Vérification des mises à jour au démarrage (puis toutes les 30 min) — Electron uniquement.
+  // Sur le serveur web, la vérification et l'application sont gérées dans AdminUpdatePanel (admin seulement).
   useEffect(() => {
+    if ((window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true) return;
     const checkUpdate = async () => {
       try {
         const result = await window.electronAPI.checkAppUpdate?.();
@@ -603,15 +605,15 @@ function AppContent() {
   }, []);
 
   const handleApplyUpdate = async () => {
+    // Sur le serveur web, la mise à jour est réservée aux administrateurs et
+    // passe par AdminUpdatePanel → ne rien faire ici pour les non-admins.
+    if ((window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true && !isAdmin()) return;
     setIsUpdating(true);
     try {
       const result = await window.electronAPI.applyAppUpdate?.();
       if (result && !result.success) {
         showToast(`Erreur de mise à jour : ${result.error}`, 'error');
         setIsUpdating(false);
-      } else if (result?.success && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true) {
-        // version serveur : le rebuild est terminé → recharger la nouvelle version
-        window.location.reload();
       }
       // En Electron, l'app redémarre d'elle-même → pas besoin de reset l'état
     } catch {
@@ -1223,7 +1225,7 @@ return (
       {mobileNavOpen && (
         <div className="no-print fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileNavOpen(false)} />
-          <div className="absolute inset-y-0 left-0 shadow-2xl">
+          <div className="absolute inset-y-0 left-0 shadow-2xl" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
             <MultiSideBar
               isOpen={true}
               currentView={currentView}
@@ -1243,7 +1245,7 @@ return (
         </div>
       )}
       <div className="flex-1 overflow-hidden flex flex-col">
-        <div className="no-print flex items-stretch">
+        <div className="no-print flex items-stretch" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
           <button
             className="lg:hidden flex items-center justify-center w-12 bg-white border-r border-gray-100"
             style={{ borderBottom: '1px solid hsl(214 25% 88%)' }}
