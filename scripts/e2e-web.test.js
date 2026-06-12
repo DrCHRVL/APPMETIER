@@ -377,14 +377,6 @@ async function main() {
     const schedRaw = fs.readFileSync(path.join(DATA_DIR, 'push-schedule.json'), 'utf8')
     check('Rappels push : le serveur ne stocke que des horodatages', !schedRaw.includes('OP TEST') && /^[\s{}\[\]"a-zA-Z0-9.,:_-]+$/.test(schedRaw))
 
-    // ── 11c. Synthèse IA : désactivée par défaut (pas de SIRAL_IA_URL) ──
-    const iaOff = await page2.evaluate(async () => {
-      const st = await fetch('/api/ia', { credentials: 'same-origin' }).then(r => r.json())
-      const post = await fetch('/api/ia', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: 'x' }), credentials: 'same-origin' })
-      return st.enabled === false && post.status === 503
-    })
-    check('Synthèse IA : désactivée par défaut, refus propre sans SIRAL_IA_URL', iaOff)
-
     // ── 12. PWA : manifest + service worker + icônes ──
     const manifest = await fetch(BASE + '/manifest.webmanifest')
     const sw = await fetch(BASE + '/sw.js')

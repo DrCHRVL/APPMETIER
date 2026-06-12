@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, KeyRound, Sparkles } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId, ModuleId } from '@/types/userTypes';
 
@@ -10,9 +10,9 @@ import { ContentieuxId, ModuleId } from '@/types/userTypes';
 // ──────────────────────────────────────────────
 
 type SettingsTab =
-  | 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'ia_synthese' | 'a_propos'
+  | 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'a_propos'
   | 'module_instruction' | 'module_cartographie'
-  | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_access' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
+  | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -28,11 +28,9 @@ interface SettingsModalProps {
   adminUsersContent?: React.ReactNode;
   adminContentieuxContent?: React.ReactNode;
   adminPathsContent?: React.ReactNode;
-  adminAccessContent?: React.ReactNode;
   adminDashboardContent?: React.ReactNode;
   adminTagHistoryContent?: React.ReactNode;
   adminUpdateContent?: React.ReactNode;
-  iaSyntheseContent?: React.ReactNode;
   aProposContent?: React.ReactNode;
   /** Currently active contentieux (used as default) */
   activeContentieuxId?: ContentieuxId;
@@ -72,14 +70,12 @@ const TABS: TabDef[] = [
   { id: 'module_cartographie',  label: 'Cartographie', icon: Map,   section: 'modules', requiresModule: 'mindmap' },
 
   // Administration (admin uniquement)
-  { id: 'admin_users',       label: 'Utilisateurs',     icon: Users,         section: 'admin', isAdmin: true },
+  { id: 'admin_users',       label: 'Utilisateurs & accès', icon: Users,     section: 'admin', isAdmin: true },
   { id: 'admin_contentieux', label: 'Contentieux',      icon: Layers,        section: 'admin', isAdmin: true },
   { id: 'admin_paths',       label: 'Chemins réseau',   icon: Network,       section: 'admin', isAdmin: true },
-  { id: 'admin_access',      label: 'Accès & clés',     icon: KeyRound,      section: 'admin', isAdmin: true },
   { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      section: 'admin', isAdmin: true },
   { id: 'admin_tag_history', label: 'Historique tags',  icon: ClipboardList, section: 'admin', isAdmin: true },
   { id: 'admin_update',      label: 'Mise à jour',      icon: Upload,        section: 'admin', isAdmin: true },
-  { id: 'ia_synthese',       label: 'Synthèse auto',    icon: Sparkles,      section: 'admin', isAdmin: true },
 ];
 
 const SECTION_LABELS: Record<TabSection, string> = {
@@ -108,11 +104,9 @@ export const SettingsModal = ({
   monProfilContent,
   moduleInstructionContent,
   moduleCartographieContent,
-  iaSyntheseContent,
   adminUsersContent,
   adminContentieuxContent,
   adminPathsContent,
-  adminAccessContent,
   adminDashboardContent,
   adminTagHistoryContent,
   adminUpdateContent,
@@ -150,14 +144,12 @@ export const SettingsModal = ({
       case 'tags':               return tagsContent;
       case 'sauvegardes':        return sauvegardesContent;
       case 'mon_profil':         return monProfilContent;
-      case 'ia_synthese':        return iaSyntheseContent;
       case 'a_propos':           return aProposContent;
       case 'module_instruction':  return moduleInstructionContent;
       case 'module_cartographie': return moduleCartographieContent;
       case 'admin_users':        return adminUsersContent;
       case 'admin_contentieux':  return adminContentieuxContent;
       case 'admin_paths':        return adminPathsContent;
-      case 'admin_access':       return adminAccessContent;
       case 'admin_dashboard':    return adminDashboardContent;
       case 'admin_tag_history':  return adminTagHistoryContent;
       case 'admin_update':       return adminUpdateContent;
