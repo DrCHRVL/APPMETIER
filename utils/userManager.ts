@@ -228,6 +228,62 @@ export class UserManager {
     return this.saveConfig();
   }
 
+  /**
+   * Réconcilie l'annuaire des habilitations (users-config) avec les comptes
+   * serveur réellement enrôlés — la source de vérité de « qui existe ».
+   * Édition web uniquement.
+   *
+   * Objectif unification : un compte serveur et son profil d'habilitations
+   * partagent la même identité (username). Si quelqu'un s'enrôle côté serveur
+   * sans profil d'habilitations, on lui en crée un (vide) pour qu'il apparaisse
+   * dans « Utilisateurs » et reçoive ses contentieux. On ne touche jamais aux
+   * habilitations ni au rôle d'un profil existant (l'admin en reste maître).
+   *
+   * @returns true si la config a été modifiée (et persistée).
+   */
+  public async reconcileWithAccounts(
+    accounts: Array<{ username: string; displayName: string; role: 'admin' | 'member' }>,
+  ): Promise<boolean> {
+    if (!this.config || !this.isCurrentUserAdmin()) return false;
+
+    let changed = false;
+    for (const acc of accounts) {
+      const profile = this.config.users.find(
+        u => u.windowsUsername.toLowerCase() === acc.username.toLowerCase(),
+      );
+
+      if (!profile) {
+        const now = new Date().toISOString();
+        this.config.users.push({
+          windowsUsername: acc.username,
+          displayName: acc.displayName || acc.username,
+          globalRole: acc.role === 'admin' ? 'admin' : null,
+          contentieux: [],
+          modules: [],
+          approved: true, // l'enrôlement serveur fait foi : pas de double validation
+          createdAt: now,
+          updatedAt: now,
+        });
+        changed = true;
+        continue;
+      }
+
+      // Le compte serveur est autoritaire sur l'identité (nom affiché) et sur
+      // l'approbation, mais pas sur les habilitations métier.
+      if (acc.displayName && profile.displayName !== acc.displayName) {
+        profile.displayName = acc.displayName;
+        changed = true;
+      }
+      if (profile.approved !== true) {
+        profile.approved = true;
+        changed = true;
+      }
+    }
+
+    if (changed) await this.saveConfig();
+    return changed;
+  }
+
   // ──────────────────────────────────────────────
   // GESTION DES MODULES (admin only)
   // ──────────────────────────────────────────────
