@@ -22,6 +22,8 @@ interface AIRPageProps {
   onAddMesure?: (mesure: Omit<AIRImportData, 'refAEM'> & { refAEM: string }) => void;
   onImportMesures?: (data: AIRImportData[], strategy: 'merge' | 'replace') => void;
   onDeleteAllMesures?: () => void;
+  /** Recherche unifiée : pilotée par la barre globale du header */
+  searchTerm?: string;
 }
 
 type SortField = 'dateReception' | 'dateCloture' | 'nomPrenom' | 'referent';
@@ -603,9 +605,9 @@ export const AIRPage = ({
   onDeleteMesure = () => {},
   onAddMesure = () => {},
   onImportMesures = () => {},
-  onDeleteAllMesures = () => {}
+  onDeleteAllMesures = () => {},
+  searchTerm = ''
 }: AIRPageProps) => {
-  const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'tous' | 'en_cours' | 'clotures'>('tous');
   const [referentFilter, setReferentFilter] = useState<string>('');
   const [secteurFilter, setSecteurFilter] = useState<string>('');
@@ -1027,15 +1029,12 @@ export const AIRPage = ({
 
           {/* Filtres */}
           <div className="flex flex-wrap gap-3 items-center">
-            <div className="flex items-center gap-2">
-              <Search className="h-4 w-4 text-gray-500" />
-              <Input
-                placeholder="Rechercher nom, référence, N° parquet, faits..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-64"
-              />
-            </div>
+            {searchTerm.trim() !== '' && (
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <Search className="h-3.5 w-3.5" />
+                Filtre : « {searchTerm} » (barre de recherche du haut)
+              </div>
+            )}
 
             <Select
               value={statusFilter}

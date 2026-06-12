@@ -12,7 +12,6 @@ const IS_PRODUCTION = fs.existsSync(path.join(__dirname, '.next', 'BUILD_ID'))
   && !fs.existsSync(path.join(__dirname, '.dev-mode'))
 // Ajout pour l'extraction PDF
 const pdfParse = require('pdf-parse')
-const tesseract = require('tesseract.js')
 console.log('User Data Path:', app.getPath('userData'));
 
 // ── FILET DE SÉCURITÉ : empêche le crash sur erreurs non gérées (ex. ECONNRESET au retour de veille) ──
@@ -985,6 +984,22 @@ function setupIpcHandlers() {
     } catch (error) {
       console.error('Erreur ouverture dossier externe:', error);
       return false;
+    }
+  });
+  // === LECTURE DU TEXTE D'UN DOCUMENT INTERNE (export markdown / IA) ===
+  ipcMain.handle('documents:read-text', async (event, enqueteNumero, cheminRelatif) => {
+    try {
+      const rel = String(cheminRelatif || '')
+      if (rel.includes('..')) return ''
+      const filePath = path.join(documentsEnquetesFolder, sanitizeFileName(enqueteNumero), rel)
+      if (!fs.existsSync(filePath) || !filePath.toLowerCase().endsWith('.pdf')) return ''
+      const stats = fs.statSync(filePath)
+      if (stats.size > 20 * 1024 * 1024) return ''
+      const pdfData = await pdfParse(fs.readFileSync(filePath))
+      return (pdfData.text || '').trim()
+    } catch (error) {
+      console.error('Erreur lecture texte document:', error.message)
+      return ''
     }
   });
   // === SAUVEGARDE DOCUMENTS AVEC CATÉGORIE ===
@@ -2695,26 +2710,6 @@ function setupIpcHandlers() {
               try {
                 const pdfData = await pdfParse(fileBuffer);
                 textContent = pdfData.text.trim();
-
-                // Si texte insuffisant, essayer OCR
-                if (textContent.length <= 50) {
-                  const tessdataPath = path.join(__dirname, 'tessdata');
-                  const fraPath = path.join(tessdataPath, 'fra.traineddata');
-
-                  if (fs.existsSync(fraPath)) {
-                    try {
-                      const worker = await tesseract.createWorker('fra', 1, {
-                        langPath: tessdataPath,
-                        cachePath: tessdataPath,
-                      });
-                      const { data: { text: ocrText } } = await worker.recognize(fileBuffer);
-                      await worker.terminate();
-                      if (ocrText.length > 20) textContent = ocrText;
-                    } catch (ocrErr) {
-                      console.error(`OCR échoué pour ${fileName}:`, ocrErr.message);
-                    }
-                  }
-                }
               } catch (pdfErr) {
                 result.errors.push(`Erreur extraction texte ${fileName}: ${pdfErr.message}`);
                 continue;
@@ -2748,73 +2743,22 @@ function setupIpcHandlers() {
     }
   });
 
-  // === EXTRACTION DE TEXTE PDF POUR JLD AVEC OCR (100% OFFLINE) ===
+  // === EXTRACTION DE TEXTE PDF POUR JLD (PDF textuels uniquement, sans OCR) ===
   ipcMain.handle('pdf:extractText', async (event, buffer) => {
     try {
       if (buffer.length > 10 * 1024 * 1024) {
         throw new Error('Fichier PDF trop volumineux (max 10MB)');
       }
 
-      console.log('📄 Tentative extraction texte normale...');
-
-      // 1. Essayer extraction normale d'abord
       const extractionPromise = pdfParse(buffer);
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Timeout extraction PDF (30s)')), 30000)
       );
 
       const pdfData = await Promise.race([extractionPromise, timeoutPromise]);
-      const normalText = pdfData.text.trim();
-
-      // 2. Vérifier si le texte est suffisant (plus de 50 caractères utiles)
-      if (normalText.length > 50) {
-        console.log('✅ Extraction normale réussie, longueur:', normalText.length);
-        return normalText;
-      }
-
-      console.log('⚠️ Texte insuffisant, tentative OCR offline...');
-
-      // 3. Fallback OCR avec Tesseract v5.1.1 (OFFLINE)
-      console.log('🤖 Initialisation OCR offline (v5.1.1)...');
-
-      // Chemin vers le dossier tessdata
-      const tessdataPath = path.join(__dirname, 'tessdata');
-      const fraTrainedDataPath = path.join(tessdataPath, 'fra.traineddata');
-
-      // Vérifier que le fichier fra.traineddata existe
-      if (!fs.existsSync(fraTrainedDataPath)) {
-        console.error('❌ Fichier fra.traineddata manquant!');
-        console.error(`   Attendu: ${fraTrainedDataPath}`);
-        console.log('Retour au texte PDF normal...');
-        return normalText;
-      }
-
-      console.log('📂 Configuration Tesseract v5.1.1 offline...');
-
-      // Créer le worker (API v5.1.1 avec await)
-      const worker = await tesseract.createWorker('fra', 1, {
-        langPath: tessdataPath,
-        cachePath: tessdataPath,
-        logger: m => {
-          if (m.status === 'recognizing text') {
-            console.log(`📊 OCR progression: ${Math.round(m.progress * 100)}%`);
-          }
-        }
-      });
-
-      console.log('🔍 OCR en cours...');
-
-      const { data: { text: ocrText } } = await worker.recognize(buffer);
-      await worker.terminate();
-
-      console.log('✅ OCR terminé, longueur:', ocrText.length);
-      return ocrText.length > 20 ? ocrText : normalText;
-
+      return pdfData.text.trim();
     } catch (error) {
       console.error('❌ Erreur extraction PDF:', error);
-      if (error.message.includes('tessdata')) {
-        console.log('💡 Conseil: Téléchargez fra.traineddata et placez-le dans ./tessdata/');
-      }
       throw new Error(`Erreur extraction PDF: ${error.message}`);
     }
   });

@@ -17,6 +17,12 @@ const nextConfig = {
   // Forcer SWC pour la minification (éviter le fallback vers Terser, beaucoup plus lent)
   swcMinify: true,
 
+  // Production silencieuse : les console.log/info disparaissent du bundle
+  // (les warn/error restent pour le diagnostic)
+  compiler: {
+    removeConsole: { exclude: ['error', 'warn'] },
+  },
+
   experimental: {
     // Limiter les workers pour éviter les problèmes avec le Node.js portable
     cpus: 2,
@@ -24,9 +30,6 @@ const nextConfig = {
     // et jamais par les pages Next.js - évite que le build bloque sur le tracing
     outputFileTracingExcludes: {
       '*': [
-        './tessdata/**',
-        './node_modules/tesseract.js/**',
-        './node_modules/tesseract.js-core/**',
         './node_modules/pdf-parse/**',
         './node_modules/archiver/**',
         './node_modules/pdfjs-dist/**',

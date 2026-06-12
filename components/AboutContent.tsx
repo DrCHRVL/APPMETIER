@@ -14,10 +14,10 @@ export const AboutContent = () => {
           <Scale className="h-10 w-10 text-white" />
         </div>
         <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-          APP MÉTIER
+          SIRAL
         </h1>
         <p className="text-sm text-gray-500 mt-1 font-medium tracking-wide uppercase">
-          Gestion des enquêtes pénales
+          Suivi Intégré des Réseaux criminels et Affaires Liées
         </p>
       </div>
 
@@ -66,7 +66,7 @@ export const AboutContent = () => {
 
       {/* Version */}
       <p className="text-xs text-gray-300 mt-8">
-        APP MÉTIER — v1.0
+        SIRAL — v2.0
       </p>
     </div>
   );

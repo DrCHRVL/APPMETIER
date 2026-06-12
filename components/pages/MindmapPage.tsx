@@ -50,6 +50,9 @@ interface MindmapPageProps {
    *  recharger les sources depuis le disque (utile en mode offline). Le bump
    *  interne de refreshKey relance le layout dans tous les cas. */
   onRefresh?: () => void;
+  /** Recherche unifiée : pilotée par la barre globale du header */
+  searchTerm?: string;
+  onSearchChange?: (term: string) => void;
 }
 
 // ──────────────────────────────────────────────
@@ -61,13 +64,17 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   contentieuxDefs,
   onOpenEnquete,
   onRefresh,
+  searchTerm = '',
+  onSearchChange,
 }) => {
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [sidePanelMecId, setSidePanelMecId] = useState<string | undefined>();
   // Mode ego-network : id du nœud focus, ou undefined pour vue globale.
   // Toggle en single click sur un nœud (re-clic même nœud → désactive).
   const [egoNodeId, setEgoNodeId] = useState<string | undefined>();
-  const [search, setSearch] = useState('');
+  // recherche unifiée : la barre globale du header alimente la cartographie
+  const search = searchTerm;
+  const setSearch = (v: string) => onSearchChange?.(v);
   const [showTop10, setShowTop10] = useState(false);
   const [showManage, setShowManage] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -418,15 +425,16 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           <h1 className="text-lg font-semibold text-slate-900">Cartographie</h1>
         </div>
 
-        {/* Search */}
+        {/* Résultats de la recherche unifiée (saisie dans la barre du header) */}
         <div className="flex-1 min-w-[240px] relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Rechercher un mis en cause ou un n° de dossier…"
-            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300"
-          />
+          {search.trim() !== '' && (
+            <div className="flex items-center gap-2 text-xs text-slate-500 py-2">
+              <Search className="h-3.5 w-3.5" />
+              {searchResults.length > 0
+                ? <>Résultats pour « {search} »</>
+                : <>Aucun mis en cause ni dossier pour « {search} »</>}
+            </div>
+          )}
           {searchResults.length > 0 && (
             <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-72 overflow-y-auto z-30">
               {searchResults.map(r => (

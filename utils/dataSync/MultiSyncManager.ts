@@ -147,6 +147,18 @@ class ContentieuxSyncInstance {
   // ──────────── CORE SYNC ────────────
 
   private async performSync(): Promise<SyncResult> {
+    // Deux onglets SIRAL ouverts = deux boucles de sync concurrentes sur les
+    // mêmes coffres. Le verrou navigateur sérialise les cycles entre onglets.
+    if (typeof navigator !== 'undefined' && 'locks' in navigator) {
+      return (navigator as Navigator & { locks: LockManager }).locks.request(
+        `siral-sync-${this.contentieuxId}`,
+        () => this.performSyncInner(),
+      ) as Promise<SyncResult>;
+    }
+    return this.performSyncInner();
+  }
+
+  private async performSyncInner(): Promise<SyncResult> {
     this.isSync = true;
     this.lastSyncAttempt = new Date().toISOString();
     this.notifyStatus();

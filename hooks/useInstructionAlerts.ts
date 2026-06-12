@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import throttle from 'lodash/throttle';
+import { updatePushSchedule } from '@/lib/web/pushReminders';
 import { useUserPreferences } from './useUserPreferences';
 import { useInstructionAlertRules } from './useInstructionAlertRules';
 import {
@@ -322,6 +323,8 @@ export const useInstructionAlerts = (dossiers: DossierInstruction[]) => {
       });
 
       await setInstructionAlerts(merged);
+      // rappels push (horodatages seuls — voir lib/web/pushReminders)
+      updatePushSchedule('instructions', merged.filter(a => a.status === 'active'));
     }, THROTTLE_DELAY),
     [dossiers, rules, prefsLoading, rulesLoading, allAlerts, setInstructionAlerts],
   );

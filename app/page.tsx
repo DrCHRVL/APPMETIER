@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Menu } from 'lucide-react';
 import { MultiSideBar } from '@/components/MultiSideBar';
 import { Header } from '@/components/Header';
 import { FilterBar } from '@/components/FilterBar';
@@ -12,7 +13,7 @@ import { TagManagementPage } from '@/components/pages/TagManagementPage';
 import { AlertsPage } from '@/components/pages/AlertsPage';
 import { AlertsModal } from '@/components/modals/AlertsModal';
 import { SavePage } from '@/components/pages/SavePage';
-import { StatsPage } from '@/components/pages/StatsPage';
+const StatsPage = dynamic(() => import('@/components/pages/StatsPage').then(m => ({ default: m.StatsPage })), { ssr: false });
 import { useContentieuxEnquetesStore as useContentieuxEnquetes } from '@/hooks/useContentieuxEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
 import { useDocumentSearch } from '@/hooks/useDocumentSearch';
@@ -132,10 +133,12 @@ const AdminContentieuxPanel = dynamic(() => import('@/components/admin/AdminCont
 const AdminInstructionPanel = dynamic(() => import('@/components/admin/AdminInstructionPanel').then(m => ({ default: m.AdminInstructionPanel })), { ssr: false });
 const AdminCartographyPanel = dynamic(() => import('@/components/admin/AdminCartographyPanel').then(m => ({ default: m.AdminCartographyPanel })), { ssr: false });
 const AdminPathsPanel = dynamic(() => import('@/components/admin/AdminPathsPanel').then(m => ({ default: m.AdminPathsPanel })), { ssr: false });
+const AdminAccessPanel = dynamic(() => import('@/components/admin/AdminAccessPanel').then(m => ({ default: m.AdminAccessPanel })), { ssr: false });
 const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashboardPanel').then(m => ({ default: m.AdminDashboardPanel })), { ssr: false });
 const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHistoryPanel').then(m => ({ default: m.AdminTagHistoryPanel })), { ssr: false });
 const AdminUpdatePanel = dynamic(() => import('@/components/admin/AdminUpdatePanel').then(m => ({ default: m.AdminUpdatePanel })), { ssr: false });
 const AboutContent = dynamic(() => import('@/components/AboutContent').then(m => ({ default: m.AboutContent })), { ssr: false });
+const IASynthesePanel = dynamic(() => import('@/components/IASynthesePanel').then(m => ({ default: m.IASynthesePanel })), { ssr: false });
 const MyProfileContent = dynamic(() => import('@/components/MyProfileContent').then(m => ({ default: m.MyProfileContent })), { ssr: false });
 import { useOverboardData } from '@/hooks/useOverboardData';
 import { HeartbeatManager } from '@/utils/heartbeatManager';
@@ -149,6 +152,7 @@ const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\"
 function AppContent() {
   const [isClient, setIsClient] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false); // tiroir de navigation (petits écrans)
   const [currentView, setCurrentView] = useState('enquetes');
   const [searchTerm, setSearchTerm] = useState('');
   // Debounce de la recherche : l'input reste réactif, les hooks coûteux attendent 300ms
@@ -1101,6 +1105,12 @@ function AppContent() {
     setSelectedTags(prev => prev.filter(t => t.id !== tagId));
   }, []);
 
+  // Map stable pour OPTimeline (sinon prop neuve à chaque render → recalcul complet)
+  const opTimelineMap = useMemo(
+    () => new Map([[currentContentieuxId, activeEnquetes]]),
+    [currentContentieuxId, activeEnquetes]
+  );
+
   if (!isClient || tagsLoading || userLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-100">
@@ -1182,7 +1192,8 @@ function AppContent() {
 
 return (
     <div className="flex h-screen bg-gray-100">
-      <div className="no-print">
+      {/* Sidebar : fixe sur grand écran, tiroir sur mobile */}
+      <div className="no-print hidden lg:block">
         <MultiSideBar
           isOpen={sidebarOpen}
           currentView={currentView}
@@ -1196,8 +1207,36 @@ return (
           pendingUsersCount={pendingUsersCount}
         />
       </div>
+      {mobileNavOpen && (
+        <div className="no-print fixed inset-0 z-50 lg:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setMobileNavOpen(false)} />
+          <div className="absolute inset-y-0 left-0 shadow-2xl">
+            <MultiSideBar
+              isOpen={true}
+              currentView={currentView}
+              currentContentieux={effectiveContentieux}
+              onViewChange={(view, ctx) => { setMobileNavOpen(false); handleViewChange(view, ctx); }}
+              onNewEnquete={() => { setMobileNavOpen(false); handleNewEnquete(); }}
+              onOpenSettings={() => { setMobileNavOpen(false); setShowSettingsModal(true); }}
+              alertCount={activeAlertsCount}
+              instructionAlertCount={instructionAlerts.length}
+              crossSearchResults={crossSearchResults}
+              pendingUsersCount={pendingUsersCount}
+            />
+          </div>
+        </div>
+      )}
       <div className="flex-1 overflow-hidden flex flex-col">
-        <div className="no-print">
+        <div className="no-print flex items-stretch">
+          <button
+            className="lg:hidden flex items-center justify-center w-12 bg-white border-r border-gray-100"
+            style={{ borderBottom: '1px solid hsl(214 25% 88%)' }}
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Ouvrir le menu"
+          >
+            <Menu className="h-5 w-5 text-gray-600" />
+          </button>
+          <div className="flex-1 min-w-0">
           <Header
             searchTerm={searchTerm}
             onSearch={handleSearchChange}
@@ -1218,6 +1257,7 @@ return (
             remoteSha={updateRemoteSha}
             approvedSha={updateApprovedSha}
           />
+          </div>
         </div>
 
         {/* Bandeau lecture seule */}
@@ -1267,11 +1307,11 @@ return (
           />
         )}
 
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto p-3 sm:p-6">
           {baseView === 'enquetes' && (
             <div className="space-y-6">
               <OPTimeline
-                enquetesByContentieux={new Map([[currentContentieuxId, activeEnquetes]])}
+                enquetesByContentieux={opTimelineMap}
                 contentieuxDefs={contentieuxDefs}
                 onEnqueteClick={handleViewEnquete}
               />
@@ -1420,8 +1460,9 @@ return (
           )}
 
           {baseView === 'air' && (
-            <AIRPage 
+            <AIRPage
               mesures={mesuresAIR}
+              searchTerm={debouncedSearchTerm}
               isLoading={isLoadingAIR}
               onUpdateMesure={handleUpdateMesure}
               onDeleteMesure={handleDeleteMesure} 
@@ -1443,6 +1484,8 @@ return (
           {baseView === 'mindmap' && (
             <MindmapPage
               sources={mindmapSources}
+              searchTerm={debouncedSearchTerm}
+              onSearchChange={handleSearchChange}
               onRefresh={() => {
                 void refreshOverboard();
                 void refreshInstructions();
@@ -1845,6 +1888,8 @@ return (
         moduleInstructionContent={hasModule('instructions') ? <AdminInstructionPanel /> : null}
         moduleCartographieContent={hasModule('mindmap') ? <AdminCartographyPanel /> : null}
         adminPathsContent={<AdminPathsPanel />}
+        adminAccessContent={<AdminAccessPanel />}
+        iaSyntheseContent={<IASynthesePanel />}
         adminDashboardContent={<AdminDashboardPanel />}
         adminTagHistoryContent={<AdminTagHistoryPanel />}
         adminUpdateContent={<AdminUpdatePanel onGithubUpdateChange={(hasUpdate, commits) => {

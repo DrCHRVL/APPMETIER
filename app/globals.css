@@ -179,3 +179,25 @@ html[data-readonly="true"] [data-dropzone] {
 html[data-readonly="true"] [data-admin-only] {
   display: none !important;
 }
+
+/* ──────────────────────────────────────────────────────────────────
+   Mobile (PWA iPhone / petits écrans) : les modales ne débordent
+   jamais du viewport, quel que soit leur max-w-* d'origine, et le
+   contenu défile à l'intérieur.
+   ────────────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  [role="dialog"],
+  [role="alertdialog"] {
+    max-width: calc(100vw - 16px) !important;
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+  }
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  overscroll-behavior-y: none; /* pas de rebond/pull-to-refresh intempestif en PWA */
+}

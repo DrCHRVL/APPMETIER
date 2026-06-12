@@ -1,0 +1,20 @@
+# SIRAL — reverse proxy avec HTTPS automatique (Let's Encrypt)
+{$SIRAL_DOMAINE} {
+	encode gzip
+
+	# En-têtes de sécurité
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# CSP : aucune ressource externe, aucune connexion sortante — un XSS ne
+		# peut pas exfiltrer les clés E2EE vers un domaine tiers.
+		# ('unsafe-inline' requis par les scripts d'hydratation Next.js)
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+	}
+
+	reverse_proxy siral:3000
+}

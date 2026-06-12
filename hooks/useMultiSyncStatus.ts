@@ -18,7 +18,20 @@ export const useMultiSyncStatus = (intervalMs = 2000) => {
   useEffect(() => {
     const refresh = () => {
       try {
-        setSyncStatus(MultiSyncManager.getInstance().getAggregateStatus());
+        const next = MultiSyncManager.getInstance().getAggregateStatus();
+        // getAggregateStatus retourne un objet neuf à chaque appel : sans cette
+        // comparaison, TOUTE l'app re-rend à chaque tick (2 s) pour rien.
+        setSyncStatus((prev) => {
+          if (prev && next
+            && prev.isSync === next.isSync
+            && prev.isOnline === next.isOnline
+            && prev.lastSyncAttempt === next.lastSyncAttempt
+            && prev.lastSuccessfulSync === next.lastSuccessfulSync
+            && prev.hasPendingChanges === next.hasPendingChanges) {
+            return prev;
+          }
+          return next;
+        });
       } catch {
         // Non bloquant
       }

@@ -1,36 +1,33 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# SIRAL
 
-## Getting Started
+**Suivi Intégré des Réseaux criminels et Affaires Liées**
 
-First, run the development server:
+Application métier de gestion de service pour parquet : enquêtes préliminaires,
+instructions judiciaires, suivi des autorisations JLD, poses techniques, suivi AIR,
+cartographie des réseaux, audiences, statistiques — par contentieux (CRIM ORG, ECOFI,
+ENVIRO).
+
+> ⚠️ Application à usage interne. Ne pas diffuser.
+
+## Édition actuelle (Electron portable)
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun run dev
+npm install
+npm run dev        # Next.js en développement
+npm run electron   # app desktop
+npm run build      # build production
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Les données vivent dans `data/` (local) et se synchronisent sur le partage réseau du
+service. Voir `launcher.bat` / `installer.bat` pour le déploiement sur poste.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Édition web (en préparation)
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+La migration vers une application web hébergée — chiffrement de bout en bout côté
+client, authentification WebAuthn/passkeys, multi-tribunaux, PWA installable
+(desktop + iPhone) — est décrite dans **[docs/PLAN-MIGRATION-WEB.md](docs/PLAN-MIGRATION-WEB.md)**.
+Les maquettes de la nouvelle interface sont dans `docs/presentation/maquettes-v2/`.
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+Conçu par A. Chevalier — Parquet d'Amiens.

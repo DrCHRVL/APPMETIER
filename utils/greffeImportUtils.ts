@@ -1,6 +1,9 @@
 // utils/greffeImportUtils.ts - Version corrigée pour enrichissement AIR
 import { AIRImportData } from '@/types/interfaces';
 
+// Flag de debug du matching (verbosité massive en double boucle sinon)
+const DEBUG_SIMILARITY = false;
+
 export interface GreffeData {
   numeroParquet: string;
   nomPrenom: string;
@@ -159,18 +162,18 @@ export const calculateSimilarity = (nom1: string, nom2: string): number => {
   const normalized1 = normalizeNom(nom1);
   const normalized2 = normalizeNom(nom2);
   
-  console.log(`[SIMILARITY] "${nom1}" -> "${normalized1}"`);
-  console.log(`[SIMILARITY] "${nom2}" -> "${normalized2}"`);
+  if (DEBUG_SIMILARITY) console.log(`[SIMILARITY] "${nom1}" -> "${normalized1}"`);
+  if (DEBUG_SIMILARITY) console.log(`[SIMILARITY] "${nom2}" -> "${normalized2}"`);
   
   // 1. Correspondance exacte après normalisation
   if (normalized1 === normalized2) {
-    console.log(`[SIMILARITY] Exact match: 1.0`);
+    if (DEBUG_SIMILARITY) console.log(`[SIMILARITY] Exact match: 1.0`);
     return 1.0;
   }
   
   // 2. Un nom contient complètement l'autre
   if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) {
-    console.log(`[SIMILARITY] Inclusion complete: 0.95`);
+    if (DEBUG_SIMILARITY) console.log(`[SIMILARITY] Inclusion complete: 0.95`);
     return 0.95;
   }
   
@@ -188,7 +191,7 @@ export const calculateSimilarity = (nom1: string, nom2: string): number => {
   
   if (intersection.size > 0) {
     const jaccard = intersection.size / union.size;
-    console.log(`[SIMILARITY] Jaccard: ${jaccard.toFixed(3)} (${intersection.size}/${union.size} mots communs)`);
+    if (DEBUG_SIMILARITY) console.log(`[SIMILARITY] Jaccard: ${jaccard.toFixed(3)} (${intersection.size}/${union.size} mots communs)`);
     
     // Bonus si tous les mots d'un côté sont inclus dans l'autre
     const inclusion1 = mots1.every(mot => set2.has(mot));
@@ -196,7 +199,7 @@ export const calculateSimilarity = (nom1: string, nom2: string): number => {
     
     if (inclusion1 || inclusion2) {
       const result = Math.min(0.92, jaccard + 0.2);
-      console.log(`[SIMILARITY] Inclusion totale bonus: ${result.toFixed(3)}`);
+      if (DEBUG_SIMILARITY) console.log(`[SIMILARITY] Inclusion totale bonus: ${result.toFixed(3)}`);
       return result;
     }
     
@@ -212,7 +215,7 @@ export const calculateSimilarity = (nom1: string, nom2: string): number => {
       ) / 2;
       
       if (sim1 > 0.8) {
-        console.log(`[SIMILARITY] Mots similaires bonus: ${Math.min(0.90, sim1)}`);
+        if (DEBUG_SIMILARITY) console.log(`[SIMILARITY] Mots similaires bonus: ${Math.min(0.90, sim1)}`);
         return Math.min(0.90, sim1);
       }
     }
@@ -227,7 +230,7 @@ export const calculateSimilarity = (nom1: string, nom2: string): number => {
   const distance = levenshteinDistance(normalized1, normalized2);
   const similarity = 1 - (distance / maxLen);
   
-  console.log(`[SIMILARITY] Levenshtein: ${similarity.toFixed(3)} (distance: ${distance}/${maxLen})`);
+  if (DEBUG_SIMILARITY) console.log(`[SIMILARITY] Levenshtein: ${similarity.toFixed(3)} (distance: ${distance}/${maxLen})`);
   
   // 🆕 Seuil abaissé pour capturer plus de fautes de frappe
   return similarity > 0.65 ? similarity : 0;

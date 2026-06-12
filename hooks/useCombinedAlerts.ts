@@ -8,6 +8,7 @@
 // n'est pas abonné au contentieux ne voit aucune alerte dans sa cloche.
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { updatePushSchedule } from '@/lib/web/pushReminders';
 import { Alert, AlertRule, Enquete, AIRMesure, AlertValidations } from '@/types/interfaces';
 import { APP_CONFIG } from '@/config/constants';
 import { ElectronBridge } from '@/utils/electronBridge';
@@ -280,6 +281,8 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
 
         await ElectronBridge.setData(currentAlertsKey, allAlerts);
         setAlerts(allAlerts);
+        // rappels push (horodatages seuls — voir lib/web/pushReminders)
+        updatePushSchedule('enquetes', allAlerts.filter(a => a.status === 'active'));
       } catch (error) {
         console.error('Erreur lors de la mise à jour des alertes:', error);
       }
@@ -292,7 +295,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     const interval = setInterval(updateAlerts, ALERT_CHECK_INTERVAL);
     return () => {
       clearInterval(interval);
-      updateAlerts.cancel();
+      updateAlerts.flush(); // ne pas jeter un recalcul en attente : il porte parfois un snooze/validation
     };
   }, [updateAlerts]);
 
