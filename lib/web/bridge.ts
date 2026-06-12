@@ -156,6 +156,25 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     return s.normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._ -]/g, '_').replace(/ +/g, '_').slice(0, 120)
   }
 
+  // Clé serveur d'une enquête : le numéro métier (ex « 2025/112 », « 23 70/2025 »)
+  // contient des « / » et espaces, refusés par le serveur (NAME_RE) et impossibles
+  // à passer comme segment d'URL unique. On le transforme en identifiant stable et
+  // sûr. Idempotent : une clé déjà sûre reste identique (pas de migration des docs
+  // existants stockés sous un numéro déjà valide).
+  function serverKey(enquete: string): string {
+    const cleaned = String(enquete)
+      .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-zA-Z0-9._@-]/g, '_')
+    const safe = /^[a-zA-Z0-9]/.test(cleaned) ? cleaned : 'e_' + cleaned
+    return safe.slice(0, 121)
+  }
+
+  // Clé de comparaison robuste entre un nom de fichier serveur et un nom sur disque
+  // (P:\). Les deux côtés normalisent différemment (accents, espaces, tirets) ; on
+  // ramène tout à une forme commune pour ne JAMAIS recopier/réimporter — donc jamais
+  // de doublon — un fichier déjà présent des deux côtés.
+  const canonDoc = (s: string) => encodeDocName(s).replace(/[-_]+/g, '_').toLowerCase()
+
   async function docUpload(enquete: string, rel: string, bytes: Uint8Array, category?: string, originalName?: string) {
     const { iv, ct } = await encryptBytes(key, bytes)
     const ivBytes = b64.decode(iv)
@@ -163,7 +182,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     blob.set(DOC_MAGIC, 0)
     blob.set(ivBytes, 4)
     blob.set(ct, 16)
-    const res = await api(`/api/docs/${encodeURIComponent(enquete)}`, {
+    const res = await api(`/api/docs/${encodeURIComponent(serverKey(enquete))}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ rel, b64: b64.encode(blob), category, originalName }),
@@ -173,7 +192,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
   }
 
   async function docDownload(enquete: string, rel: string): Promise<Uint8Array | null> {
-    const res = await api(`/api/docs/${encodeURIComponent(enquete)}/${rel.split('/').map(encodeURIComponent).join('/')}`, { timeoutMs: 120000 })
+    const res = await api(`/api/docs/${encodeURIComponent(serverKey(enquete))}/${rel.split('/').map(encodeURIComponent).join('/')}`, { timeoutMs: 120000 })
     if (!res.ok) return null
     const buf = new Uint8Array(await res.arrayBuffer())
     if (buf.length < 16 || buf[0] !== DOC_MAGIC[0] || buf[1] !== DOC_MAGIC[1] || buf[2] !== DOC_MAGIC[2] || buf[3] !== DOC_MAGIC[3]) return null
@@ -183,7 +202,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
 
   async function docList(enquete: string): Promise<Array<{ rel: string, size: number, savedAt: string, category?: string, originalName?: string }>> {
     try {
-      const res = await api(`/api/docs/${encodeURIComponent(enquete)}`)
+      const res = await api(`/api/docs/${encodeURIComponent(serverKey(enquete))}`)
       if (!res.ok) return []
       const { documents } = await res.json()
       return documents
@@ -425,7 +444,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     },
     deleteCasierFile: async (filePath: unknown) => {
       try {
-        const res = await api(`/api/docs/_casiers/${String(filePath).split('/').map(encodeURIComponent).join('/')}`, { method: 'DELETE' })
+        const res = await api(`/api/docs/${encodeURIComponent(serverKey('_casiers'))}/${String(filePath).split('/').map(encodeURIComponent).join('/')}`, { method: 'DELETE' })
         return res.ok
       } catch { return false }
     },
@@ -472,18 +491,24 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     },
     deleteDocument: async (enqueteNumero: unknown, cheminRelatif: unknown) => {
       try {
-        const res = await api(`/api/docs/${encodeURIComponent(String(enqueteNumero))}/${String(cheminRelatif).split('/').map(encodeURIComponent).join('/')}`, { method: 'DELETE' })
+        const res = await api(`/api/docs/${encodeURIComponent(serverKey(String(enqueteNumero)))}/${String(cheminRelatif).split('/').map(encodeURIComponent).join('/')}`, { method: 'DELETE' })
         return res.ok
       } catch { return false }
     },
     openDocument: async (enqueteNumero: unknown, cheminRelatif: unknown) => {
-      const bytes = await docDownload(String(enqueteNumero), String(cheminRelatif))
-      if (!bytes) return false
       const name = String(cheminRelatif).split('/').pop() || 'document'
+      // Ouvrir l'onglet IMMÉDIATEMENT, tant que le clic de l'utilisateur est encore
+      // « actif » : sinon Edge/Chrome bloquent silencieusement l'ouverture après le
+      // téléchargement (perte de l'activation utilisateur due aux await réseau/déchiffrement).
+      const win = typeof window !== 'undefined' ? window.open('', '_blank') : null
+      const bytes = await docDownload(String(enqueteNumero), String(cheminRelatif))
+      if (!bytes) { if (win) win.close(); return false }
       const blob = new Blob([bytes as BlobPart], { type: mimeOf(name) })
       const url = URL.createObjectURL(blob)
-      const win = window.open(url, '_blank')
-      if (!win) {
+      if (win) {
+        win.location.href = url
+      } else {
+        // Onglet bloqué malgré tout : repli sur un téléchargement classique.
         const a = document.createElement('a')
         a.href = url
         a.download = name
@@ -574,6 +599,9 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       const result = {
         totalInternal: 0, totalExternal: 0,
         addedToInternal: [] as string[], addedToExternal: [] as string[],
+        // Métadonnées complètes des fichiers importés depuis P:\ → permet à l'UI de
+        // les afficher dans la liste de l'enquête sans re-scan.
+        importedDocs: [] as Array<Record<string, unknown>>,
         errors: [] as string[], externalAccessible: true,
       }
       if (!fsa.isFsaToken(token)) {
@@ -594,12 +622,13 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
         const externalNames = await fsa.listFolderFiles(token, enq, sub, cat)
         result.totalExternal += externalNames.length
         const inCat = internal.filter((d) => d.rel.startsWith(cat + '/'))
-        // interne → externe : pousser ce qui manque
+        // Clés canoniques des fichiers présents de chaque côté (comparaison robuste).
+        const externalCanon = new Set(externalNames.map(canonDoc))
+        const internalCanon = new Set(inCat.map((d) => canonDoc(d.originalName || d.rel.split('/').pop() || '')))
+        // interne → externe : pousser ce qui manque (jamais ce qui est déjà là).
         for (const d of inCat) {
-          const base = d.rel.split('/').pop() || ''
-          const name = d.originalName || base
-          const present = externalNames.some((n) => n === name || n === base || n === encodeDocName(name))
-          if (present) continue
+          const name = d.originalName || d.rel.split('/').pop() || ''
+          if (externalCanon.has(canonDoc(name))) continue
           try {
             const bytes = await docDownload(enq, d.rel)
             if (bytes) { await fsa.writeToFolder(token, enq, sub, cat, name, bytes); result.addedToExternal.push(name) }
@@ -607,13 +636,29 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
             result.errors.push(`Copie vers le commun échouée : ${name}`)
           }
         }
-        // externe → interne : importer ce qui a été déposé à la main
+        // externe → interne : importer ce qui a été déposé à la main (jamais un doublon).
+        const importedCanon = new Set<string>()
         for (const n of externalNames) {
-          const known = inCat.some((d) => (d.rel.split('/').pop() || '') === n || d.originalName === n || encodeDocName(d.originalName || '') === n)
-          if (known) continue
+          const key = canonDoc(n)
+          if (internalCanon.has(key) || importedCanon.has(key)) continue
+          importedCanon.add(key)
           try {
             const bytes = await fsa.readFromFolder(token, enq, sub, cat, n)
-            if (bytes) { await docUpload(enq, `${cat}/${encodeDocName(n)}`, bytes, cat, n); result.addedToInternal.push(n) }
+            if (!bytes) continue
+            const rel = `${cat}/${encodeDocName(n)}`
+            await docUpload(enq, rel, bytes, cat, n)
+            result.addedToInternal.push(n)
+            result.importedDocs.push({
+              id: Date.now() + result.importedDocs.length,
+              nom: rel.split('/').pop(),
+              nomOriginal: n,
+              extension: '.' + (n.split('.').pop() || ''),
+              taille: bytes.length,
+              dateAjout: nowIso(),
+              cheminRelatif: rel,
+              type: typeOf(n),
+              copieCommun: 'ok',
+            })
           } catch {
             result.errors.push(`Import depuis le commun échoué : ${n}`)
           }
