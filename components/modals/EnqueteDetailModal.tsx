@@ -216,8 +216,8 @@ const EnqueteDetailModalImpl = ({
   return (
     <>
       <Dialog open={!!enquete} onOpenChange={handleClose}>
-        <DialogContent className="max-w-6xl max-h-[90vh] bg-white overflow-hidden flex flex-col">
-          <DialogHeader className="flex-shrink-0">
+        <DialogContent className="max-w-6xl max-h-[90vh] bg-white overflow-hidden flex flex-col max-sm:left-0 max-sm:right-0 max-sm:top-[env(safe-area-inset-top)] max-sm:bottom-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:max-w-full max-sm:max-h-none max-sm:rounded-none max-sm:border-0 max-sm:p-0">
+          <DialogHeader className="flex-shrink-0 max-sm:px-4 max-sm:pt-2">
             <div className="flex justify-between items-center">
               <div className="flex-1">
                 {isEditing ? (
@@ -294,7 +294,7 @@ const EnqueteDetailModalImpl = ({
             </div>
           </DialogHeader>
 
-          <div className="flex-1 overflow-auto px-6 py-2">
+          <div className="flex-1 overflow-auto px-6 py-2 max-sm:px-3" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
             <EnqueteHeader
               numero={enquete.numero}
               dateDebut={enquete.dateDebut}
@@ -308,7 +308,7 @@ const EnqueteDetailModalImpl = ({
               onUpdateImmediate={isEditing ? (updates) => handleUpdateImmediate(enquete.id, updates) : undefined}
             />
 
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div className="space-y-6">
                 {!hideCRsForThisUser && (
                   <CompteRenduSection

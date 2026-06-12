@@ -199,6 +199,12 @@ export interface UserPreferencesFile extends GlobalSyncMetadata {
    * dossiers ne sont jamais partagés avec d'autres magistrats.
    */
   instructionNetworkPath?: string;
+  /**
+   * Configuration personnelle du module Cartographie : pondérations du
+   * score Top 10, coefficients par tag d'infraction, regroupement par service.
+   * Synchronisée par utilisateur pour retrouver ses réglages sur tout appareil.
+   */
+  cartographieConfig?: import('@/types/cartographieTypes').CartographieModuleConfig;
 }
 
 /**

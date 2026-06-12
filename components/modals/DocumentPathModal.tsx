@@ -140,7 +140,7 @@ export const DocumentPathModal = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleCancel}>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[90svh] flex flex-col max-sm:left-0 max-sm:right-0 max-sm:top-[env(safe-area-inset-top)] max-sm:bottom-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:max-w-full max-sm:max-h-none max-sm:rounded-none max-sm:border-0">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <HardDrive className="h-5 w-5" />
@@ -148,7 +148,7 @@ export const DocumentPathModal = ({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-y-auto flex-1 min-h-0">
           {/* Information sur l'enquête */}
           <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
             <div className="flex items-center gap-2 mb-1">
@@ -381,7 +381,7 @@ export const DocumentPathModal = ({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
           <div className="flex justify-between items-center w-full">
             <div className="text-xs text-gray-500">
               {!selectedPath.trim() ? 'Sauvegarde interne uniquement' : 

@@ -10,6 +10,7 @@
 // (load/save), sans tombstones ni timestamps de merge.
 
 import { ElectronBridge } from './electronBridge';
+import { userPreferencesSyncService } from './dataSync/UserPreferencesSyncService';
 import { APP_CONFIG } from '@/config/constants';
 import {
   DEFAULT_CARTO_CONFIG,
@@ -41,6 +42,29 @@ class CartographieConfigManagerService {
   private cache: CartographieModuleConfig | null = null;
   private listeners = new Set<(config: CartographieModuleConfig) => void>();
 
+  constructor() {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('global-sync-completed', (e: Event) => {
+        const detail = (e as CustomEvent<{ scope: string }>).detail;
+        if (detail?.scope === 'userPreferences' && this.cache) {
+          this.refreshFromUserPrefs().catch(() => {});
+        }
+      });
+    }
+  }
+
+  private async refreshFromUserPrefs(): Promise<void> {
+    if (!this.cache) return;
+    const prefs = await userPreferencesSyncService.getPreferences();
+    if (!prefs?.cartographieConfig) return;
+    const serverConfig = normalize(prefs.cartographieConfig);
+    if (Date.parse(serverConfig.updatedAt || '') > Date.parse(this.cache.updatedAt || '')) {
+      await ElectronBridge.setData(CONFIG_KEY, serverConfig);
+      this.cache = serverConfig;
+      this.emit(serverConfig);
+    }
+  }
+
   async load(): Promise<CartographieModuleConfig> {
     if (this.cache) return this.cache;
     const stored = await ElectronBridge.getData<CartographieModuleConfig | null>(
@@ -53,6 +77,17 @@ class CartographieConfigManagerService {
     // erronée (cf. loadForWrite).
     if (stored === null && ElectronBridge.didReadFail(CONFIG_KEY)) {
       return normalize(null);
+    }
+    // Clé absente sur ce poste → tenter de récupérer depuis les préférences
+    // utilisateur synchronisées (fallback cross-device).
+    if (stored === null) {
+      const prefs = await userPreferencesSyncService.getPreferences();
+      if (prefs?.cartographieConfig) {
+        const config = normalize(prefs.cartographieConfig);
+        await ElectronBridge.setData(CONFIG_KEY, config);
+        this.cache = config;
+        return config;
+      }
     }
     const config = normalize(stored);
     this.cache = config;
@@ -86,6 +121,8 @@ class CartographieConfigManagerService {
     await ElectronBridge.setData(CONFIG_KEY, next);
     this.cache = next;
     this.emit(next);
+    // Synchronisation cross-device via les préférences utilisateur.
+    userPreferencesSyncService.setCartographieConfig(next).catch(() => {});
     // Écriture disque immédiate : ces réglages sont souvent modifiés puis on
     // quitte/recharge l'app aussitôt, avant l'expiration du délai temporisé.
     return ElectronBridge.flush(CONFIG_KEY);

@@ -92,7 +92,7 @@ export const MultiSideBar = ({
       {/* Subtle top accent line */}
       <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)' }} />
 
-      <div className="p-3 flex flex-col flex-1 pt-4 overflow-y-auto scrollbar-thin">
+      <div className="p-3 flex flex-col flex-1 pt-4 overflow-y-auto scrollbar-thin min-h-0">
         {/* ── BLOCS CONTENTIEUX ── */}
         {sortedContentieux
           .map((ctxDef, idx) => {
