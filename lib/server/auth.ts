@@ -34,6 +34,8 @@ export interface Account {
   /** Juridiction de rattachement (ex. « TJ Marseille ») — informatif et filtrage futur */
   tribunal?: string
   credentials: StoredCredential[]
+  /** Hachage scrypt du mot de passe (optionnel — complément aux passkeys). */
+  passwordHash?: string
   createdAt: string
   lastLoginAt?: string
 }
