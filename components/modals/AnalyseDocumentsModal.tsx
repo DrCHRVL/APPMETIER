@@ -83,6 +83,15 @@ export const AnalyseDocumentsModal = ({
       return;
     }
 
+    if ((window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true) {
+      setScanError(
+        'Le scan d\'un dossier réseau n\'existe pas sur la version web : '
+        + 'téléversez les PDF à analyser via la section Documents de l\'enquête, '
+        + 'l\'analyse se lancera automatiquement.'
+      );
+      return;
+    }
+
     if (!window.electronAPI?.scanExternalPDFs) {
       setScanError('API non disponible. Fonctionnalité requiert Electron.');
       return;

@@ -1,0 +1,9 @@
+# SIRAL — conteneur « updater » : applique les mises à jour depuis l'app
+# (Paramètres → Mise à jour) : git pull + rebuild Docker + redémarrage du
+# service « siral ». Piloté par fichiers d'état — voir scripts/updater.sh.
+
+FROM alpine:3.20
+RUN apk add --no-cache git docker-cli docker-cli-compose
+COPY scripts/updater.sh /usr/local/bin/siral-updater.sh
+RUN chmod +x /usr/local/bin/siral-updater.sh
+ENTRYPOINT ["/bin/sh", "/usr/local/bin/siral-updater.sh"]

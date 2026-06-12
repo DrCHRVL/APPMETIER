@@ -414,6 +414,21 @@ export const AdminUsersPanel = () => {
       </div>
 
       {/* ─── Consultation lecture seule ─────────────────────────────── */}
+      {/* Version serveur : le déploiement sur partage réseau Windows est remplacé
+          par les comptes en lecture seule (Paramètres → Accès & clés). */}
+      {typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true ? (
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 space-y-2">
+          <h3 className="text-sm font-bold text-amber-900 flex items-center gap-2">
+            <Eye className="h-4 w-4" />
+            Consultation lecture seule
+          </h3>
+          <p className="text-xs text-amber-800">
+            Sur la version serveur, la publication d'une copie sur un partage réseau est remplacée
+            par les <strong>comptes en lecture seule</strong> : attribuez le rôle « lecture seule »
+            à l'utilisateur concerné — il consulte l'app directement, toujours à jour, sans copie locale.
+          </p>
+        </div>
+      ) : (
       <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -556,6 +571,7 @@ export const AdminUsersPanel = () => {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 };

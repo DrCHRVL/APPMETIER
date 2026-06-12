@@ -817,12 +817,90 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       } catch { return [] }
     },
 
-    // ── Mises à jour (gérées côté serveur en mode web) ──
-    checkAppUpdate: async () => ({ hasUpdate: false, commits: 0, localSha: 'web', remoteSha: 'web' }),
-    applyAppUpdate: async () => ({ success: false, needsInstall: false, needsRebuild: false, error: 'Les mises à jour sont déployées sur le serveur en mode web' }),
-    getUpdateChangelog: async () => ({ success: true, commits: [] }),
-    approveAppUpdate: async () => ({ success: false, error: 'Non applicable en mode web' }),
-    unapproveAppUpdate: async () => ({ success: false, error: 'Non applicable en mode web' }),
+    // ── Mises à jour (pilotées par le conteneur « updater » du serveur) ──
+    // GET /api/update est réservé à l'admin : pour les autres comptes (403),
+    // la mise à jour serveur est transparente — aucune notification.
+    checkAppUpdate: async (force?: unknown) => {
+      const empty = {
+        hasUpdate: false, commits: 0,
+        localSha: null as string | null, remoteSha: null as string | null,
+        approvedSha: null as string | null, approvedBy: null, approvedAt: null,
+      }
+      try {
+        const res = await api(`/api/update${force ? '?force=1' : ''}`, { timeoutMs: force ? 30000 : 15000 })
+        if (res.status === 403) return empty
+        if (!res.ok) return { ...empty, error: 'Vérification indisponible (' + res.status + ')' }
+        const d = await res.json() as { available: boolean, error?: string, localSha: string | null, remoteSha: string | null, commits: number, fetchOk: boolean }
+        if (!d.available) return { ...empty, error: d.error || 'Service de mise à jour non installé' }
+        return {
+          ...empty,
+          hasUpdate: !!(d.localSha && d.remoteSha && d.localSha !== d.remoteSha),
+          commits: d.commits || 0,
+          localSha: d.localSha,
+          remoteSha: d.remoteSha,
+          // serveur unique : la version installée est de fait celle de tous
+          approvedSha: d.localSha,
+          ...(d.fetchOk === false ? { error: 'GitHub injoignable depuis le serveur — état possiblement périmé' } : {}),
+        }
+      } catch {
+        return { ...empty, error: 'Serveur injoignable' }
+      }
+    },
+    /**
+     * Déclenche la mise à jour du serveur (git pull + rebuild Docker + redémarrage)
+     * puis suit la progression jusqu'au retour du serveur. Les échecs réseau
+     * pendant le redémarrage du conteneur sont attendus et ignorés.
+     */
+    applyAppUpdate: async () => {
+      const fail = (error: string) => ({ success: false, needsInstall: false, needsRebuild: true, error })
+      try {
+        const res = await api('/api/update', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'apply' }),
+          timeoutMs: 20000,
+        })
+        const d = await res.json().catch(() => ({})) as { success?: boolean, error?: string }
+        if (!res.ok || !d.success) return fail(d.error || 'Demande refusée (' + res.status + ')')
+      } catch (e) {
+        return fail(e instanceof Error ? e.message : 'Serveur injoignable')
+      }
+      const startedAt = Date.now()
+      const deadline = startedAt + 15 * 60 * 1000
+      let sawUpdating = false
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 4000))
+        try {
+          const res = await api('/api/update', { timeoutMs: 8000 })
+          if (!res.ok) continue
+          const d = await res.json() as { status?: { state?: string, step?: string, message?: string } }
+          const st = d.status?.state
+          if (st === 'updating') { sawUpdating = true; continue }
+          if (st === 'error') return fail(d.status?.message || ('Échec à l\'étape « ' + (d.status?.step || '?') + ' »'))
+          if (st === 'done' && sawUpdating) return { success: true, needsInstall: false, needsRebuild: true, restarted: true }
+          // état antérieur (idle/done) : la demande n'est pas encore consommée
+          if (!sawUpdating && Date.now() - startedAt > 90000) {
+            return fail('Le service de mise à jour ne répond pas — vérifiez le conteneur « updater » sur le serveur')
+          }
+        } catch { /* conteneur en cours de redémarrage */ }
+      }
+      return fail('Délai dépassé — vérifiez l\'état du serveur (journal du conteneur updater)')
+    },
+    getUpdateChangelog: async () => {
+      try {
+        const res = await api('/api/update')
+        if (!res.ok) return { success: false, error: 'Changelog indisponible (' + res.status + ')', commits: [] }
+        const d = await res.json() as { available?: boolean, error?: string, commitList?: Array<{ sha: string, message: string, author: string, date: string | null, url: null }> }
+        if (d.available === false) return { success: false, error: d.error || 'Service de mise à jour non installé', commits: [] }
+        return { success: true, commits: d.commitList || [] }
+      } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : 'Serveur injoignable', commits: [] }
+      }
+    },
+    // Publication : sans objet sur la version serveur — mettre à jour le serveur
+    // publie de fait la nouvelle version pour tous les utilisateurs, immédiatement.
+    approveAppUpdate: async () => ({ success: false, error: 'Sans objet en mode serveur : la mise à jour s\'applique immédiatement à tous les utilisateurs' }),
+    unapproveAppUpdate: async () => ({ success: false, error: 'Sans objet en mode serveur' }),
     getApprovedAppUpdate: async () => ({ approvedSha: null, approvedBy: null, approvedAt: null }),
 
     // ── Mode consultation (spécifique Electron/partage réseau) ──

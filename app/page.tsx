@@ -609,8 +609,11 @@ function AppContent() {
       if (result && !result.success) {
         showToast(`Erreur de mise à jour : ${result.error}`, 'error');
         setIsUpdating(false);
+      } else if (result?.success && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true) {
+        // version serveur : le rebuild est terminé → recharger la nouvelle version
+        window.location.reload();
       }
-      // Si succès, l'app redémarre → pas besoin de reset l'état
+      // En Electron, l'app redémarre d'elle-même → pas besoin de reset l'état
     } catch {
       showToast('Impossible de mettre à jour l\'application', 'error');
       setIsUpdating(false);

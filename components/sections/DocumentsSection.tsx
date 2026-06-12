@@ -541,6 +541,10 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
 
   const handleOpenExternalFolder = async () => {
     if (!enquete.cheminExterne) { showToast('Aucun chemin externe configuré', 'warning'); return; }
+    if ((window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true) {
+      showToast('Le navigateur ne peut pas ouvrir l\'Explorateur Windows — ouvrez le dossier commun directement depuis le poste de travail', 'info');
+      return;
+    }
     if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
     try {
       const ok = await window.electronAPI.openExternalFolder(
