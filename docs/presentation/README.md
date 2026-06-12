@@ -9,6 +9,9 @@ Dossier contenant la présentation générale de l'application au format PDF
 |---|---|
 | `PRESENTATION.html` | Source HTML/CSS de la présentation (texte + structure + références aux captures). |
 | `PRESENTATION.pdf` | PDF compilé prêt à diffuser. |
+| `PISTES-AMELIORATION.md` | Pistes d'amélioration du produit projeté, priorisées (quick wins / moyen terme / horizon). |
+| `plaquette/PLAQUETTE-SIRAL.html` | Plaquette produit A4 recto-verso (charte « Lumière » palette Justice), auto-suffisante. |
+| `plaquette/PLAQUETTE-SIRAL.pdf` | Plaquette compilée, prête à imprimer. Régénérer : `bash plaquette/build-plaquette.sh`. |
 | `build-pdf.sh` | Script de génération du PDF depuis le HTML. |
 | `_gen_placeholders.py` | Script utilitaire générant des images de remplacement pour les captures non encore disponibles. |
 | `screenshots/` | Captures d'écran référencées dans le document. |
