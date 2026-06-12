@@ -305,6 +305,22 @@ async function main() {
     await page2.waitForSelector('.siral-card', { state: 'detached', timeout: 30000 })
     check('Bonne phrase personnelle : trousseau déverrouillé', true)
 
+    // ── 9d. Sécurité : un membre ne peut pas écraser le trousseau/l'invitation d'autrui ──
+    const putForbidden = await page2.evaluate(async () => {
+      const fake = JSON.stringify({ v: 1, encrypted: true, iv: 'AAAA', ct: 'AAAA' })
+      const r1 = await fetch('/api/vaults/keyring-a.chevalier', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: fake, credentials: 'same-origin' })
+      const r2 = await fetch('/api/vaults/grant-a.chevalier', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: fake, credentials: 'same-origin' })
+      return r1.status === 403 && r2.status === 403
+    })
+    check('Sécurité : écrasement du trousseau/invitation d\'autrui refusé (403)', putForbidden)
+
+    // ── 9e. Sécurité : ré-enrôlement d'un compte existant refusé sans session du titulaire ──
+    const takeover = await fetch(BASE + '/api/auth/register-options', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'a.chevalier', displayName: 'X', setupCode: 'CODE-TEST-2026' }),
+    })
+    check('Sécurité : capture de compte existant via code d\'enrôlement refusée', takeover.status === 400)
+
     // ── 10. Code d'enrôlement faux refusé ──
     const badCode = await page2.evaluate(async () => {
       const res = await fetch('/api/auth/register-options', {

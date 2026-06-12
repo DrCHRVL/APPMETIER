@@ -14,7 +14,7 @@
  * unique qui déchiffre une copie des clés (coffre `grant-<utilisateur>`).
  * Révoquer = supprimer son trousseau.
  */
-import { b64 } from './crypto'
+import { b64, b64urlToBytes } from './crypto'
 
 export const SCOPE_GLOBAL = 'global'
 
@@ -105,10 +105,6 @@ export function freshKeyringPayload(): KeyringPayload {
   for (const id of KNOWN_CONTENTIEUX) keys[`ctx-${id}`] = b64.encode(randomRawKey())
   const now = new Date().toISOString()
   return { v: 1, keys, createdAt: now, updatedAt: now }
-}
-
-function b64urlToBytes(s: string): Uint8Array {
-  return b64.decode(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '='))
 }
 
 function bytesToB64url(bytes: Uint8Array): string {

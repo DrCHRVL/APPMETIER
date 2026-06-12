@@ -67,19 +67,47 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
 
   // ── Coffres chiffrés ──
   async function vaultPull(name: string): Promise<unknown | null> {
-    const res = await api(`/api/vaults/${encodeURIComponent(name)}`)
-    if (res.status === 404) return null
-    if (!res.ok) throw new NetworkError('Erreur serveur ' + res.status)
-    const { envelope } = await res.json()
-    return decryptJson(keyFor(name), envelope as CipherEnvelope)
+    try {
+      const res = await api(`/api/vaults/${encodeURIComponent(name)}`)
+      if (res.status === 404) { failedPulls.delete(name); return null }
+      if (!res.ok) throw new NetworkError('Erreur serveur ' + res.status)
+      const { envelope } = await res.json()
+      const payload = await decryptJson(keyFor(name), envelope as CipherEnvelope)
+      failedPulls.delete(name)
+      return payload
+    } catch (e) {
+      if (e instanceof NetworkError) failedPulls.add(name)
+      throw e
+    }
   }
+
+  // Coffres dont la dernière lecture a ÉCHOUÉ (réseau) : tant qu'une relecture
+  // n'a pas confirmé leur état, on refuse d'écrire — sinon un faux « serveur
+  // vide » pousserait une fusion locale qui écraserait les données partagées.
+  const failedPulls = new Set<string>()
 
   /** Pull tolérant : null si absent OU injoignable (contrat globalSync). */
   async function vaultPullSoft(name: string): Promise<unknown | null> {
-    try { return await vaultPull(name) } catch { return null }
+    try {
+      const payload = await vaultPull(name)
+      failedPulls.delete(name)
+      return payload
+    } catch {
+      failedPulls.add(name)
+      return null
+    }
   }
 
   async function vaultPush(name: string, payload: unknown, meta?: { savedAt?: string, savedBy?: string }): Promise<true> {
+    if (failedPulls.has(name)) {
+      const probe = await api(`/api/vaults/${encodeURIComponent(name)}`)
+      if (probe.status === 404) {
+        failedPulls.delete(name) // réellement absent : écriture initiale sûre
+      } else {
+        if (probe.ok) failedPulls.delete(name)
+        throw new NetworkError('Dernière lecture échouée — resynchronisation requise avant écriture')
+      }
+    }
     const envelope = await encryptJson(keyFor(name), payload, {
       savedAt: meta?.savedAt || nowIso(),
       savedBy: meta?.savedBy || me.username,

@@ -26,6 +26,7 @@ export async function POST(req: Request) {
     const session = requireSession(req)
     const { ct, iv } = await req.json()
     if (typeof ct !== 'string' || typeof iv !== 'string') return jsonResponse({ error: 'ct/iv requis' }, { status: 400 })
+    if (ct.length > 64 * 1024 || iv.length > 64) return jsonResponse({ error: 'Heartbeat trop volumineux' }, { status: 413 })
     await withFileLock('heartbeats', async () => {
       const all = readJson<HeartbeatRecord[]>(hbPath(), [])
       const next = all.filter((h) => h.username !== session.u)

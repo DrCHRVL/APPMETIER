@@ -31,7 +31,7 @@ function b64decode(s: string): Uint8Array {
   return bytes
 }
 
-function b64urlToBytes(s: string): Uint8Array {
+export function b64urlToBytes(s: string): Uint8Array {
   return b64decode(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '='))
 }
 

@@ -21,6 +21,17 @@ export async function PUT(req: Request, { params }: { params: { name: string } }
   return handle(async () => {
     const session = requireSession(req)
     if (!isSafeName(params.name)) return jsonResponse({ error: 'Nom invalide' }, { status: 400 })
+    // Coffres d'ACCÈS : un trousseau n'est modifiable que par son titulaire,
+    // une invitation n'est déposable que par un admin — sinon tout membre
+    // pourrait écraser le trousseau d'autrui ou empoisonner une invitation.
+    const access = /^(keyring|grant)-(.+)$/.exec(params.name)
+    if (access) {
+      const ownKeyring = access[1] === 'keyring' && access[2] === session.u
+      const adminGrant = access[1] === 'grant' && session.r === 'admin'
+      if (!ownKeyring && !adminGrant) {
+        return jsonResponse({ error: 'Écriture non autorisée sur ce coffre d’accès' }, { status: 403 })
+      }
+    }
     const envelope = await req.json()
     if (!envelope || envelope.encrypted !== true || typeof envelope.ct !== 'string' || typeof envelope.iv !== 'string') {
       return jsonResponse({ error: 'Enveloppe chiffrée requise (E2EE obligatoire)' }, { status: 400 })

@@ -17,6 +17,7 @@ import crypto from 'crypto'
 import {
   Account, StoredCredential, findAccount, listAccounts, saveAccount,
   storeChallenge, takeChallenge, rpFromRequest, isValidUsername, setupCode,
+  getSession, rateLimit, clientIp, safeEqual,
 } from './auth'
 
 const b64u = {
@@ -25,12 +26,22 @@ const b64u = {
 }
 
 export async function registrationOptions(req: Request, username: string, displayName: string, code: string) {
+  rateLimit('reg:' + clientIp(req), 10, 15 * 60 * 1000) // anti force brute du code d'enrôlement
   const expected = setupCode()
   if (!expected) throw new Error("Le code d'enrôlement (SIRAL_SETUP_CODE) n'est pas configuré sur le serveur")
-  if (code !== expected) throw new Error("Code d'enrôlement incorrect")
+  if (!safeEqual(code, expected)) throw new Error("Code d'enrôlement incorrect")
   if (!isValidUsername(username)) throw new Error("Nom d'utilisateur invalide (lettres, chiffres, . _ -)")
 
   const existing = findAccount(username)
+  // Un compte existant ne peut recevoir une passkey supplémentaire que depuis
+  // une session déjà authentifiée de CE compte — sinon le code d'enrôlement
+  // suffirait à capturer n'importe quel compte (y compris admin).
+  if (existing) {
+    const session = getSession(req)
+    if (!session || session.u !== existing.username) {
+      throw new Error('Ce compte existe déjà — connectez-vous avec votre passkey, ou demandez à un admin')
+    }
+  }
   const { rpID, rpName } = rpFromRequest(req)
   const options = await generateRegistrationOptions({
     rpName,
@@ -76,6 +87,11 @@ export async function registrationVerify(req: Request, username: string, display
   }
   let account = findAccount(username)
   if (account) {
+    // même garde que registrationOptions : seul le titulaire connecté ajoute une passkey
+    const session = getSession(req)
+    if (!session || session.u !== account.username) {
+      throw new Error('Ce compte existe déjà — connectez-vous avec votre passkey, ou demandez à un admin')
+    }
     account.credentials.push(cred)
     if (tribunal && !account.tribunal) account.tribunal = tribunal.slice(0, 80)
   } else {

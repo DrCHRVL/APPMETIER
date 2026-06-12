@@ -197,7 +197,41 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
     return await fn()
   } catch (e) {
     if (e instanceof Response) return e
-    const msg = e instanceof Error ? e.message : 'Erreur serveur'
-    return jsonResponse({ error: msg }, { status: 500 })
+    // le détail (chemins, parse…) reste côté serveur : jamais dans la réponse
+    console.error('[api]', e)
+    return jsonResponse({ error: 'Erreur serveur' }, { status: 500 })
   }
+}
+
+// ── Limiteur de tentatives en mémoire (endpoints publics sensibles) ──
+const attempts = new Map<string, { count: number, resetAt: number }>()
+
+/** Lève une 429 au-delà de `max` appels par `windowMs` pour la clé donnée (ex. IP). */
+export function rateLimit(key: string, max: number, windowMs: number): void {
+  const now = Date.now()
+  const entry = attempts.get(key)
+  if (!entry || entry.resetAt < now) {
+    attempts.set(key, { count: 1, resetAt: now + windowMs })
+    if (attempts.size > 10000) {
+      for (const [k, v] of attempts) { if (v.resetAt < now) attempts.delete(k) }
+    }
+    return
+  }
+  entry.count++
+  if (entry.count > max) {
+    throw new Response(JSON.stringify({ error: 'Trop de tentatives — réessayez plus tard' }), {
+      status: 429, headers: { 'content-type': 'application/json' },
+    })
+  }
+}
+
+export function clientIp(req: Request): string {
+  return (req.headers.get('x-forwarded-for') || 'local').split(',')[0].trim()
+}
+
+/** Comparaison à temps constant (codes d'enrôlement…). */
+export function safeEqual(a: string, b: string): boolean {
+  const ha = crypto.createHash('sha256').update(a).digest()
+  const hb = crypto.createHash('sha256').update(b).digest()
+  return crypto.timingSafeEqual(ha, hb)
 }

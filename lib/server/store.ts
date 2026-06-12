@@ -109,7 +109,13 @@ function pruneVersions(name: string) {
   const now = Date.now()
   const files = fs.readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
-    .map((f) => ({ f, ts: Date.parse(f.slice(0, 24).replace(/_/g, ':')) || 0 }))
+    .map((f) => {
+      // nom = "<ISO avec _ pour :>~<user>.json" ; un timestamp illisible vaut
+      // « maintenant » : on CONSERVE dans le doute, jamais de purge aveugle
+      const stamp = f.split('~')[0].replace(/_/g, ':')
+      const parsed = Date.parse(stamp)
+      return { f, ts: Number.isFinite(parsed) && parsed > 0 ? parsed : now }
+    })
     .sort((a, b) => b.ts - a.ts)
   const keep = new Set<string>()
   const dayKept = new Set<string>()
