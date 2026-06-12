@@ -175,6 +175,26 @@ export function readVaultVersion(name: string, filename: string): VaultEnvelope 
   return readJson<VaultEnvelope | null>(path.join(versionsDir(name), filename), null)
 }
 
+/**
+ * Supprime la version courante d'un coffre (révocation d'un trousseau ou
+ * d'une invitation). L'historique `.versions/` est conservé : la suppression
+ * est elle-même archivée, rien n'est perdu définitivement.
+ */
+export async function deleteVault(name: string): Promise<boolean> {
+  if (!isSafeName(name)) throw new Error('Nom de coffre invalide')
+  return withFileLock('vault:' + name, async () => {
+    const current = readVault(name)
+    if (!current) return false
+    const vdir = versionsDir(name)
+    ensureDir(vdir)
+    const stamp = new Date().toISOString().replace(/:/g, '_')
+    const archName = `${stamp}~${(current.savedBy || 'inconnu').replace(/[^a-zA-Z0-9._-]/g, '_')}.json`
+    atomicWrite(path.join(vdir, archName), JSON.stringify(current))
+    fs.unlinkSync(vaultPath(name))
+    return true
+  })
+}
+
 export function listVaults(): string[] {
   const dir = dataDir('vaults')
   if (!fs.existsSync(dir)) return []

@@ -6,7 +6,7 @@
  */
 
 const DB_NAME = 'siral-local'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -19,6 +19,8 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv')
       if (!db.objectStoreNames.contains('files')) db.createObjectStore('files')
       if (!db.objectStoreNames.contains('backups')) db.createObjectStore('backups')
+      // v2 : poignées de dossiers locaux (File System Access) + copies en attente
+      if (!db.objectStoreNames.contains('handles')) db.createObjectStore('handles')
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)

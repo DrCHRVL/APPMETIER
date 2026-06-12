@@ -31,6 +31,8 @@ export interface Account {
   username: string
   displayName: string
   role: 'admin' | 'member'
+  /** Juridiction de rattachement (ex. « TJ Marseille ») — informatif et filtrage futur */
+  tribunal?: string
   credentials: StoredCredential[]
   createdAt: string
   lastLoginAt?: string

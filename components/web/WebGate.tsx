@@ -3,25 +3,48 @@
 /**
  * SIRAL — porte d'entrée web.
  * Affichée uniquement en mode navigateur (jamais dans Electron ni en mode
- * consultation). Enchaîne : connexion passkey → déverrouillage E2EE →
- * installation du pont electronAPI → rendu de l'application.
+ * consultation). Enchaîne : connexion passkey → déverrouillage du trousseau
+ * individuel (cloisonnement par clé) → installation du pont electronAPI →
+ * rendu de l'application.
+ *
+ * Parcours possibles après authentification :
+ *  - unlock        : mon trousseau existe → phrase personnelle
+ *  - redeem        : une invitation m'attend → code + création de ma phrase
+ *  - migrate       : serveur historique « phrase de service » sans trousseau
+ *                    → migration vers le modèle individuel (+ rotation des
+ *                    clés de contentieux pour un vrai cloisonnement)
+ *  - create-fresh  : serveur vierge → je suis le premier, clés neuves
+ *  - no-access     : pas de trousseau ni d'invitation → demander un accès
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser'
-import { deriveKey, encryptJson, decryptJson, CipherEnvelope } from '@/lib/web/crypto'
+import { encryptJson, decryptJson, b64, CipherEnvelope } from '@/lib/web/crypto'
 import { buildWebBridge, BridgeIdentity } from '@/lib/web/bridge'
+import {
+  ScopedKeys, KeyringPayload, buildScopedKeys, freshKeyringPayload, deriveRawKey,
+  importAesKey, randomRawKey, newKdfParams, normalizeInvitationCode, KNOWN_CONTENTIEUX, SCOPE_GLOBAL,
+} from '@/lib/web/keyring'
 import { idb } from '@/lib/web/idb'
 
-type Phase = 'boot' | 'login' | 'register' | 'unlock' | 'create-passphrase' | 'ready'
+type Phase = 'boot' | 'login' | 'register' | 'unlock' | 'create-fresh' | 'migrate' | 'redeem' | 'no-access' | 'ready'
 
-const KEY_STORE = '__siral_cryptokey__'
+const KEYRING_STORE = '__siral_keyring__'
+const LEGACY_KEY_STORE = '__siral_cryptokey__'
+
+interface E2eeState {
+  legacyKdf: boolean
+  legacyKdfParams: { salt: string, iterations: number } | null
+  hasKeyring: boolean
+  hasGrant: boolean
+  grantKdf: { salt: string, iterations: number, grantedBy?: string } | null
+  anyKeyrings: boolean
+}
 
 declare global {
   interface Window {
     __SIRAL_WEB__?: boolean
     __SIRAL_BRIDGE_SET__?: (bridge: Record<string, unknown>) => void
     __APP_READONLY__?: boolean
-    electronAPI?: Record<string, unknown>
   }
 }
 
@@ -43,14 +66,17 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   // tant que `mounted` est faux, on rend un voile neutre, jamais l'app.
   const [mounted, setMounted] = useState(false)
   const [me, setMe] = useState<BridgeIdentity | null>(null)
+  const [e2ee, setE2ee] = useState<E2eeState | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [kdfExists, setKdfExists] = useState(true)
   // formulaire d'enrôlement
   const [regUsername, setRegUsername] = useState('')
   const [regDisplay, setRegDisplay] = useState('')
+  const [regTribunal, setRegTribunal] = useState('')
   const [regCode, setRegCode] = useState('')
-  // phrase secrète
+  // phrases et code d'invitation
+  const [servicePass, setServicePass] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [pass1, setPass1] = useState('')
   const [pass2, setPass2] = useState('')
   const [remember, setRemember] = useState(true)
@@ -58,10 +84,10 @@ export function WebGate({ children }: { children: React.ReactNode }) {
 
   const isWeb = mounted && window.__SIRAL_WEB__ === true && window.__APP_READONLY__ !== true
 
-  const installBridge = useCallback((key: CryptoKey, identity: BridgeIdentity) => {
+  const installBridge = useCallback((keys: ScopedKeys, identity: BridgeIdentity) => {
     if (installedRef.current) return
     installedRef.current = true
-    const bridge = buildWebBridge({ key, me: identity })
+    const bridge = buildWebBridge({ keys, me: identity })
     if (window.__SIRAL_BRIDGE_SET__) window.__SIRAL_BRIDGE_SET__(bridge as Record<string, unknown>)
     // enregistre le service worker (PWA / hors-ligne)
     if ('serviceWorker' in navigator) {
@@ -70,11 +96,11 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     setPhase('ready')
   }, [])
 
-  /** Vérifie la phrase via le coffre-témoin e2ee-check (le crée au premier déverrouillage). */
-  const verifyOrCreateCanary = useCallback(async (key: CryptoKey, identity: BridgeIdentity): Promise<true | string> => {
+  /** Vérifie la clé globale via le coffre-témoin e2ee-check (le crée au premier déverrouillage). */
+  const verifyOrCreateCanary = useCallback(async (globalKey: CryptoKey, identity: BridgeIdentity): Promise<true | string> => {
     const { status, json } = await apiJson('/api/vaults/e2ee-check')
     if (status === 404) {
-      const envelope = await encryptJson(key, { check: 'siral', createdAt: new Date().toISOString() }, { savedBy: identity.username })
+      const envelope = await encryptJson(globalKey, { check: 'siral', createdAt: new Date().toISOString() }, { savedBy: identity.username })
       const put = await fetch('/api/vaults/e2ee-check', {
         method: 'PUT', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(envelope), credentials: 'same-origin',
@@ -83,14 +109,54 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     }
     if (status !== 200) return 'Serveur injoignable'
     try {
-      const payload = await decryptJson<{ check: string }>(key, json.envelope as unknown as CipherEnvelope)
+      const payload = await decryptJson<{ check: string }>(globalKey, json.envelope as unknown as CipherEnvelope)
       return payload.check === 'siral' ? true : 'Phrase secrète incorrecte'
     } catch {
       return 'Phrase secrète incorrecte'
     }
   }, [])
 
-  // Boot : session existante ? clé mémorisée ?
+  /** Chiffre et dépose mon trousseau, verrouillé par ma phrase personnelle. */
+  const pushKeyring = useCallback(async (payload: KeyringPayload, personalPhrase: string, identity: BridgeIdentity): Promise<void> => {
+    const kdf = newKdfParams()
+    const userKey = await importAesKey(await deriveRawKey(personalPhrase, kdf.salt, kdf.iterations))
+    const envelope = await encryptJson(userKey, payload, { savedBy: identity.username })
+    const res = await fetch(`/api/vaults/keyring-${encodeURIComponent(identity.username)}`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...envelope, kdfSalt: kdf.salt, kdfIterations: kdf.iterations }),
+      credentials: 'same-origin',
+    })
+    if (!res.ok) throw new Error('Dépôt du trousseau refusé (' + res.status + ')')
+  }, [])
+
+  const finishUnlock = useCallback(async (payload: KeyringPayload, identity: BridgeIdentity) => {
+    const scoped = await buildScopedKeys(payload)
+    const ok = await verifyOrCreateCanary(scoped.global, identity)
+    if (ok !== true) throw new Error(ok)
+    if (remember) { try { await idb.set('kv', KEYRING_STORE, payload) } catch {} }
+    setServicePass(''); setInviteCode(''); setPass1(''); setPass2('')
+    installBridge(scoped, identity)
+  }, [remember, verifyOrCreateCanary, installBridge])
+
+  /** Choisit le parcours selon l'état E2EE du serveur pour cet utilisateur. */
+  const routeByState = useCallback((state: E2eeState) => {
+    if (state.hasKeyring) setPhase('unlock')
+    else if (state.hasGrant) setPhase('redeem')
+    else if (state.legacyKdf && !state.anyKeyrings) setPhase('migrate')
+    else if (!state.legacyKdf && !state.anyKeyrings) setPhase('create-fresh')
+    else setPhase('no-access')
+  }, [])
+
+  const loadStateAndRoute = useCallback(async (): Promise<E2eeState | null> => {
+    const { status, json } = await apiJson('/api/e2ee/state')
+    if (status !== 200) { setError('État du serveur indisponible'); return null }
+    const state = json as unknown as E2eeState
+    setE2ee(state)
+    routeByState(state)
+    return state
+  }, [routeByState])
+
+  // Boot : session existante ? trousseau mémorisé ?
   useEffect(() => { setMounted(true) }, [])
   useEffect(() => {
     if (!mounted) return
@@ -102,22 +168,21 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       if (status !== 200) { setPhase('login'); return }
       const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
       setMe(identity)
-      const kdf = await apiJson('/api/kdf')
-      if (cancelled) return
-      setKdfExists(Boolean(kdf.json.exists))
-      // clé mémorisée sur cet appareil ?
+      // trousseau mémorisé sur cet appareil ?
       try {
-        const stored = await idb.get<CryptoKey>('kv', KEY_STORE)
-        if (stored) {
-          const ok = await verifyOrCreateCanary(stored, identity)
-          if (ok === true) { installBridge(stored, identity); return }
-          await idb.del('kv', KEY_STORE)
+        await idb.del('kv', LEGACY_KEY_STORE) // ancien format (clé unique) : obsolète
+        const stored = await idb.get<KeyringPayload>('kv', KEYRING_STORE)
+        if (stored && stored.keys && stored.keys[SCOPE_GLOBAL]) {
+          const scoped = await buildScopedKeys(stored)
+          const ok = await verifyOrCreateCanary(scoped.global, identity)
+          if (ok === true && !cancelled) { installBridge(scoped, identity); return }
+          await idb.del('kv', KEYRING_STORE)
         }
       } catch {}
-      setPhase(kdf.json.exists ? 'unlock' : 'create-passphrase')
+      if (!cancelled) await loadStateAndRoute()
     })()
     return () => { cancelled = true }
-  }, [mounted, isWeb, installBridge, verifyOrCreateCanary])
+  }, [mounted, isWeb, installBridge, verifyOrCreateCanary, loadStateAndRoute])
 
   // Session expirée pendant l'utilisation
   useEffect(() => {
@@ -137,9 +202,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       if (verify.status !== 200) throw new Error(String(verify.json.error || 'Authentification refusée'))
       const identity: BridgeIdentity = { username: String(verify.json.username), displayName: String(verify.json.displayName), role: String(verify.json.role) }
       setMe(identity)
-      const kdf = await apiJson('/api/kdf')
-      setKdfExists(Boolean(kdf.json.exists))
-      setPhase(kdf.json.exists ? 'unlock' : 'create-passphrase')
+      await loadStateAndRoute()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Échec de la connexion')
     } finally { setBusy(false) }
@@ -154,39 +217,130 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       if (status !== 200) throw new Error(String(json.error || 'Enrôlement refusé'))
       const attestation = await startRegistration(json as never)
       const verify = await apiJson('/api/auth/register-verify', {
-        username: regUsername.trim(), displayName: regDisplay.trim() || regUsername.trim(), response: attestation,
+        username: regUsername.trim(), displayName: regDisplay.trim() || regUsername.trim(),
+        tribunal: regTribunal.trim() || undefined, response: attestation,
       })
       if (verify.status !== 200) throw new Error(String(verify.json.error || 'Vérification échouée'))
       const identity: BridgeIdentity = { username: String(verify.json.username), displayName: String(verify.json.displayName), role: String(verify.json.role) }
       setMe(identity)
-      const kdf = await apiJson('/api/kdf')
-      setKdfExists(Boolean(kdf.json.exists))
-      setPhase(kdf.json.exists ? 'unlock' : 'create-passphrase')
+      await loadStateAndRoute()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Échec de l'enrôlement")
     } finally { setBusy(false) }
   }
 
-  const doUnlock = async (creating: boolean) => {
+  const requirePersonalPhrase = () => {
+    if (pass1.length < 12) throw new Error('12 caractères minimum — choisissez une vraie phrase (ex. quatre mots aléatoires)')
+    if (pass1 !== pass2) throw new Error('Les deux saisies ne correspondent pas')
+  }
+
+  /** Déverrouillage : mon trousseau existe, ma phrase personnelle l'ouvre. */
+  const doUnlock = async () => {
     if (!me) return
     setBusy(true); setError('')
     try {
-      if (creating) {
-        if (pass1.length < 12) throw new Error('12 caractères minimum — choisissez une vraie phrase (ex. quatre mots aléatoires)')
-        if (pass1 !== pass2) throw new Error('Les deux saisies ne correspondent pas')
-        await apiJson('/api/kdf', {})
+      const { status, json } = await apiJson(`/api/vaults/keyring-${encodeURIComponent(me.username)}`)
+      if (status !== 200) throw new Error('Trousseau introuvable sur le serveur')
+      const envelope = json.envelope as unknown as CipherEnvelope & { kdfSalt?: string, kdfIterations?: number }
+      if (!envelope.kdfSalt || !envelope.kdfIterations) throw new Error('Trousseau invalide')
+      const userKey = await importAesKey(await deriveRawKey(pass1, envelope.kdfSalt, envelope.kdfIterations))
+      let payload: KeyringPayload
+      try {
+        payload = await decryptJson<KeyringPayload>(userKey, envelope)
+      } catch {
+        throw new Error('Phrase personnelle incorrecte')
       }
-      const kdf = await apiJson('/api/kdf')
-      const params = kdf.json.kdf as { salt: string, iterations: number } | null
-      if (!params) throw new Error('Paramètres de chiffrement indisponibles')
-      const key = await deriveKey(pass1, params.salt, params.iterations)
-      const ok = await verifyOrCreateCanary(key, me)
-      if (ok !== true) throw new Error(ok)
-      if (remember) { try { await idb.set('kv', KEY_STORE, key) } catch {} }
-      setPass1(''); setPass2('')
-      installBridge(key, me)
+      await finishUnlock(payload, me)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Déverrouillage impossible')
+    } finally { setBusy(false) }
+  }
+
+  /** Serveur vierge : je suis le premier — clés neuves pour tous les périmètres. */
+  const doCreateFresh = async () => {
+    if (!me) return
+    setBusy(true); setError('')
+    try {
+      requirePersonalPhrase()
+      const payload = freshKeyringPayload()
+      await pushKeyring(payload, pass1, me)
+      await finishUnlock(payload, me)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Création impossible')
+    } finally { setBusy(false) }
+  }
+
+  /**
+   * Migration depuis la phrase de service : vérifie l'ancienne phrase, génère
+   * des clés NEUVES par contentieux (rotation = vrai cloisonnement), re-chiffre
+   * les coffres de contentieux, puis scelle le tout dans mon trousseau.
+   */
+  const doMigrate = async () => {
+    if (!me || !e2ee?.legacyKdfParams) return
+    setBusy(true); setError('')
+    try {
+      requirePersonalPhrase()
+      if (!servicePass) throw new Error('Saisissez la phrase du service (ancien système)')
+      const { salt, iterations } = e2ee.legacyKdfParams
+      const serviceRaw = await deriveRawKey(servicePass, salt, iterations)
+      const serviceKey = await importAesKey(serviceRaw)
+      const ok = await verifyOrCreateCanary(serviceKey, me)
+      if (ok !== true) throw new Error('Phrase du service incorrecte')
+
+      const keys: Record<string, string> = { [SCOPE_GLOBAL]: b64.encode(serviceRaw) }
+      for (const id of KNOWN_CONTENTIEUX) {
+        const newRaw = randomRawKey()
+        const newKey = await importAesKey(newRaw)
+        for (const vaultName of [`ctx-${id}`, `ctx-alerts-${id}`]) {
+          const { status, json } = await apiJson(`/api/vaults/${vaultName}`)
+          if (status !== 200) continue
+          const env = json.envelope as unknown as CipherEnvelope
+          const data = await decryptJson(serviceKey, env)
+          const reEnc = await encryptJson(newKey, data, { savedAt: env.savedAt, savedBy: env.savedBy || me.username })
+          const put = await fetch(`/api/vaults/${vaultName}`, {
+            method: 'PUT', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(reEnc), credentials: 'same-origin',
+          })
+          if (!put.ok) throw new Error(`Rotation de ${vaultName} refusée (${put.status})`)
+        }
+        keys[`ctx-${id}`] = b64.encode(newRaw)
+      }
+      const now = new Date().toISOString()
+      const payload: KeyringPayload = { v: 1, keys, createdAt: now, updatedAt: now }
+      await pushKeyring(payload, pass1, me)
+      await finishUnlock(payload, me)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Migration impossible')
+    } finally { setBusy(false) }
+  }
+
+  /** Invitation : le code à usage unique ouvre la copie des clés déposée pour moi. */
+  const doRedeem = async () => {
+    if (!me) return
+    setBusy(true); setError('')
+    try {
+      requirePersonalPhrase()
+      const code = normalizeInvitationCode(inviteCode)
+      if (code.replace(/-/g, '').length < 20) throw new Error("Code d'invitation incomplet")
+      const { status, json } = await apiJson(`/api/vaults/grant-${encodeURIComponent(me.username)}`)
+      if (status !== 200) throw new Error('Invitation introuvable — demandez-en une nouvelle')
+      const envelope = json.envelope as unknown as CipherEnvelope & { kdfSalt?: string, kdfIterations?: number }
+      if (!envelope.kdfSalt || !envelope.kdfIterations) throw new Error('Invitation invalide')
+      const codeKey = await importAesKey(await deriveRawKey(code, envelope.kdfSalt, envelope.kdfIterations))
+      let grant: { keys: Record<string, string> }
+      try {
+        grant = await decryptJson<{ keys: Record<string, string> }>(codeKey, envelope)
+      } catch {
+        throw new Error("Code d'invitation incorrect")
+      }
+      const now = new Date().toISOString()
+      const payload: KeyringPayload = { v: 1, keys: grant.keys, createdAt: now, updatedAt: now }
+      await pushKeyring(payload, pass1, me)
+      // invitation consommée : on la supprime (best effort)
+      fetch(`/api/vaults/grant-${encodeURIComponent(me.username)}`, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {})
+      await finishUnlock(payload, me)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Invitation invalide')
     } finally { setBusy(false) }
   }
 
@@ -197,13 +351,39 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   }
   if (!isWeb || phase === 'ready') return <>{children}</>
 
+  const phraseFields = (withConfirm: boolean) => (
+    <>
+      <input className="siral-input" type="password" placeholder={withConfirm ? 'Votre phrase personnelle (nouvelle)' : 'Phrase personnelle'} value={pass1}
+        onChange={(e) => setPass1(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && phase === 'unlock') doUnlock() }} />
+      {withConfirm && (
+        <input className="siral-input" type="password" placeholder="Confirmez votre phrase personnelle" value={pass2} onChange={(e) => setPass2(e.target.value)} />
+      )}
+    </>
+  )
+
+  const rememberBox = (
+    <label className="siral-check">
+      <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+      Rester déverrouillé sur cet appareil
+    </label>
+  )
+
+  const irrecoverableNote = (
+    <div className="siral-note">
+      <span><b>Votre phrase personnelle est irrécupérable.</b> Personne — ni l&apos;hébergeur, ni le développeur — ne peut la réinitialiser.
+      En cas d&apos;oubli, un collègue pourra vous ré-inviter. Notez-la et conservez-la en lieu sûr.</span>
+    </div>
+  )
+
   return (
     <div className="siral-gate">
       <style>{`
         .siral-gate { position: fixed; inset: 0; z-index: 99999; display: flex; align-items: center; justify-content: center;
-          background: radial-gradient(900px 600px at 30% 20%, #224636, #0e1c14 70%); font-family: Inter, 'Segoe UI', sans-serif; }
-        .siral-card { width: 400px; max-width: calc(100vw - 32px); background: #fbfcfb; border-radius: 18px; padding: 30px 30px 24px;
-          box-shadow: 0 30px 70px rgba(0,0,0,.5); }
+          background: radial-gradient(900px 600px at 30% 20%, #224636, #0e1c14 70%); font-family: Inter, 'Segoe UI', sans-serif;
+          padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+        .siral-card { width: 400px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow-y: auto;
+          background: #fbfcfb; border-radius: 18px; padding: 30px 30px 24px; box-shadow: 0 30px 70px rgba(0,0,0,.5); }
         .siral-brand { display: flex; align-items: center; gap: 11px; margin-bottom: 20px; }
         .siral-mark { width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(140deg,#4d8a6c,#2B5746);
           display: flex; align-items: center; justify-content: center; color: #fff; font-size: 21px; font-weight: 700; font-family: Georgia, serif; }
@@ -225,6 +405,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
         .siral-check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #5b6b63; margin-top: 12px; }
         .siral-foot { text-align: center; font-size: 10px; color: #93a29a; margin-top: 16px; }
         .siral-user { font-size: 12px; color: #5b6b63; background: #f1f7f3; border-radius: 99px; padding: 4px 12px; display: inline-block; margin-bottom: 10px; }
+        .siral-sep { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #93a29a; margin-top: 16px; }
       `}</style>
       <div className="siral-card">
         <div className="siral-brand">
@@ -257,6 +438,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
             <div className="siral-text">Réservé aux membres du service munis du code d&apos;enrôlement. Utilisez votre identifiant habituel (le même que dans l&apos;app du service).</div>
             <input className="siral-input" placeholder="Identifiant (ex. a.chevalier)" value={regUsername} onChange={(e) => setRegUsername(e.target.value)} autoCapitalize="none" />
             <input className="siral-input" placeholder="Nom affiché (ex. A. Chevalier)" value={regDisplay} onChange={(e) => setRegDisplay(e.target.value)} />
+            <input className="siral-input" placeholder="Tribunal / juridiction (ex. TJ Marseille)" value={regTribunal} onChange={(e) => setRegTribunal(e.target.value)} />
             <input className="siral-input" placeholder="Code d'enrôlement" value={regCode} onChange={(e) => setRegCode(e.target.value)} />
             <button className="siral-btn" onClick={doRegister} disabled={busy || !regUsername.trim() || !regCode.trim()}>
               {busy ? 'Création…' : 'Créer ma passkey'}
@@ -266,42 +448,88 @@ export function WebGate({ children }: { children: React.ReactNode }) {
           </>
         )}
 
-        {(phase === 'unlock' || phase === 'create-passphrase') && (
+        {phase === 'unlock' && (
           <>
             {me && <span className="siral-user">Connecté : {me.displayName}</span>}
-            <div className="siral-title">{phase === 'unlock' ? 'Déverrouillage du coffre chiffré' : 'Création du coffre chiffré'}</div>
-            <div className="siral-text">
-              {phase === 'unlock'
-                ? 'Votre phrase secrète déchiffre les données localement, dans ce navigateur. Elle n’est jamais transmise au serveur.'
-                : 'Choisissez la phrase secrète du service. Elle chiffrera toutes les données avant leur envoi au serveur. Elle est partagée par les membres du service.'}
-            </div>
-            <input className="siral-input" type="password" placeholder="Phrase secrète" value={pass1}
-              onChange={(e) => setPass1(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && phase === 'unlock') doUnlock(false) }} />
-            {phase === 'create-passphrase' && (
-              <input className="siral-input" type="password" placeholder="Confirmez la phrase secrète" value={pass2} onChange={(e) => setPass2(e.target.value)} />
-            )}
-            <label className="siral-check">
-              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-              Rester déverrouillé sur cet appareil
-            </label>
-            <button className="siral-btn" onClick={() => doUnlock(phase === 'create-passphrase')} disabled={busy || !pass1}>
-              {busy ? 'Déchiffrement…' : phase === 'unlock' ? 'Déverrouiller' : 'Créer le coffre'}
+            <div className="siral-title">Déverrouillage de votre trousseau</div>
+            <div className="siral-text">Votre phrase personnelle déchiffre vos clés localement, dans ce navigateur. Elle n&apos;est jamais transmise au serveur.</div>
+            {phraseFields(false)}
+            {rememberBox}
+            <button className="siral-btn" onClick={doUnlock} disabled={busy || !pass1}>
+              {busy ? 'Déchiffrement…' : 'Déverrouiller'}
             </button>
-            {phase === 'create-passphrase' && (
-              <div className="siral-note">
-                <span><b>Cette phrase est irrécupérable.</b> Personne — ni l&apos;hébergeur, ni le développeur — ne peut la réinitialiser.
-                Notez-la sur le kit de récupération papier et conservez-le sous scellé au service.</span>
-              </div>
-            )}
-            {!kdfExists && phase === 'unlock' && (
-              <div className="siral-note"><span>Premier démarrage : le coffre n&apos;existe pas encore sur ce serveur.</span></div>
-            )}
             {error && <div className="siral-error">{error}</div>}
           </>
         )}
 
-        <div className="siral-foot">Chiffrement de bout en bout · hébergement UE · journal d&apos;accès</div>
+        {phase === 'create-fresh' && (
+          <>
+            {me && <span className="siral-user">Connecté : {me.displayName}</span>}
+            <div className="siral-title">Initialisation du chiffrement</div>
+            <div className="siral-text">Vous êtes le premier utilisateur de ce serveur. Des clés de chiffrement neuves vont être générées et scellées
+              dans votre trousseau personnel. Vous pourrez ensuite inviter vos collègues depuis Paramètres → Accès &amp; clés.</div>
+            {phraseFields(true)}
+            {rememberBox}
+            <button className="siral-btn" onClick={doCreateFresh} disabled={busy || !pass1}>
+              {busy ? 'Génération des clés…' : 'Créer mon trousseau'}
+            </button>
+            {irrecoverableNote}
+            {error && <div className="siral-error">{error}</div>}
+          </>
+        )}
+
+        {phase === 'migrate' && (
+          <>
+            {me && <span className="siral-user">Connecté : {me.displayName}</span>}
+            <div className="siral-title">Passage aux clés individuelles</div>
+            <div className="siral-text">Ce serveur utilise encore la phrase de service partagée. Saisissez-la une dernière fois, puis choisissez
+              votre phrase personnelle : les clés des contentieux seront régénérées (cloisonnement) et scellées dans votre trousseau.
+              Vos collègues recevront ensuite une invitation chacun.</div>
+            <input className="siral-input" type="password" placeholder="Phrase du service (ancien système)" value={servicePass} onChange={(e) => setServicePass(e.target.value)} />
+            <div className="siral-sep">Votre nouvelle phrase</div>
+            {phraseFields(true)}
+            {rememberBox}
+            <button className="siral-btn" onClick={doMigrate} disabled={busy || !servicePass || !pass1}>
+              {busy ? 'Migration des clés…' : 'Migrer vers mon trousseau'}
+            </button>
+            {irrecoverableNote}
+            {error && <div className="siral-error">{error}</div>}
+          </>
+        )}
+
+        {phase === 'redeem' && (
+          <>
+            {me && <span className="siral-user">Connecté : {me.displayName}</span>}
+            <div className="siral-title">Activer votre invitation</div>
+            <div className="siral-text">{e2ee?.grantKdf?.grantedBy ? `${e2ee.grantKdf.grantedBy} vous a invité.` : 'Une invitation vous attend.'} Saisissez
+              le code d&apos;invitation qui vous a été transmis, puis choisissez votre phrase personnelle.</div>
+            <input className="siral-input" placeholder="Code d'invitation (ex. 7K2MQ-…)" value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)} autoCapitalize="characters" />
+            <div className="siral-sep">Votre phrase personnelle</div>
+            {phraseFields(true)}
+            {rememberBox}
+            <button className="siral-btn" onClick={doRedeem} disabled={busy || !inviteCode.trim() || !pass1}>
+              {busy ? 'Activation…' : 'Activer mon accès'}
+            </button>
+            {irrecoverableNote}
+            {error && <div className="siral-error">{error}</div>}
+          </>
+        )}
+
+        {phase === 'no-access' && (
+          <>
+            {me && <span className="siral-user">Connecté : {me.displayName}</span>}
+            <div className="siral-title">Accès en attente</div>
+            <div className="siral-text">Votre compte est créé mais aucun trousseau de clés ne vous a encore été remis.
+              Demandez à un membre du service de vous inviter (Paramètres → Accès &amp; clés), puis revenez ici.</div>
+            <button className="siral-btn ghost" onClick={() => { setError(''); loadStateAndRoute() }} disabled={busy}>
+              J&apos;ai reçu mon invitation — vérifier
+            </button>
+            {error && <div className="siral-error">{error}</div>}
+          </>
+        )}
+
+        <div className="siral-foot">Chiffrement de bout en bout · clés individuelles · hébergement UE · journal d&apos;accès</div>
       </div>
     </div>
   )

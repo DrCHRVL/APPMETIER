@@ -6,9 +6,9 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
   return handle(async () => {
-    const { username, displayName, response, label } = await req.json()
+    const { username, displayName, response, label, tribunal } = await req.json()
     try {
-      const account = await registrationVerify(req, String(username || ''), String(displayName || ''), response, label)
+      const account = await registrationVerify(req, String(username || ''), String(displayName || ''), response, label, tribunal ? String(tribunal) : undefined)
       await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: account.username, action: 'auth.register', details: { role: account.role } })
       const cookie = createSessionCookie(account)
       return jsonResponse(

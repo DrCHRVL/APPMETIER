@@ -53,7 +53,7 @@ export async function registrationOptions(req: Request, username: string, displa
   return options
 }
 
-export async function registrationVerify(req: Request, username: string, displayName: string, response: RegistrationResponseJSON, label?: string) {
+export async function registrationVerify(req: Request, username: string, displayName: string, response: RegistrationResponseJSON, label?: string, tribunal?: string) {
   const challenge = takeChallenge('reg:' + username.toLowerCase())
   if (!challenge) throw new Error('Défi expiré, recommencez')
   const { rpID, origin } = rpFromRequest(req)
@@ -77,12 +77,14 @@ export async function registrationVerify(req: Request, username: string, display
   let account = findAccount(username)
   if (account) {
     account.credentials.push(cred)
+    if (tribunal && !account.tribunal) account.tribunal = tribunal.slice(0, 80)
   } else {
     account = {
       id: crypto.randomUUID(),
       username,
       displayName: displayName || username,
       role: listAccounts().length === 0 ? 'admin' : 'member',
+      tribunal: tribunal ? tribunal.slice(0, 80) : undefined,
       credentials: [cred],
       createdAt: new Date().toISOString(),
     }

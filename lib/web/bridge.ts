@@ -12,10 +12,11 @@
  */
 import { encryptJson, decryptJson, encryptBytes, decryptBytes, b64, CipherEnvelope } from './crypto'
 import { idb, exportKv, importKv } from './idb'
+import { ScopedKeys, scopeOfVault, SCOPE_GLOBAL, generateInvitationCode, deriveRawKey, importAesKey, newKdfParams } from './keyring'
 
 export interface BridgeIdentity { username: string, displayName: string, role: string }
 
-interface BuildOptions { key: CryptoKey, me: BridgeIdentity }
+interface BuildOptions { keys: ScopedKeys, me: BridgeIdentity }
 
 // Magie binaire des documents chiffrés : 'SIR1' + iv(12) + ciphertext
 const DOC_MAGIC = [0x53, 0x49, 0x52, 0x31]
@@ -52,14 +53,25 @@ async function api(path: string, init?: RequestInit & { timeoutMs?: number }): P
   }
 }
 
-export function buildWebBridge({ key, me }: BuildOptions): Record<string, AnyFn> {
+export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn> {
+  // Clé « globale » : coffres partagés, documents, événements, audit, présence.
+  const key = keys.global
+
+  /** Clé du coffre selon son périmètre — refuse l'accès à un contentieux hors trousseau. */
+  function keyFor(name: string): CryptoKey {
+    const scope = scopeOfVault(name)
+    const k = keys.byScope.get(scope)
+    if (!k) throw new Error(`Accès non autorisé : votre trousseau ne contient pas la clé « ${scope} »`)
+    return k
+  }
+
   // ── Coffres chiffrés ──
   async function vaultPull(name: string): Promise<unknown | null> {
     const res = await api(`/api/vaults/${encodeURIComponent(name)}`)
     if (res.status === 404) return null
     if (!res.ok) throw new NetworkError('Erreur serveur ' + res.status)
     const { envelope } = await res.json()
-    return decryptJson(key, envelope as CipherEnvelope)
+    return decryptJson(keyFor(name), envelope as CipherEnvelope)
   }
 
   /** Pull tolérant : null si absent OU injoignable (contrat globalSync). */
@@ -68,7 +80,7 @@ export function buildWebBridge({ key, me }: BuildOptions): Record<string, AnyFn>
   }
 
   async function vaultPush(name: string, payload: unknown, meta?: { savedAt?: string, savedBy?: string }): Promise<true> {
-    const envelope = await encryptJson(key, payload, {
+    const envelope = await encryptJson(keyFor(name), payload, {
       savedAt: meta?.savedAt || nowIso(),
       savedBy: meta?.savedBy || me.username,
     })
@@ -95,7 +107,7 @@ export function buildWebBridge({ key, me }: BuildOptions): Record<string, AnyFn>
       const res = await api(`/api/vaults/${encodeURIComponent(name)}/versions/${encodeURIComponent(filename)}`)
       if (!res.ok) return null
       const { envelope } = await res.json()
-      return decryptJson(key, envelope as CipherEnvelope)
+      return decryptJson(keyFor(name), envelope as CipherEnvelope)
     } catch { return null }
   }
 
@@ -457,14 +469,119 @@ export function buildWebBridge({ key, me }: BuildOptions): Record<string, AnyFn>
     },
     extractPDFText: async (buffer: unknown) => extractPdfText(buffer as ArrayBuffer),
 
-    // ── Fonctions « dossier externe » (spécifiques au poste Windows) ──
-    copyToExternalPath: async () => false,
-    validatePath: async () => false,
-    selectFolder: async () => null,
-    openExternalFolder: async () => false,
-    deleteFromExternalPath: async () => false,
-    syncDocuments: async () => ({ totalInternal: 0, totalExternal: 0, addedToInternal: 0, addedToExternal: 0, errors: ['Dossier externe non disponible en mode web'], externalAccessible: false }),
-    scanForNewDocuments: async () => ({ newDocuments: [], errors: [] }),
+    // ── Dossier commun local (File System Access — règle 3-2-1) ──
+    // Le « chemin externe » d'une enquête est un jeton fsa://… choisi via
+    // selectFolder ; les copies en clair y sont déposées, avec file d'attente
+    // quand le dossier (commun Windows) n'est pas joignable.
+    copyToExternalPath: async (enqueteNumero: unknown, externalPath: unknown, files: unknown, category: unknown, useSubfolder: unknown = true) => {
+      const fsa = await import('./folderAccess')
+      const token = String(externalPath || '')
+      if (!fsa.isFsaToken(token)) return false
+      const enq = String(enqueteNumero)
+      const sub = useSubfolder !== false
+      const list = (files as Array<{ cheminRelatif: string, nomOriginal?: string, nom?: string }>) || []
+      const reachable = await fsa.validateFolder(token)
+      let allOk = true
+      for (const f of list) {
+        const cat = String(category || f.cheminRelatif.split('/')[0] || 'Actes')
+        const name = f.nomOriginal || f.nom || f.cheminRelatif.split('/').pop() || 'document'
+        if (!reachable) {
+          await fsa.enqueueCopy({ enquete: enq, token, rel: f.cheminRelatif, originalName: name, category: cat, useSubfolder: sub })
+          allOk = false
+          continue
+        }
+        try {
+          const bytes = await docDownload(enq, f.cheminRelatif)
+          if (!bytes) { allOk = false; continue }
+          await fsa.writeToFolder(token, enq, sub, cat, name, bytes)
+        } catch {
+          await fsa.enqueueCopy({ enquete: enq, token, rel: f.cheminRelatif, originalName: name, category: cat, useSubfolder: sub })
+          allOk = false
+        }
+      }
+      return allOk
+    },
+    validatePath: async (pathToValidate: unknown) => {
+      const fsa = await import('./folderAccess')
+      const token = String(pathToValidate || '')
+      if (!fsa.isFsaToken(token)) return false
+      const ok = await fsa.validateFolder(token)
+      if (ok) fsa.flushPendingCopies(docDownload).catch(() => {})
+      return ok
+    },
+    selectFolder: async () => {
+      const fsa = await import('./folderAccess')
+      return fsa.pickFolder()
+    },
+    openExternalFolder: async () => false, // un navigateur ne peut pas ouvrir l'Explorateur
+    deleteFromExternalPath: async (externalPath: unknown, enqueteNumero: unknown, cheminRelatif: unknown) => {
+      const fsa = await import('./folderAccess')
+      const token = String(externalPath || '')
+      if (!fsa.isFsaToken(token)) return false
+      const rel = String(cheminRelatif)
+      const cat = rel.split('/')[0] || ''
+      const name = rel.split('/').pop() || ''
+      // les deux dispositions possibles (avec/sans sous-dossier d'enquête)
+      const a = await fsa.deleteFromFolder(token, String(enqueteNumero), true, cat, name)
+      const b = await fsa.deleteFromFolder(token, String(enqueteNumero), false, cat, name)
+      return a || b
+    },
+    syncDocuments: async (enqueteNumero: unknown, externalPath: unknown, useSubfolder: unknown = true) => {
+      const fsa = await import('./folderAccess')
+      const token = String(externalPath || '')
+      const enq = String(enqueteNumero)
+      const sub = useSubfolder !== false
+      const result = {
+        totalInternal: 0, totalExternal: 0,
+        addedToInternal: [] as string[], addedToExternal: [] as string[],
+        errors: [] as string[], externalAccessible: true,
+      }
+      if (!fsa.isFsaToken(token)) {
+        result.errors.push('Aucun dossier commun configuré sur cet appareil (bouton « Configurer chemin »)')
+        result.externalAccessible = false
+        return result
+      }
+      if (!(await fsa.validateFolder(token))) {
+        result.errors.push('Dossier commun inaccessible actuellement')
+        result.externalAccessible = false
+        return result
+      }
+      await fsa.flushPendingCopies(docDownload).catch(() => {})
+      const internal = await docList(enq)
+      result.totalInternal = internal.length
+      const cats = Array.from(new Set(['Geoloc', 'Ecoutes', 'Actes', 'PV', ...internal.map((d) => d.rel.split('/')[0])]))
+      for (const cat of cats) {
+        const externalNames = await fsa.listFolderFiles(token, enq, sub, cat)
+        result.totalExternal += externalNames.length
+        const inCat = internal.filter((d) => d.rel.startsWith(cat + '/'))
+        // interne → externe : pousser ce qui manque
+        for (const d of inCat) {
+          const base = d.rel.split('/').pop() || ''
+          const name = d.originalName || base
+          const present = externalNames.some((n) => n === name || n === base || n === encodeDocName(name))
+          if (present) continue
+          try {
+            const bytes = await docDownload(enq, d.rel)
+            if (bytes) { await fsa.writeToFolder(token, enq, sub, cat, name, bytes); result.addedToExternal.push(name) }
+          } catch (e) {
+            result.errors.push(`Copie vers le commun échouée : ${name}`)
+          }
+        }
+        // externe → interne : importer ce qui a été déposé à la main
+        for (const n of externalNames) {
+          const known = inCat.some((d) => (d.rel.split('/').pop() || '') === n || d.originalName === n || encodeDocName(d.originalName || '') === n)
+          if (known) continue
+          try {
+            const bytes = await fsa.readFromFolder(token, enq, sub, cat, n)
+            if (bytes) { await docUpload(enq, `${cat}/${encodeDocName(n)}`, bytes, cat, n); result.addedToInternal.push(n) }
+          } catch {
+            result.errors.push(`Import depuis le commun échoué : ${n}`)
+          }
+        }
+      }
+      return result
+    },
+    scanForNewDocuments: async () => ({ newDocuments: [], errors: [] }), // sans objet : le serveur est la source interne
     scanExternalPDFs: async () => ({ documents: [], errors: ['Scan externe non disponible en mode web'], foldersScanned: [] }),
 
     // ── Configuration serveur (gérée par SIRAL côté web) ──
@@ -679,7 +796,58 @@ export function buildWebBridge({ key, me }: BuildOptions): Record<string, AnyFn>
     consultation_activate: async () => ({ success: false, error: 'Indisponible en mode web — utilisez un compte en lecture seule' }),
     consultation_deactivate: async () => ({ success: false, error: 'Indisponible en mode web' }),
     consultation_refreshNow: async () => ({ success: false, error: 'Indisponible en mode web' }),
+
+    // ── Cloisonnement par clé individuelle (trousseaux) ──
+    e2ee_myScopes: async () => Array.from(keys.byScope.keys()),
+    e2ee_listAccounts: async () => {
+      const res = await api('/api/accounts')
+      if (!res.ok) throw new Error('Liste des comptes indisponible (' + res.status + ')')
+      const { accounts } = await res.json()
+      return accounts
+    },
+    /**
+     * Invite un collègue : dépose une copie des clés (périmètres choisis,
+     * global toujours inclus) chiffrée par un code à usage unique, et
+     * retourne ce code — à lui transmettre hors-ligne.
+     */
+    e2ee_invite: async (username: unknown, scopes?: unknown) => {
+      const user = sanitizeName(username)
+      const wanted = Array.isArray(scopes) && scopes.length
+        ? [SCOPE_GLOBAL, ...((scopes as string[]).filter((s) => s !== SCOPE_GLOBAL))]
+        : Object.keys(keys.raw)
+      const subset: Record<string, string> = {}
+      for (const s of wanted) {
+        if (!keys.raw[s]) throw new Error(`Votre trousseau ne contient pas la clé « ${s} »`)
+        subset[s] = keys.raw[s]
+      }
+      const code = generateInvitationCode()
+      const kdf = newKdfParams()
+      const codeKey = await importAesKey(await deriveRawKey(code, kdf.salt, kdf.iterations))
+      const envelope = await encryptJson(codeKey, { v: 1, keys: subset, grantedBy: me.username, grantedAt: nowIso() })
+      const res = await api(`/api/vaults/grant-${encodeURIComponent(user)}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...envelope, kdfSalt: kdf.salt, kdfIterations: kdf.iterations }),
+      })
+      if (!res.ok) throw new Error("Dépôt de l'invitation refusé (" + res.status + ')')
+      return { code, scopes: Object.keys(subset) }
+    },
+    /** Révoque l'accès d'un compte : supprime son trousseau et toute invitation en attente. */
+    e2ee_revoke: async (username: unknown) => {
+      const user = sanitizeName(username)
+      const r1 = await api(`/api/vaults/keyring-${encodeURIComponent(user)}`, { method: 'DELETE' })
+      const r2 = await api(`/api/vaults/grant-${encodeURIComponent(user)}`, { method: 'DELETE' })
+      if (!r1.ok && !r2.ok) throw new Error('Révocation refusée (' + r1.status + ')')
+      return true
+    },
   }
+
+  // Copies « dossier commun » en attente : tentative au démarrage (réussit si
+  // la permission du dossier est encore accordée), sinon rejouées au prochain
+  // passage par « Configurer chemin » ou « Synchroniser ».
+  setTimeout(() => {
+    import('./folderAccess').then((f) => f.flushPendingCopies(docDownload)).catch(() => {})
+  }, 8000)
 
   function metaOf(metadata: unknown): { savedAt?: string, savedBy?: string } {
     const m = metadata as { savedAt?: string, savedBy?: string } | null
