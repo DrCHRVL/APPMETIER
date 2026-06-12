@@ -435,6 +435,12 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           'success'
         );
 
+        // Synchro automatique au téléversement (web) : réconcilie aussi P:\ → serveur
+        // si des fichiers y ont été déposés à la main. Silencieux, dédupliqué.
+        if (isWeb && enquete.cheminExterne?.startsWith('fsa://')) {
+          setTimeout(() => syncRef.current(true), 1500);
+        }
+
         // Analyse automatique : texte des PDF téléversés → proposition d'actes
         // (autorisations/prolongations écoutes et géoloc au format standard).
         if (window.electronAPI.extractPDFText) {
@@ -671,7 +677,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
               {enquete.cheminExterne && (
                 <Button
                   variant="outline" size="sm"
-                  onClick={synchronizeDocuments}
+                  onClick={() => synchronizeDocuments()}
                   disabled={isSyncing}
                   className="flex items-center gap-2"
                   title="Synchroniser les documents entre interne et externe"
