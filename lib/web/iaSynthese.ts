@@ -96,8 +96,7 @@ export async function exportDossierMarkdown(
     }
   }
   const header = [
-    '<!-- Export SIRAL pour analyse IA — généré le ' + new Date().toLocaleString('fr-FR') + ' -->',
-    '<!-- Contient des données d\'enquête sensibles : à votre seule discrétion. -->',
+    '<!-- Export SIRAL — dossier complet, généré le ' + new Date().toLocaleString('fr-FR') + ' -->',
     '',
   ].join('\n')
   const content = header + buildDossierMarkdown(enquete, docTexts)

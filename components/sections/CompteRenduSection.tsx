@@ -7,7 +7,7 @@ import { Label } from '../ui/label';
 import { Enquete, CompteRendu } from '@/types/interfaces';
 import { X, FileText, Calendar, User, Sparkles, FileDown } from 'lucide-react';
 import { SyntheseIAModal } from '../modals/SyntheseIAModal';
-import { exportDossierMarkdown } from '@/lib/web/iaSynthese';
+import { exportDossierMarkdown, iaStatus } from '@/lib/web/iaSynthese';
 import { useMemo, useState, useRef, useEffect, useCallback, memo, MouseEvent } from 'react';
 import { useUser } from '@/contexts/UserContext';
 import { renderFormattedText, stripClipboardNoise } from '@/lib/formatCR';
@@ -233,8 +233,10 @@ export const CompteRenduSection = memo(({
 
   // États pour l'UX
   const [showSyntheseIA, setShowSyntheseIA] = useState(false);
+  const [iaActive, setIaActive] = useState(false); // bouton visible uniquement si un serveur de synthèse est configuré
   const [exportingMd, setExportingMd] = useState<string | null>(null);
   const { showToast } = useToast();
+  useEffect(() => { iaStatus().then(s => setIaActive(!!s.enabled)).catch(() => {}); }, []);
 
   // Export du dossier complet (CR + texte des PDF + actes + mis en cause) en
   // markdown — à déposer dans une IA externe (Claude) pour synthèse.
@@ -247,7 +249,7 @@ export const CompteRenduSection = memo(({
       );
       await window.electronAPI.saveFileDialog(filename, content);
       const skipped = pdfFailed.length ? ` — ${pdfFailed.length} PDF illisible(s) ignoré(s)` : '';
-      showToast(`Dossier exporté (${pdfCount} PDF inclus)${skipped} : déposez le fichier dans Claude`, 'success');
+      showToast(`Dossier exporté (${pdfCount} PDF inclus)${skipped}`, 'success');
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Export impossible', 'error');
     } finally {
@@ -659,21 +661,21 @@ export const CompteRenduSection = memo(({
               disabled={exportingMd !== null}
               size="sm"
               variant="ghost"
-              className="text-violet-600 hover:text-violet-700 hover:bg-violet-50 gap-1"
-              title="Exporter tout le dossier (CR, texte des PDF, actes, mis en cause) en un fichier markdown à déposer dans une IA (Claude…)"
+              className="gap-1"
+              title="Exporter tout le dossier (CR, texte des PDF, actes, mis en cause) en un fichier texte"
             >
-              <FileDown className="h-3.5 w-3.5" /> {exportingMd || 'Export IA (.md)'}
+              <FileDown className="h-3.5 w-3.5" /> {exportingMd || 'Exporter le dossier (.md)'}
             </Button>
           )}
-          {!isInstruction && (
+          {!isInstruction && iaActive && (
             <Button
               onClick={() => setShowSyntheseIA(true)}
               size="sm"
               variant="ghost"
-              className="text-violet-600 hover:text-violet-700 hover:bg-violet-50 gap-1"
-              title="Synthèse du dossier par l'IA locale du service (si configurée)"
+              className="gap-1"
+              title="Synthèse automatique du dossier (serveur du service)"
             >
-              <Sparkles className="h-3.5 w-3.5" /> Synthèse IA
+              <Sparkles className="h-3.5 w-3.5" /> Synthèse
             </Button>
           )}
           <Button 

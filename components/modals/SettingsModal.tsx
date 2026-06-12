@@ -65,7 +65,6 @@ const TABS: TabDef[] = [
   { id: 'tags',        label: 'Tags',        icon: Tags, section: 'general' },
   { id: 'sauvegardes', label: 'Sauvegardes', icon: Save, section: 'general' },
   { id: 'mon_profil',  label: 'Mon profil',  icon: User, section: 'general' },
-  { id: 'ia_synthese', label: 'Synthèse IA', icon: Sparkles, section: 'general' },
   { id: 'a_propos',    label: 'À propos',    icon: Info, section: 'general' },
 
   // Modules (visibles selon les modules activés pour l'utilisateur)
@@ -80,6 +79,7 @@ const TABS: TabDef[] = [
   { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      section: 'admin', isAdmin: true },
   { id: 'admin_tag_history', label: 'Historique tags',  icon: ClipboardList, section: 'admin', isAdmin: true },
   { id: 'admin_update',      label: 'Mise à jour',      icon: Upload,        section: 'admin', isAdmin: true },
+  { id: 'ia_synthese',       label: 'Synthèse auto',    icon: Sparkles,      section: 'admin', isAdmin: true },
 ];
 
 const SECTION_LABELS: Record<TabSection, string> = {

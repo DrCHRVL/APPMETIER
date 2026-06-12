@@ -59,7 +59,7 @@ export const SyntheseIAModal = ({ isOpen, onClose, enquete }: SyntheseIAModalPro
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-violet-600" />
-            Synthèse IA — dossier {enquete.numero}
+            Synthèse automatique — dossier {enquete.numero}
             {model && <span className="text-xs font-normal text-gray-400">({model}, serveur du service)</span>}
           </DialogTitle>
         </DialogHeader>
