@@ -403,9 +403,9 @@ export const ArchivePage = ({
   };
 
   return (
-    <div className="flex gap-4 px-6">
+    <div className="flex flex-col lg:flex-row gap-4 px-3 lg:px-6">
       {/* Colonne de gauche : Audiences en attente */}
-      <div className="w-72 flex-shrink-0">
+      <div className="w-full lg:w-72 lg:flex-shrink-0">
         <Card className="shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
@@ -419,7 +419,7 @@ export const ArchivePage = ({
               )}
             </div>
           </CardHeader>
-          <CardContent className="space-y-1 max-h-[calc(100vh-200px)] overflow-y-auto">
+          <CardContent className="space-y-1 lg:max-h-[calc(100vh-200px)] lg:overflow-y-auto">
             {pendingEnquetes.length === 0 ? (
               <p className="text-xs text-gray-500 text-center py-4">Aucune audience en attente</p>
             ) : (
@@ -519,7 +519,7 @@ export const ArchivePage = ({
       </div>
 
       {/* Colonne de droite : Enquêtes terminées */}
-      <div className="flex-1 space-y-4 overflow-y-auto max-h-[calc(100vh-120px)]">
+      <div className="flex-1 space-y-4 lg:overflow-y-auto lg:max-h-[calc(100vh-120px)]">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-lg font-semibold text-gray-700">Préliminaires terminées</h2>
           {completedEnquetes.length > 0 && (
