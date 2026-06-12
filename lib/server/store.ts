@@ -72,10 +72,16 @@ export function isSafeName(name: string): boolean {
   return NAME_RE.test(name) && !name.includes('..')
 }
 
+// Segments de chemins de documents : les fichiers viennent de Windows
+// (espaces, accents, parenthèses…) et les enquêtes migrées de l'app bureau
+// les référencent tels quels — on accepte donc tout caractère imprimable,
+// en gardant l'anti-traversal strict (pas de '..', pas de segment caché :
+// `.index.json` vit dans le même dossier).
+const DOC_SEGMENT_RE = /^(?!\.)[^\\/\x00-\x1f]{1,160}$/
 export function isSafeRelPath(rel: string): boolean {
   if (!rel || rel.length > 600) return false
   if (rel.includes('..') || rel.includes('\\') || path.isAbsolute(rel)) return false
-  return rel.split('/').every((seg) => seg.length > 0 && isSafeName(seg))
+  return rel.split('/').every((seg) => DOC_SEGMENT_RE.test(seg))
 }
 
 // ════════════════════════════════════════════════════════════════════════

@@ -311,4 +311,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   e2ee_listAccounts: async () => { throw new Error('Gestion des accès disponible dans l\'édition web') },
   e2ee_invite: async () => { throw new Error('Gestion des accès disponible dans l\'édition web') },
   e2ee_revoke: async () => { throw new Error('Gestion des accès disponible dans l\'édition web') },
+
+  // === IMPORT DEPUIS L'APP BUREAU (édition web uniquement) ===
+  // L'app de bureau EST la source : ces fonctions n'ont de sens que dans le
+  // navigateur, où elles chiffrent puis poussent vers le serveur SIRAL.
+  desktopImport_pushVault: async () => { throw new Error('Import vers le serveur disponible dans l\'édition web') },
+  desktopImport_uploadDocument: async () => { throw new Error('Import vers le serveur disponible dans l\'édition web') },
 })

@@ -102,8 +102,10 @@ Ouvrez **https://votre-domaine** : l'écran de connexion SIRAL apparaît.
 
 ## 4. Premier démarrage (~10 min)
 
-> **Conseil : faites l'import des données (§ 4.1) AVANT votre première
-> connexion.** L'écran de migration s'occupera alors de tout d'un coup.
+> **Pour récupérer vos données existantes**, deux chemins (§ 4.1) :
+> l'**import dans l'app** (recommandé : aucune ligne de commande, après votre
+> première connexion) ou le **script en SSH** (avancé : à faire AVANT votre
+> première connexion, l'écran de migration s'occupe alors de tout d'un coup).
 
 1. **Enrôlement** : « Premier accès ? Enrôler une passkey » → identifiant
    (utilisez **le même identifiant que dans l'app Electron** — celui de
@@ -128,6 +130,32 @@ Ouvrez **https://votre-domaine** : l'écran de connexion SIRAL apparaît.
    au même endroit.
 
 ### 4.1 Importer les données existantes
+
+#### Option A — dans l'app (recommandée, ~5 min, aucune ligne de commande)
+
+À faire **depuis le poste qui voit le partage du service** (lecteur `P:`),
+après votre première connexion (enrôlement + trousseau, étapes 1 et 2
+ci-dessus) :
+
+1. Ouvrez **Paramètres → Sauvegardes → « Import depuis l'app bureau »**.
+2. **Dossier du service** : sélectionnez le dossier de données partagé
+   (ex. `P:\TGI\Parquet\...\10_App METIER`).
+3. **Dossier des pièces** (facultatif) : sélectionnez `documentenquete`
+   (ex. `C:\...\app\data\documentenquete`).
+4. Vérifiez le récapitulatif (contentieux, enquêtes, tags, instructions…)
+   puis lancez : tout est **chiffré dans votre navigateur** avec votre
+   trousseau avant l'envoi — pas de phrase de transit, aucune copie en clair
+   ne touche le serveur.
+5. Un **rapport de complétude** s'affiche ; en cas d'erreur, l'import est
+   rejouable sans risque (les coffres sont versionnés). Rechargez l'app :
+   vos données sont là.
+
+> Si un contentieux apparaît « bloqué », c'est que sa clé n'est pas dans
+> votre trousseau — sur un serveur vierge dont vous êtes le premier compte,
+> vous avez toutes les clés, ce cas ne se présente pas.
+
+#### Option B — script en SSH (avancé, AVANT la première connexion)
+
 Sur le serveur, déposez une copie de vos données (depuis votre poste,
 PowerShell) :
 
@@ -158,8 +186,9 @@ individuelles », puis elle n'aura plus d'usage (les clés sont régénérées).
 Le script affiche un **rapport de complétude** (comptages par type) et refuse
 de conclure si quelque chose manque. Rechargez l'app : vos données sont là.
 
-> ⚠️ Tant que la migration n'est pas validée, l'app Electron du service reste
-> l'outil de référence. Rien n'est supprimé côté Electron.
+> ⚠️ Quelle que soit l'option : tant que la migration n'est pas validée,
+> l'app Electron du service reste l'outil de référence. Rien n'est supprimé
+> côté Electron.
 
 ---
 

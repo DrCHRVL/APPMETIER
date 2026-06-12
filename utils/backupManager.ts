@@ -751,6 +751,37 @@ class BackupManager {
     }
   }
 
+  /**
+   * Import depuis un fichier d'export (« Export sélectif » ou sauvegarde
+   * SIRAL). Valide la structure, crée une sauvegarde de sécurité, puis
+   * restaure clé par clé — toute écriture refusée interrompt l'import.
+   */
+  public async importFromFile(content: string): Promise<{ success: boolean; restoredKeys: string[]; error?: string }> {
+    let data: Record<string, any>;
+    try {
+      data = JSON.parse(content);
+    } catch {
+      return { success: false, restoredKeys: [], error: 'Fichier illisible (JSON invalide)' };
+    }
+    if (!StorageValidator.validateBackupData(data)) {
+      return { success: false, restoredKeys: [], error: 'Structure non reconnue — fichier attendu : un export sélectif ou une sauvegarde SIRAL' };
+    }
+    try {
+      await this.createBackup(true); // sécurité avant écrasement
+      const restoredKeys: string[] = [];
+      for (const key of Object.keys(data)) {
+        const ok = await ElectronBridge.setData(key, data[key]);
+        if (!ok) return { success: false, restoredKeys, error: `Écriture refusée pour « ${key} » (valeur vide ?)` };
+        restoredKeys.push(key);
+      }
+      console.log(`✅ Import file restored ${restoredKeys.length} data types`);
+      return { success: true, restoredKeys };
+    } catch (error) {
+      console.error('❌ Error importing from file:', error);
+      return { success: false, restoredKeys: [], error: error instanceof Error ? error.message : 'Erreur inattendue' };
+    }
+  }
+
   public async checkDataIntegrity(): Promise<boolean> {
     try {
       let isIntact = true;

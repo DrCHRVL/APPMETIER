@@ -21,6 +21,11 @@ interface BuildOptions { keys: ScopedKeys, me: BridgeIdentity }
 // Magie binaire des documents chiffrés : 'SIR1' + iv(12) + ciphertext
 const DOC_MAGIC = [0x53, 0x49, 0x52, 0x31]
 
+// Coffres acceptés par l'import depuis l'app bureau (mêmes cibles que
+// scripts/siral-import.js) : l'import ne peut pas toucher aux coffres
+// d'accès (keyring-*, grant-*) ni à des noms arbitraires.
+const DESKTOP_IMPORT_VAULT_RE = /^(users-config|tags|audience|alerts|deleted-ids|cartographie|app-data|legacy-app-data|ctx-alerts-[a-zA-Z0-9._-]{1,64}|ctx-[a-zA-Z0-9._-]{1,64}|instructions-[a-zA-Z0-9._-]{1,64}|user-prefs-[a-zA-Z0-9._-]{1,64})$/
+
 type AnyFn = (...args: unknown[]) => unknown
 
 function nowIso() { return new Date().toISOString() }
@@ -951,6 +956,25 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       const r1 = await api(`/api/vaults/keyring-${encodeURIComponent(user)}`, { method: 'DELETE' })
       const r2 = await api(`/api/vaults/grant-${encodeURIComponent(user)}`, { method: 'DELETE' })
       if (!r1.ok && !r2.ok) throw new Error('Révocation refusée (' + r1.status + ')')
+      return true
+    },
+
+    // ── Import depuis l'app bureau (Paramètres → Sauvegardes) ──
+    /** Chiffre puis pousse un coffre de données — uniquement les cibles connues de l'import. */
+    desktopImport_pushVault: async (name: unknown, payload: unknown, meta?: unknown) => {
+      const n = String(name)
+      if (!DESKTOP_IMPORT_VAULT_RE.test(n)) throw new Error(`Coffre non autorisé à l'import : ${n}`)
+      await vaultPush(n, payload, metaOf(meta))
+      return true
+    },
+    /** Dépose un document d'enquête en conservant son chemin relatif d'origine
+     *  (saveDocuments renomme — ici les liens des enquêtes doivent rester valides). */
+    desktopImport_uploadDocument: async (enquete: unknown, rel: unknown, buffer: unknown, category?: unknown, originalName?: unknown) => {
+      await docUpload(
+        String(enquete), String(rel), new Uint8Array(buffer as ArrayBuffer),
+        category === undefined ? undefined : String(category),
+        originalName === undefined ? undefined : String(originalName),
+      )
       return true
     },
   }

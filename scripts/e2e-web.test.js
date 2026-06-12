@@ -160,6 +160,29 @@ async function main() {
     const backups = await page.evaluate(() => window.electronAPI.dataSync_listContentieuxBackups('crimorg'))
     check('Liste des sauvegardes serveur visible depuis l\'app', Array.isArray(backups) && backups.length >= 1, backups[0])
 
+    // ── 5 bis. Import depuis l'app bureau (Paramètres → Sauvegardes) ──
+    const desktopImportOk = await page.evaluate(async () => {
+      // poussée d'un fichier du partage tel que l'import le ferait
+      const tagsOk = await window.electronAPI.desktopImport_pushVault('tags',
+        { tags: { 'OP-IMPORT': { couleur: '#123456' } } }, { savedBy: 'import-bureau' })
+      const back = await window.electronAPI.globalSync_pullTags()
+      // dépôt d'un document en CONSERVANT son chemin relatif (liens d'enquête)
+      const bytes = new TextEncoder().encode('PV IMPORT BUREAU')
+      await window.electronAPI.desktopImport_uploadDocument('26-998', 'Actes/PV import buréau n°2.pdf', bytes.buffer, 'Actes', 'PV import buréau n°2.pdf')
+      const docExists = await window.electronAPI.documentExists('26-998', 'Actes/PV import buréau n°2.pdf')
+      // les coffres d'accès et noms arbitraires sont refusés
+      let keyringRefused = false
+      try { await window.electronAPI.desktopImport_pushVault('keyring-a.chevalier', {}) } catch { keyringRefused = true }
+      let arbitraryRefused = false
+      try { await window.electronAPI.desktopImport_pushVault('e2ee-check', {}) } catch { arbitraryRefused = true }
+      return { tagsOk: tagsOk === true && !!back && !!back.tags, docExists, keyringRefused, arbitraryRefused }
+    })
+    check('Import bureau : coffre partagé poussé et relisible', desktopImportOk.tagsOk)
+    check('Import bureau : document déposé avec chemin relatif préservé', desktopImportOk.docExists)
+    check('Import bureau : coffres d\'accès refusés', desktopImportOk.keyringRefused && desktopImportOk.arbitraryRefused)
+    const importVaultRaw = fs.readFileSync(path.join(DATA_DIR, 'vaults', 'tags.json'), 'utf8')
+    check('Import bureau : coffre chiffré côté serveur', !importVaultRaw.includes('OP-IMPORT'))
+
     // ── 6. Documents chiffrés ──
     const docOk = await page.evaluate(async () => {
       const bytes = new TextEncoder().encode('CONTENU PDF FICTIF — réquisitoire OP TEST')
