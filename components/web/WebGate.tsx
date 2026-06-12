@@ -25,6 +25,8 @@ import {
   importAesKey, randomRawKey, newKdfParams, normalizeInvitationCode, KNOWN_CONTENTIEUX, SCOPE_GLOBAL,
 } from '@/lib/web/keyring'
 import { idb } from '@/lib/web/idb'
+import { setDefaultTribunal } from '@/utils/documents/tribunalDefault'
+import { TRIBUNAUX } from '@/lib/tribunaux'
 
 type Phase = 'boot' | 'login' | 'register' | 'unlock' | 'create-fresh' | 'migrate' | 'redeem' | 'no-access' | 'recovery-kit' | 'ready'
 
@@ -60,6 +62,17 @@ async function apiJson(path: string, body?: unknown, method?: string): Promise<{
   return { status: res.status, json }
 }
 
+/** Identité issue d'une réponse serveur (/api/me, login, enrôlement). */
+function toIdentity(json: Record<string, unknown>): BridgeIdentity {
+  return {
+    username: String(json.username),
+    displayName: String(json.displayName),
+    role: String(json.role),
+    tribunal: json.tribunal != null ? String(json.tribunal) : null,
+    vaultPrefix: typeof json.vaultPrefix === 'string' ? json.vaultPrefix : '',
+  }
+}
+
 export function WebGate({ children }: { children: React.ReactNode }) {
   const [phase, setPhase] = useState<Phase>('boot')
   // Rendu initial identique côté serveur et client (sinon erreur d'hydratation) :
@@ -93,6 +106,8 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   const installBridge = useCallback((keys: ScopedKeys, identity: BridgeIdentity) => {
     if (installedRef.current) return
     installedRef.current = true
+    // juridiction de l'utilisateur → défaut du moteur documentaire (fini « Amiens » en dur)
+    setDefaultTribunal(identity.tribunal)
     const bridge = buildWebBridge({ keys, me: identity })
     if (window.__SIRAL_BRIDGE_SET__) window.__SIRAL_BRIDGE_SET__(bridge as Record<string, unknown>)
     // enregistre le service worker (PWA / hors-ligne)
@@ -109,10 +124,12 @@ export function WebGate({ children }: { children: React.ReactNode }) {
 
   /** Vérifie la clé globale via le coffre-témoin e2ee-check (le crée au premier déverrouillage). */
   const verifyOrCreateCanary = useCallback(async (globalKey: CryptoKey, identity: BridgeIdentity): Promise<true | string> => {
-    const { status, json } = await apiJson('/api/vaults/e2ee-check')
+    // Coffre-témoin propre à la juridiction (préfixe de cloisonnement).
+    const canary = `/api/vaults/${encodeURIComponent((identity.vaultPrefix || '') + 'e2ee-check')}`
+    const { status, json } = await apiJson(canary)
     if (status === 404) {
       const envelope = await encryptJson(globalKey, { check: 'siral', createdAt: new Date().toISOString() }, { savedBy: identity.username })
-      const put = await fetch('/api/vaults/e2ee-check', {
+      const put = await fetch(canary, {
         method: 'PUT', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(envelope), credentials: 'same-origin',
       })
@@ -223,7 +240,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       const { status, json } = await apiJson('/api/me')
       if (cancelled) return
       if (status !== 200) { setPhase('login'); return }
-      const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
+      const identity = toIdentity(json)
       setMe(identity)
       // trousseau mémorisé sur cet appareil ?
       try {
@@ -257,7 +274,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       const assertion = await startAuthentication(json as never)
       const verify = await apiJson('/api/auth/login-verify', { response: assertion })
       if (verify.status !== 200) throw new Error(String(verify.json.error || 'Authentification refusée'))
-      const identity: BridgeIdentity = { username: String(verify.json.username), displayName: String(verify.json.displayName), role: String(verify.json.role) }
+      const identity = toIdentity(verify.json)
       setMe(identity)
       await loadStateAndRoute()
     } catch (e) {
@@ -272,7 +289,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
         username: loginUsername.trim(), password: loginPassword,
       })
       if (status !== 200) throw new Error(String(json.error || 'Connexion refusée'))
-      const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
+      const identity = toIdentity(json)
       setMe(identity)
       setLoginPassword('')
       await loadStateAndRoute()
@@ -289,7 +306,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
         tribunal: regTribunal.trim() || undefined, password: regPassword, setupCode: regCode.trim(),
       })
       if (status !== 200) throw new Error(String(json.error || 'Enrôlement refusé'))
-      const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
+      const identity = toIdentity(json)
       setMe(identity)
       setRegPassword('')
       await loadStateAndRoute()
@@ -311,7 +328,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
         tribunal: regTribunal.trim() || undefined, response: attestation,
       })
       if (verify.status !== 200) throw new Error(String(verify.json.error || 'Vérification échouée'))
-      const identity: BridgeIdentity = { username: String(verify.json.username), displayName: String(verify.json.displayName), role: String(verify.json.role) }
+      const identity = toIdentity(verify.json)
       setMe(identity)
       await loadStateAndRoute()
     } catch (e) {
@@ -537,7 +554,10 @@ export function WebGate({ children }: { children: React.ReactNode }) {
             <div className="siral-text">Réservé aux membres du service munis du code d&apos;enrôlement. Utilisez votre identifiant habituel (le même que dans l&apos;app du service).</div>
             <input className="siral-input" placeholder="Identifiant (ex. a.chevalier)" value={regUsername} onChange={(e) => setRegUsername(e.target.value)} autoCapitalize="none" />
             <input className="siral-input" placeholder="Nom affiché (ex. A. Chevalier)" value={regDisplay} onChange={(e) => setRegDisplay(e.target.value)} />
-            <input className="siral-input" placeholder="Tribunal / juridiction (ex. TJ Marseille)" value={regTribunal} onChange={(e) => setRegTribunal(e.target.value)} />
+            <input className="siral-input" list="siral-tribunaux" placeholder="Tribunal / juridiction (ex. TJ Marseille)" value={regTribunal} onChange={(e) => setRegTribunal(e.target.value)} autoComplete="off" />
+            <datalist id="siral-tribunaux">
+              {TRIBUNAUX.map((t) => <option key={t.slug} value={t.label} />)}
+            </datalist>
             <input className="siral-input" placeholder="Code d'enrôlement" value={regCode} onChange={(e) => setRegCode(e.target.value)} />
             <input className="siral-input" type="password" placeholder="Mot de passe (laisser vide pour une passkey)" value={regPassword}
               onChange={(e) => setRegPassword(e.target.value)} />

@@ -1,4 +1,5 @@
 // utils/documents/JLDOrderAnalyzer.ts
+import { defaultTribunalCity } from './tribunalDefault';
 
 export interface JLDPhoneNumber {
   fullNumber: string; // "06.49.83.21.97"
@@ -137,7 +138,7 @@ export class JLDOrderAnalyzer {
       return signatureMatch[1].toUpperCase();
     }
 
-    return 'AMIENS'; // Valeur par défaut
+    return defaultTribunalCity(); // Valeur par défaut : juridiction de l'utilisateur
   }
 
   /**
@@ -275,8 +276,8 @@ export class JLDOrderAnalyzer {
   private static calculateConfidence(result: JLDAnalysisResult): number {
     let confidence = 0.5; // Base
 
-    // +0.2 si on a trouvé le tribunal
-    if (result.tribunal && result.tribunal !== 'AMIENS') {
+    // +0.2 si le tribunal a été RÉELLEMENT extrait (≠ juridiction par défaut)
+    if (result.tribunal && result.tribunal !== defaultTribunalCity()) {
       confidence += 0.2;
     }
 

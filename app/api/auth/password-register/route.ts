@@ -5,6 +5,8 @@ import {
   getSession, rateLimit, clientIp, safeEqual, Account,
 } from '@/lib/server/auth'
 import { hashPassword, isAcceptablePassword } from '@/lib/server/password'
+import { accountIdentity } from '@/lib/server/tribunalGuard'
+import { canonicalTribunalLabel } from '@/lib/tribunaux'
 import { appendLog } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
@@ -22,7 +24,7 @@ export async function POST(req: Request) {
     const body = await req.json()
     const username = String(body.username || '').trim()
     const displayName = String(body.displayName || '').trim() || username
-    const tribunal = body.tribunal ? String(body.tribunal).trim() : undefined
+    const tribunal = body.tribunal ? canonicalTribunalLabel(String(body.tribunal)) || undefined : undefined
     const password = String(body.password || '')
     const code = String(body.setupCode || '')
 
@@ -57,7 +59,7 @@ export async function POST(req: Request) {
 
     const cookie = createSessionCookie(account)
     return jsonResponse(
-      { ok: true, username: account.username, displayName: account.displayName, role: account.role },
+      { ok: true, ...accountIdentity(account) },
       { headers: { 'set-cookie': sessionCookieHeader(cookie, 12 * 3600) } },
     )
   })

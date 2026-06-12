@@ -3,6 +3,7 @@
 
 import { Enquete, EcouteData, GeolocData, ProlongationHistoryEntry } from '@/types/interfaces';
 import { DuplicateDetectionService, VerificationResult } from './DuplicateDetectionService';
+import { defaultTribunalCity } from './tribunalDefault';
 
 // ─── Types pour l'analyse ───
 
@@ -300,7 +301,7 @@ export class ServerDocumentScanner {
       duree: duree || (dureeUnit === 'mois' ? '1' : '15'),
       dureeUnit,
       dateAutorisation: dateAutorisation || new Date().toISOString().split('T')[0],
-      tribunal: tribunal || 'AMIENS',
+      tribunal: tribunal || defaultTribunalCity(),
       numeroPV,
       titulaire,
       utilisateur,

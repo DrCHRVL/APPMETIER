@@ -1,5 +1,6 @@
 import { handle, jsonResponse, createSessionCookie, sessionCookieHeader } from '@/lib/server/auth'
 import { registrationVerify } from '@/lib/server/webauthn'
+import { accountIdentity } from '@/lib/server/tribunalGuard'
 import { appendLog } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
@@ -12,7 +13,7 @@ export async function POST(req: Request) {
       await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: account.username, action: 'auth.register', details: { role: account.role } })
       const cookie = createSessionCookie(account)
       return jsonResponse(
-        { ok: true, username: account.username, displayName: account.displayName, role: account.role },
+        { ok: true, ...accountIdentity(account) },
         { headers: { 'set-cookie': sessionCookieHeader(cookie, 12 * 3600) } },
       )
     } catch (e) {

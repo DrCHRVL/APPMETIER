@@ -14,7 +14,15 @@ import { encryptJson, decryptJson, encryptBytes, decryptBytes, b64, CipherEnvelo
 import { idb, exportKv, importKv, getAllEntries } from './idb'
 import { ScopedKeys, scopeOfVault, SCOPE_GLOBAL, generateInvitationCode, deriveRawKey, importAesKey, newKdfParams } from './keyring'
 
-export interface BridgeIdentity { username: string, displayName: string, role: string }
+export interface BridgeIdentity {
+  username: string
+  displayName: string
+  role: string
+  /** Juridiction de rattachement (libellé canonique), si renseignée. */
+  tribunal?: string | null
+  /** Préfixe physique des coffres de données (cloisonnement par tribunal). */
+  vaultPrefix?: string
+}
 
 interface BuildOptions { keys: ScopedKeys, me: BridgeIdentity }
 
@@ -65,10 +73,23 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     return k
   }
 
+  // Cloisonnement par juridiction : les coffres de DONNÉES sont préfixés par le
+  // tribunal du compte (« tj-<slug>__ »), sauf pour la juridiction primaire
+  // (préfixe vide → noms historiques inchangés). Les coffres d'ACCÈS
+  // (trousseaux, invitations) ne sont jamais préfixés. Le nom LOGIQUE reste
+  // utilisé partout dans le code (clés, scopes) ; seule l'URL serveur est
+  // traduite en nom PHYSIQUE ici.
+  const vaultPrefix = me.vaultPrefix || ''
+  function physName(name: string): string {
+    if (/^(keyring|grant)-/.test(name)) return name
+    return vaultPrefix + name
+  }
+  const vaultUrl = (name: string) => `/api/vaults/${encodeURIComponent(physName(name))}`
+
   // ── Coffres chiffrés ──
   async function vaultPull(name: string): Promise<unknown | null> {
     try {
-      const res = await api(`/api/vaults/${encodeURIComponent(name)}`)
+      const res = await api(vaultUrl(name))
       if (res.status === 404) { failedPulls.delete(name); return null }
       if (!res.ok) throw new NetworkError('Erreur serveur ' + res.status)
       const { envelope } = await res.json()
@@ -100,7 +121,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
 
   async function vaultPush(name: string, payload: unknown, meta?: { savedAt?: string, savedBy?: string }): Promise<true> {
     if (failedPulls.has(name)) {
-      const probe = await api(`/api/vaults/${encodeURIComponent(name)}`)
+      const probe = await api(vaultUrl(name))
       if (probe.status === 404) {
         failedPulls.delete(name) // réellement absent : écriture initiale sûre
       } else {
@@ -112,7 +133,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       savedAt: meta?.savedAt || nowIso(),
       savedBy: meta?.savedBy || me.username,
     })
-    const res = await api(`/api/vaults/${encodeURIComponent(name)}`, {
+    const res = await api(vaultUrl(name), {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(envelope),
@@ -123,7 +144,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
 
   async function vaultVersions(name: string): Promise<string[]> {
     try {
-      const res = await api(`/api/vaults/${encodeURIComponent(name)}/versions`)
+      const res = await api(`${vaultUrl(name)}/versions`)
       if (!res.ok) return []
       const { versions } = await res.json()
       return (versions as Array<{ filename: string }>).map((v) => v.filename)
@@ -132,7 +153,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
 
   async function vaultVersionRead(name: string, filename: string): Promise<unknown | null> {
     try {
-      const res = await api(`/api/vaults/${encodeURIComponent(name)}/versions/${encodeURIComponent(filename)}`)
+      const res = await api(`${vaultUrl(name)}/versions/${encodeURIComponent(filename)}`)
       if (!res.ok) return null
       const { envelope } = await res.json()
       return decryptJson(keyFor(name), envelope as CipherEnvelope)
@@ -653,7 +674,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     // ── Config multi-utilisateurs ──
     dataSync_pullUsersConfig: async () => {
       try {
-        const res = await api('/api/vaults/users-config')
+        const res = await api(vaultUrl('users-config'))
         if (res.status === 404) return { status: 'missing' }
         if (!res.ok) return { status: 'unreachable', error: 'Erreur serveur ' + res.status }
         const { envelope } = await res.json()

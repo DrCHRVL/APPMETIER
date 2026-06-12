@@ -1,6 +1,7 @@
 // utils/documents/DocumentIntegrationHelper.ts
 import { DocumentAnalysisResult } from './DocumentAnalyzer';
 import { EcouteData, GeolocData, AutreActe } from '@/types/interfaces';
+import { defaultTribunalLabel } from './tribunalDefault';
 
 export interface PreFilledModalData {
   modalType: 'ecoute' | 'geoloc' | 'acte' | 'none';
@@ -57,7 +58,7 @@ export class DocumentIntegrationHelper {
       duree: duree,
       // Métadonnées pour affichage
       _sourceDocument: analysisResult.fileName,
-      _tribunal: 'Tribunal judiciaire d\'Amiens',
+      _tribunal: defaultTribunalLabel(),
       _procureur: extractedData.procureur || 'Non spécifié'
     };
 
@@ -88,7 +89,7 @@ export class DocumentIntegrationHelper {
       _sourceDocument: analysisResult.fileName,
       _vehicule: extractedData.vehicule,
       _plaques: extractedData.plaques,
-      _tribunal: 'Tribunal judiciaire d\'Amiens'
+      _tribunal: defaultTribunalLabel()
     };
 
     return {
@@ -117,7 +118,7 @@ export class DocumentIntegrationHelper {
       // Métadonnées pour affichage
       _sourceDocument: analysisResult.fileName,
       _objet: extractedData.objet,
-      _tribunal: 'Tribunal judiciaire d\'Amiens'
+      _tribunal: defaultTribunalLabel()
     };
 
     return {
@@ -247,7 +248,7 @@ export class DocumentIntegrationHelper {
       parts.push(`Date d'autorisation : ${extractedData.dateDecision}`);
     }
     
-    parts.push('Tribunal : Tribunal judiciaire d\'Amiens');
+    parts.push(`Tribunal : ${defaultTribunalLabel()}`);
     
     return parts.join('\n');
   }

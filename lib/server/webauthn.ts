@@ -19,6 +19,7 @@ import {
   storeChallenge, takeChallenge, rpFromRequest, isValidUsername, setupCode,
   getSession, rateLimit, clientIp, safeEqual,
 } from './auth'
+import { canonicalTribunalLabel } from '@/lib/tribunaux'
 
 const b64u = {
   enc: (buf: Uint8Array | Buffer): string => Buffer.from(buf).toString('base64url'),
@@ -85,6 +86,7 @@ export async function registrationVerify(req: Request, username: string, display
     label: label || 'Passkey',
     createdAt: new Date().toISOString(),
   }
+  const tribunalNorm = tribunal ? canonicalTribunalLabel(tribunal) || undefined : undefined
   let account = findAccount(username)
   if (account) {
     // même garde que registrationOptions : seul le titulaire connecté ajoute une passkey
@@ -93,14 +95,14 @@ export async function registrationVerify(req: Request, username: string, display
       throw new Error('Ce compte existe déjà — connectez-vous avec votre passkey, ou demandez à un admin')
     }
     account.credentials.push(cred)
-    if (tribunal && !account.tribunal) account.tribunal = tribunal.slice(0, 80)
+    if (tribunalNorm && !account.tribunal) account.tribunal = tribunalNorm.slice(0, 80)
   } else {
     account = {
       id: crypto.randomUUID(),
       username,
       displayName: displayName || username,
       role: listAccounts().length === 0 ? 'admin' : 'member',
-      tribunal: tribunal ? tribunal.slice(0, 80) : undefined,
+      tribunal: tribunalNorm ? tribunalNorm.slice(0, 80) : undefined,
       credentials: [cred],
       createdAt: new Date().toISOString(),
     }

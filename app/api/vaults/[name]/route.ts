@@ -3,14 +3,16 @@
  * version (l'ancienne est archivée automatiquement, historique immuable).
  */
 import { requireSession, handle, jsonResponse } from '@/lib/server/auth'
+import { assertVaultAccess } from '@/lib/server/tribunalGuard'
 import { readVault, writeVault, deleteVault, isSafeName, appendLog } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: Request, { params }: { params: { name: string } }) {
   return handle(async () => {
-    requireSession(req)
+    const session = requireSession(req)
     if (!isSafeName(params.name)) return jsonResponse({ error: 'Nom invalide' }, { status: 400 })
+    assertVaultAccess(session.u, params.name)
     const envelope = readVault(params.name)
     if (!envelope) return jsonResponse({ exists: false }, { status: 404 })
     return jsonResponse({ exists: true, envelope })
@@ -21,6 +23,7 @@ export async function PUT(req: Request, { params }: { params: { name: string } }
   return handle(async () => {
     const session = requireSession(req)
     if (!isSafeName(params.name)) return jsonResponse({ error: 'Nom invalide' }, { status: 400 })
+    assertVaultAccess(session.u, params.name)
     // Coffres d'ACCÈS : un trousseau n'est modifiable que par son titulaire,
     // une invitation n'est déposable que par un admin — sinon tout membre
     // pourrait écraser le trousseau d'autrui ou empoisonner une invitation.

@@ -1,4 +1,5 @@
 import { getSession, jsonResponse, findAccount } from '@/lib/server/auth'
+import { vaultPrefixForAccount } from '@/lib/server/tribunalGuard'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,5 +12,7 @@ export async function GET(req: Request) {
     username: session.u,
     displayName: account?.displayName || session.u,
     role: session.r,
+    tribunal: account?.tribunal || null,
+    vaultPrefix: vaultPrefixForAccount(account || null),
   })
 }
