@@ -83,8 +83,8 @@ const CSS_STYLES = `
     background: linear-gradient(135deg, #111139 0%, #1B1B6E 70%, #000091 100%);
     border-radius: 10px;
     color: #fff;
-    padding: 20px 22px 18px 30px;
-    margin-bottom: 20px;
+    padding: 16px 20px 14px 26px;
+    margin-bottom: 16px;
   }
   .page-header .tricolore {
     position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
@@ -96,34 +96,40 @@ const CSS_STYLES = `
     letter-spacing: 2px;
     text-transform: uppercase;
     color: #A1A1F8;
-    margin-bottom: 6px;
+    margin-bottom: 5px;
   }
   .page-header h1 {
-    font-family: Georgia, 'Times New Roman', serif;
-    font-size: 22px;
-    font-weight: 600;
+    font-size: 20px;
+    font-weight: 700;
     color: #fff;
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
   .page-header .subtitle {
-    font-size: 11px;
+    font-size: 10px;
     color: rgba(255,255,255,0.75);
   }
 
   .section {
-    margin-bottom: 18px;
+    background: #fff;
+    border: 1px solid #E5E5E5;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
   }
   .section-nobreak {
-    margin-bottom: 18px;
+    background: #fff;
+    border: 1px solid #E5E5E5;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
     page-break-inside: avoid;
   }
   .section-title {
-    font-family: Georgia, 'Times New Roman', serif;
-    font-size: 14px;
-    font-weight: bold;
+    font-size: 12.5px;
+    font-weight: 700;
     color: #111139;
-    border-bottom: 2px solid #000091;
-    padding-bottom: 4px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #E5E5E5;
     margin-bottom: 10px;
   }
 
@@ -139,17 +145,17 @@ const CSS_STYLES = `
     background: #FAFAFC;
     border: 1px solid #E5E5E5;
     border-radius: 8px;
-    padding: 10px 12px;
+    padding: 9px 12px;
   }
   .card-label {
-    font-size: 9px;
+    font-size: 8.5px;
     color: #56565E;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 2px;
   }
   .card-value {
-    font-size: 20px;
+    font-size: 21px;
     font-weight: bold;
     color: #000091;
   }
@@ -168,18 +174,21 @@ const CSS_STYLES = `
     word-wrap: break-word;
   }
   th {
-    background: #111139;
-    color: white;
-    padding: 6px 8px;
+    background: #F5F5FE;
+    color: #111139;
+    padding: 5px 8px;
     text-align: left;
-    font-weight: 600;
-    font-size: 9px;
+    font-weight: 700;
+    font-size: 8.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    border-bottom: 2px solid #000091;
   }
   td {
-    padding: 5px 8px;
-    border-bottom: 1px solid #E5E5E5;
+    padding: 4.5px 8px;
+    border-bottom: 1px solid #EEEEF0;
   }
-  tr:nth-child(even) { background: #F6F6F6; }
+  tr:nth-child(even) { background: #FAFAFC; }
   tr:last-child td { border-bottom: none; }
   .text-right { text-align: right; }
   .text-center { text-align: center; }
@@ -436,18 +445,10 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   const totalProlongations = data.acteStats.prolongationsEcoutes + data.acteStats.prolongationsGeo + data.acteStats.prolongationsAutres;
   const totalAvecProlongations = totalActes + totalProlongations;
 
-  // Estimation temps
+  // Estimation temps (même calcul que la carte « Actes d'enquête » de l'app)
   const tempsMinutes = totalAvecProlongations * 35;
   const tempsHeures = Math.floor(tempsMinutes / 60);
   const tempsMin = tempsMinutes % 60;
-
-  // Taux de réponse pénale (stat bonus)
-  const totalOrientations = stats
-    ? (stats.nombreCRPC + stats.nombreCI + stats.nombreCOPJ + stats.nombreOI + stats.nombreCDD + (stats.nombreClassements || 0))
-    : 0;
-  const tauxReponsePenale = totalOrientations > 0 && stats
-    ? (((totalOrientations - (stats.nombreClassements || 0)) / totalOrientations) * 100).toFixed(1)
-    : '0';
 
   return `<!DOCTYPE html>
 <html lang="fr">
@@ -458,7 +459,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 </head>
 <body>
 
-<!-- PAGE 1 : EN-TETE + SYNTHESE GENERALE -->
+<!-- En-tête identitaire -->
 <div class="page-header">
   <div class="tricolore"></div>
   <div class="overline">SIRAL &middot; Rapport d'activit&eacute; du service</div>
@@ -470,7 +471,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   <div class="section-title">Synthèse générale</div>
   <div class="cards-row">
     <div class="card">
-      <div class="card-label">Procédures terminées</div>
+      <div class="card-label">Total des procédures terminées</div>
       <div class="card-value">${data.enquetesTerminees}</div>
     </div>
     <div class="card">
@@ -485,21 +486,24 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
       <div class="card-label">Durée moy. en cours</div>
       <div class="card-value">${Math.round(data.dureeMoyenneEnCours)}j</div>
     </div>
-    <div class="card">
-      <div class="card-label">Taux de réponse pénale</div>
-      <div class="card-value">${tauxReponsePenale}%</div>
-    </div>
   </div>
 </div>
 
 <!-- Procédures terminées par mois -->
-<div class="section">
+<div class="section-nobreak">
   <div class="section-title">Procédures terminées par mois</div>
-  <table>
-    <tr><th>Mois</th><th class="text-right">Nombre</th></tr>
-    ${data.proceduremoisData.map(d => `<tr><td>${d.mois}</td><td class="text-right font-bold">${d.count}</td></tr>`).join('')}
-    <tr style="background:#E3E3FD;font-weight:bold"><td>TOTAL</td><td class="text-right">${data.enquetesTerminees}</td></tr>
-  </table>
+  <div class="two-cols" style="align-items:flex-start">
+    <div>
+      <table>
+        <tr><th>Mois</th><th class="text-right">Nombre</th></tr>
+        ${data.proceduremoisData.map(d => `<tr><td>${d.mois}</td><td class="text-right font-bold">${d.count}</td></tr>`).join('')}
+        <tr style="background:#E3E3FD;font-weight:bold"><td>TOTAL</td><td class="text-right">${data.enquetesTerminees}</td></tr>
+      </table>
+    </div>
+    <div style="padding-top:4px">
+      ${renderBarChart(data.proceduremoisData.map(d => ({ label: d.mois, value: d.count, color: '#000091' })))}
+    </div>
+  </div>
 </div>
 
 <!-- Actes d'enquête -->
@@ -530,7 +534,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 </div>
 
 <!-- Répartition par service : camemberts identiques à l'app + tableaux -->
-<div class="section">
+<div class="section-nobreak">
   <div class="section-title">Répartition par service</div>
   <div class="two-cols">
     <div>
@@ -544,8 +548,6 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   </div>
 </div>
 
-<!-- PAGE 2 : ORIENTATION ET RESULTATS D'AUDIENCE -->
-<div class="page-break"></div>
 <div class="section-nobreak">
   <div class="section-title">Orientation des procédures</div>
   ${stats ? (() => {
@@ -567,7 +569,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 </div>
 
 <!-- Orientation par mois -->
-<div class="section">
+<div class="section-nobreak">
   <div class="section-title">Orientation par mois</div>
   <table>
     <tr>
@@ -614,7 +616,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 </div>
 
 <!-- Condamnations par mois -->
-<div class="section">
+<div class="section-nobreak">
   <div class="section-title">Condamnations et peines par mois</div>
   <table>
     <tr>
@@ -643,8 +645,6 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   </table>
 </div>
 
-<!-- PAGE 3 : PEINES DETAILLEES -->
-<div class="page-break"></div>
 <div class="section-nobreak">
   <div class="section-title">Peines de prison</div>
   <div class="cards-row">
@@ -665,7 +665,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   </div>
 </div>
 
-<div class="section">
+<div class="section-nobreak">
   <div class="section-title">Peines moyennes par type</div>
   <table>
     <tr>
@@ -836,8 +836,6 @@ ${stats?.peinesParInfraction && Object.keys(stats.peinesParInfraction).length > 
 </div>
 ` : ''}
 
-<!-- PAGE 4 : INFRACTIONS -->
-<div class="page-break"></div>
 <div class="section">
   <div class="section-title">Répartition par type d'infraction</div>
   <div class="two-cols">
@@ -858,7 +856,7 @@ ${stats?.peinesParInfraction && Object.keys(stats.peinesParInfraction).length > 
 
 <!-- Déférements par mois -->
 ${data.deferementsParMois.length > 0 ? `
-<div class="section">
+<div class="section-nobreak">
   <div class="section-title">Déférements par mois</div>
   ${renderBarChart(data.deferementsParMois.map(d => ({ label: d.mois, value: d.count, color: '#E1000F' })))}
 </div>
