@@ -184,7 +184,7 @@ export const SettingsModal = ({
 
         {/* Onglets contentieux (horizontal) */}
         {showContentieuxTabs && (
-          <div className="flex items-center gap-1 px-6 pt-3 pb-0 border-b border-gray-100">
+          <div className="flex items-center gap-1 px-6 pt-3 pb-0 border-b border-gray-100 overflow-x-auto">
             {accessibleContentieux
               .sort((a, b) => a.order - b.order)
               .map(ctxDef => {
@@ -217,7 +217,7 @@ export const SettingsModal = ({
         {/* Body */}
         <div className="flex flex-1 overflow-hidden">
           {/* Tabs sidebar */}
-          <div className="w-52 border-r border-gray-200 py-3 flex flex-col bg-gray-50">
+          <div className="w-40 sm:w-52 border-r border-gray-200 py-3 flex flex-col bg-gray-50 overflow-y-auto flex-shrink-0">
             {sectionOrder.map((section, sectionIdx) => {
               const tabs = tabsBySection[section];
               if (tabs.length === 0) return null;
@@ -246,8 +246,8 @@ export const SettingsModal = ({
                         `}
                         onClick={() => setActiveTab(tab.id)}
                       >
-                        <Icon className={`h-4 w-4 ${isActive ? 'text-emerald-600' : 'text-gray-400'}`} />
-                        <span>{tab.label}</span>
+                        <Icon className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-emerald-600' : 'text-gray-400'}`} />
+                        <span className="truncate">{tab.label}</span>
                         {tab.id === 'admin_users' && pendingUsersCount > 0 && (
                           <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full">
                             {pendingUsersCount}
