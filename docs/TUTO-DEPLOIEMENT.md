@@ -193,6 +193,21 @@ Test de restauration trimestriel : restaurez un snapshot OVH sur un VPS
 
 ## 7. Mettre à jour SIRAL
 
+**Depuis l'app, sans SSH** : connectez-vous en administrateur →
+Paramètres → **Mise à jour** → « Vérifier GitHub » → « Mettre à jour
+depuis GitHub ». Le serveur récupère le code, se reconstruit et redémarre
+tout seul (2 à 5 minutes) ; la page se recharge automatiquement à la fin.
+
+C'est le conteneur **updater** (installé par `docker compose up -d --build`)
+qui fait le travail : il est le seul à toucher au dépôt git et à Docker,
+l'app lui transmet la demande par un volume partagé.
+
+> **Installation déployée avant l'arrivée de l'updater ?** Faites une
+> dernière mise à jour manuelle (commandes ci-dessous) pour l'installer ;
+> toutes les suivantes se feront depuis l'app.
+
+Équivalent manuel en SSH, si besoin :
+
 ```bash
 cd ~/siral
 git pull
@@ -208,6 +223,7 @@ docker compose up -d --build
 | « Code d'enrôlement incorrect » | valeur `SIRAL_SETUP_CODE` dans `.env`, puis `docker compose up -d` |
 | Passkey refusée | l'URL doit être exactement `https://votre-domaine` (pas l'IP) |
 | Phrase secrète refusée | c'est la bonne phrase ? (insensible aux espaces de début/fin — sinon, irrécupérable : restaurer un snapshot) |
+| La MAJ in-app échoue ou « service non installé » | `docker compose ps updater`, puis `docker compose logs updater` ; journal détaillé : fichier `update.log` du volume `siral_updater-state` |
 
 ---
 
