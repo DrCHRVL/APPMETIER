@@ -300,6 +300,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   consultation_refreshNow: () =>
     ipcRenderer.invoke('consultation:refreshNow'),
 
+  // === LECTURE DU TEXTE D'UN DOCUMENT (export markdown / IA) ===
+  readDocumentText: (enqueteNumero, cheminRelatif) =>
+    ipcRenderer.invoke('documents:read-text', enqueteNumero, cheminRelatif),
+
   // === CLOISONNEMENT PAR CLÉ INDIVIDUELLE (édition web uniquement) ===
   // Dans l'app de bureau, les trousseaux n'existent pas : surface présente
   // pour la parité du pont, sans effet.

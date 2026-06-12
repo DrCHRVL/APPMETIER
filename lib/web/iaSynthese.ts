@@ -72,6 +72,39 @@ export function buildDossierMarkdown(enquete: Enquete, docTexts?: Array<{ name: 
   return parts.join('\n').slice(0, 380_000)
 }
 
+/**
+ * Markdown COMPLET du dossier pour une IA externe (Claude web…) : structure
+ * de l'enquête + texte intégral des PDF téléversés (autorisations, PV, actes).
+ * L'extraction des PDF se fait localement (navigateur ou poste Electron).
+ */
+export async function exportDossierMarkdown(
+  enquete: Enquete,
+  onProgress?: (msg: string) => void,
+): Promise<{ filename: string, content: string, pdfCount: number, pdfFailed: string[] }> {
+  const docs = (enquete.documents || []).filter((d) => d.cheminRelatif.toLowerCase().endsWith('.pdf'))
+  const docTexts: Array<{ name: string, text: string }> = []
+  const pdfFailed: string[] = []
+  const api = window.electronAPI as unknown as { readDocumentText?: (e: string, r: string) => Promise<string> }
+  for (let i = 0; i < docs.length; i++) {
+    onProgress?.(`Extraction du texte des PDF… (${i + 1}/${docs.length})`)
+    try {
+      const text = String(await api.readDocumentText?.(enquete.numero, docs[i].cheminRelatif) || '').trim()
+      if (text.length > 30) docTexts.push({ name: `${docs[i].cheminRelatif.split('/')[0]} / ${docs[i].nomOriginal}`, text })
+      else pdfFailed.push(docs[i].nomOriginal)
+    } catch {
+      pdfFailed.push(docs[i].nomOriginal)
+    }
+  }
+  const header = [
+    '<!-- Export SIRAL pour analyse IA — généré le ' + new Date().toLocaleString('fr-FR') + ' -->',
+    '<!-- Contient des données d\'enquête sensibles : à votre seule discrétion. -->',
+    '',
+  ].join('\n')
+  const content = header + buildDossierMarkdown(enquete, docTexts)
+  const filename = `dossier-${String(enquete.numero).replace(/[^a-zA-Z0-9._-]/g, '-')}.md`
+  return { filename, content, pdfCount: docTexts.length, pdfFailed }
+}
+
 export async function iaStatus(): Promise<{ enabled: boolean, model?: string }> {
   try {
     const res = await fetch('/api/ia', { credentials: 'same-origin' })

@@ -986,6 +986,22 @@ function setupIpcHandlers() {
       return false;
     }
   });
+  // === LECTURE DU TEXTE D'UN DOCUMENT INTERNE (export markdown / IA) ===
+  ipcMain.handle('documents:read-text', async (event, enqueteNumero, cheminRelatif) => {
+    try {
+      const rel = String(cheminRelatif || '')
+      if (rel.includes('..')) return ''
+      const filePath = path.join(documentsEnquetesFolder, sanitizeFileName(enqueteNumero), rel)
+      if (!fs.existsSync(filePath) || !filePath.toLowerCase().endsWith('.pdf')) return ''
+      const stats = fs.statSync(filePath)
+      if (stats.size > 20 * 1024 * 1024) return ''
+      const pdfData = await pdfParse(fs.readFileSync(filePath))
+      return (pdfData.text || '').trim()
+    } catch (error) {
+      console.error('Erreur lecture texte document:', error.message)
+      return ''
+    }
+  });
   // === SAUVEGARDE DOCUMENTS AVEC CATÉGORIE ===
   ipcMain.handle('documents:save-with-category', async (event, enqueteNumero, files, category = 'general') => {
     try {

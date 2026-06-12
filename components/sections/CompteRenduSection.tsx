@@ -5,11 +5,13 @@ import { Badge } from '../ui/badge';
 import { Select } from '../ui/select';
 import { Label } from '../ui/label';
 import { Enquete, CompteRendu } from '@/types/interfaces';
-import { X, FileText, Calendar, User, Sparkles } from 'lucide-react';
+import { X, FileText, Calendar, User, Sparkles, FileDown } from 'lucide-react';
 import { SyntheseIAModal } from '../modals/SyntheseIAModal';
+import { exportDossierMarkdown } from '@/lib/web/iaSynthese';
 import { useMemo, useState, useRef, useEffect, useCallback, memo, MouseEvent } from 'react';
 import { useUser } from '@/contexts/UserContext';
 import { renderFormattedText, stripClipboardNoise } from '@/lib/formatCR';
+import { useToast } from '@/contexts/ToastContext';
 
 interface CompteRenduSectionProps {
   enquete: Enquete;
@@ -231,6 +233,27 @@ export const CompteRenduSection = memo(({
 
   // États pour l'UX
   const [showSyntheseIA, setShowSyntheseIA] = useState(false);
+  const [exportingMd, setExportingMd] = useState<string | null>(null);
+  const { showToast } = useToast();
+
+  // Export du dossier complet (CR + texte des PDF + actes + mis en cause) en
+  // markdown — à déposer dans une IA externe (Claude) pour synthèse.
+  const handleExportMarkdown = async () => {
+    if (exportingMd !== null) return;
+    setExportingMd('Préparation…');
+    try {
+      const { filename, content, pdfCount, pdfFailed } = await exportDossierMarkdown(
+        enquete as Enquete, (msg) => setExportingMd(msg),
+      );
+      await window.electronAPI.saveFileDialog(filename, content);
+      const skipped = pdfFailed.length ? ` — ${pdfFailed.length} PDF illisible(s) ignoré(s)` : '';
+      showToast(`Dossier exporté (${pdfCount} PDF inclus)${skipped} : déposez le fichier dans Claude`, 'success');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Export impossible', 'error');
+    } finally {
+      setExportingMd(null);
+    }
+  };
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Dirty state stocké en ref : la frappe dans l'éditeur WYSIWYG (contentEditable)
@@ -632,11 +655,23 @@ export const CompteRenduSection = memo(({
         <div className="flex items-center gap-1">
           {!isInstruction && (
             <Button
+              onClick={handleExportMarkdown}
+              disabled={exportingMd !== null}
+              size="sm"
+              variant="ghost"
+              className="text-violet-600 hover:text-violet-700 hover:bg-violet-50 gap-1"
+              title="Exporter tout le dossier (CR, texte des PDF, actes, mis en cause) en un fichier markdown à déposer dans une IA (Claude…)"
+            >
+              <FileDown className="h-3.5 w-3.5" /> {exportingMd || 'Export IA (.md)'}
+            </Button>
+          )}
+          {!isInstruction && (
+            <Button
               onClick={() => setShowSyntheseIA(true)}
               size="sm"
               variant="ghost"
               className="text-violet-600 hover:text-violet-700 hover:bg-violet-50 gap-1"
-              title="Synthèse du dossier par l'IA locale du service"
+              title="Synthèse du dossier par l'IA locale du service (si configurée)"
             >
               <Sparkles className="h-3.5 w-3.5" /> Synthèse IA
             </Button>

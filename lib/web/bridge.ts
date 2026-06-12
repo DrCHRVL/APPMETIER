@@ -496,6 +496,11 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       return d ? Math.max(0, d.size - 32) : 0
     },
     extractPDFText: async (buffer: unknown) => extractPdfText(buffer as ArrayBuffer),
+    readDocumentText: async (enqueteNumero: unknown, cheminRelatif: unknown) => {
+      if (!String(cheminRelatif).toLowerCase().endsWith('.pdf')) return ''
+      const bytes = await docDownload(String(enqueteNumero), String(cheminRelatif))
+      return bytes ? extractPdfText(bytes) : ''
+    },
 
     // ── Dossier commun local (File System Access — règle 3-2-1) ──
     // Le « chemin externe » d'une enquête est un jeton fsa://… choisi via
