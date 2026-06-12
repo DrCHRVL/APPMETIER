@@ -102,8 +102,10 @@ Ouvrez **https://votre-domaine** : l'écran de connexion SIRAL apparaît.
 
 ## 4. Premier démarrage (~10 min)
 
-> **Conseil : faites l'import des données (§ 4.1) AVANT votre première
-> connexion.** L'écran de migration s'occupera alors de tout d'un coup.
+> **Pour récupérer vos données existantes**, deux chemins (§ 4.1) :
+> l'**import dans l'app** (recommandé : aucune ligne de commande, après votre
+> première connexion) ou le **script en SSH** (avancé : à faire AVANT votre
+> première connexion, l'écran de migration s'occupe alors de tout d'un coup).
 
 1. **Enrôlement** : « Premier accès ? Enrôler une passkey » → identifiant
    (utilisez **le même identifiant que dans l'app Electron** — celui de
@@ -120,14 +122,42 @@ Ouvrez **https://votre-domaine** : l'écran de connexion SIRAL apparaît.
      contentieux sont régénérées et votre trousseau créé.
    - Votre phrase personnelle est **irrécupérable** : imprimez-la, enveloppe
      scellée. En cas d'oubli, un collègue admin peut vous ré-inviter.
-3. **Inviter les collègues** : Paramètres → **Accès & clés** → « Inviter »
-   à côté de chaque membre (cochez les contentieux à donner) → un **code
-   d'invitation à usage unique** s'affiche : transmettez-le de vive voix.
+3. **Inviter les collègues** : Paramètres → **Utilisateurs & accès** →
+   dépliez la carte du membre → section « Accès & clés » → « Inviter »
+   (les contentieux à donner se règlent juste au-dessus, dans ses
+   habilitations) → un **code d'invitation à usage unique** s'affiche :
+   transmettez-le de vive voix.
    Le collègue s'enrôle (passkey + code d'enrôlement), saisit son code
    d'invitation et choisit SA phrase personnelle. Révoquer un membre se fait
    au même endroit.
 
 ### 4.1 Importer les données existantes
+
+#### Option A — dans l'app (recommandée, ~5 min, aucune ligne de commande)
+
+À faire **depuis le poste qui voit le partage du service** (lecteur `P:`),
+après votre première connexion (enrôlement + trousseau, étapes 1 et 2
+ci-dessus) :
+
+1. Ouvrez **Paramètres → Sauvegardes → « Import depuis l'app bureau »**.
+2. **Dossier du service** : sélectionnez le dossier de données partagé
+   (ex. `P:\TGI\Parquet\...\10_App METIER`).
+3. **Dossier des pièces** (facultatif) : sélectionnez `documentenquete`
+   (ex. `C:\...\app\data\documentenquete`).
+4. Vérifiez le récapitulatif (contentieux, enquêtes, tags, instructions…)
+   puis lancez : tout est **chiffré dans votre navigateur** avec votre
+   trousseau avant l'envoi — pas de phrase de transit, aucune copie en clair
+   ne touche le serveur.
+5. Un **rapport de complétude** s'affiche ; en cas d'erreur, l'import est
+   rejouable sans risque (les coffres sont versionnés). Rechargez l'app :
+   vos données sont là.
+
+> Si un contentieux apparaît « bloqué », c'est que sa clé n'est pas dans
+> votre trousseau — sur un serveur vierge dont vous êtes le premier compte,
+> vous avez toutes les clés, ce cas ne se présente pas.
+
+#### Option B — script en SSH (avancé, AVANT la première connexion)
+
 Sur le serveur, déposez une copie de vos données (depuis votre poste,
 PowerShell) :
 
@@ -158,8 +188,9 @@ individuelles », puis elle n'aura plus d'usage (les clés sont régénérées).
 Le script affiche un **rapport de complétude** (comptages par type) et refuse
 de conclure si quelque chose manque. Rechargez l'app : vos données sont là.
 
-> ⚠️ Tant que la migration n'est pas validée, l'app Electron du service reste
-> l'outil de référence. Rien n'est supprimé côté Electron.
+> ⚠️ Quelle que soit l'option : tant que la migration n'est pas validée,
+> l'app Electron du service reste l'outil de référence. Rien n'est supprimé
+> côté Electron.
 
 ---
 
@@ -173,7 +204,7 @@ de conclure si quelque chose manque. Rechargez l'app : vos données sont là.
   consultables).
 - Chaque membre du service s'enrôle avec **son** identifiant (celui de
   `users.json`) + le code d'enrôlement, saisit le **code d'invitation** remis
-  par l'admin (Paramètres → Accès & clés), puis choisit sa **phrase
+  par l'admin (Paramètres → Utilisateurs & accès), puis choisit sa **phrase
   personnelle**.
 
 ---
@@ -193,6 +224,21 @@ Test de restauration trimestriel : restaurez un snapshot OVH sur un VPS
 
 ## 7. Mettre à jour SIRAL
 
+**Depuis l'app, sans SSH** : connectez-vous en administrateur →
+Paramètres → **Mise à jour** → « Vérifier GitHub » → « Mettre à jour
+depuis GitHub ». Le serveur récupère le code, se reconstruit et redémarre
+tout seul (2 à 5 minutes) ; la page se recharge automatiquement à la fin.
+
+C'est le conteneur **updater** (installé par `docker compose up -d --build`)
+qui fait le travail : il est le seul à toucher au dépôt git et à Docker,
+l'app lui transmet la demande par un volume partagé.
+
+> **Installation déployée avant l'arrivée de l'updater ?** Faites une
+> dernière mise à jour manuelle (commandes ci-dessous) pour l'installer ;
+> toutes les suivantes se feront depuis l'app.
+
+Équivalent manuel en SSH, si besoin :
+
 ```bash
 cd ~/siral
 git pull
@@ -208,6 +254,7 @@ docker compose up -d --build
 | « Code d'enrôlement incorrect » | valeur `SIRAL_SETUP_CODE` dans `.env`, puis `docker compose up -d` |
 | Passkey refusée | l'URL doit être exactement `https://votre-domaine` (pas l'IP) |
 | Phrase secrète refusée | c'est la bonne phrase ? (insensible aux espaces de début/fin — sinon, irrécupérable : restaurer un snapshot) |
+| La MAJ in-app échoue ou « service non installé » | `docker compose ps updater`, puis `docker compose logs updater` ; journal détaillé : fichier `update.log` du volume `siral_updater-state` |
 
 ---
 
@@ -221,31 +268,3 @@ docker compose up -d --build
 - L'accès SSH au serveur = accès aux blobs chiffrés + possibilité de saboter
   le service, pas de lire les données. Gardez quand même le mot de passe
   SSH/clé en lieu sûr.
-
----
-
-## 9. Option : synthèse IA locale (~15 min)
-
-La synthèse de dossier (bouton « Synthèse IA » dans les comptes-rendus,
-prompt réglable dans Paramètres → Synthèse IA) utilise un LLM **auto-hébergé
-sur votre VPS** : aucune donnée ne part vers un service tiers. Désactivée
-tant que `SIRAL_IA_URL` n'est pas défini.
-
-Prérequis : ~8 Go de RAM libres (gamme VPS au-dessus, ou un second VPS dédié).
-
-```bash
-docker run -d --name ollama --restart unless-stopped \
-  -v ollama:/root/.ollama -p 127.0.0.1:11434:11434 ollama/ollama
-docker exec ollama ollama pull qwen2.5:7b-instruct
-```
-
-Puis dans `.env` :
-
-```
-SIRAL_IA_URL=http://172.17.0.1:11434
-# facultatif : SIRAL_IA_MODEL=qwen2.5:7b-instruct
-```
-
-`docker compose up -d` et c'est actif. Compromis assumé (affiché dans
-l'app) : le texte du dossier analysé transite, en HTTPS, du navigateur vers
-VOTRE serveur IA — traité en mémoire, jamais stocké ni journalisé.

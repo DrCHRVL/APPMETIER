@@ -7,6 +7,9 @@ export interface SyncResult {
   totalExternal: number;
   addedToInternal: string[];
   addedToExternal: string[];
+  // Documents importés depuis le dossier commun (web) avec leurs métadonnées,
+  // à fusionner dans la liste de l'enquête. Absent en mode bureau.
+  importedDocs?: DocumentEnquete[];
   errors: string[];
   externalAccessible: boolean;
 }

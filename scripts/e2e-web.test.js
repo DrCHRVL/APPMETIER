@@ -92,7 +92,7 @@ async function main() {
     await page.screenshot({ path: SHOTS + '/01-login.png' })
 
     // ── 2. Enrôlement ──
-    await page.click('text=Enrôler une passkey')
+    await page.click('text=Premier accès')
     await page.fill('input[placeholder*="Identifiant"]', 'a.chevalier')
     await page.fill('input[placeholder*="Nom affiché"]', 'A. Chevalier')
     await page.fill('input[placeholder*="Tribunal"]', 'TJ Test')
@@ -159,6 +159,29 @@ async function main() {
     check('Versionnage immuable : ancienne version archivée au 2e push', hadVersioning)
     const backups = await page.evaluate(() => window.electronAPI.dataSync_listContentieuxBackups('crimorg'))
     check('Liste des sauvegardes serveur visible depuis l\'app', Array.isArray(backups) && backups.length >= 1, backups[0])
+
+    // ── 5 bis. Import depuis l'app bureau (Paramètres → Sauvegardes) ──
+    const desktopImportOk = await page.evaluate(async () => {
+      // poussée d'un fichier du partage tel que l'import le ferait
+      const tagsOk = await window.electronAPI.desktopImport_pushVault('tags',
+        { tags: { 'OP-IMPORT': { couleur: '#123456' } } }, { savedBy: 'import-bureau' })
+      const back = await window.electronAPI.globalSync_pullTags()
+      // dépôt d'un document en CONSERVANT son chemin relatif (liens d'enquête)
+      const bytes = new TextEncoder().encode('PV IMPORT BUREAU')
+      await window.electronAPI.desktopImport_uploadDocument('26-998', 'Actes/PV import buréau n°2.pdf', bytes.buffer, 'Actes', 'PV import buréau n°2.pdf')
+      const docExists = await window.electronAPI.documentExists('26-998', 'Actes/PV import buréau n°2.pdf')
+      // les coffres d'accès et noms arbitraires sont refusés
+      let keyringRefused = false
+      try { await window.electronAPI.desktopImport_pushVault('keyring-a.chevalier', {}) } catch { keyringRefused = true }
+      let arbitraryRefused = false
+      try { await window.electronAPI.desktopImport_pushVault('e2ee-check', {}) } catch { arbitraryRefused = true }
+      return { tagsOk: tagsOk === true && !!back && !!back.tags, docExists, keyringRefused, arbitraryRefused }
+    })
+    check('Import bureau : coffre partagé poussé et relisible', desktopImportOk.tagsOk)
+    check('Import bureau : document déposé avec chemin relatif préservé', desktopImportOk.docExists)
+    check('Import bureau : coffres d\'accès refusés', desktopImportOk.keyringRefused && desktopImportOk.arbitraryRefused)
+    const importVaultRaw = fs.readFileSync(path.join(DATA_DIR, 'vaults', 'tags.json'), 'utf8')
+    check('Import bureau : coffre chiffré côté serveur', !importVaultRaw.includes('OP-IMPORT'))
 
     // ── 6. Documents chiffrés ──
     const docOk = await page.evaluate(async () => {
@@ -250,7 +273,7 @@ async function main() {
     })
     await page2.goto('/')
     await page2.waitForSelector('.siral-card')
-    await page2.click('text=Enrôler une passkey')
+    await page2.click('text=Premier accès')
     await page2.fill('input[placeholder*="Identifiant"]', 'j.martin')
     await page2.fill('input[placeholder*="Tribunal"]', 'TJ Test')
     await page2.fill('input[placeholder*="enrôlement"]', 'CODE-TEST-2026')
@@ -353,14 +376,6 @@ async function main() {
     check('Rappels push : clé VAPID servie + calendrier accepté (horodatages seuls)', pushOk)
     const schedRaw = fs.readFileSync(path.join(DATA_DIR, 'push-schedule.json'), 'utf8')
     check('Rappels push : le serveur ne stocke que des horodatages', !schedRaw.includes('OP TEST') && /^[\s{}\[\]"a-zA-Z0-9.,:_-]+$/.test(schedRaw))
-
-    // ── 11c. Synthèse IA : désactivée par défaut (pas de SIRAL_IA_URL) ──
-    const iaOff = await page2.evaluate(async () => {
-      const st = await fetch('/api/ia', { credentials: 'same-origin' }).then(r => r.json())
-      const post = await fetch('/api/ia', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: 'x' }), credentials: 'same-origin' })
-      return st.enabled === false && post.status === 503
-    })
-    check('Synthèse IA : désactivée par défaut, refus propre sans SIRAL_IA_URL', iaOff)
 
     // ── 12. PWA : manifest + service worker + icônes ──
     const manifest = await fetch(BASE + '/manifest.webmanifest')

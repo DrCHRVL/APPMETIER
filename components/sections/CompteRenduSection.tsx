@@ -5,9 +5,8 @@ import { Badge } from '../ui/badge';
 import { Select } from '../ui/select';
 import { Label } from '../ui/label';
 import { Enquete, CompteRendu } from '@/types/interfaces';
-import { X, FileText, Calendar, User, Sparkles, FileDown } from 'lucide-react';
-import { SyntheseIAModal } from '../modals/SyntheseIAModal';
-import { exportDossierMarkdown, iaStatus } from '@/lib/web/iaSynthese';
+import { X, FileText, Calendar, User, FileDown } from 'lucide-react';
+import { exportDossierMarkdown } from '@/lib/web/dossierMarkdown';
 import { useMemo, useState, useRef, useEffect, useCallback, memo, MouseEvent } from 'react';
 import { useUser } from '@/contexts/UserContext';
 import { renderFormattedText, stripClipboardNoise } from '@/lib/formatCR';
@@ -232,11 +231,8 @@ export const CompteRenduSection = memo(({
   }, [editingCR]);
 
   // États pour l'UX
-  const [showSyntheseIA, setShowSyntheseIA] = useState(false);
-  const [iaActive, setIaActive] = useState(false); // bouton visible uniquement si un serveur de synthèse est configuré
   const [exportingMd, setExportingMd] = useState<string | null>(null);
   const { showToast } = useToast();
-  useEffect(() => { iaStatus().then(s => setIaActive(!!s.enabled)).catch(() => {}); }, []);
 
   // Export du dossier complet (CR + texte des PDF + actes + mis en cause) en
   // markdown — à déposer dans une IA externe (Claude) pour synthèse.
@@ -667,18 +663,7 @@ export const CompteRenduSection = memo(({
               <FileDown className="h-3.5 w-3.5" /> {exportingMd || 'Exporter le dossier (.md)'}
             </Button>
           )}
-          {!isInstruction && iaActive && (
-            <Button
-              onClick={() => setShowSyntheseIA(true)}
-              size="sm"
-              variant="ghost"
-              className="gap-1"
-              title="Synthèse automatique du dossier (serveur du service)"
-            >
-              <Sparkles className="h-3.5 w-3.5" /> Synthèse
-            </Button>
-          )}
-          <Button 
+          <Button
             onClick={handleNewCR}
             size="sm"
             variant="ghost"
@@ -688,9 +673,6 @@ export const CompteRenduSection = memo(({
         </div>
       </div>
 
-      {!isInstruction && showSyntheseIA && (
-        <SyntheseIAModal isOpen={showSyntheseIA} onClose={() => setShowSyntheseIA(false)} enquete={enquete as Enquete} />
-      )}
 
       <div className="space-y-4">
         {sortedCRs.map(cr => (

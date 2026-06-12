@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserPlus, Trash2, Shield, Save, Edit2, X, Check, ChevronDown, AlertCircle, CheckCircle, Clock, Eye, FolderOpen, RefreshCw } from 'lucide-react';
+import { UserPlus, Trash2, Shield, Save, Edit2, X, Check, ChevronDown, AlertCircle, CheckCircle, Clock, Eye, FolderOpen, RefreshCw, KeyRound, Copy, ShieldOff, AlertTriangle } from 'lucide-react';
 import { UserManager } from '@/utils/userManager';
+import { KNOWN_CONTENTIEUX } from '@/lib/web/keyring';
 import {
   UserProfile,
   ContentieuxDefinition,
@@ -36,6 +37,27 @@ const MODULE_LABELS: Record<ModuleId, string> = {
   mindmap: 'Cartographie mis en cause',
 };
 
+/** Libellés courts des contentieux pour l'aperçu des clés livrées. */
+const CTX_KEY_LABELS: Record<string, string> = { crimorg: 'CRIM ORG', ecofi: 'ECOFI', enviro: 'ENVIRO' };
+
+/** Périmètres de clés livrés à un membre, dérivés de ses habilitations contentieux. */
+const scopesForUser = (user: UserProfile): string[] =>
+  user.contentieux
+    .map(c => c.contentieuxId)
+    .filter(id => KNOWN_CONTENTIEUX.includes(id))
+    .map(id => `ctx-${id}`);
+
+/** Libellés lisibles des périmètres livrés (« Données communes » toujours incluse). */
+const scopeLabelsForUser = (user: UserProfile): string[] => [
+  'Données communes',
+  ...user.contentieux
+    .map(c => c.contentieuxId)
+    .filter(id => KNOWN_CONTENTIEUX.includes(id))
+    .map(id => CTX_KEY_LABELS[id] || id),
+];
+
+interface InviteResult { username: string; code: string; scopes: string[] }
+
 // ──────────────────────────────────────────────
 // COMPOSANT PRINCIPAL
 // ──────────────────────────────────────────────
@@ -52,6 +74,8 @@ export const AdminUsersPanel = () => {
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newGlobalRole, setNewGlobalRole] = useState<GlobalRole>(null);
 
+  const isWeb = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
+
   const loadUsers = useCallback(() => {
     const manager = UserManager.getInstance();
     setUsers(manager.getAllUsers());
@@ -60,6 +84,79 @@ export const AdminUsersPanel = () => {
   useEffect(() => {
     loadUsers();
   }, [loadUsers]);
+
+  // ── État d'enrôlement / trousseau (édition web) ───────────────────
+  // username (minuscule) → état du compte serveur correspondant.
+  type AccountState = { exists: boolean; hasKeyring: boolean; hasGrant: boolean };
+  const [accountStates, setAccountStates] = useState<Record<string, AccountState>>({});
+
+  const loadAccountStates = useCallback(async () => {
+    if (!isWeb) return;
+    const api = (typeof window !== 'undefined' ? (window as any).electronAPI : null);
+    if (!api?.e2ee_listAccounts) return;
+    try {
+      const list: Array<{ username: string; displayName: string; role: 'admin' | 'member'; hasKeyring: boolean; hasGrant: boolean }> = await api.e2ee_listAccounts();
+      // Unification : tout compte serveur enrôlé doit avoir un profil d'habilitations.
+      const manager = UserManager.getInstance();
+      const changed = await manager.reconcileWithAccounts(
+        list.map(a => ({ username: a.username, displayName: a.displayName, role: a.role })),
+      );
+      if (changed) { loadUsers(); await refreshUsers(); }
+      const map: Record<string, AccountState> = {};
+      for (const a of list) map[a.username.toLowerCase()] = { exists: true, hasKeyring: a.hasKeyring, hasGrant: a.hasGrant };
+      setAccountStates(map);
+    } catch {
+      // non bloquant : la liste des comptes peut être momentanément indisponible
+    }
+  }, [isWeb, loadUsers, refreshUsers]);
+
+  useEffect(() => { loadAccountStates(); }, [loadAccountStates]);
+
+  // ── Accès & clés : invitation (code à usage unique) / révocation ──
+  const [invite, setInvite] = useState<InviteResult | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
+  const [keyBusy, setKeyBusy] = useState<string | null>(null);
+
+  const handleInvite = useCallback(async (user: UserProfile) => {
+    const username = user.windowsUsername;
+    setKeyBusy(username); setInvite(null);
+    try {
+      const api = (window as any).electronAPI as { e2ee_invite: (u: string, s: string[]) => Promise<{ code: string; scopes: string[] }> };
+      const res = await api.e2ee_invite(username, scopesForUser(user));
+      setInvite({ username, code: res.code, scopes: res.scopes });
+      await loadAccountStates();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Invitation impossible', 'error');
+    } finally { setKeyBusy(null); }
+  }, [loadAccountStates, showToast]);
+
+  const handleRevoke = useCallback(async (username: string) => {
+    setKeyBusy(username);
+    try {
+      const api = (window as any).electronAPI as { e2ee_revoke: (u: string) => Promise<boolean> };
+      await api.e2ee_revoke(username);
+      setConfirmRevoke(null);
+      if (invite?.username.toLowerCase() === username.toLowerCase()) setInvite(null);
+      await loadAccountStates();
+      showToast('Trousseau révoqué', 'info');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Révocation impossible', 'error');
+    } finally { setKeyBusy(null); }
+  }, [invite, loadAccountStates, showToast]);
+
+  const copyInviteCode = useCallback(async (code: string) => {
+    try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2500); } catch {}
+  }, []);
+
+  /** Rappelle de ré-inviter le membre (clé à mettre à jour) après une modif d'habilitation. */
+  const hintReinviteIfEnrolled = useCallback((username: string) => {
+    if (!isWeb) return;
+    const st = accountStates[username.toLowerCase()];
+    if (st && (st.hasKeyring || st.hasGrant)) {
+      showToast('Habilitation modifiée — ré-invitez ce membre (carte dépliée) pour mettre son trousseau à jour.', 'info');
+    }
+  }, [isWeb, accountStates, showToast]);
 
   // ── Section "Consultation lecture seule" ──────────────────────────
   type ConsultationStatus = {
@@ -220,6 +317,7 @@ export const AdminUsersPanel = () => {
       loadUsers();
       await refreshUsers();
       showToast('Contentieux attribué', 'success');
+      hintReinviteIfEnrolled(username);
     } else {
       showToast('Erreur lors de l\'affectation', 'error');
     }
@@ -232,6 +330,7 @@ export const AdminUsersPanel = () => {
       loadUsers();
       await refreshUsers();
       showToast('Contentieux retiré', 'info');
+      hintReinviteIfEnrolled(username);
     } else {
       showToast('Erreur lors du retrait du contentieux', 'error');
     }
@@ -283,7 +382,7 @@ export const AdminUsersPanel = () => {
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
           <Shield className="h-5 w-5 text-emerald-600" />
-          Gestion des utilisateurs
+          Gestion des utilisateurs &amp; accès
         </h2>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
@@ -294,8 +393,26 @@ export const AdminUsersPanel = () => {
         </button>
       </div>
 
-      {/* Demandes en attente */}
-      {pendingUsers.length > 0 && (
+      {/* Rappel cryptographique (édition web) — replié par défaut */}
+      {isWeb && (
+        <details className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-emerald-900">
+          <summary className="text-sm font-semibold flex items-center gap-2 cursor-pointer select-none">
+            <KeyRound className="h-4 w-4" /> Accès &amp; clés — comment ça marche
+          </summary>
+          <p className="text-xs text-emerald-800 mt-2 leading-relaxed">
+            Chaque membre détient un <b>trousseau personnel</b> (sa phrase secrète) contenant les clés des contentieux
+            auxquels il est habilité <i>ci-dessous</i>. Déplier une carte puis <b>Inviter</b> = lui remettre un
+            <b> code à usage unique</b> qui livre exactement ces clés — à transmettre de vive voix ou par canal sûr.
+            Jamais les clés ne transitent en clair par le serveur. Après avoir modifié une habilitation,
+            <b> ré-invitez</b> le membre pour mettre son trousseau à jour. <b>Révoquer</b> supprime son trousseau : il ne
+            peut plus rien déchiffrer via l&apos;application ; pour une révocation cryptographique (membre parti avec ses
+            clés mémorisées), ré-invitez ensuite les membres restants pour régénérer les clés à la prochaine rotation.
+          </p>
+        </details>
+      )}
+
+      {/* Demandes en attente (app de bureau : l'enrôlement serveur fait foi en web) */}
+      {!isWeb && pendingUsers.length > 0 && (
         <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-3">
           <h3 className="text-sm font-bold text-amber-800 flex items-center gap-2">
             <AlertCircle className="h-4 w-4" />
@@ -404,16 +521,27 @@ export const AdminUsersPanel = () => {
             key={user.windowsUsername}
             user={user}
             contentieuxDefs={contentieuxDefs}
+            isWeb={isWeb}
+            accountState={accountStates[user.windowsUsername.toLowerCase()]}
             onUpdateGlobalRole={handleUpdateGlobalRole}
             onAssignContentieux={handleAssignContentieux}
             onUnassignContentieux={handleUnassignContentieux}
             onToggleModule={handleToggleModule}
             onRemove={handleRemoveUser}
+            inviteResult={invite?.username.toLowerCase() === user.windowsUsername.toLowerCase() ? invite : null}
+            keyBusy={keyBusy === user.windowsUsername}
+            confirmingRevoke={confirmRevoke === user.windowsUsername}
+            copied={copied}
+            onInvite={handleInvite}
+            onRevoke={handleRevoke}
+            onRequestRevoke={setConfirmRevoke}
+            onCopyCode={copyInviteCode}
           />
         ))}
       </div>
 
-      {/* ─── Consultation lecture seule ─────────────────────────────── */}
+      {/* ─── Consultation lecture seule (app de bureau uniquement) ───── */}
+      {!isWeb && (
       <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -556,6 +684,7 @@ export const AdminUsersPanel = () => {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 };
@@ -567,23 +696,63 @@ export const AdminUsersPanel = () => {
 interface UserCardProps {
   user: UserProfile;
   contentieuxDefs: ContentieuxDefinition[];
+  isWeb?: boolean;
+  accountState?: { exists: boolean; hasKeyring: boolean; hasGrant: boolean };
   onUpdateGlobalRole: (username: string, role: GlobalRole) => void;
   onAssignContentieux: (username: string, cId: ContentieuxId, role: ContentieuxRole) => void;
   onUnassignContentieux: (username: string, cId: ContentieuxId) => void;
   onToggleModule: (username: string, moduleId: ModuleId, enabled: boolean) => void;
   onRemove: (username: string) => void;
+  // Accès & clés (édition web)
+  inviteResult?: InviteResult | null;
+  keyBusy?: boolean;
+  confirmingRevoke?: boolean;
+  copied?: boolean;
+  onInvite?: (user: UserProfile) => void;
+  onRevoke?: (username: string) => void;
+  onRequestRevoke?: (username: string | null) => void;
+  onCopyCode?: (code: string) => void;
 }
+
+/** Pastille d'état du trousseau (édition web) — dépliez la carte pour agir. */
+const KeyringBadge = ({ state }: { state?: { exists: boolean; hasKeyring: boolean; hasGrant: boolean } }) => {
+  if (!state?.exists) {
+    return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" title="Aucun compte serveur — la personne ne s'est pas encore enrôlée">Pas encore enrôlé</span>;
+  }
+  if (state.hasKeyring) {
+    return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700" title="Trousseau actif">Trousseau actif</span>;
+  }
+  if (state.hasGrant) {
+    return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700" title="Invitation en attente d'acceptation">Invitation en attente</span>;
+  }
+  return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" title="Enrôlé mais sans trousseau — dépliez la carte pour l'inviter">À inviter</span>;
+};
 
 const UserCard = ({
   user,
   contentieuxDefs,
+  isWeb,
+  accountState,
   onUpdateGlobalRole,
   onAssignContentieux,
   onUnassignContentieux,
   onToggleModule,
   onRemove,
+  inviteResult,
+  keyBusy,
+  confirmingRevoke,
+  copied,
+  onInvite,
+  onRevoke,
+  onRequestRevoke,
+  onCopyCode,
 }: UserCardProps) => {
   const [expanded, setExpanded] = useState(false);
+
+  const ctxIds = user.contentieux.map(c => c.contentieuxId).filter(id => KNOWN_CONTENTIEUX.includes(id));
+  const enrolled = accountState?.exists === true;
+  const hasTrousseau = accountState?.hasKeyring || accountState?.hasGrant;
+  const overProvisioned = accountState?.hasKeyring === true && ctxIds.length === 0;
 
   const roleLabel = user.globalRole
     ? GLOBAL_ROLE_LABELS[user.globalRole] || user.globalRole
@@ -619,6 +788,7 @@ const UserCard = ({
           <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${roleBadgeColor}`}>
             {roleLabel}
           </span>
+          {isWeb && <KeyringBadge state={accountState} />}
           {user.contentieux.length > 0 && (
             <span className="text-xs text-gray-400">
               {user.contentieux.length} contentieux
@@ -709,6 +879,90 @@ const UserCard = ({
               })}
             </div>
           </div>
+
+          {/* Accès & clés (édition web) — invitation / révocation du trousseau */}
+          {isWeb && (
+            <div className="pt-3 border-t border-gray-200 space-y-2">
+              <label className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
+                <KeyRound className="h-3.5 w-3.5 text-emerald-700" /> Accès &amp; clés
+              </label>
+
+              {!enrolled ? (
+                <p className="text-xs text-gray-400">
+                  Ce membre ne s&apos;est pas encore enrôlé (aucun compte serveur). L&apos;invitation sera possible une
+                  fois qu&apos;il aura lancé l&apos;application.
+                </p>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-500">
+                    Clés livrées : <span className="font-medium text-gray-700">{scopeLabelsForUser(user).join(' · ')}</span>
+                  </p>
+
+                  {overProvisioned && (
+                    <div className="inline-flex items-center gap-1 text-[11px] text-amber-700">
+                      <AlertTriangle className="h-3 w-3" /> Trousseau actif sans aucune habilitation contentieux
+                    </div>
+                  )}
+
+                  {inviteResult && (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 space-y-2">
+                      <div className="text-xs font-semibold text-emerald-900">Code d&apos;invitation prêt</div>
+                      <div className="flex items-center gap-2">
+                        <code className="text-sm font-mono font-bold tracking-wider bg-white border border-emerald-200 rounded px-2.5 py-1">{inviteResult.code}</code>
+                        <button
+                          onClick={() => onCopyCode?.(inviteResult.code)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs border border-emerald-200 rounded-md hover:bg-emerald-100"
+                        >
+                          {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                          {copied ? 'Copié' : 'Copier'}
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-emerald-800">
+                        À usage unique — il ne sera <b>plus jamais affiché</b>. Transmettez-le maintenant, de vive voix
+                        ou par canal sûr.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {confirmingRevoke ? (
+                      <>
+                        <span className="text-xs text-red-600 font-medium">Révoquer le trousseau de {user.displayName} ?</span>
+                        <button
+                          onClick={() => onRevoke?.(user.windowsUsername)}
+                          disabled={keyBusy}
+                          className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 disabled:opacity-50"
+                        >
+                          {keyBusy ? '…' : 'Confirmer'}
+                        </button>
+                        <button onClick={() => onRequestRevoke?.(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg">Annuler</button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => onInvite?.(user)}
+                          disabled={keyBusy}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                          <UserPlus className="h-3.5 w-3.5" />
+                          {keyBusy ? '…' : (hasTrousseau ? 'Ré-inviter' : 'Inviter')}
+                        </button>
+                        {hasTrousseau && (
+                          <button
+                            onClick={() => onRequestRevoke?.(user.windowsUsername)}
+                            disabled={keyBusy}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-red-600 border border-red-200 rounded-lg text-xs font-medium hover:bg-red-50 disabled:opacity-50"
+                          >
+                            <ShieldOff className="h-3.5 w-3.5" /> Révoquer
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Supprimer */}
           {user.globalRole !== 'admin' && (

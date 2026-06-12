@@ -9,8 +9,15 @@ const path = require('path')
 
 const root = path.join(__dirname, '..')
 
+// En mode Docker (build serveur), preload.js est exclu du contexte — on saute la vérification.
+const preloadPath = path.join(root, 'preload.js')
+if (!fs.existsSync(preloadPath)) {
+  console.log('ℹ️  preload.js absent (build serveur) — vérification de surface ignorée.')
+  process.exit(0)
+}
+
 function namesFromPreload() {
-  const src = fs.readFileSync(path.join(root, 'preload.js'), 'utf8')
+  const src = fs.readFileSync(preloadPath, 'utf8')
   const body = src.slice(src.indexOf("exposeInMainWorld('electronAPI'"))
   const names = new Set()
   for (const m of body.matchAll(/^\s{2}([a-zA-Z_][a-zA-Z0-9_]*)\s*:/gm)) names.add(m[1])

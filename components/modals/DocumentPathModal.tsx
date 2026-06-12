@@ -37,6 +37,17 @@ export const DocumentPathModal = ({
   const [errorMessage, setErrorMessage] = useState('');
   const { showToast } = useToast();
 
+  // En web, un « chemin » est une poignée de dossier choisie via le navigateur
+  // (jeton fsa://…). Taper un chemin Windows au clavier n'a aucun effet : on masque
+  // donc le champ texte et on ne propose que le bouton de sélection.
+  const isWeb = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
+  const isFsaToken = (p: string) => p.startsWith('fsa://');
+  // Nom lisible du dossier : on retire le préfixe technique fsa://
+  const friendlyFolder = (p: string) => (p.startsWith('fsa://') ? p.slice('fsa://'.length) : p);
+  // En web, un ancien chemin Windows (P:\…) posé depuis la version bureau n'est pas
+  // exploitable : il faut re-sélectionner le dossier dans le navigateur.
+  const needsReselect = isWeb && !!selectedPath.trim() && !isFsaToken(selectedPath);
+
   useEffect(() => {
     setSelectedPath(currentPath);
     setUseSubfolder(currentUseSubfolder);
@@ -101,6 +112,11 @@ export const DocumentPathModal = ({
       return;
     }
 
+    if (needsReselect) {
+      showToast('Re-sélectionnez le dossier via « Choisir le dossier »', 'error');
+      return;
+    }
+
     onSave(selectedPath, useSubfolder);
     onClose();
   };
@@ -145,22 +161,33 @@ export const DocumentPathModal = ({
           </div>
 
           {/* Sélection du chemin */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Chemin de sauvegarde externe</label>
-            <div className="flex gap-2">
-              <Input
-                type="text"
-                placeholder="Sélectionnez un dossier ou laissez vide pour désactiver"
-                value={selectedPath}
-                onChange={(e) => {
-                  setSelectedPath(e.target.value);
-                  validatePath(e.target.value);
-                }}
-                className={`flex-1 ${
-                  pathStatus === 'valid' ? 'border-green-500' :
-                  pathStatus === 'invalid' ? 'border-red-500' : ''
-                }`}
-              />
+          {isWeb ? (
+            // ── Version web : un seul bouton, pas de champ texte (un chemin tapé
+            //    au clavier n'est pas exploitable par le navigateur). ──
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Dossier commun (sur votre poste)</label>
+              <p className="text-xs text-gray-600">
+                Choisissez le dossier (par exemple sur <strong>P:\</strong>) dans lequel une copie des
+                documents sera déposée. Le navigateur vous demandera de le sélectionner une fois.
+              </p>
+
+              {selectedPath.trim() && !needsReselect && (
+                <div className="flex items-center gap-2 text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">
+                  <CheckCircle className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-xs break-all">Dossier sélectionné : <strong>{friendlyFolder(selectedPath)}</strong></span>
+                </div>
+              )}
+
+              {needsReselect && (
+                <div className="flex items-start gap-2 text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-3 py-2">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  <span className="text-xs">
+                    Ce dossier vient de la version bureau et n'est pas reconnu par le navigateur.
+                    Cliquez sur « Choisir le dossier » pour le re-sélectionner.
+                  </span>
+                </div>
+              )}
+
               <Button
                 type="button"
                 variant="outline"
@@ -168,29 +195,67 @@ export const DocumentPathModal = ({
                 className="flex items-center gap-2"
               >
                 <FolderOpen className="h-4 w-4" />
-                Parcourir
+                {selectedPath.trim() && !needsReselect ? 'Choisir un autre dossier' : 'Choisir le dossier'}
               </Button>
+
+              {selectedPath.trim() && !needsReselect && (
+                <button
+                  type="button"
+                  onClick={() => { setSelectedPath(''); setPathStatus('unknown'); setErrorMessage(''); }}
+                  className="block text-xs text-gray-500 underline hover:text-gray-700"
+                >
+                  Retirer le dossier (sauvegarde sur le serveur uniquement)
+                </button>
+              )}
             </div>
-            
-            {/* Indicateur de validation */}
-            {isValidating && (
-              <p className="text-xs text-gray-600">Validation du chemin...</p>
-            )}
-            
-            {pathStatus === 'valid' && (
-              <div className="flex items-center gap-2 text-green-700">
-                <CheckCircle className="h-4 w-4" />
-                <span className="text-xs">Chemin valide et accessible en écriture</span>
+          ) : (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Chemin de sauvegarde externe</label>
+              <div className="flex gap-2">
+                <Input
+                  type="text"
+                  placeholder="Sélectionnez un dossier ou laissez vide pour désactiver"
+                  value={selectedPath}
+                  onChange={(e) => {
+                    setSelectedPath(e.target.value);
+                    validatePath(e.target.value);
+                  }}
+                  className={`flex-1 ${
+                    pathStatus === 'valid' ? 'border-green-500' :
+                    pathStatus === 'invalid' ? 'border-red-500' : ''
+                  }`}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleBrowseFolder}
+                  className="flex items-center gap-2"
+                >
+                  <FolderOpen className="h-4 w-4" />
+                  Parcourir
+                </Button>
               </div>
-            )}
-            
-            {pathStatus === 'invalid' && (
-              <div className="flex items-center gap-2 text-red-700">
-                <AlertTriangle className="h-4 w-4" />
-                <span className="text-xs">{errorMessage}</span>
-              </div>
-            )}
-          </div>
+
+              {/* Indicateur de validation */}
+              {isValidating && (
+                <p className="text-xs text-gray-600">Validation du chemin...</p>
+              )}
+
+              {pathStatus === 'valid' && (
+                <div className="flex items-center gap-2 text-green-700">
+                  <CheckCircle className="h-4 w-4" />
+                  <span className="text-xs">Chemin valide et accessible en écriture</span>
+                </div>
+              )}
+
+              {pathStatus === 'invalid' && (
+                <div className="flex items-center gap-2 text-red-700">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="text-xs">{errorMessage}</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Option d'organisation */}
           {selectedPath.trim() && (
@@ -290,7 +355,7 @@ export const DocumentPathModal = ({
                 <span className="text-sm font-medium text-gray-800">Architecture qui sera créée :</span>
               </div>
               <div className="text-xs font-mono text-gray-700 space-y-1">
-                <div>{selectedPath}</div>
+                <div>{friendlyFolder(selectedPath)}</div>
                 {useSubfolder && (
                   <div className="ml-4">└── {enqueteNumero}/</div>
                 )}
@@ -306,9 +371,10 @@ export const DocumentPathModal = ({
           <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
             <h4 className="text-sm font-medium text-blue-900 mb-2">Fonctionnement de la sauvegarde externe :</h4>
             <ul className="text-xs text-blue-800 space-y-1">
-              <li>• Documents sauvegardés en double : interne (application) + externe (dossier choisi)</li>
+              <li>• Documents sauvegardés en double : serveur (chiffré) + dossier choisi (en clair)</li>
               <li>• Organisation automatique par catégorie dans des sous-dossiers</li>
-              <li>• Bouton pour ouvrir directement le dossier externe depuis l'application</li>
+              {!isWeb && <li>• Bouton pour ouvrir directement le dossier externe depuis l'application</li>}
+              {isWeb && <li>• Bouton « Synchroniser » pour réconcilier serveur et dossier dans les deux sens</li>}
               <li>• Suppression synchronisée (interne et externe)</li>
               <li>• Indicateur visuel en cas d'échec de copie externe</li>
             </ul>

@@ -21,6 +21,11 @@ interface BuildOptions { keys: ScopedKeys, me: BridgeIdentity }
 // Magie binaire des documents chiffrés : 'SIR1' + iv(12) + ciphertext
 const DOC_MAGIC = [0x53, 0x49, 0x52, 0x31]
 
+// Coffres acceptés par l'import depuis l'app bureau (mêmes cibles que
+// scripts/siral-import.js) : l'import ne peut pas toucher aux coffres
+// d'accès (keyring-*, grant-*) ni à des noms arbitraires.
+const DESKTOP_IMPORT_VAULT_RE = /^(users-config|tags|audience|alerts|deleted-ids|cartographie|app-data|legacy-app-data|ctx-alerts-[a-zA-Z0-9._-]{1,64}|ctx-[a-zA-Z0-9._-]{1,64}|instructions-[a-zA-Z0-9._-]{1,64}|user-prefs-[a-zA-Z0-9._-]{1,64})$/
+
 type AnyFn = (...args: unknown[]) => unknown
 
 function nowIso() { return new Date().toISOString() }
@@ -151,6 +156,25 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     return s.normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._ -]/g, '_').replace(/ +/g, '_').slice(0, 120)
   }
 
+  // Clé serveur d'une enquête : le numéro métier (ex « 2025/112 », « 23 70/2025 »)
+  // contient des « / » et espaces, refusés par le serveur (NAME_RE) et impossibles
+  // à passer comme segment d'URL unique. On le transforme en identifiant stable et
+  // sûr. Idempotent : une clé déjà sûre reste identique (pas de migration des docs
+  // existants stockés sous un numéro déjà valide).
+  function serverKey(enquete: string): string {
+    const cleaned = String(enquete)
+      .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-zA-Z0-9._@-]/g, '_')
+    const safe = /^[a-zA-Z0-9]/.test(cleaned) ? cleaned : 'e_' + cleaned
+    return safe.slice(0, 121)
+  }
+
+  // Clé de comparaison robuste entre un nom de fichier serveur et un nom sur disque
+  // (P:\). Les deux côtés normalisent différemment (accents, espaces, tirets) ; on
+  // ramène tout à une forme commune pour ne JAMAIS recopier/réimporter — donc jamais
+  // de doublon — un fichier déjà présent des deux côtés.
+  const canonDoc = (s: string) => encodeDocName(s).replace(/[-_]+/g, '_').toLowerCase()
+
   async function docUpload(enquete: string, rel: string, bytes: Uint8Array, category?: string, originalName?: string) {
     const { iv, ct } = await encryptBytes(key, bytes)
     const ivBytes = b64.decode(iv)
@@ -158,7 +182,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     blob.set(DOC_MAGIC, 0)
     blob.set(ivBytes, 4)
     blob.set(ct, 16)
-    const res = await api(`/api/docs/${encodeURIComponent(enquete)}`, {
+    const res = await api(`/api/docs/${encodeURIComponent(serverKey(enquete))}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ rel, b64: b64.encode(blob), category, originalName }),
@@ -168,7 +192,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
   }
 
   async function docDownload(enquete: string, rel: string): Promise<Uint8Array | null> {
-    const res = await api(`/api/docs/${encodeURIComponent(enquete)}/${rel.split('/').map(encodeURIComponent).join('/')}`, { timeoutMs: 120000 })
+    const res = await api(`/api/docs/${encodeURIComponent(serverKey(enquete))}/${rel.split('/').map(encodeURIComponent).join('/')}`, { timeoutMs: 120000 })
     if (!res.ok) return null
     const buf = new Uint8Array(await res.arrayBuffer())
     if (buf.length < 16 || buf[0] !== DOC_MAGIC[0] || buf[1] !== DOC_MAGIC[1] || buf[2] !== DOC_MAGIC[2] || buf[3] !== DOC_MAGIC[3]) return null
@@ -178,7 +202,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
 
   async function docList(enquete: string): Promise<Array<{ rel: string, size: number, savedAt: string, category?: string, originalName?: string }>> {
     try {
-      const res = await api(`/api/docs/${encodeURIComponent(enquete)}`)
+      const res = await api(`/api/docs/${encodeURIComponent(serverKey(enquete))}`)
       if (!res.ok) return []
       const { documents } = await res.json()
       return documents
@@ -420,7 +444,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     },
     deleteCasierFile: async (filePath: unknown) => {
       try {
-        const res = await api(`/api/docs/_casiers/${String(filePath).split('/').map(encodeURIComponent).join('/')}`, { method: 'DELETE' })
+        const res = await api(`/api/docs/${encodeURIComponent(serverKey('_casiers'))}/${String(filePath).split('/').map(encodeURIComponent).join('/')}`, { method: 'DELETE' })
         return res.ok
       } catch { return false }
     },
@@ -467,18 +491,24 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     },
     deleteDocument: async (enqueteNumero: unknown, cheminRelatif: unknown) => {
       try {
-        const res = await api(`/api/docs/${encodeURIComponent(String(enqueteNumero))}/${String(cheminRelatif).split('/').map(encodeURIComponent).join('/')}`, { method: 'DELETE' })
+        const res = await api(`/api/docs/${encodeURIComponent(serverKey(String(enqueteNumero)))}/${String(cheminRelatif).split('/').map(encodeURIComponent).join('/')}`, { method: 'DELETE' })
         return res.ok
       } catch { return false }
     },
     openDocument: async (enqueteNumero: unknown, cheminRelatif: unknown) => {
-      const bytes = await docDownload(String(enqueteNumero), String(cheminRelatif))
-      if (!bytes) return false
       const name = String(cheminRelatif).split('/').pop() || 'document'
+      // Ouvrir l'onglet IMMÉDIATEMENT, tant que le clic de l'utilisateur est encore
+      // « actif » : sinon Edge/Chrome bloquent silencieusement l'ouverture après le
+      // téléchargement (perte de l'activation utilisateur due aux await réseau/déchiffrement).
+      const win = typeof window !== 'undefined' ? window.open('', '_blank') : null
+      const bytes = await docDownload(String(enqueteNumero), String(cheminRelatif))
+      if (!bytes) { if (win) win.close(); return false }
       const blob = new Blob([bytes as BlobPart], { type: mimeOf(name) })
       const url = URL.createObjectURL(blob)
-      const win = window.open(url, '_blank')
-      if (!win) {
+      if (win) {
+        win.location.href = url
+      } else {
+        // Onglet bloqué malgré tout : repli sur un téléchargement classique.
         const a = document.createElement('a')
         a.href = url
         a.download = name
@@ -573,6 +603,9 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       const result = {
         totalInternal: 0, totalExternal: 0,
         addedToInternal: [] as string[], addedToExternal: [] as string[],
+        // Métadonnées complètes des fichiers importés depuis P:\ → permet à l'UI de
+        // les afficher dans la liste de l'enquête sans re-scan.
+        importedDocs: [] as Array<Record<string, unknown>>,
         errors: [] as string[], externalAccessible: true,
       }
       if (!fsa.isFsaToken(token)) {
@@ -593,12 +626,13 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
         const externalNames = await fsa.listFolderFiles(token, enq, sub, cat)
         result.totalExternal += externalNames.length
         const inCat = internal.filter((d) => d.rel.startsWith(cat + '/'))
-        // interne → externe : pousser ce qui manque
+        // Clés canoniques des fichiers présents de chaque côté (comparaison robuste).
+        const externalCanon = new Set(externalNames.map(canonDoc))
+        const internalCanon = new Set(inCat.map((d) => canonDoc(d.originalName || d.rel.split('/').pop() || '')))
+        // interne → externe : pousser ce qui manque (jamais ce qui est déjà là).
         for (const d of inCat) {
-          const base = d.rel.split('/').pop() || ''
-          const name = d.originalName || base
-          const present = externalNames.some((n) => n === name || n === base || n === encodeDocName(name))
-          if (present) continue
+          const name = d.originalName || d.rel.split('/').pop() || ''
+          if (externalCanon.has(canonDoc(name))) continue
           try {
             const bytes = await docDownload(enq, d.rel)
             if (bytes) { await fsa.writeToFolder(token, enq, sub, cat, name, bytes); result.addedToExternal.push(name) }
@@ -606,13 +640,29 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
             result.errors.push(`Copie vers le commun échouée : ${name}`)
           }
         }
-        // externe → interne : importer ce qui a été déposé à la main
+        // externe → interne : importer ce qui a été déposé à la main (jamais un doublon).
+        const importedCanon = new Set<string>()
         for (const n of externalNames) {
-          const known = inCat.some((d) => (d.rel.split('/').pop() || '') === n || d.originalName === n || encodeDocName(d.originalName || '') === n)
-          if (known) continue
+          const key = canonDoc(n)
+          if (internalCanon.has(key) || importedCanon.has(key)) continue
+          importedCanon.add(key)
           try {
             const bytes = await fsa.readFromFolder(token, enq, sub, cat, n)
-            if (bytes) { await docUpload(enq, `${cat}/${encodeDocName(n)}`, bytes, cat, n); result.addedToInternal.push(n) }
+            if (!bytes) continue
+            const rel = `${cat}/${encodeDocName(n)}`
+            await docUpload(enq, rel, bytes, cat, n)
+            result.addedToInternal.push(n)
+            result.importedDocs.push({
+              id: Date.now() + result.importedDocs.length,
+              nom: rel.split('/').pop(),
+              nomOriginal: n,
+              extension: '.' + (n.split('.').pop() || ''),
+              taille: bytes.length,
+              dateAjout: nowIso(),
+              cheminRelatif: rel,
+              type: typeOf(n),
+              copieCommun: 'ok',
+            })
           } catch {
             result.errors.push(`Import depuis le commun échoué : ${n}`)
           }
@@ -821,12 +871,90 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       } catch { return [] }
     },
 
-    // ── Mises à jour (gérées côté serveur en mode web) ──
-    checkAppUpdate: async () => ({ hasUpdate: false, commits: 0, localSha: 'web', remoteSha: 'web' }),
-    applyAppUpdate: async () => ({ success: false, needsInstall: false, needsRebuild: false, error: 'Les mises à jour sont déployées sur le serveur en mode web' }),
-    getUpdateChangelog: async () => ({ success: true, commits: [] }),
-    approveAppUpdate: async () => ({ success: false, error: 'Non applicable en mode web' }),
-    unapproveAppUpdate: async () => ({ success: false, error: 'Non applicable en mode web' }),
+    // ── Mises à jour (pilotées par le conteneur « updater » du serveur) ──
+    // GET /api/update est réservé à l'admin : pour les autres comptes (403),
+    // la mise à jour serveur est transparente — aucune notification.
+    checkAppUpdate: async (force?: unknown) => {
+      const empty = {
+        hasUpdate: false, commits: 0,
+        localSha: null as string | null, remoteSha: null as string | null,
+        approvedSha: null as string | null, approvedBy: null, approvedAt: null,
+      }
+      try {
+        const res = await api(`/api/update${force ? '?force=1' : ''}`, { timeoutMs: force ? 30000 : 15000 })
+        if (res.status === 403) return empty
+        if (!res.ok) return { ...empty, error: 'Vérification indisponible (' + res.status + ')' }
+        const d = await res.json() as { available: boolean, error?: string, localSha: string | null, remoteSha: string | null, commits: number, fetchOk: boolean }
+        if (!d.available) return { ...empty, error: d.error || 'Service de mise à jour non installé' }
+        return {
+          ...empty,
+          hasUpdate: !!(d.localSha && d.remoteSha && d.localSha !== d.remoteSha),
+          commits: d.commits || 0,
+          localSha: d.localSha,
+          remoteSha: d.remoteSha,
+          // serveur unique : la version installée est de fait celle de tous
+          approvedSha: d.localSha,
+          ...(d.fetchOk === false ? { error: 'GitHub injoignable depuis le serveur — état possiblement périmé' } : {}),
+        }
+      } catch {
+        return { ...empty, error: 'Serveur injoignable' }
+      }
+    },
+    /**
+     * Déclenche la mise à jour du serveur (git pull + rebuild Docker + redémarrage)
+     * puis suit la progression jusqu'au retour du serveur. Les échecs réseau
+     * pendant le redémarrage du conteneur sont attendus et ignorés.
+     */
+    applyAppUpdate: async () => {
+      const fail = (error: string) => ({ success: false, needsInstall: false, needsRebuild: true, error })
+      try {
+        const res = await api('/api/update', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'apply' }),
+          timeoutMs: 20000,
+        })
+        const d = await res.json().catch(() => ({})) as { success?: boolean, error?: string }
+        if (!res.ok || !d.success) return fail(d.error || 'Demande refusée (' + res.status + ')')
+      } catch (e) {
+        return fail(e instanceof Error ? e.message : 'Serveur injoignable')
+      }
+      const startedAt = Date.now()
+      const deadline = startedAt + 15 * 60 * 1000
+      let sawUpdating = false
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 4000))
+        try {
+          const res = await api('/api/update', { timeoutMs: 8000 })
+          if (!res.ok) continue
+          const d = await res.json() as { status?: { state?: string, step?: string, message?: string } }
+          const st = d.status?.state
+          if (st === 'updating') { sawUpdating = true; continue }
+          if (st === 'error') return fail(d.status?.message || ('Échec à l\'étape « ' + (d.status?.step || '?') + ' »'))
+          if (st === 'done' && sawUpdating) return { success: true, needsInstall: false, needsRebuild: true, restarted: true }
+          // état antérieur (idle/done) : la demande n'est pas encore consommée
+          if (!sawUpdating && Date.now() - startedAt > 90000) {
+            return fail('Le service de mise à jour ne répond pas — vérifiez le conteneur « updater » sur le serveur')
+          }
+        } catch { /* conteneur en cours de redémarrage */ }
+      }
+      return fail('Délai dépassé — vérifiez l\'état du serveur (journal du conteneur updater)')
+    },
+    getUpdateChangelog: async () => {
+      try {
+        const res = await api('/api/update')
+        if (!res.ok) return { success: false, error: 'Changelog indisponible (' + res.status + ')', commits: [] }
+        const d = await res.json() as { available?: boolean, error?: string, commitList?: Array<{ sha: string, message: string, author: string, date: string | null, url: null }> }
+        if (d.available === false) return { success: false, error: d.error || 'Service de mise à jour non installé', commits: [] }
+        return { success: true, commits: d.commitList || [] }
+      } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : 'Serveur injoignable', commits: [] }
+      }
+    },
+    // Publication : sans objet sur la version serveur — mettre à jour le serveur
+    // publie de fait la nouvelle version pour tous les utilisateurs, immédiatement.
+    approveAppUpdate: async () => ({ success: false, error: 'Sans objet en mode serveur : la mise à jour s\'applique immédiatement à tous les utilisateurs' }),
+    unapproveAppUpdate: async () => ({ success: false, error: 'Sans objet en mode serveur' }),
     getApprovedAppUpdate: async () => ({ approvedSha: null, approvedBy: null, approvedAt: null }),
 
     // ── Mode consultation (spécifique Electron/partage réseau) ──
@@ -877,6 +1005,25 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       const r1 = await api(`/api/vaults/keyring-${encodeURIComponent(user)}`, { method: 'DELETE' })
       const r2 = await api(`/api/vaults/grant-${encodeURIComponent(user)}`, { method: 'DELETE' })
       if (!r1.ok && !r2.ok) throw new Error('Révocation refusée (' + r1.status + ')')
+      return true
+    },
+
+    // ── Import depuis l'app bureau (Paramètres → Sauvegardes) ──
+    /** Chiffre puis pousse un coffre de données — uniquement les cibles connues de l'import. */
+    desktopImport_pushVault: async (name: unknown, payload: unknown, meta?: unknown) => {
+      const n = String(name)
+      if (!DESKTOP_IMPORT_VAULT_RE.test(n)) throw new Error(`Coffre non autorisé à l'import : ${n}`)
+      await vaultPush(n, payload, metaOf(meta))
+      return true
+    },
+    /** Dépose un document d'enquête en conservant son chemin relatif d'origine
+     *  (saveDocuments renomme — ici les liens des enquêtes doivent rester valides). */
+    desktopImport_uploadDocument: async (enquete: unknown, rel: unknown, buffer: unknown, category?: unknown, originalName?: unknown) => {
+      await docUpload(
+        String(enquete), String(rel), new Uint8Array(buffer as ArrayBuffer),
+        category === undefined ? undefined : String(category),
+        originalName === undefined ? undefined : String(originalName),
+      )
       return true
     },
   }

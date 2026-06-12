@@ -94,11 +94,19 @@ export const UpdateChangelogModal = ({
             <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
             <div className="text-xs text-amber-800 space-y-1">
               <p className="font-medium">Redémarrage requis</p>
-              <p>
-                L'application va se fermer et redémarrer automatiquement.
-                Si la mise à jour modifie le code de l'interface, un <strong>rebuild</strong> sera lancé
-                au prochain démarrage (1 à 3 minutes). Vos données ne sont jamais affectées.
-              </p>
+              {typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true ? (
+                <p>
+                  Le serveur va être <strong>reconstruit et redémarré</strong> automatiquement
+                  (2 à 5 minutes) ; la page se rechargera ensuite. Tous les utilisateurs recevront
+                  la nouvelle version. Vos données ne sont jamais affectées.
+                </p>
+              ) : (
+                <p>
+                  L'application va se fermer et redémarrer automatiquement.
+                  Si la mise à jour modifie le code de l'interface, un <strong>rebuild</strong> sera lancé
+                  au prochain démarrage (1 à 3 minutes). Vos données ne sont jamais affectées.
+                </p>
+              )}
             </div>
           </div>
 

@@ -11,6 +11,10 @@ interface AdminUpdatePanelProps {
 export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps) => {
   const { isAdmin: checkIsAdmin, user } = useUser();
 
+  // Version serveur (V2) : la mise à jour reconstruit le serveur pour tout le
+  // monde — pas de cycle « tester puis publier » poste par poste comme en Electron.
+  const isWeb = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
+
   const [githubUpdateAvailable, setGithubUpdateAvailable] = useState(false);
   const [githubCommits, setGithubCommits] = useState(0);
   const [githubChecking, setGithubChecking] = useState(false);
@@ -55,7 +59,11 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
       if (result && !result.success) {
         setGithubError(`Erreur : ${result.error}`);
         setGithubUpdating(false);
+      } else if (isWeb && result?.success) {
+        // serveur reconstruit et redémarré : recharger pour servir la nouvelle version
+        window.location.reload();
       }
+      // en Electron, l'app redémarre d'elle-même — rien à faire ici
     } catch (e: any) {
       setGithubError(`Erreur : ${e.message}`);
       setGithubUpdating(false);
@@ -118,8 +126,9 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
       <div>
         <h3 className="text-base font-semibold text-gray-800">Mise à jour de l'application</h3>
         <p className="text-sm text-gray-500 mt-0.5">
-          Récupère la dernière version du code source depuis GitHub.
-          L'application redémarrera automatiquement après la mise à jour.
+          {isWeb
+            ? 'Récupère la dernière version du code source depuis GitHub, reconstruit le serveur et le redémarre (2 à 5 minutes). La mise à jour s\'applique à tous les utilisateurs.'
+            : 'Récupère la dernière version du code source depuis GitHub. L\'application redémarrera automatiquement après la mise à jour.'}
         </p>
       </div>
 
@@ -191,12 +200,32 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
         {githubUpdating && (
           <div className="px-3 py-2 bg-violet-100 border border-violet-200 rounded-lg flex items-center gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-600" />
-            <span className="text-xs text-violet-700">Téléchargement et installation en cours... L'application va redémarrer.</span>
+            <span className="text-xs text-violet-700">
+              {isWeb
+                ? 'Reconstruction du serveur en cours (2 à 5 minutes)... La page se rechargera automatiquement. De brèves coupures sont normales pendant le redémarrage.'
+                : 'Téléchargement et installation en cours... L\'application va redémarrer.'}
+            </span>
           </div>
         )}
       </div>
 
-      {/* Publication aux utilisateurs (écrit update-approved.json sur le serveur commun) */}
+      {/* Version serveur : pas de cycle « publication » — la MAJ vaut pour tous */}
+      {isWeb && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-2">
+          <h4 className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Publication aux utilisateurs
+          </h4>
+          <p className="text-xs text-emerald-700">
+            Sans objet sur la version serveur : dès que la mise à jour est appliquée,
+            <strong> tous les utilisateurs</strong> reçoivent la nouvelle version au prochain
+            chargement de la page — il n'y a rien à publier séparément.
+          </p>
+        </div>
+      )}
+
+      {/* Publication aux utilisateurs (Electron : écrit update-approved.json sur le serveur commun) */}
+      {!isWeb && (
       <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-3">
         <h4 className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
           <Users className="h-4 w-4" />
@@ -267,6 +296,7 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
           </div>
         )}
       </div>
+      )}
 
       <p className="text-xs text-gray-400">
         Les données (enquêtes, documents, résultats) ne sont <strong>jamais</strong> affectées par les mises à jour.

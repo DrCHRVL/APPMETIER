@@ -1,8 +1,12 @@
-# SIRAL — déploiement serveur (app + HTTPS automatique)
+# SIRAL — déploiement serveur (app + HTTPS automatique + mises à jour in-app)
 #
 #  1. copiez .env.exemple vers .env et remplissez les valeurs
 #  2. docker compose up -d --build
 #
+# Nom de projet : dérivé du dossier (« siral » si /opt/siral ou ~/siral), donc
+# volumes « siral_* ». Le conteneur updater le force explicitement (-p siral)
+# pour rester cohérent quel que soit son répertoire de travail.
+
 services:
   siral:
     build: .
@@ -12,8 +16,10 @@ services:
       - SIRAL_SECRET=${SIRAL_SECRET}
       - SIRAL_RP_ID=${SIRAL_DOMAINE}
       - SIRAL_ORIGIN=https://${SIRAL_DOMAINE}
+      - SIRAL_UPDATER_DIR=/updater
     volumes:
       - siral-data:/data
+      - updater-state:/updater
     expose:
       - "3000"
 
@@ -30,7 +36,25 @@ services:
       - caddy-data:/data
       - caddy-config:/config
 
+  # Mises à jour depuis l'app (Paramètres → Mise à jour) : seul ce conteneur
+  # touche au dépôt git et au démon Docker. L'app lui parle par fichiers via
+  # le volume updater-state — voir scripts/updater.sh.
+  updater:
+    build:
+      context: .
+      dockerfile: Dockerfile.updater
+    restart: unless-stopped
+    environment:
+      - REPO_DIR=/srv/repo
+      - STATE_DIR=/state
+      - COMPOSE_PROJECT_NAME=siral
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/srv/repo
+      - updater-state:/state
+
 volumes:
   siral-data:
   caddy-data:
   caddy-config:
+  updater-state:

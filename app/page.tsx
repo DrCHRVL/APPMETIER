@@ -135,12 +135,10 @@ const AdminContentieuxPanel = dynamic(() => import('@/components/admin/AdminCont
 const AdminInstructionPanel = dynamic(() => import('@/components/admin/AdminInstructionPanel').then(m => ({ default: m.AdminInstructionPanel })), { ssr: false });
 const AdminCartographyPanel = dynamic(() => import('@/components/admin/AdminCartographyPanel').then(m => ({ default: m.AdminCartographyPanel })), { ssr: false });
 const AdminPathsPanel = dynamic(() => import('@/components/admin/AdminPathsPanel').then(m => ({ default: m.AdminPathsPanel })), { ssr: false });
-const AdminAccessPanel = dynamic(() => import('@/components/admin/AdminAccessPanel').then(m => ({ default: m.AdminAccessPanel })), { ssr: false });
 const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashboardPanel').then(m => ({ default: m.AdminDashboardPanel })), { ssr: false });
 const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHistoryPanel').then(m => ({ default: m.AdminTagHistoryPanel })), { ssr: false });
 const AdminUpdatePanel = dynamic(() => import('@/components/admin/AdminUpdatePanel').then(m => ({ default: m.AdminUpdatePanel })), { ssr: false });
 const AboutContent = dynamic(() => import('@/components/AboutContent').then(m => ({ default: m.AboutContent })), { ssr: false });
-const IASynthesePanel = dynamic(() => import('@/components/IASynthesePanel').then(m => ({ default: m.IASynthesePanel })), { ssr: false });
 const AgendaPanel = dynamic(() => import('@/components/AgendaPanel').then(m => ({ default: m.AgendaPanel })), { ssr: false });
 const MyProfileContent = dynamic(() => import('@/components/MyProfileContent').then(m => ({ default: m.MyProfileContent })), { ssr: false });
 import { useOverboardData } from '@/hooks/useOverboardData';
@@ -611,8 +609,11 @@ function AppContent() {
       if (result && !result.success) {
         showToast(`Erreur de mise à jour : ${result.error}`, 'error');
         setIsUpdating(false);
+      } else if (result?.success && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true) {
+        // version serveur : le rebuild est terminé → recharger la nouvelle version
+        window.location.reload();
       }
-      // Si succès, l'app redémarre → pas besoin de reset l'état
+      // En Electron, l'app redémarre d'elle-même → pas besoin de reset l'état
     } catch {
       showToast('Impossible de mettre à jour l\'application', 'error');
       setIsUpdating(false);
@@ -1913,8 +1914,6 @@ return (
         moduleInstructionContent={hasModule('instructions') ? <AdminInstructionPanel /> : null}
         moduleCartographieContent={hasModule('mindmap') ? <AdminCartographyPanel /> : null}
         adminPathsContent={<AdminPathsPanel />}
-        adminAccessContent={<AdminAccessPanel />}
-        iaSyntheseContent={<IASynthesePanel />}
         agendaContent={<AgendaPanel />}
         adminDashboardContent={<AdminDashboardPanel />}
         adminTagHistoryContent={<AdminTagHistoryPanel />}
