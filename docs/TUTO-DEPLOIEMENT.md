@@ -122,9 +122,11 @@ Ouvrez **https://votre-domaine** : l'écran de connexion SIRAL apparaît.
      contentieux sont régénérées et votre trousseau créé.
    - Votre phrase personnelle est **irrécupérable** : imprimez-la, enveloppe
      scellée. En cas d'oubli, un collègue admin peut vous ré-inviter.
-3. **Inviter les collègues** : Paramètres → **Accès & clés** → « Inviter »
-   à côté de chaque membre (cochez les contentieux à donner) → un **code
-   d'invitation à usage unique** s'affiche : transmettez-le de vive voix.
+3. **Inviter les collègues** : Paramètres → **Utilisateurs & accès** →
+   dépliez la carte du membre → section « Accès & clés » → « Inviter »
+   (les contentieux à donner se règlent juste au-dessus, dans ses
+   habilitations) → un **code d'invitation à usage unique** s'affiche :
+   transmettez-le de vive voix.
    Le collègue s'enrôle (passkey + code d'enrôlement), saisit son code
    d'invitation et choisit SA phrase personnelle. Révoquer un membre se fait
    au même endroit.
@@ -202,7 +204,7 @@ de conclure si quelque chose manque. Rechargez l'app : vos données sont là.
   consultables).
 - Chaque membre du service s'enrôle avec **son** identifiant (celui de
   `users.json`) + le code d'enrôlement, saisit le **code d'invitation** remis
-  par l'admin (Paramètres → Accès & clés), puis choisit sa **phrase
+  par l'admin (Paramètres → Utilisateurs & accès), puis choisit sa **phrase
   personnelle**.
 
 ---

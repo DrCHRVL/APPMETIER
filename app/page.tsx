@@ -133,7 +133,6 @@ const AdminContentieuxPanel = dynamic(() => import('@/components/admin/AdminCont
 const AdminInstructionPanel = dynamic(() => import('@/components/admin/AdminInstructionPanel').then(m => ({ default: m.AdminInstructionPanel })), { ssr: false });
 const AdminCartographyPanel = dynamic(() => import('@/components/admin/AdminCartographyPanel').then(m => ({ default: m.AdminCartographyPanel })), { ssr: false });
 const AdminPathsPanel = dynamic(() => import('@/components/admin/AdminPathsPanel').then(m => ({ default: m.AdminPathsPanel })), { ssr: false });
-const AdminAccessPanel = dynamic(() => import('@/components/admin/AdminAccessPanel').then(m => ({ default: m.AdminAccessPanel })), { ssr: false });
 const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashboardPanel').then(m => ({ default: m.AdminDashboardPanel })), { ssr: false });
 const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHistoryPanel').then(m => ({ default: m.AdminTagHistoryPanel })), { ssr: false });
 const AdminUpdatePanel = dynamic(() => import('@/components/admin/AdminUpdatePanel').then(m => ({ default: m.AdminUpdatePanel })), { ssr: false });
@@ -1891,7 +1890,6 @@ return (
         moduleInstructionContent={hasModule('instructions') ? <AdminInstructionPanel /> : null}
         moduleCartographieContent={hasModule('mindmap') ? <AdminCartographyPanel /> : null}
         adminPathsContent={<AdminPathsPanel />}
-        adminAccessContent={<AdminAccessPanel />}
         iaSyntheseContent={<IASynthesePanel />}
         adminDashboardContent={<AdminDashboardPanel />}
         adminTagHistoryContent={<AdminTagHistoryPanel />}
