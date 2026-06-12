@@ -20,7 +20,10 @@ set -u
 REPO="${REPO_DIR:-/srv/repo}"
 STATE="${STATE_DIR:-/state}"
 BRANCH="${SIRAL_BRANCH:-main}"
-COMPOSE="docker compose -f $REPO/docker-compose.yml --project-directory $REPO"
+PROJECT="${COMPOSE_PROJECT_NAME:-siral}"
+# compose v2 (plugin embarqué dans CETTE image) ; -p épingle le nom de projet
+# pour viser les mêmes conteneurs/volumes « siral_* » que l'hôte.
+COMPOSE="docker compose -f $REPO/docker-compose.yml --project-directory $REPO -p $PROJECT"
 
 mkdir -p "$STATE"
 # le conteneur app (utilisateur non-root « siral ») doit pouvoir déposer request.json
