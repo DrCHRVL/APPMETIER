@@ -140,6 +140,7 @@ const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHi
 const AdminUpdatePanel = dynamic(() => import('@/components/admin/AdminUpdatePanel').then(m => ({ default: m.AdminUpdatePanel })), { ssr: false });
 const AboutContent = dynamic(() => import('@/components/AboutContent').then(m => ({ default: m.AboutContent })), { ssr: false });
 const IASynthesePanel = dynamic(() => import('@/components/IASynthesePanel').then(m => ({ default: m.IASynthesePanel })), { ssr: false });
+const AgendaPanel = dynamic(() => import('@/components/AgendaPanel').then(m => ({ default: m.AgendaPanel })), { ssr: false });
 const MyProfileContent = dynamic(() => import('@/components/MyProfileContent').then(m => ({ default: m.MyProfileContent })), { ssr: false });
 import { useOverboardData } from '@/hooks/useOverboardData';
 import { HeartbeatManager } from '@/utils/heartbeatManager';
@@ -1325,7 +1326,7 @@ return (
             <DashboardPage
               enquetesByContentieux={overboardData}
               contentieuxDefs={contentieuxDefs}
-              activeEnquetes={activeEnquetes}
+              activeContentieux={effectiveContentieux}
               instructions={instructions}
               globalTodos={globalTodos}
               onUpdateEnquete={handleUpdateEnquete}
@@ -1895,6 +1896,7 @@ return (
         adminPathsContent={<AdminPathsPanel />}
         adminAccessContent={<AdminAccessPanel />}
         iaSyntheseContent={<IASynthesePanel />}
+        agendaContent={<AgendaPanel />}
         adminDashboardContent={<AdminDashboardPanel />}
         adminTagHistoryContent={<AdminTagHistoryPanel />}
         adminUpdateContent={<AdminUpdatePanel onGithubUpdateChange={(hasUpdate, commits) => {

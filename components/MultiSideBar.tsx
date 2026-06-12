@@ -76,7 +76,20 @@ export const MultiSideBar = ({
   crossSearchResults = [],
   pendingUsersCount = 0,
 }: MultiSideBarProps) => {
-  const { accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, permissions } = useUser();
+  const { accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, permissions, user } = useUser();
+
+  // Libellé lisible du rôle global
+  const roleLabel = (() => {
+    switch (user?.globalRole) {
+      case 'admin': return 'Administrateur';
+      case 'pra': return 'Procureur de la République adjoint';
+      case 'vice_proc': return 'Vice-procureur';
+      case 'jld': return 'Juge des libertés et de la détention';
+      default: return 'Membre';
+    }
+  })();
+  const initials = (user?.displayName || '?')
+    .split(/\s+/).map(p => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
   const sortedContentieux = useMemo(
     () => [...accessibleContentieux].sort((a, b) => a.order - b.order),
     [accessibleContentieux]
@@ -111,7 +124,22 @@ export const MultiSideBar = ({
       {/* Liseré supérieur très discret */}
       <div className="absolute top-0 left-0 right-0 h-px" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent)' }} />
 
-      <div className="p-3 flex flex-col flex-1 pt-4 overflow-y-auto scrollbar-thin">
+      {/* ── MARQUE : icône constellation ── */}
+      <div className={`flex items-center gap-2.5 px-4 pt-4 pb-2 ${isOpen ? '' : 'justify-center px-0'}`}>
+        <svg viewBox="0 0 48 48" width="30" height="30" className="flex-shrink-0" style={{ borderRadius: 9 }}>
+          <defs>
+            <linearGradient id="siralSb" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor="#8585f6" /><stop offset="1" stopColor="#5b63d6" />
+            </linearGradient>
+          </defs>
+          <rect x="0" y="0" width="48" height="48" rx="11" fill="url(#siralSb)" />
+          <g stroke="#fff" strokeWidth="2.1" strokeLinecap="round" fill="none" opacity="0.92"><path d="M31 13 L17 19 L30 27 L17 34" /></g>
+          <g fill="#fff"><circle cx="31" cy="13" r="3.1" /><circle cx="17" cy="19" r="2.5" /><circle cx="30" cy="27" r="2.5" /><circle cx="17" cy="34" r="3.1" /></g>
+        </svg>
+        {isOpen && <span className="text-[15px] font-bold tracking-tight text-white">SIRAL</span>}
+      </div>
+
+      <div className="p-3 flex flex-col flex-1 pt-1 overflow-y-auto scrollbar-thin">
         {/* ── TABLEAU DE BORD ── */}
         <button
           className={`
@@ -393,12 +421,26 @@ export const MultiSideBar = ({
         </button>
       </div>
 
-      <div className="copyright">
-        <div style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.08em', opacity: 0.7 }}>
-          SIRAL
+      {/* ── UTILISATEUR CONNECTÉ ── */}
+      {user && (
+        <div className={`px-3 pb-2 pt-1 ${isOpen ? '' : 'flex justify-center'}`}>
+          <div className={`flex items-center gap-2.5 ${isOpen ? 'px-2 py-1.5 rounded-lg bg-white/5' : ''}`}>
+            <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
+              style={{ background: 'linear-gradient(140deg,#8585f6,#5b63d6)' }} title={user.displayName}>
+              {initials}
+            </div>
+            {isOpen && (
+              <div className="min-w-0">
+                <div className="text-[12px] font-semibold text-white/90 truncate">{user.displayName}</div>
+                <div className="text-[10px] text-white/45 truncate">{roleLabel}</div>
+              </div>
+            )}
+          </div>
         </div>
-        <div>Conçu par A. CHEVALIER — Parquet d&apos;Amiens</div>
-        <div style={{ opacity: 0.4 }}>2025–{new Date().getFullYear()}</div>
+      )}
+
+      <div className="copyright">
+        <div>Conçu par A. CHEVALIER — Parquet d&apos;Amiens · {new Date().getFullYear()}</div>
       </div>
     </div>
   );

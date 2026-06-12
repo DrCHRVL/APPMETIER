@@ -9,9 +9,15 @@ interface PendingActsJLDProps {
 
 interface PendingActeItem {
   acteType: string;
+  cible?: string;
   enquete: Enquete;
   daysSince: number;
   kind: 'autorisation' | 'prolongation';
+}
+
+/** Service d'enquête (tag de catégorie « services ») d'une enquête. */
+function serviceOf(e: Enquete): string | undefined {
+  return e.tags?.find(t => t.category === 'services')?.value;
 }
 
 export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete }: PendingActsJLDProps) => {
@@ -30,9 +36,9 @@ export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete }: PendingAc
       }
       for (const a of e.ecoutes || []) {
         if (a.statut === 'autorisation_pending') {
-          items.push({ acteType: `Écoute ${a.numero}`, enquete: e, daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs), kind: 'autorisation' });
+          items.push({ acteType: `Écoute ${a.numero}`, cible: a.cible, enquete: e, daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs), kind: 'autorisation' });
         } else if (a.statut === 'prolongation_pending') {
-          items.push({ acteType: `Écoute ${a.numero}`, enquete: e, daysSince: Math.floor((now - new Date(a.prolongationDate || a.dateDebut).getTime()) / dayMs), kind: 'prolongation' });
+          items.push({ acteType: `Écoute ${a.numero}`, cible: a.cible, enquete: e, daysSince: Math.floor((now - new Date(a.prolongationDate || a.dateDebut).getTime()) / dayMs), kind: 'prolongation' });
         }
       }
       for (const a of e.geolocalisations || []) {
@@ -59,9 +65,15 @@ export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete }: PendingAc
     >
       <span className="text-xs text-gray-700 leading-snug select-none flex-1 min-w-0 break-words [overflow-wrap:anywhere]">
         {item.acteType}
+        {item.cible && <span className="text-gray-500"> · {item.cible}</span>}
         <span className="text-gray-400 ml-1 text-[10px]">
           ({item.enquete.numero})
         </span>
+        {serviceOf(item.enquete) && (
+          <span className="ml-1 inline-block text-[9px] font-semibold text-purple-700 bg-purple-100 rounded px-1 align-middle">
+            {serviceOf(item.enquete)}
+          </span>
+        )}
       </span>
       <span className={`text-[10px] font-semibold whitespace-nowrap ${
         item.daysSince >= 14 ? 'text-red-600' :

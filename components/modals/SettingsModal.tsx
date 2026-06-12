@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, KeyRound, Sparkles } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, KeyRound, Sparkles, CalendarDays } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId, ModuleId } from '@/types/userTypes';
 
@@ -10,7 +10,7 @@ import { ContentieuxId, ModuleId } from '@/types/userTypes';
 // ──────────────────────────────────────────────
 
 type SettingsTab =
-  | 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'ia_synthese' | 'a_propos'
+  | 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'agenda' | 'ia_synthese' | 'a_propos'
   | 'module_instruction' | 'module_cartographie'
   | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_access' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
 
@@ -33,6 +33,7 @@ interface SettingsModalProps {
   adminTagHistoryContent?: React.ReactNode;
   adminUpdateContent?: React.ReactNode;
   iaSyntheseContent?: React.ReactNode;
+  agendaContent?: React.ReactNode;
   aProposContent?: React.ReactNode;
   /** Currently active contentieux (used as default) */
   activeContentieuxId?: ContentieuxId;
@@ -65,6 +66,7 @@ const TABS: TabDef[] = [
   { id: 'tags',        label: 'Tags',        icon: Tags, section: 'general' },
   { id: 'sauvegardes', label: 'Sauvegardes', icon: Save, section: 'general' },
   { id: 'mon_profil',  label: 'Mon profil',  icon: User, section: 'general' },
+  { id: 'agenda',      label: 'Agenda',      icon: CalendarDays, section: 'general' },
   { id: 'a_propos',    label: 'À propos',    icon: Info, section: 'general' },
 
   // Modules (visibles selon les modules activés pour l'utilisateur)
@@ -109,6 +111,7 @@ export const SettingsModal = ({
   moduleInstructionContent,
   moduleCartographieContent,
   iaSyntheseContent,
+  agendaContent,
   adminUsersContent,
   adminContentieuxContent,
   adminPathsContent,
@@ -150,6 +153,7 @@ export const SettingsModal = ({
       case 'tags':               return tagsContent;
       case 'sauvegardes':        return sauvegardesContent;
       case 'mon_profil':         return monProfilContent;
+      case 'agenda':             return agendaContent;
       case 'ia_synthese':        return iaSyntheseContent;
       case 'a_propos':           return aProposContent;
       case 'module_instruction':  return moduleInstructionContent;
