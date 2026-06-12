@@ -14,6 +14,7 @@ import { AlertsPage } from '@/components/pages/AlertsPage';
 import { AlertsModal } from '@/components/modals/AlertsModal';
 import { SavePage } from '@/components/pages/SavePage';
 const StatsPage = dynamic(() => import('@/components/pages/StatsPage').then(m => ({ default: m.StatsPage })), { ssr: false });
+const DashboardPage = dynamic(() => import('@/components/pages/DashboardPage').then(m => ({ default: m.DashboardPage })), { ssr: false });
 import { useContentieuxEnquetesStore as useContentieuxEnquetes } from '@/hooks/useContentieuxEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
 import { useDocumentSearch } from '@/hooks/useDocumentSearch';
@@ -153,7 +154,7 @@ function AppContent() {
   const [isClient, setIsClient] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false); // tiroir de navigation (petits écrans)
-  const [currentView, setCurrentView] = useState('enquetes');
+  const [currentView, setCurrentView] = useState('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
   // Debounce de la recherche : l'input reste réactif, les hooks coûteux attendent 300ms
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
@@ -171,12 +172,11 @@ function AppContent() {
   const [pendingUsersCount, setPendingUsersCount] = useState(0);
   const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
 
-  // Initialiser le contentieux actif et la vue au premier contentieux accessible
+  // Initialiser le contentieux actif au premier accessible.
+  // La vue par défaut reste le Tableau de bord (on ne force pas les enquêtes).
   useEffect(() => {
     if (!activeContentieux && accessibleContentieux.length > 0) {
-      const firstId = accessibleContentieux[0].id;
-      setActiveContentieux(firstId);
-      setCurrentView(`enquetes_${firstId}`);
+      setActiveContentieux(accessibleContentieux[0].id);
     }
   }, [accessibleContentieux, activeContentieux]);
 
@@ -200,7 +200,7 @@ function AppContent() {
       setActiveContentieux(contentieuxId);
     }
     // Rafraîchir l'overboard quand on y navigue (données potentiellement modifiées)
-    if (view === 'overboard' || view === 'global_stats') {
+    if (view === 'overboard' || view === 'global_stats' || view === 'dashboard') {
       refreshOverboard();
     }
   };
@@ -1105,10 +1105,17 @@ function AppContent() {
     setSelectedTags(prev => prev.filter(t => t.id !== tagId));
   }, []);
 
-  // Map stable pour OPTimeline (sinon prop neuve à chaque render → recalcul complet)
-  const opTimelineMap = useMemo(
-    () => new Map([[currentContentieuxId, activeEnquetes]]),
-    [currentContentieuxId, activeEnquetes]
+  // Compteurs sidebar : enquêtes en cours par contentieux + instructions en cours
+  const sidebarEnqueteCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const [ctxId, list] of overboardData) {
+      counts[ctxId] = list.filter(e => e.statut !== 'archive').length;
+    }
+    return counts;
+  }, [overboardData]);
+  const sidebarInstructionCount = useMemo(
+    () => instructions.filter(d => !d.archived).length,
+    [instructions]
   );
 
   if (!isClient || tagsLoading || userLoading) {
@@ -1200,9 +1207,12 @@ return (
           currentContentieux={effectiveContentieux}
           onViewChange={handleViewChange}
           onNewEnquete={handleNewEnquete}
+          onNewInstruction={() => setShowNewInstructionModal(true)}
           onOpenSettings={() => setShowSettingsModal(true)}
           alertCount={activeAlertsCount}
           instructionAlertCount={instructionAlerts.length}
+          enqueteCounts={sidebarEnqueteCounts}
+          instructionCount={sidebarInstructionCount}
           crossSearchResults={crossSearchResults}
           pendingUsersCount={pendingUsersCount}
         />
@@ -1217,9 +1227,12 @@ return (
               currentContentieux={effectiveContentieux}
               onViewChange={(view, ctx) => { setMobileNavOpen(false); handleViewChange(view, ctx); }}
               onNewEnquete={() => { setMobileNavOpen(false); handleNewEnquete(); }}
+              onNewInstruction={() => { setMobileNavOpen(false); setShowNewInstructionModal(true); }}
               onOpenSettings={() => { setMobileNavOpen(false); setShowSettingsModal(true); }}
               alertCount={activeAlertsCount}
               instructionAlertCount={instructionAlerts.length}
+              enqueteCounts={sidebarEnqueteCounts}
+              instructionCount={sidebarInstructionCount}
               crossSearchResults={crossSearchResults}
               pendingUsersCount={pendingUsersCount}
             />
@@ -1308,30 +1321,22 @@ return (
         )}
 
         <main className="flex-1 overflow-auto p-3 sm:p-6">
+          {baseView === 'dashboard' && (
+            <DashboardPage
+              enquetesByContentieux={overboardData}
+              contentieuxDefs={contentieuxDefs}
+              activeEnquetes={activeEnquetes}
+              instructions={instructions}
+              globalTodos={globalTodos}
+              onUpdateEnquete={handleUpdateEnquete}
+              onGlobalTodosChange={handleGlobalTodosChange}
+              onOpenEnquete={handleViewEnquete}
+              onOpenInstruction={(d) => { setSelectedInstruction(d); setIsEditingInstruction(false); }}
+            />
+          )}
+
           {baseView === 'enquetes' && (
             <div className="space-y-6">
-              <OPTimeline
-                enquetesByContentieux={opTimelineMap}
-                contentieuxDefs={contentieuxDefs}
-                onEnqueteClick={handleViewEnquete}
-              />
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-                <TodoReminderBar
-                  enquetes={activeEnquetes}
-                  globalTodos={globalTodos}
-                  onUpdateEnquete={handleUpdateEnquete}
-                  onGlobalTodosChange={handleGlobalTodosChange}
-                  onOpenEnquete={handleViewEnquete}
-                />
-                <PendingActsJLD
-                  enquetes={activeEnquetes}
-                  onOpenEnquete={handleViewEnquete}
-                />
-                <PendingPose
-                  enquetes={activeEnquetes}
-                  onOpenEnquete={handleViewEnquete}
-                />
-              </div>
               {Object.entries(enquetesByOrganization)
                 .sort(([a], [b]) => getSectionOrder(a) - getSectionOrder(b))
                 .map(([section, serviceGroups]) => {

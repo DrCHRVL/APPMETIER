@@ -112,9 +112,6 @@ export const Header = ({
           </div>
 
           {/* Titre */}
-          <h1 className="hidden md:block text-base font-semibold tracking-tight" style={{ color: 'hsl(155 35% 24%)' }}>
-            Suivi des enquêtes
-          </h1>
         </div>
 
         <div className="flex items-center gap-1">

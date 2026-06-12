@@ -49,6 +49,10 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showRepairConfirm, setShowRepairConfirm] = useState(false);
   const [showServerRestoreConfirm, setShowServerRestoreConfirm] = useState(false);
+  // Édition web : la copie directe de data.json n'a aucun sens (pas de fichier local).
+  const isWeb = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
+  // Outils techniques de récupération : repliés dans « Paramètres avancés ».
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState('');
   const [selectedServerBackup, setSelectedServerBackup] = useState('');
   const [serverBackups, setServerBackups] = useState<string[]>([]);
@@ -463,9 +467,9 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
           <CardTitle>Actions de sauvegarde</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Button 
-              onClick={handleCreateBackupNow} 
+          <div className={`grid grid-cols-1 ${isWeb ? 'md:grid-cols-3' : 'md:grid-cols-4'} gap-4`}>
+            <Button
+              onClick={handleCreateBackupNow}
               disabled={operations.creating}
               className="h-20 flex flex-col"
             >
@@ -473,9 +477,11 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
               {operations.creating ? 'Création...' : 'Créer sauvegarde'}
               <span className="text-xs opacity-75">Sélective</span>
             </Button>
-            
-            <Button 
-              onClick={handleCopyDataJson} 
+
+            {/* « Copier data.json » : seulement en version bureau (fichier local). */}
+            {!isWeb && (
+            <Button
+              onClick={handleCopyDataJson}
               disabled={operations.copyingDataJson}
               className="h-20 flex flex-col bg-green-600 hover:bg-green-700"
             >
@@ -483,8 +489,9 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
               {operations.copyingDataJson ? 'Copie...' : 'Copier data.json'}
               <span className="text-xs opacity-75">Complète</span>
             </Button>
-            
-            <Button 
+            )}
+
+            <Button
               onClick={handleSecurityExport} 
               variant="outline"
               disabled={operations.exporting}
@@ -558,6 +565,18 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
           )}
         </CardContent>
       </Card>
+
+      {/* ── PARAMÈTRES AVANCÉS (outils techniques de récupération) ── */}
+      <button
+        onClick={() => setShowAdvanced(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-gray-100 transition-colors text-sm font-medium text-gray-700"
+      >
+        <span className="flex items-center gap-2"><Wrench className="h-4 w-4 text-gray-500" /> Paramètres avancés</span>
+        <span className="text-gray-400 text-xs">{showAdvanced ? 'Masquer' : 'Afficher'}</span>
+      </button>
+
+      {showAdvanced && (
+      <div className="space-y-6">
 
       {/* 🔄 RESTAURATION DEPUIS BACKUP SERVEUR */}
       {onRestoreFromServerBackup && (
@@ -766,7 +785,10 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
           </p>
         </CardContent>
       </Card>
-      
+
+      </div>
+      )}
+
       {/* 🔄 DIALOGUE DE CONFIRMATION RESTAURATION DEPUIS BACKUP SERVEUR */}
       <ConfirmationDialog
         isOpen={showServerRestoreConfirm}

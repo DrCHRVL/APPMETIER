@@ -2,8 +2,8 @@
 
 import React, { useMemo } from 'react';
 import {
-  FileText, Archive, BarChart, Settings, Target,
-  Plus, Scale, Activity, Eye, PieChart, Network
+  FileText, CheckCircle2, BarChart, Settings, Target,
+  Plus, Scale, Activity, Eye, PieChart, Network, LayoutDashboard
 } from 'lucide-react';
 import { AlertBadge } from './AlertBadge';
 import { useUser } from '@/contexts/UserContext';
@@ -20,14 +20,27 @@ interface MultiSideBarProps {
   currentContentieux: ContentieuxId | null;
   onViewChange: (view: string, contentieuxId?: ContentieuxId) => void;
   onNewEnquete: () => void;
+  /** Création d'un dossier d'instruction (même expérience que « Nouvelle enquête ») */
+  onNewInstruction?: () => void;
   onOpenSettings: () => void;
   alertCount: number;
   instructionAlertCount?: number;
+  /** Nombre d'enquêtes en cours par contentieux (petit compteur) */
+  enqueteCounts?: Record<string, number>;
+  /** Nombre d'instructions en cours (petit compteur) */
+  instructionCount?: number;
   /** Résultats de recherche dans les autres contentieux (pastilles) */
   crossSearchResults?: CrossSearchResult[];
   /** Nombre d'utilisateurs en attente d'approbation (badge sur Paramètres) */
   pendingUsersCount?: number;
 }
+
+/** Petit compteur discret (enquêtes/instructions en cours). */
+const CountPill = ({ n }: { n: number }) => (
+  <span className="ml-auto text-[10.5px] font-semibold text-white/55 bg-white/10 rounded-full px-1.5 min-w-[18px] text-center">
+    {n}
+  </span>
+);
 
 // ──────────────────────────────────────────────
 // COULEURS CONTENTIEUX (Tailwind-safe)
@@ -54,9 +67,12 @@ export const MultiSideBar = ({
   currentContentieux,
   onViewChange,
   onNewEnquete,
+  onNewInstruction,
   onOpenSettings,
   alertCount,
   instructionAlertCount = 0,
+  enqueteCounts = {},
+  instructionCount = 0,
   crossSearchResults = [],
   pendingUsersCount = 0,
 }: MultiSideBarProps) => {
@@ -74,9 +90,9 @@ export const MultiSideBar = ({
 
   // Items de navigation par contentieux
   const getContentieuxItems = (cId: ContentieuxId) => {
-    const items: Array<{ view: string; icon: any; label: string; visible: boolean }> = [
-      { view: `enquetes_${cId}`, icon: FileText, label: 'Enquêtes', visible: true },
-      { view: `archives_${cId}`, icon: Archive, label: 'Archive', visible: true },
+    const items: Array<{ view: string; icon: any; label: string; visible: boolean; count?: number }> = [
+      { view: `enquetes_${cId}`, icon: FileText, label: 'Enquêtes', visible: true, count: enqueteCounts[cId] },
+      { view: `archives_${cId}`, icon: CheckCircle2, label: 'Enquêtes terminées', visible: true },
       { view: `stats_${cId}`, icon: BarChart, label: 'Statistiques', visible: canDo(cId, 'view_stats') },
     ];
     return items.filter(i => i.visible);
@@ -84,15 +100,36 @@ export const MultiSideBar = ({
 
   return (
     <div
-      className={`${sidebarWidth} h-screen shadow-xl transition-all duration-300 flex flex-col relative overflow-hidden`}
+      className={`${sidebarWidth} h-screen transition-all duration-300 flex flex-col relative overflow-hidden`}
       style={{
-        background: 'linear-gradient(180deg, #2d5f4a 0%, #1e3d2f 100%)',
+        // Slate-indigo doux, dans l'esprit macOS/iOS : moderne, reposant,
+        // bien moins saturé que le Bleu France pur.
+        background: 'linear-gradient(180deg, #4a5578 0%, #353d5c 100%)',
+        borderRight: '1px solid rgba(255,255,255,0.06)',
       }}
     >
-      {/* Subtle top accent line */}
-      <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)' }} />
+      {/* Liseré supérieur très discret */}
+      <div className="absolute top-0 left-0 right-0 h-px" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent)' }} />
 
       <div className="p-3 flex flex-col flex-1 pt-4 overflow-y-auto scrollbar-thin">
+        {/* ── TABLEAU DE BORD ── */}
+        <button
+          className={`
+            w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm mb-1
+            transition-all duration-150
+            ${currentView === 'dashboard'
+              ? 'bg-white/20 text-white font-semibold'
+              : 'font-medium text-white/70 hover:bg-white/10 hover:text-white'
+            }
+          `}
+          style={currentView === 'dashboard' ? { boxShadow: 'inset 3px 0 0 rgba(255,255,255,0.85)' } : {}}
+          onClick={() => onViewChange('dashboard')}
+        >
+          <LayoutDashboard className={`h-4 w-4 flex-shrink-0 ${currentView === 'dashboard' ? 'text-white' : 'text-white/60'}`} />
+          {isOpen && <span className="truncate">Tableau de bord</span>}
+        </button>
+        <div className="my-2 border-t border-white/10" />
+
         {/* ── BLOCS CONTENTIEUX ── */}
         {sortedContentieux
           .map((ctxDef, idx) => {
@@ -123,7 +160,7 @@ export const MultiSideBar = ({
                 )}
 
                 {/* Nav items du contentieux */}
-                {items.map(({ view, icon: Icon, label }) => {
+                {items.map(({ view, icon: Icon, label, count }) => {
                   const isActive = currentView === view;
                   // Pastille cross-search : uniquement sur l'item "Enquêtes"
                   const isEnquetesView = view === `enquetes_${ctxDef.id}`;
@@ -149,6 +186,8 @@ export const MultiSideBar = ({
                     >
                       <Icon className={`h-4 w-4 flex-shrink-0 transition-colors ${isActive ? 'text-white' : 'text-white/60 group-hover:text-white'}`} />
                       {isOpen && <span className="truncate">{label}</span>}
+                      {/* Compteur d'enquêtes en cours (sauf si une pastille de recherche s'affiche) */}
+                      {isOpen && !crossHit && typeof count === 'number' && count > 0 && <CountPill n={count} />}
                       {/* Pastille résultat de recherche cross-contentieux */}
                       {crossHit && (
                         <span
@@ -206,8 +245,9 @@ export const MultiSideBar = ({
               onClick={() => onViewChange('instructions')}
             >
               <Scale className={`h-4 w-4 flex-shrink-0 ${currentView === 'instructions' ? 'text-white' : 'text-white/60'}`} />
-              {isOpen && <span className="truncate">Instructions</span>}
-              {instructionAlertCount > 0 && <AlertBadge count={instructionAlertCount} />}
+              {isOpen && <span className="truncate">Instructions judiciaires</span>}
+              {instructionAlertCount > 0 ? <AlertBadge count={instructionAlertCount} />
+                : (isOpen && instructionCount > 0 && <CountPill n={instructionCount} />)}
             </button>
             <button
               className={`
@@ -223,9 +263,19 @@ export const MultiSideBar = ({
               } : {}}
               onClick={() => onViewChange('instructions_archives')}
             >
-              <Archive className={`h-4 w-4 flex-shrink-0 ${currentView === 'instructions_archives' ? 'text-white' : 'text-white/55'}`} />
-              {isOpen && <span className="truncate">Archives</span>}
+              <CheckCircle2 className={`h-4 w-4 flex-shrink-0 ${currentView === 'instructions_archives' ? 'text-white' : 'text-white/55'}`} />
+              {isOpen && <span className="truncate">Instructions terminées</span>}
             </button>
+            {onNewInstruction && (
+              <button
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                  transition-all duration-150 text-white/60 hover:text-white hover:bg-white/10 mt-0.5"
+                onClick={() => { onViewChange('instructions'); onNewInstruction(); }}
+              >
+                <Plus className="h-3.5 w-3.5 flex-shrink-0" />
+                {isOpen && <span className="truncate">Nouvelle instruction</span>}
+              </button>
+            )}
           </>
         )}
 
