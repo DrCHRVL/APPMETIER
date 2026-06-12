@@ -37,7 +37,7 @@ interface MultiSideBarProps {
 
 /** Petit compteur discret (enquêtes/instructions en cours). */
 const CountPill = ({ n }: { n: number }) => (
-  <span className="ml-auto text-[10.5px] font-semibold text-white/55 bg-white/10 rounded-full px-1.5 min-w-[18px] text-center">
+  <span className="ml-auto text-[10.5px] font-semibold text-white/65 bg-white/10 rounded-full px-1.5 min-w-[18px] text-center">
     {n}
   </span>
 );
@@ -291,7 +291,7 @@ export const MultiSideBar = ({
               } : {}}
               onClick={() => onViewChange('instructions_archives')}
             >
-              <CheckCircle2 className={`h-4 w-4 flex-shrink-0 ${currentView === 'instructions_archives' ? 'text-white' : 'text-white/55'}`} />
+              <CheckCircle2 className={`h-4 w-4 flex-shrink-0 ${currentView === 'instructions_archives' ? 'text-white' : 'text-white/65'}`} />
               {isOpen && <span className="truncate">Instructions terminées</span>}
             </button>
             {onNewInstruction && (
@@ -432,7 +432,7 @@ export const MultiSideBar = ({
             {isOpen && (
               <div className="min-w-0">
                 <div className="text-[12px] font-semibold text-white/90 truncate">{user.displayName}</div>
-                <div className="text-[10px] text-white/45 truncate">{roleLabel}</div>
+                <div className="text-[10px] text-white/60 truncate">{roleLabel}</div>
               </div>
             )}
           </div>

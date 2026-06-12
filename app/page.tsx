@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Menu } from 'lucide-react';
+import { Menu, FolderSearch, SearchX } from 'lucide-react';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { MultiSideBar } from '@/components/MultiSideBar';
 import { Header } from '@/components/Header';
 import { FilterBar } from '@/components/FilterBar';
@@ -1321,7 +1322,7 @@ return (
           />
         )}
 
-        <main className="flex-1 overflow-auto p-3 sm:p-6">
+        <main key={baseView} className="flex-1 overflow-auto p-3 sm:p-6 view-fade">
           {baseView === 'dashboard' && (
             <DashboardPage
               enquetesByContentieux={overboardData}
@@ -1338,6 +1339,24 @@ return (
 
           {baseView === 'enquetes' && (
             <div className="space-y-6">
+              {/* États vides illustrés : service qui démarre vs recherche sans résultat */}
+              {activeEnquetes.length === 0 && (
+                <EmptyState
+                  icon={<FolderSearch />}
+                  title="Aucune enquête en cours"
+                  hint="Ce contentieux n'a pas encore d'enquête ouverte. Créez la première pour démarrer le suivi."
+                  actionLabel={effectiveContentieux && canDo(effectiveContentieux, 'create') ? 'Nouvelle enquête' : undefined}
+                  onAction={handleNewEnquete}
+                />
+              )}
+              {activeEnquetes.length > 0 && mergedFilteredEnquetes.length === 0 && (
+                <EmptyState
+                  icon={<SearchX />}
+                  title="Aucun résultat"
+                  hint="Aucune enquête ne correspond à la recherche ou aux filtres en cours."
+                  tone={{ circle: 'bg-gray-100', icon: 'text-gray-400' }}
+                />
+              )}
               {Object.entries(enquetesByOrganization)
                 .sort(([a], [b]) => getSectionOrder(a) - getSectionOrder(b))
                 .map(([section, serviceGroups]) => {

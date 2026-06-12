@@ -300,6 +300,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   consultation_refreshNow: () =>
     ipcRenderer.invoke('consultation:refreshNow'),
 
+  // === LECTURE DES OCTETS D'UN DOCUMENT (aperçu au survol) ===
+  readDocumentData: (enqueteNumero, cheminRelatif) =>
+    ipcRenderer.invoke('documents:read-data', enqueteNumero, cheminRelatif),
+
   // === LECTURE DU TEXTE D'UN DOCUMENT (export markdown / IA) ===
   readDocumentText: (enqueteNumero, cheminRelatif) =>
     ipcRenderer.invoke('documents:read-text', enqueteNumero, cheminRelatif),

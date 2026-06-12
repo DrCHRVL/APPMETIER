@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { Plus, Filter, Search, X, BarChart3 } from 'lucide-react';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '../ui/button';
 import { InstructionPreview } from '../instruction/InstructionPreview';
 import { InstructionsTimeline } from '../instruction/InstructionsTimeline';
@@ -363,26 +364,22 @@ export const InstructionsPage = ({
 
         {/* Liste */}
         {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-gray-500">
-            <BarChart3 className="h-16 w-16 mb-4 text-gray-300" />
-            <h3 className="text-lg font-medium mb-2">
-              {dossiers.length === 0 ? 'Aucun dossier d\'instruction' : 'Aucun résultat'}
-            </h3>
-            <p className="text-sm text-center max-w-md">
-              {dossiers.length === 0
-                ? 'Commencez par créer votre premier dossier d\'instruction.'
-                : 'Aucun dossier ne correspond à vos critères.'}
-            </p>
-            {dossiers.length === 0 && (
-              <Button
-                onClick={onCreateDossier}
-                className="mt-4 bg-[#2B5746] hover:bg-[#1f3d2f]"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Créer un dossier
-              </Button>
-            )}
-          </div>
+          dossiers.length === 0 ? (
+            <EmptyState
+              icon={<BarChart3 />}
+              title="Aucun dossier d'instruction"
+              hint="Commencez par créer votre premier dossier pour suivre les détentions, DML et débats JLD."
+              actionLabel="Nouvelle instruction"
+              onAction={onCreateDossier}
+            />
+          ) : (
+            <EmptyState
+              icon={<BarChart3 />}
+              title="Aucun résultat"
+              hint="Aucun dossier ne correspond à la recherche ou aux filtres en cours."
+              tone={{ circle: 'bg-gray-100', icon: 'text-gray-400' }}
+            />
+          )
         ) : groupedByCabinet ? (
           <div className="space-y-6">
             {groupedByCabinet.map(group => {

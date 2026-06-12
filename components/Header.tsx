@@ -115,6 +115,28 @@ export const Header = ({
         </div>
 
         <div className="flex items-center gap-1">
+          {/* Pastille d'état : enregistré / synchro / hors-ligne (discrète, lisible) */}
+          <span
+            className={`hidden sm:flex items-center gap-1.5 mr-1 px-2.5 py-1 rounded-full text-[11px] font-medium select-none transition-colors ${
+              isSaving || isSyncing
+                ? 'bg-blue-50 text-blue-600'
+                : syncStatus && !syncStatus.isOnline
+                  ? 'bg-amber-50 text-amber-700'
+                  : 'bg-gray-50 text-gray-400'
+            }`}
+            title={syncStatus?.lastSuccessfulSync
+              ? `Dernière synchronisation : ${new Date(syncStatus.lastSuccessfulSync).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+              : undefined}
+          >
+            {isSaving || isSyncing ? (
+              <><span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />Synchronisation…</>
+            ) : syncStatus && !syncStatus.isOnline ? (
+              <><span className="w-1.5 h-1.5 rounded-full bg-amber-500" />Hors-ligne — travail local</>
+            ) : (
+              <>✓ Enregistré</>
+            )}
+          </span>
+
           {/* État du partage réseau (P:\) */}
           <NetworkStatusIndicator />
 

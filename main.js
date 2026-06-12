@@ -1002,6 +1002,21 @@ function setupIpcHandlers() {
       return ''
     }
   });
+  // === LECTURE DES OCTETS D'UN DOCUMENT INTERNE (aperçu au survol) ===
+  ipcMain.handle('documents:read-data', async (event, enqueteNumero, cheminRelatif) => {
+    try {
+      const rel = String(cheminRelatif || '')
+      if (rel.includes('..')) return null
+      const filePath = path.join(documentsEnquetesFolder, sanitizeFileName(enqueteNumero), rel)
+      if (!fs.existsSync(filePath)) return null
+      const stats = fs.statSync(filePath)
+      if (stats.size > 15 * 1024 * 1024) return null
+      return fs.readFileSync(filePath).toString('base64')
+    } catch (error) {
+      console.error('Erreur lecture document:', error.message)
+      return null
+    }
+  });
   // === SAUVEGARDE DOCUMENTS AVEC CATÉGORIE ===
   ipcMain.handle('documents:save-with-category', async (event, enqueteNumero, files, category = 'general') => {
     try {
