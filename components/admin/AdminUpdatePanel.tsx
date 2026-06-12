@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { RefreshCw, Check, AlertTriangle, Loader2, XCircle, Globe, Download, Send, Users, Ban } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 
@@ -29,41 +29,91 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
 
+  // Référence pour annuler le polling en cas de démontage du composant
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
   const checkGithubUpdate = useCallback(async (force = false) => {
     setGithubChecking(true);
     setGithubError(null);
     try {
-      const result = await (window as any).electronAPI?.checkAppUpdate?.(force);
-      const hasUpdate = result?.hasUpdate || false;
-      const commits = result?.commits || 0;
-      setGithubUpdateAvailable(hasUpdate);
-      setGithubCommits(commits);
-      setGithubLocalSha(result?.localSha || null);
-      setGithubRemoteSha(result?.remoteSha || null);
-      setApprovedSha(result?.approvedSha || null);
-      setApprovedBy(result?.approvedBy || null);
-      setApprovedAt(result?.approvedAt || null);
-      if (result?.error) setGithubError(result.error);
-      onGithubUpdateChange?.(hasUpdate, commits);
-    } catch {
-      setGithubError('Impossible de vérifier les mises à jour GitHub');
+      if (isWeb) {
+        // Version serveur : appel de l'API web (admin uniquement côté serveur)
+        const res = await fetch(`/api/update${force ? '?force=1' : ''}`);
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({})) as { error?: string };
+          throw new Error(data.error || `Erreur ${res.status}`);
+        }
+        const data = await res.json() as {
+          commits?: number; localSha?: string | null; remoteSha?: string | null; fetchOk?: boolean;
+        };
+        const hasUpdate = (data.commits || 0) > 0;
+        setGithubUpdateAvailable(hasUpdate);
+        setGithubCommits(data.commits || 0);
+        setGithubLocalSha(data.localSha || null);
+        setGithubRemoteSha(data.remoteSha || null);
+        onGithubUpdateChange?.(hasUpdate, data.commits || 0);
+      } else {
+        // Version Electron
+        const result = await (window as any).electronAPI?.checkAppUpdate?.(force);
+        const hasUpdate = result?.hasUpdate || false;
+        const commits = result?.commits || 0;
+        setGithubUpdateAvailable(hasUpdate);
+        setGithubCommits(commits);
+        setGithubLocalSha(result?.localSha || null);
+        setGithubRemoteSha(result?.remoteSha || null);
+        setApprovedSha(result?.approvedSha || null);
+        setApprovedBy(result?.approvedBy || null);
+        setApprovedAt(result?.approvedAt || null);
+        if (result?.error) setGithubError(result.error);
+        onGithubUpdateChange?.(hasUpdate, commits);
+      }
+    } catch (e: any) {
+      setGithubError(e.message || 'Impossible de vérifier les mises à jour GitHub');
     }
     setGithubChecking(false);
-  }, [onGithubUpdateChange]);
+  }, [onGithubUpdateChange, isWeb]);
 
   const applyGithubUpdate = async () => {
     setGithubUpdating(true);
     setGithubError(null);
     try {
-      const result = await (window as any).electronAPI?.applyAppUpdate?.();
-      if (result && !result.success) {
-        setGithubError(`Erreur : ${result.error}`);
-        setGithubUpdating(false);
-      } else if (isWeb && result?.success) {
-        // serveur reconstruit et redémarré : recharger pour servir la nouvelle version
-        window.location.reload();
+      if (isWeb) {
+        // Version serveur : déclenche le pull + rebuild via l'API (admin uniquement côté serveur)
+        const postRes = await fetch('/api/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'apply' }),
+        });
+        if (!postRes.ok) {
+          const data = await postRes.json().catch(() => ({})) as { error?: string };
+          throw new Error(data.error || `Erreur ${postRes.status}`);
+        }
+        // Interroge le statut toutes les 3 s jusqu'à 'done' ou 'error'
+        pollRef.current = setInterval(async () => {
+          try {
+            const res = await fetch('/api/update');
+            if (!res.ok) return; // serveur en cours de redémarrage, on continue à attendre
+            const data = await res.json() as { status?: { state: string; message?: string } };
+            if (data.status?.state === 'done') {
+              clearInterval(pollRef.current!); pollRef.current = null;
+              window.location.reload();
+            } else if (data.status?.state === 'error') {
+              clearInterval(pollRef.current!); pollRef.current = null;
+              setGithubError(data.status?.message || 'Erreur lors de la mise à jour');
+              setGithubUpdating(false);
+            }
+          } catch { /* erreur réseau transitoire pendant le redémarrage, on réessaie */ }
+        }, 3000);
+      } else {
+        // Version Electron
+        const result = await (window as any).electronAPI?.applyAppUpdate?.();
+        if (result && !result.success) {
+          setGithubError(`Erreur : ${result.error}`);
+          setGithubUpdating(false);
+        }
+        // en Electron, l'app redémarre d'elle-même — rien à faire ici
       }
-      // en Electron, l'app redémarre d'elle-même — rien à faire ici
     } catch (e: any) {
       setGithubError(`Erreur : ${e.message}`);
       setGithubUpdating(false);

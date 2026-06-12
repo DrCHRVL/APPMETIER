@@ -579,8 +579,10 @@ function AppContent() {
     checkWeeklyPopup();
   }, [accessibleContentieux, weeklySubscribedIds, buildWeeklyBuckets]);
 
-  // Vérification des mises à jour au démarrage (puis toutes les 30 min)
+  // Vérification des mises à jour au démarrage (puis toutes les 30 min) — Electron uniquement.
+  // Sur le serveur web, la vérification et l'application sont gérées dans AdminUpdatePanel (admin seulement).
   useEffect(() => {
+    if ((window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true) return;
     const checkUpdate = async () => {
       try {
         const result = await window.electronAPI.checkAppUpdate?.();
@@ -601,15 +603,15 @@ function AppContent() {
   }, []);
 
   const handleApplyUpdate = async () => {
+    // Sur le serveur web, la mise à jour est réservée aux administrateurs et
+    // passe par AdminUpdatePanel → ne rien faire ici pour les non-admins.
+    if ((window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true && !isAdmin()) return;
     setIsUpdating(true);
     try {
       const result = await window.electronAPI.applyAppUpdate?.();
       if (result && !result.success) {
         showToast(`Erreur de mise à jour : ${result.error}`, 'error');
         setIsUpdating(false);
-      } else if (result?.success && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true) {
-        // version serveur : le rebuild est terminé → recharger la nouvelle version
-        window.location.reload();
       }
       // En Electron, l'app redémarre d'elle-même → pas besoin de reset l'état
     } catch {
