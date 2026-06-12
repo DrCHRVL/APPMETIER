@@ -95,20 +95,21 @@ async function main() {
     await page.click('text=Enrôler une passkey')
     await page.fill('input[placeholder*="Identifiant"]', 'a.chevalier')
     await page.fill('input[placeholder*="Nom affiché"]', 'A. Chevalier')
+    await page.fill('input[placeholder*="Tribunal"]', 'TJ Test')
     await page.fill('input[placeholder*="enrôlement"]', 'CODE-TEST-2026')
     await page.screenshot({ path: SHOTS + '/02-register.png' })
     await page.click('text=Créer ma passkey')
-    await page.waitForSelector('text=Création du coffre chiffré', { timeout: 20000 })
+    await page.waitForSelector('text=Initialisation du chiffrement', { timeout: 20000 })
     check('Enrôlement passkey réussi (compte admin créé)', true)
 
-    // ── 3. Création du coffre E2EE ──
-    await page.fill('input[placeholder="Phrase secrète"]', 'cheval correct pile batterie agrafe')
-    await page.fill('input[placeholder*="Confirmez"]', 'cheval correct pile batterie agrafe')
+    // ── 3. Création du trousseau individuel (premier utilisateur, clés neuves) ──
+    await page.fill('input[placeholder*="phrase personnelle (nouvelle)"]', 'cheval correct pile batterie agrafe')
+    await page.fill('input[placeholder*="Confirmez votre phrase"]', 'cheval correct pile batterie agrafe')
     await page.screenshot({ path: SHOTS + '/03-passphrase.png' })
-    await page.click('text=Créer le coffre')
+    await page.click('text=Créer mon trousseau')
     // l'app doit se charger derrière la porte
     await page.waitForSelector('.siral-card', { state: 'detached', timeout: 60000 })
-    check('Coffre créé, porte franchie, app en cours de chargement', true)
+    check('Trousseau créé, porte franchie, app en cours de chargement', true)
     await page.waitForTimeout(6000)
     await page.screenshot({ path: SHOTS + '/04-app.png', fullPage: false })
 
@@ -201,7 +202,40 @@ async function main() {
     await page.screenshot({ path: SHOTS + '/05-after-reload.png' })
     check('Aucune erreur JavaScript (hydratation propre)', pageErrors.length === 0, pageErrors[0])
 
-    // ── 9. Mauvaise phrase secrète refusée (nouveau navigateur = nouvel appareil) ──
+    // ── 8b. Mise en page mobile (iPhone) : tiroir de navigation ──
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.waitForSelector('button[aria-label="Ouvrir le menu"]', { timeout: 20000 })
+    await page.waitForTimeout(400)
+    const mobileState = await page.evaluate(() => {
+      const burger = document.querySelector('button[aria-label="Ouvrir le menu"]')
+      const visible = !!burger && burger.offsetWidth > 0
+      // le premier conteneur .no-print (sidebar bureau) ne doit occuper aucune largeur à 390 px
+      const sidebarWrapper = document.querySelector('.flex.h-screen > .no-print')
+      const sidebarHidden = !!sidebarWrapper && sidebarWrapper.offsetWidth === 0
+      const noHorizontalScroll = document.documentElement.scrollWidth <= 400
+      return { visible, sidebarHidden, noHorizontalScroll, burgerW: burger ? burger.offsetWidth : -1, sideW: sidebarWrapper ? sidebarWrapper.offsetWidth : -1 }
+    })
+    check('Mobile : sidebar masquée + bouton menu visible', mobileState.visible && mobileState.sidebarHidden, JSON.stringify(mobileState))
+    check('Mobile : pas de débordement horizontal', mobileState.noHorizontalScroll)
+    await page.click('button[aria-label="Ouvrir le menu"]')
+    await page.waitForTimeout(600)
+    const drawerOpen = await page.evaluate(() => !!document.querySelector('.fixed.inset-0.z-50'))
+    check('Mobile : tiroir de navigation ouvert au tap', drawerOpen)
+    await page.screenshot({ path: SHOTS + '/05b-mobile-drawer.png' })
+    await page.setViewportSize({ width: 1440, height: 900 })
+
+    // ── 8c. Invitation d'un collègue (périmètre restreint à CRIM ORG) ──
+    const inviteRes = await page.evaluate(async () => {
+      const accounts = await window.electronAPI.e2ee_listAccounts()
+      const inv = await window.electronAPI.e2ee_invite('j.martin', ['ctx-crimorg'])
+      return { accounts, code: inv.code, scopes: inv.scopes }
+    })
+    check('Admin : liste des comptes avec état des trousseaux',
+      inviteRes.accounts.some((a) => a.username === 'a.chevalier' && a.hasKeyring && a.tribunal === 'TJ Test'))
+    check('Invitation générée (code à usage unique, périmètre CRIM ORG)',
+      /^[0-9A-Z]{5}(-[0-9A-Z]{5}){3}$/.test(inviteRes.code) && inviteRes.scopes.includes('global') && inviteRes.scopes.includes('ctx-crimorg') && !inviteRes.scopes.includes('ctx-ecofi'))
+
+    // ── 9. Second utilisateur : enrôlement + invitation (nouveau navigateur = nouvel appareil) ──
     await context.close()
     const browser2 = await chromium.launch({ executablePath: await sparticuz.executablePath(), args: sparticuz.args, headless: true })
     const ctx2 = await browser2.newContext({ baseURL: BASE, viewport: { width: 1440, height: 900 } })
@@ -215,22 +249,61 @@ async function main() {
     await page2.waitForSelector('.siral-card')
     await page2.click('text=Enrôler une passkey')
     await page2.fill('input[placeholder*="Identifiant"]', 'j.martin')
+    await page2.fill('input[placeholder*="Tribunal"]', 'TJ Test')
     await page2.fill('input[placeholder*="enrôlement"]', 'CODE-TEST-2026')
     await page2.click('text=Créer ma passkey')
-    await page2.waitForSelector('text=Déverrouillage du coffre chiffré', { timeout: 20000 })
-    await page2.fill('input[placeholder="Phrase secrète"]', 'mauvaise phrase totalement fausse')
-    await page2.click('text=Déverrouiller')
-    await page2.waitForSelector('text=Phrase secrète incorrecte', { timeout: 15000 })
-    check('Mauvaise phrase secrète : refusée (coffre-témoin)', true)
-    // bonne phrase → accès second utilisateur
-    await page2.fill('input[placeholder="Phrase secrète"]', 'cheval correct pile batterie agrafe')
-    await page2.click('text=Déverrouiller')
+    await page2.waitForSelector('text=Activer votre invitation', { timeout: 20000 })
+    check('Second utilisateur : invitation détectée à l\'enrôlement', true)
+    // mauvais code d'invitation refusé
+    const wrongCode = inviteRes.code.slice(0, -5) + (inviteRes.code.endsWith('AAAAA') ? 'BBBBB' : 'AAAAA')
+    await page2.fill('input[placeholder*="invitation"]', wrongCode)
+    await page2.fill('input[placeholder*="phrase personnelle (nouvelle)"]', 'tulipe rouge marteau silence hiver')
+    await page2.fill('input[placeholder*="Confirmez votre phrase"]', 'tulipe rouge marteau silence hiver')
+    await page2.click('text=Activer mon accès')
+    await page2.waitForSelector('text=Code d\'invitation incorrect', { timeout: 15000 })
+    check('Mauvais code d\'invitation : refusé', true)
+    // bon code → trousseau personnel créé, accès aux données
+    await page2.fill('input[placeholder*="invitation"]', inviteRes.code)
+    await page2.click('text=Activer mon accès')
     await page2.waitForSelector('.siral-card', { state: 'detached', timeout: 30000 })
     const sharedRead = await page2.evaluate(async () => {
       const pulled = await window.electronAPI.dataSync_pullContentieux('crimorg')
       return pulled && pulled.data && pulled.data.enquetes[0].numero === '26/999'
     })
-    check('Second utilisateur : accès aux données partagées avec la phrase du service', sharedRead)
+    check('Second utilisateur : accès aux données partagées via son trousseau', sharedRead)
+
+    // ── 9b. Cloisonnement : périmètre non accordé refusé ──
+    const cloisonne = await page2.evaluate(async () => {
+      try {
+        await window.electronAPI.dataSync_pushContentieux('ecofi',
+          { enquetes: [] }, { savedAt: new Date().toISOString(), savedBy: 'j.martin' })
+        return false
+      } catch (e) {
+        return String(e && e.message || e).includes('non autorisé')
+      }
+    })
+    check('Cloisonnement : écriture ECOFI refusée (clé absente du trousseau)', cloisonne)
+
+    // ── 9c. Mauvaise phrase personnelle refusée au déverrouillage ──
+    await page2.evaluate(() => new Promise((resolve) => {
+      const req = indexedDB.open('siral-local')
+      req.onsuccess = () => {
+        const db = req.result
+        const t = db.transaction('kv', 'readwrite')
+        t.objectStore('kv').delete('__siral_keyring__')
+        t.oncomplete = () => resolve(true)
+      }
+    }))
+    await page2.reload()
+    await page2.waitForSelector('text=Déverrouillage de votre trousseau', { timeout: 30000 })
+    await page2.fill('input[placeholder="Phrase personnelle"]', 'mauvaise phrase totalement fausse')
+    await page2.click('text=Déverrouiller')
+    await page2.waitForSelector('text=Phrase personnelle incorrecte', { timeout: 15000 })
+    check('Mauvaise phrase personnelle : refusée', true)
+    await page2.fill('input[placeholder="Phrase personnelle"]', 'tulipe rouge marteau silence hiver')
+    await page2.click('text=Déverrouiller')
+    await page2.waitForSelector('.siral-card', { state: 'detached', timeout: 30000 })
+    check('Bonne phrase personnelle : trousseau déverrouillé', true)
 
     // ── 10. Code d'enrôlement faux refusé ──
     const badCode = await page2.evaluate(async () => {

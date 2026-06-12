@@ -88,15 +88,15 @@ export const Header = ({
         boxShadow: '0 1px 8px rgba(0,0,0,0.05)',
       }}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-5 flex-1 min-w-0 sm:flex-none">
           {/* Barre de recherche pill */}
-          <div className="relative">
+          <div className="relative flex-1 min-w-0 sm:flex-none">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
             <input
               type="search"
               placeholder="Rechercher..."
-              className="h-9 w-64 pl-9 pr-8 rounded-full border border-gray-200 bg-gray-50 text-sm
+              className="h-9 w-full sm:w-64 pl-9 pr-8 rounded-full border border-gray-200 bg-gray-50 text-sm
                 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400
                 focus:bg-white transition-all duration-150 placeholder:text-gray-400"
               value={searchTerm}
@@ -112,7 +112,7 @@ export const Header = ({
           </div>
 
           {/* Titre */}
-          <h1 className="text-base font-semibold tracking-tight" style={{ color: 'hsl(155 35% 24%)' }}>
+          <h1 className="hidden md:block text-base font-semibold tracking-tight" style={{ color: 'hsl(155 35% 24%)' }}>
             Suivi des enquêtes
           </h1>
         </div>

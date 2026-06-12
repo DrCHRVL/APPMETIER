@@ -42,4 +42,5 @@ export const ELECTRON_API_NAMES = [
   'approveAppUpdate', 'unapproveAppUpdate', 'getApprovedAppUpdate',
   'consultation_getStatus', 'consultation_pickFolder', 'consultation_activate',
   'consultation_deactivate', 'consultation_refreshNow',
+  'e2ee_myScopes', 'e2ee_listAccounts', 'e2ee_invite', 'e2ee_revoke',
 ] as const

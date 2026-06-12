@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Menu } from 'lucide-react';
 import { MultiSideBar } from '@/components/MultiSideBar';
 import { Header } from '@/components/Header';
 import { FilterBar } from '@/components/FilterBar';
@@ -150,6 +151,7 @@ const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\"
 function AppContent() {
   const [isClient, setIsClient] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false); // tiroir de navigation (petits écrans)
   const [currentView, setCurrentView] = useState('enquetes');
   const [searchTerm, setSearchTerm] = useState('');
   // Debounce de la recherche : l'input reste réactif, les hooks coûteux attendent 300ms
@@ -1183,7 +1185,8 @@ function AppContent() {
 
 return (
     <div className="flex h-screen bg-gray-100">
-      <div className="no-print">
+      {/* Sidebar : fixe sur grand écran, tiroir sur mobile */}
+      <div className="no-print hidden lg:block">
         <MultiSideBar
           isOpen={sidebarOpen}
           currentView={currentView}
@@ -1197,8 +1200,36 @@ return (
           pendingUsersCount={pendingUsersCount}
         />
       </div>
+      {mobileNavOpen && (
+        <div className="no-print fixed inset-0 z-50 lg:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setMobileNavOpen(false)} />
+          <div className="absolute inset-y-0 left-0 shadow-2xl">
+            <MultiSideBar
+              isOpen={true}
+              currentView={currentView}
+              currentContentieux={effectiveContentieux}
+              onViewChange={(view, ctx) => { setMobileNavOpen(false); handleViewChange(view, ctx); }}
+              onNewEnquete={() => { setMobileNavOpen(false); handleNewEnquete(); }}
+              onOpenSettings={() => { setMobileNavOpen(false); setShowSettingsModal(true); }}
+              alertCount={activeAlertsCount}
+              instructionAlertCount={instructionAlerts.length}
+              crossSearchResults={crossSearchResults}
+              pendingUsersCount={pendingUsersCount}
+            />
+          </div>
+        </div>
+      )}
       <div className="flex-1 overflow-hidden flex flex-col">
-        <div className="no-print">
+        <div className="no-print flex items-stretch">
+          <button
+            className="lg:hidden flex items-center justify-center w-12 bg-white border-r border-gray-100"
+            style={{ borderBottom: '1px solid hsl(214 25% 88%)' }}
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Ouvrir le menu"
+          >
+            <Menu className="h-5 w-5 text-gray-600" />
+          </button>
+          <div className="flex-1 min-w-0">
           <Header
             searchTerm={searchTerm}
             onSearch={handleSearchChange}
@@ -1219,6 +1250,7 @@ return (
             remoteSha={updateRemoteSha}
             approvedSha={updateApprovedSha}
           />
+          </div>
         </div>
 
         {/* Bandeau lecture seule */}
@@ -1268,7 +1300,7 @@ return (
           />
         )}
 
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto p-3 sm:p-6">
           {baseView === 'enquetes' && (
             <div className="space-y-6">
               <OPTimeline

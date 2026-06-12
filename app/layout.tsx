@@ -9,6 +9,7 @@ export const metadata: Metadata = {
   description: 'SIRAL — Suivi Intégré des Réseaux criminels et Affaires Liées',
   manifest: '/manifest.webmanifest',
   themeColor: '#1c3a2c',
+  viewport: 'width=device-width, initial-scale=1, viewport-fit=cover',
   appleWebApp: {
     capable: true,
     title: 'SIRAL',
