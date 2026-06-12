@@ -183,6 +183,9 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
 
   const { showToast } = useToast();
 
+  // Mode web (navigateur) : certaines actions n'ont aucun sens hors application bureau.
+  const isWeb = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
+
   // Documents par catégorie — mémoïsés pour éviter les recalculs inutiles
   const documentsByCategory = useMemo(() => {
     // 1 seule passe au lieu de 4 .filter() — plus rapide pour les grosses listes
@@ -620,16 +623,19 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
             </CardTitle>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline" size="sm"
-                onClick={() => scanForNewDocuments()}
-                disabled={isScanning}
-                className="flex items-center gap-2"
-                title="Rechercher les nouveaux documents ajoutés manuellement"
-              >
-                {isScanning ? <Loader className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                {isScanning ? 'Recherche...' : 'Actualiser'}
-              </Button>
+              {/* « Actualiser » scanne le dossier interne — sans objet en web (serveur = source). */}
+              {!isWeb && (
+                <Button
+                  variant="outline" size="sm"
+                  onClick={() => scanForNewDocuments()}
+                  disabled={isScanning}
+                  className="flex items-center gap-2"
+                  title="Rechercher les nouveaux documents ajoutés manuellement"
+                >
+                  {isScanning ? <Loader className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  {isScanning ? 'Recherche...' : 'Actualiser'}
+                </Button>
+              )}
 
               {enquete.cheminExterne && (
                 <Button
@@ -644,7 +650,9 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                 </Button>
               )}
 
-              {enquete.cheminExterne && (
+              {/* « Analyser actes » au clic scanne un dossier réseau — indisponible en web.
+                  (L'analyse automatique des PDF au téléversement, elle, reste active.) */}
+              {enquete.cheminExterne && !isWeb && (
                 <Button
                   variant="outline" size="sm"
                   onClick={() => setShowAnalyseModal(true)}
@@ -656,7 +664,8 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                 </Button>
               )}
 
-              {enquete.cheminExterne && (
+              {/* Un navigateur ne peut pas ouvrir l'Explorateur Windows : bouton masqué en web. */}
+              {enquete.cheminExterne && !isWeb && (
                 <Button
                   variant="outline" size="sm"
                   onClick={handleOpenExternalFolder}

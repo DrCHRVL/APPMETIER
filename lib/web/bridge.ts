@@ -477,13 +477,19 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       } catch { return false }
     },
     openDocument: async (enqueteNumero: unknown, cheminRelatif: unknown) => {
-      const bytes = await docDownload(String(enqueteNumero), String(cheminRelatif))
-      if (!bytes) return false
       const name = String(cheminRelatif).split('/').pop() || 'document'
+      // Ouvrir l'onglet IMMÉDIATEMENT, tant que le clic de l'utilisateur est encore
+      // « actif » : sinon Edge/Chrome bloquent silencieusement l'ouverture après le
+      // téléchargement (perte de l'activation utilisateur due aux await réseau/déchiffrement).
+      const win = typeof window !== 'undefined' ? window.open('', '_blank') : null
+      const bytes = await docDownload(String(enqueteNumero), String(cheminRelatif))
+      if (!bytes) { if (win) win.close(); return false }
       const blob = new Blob([bytes as BlobPart], { type: mimeOf(name) })
       const url = URL.createObjectURL(blob)
-      const win = window.open(url, '_blank')
-      if (!win) {
+      if (win) {
+        win.location.href = url
+      } else {
+        // Onglet bloqué malgré tout : repli sur un téléchargement classique.
         const a = document.createElement('a')
         a.href = url
         a.download = name
