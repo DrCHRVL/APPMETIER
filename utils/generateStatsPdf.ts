@@ -165,6 +165,30 @@ const CSS_STYLES = `
     margin-top: 2px;
   }
 
+  /* Statistique mise en avant : un grand chiffre + une note sur la même ligne */
+  .stat-inline {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: #FAFAFC;
+    border: 1px solid #E5E5E5;
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .stat-inline-value {
+    font-size: 30px;
+    font-weight: bold;
+    color: #000091;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .stat-inline-note {
+    font-size: 10px;
+    color: #56565E;
+    line-height: 1.45;
+  }
+  .stat-inline-note b { color: #161616; }
+
   table {
     width: 100%;
     border-collapse: collapse;
@@ -412,7 +436,7 @@ function renderServiceBlock(list: { service: string; count: number }[]): string 
   const total = list.reduce((s, i) => s + i.count, 0);
   const pie = renderPieChartImg(
     list.map(s => ({ label: s.service, value: s.count, color: getServiceColor(s.service) })),
-    190,
+    150,
     'valuePct'
   );
   return `${pie ? `<div style="text-align:center;margin-bottom:8px">${pie}</div>` : ''}
@@ -445,11 +469,6 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   const totalProlongations = data.acteStats.prolongationsEcoutes + data.acteStats.prolongationsGeo + data.acteStats.prolongationsAutres;
   const totalAvecProlongations = totalActes + totalProlongations;
 
-  // Estimation temps (même calcul que la carte « Actes d'enquête » de l'app)
-  const tempsMinutes = totalAvecProlongations * 35;
-  const tempsHeures = Math.floor(tempsMinutes / 60);
-  const tempsMin = tempsMinutes % 60;
-
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -462,7 +481,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 <!-- En-tête identitaire -->
 <div class="page-header">
   <div class="tricolore"></div>
-  <div class="overline">SIRAL &middot; Rapport d'activit&eacute; du service</div>
+  <div class="overline">Rapport d'activit&eacute; du service</div>
   <h1>${data.contentieuxLabel || 'Criminalité organisée'}</h1>
   <div class="subtitle">Année ${selectedYear} — généré le ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })} · Document interne, ne pas diffuser</div>
 </div>
@@ -506,30 +525,12 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   </div>
 </div>
 
-<!-- Actes d'enquête -->
+<!-- Actes d'enquête : un seul chiffre, estimation minorée -->
 <div class="section-nobreak">
   <div class="section-title">Actes d'enquête en préliminaire</div>
-  <div class="cards-row">
-    <div class="card">
-      <div class="card-label">Total actes + prolongations</div>
-      <div class="card-value">${totalAvecProlongations}</div>
-      <div class="card-detail">Temps estimé : ${tempsHeures}h${tempsMin > 0 ? tempsMin : ''}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Écoutes</div>
-      <div class="card-value">${data.acteStats.ecoutes}</div>
-      <div class="card-detail">Prolong. : ${data.acteStats.prolongationsEcoutes}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Géolocalisations</div>
-      <div class="card-value">${data.acteStats.geolocalisations}</div>
-      <div class="card-detail">Prolong. : ${data.acteStats.prolongationsGeo}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Autres actes</div>
-      <div class="card-value">${data.acteStats.autresActes}</div>
-      <div class="card-detail">Prolong. : ${data.acteStats.prolongationsAutres}</div>
-    </div>
+  <div class="stat-inline">
+    <span class="stat-inline-value">${totalAvecProlongations}</span>
+    <span class="stat-inline-note">actes et prolongations recensés <b>(estimation minorée)</b> — écoutes, géolocalisations et autres actes techniques. Le décompte réel est au moins égal à ce plancher.</span>
   </div>
 </div>
 
@@ -557,7 +558,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
       value: (stats[d.key] as number) || 0,
       color: d.color,
     }));
-    const pie = renderPieChartImg(items, 220, 'pct');
+    const pie = renderPieChartImg(items, 185, 'pct');
     return `<div class="two-cols" style="align-items:center">
       <div class="legend-col">
         ${renderPieSubstitute(items)}
@@ -615,223 +616,44 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   </table>
 </div>
 
-<!-- Condamnations par mois -->
+<!-- Condamnations par mois : un seul graphe, le nombre de condamnations -->
 <div class="section-nobreak">
-  <div class="section-title">Condamnations et peines par mois</div>
-  <table>
-    <tr>
-      <th>Mois</th>
-      <th class="text-right">Condamnations</th>
-      <th class="text-right">Prison (mois)</th>
-      <th class="text-right">Amendes</th>
-    </tr>
-    ${data.monthlyData.map(m => `<tr>
-      <td>${m.mois}</td>
-      <td class="text-right">${m.condamnations}</td>
-      <td class="text-right">${m.moisPrison}</td>
-      <td class="text-right">${formatCurrency(m.amendes)}</td>
-    </tr>`).join('')}
-    ${(() => {
-      const totC = data.monthlyData.reduce((s, m) => s + m.condamnations, 0);
-      const totP = data.monthlyData.reduce((s, m) => s + m.moisPrison, 0);
-      const totA = data.monthlyData.reduce((s, m) => s + m.amendes, 0);
-      return `<tr style="background:#E3E3FD;font-weight:bold">
-        <td>TOTAL</td>
-        <td class="text-right">${totC}</td>
-        <td class="text-right">${totP} (${formatMoisEnAnnees(totP)})</td>
-        <td class="text-right">${formatCurrency(totA)}</td>
-      </tr>`;
-    })()}
-  </table>
+  <div class="section-title">Condamnations par mois</div>
+  ${renderBarChart(data.monthlyData.map(m => ({ label: m.mois, value: m.condamnations, color: '#000091' })))}
+  <div style="margin-top:8px;font-size:10px;color:#56565E">
+    Total : <b style="color:#000091">${data.monthlyData.reduce((s, m) => s + m.condamnations, 0)}</b> condamnations sur l'année
+  </div>
 </div>
 
+<!-- Peines & mesures : chiffres clés uniquement, pas de détail par type de peine -->
 <div class="section-nobreak">
-  <div class="section-title">Peines de prison</div>
+  <div class="section-title">Peines &amp; mesures prononcées</div>
   <div class="cards-row">
     <div class="card">
-      <div class="card-label">Total prison ferme</div>
+      <div class="card-label">Prison ferme (total)</div>
       <div class="card-value">${stats?.totalPeinePrison || 0} mois</div>
       <div class="card-detail">${formatMoisEnAnnees(stats?.totalPeinePrison || 0)}</div>
     </div>
     <div class="card">
-      <div class="card-label">Nombre condamnations</div>
-      <div class="card-value">${stats?.nombreCondamnations || 0}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Amendes totales</div>
+      <div class="card-label">Amendes prononcées</div>
       <div class="card-value">${formatCurrency(stats?.montantTotalAmendes || 0)}</div>
-      <div class="card-detail">Moy: ${formatCurrency(stats?.moyenneAmende || 0)}/condamnation</div>
     </div>
-  </div>
-</div>
-
-<div class="section-nobreak">
-  <div class="section-title">Peines moyennes par type</div>
-  <table>
-    <tr>
-      <th>Type de peine</th>
-      <th class="text-right">Moyenne (mois)</th>
-      <th class="text-right">% condamnations</th>
-    </tr>
-    <tr>
-      <td>Prison ferme uniquement</td>
-      <td class="text-right font-bold">${stats?.moyennePrison || 0}</td>
-      <td class="text-right">${stats?.tauxPeinesFermes || 0}%</td>
-    </tr>
-    <tr>
-      <td>Sursis probatoire uniquement</td>
-      <td class="text-right font-bold">${stats?.moyenneProbation || 0}</td>
-      <td class="text-right">${stats?.tauxPeinesProbation || 0}%</td>
-    </tr>
-    <tr>
-      <td>Sursis simple uniquement</td>
-      <td class="text-right font-bold">${stats?.moyenneSimple || 0}</td>
-      <td class="text-right">${stats?.tauxPeinesSimple || 0}%</td>
-    </tr>
-    <tr>
-      <td>Mixte avec sursis probatoire</td>
-      <td class="text-right font-bold">${stats?.moyenneMixtesProbation || '-'}</td>
-      <td class="text-right">${stats?.tauxPeinesMixtesProbation || 0}%</td>
-    </tr>
-    <tr>
-      <td>Mixte avec sursis simple</td>
-      <td class="text-right font-bold">${stats?.moyenneMixtesSimple || '-'}</td>
-      <td class="text-right">${stats?.tauxPeinesMixtesSimple || 0}%</td>
-    </tr>
-  </table>
-</div>
-
-<!-- Interdictions -->
-<div class="section-nobreak">
-  <div class="section-title">Interdictions</div>
-  <div class="cards-row">
     <div class="card">
       <div class="card-label">Interdictions de paraître</div>
       <div class="card-value">${stats?.totalInterdictionsParaitre || 0}</div>
-      <div class="card-detail">${stats && stats.nombreCondamnations > 0 ? ((stats.totalInterdictionsParaitre / stats.nombreCondamnations) * 100).toFixed(1) : 0}% des condamnations</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Interdictions de gérer</div>
-      <div class="card-value">${stats?.totalInterdictionsGerer || 0}</div>
-      <div class="card-detail">${stats && stats.nombreCondamnations > 0 ? ((stats.totalInterdictionsGerer / stats.nombreCondamnations) * 100).toFixed(1) : 0}% des condamnations</div>
     </div>
   </div>
 </div>
 
-<!-- Saisies (phase enquete) -->
+<!-- Saisies vs confiscations : le delta, sans détail superflu -->
+${(stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalVehicules || 0) > 0 ? `
 <div class="section-nobreak">
-  <div class="section-title">Saisies (enquête)</div>
-  ${(stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalSaisiesImmeubles || 0) > 0 || (stats?.totalSaisiesObjets || 0) > 0 ? `
-  <div class="cards-row">
-    <div class="card">
-      <div class="card-label">Véhicules saisis</div>
-      <div class="card-value">${stats?.totalSaisiesVehicules || 0}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Immeubles saisis</div>
-      <div class="card-value">${stats?.totalSaisiesImmeubles || 0}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Objets mobiliers saisis</div>
-      <div class="card-value">${stats?.totalSaisiesObjets || 0}</div>
-    </div>
-  </div>
-  <div class="cards-row">
-    <div class="card">
-      <div class="card-label">Numéraire saisi</div>
-      <div class="card-value">${formatCurrency(stats?.totalSaisiesNumeraire || 0)}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Comptes bancaires saisis</div>
-      <div class="card-value">${formatCurrency(stats?.totalSaisiesBancaire || 0)}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Cryptomonnaies saisies</div>
-      <div class="card-value">${formatCurrency(stats?.totalSaisiesCrypto || 0)}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Total avoirs saisis</div>
-      <div class="card-value">${formatCurrency(stats?.totalSaisiesArgent || 0)}</div>
-    </div>
-  </div>
-  ` : `<div style="font-size:10px;color:#92929C;font-style:italic">Aucune saisie renseignée pour cette période</div>`}
-</div>
-
-<!-- Confiscations (resultats d'audience) -->
-<div class="section-nobreak">
-  <div class="section-title">Confiscations (audience)</div>
-  <div class="cards-row">
-    <div class="card">
-      <div class="card-label">Véhicules confisqués</div>
-      <div class="card-value">${stats?.totalVehicules || 0}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Immeubles confisqués</div>
-      <div class="card-value">${stats?.totalImmeubles || 0}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Objets mobiliers confisqués</div>
-      <div class="card-value">${stats?.totalObjets || 0}</div>
-    </div>
-  </div>
-  <div class="cards-row">
-    <div class="card">
-      <div class="card-label">Numéraire confisqué</div>
-      <div class="card-value">${formatCurrency(stats?.totalNumeraire || 0)}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Comptes bancaires confisqués</div>
-      <div class="card-value">${formatCurrency(stats?.totalBancaire || 0)}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Cryptomonnaies confisquées</div>
-      <div class="card-value">${formatCurrency(stats?.totalCrypto || 0)}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Total avoirs confisqués</div>
-      <div class="card-value">${formatCurrency(stats?.totalArgent || 0)}</div>
-    </div>
-  </div>
-  ${(stats?.totalStupefiants || 0) > 0 ? `<div style="margin-top:6px;font-size:10px;color:#56565E">${stats?.totalStupefiants} dossier(s) avec stupéfiants</div>` : ''}
-</div>
-
-<!-- Delta saisies vs confiscations -->
-${(stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalSaisiesImmeubles || 0) > 0 || (stats?.totalVehicules || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stats?.totalImmeubles || 0) > 0 ? `
-<div class="section-nobreak">
-  <div class="section-title">Delta saisies vs confiscations</div>
+  <div class="section-title">Saisies &amp; confiscations</div>
   <table>
-    <tr><th>Categorie</th><th class="text-right">Saisi (enquête)</th><th class="text-right">Confisqué (audience)</th><th class="text-right">Delta</th></tr>
+    <tr><th>Catégorie</th><th class="text-right">Saisi (enquête)</th><th class="text-right">Confisqué (audience)</th><th class="text-right">Delta</th></tr>
     ${(stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalVehicules || 0) > 0 ? `<tr><td>Véhicules</td><td class="text-right">${stats?.totalSaisiesVehicules || 0}</td><td class="text-right">${stats?.totalVehicules || 0}</td><td class="text-right">${(stats?.totalSaisiesVehicules || 0) - (stats?.totalVehicules || 0)}</td></tr>` : ''}
     ${(stats?.totalSaisiesImmeubles || 0) > 0 || (stats?.totalImmeubles || 0) > 0 ? `<tr><td>Immeubles</td><td class="text-right">${stats?.totalSaisiesImmeubles || 0}</td><td class="text-right">${stats?.totalImmeubles || 0}</td><td class="text-right">${(stats?.totalSaisiesImmeubles || 0) - (stats?.totalImmeubles || 0)}</td></tr>` : ''}
-    ${(stats?.totalSaisiesNumeraire || 0) > 0 || (stats?.totalNumeraire || 0) > 0 ? `<tr><td>Numéraire</td><td class="text-right">${formatCurrency(stats?.totalSaisiesNumeraire || 0)}</td><td class="text-right">${formatCurrency(stats?.totalNumeraire || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesNumeraire || 0) - (stats?.totalNumeraire || 0))}</td></tr>` : ''}
-    ${(stats?.totalSaisiesBancaire || 0) > 0 || (stats?.totalBancaire || 0) > 0 ? `<tr><td>Bancaire</td><td class="text-right">${formatCurrency(stats?.totalSaisiesBancaire || 0)}</td><td class="text-right">${formatCurrency(stats?.totalBancaire || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesBancaire || 0) - (stats?.totalBancaire || 0))}</td></tr>` : ''}
-    ${(stats?.totalSaisiesCrypto || 0) > 0 || (stats?.totalCrypto || 0) > 0 ? `<tr><td>Crypto</td><td class="text-right">${formatCurrency(stats?.totalSaisiesCrypto || 0)}</td><td class="text-right">${formatCurrency(stats?.totalCrypto || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesCrypto || 0) - (stats?.totalCrypto || 0))}</td></tr>` : ''}
-    <tr style="font-weight:bold;border-top:2px solid #333"><td>Total avoirs</td><td class="text-right">${formatCurrency(stats?.totalSaisiesArgent || 0)}</td><td class="text-right">${formatCurrency(stats?.totalArgent || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesArgent || 0) - (stats?.totalArgent || 0))}</td></tr>
-  </table>
-</div>
-` : ''}
-
-<!-- Peines par type d'infraction -->
-${stats?.peinesParInfraction && Object.keys(stats.peinesParInfraction).length > 0 ? `
-<div class="section">
-  <div class="section-title">Peines moyennes par type d'infraction</div>
-  <table>
-    <tr>
-      <th>Infraction</th>
-      <th class="text-right">Ferme (mois)</th>
-      <th class="text-right">Probatoire (mois)</th>
-      <th class="text-right">Simple (mois)</th>
-      <th class="text-right">Mixte prob.</th>
-      <th class="text-right">Mixte simple</th>
-    </tr>
-    ${Object.entries(stats.peinesParInfraction).map(([infraction, s]) => `<tr>
-      <td>${infraction}</td>
-      <td class="text-right">${s.moyenneFerme > 0 ? s.moyenneFerme + ' (' + s.countFerme + ')' : '-'}</td>
-      <td class="text-right">${s.moyenneProbation > 0 ? s.moyenneProbation + ' (' + s.countProbation + ')' : '-'}</td>
-      <td class="text-right">${s.moyenneSimple > 0 ? s.moyenneSimple + ' (' + s.countSimple + ')' : '-'}</td>
-      <td class="text-right">${s.moyenneMixtesProbation || '-'}</td>
-      <td class="text-right">${s.moyenneMixtesSimple || '-'}</td>
-    </tr>`).join('')}
+    <tr style="background:#E3E3FD;font-weight:bold"><td>Total avoirs</td><td class="text-right">${formatCurrency(stats?.totalSaisiesArgent || 0)}</td><td class="text-right">${formatCurrency(stats?.totalArgent || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesArgent || 0) - (stats?.totalArgent || 0))}</td></tr>
   </table>
 </div>
 ` : ''}
@@ -863,7 +685,7 @@ ${data.deferementsParMois.length > 0 ? `
 ` : ''}
 
 <div class="footer">
-  SIRAL — Rapport généré automatiquement · Données au ${new Date().toLocaleDateString('fr-FR')} · Usage interne, ne pas diffuser
+  Rapport généré automatiquement · Données au ${new Date().toLocaleDateString('fr-FR')} · Usage interne, ne pas diffuser
 </div>
 
 </body>
@@ -879,18 +701,24 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
   // et le PDF sortirait blanc. On masque via un wrapper hors-écran (la même
   // technique que l'overlay interne de html2pdf), et on passe à html2pdf un
   // élément interne "propre" sans style de masquage.
+  // html2pdf déduit la largeur de l'image des pixels du canvas (96dpi), pas de la
+  // largeur de page : avec des marges horizontales il décale et rogne un bord.
+  // On neutralise ça en rendant le contenu sur TOUTE la largeur A4 (794px ≈ 210mm
+  // à 96dpi) → image pleine page, marges html2pdf horizontales à 0 (voir opt).
+  // Les marges latérales sont intégrées au contenu via le padding du conteneur.
   const wrapper = document.createElement('div');
   Object.assign(wrapper.style, {
     position: 'fixed',
     top: '0',
     left: '-10000px',
-    width: '794px', // A4 à 96dpi (210mm × 96/25.4 ≈ 794px)
+    width: '794px',
     pointerEvents: 'none',
   });
 
   const container = document.createElement('div');
   Object.assign(container.style, {
     width: '794px',
+    padding: '0 24px', // marge latérale intégrée (box-sizing: border-box)
     background: '#ffffff',
   });
 
@@ -910,8 +738,9 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
     const html2pdf = (await import('html2pdf.js')).default;
 
     const opt = {
-      margin: [10, 10, 10, 10],
-      filename: `SIRAL_Rapport_activite_${data.selectedYear}.pdf`,
+      // Marges horizontales à 0 (intégrées au contenu) ; verticales à 10mm.
+      margin: [10, 0, 10, 0],
+      filename: `Rapport_activite_${data.selectedYear}.pdf`,
       image: { type: 'jpeg', quality: 0.95 },
       html2canvas: {
         scale: 2,
@@ -944,7 +773,7 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
         pdf.setFontSize(8);
         pdf.setTextColor(146, 146, 156);
         pdf.text(
-          `SIRAL · Rapport d'activité ${data.selectedYear} — page ${i}/${totalPages}`,
+          `Rapport d'activité ${data.selectedYear} — page ${i}/${totalPages}`,
           pageWidth / 2,
           pageHeight - 4,
           { align: 'center' }
