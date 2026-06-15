@@ -10,6 +10,10 @@ import { useToast } from '@/contexts/ToastContext';
 export const AdminPathsPanel = () => {
   const { isAdmin: checkIsAdmin, contentieux: contentieuxDefs } = useUser();
   const { showToast } = useToast();
+  // En mode web, le stockage est le serveur SIRAL chiffré : les chemins de
+  // fichiers (général + par contentieux) sont des références virtuelles sans
+  // effet. On masque les blocs concernés pour éviter toute confusion.
+  const isWebApp = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
   const [generalPath, setGeneralPath] = useState('');
   const [contentieuxPaths, setContentieuxPaths] = useState<Record<ContentieuxId, string>>({});
   const [validating, setValidating] = useState<Record<string, boolean>>({});
@@ -321,23 +325,25 @@ export const AdminPathsPanel = () => {
         )}
       </div>
 
-      {/* Chemins par contentieux */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
-        <h4 className="text-sm font-semibold text-gray-800">Chemins par contentieux</h4>
-        <p className="text-xs text-gray-500">Dossier de données (app-data.json, backups) par contentieux.</p>
-        {contentieuxDefs
-          .sort((a, b) => a.order - b.order)
-          .map(def =>
-            renderPathInput(
-              `ctx_${def.id}`,
-              def.label,
-              contentieuxPaths[def.id] || '',
-              (val) => setContentieuxPaths(prev => ({ ...prev, [def.id]: val })),
-              undefined,
-              def.color
-            )
-          )}
-      </div>
+      {/* Chemins par contentieux — masqués en mode web (stockage serveur chiffré) */}
+      {!isWebApp && (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
+          <h4 className="text-sm font-semibold text-gray-800">Chemins par contentieux</h4>
+          <p className="text-xs text-gray-500">Dossier de données (app-data.json, backups) par contentieux.</p>
+          {contentieuxDefs
+            .sort((a, b) => a.order - b.order)
+            .map(def =>
+              renderPathInput(
+                `ctx_${def.id}`,
+                def.label,
+                contentieuxPaths[def.id] || '',
+                (val) => setContentieuxPaths(prev => ({ ...prev, [def.id]: val })),
+                undefined,
+                def.color
+              )
+            )}
+        </div>
+      )}
 
       {/* Bouton sauvegarder */}
       <div className="flex justify-end">
