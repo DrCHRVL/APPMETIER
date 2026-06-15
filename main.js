@@ -2539,6 +2539,8 @@ function setupIpcHandlers() {
   // synchro multi-postes pour un seul et même utilisateur.
   const instructionFileName = (username) => `${sanitizeUsername(username)}-instructions.json`
   const instructionBackupDir = (basePath) => path.join(basePath, 'backups')
+  const airFileName = (username) => `${sanitizeUsername(username)}-air.json`
+  const airBackupDir = (basePath) => path.join(basePath, 'backups')
 
   ipcMain.handle('instructionSync:check', async (event, basePath) => {
     if (skipIfUnreachable()) return false
@@ -2660,6 +2662,133 @@ function setupIpcHandlers() {
         .filter(u => u && !u.startsWith('shared__'))
     } catch (error) {
       console.error('❌ InstructionSync: Erreur listage utilisateurs:', error.message)
+      return []
+    }
+  })
+
+  // ===========================================================================
+  // SYNCHRONISATION MODULE AIR (privée par utilisateur, partage réciproque)
+  // Fichiers `<user>-air.json` (+ `shared__…-air.json` pour les groupes) dans le
+  // dossier réseau, backups sous `<basePath>/backups`. Calqué sur instructionSync.
+  // ===========================================================================
+  ipcMain.handle('airSync:check', async (event, basePath) => {
+    if (skipIfUnreachable()) return false
+    try {
+      if (!basePath || typeof basePath !== 'string') return false
+      await withTimeout(
+        fs.promises.access(basePath, fs.constants.F_OK),
+        NET_READ_TIMEOUT_MS,
+        'airSync check'
+      )
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  ipcMain.handle('airSync:pull', async (event, basePath, username) => {
+    if (skipIfUnreachable()) return null
+    try {
+      if (!basePath || !sanitizeUsername(username)) return null
+      const filePath = path.join(basePath, airFileName(username))
+      const content = await withTimeout(
+        fs.promises.readFile(filePath, 'utf8').catch(err => {
+          if (err.code === 'ENOENT') return ''
+          throw err
+        }),
+        NET_READ_TIMEOUT_MS,
+        'airSync pull'
+      )
+      if (!content || !content.trim()) return null
+      return JSON.parse(content)
+    } catch (error) {
+      console.error('❌ AIRSync: Erreur lecture:', error.message)
+      throw new Error(`Erreur lecture serveur AIR: ${error.message}`)
+    }
+  })
+
+  ipcMain.handle('airSync:push', async (event, basePath, username, payload) => {
+    if (skipIfUnreachable()) {
+      throw new Error('Réseau injoignable, sauvegarde AIR reportée')
+    }
+    try {
+      if (!basePath) throw new Error('Chemin réseau non configuré')
+      if (!sanitizeUsername(username)) throw new Error('Utilisateur invalide')
+      const filePath = path.join(basePath, airFileName(username))
+      const backupDir = airBackupDir(basePath)
+      await withTimeout(
+        fs.promises.mkdir(backupDir, { recursive: true }).catch(() => {}),
+        NET_WRITE_TIMEOUT_MS,
+        'airSync mkdir'
+      )
+      // Backup non bloquant de la version précédente avant écrasement
+      try {
+        const timestamp = new Date().toISOString().replace(/:/g, '-')
+        const base = airFileName(username).replace(/\.json$/i, '')
+        await withTimeout(
+          fs.promises.copyFile(filePath, path.join(backupDir, `${base}-backup-${timestamp}.json`)),
+          NET_WRITE_TIMEOUT_MS,
+          'airSync backup'
+        )
+      } catch {
+        // Premier write : pas de fichier source, normal
+      }
+      await withTimeout(
+        fs.promises.writeFile(filePath, JSON.stringify(payload), 'utf8'),
+        NET_WRITE_TIMEOUT_MS,
+        'airSync push'
+      )
+      return true
+    } catch (error) {
+      console.error('❌ AIRSync: Erreur écriture:', error.message)
+      throw new Error(`Erreur sauvegarde réseau AIR: ${error.message}`)
+    }
+  })
+
+  ipcMain.handle('airSync:listBackups', async (event, basePath, username) => {
+    try {
+      if (!basePath || !sanitizeUsername(username)) return []
+      const backupDir = airBackupDir(basePath)
+      if (!fs.existsSync(backupDir)) return []
+      const prefix = `${airFileName(username).replace(/\.json$/i, '')}-backup-`
+      return fs.readdirSync(backupDir)
+        .filter(f => f.startsWith(prefix) && f.endsWith('.json'))
+        .sort()
+        .reverse()
+    } catch (error) {
+      console.error('❌ AIRSync: Erreur listage backups:', error.message)
+      return []
+    }
+  })
+
+  ipcMain.handle('airSync:readBackup', async (event, basePath, username, filename) => {
+    try {
+      if (!basePath || !sanitizeUsername(username)) return null
+      const prefix = `${airFileName(username).replace(/\.json$/i, '')}-backup-`
+      if (!filename || !filename.startsWith(prefix) || !filename.endsWith('.json')) {
+        console.error(`❌ AIRSync: Lecture refusée pour "${filename}" (nom non autorisé)`)
+        return null
+      }
+      const filePath = path.join(airBackupDir(basePath), filename)
+      if (!fs.existsSync(filePath)) return null
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+    } catch (error) {
+      console.error('❌ AIRSync: Erreur lecture backup:', error.message)
+      return null
+    }
+  })
+
+  // Liste les utilisateurs ayant un fichier AIR sur le dossier réseau (découverte
+  // des invitations de partage entrantes), hors fichiers de groupe `shared__…`.
+  ipcMain.handle('airSync:listUsers', async (event, basePath) => {
+    try {
+      if (!basePath || !fs.existsSync(basePath)) return []
+      return fs.readdirSync(basePath)
+        .filter(f => f.endsWith('-air.json'))
+        .map(f => f.replace(/-air\.json$/i, ''))
+        .filter(u => u && !u.startsWith('shared__'))
+    } catch (error) {
+      console.error('❌ AIRSync: Erreur listage utilisateurs:', error.message)
       return []
     }
   })

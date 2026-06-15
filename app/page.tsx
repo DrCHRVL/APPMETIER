@@ -121,10 +121,12 @@ import { useMultiSyncStatus } from '@/hooks/useMultiSyncStatus';
 import { DataSyncManager } from '@/utils/dataSync/DataSyncManager';
 import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
 import { instructionSyncService } from '@/utils/dataSync/InstructionSyncService';
+import { airSyncService } from '@/utils/dataSync/AIRSyncService';
 import { UpdateChangelogModal } from '@/components/modals/UpdateChangelogModal';
 
 // 🆕 Multi-contentieux
 const SettingsModal = dynamic(() => import('@/components/modals/SettingsModal').then(m => ({ default: m.SettingsModal })), { ssr: false });
+const ShareInvitationModal = dynamic(() => import('@/components/modals/ShareInvitationModal').then(m => ({ default: m.ShareInvitationModal })), { ssr: false });
 const OverboardPage = dynamic(() => import('@/components/pages/OverboardPage').then(m => ({ default: m.OverboardPage })), { ssr: false });
 const GlobalStatsPage = dynamic(() => import('@/components/pages/GlobalStatsPage').then(m => ({ default: m.GlobalStatsPage })), { ssr: false });
 import { ContentieuxId } from '@/types/userTypes';
@@ -133,6 +135,7 @@ const AdminUsersPanel = dynamic(() => import('@/components/AdminUsersPanel').the
 import { UserManager } from '@/utils/userManager';
 const AdminContentieuxPanel = dynamic(() => import('@/components/admin/AdminContentieuxPanel').then(m => ({ default: m.AdminContentieuxPanel })), { ssr: false });
 const AdminInstructionPanel = dynamic(() => import('@/components/admin/AdminInstructionPanel').then(m => ({ default: m.AdminInstructionPanel })), { ssr: false });
+const AdminAIRPanel = dynamic(() => import('@/components/admin/AdminAIRPanel').then(m => ({ default: m.AdminAIRPanel })), { ssr: false });
 const AdminCartographyPanel = dynamic(() => import('@/components/admin/AdminCartographyPanel').then(m => ({ default: m.AdminCartographyPanel })), { ssr: false });
 const AdminPathsPanel = dynamic(() => import('@/components/admin/AdminPathsPanel').then(m => ({ default: m.AdminPathsPanel })), { ssr: false });
 const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashboardPanel').then(m => ({ default: m.AdminDashboardPanel })), { ssr: false });
@@ -423,6 +426,17 @@ function AppContent() {
       enabled ? instructionNetworkPath : null,
     );
   }, [hasModule, user?.windowsUsername, instructionNetworkPath]);
+
+  // Sauvegarde réseau privée du module AIR (mesures AIR), avec partage
+  // réciproque optionnel. En mode web, le coffre serveur chiffré `air-<user>`
+  // sert de magasin — aucun dossier réseau à configurer.
+  useEffect(() => {
+    const enabled = hasModule('air');
+    airSyncService.configure(
+      enabled ? (user?.windowsUsername || null) : null,
+      null,
+    );
+  }, [hasModule, user?.windowsUsername]);
 
   useEffect(() => {
     setIsClient(true);
@@ -723,7 +737,8 @@ function AppContent() {
       await contentieuxAlertsSyncService.sync(currentContentieuxId);
       const sharedAlertRules = await contentieuxAlertsSyncService.getRules(currentContentieuxId);
       const tagsData = await StorageManager.get(`${ctxPrefix}customTags`, []);
-      const airMesuresData = await StorageManager.get('air_mesures', []);
+      const airKey = user?.windowsUsername ? `air_mesures__${user.windowsUsername}` : 'air_mesures';
+      const airMesuresData = await StorageManager.get(airKey, []);
 
       const data = {
         contentieuxId: currentContentieuxId,
@@ -1887,6 +1902,9 @@ return (
         instructionDossiers={instructionWeeklyRecapSubscribed ? instructions : undefined}
       />
 
+      {/* Invitations de partage entrantes (AIR / instruction) — pop-up un clic */}
+      <ShareInvitationModal />
+
       {/* 🆕 Modal Paramètres multi-onglets */}
       <SettingsModal
         isOpen={showSettingsModal}
@@ -1926,6 +1944,7 @@ return (
         adminUsersContent={<AdminUsersPanel />}
         adminContentieuxContent={<AdminContentieuxPanel />}
         moduleInstructionContent={hasModule('instructions') ? <AdminInstructionPanel /> : null}
+        moduleAIRContent={hasModule('air') ? <AdminAIRPanel /> : null}
         moduleCartographieContent={hasModule('mindmap') ? <AdminCartographyPanel /> : null}
         adminPathsContent={<AdminPathsPanel />}
         agendaContent={<AgendaPanel />}

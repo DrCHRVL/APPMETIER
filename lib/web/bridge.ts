@@ -151,6 +151,22 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     } catch { return false }
   }
 
+  /**
+   * Énumère les usernames possédant un coffre du préfixe donné (ex. `air-`,
+   * `instructions-`) — pour la découverte des invitations de partage. Renvoie les
+   * usernames bruts (préfixe retiré), hors coffres de groupe `shared__…`.
+   */
+  async function listVaultUsers(prefix: string): Promise<string[]> {
+    try {
+      const res = await api(`/api/vaults?prefix=${encodeURIComponent(prefix)}`)
+      if (!res.ok) return []
+      const { names } = await res.json()
+      return (names as string[])
+        .map((n) => n.slice(prefix.length))
+        .filter((u) => u && !u.startsWith('shared__'))
+    } catch { return [] }
+  }
+
   // ── Documents chiffrés ──
   function encodeDocName(s: string): string {
     return s.normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._ -]/g, '_').replace(/ +/g, '_').slice(0, 120)
@@ -805,10 +821,26 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     instructionSync_listBackups: async (_basePath: unknown, username: unknown) => vaultVersions(`instructions-${sanitizeName(username)}`),
     instructionSync_readBackup: async (_basePath: unknown, username: unknown, filename: unknown) =>
       vaultVersionRead(`instructions-${sanitizeName(username)}`, String(filename)),
-    // Pas d'énumération des coffres côté web : la découverte automatique des
-    // invitations entrantes n'est pas disponible. Le partage reste possible par
-    // déclaration mutuelle explicite des partenaires dans les paramètres.
-    instructionSync_listUsers: async () => [] as string[],
+    // Découverte des invitations entrantes côté web : énumère les coffres
+    // `instructions-<user>` via /api/vaults (noms uniquement), le client lit
+    // ensuite chacun pour vérifier qui le cite dans `shareWith`.
+    instructionSync_listUsers: async () => listVaultUsers('instructions-'),
+
+    // ── Module AIR (privé par utilisateur, partage réciproque optionnel) ──
+    airSync_check: async () => serverReachable(),
+    airSync_pull: async (_basePath: unknown, username: unknown) => {
+      const payload = await vaultPull(`air-${sanitizeName(username)}`)
+      return payload
+    },
+    airSync_push: async (_basePath: unknown, username: unknown, payload: unknown) => {
+      await vaultPush(`air-${sanitizeName(username)}`, payload)
+      return true
+    },
+    airSync_listBackups: async (_basePath: unknown, username: unknown) => vaultVersions(`air-${sanitizeName(username)}`),
+    airSync_readBackup: async (_basePath: unknown, username: unknown, filename: unknown) =>
+      vaultVersionRead(`air-${sanitizeName(username)}`, String(filename)),
+    // Découverte des invitations entrantes côté web (cf. instructionSync_listUsers).
+    airSync_listUsers: async () => listVaultUsers('air-'),
 
     // ── Présence ──
     writeHeartbeat: async (_username: unknown, heartbeat: unknown) => {

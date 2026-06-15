@@ -11,7 +11,7 @@ import { ContentieuxId, ModuleId } from '@/types/userTypes';
 
 type SettingsTab =
   | 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'agenda' | 'a_propos'
-  | 'module_instruction' | 'module_cartographie'
+  | 'module_instruction' | 'module_cartographie' | 'module_air'
   | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
 
 interface SettingsModalProps {
@@ -23,6 +23,8 @@ interface SettingsModalProps {
   monProfilContent?: React.ReactNode;
   /** Panneau du module instruction (visible si l'utilisateur a le module activé) */
   moduleInstructionContent?: React.ReactNode;
+  /** Panneau du module AIR (sauvegarde réseau privée + partage) */
+  moduleAIRContent?: React.ReactNode;
   /** Panneau du module cartographie (pondérations du score top 10) */
   moduleCartographieContent?: React.ReactNode;
   adminUsersContent?: React.ReactNode;
@@ -68,8 +70,9 @@ const TABS: TabDef[] = [
   { id: 'a_propos',    label: 'À propos',    icon: Info, section: 'general' },
 
   // Modules (visibles selon les modules activés pour l'utilisateur)
-  { id: 'module_instruction',   label: 'Instruction',  icon: Gavel, section: 'modules', requiresModule: 'instructions' },
-  { id: 'module_cartographie',  label: 'Cartographie', icon: Map,   section: 'modules', requiresModule: 'mindmap' },
+  { id: 'module_instruction',   label: 'Instruction',  icon: Gavel,    section: 'modules', requiresModule: 'instructions' },
+  { id: 'module_air',           label: 'Suivi AIR',    icon: Activity, section: 'modules', requiresModule: 'air' },
+  { id: 'module_cartographie',  label: 'Cartographie', icon: Map,      section: 'modules', requiresModule: 'mindmap' },
 
   // Administration (admin uniquement)
   { id: 'admin_users',       label: 'Utilisateurs & accès', icon: Users,     section: 'admin', isAdmin: true },
@@ -105,6 +108,7 @@ export const SettingsModal = ({
   sauvegardesContent,
   monProfilContent,
   moduleInstructionContent,
+  moduleAIRContent,
   moduleCartographieContent,
   agendaContent,
   adminUsersContent,
@@ -150,6 +154,7 @@ export const SettingsModal = ({
       case 'agenda':             return agendaContent;
       case 'a_propos':           return aProposContent;
       case 'module_instruction':  return moduleInstructionContent;
+      case 'module_air':          return moduleAIRContent;
       case 'module_cartographie': return moduleCartographieContent;
       case 'admin_users':        return adminUsersContent;
       case 'admin_contentieux':  return adminContentieuxContent;

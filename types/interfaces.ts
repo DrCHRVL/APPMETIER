@@ -435,6 +435,10 @@ export interface AIRImportData {
   // Métadonnées sur l'origine des données
   sourceGreffe?: boolean;            // Indique si la mesure provient du greffe (pour coloration)
   updatedFromAEM?: boolean;          // Indique si mise à jour depuis AEM
+
+  // Horodatage de dernière modification — sert à la fusion réseau (LWW) du
+  // module AIR (AIRSyncService). Renseigné par useAIR à chaque création/màj.
+  dateMiseAJour?: string;            // ISO date
 }
 
 export type AIRStatus = 'en_cours' | 'termine' | 'echec' | 'reussite';
