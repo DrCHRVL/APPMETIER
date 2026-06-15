@@ -60,11 +60,19 @@ export const DashboardPage = ({
   const activeEnquetes = useMemo(() => enquetes.filter(e => e.statut !== 'archive'), [enquetes]);
 
   // Actes encore actifs (géoloc, écoute, autres actes en cours)
+  // Un acte « en cours » dont la dateFin est dépassée est en réalité terminé :
+  // le champ statut n'est jamais repassé à « terminé » automatiquement, donc on
+  // s'aligne sur la logique des pages de détail (ActeSection/EcouteSection/
+  // GeolocSection) qui calculent l'expiration à partir de la date de fin.
   const actesEnCours = useMemo(() => {
+    const now = new Date();
     let n = 0;
     for (const e of activeEnquetes) {
       for (const a of [...(e.actes || []), ...(e.ecoutes || []), ...(e.geolocalisations || [])]) {
-        if ((a as { statut?: string }).statut === 'en_cours') n++;
+        const acte = a as { statut?: string; dateFin?: string };
+        if (acte.statut !== 'en_cours') continue;
+        if (acte.dateFin && new Date(acte.dateFin) < now) continue; // expiré → terminé
+        n++;
       }
     }
     return n;
