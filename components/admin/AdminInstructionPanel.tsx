@@ -451,9 +451,13 @@ export const AdminInstructionPanel = () => {
 // SECTION SAUVEGARDE RÉSEAU (privée par utilisateur)
 // ──────────────────────────────────────────────
 
+const isWebApp = () =>
+  typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
+
 const NetworkBackupSection = () => {
   const { instructionNetworkPath, setInstructionNetworkPath } = useUserPreferences();
   const { showToast } = useToast();
+  const isWeb = isWebApp();
 
   const [pathInput, setPathInput] = useState('');
   const [validating, setValidating] = useState(false);
@@ -527,6 +531,49 @@ const NetworkBackupSection = () => {
   };
 
   const dirty = (instructionNetworkPath || '') !== pathInput.trim();
+
+  // Mode web : le serveur SIRAL chiffré est le magasin de référence. Aucun dossier
+  // réseau Windows à configurer — la synchro est automatique et permanente.
+  if (isWeb) {
+    return (
+      <section className="space-y-3">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-1.5">
+            <Network className="h-4 w-4 text-gray-500" />
+            Sauvegarde de vos dossiers
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Vos dossiers d'instruction sont enregistrés automatiquement sur le{' '}
+            <strong>serveur chiffré</strong> et synchronisés entre tous vos appareils.
+            Ils restent <strong>privés</strong> : ils ne sont jamais visibles par les
+            autres utilisateurs, sauf partage explicite ci-dessous.
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+          <div className="flex items-center gap-2 text-sm text-emerald-800">
+            <Check className="h-4 w-4 text-emerald-600" />
+            <span>
+              Synchronisé avec le serveur.
+              {lastSync && (
+                <span className="text-emerald-700/80">
+                  {' '}Dernière synchro : {new Date(lastSync).toLocaleString('fr-FR')}
+                </span>
+              )}
+            </span>
+          </div>
+          <button
+            onClick={handleSyncNow}
+            disabled={syncing}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-100 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Synchroniser
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="space-y-3">
@@ -652,7 +699,9 @@ const PartageSection = () => {
     void run(() => instructionSyncService.addPartner(u), 'Invitation de partage envoyée');
   };
 
-  const networkReady = !!(instructionNetworkPath || '').trim();
+  // En mode web, le serveur tient lieu de dossier commun : le partage est toujours
+  // disponible. En desktop, il faut au préalable un dossier réseau partagé.
+  const networkReady = isWebApp() || !!(instructionNetworkPath || '').trim();
 
   return (
     <section className="space-y-3">

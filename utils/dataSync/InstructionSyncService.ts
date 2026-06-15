@@ -214,12 +214,27 @@ export class InstructionSyncService {
   }
 
   /**
+   * Mode web (SIRAL serveur) : le serveur chiffré est le magasin de référence.
+   * Aucun dossier réseau Windows n'est requis — le pont web ignore le `basePath`
+   * et route les coffres `instructions-<user>` directement vers /api/vaults.
+   */
+  private isWeb(): boolean {
+    return typeof window !== 'undefined'
+      && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
+  }
+
+  /**
    * Configure le service (utilisateur + dossier réseau). Démarre la synchro
    * périodique si tout est renseigné, sinon l'arrête. À rappeler quand
    * l'utilisateur connecté change ou quand il modifie son chemin réseau.
    */
   configure(username: string | null, networkPath: string | null | undefined): void {
-    const path = (networkPath || '').trim() || null;
+    // En mode web, le serveur SIRAL fait office de dossier réseau : on force un
+    // chemin sentinelle (ignoré par le pont web) dès qu'un utilisateur est
+    // connecté, pour que la synchro et le partage s'activent sans configuration.
+    const path = this.isWeb()
+      ? (username ? 'siral://serveur' : null)
+      : ((networkPath || '').trim() || null);
     const changed = this.username !== username || this.networkPath !== path;
     this.username = username || null;
     this.networkPath = path;
