@@ -1,7 +1,8 @@
 /**
- * SIRAL — agenda Google (lecture seule via flux iCal).
+ * SIRAL — agenda Google ou Outlook / Microsoft 365 (lecture seule via flux iCal).
  * L'adresse secrète .ics est stockée sur l'appareil (prefs) ; la récupération
- * passe par le proxy serveur /api/agenda, strictement limité à Google.
+ * passe par le proxy serveur /api/agenda, strictement limité à une liste blanche
+ * d'hôtes (Google + Outlook).
  */
 export const AGENDA_ICAL_KEY = 'agenda_ical_url';
 

@@ -1,8 +1,8 @@
 /**
- * Agenda — proxy lecture seule d'un flux iCal Google Calendar.
+ * Agenda — proxy lecture seule d'un flux iCal (Google Agenda ou Outlook / Microsoft 365).
  *
  * Sécurité (pas de backdoor / anti-SSRF) :
- *  - hôte STRICTEMENT limité à calendar.google.com en HTTPS ;
+ *  - hôte STRICTEMENT limité à une liste blanche (Google + Outlook) en HTTPS ;
  *  - méthode GET uniquement, aucune redirection suivie vers un autre hôte ;
  *  - délai et taille bornés ; on ne renvoie que des événements (titre + dates),
  *    jamais le flux brut. L'URL secrète n'est ni journalisée ni stockée côté
@@ -14,11 +14,19 @@ export const dynamic = 'force-dynamic'
 
 const MAX_BYTES = 2 * 1024 * 1024
 
+// Hôtes autorisés pour les flux iCal publics (lecture seule).
+const ALLOWED_HOSTS = new Set([
+  'calendar.google.com',     // Google Agenda
+  'outlook.office365.com',   // Microsoft 365 (pro / établissement)
+  'outlook.office.com',      // Microsoft 365 (variante)
+  'outlook.live.com',        // Outlook.com (compte personnel)
+])
+
 function isAllowed(raw: string): URL | null {
   try {
     const u = new URL(raw)
     if (u.protocol !== 'https:') return null
-    if (u.hostname !== 'calendar.google.com') return null
+    if (!ALLOWED_HOSTS.has(u.hostname)) return null
     return u
   } catch { return null }
 }
@@ -43,7 +51,7 @@ export async function POST(req: Request) {
     requireSession(req)
     const { url } = await req.json()
     const safe = isAllowed(String(url || ''))
-    if (!safe) return jsonResponse({ error: 'URL iCal Google invalide (https://calendar.google.com/… attendu)' }, { status: 400 })
+    if (!safe) return jsonResponse({ error: 'URL iCal invalide (Google Agenda ou Outlook attendu, en https://…)' }, { status: 400 })
 
     const ctl = new AbortController()
     const t = setTimeout(() => ctl.abort(), 10000)
