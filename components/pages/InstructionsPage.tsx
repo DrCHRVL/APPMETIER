@@ -8,6 +8,7 @@ import { InstructionPreview } from '../instruction/InstructionPreview';
 import { InstructionsTimeline } from '../instruction/InstructionsTimeline';
 import { RequisitionsHebdoWidget } from '../instruction/RequisitionsHebdoWidget';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
+import { parquetDisplayMap } from '@/utils/dataSync/InstructionSyncService';
 import { useToast } from '@/contexts/ToastContext';
 import {
   ETAT_REGLEMENT_LABELS,
@@ -51,6 +52,10 @@ export const InstructionsPage = ({
   const [sortOrder, setSortOrder] = useState<SortKey>('date-desc');
   // Affichage groupé par cabinet (par défaut) ou liste à plat
   const [groupByCabinet, setGroupByCabinet] = useState(true);
+
+  // Désambiguïsation des n° de parquet en doublon (cas d'une fusion entre
+  // magistrats) : les occurrences suivantes reçoivent un suffixe « (2) »…
+  const parquetLabels = useMemo(() => parquetDisplayMap(dossiers), [dossiers]);
 
   const filtered = useMemo(() => {
     // On exclut systématiquement les dossiers archivés : ils sont gérés
@@ -406,6 +411,7 @@ export const InstructionsPage = ({
                       <InstructionPreview
                         key={d.id}
                         dossier={d}
+                        parquetLabel={parquetLabels.get(d.id)}
                         onView={() => onOpenDossier(d)}
                         onDelete={() => handleDelete(d)}
                         onToggleSuivi={(t) => handleToggleSuivi(d, t)}
@@ -422,6 +428,7 @@ export const InstructionsPage = ({
               <InstructionPreview
                 key={d.id}
                 dossier={d}
+                parquetLabel={parquetLabels.get(d.id)}
                 onView={() => onOpenDossier(d)}
                 onDelete={() => handleDelete(d)}
                 onToggleSuivi={(t) => handleToggleSuivi(d, t)}

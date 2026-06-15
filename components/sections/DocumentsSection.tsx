@@ -308,9 +308,13 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
       const current = enquete.documents || [];
       const knownRels = new Set(current.map(d => d.cheminRelatif));
       const toAdd = (importedDocs || []).filter(d => !knownRels.has(d.cheminRelatif));
-      const needCommunUpdate = current.some(d => d.copieCommun !== 'ok');
-      if (toAdd.length > 0 || needCommunUpdate) {
-        const merged = [...current, ...toAdd].map(d => ({ ...d, copieCommun: 'ok' as const }));
+      // Documents présents en interne mais introuvables / non copiés sur le commun :
+      // ils reçoivent le statut 'absent' (badge « ✗ commun » rouge). Les autres sont 'ok'.
+      const notOnCommun = new Set(syncResult.notOnCommun || []);
+      const statusFor = (rel: string): 'ok' | 'absent' => (notOnCommun.has(rel) ? 'absent' : 'ok');
+      const changed = toAdd.length > 0 || current.some(d => d.copieCommun !== statusFor(d.cheminRelatif));
+      if (changed) {
+        const merged = [...current, ...toAdd].map(d => ({ ...d, copieCommun: statusFor(d.cheminRelatif) }));
         onUpdate(enquete.id, { documents: merged });
       }
 
@@ -738,7 +742,17 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                 <p>Documents externes : {lastSyncResult.totalExternal}</p>
                 {lastSyncResult.addedToInternal.length > 0 && <p>Ajoutés en interne : {lastSyncResult.addedToInternal.length}</p>}
                 {lastSyncResult.addedToExternal.length > 0 && <p>Ajoutés en externe : {lastSyncResult.addedToExternal.length}</p>}
-                {lastSyncResult.errors.length > 0 && <p className="text-red-600">Erreurs : {lastSyncResult.errors.length}</p>}
+                {lastSyncResult.errors.length > 0 && (
+                  <div className="text-red-600">
+                    <p className="font-medium">Erreurs : {lastSyncResult.errors.length}</p>
+                    {/* Détail concis des erreurs : pour la plupart, des documents non copiés sur le commun. */}
+                    <ul className="mt-0.5 space-y-0.5 text-[11px] leading-tight text-red-600/90">
+                      {lastSyncResult.errors.map((e, i) => (
+                        <li key={i} className="truncate" title={e}>• {e}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -858,6 +872,9 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                                       )}
                                       {doc.copieCommun === 'attente' && (
                                         <span className="text-amber-600 font-medium" title="Copie vers le dossier commun en attente (dossier injoignable)">⏳ commun</span>
+                                      )}
+                                      {doc.copieCommun === 'absent' && (
+                                        <span className="text-red-600 font-medium" title="Introuvable sur le dossier commun (non copié lors de la dernière synchronisation)">✗ commun</span>
                                       )}
                                     </div>
                                   </div>

@@ -141,6 +141,9 @@ export interface MisEnCause {
   nom: string;
   role?: string;
   statut: string;
+  /** Marque une entrée qui est en réalité une victime projetée sur la
+   *  cartographie (affichée « comme un mis en cause » mais étiquetée Victime). */
+  isVictime?: boolean;
 }
 
 // Pour le suivi des dossiers d'instruction

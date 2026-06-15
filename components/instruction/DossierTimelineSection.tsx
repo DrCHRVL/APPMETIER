@@ -286,11 +286,15 @@ export const DossierTimelineSection: React.FC<Props> = ({
     return merged;
   }, [derivedEvents, evenements]);
 
+  // Ordre anti-chronologique partout : le plus récent en haut, le plus vieux en
+  // bas. `sortedAll` est déjà décroissant ; on ne ré-inverse donc pas « À venir »
+  // (cela remettait le plus proche en haut et plaçait, à date égale, le
+  // « Placement DP » avant « Ouverture de l'information », ce qui n'a pas de sens).
   const futurs = sortedAll.filter(x => {
     const d = new Date(x.date);
     d.setHours(0, 0, 0, 0);
     return d >= today;
-  }).reverse();
+  });
   const passes = sortedAll.filter(x => {
     const d = new Date(x.date);
     d.setHours(0, 0, 0, 0);

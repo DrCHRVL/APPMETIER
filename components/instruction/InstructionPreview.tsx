@@ -37,6 +37,8 @@ import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
 
 interface InstructionPreviewProps {
   dossier: DossierInstruction;
+  /** Libellé de parquet à afficher (désambiguïsé « (2) » en cas de doublon). */
+  parquetLabel?: string;
   onView: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
@@ -63,6 +65,7 @@ const dpInfoForMex = (mex: MisEnExamen) => {
 
 export const InstructionPreview = React.memo(({
   dossier,
+  parquetLabel,
   onView,
   onEdit,
   onDelete,
@@ -180,9 +183,9 @@ export const InstructionPreview = React.memo(({
             )}
           </div>
 
-          {/* N° parquet */}
+          {/* N° parquet (suffixe « (2) » si doublon de parquet après fusion) */}
           <div className="text-xs text-gray-600 font-medium mb-1">
-            Parquet : {dossier.numeroParquet || 'Non défini'}
+            Parquet : {parquetLabel || dossier.numeroParquet || 'Non défini'}
           </div>
 
           {/* Tags d'infraction */}

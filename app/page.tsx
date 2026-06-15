@@ -905,11 +905,23 @@ function AppContent() {
         documents: [],
         notes: '',
         tags: inst.tags || [],
-        misEnCause: inst.misEnExamen.map(m => ({
-          id: m.id,
-          nom: m.nom,
-          statut: m.mesureSurete.type,
-        })),
+        misEnCause: [
+          ...inst.misEnExamen.map(m => ({
+            id: m.id,
+            nom: m.nom,
+            statut: m.mesureSurete.type,
+          })),
+          // Victimes explicitement marquées « faire apparaître sur la cartographie » :
+          // projetées comme des mis en cause mais étiquetées (Victime).
+          ...(inst.victimes || [])
+            .filter(v => v.surCarto && v.nom?.trim())
+            .map(v => ({
+              id: v.id,
+              nom: v.nom,
+              statut: 'victime',
+              isVictime: true,
+            })),
+        ],
       } as unknown as import('@/types/interfaces').Enquete;
       out.push({
         enquete: pseudoEnquete,

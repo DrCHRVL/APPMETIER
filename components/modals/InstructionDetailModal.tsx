@@ -58,11 +58,12 @@ interface InstructionDetailModalProps {
   contentieuxDefs?: import('@/types/userTypes').ContentieuxDefinition[];
 }
 
-type TabKey = 'apercu' | 'mex' | 'echeances' | 'timeline';
+type TabKey = 'apercu' | 'mex' | 'victimes' | 'echeances' | 'timeline';
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: 'apercu',    label: 'Aperçu',         icon: FileText },
   { key: 'mex',       label: 'Mis en examen',  icon: Users },
+  { key: 'victimes',  label: 'Victimes',       icon: ShieldCheck },
   { key: 'echeances', label: 'OP & JLD',       icon: Calendar },
   { key: 'timeline',  label: 'Timeline',       icon: ListChecks },
 ];
@@ -89,7 +90,6 @@ export const InstructionDetailModal = ({
   const cabinetColor = cabinet?.color || FALLBACK_CABINET_COLOR;
 
   const [activeTab, setActiveTab] = useState<TabKey>('apercu');
-  const [showVictimesModal, setShowVictimesModal] = useState(false);
 
   // État local pour l'édition
   const [editData, setEditData] = useState<Partial<DossierInstruction>>({
@@ -429,9 +429,34 @@ export const InstructionDetailModal = ({
                   <Stat
                     label="Victimes"
                     value={(dossier.victimes || []).length}
-                    onClick={() => setShowVictimesModal(true)}
+                    onClick={() => setActiveTab('victimes')}
                   />
                 </div>
+
+                {/* Mini-section victimes : noms uniquement (détails dans l'onglet Victimes) */}
+                {(dossier.victimes || []).length > 0 && (
+                  <div className="flex items-start gap-1.5 flex-wrap text-xs">
+                    <span className="text-gray-500 uppercase font-semibold flex items-center gap-1 shrink-0">
+                      <ShieldCheck className="h-3 w-3 text-emerald-600" /> Victimes
+                    </span>
+                    {(dossier.victimes || []).map(v => (
+                      <span
+                        key={v.id}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200"
+                        title={v.surCarto ? 'Affichée sur la cartographie' : undefined}
+                      >
+                        {v.nom}
+                        {v.surCarto && <MapPin className="h-2.5 w-2.5 text-emerald-600" />}
+                      </span>
+                    ))}
+                    <button
+                      onClick={() => setActiveTab('victimes')}
+                      className="text-emerald-700 hover:underline"
+                    >
+                      gérer →
+                    </button>
+                  </div>
+                )}
 
                 {/* Contentieux */}
                 {(() => {
@@ -506,6 +531,13 @@ export const InstructionDetailModal = ({
             />
           )}
 
+          {activeTab === 'victimes' && (
+            <VictimesSection
+              victimes={dossier.victimes || []}
+              onChange={(victimes: Victime[]) => onUpdate(dossier.id, { victimes })}
+            />
+          )}
+
           {activeTab === 'echeances' && (
             <div className="space-y-6">
               <div>
@@ -549,14 +581,6 @@ export const InstructionDetailModal = ({
             />
           )}
         </div>
-
-        {showVictimesModal && (
-          <VictimesModal
-            victimes={dossier.victimes || []}
-            onChange={(victimes: Victime[]) => onUpdate(dossier.id, { victimes })}
-            onClose={() => setShowVictimesModal(false)}
-          />
-        )}
       </div>
     </div>
   );
@@ -601,14 +625,14 @@ const Stat = ({
 };
 
 // ─────────────────────────────────────────────────────────────────
-// Modal de gestion des victimes (ajout / suppression rapide)
+// Onglet Victimes : liste des victimes / parties civiles avec option
+// d'affichage sur la cartographie.
 // ─────────────────────────────────────────────────────────────────
 
-const VictimesModal: React.FC<{
+const VictimesSection: React.FC<{
   victimes: Victime[];
   onChange: (next: Victime[]) => void;
-  onClose: () => void;
-}> = ({ victimes, onChange, onClose }) => {
+}> = ({ victimes, onChange }) => {
   const [draft, setDraft] = useState('');
 
   const handleAdd = () => {
@@ -624,72 +648,85 @@ const VictimesModal: React.FC<{
   const handleRemove = (id: number) =>
     onChange(victimes.filter(v => v.id !== id));
 
-  const handleRename = (id: number, nom: string) =>
-    onChange(victimes.map(v => (v.id === id ? { ...v, nom } : v)));
+  const handlePatch = (id: number, patch: Partial<Victime>) =>
+    onChange(victimes.map(v => (v.id === id ? { ...v, ...patch } : v)));
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-lg shadow-2xl w-full max-w-md mx-4 p-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-emerald-600" />
-            Victimes / parties civiles ({victimes.length})
-          </h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="space-y-1.5 max-h-72 overflow-y-auto mb-3">
-          {victimes.length === 0 && (
-            <div className="text-xs text-gray-400 italic py-3 text-center">
-              Aucune victime enregistrée pour ce dossier.
-            </div>
-          )}
-          {victimes.map(v => (
-            <div key={v.id} className="flex items-center gap-2">
-              <Input
-                value={v.nom}
-                onChange={(e) => handleRename(v.id, e.target.value)}
-                className="h-8 text-sm flex-1"
-              />
-              <button
-                onClick={() => handleRemove(v.id)}
-                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
-                title="Retirer"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex gap-2 border-t border-gray-200 pt-3">
-          <Input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
-            placeholder="Nom et prénom (ex : MARTIN Sophie)"
-            className="h-8 text-sm flex-1"
-            autoFocus
-          />
-          <Button
-            size="sm"
-            onClick={handleAdd}
-            disabled={!draft.trim()}
-            className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700"
-          >
-            <Plus className="h-3 w-3 mr-1" />
-            Ajouter
-          </Button>
-        </div>
+    <div className="max-w-3xl space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-emerald-600" />
+          Victimes / parties civiles ({victimes.length})
+        </h3>
       </div>
+
+      {/* Ajout */}
+      <div className="flex gap-2">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
+          placeholder="Nom et prénom (ex : MARTIN Sophie)"
+          className="h-8 text-sm flex-1"
+        />
+        <Button
+          size="sm"
+          onClick={handleAdd}
+          disabled={!draft.trim()}
+          className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700"
+        >
+          <Plus className="h-3 w-3 mr-1" />
+          Ajouter
+        </Button>
+      </div>
+
+      {/* Liste */}
+      <div className="space-y-1.5">
+        {victimes.length === 0 && (
+          <div className="text-sm text-gray-400 italic py-4 text-center border border-dashed border-gray-200 rounded-lg">
+            Aucune victime enregistrée pour ce dossier.
+          </div>
+        )}
+        {victimes.map(v => (
+          <div
+            key={v.id}
+            className="flex items-center gap-3 border border-gray-200 rounded-lg px-2.5 py-2 bg-white"
+          >
+            <Input
+              value={v.nom}
+              onChange={(e) => handlePatch(v.id, { nom: e.target.value })}
+              className="h-8 text-sm flex-1"
+            />
+            <label
+              className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none shrink-0"
+              title="Afficher cette victime sur le module cartographie (rattachée au dossier)"
+            >
+              <input
+                type="checkbox"
+                checked={!!v.surCarto}
+                onChange={(e) => handlePatch(v.id, { surCarto: e.target.checked })}
+                className="h-3.5 w-3.5 accent-emerald-600"
+              />
+              <MapPin className="h-3.5 w-3.5 text-emerald-600" />
+              Sur la cartographie
+            </label>
+            <button
+              onClick={() => handleRemove(v.id)}
+              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded shrink-0"
+              title="Retirer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-[11px] text-gray-500">
+        Cochez « Sur la cartographie » pour faire apparaître la victime dans le module
+        cartographie, rattachée à ce dossier (affichée comme un mis en cause, avec la
+        mention « (Victime) »). Le dossier doit être rattaché à un contentieux pour être
+        projeté sur la carte.
+      </p>
     </div>
   );
 };

@@ -283,36 +283,10 @@ export const MisEnExamenCard = ({
                     className="h-7 text-xs"
                   />
                 </div>
-                <div>
-                  <Label className="text-xs">Date naissance</Label>
-                  <Input
-                    type="date"
-                    value={draftIdentite.dateNaissance}
-                    onChange={(e) => setDraftIdentite(d => ({ ...d, dateNaissance: e.target.value }))}
-                    className="h-7 text-xs"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Lieu de naissance</Label>
-                  <Input
-                    value={draftIdentite.lieuNaissance}
-                    onChange={(e) => setDraftIdentite(d => ({ ...d, lieuNaissance: e.target.value }))}
-                    className="h-7 text-xs"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Nationalité</Label>
-                  <Input
-                    value={draftIdentite.nationalite}
-                    onChange={(e) => setDraftIdentite(d => ({ ...d, nationalite: e.target.value }))}
-                    className="h-7 text-xs"
-                  />
-                </div>
               </div>
             ) : (
               <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-700">
-                <div><dt className="inline text-gray-500">Naissance : </dt><dd className="inline">{mex.dateNaissance ? new Date(mex.dateNaissance).toLocaleDateString() : '—'}{mex.lieuNaissance ? ` à ${mex.lieuNaissance}` : ''}</dd></div>
-                <div><dt className="inline text-gray-500">Nationalité : </dt><dd className="inline">{mex.nationalite || '—'}</dd></div>
+                <div><dt className="inline text-gray-500">Mis en examen le : </dt><dd className="inline">{mex.dateMiseEnExamen ? new Date(mex.dateMiseEnExamen).toLocaleDateString() : '—'}</dd></div>
               </dl>
             )}
           </Section>

@@ -606,6 +606,8 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
         // Métadonnées complètes des fichiers importés depuis P:\ → permet à l'UI de
         // les afficher dans la liste de l'enquête sans re-scan.
         importedDocs: [] as Array<Record<string, unknown>>,
+        // Chemins relatifs des documents internes non copiés sur le commun (badge « ✗ commun »).
+        notOnCommun: [] as string[],
         errors: [] as string[], externalAccessible: true,
       }
       if (!fsa.isFsaToken(token)) {
@@ -636,7 +638,9 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
           try {
             const bytes = await docDownload(enq, d.rel)
             if (bytes) { await fsa.writeToFolder(token, enq, sub, cat, name, bytes); result.addedToExternal.push(name) }
+            else { result.notOnCommun.push(d.rel); result.errors.push(`Document introuvable en interne : ${name}`) }
           } catch (e) {
+            result.notOnCommun.push(d.rel)
             result.errors.push(`Copie vers le commun échouée : ${name}`)
           }
         }
@@ -779,6 +783,10 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     instructionSync_listBackups: async (_basePath: unknown, username: unknown) => vaultVersions(`instructions-${sanitizeName(username)}`),
     instructionSync_readBackup: async (_basePath: unknown, username: unknown, filename: unknown) =>
       vaultVersionRead(`instructions-${sanitizeName(username)}`, String(filename)),
+    // Pas d'énumération des coffres côté web : la découverte automatique des
+    // invitations entrantes n'est pas disponible. Le partage reste possible par
+    // déclaration mutuelle explicite des partenaires dans les paramètres.
+    instructionSync_listUsers: async () => [] as string[],
 
     // ── Présence ──
     writeHeartbeat: async (_username: unknown, heartbeat: unknown) => {

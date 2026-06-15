@@ -10,6 +10,10 @@ export interface SyncResult {
   // Documents importés depuis le dossier commun (web) avec leurs métadonnées,
   // à fusionner dans la liste de l'enquête. Absent en mode bureau.
   importedDocs?: DocumentEnquete[];
+  // Chemins relatifs (ex. « Geoloc/fichier.pdf ») des documents présents en interne
+  // mais introuvables / non copiés sur le dossier commun. Permet d'afficher un badge
+  // « ✗ commun » rouge en face du document concerné.
+  notOnCommun?: string[];
   errors: string[];
   externalAccessible: boolean;
 }

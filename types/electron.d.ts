@@ -144,6 +144,8 @@ interface ElectronAPI {
   instructionSync_listBackups?: (basePath: string, username: string) => Promise<string[]>;
   /** Lit un backup instruction et retourne son contenu parsé. */
   instructionSync_readBackup?: (basePath: string, username: string, filename: string) => Promise<import('./instructionSyncTypes').InstructionSyncFile | null>;
+  /** Liste les usernames ayant un fichier d'instruction sur le dossier réseau (découverte des invitations de partage). */
+  instructionSync_listUsers?: (basePath: string) => Promise<string[]>;
 
   // Heartbeat
   writeHeartbeat?: (username: string, heartbeat: any) => Promise<boolean>;

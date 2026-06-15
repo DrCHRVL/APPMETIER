@@ -69,6 +69,10 @@ export interface MecNode {
   manualBonusReason?: string;
   /** Statuts uniques rencontrés (pour coloration éventuelle) */
   statuts: string[];
+  /** Vrai si ce nœud représente une victime projetée sur la carte (et non un
+   *  vrai mis en cause). Le rendu affiche alors la mention « (Victime) ». Toute
+   *  contribution d'un vrai MEC du même nom canonique repasse ce drapeau à faux. */
+  isVictime?: boolean;
   /** Notes manuelles (issues d'une fiche ex nihilo) */
   manualNotes?: string;
   /** Alias manuels — fusionnés avec les variants */
@@ -371,9 +375,13 @@ export function buildMindmapGraph(
           rawScore: 0,
           manualBonus: 0,
           statuts: [],
+          isVictime: !!mec.isVictime,
         };
         mecById.set(canonical, mecNode);
       }
+      // Un vrai mis en cause portant le même nom qu'une victime prime : on retire
+      // l'étiquette « Victime » dès qu'une contribution non-victime apparaît.
+      if (!mec.isVictime) mecNode.isVictime = false;
 
       if (!mecNode.dossierIds.includes(dossierId)) {
         mecNode.dossierIds.push(dossierId);
