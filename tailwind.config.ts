@@ -6,6 +6,9 @@ const config: Config = {
     './app/**/*.{js,ts,jsx,tsx,mdx}',
     './pages/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
+    // La palette des alertes visuelles écrit ses classes Tailwind en dur ici :
+    // sans ce glob, les couleurs (notamment les nouvelles) seraient purgées.
+    './config/**/*.{js,ts}',
   ],
   theme: {
     container: {

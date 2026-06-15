@@ -335,7 +335,10 @@ export type VisualAlertTrigger =
 
 export type VisualAlertMode = 'fond' | 'bordure' | 'fond_bordure';
 
-export type VisualAlertColorKey = 'red' | 'red-dark' | 'orange' | 'amber' | 'yellow' | 'green' | 'blue' | 'purple' | 'gray';
+export type VisualAlertColorKey =
+  | 'red' | 'red-dark' | 'orange' | 'amber' | 'yellow' | 'lime' | 'green'
+  | 'emerald' | 'teal' | 'cyan' | 'sky' | 'blue' | 'indigo' | 'purple'
+  | 'fuchsia' | 'pink' | 'rose' | 'slate' | 'gray';
 
 export interface VisualAlertRule {
   id: number;
