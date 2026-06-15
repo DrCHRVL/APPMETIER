@@ -7,7 +7,6 @@
  * vivent QUE sur le tableau de bord — pas de doublon dans la liste des enquêtes.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarDays } from 'lucide-react';
 import { Enquete } from '@/types/interfaces';
 import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
 import { DossierInstruction } from '@/types/instructionTypes';
@@ -17,7 +16,8 @@ import { PendingActsJLD } from '@/components/PendingActsJLD';
 import { PendingPose } from '@/components/PendingPose';
 import { UpcomingActeDeadlines } from '@/components/UpcomingActeDeadlines';
 import { ElectronBridge } from '@/utils/electronBridge';
-import { AGENDA_ICAL_KEY, fetchAgenda, AgendaEvent } from '@/lib/web/agenda';
+import { AgendaCalendar } from '@/components/AgendaCalendar';
+import { fetchAgendaMulti, loadAgendaUrls, AgendaEvent, AgendaSource } from '@/lib/web/agenda';
 
 interface DashboardPageProps {
   enquetesByContentieux: Map<ContentieuxId, Enquete[]>;
@@ -97,15 +97,22 @@ export const DashboardPage = ({
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
-  // Agenda Google (lecture seule) — affiché s'il a été connecté dans les paramètres
-  const [agenda, setAgenda] = useState<AgendaEvent[] | null>(null);
+  // Agenda (lecture seule) — Google + Outlook + iCloud fusionnés. Le calendrier
+  // mensuel reste affiché même sans agenda connecté ni rendez-vous.
+  const [agenda, setAgenda] = useState<AgendaEvent[]>([]);
+  const [agendaSources, setAgendaSources] = useState<AgendaSource[]>([]);
+  const [agendaLoading, setAgendaLoading] = useState(true);
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const url = String(await ElectronBridge.getData(AGENDA_ICAL_KEY, '') || '');
-      if (!url) { setAgenda(null); return; }
-      try { const ev = await fetchAgenda(url); if (!cancelled) setAgenda(ev); }
+      const urls = await loadAgendaUrls();
+      const sources = (Object.keys(urls) as AgendaSource[]).filter(s => urls[s as keyof typeof urls]);
+      if (cancelled) return;
+      setAgendaSources(sources);
+      if (sources.length === 0) { setAgenda([]); setAgendaLoading(false); return; }
+      try { const ev = await fetchAgendaMulti(urls); if (!cancelled) setAgenda(ev); }
       catch { if (!cancelled) setAgenda([]); }
+      finally { if (!cancelled) setAgendaLoading(false); }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -169,27 +176,9 @@ export const DashboardPage = ({
         <PendingPose enquetes={activeEnquetes} onOpenEnquete={onOpenEnquete} />
       </div>
 
-      {/* Agenda Google (lecture seule) — uniquement si connecté */}
-      {agenda && agenda.length > 0 && (
-        <div className="bg-white border border-gray-200/80 rounded-2xl px-5 py-4 max-w-md">
-          <div className="flex items-center gap-2 mb-2">
-            <CalendarDays className="h-4 w-4 text-indigo-600" />
-            <span className="text-[12px] font-semibold text-gray-600 uppercase tracking-wide">Agenda</span>
-            <span className="ml-auto text-[9px] font-bold text-indigo-700 bg-indigo-100 rounded px-1.5 py-0.5">G</span>
-          </div>
-          <ul className="space-y-1.5">
-            {agenda.slice(0, 6).map((e, i) => (
-              <li key={i} className="flex items-baseline gap-2 text-[13px]">
-                <span className="text-gray-400 text-[11px] w-20 flex-shrink-0">
-                  {new Date(e.start).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-                  {!e.allDay && ' · ' + new Date(e.start).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-                <span className="text-gray-700 truncate">{e.title}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* Calendrier mensuel (lecture seule) — Google + Outlook + iCloud fusionnés.
+          Distinct de la timeline « OPs à venir » ; toujours affiché, même vide. */}
+      <AgendaCalendar events={agenda} connectedSources={agendaSources} loading={agendaLoading} />
     </div>
   );
 };

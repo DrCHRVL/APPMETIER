@@ -79,7 +79,10 @@ export async function POST(req: Request) {
     }
 
     const now = Date.now()
-    const horizon = now + 60 * 24 * 3600 * 1000 // 60 jours à venir
+    // Fenêtre large pour alimenter une vue mensuelle : du mois précédent (≈ 45 j
+    // en arrière, pour couvrir le début du mois affiché) jusqu'à ≈ 75 jours à venir.
+    const past = now - 45 * 24 * 3600 * 1000
+    const horizon = now + 75 * 24 * 3600 * 1000
     const events: Array<{ title: string, start: string, allDay: boolean }> = []
     let cur: { title?: string, start?: string, allDay?: boolean } | null = null
     for (const line of unfold(text)) {
@@ -87,7 +90,7 @@ export async function POST(req: Request) {
       if (line === 'END:VEVENT') {
         if (cur?.start && cur.title) {
           const ts = Date.parse(cur.start)
-          if (Number.isFinite(ts) && ts >= now - 12 * 3600 * 1000 && ts <= horizon) {
+          if (Number.isFinite(ts) && ts >= past && ts <= horizon) {
             events.push({ title: cur.title.slice(0, 200), start: cur.start, allDay: !!cur.allDay })
           }
         }
@@ -101,6 +104,6 @@ export async function POST(req: Request) {
       }
     }
     events.sort((a, b) => Date.parse(a.start) - Date.parse(b.start))
-    return jsonResponse({ events: events.slice(0, 50) })
+    return jsonResponse({ events: events.slice(0, 200) })
   })
 }
