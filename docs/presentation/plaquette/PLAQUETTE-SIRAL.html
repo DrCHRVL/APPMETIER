@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>SIRAL — Plaquette de présentation</title>
+<!--
+  Plaquette produit A4 recto-verso — charte « Lumière », palette Justice (DSFR).
+  Auto-suffisante (icône inline, polices système en repli des polices Google).
+  PDF : ouvrir dans un navigateur → Imprimer → A4, marges « aucune »,
+  « imprimer les arrière-plans » — ou bash docs/presentation/plaquette/build-plaquette.sh
+-->
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bleu:#000091; --bleu-hover:#2A2AB8; --bleu-chip:#E3E3FD; --bleu-pale:#F5F5FE;
+    --nuit:#111139; --rouge:#E1000F; --ink:#161616; --soft:#56565E; --faint:#92929C;
+    --bg:#F6F6F6; --line:#E5E5E5; --ok:#18753C; --warn:#B34000; --info:#0063CB;
+  }
+  @page { size: A4 portrait; margin: 0; }
+  html, body { background:#fff; }
+  body { font-family:'Inter', 'Segoe UI', system-ui, sans-serif; color:var(--ink); -webkit-font-smoothing:antialiased; }
+
+  .page { width:210mm; height:296mm; position:relative; overflow:hidden; background:#fff;
+          display:flex; flex-direction:column; page-break-after:always; margin:0 auto; }
+  .page:last-child { page-break-after:auto; }
+  @media screen { .page { box-shadow:0 10px 40px -18px rgba(17,17,57,.4); margin:14px auto; } }
+
+  .tricolore { position:absolute; left:0; top:0; bottom:0; width:3mm; z-index:5;
+               background:linear-gradient(to bottom, #000091 33%, #fff 33% 66%, #E1000F 66%); }
+
+  /* ---------- bandeau ---------- */
+  .band { background:linear-gradient(135deg, var(--nuit) 0%, #1B1B6E 70%, var(--bleu) 100%);
+          color:#fff; padding:10mm 14mm 9mm 17mm; flex-shrink:0; position:relative; overflow:hidden; }
+  .band::after { content:''; position:absolute; right:-50mm; top:-50mm; width:110mm; height:110mm;
+                 border-radius:50%; background:radial-gradient(circle, rgba(133,133,246,.25), transparent 70%); }
+  .band .head { display:flex; align-items:center; gap:7mm; position:relative; }
+  .band .logo { width:21mm; height:21mm; flex-shrink:0; }
+  .band .sur { font-size:8.5pt; font-weight:700; letter-spacing:.2em; text-transform:uppercase; color:#A1A1F8; margin-bottom:2mm; }
+  .band h1 { font-family:'Fraunces', Georgia, serif; font-size:23pt; font-weight:650; line-height:1.08; }
+  .band .pitch { margin-top:4mm; font-size:9.8pt; color:rgba(255,255,255,.82); line-height:1.55; max-width:165mm; position:relative; }
+  .band .pitch b { color:#fff; font-weight:600; }
+
+  /* ---------- chiffres clés ---------- */
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:4mm; padding:5mm 14mm 0 17mm; flex-shrink:0; }
+  .kpi { border:1px solid var(--line); border-radius:4mm; padding:4mm 5mm; background:linear-gradient(180deg,#fff,#FAFAFC); }
+  .kpi b { display:block; font-family:'Fraunces', Georgia, serif; font-size:17pt; font-weight:650; color:var(--bleu); }
+  .kpi span { font-size:7.8pt; color:var(--soft); line-height:1.4; display:block; margin-top:1mm; }
+
+  /* ---------- sections ---------- */
+  .section { padding:5.5mm 14mm 0 17mm; flex-shrink:0; }
+  .sec-title { font-family:'Fraunces', Georgia, serif; font-size:14.5pt; font-weight:650; display:flex; align-items:baseline; gap:4mm; }
+  .sec-title small { font-family:'Inter', sans-serif; font-size:7.5pt; font-weight:600; color:var(--faint); letter-spacing:.06em; text-transform:uppercase; }
+
+  .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:4mm; margin-top:4mm; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:4mm; margin-top:4mm; }
+  .pcard { border:1px solid var(--line); border-radius:4mm; padding:4mm 4.5mm; background:linear-gradient(180deg,#fff,#FAFAFC); }
+  .pcard h3 { font-size:9.3pt; display:flex; align-items:center; gap:2.5mm; }
+  .pcard h3 .dot { width:6.5mm; height:6.5mm; flex-shrink:0; border-radius:2mm; background:var(--bleu-chip); color:var(--bleu);
+                   display:flex; align-items:center; justify-content:center; font-size:8pt; font-weight:800; }
+  .pcard p { margin-top:1.8mm; font-size:8pt; color:var(--soft); line-height:1.5; }
+  .pcard p b { color:var(--ink); font-weight:600; }
+
+  /* ---------- bénéfices ---------- */
+  .roles { display:grid; grid-template-columns:repeat(3,1fr); gap:4mm; margin-top:4mm; }
+  .role { border-left:1mm solid var(--bleu); background:var(--bleu-pale); border-radius:0 3mm 3mm 0; padding:3.5mm 4mm; }
+  .role h4 { font-size:8.8pt; color:var(--bleu); }
+  .role p { font-size:8pt; color:var(--soft); line-height:1.5; margin-top:1.5mm; }
+
+  /* ---------- sécurité (page 2) ---------- */
+  .sec-dark { background:var(--nuit); color:#fff; border-radius:4mm; margin:4mm 14mm 0 17mm; padding:5mm 7mm; flex-shrink:0; }
+  .sec-dark .sec-title { color:#fff; }
+  .sec-dark .sec-title small { color:#A1A1F8; }
+  .shield-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:3.5mm; margin-top:4mm; }
+  .shield { background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.14); border-radius:3mm; padding:3.5mm 4mm; }
+  .shield h4 { font-size:8.6pt; color:#fff; display:flex; align-items:center; gap:2mm; }
+  .shield p { font-size:7.6pt; color:rgba(255,255,255,.72); line-height:1.45; margin-top:1.3mm; }
+  .shield h4 .ic { color:#A1A1F8; font-size:9pt; }
+
+  /* ---------- feuille de route ---------- */
+  .road { display:grid; grid-template-columns:repeat(4,1fr); gap:0; margin-top:4mm; counter-reset:step; }
+  .step { position:relative; padding:0 4mm 0 0; }
+  .step::before { counter-increment:step; content:counter(step); width:7mm; height:7mm; border-radius:50%;
+                  background:var(--bleu); color:#fff; font-weight:800; font-size:8.5pt;
+                  display:flex; align-items:center; justify-content:center; margin-bottom:2.5mm; }
+  .step::after { content:''; position:absolute; top:3.2mm; left:8.5mm; right:1mm; height:.6mm; background:var(--bleu-chip); }
+  .step:last-child::after { display:none; }
+  .step h4 { font-size:8.8pt; }
+  .step .when { font-size:7.2pt; font-weight:700; color:var(--bleu); text-transform:uppercase; letter-spacing:.06em; margin:.5mm 0 1mm; }
+  .step p { font-size:7.8pt; color:var(--soft); line-height:1.5; }
+  .step.done::before { background:var(--ok); content:'✓'; }
+
+  /* ---------- divers ---------- */
+  .quote { margin-top:4mm; border-left:1mm solid var(--rouge); padding:3mm 5mm; background:#FFF5F5; border-radius:0 3mm 3mm 0;
+           font-size:8.6pt; color:var(--ink); line-height:1.55; }
+  .quote b { color:var(--rouge); }
+
+  .footer { margin-top:auto; background:var(--bg); border-top:1px solid var(--line); flex-shrink:0;
+            padding:3.5mm 14mm 3.5mm 17mm; display:flex; align-items:center; gap:4mm; font-size:8pt; color:var(--soft); }
+  .footer b { color:var(--ink); }
+  .badge { font-size:7pt; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--bleu);
+           background:var(--bleu-chip); border-radius:99px; padding:1.2mm 3mm; white-space:nowrap; }
+  .badge.red { color:var(--rouge); background:#FFE9E9; }
+</style>
+</head>
+<body>
+
+<!-- ============================== PAGE 1 — RECTO ============================== -->
+<div class="page">
+  <div class="tricolore"></div>
+
+  <div class="band">
+    <div class="head">
+      <svg class="logo" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+        <defs><linearGradient id="bg1" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#2A2AB8"/><stop offset="1" stop-color="#000091"/></linearGradient></defs>
+        <rect x="1" y="1" width="46" height="46" rx="12" fill="url(#bg1)" stroke="rgba(255,255,255,.35)" stroke-width="1"/>
+        <g stroke="#fff" stroke-width="2.1" stroke-linecap="round" fill="none" opacity=".92"><path d="M31 13 L17 19 L30 27 L17 34"/></g>
+        <g fill="#fff"><circle cx="31" cy="13" r="3.1"/><circle cx="17" cy="19" r="2.5"/><circle cx="30" cy="27" r="2.5"/><circle cx="17" cy="34" r="3.1"/></g>
+      </svg>
+      <div>
+        <div class="sur">SIRAL · Application métier du parquet</div>
+        <h1>Suivre les réseaux criminels,<br>sans rien laisser filer.</h1>
+      </div>
+    </div>
+    <p class="pitch"><b>SIRAL</b> (Suivi Intégré des Réseaux criminels et Affaires Liées) est l'outil de pilotage
+      des contentieux spécialisés du parquet — <b>criminalité organisée, économique et financier, environnement</b>.
+      De l'ouverture de l'enquête préliminaire au résultat d'audience, chaque dossier, chaque acte, chaque échéance
+      est tracé, partagé par le service et restitué en statistiques en un clic.</p>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><b>3</b><span>contentieux cloisonnés — CRIM ORG, ECOFI, ENVIRO — co-saisine et transferts tracés</span></div>
+    <div class="kpi"><b>100 %</b><span>des données chiffrées de bout en bout — le serveur ne stocke que des blobs illisibles</span></div>
+    <div class="kpi"><b>1 clic</b><span>pour le rapport d'activité PDF complet du service, par année et par contentieux</span></div>
+    <div class="kpi"><b>0</b><span>échéance silencieuse : délais CPP rappelés à la saisie, alertes en amont (JLD, 175 jours, DML)</span></div>
+  </div>
+
+  <div class="section">
+    <div class="sec-title">Ce que SIRAL couvre <small>tout le cycle de vie du dossier</small></div>
+    <div class="grid3">
+      <div class="pcard"><h3><span class="dot">⚖</span>Enquêtes préliminaires</h3>
+        <p>PV, parquet, mis en cause (avec <b>mémoire transverse des noms</b>, archives comprises), écoutes,
+        géolocalisations, prolongations, saisies, comptes rendus datés et signés, à-faire, date d'OP.</p></div>
+      <div class="pcard"><h3><span class="dot">§</span>Instructions &amp; JLD</h3>
+        <p>Cabinets, mis en examen, mesures de sûreté et <b>vérification légale pédagogique</b> :
+        durées, cumuls et articles du CPP rappelés au moment exact de la décision. Suivi structuré des DML.</p></div>
+      <div class="pcard"><h3><span class="dot">✦</span>Cartographie des réseaux</h3>
+        <p>Carte des liens entre dossiers et mis en cause pour <b>visualiser un réseau</b>, repérer les acteurs
+        communs à deux enquêtes jamais rapprochées, préparer une réunion de service.</p></div>
+      <div class="pcard"><h3><span class="dot">▤</span>Audiences &amp; statistiques</h3>
+        <p>Orientations (CRPC, CI, COPJ, OI, CDD), condamnations, peines, <b>saisies vs confiscations</b>,
+        déférements — agrégés par mois, par service, par infraction. Export PDF en un clic.</p></div>
+      <div class="pcard"><h3><span class="dot">⏰</span>Alertes &amp; pilotage</h3>
+        <p>Tableau de bord, dossiers épinglés, <b>récapitulatif hebdomadaire</b>, popup « modifications
+        non vues » : rien ne change dans un dossier sans que l'équipe le voie.</p></div>
+      <div class="pcard"><h3><span class="dot">⇪</span>Documents partagés</h3>
+        <p>Glisser-déposer dans le dossier, copie automatique dans <b>l'arborescence commune du service</b>,
+        accessible à tous les postes autorisés. Fini le PDF perdu sur le bureau d'un collègue.</p></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sec-title">Un outil, trois métiers <small>bénéfices concrets</small></div>
+    <div class="roles">
+      <div class="role"><h4>Pour le magistrat</h4>
+        <p>Le dossier complet sous les yeux, les délais CPP rappelés à la saisie, le récapitulatif de clôture
+        généré automatiquement. Moins d'erreurs, moins de temps perdu.</p></div>
+      <div class="role"><h4>Pour le chef de service</h4>
+        <p>L'état du service en temps réel et en chiffres : charge par cabinet, échéances à 6 semaines,
+        rapport annuel prêt à transmettre à la hiérarchie.</p></div>
+      <div class="role"><h4>Pour le juriste assistant</h4>
+        <p>Une interface qui <b>forme en même temps qu'elle outille</b> : chaque acte rappelle son régime
+        légal, ses durées et ses articles. Un filet de sécurité permanent.</p></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span class="badge">Produit projeté — édition web</span>
+    <span><b>SIRAL</b> — conçu au parquet d'Amiens par A. Chevalier · Document interne, ne pas diffuser</span>
+    <span style="margin-left:auto">1/2</span>
+  </div>
+</div>
+
+<!-- ============================== PAGE 2 — VERSO ============================== -->
+<div class="page">
+  <div class="tricolore"></div>
+
+  <div class="section" style="padding-top:9mm">
+    <div class="sec-title">L'édition web projetée <small>une app moderne, partout, sans installation</small></div>
+    <div class="grid2">
+      <div class="pcard"><h3><span class="dot">◫</span>PWA installable — PC et iPhone</h3>
+        <p>L'application s'installe depuis le navigateur : fenêtre dédiée sur poste, vraie app plein écran
+        sur iPhone (« Ajouter à l'écran d'accueil ») — <b>sans App Store, sans déploiement par poste</b>,
+        mises à jour instantanées pour tout le monde.</p></div>
+      <div class="pcard"><h3><span class="dot">⇄</span>Hors-ligne et double sauvegarde</h3>
+        <p>Cache local chiffré : l'app fonctionne <b>sans réseau</b> et resynchronise au retour. Versionnage
+        immuable côté serveur + export chiffré local : la règle <b>3-2-1</b> appliquée aux données du service.</p></div>
+      <div class="pcard"><h3><span class="dot">🗲</span>Refonte « Lumière »</h3>
+        <p>Interface aux couleurs de l'État (palette <b>DSFR</b>, Bleu France) : claire, fluide, agréable sur
+        de longues sessions, accessible (RGAA). Le rouge Marianne est réservé aux vraies urgences.</p></div>
+      <div class="pcard"><h3><span class="dot">⌂</span>Multi-tribunaux par construction</h3>
+        <p>Comptes rattachés à un tribunal, périmètres par contentieux, invitations à code unique et révocation :
+        l'architecture est prête pour <b>essaimer vers d'autres parquets</b> sans rien partager entre eux.</p></div>
+    </div>
+  </div>
+
+  <div class="sec-dark">
+    <div class="sec-title" style="font-size:13pt">La sécurité comme condition d'existence <small>architecture « zéro connaissance »</small></div>
+    <div class="shield-grid">
+      <div class="shield"><h4><span class="ic">⬢</span>Chiffrement de bout en bout</h4>
+        <p>AES-256-GCM dans le navigateur : le serveur — et même son administrateur — <b>ne peut rien lire</b>.
+        Sa compromission ne révèle aucune donnée.</p></div>
+      <div class="shield"><h4><span class="ic">⬢</span>Passkeys / WebAuthn</h4>
+        <p>Windows Hello, Face ID ou clé physique : authentification forte anti-phishing,
+        zéro mot de passe à retenir.</p></div>
+      <div class="shield"><h4><span class="ic">⬢</span>Cloisonnement par clé</h4>
+        <p>Une clé de coffre par contentieux, enveloppée par membre. Invitation, révocation
+        et rotation sans jamais exposer la clé au serveur.</p></div>
+      <div class="shield"><h4><span class="ic">⬢</span>Hébergement souverain</h4>
+        <p>Hébergeur français/UE uniquement, TLS, seul le port 443 ouvert,
+        journal d'accès. Fonctionne à l'identique en intranet.</p></div>
+      <div class="shield"><h4><span class="ic">⬢</span>Traçabilité totale</h4>
+        <p>Versions immuables du coffre, historique des modifications restitué à l'équipe,
+        kit de récupération sous scellé au service.</p></div>
+      <div class="shield"><h4><span class="ic">⬢</span>Secret de l'enquête</h4>
+        <p>Conçu pour l'art. 11 CPP et le régime « police-justice » : pseudonymisation possible
+        à la source, aucune donnée ne part vers des services tiers.</p></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sec-title">Feuille de route <small>où en est le projet</small></div>
+    <div class="road">
+      <div class="step done"><h4>Édition desktop en service</h4><div class="when">Acquis</div>
+        <p>L'application équipe déjà le service au quotidien (enquêtes, instructions, stats, alertes).</p></div>
+      <div class="step done"><h4>Édition web construite</h4><div class="when">Acquis</div>
+        <p>Cœur web complet et testé : E2EE, passkeys, PWA iPhone, migration des données vérifiée
+        par 49 contrôles automatisés.</p></div>
+      <div class="step"><h4>Déploiement &amp; versement</h4><div class="when">En cours</div>
+        <p>Mise en ligne sur serveur souverain, répétition générale du versement des données réelles,
+        test terrain.</p></div>
+      <div class="step"><h4>Refonte « Lumière » &amp; essaimage</h4><div class="when">Ensuite</div>
+        <p>Nouvelle interface aux couleurs de l'État, puis ouverture à d'autres parquets intéressés.</p></div>
+    </div>
+
+    <div class="quote"><b>Pourquoi maintenant ?</b> Les contentieux spécialisés se pilotent encore largement par
+      tableaux et mémoire individuelle. SIRAL capitalise l'information du service, sécurise les délais de procédure
+      et produit la statistique d'activité sans ressaisie — avec un coût d'infrastructure de l'ordre de
+      <b>15&nbsp;€ par mois</b>, et une exigence de sécurité supérieure aux usages actuels de partage de fichiers.</div>
+  </div>
+
+  <div class="footer">
+    <span class="badge red">Usage interne — ne pas diffuser</span>
+    <span><b>Contact :</b> A. Chevalier — Parquet d'Amiens · Démonstration sur demande (jeu de données fictives)</span>
+    <span style="margin-left:auto">2/2</span>
+  </div>
+</div>
+
+</body>
+</html>

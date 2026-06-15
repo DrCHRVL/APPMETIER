@@ -3,16 +3,23 @@
  * dédié à l'impression, indépendant du DOM de l'application.
  *
  * Avantages vs window.print() sur la page principale :
- * - Pas de dépendance aux canvas Chart.js (qui ne se rendent pas en print)
  * - Contrôle total sur la pagination et le formatage
  * - Tableaux propres, pas de troncature
+ *
+ * Les camemberts sont redessinés sur un canvas hors-écran avec les mêmes
+ * couleurs et étiquettes que les Pie Chart.js de la page Statistiques
+ * (source unique : utils/chartColors), puis incorporés en <img> — ce que
+ * html2canvas capture de façon fiable.
  */
 
 import { AudienceStats } from '@/types/audienceTypes';
 import { Enquete } from '@/types/interfaces';
+import { getServiceColor, ORIENTATION_DATASETS } from '@/utils/chartColors';
 
 interface PdfExportData {
   selectedYear: number;
+  /** Libellé du contentieux affiché en titre (ex. « Criminalité Organisée / Stup »). */
+  contentieuxLabel?: string;
   // Stats générales
   enquetesTerminees: number;
   enquetesEnCours: number;
@@ -54,47 +61,75 @@ interface PdfExportData {
   deferementsParMois: { mois: string; count: number }[];
 }
 
+// Charte « Lumière » — palette Justice (DSFR) : Bleu France #000091, bleu nuit
+// #111139, bleu pâle #E3E3FD, rouge Marianne #E1000F réservé à l'alerte, vert
+// succès #18753C. Mêmes codes que docs/presentation/maquettes-v2. Couleurs en
+// dur (pas de var() ni de police web) pour un rendu html2canvas déterministe.
 const CSS_STYLES = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: 'Segoe UI', Arial, sans-serif;
     font-size: 11px;
-    color: #1a1a1a;
-    line-height: 1.4;
+    color: #161616;
+    line-height: 1.45;
     padding: 0;
     max-width: 100%;
     overflow-x: hidden;
   }
 
   .page-header {
-    text-align: center;
-    padding: 15px 0 10px;
-    border-bottom: 3px solid #2c3e50;
-    margin-bottom: 20px;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(135deg, #111139 0%, #1B1B6E 70%, #000091 100%);
+    border-radius: 10px;
+    color: #fff;
+    padding: 16px 20px 14px 26px;
+    margin-bottom: 16px;
+  }
+  .page-header .tricolore {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
+    background: linear-gradient(to bottom, #000091 33%, #ffffff 33% 66%, #E1000F 66%);
+  }
+  .page-header .overline {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #A1A1F8;
+    margin-bottom: 5px;
   }
   .page-header h1 {
-    font-size: 22px;
-    color: #2c3e50;
-    margin-bottom: 4px;
+    font-size: 20px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 3px;
   }
   .page-header .subtitle {
-    font-size: 12px;
-    color: #7f8c8d;
+    font-size: 10px;
+    color: rgba(255,255,255,0.75);
   }
 
   .section {
-    margin-bottom: 18px;
+    background: #fff;
+    border: 1px solid #E5E5E5;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
   }
   .section-nobreak {
-    margin-bottom: 18px;
+    background: #fff;
+    border: 1px solid #E5E5E5;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
     page-break-inside: avoid;
   }
   .section-title {
-    font-size: 14px;
-    font-weight: bold;
-    color: #2c3e50;
-    border-bottom: 2px solid #3498db;
-    padding-bottom: 4px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #111139;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #E5E5E5;
     margin-bottom: 10px;
   }
 
@@ -107,28 +142,52 @@ const CSS_STYLES = `
   .card {
     flex: 1;
     min-width: 140px;
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
-    border-radius: 6px;
-    padding: 10px 12px;
+    background: #FAFAFC;
+    border: 1px solid #E5E5E5;
+    border-radius: 8px;
+    padding: 9px 12px;
   }
   .card-label {
-    font-size: 9px;
-    color: #6c757d;
+    font-size: 8.5px;
+    color: #56565E;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 2px;
   }
   .card-value {
-    font-size: 20px;
+    font-size: 21px;
     font-weight: bold;
-    color: #2c3e50;
+    color: #000091;
   }
   .card-detail {
     font-size: 9px;
-    color: #6c757d;
+    color: #56565E;
     margin-top: 2px;
   }
+
+  /* Statistique mise en avant : un grand chiffre + une note sur la même ligne */
+  .stat-inline {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: #FAFAFC;
+    border: 1px solid #E5E5E5;
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .stat-inline-value {
+    font-size: 30px;
+    font-weight: bold;
+    color: #000091;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .stat-inline-note {
+    font-size: 10px;
+    color: #56565E;
+    line-height: 1.45;
+  }
+  .stat-inline-note b { color: #161616; }
 
   table {
     width: 100%;
@@ -139,18 +198,21 @@ const CSS_STYLES = `
     word-wrap: break-word;
   }
   th {
-    background: #2c3e50;
-    color: white;
-    padding: 6px 8px;
+    background: #F5F5FE;
+    color: #111139;
+    padding: 5px 8px;
     text-align: left;
-    font-weight: 600;
-    font-size: 9px;
+    font-weight: 700;
+    font-size: 8.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    border-bottom: 2px solid #000091;
   }
   td {
-    padding: 5px 8px;
-    border-bottom: 1px solid #e9ecef;
+    padding: 4.5px 8px;
+    border-bottom: 1px solid #EEEEF0;
   }
-  tr:nth-child(even) { background: #f8f9fa; }
+  tr:nth-child(even) { background: #FAFAFC; }
   tr:last-child td { border-bottom: none; }
   .text-right { text-align: right; }
   .text-center { text-align: center; }
@@ -179,7 +241,7 @@ const CSS_STYLES = `
   .bar-track {
     flex: 1;
     height: 16px;
-    background: #e9ecef;
+    background: #EEEEF4;
     border-radius: 3px;
     overflow: hidden;
   }
@@ -205,10 +267,10 @@ const CSS_STYLES = `
   .footer {
     text-align: center;
     font-size: 8px;
-    color: #adb5bd;
+    color: #92929C;
     padding: 15px 5px 5px;
     margin-top: 30px;
-    border-top: 1px solid #e9ecef;
+    border-top: 1px solid #E5E5E5;
   }
 
   @page {
@@ -249,10 +311,10 @@ const CSS_STYLES = `
     display: flex;
     align-items: center;
     gap: 6px;
-    background: #f8f9fa;
+    background: #F5F5FE;
     padding: 4px 10px;
     border-radius: 4px;
-    border: 1px solid #e9ecef;
+    border: 1px solid #E5E5E5;
   }
   .pie-dot {
     width: 12px;
@@ -262,17 +324,19 @@ const CSS_STYLES = `
   }
   .pie-label { font-size: 10px; }
   .pie-value { font-weight: bold; font-size: 11px; margin-left: auto; }
-  .pie-pct { font-size: 9px; color: #6c757d; margin-left: 4px; }
-`;
+  .pie-pct { font-size: 9px; color: #56565E; margin-left: 4px; }
 
-const ORIENTATION_COLORS: Record<string, string> = {
-  'CRPC': '#34495e',
-  'CI': '#3498db',
-  'COPJ': '#2ecc71',
-  'OI': '#95a5a6',
-  'CDD': '#E8D0A9',
-  'Classement': '#e74c3c',
-};
+  /* Légende verticale à gauche d'un camembert (rendu identique à l'app) */
+  .legend-col .pie-substitute { flex-direction: column; }
+  .svc-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 5px;
+    vertical-align: middle;
+  }
+`;
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value);
@@ -288,7 +352,7 @@ function formatMoisEnAnnees(mois: number): string {
 
 function renderPieSubstitute(items: { label: string; value: number; color: string }[]): string {
   const total = items.reduce((s, i) => s + i.value, 0);
-  if (total === 0) return '<p style="color:#6c757d;">Aucune donnée</p>';
+  if (total === 0) return '<p style="color:#56565E;">Aucune donnée</p>';
   return `<div class="pie-substitute">${items.filter(i => i.value > 0).map(item => {
     const pct = ((item.value / total) * 100).toFixed(1);
     return `<div class="pie-item">
@@ -300,11 +364,95 @@ function renderPieSubstitute(items: { label: string; value: number; color: strin
   }).join('')}</div>`;
 }
 
+/**
+ * Dessine un camembert sur un canvas hors-écran et le retourne en <img>.
+ * Reproduit le rendu des Pie Chart.js de l'app : tranches bordées de blanc,
+ * étiquettes blanches en gras au centre des tranches (plugin datalabels) —
+ * `pct` : pourcentage seul, masqué sous 5 % (carte Orientation) ;
+ * `valuePct` : valeur + pourcentage, masqués sous 2 occurrences (services).
+ * Retourne '' hors navigateur (SSR/tests) — la légende reste affichée.
+ */
+function renderPieChartImg(
+  items: { label: string; value: number; color: string }[],
+  displaySize: number,
+  labelMode: 'pct' | 'valuePct'
+): string {
+  const data = items.filter(i => i.value > 0);
+  const total = data.reduce((s, i) => s + i.value, 0);
+  if (total === 0 || typeof document === 'undefined') return '';
+
+  const ratio = 2; // sur-échantillonnage pour rester net après rasterisation
+  const size = displaySize * ratio;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size / 2 - 2 * ratio;
+
+  let angle = -Math.PI / 2;
+  for (const item of data) {
+    const slice = (item.value / total) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, angle, angle + slice);
+    ctx.closePath();
+    ctx.fillStyle = item.color;
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2 * ratio;
+    ctx.stroke();
+    angle += slice;
+  }
+
+  angle = -Math.PI / 2;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${11 * ratio}px 'Segoe UI', Arial, sans-serif`;
+  for (const item of data) {
+    const slice = (item.value / total) * Math.PI * 2;
+    const mid = angle + slice / 2;
+    const pct = (item.value / total) * 100;
+    const lx = cx + Math.cos(mid) * r * 0.62;
+    const ly = cy + Math.sin(mid) * r * 0.62;
+    if (labelMode === 'pct') {
+      if (pct >= 5) ctx.fillText(`${pct.toFixed(0)}%`, lx, ly);
+    } else if (item.value >= 2) {
+      ctx.fillText(`${item.value}`, lx, ly - 7 * ratio);
+      ctx.fillText(`${pct.toFixed(0)}%`, lx, ly + 7 * ratio);
+    }
+    angle += slice;
+  }
+
+  return `<img src="${canvas.toDataURL('image/png')}" width="${displaySize}" height="${displaySize}" style="width:${displaySize}px;height:${displaySize}px">`;
+}
+
+/** Camembert + tableau d'une répartition par service (même couleur par service que l'app). */
+function renderServiceBlock(list: { service: string; count: number }[]): string {
+  const total = list.reduce((s, i) => s + i.count, 0);
+  const pie = renderPieChartImg(
+    list.map(s => ({ label: s.service, value: s.count, color: getServiceColor(s.service) })),
+    150,
+    'valuePct'
+  );
+  return `${pie ? `<div style="text-align:center;margin-bottom:8px">${pie}</div>` : ''}
+      <table>
+        <tr><th>Service</th><th class="text-right">Nombre</th><th class="text-right">%</th></tr>
+        ${list.map(s =>
+          `<tr><td><span class="svc-dot" style="background:${getServiceColor(s.service)}"></span>${s.service}</td><td class="text-right font-bold">${s.count}</td><td class="text-right">${total > 0 ? ((s.count / total) * 100).toFixed(1) : 0}%</td></tr>`
+        ).join('')}
+      </table>`;
+}
+
 function renderBarChart(items: { label: string; value: number; color?: string }[]): string {
   const max = Math.max(...items.map(i => i.value), 1);
   return items.map(item => {
     const width = Math.max(2, (item.value / max) * 100);
-    const color = item.color || '#3498db';
+    const color = item.color || '#000091';
     return `<div class="bar-container">
       <div class="bar-label">${item.label}</div>
       <div class="bar-track">
@@ -321,19 +469,6 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   const totalProlongations = data.acteStats.prolongationsEcoutes + data.acteStats.prolongationsGeo + data.acteStats.prolongationsAutres;
   const totalAvecProlongations = totalActes + totalProlongations;
 
-  // Estimation temps
-  const tempsMinutes = totalAvecProlongations * 35;
-  const tempsHeures = Math.floor(tempsMinutes / 60);
-  const tempsMin = tempsMinutes % 60;
-
-  // Taux de réponse pénale (stat bonus)
-  const totalOrientations = stats
-    ? (stats.nombreCRPC + stats.nombreCI + stats.nombreCOPJ + stats.nombreOI + stats.nombreCDD + (stats.nombreClassements || 0))
-    : 0;
-  const tauxReponsePenale = totalOrientations > 0 && stats
-    ? (((totalOrientations - (stats.nombreClassements || 0)) / totalOrientations) * 100).toFixed(1)
-    : '0';
-
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -343,124 +478,99 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 </head>
 <body>
 
-<!-- PAGE 1 : EN-TETE + SYNTHESE GENERALE -->
+<!-- En-tête identitaire -->
 <div class="page-header">
-  <h1>Rapport d'activite - Crime organise</h1>
-  <div class="subtitle">Annee ${selectedYear} - Genere le ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+  <div class="tricolore"></div>
+  <div class="overline">Rapport d'activit&eacute; du service</div>
+  <h1>${data.contentieuxLabel || 'Criminalité organisée'}</h1>
+  <div class="subtitle">Année ${selectedYear} — généré le ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })} · Document interne, ne pas diffuser</div>
 </div>
 
 <div class="section-nobreak">
-  <div class="section-title">Synthese generale</div>
+  <div class="section-title">Synthèse générale</div>
   <div class="cards-row">
     <div class="card">
-      <div class="card-label">Procedures terminees</div>
+      <div class="card-label">Total des procédures terminées</div>
       <div class="card-value">${data.enquetesTerminees}</div>
     </div>
     <div class="card">
-      <div class="card-label">Enquetes en cours</div>
+      <div class="card-label">Enquêtes en cours</div>
       <div class="card-value">${data.enquetesEnCours}</div>
     </div>
     <div class="card">
-      <div class="card-label">Duree moy. terminees</div>
+      <div class="card-label">Durée moy. terminées</div>
       <div class="card-value">${Math.round(data.dureeMoyenneTerminees)}j</div>
     </div>
     <div class="card">
-      <div class="card-label">Duree moy. en cours</div>
+      <div class="card-label">Durée moy. en cours</div>
       <div class="card-value">${Math.round(data.dureeMoyenneEnCours)}j</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Taux reponse penale</div>
-      <div class="card-value">${tauxReponsePenale}%</div>
     </div>
   </div>
 </div>
 
 <!-- Procédures terminées par mois -->
-<div class="section">
-  <div class="section-title">Procedures terminees par mois</div>
-  <table>
-    <tr><th>Mois</th><th class="text-right">Nombre</th></tr>
-    ${data.proceduremoisData.map(d => `<tr><td>${d.mois}</td><td class="text-right font-bold">${d.count}</td></tr>`).join('')}
-    <tr style="background:#e8f4f8;font-weight:bold"><td>TOTAL</td><td class="text-right">${data.enquetesTerminees}</td></tr>
-  </table>
-</div>
-
-<!-- Actes d'enquête -->
 <div class="section-nobreak">
-  <div class="section-title">Actes d'enquete en preliminaire</div>
-  <div class="cards-row">
-    <div class="card">
-      <div class="card-label">Total actes + prolongations</div>
-      <div class="card-value">${totalAvecProlongations}</div>
-      <div class="card-detail">Temps estime : ${tempsHeures}h${tempsMin > 0 ? tempsMin : ''}</div>
+  <div class="section-title">Procédures terminées par mois</div>
+  <div class="two-cols" style="align-items:flex-start">
+    <div>
+      <table>
+        <tr><th>Mois</th><th class="text-right">Nombre</th></tr>
+        ${data.proceduremoisData.map(d => `<tr><td>${d.mois}</td><td class="text-right font-bold">${d.count}</td></tr>`).join('')}
+        <tr style="background:#E3E3FD;font-weight:bold"><td>TOTAL</td><td class="text-right">${data.enquetesTerminees}</td></tr>
+      </table>
     </div>
-    <div class="card">
-      <div class="card-label">Ecoutes</div>
-      <div class="card-value">${data.acteStats.ecoutes}</div>
-      <div class="card-detail">Prolong. : ${data.acteStats.prolongationsEcoutes}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Geolocalisations</div>
-      <div class="card-value">${data.acteStats.geolocalisations}</div>
-      <div class="card-detail">Prolong. : ${data.acteStats.prolongationsGeo}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Autres actes</div>
-      <div class="card-value">${data.acteStats.autresActes}</div>
-      <div class="card-detail">Prolong. : ${data.acteStats.prolongationsAutres}</div>
+    <div style="padding-top:4px">
+      ${renderBarChart(data.proceduremoisData.map(d => ({ label: d.mois, value: d.count, color: '#000091' })))}
     </div>
   </div>
 </div>
 
-<!-- Répartition par service -->
-<div class="section">
-  <div class="section-title">Repartition par service</div>
+<!-- Actes d'enquête : un seul chiffre, estimation minorée -->
+<div class="section-nobreak">
+  <div class="section-title">Actes d'enquête en préliminaire</div>
+  <div class="stat-inline">
+    <span class="stat-inline-value">${totalAvecProlongations}</span>
+    <span class="stat-inline-note">actes et prolongations recensés <b>(estimation minorée)</b> — écoutes, géolocalisations et autres actes techniques. Le décompte réel est au moins égal à ce plancher.</span>
+  </div>
+</div>
+
+<!-- Répartition par service : camemberts identiques à l'app + tableaux -->
+<div class="section-nobreak">
+  <div class="section-title">Répartition par service</div>
   <div class="two-cols">
     <div>
-      <h4 style="font-size:11px;margin-bottom:6px;color:#555">Toutes enquetes</h4>
-      <table>
-        <tr><th>Service</th><th class="text-right">Nombre</th><th class="text-right">%</th></tr>
-        ${(() => {
-          const total = data.serviceStats.reduce((s, i) => s + i.count, 0);
-          return data.serviceStats.map(s =>
-            `<tr><td>${s.service}</td><td class="text-right font-bold">${s.count}</td><td class="text-right">${total > 0 ? ((s.count/total)*100).toFixed(1) : 0}%</td></tr>`
-          ).join('');
-        })()}
-      </table>
+      <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Toutes enquêtes</h4>
+      ${renderServiceBlock(data.serviceStats)}
     </div>
     <div>
-      <h4 style="font-size:11px;margin-bottom:6px;color:#555">Enquetes terminees</h4>
-      <table>
-        <tr><th>Service</th><th class="text-right">Nombre</th><th class="text-right">%</th></tr>
-        ${(() => {
-          const total = data.serviceStatsTerminees.reduce((s, i) => s + i.count, 0);
-          return data.serviceStatsTerminees.map(s =>
-            `<tr><td>${s.service}</td><td class="text-right font-bold">${s.count}</td><td class="text-right">${total > 0 ? ((s.count/total)*100).toFixed(1) : 0}%</td></tr>`
-          ).join('');
-        })()}
-      </table>
+      <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Enquêtes terminées</h4>
+      ${renderServiceBlock(data.serviceStatsTerminees)}
     </div>
   </div>
 </div>
 
-<!-- PAGE 2 : ORIENTATION ET RESULTATS D'AUDIENCE -->
-<div class="page-break"></div>
 <div class="section-nobreak">
-  <div class="section-title">Orientation des procedures</div>
-  ${stats ? renderPieSubstitute([
-    { label: 'CRPC', value: stats.nombreCRPC, color: ORIENTATION_COLORS['CRPC'] },
-    { label: 'CI', value: stats.nombreCI, color: ORIENTATION_COLORS['CI'] },
-    { label: 'COPJ', value: stats.nombreCOPJ, color: ORIENTATION_COLORS['COPJ'] },
-    { label: 'OI', value: stats.nombreOI, color: ORIENTATION_COLORS['OI'] },
-    { label: 'CDD', value: stats.nombreCDD, color: ORIENTATION_COLORS['CDD'] },
-    { label: 'Classement', value: stats.nombreClassements || 0, color: ORIENTATION_COLORS['Classement'] },
-  ]) : '<p>Aucune donnee</p>'}
-
-  ${stats ? `<div style="margin-top:6px;font-size:10px;color:#555">Dont ${stats.nombreDeferements} deferement${stats.nombreDeferements > 1 ? 's' : ''}</div>` : ''}
+  <div class="section-title">Orientation des procédures</div>
+  ${stats ? (() => {
+    // Mêmes données et couleurs que le Pie « Orientation » de l'app
+    const items = ORIENTATION_DATASETS.map(d => ({
+      label: d.label,
+      value: (stats[d.key] as number) || 0,
+      color: d.color,
+    }));
+    const pie = renderPieChartImg(items, 185, 'pct');
+    return `<div class="two-cols" style="align-items:center">
+      <div class="legend-col">
+        ${renderPieSubstitute(items)}
+        <div style="margin-top:8px;font-size:10px;color:#56565E">Dont ${stats.nombreDeferements} déférement${stats.nombreDeferements > 1 ? 's' : ''}</div>
+      </div>
+      ${pie ? `<div style="text-align:center">${pie}</div>` : ''}
+    </div>`;
+  })() : '<p>Aucune donnée</p>'}
 </div>
 
 <!-- Orientation par mois -->
-<div class="section">
+<div class="section-nobreak">
   <div class="section-title">Orientation par mois</div>
   <table>
     <tr>
@@ -492,7 +602,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
         oi: acc.oi + m.oi, cdd: acc.cdd + m.cdd, classement: acc.classement + m.classement
       }), { crpc: 0, ci: 0, copj: 0, oi: 0, cdd: 0, classement: 0 });
       const grand = totals.crpc + totals.ci + totals.copj + totals.oi + totals.cdd + totals.classement;
-      return `<tr style="background:#e8f4f8;font-weight:bold">
+      return `<tr style="background:#E3E3FD;font-weight:bold">
         <td>TOTAL</td>
         <td class="text-center">${totals.crpc}</td>
         <td class="text-center">${totals.ci}</td>
@@ -506,259 +616,76 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   </table>
 </div>
 
-<!-- Condamnations par mois -->
-<div class="section">
-  <div class="section-title">Condamnations et peines par mois</div>
-  <table>
-    <tr>
-      <th>Mois</th>
-      <th class="text-right">Condamnations</th>
-      <th class="text-right">Prison (mois)</th>
-      <th class="text-right">Amendes</th>
-    </tr>
-    ${data.monthlyData.map(m => `<tr>
-      <td>${m.mois}</td>
-      <td class="text-right">${m.condamnations}</td>
-      <td class="text-right">${m.moisPrison}</td>
-      <td class="text-right">${formatCurrency(m.amendes)}</td>
-    </tr>`).join('')}
-    ${(() => {
-      const totC = data.monthlyData.reduce((s, m) => s + m.condamnations, 0);
-      const totP = data.monthlyData.reduce((s, m) => s + m.moisPrison, 0);
-      const totA = data.monthlyData.reduce((s, m) => s + m.amendes, 0);
-      return `<tr style="background:#e8f4f8;font-weight:bold">
-        <td>TOTAL</td>
-        <td class="text-right">${totC}</td>
-        <td class="text-right">${totP} (${formatMoisEnAnnees(totP)})</td>
-        <td class="text-right">${formatCurrency(totA)}</td>
-      </tr>`;
-    })()}
-  </table>
+<!-- Condamnations par mois : un seul graphe, le nombre de condamnations -->
+<div class="section-nobreak">
+  <div class="section-title">Condamnations par mois</div>
+  ${renderBarChart(data.monthlyData.map(m => ({ label: m.mois, value: m.condamnations, color: '#000091' })))}
+  <div style="margin-top:8px;font-size:10px;color:#56565E">
+    Total : <b style="color:#000091">${data.monthlyData.reduce((s, m) => s + m.condamnations, 0)}</b> condamnations sur l'année
+  </div>
 </div>
 
-<!-- PAGE 3 : PEINES DETAILLEES -->
-<div class="page-break"></div>
+<!-- Peines & mesures : chiffres clés uniquement, pas de détail par type de peine -->
 <div class="section-nobreak">
-  <div class="section-title">Peines de prison</div>
+  <div class="section-title">Peines &amp; mesures prononcées</div>
   <div class="cards-row">
     <div class="card">
-      <div class="card-label">Total prison ferme</div>
+      <div class="card-label">Prison ferme (total)</div>
       <div class="card-value">${stats?.totalPeinePrison || 0} mois</div>
       <div class="card-detail">${formatMoisEnAnnees(stats?.totalPeinePrison || 0)}</div>
     </div>
     <div class="card">
-      <div class="card-label">Nombre condamnations</div>
-      <div class="card-value">${stats?.nombreCondamnations || 0}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Amendes totales</div>
+      <div class="card-label">Amendes prononcées</div>
       <div class="card-value">${formatCurrency(stats?.montantTotalAmendes || 0)}</div>
-      <div class="card-detail">Moy: ${formatCurrency(stats?.moyenneAmende || 0)}/condamnation</div>
     </div>
-  </div>
-</div>
-
-<div class="section">
-  <div class="section-title">Peines moyennes par type</div>
-  <table>
-    <tr>
-      <th>Type de peine</th>
-      <th class="text-right">Moyenne (mois)</th>
-      <th class="text-right">% condamnations</th>
-    </tr>
-    <tr>
-      <td>Prison ferme uniquement</td>
-      <td class="text-right font-bold">${stats?.moyennePrison || 0}</td>
-      <td class="text-right">${stats?.tauxPeinesFermes || 0}%</td>
-    </tr>
-    <tr>
-      <td>Sursis probatoire uniquement</td>
-      <td class="text-right font-bold">${stats?.moyenneProbation || 0}</td>
-      <td class="text-right">${stats?.tauxPeinesProbation || 0}%</td>
-    </tr>
-    <tr>
-      <td>Sursis simple uniquement</td>
-      <td class="text-right font-bold">${stats?.moyenneSimple || 0}</td>
-      <td class="text-right">${stats?.tauxPeinesSimple || 0}%</td>
-    </tr>
-    <tr>
-      <td>Mixte avec sursis probatoire</td>
-      <td class="text-right font-bold">${stats?.moyenneMixtesProbation || '-'}</td>
-      <td class="text-right">${stats?.tauxPeinesMixtesProbation || 0}%</td>
-    </tr>
-    <tr>
-      <td>Mixte avec sursis simple</td>
-      <td class="text-right font-bold">${stats?.moyenneMixtesSimple || '-'}</td>
-      <td class="text-right">${stats?.tauxPeinesMixtesSimple || 0}%</td>
-    </tr>
-  </table>
-</div>
-
-<!-- Interdictions -->
-<div class="section-nobreak">
-  <div class="section-title">Interdictions</div>
-  <div class="cards-row">
     <div class="card">
-      <div class="card-label">Interdictions de paraitre</div>
+      <div class="card-label">Interdictions de paraître</div>
       <div class="card-value">${stats?.totalInterdictionsParaitre || 0}</div>
-      <div class="card-detail">${stats && stats.nombreCondamnations > 0 ? ((stats.totalInterdictionsParaitre / stats.nombreCondamnations) * 100).toFixed(1) : 0}% des condamnations</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Interdictions de gerer</div>
-      <div class="card-value">${stats?.totalInterdictionsGerer || 0}</div>
-      <div class="card-detail">${stats && stats.nombreCondamnations > 0 ? ((stats.totalInterdictionsGerer / stats.nombreCondamnations) * 100).toFixed(1) : 0}% des condamnations</div>
     </div>
   </div>
 </div>
 
-<!-- Saisies (phase enquete) -->
+<!-- Saisies vs confiscations : le delta, sans détail superflu -->
+${(stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalVehicules || 0) > 0 ? `
 <div class="section-nobreak">
-  <div class="section-title">Saisies (enquete)</div>
-  ${(stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalSaisiesImmeubles || 0) > 0 || (stats?.totalSaisiesObjets || 0) > 0 ? `
-  <div class="cards-row">
-    <div class="card">
-      <div class="card-label">Vehicules saisis</div>
-      <div class="card-value">${stats?.totalSaisiesVehicules || 0}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Immeubles saisis</div>
-      <div class="card-value">${stats?.totalSaisiesImmeubles || 0}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Objets mobiliers saisis</div>
-      <div class="card-value">${stats?.totalSaisiesObjets || 0}</div>
-    </div>
-  </div>
-  <div class="cards-row">
-    <div class="card">
-      <div class="card-label">Numeraire saisi</div>
-      <div class="card-value">${formatCurrency(stats?.totalSaisiesNumeraire || 0)}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Comptes bancaires saisis</div>
-      <div class="card-value">${formatCurrency(stats?.totalSaisiesBancaire || 0)}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Cryptomonnaies saisies</div>
-      <div class="card-value">${formatCurrency(stats?.totalSaisiesCrypto || 0)}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Total avoirs saisis</div>
-      <div class="card-value">${formatCurrency(stats?.totalSaisiesArgent || 0)}</div>
-    </div>
-  </div>
-  ` : `<div style="font-size:10px;color:#999;font-style:italic">Aucune saisie renseignee pour cette periode</div>`}
-</div>
-
-<!-- Confiscations (resultats d'audience) -->
-<div class="section-nobreak">
-  <div class="section-title">Confiscations (audience)</div>
-  <div class="cards-row">
-    <div class="card">
-      <div class="card-label">Vehicules confisques</div>
-      <div class="card-value">${stats?.totalVehicules || 0}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Immeubles confisques</div>
-      <div class="card-value">${stats?.totalImmeubles || 0}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Objets mobiliers confisques</div>
-      <div class="card-value">${stats?.totalObjets || 0}</div>
-    </div>
-  </div>
-  <div class="cards-row">
-    <div class="card">
-      <div class="card-label">Numeraire confisque</div>
-      <div class="card-value">${formatCurrency(stats?.totalNumeraire || 0)}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Comptes bancaires confisques</div>
-      <div class="card-value">${formatCurrency(stats?.totalBancaire || 0)}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Cryptomonnaies confisquees</div>
-      <div class="card-value">${formatCurrency(stats?.totalCrypto || 0)}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Total avoirs confisques</div>
-      <div class="card-value">${formatCurrency(stats?.totalArgent || 0)}</div>
-    </div>
-  </div>
-  ${(stats?.totalStupefiants || 0) > 0 ? `<div style="margin-top:6px;font-size:10px;color:#555">${stats?.totalStupefiants} dossier(s) avec stupefiants</div>` : ''}
-</div>
-
-<!-- Delta saisies vs confiscations -->
-${(stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalSaisiesImmeubles || 0) > 0 || (stats?.totalVehicules || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stats?.totalImmeubles || 0) > 0 ? `
-<div class="section-nobreak">
-  <div class="section-title">Delta saisies vs confiscations</div>
+  <div class="section-title">Saisies &amp; confiscations</div>
   <table>
-    <tr><th>Categorie</th><th class="text-right">Saisi (enquete)</th><th class="text-right">Confisque (audience)</th><th class="text-right">Delta</th></tr>
-    ${(stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalVehicules || 0) > 0 ? `<tr><td>Vehicules</td><td class="text-right">${stats?.totalSaisiesVehicules || 0}</td><td class="text-right">${stats?.totalVehicules || 0}</td><td class="text-right">${(stats?.totalSaisiesVehicules || 0) - (stats?.totalVehicules || 0)}</td></tr>` : ''}
+    <tr><th>Catégorie</th><th class="text-right">Saisi (enquête)</th><th class="text-right">Confisqué (audience)</th><th class="text-right">Delta</th></tr>
+    ${(stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalVehicules || 0) > 0 ? `<tr><td>Véhicules</td><td class="text-right">${stats?.totalSaisiesVehicules || 0}</td><td class="text-right">${stats?.totalVehicules || 0}</td><td class="text-right">${(stats?.totalSaisiesVehicules || 0) - (stats?.totalVehicules || 0)}</td></tr>` : ''}
     ${(stats?.totalSaisiesImmeubles || 0) > 0 || (stats?.totalImmeubles || 0) > 0 ? `<tr><td>Immeubles</td><td class="text-right">${stats?.totalSaisiesImmeubles || 0}</td><td class="text-right">${stats?.totalImmeubles || 0}</td><td class="text-right">${(stats?.totalSaisiesImmeubles || 0) - (stats?.totalImmeubles || 0)}</td></tr>` : ''}
-    ${(stats?.totalSaisiesNumeraire || 0) > 0 || (stats?.totalNumeraire || 0) > 0 ? `<tr><td>Numeraire</td><td class="text-right">${formatCurrency(stats?.totalSaisiesNumeraire || 0)}</td><td class="text-right">${formatCurrency(stats?.totalNumeraire || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesNumeraire || 0) - (stats?.totalNumeraire || 0))}</td></tr>` : ''}
-    ${(stats?.totalSaisiesBancaire || 0) > 0 || (stats?.totalBancaire || 0) > 0 ? `<tr><td>Bancaire</td><td class="text-right">${formatCurrency(stats?.totalSaisiesBancaire || 0)}</td><td class="text-right">${formatCurrency(stats?.totalBancaire || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesBancaire || 0) - (stats?.totalBancaire || 0))}</td></tr>` : ''}
-    ${(stats?.totalSaisiesCrypto || 0) > 0 || (stats?.totalCrypto || 0) > 0 ? `<tr><td>Crypto</td><td class="text-right">${formatCurrency(stats?.totalSaisiesCrypto || 0)}</td><td class="text-right">${formatCurrency(stats?.totalCrypto || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesCrypto || 0) - (stats?.totalCrypto || 0))}</td></tr>` : ''}
-    <tr style="font-weight:bold;border-top:2px solid #333"><td>Total avoirs</td><td class="text-right">${formatCurrency(stats?.totalSaisiesArgent || 0)}</td><td class="text-right">${formatCurrency(stats?.totalArgent || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesArgent || 0) - (stats?.totalArgent || 0))}</td></tr>
+    <tr style="background:#E3E3FD;font-weight:bold"><td>Total avoirs</td><td class="text-right">${formatCurrency(stats?.totalSaisiesArgent || 0)}</td><td class="text-right">${formatCurrency(stats?.totalArgent || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesArgent || 0) - (stats?.totalArgent || 0))}</td></tr>
   </table>
 </div>
 ` : ''}
 
-<!-- Peines par type d'infraction -->
-${stats?.peinesParInfraction && Object.keys(stats.peinesParInfraction).length > 0 ? `
 <div class="section">
-  <div class="section-title">Peines moyennes par type d'infraction</div>
-  <table>
-    <tr>
-      <th>Infraction</th>
-      <th class="text-right">Ferme (mois)</th>
-      <th class="text-right">Probatoire (mois)</th>
-      <th class="text-right">Simple (mois)</th>
-      <th class="text-right">Mixte prob.</th>
-      <th class="text-right">Mixte simple</th>
-    </tr>
-    ${Object.entries(stats.peinesParInfraction).map(([infraction, s]) => `<tr>
-      <td>${infraction}</td>
-      <td class="text-right">${s.moyenneFerme > 0 ? s.moyenneFerme + ' (' + s.countFerme + ')' : '-'}</td>
-      <td class="text-right">${s.moyenneProbation > 0 ? s.moyenneProbation + ' (' + s.countProbation + ')' : '-'}</td>
-      <td class="text-right">${s.moyenneSimple > 0 ? s.moyenneSimple + ' (' + s.countSimple + ')' : '-'}</td>
-      <td class="text-right">${s.moyenneMixtesProbation || '-'}</td>
-      <td class="text-right">${s.moyenneMixtesSimple || '-'}</td>
-    </tr>`).join('')}
-  </table>
-</div>
-` : ''}
-
-<!-- PAGE 4 : INFRACTIONS -->
-<div class="page-break"></div>
-<div class="section">
-  <div class="section-title">Repartition par type d'infraction</div>
+  <div class="section-title">Répartition par type d'infraction</div>
   <div class="two-cols">
     <div>
-      <h4 style="font-size:11px;margin-bottom:6px;color:#555">Enquetes en cours</h4>
+      <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Enquêtes en cours</h4>
       ${data.infractionsEnCours.length > 0
-        ? renderBarChart(data.infractionsEnCours.map(i => ({ label: i.infraction, value: i.count, color: '#3498db' })))
-        : '<p style="color:#6c757d;font-size:10px;">Aucune donnee</p>'}
+        ? renderBarChart(data.infractionsEnCours.map(i => ({ label: i.infraction, value: i.count, color: '#000091' })))
+        : '<p style="color:#56565E;font-size:10px;">Aucune donnée</p>'}
     </div>
     <div>
-      <h4 style="font-size:11px;margin-bottom:6px;color:#555">Enquetes terminees</h4>
+      <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Enquêtes terminées</h4>
       ${data.infractionsTerminees.length > 0
-        ? renderBarChart(data.infractionsTerminees.map(i => ({ label: i.infraction, value: i.count, color: '#2ecc71' })))
-        : '<p style="color:#6c757d;font-size:10px;">Aucune donnee</p>'}
+        ? renderBarChart(data.infractionsTerminees.map(i => ({ label: i.infraction, value: i.count, color: '#18753C' })))
+        : '<p style="color:#56565E;font-size:10px;">Aucune donnée</p>'}
     </div>
   </div>
 </div>
 
 <!-- Déférements par mois -->
 ${data.deferementsParMois.length > 0 ? `
-<div class="section">
-  <div class="section-title">Deferements par mois</div>
-  ${renderBarChart(data.deferementsParMois.map(d => ({ label: d.mois, value: d.count, color: '#e74c3c' })))}
+<div class="section-nobreak">
+  <div class="section-title">Déférements par mois</div>
+  ${renderBarChart(data.deferementsParMois.map(d => ({ label: d.mois, value: d.count, color: '#E1000F' })))}
 </div>
 ` : ''}
 
 <div class="footer">
-  Rapport genere automatiquement - Donnees au ${new Date().toLocaleDateString('fr-FR')}
+  Rapport généré automatiquement · Données au ${new Date().toLocaleDateString('fr-FR')} · Usage interne, ne pas diffuser
 </div>
 
 </body>
@@ -768,18 +695,31 @@ ${data.deferementsParMois.length > 0 ? `
 export async function exportStatsPdf(data: PdfExportData): Promise<void> {
   const html = generateStatsPdfHtml(data);
 
-  // IMPORTANT : html2canvas ne peut PAS rendre visibility:hidden ni display:none.
-  // On utilise opacity:0 + pointerEvents:none — l'élément est composité normalement
-  // par le navigateur (donc capturables), mais totalement transparent pour l'utilisateur.
-  const container = document.createElement('div');
-  Object.assign(container.style, {
+  // IMPORTANT : html2pdf clone l'élément qu'on lui passe AVEC ses styles inline,
+  // puis le rend via html2canvas. Il ne faut donc surtout pas de opacity:0,
+  // visibility:hidden ou position:fixed sur cet élément : le clone les hériterait
+  // et le PDF sortirait blanc. On masque via un wrapper hors-écran (la même
+  // technique que l'overlay interne de html2pdf), et on passe à html2pdf un
+  // élément interne "propre" sans style de masquage.
+  // html2pdf déduit la largeur de l'image des pixels du canvas (96dpi), pas de la
+  // largeur de page : avec des marges horizontales il décale et rogne un bord.
+  // On neutralise ça en rendant le contenu sur TOUTE la largeur A4 (794px ≈ 210mm
+  // à 96dpi) → image pleine page, marges html2pdf horizontales à 0 (voir opt).
+  // Les marges latérales sont intégrées au contenu via le padding du conteneur.
+  const wrapper = document.createElement('div');
+  Object.assign(wrapper.style, {
     position: 'fixed',
     top: '0',
-    left: '0',
-    width: '794px', // A4 à 96dpi (210mm × 96/25.4 ≈ 794px)
-    opacity: '0',
+    left: '-10000px',
+    width: '794px',
     pointerEvents: 'none',
-    zIndex: '-9999',
+  });
+
+  const container = document.createElement('div');
+  Object.assign(container.style, {
+    width: '794px',
+    padding: '0 24px', // marge latérale intégrée (box-sizing: border-box)
+    background: '#ffffff',
   });
 
   container.innerHTML = html
@@ -791,14 +731,16 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
   styleEl.textContent = CSS_STYLES;
   container.prepend(styleEl);
 
-  document.body.appendChild(container);
+  wrapper.appendChild(container);
+  document.body.appendChild(wrapper);
 
   try {
     const html2pdf = (await import('html2pdf.js')).default;
 
     const opt = {
-      margin: [10, 10, 10, 10],
-      filename: `Rapport_Statistiques_${data.selectedYear}.pdf`,
+      // Marges horizontales à 0 (intégrées au contenu) ; verticales à 10mm.
+      margin: [10, 0, 10, 0],
+      filename: `Rapport_activite_${data.selectedYear}.pdf`,
       image: { type: 'jpeg', quality: 0.95 },
       html2canvas: {
         scale: 2,
@@ -820,9 +762,26 @@ export async function exportStatsPdf(data: PdfExportData): Promise<void> {
       },
     };
 
-    await html2pdf().set(opt).from(container).save();
+    // Numérotation des pages : on intercepte le jsPDF produit avant le .save()
+    // (le contenu étant rasterisé par html2canvas, impossible de numéroter en CSS).
+    await html2pdf().set(opt).from(container).toPdf().get('pdf').then((pdf: any) => {
+      const totalPages = pdf.internal.getNumberOfPages();
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i);
+        pdf.setFontSize(8);
+        pdf.setTextColor(146, 146, 156);
+        pdf.text(
+          `Rapport d'activité ${data.selectedYear} — page ${i}/${totalPages}`,
+          pageWidth / 2,
+          pageHeight - 4,
+          { align: 'center' }
+        );
+      }
+    }).save();
   } finally {
-    document.body.removeChild(container);
+    document.body.removeChild(wrapper);
   }
 }
 
