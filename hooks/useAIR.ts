@@ -4,11 +4,27 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AIRImportData, AIRStatus } from '@/types/interfaces';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { useToast } from '@/contexts/ToastContext';
+import { useUser } from '@/contexts/UserContext';
 import { determineAIRStatus, formatDateIfNeeded } from '@/utils/airImportUtils';
+import { airSyncService } from '@/utils/dataSync/AIRSyncService';
 
-const STORAGE_KEY = 'air_mesures';
+// Clé legacy GLOBALE (avant le passage au stockage privé par utilisateur).
+// Conservée pour migrer une seule fois les données existantes.
+const LEGACY_STORAGE_KEY = 'air_mesures';
+
+/** Clé de stockage user-scoped des mesures AIR. */
+const buildStorageKey = (username: string | null | undefined): string | null =>
+  username ? `${LEGACY_STORAGE_KEY}__${username}` : null;
+
+/** Sentinelle : indique que la migration legacy → par utilisateur a déjà eu lieu. */
+const migrationKey = (username: string): string => `${LEGACY_STORAGE_KEY}_migrated__${username}`;
+
+const nowIso = () => new Date().toISOString();
 
 export const useAIR = () => {
+  const { user } = useUser();
+  const username = user?.windowsUsername || null;
+
   const [mesures, setMesures] = useState<AIRImportData[]>([]);
   const [selectedMesure, setSelectedMesure] = useState<AIRImportData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -16,36 +32,86 @@ export const useAIR = () => {
   const saveTimeoutRef = useRef<NodeJS.Timeout>();
   const { showToast } = useToast();
 
-  // Charger les données au démarrage
-  useEffect(() => {
-    const loadMesures = async () => {
-      try {
-        setIsLoading(true);
-        const data = await ElectronBridge.getData<AIRImportData[]>(STORAGE_KEY, []);
-        setMesures(Array.isArray(data) ? data : []);
-      } catch (error) {
-        console.error('Erreur lors du chargement des mesures AIR:', error);
-        setMesures([]);
-        showToast('Erreur lors du chargement des mesures AIR', 'error');
-      } finally {
-        setIsLoading(false);
+  // Clé courante : indispensable pour que la sauvegarde débouncée écrive
+  // toujours sur la bonne clé même quand l'utilisateur change.
+  const storageKeyRef = useRef<string | null>(buildStorageKey(username));
+  // True quand le dernier changement d'état vient d'une action utilisateur
+  // (et doit donc être poussé sur le réseau), par opposition à un chargement
+  // ou à l'application d'un résultat de synchronisation.
+  const pushDirtyRef = useRef(false);
+
+  // Charger les données (au démarrage + à chaque changement d'utilisateur)
+  const loadMesures = useCallback(async () => {
+    const key = storageKeyRef.current;
+    if (!key) {
+      setMesures([]);
+      setIsLoading(false);
+      return;
+    }
+    try {
+      setIsLoading(true);
+      let data = await ElectronBridge.getData<AIRImportData[]>(key, []);
+      let list = Array.isArray(data) ? data : [];
+
+      // Migration unique : si la clé par utilisateur est vide et que l'ancienne
+      // clé globale contient des données, on les adopte (puis on pose la
+      // sentinelle pour ne plus jamais re-migrer, même après suppression totale).
+      if (list.length === 0 && username) {
+        const alreadyMigrated = await ElectronBridge.getData<boolean>(migrationKey(username), false);
+        if (!alreadyMigrated) {
+          const legacy = await ElectronBridge.getData<AIRImportData[]>(LEGACY_STORAGE_KEY, []);
+          if (Array.isArray(legacy) && legacy.length > 0) {
+            list = legacy.map(m => ({ ...m, dateMiseAJour: m.dateMiseAJour || nowIso() }));
+            await ElectronBridge.setData(key, list);
+          }
+          await ElectronBridge.setData(migrationKey(username), true);
+        }
       }
-    };
 
-    loadMesures();
-  }, [showToast]);
+      setMesures(list);
+    } catch (error) {
+      console.error('Erreur lors du chargement des mesures AIR:', error);
+      setMesures([]);
+      showToast('Erreur lors du chargement des mesures AIR', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [username, showToast]);
 
-  // Sauvegarde avec debounce (comme dans l'ancien hook)
+  useEffect(() => {
+    storageKeyRef.current = buildStorageKey(username);
+    // Un (re)chargement n'est pas une action utilisateur : pas de push réseau.
+    pushDirtyRef.current = false;
+    void loadMesures();
+  }, [username, loadMesures]);
+
+  // Re-hydrate quand la synchro réseau (privée par utilisateur, ou partage
+  // réciproque) rapatrie des mesures modifiées ailleurs.
+  useEffect(() => {
+    const onSync = () => { pushDirtyRef.current = false; void loadMesures(); };
+    window.addEventListener('air-sync-completed', onSync);
+    return () => window.removeEventListener('air-sync-completed', onSync);
+  }, [loadMesures]);
+
+  // Sauvegarde locale avec debounce. La persistance locale a lieu à chaque
+  // changement ; le push réseau (AIRSyncService) n'est déclenché que pour les
+  // changements issus d'une action utilisateur (pushDirtyRef).
   useEffect(() => {
     if (!mesures || isLoading) return;
-    
+    const key = storageKeyRef.current;
+    if (!key) return;
+
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
     saveTimeoutRef.current = setTimeout(async () => {
       try {
-        await ElectronBridge.setData(STORAGE_KEY, mesures);
+        await ElectronBridge.setData(key, mesures);
+        if (pushDirtyRef.current) {
+          pushDirtyRef.current = false;
+          airSyncService.schedulePush();
+        }
       } catch (error) {
         console.error('Erreur lors de la sauvegarde des mesures AIR:', error);
         showToast('Erreur lors de la sauvegarde', 'error');
@@ -121,9 +187,11 @@ export const useAIR = () => {
           newMesure.resultatMesure,
           newMesure.dateCloture,
           newMesure.dateFinPriseEnCharge
-        )
+        ),
+        dateMiseAJour: nowIso()
       };
 
+      pushDirtyRef.current = true;
       setMesures(prev => [...prev, enrichedMesure]);
       showToast('Mesure AIR ajoutée avec succès', 'success');
       return enrichedMesure;
@@ -160,10 +228,11 @@ export const useAIR = () => {
 
       const updatedMesures = mesures.map(mesure =>
         mesure.refAEM === refAEM
-          ? { ...mesure, ...enrichedUpdates }
+          ? { ...mesure, ...enrichedUpdates, dateMiseAJour: nowIso() }
           : mesure
       );
 
+      pushDirtyRef.current = true;
       setMesures(updatedMesures);
 
       // Mettre à jour la mesure sélectionnée si c'est celle qui a été modifiée
@@ -182,7 +251,10 @@ export const useAIR = () => {
   // Supprimer une mesure
   const handleDeleteMesure = useCallback(async (refAEM: string) => {
     try {
+      // Tombstone pour propager la suppression aux autres postes / partenaires.
+      void airSyncService.recordDeletion(refAEM);
       const updatedMesures = mesures.filter(mesure => mesure.refAEM !== refAEM);
+      pushDirtyRef.current = true;
       setMesures(updatedMesures);
 
       // Désélectionner si c'est la mesure supprimée
@@ -210,13 +282,15 @@ export const useAIR = () => {
 
       if (strategy === 'replace') {
         // Mode REMPLACER : supprimer tout et ajouter les nouvelles
+        const importedAt = nowIso();
         updatedMesures = importedData.map(data => ({
           ...data,
           statut: data.statut || determineAIRStatus(
             data.resultatMesure,
             data.dateCloture,
             data.dateFinPriseEnCharge
-          )
+          ),
+          dateMiseAJour: importedAt
         }));
         
         nouveaux = updatedMesures.length;
@@ -348,6 +422,7 @@ export const useAIR = () => {
               );
             }
 
+            mergedMesure.dateMiseAJour = nowIso();
             finalMesures.push(mergedMesure);
             
           } else {
@@ -361,9 +436,10 @@ export const useAIR = () => {
                 imported.resultatMesure,
                 imported.dateCloture,
                 imported.dateFinPriseEnCharge
-              )
+              ),
+              dateMiseAJour: nowIso()
             };
-            
+
             finalMesures.push(newMesure);
           }
         });
@@ -385,6 +461,7 @@ export const useAIR = () => {
         console.log(`Fusion terminée: ${nouveaux} nouvelles, ${modifies} modifiées, ${finalMesures.length} total`);
       }
 
+      pushDirtyRef.current = true;
       setMesures(updatedMesures);
       
       // Message d'information détaillé
@@ -422,12 +499,14 @@ export const useAIR = () => {
           updatedCount++;
           return {
             ...mesure,
-            numeroParquet: update.numeroParquet
+            numeroParquet: update.numeroParquet,
+            dateMiseAJour: nowIso()
           };
         }
         return mesure;
       });
 
+      pushDirtyRef.current = true;
       setMesures(updatedMesures);
       showToast(`${updatedCount} numéros de parquet mis à jour`, 'success');
     } catch (error) {
@@ -450,9 +529,11 @@ export const useAIR = () => {
           mesure.resultatMesure,
           mesure.dateCloture,
           mesure.dateFinPriseEnCharge
-        )
+        ),
+        dateMiseAJour: nowIso()
       }));
 
+      pushDirtyRef.current = true;
       setMesures(prev => [...prev, ...enrichedMesures]);
       showToast(`${newMesures.length} nouvelles mesures créées depuis le greffe`, 'success');
     } catch (error) {
@@ -546,6 +627,9 @@ export const useAIR = () => {
   // Supprimer toutes les mesures
   const handleDeleteAllMesures = useCallback(async () => {
     try {
+      // Tombstones pour propager la suppression aux autres postes / partenaires.
+      await Promise.all(mesures.map(m => airSyncService.recordDeletion(m.refAEM)));
+      pushDirtyRef.current = true;
       setMesures([]);
       showToast('Toutes les mesures AIR ont été supprimées', 'success');
     } catch (error) {
@@ -553,7 +637,7 @@ export const useAIR = () => {
       showToast('Erreur lors de la suppression', 'error');
       throw error;
     }
-  }, [showToast]);
+  }, [mesures, showToast]);
 
   return {
     // Données

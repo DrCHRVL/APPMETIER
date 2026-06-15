@@ -33,6 +33,8 @@ export const ELECTRON_API_NAMES = [
   'dataSync_listContentieuxBackups', 'dataSync_readContentieuxBackup',
   'instructionSync_check', 'instructionSync_pull', 'instructionSync_push',
   'instructionSync_listBackups', 'instructionSync_readBackup',
+  'airSync_check', 'airSync_pull', 'airSync_push',
+  'airSync_listBackups', 'airSync_readBackup',
   'writeHeartbeat', 'removeHeartbeat', 'readAllHeartbeats',
   'writeSharedEvent', 'cleanupSharedEvents', 'startEventsWatcher', 'onSharedEvent',
   'readRecentSharedEvents',

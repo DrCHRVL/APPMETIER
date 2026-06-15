@@ -810,6 +810,23 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     // déclaration mutuelle explicite des partenaires dans les paramètres.
     instructionSync_listUsers: async () => [] as string[],
 
+    // ── Module AIR (privé par utilisateur, partage réciproque optionnel) ──
+    airSync_check: async () => serverReachable(),
+    airSync_pull: async (_basePath: unknown, username: unknown) => {
+      const payload = await vaultPull(`air-${sanitizeName(username)}`)
+      return payload
+    },
+    airSync_push: async (_basePath: unknown, username: unknown, payload: unknown) => {
+      await vaultPush(`air-${sanitizeName(username)}`, payload)
+      return true
+    },
+    airSync_listBackups: async (_basePath: unknown, username: unknown) => vaultVersions(`air-${sanitizeName(username)}`),
+    airSync_readBackup: async (_basePath: unknown, username: unknown, filename: unknown) =>
+      vaultVersionRead(`air-${sanitizeName(username)}`, String(filename)),
+    // Même limite que le module instruction : pas d'énumération des coffres côté
+    // web. Le partage passe par déclaration mutuelle explicite des partenaires.
+    airSync_listUsers: async () => [] as string[],
+
     // ── Présence ──
     writeHeartbeat: async (_username: unknown, heartbeat: unknown) => {
       try {

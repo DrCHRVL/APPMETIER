@@ -160,6 +160,21 @@ interface ElectronAPI {
   /** Liste les usernames ayant un fichier d'instruction sur le dossier réseau (découverte des invitations de partage). */
   instructionSync_listUsers?: (basePath: string) => Promise<string[]>;
 
+  // Synchronisation module AIR (sauvegarde réseau privée par utilisateur, partage réciproque).
+  // basePath = dossier réseau (mode desktop) ; ignoré en mode web (coffre serveur `air-<user>`).
+  /** Vérifie que le dossier réseau / serveur AIR est accessible. */
+  airSync_check?: (basePath: string) => Promise<boolean>;
+  /** Lit le fichier <user>-air.json du dossier réseau (ou le coffre `air-<user>`). */
+  airSync_pull?: (basePath: string, username: string) => Promise<import('./airSyncTypes').AIRSyncFile | null>;
+  /** Écrit le fichier <user>-air.json (backup automatique avant écrasement). */
+  airSync_push?: (basePath: string, username: string, payload: import('./airSyncTypes').AIRSyncFile) => Promise<boolean>;
+  /** Liste les backups AIR de l'utilisateur, du plus récent au plus ancien. */
+  airSync_listBackups?: (basePath: string, username: string) => Promise<string[]>;
+  /** Lit un backup AIR et retourne son contenu parsé. */
+  airSync_readBackup?: (basePath: string, username: string, filename: string) => Promise<import('./airSyncTypes').AIRSyncFile | null>;
+  /** Liste les usernames ayant un fichier AIR sur le dossier réseau (découverte des invitations de partage). */
+  airSync_listUsers?: (basePath: string) => Promise<string[]>;
+
   // Heartbeat
   writeHeartbeat?: (username: string, heartbeat: any) => Promise<boolean>;
   removeHeartbeat?: (username: string) => Promise<boolean>;

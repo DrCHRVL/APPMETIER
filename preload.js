@@ -215,6 +215,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('instructionSync:listUsers', basePath),
 
   // ========================================================================
+  // SYNCHRONISATION MODULE AIR (privée par utilisateur, partage réciproque)
+  // basePath = dossier réseau choisi par l'utilisateur dans les paramètres.
+  // ========================================================================
+  airSync_check: (basePath) =>
+    ipcRenderer.invoke('airSync:check', basePath),
+  airSync_pull: (basePath, username) =>
+    ipcRenderer.invoke('airSync:pull', basePath, username),
+  airSync_push: (basePath, username, payload) =>
+    ipcRenderer.invoke('airSync:push', basePath, username, payload),
+  airSync_listBackups: (basePath, username) =>
+    ipcRenderer.invoke('airSync:listBackups', basePath, username),
+  airSync_readBackup: (basePath, username, filename) =>
+    ipcRenderer.invoke('airSync:readBackup', basePath, username, filename),
+  airSync_listUsers: (basePath) =>
+    ipcRenderer.invoke('airSync:listUsers', basePath),
+
+  // ========================================================================
   // HEARTBEAT, ÉVÉNEMENTS PARTAGÉS, JOURNAL D'AUDIT
   // ========================================================================
 
