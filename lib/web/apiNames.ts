@@ -45,4 +45,6 @@ export const ELECTRON_API_NAMES = [
   'e2ee_myScopes', 'e2ee_listAccounts', 'e2ee_invite', 'e2ee_revoke',
   'desktopImport_pushVault', 'desktopImport_uploadDocument',
   'readDocumentText', 'readDocumentData',
+  'fullSnapshot_push', 'fullSnapshot_info', 'fullSnapshot_listVersions',
+  'fullSnapshot_readCurrent', 'fullSnapshot_readVersion',
 ] as const

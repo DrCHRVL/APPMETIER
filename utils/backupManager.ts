@@ -701,26 +701,40 @@ class BackupManager {
     }
   }
 
+  /**
+   * Construit l'export COMPLET : toutes les données locales (magasin kv) —
+   * paramètres, préférences utilisateur, cartographie, module instruction,
+   * enquêtes, AIR, etc. Les documents d'enquête ne sont PAS dans le kv (ils
+   * sont stockés à part, chiffrés), donc naturellement exclus. Les sauvegardes
+   * internes (`backup_*`) sont ignorées pour ne pas s'auto-inclure.
+   */
+  private async buildFullExport(): Promise<Record<string, any>> {
+    const exportData: Record<string, any> = {};
+    const allKeys = await ElectronBridge.getAllKeys();
+    for (const key of allKeys) {
+      if (key.startsWith(BackupManager.BACKUP_KEY_PREFIX)) continue;
+      const data = await ElectronBridge.getData(key, null);
+      if (data !== null && data !== undefined) {
+        exportData[key] = data;
+      }
+    }
+    return exportData;
+  }
+
+  /** Export COMPLET vers fichier (tout le local sauf les documents d'enquête). */
   public async exportToFile(): Promise<boolean> {
     try {
-      const exportData: Record<string, any> = {};
-      
-      for (const key of BackupManager.MAIN_DATA_KEYS) {
-        const data = await ElectronBridge.getData(key, null);
-        if (data) {
-          exportData[key] = data;
-        }
-      }
-      
+      const exportData = await this.buildFullExport();
+
       if (Object.keys(exportData).length === 0) {
         console.error('❌ No data to export');
         return false;
       }
 
-      console.log(`📤 Exporting ${Object.keys(exportData).length} data types`);
+      console.log(`📤 Exporting ${Object.keys(exportData).length} data types (complet)`);
 
       const date = new Date().toISOString().split('T')[0];
-      const filename = `enquetes_export_${date}.json`;
+      const filename = `siral_sauvegarde_complete_${date}.json`;
       const jsonData = JSON.stringify(exportData, null, 2);
       
       if (window.electronAPI && window.electronAPI.saveFileDialog) {
@@ -763,21 +777,109 @@ class BackupManager {
     } catch {
       return { success: false, restoredKeys: [], error: 'Fichier illisible (JSON invalide)' };
     }
+    return this.importData(data);
+  }
+
+  /** True si une valeur est « vide » (null/[]/{}) — sert à ignorer une clé vide
+   *  d'un snapshot sans interrompre la restauration (garde anti-érosion). */
+  private static isEmptyValue(v: unknown): boolean {
+    if (v === null || v === undefined) return true;
+    if (Array.isArray(v)) return v.length === 0;
+    if (typeof v === 'object') return Object.keys(v as object).length === 0;
+    return false;
+  }
+
+  /**
+   * Restaure un jeu de données (export complet, export sélectif, sauvegarde
+   * SIRAL ou snapshot serveur). Valide la structure, crée une sauvegarde de
+   * sécurité, puis réécrit clé par clé. Les sauvegardes internes (`backup_*`)
+   * et les valeurs vides sont ignorées (jamais d'écrasement par du vide).
+   */
+  public async importData(data: Record<string, any>): Promise<{ success: boolean; restoredKeys: string[]; error?: string }> {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return { success: false, restoredKeys: [], error: 'Structure non reconnue (objet attendu)' };
+    }
     if (!StorageValidator.validateBackupData(data)) {
-      return { success: false, restoredKeys: [], error: 'Structure non reconnue — fichier attendu : un export sélectif ou une sauvegarde SIRAL' };
+      return { success: false, restoredKeys: [], error: 'Structure non reconnue — fichier attendu : un export SIRAL ou un snapshot serveur' };
     }
     try {
       await this.createBackup(true); // sécurité avant écrasement
       const restoredKeys: string[] = [];
       for (const key of Object.keys(data)) {
+        if (key.startsWith(BackupManager.BACKUP_KEY_PREFIX)) continue;
+        if (BackupManager.isEmptyValue(data[key])) continue; // valeur vide : ne pas écraser
         const ok = await ElectronBridge.setData(key, data[key]);
-        if (!ok) return { success: false, restoredKeys, error: `Écriture refusée pour « ${key} » (valeur vide ?)` };
+        if (!ok) return { success: false, restoredKeys, error: `Écriture refusée pour « ${key} »` };
         restoredKeys.push(key);
       }
-      console.log(`✅ Import file restored ${restoredKeys.length} data types`);
+      console.log(`✅ Import restored ${restoredKeys.length} data types`);
       return { success: true, restoredKeys };
     } catch (error) {
-      console.error('❌ Error importing from file:', error);
+      console.error('❌ Error importing data:', error);
+      return { success: false, restoredKeys: [], error: error instanceof Error ? error.message : 'Erreur inattendue' };
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // SNAPSHOT COMPLET SUR LE SERVEUR (mode web)
+  // Pousse tout le local chiffré dans le coffre personnel snapshot-<user>.
+  // Le serveur archive automatiquement chaque version → restauration possible.
+  // ════════════════════════════════════════════════════════════════════
+
+  /** Envoie un snapshot complet (tout le local sauf documents) sur le serveur. */
+  public async createServerSnapshot(): Promise<boolean> {
+    if (!window.electronAPI?.fullSnapshot_push) {
+      console.error('❌ Snapshot serveur indisponible (API absente)');
+      return false;
+    }
+    const data = await this.buildFullExport();
+    if (Object.keys(data).length === 0) {
+      console.error('❌ Aucune donnée locale à sauvegarder');
+      return false;
+    }
+    const payload = { app: 'siral', kind: 'full-snapshot', v: 1, createdAt: new Date().toISOString(), data };
+    const ok = await window.electronAPI.fullSnapshot_push(payload);
+    if (ok) console.log(`✅ Snapshot serveur créé (${Object.keys(data).length} types de données)`);
+    return ok;
+  }
+
+  /** Métadonnées du snapshot serveur courant (existence + date). */
+  public async getServerSnapshotInfo(): Promise<{ exists: boolean; savedAt?: string | null }> {
+    if (!window.electronAPI?.fullSnapshot_info) return { exists: false };
+    try {
+      return await window.electronAPI.fullSnapshot_info();
+    } catch {
+      return { exists: false };
+    }
+  }
+
+  /** Liste les versions archivées du snapshot serveur (plus récent en premier). */
+  public async listServerSnapshots(): Promise<string[]> {
+    if (!window.electronAPI?.fullSnapshot_listVersions) return [];
+    try {
+      return await window.electronAPI.fullSnapshot_listVersions();
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Restaure le local depuis un snapshot serveur. `filename = null` → snapshot
+   * courant ; sinon une version archivée. Une sauvegarde de sécurité locale est
+   * créée avant écrasement (via importData).
+   */
+  public async restoreServerSnapshot(filename: string | null): Promise<{ success: boolean; restoredKeys: string[]; error?: string }> {
+    try {
+      const payload = filename
+        ? await window.electronAPI?.fullSnapshot_readVersion?.(filename)
+        : await window.electronAPI?.fullSnapshot_readCurrent?.();
+      if (!payload) {
+        return { success: false, restoredKeys: [], error: 'Snapshot introuvable ou serveur injoignable' };
+      }
+      const data = (payload as { data?: Record<string, any> }).data ?? (payload as Record<string, any>);
+      return await this.importData(data as Record<string, any>);
+    } catch (error) {
+      console.error('❌ Error restoring server snapshot:', error);
       return { success: false, restoredKeys: [], error: error instanceof Error ? error.message : 'Erreur inattendue' };
     }
   }

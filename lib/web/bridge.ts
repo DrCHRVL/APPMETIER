@@ -705,6 +705,28 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       return (payload as { data: unknown, metadata: unknown } | null)
     },
 
+    // ── Snapshot complet personnel (« sauvegarde ponctuelle de tout ») ──
+    // Tout le local (sauf documents, stockés à part) est chiffré ici puis
+    // poussé dans le coffre personnel `snapshot-<user>` (périmètre global).
+    // Le serveur archive automatiquement la version précédente à chaque envoi.
+    fullSnapshot_push: async (payload: unknown) => {
+      await vaultPush(`snapshot-${sanitizeName(me.username)}`, payload)
+      return true
+    },
+    fullSnapshot_info: async () => {
+      const name = `snapshot-${sanitizeName(me.username)}`
+      try {
+        const res = await api(`/api/vaults/${encodeURIComponent(name)}`)
+        if (!res.ok) return { exists: false }
+        const { envelope } = await res.json()
+        return { exists: true, savedAt: envelope?.savedAt ?? envelope?.receivedAt ?? null, savedBy: envelope?.savedBy ?? null }
+      } catch { return { exists: false } }
+    },
+    fullSnapshot_listVersions: async () => vaultVersions(`snapshot-${sanitizeName(me.username)}`),
+    fullSnapshot_readCurrent: async () => vaultPullSoft(`snapshot-${sanitizeName(me.username)}`),
+    fullSnapshot_readVersion: async (filename: unknown) =>
+      vaultVersionRead(`snapshot-${sanitizeName(me.username)}`, String(filename)),
+
     // ── Identité ──
     getCurrentUser: async () => ({ displayName: me.username, computerName: 'SIRAL Web' }),
 
