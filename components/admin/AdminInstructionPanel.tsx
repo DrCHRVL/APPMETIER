@@ -662,11 +662,12 @@ const PartageSection = () => {
           Partage du module avec d'autres magistrats
         </h3>
         <p className="text-xs text-gray-500 mt-0.5">
-          Indiquez les utilisateurs qui partagent ce module avec vous (par ex. votre
-          juriste assistante). Le partage <strong>fusionne</strong> vos dossiers
-          d'instruction en un seul module commun. Il n'est effectif que si{' '}
-          <strong>les deux</strong> se citent mutuellement : ajouter une personne lui
-          envoie une <strong>invitation</strong>, qu'elle peut accepter ou refuser.
+          Indiquez les utilisateurs avec qui partager ce module (par ex. votre juriste
+          assistante). Le partage <strong>fusionne</strong> vos dossiers d'instruction en
+          un seul module commun. Ajouter une personne lui envoie une{' '}
+          <strong>invitation</strong> : dès qu'elle l'<strong>accepte</strong> (un clic),
+          le partage est actif. Inutile que chacun invite l'autre — accepter suffit. Une
+          invitation reçue peut aussi être refusée.
         </p>
       </div>
 
