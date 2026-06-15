@@ -14,7 +14,7 @@ import { ElectronBridge } from '@/utils/electronBridge';
 import { ContentieuxId } from '@/types/userTypes';
 import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
 import { ContentieuxManager } from '@/utils/contentieuxManager';
-import { trackDeletedEnqueteId, trackDeletedCRId } from '@/utils/acteUtils';
+import { trackDeletedEnqueteId, trackDeletedCRId, normalizeExpiredActeStatuses } from '@/utils/acteUtils';
 import {
   appendModifications,
   diffEnqueteUpdates,
@@ -227,11 +227,25 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     try {
       const key = storageKey(contentieuxId);
       const data = await ElectronBridge.getData<Enquete[]>(key, []);
+      // Normalise au passage le statut des actes expirés (en_cours → termine) :
+      // si au moins une enquête est corrigée, on persiste pour figer la donnée.
+      let actesNormalized = false;
       const validData = Array.isArray(data)
-        ? data.filter(item => item.statut !== 'instruction').map(migrateEnqueteDocuments)
+        ? data
+            .filter(item => item.statut !== 'instruction')
+            .map(item => {
+              const migrated = migrateEnqueteDocuments(item);
+              const { enquete, changed } = normalizeExpiredActeStatuses(migrated);
+              if (changed) actesNormalized = true;
+              return enquete;
+            })
         : [];
       _enquetesRef = validData;
       _contentieuxRef = contentieuxId;
+      if (actesNormalized) {
+        _isDirty = true;
+        _saveThrottled();
+      }
       set(state => ({
         ownEnquetes: validData,
         enquetes: [...validData, ...state.sharedEnquetes],

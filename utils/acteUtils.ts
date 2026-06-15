@@ -1,4 +1,4 @@
-import { GeolocData, EcouteData, AutreActe, ActeStatus } from '@/types/interfaces';
+import { GeolocData, EcouteData, AutreActe, ActeStatus, Enquete } from '@/types/interfaces';
 import { DateUtils } from './dateUtils';
 import { ElectronBridge } from './electronBridge';
 import { deletedIdsSyncService } from './dataSync/DeletedIdsSyncService';
@@ -52,6 +52,51 @@ export async function trackDeletedMECId(id: number): Promise<void> {
   } catch (error) {
     console.error('❌ Erreur mémorisation ID MEC supprimé:', error);
   }
+}
+
+/**
+ * Normalise le statut des actes/écoutes/géolocs d'une enquête : un acte « en
+ * cours » dont la `dateFin` est dépassée est en réalité terminé. Comme le statut
+ * n'est jamais repassé automatiquement à « terminé » lors de la pose/prolongation,
+ * on le corrige au chargement pour que la donnée persistée reflète l'état réel
+ * (et non plus seulement l'affichage qui recalculait l'expiration à la volée).
+ *
+ * On ne touche QUE les actes posés et en cours (`en_cours`) : les statuts en
+ * attente (autorisation/pose/prolongation) ne sont pas affectés, car un acte non
+ * encore posé n'a pas de fin effective.
+ *
+ * @returns l'enquête (nouvelle référence si modifiée) et un flag `changed`.
+ */
+export function normalizeExpiredActeStatuses(
+  enquete: Enquete,
+  now: Date = new Date()
+): { enquete: Enquete; changed: boolean } {
+  let changed = false;
+
+  const fixList = <T extends { statut: ActeStatus; dateFin?: string }>(list?: T[]): T[] | undefined => {
+    if (!list || list.length === 0) return list;
+    let listChanged = false;
+    const next = list.map(a => {
+      if (a.statut === 'en_cours' && a.dateFin && new Date(a.dateFin) < now) {
+        listChanged = true;
+        return { ...a, statut: 'termine' as ActeStatus };
+      }
+      return a;
+    });
+    if (!listChanged) return list;
+    changed = true;
+    return next;
+  };
+
+  const actes = fixList(enquete.actes);
+  const ecoutes = fixList(enquete.ecoutes);
+  const geolocalisations = fixList(enquete.geolocalisations);
+
+  if (!changed) return { enquete, changed: false };
+  return {
+    enquete: { ...enquete, actes: actes!, ecoutes, geolocalisations },
+    changed: true,
+  };
 }
 
 export function getStatutBadgeProps(statut: ActeStatus): { label: string; className: string } {
