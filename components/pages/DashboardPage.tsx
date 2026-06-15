@@ -111,7 +111,7 @@ export const DashboardPage = ({
   }, []);
 
   return (
-    <div className="space-y-6 max-w-[1400px]">
+    <div className="space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-[22px] font-bold tracking-tight text-gray-900">Tableau de bord</h1>

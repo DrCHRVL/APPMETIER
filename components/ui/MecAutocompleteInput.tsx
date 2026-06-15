@@ -29,7 +29,7 @@ interface MecAutocompleteInputProps {
   onChange: (value: string) => void;
   /** Liste des noms connus à proposer */
   suggestions: string[];
-  /** Nombre de caractères minimum avant déclenchement (défaut: 4) */
+  /** Nombre de caractères minimum avant déclenchement (défaut: 2) */
   minTriggerLength?: number;
   /** Seuil de similarité fuzzy 0-1 (défaut: 0.75) */
   similarityThreshold?: number;
@@ -43,7 +43,7 @@ export const MecAutocompleteInput = ({
   value,
   onChange,
   suggestions,
-  minTriggerLength = 4,
+  minTriggerLength = 2,
   similarityThreshold = 0.75,
   placeholder,
   className,
