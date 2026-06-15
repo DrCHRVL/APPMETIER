@@ -10,6 +10,10 @@ import { useToast } from '@/contexts/ToastContext';
 export const AdminPathsPanel = () => {
   const { isAdmin: checkIsAdmin, contentieux: contentieuxDefs } = useUser();
   const { showToast } = useToast();
+  // En mode web, le stockage est le serveur SIRAL chiffré : les chemins de
+  // fichiers (général + par contentieux) sont des références virtuelles sans
+  // effet. On masque les blocs concernés pour éviter toute confusion.
+  const isWebApp = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
   const [generalPath, setGeneralPath] = useState('');
   const [contentieuxPaths, setContentieuxPaths] = useState<Record<ContentieuxId, string>>({});
   const [validating, setValidating] = useState<Record<string, boolean>>({});
@@ -58,6 +62,46 @@ export const AdminPathsPanel = () => {
 
   if (!checkIsAdmin()) {
     return <div className="text-gray-500">Accès réservé à l'administrateur.</div>;
+  }
+
+  // En mode web, le stockage est le serveur SIRAL chiffré : aucun chemin
+  // réseau (général ou par contentieux) n'est utilisé pour router les données.
+  // On remplace toute la configuration de chemins par un panneau d'information.
+  if (isWebApp) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800 mb-1">Stockage des données</h3>
+          <p className="text-sm text-gray-500">
+            En mode serveur, les données sont stockées de façon chiffrée sur le serveur SIRAL.
+            Aucun chemin réseau n'est à configurer.
+          </p>
+        </div>
+
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
+          <h4 className="text-sm font-semibold text-blue-800 flex items-center gap-2">
+            <Lock className="h-3.5 w-3.5 text-blue-500" />
+            Serveur SIRAL chiffré
+          </h4>
+          <ul className="text-xs text-gray-600 space-y-2 list-disc pl-5">
+            <li>
+              <strong>Chiffrement de bout en bout</strong> : le serveur ne conserve que des
+              coffres illisibles ; lui seul ne peut rien déchiffrer.
+            </li>
+            <li>
+              <strong>Sauvegardes automatiques</strong> : chaque enregistrement crée une
+              nouvelle version horodatée côté serveur (historique immuable) — aucune
+              sauvegarde manuelle sur un partage réseau n'est nécessaire.
+            </li>
+            <li>
+              <strong>Copie de secours locale</strong> : l'application conserve aussi des
+              instantanés dans le navigateur (cache hors-ligne). Pour une copie sur le
+              commun Windows, utilisez « Configurer chemin » au niveau d'une enquête.
+            </li>
+          </ul>
+        </div>
+      </div>
+    );
   }
 
   const validatePath = async (key: string, pathValue: string) => {
