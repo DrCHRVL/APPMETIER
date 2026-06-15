@@ -17,7 +17,7 @@ import { PendingPose } from '@/components/PendingPose';
 import { UpcomingActeDeadlines } from '@/components/UpcomingActeDeadlines';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { AgendaCalendar } from '@/components/AgendaCalendar';
-import { fetchAgendaMulti, loadAgendaUrls, AgendaEvent, AgendaSource } from '@/lib/web/agenda';
+import { fetchAgendaMulti, loadAgendaUrls, loadAgendaDisplay, AgendaEvent, AgendaSource, AgendaDisplaySettings } from '@/lib/web/agenda';
 
 interface DashboardPageProps {
   enquetesByContentieux: Map<ContentieuxId, Enquete[]>;
@@ -112,20 +112,23 @@ export const DashboardPage = ({
   const [agenda, setAgenda] = useState<AgendaEvent[]>([]);
   const [agendaSources, setAgendaSources] = useState<AgendaSource[]>([]);
   const [agendaLoading, setAgendaLoading] = useState(true);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const urls = await loadAgendaUrls();
-      const sources = (Object.keys(urls) as AgendaSource[]).filter(s => urls[s as keyof typeof urls]);
-      if (cancelled) return;
-      setAgendaSources(sources);
-      if (sources.length === 0) { setAgenda([]); setAgendaLoading(false); return; }
-      try { const ev = await fetchAgendaMulti(urls); if (!cancelled) setAgenda(ev); }
-      catch { if (!cancelled) setAgenda([]); }
-      finally { if (!cancelled) setAgendaLoading(false); }
-    })();
-    return () => { cancelled = true; };
+  const [agendaDisplay, setAgendaDisplay] = useState<AgendaDisplaySettings>({ eventSize: 'small', colors: {} });
+
+  const fetchAgendaData = React.useCallback(async () => {
+    setAgendaLoading(true);
+    const urls = await loadAgendaUrls();
+    const sources = (Object.keys(urls) as AgendaSource[]).filter(s => urls[s as keyof typeof urls]);
+    setAgendaSources(sources);
+    if (sources.length === 0) { setAgenda([]); setAgendaLoading(false); return; }
+    try { const ev = await fetchAgendaMulti(urls); setAgenda(ev); }
+    catch { setAgenda([]); }
+    finally { setAgendaLoading(false); }
   }, []);
+
+  useEffect(() => {
+    fetchAgendaData();
+    loadAgendaDisplay().then(setAgendaDisplay);
+  }, [fetchAgendaData]);
 
   return (
     <div className="space-y-6">
@@ -188,7 +191,7 @@ export const DashboardPage = ({
 
       {/* Calendrier mensuel (lecture seule) — Google + Outlook + iCloud fusionnés.
           Distinct de la timeline « OPs à venir » ; toujours affiché, même vide. */}
-      <AgendaCalendar events={agenda} connectedSources={agendaSources} loading={agendaLoading} />
+      <AgendaCalendar events={agenda} connectedSources={agendaSources} loading={agendaLoading} displaySettings={agendaDisplay} onRefresh={fetchAgendaData} />
     </div>
   );
 };

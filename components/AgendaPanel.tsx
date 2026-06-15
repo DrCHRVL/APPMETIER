@@ -13,8 +13,10 @@ import { CalendarDays, Check, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-  AgendaUrls, AgendaSource, AgendaEvent,
-  fetchAgendaMulti, loadAgendaUrls, saveAgendaUrls, SOURCE_META,
+  AgendaUrls, AgendaSource, AgendaEvent, AgendaDisplaySettings,
+  fetchAgendaMulti, loadAgendaUrls, saveAgendaUrls,
+  loadAgendaDisplay, saveAgendaDisplay,
+  SOURCE_META,
 } from '@/lib/web/agenda';
 
 type ProviderKey = 'google' | 'outlook' | 'icloud';
@@ -63,22 +65,38 @@ const PROVIDERS: Array<{
   },
 ];
 
+const ALL_SOURCES: AgendaSource[] = ['google', 'outlook', 'icloud', 'other'];
+
 export const AgendaPanel = () => {
   const [urls, setUrls] = useState<AgendaUrls>({});
+  const [display, setDisplay] = useState<AgendaDisplaySettings>({ eventSize: 'small', colors: {} });
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [preview, setPreview] = useState<AgendaEvent[] | null>(null);
   const [error, setError] = useState('');
 
-  useEffect(() => { loadAgendaUrls().then(setUrls); }, []);
+  useEffect(() => {
+    loadAgendaUrls().then(setUrls);
+    loadAgendaDisplay().then(setDisplay);
+  }, []);
 
   const setUrl = (key: ProviderKey, value: string) =>
     setUrls(prev => ({ ...prev, [key]: value }));
 
+  const setColor = (source: AgendaSource, value: string) =>
+    setDisplay(prev => ({ ...prev, colors: { ...prev.colors, [source]: value } }));
+
+  const resetColor = (source: AgendaSource) =>
+    setDisplay(prev => {
+      const colors = { ...prev.colors };
+      delete colors[source];
+      return { ...prev, colors };
+    });
+
   const hasAny = Boolean(urls.google?.trim() || urls.outlook?.trim() || urls.icloud?.trim());
 
   const save = async () => {
-    await saveAgendaUrls(urls);
+    await Promise.all([saveAgendaUrls(urls), saveAgendaDisplay(display)]);
     setSaved(true); setTimeout(() => setSaved(false), 2000);
   };
 
@@ -87,7 +105,7 @@ export const AgendaPanel = () => {
     try {
       const ev = await fetchAgendaMulti(urls);
       setPreview(ev);
-      if (ev.length === 0) setError('Connexion établie mais aucun événement trouvé sur la période (mois en cours et à venir). Vérifiez que l’agenda contient des rendez-vous et que l’adresse iCal est la bonne.');
+      if (ev.length === 0) setError("Connexion établie mais aucun événement trouvé sur la période (mois en cours et à venir). Vérifiez que l'agenda contient des rendez-vous et que l'adresse iCal est la bonne.");
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Échec');
     } finally { setTesting(false); }
@@ -111,10 +129,12 @@ export const AgendaPanel = () => {
       <div className="space-y-4">
         {PROVIDERS.map(p => {
           const meta = SOURCE_META[p.key as AgendaSource];
+          const customColor = display.colors[p.key as AgendaSource];
+          const activeColor = customColor ?? meta.color;
           return (
             <div key={p.key} className="rounded-xl border border-gray-200 p-3 sm:p-4 space-y-2">
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: meta.color }} />
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: activeColor }} />
                 <b className="text-[13px]">{p.title}</b>
               </div>
               <div className="text-[12px] text-gray-600">{p.steps}</div>
@@ -159,6 +179,63 @@ export const AgendaPanel = () => {
           </ul>
         </div>
       )}
+
+      {/* Apparence du calendrier */}
+      <div className="rounded-xl border border-gray-200 p-3 sm:p-4 space-y-4">
+        <h4 className="text-[13px] font-semibold text-gray-800">Apparence du calendrier</h4>
+
+        {/* Taille des événements */}
+        <div className="space-y-1.5">
+          <label className="text-[12px] font-medium text-gray-600">Taille des événements</label>
+          <div className="flex items-center gap-2">
+            {(['small', 'medium', 'large'] as const).map(size => (
+              <button
+                key={size}
+                onClick={() => setDisplay(prev => ({ ...prev, eventSize: size }))}
+                className={`px-3 py-1 rounded-md text-[12px] border transition-all ${
+                  display.eventSize === size
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-semibold'
+                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                }`}
+              >
+                {size === 'small' ? 'Petite' : size === 'medium' ? 'Moyenne' : 'Grande'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Couleurs par calendrier */}
+        <div className="space-y-1.5">
+          <label className="text-[12px] font-medium text-gray-600">Couleurs des calendriers</label>
+          <div className="space-y-2">
+            {ALL_SOURCES.map(source => {
+              const meta = SOURCE_META[source];
+              const customColor = display.colors[source];
+              const activeColor = customColor ?? meta.color;
+              return (
+                <div key={source} className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={activeColor}
+                    onChange={e => setColor(source, e.target.value)}
+                    className="h-7 w-7 rounded cursor-pointer border border-gray-200 p-0.5 bg-white"
+                    title={`Couleur ${meta.label}`}
+                  />
+                  <span className="text-[12px] text-gray-700">{meta.label}</span>
+                  {customColor && (
+                    <button
+                      onClick={() => resetColor(source)}
+                      className="text-[11px] text-gray-400 hover:text-gray-600 underline"
+                    >
+                      Réinitialiser
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
       <p className="text-xs text-gray-400 leading-relaxed">
         Sécurité : la connexion est strictement limitée à <code>calendar.google.com</code>, aux domaines

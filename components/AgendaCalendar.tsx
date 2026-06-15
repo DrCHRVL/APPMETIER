@@ -11,8 +11,8 @@
  * n'est connecté, on invite à le faire depuis Paramètres → Agenda.
  */
 import React, { useMemo, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
-import { AgendaEvent, AgendaSource, SOURCE_META } from '@/lib/web/agenda';
+import { CalendarDays, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { AgendaEvent, AgendaSource, AgendaDisplaySettings, SOURCE_META, DEFAULT_DISPLAY } from '@/lib/web/agenda';
 
 const WEEKDAYS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
@@ -22,14 +22,24 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 /** Indice du lundi=0 … dimanche=6 pour un jour de la semaine JS (0=dimanche). */
 const mondayIndex = (jsDay: number) => (jsDay + 6) % 7;
 
+const EVENT_SIZE_CLASS: Record<string, string> = {
+  small: 'text-[10px]',
+  medium: 'text-[12px]',
+  large: 'text-[13px]',
+};
+
 interface AgendaCalendarProps {
   events: AgendaEvent[];
   /** Fournisseurs actuellement connectés (pour la légende). */
   connectedSources: AgendaSource[];
   loading?: boolean;
+  displaySettings?: AgendaDisplaySettings;
+  onRefresh?: () => void;
 }
 
-export const AgendaCalendar = ({ events, connectedSources, loading }: AgendaCalendarProps) => {
+export const AgendaCalendar = ({ events, connectedSources, loading, displaySettings, onRefresh }: AgendaCalendarProps) => {
+  const settings = displaySettings ?? DEFAULT_DISPLAY;
+
   // Mois affiché (1er du mois courant par défaut).
   const [cursor, setCursor] = useState(() => {
     const n = new Date();
@@ -68,13 +78,19 @@ export const AgendaCalendar = ({ events, connectedSources, loading }: AgendaCale
   const goToday = () => { const n = new Date(); setCursor(new Date(n.getFullYear(), n.getMonth(), 1)); };
 
   const monthLabel = `${MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}`;
+  const eventSizeClass = EVENT_SIZE_CLASS[settings.eventSize] ?? EVENT_SIZE_CLASS.small;
+
+  const sourceColor = (source: AgendaSource | undefined) => {
+    const s = source ?? 'other';
+    return settings.colors[s] ?? SOURCE_META[s].color;
+  };
 
   return (
     <div className="bg-white border border-gray-200/80 rounded-2xl px-4 py-4 sm:px-5">
       {/* En-tête : titre, navigation, légende */}
       <div className="flex items-center gap-2 flex-wrap mb-3">
         <CalendarDays className="h-4 w-4 text-indigo-600" />
-        <span className="text-[12px] font-semibold text-gray-600 uppercase tracking-wide">Calendrier</span>
+        <span className="text-[12px] font-semibold text-gray-600 uppercase tracking-wide">Agenda</span>
         <span className="text-[13px] font-semibold text-gray-800 capitalize ml-1">{monthLabel}</span>
 
         <div className="flex items-center gap-1 ml-auto">
@@ -82,11 +98,21 @@ export const AgendaCalendar = ({ events, connectedSources, loading }: AgendaCale
             <div className="hidden sm:flex items-center gap-2 mr-2">
               {connectedSources.map(s => (
                 <span key={s} className="inline-flex items-center gap-1 text-[11px] text-gray-500">
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: SOURCE_META[s].color }} />
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: sourceColor(s) }} />
                   {SOURCE_META[s].label}
                 </span>
               ))}
             </div>
+          )}
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              aria-label="Actualiser"
+              disabled={loading}
+              className="p-1 rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-900 disabled:opacity-40"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            </button>
           )}
           <button onClick={goToday} className="text-[11px] font-medium text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md hover:bg-gray-100">
             Aujourd&apos;hui
@@ -103,7 +129,12 @@ export const AgendaCalendar = ({ events, connectedSources, loading }: AgendaCale
       {/* En-têtes de jours */}
       <div className="grid grid-cols-7 mb-1">
         {WEEKDAYS.map((w, i) => (
-          <div key={i} className="text-center text-[10px] font-semibold text-gray-400 uppercase py-1">{w}</div>
+          <div
+            key={i}
+            className={`text-center text-[10px] font-semibold uppercase py-1 ${i >= 5 ? 'text-gray-300' : 'text-gray-400'}`}
+          >
+            {w}
+          </div>
         ))}
       </div>
 
@@ -113,16 +144,21 @@ export const AgendaCalendar = ({ events, connectedSources, loading }: AgendaCale
           const inMonth = d.getMonth() === cursor.getMonth();
           const isToday = dayKey(d) === todayKey;
           const dayEvents = byDay.get(dayKey(d)) ?? [];
+          const isWeekend = d.getDay() === 0 || d.getDay() === 6;
           return (
             <div
               key={i}
-              className={`min-h-[64px] sm:min-h-[78px] bg-white p-1 ${inMonth ? '' : 'bg-gray-50/60'}`}
+              className={`min-h-[64px] sm:min-h-[78px] p-1 ${
+                isWeekend
+                  ? inMonth ? 'bg-gray-50' : 'bg-gray-100/80'
+                  : inMonth ? 'bg-white' : 'bg-gray-50/60'
+              }`}
             >
               <div className="flex items-center justify-center">
                 <span
                   className={`text-[11px] leading-5 w-5 h-5 flex items-center justify-center rounded-full ${
                     isToday ? 'bg-indigo-600 text-white font-semibold'
-                      : inMonth ? 'text-gray-700' : 'text-gray-300'
+                      : inMonth ? (isWeekend ? 'text-gray-400' : 'text-gray-700') : 'text-gray-300'
                   }`}
                 >
                   {d.getDate()}
@@ -130,21 +166,21 @@ export const AgendaCalendar = ({ events, connectedSources, loading }: AgendaCale
               </div>
               <div className="mt-0.5 space-y-0.5">
                 {dayEvents.slice(0, 3).map((e, j) => {
-                  const meta = SOURCE_META[e.source ?? 'other'];
+                  const color = sourceColor(e.source);
                   const time = e.allDay ? '' : new Date(e.start).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
                   return (
                     <div
                       key={j}
                       title={`${time ? time + ' · ' : ''}${e.title}`}
-                      className="flex items-center gap-1 text-[10px] leading-tight text-gray-700 truncate"
+                      className={`flex items-center gap-1 ${eventSizeClass} leading-tight text-gray-700 truncate`}
                     >
-                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: meta.color }} />
+                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
                       <span className="truncate">{time ? <span className="text-gray-400">{time} </span> : null}{e.title}</span>
                     </div>
                   );
                 })}
                 {dayEvents.length > 3 && (
-                  <div className="text-[10px] text-gray-400 pl-2.5">+{dayEvents.length - 3}</div>
+                  <div className={`${eventSizeClass} text-gray-400 pl-2.5`}>+{dayEvents.length - 3}</div>
                 )}
               </div>
             </div>
