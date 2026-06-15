@@ -37,6 +37,28 @@ export const SOURCE_META: Record<AgendaSource, { label: string; color: string }>
   other: { label: 'Agenda', color: '#6366F1' },
 };
 
+/** Clé de stockage des préférences d'affichage du calendrier. */
+export const AGENDA_DISPLAY_KEY = 'agenda_display_settings';
+
+export type AgendaEventSize = 'small' | 'medium' | 'large';
+
+export interface AgendaDisplaySettings {
+  eventSize: AgendaEventSize;
+  colors: Partial<Record<AgendaSource, string>>;
+}
+
+export const DEFAULT_DISPLAY: AgendaDisplaySettings = { eventSize: 'small', colors: {} };
+
+export async function loadAgendaDisplay(): Promise<AgendaDisplaySettings> {
+  const s = await ElectronBridge.getData<AgendaDisplaySettings | null>(AGENDA_DISPLAY_KEY, null);
+  if (!s) return DEFAULT_DISPLAY;
+  return { ...DEFAULT_DISPLAY, ...s, colors: { ...DEFAULT_DISPLAY.colors, ...(s.colors ?? {}) } };
+}
+
+export async function saveAgendaDisplay(settings: AgendaDisplaySettings): Promise<void> {
+  await ElectronBridge.setData(AGENDA_DISPLAY_KEY, settings);
+}
+
 /** Déduit le fournisseur à partir de l'hôte de l'URL iCal. */
 export function sourceFromUrl(url: string): AgendaSource {
   const u = (url || '').toLowerCase();
