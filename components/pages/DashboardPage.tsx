@@ -15,6 +15,7 @@ import { OPTimeline } from '@/components/OPTimeline';
 import { TodoReminderBar } from '@/components/TodoReminderBar';
 import { PendingActsJLD } from '@/components/PendingActsJLD';
 import { PendingPose } from '@/components/PendingPose';
+import { UpcomingActeDeadlines } from '@/components/UpcomingActeDeadlines';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { AGENDA_ICAL_KEY, fetchAgenda, AgendaEvent } from '@/lib/web/agenda';
 
@@ -57,7 +58,17 @@ export const DashboardPage = ({
     [enquetesByContentieux, selected]
   );
   const activeEnquetes = useMemo(() => enquetes.filter(e => e.statut !== 'archive'), [enquetes]);
-  const terminees = enquetes.length - activeEnquetes.length;
+
+  // Actes encore actifs (géoloc, écoute, autres actes en cours)
+  const actesEnCours = useMemo(() => {
+    let n = 0;
+    for (const e of activeEnquetes) {
+      for (const a of [...(e.actes || []), ...(e.ecoutes || []), ...(e.geolocalisations || [])]) {
+        if ((a as { statut?: string }).statut === 'en_cours') n++;
+      }
+    }
+    return n;
+  }, [activeEnquetes]);
 
   // Actes nécessitant une action (autorisation/prolongation/pose en attente)
   const actesEnAttente = useMemo(() => {
@@ -131,7 +142,7 @@ export const DashboardPage = ({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KPI label="Enquêtes en cours" value={activeEnquetes.length} accent={selectedDef?.color} />
         <KPI label="Instructions en cours" value={instructionsActives} />
-        <KPI label="Enquêtes terminées" value={terminees} />
+        <KPI label="Actes en cours" value={actesEnCours} accent={actesEnCours > 0 ? '#0f766e' : undefined} />
         <KPI label="Actes en attente" value={actesEnAttente} accent={actesEnAttente > 0 ? '#b45309' : undefined} />
       </div>
 
@@ -141,6 +152,9 @@ export const DashboardPage = ({
         contentieuxDefs={contentieuxDefs}
         onEnqueteClick={onOpenEnquete}
       />
+
+      {/* Échéances d'actes à venir (7 jours) — cliquable vers l'enquête */}
+      <UpcomingActeDeadlines enquetes={activeEnquetes} onOpenEnquete={onOpenEnquete} />
 
       {/* Rappels d'action (sans doublon dans la page Enquêtes) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
