@@ -575,7 +575,14 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
               {terminatedActes.map((acte) => {
                 const hasHistoryEntries = acte.prolongationsHistory && acte.prolongationsHistory.length > 0;
                 const isHistoryExpanded = expandedHistoryIds.includes(acte.id);
-                
+                const typeConfig = AUTRE_ACTE_TYPES[acte.type as AutreActeTypeKey];
+                const nbProlongations = acte.prolongationsHistory?.length ?? 0;
+                const prolongLimitAtteinte = typeConfig !== undefined && typeConfig.maxProlongations >= 0 && nbProlongations >= typeConfig.maxProlongations;
+                // Un acte échu garde le statut 'en_cours' tant qu'il n'a pas été normalisé,
+                // puis passe à 'termine' au chargement. Dans les deux cas il reste prolongeable
+                // (en antidatant la prolongation dans la fenêtre de validité).
+                const canProlong = !!acte.duree && !!onUpdate && (acte.statut === 'en_cours' || acte.statut === 'termine') && !prolongLimitAtteinte;
+
                 return (
                 <div key={acte.id} className="bg-gray-50 p-3 rounded border border-gray-200">
                   <div className="flex justify-between items-center mb-2">
@@ -588,15 +595,16 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
                       )}
                     </div>
                     <div className="flex gap-2">
-                      {/* Bouton de prolongation même pour les terminés */}
-                      {acte.duree && onUpdate && acte.statut === 'en_cours' && (
-                        <Button 
-                          variant="ghost" 
+                      {/* Prolongation d'un acte échu : icône grisée, prolongation à antidater
+                          dans la fenêtre de validité (la date est bloquée à la validation). */}
+                      {canProlong && (
+                        <Button
+                          variant="ghost"
                           size="sm"
                           onClick={() => setProlongationActeId(acte.id)}
-                          title="Prolonger l'acte"
+                          title="Prolonger l'acte échu — antidatez la prolongation dans la fenêtre de validité"
                         >
-                          <Clock className="h-4 w-4" />
+                          <Clock className="h-4 w-4 text-gray-400" />
                         </Button>
                       )}
                       {acte.statut === 'prolongation_pending' && (
