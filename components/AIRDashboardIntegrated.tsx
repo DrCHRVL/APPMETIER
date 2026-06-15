@@ -585,6 +585,11 @@ const stats = useMemo(() => {
       const rdvAttendus = Math.max(1, Math.floor(ageEnMois / 1.75));
       const retardRDV = rdvAttendus - nbRDV;
       
+      // Une mesure clôturée n'a plus à être convoquée : on ne considère
+      // que les mesures réellement en cours pour toutes les alertes.
+      const estEnCours = !mesure.dateCloture && !mesure.dateFinPriseEnCharge;
+      if (!estEnCours) return;
+
       const mesureInfo = {
         nom: mesure.nomPrenom,
         ref: mesure.refAEM,
@@ -595,8 +600,8 @@ const stats = useMemo(() => {
         referent: mesure.referent || 'Non assigné',
         score: 0
       };
-      
-      // Alertes selon les critères
+
+      // Alertes selon les critères (mesures en cours uniquement)
       if (ageEnMois >= 4 && nbRDV === 0) {
         mesureInfo.score = 100;
         alertes.urgent.push(mesureInfo);
@@ -607,16 +612,14 @@ const stats = useMemo(() => {
         mesureInfo.score = 60;
         alertes.insuffisant.push(mesureInfo);
       }
-      
-      // Score pour priorisation par référent (seulement mesures en cours)
-      if (!mesure.dateCloture && !mesure.dateFinPriseEnCharge) {
-        mesureInfo.score = (ageEnMois * 10) + (retardRDV * 20);
-        
-        if (!propositionsParReferent[mesureInfo.referent]) {
-          propositionsParReferent[mesureInfo.referent] = [];
-        }
-        propositionsParReferent[mesureInfo.referent].push(mesureInfo);
+
+      // Score pour priorisation par référent
+      mesureInfo.score = (ageEnMois * 10) + (retardRDV * 20);
+
+      if (!propositionsParReferent[mesureInfo.referent]) {
+        propositionsParReferent[mesureInfo.referent] = [];
       }
+      propositionsParReferent[mesureInfo.referent].push(mesureInfo);
     });
     
     // Trier et limiter à 8 par référent
