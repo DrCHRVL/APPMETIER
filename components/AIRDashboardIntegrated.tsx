@@ -107,6 +107,18 @@ export const AIRDashboardIntegrated = ({
     return dateReception ? dateReception.getFullYear() : new Date().getFullYear();
   };
 
+  // Détection du résultat d'une mesure — tolérante à la casse, aux accents
+  // et aux espaces parasites. Centralisée pour garantir la cohérence de TOUS
+  // les taux de réussite du module (global, par année, par référent).
+  const estReussite = (resultat?: string): boolean =>
+    !!resultat && resultat.toLowerCase().trim().includes('réussite');
+
+  const estEchec = (resultat?: string): boolean => {
+    if (!resultat) return false;
+    const r = resultat.toLowerCase().trim();
+    return r.includes('échec') || r.includes('echec');
+  };
+
 // Statistiques principales avec calcul par année de clôture
 const stats = useMemo(() => {
   const total = mesures.length;
@@ -115,12 +127,8 @@ const stats = useMemo(() => {
 
   // Stats globales (toutes mesures clôturées)
   const toutesLesMesuresCloturees = mesures.filter(m => m.dateCloture || m.dateFinPriseEnCharge);
-  const reussitesTotal = toutesLesMesuresCloturees.filter(m => 
-    m.resultatMesure === 'Réussite'
-  ).length;
-  const echecsTotal = toutesLesMesuresCloturees.filter(m => 
-    m.resultatMesure === 'Echec'
-  ).length;
+  const reussitesTotal = toutesLesMesuresCloturees.filter(m => estReussite(m.resultatMesure)).length;
+  const echecsTotal = toutesLesMesuresCloturees.filter(m => estEchec(m.resultatMesure)).length;
   const mesuresAvecResultatTotal = reussitesTotal + echecsTotal;
   const tauxReussite = mesuresAvecResultatTotal > 0 ? 
     Math.round((reussitesTotal / mesuresAvecResultatTotal) * 100) : 0;
@@ -130,12 +138,8 @@ const stats = useMemo(() => {
     const dateCloture = parseExcelDate(m.dateCloture) || parseExcelDate(m.dateFinPriseEnCharge);
     return dateCloture && dateCloture.getFullYear() === 2025;
   });
-  const reussites2025 = mesuresCloturees2025.filter(m => 
-    m.resultatMesure === 'Réussite'
-  ).length;
-  const echecs2025 = mesuresCloturees2025.filter(m => 
-    m.resultatMesure === 'Echec'
-  ).length;
+  const reussites2025 = mesuresCloturees2025.filter(m => estReussite(m.resultatMesure)).length;
+  const echecs2025 = mesuresCloturees2025.filter(m => estEchec(m.resultatMesure)).length;
   const mesuresAvecResultat2025 = reussites2025 + echecs2025;
   const tauxReussite2025 = mesuresAvecResultat2025 > 0 ? 
     Math.round((reussites2025 / mesuresAvecResultat2025) * 100) : 0;
@@ -145,12 +149,8 @@ const stats = useMemo(() => {
     const dateCloture = parseExcelDate(m.dateCloture) || parseExcelDate(m.dateFinPriseEnCharge);
     return dateCloture && dateCloture.getFullYear() === 2024;
   });
-  const reussites2024 = mesuresCloturees2024.filter(m => 
-    m.resultatMesure === 'Réussite'
-  ).length;
-  const echecs2024 = mesuresCloturees2024.filter(m => 
-    m.resultatMesure === 'Echec'
-  ).length;
+  const reussites2024 = mesuresCloturees2024.filter(m => estReussite(m.resultatMesure)).length;
+  const echecs2024 = mesuresCloturees2024.filter(m => estEchec(m.resultatMesure)).length;
   const mesuresAvecResultat2024 = reussites2024 + echecs2024;
   const tauxReussite2024 = mesuresAvecResultat2024 > 0 ? 
     Math.round((reussites2024 / mesuresAvecResultat2024) * 100) : 0;
@@ -189,8 +189,8 @@ const stats = useMemo(() => {
     const statsByYear = allYears.reduce((acc, year) => {
       const mesuresYear = mesures.filter(m => getYear(m) === year);
       const cloturees = mesuresYear.filter(m => m.dateCloture || m.dateFinPriseEnCharge);
-      const reussites = cloturees.filter(m => m.resultatMesure?.toLowerCase().includes('réussite'));
-      const echecs = cloturees.filter(m => m.resultatMesure?.toLowerCase().includes('échec') || m.resultatMesure?.toLowerCase().includes('echec'));
+      const reussites = cloturees.filter(m => estReussite(m.resultatMesure));
+      const echecs = cloturees.filter(m => estEchec(m.resultatMesure));
       
       acc[year] = {
         total: mesuresYear.length,
@@ -510,10 +510,9 @@ const stats = useMemo(() => {
       }
       
       if (mesure.resultatMesure) {
-        const resultat = mesure.resultatMesure.toLowerCase();
-        if (resultat.includes('réussite')) {
+        if (estReussite(mesure.resultatMesure)) {
           referentStats[ref].reussites++;
-        } else if (resultat.includes('échec') || resultat.includes('echec')) {
+        } else if (estEchec(mesure.resultatMesure)) {
           referentStats[ref].echecs++;
         }
       }
