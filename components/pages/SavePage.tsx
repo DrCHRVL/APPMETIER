@@ -74,6 +74,13 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
   // Import depuis un fichier d'export : contenu lu + aperçu, confirmé avant écrasement
   const [pendingImport, setPendingImport] = useState<{ name: string; content: string; keys: string[] } | null>(null);
   const [isImportingFile, setIsImportingFile] = useState(false);
+  // Snapshot complet serveur (web) : sauvegarde ponctuelle de tout le local
+  const [serverSnapshotInfo, setServerSnapshotInfo] = useState<{ exists: boolean; savedAt?: string | null } | null>(null);
+  const [snapshotVersions, setSnapshotVersions] = useState<string[]>([]);
+  const [isLoadingSnapshots, setIsLoadingSnapshots] = useState(false);
+  const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
+  const [pendingSnapshotRestore, setPendingSnapshotRestore] = useState<{ filename: string | null; label: string } | null>(null);
+  const [isRestoringSnapshot, setIsRestoringSnapshot] = useState(false);
   const { showToast } = useToast();
 
   // Édition web : E2EE actif, data.json ≙ cache navigateur, import bureau disponible
@@ -146,11 +153,11 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
     setOperations(prev => ({ ...prev, exporting: true }));
     try {
       const success = await backupManager.exportToFile();
-      
+
       if (success) {
-        showToast('✅ Export de sécurité réussi', 'success');
+        showToast('✅ Export complet réussi (tout sauf les documents d\'enquête)', 'success');
       } else {
-        showToast('❌ Échec de l\'export de sécurité', 'error');
+        showToast('❌ Échec de l\'export complet', 'error');
       }
     } catch (error) {
       console.error('❌ Error during security export:', error);
@@ -257,6 +264,76 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
     } finally {
       setIsImportingFile(false);
       setPendingImport(null);
+    }
+  };
+
+  // ── Snapshot complet sur le serveur (web) ──
+  const loadServerSnapshots = async () => {
+    setIsLoadingSnapshots(true);
+    try {
+      const [info, versions] = await Promise.all([
+        backupManager.getServerSnapshotInfo(),
+        backupManager.listServerSnapshots(),
+      ]);
+      setServerSnapshotInfo(info);
+      setSnapshotVersions(versions);
+    } catch (error) {
+      console.error('Erreur chargement snapshots serveur:', error);
+    } finally {
+      setIsLoadingSnapshots(false);
+    }
+  };
+
+  const handleCreateServerSnapshot = async () => {
+    setIsCreatingSnapshot(true);
+    try {
+      const ok = await backupManager.createServerSnapshot();
+      if (ok) {
+        showToast('✅ Snapshot complet envoyé sur le serveur', 'success');
+        await loadServerSnapshots();
+      } else {
+        showToast('❌ Échec de l\'envoi du snapshot — vérifiez la connexion', 'error');
+      }
+    } catch (error) {
+      console.error('❌ Error creating server snapshot:', error);
+      showToast('❌ Erreur lors de la création du snapshot serveur', 'error');
+    } finally {
+      setIsCreatingSnapshot(false);
+    }
+  };
+
+  const handleRestoreServerSnapshot = async () => {
+    if (!pendingSnapshotRestore) return;
+    setIsRestoringSnapshot(true);
+    try {
+      const res = await backupManager.restoreServerSnapshot(pendingSnapshotRestore.filename);
+      if (res.success) {
+        showToast(`✅ ${res.restoredKeys.length} type(s) de données restauré(s). Rechargement...`, 'success');
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        showToast(`❌ Restauration refusée : ${res.error || 'erreur inconnue'}`, 'error');
+      }
+    } catch (error) {
+      console.error('❌ Error restoring server snapshot:', error);
+      showToast('❌ Erreur lors de la restauration du snapshot', 'error');
+    } finally {
+      setIsRestoringSnapshot(false);
+      setPendingSnapshotRestore(null);
+    }
+  };
+
+  // Affiche un nom de version serveur (« 2026-06-15T09_25_02.123Z~user.json ») lisiblement.
+  const formatSnapshotVersion = (filename: string) => {
+    try {
+      const stamp = filename.split('~')[0];
+      const iso = stamp.replace(/T(\d{2})_(\d{2})_(\d{2})/, 'T$1:$2:$3');
+      const d = new Date(iso);
+      const who = filename.includes('~') ? ' — ' + filename.split('~')[1].replace(/\.json$/, '') : '';
+      return isNaN(d.getTime())
+        ? filename
+        : d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + who;
+    } catch {
+      return filename;
     }
   };
 
@@ -500,8 +577,8 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
               className="h-20 flex flex-col"
             >
               <Download className="h-6 w-6 mb-2" />
-              {operations.exporting ? 'Export...' : 'Export sélectif'}
-              <span className="text-xs opacity-75">Vers fichier</span>
+              {operations.exporting ? 'Export...' : 'Export complet'}
+              <span className="text-xs opacity-75">Tout sauf documents</span>
             </Button>
             
             <Button 
@@ -570,6 +647,96 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
           )}
         </CardContent>
       </Card>
+
+      {/* ☁️ SAUVEGARDE COMPLÈTE SUR LE SERVEUR (web) */}
+      {isWeb && (
+        <Card className="border-emerald-200">
+          <CardHeader>
+            <CardTitle className="flex items-center text-emerald-700">
+              <HardDriveDownload className="h-5 w-5 mr-2" />
+              Sauvegarde complète sur le serveur
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="p-3 bg-emerald-50 rounded text-sm text-emerald-800">
+              Envoie une copie chiffrée de <strong>toutes vos données</strong> (paramètres, préférences,
+              cartographie, module instruction, enquêtes, AIR…) dans un coffre personnel sur le serveur.
+              Les <strong>documents d'enquête</strong> en sont exclus (déjà stockés à part, chiffrés).
+              Chaque envoi <strong>archive automatiquement le précédent</strong> : vous pouvez restaurer
+              une version ancienne à tout moment, même depuis un autre poste.
+            </div>
+
+            <Button
+              onClick={handleCreateServerSnapshot}
+              disabled={isCreatingSnapshot || !syncStatus?.isOnline}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {isCreatingSnapshot ? 'Envoi en cours...' : 'Créer un snapshot complet sur le serveur'}
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadServerSnapshots}
+              disabled={isLoadingSnapshots}
+            >
+              {isLoadingSnapshots ? 'Chargement...' : serverSnapshotInfo ? 'Rafraîchir la liste' : 'Voir les snapshots disponibles'}
+            </Button>
+
+            {serverSnapshotInfo && (
+              <div className="space-y-1 max-h-64 overflow-y-auto border rounded divide-y">
+                {serverSnapshotInfo.exists && (
+                  <div className="px-3 py-2 flex items-center justify-between gap-3 text-sm bg-emerald-50/60">
+                    <div className="min-w-0">
+                      <span className="font-medium text-gray-800">Snapshot actuel</span>
+                      {serverSnapshotInfo.savedAt && (
+                        <span className="text-gray-500 ml-2">
+                          {new Date(serverSnapshotInfo.savedAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-emerald-700 border-emerald-300 hover:bg-emerald-100 flex-shrink-0"
+                      disabled={isRestoringSnapshot}
+                      onClick={() => setPendingSnapshotRestore({ filename: null, label: 'le snapshot actuel' })}
+                    >
+                      <RotateCcw className="h-3 w-3 mr-1" />
+                      Restaurer
+                    </Button>
+                  </div>
+                )}
+                {snapshotVersions.map(filename => (
+                  <div key={filename} className="px-3 py-2 flex items-center justify-between gap-3 text-sm">
+                    <span className="text-gray-600 min-w-0 truncate">{formatSnapshotVersion(filename)}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="flex-shrink-0"
+                      disabled={isRestoringSnapshot}
+                      onClick={() => setPendingSnapshotRestore({ filename, label: formatSnapshotVersion(filename) })}
+                    >
+                      <RotateCcw className="h-3 w-3 mr-1" />
+                      Restaurer
+                    </Button>
+                  </div>
+                ))}
+                {!serverSnapshotInfo.exists && snapshotVersions.length === 0 && (
+                  <div className="px-3 py-2 text-sm text-gray-500">
+                    Aucun snapshot sur le serveur pour l'instant — cliquez « Créer un snapshot complet ».
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!syncStatus?.isOnline && (
+              <p className="text-xs text-gray-500 text-center">Serveur inaccessible — connexion requise</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── PARAMÈTRES AVANCÉS (outils techniques de récupération) ── */}
       <button
@@ -735,8 +902,9 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
         </CardContent>
       </Card>
 
-      {/* 🔧 RÉPARATION DU SERVEUR */}
-      {onRepairServer && (
+      {/* 🔧 RÉPARATION DU SERVEUR — sans objet en web (le serveur versionne
+          automatiquement chaque coffre : la restauration suffit) */}
+      {onRepairServer && !isWeb && (
         <Card className="border-orange-200">
           <CardHeader>
             <CardTitle className="flex items-center text-orange-700">
@@ -787,7 +955,7 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
             {isImportingFile ? 'Import en cours…' : 'Importer depuis un fichier de sauvegarde'}
           </Button>
           <p className="text-xs text-gray-500 mt-2">
-            Accepte un « Export sélectif » ou une sauvegarde SIRAL (.json). Le contenu est
+            Accepte un « Export complet » ou une sauvegarde SIRAL (.json). Le contenu est
             vérifié et affiché avant import, et une sauvegarde de sécurité est créée automatiquement.
           </p>
         </CardContent>
@@ -855,6 +1023,19 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
         title="Restauration depuis backup serveur"
         message={`⚠️ Cette action va écraser vos données locales ET le fichier serveur principal avec le contenu du backup :\n\n"${selectedServerBackup}"\n\nÀ effectuer depuis la machine de la personne dont les données ont été perdues.`}
         confirmLabel={operations.restoringServerBackup ? 'Restauration...' : 'Restaurer depuis ce backup'}
+        cancelLabel="Annuler"
+      />
+
+      {/* ☁️ DIALOGUE DE CONFIRMATION RESTAURATION SNAPSHOT SERVEUR */}
+      <ConfirmationDialog
+        isOpen={pendingSnapshotRestore !== null}
+        onClose={() => setPendingSnapshotRestore(null)}
+        onConfirm={handleRestoreServerSnapshot}
+        title="Restaurer ce snapshot complet"
+        message={pendingSnapshotRestore
+          ? `⚠️ Cette action va remplacer vos données locales par ${pendingSnapshotRestore.label}.\n\nVos données locales actuelles seront elles-mêmes sauvegardées (historique local) avant l'écrasement. L'application se rechargera ensuite.`
+          : ''}
+        confirmLabel={isRestoringSnapshot ? 'Restauration...' : 'Restaurer ce snapshot'}
         cancelLabel="Annuler"
       />
 

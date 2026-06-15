@@ -132,6 +132,19 @@ interface ElectronAPI {
   dataSync_readContentieuxBackup?: (contentieuxId: string, filename: string) => Promise<{ data: import('./dataSyncTypes').SyncData; metadata: import('./dataSyncTypes').SyncMetadata | null } | null>;
   getCurrentUser?: () => Promise<{ displayName: string; computerName: string }>;
 
+  // Snapshot complet personnel (mode web) : sauvegarde ponctuelle de tout le
+  // local chiffré dans le coffre serveur snapshot-<user> (versionné auto).
+  /** Pousse un snapshot complet chiffré sur le serveur (archive auto le précédent). */
+  fullSnapshot_push?: (payload: unknown) => Promise<boolean>;
+  /** Métadonnées du snapshot courant (existence + date), sans déchiffrer. */
+  fullSnapshot_info?: () => Promise<{ exists: boolean; savedAt?: string | null; savedBy?: string | null }>;
+  /** Liste les versions archivées du snapshot personnel (plus récent en premier). */
+  fullSnapshot_listVersions?: () => Promise<string[]>;
+  /** Lit le snapshot courant (déchiffré) ou null si absent/injoignable. */
+  fullSnapshot_readCurrent?: () => Promise<unknown | null>;
+  /** Lit une version archivée du snapshot personnel (déchiffrée). */
+  fullSnapshot_readVersion?: (filename: string) => Promise<unknown | null>;
+
   // Synchronisation module instruction (sauvegarde réseau privée par utilisateur).
   // basePath = dossier réseau choisi par l'utilisateur dans les paramètres.
   /** Vérifie que le dossier réseau instruction est accessible. */
