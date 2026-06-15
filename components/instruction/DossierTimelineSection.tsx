@@ -171,6 +171,23 @@ const getExpertiseIcon = (cat: CategorieExpertise | undefined): React.ElementTyp
 const EXPERTISE_PEUT_VISER_VICTIME = (cat?: CategorieExpertise): boolean =>
   cat === 'psychologique' || cat === 'psychiatrique' || cat === 'medico_legale';
 
+/**
+ * Libellé lisible d'un écart passé exprimé en jours.
+ * Le calcul reste exact ; on l'affiche simplement en jours / mois / années
+ * selon l'ampleur, car « il y a 132 j » est illisible (≈ 4 mois) et prête à
+ * confusion. Cohérent avec le badge « X mois » de l'en-tête du dossier.
+ */
+const formatPastDelay = (days: number): string => {
+  if (days <= 0) return 'auj.';
+  if (days === 1) return 'hier';
+  if (days < 31) return `il y a ${days} j`;
+  if (days < 365) return `il y a ${Math.round(days / 30.44)} mois`;
+  const annees = Math.floor(days / 365);
+  const mois = Math.round((days % 365) / 30.44);
+  const blocAnnees = `${annees} an${annees > 1 ? 's' : ''}`;
+  return mois > 0 ? `il y a ${blocAnnees} ${mois} mois` : `il y a ${blocAnnees}`;
+};
+
 // ─────────────────────────────────────────────────────────────────
 // Composant principal
 // ─────────────────────────────────────────────────────────────────
@@ -520,7 +537,7 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
             <span className={isPast ? 'text-gray-400' : 'text-gray-500'}>
               {e.date.toLocaleDateString('fr-FR')}
               {' · '}
-              {isPast ? `il y a ${days} j` : days === 0 ? 'auj.' : days === 1 ? 'demain' : `J+${days}`}
+              {isPast ? formatPastDelay(days) : days === 0 ? 'auj.' : days === 1 ? 'demain' : `J+${days}`}
             </span>
             <SyntheseBubbleButton
               hasSynthese={hasSynthese}
@@ -602,7 +619,7 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
             <span className={isPast ? 'text-gray-400' : 'text-gray-500'}>
               {item.date.toLocaleDateString('fr-FR')}
               {' · '}
-              {isPast ? `il y a ${days} j` : days === 0 ? 'auj.' : days === 1 ? 'demain' : `J+${days}`}
+              {isPast ? formatPastDelay(days) : days === 0 ? 'auj.' : days === 1 ? 'demain' : `J+${days}`}
             </span>
             <SyntheseBubbleButton
               hasSynthese={hasSynthese}
