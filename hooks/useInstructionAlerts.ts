@@ -22,6 +22,28 @@ import type {
 const ALERT_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
 const THROTTLE_DELAY = 2000;
 
+const DAY = 24 * 60 * 60 * 1000;
+
+// Période de validation par type d'alerte : une fois validée, l'alerte ne
+// réapparaît pas pendant cette durée même si la condition reste vraie (aligné
+// sur le mécanisme des alertes d'enquête, cf. AlertManager.VALIDATION_PERIODS).
+const VALIDATION_PERIODS: Record<string, number> = {
+  verif_periodique_due: 14 * DAY,
+  dossier_dormant: 14 * DAY,
+  motivation_renforcee_due: 14 * DAY,
+  dp_max_legal_atteinte: 14 * DAY,
+  dp_fin_proche: 8 * DAY,
+  dp_fin_echue: 8 * DAY,
+  dml_echeance_proche: 8 * DAY,
+  dml_retard: 8 * DAY,
+  debat_jld_proche: 8 * DAY,
+  op_ji_proche: 8 * DAY,
+};
+const DEFAULT_VALIDATION_PERIOD = 14 * DAY;
+
+const getValidationPeriod = (type?: string): number =>
+  (type && VALIDATION_PERIODS[type]) || DEFAULT_VALIDATION_PERIOD;
+
 const dayDiff = (target: Date, today: Date) =>
   Math.ceil((target.getTime() - today.getTime()) / 86400000);
 
@@ -306,16 +328,29 @@ export const useInstructionAlerts = (dossiers: DossierInstruction[]) => {
         existingMap.set(key, a);
       }
 
+      const now = new Date();
       const merged = generated.map(a => {
         const key = `${a.instructionId}-${a.type}-${a.acteId || ''}`;
         const existing = existingMap.get(key);
+        // Préserver un report (snooze) encore actif
         if (existing?.status === 'snoozed' && existing.snoozedUntil) {
-          if (new Date() < new Date(existing.snoozedUntil)) {
+          if (now < new Date(existing.snoozedUntil)) {
             return {
               ...a,
               status: 'snoozed' as const,
               snoozedUntil: existing.snoozedUntil,
               snoozedCount: existing.snoozedCount,
+            };
+          }
+        }
+        // Préserver une validation encore valide : l'alerte ne doit pas
+        // réapparaître tant que la période de validation n'est pas écoulée.
+        if (existing?.status === 'validated' && existing.validatedUntil) {
+          if (now < new Date(existing.validatedUntil)) {
+            return {
+              ...a,
+              status: 'validated' as const,
+              validatedUntil: existing.validatedUntil,
             };
           }
         }
@@ -344,7 +379,22 @@ export const useInstructionAlerts = (dossiers: DossierInstruction[]) => {
   const handleValidateAlert = useCallback(
     async (alertId: number | number[]) => {
       const ids = Array.isArray(alertId) ? alertId : [alertId];
-      await setInstructionAlerts(allAlerts.filter(a => !ids.includes(a.id)));
+      const now = Date.now();
+      // On marque l'alerte comme validée (avec une date d'expiration) plutôt
+      // que de la supprimer : sinon le prochain rafraîchissement la régénère
+      // immédiatement puisque la condition sous-jacente reste vraie.
+      const next = allAlerts.map(a =>
+        ids.includes(a.id)
+          ? {
+              ...a,
+              status: 'validated' as const,
+              validatedUntil: new Date(
+                now + getValidationPeriod(a.alerteType || a.type),
+              ).toISOString(),
+            }
+          : a,
+      );
+      await setInstructionAlerts(next);
     },
     [allAlerts, setInstructionAlerts],
   );
