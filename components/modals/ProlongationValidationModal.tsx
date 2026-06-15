@@ -38,7 +38,7 @@ export const ProlongationValidationModal = ({
   const [date, setDate] = useState('');
   const [duration, setDuration] = useState(defaultDuration);
   const [calculatedEndDate, setCalculatedEndDate] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
+  const [dateError, setDateError] = useState<string | null>(null);
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -47,7 +47,7 @@ export const ProlongationValidationModal = ({
       setDate(today);
       setDuration(defaultDuration);
       setCalculatedEndDate(null);
-      setWarning(null);
+      setDateError(null);
     }
   }, [isOpen, defaultDuration]);
 
@@ -60,15 +60,28 @@ export const ProlongationValidationModal = ({
     return DateUtils.calculateEndDateWithUnit(ref, originalDuration, originalDureeUnit);
   })();
 
+  // La date de prolongation/autorisation doit être renseignée DANS la fenêtre de
+  // validité de l'acte : au plus tard à sa date de fin. Une date postérieure est
+  // bloquée (l'utilisateur doit antidater dans la fenêtre). Pour prolonger un acte
+  // échu, il faut donc antidater l'autorisation au plus tard à sa date de fin.
+  const refStartDate = poseDate || originalStartDate;
   useEffect(() => {
-    if (date && initialEndDate) {
-      if (DateUtils.isAfter(date, initialEndDate)) {
-        setWarning("Attention : la date d'autorisation est postérieure à la date de fin initiale de l'acte");
-      } else {
-        setWarning(null);
-      }
+    if (!date) {
+      setDateError(null);
+      return;
     }
-  }, [date, initialEndDate]);
+    if (initialEndDate && DateUtils.isAfter(date, initialEndDate)) {
+      setDateError(
+        `La date de prolongation ne peut pas être postérieure à la date de fin de l'acte (${DateUtils.formatDate(initialEndDate)}). Antidatez la prolongation dans la fenêtre de validité.`
+      );
+    } else if (refStartDate && DateUtils.isAfter(refStartDate, date)) {
+      setDateError(
+        `La date de prolongation ne peut pas être antérieure au début de l'acte (${DateUtils.formatDate(refStartDate)}).`
+      );
+    } else {
+      setDateError(null);
+    }
+  }, [date, initialEndDate, refStartDate]);
 
   useEffect(() => {
     if (initialEndDate && duration) {
@@ -79,6 +92,10 @@ export const ProlongationValidationModal = ({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (dateError) {
+      showToast(dateError, 'error');
+      return;
+    }
     try {
       onValidate(date, duration, prolongationDureeUnit);
       showToast('Prolongation validée', 'success');
@@ -110,11 +127,11 @@ export const ProlongationValidationModal = ({
             <p>Date de fin initiale : <span className="font-medium">{DateUtils.formatDate(initialEndDate || '')}</span></p>
           </div>
 
-          {warning && (
-            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
+          {dateError && (
+            <div className="bg-red-50 border-l-4 border-red-400 p-4">
               <div className="flex items-center">
-                <AlertCircle className="h-5 w-5 text-yellow-400 mr-2 flex-shrink-0" />
-                <p className="text-sm text-yellow-700">{warning}</p>
+                <AlertCircle className="h-5 w-5 text-red-400 mr-2 flex-shrink-0" />
+                <p className="text-sm text-red-700">{dateError}</p>
               </div>
             </div>
           )}
@@ -126,7 +143,7 @@ export const ProlongationValidationModal = ({
               value={date}
               onChange={(e) => setDate(e.target.value)}
               required
-              className={warning ? 'border-yellow-400' : ''}
+              className={dateError ? 'border-red-400' : ''}
             />
           </div>
 
@@ -161,7 +178,7 @@ export const ProlongationValidationModal = ({
             <Button type="button" variant="outline" onClick={onClose}>
               Annuler
             </Button>
-            <Button type="submit">
+            <Button type="submit" disabled={!!dateError}>
               Valider la prolongation
             </Button>
           </DialogFooter>
