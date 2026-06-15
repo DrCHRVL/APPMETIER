@@ -710,7 +710,11 @@ class BackupManager {
    */
   private async buildFullExport(): Promise<Record<string, any>> {
     const exportData: Record<string, any> = {};
-    const allKeys = await ElectronBridge.getAllKeys();
+    // Énumération via le pont (web : idb.keys('kv') ; Electron : liste réelle).
+    // NB : ElectronBridge.getAllKeys() lit la clé spéciale `__keys__`, maintenue
+    // uniquement côté Electron — inexploitable en web. On passe donc par
+    // window.electronAPI.getAllKeys() (même source que getInstructionKeys).
+    const allKeys = (await window.electronAPI?.getAllKeys?.()) || [];
     for (const key of allKeys) {
       if (key.startsWith(BackupManager.BACKUP_KEY_PREFIX)) continue;
       const data = await ElectronBridge.getData(key, null);
