@@ -10,6 +10,7 @@ import { useInstructionAlertRules } from '@/hooks/useInstructionAlertRules';
 import { useInstructionCustomTypes } from '@/hooks/useInstructionCustomTypes';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
 import { instructionSyncService } from '@/utils/dataSync/InstructionSyncService';
+import { UserManager } from '@/utils/userManager';
 import { CABINET_COLOR_PALETTE, INSTRUCTION_TRIGGER_LABELS } from '@/config/instructionConfig';
 import { cabinetSlug } from '@/utils/instructionConfigManager';
 import type { Cabinet } from '@/types/instructionTypes';
@@ -664,6 +665,9 @@ const PartageSection = () => {
   const [state, setState] = useState<InstructionShareState>(() => instructionSyncService.getShareState());
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  const [suggestions, setSuggestions] = useState<{ windowsUsername: string; displayName: string }[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const inputRef = React.useRef<HTMLInputElement>(null);
 
   // Re-hydrate à chaque évènement de partage (sync, ajout/refus d'invitation).
   useEffect(() => {
@@ -692,10 +696,39 @@ const PartageSection = () => {
     }
   };
 
+  const handleDraftChange = (value: string) => {
+    setDraft(value);
+    if (value.trim().length >= 3) {
+      const q = value.trim().toLowerCase();
+      const all = UserManager.getInstance().getAllUsers();
+      const filtered = all
+        .filter(u =>
+          u.windowsUsername.toLowerCase().includes(q) ||
+          u.displayName.toLowerCase().includes(q)
+        )
+        .slice(0, 8)
+        .map(u => ({ windowsUsername: u.windowsUsername, displayName: u.displayName }));
+      setSuggestions(filtered);
+      setShowSuggestions(filtered.length > 0);
+    } else {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+  };
+
+  const selectSuggestion = (username: string) => {
+    setDraft(username);
+    setSuggestions([]);
+    setShowSuggestions(false);
+    inputRef.current?.focus();
+  };
+
   const handleAdd = () => {
     const u = draft.trim();
     if (!u) return;
     setDraft('');
+    setSuggestions([]);
+    setShowSuggestions(false);
     void run(() => instructionSyncService.addPartner(u), 'Invitation de partage envoyée');
   };
 
@@ -789,15 +822,40 @@ const PartageSection = () => {
 
       {/* Ajout */}
       <div className="flex gap-2">
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
-          placeholder="Nom d'utilisateur (identifiant Windows) du partenaire"
-          disabled={!networkReady || busy}
-          className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg disabled:bg-gray-50 disabled:opacity-60"
-        />
+        <div className="relative flex-1">
+          <input
+            ref={inputRef}
+            type="text"
+            value={draft}
+            onChange={(e) => handleDraftChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { handleAdd(); }
+              if (e.key === 'Escape') { setShowSuggestions(false); }
+            }}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+            onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+            placeholder="Nom d'utilisateur du partenaire (dès 3 caractères)"
+            disabled={!networkReady || busy}
+            className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg disabled:bg-gray-50 disabled:opacity-60"
+          />
+          {showSuggestions && (
+            <ul className="absolute z-20 left-0 right-0 top-full mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+              {suggestions.map(s => (
+                <li
+                  key={s.windowsUsername}
+                  onMouseDown={() => selectSuggestion(s.windowsUsername)}
+                  className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-emerald-50 text-sm"
+                >
+                  <Users className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                  <span className="font-medium text-gray-800">{s.windowsUsername}</span>
+                  {s.displayName && s.displayName !== s.windowsUsername && (
+                    <span className="text-gray-400 truncate">{s.displayName}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <button
           onClick={handleAdd}
           disabled={!networkReady || busy || !draft.trim()}
