@@ -1,10 +1,10 @@
 'use client';
 
 /**
- * Paramètres → Agenda : connexion d'un calendrier Google en LECTURE SEULE
- * via son adresse secrète au format iCal. Aucun accès au compte Google,
- * aucun jeton : juste un flux .ics que vous pouvez révoquer à tout moment
- * depuis Google Agenda. L'adresse est stockée sur cet appareil (chiffré).
+ * Paramètres → Agenda : connexion d'un calendrier Google Agenda, Outlook /
+ * Microsoft 365 ou iCloud (Apple) en LECTURE SEULE via son adresse secrète au
+ * format iCal. Aucun accès au compte, aucun jeton : juste un flux .ics que vous
+ * pouvez révoquer à tout moment. L'adresse est stockée sur cet appareil (chiffré).
  */
 import React, { useEffect, useState } from 'react';
 import { CalendarDays, Check, AlertTriangle } from 'lucide-react';
@@ -41,27 +41,49 @@ export const AgendaPanel = () => {
     <div className="p-3 sm:p-6 space-y-5 max-w-3xl">
       <div>
         <h3 className="text-base font-semibold flex items-center gap-2">
-          <CalendarDays className="h-4 w-4 text-indigo-600" /> Agenda Google (lecture seule)
+          <CalendarDays className="h-4 w-4 text-indigo-600" /> Agenda Google, Outlook ou iCloud (lecture seule)
         </h3>
         <p className="text-sm text-gray-500 mt-1 leading-relaxed">
           Affiche vos prochains rendez-vous sur le tableau de bord, à côté des échéances.
-          SIRAL n&apos;accède jamais à votre compte Google : vous collez seulement
-          l&apos;<b>adresse secrète au format iCal</b> de l&apos;agenda choisi. Vous pouvez la
-          régénérer (donc la révoquer) à tout moment depuis Google&nbsp;Agenda.
+          SIRAL n&apos;accède jamais à votre compte : vous collez seulement
+          l&apos;<b>adresse secrète au format iCal</b> de l&apos;agenda choisi (Google Agenda,
+          Outlook&nbsp;/ Microsoft&nbsp;365 ou iCloud). Vous pouvez la régénérer (donc la
+          révoquer) à tout moment depuis votre agenda.
         </p>
       </div>
 
-      <ol className="text-[13px] text-gray-600 list-decimal pl-5 space-y-1">
-        <li>Google Agenda → Paramètres de l&apos;agenda concerné.</li>
-        <li>Section « Intégrer l&apos;agenda » → copiez l&apos;<b>adresse secrète au format iCal</b>.</li>
-        <li>Collez-la ci-dessous (elle commence par <code>https://calendar.google.com/…/basic.ics</code>).</li>
-      </ol>
+      <div className="text-[13px] text-gray-600 space-y-2">
+        <div>
+          <b>Google Agenda</b>
+          <ol className="list-decimal pl-5 space-y-0.5 mt-0.5">
+            <li>Google Agenda → Paramètres de l&apos;agenda concerné.</li>
+            <li>Section « Intégrer l&apos;agenda » → copiez l&apos;<b>adresse secrète au format iCal</b>.</li>
+            <li>Elle commence par <code>https://calendar.google.com/…/basic.ics</code>.</li>
+          </ol>
+        </div>
+        <div>
+          <b>Outlook / Microsoft&nbsp;365</b>
+          <ol className="list-decimal pl-5 space-y-0.5 mt-0.5">
+            <li>Outlook → Paramètres → Calendrier → <b>Calendriers partagés</b>.</li>
+            <li>Section « Publier un calendrier » → publiez-le, puis copiez le lien <b>ICS</b>.</li>
+            <li>Elle commence par <code>https://outlook.office365.com/…/calendar.ics</code> (ou <code>outlook.live.com</code>).</li>
+          </ol>
+        </div>
+        <div>
+          <b>iCloud (Apple)</b>
+          <ol className="list-decimal pl-5 space-y-0.5 mt-0.5">
+            <li>Sur Mac : app Calendrier → clic droit sur l&apos;agenda → <b>Partager l&apos;agenda</b> → cochez <b>Calendrier public</b>.<br />Sur iPhone : Calendrier → ⓘ à côté de l&apos;agenda → activez <b>Calendrier public</b>.</li>
+            <li>Copiez le lien proposé (il commence par <code>webcal://</code> — collez-le tel quel).</li>
+            <li>L&apos;hôte est de la forme <code>p52-caldav.icloud.com</code>.</li>
+          </ol>
+        </div>
+      </div>
 
       <div className="space-y-2">
         <Input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"
+          placeholder="https://calendar.google.com/…/basic.ics, https://outlook.office365.com/…/calendar.ics ou webcal://p52-caldav.icloud.com/…"
           className="font-mono text-xs"
         />
         <div className="flex items-center gap-2">
@@ -94,8 +116,10 @@ export const AgendaPanel = () => {
       )}
 
       <p className="text-xs text-gray-400 leading-relaxed">
-        Sécurité : la connexion est strictement limitée à <code>calendar.google.com</code> en HTTPS, en lecture seule.
-        L&apos;adresse n&apos;est jamais journalisée sur le serveur.
+        Sécurité : la connexion est strictement limitée à <code>calendar.google.com</code>, aux domaines
+        Outlook (<code>outlook.office365.com</code>, <code>outlook.office.com</code>, <code>outlook.live.com</code>) et à
+        iCloud (<code>p…-caldav.icloud.com</code>) en HTTPS, en lecture seule. L&apos;adresse n&apos;est jamais
+        journalisée sur le serveur.
       </p>
     </div>
   );

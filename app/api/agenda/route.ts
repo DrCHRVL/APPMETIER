@@ -1,8 +1,9 @@
 /**
- * Agenda — proxy lecture seule d'un flux iCal Google Calendar.
+ * Agenda — proxy lecture seule d'un flux iCal (Google Agenda ou Outlook / Microsoft 365).
  *
  * Sécurité (pas de backdoor / anti-SSRF) :
- *  - hôte STRICTEMENT limité à calendar.google.com en HTTPS ;
+ *  - hôte STRICTEMENT limité à une liste blanche (Google + Outlook + iCloud) en HTTPS
+ *    (les liens webcal:// d'Apple sont normalisés en https://) ;
  *  - méthode GET uniquement, aucune redirection suivie vers un autre hôte ;
  *  - délai et taille bornés ; on ne renvoie que des événements (titre + dates),
  *    jamais le flux brut. L'URL secrète n'est ni journalisée ni stockée côté
@@ -14,11 +15,28 @@ export const dynamic = 'force-dynamic'
 
 const MAX_BYTES = 2 * 1024 * 1024
 
+// Hôtes autorisés pour les flux iCal publics (lecture seule).
+const ALLOWED_HOSTS = new Set([
+  'calendar.google.com',     // Google Agenda
+  'outlook.office365.com',   // Microsoft 365 (pro / établissement)
+  'outlook.office.com',      // Microsoft 365 (variante)
+  'outlook.live.com',        // Outlook.com (compte personnel)
+])
+
+// iCloud publie sur un sous-domaine variable : p01-caldav.icloud.com, p52-…, etc.
+const ICLOUD_HOST = /^p\d{1,3}-caldav\.icloud\.com$/
+
+function isAllowedHost(hostname: string): boolean {
+  return ALLOWED_HOSTS.has(hostname) || ICLOUD_HOST.test(hostname)
+}
+
 function isAllowed(raw: string): URL | null {
   try {
-    const u = new URL(raw)
+    // Apple/iCloud fournit souvent un lien webcal:// → on le traite comme https://.
+    const normalized = raw.trim().replace(/^webcal:\/\//i, 'https://')
+    const u = new URL(normalized)
     if (u.protocol !== 'https:') return null
-    if (u.hostname !== 'calendar.google.com') return null
+    if (!isAllowedHost(u.hostname)) return null
     return u
   } catch { return null }
 }
@@ -43,7 +61,7 @@ export async function POST(req: Request) {
     requireSession(req)
     const { url } = await req.json()
     const safe = isAllowed(String(url || ''))
-    if (!safe) return jsonResponse({ error: 'URL iCal Google invalide (https://calendar.google.com/… attendu)' }, { status: 400 })
+    if (!safe) return jsonResponse({ error: 'URL iCal invalide (Google Agenda, Outlook ou iCloud attendu, en https:// ou webcal://)' }, { status: 400 })
 
     const ctl = new AbortController()
     const t = setTimeout(() => ctl.abort(), 10000)
