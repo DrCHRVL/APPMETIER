@@ -126,6 +126,7 @@ import { UpdateChangelogModal } from '@/components/modals/UpdateChangelogModal';
 
 // 🆕 Multi-contentieux
 const SettingsModal = dynamic(() => import('@/components/modals/SettingsModal').then(m => ({ default: m.SettingsModal })), { ssr: false });
+const ShareInvitationModal = dynamic(() => import('@/components/modals/ShareInvitationModal').then(m => ({ default: m.ShareInvitationModal })), { ssr: false });
 const OverboardPage = dynamic(() => import('@/components/pages/OverboardPage').then(m => ({ default: m.OverboardPage })), { ssr: false });
 const GlobalStatsPage = dynamic(() => import('@/components/pages/GlobalStatsPage').then(m => ({ default: m.GlobalStatsPage })), { ssr: false });
 import { ContentieuxId } from '@/types/userTypes';
@@ -1900,6 +1901,9 @@ return (
         alertRules={alertRules}
         instructionDossiers={instructionWeeklyRecapSubscribed ? instructions : undefined}
       />
+
+      {/* Invitations de partage entrantes (AIR / instruction) — pop-up un clic */}
+      <ShareInvitationModal />
 
       {/* 🆕 Modal Paramètres multi-onglets */}
       <SettingsModal
