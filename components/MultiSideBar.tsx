@@ -274,8 +274,7 @@ export const MultiSideBar = ({
             >
               <Scale className={`h-4 w-4 flex-shrink-0 ${currentView === 'instructions' ? 'text-white' : 'text-white/60'}`} />
               {isOpen && <span className="truncate">Instructions judiciaires</span>}
-              {instructionAlertCount > 0 ? <AlertBadge count={instructionAlertCount} />
-                : (isOpen && instructionCount > 0 && <CountPill n={instructionCount} />)}
+              {isOpen && instructionCount > 0 && <CountPill n={instructionCount} />}
             </button>
             <button
               className={`
