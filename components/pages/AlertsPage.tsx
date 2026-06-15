@@ -72,7 +72,23 @@ const VisualAlertsSection = ({
     enabled: true,
   });
 
-  const sortedRules = [...rules].sort((a, b) => a.priority - b.priority);
+  // Copie optimiste locale : la persistance (écriture locale + push coffre)
+  // est asynchrone et passe par un aller-retour réseau. Sans état local, le
+  // Switch contrôlé reste figé sur l'ancienne valeur le temps du round-trip et
+  // « se remet » visuellement. On reflète donc le changement immédiatement ici,
+  // puis on se resynchronise sur les props quand elles arrivent.
+  const [localRules, setLocalRules] = useState<VisualAlertRule[]>(rules);
+  useEffect(() => { setLocalRules(rules); }, [rules]);
+
+  const sortedRules = [...localRules].sort((a, b) => a.priority - b.priority);
+
+  const handleUpdateRule = (rule: VisualAlertRule) => {
+    setLocalRules(prev => {
+      const exists = prev.some(r => r.id === rule.id);
+      return exists ? prev.map(r => (r.id === rule.id ? rule : r)) : [...prev, rule];
+    });
+    onUpdateRule(rule);
+  };
 
   const startEdit = (rule: VisualAlertRule) => {
     setEditingId(rule.id);
@@ -81,10 +97,15 @@ const VisualAlertsSection = ({
 
   const saveEdit = () => {
     if (editDraft) {
-      onUpdateRule(editDraft);
+      handleUpdateRule(editDraft);
       setEditingId(null);
       setEditDraft(null);
     }
+  };
+
+  const handleDeleteRule = (ruleId: number) => {
+    setLocalRules(prev => prev.filter(r => r.id !== ruleId));
+    onDeleteRule?.(ruleId);
   };
 
   const cancelEdit = () => {
@@ -98,6 +119,8 @@ const VisualAlertsSection = ({
     const newRules = [...sortedRules];
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
     [newRules[idx], newRules[swapIdx]] = [newRules[swapIdx], newRules[idx]];
+    // Reflète l'ordre (et les priorités) localement avant l'aller-retour de sync.
+    setLocalRules(newRules.map((r, i) => ({ ...r, priority: i + 1 })));
     onReorderRules?.(newRules);
   };
 
@@ -115,7 +138,7 @@ const VisualAlertsSection = ({
       enabled: true,
       priority: maxPriority + 1,
     };
-    onUpdateRule(rule);
+    handleUpdateRule(rule);
     setShowNewDialog(false);
     setNewRule({ trigger: 'acte_critique', label: '', seuil: 7, mode: 'fond_bordure', fondColor: 'orange', bordureColor: 'orange', enabled: true });
   };
@@ -264,7 +287,7 @@ const VisualAlertsSection = ({
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <Switch
                 checked={rule.enabled}
-                onCheckedChange={() => onUpdateRule({ ...rule, enabled: !rule.enabled })}
+                onCheckedChange={() => handleUpdateRule({ ...rule, enabled: !rule.enabled })}
               />
               {editingId === rule.id ? (
                 <>
@@ -281,7 +304,7 @@ const VisualAlertsSection = ({
                     <Edit2 className="h-3.5 w-3.5" />
                   </Button>
                   {!rule.isSystemRule && onDeleteRule && (
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={() => onDeleteRule(rule.id)}>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={() => handleDeleteRule(rule.id)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   )}

@@ -1,4 +1,4 @@
-import { AlertRule, VisualAlertRule, VisualAlertColorKey } from '@/types/interfaces';
+import { AlertRule, VisualAlertRule, VisualAlertColorKey, VisualAlertTrigger } from '@/types/interfaces';
 
 export const APP_CONFIG = {
   ALERT_CHECK_INTERVAL: 3600000, // 1 hour in milliseconds
@@ -82,20 +82,50 @@ export const VISUAL_ALERT_COLOR_PALETTE: Record<VisualAlertColorKey, {
   dot: string;
   label: string;
 }> = {
-  'red':      { fond: 'bg-red-50',     bordureLeft: 'border-l-red-500',    bordureRight: 'border-r-red-500',    dot: 'bg-red-500',    label: 'Rouge' },
-  'red-dark': { fond: 'bg-red-100',    bordureLeft: 'border-l-red-600',    bordureRight: 'border-r-red-600',    dot: 'bg-red-600',    label: 'Rouge foncé' },
-  'orange':   { fond: 'bg-orange-100', bordureLeft: 'border-l-orange-400', bordureRight: 'border-r-orange-400', dot: 'bg-orange-400', label: 'Orange' },
-  'amber':    { fond: 'bg-amber-50',   bordureLeft: 'border-l-amber-300',  bordureRight: 'border-r-amber-300',  dot: 'bg-amber-400',  label: 'Ambre' },
-  'yellow':   { fond: 'bg-yellow-50',  bordureLeft: 'border-l-yellow-400', bordureRight: 'border-r-yellow-400', dot: 'bg-yellow-400', label: 'Jaune' },
-  'green':    { fond: 'bg-green-50',   bordureLeft: 'border-l-green-500',  bordureRight: 'border-r-green-500',  dot: 'bg-green-500',  label: 'Vert' },
-  'blue':     { fond: 'bg-blue-50',    bordureLeft: 'border-l-blue-500',   bordureRight: 'border-r-blue-500',   dot: 'bg-blue-500',   label: 'Bleu' },
-  'purple':   { fond: 'bg-purple-50',  bordureLeft: 'border-l-purple-500', bordureRight: 'border-r-purple-500', dot: 'bg-purple-500', label: 'Violet' },
-  'gray':     { fond: 'bg-gray-100',   bordureLeft: 'border-l-gray-400',   bordureRight: 'border-r-gray-400',   dot: 'bg-gray-400',   label: 'Gris' },
+  // Fonds volontairement plus marqués (-100/-200) pour une meilleure
+  // présence visuelle, tout en restant lisibles sous le texte des cartes.
+  'red':      { fond: 'bg-red-100',     bordureLeft: 'border-l-red-500',     bordureRight: 'border-r-red-500',     dot: 'bg-red-500',     label: 'Rouge' },
+  'red-dark': { fond: 'bg-red-200',     bordureLeft: 'border-l-red-600',     bordureRight: 'border-r-red-600',     dot: 'bg-red-600',     label: 'Rouge foncé' },
+  'orange':   { fond: 'bg-orange-100',  bordureLeft: 'border-l-orange-500',  bordureRight: 'border-r-orange-500',  dot: 'bg-orange-500',  label: 'Orange' },
+  'amber':    { fond: 'bg-amber-100',   bordureLeft: 'border-l-amber-400',   bordureRight: 'border-r-amber-400',   dot: 'bg-amber-400',   label: 'Ambre' },
+  'yellow':   { fond: 'bg-yellow-100',  bordureLeft: 'border-l-yellow-400',  bordureRight: 'border-r-yellow-400',  dot: 'bg-yellow-400',  label: 'Jaune' },
+  'lime':     { fond: 'bg-lime-100',    bordureLeft: 'border-l-lime-500',    bordureRight: 'border-r-lime-500',    dot: 'bg-lime-500',    label: 'Citron vert' },
+  'green':    { fond: 'bg-green-100',   bordureLeft: 'border-l-green-500',   bordureRight: 'border-r-green-500',   dot: 'bg-green-500',   label: 'Vert' },
+  'emerald':  { fond: 'bg-emerald-100', bordureLeft: 'border-l-emerald-500', bordureRight: 'border-r-emerald-500', dot: 'bg-emerald-500', label: 'Émeraude' },
+  'teal':     { fond: 'bg-teal-100',    bordureLeft: 'border-l-teal-500',    bordureRight: 'border-r-teal-500',    dot: 'bg-teal-500',    label: 'Sarcelle' },
+  'cyan':     { fond: 'bg-cyan-100',    bordureLeft: 'border-l-cyan-500',    bordureRight: 'border-r-cyan-500',    dot: 'bg-cyan-500',    label: 'Cyan' },
+  'sky':      { fond: 'bg-sky-100',     bordureLeft: 'border-l-sky-500',     bordureRight: 'border-r-sky-500',     dot: 'bg-sky-500',     label: 'Ciel' },
+  'blue':     { fond: 'bg-blue-100',    bordureLeft: 'border-l-blue-500',    bordureRight: 'border-r-blue-500',    dot: 'bg-blue-500',    label: 'Bleu' },
+  'indigo':   { fond: 'bg-indigo-100',  bordureLeft: 'border-l-indigo-500',  bordureRight: 'border-r-indigo-500',  dot: 'bg-indigo-500',  label: 'Indigo' },
+  'purple':   { fond: 'bg-purple-100',  bordureLeft: 'border-l-purple-500',  bordureRight: 'border-r-purple-500',  dot: 'bg-purple-500',  label: 'Violet' },
+  'fuchsia':  { fond: 'bg-fuchsia-100', bordureLeft: 'border-l-fuchsia-500', bordureRight: 'border-r-fuchsia-500', dot: 'bg-fuchsia-500', label: 'Fuchsia' },
+  'pink':     { fond: 'bg-pink-100',    bordureLeft: 'border-l-pink-500',    bordureRight: 'border-r-pink-500',    dot: 'bg-pink-500',    label: 'Rose vif' },
+  'rose':     { fond: 'bg-rose-100',    bordureLeft: 'border-l-rose-500',    bordureRight: 'border-r-rose-500',    dot: 'bg-rose-500',    label: 'Rose' },
+  'slate':    { fond: 'bg-slate-200',   bordureLeft: 'border-l-slate-500',   bordureRight: 'border-r-slate-500',   dot: 'bg-slate-500',   label: 'Ardoise' },
+  'gray':     { fond: 'bg-gray-100',    bordureLeft: 'border-l-gray-400',    bordureRight: 'border-r-gray-400',    dot: 'bg-gray-400',    label: 'Gris' },
 };
 
+// Ordre d'affichage de la palette (du chaud au froid, neutres en fin).
 export const VISUAL_ALERT_COLOR_KEYS: VisualAlertColorKey[] = [
-  'red', 'red-dark', 'orange', 'amber', 'yellow', 'green', 'blue', 'purple', 'gray'
+  'red', 'red-dark', 'orange', 'amber', 'yellow', 'lime', 'green', 'emerald',
+  'teal', 'cyan', 'sky', 'blue', 'indigo', 'purple', 'fuchsia', 'pink', 'rose',
+  'slate', 'gray',
 ];
+
+// Regroupement logique des déclencheurs : à l'affichage d'une carte, on ne
+// retient qu'UNE seule règle (la plus prioritaire) par groupe, pour éviter la
+// superposition de plusieurs paliers décrivant le même objet.
+//   - groupe « op »  : OP dépassée / OP très proche / OP dans la semaine se
+//     succèdent sur la même date d'OP — un seul palier doit colorer la carte.
+//   - groupe « jld » : « JLD en attente » recoupe « Prolongation en attente »
+//     ET « Autorisation JLD en attente » (même décision JLD attendue).
+export const VISUAL_ALERT_TRIGGER_GROUP: Partial<Record<VisualAlertTrigger, string>> = {
+  op_active: 'op',
+  op_proche: 'op',
+  prolongation_pending: 'jld',
+  autorisation_pending: 'jld',
+  jld_pending: 'jld',
+};
 
 export const VISUAL_ALERT_TRIGGER_LABELS: Record<string, string> = {
   'op_active': 'OP en cours (date dépassée)',

@@ -6,7 +6,7 @@ import { Archive, Edit, Trash, RotateCcw, Users, Building2, FileText, Calendar, 
 import { Enquete, Alert, VisualAlertRule, ToDoItem } from '@/types/interfaces';
 import { getUnseenModifications } from '@/utils/modificationLogger';
 import { getOPPhases, getOPPhaseEndDate } from '@/utils/opPhases';
-import { VISUAL_ALERT_COLOR_PALETTE } from '@/config/constants';
+import { VISUAL_ALERT_COLOR_PALETTE, VISUAL_ALERT_TRIGGER_GROUP } from '@/config/constants';
 import { StartEnqueteModal } from './modals/StartEnqueteModal';
 import { AlertsModal } from './modals/AlertsModal';
 import { ArchiveEnqueteModal } from './modals/ArchiveEnqueteModal';
@@ -167,7 +167,7 @@ export const EnquetePreview = React.memo(({
   const matchingVisualRules = useMemo(() => {
     if (visualAlertRules.length === 0) return [];
 
-    return visualAlertRules
+    const matched = visualAlertRules
       .filter(rule => rule.enabled)
       .filter(rule => {
         switch (rule.trigger) {
@@ -219,6 +219,20 @@ export const EnquetePreview = React.memo(({
         }
       })
       .sort((a, b) => a.priority - b.priority);
+
+    // Exclusivité par groupe logique : plusieurs paliers d'un même groupe
+    // (OP dépassée/proche/semaine, ou JLD/prolongation/autorisation) peuvent
+    // matcher en même temps pour le même objet. On ne garde alors que la règle
+    // la plus prioritaire du groupe pour éviter la superposition des couleurs
+    // et des bordures. Les déclencheurs hors groupe restent cumulables.
+    const seenGroups = new Set<string>();
+    return matched.filter(rule => {
+      const group = VISUAL_ALERT_TRIGGER_GROUP[rule.trigger];
+      if (!group) return true;
+      if (seenGroups.has(group)) return false;
+      seenGroups.add(group);
+      return true;
+    });
   }, [visualAlertRules, daysToOP, activeActes, enquete.comptesRendus]);
 
   // Calcul des classes CSS depuis les règles visuelles
