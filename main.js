@@ -731,6 +731,7 @@ function setupIpcHandlers() {
         totalExternal: 0,
         addedToInternal: [],
         addedToExternal: [],
+        notOnCommun: [],
         errors: [],
         externalAccessible: true
       };
@@ -822,7 +823,8 @@ function setupIpcHandlers() {
                 fs.copyFileSync(sourcePath, destPath);
                 result.addedToExternal.push(`${category}/${internalFile}`);
               } catch (error) {
-                result.errors.push(`Erreur copie de ${category}/${internalFile} vers externe: ${error.message}`);
+                result.notOnCommun.push(`${category}/${internalFile}`);
+                result.errors.push(`Copie vers le commun échouée : ${category}/${internalFile} (${error.message})`);
               }
             }
           }
@@ -2642,6 +2644,23 @@ function setupIpcHandlers() {
     } catch (error) {
       console.error('❌ InstructionSync: Erreur lecture backup:', error.message)
       return null
+    }
+  })
+
+  // Liste les utilisateurs ayant un fichier d'instruction sur le dossier réseau.
+  // Sert à découvrir les invitations de partage entrantes (un magistrat qui
+  // m'a cité dans son `shareWith`). Renvoie les usernames (préfixes des
+  // fichiers `<user>-instructions.json`), hors fichiers de groupe `shared__…`.
+  ipcMain.handle('instructionSync:listUsers', async (event, basePath) => {
+    try {
+      if (!basePath || !fs.existsSync(basePath)) return []
+      return fs.readdirSync(basePath)
+        .filter(f => f.endsWith('-instructions.json'))
+        .map(f => f.replace(/-instructions\.json$/i, ''))
+        .filter(u => u && !u.startsWith('shared__'))
+    } catch (error) {
+      console.error('❌ InstructionSync: Erreur listage utilisateurs:', error.message)
+      return []
     }
   })
 

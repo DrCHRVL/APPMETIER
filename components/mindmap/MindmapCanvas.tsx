@@ -126,7 +126,7 @@ const CENTERED_HANDLE_STYLE: React.CSSProperties = {
 };
 
 const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
-  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus, isPinned } = data;
+  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus, isPinned, isVictime } = data;
   const size = radius * 2;
   // MEC "pont" : présent sur ≥ 2 contentieux distincts → halo violet pour
   // matérialiser la transversalité (signal du score, mais visuel).
@@ -164,10 +164,15 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
         }}
       />
       <span
-        className="relative z-10 px-2 leading-tight"
+        className="relative z-10 px-2 leading-tight flex flex-col items-center"
         style={{ fontSize: Math.max(10, Math.min(13, radius / 3.5)) }}
       >
         {displayName}
+        {isVictime && (
+          <span className="opacity-80 italic" style={{ fontSize: Math.max(8, Math.min(11, radius / 4.5)) }}>
+            (Victime)
+          </span>
+        )}
       </span>
     </div>
   );

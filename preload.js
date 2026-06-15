@@ -211,6 +211,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('instructionSync:listBackups', basePath, username),
   instructionSync_readBackup: (basePath, username, filename) =>
     ipcRenderer.invoke('instructionSync:readBackup', basePath, username, filename),
+  instructionSync_listUsers: (basePath) =>
+    ipcRenderer.invoke('instructionSync:listUsers', basePath),
 
   // ========================================================================
   // HEARTBEAT, ÉVÉNEMENTS PARTAGÉS, JOURNAL D'AUDIT

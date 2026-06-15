@@ -301,6 +301,9 @@ export interface Victime {
   /** Date de constitution */
   datePC?: string;
   notes?: string;
+  /** Faire apparaître la victime sur le module cartographie (rattachée au dossier,
+   *  comme un mis en cause, avec la mention « (Victime) »). */
+  surCarto?: boolean;
 }
 
 // ──────────────────────────────────────────────

@@ -24,4 +24,12 @@ export interface InstructionSyncFile {
   windowsUsername: string;
   dossiers: DossierInstruction[];
   deletedIds: InstructionTombstone[];
+  /**
+   * Partage du module : usernames (windowsUsername) avec qui ce magistrat
+   * accepte de fusionner ses dossiers d'instruction. Le partage n'est effectif
+   * que s'il est RÉCIPROQUE (double consentement) : A et B doivent chacun citer
+   * l'autre. Sert aussi d'« invitation » — un partenaire qui me cite sans que je
+   * le cite est une invitation en attente, que je peux accepter ou refuser.
+   */
+  shareWith?: string[];
 }

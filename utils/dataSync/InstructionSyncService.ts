@@ -49,6 +49,50 @@ function tombstonesKey(username: string): string {
   return `${APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS}_deleted__${username}`;
 }
 
+/** Clé de stockage local de la configuration de partage (partenaires + refus). */
+function shareConfigKey(username: string): string {
+  return `${APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS}_share__${username}`;
+}
+
+/** Normalise un username comme côté desktop (fichiers `<user>-instructions.json`). */
+function sanitizeUser(u: string): string {
+  return String(u || '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 64);
+}
+
+/** Configuration de partage locale d'un utilisateur. */
+export interface InstructionShareConfig {
+  /** Partenaires que j'accepte (= j'invite / j'accepte leur invitation). */
+  partners: string[];
+  /** Invitations entrantes que j'ai explicitement refusées (pour ne plus les afficher). */
+  declined: string[];
+}
+
+export type InstructionShareLinkStatus = 'shared' | 'pending';
+
+export interface InstructionShareState {
+  /** Capacité de partage disponible (toujours vrai si la synchro réseau est dispo). */
+  enabled: boolean;
+  /** Mes partenaires déclarés, avec le statut de la liaison. */
+  partners: Array<{ username: string; status: InstructionShareLinkStatus }>;
+  /** Invitations entrantes (quelqu'un m'a cité, je ne l'ai pas encore accepté ni refusé). */
+  incoming: string[];
+  /** Membres effectifs du groupe partagé (moi + partenaires réciproques). */
+  groupMembers: string[];
+}
+
+/** Construit la clé de fichier réseau partagé pour un groupe de membres. */
+function sharedGroupKey(members: string[]): string {
+  const uniq = Array.from(new Set(members.map(sanitizeUser))).filter(Boolean).sort();
+  return `shared__${uniq.join('__')}`.slice(0, 64);
+}
+
+/** Compare deux ensembles de usernames (insensible à l'ordre, après normalisation). */
+function sameUserSet(a: string[], b: string[]): boolean {
+  const sa = Array.from(new Set(a.map(sanitizeUser))).sort();
+  const sb = Array.from(new Set(b.map(sanitizeUser))).sort();
+  return sa.length === sb.length && sa.every((v, i) => v === sb[i]);
+}
+
 function dossierTime(d: DossierInstruction): number {
   return Date.parse(d.dateMiseAJour || d.dateCreation || '') || 0;
 }
@@ -78,43 +122,59 @@ interface MergeResult {
   tombstones: InstructionTombstone[];
 }
 
-function merge(
-  localDossiers: DossierInstruction[],
-  localTombstones: InstructionTombstone[],
-  server: InstructionSyncFile | null,
+/**
+ * Fusion multi-sources (partage entre magistrats). Union par id de dossier (la
+ * `dateMiseAJour` la plus récente gagne), puis application des tombstones.
+ * Modèle « 1+1 = 2 » : purement additif, aucune déduplication par parquet —
+ * deux dossiers de même n° de parquet coexistent (cf. parquetDisplay côté UI).
+ */
+function mergeMany(
+  sources: Array<DossierInstruction[] | undefined>,
+  tombstoneSets: Array<InstructionTombstone[] | undefined>,
 ): MergeResult {
   const byId = new Map<number, DossierInstruction>();
-  for (const d of localDossiers) {
-    if (d && typeof d.id === 'number') byId.set(d.id, d);
-  }
-  if (server?.dossiers) {
-    for (const d of server.dossiers) {
+  for (const src of sources) {
+    if (!src) continue;
+    for (const d of src) {
       if (!d || typeof d.id !== 'number') continue;
       const existing = byId.get(d.id);
-      if (!existing || dossierTime(d) > dossierTime(existing)) {
-        byId.set(d.id, d);
-      }
+      if (!existing || dossierTime(d) > dossierTime(existing)) byId.set(d.id, d);
     }
   }
-
-  const tombstones = mergeTombstones(localTombstones, server?.deletedIds || []);
+  let tombstones: InstructionTombstone[] = [];
+  for (const ts of tombstoneSets) tombstones = mergeTombstones(tombstones, ts || []);
   const tombById = new Map(tombstones.map(t => [t.id, t]));
 
-  // Applique les tombstones : retire un dossier supprimé sauf s'il a été
-  // modifié après la date de suppression (réapparition volontaire).
   const survivors: DossierInstruction[] = [];
   for (const d of byId.values()) {
     const t = tombById.get(d.id);
     if (t && dossierTime(d) <= Date.parse(t.deletedAt)) continue;
     survivors.push(d);
   }
-
-  // Purge les tombstones dont le dossier a été ressuscité (sinon ils
-  // resupprimeraient indéfiniment la même fiche).
   const survivorIds = new Set(survivors.map(d => d.id));
   const cleanTombstones = tombstones.filter(t => !survivorIds.has(t.id));
-
   return { dossiers: survivors, tombstones: cleanTombstones };
+}
+
+/**
+ * Calcule, pour une liste de dossiers, le n° de parquet à AFFICHER en
+ * désambiguïsant les doublons : si plusieurs dossiers portent le même n° de
+ * parquet (cas d'une fusion entre magistrats), les occurrences suivantes
+ * reçoivent un suffixe « (2) », « (3) »… La correction reste humaine ensuite.
+ * Retourne une Map id → libellé d'affichage (seulement pour les dossiers en doublon).
+ */
+export function parquetDisplayMap(dossiers: Array<{ id: number; numeroParquet?: string }>): Map<number, string> {
+  const seen = new Map<string, number>();
+  const out = new Map<number, string>();
+  // Ordre stable par id pour que le « (2) » tombe toujours sur le même dossier.
+  for (const d of [...dossiers].sort((a, b) => a.id - b.id)) {
+    const pq = (d.numeroParquet || '').trim();
+    if (!pq) continue;
+    const n = (seen.get(pq) || 0) + 1;
+    seen.set(pq, n);
+    if (n > 1) out.set(d.id, `${pq} (${n})`);
+  }
+  return out;
 }
 
 export class InstructionSyncService {
@@ -132,6 +192,13 @@ export class InstructionSyncService {
   private periodicTimer: ReturnType<typeof setInterval> | null = null;
   private dirty = false;
   private inFlight: Promise<void> | null = null;
+
+  // ── Partage du module entre magistrats ──
+  private shareConfig: InstructionShareConfig = { partners: [], declined: [] };
+  /** Membres réciproques effectifs (moi + partenaires qui me citent en retour). */
+  private groupMembers: string[] = [];
+  /** Invitations entrantes détectées au dernier sync (m'ont cité, pas encore traité). */
+  private incoming: string[] = [];
 
   static getInstance(): InstructionSyncService {
     if (!InstructionSyncService.instance) {
@@ -156,6 +223,10 @@ export class InstructionSyncService {
     const changed = this.username !== username || this.networkPath !== path;
     this.username = username || null;
     this.networkPath = path;
+
+    if (changed && this.username) {
+      void this.loadShareConfig();
+    }
 
     if (!this.username || !this.networkPath || !this.isAvailable()) {
       this.stopPeriodic();
@@ -279,27 +350,91 @@ export class InstructionSyncService {
   private async performSync(): Promise<{ pushed: number; pulled: number }> {
     const username = this.username!;
     const networkPath = this.networkPath!;
+    const api = window.electronAPI!;
+    const mySan = sanitizeUser(username);
 
     this.isSync = true;
     try {
-      const [localDossiers, localTombstones, server] = await Promise.all([
+      const [localDossiers, localTombstones, personalServer] = await Promise.all([
         ElectronBridge.getData<DossierInstruction[]>(dossiersKey(username), []),
         ElectronBridge.getData<InstructionTombstone[]>(tombstonesKey(username), []),
-        window.electronAPI!.instructionSync_pull!(networkPath, username),
+        api.instructionSync_pull!(networkPath, username),
       ]);
 
       const local = Array.isArray(localDossiers) ? localDossiers : [];
       const localTomb = Array.isArray(localTombstones) ? localTombstones : [];
 
-      this.version = Math.max(this.version, server?.version || 0);
+      // ── Partage : partenaires réciproques (double consentement) ──
+      const declined = new Set(this.shareConfig.declined.map(sanitizeUser));
+      const myPartners = this.shareConfig.partners
+        .map(sanitizeUser)
+        .filter(p => p && p !== mySan);
 
-      const { dossiers, tombstones } = merge(local, localTomb, server);
+      const reciprocal: string[] = [];
+      const partnerSources: Array<DossierInstruction[] | undefined> = [];
+      const partnerTombs: Array<InstructionTombstone[] | undefined> = [];
+      await Promise.all(myPartners.map(async (p) => {
+        try {
+          const pf = await api.instructionSync_pull!(networkPath, p);
+          if (pf && Array.isArray(pf.shareWith) && pf.shareWith.map(sanitizeUser).includes(mySan)) {
+            reciprocal.push(p);
+            partnerSources.push(pf.dossiers);
+            partnerTombs.push(pf.deletedIds);
+          }
+        } catch { /* partenaire injoignable : on l'ignore pour ce tour */ }
+      }));
+
+      // ── Découverte des invitations entrantes (desktop : énumération) ──
+      const incoming: string[] = [];
+      if (api.instructionSync_listUsers) {
+        try {
+          const others = (await api.instructionSync_listUsers(networkPath))
+            .map(sanitizeUser)
+            .filter(u => u && u !== mySan && !myPartners.includes(u) && !declined.has(u));
+          await Promise.all(others.map(async (u) => {
+            try {
+              const f = await api.instructionSync_pull!(networkPath, u);
+              if (f && Array.isArray(f.shareWith) && f.shareWith.map(sanitizeUser).includes(mySan)) {
+                incoming.push(u);
+              }
+            } catch { /* ignore */ }
+          }));
+        } catch { /* listUsers indisponible : pas de découverte auto */ }
+      }
+      this.incoming = incoming;
+
+      const groupActive = reciprocal.length > 0;
+      const members = groupActive
+        ? Array.from(new Set([mySan, ...reciprocal])).sort()
+        : [mySan];
+      this.groupMembers = members;
+      const dataKey = groupActive ? sharedGroupKey(members) : username;
+
+      const sharedServer = groupActive
+        ? await api.instructionSync_pull!(networkPath, dataKey)
+        : null;
+
+      this.version = Math.max(
+        this.version,
+        personalServer?.version || 0,
+        sharedServer?.version || 0,
+      );
+
+      const { dossiers, tombstones } = mergeMany(
+        [local, personalServer?.dossiers, sharedServer?.dossiers, ...partnerSources],
+        [localTomb, personalServer?.deletedIds, sharedServer?.deletedIds, ...partnerTombs],
+      );
 
       const localChanged = serializeDossiers(dossiers) !== serializeDossiers(local);
-      const serverChanged =
-        !server || serializeDossiers(dossiers) !== serializeDossiers(server.dossiers || []);
+      const personalChanged =
+        !personalServer
+        || serializeDossiers(dossiers) !== serializeDossiers(personalServer.dossiers || [])
+        || !sameUserSet(personalServer.shareWith || [], myPartners);
+      const sharedChanged =
+        groupActive
+        && (!sharedServer || serializeDossiers(dossiers) !== serializeDossiers(sharedServer.dossiers || []));
 
-      // Écrire en local si la fusion a apporté des nouveautés du serveur
+      // Écrire en local si la fusion a apporté des nouveautés
       if (localChanged) {
         await ElectronBridge.setData(dossiersKey(username), dossiers);
         await ElectronBridge.setData(tombstonesKey(username), tombstones);
@@ -308,9 +443,10 @@ export class InstructionSyncService {
         await ElectronBridge.setData(tombstonesKey(username), tombstones);
       }
 
-      // Pousser vers le serveur si le local a changé ou si un push est en attente
+      // Pousser : fichier personnel (porte mon `shareWith` = handshake) + éventuel
+      // fichier de groupe partagé (données communes aux magistrats du groupe).
       let pushed = 0;
-      if (serverChanged || this.dirty) {
+      if (personalChanged || sharedChanged || this.dirty) {
         const user = await getCurrentUserInfo();
         this.version += 1;
         const payload: InstructionSyncFile = {
@@ -321,15 +457,21 @@ export class InstructionSyncService {
           windowsUsername: username,
           dossiers,
           deletedIds: tombstones,
+          shareWith: myPartners,
         };
-        const ok = await window.electronAPI!.instructionSync_push!(networkPath, username, payload);
-        if (ok) {
+        const okPersonal = await api.instructionSync_push!(networkPath, username, payload);
+        let okShared = true;
+        if (groupActive) {
+          okShared = await api.instructionSync_push!(networkPath, dataKey, payload);
+        }
+        if (okPersonal && okShared) {
           this.dirty = false;
           pushed = dossiers.length;
         }
       }
 
       this.lastSuccessfulSync = new Date().toISOString();
+      this.emitShareChanged();
       return { pushed, pulled: localChanged ? dossiers.length : 0 };
     } finally {
       this.isSync = false;
@@ -374,6 +516,100 @@ export class InstructionSyncService {
   private emitLocalChanged(): void {
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent('instructions-sync-completed'));
+  }
+
+  private emitShareChanged(): void {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('instruction-share-changed'));
+  }
+
+  // ──────────────────────────────────────────────
+  // PARTAGE DU MODULE ENTRE MAGISTRATS
+  // ──────────────────────────────────────────────
+
+  private async loadShareConfig(): Promise<void> {
+    if (!this.username) { this.shareConfig = { partners: [], declined: [] }; return; }
+    try {
+      const raw = await ElectronBridge.getData<InstructionShareConfig>(
+        shareConfigKey(this.username),
+        { partners: [], declined: [] },
+      );
+      this.shareConfig = {
+        partners: Array.isArray(raw?.partners) ? raw.partners.map(sanitizeUser).filter(Boolean) : [],
+        declined: Array.isArray(raw?.declined) ? raw.declined.map(sanitizeUser).filter(Boolean) : [],
+      };
+    } catch {
+      this.shareConfig = { partners: [], declined: [] };
+    }
+    this.emitShareChanged();
+  }
+
+  private async saveShareConfig(): Promise<void> {
+    if (!this.username) return;
+    await ElectronBridge.setData(shareConfigKey(this.username), this.shareConfig);
+    this.emitShareChanged();
+  }
+
+  /** État de partage courant (pour l'écran Paramètres). */
+  getShareState(): InstructionShareState {
+    const mySan = sanitizeUser(this.username || '');
+    const memberSet = new Set(this.groupMembers);
+    const partners = this.shareConfig.partners
+      .map(sanitizeUser)
+      .filter(p => p && p !== mySan)
+      .map(username => ({
+        username,
+        status: (memberSet.has(username) ? 'shared' : 'pending') as InstructionShareLinkStatus,
+      }));
+    return {
+      enabled: this.isAvailable(),
+      partners,
+      incoming: [...this.incoming],
+      groupMembers: [...this.groupMembers],
+    };
+  }
+
+  /** Remplace la liste des partenaires déclarés puis resynchronise. */
+  async setPartners(usernames: string[]): Promise<void> {
+    const mySan = sanitizeUser(this.username || '');
+    const clean = Array.from(new Set(usernames.map(sanitizeUser))).filter(p => p && p !== mySan);
+    this.shareConfig.partners = clean;
+    // Un partenaire ré-ajouté ne doit plus être considéré comme refusé.
+    this.shareConfig.declined = this.shareConfig.declined.filter(d => !clean.includes(sanitizeUser(d)));
+    this.dirty = true;
+    await this.saveShareConfig();
+    await this.sync().catch(() => {});
+  }
+
+  /** Ajoute (ou accepte) un partenaire de partage. */
+  async addPartner(username: string): Promise<void> {
+    const u = sanitizeUser(username);
+    if (!u) return;
+    if (!this.shareConfig.partners.map(sanitizeUser).includes(u)) {
+      await this.setPartners([...this.shareConfig.partners, u]);
+    }
+  }
+
+  /** Accepte une invitation entrante (équivaut à ajouter le partenaire). */
+  async acceptInvite(username: string): Promise<void> {
+    await this.addPartner(username);
+  }
+
+  /** Retire un partenaire (rompt le partage de mon côté). */
+  async removePartner(username: string): Promise<void> {
+    const u = sanitizeUser(username);
+    await this.setPartners(this.shareConfig.partners.filter(p => sanitizeUser(p) !== u));
+  }
+
+  /** Refuse une invitation entrante : ne la propose plus tant qu'elle n'est pas relancée. */
+  async declineInvite(username: string): Promise<void> {
+    const u = sanitizeUser(username);
+    if (!u) return;
+    if (!this.shareConfig.declined.map(sanitizeUser).includes(u)) {
+      this.shareConfig.declined.push(u);
+    }
+    this.incoming = this.incoming.filter(i => sanitizeUser(i) !== u);
+    await this.saveShareConfig();
   }
 }
 

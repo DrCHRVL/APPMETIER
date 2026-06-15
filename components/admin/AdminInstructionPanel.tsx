@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Edit2, X, Check, Power, PowerOff, AlertTriangle, Trash2, Bell, RotateCcw, Network, FolderOpen, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Plus, Edit2, X, Check, Power, PowerOff, AlertTriangle, Trash2, Bell, RotateCcw, Network, FolderOpen, Loader2, AlertCircle, RefreshCw, Users, UserPlus, Share2, Mail } from 'lucide-react';
+import type { InstructionShareState } from '@/utils/dataSync/InstructionSyncService';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
@@ -437,6 +438,9 @@ export const AdminInstructionPanel = () => {
       {/* ─── SAUVEGARDE RÉSEAU (privée par utilisateur) ─── */}
       <NetworkBackupSection />
 
+      {/* ─── PARTAGE DU MODULE ENTRE MAGISTRATS ─── */}
+      <PartageSection />
+
       {/* ─── RAPPEL HEBDO ─── */}
       <WeeklyRecapSection />
     </div>
@@ -598,6 +602,160 @@ const NetworkBackupSection = () => {
             Enregistrer
           </button>
         </div>
+      </div>
+    </section>
+  );
+};
+
+// ──────────────────────────────────────────────
+// SECTION PARTAGE DU MODULE (entre magistrats)
+// ──────────────────────────────────────────────
+
+const PartageSection = () => {
+  const { instructionNetworkPath } = useUserPreferences();
+  const { showToast } = useToast();
+  const [state, setState] = useState<InstructionShareState>(() => instructionSyncService.getShareState());
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // Re-hydrate à chaque évènement de partage (sync, ajout/refus d'invitation).
+  useEffect(() => {
+    const refresh = () => setState(instructionSyncService.getShareState());
+    refresh();
+    window.addEventListener('instruction-share-changed', refresh);
+    window.addEventListener('instructions-sync-completed', refresh);
+    const id = setInterval(refresh, 5000);
+    return () => {
+      window.removeEventListener('instruction-share-changed', refresh);
+      window.removeEventListener('instructions-sync-completed', refresh);
+      clearInterval(id);
+    };
+  }, []);
+
+  const run = async (fn: () => Promise<void>, okMsg?: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      setState(instructionSyncService.getShareState());
+      if (okMsg) showToast(okMsg, 'success');
+    } catch {
+      showToast('Action de partage impossible', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleAdd = () => {
+    const u = draft.trim();
+    if (!u) return;
+    setDraft('');
+    void run(() => instructionSyncService.addPartner(u), 'Invitation de partage envoyée');
+  };
+
+  const networkReady = !!(instructionNetworkPath || '').trim();
+
+  return (
+    <section className="space-y-3">
+      <div>
+        <h3 className="text-base font-semibold text-gray-800 flex items-center gap-1.5">
+          <Share2 className="h-4 w-4 text-gray-500" />
+          Partage du module avec d'autres magistrats
+        </h3>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Indiquez les utilisateurs qui partagent ce module avec vous (par ex. votre
+          juriste assistante). Le partage <strong>fusionne</strong> vos dossiers
+          d'instruction en un seul module commun. Il n'est effectif que si{' '}
+          <strong>les deux</strong> se citent mutuellement : ajouter une personne lui
+          envoie une <strong>invitation</strong>, qu'elle peut accepter ou refuser.
+        </p>
+      </div>
+
+      {!networkReady && (
+        <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2.5 py-2">
+          Configurez d'abord un <strong>dossier réseau</strong> ci-dessus : le partage
+          s'appuie sur ce dossier commun.
+        </div>
+      )}
+
+      {/* Invitations entrantes */}
+      {state.incoming.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
+            <Mail className="h-3.5 w-3.5 text-emerald-600" />
+            Invitations reçues
+          </div>
+          {state.incoming.map(u => (
+            <div key={u} className="flex items-center gap-2 border border-emerald-200 bg-emerald-50 rounded-lg px-2.5 py-1.5">
+              <Users className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+              <span className="text-sm text-gray-800 flex-1 truncate">{u}</span>
+              <button
+                disabled={busy}
+                onClick={() => run(() => instructionSyncService.acceptInvite(u), 'Partage accepté')}
+                className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-md disabled:opacity-50"
+              >
+                <Check className="h-3 w-3" /> Accepter
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => run(() => instructionSyncService.declineInvite(u))}
+                className="inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded-md disabled:opacity-50"
+              >
+                <X className="h-3 w-3" /> Refuser
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Partenaires déclarés */}
+      <div className="space-y-1.5">
+        {state.partners.length === 0 && (
+          <div className="text-xs text-gray-400 italic">Aucun partenaire de partage déclaré.</div>
+        )}
+        {state.partners.map(p => (
+          <div key={p.username} className="flex items-center gap-2 border border-gray-200 rounded-lg px-2.5 py-1.5">
+            <Users className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+            <span className="text-sm text-gray-800 flex-1 truncate">{p.username}</span>
+            {p.status === 'shared' ? (
+              <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                Partagé ✓
+              </span>
+            ) : (
+              <span className="text-[11px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                En attente d'acceptation
+              </span>
+            )}
+            <button
+              disabled={busy}
+              onClick={() => run(() => instructionSyncService.removePartner(p.username))}
+              className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
+              title="Retirer ce partenaire"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Ajout */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
+          placeholder="Nom d'utilisateur (identifiant Windows) du partenaire"
+          disabled={!networkReady || busy}
+          className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg disabled:bg-gray-50 disabled:opacity-60"
+        />
+        <button
+          onClick={handleAdd}
+          disabled={!networkReady || busy || !draft.trim()}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
+          Inviter
+        </button>
       </div>
     </section>
   );
