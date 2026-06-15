@@ -59,12 +59,22 @@ export const DashboardPage = ({
   );
   const activeEnquetes = useMemo(() => enquetes.filter(e => e.statut !== 'archive'), [enquetes]);
 
-  // Actes encore actifs (géoloc, écoute, autres actes en cours)
+  // Actes réellement en cours (géoloc, écoute, autres actes posés et actifs).
+  // - Un acte non posé (pas de datePose, ex. pose/autorisation en attente) n'est
+  //   pas compté : tant qu'il n'est pas posé, il n'est pas « en cours ».
+  // - Un acte « en cours » dont la dateFin est dépassée est en réalité terminé.
+  //   Le statut est désormais normalisé au chargement, mais on garde le garde-fou
+  //   pour les actes qui expirent pendant la session (avant le prochain reload).
   const actesEnCours = useMemo(() => {
+    const now = new Date();
     let n = 0;
     for (const e of activeEnquetes) {
       for (const a of [...(e.actes || []), ...(e.ecoutes || []), ...(e.geolocalisations || [])]) {
-        if ((a as { statut?: string }).statut === 'en_cours') n++;
+        const acte = a as { statut?: string; datePose?: string; dateFin?: string };
+        if (acte.statut !== 'en_cours') continue;
+        if (!acte.datePose) continue;                                // pas posé → pas compté
+        if (acte.dateFin && new Date(acte.dateFin) < now) continue;  // expiré → terminé
+        n++;
       }
     }
     return n;
