@@ -44,6 +44,7 @@ export const AIRDashboardIntegrated = ({
 }: AIRDashboardIntegratedProps) => {
   const [showAnciennesDetails, setShowAnciennesDetails] = useState(false);
   const [showPropositionsDetails, setShowPropositionsDetails] = useState(false);
+  const [showAlerteDetails, setShowAlerteDetails] = useState<number | null>(null);
 
   // Parser les dates - format français dd/mm/yyyy
   const parseExcelDate = (dateStr: any): Date | null => {
@@ -68,9 +69,13 @@ export const AIRDashboardIntegrated = ({
     }
     
     if (typeof dateStr === 'number') {
-      // Format Excel : nombre de jours depuis le 1er janvier 1900
-      const excelEpoch = new Date(1900, 0, 1);
-      return new Date(excelEpoch.getTime() + (dateStr - 1) * 24 * 60 * 60 * 1000);
+      // Format Excel : le n° de série compte les jours depuis le 30/12/1899.
+      // Cet ancrage absorbe le bug de l'année bissextile 1900 d'Excel
+      // (qui compte un 29/02/1900 fictif) pour toutes les dates modernes.
+      // Calcul en UTC pour éviter tout décalage lié aux changements d'heure.
+      const ms = Date.UTC(1899, 11, 30) + dateStr * 24 * 60 * 60 * 1000;
+      const utc = new Date(ms);
+      return new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate());
     }
     
     return null;
@@ -200,17 +205,27 @@ const stats = useMemo(() => {
 
     const sixMoisAvant = new Date();
     sixMoisAvant.setMonth(sixMoisAvant.getMonth() - 6);
-    
+
     const mesuresAnciennes = mesures.filter(m => {
       if (m.dateCloture || m.dateFinPriseEnCharge) return false;
       const dateReception = parseExcelDate(m.dateReception);
       return dateReception && dateReception < sixMoisAvant;
     });
 
+    const douzeMoisAvant = new Date();
+    douzeMoisAvant.setMonth(douzeMoisAvant.getMonth() - 12);
+
+    const mesuresTresAnciennes = mesures.filter(m => {
+      if (m.dateCloture || m.dateFinPriseEnCharge) return false;
+      const dateReception = parseExcelDate(m.dateReception);
+      return dateReception && dateReception < douzeMoisAvant;
+    });
+
     return {
       actuel: stats,
       parAnnee: statsByYear,
       mesuresAnciennes,
+      mesuresTresAnciennes,
       allYears
     };
   }, [mesures, stats]);
@@ -293,10 +308,11 @@ const stats = useMemo(() => {
       const tauxCroissanceStock = moyenneEvolutionMensuelle;
       const stockActuel = dernier.enCours;
       
-      // Seuils d'alerte basés sur la capacité réelle (4.5 ETP référents)
-      const seuilCritique = 25 * 4.5; // 112.5 → 113 mesures (capacité maximale théorique)
-      const seuilSurcharge = 25 * 4.5; // 113 mesures (début de surcharge = capacité max)
-      const seuilOptimal = 21 * 4.5; // 94.5 → 95 mesures (rythme optimal visé)
+      // Seuils d'alerte basés sur la capacité réelle (4.5 ETP référents).
+      // Trois paliers DISTINCTS exprimés en mesures/référent :
+      const seuilOptimal = 21 * 4.5;   // 94.5  → rythme optimal visé (21/référent)
+      const seuilSurcharge = 23 * 4.5; // 103.5 → début de surcharge (23/référent)
+      const seuilCritique = 25 * 4.5;  // 112.5 → capacité maximale (25/référent)
       
       // Prédiction : à quel moment atteindrons-nous le seuil ?
       let alertes = [];
@@ -305,7 +321,7 @@ const stats = useMemo(() => {
         const moisAvantCritique = Math.ceil((seuilCritique - stockActuel) / tauxCroissanceStock);
         const moisAvantSurcharge = Math.ceil((seuilSurcharge - stockActuel) / tauxCroissanceStock);
         
-        if (stockActuel >= seuilSurcharge) {
+        if (stockActuel >= seuilCritique) {
           alertes.push({
             type: 'danger',
             titre: '🚨 Capacité maximale atteinte',
@@ -323,7 +339,7 @@ const stats = useMemo(() => {
           alertes.push({
             type: 'info',
             titre: '📈 Surveillance nécessaire',
-            message: `Le stock augmente de ${Math.round(tauxCroissanceStock*10)/10} mesures/mois. La capacité maximale (${seuilSurcharge} mesures) sera atteinte dans ${moisAvantSurcharge} mois si cette tendance se maintient.`,
+            message: `Le stock augmente de ${Math.round(tauxCroissanceStock*10)/10} mesures/mois. Le seuil de surcharge (${seuilSurcharge} mesures) sera atteint dans ${moisAvantSurcharge} mois si cette tendance se maintient.`,
             urgence: 'surveillance'
           });
         }
@@ -536,12 +552,12 @@ const stats = useMemo(() => {
       });
     });
     
-    if (statsWithHistory.mesuresAnciennes.length > 15) {
+    if (statsWithHistory.mesuresTresAnciennes.length > 0) {
       alerts.push({
         type: 'warning',
-        message: `${statsWithHistory.mesuresAnciennes.length} mesures en cours depuis plus de 6 mois`,
+        message: `${statsWithHistory.mesuresTresAnciennes.length} mesures en cours depuis plus de 12 mois`,
         action: 'Cliquer pour voir le détail',
-        details: statsWithHistory.mesuresAnciennes.map(m => ({
+        details: statsWithHistory.mesuresTresAnciennes.map(m => ({
           ref: m.refAEM,
           nom: m.nomPrenom,
           dateReception: parseExcelDate(m.dateReception)?.toLocaleDateString('fr-FR') || 'Inconnue',
@@ -549,15 +565,7 @@ const stats = useMemo(() => {
         }))
       });
     }
-    
-    if (statsWithHistory.actuel.tauxReussite < 70) {
-      alerts.push({
-        type: 'info',
-        message: `Taux de réussite global : ${statsWithHistory.actuel.tauxReussite}%`,
-        action: 'Analyse des causes d\'échec'
-      });
-    }
-    
+
     return alerts;
   }, [referentData, statsWithHistory]);
 
@@ -646,17 +654,21 @@ const stats = useMemo(() => {
     const joursRestants = Math.ceil((finAnnee.getTime() - maintenant.getTime()) / (1000 * 60 * 60 * 24));
     const moisRestants = joursRestants / 30.44; // Approximation mois
     
-    // Moyenne sur les 12 derniers mois
-    const donneesAnnuelles = evolutionData.slice(-12);
-    const moyenneNouvelles = donneesAnnuelles.reduce((acc, d) => acc + d.nouvelles, 0) / donneesAnnuelles.length;
-    const moyenneClotures = donneesAnnuelles.reduce((acc, d) => acc + d.clotures, 0) / donneesAnnuelles.length;
-    
+    // Moyenne mensuelle calculée sur les mois COMPLETS uniquement.
+    // Le dernier point de evolutionData correspond au mois courant, encore
+    // incomplet : l'inclure sous-estime la moyenne et donc la projection.
+    // On l'exclut pour fiabiliser le calcul.
+    const moisComplets = evolutionData.length > 1 ? evolutionData.slice(0, -1) : evolutionData;
+    const moyenneNouvelles = moisComplets.reduce((acc, d) => acc + d.nouvelles, 0) / moisComplets.length;
+    const moyenneClotures = moisComplets.reduce((acc, d) => acc + d.clotures, 0) / moisComplets.length;
+    const dernierMoisComplet = moisComplets[moisComplets.length - 1];
+
     return {
       projectionNouvelles: Math.round(moyenneNouvelles * moisRestants),
       projectionClotures: Math.round(moyenneClotures * moisRestants),
       joursRestants,
-      tendanceNouvelles: donneesAnnuelles[donneesAnnuelles.length - 1].nouvelles > moyenneNouvelles ? 'hausse' : 'baisse',
-      tendanceClotures: donneesAnnuelles[donneesAnnuelles.length - 1].clotures > moyenneClotures ? 'hausse' : 'baisse'
+      tendanceNouvelles: dernierMoisComplet.nouvelles > moyenneNouvelles ? 'hausse' : 'baisse',
+      tendanceClotures: dernierMoisComplet.clotures > moyenneClotures ? 'hausse' : 'baisse'
     };
   }, [evolutionData]);
 
@@ -856,25 +868,41 @@ const stats = useMemo(() => {
           <CardContent className="pt-0">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {alertes.map((alerte, i) => (
-                <div key={i} className={`p-3 rounded-lg border ${
-                  alerte.type === 'error' ? 'border-red-200 bg-red-50' : 
-                  alerte.type === 'warning' ? 'border-orange-200 bg-orange-50' :
-                  'border-blue-200 bg-blue-50'
-                }`}>
+                <div
+                  key={i}
+                  onClick={() => alerte.details && setShowAlerteDetails(showAlerteDetails === i ? null : i)}
+                  className={`p-3 rounded-lg border ${alerte.details ? 'cursor-pointer hover:shadow-sm transition-shadow' : ''} ${
+                    alerte.type === 'error' ? 'border-red-200 bg-red-50' :
+                    alerte.type === 'warning' ? 'border-orange-200 bg-orange-50' :
+                    'border-blue-200 bg-blue-50'
+                  }`}
+                >
                   <div className={`text-sm font-medium ${
-                    alerte.type === 'error' ? 'text-red-800' : 
+                    alerte.type === 'error' ? 'text-red-800' :
                     alerte.type === 'warning' ? 'text-orange-800' :
                     'text-blue-800'
                   }`}>
                     {alerte.message}
                   </div>
                   <div className={`text-xs ${
-                    alerte.type === 'error' ? 'text-red-600' : 
+                    alerte.type === 'error' ? 'text-red-600' :
                     alerte.type === 'warning' ? 'text-orange-600' :
                     'text-blue-600'
                   }`}>
                     Action: {alerte.action}
                   </div>
+                  {alerte.details && showAlerteDetails === i && (
+                    <div className="mt-3 max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {alerte.details.map((d: any, j: number) => (
+                        <div key={j} className="bg-white p-2 rounded border text-xs">
+                          <div className="font-medium">{d.ref}</div>
+                          <div className="text-gray-600">{d.nom}</div>
+                          <div className="text-gray-500">Reçue: {d.dateReception}</div>
+                          <div className="text-gray-500">Référent: {d.referent || 'Non assigné'}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
