@@ -125,7 +125,7 @@ export const UpcomingActeDeadlines = React.memo(({ enquetes, onOpenEnquete, wind
                   </span>
                 )}
                 {item.isWeekend && (
-                  <span className="ml-1 text-[10px] text-gray-400 italic">
+                  <span className="ml-1 text-[10px] text-red-400 italic">
                     · week-end ({WEEKDAYS[item.echeance.getDay()]})
                   </span>
                 )}
