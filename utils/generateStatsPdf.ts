@@ -15,6 +15,7 @@
 import { AudienceStats } from '@/types/audienceTypes';
 import { Enquete } from '@/types/interfaces';
 import { getServiceColor, ORIENTATION_DATASETS } from '@/utils/chartColors';
+import type { InstructionStats } from '@/hooks/useInstructionStats';
 
 interface PdfExportData {
   selectedYear: number;
@@ -59,6 +60,34 @@ interface PdfExportData {
   infractionsTerminees: { infraction: string; count: number }[];
   // Déférements par mois
   deferementsParMois: { mois: string; count: number }[];
+  // Module instruction (optionnel : présent uniquement si des dossiers existent
+  // pour le contentieux exporté). Les stats sont calculées en amont via
+  // computeInstructionStats — même source que l'écran Statistiques.
+  instruction?: {
+    stats: InstructionStats;
+    /** Cabinets connus (pour les libellés et couleurs du tableau par cabinet). */
+    cabinets: { id: string; label: string; color: string }[];
+  };
+}
+
+/** Couleurs des mesures de sûreté — identiques à InstructionStats (écran). */
+const SURETE_COLORS = {
+  detenu: '#dc2626',
+  arse: '#f97316',
+  cj: '#f59e0b',
+  libre: '#16a34a',
+};
+
+/** Mise en forme d'un nombre de jours en « j » ou « mois » (cf. InstructionStats). */
+function formatInstructionDays(j: number): string {
+  if (!isFinite(j)) return '—';
+  const r = Math.round(j);
+  if (r < 60) return `${r} j`;
+  return `${Math.round(r / 30)} mois`;
+}
+
+function formatStatNumber(n: number, digits = 1): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(digits);
 }
 
 // Charte « Lumière » — palette Justice (DSFR) : Bleu France #000091, bleu nuit
@@ -463,6 +492,153 @@ function renderBarChart(items: { label: string; value: number; color?: string }[
   }).join('');
 }
 
+/**
+ * Section « Instruction » du rapport : reprend les chiffres de l'écran
+ * Statistiques (cartes, mesures de sûreté, principaux faits, échéances 175,
+ * délai de clôture par cabinet). Démarre sur une nouvelle page.
+ */
+function renderInstructionSection(
+  instruction: NonNullable<PdfExportData['instruction']>,
+): string {
+  const { stats, cabinets } = instruction;
+  const cabinetLabel = (id: string) =>
+    cabinets.find(c => c.id === id)?.label || (id === 'inconnu' ? 'Cabinet inconnu' : id);
+  const cabinetColor = (id: string) =>
+    cabinets.find(c => c.id === id)?.color || '#94a3b8';
+
+  // Camembert mesures de sûreté (même couleurs que l'écran)
+  const sureteItems = [
+    { label: 'Détenu', value: stats.nbDetenus, color: SURETE_COLORS.detenu },
+    { label: 'ARSE', value: stats.nbARSE, color: SURETE_COLORS.arse },
+    { label: 'Contrôle judiciaire', value: stats.nbCJ, color: SURETE_COLORS.cj },
+    { label: 'Libre', value: stats.nbLibres, color: SURETE_COLORS.libre },
+  ];
+  const suretePie = renderPieChartImg(sureteItems, 170, 'valuePct');
+
+  // Top 8 des faits (qualifications des MEX)
+  const topFaits = Object.entries(stats.repartitionFaits)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 8)
+    .map(([q, v]) => ({ label: q.length > 32 ? q.slice(0, 32) + '…' : q, value: v, color: '#000091' }));
+
+  // Cabinets triés par délai pondéré croissant
+  const cabinetEntries = Object.entries(stats.ageMoyenClotureParCabinet)
+    .sort(([, a], [, b]) => a.agePondereParMexJours - b.agePondereParMexJours);
+
+  const urgents = stats.dossiersARegler.urgents;
+
+  return `
+<div class="page-break"></div>
+<div class="page-header">
+  <div class="tricolore"></div>
+  <div class="overline">Module instruction</div>
+  <h1>Information judiciaire</h1>
+  <div class="subtitle">Dossiers d'instruction du contentieux — état du stock et échéances</div>
+</div>
+
+<div class="section-nobreak">
+  <div class="section-title">Synthèse du stock</div>
+  <div class="cards-row">
+    <div class="card">
+      <div class="card-label">Dossiers actifs</div>
+      <div class="card-value">${stats.nbDossiersActifs}</div>
+      <div class="card-detail">${stats.nbDossiersArchives} archivés · ${stats.nbDossiers} au total</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Mis en examen</div>
+      <div class="card-value">${stats.nbMisEnExamen}</div>
+      <div class="card-detail">${stats.nbDetenus} détenu${stats.nbDetenus > 1 ? 's' : ''} · ${stats.nbARSE} ARSE · ${stats.nbCJ} CJ</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Âge moyen (actifs)</div>
+      <div class="card-value">${formatInstructionDays(stats.ageMoyenDossiersActifs)}</div>
+      <div class="card-detail">le plus ancien : ${formatInstructionDays(stats.ageMaxDossierActif)}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Volume procédural</div>
+      <div class="card-value">${formatStatNumber(stats.cotesMoyennes)}</div>
+      <div class="card-detail">cotes/tomes moy. · ${stats.cotesTotal} au total</div>
+    </div>
+  </div>
+  <div class="cards-row">
+    <div class="card">
+      <div class="card-label">Au règlement</div>
+      <div class="card-value">${stats.nbDossiersAuReglement}</div>
+      <div class="card-detail">${stats.nbDossiers175Recu} avec 175 reçu · ${stats.nbDossiersReqDef} réq. déf. rédigées</div>
+    </div>
+    <div class="card">
+      <div class="card-label">DML en attente</div>
+      <div class="card-value">${stats.nbDmlEnAttente}</div>
+      <div class="card-detail">${stats.nbDmlTotal} au total · ${formatStatNumber(stats.dmlMoyenParDossier, 2)} par dossier</div>
+    </div>
+    <div class="card">
+      <div class="card-label">À régler (art. 175 CPP)</div>
+      <div class="card-value">${stats.dossiersARegler.total}</div>
+      <div class="card-detail">dont ${stats.dossiersARegler.avecDetenu} avec détenu</div>
+    </div>
+  </div>
+</div>
+
+<div class="section-nobreak">
+  <div class="section-title">Répartition des mesures de sûreté</div>
+  ${stats.nbMisEnExamen > 0
+    ? `<div class="two-cols" style="align-items:center">
+        <div class="legend-col">${renderPieSubstitute(sureteItems)}</div>
+        ${suretePie ? `<div style="text-align:center">${suretePie}</div>` : ''}
+      </div>`
+    : '<p style="color:#56565E;font-size:10px;">Aucun mis en examen.</p>'}
+</div>
+
+<div class="section-nobreak">
+  <div class="section-title">Principaux types de faits</div>
+  <p style="font-size:10px;color:#56565E;margin-bottom:6px">Top 8 — qualifications des mis en examen (dossiers actifs)</p>
+  ${topFaits.length > 0
+    ? renderBarChart(topFaits)
+    : '<p style="color:#56565E;font-size:10px;">Aucune qualification renseignée.</p>'}
+</div>
+
+${urgents.length > 0 ? `
+<div class="section-nobreak">
+  <div class="section-title">Échéances de règlement (détenu, 1 mois après 175 rendu)</div>
+  <table>
+    <tr><th>N° instruction</th><th class="text-center">175 rendu</th><th class="text-center">Échéance</th><th class="text-right">Statut</th></tr>
+    ${urgents.map(u => {
+      const enRetard = u.joursRestants < 0;
+      const statut = enRetard
+        ? `<span style="color:#E1000F;font-weight:bold">Retard ${-u.joursRestants} j</span>`
+        : `${u.joursRestants} j restants`;
+      return `<tr>
+        <td>${u.numeroInstruction}</td>
+        <td class="text-center">${new Date(u.date175).toLocaleDateString('fr-FR')}</td>
+        <td class="text-center">${new Date(u.dateEcheance).toLocaleDateString('fr-FR')}</td>
+        <td class="text-right">${statut}</td>
+      </tr>`;
+    }).join('')}
+  </table>
+</div>
+` : ''}
+
+${cabinetEntries.length > 0 ? `
+<div class="section-nobreak">
+  <div class="section-title">Délai moyen de clôture par cabinet</div>
+  <p style="font-size:10px;color:#56565E;margin-bottom:6px">Dossiers archivés — pondération par nombre de mis en examen</p>
+  <table>
+    <tr><th>Cabinet</th><th class="text-center">Dossiers</th><th class="text-center">MEX</th><th class="text-right">Âge moyen brut</th><th class="text-right">Pondéré / MEX</th></tr>
+    ${cabinetEntries.map(([cab, v]) =>
+      `<tr>
+        <td><span class="svc-dot" style="background:${cabinetColor(cab)}"></span>${cabinetLabel(cab)}</td>
+        <td class="text-center">${v.nbDossiers}</td>
+        <td class="text-center">${v.nbMexTotal}</td>
+        <td class="text-right">${formatInstructionDays(v.ageMoyenJours)}</td>
+        <td class="text-right font-bold">${formatInstructionDays(v.agePondereParMexJours)}</td>
+      </tr>`
+    ).join('')}
+  </table>
+</div>
+` : ''}
+`;
+}
+
 export function generateStatsPdfHtml(data: PdfExportData): string {
   const { selectedYear, audienceStats: stats } = data;
   const totalActes = data.acteStats.ecoutes + data.acteStats.geolocalisations + data.acteStats.autresActes;
@@ -683,6 +859,8 @@ ${data.deferementsParMois.length > 0 ? `
   ${renderBarChart(data.deferementsParMois.map(d => ({ label: d.mois, value: d.count, color: '#E1000F' })))}
 </div>
 ` : ''}
+
+${data.instruction ? renderInstructionSection(data.instruction) : ''}
 
 <div class="footer">
   Rapport généré automatiquement · Données au ${new Date().toLocaleDateString('fr-FR')} · Usage interne, ne pas diffuser

@@ -86,8 +86,13 @@ const findEvenement175 = (d: DossierInstruction): EvenementInstruction | undefin
 
 const isDetenuMex = (m: MisEnExamen): boolean => m.mesureSurete?.type === 'detenu';
 
-export function useInstructionStats(dossiers: DossierInstruction[]): InstructionStats {
-  return useMemo(() => {
+/**
+ * Calcul pur des statistiques d'instruction (hors React).
+ * Utilisé par le hook `useInstructionStats` (mémoïsé) ET par l'export PDF,
+ * qui ne peut pas appeler de hook : source unique de vérité pour les chiffres
+ * affichés à l'écran et ceux du rapport.
+ */
+export function computeInstructionStats(dossiers: DossierInstruction[]): InstructionStats {
     const now = new Date();
 
     const actifs = dossiers.filter(d => !d.archived);
@@ -247,5 +252,8 @@ export function useInstructionStats(dossiers: DossierInstruction[]): Instruction
       repartitionFaits,
       ageMoyenClotureParCabinet,
     };
-  }, [dossiers]);
+}
+
+export function useInstructionStats(dossiers: DossierInstruction[]): InstructionStats {
+  return useMemo(() => computeInstructionStats(dossiers), [dossiers]);
 }

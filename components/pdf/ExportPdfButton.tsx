@@ -4,24 +4,31 @@ import { FileText, Loader2 } from 'lucide-react';
 import { useAudience } from '@/hooks/useAudience';
 import { useTags } from '@/hooks/useTags';
 import { Enquete } from '@/types/interfaces';
+import type { DossierInstruction } from '@/types/instructionTypes';
 import { getYearlyStats, getMonthlyStats } from '@/utils/audienceStats';
 import { exportStatsPdf, PdfExportData } from '@/utils/generateStatsPdf';
+import { computeInstructionStats } from '@/hooks/useInstructionStats';
+import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
 import { UserManager } from '@/utils/userManager';
 
 interface ExportPdfButtonProps {
   selectedYear?: number;
   enquetes: Enquete[];
   contentieuxId?: string;
+  /** Dossiers d'instruction déjà filtrés par contentieux (cf. StatsPage). */
+  instructions?: DossierInstruction[];
 }
 
 export const ExportPdfButton = ({
   selectedYear = new Date().getFullYear(),
   enquetes,
   contentieuxId,
+  instructions,
 }: ExportPdfButtonProps) => {
   const [isExporting, setIsExporting] = useState(false);
   const { audienceState } = useAudience();
   const { getServicesFromTags } = useTags();
+  const { allCabinets } = useInstructionCabinets();
 
   const handleExportPDF = async () => {
     setIsExporting(true);
@@ -238,6 +245,16 @@ export const ExportPdfButton = ({
         : (UserManager.getInstance().getAllContentieux().find(c => c.id === contentieuxId)?.label
           || contentieuxId);
 
+      // Module instruction : stats calculées depuis les dossiers déjà filtrés
+      // par contentieux (même source que l'écran). Absent du rapport si aucun
+      // dossier pour ce contentieux.
+      const instructionData = (instructions && instructions.length > 0)
+        ? {
+            stats: computeInstructionStats(instructions),
+            cabinets: allCabinets.map(c => ({ id: c.id, label: c.label, color: c.color })),
+          }
+        : undefined;
+
       // Assemblage des données
       const pdfData: PdfExportData = {
         selectedYear,
@@ -255,6 +272,7 @@ export const ExportPdfButton = ({
         infractionsEnCours,
         infractionsTerminees,
         deferementsParMois,
+        instruction: instructionData,
       };
 
       await exportStatsPdf(pdfData);

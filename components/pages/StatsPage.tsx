@@ -56,7 +56,7 @@ export const StatsPage = ({ enquetes, contentieuxId, instructions }: StatsPagePr
               </select>
             </div>
           </div>
-          <ExportPdfButton selectedYear={selectedYear} enquetes={enquetes} contentieuxId={contentieuxId} />
+          <ExportPdfButton selectedYear={selectedYear} enquetes={enquetes} contentieuxId={contentieuxId} instructions={instructions} />
         </div>
 
         {/* En-tête pour l'impression uniquement */}
