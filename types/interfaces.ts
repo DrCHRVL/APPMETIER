@@ -296,6 +296,7 @@ export interface Alert {
   };
   snoozedUntil?: string;           // Date jusqu'à laquelle l'alerte est reportée
   snoozedCount?: number;           // Nombre de fois que l'alerte a été reportée
+  validatedUntil?: string;         // Date jusqu'à laquelle une alerte validée ne réapparaît pas
   validatedForEnquete?: boolean;   // Si true, ne plus jamais montrer cette alerte pour cette enquête
   recurrence?: RecurrenceConfig;   // Configuration de récurrence
   lastRecurred?: string;           // Date de la dernière récurrence
