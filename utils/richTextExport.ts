@@ -57,6 +57,49 @@ export const copyHtmlToClipboard = async (html: string): Promise<boolean> => {
   }
 };
 
+/**
+ * Copie du texte brut dans le presse-papiers, avec repli `execCommand`.
+ *
+ * `navigator.clipboard` n'existe QUE dans un contexte sécurisé (HTTPS ou
+ * localhost). En version web ouverte sur le réseau interne en clair
+ * (http://<IP>:3000, nom d'hôte sans certificat), l'API est absente et un
+ * appel direct à `navigator.clipboard.writeText` lève une exception : le
+ * bouton « Copier » paraît alors inerte. Ce helper tente l'API moderne puis
+ * retombe sur la sélection + `document.execCommand('copy')`, qui fonctionne
+ * aussi hors contexte sécurisé.
+ *
+ * @returns true si la copie a abouti, false sinon (l'appelant peut alors
+ *          inviter l'utilisateur à copier manuellement).
+ */
+export const copyPlainToClipboard = async (text: string): Promise<boolean> => {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Tombe sur le fallback ci-dessous
+  }
+  // Fallback execCommand : textarea hors écran sélectionné puis copié.
+  try {
+    if (typeof document === 'undefined') return false;
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+};
+
 /** Retire les balises HTML pour générer une version texte brut. */
 export const stripHtml = (html: string): string => {
   if (typeof document === 'undefined') return html.replace(/<[^>]+>/g, '');

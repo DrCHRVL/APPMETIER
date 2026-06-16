@@ -4,6 +4,7 @@ import { Button } from '../ui/button';
 import { Enquete } from '@/types/interfaces';
 import { Copy, Check, Pencil, RotateCcw } from 'lucide-react';
 import { ElectronBridge } from '@/utils/electronBridge';
+import { copyPlainToClipboard } from '@/utils/richTextExport';
 import { APP_CONFIG } from '@/config/constants';
 
 interface ClotureTemplate {
@@ -89,11 +90,12 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
     return `${template.beforeEcoutes}\n${ecoutesLines}\n\n${template.beforeGeolocs}\n${geolocsLines}\n\n${template.footer}`;
   }, [enquete.ecoutes, enquete.geolocalisations, template, templateLoaded]);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(generatedText).then(() => {
+  const handleCopy = async () => {
+    const ok = await copyPlainToClipboard(generatedText);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    }
   };
 
   const handleSaveTemplate = useCallback(async () => {
