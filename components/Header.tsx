@@ -137,7 +137,7 @@ export const Header = ({
             )}
           </span>
 
-          {/* État du partage réseau (P:\) */}
+          {/* État de la cible de synchro : partage P:\ (bureau) ou serveur SIRAL (web) */}
           <NetworkStatusIndicator />
 
           {/* Sauvegarde locale */}

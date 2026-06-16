@@ -14,6 +14,7 @@ import {
 } from '@/types/userTypes';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
+import { copyPlainToClipboard } from '@/utils/richTextExport';
 
 // ──────────────────────────────────────────────
 // LABELS
@@ -146,7 +147,7 @@ export const AdminUsersPanel = () => {
   }, [invite, loadAccountStates, showToast]);
 
   const copyInviteCode = useCallback(async (code: string) => {
-    try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2500); } catch {}
+    if (await copyPlainToClipboard(code)) { setCopied(true); setTimeout(() => setCopied(false), 2500); }
   }, []);
 
   /** Rappelle de ré-inviter le membre (clé à mettre à jour) après une modif d'habilitation. */
