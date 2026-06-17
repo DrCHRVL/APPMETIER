@@ -740,10 +740,15 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
             <p className="text-sm text-gray-500">Toutes enquêtes confondues</p>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold mb-4">
+            <div className="text-3xl font-bold mb-1">
               {totalDeferementsYear}
               <span className="text-base font-normal text-gray-500 ml-2">déférement{totalDeferementsYear > 1 ? 's' : ''} en {selectedYear}</span>
             </div>
+            <p className="text-xs text-gray-400 mb-4">
+              Déférements rattachés à leur date réelle (date de déférement), toutes enquêtes confondues
+              (y compris en attente d'audience, OI et classements). Ce total peut différer du « Dont
+              déférements » de l'orientation, qui ne compte que les dossiers jugés dans l'année.
+            </p>
             {(() => {
               const monthsToShow = getMonthsToShow();
 
