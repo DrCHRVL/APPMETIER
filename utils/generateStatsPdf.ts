@@ -637,6 +637,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 ${data.deferementsParMois.length > 0 ? `
 <div class="section-nobreak">
   <div class="section-title">Déférements par mois</div>
+  <p style="font-size:9px;color:#56565E;margin-bottom:8px">Déférements rattachés à leur date réelle (date de déférement), toutes enquêtes confondues. Peut différer du « Dont … déférements » de l'orientation, calculé à la date d'audience sur les seuls dossiers jugés dans l'année.</p>
   <div style="text-align:center">
     ${renderLineChartImg(data.deferementsParMois.map(d => ({ label: d.mois, value: d.count })), 680, 220, '#E1000F')
       || renderMonthTable(data.deferementsParMois, 'Déférements')}
@@ -700,6 +701,7 @@ ${data.deferementsParMois.length > 0 ? `
       <div class="legend-col">
         ${renderPieSubstitute(items)}
         <div style="margin-top:8px;font-size:10px;color:#56565E">Dont ${stats.nombreDeferements} déférement${stats.nombreDeferements > 1 ? 's' : ''}</div>
+        <div style="margin-top:4px;font-size:8px;color:#9A9AAF;line-height:1.3">Déférés dans les dossiers jugés en ${selectedYear} (rattachés à la date d'audience). Peut différer de « Déférements par mois », qui les compte à leur date réelle de déférement, toutes enquêtes confondues.</div>
       </div>
       ${pie ? `<div style="text-align:center">${pie}</div>` : ''}
     </div>`;

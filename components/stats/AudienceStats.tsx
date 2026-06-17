@@ -295,6 +295,11 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                   <span>Dont déférements</span>
                   <span className="font-bold">{yearlyStats.nombreDeferements}</span>
                 </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  Déférés dans les dossiers jugés en {selectedYear} (rattachés à la date d'audience).
+                  Ce total peut différer de la carte « Évolution des déférements », qui les compte
+                  à leur date réelle de déférement, toutes enquêtes confondues.
+                </p>
               </div>
             </div>
 
