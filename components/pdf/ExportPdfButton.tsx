@@ -54,6 +54,15 @@ export const ExportPdfButton = ({
         return new Date(audienceResult.dateAudience).getFullYear() === selectedYear;
       });
 
+      // Procédures terminées « hors classements sans suite et ouvertures
+      // d'information » — même périmètre que la carte de la page Statistiques.
+      const enquetesTermineesFiltered = enquetesTerminees.filter(e => {
+        const ar = Object.values(resultats).find(r => r.enqueteId === e.id);
+        return ar && !ar.isClassement && !ar.isOI;
+      });
+      const directResultsFiltered = directResults.filter(r => !r.isClassement && !r.isOI);
+      const totalTermineesFiltered = enquetesTermineesFiltered.length + directResultsFiltered.length;
+
       // Durée moyenne terminées (avec protection contre dateDebut invalide)
       const durationTerminees = enquetesTerminees.reduce((result, e) => {
         const audienceResult = Object.values(resultats).find(r => r.enqueteId === e.id);
@@ -84,16 +93,16 @@ export const ExportPdfButton = ({
       const lastMonth = selectedYear === currentDate.getFullYear() ? currentDate.getMonth() : 11;
       const months = Array.from({ length: lastMonth + 1 }, (_, i) => i);
 
-      // Procédures terminées par mois
+      // Procédures terminées par mois (hors classements et OI, comme la carte)
       const proceduremoisData = months.map(month => {
         const monthName = new Date(selectedYear, month).toLocaleString('fr-FR', { month: 'long' });
-        const prelimCount = enquetesTerminees.filter(e => {
+        const prelimCount = enquetesTermineesFiltered.filter(e => {
           const audienceResult = Object.values(resultats).find(r => r.enqueteId === e.id);
           if (!audienceResult) return false;
           const d = new Date(audienceResult.dateAudience);
           return d.getMonth() === month && d.getFullYear() === selectedYear;
         }).length;
-        const directCount = directResults.filter(r => {
+        const directCount = directResultsFiltered.filter(r => {
           const d = new Date(r.dateAudience);
           return d.getMonth() === month && d.getFullYear() === selectedYear;
         }).length;
@@ -232,6 +241,34 @@ export const ExportPdfButton = ({
         return { mois: monthName, count };
       }).filter(d => d.count > 0);
 
+      // Âge moyen des dossiers avant ouverture d'information / classement
+      // (même calcul que les cartes de la page Statistiques)
+      const computeAgeMoyen = (predicate: (r: typeof directResults[number]) => boolean) => {
+        const filtered = Object.values(resultats).filter(r =>
+          predicate(r) && r.dateAudience && new Date(r.dateAudience).getFullYear() === selectedYear
+        );
+        let total = 0, count = 0;
+        filtered.forEach(r => {
+          const e = enquetes.find(en => en.id === r.enqueteId);
+          if (!e?.dateDebut) return;
+          const age = Math.floor((new Date(r.dateAudience).getTime() - new Date(e.dateDebut).getTime()) / (1000 * 60 * 60 * 24));
+          if (age >= 0) { total += age; count++; }
+        });
+        return count > 0 ? Math.round(total / count) : 0;
+      };
+      const ouvertureInfoAgeMoyen = computeAgeMoyen(r => !!r.isOI);
+      const classementAgeMoyen = computeAgeMoyen(r => !!r.isClassement);
+
+      // Enquêtes en cours (tous millésimes) et ouvertures par mois de l'année
+      const enquetesEnCoursTotal = enquetes.filter(e => e.statut === 'en_cours').length;
+      const enquetesOuvertesAnnee = enquetes.filter(e =>
+        e.statut === 'en_cours' && new Date(e.dateCreation).getFullYear() === selectedYear
+      );
+      const ouverturesParMois = months.map(month => ({
+        mois: new Date(selectedYear, month).toLocaleString('fr-FR', { month: 'long' }),
+        count: enquetesOuvertesAnnee.filter(e => new Date(e.dateCreation).getMonth() === month).length,
+      }));
+
       // Titre du rapport : libellé du contentieux courant (vue globale = tous)
       const contentieuxLabel = (!contentieuxId || contentieuxId === 'global')
         ? 'Tous contentieux'
@@ -242,7 +279,7 @@ export const ExportPdfButton = ({
       const pdfData: PdfExportData = {
         selectedYear,
         contentieuxLabel,
-        enquetesTerminees: enquetesTerminees.length + directResults.length,
+        enquetesTerminees: totalTermineesFiltered,
         enquetesEnCours: activeEnquetes.length,
         dureeMoyenneTerminees,
         dureeMoyenneEnCours,
@@ -255,6 +292,11 @@ export const ExportPdfButton = ({
         infractionsEnCours,
         infractionsTerminees,
         deferementsParMois,
+        ouvertureInfoAgeMoyen,
+        classementAgeMoyen,
+        enquetesEnCoursTotal,
+        enquetesOuvertesAnnee: enquetesOuvertesAnnee.length,
+        ouverturesParMois,
       };
 
       await exportStatsPdf(pdfData);
