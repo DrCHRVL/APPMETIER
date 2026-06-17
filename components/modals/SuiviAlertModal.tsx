@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '../ui/button';
 import { Copy, Check, Flag } from 'lucide-react';
 import { Tag, ToDoItem } from '@/types/interfaces';
+import { copyPlainToClipboard } from '@/utils/richTextExport';
 
 type SuiviType = 'JIRS' | 'PG';
 
@@ -98,11 +99,12 @@ Fait le ${date}`;
     return '';
   }, [triggerContext, enqueteNumero, destinataires]);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(mailTemplate).then(() => {
+  const handleCopy = async () => {
+    const ok = await copyPlainToClipboard(mailTemplate);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    }
   };
 
   const handleCreateTodo = () => {
