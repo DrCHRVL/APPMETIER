@@ -275,10 +275,14 @@ export const ExportPdfButton = ({
         : (UserManager.getInstance().getAllContentieux().find(c => c.id === contentieuxId)?.label
           || contentieuxId);
 
+      // Rédacteur : utilisateur courant (à défaut, valeur de repli)
+      const redacteur = UserManager.getInstance().getCurrentUser()?.displayName || 'Audran CHEVALIER';
+
       // Assemblage des données
       const pdfData: PdfExportData = {
         selectedYear,
         contentieuxLabel,
+        redacteur,
         enquetesTerminees: totalTermineesFiltered,
         enquetesEnCours: activeEnquetes.length,
         dureeMoyenneTerminees,

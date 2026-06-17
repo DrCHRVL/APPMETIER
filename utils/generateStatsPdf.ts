@@ -20,6 +20,8 @@ interface PdfExportData {
   selectedYear: number;
   /** Libellé du contentieux affiché en titre (ex. « Criminalité Organisée / Stup »). */
   contentieuxLabel?: string;
+  /** Nom de l'utilisateur qui génère le rapport (mention « Rédigé par … »). */
+  redacteur?: string;
   // Stats générales
   enquetesTerminees: number;
   enquetesEnCours: number;
@@ -114,6 +116,13 @@ const CSS_STYLES = `
   .page-header .subtitle {
     font-size: 10px;
     color: rgba(255,255,255,0.75);
+  }
+
+  .redige-par {
+    font-size: 10.5px;
+    font-style: italic;
+    color: #56565E;
+    margin: -6px 0 16px 2px;
   }
 
   .section {
@@ -588,8 +597,10 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   <div class="tricolore"></div>
   <div class="overline">Tribunal judiciaire d'Amiens &mdash; Parquet d'Amiens</div>
   <h1>${data.contentieuxLabel || 'Criminalité organisée'}</h1>
-  <div class="subtitle">Année ${selectedYear} — en date du ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })} · Document interne, ne pas diffuser</div>
+  <div class="subtitle">Année ${selectedYear} — du 1er janvier ${selectedYear} au ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })} · Document interne, ne pas diffuser</div>
 </div>
+
+<div class="redige-par">Rédigé par ${data.redacteur || 'Audran CHEVALIER'}, à destination du Procureur de la République</div>
 
 <div class="section-nobreak">
   <div class="section-title">Synthèse générale</div>
