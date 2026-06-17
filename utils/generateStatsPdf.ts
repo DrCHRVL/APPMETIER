@@ -59,6 +59,13 @@ interface PdfExportData {
   infractionsTerminees: { infraction: string; count: number }[];
   // Déférements par mois
   deferementsParMois: { mois: string; count: number }[];
+  // Âge moyen (jours) des dossiers avant ouverture d'information / classement
+  ouvertureInfoAgeMoyen: number;
+  classementAgeMoyen: number;
+  // Enquêtes en cours
+  enquetesEnCoursTotal: number;
+  enquetesOuvertesAnnee: number;
+  ouverturesParMois: { mois: string; count: number }[];
 }
 
 // Charte « Lumière » — palette Justice (DSFR) : Bleu France #000091, bleu nuit
@@ -231,12 +238,11 @@ const CSS_STYLES = `
     margin: 2px 0;
   }
   .bar-label {
-    width: 120px;
-    font-size: 10px;
+    width: 135px;
+    font-size: 9px;
     text-align: right;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    line-height: 1.15;
+    word-break: break-word;
   }
   .bar-track {
     flex: 1;
@@ -463,6 +469,105 @@ function renderBarChart(items: { label: string; value: number; color?: string }[
   }).join('');
 }
 
+/**
+ * Dessine une courbe d'évolution mensuelle sur un canvas hors-écran et la
+ * retourne en <img> (reproduit l'esprit des graphes « Line » de l'app).
+ * Retourne '' hors navigateur (SSR/tests) — un tableau de repli est affiché.
+ */
+function renderLineChartImg(
+  points: { label: string; value: number }[],
+  displayWidth: number,
+  displayHeight: number,
+  color: string
+): string {
+  if (points.length === 0 || typeof document === 'undefined') return '';
+
+  const ratio = 2;
+  const w = displayWidth * ratio;
+  const h = displayHeight * ratio;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  const padL = 26 * ratio, padR = 12 * ratio, padT = 14 * ratio, padB = 22 * ratio;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const maxVal = Math.max(...points.map(p => p.value), 1);
+  const niceMax = Math.max(5, Math.ceil(maxVal / 5) * 5);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+
+  // Lignes horizontales + graduations Y
+  const ySteps = 5;
+  ctx.strokeStyle = '#EEEEF0';
+  ctx.lineWidth = 1 * ratio;
+  ctx.fillStyle = '#92929C';
+  ctx.font = `${8 * ratio}px 'Segoe UI', Arial, sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i <= ySteps; i++) {
+    const y = padT + plotH - (plotH * i) / ySteps;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(w - padR, y);
+    ctx.stroke();
+    ctx.fillText(String(Math.round((niceMax / ySteps) * i)), padL - 4 * ratio, y);
+  }
+
+  const n = points.length;
+  const xFor = (i: number) => (n === 1 ? padL + plotW / 2 : padL + (plotW * i) / (n - 1));
+  const yFor = (v: number) => padT + plotH - (plotH * v) / niceMax;
+
+  // Courbe
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2 * ratio;
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const x = xFor(i), y = yFor(p.value);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Points
+  ctx.fillStyle = color;
+  points.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(xFor(i), yFor(p.value), 3 * ratio, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Valeurs au-dessus des points
+  ctx.fillStyle = '#161616';
+  ctx.font = `bold ${8 * ratio}px 'Segoe UI', Arial, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  points.forEach((p, i) => {
+    if (p.value > 0) ctx.fillText(String(p.value), xFor(i), yFor(p.value) - 4 * ratio);
+  });
+
+  // Étiquettes de mois
+  ctx.fillStyle = '#92929C';
+  ctx.font = `${8 * ratio}px 'Segoe UI', Arial, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  points.forEach((p, i) => {
+    ctx.fillText(p.label.slice(0, 3), xFor(i), padT + plotH + 4 * ratio);
+  });
+
+  return `<img src="${canvas.toDataURL('image/png')}" width="${displayWidth}" height="${displayHeight}" style="width:${displayWidth}px;height:${displayHeight}px">`;
+}
+
+/** Petit tableau Mois/Valeur, utilisé en repli quand le canvas est indisponible. */
+function renderMonthTable(points: { mois: string; count: number }[], header: string): string {
+  return `<table>
+    <tr><th>Mois</th><th class="text-right">${header}</th></tr>
+    ${points.map(d => `<tr><td>${d.mois}</td><td class="text-right font-bold">${d.count}</td></tr>`).join('')}
+  </table>`;
+}
+
 export function generateStatsPdfHtml(data: PdfExportData): string {
   const { selectedYear, audienceStats: stats } = data;
   const totalActes = data.acteStats.ecoutes + data.acteStats.geolocalisations + data.acteStats.autresActes;
@@ -481,9 +586,9 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
 <!-- En-tête identitaire -->
 <div class="page-header">
   <div class="tricolore"></div>
-  <div class="overline">Rapport d'activit&eacute; du service</div>
+  <div class="overline">Tribunal judiciaire d'Amiens &mdash; Parquet d'Amiens</div>
   <h1>${data.contentieuxLabel || 'Criminalité organisée'}</h1>
-  <div class="subtitle">Année ${selectedYear} — généré le ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })} · Document interne, ne pas diffuser</div>
+  <div class="subtitle">Année ${selectedYear} — en date du ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })} · Document interne, ne pas diffuser</div>
 </div>
 
 <div class="section-nobreak">
@@ -492,6 +597,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
     <div class="card">
       <div class="card-label">Total des procédures terminées</div>
       <div class="card-value">${data.enquetesTerminees}</div>
+      <div class="card-detail">Hors classements sans suite et ouvertures d'information</div>
     </div>
     <div class="card">
       <div class="card-label">Enquêtes en cours</div>
@@ -508,9 +614,10 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   </div>
 </div>
 
-<!-- Procédures terminées par mois -->
+<!-- Procédures terminées par mois : tableau + courbe d'évolution -->
 <div class="section-nobreak">
   <div class="section-title">Procédures terminées par mois</div>
+  <p style="font-size:9px;color:#56565E;margin-bottom:8px">Hors classements sans suite et ouvertures d'information</p>
   <div class="two-cols" style="align-items:flex-start">
     <div>
       <table>
@@ -520,37 +627,67 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
       </table>
     </div>
     <div style="padding-top:4px">
-      ${renderBarChart(data.proceduremoisData.map(d => ({ label: d.mois, value: d.count, color: '#000091' })))}
+      ${renderLineChartImg(data.proceduremoisData.map(d => ({ label: d.mois, value: d.count })), 340, 200, '#000091')
+        || renderMonthTable(data.proceduremoisData, 'Nombre')}
     </div>
   </div>
 </div>
 
-<!-- Actes d'enquête : un seul chiffre, estimation minorée -->
+<!-- Déférements par mois : placé juste sous les procédures terminées -->
+${data.deferementsParMois.length > 0 ? `
+<div class="section-nobreak">
+  <div class="section-title">Déférements par mois</div>
+  <div style="text-align:center">
+    ${renderLineChartImg(data.deferementsParMois.map(d => ({ label: d.mois, value: d.count })), 680, 220, '#E1000F')
+      || renderMonthTable(data.deferementsParMois, 'Déférements')}
+  </div>
+</div>
+` : ''}
+
+<!-- Enquêtes en cours -->
+<div class="section-nobreak">
+  <div class="section-title">Enquêtes en cours</div>
+  <div class="two-cols" style="align-items:flex-start">
+    <div>
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-label">Nombre d'enquêtes en cours</div>
+        <div class="card-value">${data.enquetesEnCoursTotal}</div>
+        <div class="card-detail">enquêtes en cours au total</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Ouvertes depuis le début de l'année ${selectedYear}</div>
+        <div class="card-value">${data.enquetesOuvertesAnnee}</div>
+        <div class="card-detail">Ouvertures par mois (${selectedYear})</div>
+      </div>
+    </div>
+    <div>
+      <table>
+        <tr><th>Mois</th><th class="text-right">Ouvertures</th></tr>
+        ${data.ouverturesParMois.map(d => `<tr><td>${d.mois}</td><td class="text-right font-bold">${d.count}</td></tr>`).join('')}
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Actes d'enquête : techniques spéciales d'enquête -->
 <div class="section-nobreak">
   <div class="section-title">Actes d'enquête en préliminaire</div>
   <div class="stat-inline">
     <span class="stat-inline-value">${totalAvecProlongations}</span>
-    <span class="stat-inline-note">actes et prolongations recensés <b>(estimation minorée)</b> — écoutes, géolocalisations et autres actes techniques. Le décompte réel est au moins égal à ce plancher.</span>
+    <span class="stat-inline-note">Nombre total d'actes relatifs aux <b>techniques spéciales d'enquête</b> (écoutes, géolocalisation, sonorisation et autres) autorisés par le procureur ou sollicités auprès du juge des libertés et de la détention.</span>
   </div>
 </div>
 
-<!-- Répartition par service : camemberts identiques à l'app + tableaux -->
+<!-- Répartition par service : enquêtes terminées uniquement -->
 <div class="section-nobreak">
   <div class="section-title">Répartition par service</div>
-  <div class="two-cols">
-    <div>
-      <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Toutes enquêtes</h4>
-      ${renderServiceBlock(data.serviceStats)}
-    </div>
-    <div>
-      <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Enquêtes terminées</h4>
-      ${renderServiceBlock(data.serviceStatsTerminees)}
-    </div>
-  </div>
+  <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Enquêtes terminées</h4>
+  ${renderServiceBlock(data.serviceStatsTerminees)}
 </div>
 
 <div class="section-nobreak">
   <div class="section-title">Orientation des procédures</div>
+  <p style="font-size:9px;color:#56565E;margin-bottom:8px">(Soit 1 fois par dossier pour une CI, une OI, une CDD ou un classement. Soit pour chaque prévenu pour une CRPC)</p>
   ${stats ? (() => {
     // Mêmes données et couleurs que le Pie « Orientation » de l'app
     const items = ORIENTATION_DATASETS.map(d => ({
@@ -616,6 +753,29 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   </table>
 </div>
 
+<!-- Ouvertures d'information & classements sans suite -->
+${stats ? (() => {
+  const totalOrientations = (stats.nombreCRPC || 0) + (stats.nombreCI || 0) + (stats.nombreCOPJ || 0)
+    + (stats.nombreOI || 0) + (stats.nombreCDD || 0) + (stats.nombreClassements || 0);
+  const oiPct = totalOrientations > 0 ? ((stats.nombreOI / totalOrientations) * 100).toFixed(1) : '0';
+  const clPct = totalOrientations > 0 ? ((stats.nombreClassements / totalOrientations) * 100).toFixed(1) : '0';
+  return `<div class="section-nobreak">
+  <div class="section-title">Ouvertures d'information &amp; classements sans suite</div>
+  <div class="cards-row">
+    <div class="card">
+      <div class="card-label">Ouvertures d'information</div>
+      <div class="card-value">${stats.nombreOI || 0}</div>
+      <div class="card-detail">${oiPct}% des orientations${data.ouvertureInfoAgeMoyen > 0 ? ` · âge moyen avant ouverture : ${data.ouvertureInfoAgeMoyen} jours` : ''}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Classements sans suite</div>
+      <div class="card-value">${stats.nombreClassements || 0}</div>
+      <div class="card-detail">${clPct}% des orientations${data.classementAgeMoyen > 0 ? ` · âge moyen avant classement : ${data.classementAgeMoyen} jours` : ''}</div>
+    </div>
+  </div>
+</div>`;
+})() : ''}
+
 <!-- Condamnations par mois : un seul graphe, le nombre de condamnations -->
 <div class="section-nobreak">
   <div class="section-title">Condamnations par mois</div>
@@ -635,12 +795,9 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
       <div class="card-detail">${formatMoisEnAnnees(stats?.totalPeinePrison || 0)}</div>
     </div>
     <div class="card">
-      <div class="card-label">Amendes prononcées</div>
-      <div class="card-value">${formatCurrency(stats?.montantTotalAmendes || 0)}</div>
-    </div>
-    <div class="card">
       <div class="card-label">Interdictions de paraître</div>
-      <div class="card-value">${stats?.totalInterdictionsParaitre || 0}</div>
+      <div class="card-value">${(stats && stats.nombreCondamnations > 0) ? ((stats.totalInterdictionsParaitre / stats.nombreCondamnations) * 100).toFixed(1) : '0'}%</div>
+      <div class="card-detail">${stats?.totalInterdictionsParaitre || 0} interdiction${(stats?.totalInterdictionsParaitre || 0) > 1 ? 's' : ''} sur ${stats?.nombreCondamnations || 0} condamnation${(stats?.nombreCondamnations || 0) > 1 ? 's' : ''}</div>
     </div>
   </div>
 </div>
@@ -655,6 +812,7 @@ ${(stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stat
     ${(stats?.totalSaisiesImmeubles || 0) > 0 || (stats?.totalImmeubles || 0) > 0 ? `<tr><td>Immeubles</td><td class="text-right">${stats?.totalSaisiesImmeubles || 0}</td><td class="text-right">${stats?.totalImmeubles || 0}</td><td class="text-right">${(stats?.totalSaisiesImmeubles || 0) - (stats?.totalImmeubles || 0)}</td></tr>` : ''}
     <tr style="background:#E3E3FD;font-weight:bold"><td>Total avoirs</td><td class="text-right">${formatCurrency(stats?.totalSaisiesArgent || 0)}</td><td class="text-right">${formatCurrency(stats?.totalArgent || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesArgent || 0) - (stats?.totalArgent || 0))}</td></tr>
   </table>
+  <p style="font-size:9px;color:#56565E;margin-top:8px;font-style:italic">Ces données sont en cours de consolidation. Les saisies n'étaient initialement pas renseignées, d'où le delta négatif constaté.</p>
 </div>
 ` : ''}
 
@@ -676,16 +834,8 @@ ${(stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stat
   </div>
 </div>
 
-<!-- Déférements par mois -->
-${data.deferementsParMois.length > 0 ? `
-<div class="section-nobreak">
-  <div class="section-title">Déférements par mois</div>
-  ${renderBarChart(data.deferementsParMois.map(d => ({ label: d.mois, value: d.count, color: '#E1000F' })))}
-</div>
-` : ''}
-
 <div class="footer">
-  Rapport généré automatiquement · Données au ${new Date().toLocaleDateString('fr-FR')} · Usage interne, ne pas diffuser
+  Tribunal judiciaire d'Amiens — Parquet d'Amiens · en date du ${new Date().toLocaleDateString('fr-FR')} · Usage interne, ne pas diffuser
 </div>
 
 </body>
