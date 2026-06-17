@@ -12,6 +12,7 @@ import {
   Enquete,
   ModificationEntry,
   ModificationType,
+  ActeStatus,
   AutreActe,
   EcouteData,
   GeolocData,
@@ -21,6 +22,7 @@ import {
   CompteRendu,
 } from '@/types/interfaces';
 import { useUserStore } from '@/stores/useUserStore';
+import { getStatutBadgeProps } from '@/utils/acteUtils';
 
 export const MAX_MODIFICATIONS = 50;
 
@@ -84,6 +86,7 @@ export function diffEnqueteUpdates(prev: Enquete, updates: Partial<Enquete>): Pe
     'acte_modified',
     'acte_deleted',
     (a) => `acte ${a.type || ''}`.trim(),
+    ACTE_FIELDS,
     out,
   );
   diffArray<EcouteData>(
@@ -94,6 +97,7 @@ export function diffEnqueteUpdates(prev: Enquete, updates: Partial<Enquete>): Pe
     'ecoute_modified',
     'ecoute_deleted',
     (e) => `écoute ${e.numero || ''}`.trim(),
+    ECOUTE_FIELDS,
     out,
   );
   diffArray<GeolocData>(
@@ -104,6 +108,7 @@ export function diffEnqueteUpdates(prev: Enquete, updates: Partial<Enquete>): Pe
     'geoloc_modified',
     'geoloc_deleted',
     (g) => `géoloc ${g.objet || ''}`.trim(),
+    GEOLOC_FIELDS,
     out,
   );
   diffArray<MisEnCause>(
@@ -114,6 +119,7 @@ export function diffEnqueteUpdates(prev: Enquete, updates: Partial<Enquete>): Pe
     'mec_modified',
     'mec_deleted',
     (m) => `MEC ${m.nom || ''}`.trim(),
+    MEC_FIELDS,
     out,
   );
 
@@ -182,6 +188,74 @@ export function diffEnqueteUpdates(prev: Enquete, updates: Partial<Enquete>): Pe
   return out;
 }
 
+// Spécification d'un champ « métier » suivi pour le diff fin (piste A).
+// `deep` : comparaison structurelle (tableaux/objets). `format` : libellé enrichi
+// avec la nouvelle valeur (ex. transition de statut).
+interface FieldSpec<T> {
+  key: keyof T;
+  label: string;
+  deep?: boolean;
+  format?: (value: unknown) => string;
+}
+
+const statutLabel = (value: unknown): string =>
+  `statut → ${getStatutBadgeProps(value as ActeStatus).label.toLowerCase()}`;
+
+// Champs partagés par tous les actes (géoloc/écoute/acte). On NE liste PAS
+// `dateFin` ni `prolongationData`/`prolongationDate` : ce sont des champs dérivés
+// recalculés automatiquement (piste C) — leur changement seul ne crée pas d'entrée.
+const ACTE_BASE_FIELDS: FieldSpec<AutreActe | EcouteData | GeolocData>[] = [
+  { key: 'dateDebut', label: 'date de début' },
+  { key: 'duree', label: 'durée' },
+  { key: 'dureeUnit', label: 'durée' },
+  { key: 'datePose', label: 'date de pose' },
+  { key: 'statut', label: 'statut', format: statutLabel },
+  { key: 'maxProlongations', label: 'nb max de prolongations' },
+  { key: 'prolongationsHistory', label: 'prolongation', deep: true },
+];
+
+const GEOLOC_FIELDS: FieldSpec<GeolocData>[] = [
+  { key: 'objet', label: 'objet' },
+  { key: 'description', label: 'description' },
+  ...(ACTE_BASE_FIELDS as FieldSpec<GeolocData>[]),
+];
+
+const ECOUTE_FIELDS: FieldSpec<EcouteData>[] = [
+  { key: 'numero', label: 'numéro' },
+  { key: 'cible', label: 'cible' },
+  { key: 'description', label: 'description' },
+  ...(ACTE_BASE_FIELDS as FieldSpec<EcouteData>[]),
+];
+
+const ACTE_FIELDS: FieldSpec<AutreActe>[] = [
+  { key: 'type', label: 'type' },
+  { key: 'description', label: 'description' },
+  ...(ACTE_BASE_FIELDS as FieldSpec<AutreActe>[]),
+];
+
+const MEC_FIELDS: FieldSpec<MisEnCause>[] = [
+  { key: 'nom', label: 'nom' },
+  { key: 'role', label: 'rôle' },
+  { key: 'statut', label: 'statut' },
+  { key: 'isVictime', label: 'victime' },
+];
+
+// Renvoie les libellés (dédupliqués, dans l'ordre des specs) des champs métier
+// ayant réellement changé entre `old` et `next`. Les champs non listés (dérivés
+// ou techniques) sont ignorés : si rien de listé n'a changé, le tableau est vide.
+function changedFieldLabels<T>(old: T, next: T, specs: FieldSpec<T>[]): string[] {
+  const labels: string[] = [];
+  for (const spec of specs) {
+    const a = old[spec.key];
+    const b = next[spec.key];
+    const differs = spec.deep ? JSON.stringify(a) !== JSON.stringify(b) : a !== b;
+    if (!differs) continue;
+    const label = spec.format ? spec.format(b) : spec.label;
+    if (!labels.includes(label)) labels.push(label);
+  }
+  return labels;
+}
+
 function diffArray<T extends { id: number }>(
   prev: Enquete,
   updates: Partial<Enquete>,
@@ -190,6 +264,7 @@ function diffArray<T extends { id: number }>(
   modifiedType: ModificationType,
   deletedType: ModificationType,
   describe: (item: T) => string,
+  fieldSpecs: FieldSpec<T>[],
   out: PendingEntry[],
 ): void {
   if (!(field in updates)) return;
@@ -203,7 +278,15 @@ function diffArray<T extends { id: number }>(
     if (!old) {
       out.push({ type: addedType, label: `Ajout : ${describe(item)}`, targetId: id });
     } else if (JSON.stringify(old) !== JSON.stringify(item)) {
-      out.push({ type: modifiedType, label: `Modification : ${describe(item)}`, targetId: id });
+      const changes = changedFieldLabels(old, item, fieldSpecs);
+      // Piste C : si seuls des champs dérivés/techniques ont changé (ex. `dateFin`
+      // recalculée), on n'enregistre aucune entrée.
+      if (changes.length === 0) continue;
+      out.push({
+        type: modifiedType,
+        label: `Modification : ${describe(item)} (${changes.join(', ')})`,
+        targetId: id,
+      });
     }
   }
   for (const [id, item] of prevMap) {
