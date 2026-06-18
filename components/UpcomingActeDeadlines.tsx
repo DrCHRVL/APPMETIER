@@ -109,7 +109,9 @@ export const UpcomingActeDeadlines = React.memo(({ enquetes, onOpenEnquete, wind
           {items.map(item => (
             <li
               key={item.key}
-              className={`flex items-baseline gap-1.5 py-1 group min-w-0 ${onOpenEnquete ? 'cursor-pointer hover:text-amber-800' : ''}`}
+              className={`flex items-baseline gap-1.5 py-1 group min-w-0 rounded px-1 -mx-1 ${
+                item.daysLeft <= 2 ? 'bg-red-100/70' : ''
+              } ${onOpenEnquete ? 'cursor-pointer hover:text-amber-800' : ''}`}
               onClick={() => onOpenEnquete?.(item.enquete)}
               title={`${item.acteType} (${item.enquete.numero})${onOpenEnquete ? " — Ouvrir l'enquête" : ''}`}
             >
