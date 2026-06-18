@@ -34,6 +34,8 @@ import { OpsSection } from '../instruction/OpsSection';
 import { DebatsJLDSection } from '../instruction/DebatsJLDSection';
 import { NotesPersoSection } from '../instruction/NotesPersoSection';
 import { DossierTimelineSection } from '../instruction/DossierTimelineSection';
+import { RichTextEditor } from '../instruction/RichTextEditor';
+import { renderFormattedText } from '@/lib/formatCR';
 import type {
   DossierInstruction,
   EtatReglement,
@@ -408,11 +410,10 @@ export const InstructionDetailModal = ({
                 {/* Description sur une largeur restreinte pour rester lisible */}
                 <div className="max-w-2xl">
                   <Label>Description</Label>
-                  <textarea
+                  <RichTextEditor
                     value={editData.description || ''}
-                    onChange={(e) => setEditData(d => ({ ...d, description: e.target.value }))}
-                    rows={6}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
+                    onChange={(val) => setEditData(d => ({ ...d, description: val }))}
+                    minHeight={120}
                   />
                 </div>
               </div>
@@ -493,9 +494,10 @@ export const InstructionDetailModal = ({
                   <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 min-w-0">
                     <div className="text-xs font-semibold text-gray-500 uppercase mb-1.5">Description</div>
                     {dossier.description ? (
-                      <div className="text-sm text-gray-700 whitespace-pre-wrap break-words">
-                        {dossier.description}
-                      </div>
+                      <div
+                        className="text-sm text-gray-700 break-words prose prose-sm max-w-none"
+                        dangerouslySetInnerHTML={{ __html: renderFormattedText(dossier.description) }}
+                      />
                     ) : (
                       <div className="text-sm text-gray-400 italic">Aucune description.</div>
                     )}
