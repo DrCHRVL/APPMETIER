@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Clock } from 'lucide-react';
 import { Enquete } from '@/types/interfaces';
-import { getProlongationRequestDate } from '@/utils/acteUtils';
+import { getProlongationRequestDate, getAutorisationRequestDate } from '@/utils/acteUtils';
 
 interface PendingActsJLDProps {
   enquetes: Enquete[];
@@ -39,8 +39,8 @@ export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete }: PendingAc
 
     for (const e of enquetes) {
       const mods = e.modifications;
-      const pushAutorisation = (label: string, a: { dateDebut: string; dateFin?: string }, cible?: string) =>
-        items.push({ acteType: label, cible, enquete: e, daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs), daysToDeadline: deadlineDays(a.dateFin), kind: 'autorisation' });
+      const pushAutorisation = (label: string, a: { id: number; dateDebut: string; dateFin?: string; autorisationRequestedAt?: string }, cible?: string) =>
+        items.push({ acteType: label, cible, enquete: e, daysSince: Math.floor((now - new Date(getAutorisationRequestDate(a)).getTime()) / dayMs), daysToDeadline: deadlineDays(a.dateFin), kind: 'autorisation' });
       const pushProlongation = (label: string, a: { id: number; dateDebut: string; dateFin?: string; prolongationRequestedAt?: string; prolongationDate?: string }, cible?: string) =>
         items.push({ acteType: label, cible, enquete: e, daysSince: Math.floor((now - new Date(getProlongationRequestDate(a, mods)).getTime()) / dayMs), daysToDeadline: deadlineDays(a.dateFin), kind: 'prolongation' });
 

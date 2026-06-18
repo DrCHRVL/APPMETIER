@@ -21,7 +21,7 @@ import { AutorisationValidationModal } from './modals/AutorisationValidationModa
 import { useTags } from '@/hooks/useTags';
 import { useUser } from '@/contexts/UserContext';
 import { getLastCR } from '@/utils/compteRenduUtils';
-import { getProlongationRequestDate } from '@/utils/acteUtils';
+import { getProlongationRequestDate, getAutorisationRequestDate } from '@/utils/acteUtils';
 import { OverboardPin } from '@/types/userTypes';
 
 interface EnquetePreviewProps {
@@ -198,13 +198,13 @@ export const EnquetePreview = React.memo(({
           case 'autorisation_pending':
             return activeActes.some(acte => {
               if (acte.statut !== 'autorisation_pending') return false;
-              const daysSince = Math.ceil((new Date().getTime() - new Date(acte.dateDebut).getTime()) / (1000 * 60 * 60 * 24));
+              const daysSince = Math.ceil((new Date().getTime() - new Date(getAutorisationRequestDate(acte)).getTime()) / (1000 * 60 * 60 * 24));
               return daysSince >= rule.seuil;
             });
           case 'jld_pending':
             return activeActes.some(acte => {
               if (acte.statut === 'autorisation_pending') {
-                const daysSince = Math.ceil((new Date().getTime() - new Date(acte.dateDebut).getTime()) / (1000 * 60 * 60 * 24));
+                const daysSince = Math.ceil((new Date().getTime() - new Date(getAutorisationRequestDate(acte)).getTime()) / (1000 * 60 * 60 * 24));
                 return daysSince >= rule.seuil;
               }
               if (acte.statut === 'prolongation_pending') {

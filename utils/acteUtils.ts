@@ -153,6 +153,25 @@ export function getProlongationRequestDate(
   return acte.prolongationDate || acte.dateDebut;
 }
 
+/**
+ * Date de référence à partir de laquelle compter l'ancienneté d'une attente JLD
+ * pour une autorisation initiale `autorisation_pending`.
+ *
+ * Un acte en attente d'autorisation n'a pas encore de `dateDebut` (chaîne vide) :
+ * compter dessus produit un `NaN`. On utilise donc :
+ *  1. `autorisationRequestedAt` — date de la demande (posée à la création).
+ *  2. `dateDebut` s'il est valide (cas limite / données futures).
+ *  3. `id` (= Date.now() à la création de l'acte) — équivaut à la date de la demande,
+ *     ce qui corrige aussi les actes créés avant l'introduction du champ dédié.
+ */
+export function getAutorisationRequestDate(
+  acte: { id: number; autorisationRequestedAt?: string; dateDebut?: string }
+): string {
+  if (acte.autorisationRequestedAt) return acte.autorisationRequestedAt;
+  if (acte.dateDebut && !isNaN(new Date(acte.dateDebut).getTime())) return acte.dateDebut;
+  return new Date(acte.id).toISOString();
+}
+
 // Helper : libellé d'une durée pour affichage
 export function formatDuree(value: string, unit?: 'jours' | 'mois'): string {
   const n = parseInt(value, 10);

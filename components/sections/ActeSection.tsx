@@ -81,7 +81,8 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
         dateDebut: '',
         dateFin: '',
         duree: dates.duree || '0',
-        statut: 'autorisation_pending'
+        statut: 'autorisation_pending',
+        autorisationRequestedAt: new Date().toISOString()
       };
       onUpdate(enquete.id, { actes: [...enquete.actes, newActe] });
     } else if (dates.updatedStatut === 'en_cours') {

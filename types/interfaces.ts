@@ -55,6 +55,13 @@ interface BaseActe {
    * qui n'est renseigné qu'à la validation, ni `dateDebut` qui est le début de l'acte).
    */
   prolongationRequestedAt?: string;
+  /**
+   * Horodatage (ISO) du moment où la demande d'autorisation initiale a été soumise au JLD.
+   * Pour un acte `autorisation_pending`, `dateDebut` est vide (l'acte n'a pas encore
+   * de date de début effective) : ce champ porte donc l'ancienneté de l'attente.
+   * À défaut (actes créés avant ce champ), on retombe sur `id` (= Date.now() à la création).
+   */
+  autorisationRequestedAt?: string;
   prolongationsHistory?: ProlongationHistoryEntry[];
 }
 
