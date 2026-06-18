@@ -92,14 +92,7 @@ export const MisEnExamenCard = ({
   const seuilFinDP = alertRules.find(r => r.trigger === 'dp_fin_proche')?.seuil ?? 21;
   const seuilMaxDP = alertRules.find(r => r.trigger === 'dp_max_proche')?.seuil ?? 90;
 
-  /** Aperçu plein-texte (sans HTML) des notes pour la vue compactée */
-  const notesPreview = mex.elementsCharge
-    ? mex.elementsCharge
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-    : '';
+  const hasNotes = !!mex.elementsCharge?.trim();
 
   // Les DML n'ont de sens que pour un MEX détenu (Demande de Mise en Liberté).
   // On masque la section et le compteur pour les autres statuts.
@@ -229,11 +222,12 @@ export const MisEnExamenCard = ({
             </div>
           )}
 
-          {/* Aperçu rapide notes */}
-          {notesPreview && (
-            <div className="mt-1 text-[11px] text-gray-600 italic line-clamp-2">
-              {notesPreview}
-            </div>
+          {/* Aperçu rapide notes (HTML formaté) */}
+          {hasNotes && (
+            <div
+              className="mt-1 text-[11px] text-gray-700 line-clamp-3 prose prose-xs max-w-none [&_strong]:font-semibold [&_em]:italic [&_u]:underline [&_mark]:bg-yellow-200 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4"
+              dangerouslySetInnerHTML={{ __html: mex.elementsCharge! }}
+            />
           )}
         </div>
         {expanded ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
