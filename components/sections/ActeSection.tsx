@@ -195,7 +195,7 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
 
     const updatedActes = enquete.actes.map(a => {
       if (a.id === prolongationActeId) {
-        return { ...a, statut: 'prolongation_pending' };
+        return { ...a, statut: 'prolongation_pending', prolongationRequestedAt: new Date().toISOString() };
       }
       return a;
     });

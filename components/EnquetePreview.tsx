@@ -21,6 +21,7 @@ import { AutorisationValidationModal } from './modals/AutorisationValidationModa
 import { useTags } from '@/hooks/useTags';
 import { useUser } from '@/contexts/UserContext';
 import { getLastCR } from '@/utils/compteRenduUtils';
+import { getProlongationRequestDate } from '@/utils/acteUtils';
 import { OverboardPin } from '@/types/userTypes';
 
 interface EnquetePreviewProps {
@@ -190,8 +191,8 @@ export const EnquetePreview = React.memo(({
           case 'prolongation_pending':
             return activeActes.some(acte => {
               if (acte.statut !== 'prolongation_pending') return false;
-              if (!acte.prolongationDate) return true; // pas de date = toujours matcher
-              const daysSince = Math.ceil((new Date().getTime() - new Date(acte.prolongationDate).getTime()) / (1000 * 60 * 60 * 24));
+              const refDate = getProlongationRequestDate(acte, enquete.modifications);
+              const daysSince = Math.ceil((new Date().getTime() - new Date(refDate).getTime()) / (1000 * 60 * 60 * 24));
               return daysSince >= rule.seuil;
             });
           case 'autorisation_pending':
@@ -207,8 +208,7 @@ export const EnquetePreview = React.memo(({
                 return daysSince >= rule.seuil;
               }
               if (acte.statut === 'prolongation_pending') {
-                const refDate = acte.prolongationDate || acte.dateDebut;
-                if (!refDate) return true;
+                const refDate = getProlongationRequestDate(acte, enquete.modifications);
                 const daysSince = Math.ceil((new Date().getTime() - new Date(refDate).getTime()) / (1000 * 60 * 60 * 24));
                 return daysSince >= rule.seuil;
               }
@@ -233,7 +233,7 @@ export const EnquetePreview = React.memo(({
       seenGroups.add(group);
       return true;
     });
-  }, [visualAlertRules, daysToOP, activeActes, enquete.comptesRendus]);
+  }, [visualAlertRules, daysToOP, activeActes, enquete.comptesRendus, enquete.modifications]);
 
   // Calcul des classes CSS depuis les règles visuelles
   const { cardBgClass, cardBorderClass } = useMemo(() => {

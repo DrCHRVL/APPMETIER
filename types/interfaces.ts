@@ -49,6 +49,12 @@ interface BaseActe {
     duree: string;
   };
   prolongationDate?: string;
+  /**
+   * Horodatage (ISO) du moment où la demande de prolongation a été soumise au JLD.
+   * Sert à calculer l'ancienneté réelle de l'attente JLD (et NON `prolongationDate`,
+   * qui n'est renseigné qu'à la validation, ni `dateDebut` qui est le début de l'acte).
+   */
+  prolongationRequestedAt?: string;
   prolongationsHistory?: ProlongationHistoryEntry[];
 }
 
