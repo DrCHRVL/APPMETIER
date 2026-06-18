@@ -57,6 +57,7 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
         duree: dates.duree || '0',
         dureeUnit: dates.dureeUnit || 'jours',
         statut: 'autorisation_pending',
+        autorisationRequestedAt: new Date().toISOString(),
         prolongationsHistory: []
       };
 
@@ -142,7 +143,8 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
       if (geoloc.id === prolongationGeolocId) {
         return {
           ...geoloc,
-          statut: 'prolongation_pending'
+          statut: 'prolongation_pending',
+          prolongationRequestedAt: new Date().toISOString()
         };
       }
       return geoloc;

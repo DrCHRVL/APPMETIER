@@ -1720,7 +1720,7 @@ return (
                        'geolocalisations']: enquete[selectedActe.type === 'acte' ? 'actes' : 
                                                     selectedActe.type === 'ecoute' ? 'ecoutes' : 
                                                     'geolocalisations']?.map(a => 
-                        a.id === selectedActe.id ? { ...a, statut: 'prolongation_pending' } : a
+                        a.id === selectedActe.id ? { ...a, statut: 'prolongation_pending', prolongationRequestedAt: new Date().toISOString() } : a
                       )
                     });
                   }

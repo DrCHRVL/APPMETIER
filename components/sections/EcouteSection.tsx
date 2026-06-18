@@ -62,6 +62,7 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
         dureeUnit: dates.dureeUnit || 'mois',
         maxProlongations: dates.maxProlongations ?? 1,
         statut: 'autorisation_pending',
+        autorisationRequestedAt: new Date().toISOString(),
         prolongationsHistory: []
       };
 
@@ -154,7 +155,8 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
       if (ecoute.id === prolongationEcouteId) {
         return {
           ...ecoute,
-          statut: 'prolongation_pending'
+          statut: 'prolongation_pending',
+          prolongationRequestedAt: new Date().toISOString()
         };
       }
       return ecoute;
@@ -238,6 +240,7 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
         dateFin: '',
         duree: dates.duree || '0',
         statut: 'autorisation_pending',
+        autorisationRequestedAt: new Date().toISOString(),
         prolongationsHistory: []
       };
 

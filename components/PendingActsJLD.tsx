@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Clock } from 'lucide-react';
 import { Enquete } from '@/types/interfaces';
+import { getProlongationRequestDate, getAutorisationRequestDate } from '@/utils/acteUtils';
 
 interface PendingActsJLDProps {
   enquetes: Enquete[];
@@ -11,7 +12,8 @@ interface PendingActeItem {
   acteType: string;
   cible?: string;
   enquete: Enquete;
-  daysSince: number;
+  daysSince: number;       // jours écoulés depuis la mise en attente JLD
+  daysToDeadline?: number; // jours restants avant échéance de l'acte (dateFin), si connue
   kind: 'autorisation' | 'prolongation';
 }
 
@@ -26,27 +28,33 @@ export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete }: PendingAc
     const dayMs = 1000 * 60 * 60 * 24;
     const items: PendingActeItem[] = [];
 
+    // Jours restants avant l'échéance de l'acte (sa dateFin courante). Positif = il
+    // reste du temps, négatif = échéance dépassée. undefined si dateFin inconnue.
+    const deadlineDays = (dateFin?: string): number | undefined => {
+      if (!dateFin) return undefined;
+      const t = new Date(dateFin).getTime();
+      if (isNaN(t)) return undefined;
+      return Math.ceil((t - now) / dayMs);
+    };
+
     for (const e of enquetes) {
+      const mods = e.modifications;
+      const pushAutorisation = (label: string, a: { id: number; dateDebut: string; dateFin?: string; autorisationRequestedAt?: string }, cible?: string) =>
+        items.push({ acteType: label, cible, enquete: e, daysSince: Math.floor((now - new Date(getAutorisationRequestDate(a)).getTime()) / dayMs), daysToDeadline: deadlineDays(a.dateFin), kind: 'autorisation' });
+      const pushProlongation = (label: string, a: { id: number; dateDebut: string; dateFin?: string; prolongationRequestedAt?: string; prolongationDate?: string }, cible?: string) =>
+        items.push({ acteType: label, cible, enquete: e, daysSince: Math.floor((now - new Date(getProlongationRequestDate(a, mods)).getTime()) / dayMs), daysToDeadline: deadlineDays(a.dateFin), kind: 'prolongation' });
+
       for (const a of e.actes || []) {
-        if (a.statut === 'autorisation_pending') {
-          items.push({ acteType: a.type || 'Acte', enquete: e, daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs), kind: 'autorisation' });
-        } else if (a.statut === 'prolongation_pending') {
-          items.push({ acteType: a.type || 'Acte', enquete: e, daysSince: Math.floor((now - new Date(a.prolongationDate || a.dateDebut).getTime()) / dayMs), kind: 'prolongation' });
-        }
+        if (a.statut === 'autorisation_pending') pushAutorisation(a.type || 'Acte', a);
+        else if (a.statut === 'prolongation_pending') pushProlongation(a.type || 'Acte', a);
       }
       for (const a of e.ecoutes || []) {
-        if (a.statut === 'autorisation_pending') {
-          items.push({ acteType: `Écoute ${a.numero}`, cible: a.cible, enquete: e, daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs), kind: 'autorisation' });
-        } else if (a.statut === 'prolongation_pending') {
-          items.push({ acteType: `Écoute ${a.numero}`, cible: a.cible, enquete: e, daysSince: Math.floor((now - new Date(a.prolongationDate || a.dateDebut).getTime()) / dayMs), kind: 'prolongation' });
-        }
+        if (a.statut === 'autorisation_pending') pushAutorisation(`Écoute ${a.numero}`, a, a.cible);
+        else if (a.statut === 'prolongation_pending') pushProlongation(`Écoute ${a.numero}`, a, a.cible);
       }
       for (const a of e.geolocalisations || []) {
-        if (a.statut === 'autorisation_pending') {
-          items.push({ acteType: `Géoloc ${a.objet}`, enquete: e, daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs), kind: 'autorisation' });
-        } else if (a.statut === 'prolongation_pending') {
-          items.push({ acteType: `Géoloc ${a.objet}`, enquete: e, daysSince: Math.floor((now - new Date(a.prolongationDate || a.dateDebut).getTime()) / dayMs), kind: 'prolongation' });
-        }
+        if (a.statut === 'autorisation_pending') pushAutorisation(`Géoloc ${a.objet}`, a);
+        else if (a.statut === 'prolongation_pending') pushProlongation(`Géoloc ${a.objet}`, a);
       }
     }
     return items;
@@ -59,7 +67,7 @@ export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete }: PendingAc
   const renderItem = (item: PendingActeItem, idx: number) => (
     <li
       key={idx}
-      className={`flex items-baseline gap-1.5 py-1 group min-w-0 ${onOpenEnquete ? 'cursor-pointer hover:text-purple-800' : ''}`}
+      className={`flex items-start gap-1.5 py-1 group min-w-0 ${onOpenEnquete ? 'cursor-pointer hover:text-purple-800' : ''}`}
       onClick={() => onOpenEnquete?.(item.enquete)}
       title={`${item.acteType} (${item.enquete.numero})${onOpenEnquete ? " — Ouvrir l'enquête" : ''}`}
     >
@@ -75,12 +83,31 @@ export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete }: PendingAc
           </span>
         )}
       </span>
-      <span className={`text-[10px] font-semibold whitespace-nowrap ${
-        item.daysSince >= 14 ? 'text-red-600' :
-        item.daysSince >= 7 ? 'text-orange-600' :
-        'text-purple-600'
-      }`}>
-        {item.daysSince}j
+      <span className="flex flex-col items-end leading-tight whitespace-nowrap">
+        <span
+          className={`text-[10px] font-semibold ${
+            item.daysSince >= 14 ? 'text-red-600' :
+            item.daysSince >= 7 ? 'text-orange-600' :
+            'text-purple-600'
+          }`}
+          title="Ancienneté de l'attente JLD (depuis la demande)"
+        >
+          {item.daysSince}j d'attente
+        </span>
+        {item.daysToDeadline !== undefined && (
+          <span
+            className={`text-[9px] font-medium ${
+              item.daysToDeadline <= 0 ? 'text-red-600' :
+              item.daysToDeadline <= 3 ? 'text-orange-600' :
+              'text-gray-500'
+            }`}
+            title="Jours restants avant échéance de l'acte (date de fin courante)"
+          >
+            {item.daysToDeadline <= 0
+              ? `échéance dépassée (${Math.abs(item.daysToDeadline)}j)`
+              : `éch. dans ${item.daysToDeadline}j`}
+          </span>
+        )}
       </span>
     </li>
   );

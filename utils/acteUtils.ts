@@ -1,4 +1,4 @@
-import { GeolocData, EcouteData, AutreActe, ActeStatus, Enquete } from '@/types/interfaces';
+import { GeolocData, EcouteData, AutreActe, ActeStatus, Enquete, ModificationEntry } from '@/types/interfaces';
 import { DateUtils } from './dateUtils';
 import { ElectronBridge } from './electronBridge';
 import { deletedIdsSyncService } from './dataSync/DeletedIdsSyncService';
@@ -115,6 +115,61 @@ export function getStatutBadgeProps(statut: ActeStatus): { label: string; classN
 // Helper : calcule la date de fin selon l'unité de l'acte (jours ou mois calendaires)
 function endDateForActe(startDate: string, duree: string, dureeUnit?: 'jours' | 'mois'): string {
   return DateUtils.calculateEndDateWithUnit(startDate, duree, dureeUnit || 'jours');
+}
+
+type PendingProlongationActe = {
+  id: number;
+  prolongationRequestedAt?: string;
+  prolongationDate?: string;
+  dateDebut: string;
+};
+
+/**
+ * Date de référence à partir de laquelle compter l'ancienneté d'une attente JLD
+ * pour une prolongation `prolongation_pending`.
+ *
+ * Priorité :
+ *  1. `prolongationRequestedAt` — date de la demande (source fiable, posée à la soumission).
+ *  2. Rétro-remplissage : dernière entrée du journal des modifications marquant le
+ *     passage de cet acte au statut « prolongation à valider » (pour les actes mis en
+ *     attente avant l'introduction de `prolongationRequestedAt`).
+ *  3. Repli legacy : `prolongationDate` (date de la dernière prolongation validée) puis
+ *     `dateDebut` (début de l'acte) — historiquement à l'origine du calcul erroné.
+ */
+export function getProlongationRequestDate(
+  acte: PendingProlongationActe,
+  modifications?: ModificationEntry[]
+): string {
+  if (acte.prolongationRequestedAt) return acte.prolongationRequestedAt;
+
+  if (modifications && modifications.length > 0) {
+    const pendingLabel = getStatutBadgeProps('prolongation_pending').label.toLowerCase();
+    const match = modifications
+      .filter(m => m.targetId === acte.id && m.label.toLowerCase().includes(pendingLabel))
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0];
+    if (match) return match.timestamp;
+  }
+
+  return acte.prolongationDate || acte.dateDebut;
+}
+
+/**
+ * Date de référence à partir de laquelle compter l'ancienneté d'une attente JLD
+ * pour une autorisation initiale `autorisation_pending`.
+ *
+ * Un acte en attente d'autorisation n'a pas encore de `dateDebut` (chaîne vide) :
+ * compter dessus produit un `NaN`. On utilise donc :
+ *  1. `autorisationRequestedAt` — date de la demande (posée à la création).
+ *  2. `dateDebut` s'il est valide (cas limite / données futures).
+ *  3. `id` (= Date.now() à la création de l'acte) — équivaut à la date de la demande,
+ *     ce qui corrige aussi les actes créés avant l'introduction du champ dédié.
+ */
+export function getAutorisationRequestDate(
+  acte: { id: number; autorisationRequestedAt?: string; dateDebut?: string }
+): string {
+  if (acte.autorisationRequestedAt) return acte.autorisationRequestedAt;
+  if (acte.dateDebut && !isNaN(new Date(acte.dateDebut).getTime())) return acte.dateDebut;
+  return new Date(acte.id).toISOString();
 }
 
 // Helper : libellé d'une durée pour affichage
