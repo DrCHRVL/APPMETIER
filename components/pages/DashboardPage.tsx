@@ -31,10 +31,11 @@ interface DashboardPageProps {
   onOpenInstruction: (dossier: DossierInstruction) => void;
 }
 
-const KPI = ({ label, value, accent }: { label: string; value: number | string; accent?: string }) => (
+const KPI = ({ label, value, accent, sub }: { label: string; value: number | string; accent?: string; sub?: string }) => (
   <div className="bg-white border border-gray-200/80 rounded-2xl px-5 py-4 shadow-[0_1px_2px_rgba(20,32,27,0.04)]">
     <div className="text-[12px] font-semibold text-gray-500">{label}</div>
     <div className="mt-1.5 text-3xl font-bold tracking-tight" style={{ color: accent || '#1a2230' }}>{value}</div>
+    {sub && <div className="mt-1 text-[11px] text-gray-400">{sub}</div>}
   </div>
 );
 
@@ -99,10 +100,12 @@ export const DashboardPage = ({
   );
 
   // Instructions rattachées à ce contentieux (si l'info existe), sinon toutes
-  const instructionsActives = useMemo(() => {
+  const { instructionsActives, nbDetenus } = useMemo(() => {
     const enCours = instructions.filter(d => !d.archived);
     const scoped = enCours.filter(d => (d as { contentieuxId?: string }).contentieuxId === selected);
-    return scoped.length > 0 ? scoped.length : enCours.length;
+    const liste = scoped.length > 0 ? scoped : enCours;
+    const detenus = liste.flatMap(d => d.misEnExamen || []).filter(m => m.mesureSurete?.type === 'detenu').length;
+    return { instructionsActives: liste.length, nbDetenus: detenus };
   }, [instructions, selected]);
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -161,7 +164,7 @@ export const DashboardPage = ({
       {/* Indicateurs clés du contentieux sélectionné */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KPI label="Enquêtes en cours" value={activeEnquetes.length} accent={selectedDef?.color} />
-        <KPI label="Instructions en cours" value={instructionsActives} />
+        <KPI label="Instructions en cours" value={instructionsActives} sub={nbDetenus > 0 ? `dont ${nbDetenus} détenu${nbDetenus > 1 ? 's' : ''}` : undefined} />
         <KPI label="Actes en cours" value={actesEnCours} accent={actesEnCours > 0 ? '#0f766e' : undefined} />
         <KPI label="Actes en attente" value={actesEnAttente} accent={actesEnAttente > 0 ? '#b45309' : undefined} />
       </div>
