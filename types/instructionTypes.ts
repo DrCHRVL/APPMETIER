@@ -158,6 +158,14 @@ export type MesureSurete =
       notes?: string;
     };
 
+/** Suspect / futur mis en examen — suivi avant la mise en examen formelle */
+export interface Suspect {
+  id: number;
+  nom: string;
+  /** Rôle présumé dans l'affaire (optionnel) */
+  role?: string;
+}
+
 /** Mis en examen — entité centrale de chaque dossier d'instruction */
 export interface MisEnExamen {
   id: number;
@@ -428,6 +436,7 @@ export interface DossierInstruction {
   dateRI: string;
 
   // Personnes
+  suspects?: Suspect[];
   misEnExamen: MisEnExamen[];
   victimes?: Victime[];
 

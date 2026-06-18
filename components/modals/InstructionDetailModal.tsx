@@ -527,9 +527,11 @@ export const InstructionDetailModal = ({
           {activeTab === 'mex' && (
             <MisEnExamenSection
               misEnExamen={dossier.misEnExamen}
+              suspects={dossier.suspects ?? []}
               onChange={(misEnExamen: MisEnExamen[]) =>
                 onUpdate(dossier.id, { misEnExamen })
               }
+              onSuspectsChange={(suspects) => onUpdate(dossier.id, { suspects })}
             />
           )}
 
