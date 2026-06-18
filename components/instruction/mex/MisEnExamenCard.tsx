@@ -225,7 +225,7 @@ export const MisEnExamenCard = ({
           {/* Aperçu rapide notes (HTML formaté) */}
           {hasNotes && (
             <div
-              className="mt-1 text-[11px] text-gray-700 line-clamp-3 prose prose-xs max-w-none [&_strong]:font-semibold [&_em]:italic [&_u]:underline [&_mark]:bg-yellow-200 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4"
+              className="mt-1 text-[11px] text-gray-700 prose prose-xs max-w-none [&_strong]:font-semibold [&_em]:italic [&_u]:underline [&_mark]:bg-yellow-200 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4"
               dangerouslySetInnerHTML={{ __html: mex.elementsCharge! }}
             />
           )}
