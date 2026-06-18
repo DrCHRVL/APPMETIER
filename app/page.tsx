@@ -1657,6 +1657,12 @@ return (
           }}
           onDelete={handleDeleteInstruction}
           contentieuxDefs={contentieuxDefs}
+          allKnownNames={Array.from(new Set(
+            instructions.flatMap(inst => [
+              ...inst.misEnExamen.map(m => m.nom),
+              ...(inst.suspects || []).map(s => s.nom),
+            ]).filter(Boolean)
+          ))}
         />
       )}
 

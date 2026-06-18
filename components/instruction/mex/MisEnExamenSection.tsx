@@ -5,6 +5,7 @@ import { Plus, X, ChevronsDownUp, ChevronsUpDown, ArrowRightCircle, UserSearch, 
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
+import { MecAutocompleteInput } from '../../ui/MecAutocompleteInput';
 import { MisEnExamenCard } from './MisEnExamenCard';
 import type { MisEnExamen, Suspect } from '@/types/instructionTypes';
 
@@ -14,6 +15,8 @@ interface Props {
   onChange: (next: MisEnExamen[]) => void;
   onSuspectsChange?: (next: Suspect[]) => void;
   readOnly?: boolean;
+  /** Noms connus cross-dossiers pour l'autocomplete (MEX + suspects) */
+  allKnownNames?: string[];
 }
 
 // ── Composant interne : carte suspect ─────────────────────────────────────────
@@ -24,9 +27,10 @@ interface SuspectCardProps {
   onEdit: (updated: Suspect) => void;
   onConvert: (dateMex: string) => void;
   readOnly?: boolean;
+  allKnownNames?: string[];
 }
 
-const SuspectCard = ({ suspect, onDelete, onEdit, onConvert, readOnly }: SuspectCardProps) => {
+const SuspectCard = ({ suspect, onDelete, onEdit, onConvert, readOnly, allKnownNames = [] }: SuspectCardProps) => {
   const [editing, setEditing] = useState(false);
   const [draftNom, setDraftNom] = useState(suspect.nom);
   const [draftRole, setDraftRole] = useState(suspect.role ?? '');
@@ -51,9 +55,11 @@ const SuspectCard = ({ suspect, onDelete, onEdit, onConvert, readOnly }: Suspect
         <div className="space-y-1.5">
           <div>
             <Label className="text-xs">Nom *</Label>
-            <Input
+            <MecAutocompleteInput
               value={draftNom}
-              onChange={(e) => setDraftNom(e.target.value)}
+              onChange={setDraftNom}
+              suggestions={allKnownNames}
+              minTriggerLength={4}
               className="h-7 text-sm"
               autoFocus
             />
@@ -162,7 +168,7 @@ const SuspectCard = ({ suspect, onDelete, onEdit, onConvert, readOnly }: Suspect
 
 // ── Section principale ─────────────────────────────────────────────────────────
 
-export const MisEnExamenSection = ({ misEnExamen, suspects = [], onChange, onSuspectsChange, readOnly }: Props) => {
+export const MisEnExamenSection = ({ misEnExamen, suspects = [], onChange, onSuspectsChange, readOnly, allKnownNames = [] }: Props) => {
   const [showAddMexForm, setShowAddMexForm] = useState(false);
   const [draftNom, setDraftNom] = useState('');
   const [draftDate, setDraftDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -291,6 +297,7 @@ export const MisEnExamenSection = ({ misEnExamen, suspects = [], onChange, onSus
                 onDelete={() => handleDeleteSuspect(s.id)}
                 onEdit={(updated) => handleEditSuspect(s.id, updated)}
                 onConvert={(date) => handleConvertSuspect(s, date)}
+                allKnownNames={allKnownNames}
               />
             ))}
           </div>
@@ -303,9 +310,11 @@ export const MisEnExamenSection = ({ misEnExamen, suspects = [], onChange, onSus
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <Label className="text-xs">Nom complet *</Label>
-                  <Input
+                  <MecAutocompleteInput
                     value={draftSuspectNom}
-                    onChange={(e) => setDraftSuspectNom(e.target.value)}
+                    onChange={setDraftSuspectNom}
+                    suggestions={allKnownNames}
+                    minTriggerLength={4}
                     placeholder="Ex: MARTIN Paul"
                     autoFocus
                     className="h-8 text-sm"
@@ -412,9 +421,11 @@ export const MisEnExamenSection = ({ misEnExamen, suspects = [], onChange, onSus
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <Label className="text-xs">Nom complet *</Label>
-                  <Input
+                  <MecAutocompleteInput
                     value={draftNom}
-                    onChange={(e) => setDraftNom(e.target.value)}
+                    onChange={setDraftNom}
+                    suggestions={allKnownNames}
+                    minTriggerLength={4}
                     placeholder="Ex: DUPONT Jean"
                     autoFocus
                     className="h-8 text-sm"

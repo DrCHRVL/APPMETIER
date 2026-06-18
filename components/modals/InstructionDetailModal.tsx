@@ -58,6 +58,8 @@ interface InstructionDetailModalProps {
   onDelete: (id: number) => void;
   /** Liste des contentieux pour le sélecteur en mode édition. */
   contentieuxDefs?: import('@/types/userTypes').ContentieuxDefinition[];
+  /** Tous les noms MEX + suspects connus (cross-dossiers) pour l'autocomplete */
+  allKnownNames?: string[];
 }
 
 type TabKey = 'apercu' | 'mex' | 'victimes' | 'echeances' | 'timeline';
@@ -85,6 +87,7 @@ export const InstructionDetailModal = ({
   onUpdate,
   onDelete,
   contentieuxDefs = [],
+  allKnownNames = [],
 }: InstructionDetailModalProps) => {
   const { showToast } = useToast();
   const { getCabinetById } = useInstructionCabinets();
@@ -532,6 +535,7 @@ export const InstructionDetailModal = ({
                 onUpdate(dossier.id, { misEnExamen })
               }
               onSuspectsChange={(suspects) => onUpdate(dossier.id, { suspects })}
+              allKnownNames={allKnownNames}
             />
           )}
 
