@@ -3,9 +3,9 @@
 /**
  * SIRAL — porte d'entrée web.
  * Affichée uniquement en mode navigateur (jamais dans Electron ni en mode
- * consultation). Enchaîne : connexion passkey → déverrouillage du trousseau
- * individuel (cloisonnement par clé) → installation du pont electronAPI →
- * rendu de l'application.
+ * consultation). Enchaîne : connexion par mot de passe → déverrouillage du
+ * trousseau individuel (cloisonnement par clé) → installation du pont
+ * electronAPI → rendu de l'application.
  *
  * Parcours possibles après authentification :
  *  - unlock        : mon trousseau existe → phrase personnelle
@@ -17,7 +17,6 @@
  *  - no-access     : pas de trousseau ni d'invitation → demander un accès
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { startRegistration, startAuthentication } from '@simplewebauthn/browser'
 import { encryptJson, decryptJson, b64, CipherEnvelope } from '@/lib/web/crypto'
 import { buildWebBridge, BridgeIdentity } from '@/lib/web/bridge'
 import {
@@ -127,6 +126,27 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  /**
+   * Réutilise le trousseau mémorisé sur cet appareil (case « Rester
+   * déverrouillé »), sans redemander la phrase. Appelé au démarrage ET après
+   * une reconnexion par mot de passe : ainsi la session (12 h) peut expirer
+   * sans que la clé soit redemandée à chaque fois. Retourne true si la porte
+   * a été ouverte.
+   */
+  const tryStoredKeyring = useCallback(async (identity: BridgeIdentity): Promise<boolean> => {
+    try {
+      await idb.del('kv', LEGACY_KEY_STORE) // ancien format (clé unique) : obsolète
+      const stored = await idb.get<KeyringPayload>('kv', KEYRING_STORE)
+      if (stored && stored.keys && stored.keys[SCOPE_GLOBAL]) {
+        const scoped = await buildScopedKeys(stored)
+        const ok = await verifyOrCreateCanary(scoped.global, identity)
+        if (ok === true) { installBridge(scoped, identity); return true }
+        await idb.del('kv', KEYRING_STORE) // trousseau périmé : on l'oublie
+      }
+    } catch {}
+    return false
+  }, [verifyOrCreateCanary, installBridge])
+
   /** Chiffre et dépose mon trousseau, verrouillé par ma phrase personnelle. */
   const pushKeyring = useCallback(async (payload: KeyringPayload, personalPhrase: string, identity: BridgeIdentity): Promise<void> => {
     const kdf = newKdfParams()
@@ -225,21 +245,12 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       if (status !== 200) { setPhase('login'); return }
       const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
       setMe(identity)
-      // trousseau mémorisé sur cet appareil ?
-      try {
-        await idb.del('kv', LEGACY_KEY_STORE) // ancien format (clé unique) : obsolète
-        const stored = await idb.get<KeyringPayload>('kv', KEYRING_STORE)
-        if (stored && stored.keys && stored.keys[SCOPE_GLOBAL]) {
-          const scoped = await buildScopedKeys(stored)
-          const ok = await verifyOrCreateCanary(scoped.global, identity)
-          if (ok === true && !cancelled) { installBridge(scoped, identity); return }
-          await idb.del('kv', KEYRING_STORE)
-        }
-      } catch {}
+      // trousseau mémorisé sur cet appareil ? (case « Rester déverrouillé »)
+      if (await tryStoredKeyring(identity)) return
       if (!cancelled) await loadStateAndRoute()
     })()
     return () => { cancelled = true }
-  }, [mounted, isWeb, installBridge, verifyOrCreateCanary, loadStateAndRoute])
+  }, [mounted, isWeb, tryStoredKeyring, loadStateAndRoute])
 
   // Session expirée pendant l'utilisation
   useEffect(() => {
@@ -248,22 +259,6 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     window.addEventListener('siral:session-expired', onExpired)
     return () => window.removeEventListener('siral:session-expired', onExpired)
   }, [isWeb])
-
-  const doLogin = async () => {
-    setBusy(true); setError('')
-    try {
-      const { status, json } = await apiJson('/api/auth/login-options', {})
-      if (status !== 200) throw new Error(String(json.error || 'Erreur serveur'))
-      const assertion = await startAuthentication(json as never)
-      const verify = await apiJson('/api/auth/login-verify', { response: assertion })
-      if (verify.status !== 200) throw new Error(String(verify.json.error || 'Authentification refusée'))
-      const identity: BridgeIdentity = { username: String(verify.json.username), displayName: String(verify.json.displayName), role: String(verify.json.role) }
-      setMe(identity)
-      await loadStateAndRoute()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Échec de la connexion')
-    } finally { setBusy(false) }
-  }
 
   const doPasswordLogin = async () => {
     setBusy(true); setError('')
@@ -275,6 +270,8 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
       setMe(identity)
       setLoginPassword('')
+      // clé mémorisée sur cet appareil ? on évite de redemander la phrase
+      if (await tryStoredKeyring(identity)) return
       await loadStateAndRoute()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Échec de la connexion')
@@ -292,27 +289,6 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
       setMe(identity)
       setRegPassword('')
-      await loadStateAndRoute()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Échec de l'enrôlement")
-    } finally { setBusy(false) }
-  }
-
-  const doRegister = async () => {
-    setBusy(true); setError('')
-    try {
-      const { status, json } = await apiJson('/api/auth/register-options', {
-        username: regUsername.trim(), displayName: regDisplay.trim() || regUsername.trim(), setupCode: regCode.trim(),
-      })
-      if (status !== 200) throw new Error(String(json.error || 'Enrôlement refusé'))
-      const attestation = await startRegistration(json as never)
-      const verify = await apiJson('/api/auth/register-verify', {
-        username: regUsername.trim(), displayName: regDisplay.trim() || regUsername.trim(),
-        tribunal: regTribunal.trim() || undefined, response: attestation,
-      })
-      if (verify.status !== 200) throw new Error(String(verify.json.error || 'Vérification échouée'))
-      const identity: BridgeIdentity = { username: String(verify.json.username), displayName: String(verify.json.displayName), role: String(verify.json.role) }
-      setMe(identity)
       await loadStateAndRoute()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Échec de l'enrôlement")
@@ -512,17 +488,13 @@ export function WebGate({ children }: { children: React.ReactNode }) {
           <>
             <div className="siral-title">Connexion</div>
             <div className="siral-text">Espace réservé aux membres habilités.</div>
-            <button className="siral-btn" onClick={doLogin} disabled={busy}>
-              {busy ? 'Vérification…' : 'Se connecter avec une passkey'}
-            </button>
-            <div className="siral-sep">ou par mot de passe</div>
             <input className="siral-input" placeholder="Identifiant" value={loginUsername} autoCapitalize="none"
               onChange={(e) => setLoginUsername(e.target.value)} />
             <input className="siral-input" type="password" placeholder="Mot de passe" value={loginPassword}
               onChange={(e) => setLoginPassword(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && loginUsername.trim() && loginPassword) doPasswordLogin() }} />
-            <button className="siral-btn ghost" onClick={doPasswordLogin} disabled={busy || !loginUsername.trim() || !loginPassword}>
-              {busy ? 'Vérification…' : 'Se connecter par mot de passe'}
+            <button className="siral-btn" onClick={doPasswordLogin} disabled={busy || !loginUsername.trim() || !loginPassword}>
+              {busy ? 'Vérification…' : 'Se connecter'}
             </button>
             <button className="siral-link" onClick={() => { setError(''); setPhase('register') }}>
               Premier accès sur cet appareil ? Enrôler
@@ -539,18 +511,11 @@ export function WebGate({ children }: { children: React.ReactNode }) {
             <input className="siral-input" placeholder="Nom affiché (ex. A. Chevalier)" value={regDisplay} onChange={(e) => setRegDisplay(e.target.value)} />
             <input className="siral-input" placeholder="Tribunal / juridiction (ex. TJ Marseille)" value={regTribunal} onChange={(e) => setRegTribunal(e.target.value)} />
             <input className="siral-input" placeholder="Code d'enrôlement" value={regCode} onChange={(e) => setRegCode(e.target.value)} />
-            <input className="siral-input" type="password" placeholder="Mot de passe (laisser vide pour une passkey)" value={regPassword}
+            <input className="siral-input" type="password" placeholder="Mot de passe (10 caractères minimum)" value={regPassword}
               onChange={(e) => setRegPassword(e.target.value)} />
-            {regPassword.length > 0 ? (
-              <button className="siral-btn" onClick={doPasswordRegister} disabled={busy || !regUsername.trim() || !regCode.trim() || regPassword.length < 10}>
-                {busy ? 'Création…' : 'Créer mon compte (mot de passe)'}
-              </button>
-            ) : (
-              <button className="siral-btn" onClick={doRegister} disabled={busy || !regUsername.trim() || !regCode.trim()}>
-                {busy ? 'Création…' : 'Créer ma passkey (Windows Hello / clé)'}
-              </button>
-            )}
-            <div className="siral-note"><span>Sur un poste où <b>Windows Hello est désactivé</b> (PC pro Justice), renseignez un mot de passe ci-dessus. Sinon, laissez le champ vide pour une passkey.</span></div>
+            <button className="siral-btn" onClick={doPasswordRegister} disabled={busy || !regUsername.trim() || !regCode.trim() || regPassword.length < 10}>
+              {busy ? 'Création…' : 'Créer mon compte'}
+            </button>
             <button className="siral-link" onClick={() => { setError(''); setPhase('login') }}>← Retour à la connexion</button>
             {error && <div className="siral-error">{error}</div>}
           </>
