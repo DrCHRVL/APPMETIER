@@ -177,17 +177,22 @@ export const SettingsModal = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white rounded-xl shadow-2xl w-[90vw] max-w-[1200px] h-[85vh] flex flex-col max-sm:w-screen max-sm:h-[100dvh] max-sm:rounded-none">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+        {/* Header — sur mobile, on décale sous l'encoche/barre d'état (safe-area)
+            pour que la croix de fermeture reste cliquable. */}
+        <div
+          className="flex items-center justify-between px-6 py-4 border-b border-gray-200 max-sm:px-4"
+          style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
+        >
           <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
             <Settings className="h-5 w-5 text-gray-500" />
             Paramètres
           </h2>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+            aria-label="Fermer"
+            className="p-1.5 max-sm:p-2.5 rounded-lg hover:bg-gray-100 active:bg-gray-200 transition-colors"
           >
-            <X className="h-5 w-5 text-gray-500" />
+            <X className="h-5 w-5 max-sm:h-6 max-sm:w-6 text-gray-500" />
           </button>
         </div>
 
