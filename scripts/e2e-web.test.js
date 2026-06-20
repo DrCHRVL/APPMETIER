@@ -97,10 +97,11 @@ async function main() {
     await page.fill('input[placeholder*="Nom affiché"]', 'A. Chevalier')
     await page.fill('input[placeholder*="Tribunal"]', 'TJ Test')
     await page.fill('input[placeholder*="enrôlement"]', 'CODE-TEST-2026')
+    await page.fill('input[placeholder*="Mot de passe"]', 'motdepasse-admin-2026')
     await page.screenshot({ path: SHOTS + '/02-register.png' })
-    await page.click('text=Créer ma passkey')
+    await page.click('text=Créer mon compte')
     await page.waitForSelector('text=Initialisation du chiffrement', { timeout: 20000 })
-    check('Enrôlement passkey réussi (compte admin créé)', true)
+    check('Enrôlement par mot de passe réussi (compte admin créé)', true)
 
     // ── 3. Création du trousseau individuel (premier utilisateur, clés neuves) ──
     await page.fill('input[placeholder*="phrase personnelle (nouvelle)"]', 'cheval correct pile batterie agrafe')
@@ -277,7 +278,8 @@ async function main() {
     await page2.fill('input[placeholder*="Identifiant"]', 'j.martin')
     await page2.fill('input[placeholder*="Tribunal"]', 'TJ Test')
     await page2.fill('input[placeholder*="enrôlement"]', 'CODE-TEST-2026')
-    await page2.click('text=Créer ma passkey')
+    await page2.fill('input[placeholder*="Mot de passe"]', 'motdepasse-martin-2026')
+    await page2.click('text=Créer mon compte')
     await page2.waitForSelector('text=Activer votre invitation', { timeout: 20000 })
     check('Second utilisateur : invitation détectée à l\'enrôlement', true)
     // mauvais code d'invitation refusé

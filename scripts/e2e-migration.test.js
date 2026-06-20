@@ -85,7 +85,8 @@ async function main() {
     await page.click('text=Premier accès')
     await page.fill('input[placeholder*="Identifiant"]', 'a.chevalier')
     await page.fill('input[placeholder*="enrôlement"]', 'CODE-MIG-2026')
-    await page.click('text=Créer ma passkey')
+    await page.fill('input[placeholder*="Mot de passe"]', 'motdepasse-mig-2026')
+    await page.click('text=Créer mon compte')
     await page.waitForSelector('text=Passage aux clés individuelles', { timeout: 20000 })
     check('Serveur importé : écran de migration proposé au premier utilisateur', true)
 
