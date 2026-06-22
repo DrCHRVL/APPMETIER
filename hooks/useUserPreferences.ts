@@ -11,6 +11,7 @@ import type { UserPreferencesFile } from '@/types/globalSyncTypes';
 import type { AlertValidation, AlertValidations, VisualAlertRule, AlerteInstruction } from '@/types/interfaces';
 import type { ContentieuxId } from '@/types/userTypes';
 import type { InstructionAlertRule } from '@/types/instructionTypes';
+import { AgendaUrls, AgendaDisplaySettings, DEFAULT_DISPLAY } from '@/lib/web/agenda';
 
 export interface WeeklyRecapPrefs {
   subscribedContentieux: string[];
@@ -150,6 +151,22 @@ export function useUserPreferences() {
     await refresh();
   }, [refresh]);
 
+  const setAgendaUrls = useCallback(async (urls: AgendaUrls) => {
+    await userPreferencesSyncService.setAgendaUrls(urls);
+    await refresh();
+  }, [refresh]);
+
+  const setAgendaDisplay = useCallback(async (display: AgendaDisplaySettings) => {
+    await userPreferencesSyncService.setAgendaDisplay(display);
+    await refresh();
+  }, [refresh]);
+
+  const seedAgenda = useCallback(async () => {
+    const seeded = await userPreferencesSyncService.seedAgenda();
+    if (seeded) await refresh();
+    return seeded;
+  }, [refresh]);
+
   const subscribedContentieux: string[] = prefs?.weeklyRecap?.subscribedContentieux || [];
   const serviceOrganization = prefs?.serviceOrganization;
   const subscribedContentieuxAlerts = prefs?.subscribedContentieuxAlerts;
@@ -160,6 +177,12 @@ export function useUserPreferences() {
   const instructionAlertRules = prefs?.instructionAlertRules;
   const instructionWeeklyRecapSubscribed = prefs?.instructionWeeklyRecapSubscribed ?? false;
   const instructionNetworkPath = prefs?.instructionNetworkPath ?? '';
+  const agendaUrls: AgendaUrls = prefs?.agenda?.urls ?? {};
+  const agendaDisplay: AgendaDisplaySettings = {
+    ...DEFAULT_DISPLAY,
+    ...(prefs?.agenda?.display ?? {}),
+    colors: { ...DEFAULT_DISPLAY.colors, ...(prefs?.agenda?.display?.colors ?? {}) },
+  };
 
   return {
     prefs,
@@ -191,6 +214,11 @@ export function useUserPreferences() {
     setInstructionWeeklyRecapSubscribed,
     instructionNetworkPath,
     setInstructionNetworkPath,
+    agendaUrls,
+    agendaDisplay,
+    setAgendaUrls,
+    setAgendaDisplay,
+    seedAgenda,
     refresh,
   };
 }

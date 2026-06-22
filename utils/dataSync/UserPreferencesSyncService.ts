@@ -13,6 +13,12 @@ import { UserPreferencesFile } from '@/types/globalSyncTypes';
 import { AlertValidations, AlertValidation, VisualAlertRule, AlerteInstruction } from '@/types/interfaces';
 import { ContentieuxId } from '@/types/userTypes';
 import {
+  AgendaUrls,
+  AgendaDisplaySettings,
+  loadAgendaUrls,
+  loadAgendaDisplay,
+} from '@/lib/web/agenda';
+import {
   getCurrentUserInfo,
   buildMetadata,
   emitSyncCompleted,
@@ -484,6 +490,77 @@ export class UserPreferencesSyncService {
     await writeLocal(this.currentUsername, next);
     emitSyncCompleted('userPreferences');
     this.schedulePush();
+  }
+
+  // ─── Agendas externes (Google / Outlook / iCloud) ────────────────────────
+  // Les adresses iCal et l'apparence du calendrier suivent désormais le compte
+  // utilisateur : elles sont stockées dans la prefs synchronisée plutôt que sur
+  // l'appareil, pour être retrouvées à l'identique sur tous les postes.
+
+  async setAgendaUrls(urls: AgendaUrls): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const clean: AgendaUrls = {};
+    if (urls.google?.trim()) clean.google = urls.google.trim();
+    if (urls.outlook?.trim()) clean.outlook = urls.outlook.trim();
+    if (urls.icloud?.trim()) clean.icloud = urls.icloud.trim();
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      agenda: {
+        seeded: true,
+        urls: clean,
+        display: current.agenda?.display,
+      },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
+  async setAgendaDisplay(display: AgendaDisplaySettings): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      agenda: {
+        seeded: true,
+        urls: current.agenda?.urls,
+        display: { ...display },
+      },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
+  /**
+   * Migration unique : copie les agendas + l'apparence stockés localement sur
+   * l'appareil (anciennes clés `agenda_ical_urls` / `agenda_display_settings`)
+   * vers les préférences synchronisées de l'utilisateur. No-op si déjà seedé.
+   * Retourne true si un seed a eu lieu.
+   */
+  async seedAgenda(): Promise<boolean> {
+    if (!this.currentUsername) return false;
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    if (current.agenda?.seeded) return false;
+    const [urls, display] = await Promise.all([loadAgendaUrls(), loadAgendaDisplay()]);
+    const user = await getCurrentUserInfo();
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      agenda: { seeded: true, urls, display },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+    return true;
   }
 
   async sync(): Promise<void> {

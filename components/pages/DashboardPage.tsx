@@ -17,7 +17,8 @@ import { PendingPose } from '@/components/PendingPose';
 import { UpcomingActeDeadlines } from '@/components/UpcomingActeDeadlines';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { AgendaCalendar } from '@/components/AgendaCalendar';
-import { fetchAgendaMulti, loadAgendaUrls, loadAgendaDisplay, AgendaEvent, AgendaSource, AgendaDisplaySettings } from '@/lib/web/agenda';
+import { fetchAgendaMulti, AgendaEvent, AgendaSource, AgendaUrls } from '@/lib/web/agenda';
+import { useUserPreferences } from '@/hooks/useUserPreferences';
 
 interface DashboardPageProps {
   enquetesByContentieux: Map<ContentieuxId, Enquete[]>;
@@ -110,27 +111,34 @@ export const DashboardPage = ({
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
-  // Agenda (lecture seule) — Google + Outlook + iCloud fusionnés. Le calendrier
+  // Agenda (lecture seule) — Google + Outlook + iCloud fusionnés. Les adresses
+  // iCal et l'apparence suivent le compte utilisateur (préférences
+  // synchronisées) : on les retrouve sur tous les appareils. Le calendrier
   // mensuel reste affiché même sans agenda connecté ni rendez-vous.
+  const { agendaUrls, agendaDisplay, seedAgenda } = useUserPreferences();
   const [agenda, setAgenda] = useState<AgendaEvent[]>([]);
   const [agendaSources, setAgendaSources] = useState<AgendaSource[]>([]);
   const [agendaLoading, setAgendaLoading] = useState(true);
-  const [agendaDisplay, setAgendaDisplay] = useState<AgendaDisplaySettings>({ eventSize: 'small', colors: {} });
 
+  // Migration unique de l'ancien stockage local vers le compte.
+  useEffect(() => { seedAgenda(); }, [seedAgenda]);
+
+  // Clé stable : ne déclenche un refetch que si le contenu des URLs change
+  // (y compris quand un autre appareil pousse une modif via la synchro).
+  const agendaUrlsKey = JSON.stringify(agendaUrls);
   const fetchAgendaData = React.useCallback(async () => {
     setAgendaLoading(true);
-    const urls = await loadAgendaUrls();
+    const urls: AgendaUrls = JSON.parse(agendaUrlsKey);
     const sources = (Object.keys(urls) as AgendaSource[]).filter(s => urls[s as keyof typeof urls]);
     setAgendaSources(sources);
     if (sources.length === 0) { setAgenda([]); setAgendaLoading(false); return; }
     try { const ev = await fetchAgendaMulti(urls); setAgenda(ev); }
     catch { setAgenda([]); }
     finally { setAgendaLoading(false); }
-  }, []);
+  }, [agendaUrlsKey]);
 
   useEffect(() => {
     fetchAgendaData();
-    loadAgendaDisplay().then(setAgendaDisplay);
   }, [fetchAgendaData]);
 
   return (
