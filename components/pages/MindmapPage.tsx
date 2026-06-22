@@ -7,7 +7,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pin, PinOff, Plus, RefreshCw, Save, Search, Shrink, Trophy, User, X } from 'lucide-react';
+import { Check, ChevronDown, FileDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pin, PinOff, Plus, RefreshCw, Save, Search, Shrink, Trophy, User, X } from 'lucide-react';
 import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { Enquete } from '@/types/interfaces';
 import {
@@ -28,6 +28,7 @@ import {
 import { cartographieOverlaySyncService } from '@/utils/dataSync/CartographieOverlaySyncService';
 import { useCartographieConfig } from '@/hooks/useCartographieConfig';
 import { useTags } from '@/hooks/useTags';
+import { useToast } from '@/contexts/ToastContext';
 import type { InfluenceCluster } from '../mindmap/influenceHull';
 import { MindmapCanvas } from '../mindmap/MindmapCanvas';
 import { MindmapSidePanel } from '../mindmap/MindmapSidePanel';
@@ -129,6 +130,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const removeClusterAnnotation = useCartographieOverlayStore(s => s.removeClusterAnnotation);
   const mecScoreBoosts = useCartographieOverlayStore(s => s.mecScoreBoosts);
   const setMecScoreBoost = useCartographieOverlayStore(s => s.setMecScoreBoost);
+
+  const { showToast } = useToast();
 
   useEffect(() => {
     if (!overlayLoaded) loadOverlay();
@@ -302,6 +305,48 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     )) return;
     clearLayoutCache();
     setRefreshKey(k => k + 1);
+  };
+
+  // Exporter la liste des noms au format txt brut (un nom par ligne, trié,
+  // dédupliqué). On part des nœuds MEC de la carte — qui regroupent déjà mis
+  // en cause, mis en examen, suspects et « mis en cause » ajoutés à la main —
+  // en excluant les victimes projetées (drapeau isVictime). On exporte ce qui
+  // est réellement affiché : le filtre contentieux actif est donc respecté.
+  const handleExportNames = async () => {
+    const names = new Set<string>();
+    for (const mec of graph.mecById.values()) {
+      if (mec.isVictime) continue;
+      const nom = mec.displayName.trim();
+      if (nom) names.add(nom);
+    }
+    const sorted = Array.from(names).sort((a, b) =>
+      a.localeCompare(b, 'fr', { sensitivity: 'base' }),
+    );
+    if (sorted.length === 0) {
+      showToast('Aucun nom à exporter', 'info');
+      return;
+    }
+    const filename = `mis-en-cause_${new Date().toISOString().split('T')[0]}.txt`;
+    const content = sorted.join('\n') + '\n';
+    try {
+      if (window.electronAPI?.saveFileDialog) {
+        await window.electronAPI.saveFileDialog(filename, content);
+      } else {
+        // Filet de sécurité hors contexte Electron/bridge : download direct.
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+      }
+      showToast(
+        `${sorted.length} nom${sorted.length > 1 ? 's' : ''} exporté${sorted.length > 1 ? 's' : ''}`,
+        'success',
+      );
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Export impossible', 'error');
+    }
   };
 
   const handleSave = async () => {
@@ -545,6 +590,17 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         >
           <Shrink className="h-3.5 w-3.5" />
           Recompacter
+        </button>
+
+        {/* Exporter : liste des noms (mis en cause, mis en examen, suspects et
+            ajouts manuels — hors victimes) en .txt brut, un nom par ligne. */}
+        <button
+          onClick={handleExportNames}
+          title="Exporter la liste des noms (mis en cause, mis en examen, suspects… hors victimes) au format texte"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 transition-colors"
+        >
+          <FileDown className="h-3.5 w-3.5" />
+          Exporter
         </button>
 
         {/* Enregistrer : flush explicite des overlays sur disque. Indispensable
