@@ -204,6 +204,7 @@ export interface NewEnqueteData {
   description?: string;
   directeurEnquete?: string;
   numeroParquet?: string;
+  numeroIDJ?: string;       // Identifiant Justice (IDJ)
   dateOP?: string;          // Legacy : date de la (première) opération d'interpellation. Conservé pour compatibilité avec les enquêtes existantes ; toute nouvelle saisie doit aussi alimenter `opPhases[0].dateDebut`.
   opPhases?: OPPhase[];     // Phases d'OP (interpellations potentiellement en plusieurs vagues). Si vide ou absent, on retombe sur `dateOP`.
   misEnCause: MisEnCause[];

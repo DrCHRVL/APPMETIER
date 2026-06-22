@@ -15,6 +15,7 @@ interface EnqueteHeaderProps {
   description?: string;
   directeurEnquete?: string;
   numeroParquet?: string;
+  numeroIDJ?: string;
   isEditing?: boolean;
   onUpdate?: (updates: Partial<any>) => void;
   /** Callback immédiat pour les actions discrètes (date, select) — sans debounce */
@@ -29,6 +30,7 @@ export const EnqueteHeader = React.memo(({
   description,
   directeurEnquete,
   numeroParquet,
+  numeroIDJ,
   isEditing = false,
   onUpdate,
   onUpdateImmediate
@@ -38,11 +40,13 @@ export const EnqueteHeader = React.memo(({
   // État local pour les champs texte : feedback instantané, propagation déboncée
   const [localDirecteur, setLocalDirecteur] = useState(directeurEnquete || '');
   const [localParquet, setLocalParquet] = useState(numeroParquet || '');
+  const [localIDJ, setLocalIDJ] = useState(numeroIDJ || '');
   const [localDescription, setLocalDescription] = useState(description || '');
 
   // Sync depuis les props parent quand l'enquête change
   useEffect(() => { setLocalDirecteur(directeurEnquete || ''); }, [directeurEnquete]);
   useEffect(() => { setLocalParquet(numeroParquet || ''); }, [numeroParquet]);
+  useEffect(() => { setLocalIDJ(numeroIDJ || ''); }, [numeroIDJ]);
   useEffect(() => { setLocalDescription(description || ''); }, [description]);
 
   const { getTagsByCategory, getServicesFromTags } = useTags();
@@ -181,7 +185,7 @@ export const EnqueteHeader = React.memo(({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mt-3">
+      <div className="grid grid-cols-3 gap-4 mt-3">
         <div>
           <h3 className="text-xs font-medium text-gray-500">Directeur d'enquête</h3>
           {isEditing ? (
@@ -213,6 +217,23 @@ export const EnqueteHeader = React.memo(({
             />
           ) : (
             <p className="text-sm">{numeroParquet || <span className="text-gray-400 italic">—</span>}</p>
+          )}
+        </div>
+
+        <div>
+          <h3 className="text-xs font-medium text-gray-500">Numéro IDJ</h3>
+          {isEditing ? (
+            <Input
+              value={localIDJ}
+              onChange={(e) => {
+                setLocalIDJ(e.target.value);
+                onUpdate?.({ numeroIDJ: e.target.value });
+              }}
+              className="h-7 text-sm"
+              placeholder="Identifiant Justice"
+            />
+          ) : (
+            <p className="text-sm">{numeroIDJ || <span className="text-gray-400 italic">—</span>}</p>
           )}
         </div>
       </div>

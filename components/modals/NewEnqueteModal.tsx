@@ -344,7 +344,7 @@ export const NewEnqueteModal = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="text-sm font-medium">Directeur d'enquête</label>
               <Input
@@ -359,6 +359,14 @@ export const NewEnqueteModal = ({
                 placeholder="Numéro de parquet"
                 value={newEnqueteData.numeroParquet || ''}
                 onChange={(e) => setNewEnqueteData(prev => ({ ...prev, numeroParquet: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Numéro IDJ</label>
+              <Input
+                placeholder="Identifiant Justice"
+                value={newEnqueteData.numeroIDJ || ''}
+                onChange={(e) => setNewEnqueteData(prev => ({ ...prev, numeroIDJ: e.target.value }))}
               />
             </div>
           </div>
