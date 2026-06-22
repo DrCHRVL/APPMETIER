@@ -13,6 +13,12 @@ export interface TagDefinition {
   family?: string;    // Pour services uniquement
   order?: number;     // Ordre dans la famille
   organization?: TagOrganization;
+  /**
+   * Codes NATINF rattachés (catégorie « infractions » uniquement). Permet de
+   * relier la folksonomie des tags au référentiel officiel : un tag peut
+   * couvrir un ou plusieurs codes NATINF. Optionnel.
+   */
+  natinfCodes?: string[];
 }
 
 export interface ServiceFamily {
