@@ -19,7 +19,7 @@ import { ToDoSection } from '../sections/ToDoSection';
 import { SaisiesSection } from '../sections/SaisiesSection';
 import { DeleteEnqueteModal } from './DeleteEnqueteModal';
 import { ClotureSummaryModal } from './ClotureSummaryModal';
-import { Trash2, Siren, FileText, Plus, Star, Gavel, Eye, EyeOff } from 'lucide-react';
+import { Trash2, Siren, FileText, Plus, Star, Gavel, Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-react';
 import { UserManager } from '@/utils/userManager';
 import { hasJldInvolvement } from '@/utils/permissions';
 import { Badge } from '../ui/badge';
@@ -205,6 +205,49 @@ const EnqueteDetailModalImpl = ({
   // Rétro-compatibilité : alias pour les anciens appels
   const handleUpdateWithToast = handleUpdateImmediate;
 
+  // Bouton flottant de défilement rapide (mobile) : permet d'atteindre le bas
+  // d'un long dossier d'un seul geste, puis de remonter en tête (comme les
+  // discussions claude.ai). On bascule la direction selon la position de scroll.
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [scrollDir, setScrollDir] = useState<'down' | 'up' | null>(null);
+
+  const updateScrollAffordance = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    const distanceToBottom = scrollHeight - clientHeight - scrollTop;
+    // Rien à faire si le contenu tient dans l'écran.
+    if (scrollHeight - clientHeight < 200) { setScrollDir(null); return; }
+    if (distanceToBottom > 120) setScrollDir('down');
+    else if (scrollTop > 120) setScrollDir('up');
+    else setScrollDir(null);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    // Recalcul initial (et après chargement asynchrone des sections) + à chaque
+    // changement d'enquête, le contenu — donc la hauteur défilable — variant.
+    updateScrollAffordance();
+    const t = setTimeout(updateScrollAffordance, 300);
+    el.addEventListener('scroll', updateScrollAffordance, { passive: true });
+    window.addEventListener('resize', updateScrollAffordance);
+    return () => {
+      clearTimeout(t);
+      el.removeEventListener('scroll', updateScrollAffordance);
+      window.removeEventListener('resize', updateScrollAffordance);
+    };
+  }, [updateScrollAffordance, enquete.id]);
+
+  const handleScrollJump = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollTo({
+      top: scrollDir === 'down' ? el.scrollHeight : 0,
+      behavior: 'smooth',
+    });
+  }, [scrollDir]);
+
   const handleDelete = useCallback(() => {
     if (onDelete) {
       onDelete(enquete.id);
@@ -294,7 +337,7 @@ const EnqueteDetailModalImpl = ({
             </div>
           </DialogHeader>
 
-          <div className="flex-1 overflow-auto px-6 py-2 max-sm:px-3" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+          <div ref={scrollContainerRef} className="flex-1 overflow-auto px-6 py-2 max-sm:px-3" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
             <EnqueteHeader
               numero={enquete.numero}
               dateDebut={enquete.dateDebut}
@@ -483,6 +526,21 @@ const EnqueteDetailModalImpl = ({
               </div>
             </div>
           </div>
+
+          {/* Bouton flottant de défilement rapide (mobile uniquement) */}
+          {scrollDir && (
+            <button
+              type="button"
+              onClick={handleScrollJump}
+              aria-label={scrollDir === 'down' ? 'Aller en bas de la page' : 'Remonter en haut'}
+              className="sm:hidden absolute right-4 z-30 flex h-11 w-11 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg active:bg-emerald-700 transition-colors"
+              style={{ bottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
+            >
+              {scrollDir === 'down'
+                ? <ChevronDown className="h-6 w-6" />
+                : <ChevronUp className="h-6 w-6" />}
+            </button>
+          )}
         </DialogContent>
       </Dialog>
 

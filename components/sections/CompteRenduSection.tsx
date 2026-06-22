@@ -8,6 +8,7 @@ import { Enquete, CompteRendu } from '@/types/interfaces';
 import { X, FileText, Calendar, User, FileDown } from 'lucide-react';
 import { exportDossierMarkdown } from '@/lib/web/dossierMarkdown';
 import { useMemo, useState, useRef, useEffect, useCallback, memo, MouseEvent } from 'react';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { useUser } from '@/contexts/UserContext';
 import { renderFormattedText, stripClipboardNoise } from '@/lib/formatCR';
 import { useToast } from '@/contexts/ToastContext';
@@ -264,6 +265,10 @@ export const CompteRenduSection = memo(({
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragState = useRef({ dragging: false, startX: 0, startY: 0, initLeft: 0, initTop: 0 });
 
+  // Sur mobile, la fenêtre flottante draggable devient une modale centrée,
+  // plein écran et défilable (le drag souris n'a pas de sens au doigt).
+  const isMobile = useIsMobile();
+
   // Utilisateur courant (pour distinguer les CR de l'autre utilisateur)
   const { user } = useUser();
   const currentUser = user?.windowsUsername || '';
@@ -331,6 +336,7 @@ export const CompteRenduSection = memo(({
   }, []);
 
   const handleDragStart = (e: MouseEvent) => {
+    if (isMobile) return; // pas de drag au doigt : la modale est centrée
     if (!dialogRef.current) return;
     const rect = dialogRef.current.getBoundingClientRect();
     dragState.current = { dragging: true, startX: e.clientX, startY: e.clientY, initLeft: rect.left, initTop: rect.top };
@@ -848,8 +854,12 @@ export const CompteRenduSection = memo(({
         >
           <DialogContent
             ref={dialogRef}
-            className="w-[500px] fixed transform-none shadow-xl border border-gray-300"
-            style={{ top: '8%', left: 'min(62vw, calc(100vw - 520px))' }}
+            className={
+              isMobile
+                ? 'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-16px)] max-h-[calc(100dvh-24px)] overflow-y-auto shadow-xl border border-gray-300'
+                : 'w-[500px] fixed transform-none shadow-xl border border-gray-300'
+            }
+            style={isMobile ? undefined : { top: '8%', left: 'min(62vw, calc(100vw - 520px))' }}
             onInteractOutside={(e) => e.preventDefault()}
           >
             {/* Boîte de confirmation fermeture */}
@@ -867,7 +877,7 @@ export const CompteRenduSection = memo(({
             )}
 
             <DialogHeader
-              className="cursor-grab active:cursor-grabbing select-none"
+              className={isMobile ? 'select-none' : 'cursor-grab active:cursor-grabbing select-none'}
               onMouseDown={handleDragStart}
             >
               <DialogTitle>
