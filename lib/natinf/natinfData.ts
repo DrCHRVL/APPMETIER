@@ -7,18 +7,26 @@
 // à l'export officiel complet (~17 000 codes).
 
 import type { NatinfEntry, NatinfNature, NatinfRef } from '@/types/natinf';
+import { pullSharedReferential } from './sharedReferential';
 
 let cache: NatinfEntry[] | null = null;
 let loadPromise: Promise<NatinfEntry[]> | null = null;
+// État de l'index de recherche (déclaré ici pour être visible de resetNatinfCache).
+let indexedFor: NatinfEntry[] | null = null;
+let indexed: IndexedEntry[] = [];
 
-/** Charge (une seule fois) le référentiel NATINF. */
+/**
+ * Charge (une seule fois) le référentiel NATINF. Priorité au référentiel
+ * partagé publié par un admin (via le partage réseau, app Electron) ; à défaut,
+ * repli sur le référentiel embarqué avec l'app.
+ */
 export async function loadNatinf(): Promise<NatinfEntry[]> {
   if (cache) return cache;
   if (!loadPromise) {
-    loadPromise = import('@/data/natinf/natinf.json')
-      .then((mod) => {
-        cache = ((mod as any).default ?? mod) as NatinfEntry[];
-        return cache;
+    loadPromise = resolveReferential()
+      .then((data) => {
+        cache = data;
+        return data;
       })
       .catch((err) => {
         loadPromise = null; // permet une nouvelle tentative
@@ -26,6 +34,27 @@ export async function loadNatinf(): Promise<NatinfEntry[]> {
       });
   }
   return loadPromise;
+}
+
+async function resolveReferential(): Promise<NatinfEntry[]> {
+  // 1) Référentiel partagé (mis à jour par un admin pour tout le cabinet)
+  try {
+    const shared = await pullSharedReferential();
+    if (shared && shared.entries.length) return shared.entries;
+  } catch {
+    /* indisponible -> repli embarqué */
+  }
+  // 2) Référentiel embarqué (socle toujours présent, hors-ligne)
+  const mod = await import('@/data/natinf/natinf.json');
+  return ((mod as any).default ?? mod) as NatinfEntry[];
+}
+
+/** Vide le cache mémoire (à appeler après publication d'une nouvelle version). */
+export function resetNatinfCache(): void {
+  cache = null;
+  loadPromise = null;
+  indexedFor = null;
+  indexed = [];
 }
 
 /** Normalisation pour la recherche : minuscules, sans accents. */
@@ -42,8 +71,6 @@ interface IndexedEntry {
   entry: NatinfEntry;
   haystack: string; // libellé + thème normalisés
 }
-let indexedFor: NatinfEntry[] | null = null;
-let indexed: IndexedEntry[] = [];
 
 function getIndex(entries: NatinfEntry[]): IndexedEntry[] {
   if (indexedFor !== entries) {
