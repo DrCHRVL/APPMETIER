@@ -1,6 +1,18 @@
 import { useMemo } from 'react';
 import { Enquete } from '@/types/interfaces';
 
+// Garde-fou anti-données aberrantes.
+// Une écoute ou une géolocalisation en préliminaire ne se renouvelle que
+// mensuellement, dans la limite légale de ~2 ans (≈ 24 prolongations).
+// L'estimation du nombre de prolongations à partir de la durée
+// (dateFin − dateDebut) n'a aucun plafond : une seule date de fin erronée
+// (année mal saisie, import de document approximatif…) peut donc être lue
+// comme des milliers de renouvellements et faire exploser les totaux du
+// tableau de bord (ex. « 24 400 prolongations », moyenne « 154.56 »).
+// Au-delà de ce plafond, on considère la durée comme aberrante et on
+// ignore l'estimation par durée (l'historique réel, lui, reste pris en compte).
+const MAX_DUREE_ESTIMABLE_JOURS = 760; // ~25 mois, marge au-delà des 2 ans légaux
+
 export interface ActeStats {
   ecoutes: number;
   geolocalisations: number;
@@ -28,7 +40,7 @@ export function useActeStats(enquetes: Enquete[]): ActeStats {
           const debut = new Date(ecoute.dateDebut);
           const fin = new Date(ecoute.dateFin);
           const dureeJours = Math.floor((fin.getTime() - debut.getTime()) / (1000 * 60 * 60 * 24));
-          if (dureeJours > 30) {
+          if (dureeJours > 30 && dureeJours <= MAX_DUREE_ESTIMABLE_JOURS) {
             count = Math.floor((dureeJours - 30) / 30);
           }
         }
@@ -56,7 +68,7 @@ export function useActeStats(enquetes: Enquete[]): ActeStats {
           const debut = new Date(geoloc.dateDebut);
           const fin = new Date(geoloc.dateFin);
           const dureeJours = Math.floor((fin.getTime() - debut.getTime()) / (1000 * 60 * 60 * 24));
-          if (dureeJours > 15) {
+          if (dureeJours > 15 && dureeJours <= MAX_DUREE_ESTIMABLE_JOURS) {
             count = Math.floor((dureeJours - 15) / 30);
           }
         }
