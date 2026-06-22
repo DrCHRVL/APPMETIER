@@ -303,6 +303,7 @@ const EnqueteDetailModalImpl = ({
               description={enquete.description}
               directeurEnquete={enquete.directeurEnquete}
               numeroParquet={enquete.numeroParquet}
+              numeroIDJ={enquete.numeroIDJ}
               isEditing={isEditing}
               onUpdate={isEditing ? (updates) => debouncedOnUpdate(enquete.id, updates) : undefined}
               onUpdateImmediate={isEditing ? (updates) => handleUpdateImmediate(enquete.id, updates) : undefined}
