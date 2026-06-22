@@ -1,7 +1,7 @@
 // Types du référentiel NATINF (nomenclature officielle des infractions).
 // Voir data/natinf/README.md pour la provenance et la mise à jour des données.
 
-export type NatinfNature = 'crime' | 'delit' | 'contravention' | 'inconnu';
+export type NatinfNature = 'crime' | 'delit' | 'contravention' | 'civile' | 'inconnu';
 
 /** Peine encourue, structurée (renseignée surtout pour les codes du mémento). */
 export interface NatinfQuantum {

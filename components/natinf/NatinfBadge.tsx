@@ -7,6 +7,7 @@ const NATURE_STYLE: Record<NatinfNature, string> = {
   crime: 'bg-red-100 text-red-800 border-red-300',
   delit: 'bg-amber-100 text-amber-800 border-amber-300',
   contravention: 'bg-sky-100 text-sky-800 border-sky-300',
+  civile: 'bg-slate-100 text-slate-700 border-slate-300',
   inconnu: 'bg-gray-100 text-gray-600 border-gray-300',
 };
 
@@ -41,6 +42,8 @@ function natureLabel(n: NatinfNature): string {
       return 'Délit';
     case 'contravention':
       return 'Contravention';
+    case 'civile':
+      return 'Infraction civile';
     default:
       return 'Nature ?';
   }

@@ -8710,13 +8710,5 @@
   "categorie": "Homicide et blessures involontaires",
   "nature": "delit",
   "emprisonnementMois": 36
- },
- {
-  "code": "170781",
-  "libelleMemento": "Agression sexuelle — Contact par réseau électronique 2",
-  "quantumRaw": "D7",
-  "categorie": "Infractions sexuelles",
-  "nature": "delit",
-  "emprisonnementMois": 84
  }
 ]

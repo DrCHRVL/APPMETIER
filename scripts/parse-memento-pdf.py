@@ -100,7 +100,9 @@ HEADERS = [(re.compile(p), c) for p, c in HEADERS]
 #   DA             -> délit puni d'amende seule
 #   CN  (C1..C5)   -> contravention de Ne classe
 QUANT = r'(RCP|\d{1,2}a|D\d{1,2}m|D\d{1,2}|DA|C[1-5])'
-PAIR = re.compile(r'(\d{1,6})\s*\(\s*' + QUANT + r'\s*\)|(\d{1,6})\s+' + QUANT + r'(?=\s|$)')
+# Le lookbehind (?<!\d) empêche de découper un nombre trop long (ex. « 2170781 »
+# ne doit pas produire le code parasite « 170781 »).
+PAIR = re.compile(r'(?<!\d)(\d{1,6})\s*\(\s*' + QUANT + r'\s*\)|(?<!\d)(\d{1,6})\s+' + QUANT + r'(?=\s|$)')
 
 
 def decode_quantum(q):

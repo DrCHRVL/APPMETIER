@@ -82,7 +82,7 @@ function mapColumns(header) {
     code: find('natinf', 'numero', 'numéro', 'code'),
     libelle: find('qualif', 'libelle', 'libellé', 'intitule'),
     nature: find('nature'),
-    def: find('definiss', 'definit', 'définiss', 'incrimin'),
+    def: find('defini', 'definiss', 'definit', 'incrimin'),
     rep: find('peine', 'edict', 'édict', 'reprim', 'répress', 'repress'),
   };
 }
@@ -97,6 +97,7 @@ function normalizeNature(natureStr) {
     return m ? { nature: 'contravention', classe: parseInt(m[1], 10) } : { nature: 'contravention' };
   }
   if (n.includes('delit')) return { nature: 'delit' };
+  if (n.includes('civil')) return { nature: 'civile' };
   return {};
 }
 
@@ -118,6 +119,7 @@ function quantumLabel(nature, q) {
   if (nature === 'contravention') {
     return q.classe ? `Contravention — ${q.classe}e classe` : 'Contravention';
   }
+  if (nature === 'civile') return 'Infraction civile';
   return 'Nature indéterminée';
 }
 
@@ -203,7 +205,9 @@ const out = [...byCode.values()]
   .map(e => ({ ...e, quantumLabel: quantumLabel(e.nature, e.quantum) }))
   .sort((a, b) => parseInt(a.code, 10) - parseInt(b.code, 10));
 
-writeFileSync(OUT, JSON.stringify(out, null, 0) + '\n', 'utf-8');
+// Une entrée par ligne : JSON valide ET diffs git lisibles / deltas légers
+// d'une mise à jour trimestrielle à l'autre.
+writeFileSync(OUT, '[\n' + out.map(e => JSON.stringify(e)).join(',\n') + '\n]\n', 'utf-8');
 
 console.log(`\n✓ ${OUT}`);
 console.log(`  Total codes        : ${out.length}`);
