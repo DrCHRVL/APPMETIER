@@ -13,6 +13,7 @@ import { ResultatAudience } from './audienceTypes';
 import { AlertRule, AlertValidations, VisualAlertRule, AlerteInstruction } from './interfaces';
 import { ContentieuxId } from './userTypes';
 import type { InstructionAlertRule } from './instructionTypes';
+import type { AgendaUrls, AgendaDisplaySettings } from '@/lib/web/agenda';
 
 export interface GlobalSyncMetadata {
   version: number;
@@ -205,6 +206,20 @@ export interface UserPreferencesFile extends GlobalSyncMetadata {
    * Synchronisée par utilisateur pour retrouver ses réglages sur tout appareil.
    */
   cartographieConfig?: import('@/types/cartographieTypes').CartographieModuleConfig;
+  /**
+   * Agendas externes (Google / Outlook / iCloud) connectés en lecture seule
+   * via leur adresse secrète iCal, plus les préférences d'affichage du
+   * calendrier (taille des événements, couleurs par fournisseur).
+   * Synchronisés PAR UTILISATEUR pour suivre le compte entre les différents
+   * appareils. `seeded` passe à true après migration unique depuis l'ancien
+   * stockage local de l'appareil (clés `agenda_ical_urls` /
+   * `agenda_display_settings`).
+   */
+  agenda?: {
+    seeded?: boolean;
+    urls?: AgendaUrls;
+    display?: AgendaDisplaySettings;
+  };
 }
 
 /**

@@ -4,8 +4,9 @@
  * Paramètres → Agenda : connexion de PLUSIEURS calendriers (Google Agenda,
  * Outlook / Microsoft 365 et iCloud / Apple) en LECTURE SEULE via leur adresse
  * secrète au format iCal. Aucun accès au compte, aucun jeton : juste des flux
- * .ics que vous pouvez révoquer à tout moment. Les adresses sont stockées sur
- * cet appareil (chiffré). Leurs événements sont fusionnés dans le même
+ * .ics que vous pouvez révoquer à tout moment. Les adresses sont rattachées à
+ * VOTRE COMPTE (préférences synchronisées) : vous les retrouvez à l'identique
+ * sur tous vos appareils. Leurs événements sont fusionnés dans le même
  * calendrier du tableau de bord.
  */
 import React, { useEffect, useState } from 'react';
@@ -14,10 +15,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   AgendaUrls, AgendaSource, AgendaEvent, AgendaDisplaySettings,
-  fetchAgendaMulti, loadAgendaUrls, saveAgendaUrls,
-  loadAgendaDisplay, saveAgendaDisplay,
-  SOURCE_META,
+  fetchAgendaMulti, DEFAULT_DISPLAY, SOURCE_META,
 } from '@/lib/web/agenda';
+import { useUserPreferences } from '@/hooks/useUserPreferences';
 
 type ProviderKey = 'google' | 'outlook' | 'icloud';
 
@@ -68,17 +68,31 @@ const PROVIDERS: Array<{
 const ALL_SOURCES: AgendaSource[] = ['google', 'outlook', 'icloud', 'other'];
 
 export const AgendaPanel = () => {
+  const {
+    agendaUrls, agendaDisplay, isLoading,
+    setAgendaUrls, setAgendaDisplay, seedAgenda,
+  } = useUserPreferences();
+
+  // Buffer d'édition local : on n'écrit dans les prefs synchronisées qu'au
+  // clic sur « Enregistrer ».
   const [urls, setUrls] = useState<AgendaUrls>({});
-  const [display, setDisplay] = useState<AgendaDisplaySettings>({ eventSize: 'small', colors: {} });
+  const [display, setDisplay] = useState<AgendaDisplaySettings>(DEFAULT_DISPLAY);
+  const [hydrated, setHydrated] = useState(false);
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [preview, setPreview] = useState<AgendaEvent[] | null>(null);
   const [error, setError] = useState('');
 
+  // Migration unique depuis l'ancien stockage local de l'appareil vers le compte.
+  useEffect(() => { seedAgenda(); }, [seedAgenda]);
+
+  // Hydrate le formulaire dès que les prefs de l'utilisateur sont chargées.
   useEffect(() => {
-    loadAgendaUrls().then(setUrls);
-    loadAgendaDisplay().then(setDisplay);
-  }, []);
+    if (isLoading || hydrated) return;
+    setUrls(agendaUrls);
+    setDisplay(agendaDisplay);
+    setHydrated(true);
+  }, [isLoading, hydrated, agendaUrls, agendaDisplay]);
 
   const setUrl = (key: ProviderKey, value: string) =>
     setUrls(prev => ({ ...prev, [key]: value }));
@@ -96,7 +110,7 @@ export const AgendaPanel = () => {
   const hasAny = Boolean(urls.google?.trim() || urls.outlook?.trim() || urls.icloud?.trim());
 
   const save = async () => {
-    await Promise.all([saveAgendaUrls(urls), saveAgendaDisplay(display)]);
+    await Promise.all([setAgendaUrls(urls), setAgendaDisplay(display)]);
     setSaved(true); setTimeout(() => setSaved(false), 2000);
   };
 
@@ -123,6 +137,10 @@ export const AgendaPanel = () => {
           colorés par fournisseur. SIRAL n&apos;accède jamais à votre compte : vous collez
           seulement l&apos;<b>adresse secrète au format iCal</b> de chaque agenda, que vous
           pouvez régénérer (donc révoquer) à tout moment.
+        </p>
+        <p className="text-[12px] text-indigo-600 mt-1.5 flex items-center gap-1.5">
+          <Check className="h-3.5 w-3.5 flex-shrink-0" />
+          Ces agendas sont rattachés à votre compte : vous les retrouvez sur tous vos appareils.
         </p>
       </div>
 
@@ -155,7 +173,7 @@ export const AgendaPanel = () => {
           {testing ? 'Test…' : 'Tester la connexion'}
         </Button>
         {hasAny && (
-          <Button size="sm" variant="ghost" className="text-red-600" onClick={async () => { setUrls({}); await saveAgendaUrls({}); setPreview(null); setError(''); }}>
+          <Button size="sm" variant="ghost" className="text-red-600" onClick={async () => { setUrls({}); await setAgendaUrls({}); setPreview(null); setError(''); }}>
             Tout déconnecter
           </Button>
         )}
