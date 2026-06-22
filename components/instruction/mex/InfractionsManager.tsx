@@ -1,10 +1,14 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { Plus, Trash2, MapPin, Calendar as CalendarIcon, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Trash2, MapPin, Calendar as CalendarIcon, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { useTags } from '@/hooks/useTags';
+import { useNatinf } from '@/hooks/useNatinf';
+import { toRef } from '@/lib/natinf/natinfData';
+import { NatinfPicker } from '../../natinf/NatinfPicker';
+import { NatinfBadge } from '../../natinf/NatinfBadge';
 import type { InfractionReproche } from '@/types/instructionTypes';
 
 interface Props {
@@ -15,6 +19,7 @@ interface Props {
 
 export const InfractionsManager = ({ value, onChange, readOnly }: Props) => {
   const { getTagsByCategory, isLoading } = useTags();
+  const { getByCode } = useNatinf();
   const infractionTags = useMemo(() => getTagsByCategory('infractions'), [getTagsByCategory]);
   const sortedTags = useMemo(
     () => [...infractionTags].sort((a, b) => a.value.localeCompare(b.value, 'fr')),
@@ -31,15 +36,33 @@ export const InfractionsManager = ({ value, onChange, readOnly }: Props) => {
     if (selectedValues.has(tagValue)) {
       onChange(value.filter(v => v.qualification !== tagValue));
     } else {
+      // Continuité tags ↔ NATINF : si le tag est relié à un seul code NATINF,
+      // on rattache automatiquement le chef au référentiel.
+      const def = infractionTags.find(t => t.value === tagValue);
+      let natinfCode: string | undefined;
+      let natinfRef: InfractionReproche['natinfRef'];
+      if (def?.natinfCodes?.length === 1) {
+        natinfCode = def.natinfCodes[0];
+        const entry = getByCode(natinfCode);
+        if (entry) natinfRef = toRef(entry);
+      }
       onChange([
         ...value,
         {
           id: Date.now() + Math.floor(Math.random() * 1000),
           qualification: tagValue,
+          natinfCode,
+          natinfRef,
         },
       ]);
     }
   };
+
+  const handleSetNatinf = (id: number, entry: Parameters<typeof toRef>[0]) =>
+    handleUpdate(id, { natinfCode: entry.code, natinfRef: toRef(entry) });
+
+  const handleClearNatinf = (id: number) =>
+    handleUpdate(id, { natinfCode: undefined, natinfRef: undefined });
 
   const handleRemove = (id: number) => onChange(value.filter(i => i.id !== id));
 
@@ -62,6 +85,14 @@ export const InfractionsManager = ({ value, onChange, readOnly }: Props) => {
                   <span className="inline-flex items-center text-xs font-medium px-2 py-0.5 rounded bg-gray-100 text-gray-800 border border-gray-200">
                     {inf.qualification}
                   </span>
+                  {inf.natinfRef && (
+                    <NatinfBadge
+                      nature={inf.natinfRef.nature}
+                      code={inf.natinfRef.code}
+                      title={inf.natinfRef.libelle}
+                      className="shrink-0"
+                    />
+                  )}
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-500 flex-1 min-w-0">
                     {inf.dateInfraction && (
                       <span className="inline-flex items-center gap-1">
@@ -107,6 +138,33 @@ export const InfractionsManager = ({ value, onChange, readOnly }: Props) => {
                       )
                     ) : (
                       <>
+                        <div className="space-y-1">
+                          <div className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
+                            NATINF
+                          </div>
+                          {inf.natinfRef ? (
+                            <div className="flex items-center gap-2">
+                              <NatinfBadge nature={inf.natinfRef.nature} code={inf.natinfRef.code} />
+                              <span className="min-w-0 flex-1 truncate text-xs text-gray-700" title={inf.natinfRef.libelle}>
+                                {inf.natinfRef.libelle}
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleClearNatinf(inf.id)}
+                                className="h-6 px-1 text-gray-400 hover:text-red-600"
+                                title="Détacher le NATINF"
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <NatinfPicker
+                              onSelect={(entry) => handleSetNatinf(inf.id, entry)}
+                              placeholder="Rattacher un NATINF…"
+                            />
+                          )}
+                        </div>
                         <div className="grid grid-cols-2 gap-2">
                           <Input
                             type="date"
