@@ -186,6 +186,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       weights: cartoConfig.weights,
       tagInfractionWeights: cartoConfig.tagInfractionWeights,
       tagInfractionValueById: valueById,
+      natinfWeights: cartoConfig.natinfWeights,
     };
   }, [cartoConfig, getTagsByCategory]);
 
