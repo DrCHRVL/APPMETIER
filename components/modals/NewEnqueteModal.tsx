@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MecAutocompleteInput } from '@/components/ui/MecAutocompleteInput';
 import { Badge } from '@/components/ui/badge';
+import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
+import { NatinfBadge } from '@/components/natinf/NatinfBadge';
 import { Select } from '@/components/ui/select';
 import { X, Clock } from 'lucide-react';
 import { useState, useCallback, FormEvent } from 'react';
@@ -27,6 +29,7 @@ export const NewEnqueteModal = ({
   allKnownMec = []
 }: NewEnqueteModalProps) => {
   const { getTagsByCategory, isLoading } = useTags();
+  const { natinfForTag } = useInfractionNatinf();
   const [newEnqueteData, setNewEnqueteData] = useState<NewEnqueteData>({
     numero: '',
     dateDebut: new Date().toISOString().split('T')[0],
@@ -316,19 +319,26 @@ export const NewEnqueteModal = ({
                 onChange={(e) => handleAddInfraction(e.target.value)}
               >
                 <option value="">Sélectionner un type d'infraction</option>
-                {infractionsTags.map((infraction) => (
-                  <option key={infraction.id} value={infraction.value}>
-                    {infraction.value}
-                  </option>
-                ))}
+                {infractionsTags.map((infraction) => {
+                  const n = natinfForTag(infraction.value);
+                  return (
+                    <option key={infraction.id} value={infraction.value}>
+                      {infraction.value}{n ? ` — ${n.code}` : ''}
+                    </option>
+                  );
+                })}
               </Select>
 
               <div className="flex flex-wrap gap-2 mt-2">
                 {selectedTags
                   .filter(tag => tag.category === 'infractions')
                   .map(tag => (
-                    <Badge key={tag.id} variant="secondary" className="flex items-center">
+                    <Badge key={tag.id} variant="secondary" className="flex items-center gap-1">
                       {tag.value}
+                      {(() => {
+                        const n = natinfForTag(tag.value);
+                        return n ? <NatinfBadge code={n.code} nature={n.nature} quantumLabel={n.quantumLabel} compact /> : null;
+                      })()}
                       <Button
                         type="button"
                         variant="ghost"

@@ -8,6 +8,7 @@ import { CondamnationData, Confiscations, ResultatAudience, VehiculeSaisi, Immeu
 import { useToast } from '@/contexts/ToastContext';
 import { useAudience } from '@/hooks/useAudience';
 import { useTags } from '@/hooks/useTags';
+import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '../ui/badge';
@@ -58,6 +59,7 @@ export const AudienceResultModal = ({
 }: AudienceResultModalProps) => {
   // States
   const { getTagsByCategory } = useTags();
+  const { natinfForTag } = useInfractionNatinf();
   const [dateAudience, setDateAudience] = useState(initialData?.dateAudience || defaultDate || '');
 
   // Multi-sélection des types d'infraction. À l'initialisation : reprend les types
@@ -361,6 +363,10 @@ export const AudienceResultModal = ({
                   >
                     {principal && <span className="mr-1">★</span>}
                     {value}
+                    {(() => {
+                      const n = natinfForTag(value);
+                      return n ? <span className="ml-1 font-mono opacity-60">{n.code}</span> : null;
+                    })()}
                   </button>
                 );
               };

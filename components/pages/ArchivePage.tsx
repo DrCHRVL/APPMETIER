@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Enquete, CompteRendu } from '@/types/interfaces';
 import { useAudience } from '@/hooks/useAudience';
+import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { ViewAudienceResultModal } from '../modals/ViewAudienceResultModal';
 import { EnqueteDetailModal } from '../modals/EnqueteDetailModal';
 import { AudienceResultModal } from '../modals/AudienceResultModal';
@@ -39,6 +40,7 @@ export const ArchivePage = ({
 }: ArchivePageProps) => {
   const { showToast } = useToast();
   const { hasResultat, isLoading, audienceState, getResultat, saveResultat } = useAudience();
+  const { natinfForTag } = useInfractionNatinf();
 
   // Contentieux courant — fallback `crimorg` pour les vues legacy.
   const ctxId = contentieuxId || 'crimorg';
@@ -451,7 +453,7 @@ export const ArchivePage = ({
                             {item.tags
                               .filter(tag => tag.category === 'infractions')
                               .slice(0, 2)
-                              .map(tag => tag.value)
+                              .map(tag => { const n = natinfForTag(tag.value); return n ? `${tag.value} (${n.code})` : tag.value; })
                               .join(', ')}
                             {item.tags.filter(tag => tag.category === 'infractions').length > 2 && '...'}
                           </div>
@@ -599,7 +601,7 @@ export const ArchivePage = ({
                               {item.tags
                                 .filter(tag => tag.category === 'infractions')
                                 .slice(0, 2)
-                                .map(tag => tag.value)
+                                .map(tag => { const n = natinfForTag(tag.value); return n ? `${tag.value} (${n.code})` : tag.value; })
                                 .join(', ')}
                               {item.tags.filter(tag => tag.category === 'infractions').length > 2 && '...'}
                               {isPartialResult && getPendingNames(item.id) && (
