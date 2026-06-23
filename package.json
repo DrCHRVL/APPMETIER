@@ -3,14 +3,11 @@
   "description": "SIRAL — Suivi Intégré des Réseaux criminels et Affaires Liées",
   "version": "0.1.0",
   "private": true,
-  "main": "main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "node .next/standalone/server.js",
-    "lint": "next lint",
-    "electron": "electron .",
-    "build:consultation-shell": "node scripts/build-consultation-shell.js"
+    "lint": "next lint"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.0.4",
@@ -70,32 +67,10 @@
     "@types/web-push": "^3.6.4",
     "autoprefixer": "^10.4.16",
     "concurrently": "^8.2.2",
-    "electron": "^30.0.0",
     "eslint": "^8.50.0",
     "eslint-config-next": "13.5.4",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.3",
     "typescript": "^5.2.2"
-  },
-  "build": {
-    "appId": "fr.justice.siral",
-    "win": {
-      "target": "portable"
-    },
-    "files": [
-      "main.js",
-      "preload.js",
-      ".next/**/*",
-      "node_modules/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "consultation-shell",
-        "to": "consultation-shell",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ]
   }
 }

@@ -10,6 +10,6 @@ srv-data
 docs
 *.bat
 tessdata
-main.js
-preload.js
+# Édition Electron desktop archivée — jamais incluse dans l'image serveur
+archive
 .npmrc

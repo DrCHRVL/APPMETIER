@@ -9,24 +9,37 @@ ENVIRO).
 
 > ⚠️ Application à usage interne. Ne pas diffuser.
 
-## Édition actuelle (Electron portable)
+## Édition web (édition de référence)
+
+Application web hébergée — chiffrement de bout en bout côté client,
+authentification WebAuthn/passkeys, multi-tribunaux, PWA installable
+(desktop + iPhone). C'est la **seule édition activement maintenue**.
 
 ```bash
 npm install
 npm run dev        # Next.js en développement
-npm run electron   # app desktop
 npm run build      # build production
+npm run start      # serveur standalone
 ```
 
-Les données vivent dans `data/` (local) et se synchronisent sur le partage réseau du
-service. Voir `launcher.bat` / `installer.bat` pour le déploiement sur poste.
+Déploiement serveur (Docker + HTTPS automatique + mises à jour in-app) :
 
-## Édition web (en préparation)
+```bash
+cp .env.exemple .env   # puis remplir les valeurs
+docker compose up -d --build
+```
 
-La migration vers une application web hébergée — chiffrement de bout en bout côté
-client, authentification WebAuthn/passkeys, multi-tribunaux, PWA installable
-(desktop + iPhone) — est décrite dans **[docs/PLAN-MIGRATION-WEB.md](docs/PLAN-MIGRATION-WEB.md)**.
-Les maquettes de la nouvelle interface sont dans `docs/presentation/maquettes-v2/`.
+L'architecture et la migration sont décrites dans
+**[docs/PLAN-MIGRATION-WEB.md](docs/PLAN-MIGRATION-WEB.md)** et le déploiement dans
+**[docs/TUTO-DEPLOIEMENT.md](docs/TUTO-DEPLOIEMENT.md)**.
+
+## Édition Electron desktop — archivée
+
+L'ancienne édition Electron portable (Windows, données dans `data/` synchronisées
+sur le partage réseau du service) **n'est plus maintenue**. Ses fichiers ont été
+déplacés dans **[`archive/electron-desktop/`](archive/electron-desktop/)** et sont
+exclus des builds. Voir le README de ce dossier pour le détail et la procédure de
+restauration éventuelle.
 
 ---
 
