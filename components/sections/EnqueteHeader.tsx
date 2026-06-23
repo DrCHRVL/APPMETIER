@@ -6,6 +6,8 @@ import { MultiSelect } from '../ui/multi-select';
 import { Badge } from '../ui/badge';
 import { Flag } from 'lucide-react';
 import { useTags } from '@/hooks/useTags';
+import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
+import { NatinfBadge } from '../natinf/NatinfBadge';
 
 interface EnqueteHeaderProps {
   numero: string;
@@ -46,6 +48,7 @@ export const EnqueteHeader = React.memo(({
   useEffect(() => { setLocalDescription(description || ''); }, [description]);
 
   const { getTagsByCategory, getServicesFromTags } = useTags();
+  const { natinfForTag } = useInfractionNatinf();
   const servicesTags = getTagsByCategory('services');
   const infractionsTags = getTagsByCategory('infractions');
   const infractionTags = tags.filter(tag => tag.category === 'infractions');
@@ -175,8 +178,20 @@ export const EnqueteHeader = React.memo(({
               onChange={handleInfractionChange}
               className="text-sm"
             />
+          ) : infractionTags.length > 0 ? (
+            <div className="flex flex-wrap gap-1 mt-0.5">
+              {infractionTags.map(tag => {
+                const n = natinfForTag(tag.value);
+                return (
+                  <span key={tag.id} className="inline-flex items-center gap-1 text-sm">
+                    {tag.value}
+                    {n && <NatinfBadge code={n.code} nature={n.nature} quantumLabel={n.quantumLabel} compact />}
+                  </span>
+                );
+              })}
+            </div>
           ) : (
-            <p className="text-sm">{infractionTags.map(tag => tag.value).join(', ')}</p>
+            <p className="text-sm text-gray-400">—</p>
           )}
         </div>
       </div>

@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { ServiceOrganizer } from '../ServiceOrganizer';
 import { NatinfPicker } from '../natinf/NatinfPicker';
 import { NatinfBadge } from '../natinf/NatinfBadge';
+import { NatinfReconcileDialog } from '../natinf/NatinfReconcileDialog';
 import { useNatinf } from '@/hooks/useNatinf';
 import { useTags, DuplicateTagGroup } from '@/hooks/useTags';
 import { useToast } from '@/contexts/ToastContext';
@@ -72,6 +73,7 @@ export const TagManagementPage = () => {
   // Dialogue de rattachement d'un tag « infractions » à des codes NATINF
   const [natinfLinkTag, setNatinfLinkTag] = useState<{ id: string; value: string; codes: string[] } | null>(null);
   const [isSavingNatinf, setIsSavingNatinf] = useState(false);
+  const [reconcileOpen, setReconcileOpen] = useState(false);
   const [newTagDialog, setNewTagDialog] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [newDuration, setNewDuration] = useState('');
@@ -491,6 +493,14 @@ export const TagManagementPage = () => {
 
         {userIsAdmin ? (
           <div className="flex items-center gap-2">
+            <Button
+              onClick={() => setReconcileOpen(true)}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <Link2 className="h-4 w-4 text-emerald-600" />
+              Rattacher au NATINF
+            </Button>
             <Button
               onClick={handleScanDuplicates}
               disabled={isMergingDuplicates}
@@ -987,6 +997,9 @@ export const TagManagementPage = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Assistant de rattachement en masse des tags d'infraction au NATINF */}
+      <NatinfReconcileDialog open={reconcileOpen} onClose={() => setReconcileOpen(false)} />
     </div>
   );
 };
