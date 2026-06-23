@@ -7,7 +7,7 @@
 // à l'export officiel complet (~17 000 codes).
 
 import type { NatinfEntry, NatinfNature, NatinfRef } from '@/types/natinf';
-import { pullSharedReferential } from './sharedReferential';
+import { fetchReferential } from './natinfApi';
 
 let cache: NatinfEntry[] | null = null;
 let loadPromise: Promise<NatinfEntry[]> | null = null;
@@ -16,14 +16,14 @@ let indexedFor: NatinfEntry[] | null = null;
 let indexed: IndexedEntry[] = [];
 
 /**
- * Charge (une seule fois) le référentiel NATINF. Priorité au référentiel
- * partagé publié par un admin (via le partage réseau, app Electron) ; à défaut,
- * repli sur le référentiel embarqué avec l'app.
+ * Charge (une seule fois) le référentiel NATINF depuis le serveur (/api/natinf).
+ * Le serveur sert la version publiée par un admin, ou le référentiel embarqué
+ * en repli. Mis en cache mémoire pour la durée de la session.
  */
 export async function loadNatinf(): Promise<NatinfEntry[]> {
   if (cache) return cache;
   if (!loadPromise) {
-    loadPromise = resolveReferential()
+    loadPromise = fetchReferential()
       .then((data) => {
         cache = data;
         return data;
@@ -34,19 +34,6 @@ export async function loadNatinf(): Promise<NatinfEntry[]> {
       });
   }
   return loadPromise;
-}
-
-async function resolveReferential(): Promise<NatinfEntry[]> {
-  // 1) Référentiel partagé (mis à jour par un admin pour tout le cabinet)
-  try {
-    const shared = await pullSharedReferential();
-    if (shared && shared.entries.length) return shared.entries;
-  } catch {
-    /* indisponible -> repli embarqué */
-  }
-  // 2) Référentiel embarqué (socle toujours présent, hors-ligne)
-  const mod = await import('@/data/natinf/natinf.json');
-  return ((mod as any).default ?? mod) as NatinfEntry[];
 }
 
 /** Vide le cache mémoire (à appeler après publication d'une nouvelle version). */
@@ -69,15 +56,20 @@ export function normalize(s: string): string {
 // Index de recherche (construit paresseusement, mémoïsé sur l'identité du tableau).
 interface IndexedEntry {
   entry: NatinfEntry;
-  haystack: string; // libellé + thème normalisés
+  haystack: string; // libellé + thème normalisés (filtrage par mots)
+  libNorm: string;  // libellé normalisé seul (classement par préfixe)
 }
 
 function getIndex(entries: NatinfEntry[]): IndexedEntry[] {
   if (indexedFor !== entries) {
-    indexed = entries.map((entry) => ({
-      entry,
-      haystack: normalize(`${entry.libelle} ${entry.theme || ''}`),
-    }));
+    indexed = entries.map((entry) => {
+      const libNorm = normalize(entry.libelle);
+      return {
+        entry,
+        libNorm,
+        haystack: `${libNorm} ${normalize(entry.theme || '')}`,
+      };
+    });
     indexedFor = entries;
   }
   return indexed;
@@ -114,32 +106,37 @@ export function searchNatinf(
   const q = (query || '').trim();
   const numeric = /^\d+$/.test(q);
 
-  let results: NatinfEntry[];
+  // rang : plus petit = meilleur (correspondance la plus « en tête »)
+  let ranked: { entry: NatinfEntry; rank: number }[];
 
   if (numeric) {
-    const prefix: NatinfEntry[] = [];
-    const contains: NatinfEntry[] = [];
+    ranked = [];
     for (const e of entries) {
       if (!passesFilters(e)) continue;
-      if (e.code === q) prefix.unshift(e);
-      else if (e.code.startsWith(q)) prefix.push(e);
-      else if (e.code.includes(q)) contains.push(e);
+      const rank = e.code === q ? 0 : e.code.startsWith(q) ? 1 : e.code.includes(q) ? 2 : -1;
+      if (rank >= 0) ranked.push({ entry: e, rank });
     }
-    results = [...prefix, ...contains];
   } else if (q.length === 0) {
-    results = entries.filter(passesFilters);
+    ranked = entries.filter(passesFilters).map((entry) => ({ entry, rank: 0 }));
   } else {
-    const tokens = normalize(q).split(/\s+/).filter(Boolean);
-    results = getIndex(entries)
+    const nq = normalize(q);
+    const tokens = nq.split(/\s+/).filter(Boolean);
+    const first = tokens[0] || '';
+    ranked = getIndex(entries)
       .filter((ie) => passesFilters(ie.entry) && tokens.every((t) => ie.haystack.includes(t)))
-      .map((ie) => ie.entry);
+      .map((ie) => {
+        // Auto-complétion : le libellé qui COMMENCE par la saisie passe devant.
+        const rank = ie.libNorm.startsWith(nq) ? 0 : ie.libNorm.startsWith(first) ? 1 : 2;
+        return { entry: ie.entry, rank };
+      });
   }
 
-  results.sort((a, b) => {
-    if (a.frequent !== b.frequent) return a.frequent ? -1 : 1;
-    return parseInt(a.code, 10) - parseInt(b.code, 10);
+  ranked.sort((a, b) => {
+    if (a.rank !== b.rank) return a.rank - b.rank;
+    if (a.entry.frequent !== b.entry.frequent) return a.entry.frequent ? -1 : 1;
+    return parseInt(a.entry.code, 10) - parseInt(b.entry.code, 10);
   });
-  return results.slice(0, limit);
+  return ranked.slice(0, limit).map((r) => r.entry);
 }
 
 /** Liste triée des thèmes présents dans le référentiel. */

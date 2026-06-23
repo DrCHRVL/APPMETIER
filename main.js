@@ -2023,22 +2023,6 @@ function setupIpcHandlers() {
     }
   })
 
-  // Référentiel NATINF partagé (publié par un admin, lu par tous les postes).
-  ipcMain.handle('globalSync:pullNatinf', async () => {
-    return await readGlobalFile('natinf-data.json')
-  })
-
-  ipcMain.handle('globalSync:pushNatinf', async (event, payload) => {
-    try {
-      await writeGlobalFile('natinf-data.json', payload)
-      pruneGlobalBackups('natinf-data').catch(() => {})
-      return true
-    } catch (error) {
-      console.error('❌ GlobalSync: Erreur écriture natinf-data.json:', error.message)
-      return false
-    }
-  })
-
   ipcMain.handle('globalSync:pullAlerts', async () => {
     return await readGlobalFile('alerts-data.json')
   })

@@ -25,7 +25,7 @@ interface NatinfPickerProps {
  */
 export const NatinfPicker = ({
   onSelect,
-  placeholder = 'N° NATINF ou libellé (ex. « 1115 » ou « viol »)…',
+  placeholder = 'Premiers mots du libellé, ou n° NATINF (≥ 4 chiffres)…',
   autoFocus,
   theme,
   frequentOnly,
@@ -37,8 +37,11 @@ export const NatinfPicker = ({
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const numeric = /^\d+$/.test(query.trim());
-  const minLen = numeric ? 1 : 2;
+  const trimmed = query.trim();
+  const numeric = /^\d+$/.test(trimmed);
+  // Recherche par n° seulement à partir de 4 chiffres ; par libellé dès 2 lettres.
+  const minLen = numeric ? 4 : 2;
+  const needMoreDigits = numeric && trimmed.length > 0 && trimmed.length < 4;
 
   const results = useMemo(() => {
     if (query.trim().length < minLen) return [];
@@ -103,6 +106,10 @@ export const NatinfPicker = ({
 
       {error && (
         <div className="mt-1 text-[11px] text-red-600">Référentiel NATINF indisponible.</div>
+      )}
+
+      {needMoreDigits && (
+        <div className="mt-1 text-[11px] text-gray-400">Au moins 4 chiffres pour rechercher par n° NATINF.</div>
       )}
 
       {open && (
