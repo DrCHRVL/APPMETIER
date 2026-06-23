@@ -3,6 +3,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Enquete } from '@/types/interfaces';
 import { useTags } from '@/hooks/useTags';
 import { useAudience } from '@/hooks/useAudience';
+import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
+import { NatinfBadge } from '../natinf/NatinfBadge';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 
 interface InfractionStatsProps {
@@ -14,6 +16,7 @@ interface InfractionStatsProps {
 export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: InfractionStatsProps) => {
   const { getTagsByCategory } = useTags();
   const { audienceState } = useAudience();
+  const { natinfForTag } = useInfractionNatinf();
 
   // Récupérer TOUTES les infractions réellement utilisées dans les enquêtes
   const infractions = React.useMemo(() => {
@@ -119,7 +122,13 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
                   <TooltipRoot key={infraction} delayDuration={300}>
                     <TooltipTrigger asChild>
                       <div className="flex justify-between items-center p-2 bg-gray-50 rounded hover:bg-gray-100 cursor-help transition-colors">
-                        <span className="font-medium">{infraction}</span>
+                        <span className="font-medium inline-flex items-center gap-1.5">
+                          {infraction}
+                          {(() => {
+                            const n = natinfForTag(infraction);
+                            return n ? <NatinfBadge code={n.code} nature={n.nature} quantumLabel={n.quantumLabel} /> : null;
+                          })()}
+                        </span>
                         <div className="text-right">
                           <div className="text-sm">
                             <span className="font-semibold">{data.count}</span> enquête{data.count > 1 ? 's' : ''}
@@ -163,7 +172,13 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
                   <TooltipRoot key={infraction} delayDuration={300}>
                     <TooltipTrigger asChild>
                       <div className="flex justify-between items-center p-2 bg-gray-50 rounded hover:bg-gray-100 cursor-help transition-colors">
-                        <span className="font-medium">{infraction}</span>
+                        <span className="font-medium inline-flex items-center gap-1.5">
+                          {infraction}
+                          {(() => {
+                            const n = natinfForTag(infraction);
+                            return n ? <NatinfBadge code={n.code} nature={n.nature} quantumLabel={n.quantumLabel} /> : null;
+                          })()}
+                        </span>
                         <div className="text-right">
                           <div className="text-sm">
                             <span className="font-semibold">{data.count}</span> enquête{data.count > 1 ? 's' : ''}

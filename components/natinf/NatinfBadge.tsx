@@ -17,16 +17,29 @@ interface NatinfBadgeProps {
   quantumLabel?: string;
   /** Affiche le n° NATINF en préfixe */
   code?: string;
+  /** Mode compact : n° NATINF seul, coloré par nature, quantum en infobulle. */
+  compact?: boolean;
   className?: string;
   title?: string;
 }
 
 /** Pastille colorée selon la nature (crime / délit / contravention). */
-export const NatinfBadge = ({ nature, quantumLabel, code, className, title }: NatinfBadgeProps) => {
+export const NatinfBadge = ({ nature, quantumLabel, code, compact, className, title }: NatinfBadgeProps) => {
+  const style = NATURE_STYLE[nature] || NATURE_STYLE.inconnu;
+  if (compact) {
+    return (
+      <span
+        title={title || [code && `NATINF ${code}`, quantumLabel].filter(Boolean).join(' — ')}
+        className={`inline-flex items-center rounded border px-1 py-0 text-[10px] font-mono leading-none ${style} ${className || ''}`}
+      >
+        {code || natureLabel(nature)}
+      </span>
+    );
+  }
   return (
     <span
       title={title || quantumLabel}
-      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium leading-none ${NATURE_STYLE[nature] || NATURE_STYLE.inconnu} ${className || ''}`}
+      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium leading-none ${style} ${className || ''}`}
     >
       {code && <span className="font-mono opacity-70">{code}</span>}
       <span>{quantumLabel || natureLabel(nature)}</span>
