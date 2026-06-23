@@ -4,6 +4,8 @@ import React from 'react';
 import { RotateCcw, Info } from 'lucide-react';
 import { useCartographieConfig } from '@/hooks/useCartographieConfig';
 import { useTags } from '@/hooks/useTags';
+import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
+import { NatinfBadge } from '../natinf/NatinfBadge';
 import { useToast } from '@/contexts/ToastContext';
 import type { CartographieScoreWeights } from '@/types/cartographieTypes';
 
@@ -74,6 +76,7 @@ const WEIGHT_FIELDS: WeightFieldDef[] = [
 export const AdminCartographyPanel: React.FC = () => {
   const { config, isLoading, updateWeights, setTagInfractionWeight, setGroupByService, reset } = useCartographieConfig();
   const { getTagsByCategory, isLoading: tagsLoading } = useTags();
+  const { natinfForTag } = useInfractionNatinf();
   const { showToast } = useToast();
 
   const infractionTags = React.useMemo(
@@ -221,7 +224,13 @@ export const AdminCartographyPanel: React.FC = () => {
               const current = config.tagInfractionWeights[tag.id] ?? 0;
               return (
                 <div key={tag.id} className="grid grid-cols-[1fr_100px] items-center gap-3 px-3 py-2">
-                  <span className="text-sm text-gray-800">{tag.value}</span>
+                  <span className="text-sm text-gray-800 inline-flex items-center gap-1.5">
+                    {tag.value}
+                    {(() => {
+                      const n = natinfForTag(tag.value);
+                      return n ? <NatinfBadge code={n.code} nature={n.nature} quantumLabel={n.quantumLabel} compact /> : null;
+                    })()}
+                  </span>
                   <input
                     type="number"
                     step={0.5}

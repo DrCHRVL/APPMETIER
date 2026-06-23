@@ -56,9 +56,9 @@ interface PdfExportData {
     classement: number;
   }[];
   // Infractions en cours
-  infractionsEnCours: { infraction: string; count: number }[];
+  infractionsEnCours: { infraction: string; natinfCode?: string; count: number }[];
   // Infractions terminées
-  infractionsTerminees: { infraction: string; count: number }[];
+  infractionsTerminees: { infraction: string; natinfCode?: string; count: number }[];
   // Déférements par mois
   deferementsParMois: { mois: string; count: number }[];
   // Âge moyen (jours) des dossiers avant ouverture d'information / classement
@@ -835,13 +835,13 @@ ${(stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stat
     <div>
       <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Enquêtes en cours</h4>
       ${data.infractionsEnCours.length > 0
-        ? renderBarChart(data.infractionsEnCours.map(i => ({ label: i.infraction, value: i.count, color: '#000091' })))
+        ? renderBarChart(data.infractionsEnCours.map(i => ({ label: i.natinfCode ? `${i.natinfCode} · ${i.infraction}` : i.infraction, value: i.count, color: '#000091' })))
         : '<p style="color:#56565E;font-size:10px;">Aucune donnée</p>'}
     </div>
     <div>
       <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Enquêtes terminées</h4>
       ${data.infractionsTerminees.length > 0
-        ? renderBarChart(data.infractionsTerminees.map(i => ({ label: i.infraction, value: i.count, color: '#18753C' })))
+        ? renderBarChart(data.infractionsTerminees.map(i => ({ label: i.natinfCode ? `${i.natinfCode} · ${i.infraction}` : i.infraction, value: i.count, color: '#18753C' })))
         : '<p style="color:#56565E;font-size:10px;">Aucune donnée</p>'}
     </div>
   </div>

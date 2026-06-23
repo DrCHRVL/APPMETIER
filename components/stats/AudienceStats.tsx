@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { useAudience } from '@/hooks/useAudience';
 import { useTags } from '@/hooks/useTags';
+import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { Enquete } from '@/types/interfaces';
 import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
 import { AudienceStats as AudienceStatsType, ResultatAudience, migrateConfiscations } from '@/types/audienceTypes';
@@ -181,6 +182,7 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
 
   const { audienceState } = useAudience();
   const { getTagsByCategory } = useTags();
+  const { natinfForTag } = useInfractionNatinf();
   const infractions = getTagsByCategory('infractions');
   const [selectedGererTags, setSelectedGererTags] = useState<string[]>([]);
   const currentDate = new Date();
@@ -1145,7 +1147,7 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                       <div className="space-y-1">
                         {sortedInfractions.map(([infraction, count]) => (
                           <div key={infraction} className="flex justify-between text-sm">
-                            <span>{infraction}</span>
+                            <span>{infraction}{(() => { const n = natinfForTag(infraction); return n ? ` (${n.code})` : ''; })()}</span>
                             <span className="font-medium">{count} ({totalInfractions > 0 ? ((count / totalInfractions) * 100).toFixed(0) : 0}%)</span>
                           </div>
                         ))}
@@ -1236,7 +1238,7 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                       <div className="space-y-1">
                         {sortedInfractions.map(([infraction, count]) => (
                           <div key={infraction} className="flex justify-between text-sm">
-                            <span>{infraction}</span>
+                            <span>{infraction}{(() => { const n = natinfForTag(infraction); return n ? ` (${n.code})` : ''; })()}</span>
                             <span className="font-medium">{count} ({totalInfractions > 0 ? ((count / totalInfractions) * 100).toFixed(0) : 0}%)</span>
                           </div>
                         ))}

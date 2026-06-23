@@ -3,6 +3,7 @@ import { Button } from '../ui/button';
 import { FileText, Loader2 } from 'lucide-react';
 import { useAudience } from '@/hooks/useAudience';
 import { useTags } from '@/hooks/useTags';
+import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { Enquete } from '@/types/interfaces';
 import { getYearlyStats, getMonthlyStats } from '@/utils/audienceStats';
 import { exportStatsPdf, PdfExportData } from '@/utils/generateStatsPdf';
@@ -22,6 +23,7 @@ export const ExportPdfButton = ({
   const [isExporting, setIsExporting] = useState(false);
   const { audienceState } = useAudience();
   const { getServicesFromTags } = useTags();
+  const { natinfForTag } = useInfractionNatinf();
 
   const handleExportPDF = async () => {
     setIsExporting(true);
@@ -207,9 +209,9 @@ export const ExportPdfButton = ({
       const computeInfractionStats = (filter: (e: Enquete) => boolean) =>
         infractions.reduce((acc, inf) => {
           const count = enquetes.filter(e => filter(e) && e.tags.some(t => t.category === 'infractions' && t.value === inf)).length;
-          if (count > 0) acc.push({ infraction: inf, count });
+          if (count > 0) acc.push({ infraction: inf, natinfCode: natinfForTag(inf)?.code, count });
           return acc;
-        }, [] as { infraction: string; count: number }[]);
+        }, [] as { infraction: string; natinfCode?: string; count: number }[]);
 
       const infractionsEnCours = computeInfractionStats(e =>
         e.statut === 'en_cours' && new Date(e.dateCreation).getFullYear() <= selectedYear
