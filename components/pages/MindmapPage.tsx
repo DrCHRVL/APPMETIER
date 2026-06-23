@@ -307,21 +307,30 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     setRefreshKey(k => k + 1);
   };
 
-  // Exporter la liste des noms au format txt brut (un nom par ligne, trié,
-  // dédupliqué). On part des nœuds MEC de la carte — qui regroupent déjà mis
-  // en cause, mis en examen, suspects et « mis en cause » ajoutés à la main —
-  // en excluant les victimes projetées (drapeau isVictime). On exporte ce qui
-  // est réellement affiché : le filtre contentieux actif est donc respecté.
+  // Exporter la liste des noms au format txt brut (un nom par ligne, trié par
+  // score décroissant, dédupliqué). On part des nœuds MEC de la carte — qui
+  // regroupent déjà mis en cause, mis en examen, suspects et « mis en cause »
+  // ajoutés à la main — en excluant les victimes projetées (drapeau isVictime).
+  // On exporte ce qui est réellement affiché : le filtre contentieux actif est
+  // donc respecté.
   const handleExportNames = async () => {
-    const names = new Set<string>();
-    for (const mec of graph.mecById.values()) {
-      if (mec.isVictime) continue;
+    // Tri par score décroissant (même rawScore que le Top), pour sortir les
+    // profils les plus saillants en tête ; le nom départage à score égal.
+    const ranked = Array.from(graph.mecById.values())
+      .filter(mec => !mec.isVictime && mec.displayName.trim())
+      .sort((a, b) =>
+        b.rawScore - a.rawScore ||
+        a.displayName.localeCompare(b.displayName, 'fr', { sensitivity: 'base' }),
+      );
+    // Déduplication par nom affiché : la première occurrence (meilleur score) gagne.
+    const seen = new Set<string>();
+    const sorted: string[] = [];
+    for (const mec of ranked) {
       const nom = mec.displayName.trim();
-      if (nom) names.add(nom);
+      if (seen.has(nom)) continue;
+      seen.add(nom);
+      sorted.push(nom);
     }
-    const sorted = Array.from(names).sort((a, b) =>
-      a.localeCompare(b, 'fr', { sensitivity: 'base' }),
-    );
     if (sorted.length === 0) {
       showToast('Aucun nom à exporter', 'info');
       return;
