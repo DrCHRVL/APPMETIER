@@ -213,6 +213,12 @@ export interface NewEnqueteData {
   comptesRendus: CompteRendu[];
   notes: string;
   tags: Tag[];
+  /** Infractions de l'enquête au format NATINF (codes). Cible de la migration
+   *  tags → NATINF : remplace progressivement les tags de catégorie
+   *  « infractions ». Rempli par la migration batch (backfill depuis les tags
+   *  rattachés) puis par la saisie NATINF. Tant qu'il est absent, l'app retombe
+   *  sur les tags d'infraction (résolus via leur rattachement). */
+  infractionNatinfCodes?: string[];
   cheminBase?: string;
   documents?: DocumentEnquete[];
   cheminExterne?: string;
