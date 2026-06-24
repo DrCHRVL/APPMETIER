@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Edit2, Save, X, Plus, Check, Trash2, AlertTriangle, Send, Layers, GitMerge, Link2 } from 'lucide-react';
+import { Edit2, Save, X, Plus, Check, Trash2, AlertTriangle, Send, Layers, GitMerge, Link2, DatabaseZap } from 'lucide-react';
 import { TAG_CATEGORIES, TagCategory } from '@/config/tags';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
@@ -13,6 +13,7 @@ import { ServiceOrganizer } from '../ServiceOrganizer';
 import { NatinfPicker } from '../natinf/NatinfPicker';
 import { NatinfBadge } from '../natinf/NatinfBadge';
 import { NatinfReconcileDialog } from '../natinf/NatinfReconcileDialog';
+import { NatinfMigrateDialog } from '../natinf/NatinfMigrateDialog';
 import { useNatinf } from '@/hooks/useNatinf';
 import { useTags, DuplicateTagGroup } from '@/hooks/useTags';
 import { useToast } from '@/contexts/ToastContext';
@@ -74,6 +75,7 @@ export const TagManagementPage = () => {
   const [natinfLinkTag, setNatinfLinkTag] = useState<{ id: string; value: string; codes: string[] } | null>(null);
   const [isSavingNatinf, setIsSavingNatinf] = useState(false);
   const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [migrateOpen, setMigrateOpen] = useState(false);
   const [newTagDialog, setNewTagDialog] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [newDuration, setNewDuration] = useState('');
@@ -500,6 +502,14 @@ export const TagManagementPage = () => {
             >
               <Link2 className="h-4 w-4 text-emerald-600" />
               Rattacher au NATINF
+            </Button>
+            <Button
+              onClick={() => setMigrateOpen(true)}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <DatabaseZap className="h-4 w-4 text-emerald-600" />
+              Migrer les dossiers
             </Button>
             <Button
               onClick={handleScanDuplicates}
@@ -1000,6 +1010,7 @@ export const TagManagementPage = () => {
 
       {/* Assistant de rattachement en masse des tags d'infraction au NATINF */}
       <NatinfReconcileDialog open={reconcileOpen} onClose={() => setReconcileOpen(false)} />
+      <NatinfMigrateDialog open={migrateOpen} onClose={() => setMigrateOpen(false)} />
     </div>
   );
 };
