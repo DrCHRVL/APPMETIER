@@ -69,6 +69,22 @@ export const InfractionsManager = ({ value, onChange, readOnly }: Props) => {
   const handleUpdate = (id: number, updates: Partial<InfractionReproche>) =>
     onChange(value.map(i => (i.id === id ? { ...i, ...updates } : i)));
 
+  // Création primaire d'un chef directement depuis le référentiel NATINF :
+  // qualification = libellé officiel, code + snapshot renseignés d'office.
+  const handleAddFromNatinf = (entry: Parameters<typeof toRef>[0]) => {
+    if (readOnly) return;
+    if (value.some(v => v.natinfCode === entry.code)) return; // évite les doublons
+    onChange([
+      ...value,
+      {
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        qualification: entry.libelle,
+        natinfCode: entry.code,
+        natinfRef: toRef(entry),
+      },
+    ]);
+  };
+
   return (
     <div className="space-y-3">
       {/* Liste des infractions sélectionnées avec détails (date, lieu, contexte) */}
@@ -196,11 +212,24 @@ export const InfractionsManager = ({ value, onChange, readOnly }: Props) => {
         </div>
       )}
 
-      {/* Sélecteur de tags d'infraction (mêmes tags que les enquêtes) */}
+      {/* Ajout primaire par le référentiel NATINF (remplit code + libellé). */}
+      {!readOnly && (
+        <div className="border border-dashed border-emerald-300 rounded p-2 bg-emerald-50/40">
+          <div className="text-[11px] text-gray-600 mb-1.5">
+            Ajouter un chef d'infraction (référentiel NATINF)
+          </div>
+          <NatinfPicker
+            onSelect={handleAddFromNatinf}
+            placeholder="Rechercher une infraction (n° NATINF ou libellé)…"
+          />
+        </div>
+      )}
+
+      {/* Sélecteur de tags d'infraction (secondaire ; NATINF rattaché si possible) */}
       {!readOnly && (
         <div className="border border-dashed border-gray-300 rounded p-2 bg-gray-50">
           <div className="text-[11px] text-gray-500 mb-1.5">
-            Sélectionnez les types d'infraction (référentiel commun aux enquêtes)
+            Ou sélectionnez un type d'infraction (référentiel commun aux enquêtes)
             {isLoading && ' — chargement…'}
           </div>
           {sortedTags.length === 0 ? (
