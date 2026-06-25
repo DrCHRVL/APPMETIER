@@ -3,6 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { useAudience } from '@/hooks/useAudience';
 import { useTags } from '@/hooks/useTags';
 import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
+import { NatinfBadge } from '../natinf/NatinfBadge';
 import { Enquete } from '@/types/interfaces';
 import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
 import { AudienceStats as AudienceStatsType, ResultatAudience, migrateConfiscations } from '@/types/audienceTypes';
@@ -182,7 +183,11 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
 
   const { audienceState } = useAudience();
   const { getTagsByCategory } = useTags();
-  const { natinfForTag } = useInfractionNatinf();
+  const { infractionsForEnquete } = useInfractionNatinf();
+  // Clé canonique d'une infraction : code NATINF si rattaché, sinon libellé.
+  // Regrouper par cette clé garde des comptes cohérents qu'un dossier soit migré
+  // au NATINF (infractionNatinfCodes) ou encore en tags.
+  const keyOf = (inf: { code?: string; label: string }) => inf.code ?? inf.label;
   const infractions = getTagsByCategory('infractions');
   const [selectedGererTags, setSelectedGererTags] = useState<string[]>([]);
   const currentDate = new Date();
@@ -1103,6 +1108,9 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
               let totalAge = 0;
               let countAge = 0;
               const infractionCounts: Record<string, number> = {};
+              // Clé canonique → item représentatif (préférer celui qui a un code)
+              // pour l'affichage (libellé + pastille NATINF).
+              const infractionReps = new Map<string, ReturnType<typeof infractionsForEnquete>[number]>();
 
               classementResults.forEach(r => {
                 const enquete = enquetes.find(e => e.id === r.enqueteId);
@@ -1111,8 +1119,12 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                   const dateFin = new Date(r.dateAudience);
                   const ageJours = Math.floor((dateFin.getTime() - dateDebut.getTime()) / (1000 * 60 * 60 * 24));
                   if (ageJours >= 0) { totalAge += ageJours; countAge++; }
-                  enquete.tags.filter(t => t.category === 'infractions').forEach(t => {
-                    if (t.value) infractionCounts[t.value] = (infractionCounts[t.value] || 0) + 1;
+                  infractionsForEnquete(enquete).forEach(inf => {
+                    const k = keyOf(inf);
+                    if (!k) return;
+                    infractionCounts[k] = (infractionCounts[k] || 0) + 1;
+                    const existing = infractionReps.get(k);
+                    if (!existing || (!existing.code && inf.code)) infractionReps.set(k, inf);
                   });
                 }
               });
@@ -1145,12 +1157,18 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                     <div className="mb-4">
                       <p className="text-sm font-medium mb-2">Répartition par type de fait</p>
                       <div className="space-y-1">
-                        {sortedInfractions.map(([infraction, count]) => (
-                          <div key={infraction} className="flex justify-between text-sm">
-                            <span>{infraction}{(() => { const n = natinfForTag(infraction); return n ? ` (${n.code})` : ''; })()}</span>
+                        {sortedInfractions.map(([key, count]) => {
+                          const rep = infractionReps.get(key);
+                          return (
+                          <div key={key} className="flex justify-between text-sm">
+                            <span className="inline-flex items-center gap-1.5">
+                              {rep?.label ?? key}
+                              {rep?.code ? <NatinfBadge compact code={rep.code} nature={rep.nature} quantumLabel={rep.quantumLabel} /> : null}
+                            </span>
                             <span className="font-medium">{count} ({totalInfractions > 0 ? ((count / totalInfractions) * 100).toFixed(0) : 0}%)</span>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -1194,6 +1212,9 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
               let totalAge = 0;
               let countAge = 0;
               const infractionCounts: Record<string, number> = {};
+              // Clé canonique → item représentatif (préférer celui qui a un code)
+              // pour l'affichage (libellé + pastille NATINF).
+              const infractionReps = new Map<string, ReturnType<typeof infractionsForEnquete>[number]>();
 
               oiResults.forEach(r => {
                 const enquete = enquetes.find(e => e.id === r.enqueteId);
@@ -1202,8 +1223,12 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                   const dateFin = new Date(r.dateAudience);
                   const ageJours = Math.floor((dateFin.getTime() - dateDebut.getTime()) / (1000 * 60 * 60 * 24));
                   if (ageJours >= 0) { totalAge += ageJours; countAge++; }
-                  enquete.tags.filter(t => t.category === 'infractions').forEach(t => {
-                    if (t.value) infractionCounts[t.value] = (infractionCounts[t.value] || 0) + 1;
+                  infractionsForEnquete(enquete).forEach(inf => {
+                    const k = keyOf(inf);
+                    if (!k) return;
+                    infractionCounts[k] = (infractionCounts[k] || 0) + 1;
+                    const existing = infractionReps.get(k);
+                    if (!existing || (!existing.code && inf.code)) infractionReps.set(k, inf);
                   });
                 }
               });
@@ -1236,12 +1261,18 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                     <div className="mb-4">
                       <p className="text-sm font-medium mb-2">Répartition par type de fait</p>
                       <div className="space-y-1">
-                        {sortedInfractions.map(([infraction, count]) => (
-                          <div key={infraction} className="flex justify-between text-sm">
-                            <span>{infraction}{(() => { const n = natinfForTag(infraction); return n ? ` (${n.code})` : ''; })()}</span>
+                        {sortedInfractions.map(([key, count]) => {
+                          const rep = infractionReps.get(key);
+                          return (
+                          <div key={key} className="flex justify-between text-sm">
+                            <span className="inline-flex items-center gap-1.5">
+                              {rep?.label ?? key}
+                              {rep?.code ? <NatinfBadge compact code={rep.code} nature={rep.nature} quantumLabel={rep.quantumLabel} /> : null}
+                            </span>
                             <span className="font-medium">{count} ({totalInfractions > 0 ? ((count / totalInfractions) * 100).toFixed(0) : 0}%)</span>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}

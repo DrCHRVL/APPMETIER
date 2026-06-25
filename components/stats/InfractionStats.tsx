@@ -16,29 +16,39 @@ interface InfractionStatsProps {
 export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: InfractionStatsProps) => {
   const { getTagsByCategory } = useTags();
   const { audienceState } = useAudience();
-  const { natinfForTag } = useInfractionNatinf();
+  const { infractionsForEnquete } = useInfractionNatinf();
 
-  // Récupérer TOUTES les infractions réellement utilisées dans les enquêtes
-  const infractions = React.useMemo(() => {
-    const infractionSet = new Set<string>();
-    
+  // Clé canonique d'une infraction : code NATINF si rattaché, sinon libellé.
+  // Regrouper par cette clé garantit des comptes cohérents qu'un dossier soit
+  // migré au NATINF (infractionNatinfCodes) ou encore en tags.
+  const keyOf = (inf: { code?: string; label: string }) => inf.code ?? inf.label;
+
+  // Infractions réellement utilisées : clé canonique → item représentatif
+  // (pour l'affichage : libellé + pastille NATINF).
+  const infractionReps = React.useMemo(() => {
+    const map = new Map<string, ReturnType<typeof infractionsForEnquete>[number]>();
     enquetes.forEach(e => {
-      e.tags
-        .filter(tag => tag.category === 'infractions')
-        .forEach(tag => {
-          if (tag.value) {
-            infractionSet.add(tag.value);
-          }
-        });
+      infractionsForEnquete(e).forEach(inf => {
+        const k = keyOf(inf);
+        if (!k) return;
+        const existing = map.get(k);
+        // Préférer un représentant rattaché au NATINF (libellé officiel).
+        if (!existing || (!existing.code && inf.code)) map.set(k, inf);
+      });
     });
-    
-    return Array.from(infractionSet).sort();
-  }, [enquetes]);
+    return map;
+  }, [enquetes, infractionsForEnquete]);
+
+  const infractions = React.useMemo(
+    () => [...infractionReps.keys()].sort((a, b) =>
+      (infractionReps.get(a)?.label || a).localeCompare(infractionReps.get(b)?.label || b, 'fr')),
+    [infractionReps],
+  );
 
   // Calculer les stats pour les enquêtes EN COURS
-  const infractionStatsEnCours = infractions.reduce((acc, infractionValue) => {
-    
-    if (!infractionValue) return acc;
+  const infractionStatsEnCours = infractions.reduce((acc, key) => {
+
+    if (!key) return acc;
 
     // Filtrer les enquêtes en cours
     // Une enquête compte si :
@@ -46,19 +56,16 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
     // 2. Elle a été créée avant ou pendant l'année sélectionnée
     const enquetesFiltered = enquetes.filter(e => {
       if (e.statut !== 'en_cours') return false;
-      
+
       const creationYear = new Date(e.dateCreation).getFullYear();
       // L'enquête doit avoir été créée avant ou pendant l'année sélectionnée
       if (creationYear > selectedYear) return false;
-      
-      return e.tags.some(tag => 
-        tag.category === 'infractions' && 
-        tag.value === infractionValue
-      );
+
+      return infractionsForEnquete(e).some(inf => keyOf(inf) === key);
     });
 
     if (enquetesFiltered.length > 0) {
-      acc[infractionValue] = {
+      acc[key] = {
         count: enquetesFiltered.length,
         enquetes: enquetesFiltered
       };
@@ -68,9 +75,9 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
   }, {} as Record<string, { count: number; enquetes: Enquete[] }>);
 
   // Calculer les stats pour les enquêtes TERMINÉES
-  const infractionStatsTerminees = infractions.reduce((acc, infractionValue) => {
-    
-    if (!infractionValue) return acc;
+  const infractionStatsTerminees = infractions.reduce((acc, key) => {
+
+    if (!key) return acc;
 
     // Filtrer les enquêtes terminées avec date d'audience de l'année sélectionnée
     // Exclure les classements sans suite et les ouvertures d'information
@@ -91,14 +98,11 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
       if (audienceResult.isClassement || audienceResult.isOI) return false;
 
       return new Date(audienceResult.dateAudience).getFullYear() === selectedYear &&
-        e.tags.some(tag =>
-          tag.category === 'infractions' &&
-          tag.value === infractionValue
-        );
+        infractionsForEnquete(e).some(inf => keyOf(inf) === key);
     });
 
     if (enquetesFiltered.length > 0) {
-      acc[infractionValue] = {
+      acc[key] = {
         count: enquetesFiltered.length,
         enquetes: enquetesFiltered
       };
@@ -118,16 +122,15 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
           {Object.keys(infractionStatsEnCours).length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <TooltipProvider>
-                {Object.entries(infractionStatsEnCours).map(([infraction, data]) => (
-                  <TooltipRoot key={infraction} delayDuration={300}>
+                {Object.entries(infractionStatsEnCours).map(([key, data]) => {
+                  const rep = infractionReps.get(key);
+                  return (
+                  <TooltipRoot key={key} delayDuration={300}>
                     <TooltipTrigger asChild>
                       <div className="flex justify-between items-center p-2 bg-gray-50 rounded hover:bg-gray-100 cursor-help transition-colors">
                         <span className="font-medium inline-flex items-center gap-1.5">
-                          {infraction}
-                          {(() => {
-                            const n = natinfForTag(infraction);
-                            return n ? <NatinfBadge code={n.code} nature={n.nature} quantumLabel={n.quantumLabel} /> : null;
-                          })()}
+                          {rep?.label ?? key}
+                          {rep?.code ? <NatinfBadge code={rep.code} nature={rep.nature} quantumLabel={rep.quantumLabel} /> : null}
                         </span>
                         <div className="text-right">
                           <div className="text-sm">
@@ -138,7 +141,7 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
                     </TooltipTrigger>
                     <TooltipContent side="right" className="max-w-md max-h-96 overflow-y-auto">
                       <div className="space-y-2">
-                        <p className="font-semibold mb-2">{infraction} - Enquêtes en cours :</p>
+                        <p className="font-semibold mb-2">{rep?.label ?? key} - Enquêtes en cours :</p>
                         {data.enquetes.map(e => (
                           <div key={e.id} className="text-xs">
                             • {e.numero}
@@ -147,7 +150,8 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
                       </div>
                     </TooltipContent>
                   </TooltipRoot>
-                ))}
+                  );
+                })}
               </TooltipProvider>
             </div>
           ) : (
@@ -168,16 +172,15 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
           {Object.keys(infractionStatsTerminees).length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <TooltipProvider>
-                {Object.entries(infractionStatsTerminees).map(([infraction, data]) => (
-                  <TooltipRoot key={infraction} delayDuration={300}>
+                {Object.entries(infractionStatsTerminees).map(([key, data]) => {
+                  const rep = infractionReps.get(key);
+                  return (
+                  <TooltipRoot key={key} delayDuration={300}>
                     <TooltipTrigger asChild>
                       <div className="flex justify-between items-center p-2 bg-gray-50 rounded hover:bg-gray-100 cursor-help transition-colors">
                         <span className="font-medium inline-flex items-center gap-1.5">
-                          {infraction}
-                          {(() => {
-                            const n = natinfForTag(infraction);
-                            return n ? <NatinfBadge code={n.code} nature={n.nature} quantumLabel={n.quantumLabel} /> : null;
-                          })()}
+                          {rep?.label ?? key}
+                          {rep?.code ? <NatinfBadge code={rep.code} nature={rep.nature} quantumLabel={rep.quantumLabel} /> : null}
                         </span>
                         <div className="text-right">
                           <div className="text-sm">
@@ -188,7 +191,7 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
                     </TooltipTrigger>
                     <TooltipContent side="right" className="max-w-md max-h-96 overflow-y-auto">
                       <div className="space-y-2">
-                        <p className="font-semibold mb-2">{infraction} - Enquêtes terminées :</p>
+                        <p className="font-semibold mb-2">{rep?.label ?? key} - Enquêtes terminées :</p>
                         {data.enquetes.map(e => (
                           <div key={e.id} className="text-xs">
                             • {e.numero}
@@ -197,7 +200,8 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
                       </div>
                     </TooltipContent>
                   </TooltipRoot>
-                ))}
+                  );
+                })}
               </TooltipProvider>
             </div>
           ) : (
