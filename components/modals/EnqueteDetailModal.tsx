@@ -300,6 +300,7 @@ const EnqueteDetailModalImpl = ({
               dateDebut={enquete.dateDebut}
               services={enquete.services}
               tags={enquete.tags}
+              infractionNatinfCodes={enquete.infractionNatinfCodes}
               description={enquete.description}
               directeurEnquete={enquete.directeurEnquete}
               numeroParquet={enquete.numeroParquet}

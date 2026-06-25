@@ -84,7 +84,9 @@ export function useInfractionNatinf() {
       tags?: { value: string; category: string }[];
       infractionNatinfCodes?: string[];
     }): EnqueteInfractionItem[] => {
-      if (enquete.infractionNatinfCodes && enquete.infractionNatinfCodes.length > 0) {
+      // Présence du champ (même tableau vide) = dossier migré → fait foi.
+      // `undefined` = non migré → on retombe sur les tags d'infraction.
+      if (Array.isArray(enquete.infractionNatinfCodes)) {
         return enquete.infractionNatinfCodes.map((code) => {
           const entry = getByCode(code);
           return {

@@ -77,7 +77,7 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
           const infra = infractionTagsOf(e.tags || []);
           if (infra.length === 0) continue;
           avecInfractions++;
-          if (e.infractionNatinfCodes && e.infractionNatinfCodes.length > 0) { dejaMigres++; continue; }
+          if (Array.isArray(e.infractionNatinfCodes)) { dejaMigres++; continue; }
           const { codes, unresolved: u } = deriveInfractionNatinfCodes(infra, defs);
           u.forEach(v => unresolved.add(v));
           if (codes.length > 0) { migrables++; ctxMig++; }
@@ -112,7 +112,7 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
           const infra = infractionTagsOf(e.tags || []);
           if (infra.length === 0) return e;
           // Ne jamais écraser des codes déjà présents (saisie NATINF native).
-          if (e.infractionNatinfCodes && e.infractionNatinfCodes.length > 0) return e;
+          if (Array.isArray(e.infractionNatinfCodes)) return e;
           const { codes } = deriveInfractionNatinfCodes(infra, defs);
           if (codes.length === 0) return e;
           changed = true; dossiers++;

@@ -3,8 +3,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MecAutocompleteInput } from '@/components/ui/MecAutocompleteInput';
 import { Badge } from '@/components/ui/badge';
-import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { NatinfBadge } from '@/components/natinf/NatinfBadge';
+import { NatinfPicker } from '@/components/natinf/NatinfPicker';
+import { useNatinf } from '@/hooks/useNatinf';
 import { Select } from '@/components/ui/select';
 import { X, Clock } from 'lucide-react';
 import { useState, useCallback, FormEvent } from 'react';
@@ -29,7 +30,7 @@ export const NewEnqueteModal = ({
   allKnownMec = []
 }: NewEnqueteModalProps) => {
   const { getTagsByCategory, isLoading } = useTags();
-  const { natinfForTag } = useInfractionNatinf();
+  const { getByCode } = useNatinf();
   const [newEnqueteData, setNewEnqueteData] = useState<NewEnqueteData>({
     numero: '',
     dateDebut: new Date().toISOString().split('T')[0],
@@ -49,6 +50,7 @@ export const NewEnqueteModal = ({
   const [newMecName, setNewMecName] = useState('');
   const [newMecRole, setNewMecRole] = useState('');
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
+  const [selectedNatinfCodes, setSelectedNatinfCodes] = useState<string[]>([]);
   const [isEnqueteAVenir, setIsEnqueteAVenir] = useState(false);
   const { showToast } = useToast();
 
@@ -71,6 +73,7 @@ export const NewEnqueteModal = ({
     setNewMecName('');
     setNewMecRole('');
     setSelectedTags([]);
+    setSelectedNatinfCodes([]);
     setIsEnqueteAVenir(false);
   }, [cheminBase]);
 
@@ -111,21 +114,6 @@ export const NewEnqueteModal = ({
     }
   }, [selectedTags, getTagsByCategory, newEnqueteData.services]);
 
-  const handleAddInfraction = useCallback((value: string) => {
-    if (value) {
-      const infractions = getTagsByCategory('infractions');
-      const selectedInfraction = infractions.find(tag => tag.value === value);
-      
-      if (selectedInfraction && !selectedTags.some(tag => tag.id === selectedInfraction.id)) {
-        setSelectedTags(prev => [...prev, {
-          id: selectedInfraction.id,
-          value: selectedInfraction.value,
-          category: 'infractions'
-        }]);
-      }
-    }
-  }, [selectedTags, getTagsByCategory]);
-
   const handleRemoveTag = useCallback((tagId: string) => {
     setSelectedTags(prev => prev.filter(tag => tag.id !== tagId));
   }, []);
@@ -159,7 +147,8 @@ export const NewEnqueteModal = ({
           .filter(tag => tag.category === 'services')
           .map(tag => tag.value)
           .filter(Boolean),
-        tags: allTags
+        tags: allTags,
+        infractionNatinfCodes: selectedNatinfCodes,
       };
 
       onSubmit(cleanedData);
@@ -169,7 +158,7 @@ export const NewEnqueteModal = ({
     } catch (error) {
       showToast('Erreur lors de la création de l\'enquête', 'error');
     }
-  }, [newEnqueteData, selectedTags, isEnqueteAVenir, onSubmit, onClose, showToast, resetForm]);
+  }, [newEnqueteData, selectedTags, selectedNatinfCodes, isEnqueteAVenir, onSubmit, onClose, showToast, resetForm]);
 
   const handleAddMec = useCallback(() => {
     if (newMecName.trim()) {
@@ -206,7 +195,6 @@ export const NewEnqueteModal = ({
   }
 
   const servicesTags = getTagsByCategory('services');
-  const infractionsTags = getTagsByCategory('infractions');
   const serviceTags = selectedTags.filter(tag => tag.category === 'services');
 
   return (
@@ -312,44 +300,34 @@ export const NewEnqueteModal = ({
           </div>
 
           <div className="space-y-2">
-            <h3 className="text-sm font-medium">Type d'infractions</h3>
+            <h3 className="text-sm font-medium">Type d'infractions (NATINF)</h3>
             <div className="space-y-2">
-              <Select
-                value=""
-                onChange={(e) => handleAddInfraction(e.target.value)}
-              >
-                <option value="">Sélectionner un type d'infraction</option>
-                {infractionsTags.map((infraction) => {
-                  const n = natinfForTag(infraction.value);
-                  return (
-                    <option key={infraction.id} value={infraction.value}>
-                      {infraction.value}{n ? ` — ${n.code}` : ''}
-                    </option>
-                  );
-                })}
-              </Select>
+              <NatinfPicker
+                onSelect={(entry) =>
+                  setSelectedNatinfCodes(prev => prev.includes(entry.code) ? prev : [...prev, entry.code])
+                }
+                placeholder="Rechercher une infraction (n° NATINF ou libellé)…"
+              />
 
               <div className="flex flex-wrap gap-2 mt-2">
-                {selectedTags
-                  .filter(tag => tag.category === 'infractions')
-                  .map(tag => (
-                    <Badge key={tag.id} variant="secondary" className="flex items-center gap-1">
-                      {tag.value}
-                      {(() => {
-                        const n = natinfForTag(tag.value);
-                        return n ? <NatinfBadge code={n.code} nature={n.nature} quantumLabel={n.quantumLabel} compact /> : null;
-                      })()}
+                {selectedNatinfCodes.map(code => {
+                  const e = getByCode(code);
+                  return (
+                    <Badge key={code} variant="secondary" className="flex items-center gap-1">
+                      {e?.libelle ?? `NATINF ${code}`}
+                      <NatinfBadge code={code} nature={e?.nature} quantumLabel={e?.quantumLabel} compact />
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
                         className="h-4 w-4 p-0 ml-2"
-                        onClick={() => handleRemoveTag(tag.id)}
+                        onClick={() => setSelectedNatinfCodes(prev => prev.filter(c => c !== code))}
                       >
                         <X className="h-3 w-3" />
                       </Button>
                     </Badge>
-                  ))}
+                  );
+                })}
               </div>
             </div>
           </div>

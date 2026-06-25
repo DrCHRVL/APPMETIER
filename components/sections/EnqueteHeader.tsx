@@ -8,12 +8,14 @@ import { Flag } from 'lucide-react';
 import { useTags } from '@/hooks/useTags';
 import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { NatinfBadge } from '../natinf/NatinfBadge';
+import { NatinfPicker } from '../natinf/NatinfPicker';
 
 interface EnqueteHeaderProps {
   numero: string;
   dateDebut: string;
   services: string[];
   tags: Tag[];
+  infractionNatinfCodes?: string[];
   description?: string;
   directeurEnquete?: string;
   numeroParquet?: string;
@@ -28,6 +30,7 @@ export const EnqueteHeader = React.memo(({
   dateDebut,
   services,
   tags,
+  infractionNatinfCodes,
   description,
   directeurEnquete,
   numeroParquet,
@@ -48,10 +51,12 @@ export const EnqueteHeader = React.memo(({
   useEffect(() => { setLocalDescription(description || ''); }, [description]);
 
   const { getTagsByCategory, getServicesFromTags } = useTags();
-  const { natinfForTag } = useInfractionNatinf();
+  const { infractionsForEnquete } = useInfractionNatinf();
   const servicesTags = getTagsByCategory('services');
-  const infractionsTags = getTagsByCategory('infractions');
-  const infractionTags = tags.filter(tag => tag.category === 'infractions');
+  // Infractions canoniques (NATINF natif via infractionNatinfCodes, sinon tags
+  // résolus) + codes courants pour l'édition via le picker NATINF.
+  const infractionItems = infractionsForEnquete({ tags, infractionNatinfCodes });
+  const currentCodes = infractionItems.map(i => i.code).filter((c): c is string => Boolean(c));
 
   // Services dérivés depuis les tags au lieu d'utiliser props.services
   const displayServices = getServicesFromTags(tags);
@@ -86,15 +91,10 @@ export const EnqueteHeader = React.memo(({
     });
   };
 
-  const handleInfractionChange = (selectedValues: string[]) => {
+  // Cible NATINF : la saisie écrit infractionNatinfCodes (et non plus des tags).
+  const setInfractionCodes = (codes: string[]) => {
     if (!discreteUpdate) return;
-    const selectedTags = selectedValues.map(value => ({
-      id: `infractions-${value}`,
-      value,
-      category: 'infractions' as const
-    }));
-    const serviceTags = tags.filter(tag => tag.category === 'services');
-    discreteUpdate({ tags: [...serviceTags, ...selectedTags] });
+    discreteUpdate({ infractionNatinfCodes: Array.from(new Set(codes)) });
   };
 
   const suiviJIRS = tags.some(t => t.category === 'suivi' && t.value === 'JIRS');
@@ -172,23 +172,38 @@ export const EnqueteHeader = React.memo(({
         <div>
           <h3 className="text-xs font-medium text-gray-500">Type d'infractions</h3>
           {isEditing ? (
-            <MultiSelect
-              options={infractionsTags}
-              value={infractionTags.map(tag => tag.value)}
-              onChange={handleInfractionChange}
-              className="text-sm"
-            />
-          ) : infractionTags.length > 0 ? (
-            <div className="flex flex-wrap gap-1 mt-0.5">
-              {infractionTags.map(tag => {
-                const n = natinfForTag(tag.value);
-                return (
-                  <span key={tag.id} className="inline-flex items-center gap-1 text-sm">
-                    {tag.value}
-                    {n && <NatinfBadge code={n.code} nature={n.nature} quantumLabel={n.quantumLabel} compact />}
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap gap-1">
+                {infractionItems.map((inf, i) => (
+                  <span key={inf.code || i} className="inline-flex items-center gap-1 text-sm bg-gray-100 rounded px-1.5 py-0.5">
+                    {inf.label}
+                    {inf.code && <NatinfBadge code={inf.code} nature={inf.nature} quantumLabel={inf.quantumLabel} compact />}
+                    {inf.code && (
+                      <button
+                        type="button"
+                        onClick={() => setInfractionCodes(currentCodes.filter(c => c !== inf.code))}
+                        className="ml-0.5 text-gray-400 hover:text-red-600"
+                        aria-label={`Retirer ${inf.label}`}
+                      >
+                        ×
+                      </button>
+                    )}
                   </span>
-                );
-              })}
+                ))}
+              </div>
+              <NatinfPicker
+                onSelect={(entry) => setInfractionCodes([...currentCodes, entry.code])}
+                placeholder="Ajouter une infraction (n° NATINF ou libellé)…"
+              />
+            </div>
+          ) : infractionItems.length > 0 ? (
+            <div className="flex flex-wrap gap-1 mt-0.5">
+              {infractionItems.map((inf, i) => (
+                <span key={inf.code || i} className="inline-flex items-center gap-1 text-sm">
+                  {inf.label}
+                  {inf.code && <NatinfBadge code={inf.code} nature={inf.nature} quantumLabel={inf.quantumLabel} compact />}
+                </span>
+              ))}
             </div>
           ) : (
             <p className="text-sm text-gray-400">—</p>
