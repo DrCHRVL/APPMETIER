@@ -12,7 +12,8 @@ const NATURE_STYLE: Record<NatinfNature, string> = {
 };
 
 interface NatinfBadgeProps {
-  nature: NatinfNature;
+  /** Nature de l'infraction. Absente → style « inconnu » (gris). */
+  nature?: NatinfNature;
   /** Texte de la peine encourue (ex. « Crime — 20 ans »). Si absent, nature seule. */
   quantumLabel?: string;
   /** Affiche le n° NATINF en préfixe */
@@ -24,7 +25,7 @@ interface NatinfBadgeProps {
 }
 
 /** Pastille colorée selon la nature (crime / délit / contravention). */
-export const NatinfBadge = ({ nature, quantumLabel, code, compact, className, title }: NatinfBadgeProps) => {
+export const NatinfBadge = ({ nature = 'inconnu', quantumLabel, code, compact, className, title }: NatinfBadgeProps) => {
   const style = NATURE_STYLE[nature] || NATURE_STYLE.inconnu;
   if (compact) {
     return (

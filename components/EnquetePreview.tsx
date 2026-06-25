@@ -91,7 +91,7 @@ export const EnquetePreview = React.memo(({
   const { hasResultat, deleteAudienceResultat, isLoading } = useAudience();
   const { showToast } = useToast();
   const { getServicesFromTags } = useTags();
-  const { natinfForTag } = useInfractionNatinf();
+  const { infractionsForEnquete } = useInfractionNatinf();
   const { user, canDo: userCanDo } = useUser();
 
   // Pin overboard
@@ -440,21 +440,16 @@ return (
 
             {/* Tags d'infraction */}
             <div className="flex flex-wrap gap-1 mb-1.5">
-              {enquete.tags
-                .filter(tag => tag.category === 'infractions')
-                .map(tag => {
-                  const n = natinfForTag(tag.value);
-                  return (
-                    <Badge
-                      key={tag.value}
-                      variant="outline"
-                      className="text-[10px] py-0 px-1.5 bg-gray-50 inline-flex items-center gap-1"
-                    >
-                      {tag.value}
-                      {n && <NatinfBadge code={n.code} nature={n.nature} quantumLabel={n.quantumLabel} compact />}
-                    </Badge>
-                  );
-                })}
+              {infractionsForEnquete(enquete).map((inf, i) => (
+                <Badge
+                  key={inf.code || inf.label || i}
+                  variant="outline"
+                  className="text-[10px] py-0 px-1.5 bg-gray-50 inline-flex items-center gap-1"
+                >
+                  {inf.label}
+                  {inf.code && <NatinfBadge code={inf.code} nature={inf.nature} quantumLabel={inf.quantumLabel} compact />}
+                </Badge>
+              ))}
 
               {/* Badge co-saisine : un seul badge selon qu'on est origine (a partagé)
                   ou destinataire (a reçu). On ne cumule jamais les deux. */}

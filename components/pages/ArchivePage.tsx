@@ -40,7 +40,7 @@ export const ArchivePage = ({
 }: ArchivePageProps) => {
   const { showToast } = useToast();
   const { hasResultat, isLoading, audienceState, getResultat, saveResultat } = useAudience();
-  const { natinfForTag } = useInfractionNatinf();
+  const { infractionsForEnquete } = useInfractionNatinf();
 
   // Contentieux courant — fallback `crimorg` pour les vues legacy.
   const ctxId = contentieuxId || 'crimorg';
@@ -450,12 +450,11 @@ export const ArchivePage = ({
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-xs truncate">{item.numero}</div>
                           <div className="text-xs text-gray-500 truncate">
-                            {item.tags
-                              .filter(tag => tag.category === 'infractions')
+                            {infractionsForEnquete(item)
                               .slice(0, 2)
-                              .map(tag => { const n = natinfForTag(tag.value); return n ? `${tag.value} (${n.code})` : tag.value; })
+                              .map(inf => inf.code ? `${inf.label} (${inf.code})` : inf.label)
                               .join(', ')}
-                            {item.tags.filter(tag => tag.category === 'infractions').length > 2 && '...'}
+                            {infractionsForEnquete(item).length > 2 && '...'}
                           </div>
                         </div>
                         <div className="flex items-center gap-1">
@@ -598,12 +597,11 @@ export const ArchivePage = ({
                               {formatAudienceType(item.id)}
                             </div>
                             <div className="text-xs text-gray-500 truncate">
-                              {item.tags
-                                .filter(tag => tag.category === 'infractions')
+                              {infractionsForEnquete(item)
                                 .slice(0, 2)
-                                .map(tag => { const n = natinfForTag(tag.value); return n ? `${tag.value} (${n.code})` : tag.value; })
+                                .map(inf => inf.code ? `${inf.label} (${inf.code})` : inf.label)
                                 .join(', ')}
-                              {item.tags.filter(tag => tag.category === 'infractions').length > 2 && '...'}
+                              {infractionsForEnquete(item).length > 2 && '...'}
                               {isPartialResult && getPendingNames(item.id) && (
                                 <span className="ml-1 text-blue-700 font-medium">
                                   • En attente: {getPendingNames(item.id)}
