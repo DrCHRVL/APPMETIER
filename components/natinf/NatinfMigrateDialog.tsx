@@ -8,10 +8,20 @@ import { useTags } from '@/hooks/useTags';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 import { ElectronBridge } from '@/utils/electronBridge';
+import { electronStorage } from '@/services/storage/electronStorage';
 import { deriveInfractionNatinfCodes, infractionTagsOf } from '@/utils/deriveEnqueteNatinf';
 import type { Enquete } from '@/types/interfaces';
+import type { ResultatAudience } from '@/types/audienceTypes';
 
 const storageKey = (id: string) => `ctx_${id}_enquetes`;
+const AUDIENCE_STORAGE_KEY = 'audience_resultats';
+
+/** Infractions (valeurs de tag) d'un résultat d'audience, sous forme de
+ *  pseudo-tags pour la résolution NATINF (résolus par valeur via les défs). */
+const resultInfractionTags = (r: ResultatAudience): { id: string; value: string }[] => {
+  const vals = r.typesInfraction?.length ? r.typesInfraction : (r.typeInfraction ? [r.typeInfraction] : []);
+  return vals.map(v => ({ id: '', value: v }));
+};
 
 type Phase = 'idle' | 'scanning' | 'preview' | 'applying' | 'done';
 
@@ -23,6 +33,11 @@ interface Scan {
   nonRattaches: number;  // ont des infractions mais aucun code résolu
   unresolvedValues: string[];
   perContentieux: { id: string; label: string; total: number; migrables: number }[];
+  // Résultats d'audience (clé globale audience_resultats)
+  audienceAvecInfractions: number;
+  audienceMigrables: number;
+  audienceDejaMigres: number;
+  audienceNonRattaches: number;
 }
 
 /**
@@ -43,7 +58,7 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [scan, setScan] = useState<Scan | null>(null);
-  const [applied, setApplied] = useState<{ dossiers: number; contentieux: number } | null>(null);
+  const [applied, setApplied] = useState<{ dossiers: number; contentieux: number; audience: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -86,10 +101,25 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
         perContentieux.push({ id: c.id, label: c.label, total: enquetes.length, migrables: ctxMig });
       }
 
+      // Résultats d'audience (clé globale, tous contentieux confondus)
+      const resultats = (await electronStorage.read<Record<string, ResultatAudience>>(AUDIENCE_STORAGE_KEY)) || {};
+      let audienceAvecInfractions = 0, audienceMigrables = 0, audienceDejaMigres = 0, audienceNonRattaches = 0;
+      for (const r of Object.values(resultats)) {
+        const infra = resultInfractionTags(r);
+        if (infra.length === 0) continue;
+        audienceAvecInfractions++;
+        if (Array.isArray(r.infractionNatinfCodes)) { audienceDejaMigres++; continue; }
+        const { codes, unresolved: u } = deriveInfractionNatinfCodes(infra, defs);
+        u.forEach(v => unresolved.add(v));
+        if (codes.length > 0) audienceMigrables++;
+        else audienceNonRattaches++;
+      }
+
       setScan({
         totalDossiers, avecInfractions, migrables, dejaMigres, nonRattaches,
         unresolvedValues: [...unresolved].sort((a, b) => a.localeCompare(b, 'fr')),
         perContentieux,
+        audienceAvecInfractions, audienceMigrables, audienceDejaMigres, audienceNonRattaches,
       });
       setPhase('preview');
     } catch (e) {
@@ -125,9 +155,25 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
         }
       }
 
-      setApplied({ dossiers, contentieux: ctxTouched });
+      // Résultats d'audience (clé globale) : même dérivation, sans écraser un
+      // résultat déjà pourvu de codes.
+      const resultats = (await electronStorage.read<Record<string, ResultatAudience>>(AUDIENCE_STORAGE_KEY)) || {};
+      let audienceMigres = 0;
+      let audienceChanged = false;
+      const nextResultats: Record<string, ResultatAudience> = {};
+      for (const [key, r] of Object.entries(resultats)) {
+        const infra = resultInfractionTags(r);
+        if (infra.length === 0 || Array.isArray(r.infractionNatinfCodes)) { nextResultats[key] = r; continue; }
+        const { codes } = deriveInfractionNatinfCodes(infra, defs);
+        if (codes.length === 0) { nextResultats[key] = r; continue; }
+        nextResultats[key] = { ...r, infractionNatinfCodes: codes };
+        audienceChanged = true; audienceMigres++;
+      }
+      if (audienceChanged) await electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, nextResultats);
+
+      setApplied({ dossiers, contentieux: ctxTouched, audience: audienceMigres });
       setPhase('done');
-      showToast(`${dossiers} dossier(s) migré(s) vers NATINF`, 'success');
+      showToast(`${dossiers} dossier(s) + ${audienceMigres} résultat(s) migré(s) vers NATINF`, 'success');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Échec de la migration.');
       setPhase('preview');
@@ -186,6 +232,17 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
                 {scan.avecInfractions} dossier(s) avec infraction sur {scan.totalDossiers} au total.
               </p>
 
+              {scan.audienceAvecInfractions > 0 && (
+                <div className="flex items-center justify-between text-xs border border-slate-200 rounded px-2.5 py-1.5">
+                  <span className="text-gray-700">Résultats d&apos;audience (stats de peines)</span>
+                  <span className="font-medium text-emerald-700">
+                    {scan.audienceMigrables} à migrer
+                    {scan.audienceDejaMigres > 0 && <span className="text-gray-400"> · {scan.audienceDejaMigres} déjà</span>}
+                    {scan.audienceNonRattaches > 0 && <span className="text-amber-600"> · {scan.audienceNonRattaches} non rattaché(s)</span>}
+                  </span>
+                </div>
+              )}
+
               {scan.perContentieux.some(p => p.migrables > 0) && (
                 <div className="border border-slate-200 rounded-md divide-y divide-slate-100 max-h-32 overflow-auto">
                   {scan.perContentieux.filter(p => p.migrables > 0).map(p => (
@@ -215,7 +272,8 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
             <div className="space-y-2">
               <p className="flex items-center gap-2 text-emerald-700 font-medium">
                 <Check className="h-4 w-4" />
-                {applied.dossiers} dossier(s) migré(s) sur {applied.contentieux} contentieux.
+                {applied.dossiers} dossier(s) sur {applied.contentieux} contentieux
+                {applied.audience > 0 && ` + ${applied.audience} résultat(s) d'audience`} migré(s).
               </p>
               <p className="text-xs text-gray-600">
                 Rechargez l&apos;application pour que tous les écrans relisent les données migrées.
@@ -234,8 +292,8 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
           {phase === 'preview' && scan && (
             <>
               <Button variant="outline" onClick={onClose}>Annuler</Button>
-              <Button onClick={apply} disabled={scan.migrables === 0}>
-                Appliquer la migration ({scan.migrables})
+              <Button onClick={apply} disabled={scan.migrables === 0 && scan.audienceMigrables === 0}>
+                Appliquer la migration ({scan.migrables + scan.audienceMigrables})
               </Button>
             </>
           )}
