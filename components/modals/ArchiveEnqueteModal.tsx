@@ -24,6 +24,8 @@ interface ArchiveEnqueteModalProps {
   misEnCause?: { id: number; nom: string }[];
   enqueteNumero?: string;
   enqueteTags?: Tag[];
+  /** Codes NATINF du dossier (propagés au modal de résultats pour pré-remplissage). */
+  enqueteInfractionCodes?: string[];
   onCreateGlobalTodo?: (todo: ToDoItem) => void;
   isOverboardPinned?: boolean;
 }
@@ -37,6 +39,7 @@ export const ArchiveEnqueteModal = ({
   misEnCause = [],
   enqueteNumero = '',
   enqueteTags = [],
+  enqueteInfractionCodes,
   onCreateGlobalTodo,
   isOverboardPinned = false,
 }: ArchiveEnqueteModalProps) => {
@@ -382,6 +385,7 @@ export const ArchiveEnqueteModal = ({
           misEnCause={misEnCause}
           enqueteNumero={enqueteNumero}
           enqueteTags={enqueteTags}
+          enqueteInfractionCodes={enqueteInfractionCodes}
           onCreateGlobalTodo={onCreateGlobalTodo}
           isOverboardPinned={isOverboardPinned}
           initialData={existingResultat || undefined}

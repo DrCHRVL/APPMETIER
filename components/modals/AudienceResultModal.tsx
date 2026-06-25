@@ -9,6 +9,9 @@ import { useToast } from '@/contexts/ToastContext';
 import { useAudience } from '@/hooks/useAudience';
 import { useTags } from '@/hooks/useTags';
 import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
+import { useNatinf } from '@/hooks/useNatinf';
+import { NatinfBadge } from '../natinf/NatinfBadge';
+import { NatinfPicker } from '../natinf/NatinfPicker';
 import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '../ui/badge';
@@ -38,6 +41,8 @@ interface AudienceResultModalProps {
   misEnCause?: { id: number; nom: string }[];
   enqueteNumero?: string;
   enqueteTags?: Tag[];
+  /** Codes NATINF du dossier (pour pré-remplir un dossier 100% NATINF sans tags). */
+  enqueteInfractionCodes?: string[];
   onCreateGlobalTodo?: (todo: ToDoItem) => void;
   isOverboardPinned?: boolean;
 }
@@ -54,23 +59,39 @@ export const AudienceResultModal = ({
   misEnCause = [],
   enqueteNumero = '',
   enqueteTags = [],
+  enqueteInfractionCodes,
   onCreateGlobalTodo,
   isOverboardPinned = false,
 }: AudienceResultModalProps) => {
   // States
   const { getTagsByCategory } = useTags();
   const { natinfForTag } = useInfractionNatinf();
+  const { getByCode } = useNatinf();
   const [dateAudience, setDateAudience] = useState(initialData?.dateAudience || defaultDate || '');
 
-  // Multi-sélection des types d'infraction. À l'initialisation : reprend les types
-  // déjà saisis dans le résultat, sinon pré-remplit avec les tags "infractions"
-  // déjà renseignés sur le dossier (l'utilisateur peut les désélectionner).
-  const initialSelectedInfractions = (() => {
-    if (initialData?.typesInfraction?.length) return initialData.typesInfraction;
-    if (initialData?.typeInfraction) return [initialData.typeInfraction];
-    return enqueteTags.filter(t => t.category === 'infractions').map(t => t.value);
+  // Multi-sélection des types d'infraction, en codes NATINF natifs. Pré-remplissage
+  // par ordre de priorité : codes déjà saisis dans le résultat ; sinon résolution
+  // des libellés saisis via leur tag ; sinon codes du dossier ; sinon tags
+  // d'infraction du dossier résolus. L'utilisateur peut ajouter/retirer.
+  const initialSelectedCodes = (() => {
+    let codes: string[];
+    if (initialData?.infractionNatinfCodes?.length) {
+      codes = initialData.infractionNatinfCodes;
+    } else if (initialData?.typesInfraction?.length) {
+      codes = initialData.typesInfraction
+        .map(v => natinfForTag(v)?.code)
+        .filter((c): c is string => Boolean(c));
+    } else if (enqueteInfractionCodes?.length) {
+      codes = enqueteInfractionCodes;
+    } else {
+      codes = enqueteTags
+        .filter(t => t.category === 'infractions')
+        .map(t => natinfForTag(t.value)?.code)
+        .filter((c): c is string => Boolean(c));
+    }
+    return Array.from(new Set(codes));
   })();
-  const [selectedInfractions, setSelectedInfractions] = useState<string[]>(initialSelectedInfractions);
+  const [selectedCodes, setSelectedCodes] = useState<string[]>(initialSelectedCodes);
 
   // Date de défèrement issue de l'audience en attente (commune, à pré-remplir sur chaque condamné déféré)
   const pendingDateDefere = initialData?.dateDefere || '';
@@ -153,7 +174,6 @@ export const AudienceResultModal = ({
   }, [audienceState?.resultats]);
 
   // Récupération des tags via le hook
-  const infractions = getTagsByCategory('infractions');
   const services = getTagsByCategory('services');
 
   // Handlers
@@ -208,7 +228,7 @@ export const AudienceResultModal = ({
 
   const handleSubmit = async () => {
     try {
-      if (selectedInfractions.length === 0) {
+      if (selectedCodes.length === 0) {
         showToast('Veuillez sélectionner au moins un type d\'infraction', 'error');
         return;
       }
@@ -247,13 +267,13 @@ export const AudienceResultModal = ({
           c.sursisSimple > 0 || c.peineAmende > 0
         ),
         confiscations,
-        typeInfraction: selectedInfractions[0],
-        typesInfraction: selectedInfractions,
-        // Codes NATINF dénormalisés (résolus depuis les tags sélectionnés) pour
-        // des statistiques de peines justes, indépendantes du libellé.
-        infractionNatinfCodes: selectedInfractions
-          .map(v => natinfForTag(v)?.code)
-          .filter((c): c is string => Boolean(c)),
+        // Source canonique : codes NATINF. Les libellés sont dérivés pour la
+        // compat des filtres/interdictions (typeInfraction / typesInfraction).
+        infractionNatinfCodes: selectedCodes,
+        typesInfraction: selectedCodes.map(c => getByCode(c)?.libelle ?? `NATINF ${c}`),
+        typeInfraction: selectedCodes[0]
+          ? (getByCode(selectedCodes[0])?.libelle ?? `NATINF ${selectedCodes[0]}`)
+          : undefined,
         isDirectResult,
         service: isDirectResult ? service : undefined,
         // Nouvelles propriétés pour gérer les résultats partiels
@@ -319,84 +339,48 @@ export const AudienceResultModal = ({
             </p>
           </div>
 
-          {/* Type d'infraction (multi-sélection, pré-rempli depuis les tags du dossier) */}
+          {/* Type d'infraction (multi-sélection NATINF native, pré-remplie depuis le dossier) */}
           <div>
             <Label>Types d'infraction</Label>
             <p className="text-xs text-gray-500 mb-2">
-              Reprend les tags "infractions" du dossier ; cliquez pour ajouter ou retirer.
-              Le premier sélectionné est utilisé comme infraction principale pour les statistiques.
+              Recherchez par n° NATINF ou libellé. Le premier sélectionné (★) est
+              utilisé comme infraction principale pour les statistiques.
             </p>
 
-            {/* Tags du dossier d'abord, puis les autres tags de la nomenclature */}
-            {(() => {
-              const dossierValues = new Set(
-                enqueteTags.filter(t => t.category === 'infractions').map(t => t.value)
-              );
-              const catalogValues = new Set(infractions.map(i => i.value));
-              // Inclure les tags du dossier qui ne seraient pas dans le catalogue,
-              // pour ne pas les masquer.
-              const allDossierValues = Array.from(dossierValues);
-              const dossierFirst = [
-                ...infractions.map(i => i.value).filter(v => dossierValues.has(v)),
-                ...allDossierValues.filter(v => !catalogValues.has(v)),
-              ];
-              const others = infractions
-                .map(i => i.value)
-                .filter(v => !dossierValues.has(v));
+            <div className="space-y-2">
+              <NatinfPicker
+                onSelect={(entry) =>
+                  setSelectedCodes(prev => prev.includes(entry.code) ? prev : [...prev, entry.code])
+                }
+                placeholder="Ajouter une infraction (n° NATINF ou libellé)…"
+              />
 
-              const toggle = (value: string) => {
-                setSelectedInfractions(prev =>
-                  prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]
-                );
-              };
-
-              const renderChip = (value: string, fromDossier: boolean) => {
-                const selected = selectedInfractions.includes(value);
-                const principal = selected && selectedInfractions[0] === value;
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => toggle(value)}
-                    className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
-                      selected
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : fromDossier
-                          ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
-                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    {principal && <span className="mr-1">★</span>}
-                    {value}
-                    {(() => {
-                      const n = natinfForTag(value);
-                      return n ? <span className="ml-1 font-mono opacity-60">{n.code}</span> : null;
-                    })()}
-                  </button>
-                );
-              };
-
-              return (
-                <div className="space-y-2">
-                  {dossierFirst.length > 0 && (
-                    <div>
-                      <p className="text-xs font-medium text-amber-700 mb-1">Tags du dossier</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {dossierFirst.map(v => renderChip(v, true))}
-                      </div>
-                    </div>
-                  )}
-                  {others.length > 0 && (
-                    <div>
-                      <p className="text-xs font-medium text-gray-600 mb-1">Autres infractions</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {others.map(v => renderChip(v, false))}
-                      </div>
-                    </div>
-                  )}
+              {selectedCodes.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {selectedCodes.map((code, i) => {
+                    const e = getByCode(code);
+                    const principal = i === 0;
+                    return (
+                      <Badge key={code} variant="secondary" className="flex items-center gap-1">
+                        {principal && <span title="Infraction principale">★</span>}
+                        {e?.libelle ?? `NATINF ${code}`}
+                        <NatinfBadge code={code} nature={e?.nature} quantumLabel={e?.quantumLabel} compact />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-4 w-4 p-0 ml-1"
+                          aria-label={`Retirer ${e?.libelle ?? `NATINF ${code}`}`}
+                          onClick={() => setSelectedCodes(prev => prev.filter(c => c !== code))}
+                        >
+                          ×
+                        </Button>
+                      </Badge>
+                    );
+                  })}
                 </div>
-              );
-            })()}
+              )}
+            </div>
           </div>
 
           {/* Ajout du champ service uniquement pour les procédures de permanence */}
@@ -1034,7 +1018,7 @@ export const AudienceResultModal = ({
           <Button variant="outline" onClick={onClose}>Annuler</Button>
           <Button
             onClick={handleSubmit}
-            disabled={!dateAudience || nbCondamnes === 0 || selectedInfractions.length === 0}
+            disabled={!dateAudience || nbCondamnes === 0 || selectedCodes.length === 0}
           >
             Enregistrer
           </Button>

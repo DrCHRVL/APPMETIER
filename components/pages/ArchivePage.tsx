@@ -161,6 +161,7 @@ export const ArchivePage = ({
         statut: 'condamne'
       })),
       tags: [{ id: 'flagrance', value: r.typeInfraction || 'Flagrance', category: 'infractions' as const }],
+      infractionNatinfCodes: r.infractionNatinfCodes,
       comptesRendus: [],
       dateDebut: r.dateAudience,
       dateCreation: r.dateAudience,
@@ -753,6 +754,7 @@ export const ArchivePage = ({
           contentieuxId={ctxId}
           misEnCause={allArchivedItems.find(e => e.id === viewResultat)?.misEnCause}
           enqueteTags={allArchivedItems.find(e => e.id === viewResultat)?.tags}
+          enqueteInfractionCodes={allArchivedItems.find(e => e.id === viewResultat)?.infractionNatinfCodes}
         />
       )}
 
@@ -767,6 +769,7 @@ export const ArchivePage = ({
           initialData={lookupResultat(showResultModal)}
           misEnCause={allArchivedItems.find(e => e.id === showResultModal)?.misEnCause}
           enqueteTags={allArchivedItems.find(e => e.id === showResultModal)?.tags}
+          enqueteInfractionCodes={allArchivedItems.find(e => e.id === showResultModal)?.infractionNatinfCodes}
         />
       )}
 

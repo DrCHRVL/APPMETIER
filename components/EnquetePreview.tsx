@@ -642,6 +642,7 @@ return (
           misEnCause={enquete.misEnCause}
           enqueteNumero={enquete.numero}
           enqueteTags={enquete.tags}
+          enqueteInfractionCodes={enquete.infractionNatinfCodes}
           onCreateGlobalTodo={onCreateGlobalTodo}
           isOverboardPinned={!!(enquete.overboardPins && enquete.overboardPins.length > 0)}
         />
@@ -655,6 +656,7 @@ return (
   isOverboardPinned={!!(enquete.overboardPins && enquete.overboardPins.length > 0)}
   misEnCause={enquete.misEnCause}
   enqueteTags={enquete.tags}
+  enqueteInfractionCodes={enquete.infractionNatinfCodes}
   onReset={async () => {
     try {
       await deleteAudienceResultat(contentieuxId, enquete.id);
