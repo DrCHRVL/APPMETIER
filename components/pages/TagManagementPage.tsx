@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Edit2, Save, X, Plus, Check, Trash2, AlertTriangle, Send, Layers, GitMerge, Link2, DatabaseZap } from 'lucide-react';
+import { Edit2, Save, X, Plus, Check, Trash2, AlertTriangle, Send, Layers, GitMerge, Link2, Database } from 'lucide-react';
 import { TAG_CATEGORIES, TagCategory } from '@/config/tags';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
@@ -508,7 +508,7 @@ export const TagManagementPage = () => {
               variant="outline"
               className="flex items-center gap-2"
             >
-              <DatabaseZap className="h-4 w-4 text-emerald-600" />
+              <Database className="h-4 w-4 text-emerald-600" />
               Migrer les dossiers
             </Button>
             <Button

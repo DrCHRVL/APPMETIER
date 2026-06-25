@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Loader2, DatabaseZap, AlertTriangle, Check, RefreshCw } from 'lucide-react';
+import { Loader2, Database, AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { useTags } from '@/hooks/useTags';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -141,7 +141,7 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <DatabaseZap className="h-5 w-5 text-emerald-600" />
+            <Database className="h-5 w-5 text-emerald-600" />
             Migrer les infractions des dossiers vers NATINF
           </DialogTitle>
         </DialogHeader>
