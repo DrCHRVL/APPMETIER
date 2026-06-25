@@ -249,6 +249,11 @@ export const AudienceResultModal = ({
         confiscations,
         typeInfraction: selectedInfractions[0],
         typesInfraction: selectedInfractions,
+        // Codes NATINF dénormalisés (résolus depuis les tags sélectionnés) pour
+        // des statistiques de peines justes, indépendantes du libellé.
+        infractionNatinfCodes: selectedInfractions
+          .map(v => natinfForTag(v)?.code)
+          .filter((c): c is string => Boolean(c)),
         isDirectResult,
         service: isDirectResult ? service : undefined,
         // Nouvelles propriétés pour gérer les résultats partiels

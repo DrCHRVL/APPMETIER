@@ -225,9 +225,14 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
       const simple = Number(condamnation.sursisSimple) || 0;
       const amende = Number(condamnation.peineAmende) || 0;
 
+      // Clé d'agrégation des peines : code NATINF du résultat si présent (stats
+      // justes, indépendantes du libellé), sinon repli sur le type d'infraction
+      // (chaîne) pour les résultats non encore migrés.
+      const infrKey = resultat.infractionNatinfCodes?.[0] ?? resultat.typeInfraction;
+
       // Initialisation des stats par type d'infraction si nécessaire
-      if (resultat.typeInfraction && !infractionStats[resultat.typeInfraction]) {
-        infractionStats[resultat.typeInfraction] = {
+      if (infrKey && !infractionStats[infrKey]) {
+        infractionStats[infrKey] = {
           totalMoisFerme: 0,
           totalMoisProbation: 0,
           totalMoisSimple: 0,
@@ -246,41 +251,41 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
       if (prison > 0 && probation === 0 && simple === 0) {
         nombrePeinesFermes++;
         totalPrison += prison;
-        if (resultat.typeInfraction) {
-          infractionStats[resultat.typeInfraction].totalMoisFerme += prison;
-          infractionStats[resultat.typeInfraction].countFerme++;
+        if (infrKey) {
+          infractionStats[infrKey].totalMoisFerme += prison;
+          infractionStats[infrKey].countFerme++;
         }
       } else if (prison === 0 && probation > 0 && simple === 0) {
         nombrePeinesProbation++;
         totalProbation += probation;
-        if (resultat.typeInfraction) {
-          infractionStats[resultat.typeInfraction].totalMoisProbation += probation;
-          infractionStats[resultat.typeInfraction].countProbation++;
+        if (infrKey) {
+          infractionStats[infrKey].totalMoisProbation += probation;
+          infractionStats[infrKey].countProbation++;
         }
       } else if (prison === 0 && probation === 0 && simple > 0) {
         nombrePeinesSimple++;
         totalSimple += simple;
-        if (resultat.typeInfraction) {
-          infractionStats[resultat.typeInfraction].totalMoisSimple += simple;
-          infractionStats[resultat.typeInfraction].countSimple++;
+        if (infrKey) {
+          infractionStats[infrKey].totalMoisSimple += simple;
+          infractionStats[infrKey].countSimple++;
         }
       } else if (prison > 0 && probation > 0) {
         nombrePeinesMixtesProbation++;
         totalMixtesFermes += prison;
         totalMixtesProbation += probation;
-        if (resultat.typeInfraction) {
-          infractionStats[resultat.typeInfraction].totalMixtesFermes += prison;
-          infractionStats[resultat.typeInfraction].totalMixtesProbation += probation;
-          infractionStats[resultat.typeInfraction].countPeinesMixtesProbation++;
+        if (infrKey) {
+          infractionStats[infrKey].totalMixtesFermes += prison;
+          infractionStats[infrKey].totalMixtesProbation += probation;
+          infractionStats[infrKey].countPeinesMixtesProbation++;
         }
       } else if (prison > 0 && simple > 0) {
         nombrePeinesMixtesSimple++;
         totalMixtesSimpleFermes += prison;
         totalMixtesSimple += simple;
-        if (resultat.typeInfraction) {
-          infractionStats[resultat.typeInfraction].totalMixtesSimpleFermes += prison;
-          infractionStats[resultat.typeInfraction].totalMixtesSimple += simple;
-          infractionStats[resultat.typeInfraction].countPeinesMixtesSimple++;
+        if (infrKey) {
+          infractionStats[infrKey].totalMixtesSimpleFermes += prison;
+          infractionStats[infrKey].totalMixtesSimple += simple;
+          infractionStats[infrKey].countPeinesMixtesSimple++;
         }
       }
 

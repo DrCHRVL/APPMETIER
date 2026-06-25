@@ -3,6 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { useAudience } from '@/hooks/useAudience';
 import { useTags } from '@/hooks/useTags';
 import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
+import { useNatinf } from '@/hooks/useNatinf';
 import { NatinfBadge } from '../natinf/NatinfBadge';
 import { Enquete } from '@/types/interfaces';
 import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
@@ -184,6 +185,7 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
   const { audienceState } = useAudience();
   const { getTagsByCategory } = useTags();
   const { infractionsForEnquete } = useInfractionNatinf();
+  const { getByCode } = useNatinf();
   // Clé canonique d'une infraction : code NATINF si rattaché, sinon libellé.
   // Regrouper par cette clé garde des comptes cohérents qu'un dossier soit migré
   // au NATINF (infractionNatinfCodes) ou encore en tags.
@@ -965,9 +967,14 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {yearlyStats.peinesParInfraction ?
-                Object.entries(yearlyStats.peinesParInfraction).map(([infraction, stats]) => (
-                  <div key={infraction} className="bg-gray-50 p-4 rounded-lg">
-                    <div className="font-medium mb-2">{infraction}</div>
+                Object.entries(yearlyStats.peinesParInfraction).map(([key, stats]) => {
+                  const entry = getByCode(key);
+                  return (
+                  <div key={key} className="bg-gray-50 p-4 rounded-lg">
+                    <div className="font-medium mb-2 inline-flex items-center gap-1.5">
+                      {entry?.libelle ?? key}
+                      {entry && <NatinfBadge compact code={entry.code} nature={entry.nature} quantumLabel={entry.quantumLabel} />}
+                    </div>
                     <div className="space-y-2">
                       <div className="flex justify-between">
                         <span>Ferme :</span>
@@ -999,7 +1006,8 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                       )}
                     </div>
                   </div>
-                ))
+                  );
+                })
                 : <div>Aucune donnée disponible</div>
               }
             </div>
