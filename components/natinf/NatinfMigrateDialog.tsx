@@ -9,12 +9,18 @@ import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { electronStorage } from '@/services/storage/electronStorage';
-import { deriveInfractionNatinfCodes, infractionTagsOf } from '@/utils/deriveEnqueteNatinf';
+import { APP_CONFIG } from '@/config/constants';
+import { useNatinf } from '@/hooks/useNatinf';
+import { toRef } from '@/lib/natinf/natinfData';
+import { deriveInfractionNatinfCodes, infractionTagsOf, type TagNatinfDef } from '@/utils/deriveEnqueteNatinf';
 import type { Enquete } from '@/types/interfaces';
 import type { ResultatAudience } from '@/types/audienceTypes';
+import type { DossierInstruction } from '@/types/instructionTypes';
+import type { NatinfEntry, NatinfRef } from '@/types/natinf';
 
 const storageKey = (id: string) => `ctx_${id}_enquetes`;
 const AUDIENCE_STORAGE_KEY = 'audience_resultats';
+const instructionKey = (username: string) => `${APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS}__${username}`;
 
 /** Infractions (valeurs de tag) d'un résultat d'audience, sous forme de
  *  pseudo-tags pour la résolution NATINF (résolus par valeur via les défs). */
@@ -22,6 +28,53 @@ const resultInfractionTags = (r: ResultatAudience): { id: string; value: string 
   const vals = r.typesInfraction?.length ? r.typesInfraction : (r.typeInfraction ? [r.typeInfraction] : []);
   return vals.map(v => ({ id: '', value: v }));
 };
+
+/** Tous les chefs d'un dossier d'instruction (mise en examen + saisine in rem). */
+const chefsOf = (d: DossierInstruction): { qualification: string; natinfCode?: string }[] => [
+  ...(d.misEnExamen || []).flatMap(m => m.infractions || []),
+  ...(d.saisine || []),
+];
+
+/** Rattache un chef au NATINF en best-effort : résout sa qualification (souvent
+ *  une valeur de tag) vers un code, et dénormalise le snapshot. Inchangé si déjà
+ *  pourvu d'un code ou si la qualification n'est pas rattachable. */
+function backfillChef<T extends { qualification: string; natinfCode?: string; natinfRef?: NatinfRef }>(
+  chef: T,
+  defs: TagNatinfDef[],
+  getByCode: (code: string) => NatinfEntry | undefined,
+): { chef: T; changed: boolean } {
+  if (chef.natinfCode || !chef.qualification) return { chef, changed: false };
+  const { codes } = deriveInfractionNatinfCodes([{ id: '', value: chef.qualification }], defs);
+  const code = codes[0];
+  if (!code) return { chef, changed: false };
+  const entry = getByCode(code);
+  return { chef: { ...chef, natinfCode: code, natinfRef: entry ? toRef(entry) : undefined }, changed: true };
+}
+
+/** Réécrit un dossier en rattachant ses chefs au NATINF ; renvoie le nb migrés. */
+function migrateDossierChefs(
+  d: DossierInstruction,
+  defs: TagNatinfDef[],
+  getByCode: (code: string) => NatinfEntry | undefined,
+): { dossier: DossierInstruction; migres: number } {
+  let migres = 0;
+  const misEnExamen = (d.misEnExamen || []).map(m => ({
+    ...m,
+    infractions: (m.infractions || []).map(inf => {
+      const r = backfillChef(inf, defs, getByCode);
+      if (r.changed) migres++;
+      return r.chef;
+    }),
+  }));
+  const saisine = d.saisine
+    ? d.saisine.map(s => {
+        const r = backfillChef(s, defs, getByCode);
+        if (r.changed) migres++;
+        return r.chef;
+      })
+    : d.saisine;
+  return { dossier: { ...d, misEnExamen, saisine }, migres };
+}
 
 type Phase = 'idle' | 'scanning' | 'preview' | 'applying' | 'done';
 
@@ -38,6 +91,11 @@ interface Scan {
   audienceMigrables: number;
   audienceDejaMigres: number;
   audienceNonRattaches: number;
+  // Chefs d'instruction (dossiers de l'utilisateur courant)
+  chefsTotal: number;
+  chefsMigrables: number;
+  chefsDejaMigres: number;
+  chefsNonRattaches: number;
 }
 
 /**
@@ -53,12 +111,13 @@ interface Scan {
  */
 export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { getTagsByCategory } = useTags();
-  const { accessibleContentieux } = useUser();
+  const { accessibleContentieux, user } = useUser();
+  const { getByCode } = useNatinf();
   const { showToast } = useToast();
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [scan, setScan] = useState<Scan | null>(null);
-  const [applied, setApplied] = useState<{ dossiers: number; contentieux: number; audience: number } | null>(null);
+  const [applied, setApplied] = useState<{ dossiers: number; contentieux: number; audience: number; chefs: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -115,11 +174,30 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
         else audienceNonRattaches++;
       }
 
+      // Chefs d'instruction (dossiers de l'utilisateur courant, stockage user-scoped)
+      let chefsTotal = 0, chefsMigrables = 0, chefsDejaMigres = 0, chefsNonRattaches = 0;
+      const iKey = user?.windowsUsername ? instructionKey(user.windowsUsername) : null;
+      if (iKey) {
+        const dossiers = await ElectronBridge.getData<DossierInstruction[]>(iKey, []);
+        for (const d of (Array.isArray(dossiers) ? dossiers : [])) {
+          for (const chef of chefsOf(d)) {
+            if (!chef.qualification) continue;
+            chefsTotal++;
+            if (chef.natinfCode) { chefsDejaMigres++; continue; }
+            const { codes, unresolved: u } = deriveInfractionNatinfCodes([{ id: '', value: chef.qualification }], defs);
+            u.forEach(v => unresolved.add(v));
+            if (codes.length > 0) chefsMigrables++;
+            else chefsNonRattaches++;
+          }
+        }
+      }
+
       setScan({
         totalDossiers, avecInfractions, migrables, dejaMigres, nonRattaches,
         unresolvedValues: [...unresolved].sort((a, b) => a.localeCompare(b, 'fr')),
         perContentieux,
         audienceAvecInfractions, audienceMigrables, audienceDejaMigres, audienceNonRattaches,
+        chefsTotal, chefsMigrables, chefsDejaMigres, chefsNonRattaches,
       });
       setPhase('preview');
     } catch (e) {
@@ -171,9 +249,28 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
       }
       if (audienceChanged) await electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, nextResultats);
 
-      setApplied({ dossiers, contentieux: ctxTouched, audience: audienceMigres });
+      // Chefs d'instruction (dossiers de l'utilisateur courant)
+      let chefsMigres = 0;
+      const iKey = user?.windowsUsername ? instructionKey(user.windowsUsername) : null;
+      if (iKey) {
+        const dossiers = await ElectronBridge.getData<DossierInstruction[]>(iKey, []);
+        if (Array.isArray(dossiers) && dossiers.length) {
+          let changed = false;
+          const next = dossiers.map(d => {
+            const r = migrateDossierChefs(d, defs, getByCode);
+            if (r.migres > 0) { changed = true; chefsMigres += r.migres; }
+            return r.dossier;
+          });
+          if (changed) {
+            await ElectronBridge.setData(iKey, next);
+            await ElectronBridge.flush(iKey);
+          }
+        }
+      }
+
+      setApplied({ dossiers, contentieux: ctxTouched, audience: audienceMigres, chefs: chefsMigres });
       setPhase('done');
-      showToast(`${dossiers} dossier(s) + ${audienceMigres} résultat(s) migré(s) vers NATINF`, 'success');
+      showToast(`${dossiers} dossier(s) + ${audienceMigres} audience(s) + ${chefsMigres} chef(s) migré(s)`, 'success');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Échec de la migration.');
       setPhase('preview');
@@ -243,6 +340,17 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
                 </div>
               )}
 
+              {scan.chefsTotal > 0 && (
+                <div className="flex items-center justify-between text-xs border border-slate-200 rounded px-2.5 py-1.5">
+                  <span className="text-gray-700">Chefs d&apos;instruction (cartographie)</span>
+                  <span className="font-medium text-emerald-700">
+                    {scan.chefsMigrables} à migrer
+                    {scan.chefsDejaMigres > 0 && <span className="text-gray-400"> · {scan.chefsDejaMigres} déjà</span>}
+                    {scan.chefsNonRattaches > 0 && <span className="text-amber-600"> · {scan.chefsNonRattaches} non rattaché(s)</span>}
+                  </span>
+                </div>
+              )}
+
               {scan.perContentieux.some(p => p.migrables > 0) && (
                 <div className="border border-slate-200 rounded-md divide-y divide-slate-100 max-h-32 overflow-auto">
                   {scan.perContentieux.filter(p => p.migrables > 0).map(p => (
@@ -273,7 +381,8 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
               <p className="flex items-center gap-2 text-emerald-700 font-medium">
                 <Check className="h-4 w-4" />
                 {applied.dossiers} dossier(s) sur {applied.contentieux} contentieux
-                {applied.audience > 0 && ` + ${applied.audience} résultat(s) d'audience`} migré(s).
+                {applied.audience > 0 && ` + ${applied.audience} résultat(s) d'audience`}
+                {applied.chefs > 0 && ` + ${applied.chefs} chef(s) d'instruction`} migré(s).
               </p>
               <p className="text-xs text-gray-600">
                 Rechargez l&apos;application pour que tous les écrans relisent les données migrées.
@@ -292,8 +401,8 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
           {phase === 'preview' && scan && (
             <>
               <Button variant="outline" onClick={onClose}>Annuler</Button>
-              <Button onClick={apply} disabled={scan.migrables === 0 && scan.audienceMigrables === 0}>
-                Appliquer la migration ({scan.migrables + scan.audienceMigrables})
+              <Button onClick={apply} disabled={scan.migrables === 0 && scan.audienceMigrables === 0 && scan.chefsMigrables === 0}>
+                Appliquer la migration ({scan.migrables + scan.audienceMigrables + scan.chefsMigrables})
               </Button>
             </>
           )}
