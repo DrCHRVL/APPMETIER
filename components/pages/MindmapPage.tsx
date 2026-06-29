@@ -26,6 +26,7 @@ import {
   type MecExNihilo,
 } from '@/stores/useCartographieOverlayStore';
 import { cartographieOverlaySyncService } from '@/utils/dataSync/CartographieOverlaySyncService';
+import { CartographieConfigManager } from '@/utils/cartographieConfigManager';
 import { useCartographieConfig } from '@/hooks/useCartographieConfig';
 import { useTags } from '@/hooks/useTags';
 import { useToast } from '@/contexts/ToastContext';
@@ -143,8 +144,12 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   // la cartographie.
   useEffect(() => {
     cartographieOverlaySyncService.start();
+    // La config de scoring (pondérations Top 10, coeff. par tag) est elle
+    // aussi partagée par toute l'équipe : pull initial + sync périodique.
+    CartographieConfigManager.start();
     return () => {
       cartographieOverlaySyncService.stop();
+      CartographieConfigManager.stop();
     };
   }, []);
 
@@ -367,6 +372,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       // si le partage est injoignable — la prochaine sync périodique
       // retentera dès que le réseau revient).
       await cartographieOverlaySyncService.flushPending();
+      await CartographieConfigManager.flushPending();
       setSaveState('saved');
       setTimeout(() => setSaveState('idle'), 2000);
     } catch {

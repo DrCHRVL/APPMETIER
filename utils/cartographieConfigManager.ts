@@ -1,16 +1,21 @@
 // utils/cartographieConfigManager.ts
 //
 // Gestion de la configuration du module Cartographie : pondérations du
-// score (top 10) et coefficients par tag d'infraction.
-// Persistance via ElectronBridge sous la clé `cartographieConfig`.
+// score (top 10), coefficients par tag d'infraction et regroupement par
+// service.
 //
-// Contrairement aux cabinets d'instruction qui ont besoin d'un sync
-// inter-postes, les pondérations carto sont per-poste : chaque utilisateur
-// affine son propre score selon ses critères. On garde donc l'API simple
-// (load/save), sans tombstones ni timestamps de merge.
+// PARTAGÉE PAR TOUTE L'ÉQUIPE : la config vit dans un fichier serveur commun
+// (`cartographie-config`), pas dans les préférences par utilisateur. Tout le
+// monde lit et écrit la même configuration ; quand un magistrat ajuste les
+// pondérations, le changement se propage aux autres postes (pull au montage
+// du module + sync périodique). Objet unique → fusion last-write-wins par
+// `updatedAt` (le plus récent gagne en entier, pas de merge par champ).
+//
+// Persistance locale via ElectronBridge sous la clé `cartographieConfig`
+// (cache hors-ligne + base de comparaison pour le merge).
 
 import { ElectronBridge } from './electronBridge';
-import { userPreferencesSyncService } from './dataSync/UserPreferencesSyncService';
+import { getCurrentUserInfo } from './dataSync/globalSyncCommon';
 import { APP_CONFIG } from '@/config/constants';
 import {
   DEFAULT_CARTO_CONFIG,
@@ -20,6 +25,14 @@ import {
 } from '@/types/cartographieTypes';
 
 const CONFIG_KEY = APP_CONFIG.STORAGE_KEYS.CARTOGRAPHIE_CONFIG;
+const PERIODIC_SYNC_MS = 60_000;
+
+/** `true` si l'API serveur de la config carto partagée est disponible. */
+function isShareAvailable(): boolean {
+  return typeof window !== 'undefined'
+    && !!window.electronAPI?.globalSync_pullCartographieConfig
+    && !!window.electronAPI?.globalSync_pushCartographieConfig;
+}
 
 /** Reconstruit une config valide à partir d'un blob potentiellement partiel
  *  (rétrocompat : un fichier antérieur peut manquer de champs). */
@@ -38,31 +51,49 @@ function normalize(stored: Partial<CartographieModuleConfig> | null): Cartograph
   };
 }
 
+/** Compare deux configs par leur `updatedAt`. */
+function ts(c: CartographieModuleConfig | null): number {
+  return c ? Date.parse(c.updatedAt || '') || 0 : -1;
+}
+
+/** Renvoie la config la plus récente des deux (last-write-wins). */
+function pickNewest(
+  a: CartographieModuleConfig | null,
+  b: CartographieModuleConfig | null,
+): CartographieModuleConfig | null {
+  if (!a) return b;
+  if (!b) return a;
+  return ts(b) > ts(a) ? b : a;
+}
+
+async function pullServerConfig(): Promise<CartographieModuleConfig | null> {
+  if (!window.electronAPI?.globalSync_pullCartographieConfig) return null;
+  const raw = await window.electronAPI.globalSync_pullCartographieConfig();
+  return raw ? normalize(raw) : null;
+}
+
+async function pushServerConfig(config: CartographieModuleConfig): Promise<boolean> {
+  if (!window.electronAPI?.globalSync_pushCartographieConfig) return false;
+  return await window.electronAPI.globalSync_pushCartographieConfig(config);
+}
+
 class CartographieConfigManagerService {
   private cache: CartographieModuleConfig | null = null;
   private listeners = new Set<(config: CartographieModuleConfig) => void>();
+  private periodicTimer: ReturnType<typeof setInterval> | null = null;
+  private inFlight: Promise<void> | null = null;
+  // Une écriture locale n'a pas encore été confirmée côté serveur (push à
+  // retenter par la prochaine sync périodique si le partage était injoignable).
+  private dirty = false;
 
-  constructor() {
-    if (typeof window !== 'undefined') {
-      window.addEventListener('global-sync-completed', (e: Event) => {
-        const detail = (e as CustomEvent<{ scope: string }>).detail;
-        if (detail?.scope === 'userPreferences' && this.cache) {
-          this.refreshFromUserPrefs().catch(() => {});
-        }
-      });
-    }
-  }
-
-  private async refreshFromUserPrefs(): Promise<void> {
-    if (!this.cache) return;
-    const prefs = await userPreferencesSyncService.getPreferences();
-    if (!prefs?.cartographieConfig) return;
-    const serverConfig = normalize(prefs.cartographieConfig);
-    if (Date.parse(serverConfig.updatedAt || '') > Date.parse(this.cache.updatedAt || '')) {
-      await ElectronBridge.setData(CONFIG_KEY, serverConfig);
-      this.cache = serverConfig;
-      this.emit(serverConfig);
-    }
+  /** Lit la config locale brute (sans toucher au cache ni au serveur). */
+  private async loadLocalOnly(): Promise<CartographieModuleConfig | null> {
+    const stored = await ElectronBridge.getData<CartographieModuleConfig | null>(
+      CONFIG_KEY,
+      null,
+    );
+    if (stored === null) return null;
+    return normalize(stored);
   }
 
   async load(): Promise<CartographieModuleConfig> {
@@ -78,20 +109,31 @@ class CartographieConfigManagerService {
     if (stored === null && ElectronBridge.didReadFail(CONFIG_KEY)) {
       return normalize(null);
     }
-    // Clé absente sur ce poste → tenter de récupérer depuis les préférences
-    // utilisateur synchronisées (fallback cross-device).
-    if (stored === null) {
-      const prefs = await userPreferencesSyncService.getPreferences();
-      if (prefs?.cartographieConfig) {
-        const config = normalize(prefs.cartographieConfig);
-        await ElectronBridge.setData(CONFIG_KEY, config);
-        this.cache = config;
-        return config;
-      }
+    const localConfig = stored ? normalize(stored) : null;
+
+    // Tirer la config partagée de l'équipe et garder la plus récente.
+    let serverConfig: CartographieModuleConfig | null = null;
+    try {
+      serverConfig = await pullServerConfig();
+    } catch {
+      // Partage injoignable : on se contente de la config locale.
     }
-    const config = normalize(stored);
-    this.cache = config;
-    return config;
+
+    const winner = pickNewest(localConfig, serverConfig) || normalize(null);
+
+    // Le serveur a une version plus récente (ou la 1re config connue) → on la
+    // persiste localement pour le hors-ligne et la prochaine comparaison.
+    if (serverConfig && ts(serverConfig) > ts(localConfig)) {
+      await ElectronBridge.setData(CONFIG_KEY, winner);
+    }
+    // Config présente en local mais pas (ou plus à jour) sur le serveur → on
+    // marque dirty pour qu'elle remonte au partage à la prochaine sync.
+    if (localConfig && ts(localConfig) > ts(serverConfig)) {
+      this.dirty = true;
+    }
+
+    this.cache = winner;
+    return winner;
   }
 
   /** Charge une base FIABLE pour une écriture. Si la lecture a échoué, on
@@ -114,15 +156,21 @@ class CartographieConfigManagerService {
   }
 
   async save(config: CartographieModuleConfig): Promise<boolean> {
+    const user = await getCurrentUserInfo().catch(() => null);
     const next: CartographieModuleConfig = {
       ...config,
       updatedAt: new Date().toISOString(),
+      updatedBy: user?.displayName || config.updatedBy,
     };
     await ElectronBridge.setData(CONFIG_KEY, next);
     this.cache = next;
+    this.dirty = true;
     this.emit(next);
-    // Synchronisation cross-device via les préférences utilisateur.
-    userPreferencesSyncService.setCartographieConfig(next).catch(() => {});
+    // Push immédiat vers le serveur commun (best-effort : si le partage est
+    // injoignable, `dirty` reste à true et la sync périodique retentera).
+    pushServerConfig(next)
+      .then(ok => { if (ok) this.dirty = false; })
+      .catch(() => {});
     // Écriture disque immédiate : ces réglages sont souvent modifiés puis on
     // quitte/recharge l'app aussitôt, avant l'expiration du délai temporisé.
     return ElectronBridge.flush(CONFIG_KEY);
@@ -167,6 +215,84 @@ class CartographieConfigManagerService {
       ...DEFAULT_CARTO_CONFIG,
       updatedAt: new Date().toISOString(),
     });
+  }
+
+  // ─── Synchronisation avec le serveur commun ────────────────────────────────
+
+  /** À appeler à l'ouverture du module Cartographie : pull initial + sync
+   *  périodique pour récupérer les ajustements faits par les collègues. */
+  start(): void {
+    this.startPeriodic();
+    this.sync().catch(err => console.error('CartographieConfigSync.initial', err));
+  }
+
+  stop(): void {
+    this.stopPeriodic();
+  }
+
+  private startPeriodic(): void {
+    if (this.periodicTimer) return;
+    this.periodicTimer = setInterval(() => {
+      this.sync().catch(err => console.error('CartographieConfigSync.periodic', err));
+    }, PERIODIC_SYNC_MS);
+  }
+
+  private stopPeriodic(): void {
+    if (this.periodicTimer) {
+      clearInterval(this.periodicTimer);
+      this.periodicTimer = null;
+    }
+  }
+
+  /** Force un aller-retour serveur immédiat (utilisé par le bouton Enregistrer). */
+  async flushPending(): Promise<void> {
+    if (this.inFlight) {
+      await this.inFlight;
+      return;
+    }
+    await this.sync();
+  }
+
+  async sync(): Promise<void> {
+    if (!isShareAvailable()) return;
+    if (this.inFlight) {
+      await this.inFlight;
+      return;
+    }
+    this.inFlight = this.performSync().finally(() => {
+      this.inFlight = null;
+    });
+    await this.inFlight;
+  }
+
+  private async performSync(): Promise<void> {
+    try {
+      const [serverConfig, local] = await Promise.all([
+        pullServerConfig(),
+        this.cache ? Promise.resolve(this.cache) : this.loadLocalOnly(),
+      ]);
+
+      // Le serveur gagne → appliquer localement + notifier les abonnés (l'écran
+      // Paramètres se met à jour en direct sans recharger l'app).
+      if (serverConfig && ts(serverConfig) > ts(local)) {
+        await ElectronBridge.setData(CONFIG_KEY, serverConfig);
+        this.cache = serverConfig;
+        this.emit(serverConfig);
+        this.dirty = false;
+        return;
+      }
+
+      // Local gagne (ou serveur vide), ou un push précédent a échoué → pousser.
+      const needsPush = local && (!serverConfig || this.dirty || ts(local) > ts(serverConfig));
+      if (needsPush && local) {
+        const ok = await pushServerConfig(local);
+        if (ok) this.dirty = false;
+      } else {
+        this.dirty = false;
+      }
+    } catch (error) {
+      console.error('❌ CartographieConfigSync: sync échouée', error);
+    }
   }
 
   subscribe(cb: (config: CartographieModuleConfig) => void): () => void {

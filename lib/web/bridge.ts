@@ -24,7 +24,7 @@ const DOC_MAGIC = [0x53, 0x49, 0x52, 0x31]
 // Coffres acceptés par l'import depuis l'app bureau (mêmes cibles que
 // scripts/siral-import.js) : l'import ne peut pas toucher aux coffres
 // d'accès (keyring-*, grant-*) ni à des noms arbitraires.
-const DESKTOP_IMPORT_VAULT_RE = /^(users-config|tags|audience|alerts|deleted-ids|cartographie|app-data|legacy-app-data|ctx-alerts-[a-zA-Z0-9._-]{1,64}|ctx-[a-zA-Z0-9._-]{1,64}|instructions-[a-zA-Z0-9._-]{1,64}|user-prefs-[a-zA-Z0-9._-]{1,64})$/
+const DESKTOP_IMPORT_VAULT_RE = /^(users-config|tags|audience|alerts|deleted-ids|cartographie|cartographie-config|app-data|legacy-app-data|ctx-alerts-[a-zA-Z0-9._-]{1,64}|ctx-[a-zA-Z0-9._-]{1,64}|instructions-[a-zA-Z0-9._-]{1,64}|user-prefs-[a-zA-Z0-9._-]{1,64})$/
 
 type AnyFn = (...args: unknown[]) => unknown
 
@@ -796,6 +796,8 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     globalSync_pushDeletedIds: async (payload: unknown) => { try { await vaultPush('deleted-ids', payload); return true } catch { return false } },
     globalSync_pullCartographie: async () => vaultPullSoft('cartographie'),
     globalSync_pushCartographie: async (payload: unknown) => { try { await vaultPush('cartographie', payload); return true } catch { return false } },
+    globalSync_pullCartographieConfig: async () => vaultPullSoft('cartographie-config'),
+    globalSync_pushCartographieConfig: async (payload: unknown) => { try { await vaultPush('cartographie-config', payload); return true } catch { return false } },
     globalSync_readLegacyAppData: async () => vaultPullSoft('legacy-app-data'),
     globalSync_pullUserPreferences: async (username: unknown) => vaultPullSoft(`user-prefs-${sanitizeName(username)}`),
     globalSync_pushUserPreferences: async (username: unknown, payload: unknown) => {
