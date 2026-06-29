@@ -19,7 +19,7 @@ const DashboardPage = dynamic(() => import('@/components/pages/DashboardPage').t
 import { useContentieuxEnquetesStore as useContentieuxEnquetes } from '@/hooks/useContentieuxEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
 import { useDocumentSearch } from '@/hooks/useDocumentSearch';
-import { NewEnqueteData, Tag, ToDoItem } from '@/types/interfaces';
+import { Enquete, NewEnqueteData, Tag, ToDoItem } from '@/types/interfaces';
 import { StorageManager } from '@/utils/storage';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ToastProvider, useToast } from '@/contexts/ToastContext';
@@ -340,7 +340,16 @@ function AppContent() {
   });
 
   // Hook Overboard — données transversales (tous contentieux)
-  const { enquetesByContentieux: overboardData, refresh: refreshOverboard } = useOverboardData(contentieuxDefs);
+  const { enquetesByContentieux: overboardData, refresh: refreshOverboard, applyEnqueteUpdate: applyOverboardUpdate } = useOverboardData(contentieuxDefs);
+
+  // Wrapper qui met à jour l'enquête dans le store scopé ET dans le snapshot
+  // Overboard, pour que le tableau de bord (qui lit le snapshot) reflète
+  // immédiatement le changement — ex. cocher une tâche « à faire » — sans
+  // attendre un rechargement de la page.
+  const handleUpdateEnqueteSynced = useCallback((id: number, updates: Partial<Enquete>) => {
+    handleUpdateEnquete(id, updates);
+    applyOverboardUpdate(id, updates);
+  }, [handleUpdateEnquete, applyOverboardUpdate]);
 
   // Hook pour les instructions judiciaires (refonte PR1 — modèle DossierInstruction)
   const {
@@ -1348,7 +1357,7 @@ return (
               activeContentieux={effectiveContentieux}
               instructions={instructions}
               globalTodos={globalTodos}
-              onUpdateEnquete={handleUpdateEnquete}
+              onUpdateEnquete={handleUpdateEnqueteSynced}
               onGlobalTodosChange={handleGlobalTodosChange}
               onOpenEnquete={handleViewEnquete}
               onOpenInstruction={(d) => { setSelectedInstruction(d); setIsEditingInstruction(false); }}
@@ -1596,7 +1605,7 @@ return (
           editingCR={editingCR}
           onClose={() => setSelectedEnquete(null)}
           onEdit={() => setIsEditing(!isEditing)}
-          onUpdate={handleUpdateEnquete}
+          onUpdate={handleUpdateEnqueteSynced}
           onAddCR={(cr) => handleAjoutCR(selectedEnquete.id, cr)}
           onUpdateCR={(crId, updates) => handleUpdateCR(selectedEnquete.id, crId, updates)}
           onDeleteCR={(crId) => handleDeleteCR(selectedEnquete.id, crId)}

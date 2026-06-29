@@ -48,5 +48,32 @@ export const useOverboardData = (contentieuxDefs: ContentieuxDefinition[]) => {
     }
   }, [loadAll, contentieuxDefs.length]);
 
-  return { enquetesByContentieux, isLoading, refresh: loadAll };
+  // Mise à jour optimiste d'une enquête dans le snapshot (sans recharger depuis
+  // le stockage). Permet de refléter immédiatement un changement (ex. cocher une
+  // tâche « à faire » depuis le tableau de bord ou la fiche enquête) alors que la
+  // sauvegarde réelle est throttlée. L'enquête est cherchée dans tous les
+  // contentieux par id.
+  const applyEnqueteUpdate = useCallback((id: number, updates: Partial<Enquete>) => {
+    setEnquetesByContentieux(prev => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const [ctxId, list] of next) {
+        let listChanged = false;
+        const newList = list.map(e => {
+          if (e.id === id) {
+            listChanged = true;
+            return { ...e, ...updates };
+          }
+          return e;
+        });
+        if (listChanged) {
+          next.set(ctxId, newList);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
+  return { enquetesByContentieux, isLoading, refresh: loadAll, applyEnqueteUpdate };
 };
