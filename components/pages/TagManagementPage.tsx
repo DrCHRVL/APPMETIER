@@ -33,14 +33,16 @@ export const TagManagementPage = () => {
   const userIsAdmin = checkIsAdmin();
   const [requestTagDialog, setRequestTagDialog] = useState(false);
   const [requestTagValue, setRequestTagValue] = useState('');
-  const [requestTagCategory, setRequestTagCategory] = useState<'services' | 'infractions'>('services');
 
   const handleRequestTag = async () => {
     if (!requestTagValue.trim() || !user) return;
     try {
+      // Seuls les tags « services » se demandent désormais : les infractions
+      // proviennent du référentiel NATINF (choix direct dans les dossiers),
+      // il n'y a donc plus de demande de tag « infraction » à valider.
       await tagRequestManager.addRequest({
         tagValue: requestTagValue.trim(),
-        category: requestTagCategory,
+        category: 'services',
         contentieuxId: '', // global
         requestedBy: user.displayName || user.windowsUsername,
       });
@@ -533,7 +535,6 @@ export const TagManagementPage = () => {
         ) : (
           <Button
             onClick={() => {
-              setRequestTagCategory('services');
               setRequestTagValue('');
               setRequestTagDialog(true);
             }}
@@ -541,7 +542,7 @@ export const TagManagementPage = () => {
             className="flex items-center gap-2"
           >
             <Send className="h-4 w-4" />
-            Proposer un nouveau tag
+            Proposer un nouveau service
           </Button>
         )}
       </div>
@@ -817,27 +818,24 @@ export const TagManagementPage = () => {
       <Dialog open={requestTagDialog} onOpenChange={setRequestTagDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Demander la création d'un tag</DialogTitle>
+            <DialogTitle>Demander la création d'un service d'enquête</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-gray-600">
               Votre demande sera envoyée à l'administrateur pour validation.
             </p>
-            <div>
-              <label className="text-sm font-medium">Catégorie</label>
-              <select
-                className="w-full mt-1 rounded-md border border-gray-300 p-2 text-sm"
-                value={requestTagCategory}
-                onChange={(e) => setRequestTagCategory(e.target.value as 'services' | 'infractions')}
-              >
-                <option value="services">Service d'enquête</option>
-                <option value="infractions">Type d'infraction</option>
-              </select>
+            <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-2.5 text-xs text-emerald-800">
+              <Database className="h-4 w-4 shrink-0 mt-0.5 text-emerald-600" />
+              <span>
+                Les types d'infractions ne se demandent plus : ils proviennent du
+                référentiel <strong>NATINF</strong> et se choisissent directement
+                dans les dossiers.
+              </span>
             </div>
             <Input
               value={requestTagValue}
               onChange={(e) => setRequestTagValue(e.target.value)}
-              placeholder="Nom du tag souhaité"
+              placeholder="Nom du service d'enquête souhaité"
             />
           </div>
           <DialogFooter>
