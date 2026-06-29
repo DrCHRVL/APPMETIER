@@ -50,3 +50,34 @@ export async function publishReferential(
   }
   return (await res.json()) as { ok: boolean; version: number; count: number };
 }
+
+/** Saisie manuelle d'une infraction (admin). Le serveur refuse un numéro déjà
+ *  utilisé (HTTP 409). */
+export interface NewNatinfEntryInput {
+  code: string;
+  libelle: string;
+  articlesDefinition?: string;
+  articlesRepression?: string;
+}
+
+export async function addNatinfEntry(
+  entry: NewNatinfEntryInput,
+): Promise<{ ok: boolean; version: number; count: number }> {
+  const res = await fetch('/api/natinf', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ addEntry: entry }),
+  });
+  if (!res.ok) {
+    let msg = `réponse serveur ${res.status}`;
+    try {
+      const j = await res.json();
+      if (j?.error) msg = j.error;
+    } catch {
+      /* noop */
+    }
+    throw new Error(msg);
+  }
+  return (await res.json()) as { ok: boolean; version: number; count: number };
+}

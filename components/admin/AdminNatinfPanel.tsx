@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Upload, FileCheck2, Loader2, Share2, Download, AlertTriangle, Database, RefreshCw } from 'lucide-react';
+import { Upload, FileCheck2, Loader2, Share2, Download, AlertTriangle, Database, RefreshCw, Plus } from 'lucide-react';
 import { Button } from '../ui/button';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 import { mergeReferential, decodeCsvBuffer, type MergeResult, type MementoRawEntry } from '@/lib/natinf/mergeReferential';
-import { publishReferential, fetchMeta, type NatinfMeta } from '@/lib/natinf/natinfApi';
+import { publishReferential, addNatinfEntry, fetchMeta, type NatinfMeta } from '@/lib/natinf/natinfApi';
 import { resetNatinfCache } from '@/lib/natinf/natinfData';
+import { useNatinf } from '@/hooks/useNatinf';
 import type { NatinfEntry } from '@/types/natinf';
 
 export const AdminNatinfPanel = () => {
@@ -21,6 +22,14 @@ export const AdminNatinfPanel = () => {
   const [source, setSource] = useState('');
   const [publishing, setPublishing] = useState(false);
   const [currentMeta, setCurrentMeta] = useState<NatinfMeta | null>(null);
+
+  // Saisie manuelle d'une infraction (admin uniquement, sans demande à valider).
+  const { getByCode } = useNatinf();
+  const [addCode, setAddCode] = useState('');
+  const [addLibelle, setAddLibelle] = useState('');
+  const [addDef, setAddDef] = useState('');
+  const [addRep, setAddRep] = useState('');
+  const [adding, setAdding] = useState(false);
 
   const refreshMeta = useCallback(async () => {
     try {
@@ -85,6 +94,39 @@ export const AdminNatinfPanel = () => {
       showToast(`Échec de publication : ${e?.message || e}`, 'error');
     } finally {
       setPublishing(false);
+    }
+  };
+
+  const codeTrimmed = addCode.trim();
+  const codeFormatInvalid = codeTrimmed !== '' && !/^\d{1,7}$/.test(codeTrimmed);
+  const codeAlreadyUsed = codeTrimmed !== '' && !codeFormatInvalid && !!getByCode(codeTrimmed);
+  const canAdd =
+    codeTrimmed !== '' && addLibelle.trim() !== '' && !codeFormatInvalid && !codeAlreadyUsed && !adding;
+
+  const handleAddEntry = async () => {
+    if (!canAdd) return;
+    setAdding(true);
+    try {
+      const res = await addNatinfEntry({
+        code: codeTrimmed,
+        libelle: addLibelle.trim(),
+        articlesDefinition: addDef.trim() || undefined,
+        articlesRepression: addRep.trim() || undefined,
+      });
+      resetNatinfCache();
+      showToast(
+        `Infraction NATINF ${codeTrimmed} ajoutée au référentiel (${res.count.toLocaleString('fr')} codes).`,
+        'success',
+      );
+      setAddCode('');
+      setAddLibelle('');
+      setAddDef('');
+      setAddRep('');
+      await refreshMeta();
+    } catch (e: any) {
+      showToast(`Échec de l'ajout : ${e?.message || e}`, 'error');
+    } finally {
+      setAdding(false);
     }
   };
 
@@ -194,6 +236,85 @@ export const AdminNatinfPanel = () => {
           </p>
         </div>
       )}
+
+      {/* Ajout manuel d'une infraction (admin) — pas de demande à valider */}
+      <div className="rounded-lg border border-gray-200 p-4 space-y-3">
+        <div>
+          <h4 className="text-sm font-semibold flex items-center gap-2">
+            <Plus className="h-4 w-4 text-emerald-600" /> Ajouter une infraction manuellement
+          </h4>
+          <p className="text-[12px] text-gray-500 mt-1">
+            Pour compléter ponctuellement le référentiel sans réimporter tout le CSV. Action
+            réservée à l'administrateur — il n'y a pas de demande à valider. Le numéro NATINF
+            doit être unique.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="sm:col-span-1">
+            <label className="text-[11px] font-medium text-gray-500 uppercase">Numéro NATINF</label>
+            <input
+              value={addCode}
+              onChange={(e) => setAddCode(e.target.value)}
+              placeholder="Ex. 180"
+              inputMode="numeric"
+              className={`w-full mt-1 h-8 px-2 text-sm border rounded ${
+                codeFormatInvalid || codeAlreadyUsed ? 'border-red-400' : 'border-gray-300'
+              }`}
+            />
+            {codeFormatInvalid && (
+              <p className="text-[11px] text-red-600 mt-1">Chiffres uniquement.</p>
+            )}
+            {codeAlreadyUsed && (
+              <p className="text-[11px] text-red-600 mt-1">
+                Ce numéro est déjà utilisé{getByCode(codeTrimmed)?.libelle ? ` : ${getByCode(codeTrimmed)!.libelle}` : ''}.
+              </p>
+            )}
+          </div>
+          <div className="sm:col-span-2">
+            <label className="text-[11px] font-medium text-gray-500 uppercase">Nom de l'infraction</label>
+            <input
+              value={addLibelle}
+              onChange={(e) => setAddLibelle(e.target.value)}
+              placeholder="Ex. USAGE ILLICITE DE STUPEFIANTS"
+              className="w-full mt-1 h-8 px-2 text-sm border border-gray-300 rounded"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-[11px] font-medium text-gray-500 uppercase">Textes définissant</label>
+            <textarea
+              value={addDef}
+              onChange={(e) => setAddDef(e.target.value)}
+              placeholder="Ex. ART.L.3421-1 AL.1 C.SANTE.PUB."
+              rows={2}
+              className="w-full mt-1 px-2 py-1 text-sm border border-gray-300 rounded resize-y"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-gray-500 uppercase">Textes réprimant</label>
+            <textarea
+              value={addRep}
+              onChange={(e) => setAddRep(e.target.value)}
+              placeholder="Ex. ART.L.3421-1 AL.1, ART.L.3425-1 C.SANTE.PUB."
+              rows={2}
+              className="w-full mt-1 px-2 py-1 text-sm border border-gray-300 rounded resize-y"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 pt-1">
+          <Button onClick={handleAddEntry} disabled={!canAdd} className="flex items-center gap-2">
+            {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Ajouter au référentiel
+          </Button>
+          <span className="text-[11px] text-gray-500">
+            L'infraction est ajoutée immédiatement pour tout le cabinet.
+          </span>
+        </div>
+      </div>
     </div>
   );
 };
