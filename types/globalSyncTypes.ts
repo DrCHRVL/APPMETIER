@@ -119,6 +119,21 @@ export interface CartographieOverlaySyncFile extends GlobalSyncMetadata {
 }
 
 /**
+ * Fichier serveur de la configuration du module Cartographie, PARTAGÉE par
+ * toute l'équipe : pondérations du score Top 10, coefficients par tag
+ * d'infraction, regroupement par service. Fichier : `cartographie-config`
+ * à la racine du serveur commun.
+ *
+ * Objet unique (pas une collection d'entités) → fusion simple last-write-wins
+ * par `updatedAt` (le plus récent gagne en entier), sans tombstones ni merge
+ * par champ. Concrètement, deux éditions quasi simultanées sur des champs
+ * différents : le dernier à enregistrer l'emporte sur tout l'objet, comme
+ * pour les préférences utilisateur.
+ */
+export type CartographieConfigSyncFile =
+  import('@/types/cartographieTypes').CartographieModuleConfig;
+
+/**
  * Préférences utilisateur synchronisées sur le serveur commun.
  * Un fichier par utilisateur : user-preferences/{windowsUsername}.json.
  * Structure volontairement ouverte (chaque clé est optionnelle) pour pouvoir
@@ -200,12 +215,6 @@ export interface UserPreferencesFile extends GlobalSyncMetadata {
    * dossiers ne sont jamais partagés avec d'autres magistrats.
    */
   instructionNetworkPath?: string;
-  /**
-   * Configuration personnelle du module Cartographie : pondérations du
-   * score Top 10, coefficients par tag d'infraction, regroupement par service.
-   * Synchronisée par utilisateur pour retrouver ses réglages sur tout appareil.
-   */
-  cartographieConfig?: import('@/types/cartographieTypes').CartographieModuleConfig;
   /**
    * Agendas externes (Google / Outlook / iCloud) connectés en lecture seule
    * via leur adresse secrète iCal, plus les préférences d'affichage du

@@ -109,6 +109,8 @@ interface ElectronAPI {
   globalSync_pushDeletedIds?: (payload: import('./globalSyncTypes').DeletedIdsSyncFile) => Promise<boolean>;
   globalSync_pullCartographie?: () => Promise<import('./globalSyncTypes').CartographieOverlaySyncFile | null>;
   globalSync_pushCartographie?: (payload: import('./globalSyncTypes').CartographieOverlaySyncFile) => Promise<boolean>;
+  globalSync_pullCartographieConfig?: () => Promise<import('./globalSyncTypes').CartographieConfigSyncFile | null>;
+  globalSync_pushCartographieConfig?: (payload: import('./globalSyncTypes').CartographieConfigSyncFile) => Promise<boolean>;
   globalSync_readLegacyAppData?: () => Promise<any | null>;
   globalSync_pullUserPreferences?: (username: string) => Promise<import('./globalSyncTypes').UserPreferencesFile | null>;
   globalSync_pushUserPreferences?: (username: string, payload: import('./globalSyncTypes').UserPreferencesFile) => Promise<boolean>;
