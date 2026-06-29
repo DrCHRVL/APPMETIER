@@ -5,9 +5,10 @@
  * fichiers avec le conteneur « updater » (volume partagé, SIRAL_UPDATER_DIR),
  * seul détenteur de l'accès au démon Docker. Voir scripts/updater.sh.
  *
- *   GET  /api/update           → état (SHA local/distant, retard, changelog, progression)
+ *   GET  /api/update           → état (SHA local/distant, retard, changelog, journal, progression)
  *   GET  /api/update?force=1   → idem, après avoir fait re-vérifier GitHub par l'updater
- *   POST /api/update {action:'apply'} → déclenche pull + rebuild + redémarrage
+ *   POST /api/update {action:'apply'}   → déclenche pull + rebuild + redémarrage
+ *   POST /api/update {action:'rebuild'} → reconstruit le conteneur sur le code déjà présent
  */
 import fs from 'fs'
 import path from 'path'
@@ -37,7 +38,15 @@ function readCommitList(): Array<{ sha: string, message: string, author: string,
   } catch { return [] }
 }
 
-function writeRequest(action: 'check' | 'apply', requestedBy: string) {
+/** Dernières lignes d'update.log — pour diagnostiquer un échec depuis l'app (admin). */
+function readLogTail(maxBytes = 6000): string {
+  try {
+    const full = fs.readFileSync(path.join(UPDATER_DIR, 'update.log'), 'utf8')
+    return full.length > maxBytes ? full.slice(-maxBytes) : full
+  } catch { return '' }
+}
+
+function writeRequest(action: 'check' | 'apply' | 'rebuild', requestedBy: string) {
   fs.writeFileSync(
     path.join(UPDATER_DIR, 'request.json'),
     JSON.stringify({ action, requestedBy, requestedAt: new Date().toISOString() })
@@ -60,6 +69,7 @@ function snapshot() {
     checkedAt: check?.checkedAt || null,
     commitList: readCommitList(),
     status: status || { state: 'idle', step: '', message: '', at: null },
+    logTail: readLogTail(),
   }
 }
 
@@ -95,13 +105,15 @@ export async function POST(req: Request) {
     if (updaterMissing()) return jsonResponse({ success: false, error: NOT_INSTALLED }, { status: 503 })
 
     const body = await req.json().catch(() => ({})) as { action?: string }
-    if (body.action !== 'apply') return jsonResponse({ success: false, error: 'Action inconnue' }, { status: 400 })
+    if (body.action !== 'apply' && body.action !== 'rebuild') {
+      return jsonResponse({ success: false, error: 'Action inconnue' }, { status: 400 })
+    }
 
     const status = readStateFile<StatusFile>('status.json')
     if (status?.state === 'updating') {
       return jsonResponse({ success: false, error: 'Une mise à jour est déjà en cours' }, { status: 409 })
     }
-    writeRequest('apply', session.u)
+    writeRequest(body.action, session.u)
     return jsonResponse({ success: true, started: true })
   })
 }
