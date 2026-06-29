@@ -32,7 +32,6 @@ import { PoseActeModal } from '@/components/modals/PoseActeModal';
 import { ProlongationValidationModal } from '@/components/modals/ProlongationValidationModal';
 import { DateUtils } from '@/utils/dateUtils';
 import { ActeUtils } from '@/utils/acteUtils';
-import { hasJldInvolvement } from '@/utils/permissions';
 import { PermanencePage } from '@/components/pages/PermanencePage';
 import { ArchivePage } from '@/components/pages/ArchivePage';
 import type { EnqueteWithContext } from '@/utils/mindmapGraph';
@@ -977,21 +976,14 @@ function AppContent() {
     return user.contentieux.some(c => c.contentieuxId === currentContentieuxId && c.role === 'ja');
   }, [user, currentContentieuxId]);
 
-  // Le JLD ne voit que les enquêtes dans lesquelles il est intervenu
-  // (autorisation/prolongation enregistrée sur une géoloc ou écoute).
-  const isJldUser = user?.globalRole === 'jld';
-
   const activeEnquetes = useMemo(() => {
     let result = mergedFilteredEnquetes.filter(e => e.statut !== 'archive');
     // Filtrer les enquêtes dissimulées aux JA
     if (isJAForCurrentCtx) {
       result = result.filter(e => !e.hiddenFromJA);
     }
-    if (isJldUser) {
-      result = result.filter(hasJldInvolvement);
-    }
     return result;
-  }, [mergedFilteredEnquetes, isJAForCurrentCtx, isJldUser]);
+  }, [mergedFilteredEnquetes, isJAForCurrentCtx]);
 
   // Organisation des enquêtes par section, puis par service au sein de chaque section
   const enquetesByOrganization = useMemo(() => {
@@ -1030,12 +1022,8 @@ function AppContent() {
   }, [activeEnquetes, tags, getTagSection]);
 
   const archivedEnquetes = useMemo(() => {
-    let result = mergedFilteredEnquetes.filter(e => e.statut === 'archive');
-    if (isJldUser) {
-      result = result.filter(hasJldInvolvement);
-    }
-    return result;
-  }, [mergedFilteredEnquetes, isJldUser]);
+    return mergedFilteredEnquetes.filter(e => e.statut === 'archive');
+  }, [mergedFilteredEnquetes]);
 
   // Nombre total d'alertes actives
   const activeAlertsCount = useMemo(() => {
@@ -1403,8 +1391,8 @@ return (
                       enquete={enquete}
                       contentieuxId={enquete.contentieuxOrigine || currentContentieuxId}
                       onView={handleViewEnquete}
-                      onEdit={isJldUser ? undefined : handleEditEnquete}
-                      onArchive={isJldUser ? undefined : handleArchiveEnquete}
+                      onEdit={handleEditEnquete}
+                      onArchive={handleArchiveEnquete}
                       onToggleSuivi={handleToggleSuivi}
                       onStartEnquete={handleStartEnquete}
                       onToggleOverboardPin={showOverboardPin ? handleToggleOverboardPin : undefined}

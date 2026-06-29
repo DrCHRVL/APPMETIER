@@ -84,7 +84,6 @@ export const MultiSideBar = ({
       case 'admin': return 'Administrateur';
       case 'pra': return 'Procureur de la République adjoint';
       case 'vice_proc': return 'Vice-procureur';
-      case 'jld': return 'Juge des libertés et de la détention';
       default: return 'Membre';
     }
   })();
