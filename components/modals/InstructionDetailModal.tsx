@@ -30,6 +30,7 @@ import { useInstructionAlertRules } from '@/hooks/useInstructionAlertRules';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { MisEnExamenSection } from '../instruction/mex/MisEnExamenSection';
+import { SaisineManager } from '../instruction/SaisineManager';
 import { OpsSection } from '../instruction/OpsSection';
 import { DebatsJLDSection } from '../instruction/DebatsJLDSection';
 import { NotesPersoSection } from '../instruction/NotesPersoSection';
@@ -414,6 +415,10 @@ export const InstructionDetailModal = ({
                     rows={6}
                     className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
                   />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    La saisine in rem dispose désormais d'une section dédiée (onglet Aperçu,
+                    avec rattachement NATINF). Réservez la description au narratif.
+                  </p>
                 </div>
               </div>
             ) : (
@@ -487,6 +492,19 @@ export const InstructionDetailModal = ({
                   }
                   return null;
                 })()}
+
+                {/* Saisine in rem : qualifications structurées des faits dont le
+                    juge est saisi (réquisitoire introductif + supplétifs). */}
+                <div className="bg-white border border-gray-200 rounded-lg p-3">
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <Scale className="h-3.5 w-3.5 text-gray-500" />
+                    <span className="text-xs font-semibold text-gray-500 uppercase">Saisine in rem</span>
+                  </div>
+                  <SaisineManager
+                    value={dossier.saisine || []}
+                    onChange={(saisine) => onUpdate(dossier.id, { saisine })}
+                  />
+                </div>
 
                 {/* 3 colonnes : Description / Notes perso / Mis en examen */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">

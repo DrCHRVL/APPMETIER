@@ -34,6 +34,8 @@ import {
   FALLBACK_CABINET_COLOR,
 } from '@/config/instructionConfig';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
+import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
+import { NatinfBadge } from '../natinf/NatinfBadge';
 
 interface InstructionPreviewProps {
   dossier: DossierInstruction;
@@ -72,6 +74,7 @@ export const InstructionPreview = React.memo(({
   onToggleSuivi,
 }: InstructionPreviewProps) => {
   const { getCabinetById } = useInstructionCabinets();
+  const { natinfForTag } = useInfractionNatinf();
   const cabinet = getCabinetById(dossier.cabinetId);
   const cabinetColor = cabinet?.color || FALLBACK_CABINET_COLOR;
 
@@ -194,11 +197,15 @@ export const InstructionPreview = React.memo(({
               {dossier.tags
                 .filter(t => t.category === 'infractions')
                 .slice(0, 4)
-                .map(t => (
-                  <Badge key={t.id} variant="outline" className="text-xs py-0.5 px-2 bg-gray-50">
-                    {t.value}
-                  </Badge>
-                ))}
+                .map(t => {
+                  const n = natinfForTag(t.value);
+                  return (
+                    <Badge key={t.id} variant="outline" className="text-xs py-0.5 px-2 bg-gray-50 inline-flex items-center gap-1">
+                      {t.value}
+                      {n && <NatinfBadge code={n.code} nature={n.nature} quantumLabel={n.quantumLabel} compact />}
+                    </Badge>
+                  );
+                })}
             </div>
           )}
 

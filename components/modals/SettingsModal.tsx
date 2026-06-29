@@ -12,7 +12,7 @@ import { ContentieuxId, ModuleId } from '@/types/userTypes';
 type SettingsTab =
   | 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'agenda' | 'a_propos'
   | 'module_instruction' | 'module_cartographie' | 'module_air'
-  | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_update';
+  | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_natinf' | 'admin_update';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -32,6 +32,7 @@ interface SettingsModalProps {
   adminPathsContent?: React.ReactNode;
   adminDashboardContent?: React.ReactNode;
   adminTagHistoryContent?: React.ReactNode;
+  adminNatinfContent?: React.ReactNode;
   adminUpdateContent?: React.ReactNode;
   agendaContent?: React.ReactNode;
   aProposContent?: React.ReactNode;
@@ -80,6 +81,7 @@ const TABS: TabDef[] = [
   { id: 'admin_paths',       label: 'Chemins réseau',   icon: Network,       section: 'admin', isAdmin: true },
   { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      section: 'admin', isAdmin: true },
   { id: 'admin_tag_history', label: 'Historique tags',  icon: ClipboardList, section: 'admin', isAdmin: true },
+  { id: 'admin_natinf',      label: 'Référentiel NATINF', icon: Gavel,       section: 'admin', isAdmin: true },
   { id: 'admin_update',      label: 'Mise à jour',      icon: Upload,        section: 'admin', isAdmin: true },
 ];
 
@@ -116,6 +118,7 @@ export const SettingsModal = ({
   adminPathsContent,
   adminDashboardContent,
   adminTagHistoryContent,
+  adminNatinfContent,
   adminUpdateContent,
   aProposContent,
   activeContentieuxId,
@@ -161,6 +164,7 @@ export const SettingsModal = ({
       case 'admin_paths':        return adminPathsContent;
       case 'admin_dashboard':    return adminDashboardContent;
       case 'admin_tag_history':  return adminTagHistoryContent;
+      case 'admin_natinf':       return adminNatinfContent;
       case 'admin_update':       return adminUpdateContent;
       default:                   return null;
     }

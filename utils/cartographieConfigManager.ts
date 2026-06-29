@@ -44,6 +44,7 @@ function normalize(stored: Partial<CartographieModuleConfig> | null): Cartograph
   return {
     weights,
     tagInfractionWeights: { ...(stored?.tagInfractionWeights || {}) },
+    natinfWeights: { ...(stored?.natinfWeights || {}) },
     groupByService: stored?.groupByService ?? DEFAULT_CARTO_CONFIG.groupByService,
     version: stored?.version ?? DEFAULT_CARTO_CONFIG.version,
     updatedAt: stored?.updatedAt || new Date().toISOString(),
@@ -201,6 +202,18 @@ class CartographieConfigManagerService {
       next[tagId] = weight;
     }
     return this.save({ ...current, tagInfractionWeights: next });
+  }
+
+  /** Définit le poids associé à un code NATINF. Passer 0 supprime l'entrée. */
+  async setNatinfWeight(code: string, weight: number): Promise<boolean> {
+    const current = await this.loadForWrite();
+    const next = { ...current.natinfWeights };
+    if (!weight) {
+      delete next[code];
+    } else {
+      next[code] = weight;
+    }
+    return this.save({ ...current, natinfWeights: next });
   }
 
   /** Active/désactive l'ancrage zonal par service d'enquête. */

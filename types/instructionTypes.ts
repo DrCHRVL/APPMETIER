@@ -5,6 +5,7 @@
 // d'instruction. Les anciens types (EnqueteInstruction, etc.) ont été retirés.
 
 import type { Tag } from './interfaces';
+import type { NatinfRef } from './natinf';
 
 // ──────────────────────────────────────────────
 // CABINET D'INSTRUCTION (configurable depuis l'admin)
@@ -67,17 +68,47 @@ export type StatutMisEnExamen = 'libre' | 'cj' | 'arse' | 'detenu';
 /** Régime de la détention provisoire (impacte les durées légales max) */
 export type RegimeDetentionProvisoire = 'correctionnel' | 'criminel';
 
-/** Une infraction reprochée à un mis en examen */
+/** Une infraction reprochée à un mis en examen (chef de mise en examen) */
 export interface InfractionReproche {
   id: number;
-  /** Qualification pénale (ex: "Trafic de stupéfiants en bande organisée") */
+  /** Qualification pénale (ex: "Trafic de stupéfiants en bande organisée").
+   *  Reste la source d'affichage, y compris pour les saisies libres historiques. */
   qualification: string;
+  /** Code NATINF rattaché (optionnel, enrichissement du référentiel) */
+  natinfCode?: string;
+  /** Snapshot dénormalisé du NATINF au moment de la saisie (libellé/nature) */
+  natinfRef?: NatinfRef;
   /** Date des faits (ISO) */
   dateInfraction?: string;
   /** Lieu des faits */
   lieuInfraction?: string;
   /** Explication / contexte des faits */
   explication?: string;
+}
+
+/** Acte de saisine d'un juge d'instruction */
+export type ActeSaisine = 'introductif' | 'suppletif';
+
+/**
+ * Un chef de la saisine in rem : le juge d'instruction est saisi des FAITS,
+ * qualifiés par le réquisitoire introductif (et étendus par les réquisitoires
+ * supplétifs). Distinct des chefs de mise en examen (saisine in personam),
+ * qui doivent s'inscrire dans le périmètre de la saisine in rem.
+ */
+export interface SaisineItem {
+  id: number;
+  /** Qualification des faits (source d'affichage) */
+  qualification: string;
+  /** Code NATINF rattaché (optionnel) */
+  natinfCode?: string;
+  /** Snapshot dénormalisé du NATINF */
+  natinfRef?: NatinfRef;
+  /** Acte par lequel le juge est saisi de ces faits */
+  acte: ActeSaisine;
+  /** Date de l'acte de saisine (réquisitoire introductif ou supplétif) */
+  dateActe?: string;
+  /** Exposé / contexte des faits visés */
+  faits?: string;
 }
 
 /** Catégorie d'élément de personnalité */
@@ -414,6 +445,12 @@ export interface DossierInstruction {
 
   // Données générales
   description?: string;
+  /**
+   * Saisine in rem : qualifications des faits dont le juge est saisi (RI +
+   * supplétifs). Remplace la saisie en texte libre dans `description`, qui
+   * reste disponible pour le narratif. Optionnel (rétrocompat).
+   */
+  saisine?: SaisineItem[];
   origine?: OrigineDossier;
   /** Lien optionnel vers l'enquête préliminaire d'origine */
   enquetePreliminaireId?: number;

@@ -5,11 +5,16 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Edit2, Save, X, Plus, Check, Trash2, AlertTriangle, Send, Layers, GitMerge } from 'lucide-react';
+import { Edit2, Save, X, Plus, Check, Trash2, AlertTriangle, Send, Layers, GitMerge, Link2, Database } from 'lucide-react';
 import { TAG_CATEGORIES, TagCategory } from '@/config/tags';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { ServiceOrganizer } from '../ServiceOrganizer';
+import { NatinfPicker } from '../natinf/NatinfPicker';
+import { NatinfBadge } from '../natinf/NatinfBadge';
+import { NatinfReconcileDialog } from '../natinf/NatinfReconcileDialog';
+import { NatinfMigrateDialog } from '../natinf/NatinfMigrateDialog';
+import { useNatinf } from '@/hooks/useNatinf';
 import { useTags, DuplicateTagGroup } from '@/hooks/useTags';
 import { useToast } from '@/contexts/ToastContext';
 import { useUser } from '@/contexts/UserContext';
@@ -62,8 +67,15 @@ export const TagManagementPage = () => {
     mergeDuplicateTags
   } = useTags();
 
+  const { getByCode } = useNatinf();
+
   const [editingCategory, setEditingCategory] = useState<TagCategory | null>(null);
   const [editingTag, setEditingTag] = useState<EditingTag | null>(null);
+  // Dialogue de rattachement d'un tag « infractions » à des codes NATINF
+  const [natinfLinkTag, setNatinfLinkTag] = useState<{ id: string; value: string; codes: string[] } | null>(null);
+  const [isSavingNatinf, setIsSavingNatinf] = useState(false);
+  const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [migrateOpen, setMigrateOpen] = useState(false);
   const [newTagDialog, setNewTagDialog] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [newDuration, setNewDuration] = useState('');
@@ -333,6 +345,25 @@ export const TagManagementPage = () => {
     }
   };
 
+  const handleSaveNatinfLinks = async () => {
+    if (!natinfLinkTag) return;
+    try {
+      setIsSavingNatinf(true);
+      const success = await updateTag(natinfLinkTag.id, { natinfCodes: natinfLinkTag.codes });
+      if (success) {
+        showToast('Liens NATINF enregistrés', 'success');
+        setNatinfLinkTag(null);
+      } else {
+        showToast('Erreur lors de l\'enregistrement des liens NATINF', 'error');
+      }
+    } catch (error) {
+      console.error('Erreur lors de l\'enregistrement des liens NATINF:', error);
+      showToast('Erreur lors de l\'enregistrement des liens NATINF', 'error');
+    } finally {
+      setIsSavingNatinf(false);
+    }
+  };
+
   const renderTag = (tag: any, category: TagCategory) => {
     const isCurrentlyEditing = editingTag?.id === tag.id;
 
@@ -379,6 +410,15 @@ export const TagManagementPage = () => {
           onDoubleClick={() => editingCategory === category && handleStartTagEdit(tag, category)}
         >
           {tag.value}
+          {category === 'infractions' && tag.natinfCodes?.length > 0 && (
+            <span
+              className="inline-flex items-center gap-0.5 text-[10px] text-emerald-700"
+              title={`${tag.natinfCodes.length} NATINF lié(s)`}
+            >
+              <Link2 className="h-2.5 w-2.5" />
+              {tag.natinfCodes.length}
+            </span>
+          )}
           {editingCategory === category && (
             <>
               <Button
@@ -393,6 +433,20 @@ export const TagManagementPage = () => {
               >
                 <Edit2 className="h-3 w-3 text-blue-600" />
               </Button>
+              {category === 'infractions' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-4 w-4 p-0 opacity-0 group-hover:opacity-100 hover:bg-transparent"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setNatinfLinkTag({ id: tag.id, value: tag.value, codes: tag.natinfCodes || [] });
+                  }}
+                  title="Lier ce tag à des codes NATINF"
+                >
+                  <Link2 className="h-3 w-3 text-emerald-600" />
+                </Button>
+              )}
               {userIsAdmin && getTagsByCategory(category).length > 1 && (
                 <Button
                   variant="ghost"
@@ -441,6 +495,22 @@ export const TagManagementPage = () => {
 
         {userIsAdmin ? (
           <div className="flex items-center gap-2">
+            <Button
+              onClick={() => setReconcileOpen(true)}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <Link2 className="h-4 w-4 text-emerald-600" />
+              Rattacher au NATINF
+            </Button>
+            <Button
+              onClick={() => setMigrateOpen(true)}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <Database className="h-4 w-4 text-emerald-600" />
+              Migrer les dossiers
+            </Button>
             <Button
               onClick={handleScanDuplicates}
               disabled={isMergingDuplicates}
@@ -872,6 +942,75 @@ export const TagManagementPage = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog de rattachement d'un tag « infractions » au référentiel NATINF */}
+      <Dialog open={!!natinfLinkTag} onOpenChange={() => !isSavingNatinf && setNatinfLinkTag(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="h-5 w-5 text-emerald-600" />
+              Lier « {natinfLinkTag?.value} » au NATINF
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">
+              Rattachez ce tag d'infraction à un ou plusieurs codes NATINF. Quand un
+              tag est lié à un seul code, celui-ci est automatiquement rattaché aux
+              chefs de mise en examen qui l'emploient.
+            </p>
+            <NatinfPicker
+              onSelect={(entry) =>
+                setNatinfLinkTag(t =>
+                  !t ? t : t.codes.includes(entry.code) ? t : { ...t, codes: [...t.codes, entry.code] },
+                )
+              }
+              placeholder="Ajouter un NATINF (n° ou libellé)…"
+            />
+            <div className="space-y-1.5 max-h-60 overflow-y-auto">
+              {natinfLinkTag && natinfLinkTag.codes.length === 0 && (
+                <div className="text-xs text-gray-400 italic">Aucun code lié.</div>
+              )}
+              {natinfLinkTag?.codes.map(code => {
+                const entry = getByCode(code);
+                return (
+                  <div key={code} className="flex items-center gap-2 border border-gray-200 rounded px-2 py-1">
+                    <span className="font-mono text-xs text-gray-500 w-12 shrink-0">{code}</span>
+                    <span className="flex-1 min-w-0 truncate text-sm text-gray-800" title={entry?.libelle}>
+                      {entry?.libelle || <span className="text-amber-600">Code hors référentiel</span>}
+                    </span>
+                    {entry && (
+                      <NatinfBadge nature={entry.nature} quantumLabel={entry.quantumLabel} className="shrink-0" />
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() =>
+                        setNatinfLinkTag(t => (t ? { ...t, codes: t.codes.filter(c => c !== code) } : t))
+                      }
+                      title="Retirer"
+                    >
+                      <X className="h-3 w-3 text-red-600" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNatinfLinkTag(null)} disabled={isSavingNatinf}>
+              Annuler
+            </Button>
+            <Button onClick={handleSaveNatinfLinks} disabled={isSavingNatinf}>
+              {isSavingNatinf ? 'Enregistrement...' : 'Enregistrer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assistant de rattachement en masse des tags d'infraction au NATINF */}
+      <NatinfReconcileDialog open={reconcileOpen} onClose={() => setReconcileOpen(false)} />
+      <NatinfMigrateDialog open={migrateOpen} onClose={() => setMigrateOpen(false)} />
     </div>
   );
 };

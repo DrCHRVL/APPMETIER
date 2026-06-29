@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Enquete, CompteRendu } from '@/types/interfaces';
 import { useAudience } from '@/hooks/useAudience';
+import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { ViewAudienceResultModal } from '../modals/ViewAudienceResultModal';
 import { EnqueteDetailModal } from '../modals/EnqueteDetailModal';
 import { AudienceResultModal } from '../modals/AudienceResultModal';
@@ -39,6 +40,7 @@ export const ArchivePage = ({
 }: ArchivePageProps) => {
   const { showToast } = useToast();
   const { hasResultat, isLoading, audienceState, getResultat, saveResultat } = useAudience();
+  const { infractionsForEnquete } = useInfractionNatinf();
 
   // Contentieux courant — fallback `crimorg` pour les vues legacy.
   const ctxId = contentieuxId || 'crimorg';
@@ -159,6 +161,7 @@ export const ArchivePage = ({
         statut: 'condamne'
       })),
       tags: [{ id: 'flagrance', value: r.typeInfraction || 'Flagrance', category: 'infractions' as const }],
+      infractionNatinfCodes: r.infractionNatinfCodes,
       comptesRendus: [],
       dateDebut: r.dateAudience,
       dateCreation: r.dateAudience,
@@ -448,12 +451,11 @@ export const ArchivePage = ({
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-xs truncate">{item.numero}</div>
                           <div className="text-xs text-gray-500 truncate">
-                            {item.tags
-                              .filter(tag => tag.category === 'infractions')
+                            {infractionsForEnquete(item)
                               .slice(0, 2)
-                              .map(tag => tag.value)
+                              .map(inf => inf.code ? `${inf.label} (${inf.code})` : inf.label)
                               .join(', ')}
-                            {item.tags.filter(tag => tag.category === 'infractions').length > 2 && '...'}
+                            {infractionsForEnquete(item).length > 2 && '...'}
                           </div>
                         </div>
                         <div className="flex items-center gap-1">
@@ -596,12 +598,11 @@ export const ArchivePage = ({
                               {formatAudienceType(item.id)}
                             </div>
                             <div className="text-xs text-gray-500 truncate">
-                              {item.tags
-                                .filter(tag => tag.category === 'infractions')
+                              {infractionsForEnquete(item)
                                 .slice(0, 2)
-                                .map(tag => tag.value)
+                                .map(inf => inf.code ? `${inf.label} (${inf.code})` : inf.label)
                                 .join(', ')}
-                              {item.tags.filter(tag => tag.category === 'infractions').length > 2 && '...'}
+                              {infractionsForEnquete(item).length > 2 && '...'}
                               {isPartialResult && getPendingNames(item.id) && (
                                 <span className="ml-1 text-blue-700 font-medium">
                                   • En attente: {getPendingNames(item.id)}
@@ -753,6 +754,7 @@ export const ArchivePage = ({
           contentieuxId={ctxId}
           misEnCause={allArchivedItems.find(e => e.id === viewResultat)?.misEnCause}
           enqueteTags={allArchivedItems.find(e => e.id === viewResultat)?.tags}
+          enqueteInfractionCodes={allArchivedItems.find(e => e.id === viewResultat)?.infractionNatinfCodes}
         />
       )}
 
@@ -767,6 +769,7 @@ export const ArchivePage = ({
           initialData={lookupResultat(showResultModal)}
           misEnCause={allArchivedItems.find(e => e.id === showResultModal)?.misEnCause}
           enqueteTags={allArchivedItems.find(e => e.id === showResultModal)?.tags}
+          enqueteInfractionCodes={allArchivedItems.find(e => e.id === showResultModal)?.infractionNatinfCodes}
         />
       )}
 

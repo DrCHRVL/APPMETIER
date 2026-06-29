@@ -19,6 +19,8 @@ import { PoseActeModal } from './modals/PoseActeModal';
 import { ProlongationValidationModal } from './modals/ProlongationValidationModal';
 import { AutorisationValidationModal } from './modals/AutorisationValidationModal';
 import { useTags } from '@/hooks/useTags';
+import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
+import { NatinfBadge } from './natinf/NatinfBadge';
 import { useUser } from '@/contexts/UserContext';
 import { getLastCR } from '@/utils/compteRenduUtils';
 import { getProlongationRequestDate, getAutorisationRequestDate } from '@/utils/acteUtils';
@@ -89,6 +91,7 @@ export const EnquetePreview = React.memo(({
   const { hasResultat, deleteAudienceResultat, isLoading } = useAudience();
   const { showToast } = useToast();
   const { getServicesFromTags } = useTags();
+  const { infractionsForEnquete } = useInfractionNatinf();
   const { user, canDo: userCanDo } = useUser();
 
   // Pin overboard
@@ -437,17 +440,16 @@ return (
 
             {/* Tags d'infraction */}
             <div className="flex flex-wrap gap-1 mb-1.5">
-              {enquete.tags
-                .filter(tag => tag.category === 'infractions')
-                .map(tag => (
-                  <Badge
-                    key={tag.value}
-                    variant="outline"
-                    className="text-[10px] py-0 px-1.5 bg-gray-50"
-                  >
-                    {tag.value}
-                  </Badge>
-                ))}
+              {infractionsForEnquete(enquete).map((inf, i) => (
+                <Badge
+                  key={inf.code || inf.label || i}
+                  variant="outline"
+                  className="text-[10px] py-0 px-1.5 bg-gray-50 inline-flex items-center gap-1"
+                >
+                  {inf.label}
+                  {inf.code && <NatinfBadge code={inf.code} nature={inf.nature} quantumLabel={inf.quantumLabel} compact />}
+                </Badge>
+              ))}
 
               {/* Badge co-saisine : un seul badge selon qu'on est origine (a partagé)
                   ou destinataire (a reçu). On ne cumule jamais les deux. */}
@@ -640,6 +642,7 @@ return (
           misEnCause={enquete.misEnCause}
           enqueteNumero={enquete.numero}
           enqueteTags={enquete.tags}
+          enqueteInfractionCodes={enquete.infractionNatinfCodes}
           onCreateGlobalTodo={onCreateGlobalTodo}
           isOverboardPinned={!!(enquete.overboardPins && enquete.overboardPins.length > 0)}
         />
@@ -653,6 +656,7 @@ return (
   isOverboardPinned={!!(enquete.overboardPins && enquete.overboardPins.length > 0)}
   misEnCause={enquete.misEnCause}
   enqueteTags={enquete.tags}
+  enqueteInfractionCodes={enquete.infractionNatinfCodes}
   onReset={async () => {
     try {
       await deleteAudienceResultat(contentieuxId, enquete.id);

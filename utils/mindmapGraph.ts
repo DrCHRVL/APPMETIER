@@ -228,12 +228,15 @@ function computeRawScore(
  */
 export interface ScoreConfigInput {
   weights?: CartographieScoreWeights;
-  /** Pondérations par tag d'infraction (clé = Tag.id). */
+  /** Pondérations par tag d'infraction (clé = Tag.id). LEGACY. */
   tagInfractionWeights?: Record<string, number>;
   /** Map id → value des tags d'infraction. Sert à matcher les
    *  qualifications libres des `MisEnExamen.infractions[].qualification`
-   *  (best-effort : on cherche la valeur du tag comme sous-chaîne). */
+   *  (best-effort : on cherche la valeur du tag comme sous-chaîne). LEGACY. */
   tagInfractionValueById?: Record<string, string>;
+  /** Pondérations par code NATINF (clé = code). Cible : prioritaire sur le
+   *  poids par tag, matché exactement sur `InfractionReproche.natinfCode`. */
+  natinfWeights?: Record<string, number>;
 }
 
 /**
@@ -253,6 +256,8 @@ export function buildMindmapGraph(
   const weights = scoreConfig?.weights ?? DEFAULT_CARTO_WEIGHTS;
   const tagInfractionWeights = scoreConfig?.tagInfractionWeights ?? {};
   const tagInfractionValueById = scoreConfig?.tagInfractionValueById ?? {};
+  // Cible : pondération par code NATINF (prioritaire sur le poids par tag).
+  const natinfWeights = scoreConfig?.natinfWeights ?? {};
   /** Pré-calcule [valueLowerCase, weight] pour matcher les qualifications. */
   const tagWeightByValueLc: Array<[string, number]> = [];
   for (const [tagId, w] of Object.entries(tagInfractionWeights)) {
@@ -301,9 +306,17 @@ export function buildMindmapGraph(
           canonical,
           (chefsByCanonical.get(canonical) || 0) + (exa.infractions?.length || 0),
         );
-        if (tagWeightByValueLc.length > 0 && exa.infractions) {
+        if ((tagWeightByValueLc.length > 0 || Object.keys(natinfWeights).length > 0) && exa.infractions) {
           let bonus = 0;
           for (const inf of exa.infractions) {
+            // 1) Cible : pondération par code NATINF (exacte, prioritaire)
+            const code = inf.natinfCode;
+            if (code && natinfWeights[code]) {
+              bonus += natinfWeights[code];
+              dossierMatchedTagW.set('natinf:' + code, natinfWeights[code]);
+              continue;
+            }
+            // 2) Legacy : match best-effort sur la valeur du tag d'infraction
             const q = (inf.qualification || '').toLowerCase();
             if (!q) continue;
             for (const [tagValueLc, w] of tagWeightByValueLc) {

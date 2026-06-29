@@ -1,12 +1,14 @@
 import { v1 } from './schemas/v1';
 import { v2 } from './schemas/v2';
+import { v3 } from './schemas/v3';
 
-export const CURRENT_VERSION = 2;
+export const CURRENT_VERSION = 3;
 
 export class MigrationManager {
   private migrations = new Map([
     [1, v1],
-    [2, v2]
+    [2, v2],
+    [3, v3]
   ]);
 
   async migrate(data: any, fromVersion: number): Promise<any> {

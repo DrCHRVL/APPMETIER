@@ -22,6 +22,8 @@ interface ViewAudienceResultModalProps {
   isOverboardPinned?: boolean;
   misEnCause?: { id: number; nom: string }[];
   enqueteTags?: Tag[];
+  /** Codes NATINF du dossier (propagés au modal d'édition pour pré-remplissage). */
+  enqueteInfractionCodes?: string[];
 }
 
 export const ViewAudienceResultModal = ({
@@ -34,6 +36,7 @@ export const ViewAudienceResultModal = ({
   isOverboardPinned = false,
   misEnCause,
   enqueteTags,
+  enqueteInfractionCodes,
 }: ViewAudienceResultModalProps) => {
   const { getResultat, isLoading, saveResultat, deleteAudienceResultat } = useAudience();
   const { showToast } = useToast();
@@ -157,6 +160,7 @@ export const ViewAudienceResultModal = ({
         isOverboardPinned={isOverboardPinned}
         misEnCause={misEnCause}
         enqueteTags={enqueteTags}
+        enqueteInfractionCodes={enqueteInfractionCodes}
       />
     );
   }

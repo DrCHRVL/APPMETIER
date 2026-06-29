@@ -139,6 +139,7 @@ const AdminCartographyPanel = dynamic(() => import('@/components/admin/AdminCart
 const AdminPathsPanel = dynamic(() => import('@/components/admin/AdminPathsPanel').then(m => ({ default: m.AdminPathsPanel })), { ssr: false });
 const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashboardPanel').then(m => ({ default: m.AdminDashboardPanel })), { ssr: false });
 const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHistoryPanel').then(m => ({ default: m.AdminTagHistoryPanel })), { ssr: false });
+const AdminNatinfPanel = dynamic(() => import('@/components/admin/AdminNatinfPanel').then(m => ({ default: m.AdminNatinfPanel })), { ssr: false });
 const AdminUpdatePanel = dynamic(() => import('@/components/admin/AdminUpdatePanel').then(m => ({ default: m.AdminUpdatePanel })), { ssr: false });
 const AboutContent = dynamic(() => import('@/components/AboutContent').then(m => ({ default: m.AboutContent })), { ssr: false });
 const AgendaPanel = dynamic(() => import('@/components/AgendaPanel').then(m => ({ default: m.AgendaPanel })), { ssr: false });
@@ -1947,6 +1948,7 @@ return (
         agendaContent={<AgendaPanel />}
         adminDashboardContent={<AdminDashboardPanel />}
         adminTagHistoryContent={<AdminTagHistoryPanel />}
+        adminNatinfContent={<AdminNatinfPanel />}
         adminUpdateContent={<AdminUpdatePanel onGithubUpdateChange={(hasUpdate, commits) => {
           setUpdateAvailable(hasUpdate);
           setUpdateCommits(commits);

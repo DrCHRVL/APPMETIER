@@ -159,6 +159,10 @@ export interface ResultatAudience {
   /** Liste complète des types d'infraction sélectionnés (multi-sélection).
       `typeInfraction` reste renseigné avec le premier pour la compat des stats. */
   typesInfraction?: string[];
+  /** Codes NATINF des infractions sélectionnées (dénormalisés au moment de la
+      saisie). Cible de la migration tags → NATINF : les statistiques de peines
+      se regroupent par ce code quand il est présent, sinon par typeInfraction. */
+  infractionNatinfCodes?: string[];
   numeroAudience?: string; // Format: "YYYY-MM-DD-N"
   isDirectResult?: boolean;
   isOI?: boolean; // Pour marquer les ouvertures d'information

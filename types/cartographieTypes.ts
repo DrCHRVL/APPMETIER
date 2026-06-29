@@ -52,8 +52,12 @@ export type CartographieInfractionWeights = Record<string, number>;
 
 export interface CartographieModuleConfig {
   weights: CartographieScoreWeights;
-  /** Pondérations par tag d'infraction (clé = Tag.id). */
+  /** Pondérations par tag d'infraction (clé = Tag.id). LEGACY : conservé pour
+   *  rétrocompat le temps de la migration vers NATINF (cf. natinfWeights). */
   tagInfractionWeights: CartographieInfractionWeights;
+  /** Pondérations par code NATINF (clé = code NATINF). Cible : remplace
+   *  progressivement tagInfractionWeights. Prioritaire sur le poids par tag. */
+  natinfWeights: CartographieInfractionWeights;
   /** Ancrage zonal par service d'enquête (puits de gravité). Quand activé,
    *  les galaxies partageant un même service dominant sont doucement
    *  attirées vers un centroïde commun (recalculé en continu) lors d'un
@@ -80,6 +84,7 @@ export const DEFAULT_CARTO_WEIGHTS: CartographieScoreWeights = {
 export const DEFAULT_CARTO_CONFIG: CartographieModuleConfig = {
   weights: { ...DEFAULT_CARTO_WEIGHTS },
   tagInfractionWeights: {},
+  natinfWeights: {},
   groupByService: false,
   version: 1,
   updatedAt: new Date(0).toISOString(),

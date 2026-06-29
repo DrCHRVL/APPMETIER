@@ -4,6 +4,9 @@ import React from 'react';
 import { RotateCcw, Info } from 'lucide-react';
 import { useCartographieConfig } from '@/hooks/useCartographieConfig';
 import { useTags } from '@/hooks/useTags';
+import { useNatinf } from '@/hooks/useNatinf';
+import { NatinfBadge } from '../natinf/NatinfBadge';
+import type { NatinfEntry } from '@/types/natinf';
 import { useToast } from '@/contexts/ToastContext';
 import type { CartographieScoreWeights } from '@/types/cartographieTypes';
 
@@ -72,14 +75,26 @@ const WEIGHT_FIELDS: WeightFieldDef[] = [
 ];
 
 export const AdminCartographyPanel: React.FC = () => {
-  const { config, isLoading, updateWeights, setTagInfractionWeight, setGroupByService, reset } = useCartographieConfig();
+  const { config, isLoading, updateWeights, setNatinfWeight, setGroupByService, reset } = useCartographieConfig();
   const { getTagsByCategory, isLoading: tagsLoading } = useTags();
+  const { getByCode } = useNatinf();
   const { showToast } = useToast();
 
   const infractionTags = React.useMemo(
     () => getTagsByCategory('infractions'),
     [getTagsByCategory],
   );
+
+  // NATINF effectivement utilisés = ceux rattachés à vos tags d'infraction.
+  const usedNatinfs = React.useMemo(() => {
+    const codes = new Set<string>();
+    for (const t of infractionTags) (t.natinfCodes || []).forEach(c => codes.add(c));
+    return [...codes]
+      .map(c => getByCode(c))
+      .filter((e): e is NatinfEntry => Boolean(e))
+      .sort((a, b) => parseInt(a.code, 10) - parseInt(b.code, 10));
+  }, [infractionTags, getByCode]);
+  const unlinkedCount = infractionTags.filter(t => !t.natinfCodes?.length).length;
 
   // Tampon d'édition local : permet la saisie libre tout en gardant les
   // champs synchronisés sur la config persistée. On le vide à chaque
@@ -108,9 +123,9 @@ export const AdminCartographyPanel: React.FC = () => {
     await guardSave(() => updateWeights({ [key]: n } as Partial<CartographieScoreWeights>));
   };
 
-  const handleTagWeightChange = async (tagId: string, value: string) => {
+  const handleNatinfWeightChange = async (code: string, value: string) => {
     const n = parseFloat(value);
-    await guardSave(() => setTagInfractionWeight(tagId, Number.isFinite(n) ? n : 0));
+    await guardSave(() => setNatinfWeight(code, Number.isFinite(n) ? n : 0));
   };
 
   const handleReset = async () => {
@@ -201,33 +216,43 @@ export const AdminCartographyPanel: React.FC = () => {
         </label>
       </section>
 
-      {/* Pondérations par tag d'infraction */}
+      {/* Pondération par infraction (NATINF) */}
       <section className="bg-white border border-slate-200 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-gray-800 mb-1">Pondération par type d&apos;infraction</h3>
+        <h3 className="text-sm font-semibold text-gray-800 mb-1">Pondération par infraction (NATINF)</h3>
         <p className="text-xs text-gray-500 mb-3">
-          Pour chaque type d&apos;infraction, ajoute un bonus au score d&apos;un MEC à chaque dossier
-          (ex nihilo ou instruction) le concernant. Liste alimentée par les tags de catégorie
-          «&nbsp;Type d&apos;infractions&nbsp;» (Paramètres &gt; Tags). Laisser à 0 pour
-          ignorer un tag.
+          Bonus ajouté au score d&apos;un MEC pour chaque dossier le concernant, par code NATINF
+          (matché exactement sur les chefs). Seuls les NATINF effectivement rattachés à vos
+          infractions sont listés. Laisser à 0 pour ignorer.
         </p>
 
-        {infractionTags.length === 0 ? (
+        {unlinkedCount > 0 && (
+          <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mb-2">
+            {unlinkedCount} type(s) d&apos;infraction non rattaché(s) au NATINF — utilisez
+            «&nbsp;Rattacher au NATINF&nbsp;» (Paramètres &gt; Tags) pour les inclure ici.
+          </p>
+        )}
+
+        {usedNatinfs.length === 0 ? (
           <div className="text-xs text-gray-500 italic py-4 text-center border border-dashed border-slate-200 rounded-md">
-            Aucun tag d&apos;infraction défini. Ajoute-les depuis l&apos;onglet «&nbsp;Tags&nbsp;».
+            Aucune infraction rattachée au NATINF.
           </div>
         ) : (
           <div className="divide-y divide-slate-100 border border-slate-200 rounded-md">
-            {infractionTags.map(tag => {
-              const current = config.tagInfractionWeights[tag.id] ?? 0;
+            {usedNatinfs.map(n => {
+              const current = config.natinfWeights[n.code] ?? 0;
               return (
-                <div key={tag.id} className="grid grid-cols-[1fr_100px] items-center gap-3 px-3 py-2">
-                  <span className="text-sm text-gray-800">{tag.value}</span>
+                <div key={n.code} className="grid grid-cols-[1fr_100px] items-center gap-3 px-3 py-2">
+                  <span className="text-sm text-gray-800 inline-flex items-center gap-2 min-w-0">
+                    <span className="font-mono text-xs text-gray-500 shrink-0">{n.code}</span>
+                    <span className="truncate" title={n.libelle}>{n.libelle}</span>
+                    <NatinfBadge nature={n.nature} quantumLabel={n.quantumLabel} compact />
+                  </span>
                   <input
                     type="number"
                     step={0.5}
-                    value={draft[`t:${tag.id}`] ?? String(current)}
-                    onChange={(e) => setDraft(d => ({ ...d, [`t:${tag.id}`]: e.target.value }))}
-                    onBlur={(e) => handleTagWeightChange(tag.id, e.target.value)}
+                    value={draft[`n:${n.code}`] ?? String(current)}
+                    onChange={(e) => setDraft(d => ({ ...d, [`n:${n.code}`]: e.target.value }))}
+                    onBlur={(e) => handleNatinfWeightChange(n.code, e.target.value)}
                     className="border border-slate-300 rounded-md px-2 py-1 text-sm text-right tabular-nums"
                   />
                 </div>

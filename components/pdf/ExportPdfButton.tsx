@@ -3,6 +3,7 @@ import { Button } from '../ui/button';
 import { FileText, Loader2 } from 'lucide-react';
 import { useAudience } from '@/hooks/useAudience';
 import { useTags } from '@/hooks/useTags';
+import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { Enquete } from '@/types/interfaces';
 import { getYearlyStats, getMonthlyStats } from '@/utils/audienceStats';
 import { exportStatsPdf, PdfExportData } from '@/utils/generateStatsPdf';
@@ -22,6 +23,11 @@ export const ExportPdfButton = ({
   const [isExporting, setIsExporting] = useState(false);
   const { audienceState } = useAudience();
   const { getServicesFromTags } = useTags();
+  const { infractionsForEnquete } = useInfractionNatinf();
+  // Clé canonique d'une infraction : code NATINF si rattaché, sinon libellé.
+  // Regrouper par cette clé garde des comptes cohérents qu'un dossier soit migré
+  // au NATINF (infractionNatinfCodes) ou encore en tags.
+  const keyOf = (inf: { code?: string; label: string }) => inf.code ?? inf.label;
 
   const handleExportPDF = async () => {
     setIsExporting(true);
@@ -197,19 +203,28 @@ export const ExportPdfButton = ({
         };
       });
 
-      // Infractions
-      const infractionSet = new Set<string>();
+      // Infractions : clé canonique (code NATINF ou libellé) → item représentatif
+      // (préférer celui qui a un code) pour l'affichage (libellé + code NATINF).
+      const infractionReps = new Map<string, ReturnType<typeof infractionsForEnquete>[number]>();
       enquetes.forEach(e => {
-        e.tags.filter(t => t.category === 'infractions').forEach(t => { if (t.value) infractionSet.add(t.value); });
+        infractionsForEnquete(e).forEach(inf => {
+          const k = keyOf(inf);
+          if (!k) return;
+          const existing = infractionReps.get(k);
+          if (!existing || (!existing.code && inf.code)) infractionReps.set(k, inf);
+        });
       });
-      const infractions = Array.from(infractionSet).sort();
+      const infractions = [...infractionReps.keys()].sort();
 
       const computeInfractionStats = (filter: (e: Enquete) => boolean) =>
-        infractions.reduce((acc, inf) => {
-          const count = enquetes.filter(e => filter(e) && e.tags.some(t => t.category === 'infractions' && t.value === inf)).length;
-          if (count > 0) acc.push({ infraction: inf, count });
+        infractions.reduce((acc, key) => {
+          const count = enquetes.filter(e => filter(e) && infractionsForEnquete(e).some(inf => keyOf(inf) === key)).length;
+          if (count > 0) {
+            const rep = infractionReps.get(key);
+            acc.push({ infraction: rep?.label ?? key, natinfCode: rep?.code, count });
+          }
           return acc;
-        }, [] as { infraction: string; count: number }[]);
+        }, [] as { infraction: string; natinfCode?: string; count: number }[]);
 
       const infractionsEnCours = computeInfractionStats(e =>
         e.statut === 'en_cours' && new Date(e.dateCreation).getFullYear() <= selectedYear
