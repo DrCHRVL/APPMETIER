@@ -400,15 +400,51 @@ export const AdminUsersPanel = () => {
           <summary className="text-sm font-semibold flex items-center gap-2 cursor-pointer select-none">
             <KeyRound className="h-4 w-4" /> Accès &amp; clés — comment ça marche
           </summary>
-          <p className="text-xs text-emerald-800 mt-2 leading-relaxed">
-            Chaque membre détient un <b>trousseau personnel</b> (sa phrase secrète) contenant les clés des contentieux
-            auxquels il est habilité <i>ci-dessous</i>. Déplier une carte puis <b>Inviter</b> = lui remettre un
-            <b> code à usage unique</b> qui livre exactement ces clés — à transmettre de vive voix ou par canal sûr.
-            Jamais les clés ne transitent en clair par le serveur. Après avoir modifié une habilitation,
-            <b> ré-invitez</b> le membre pour mettre son trousseau à jour. <b>Révoquer</b> supprime son trousseau : il ne
-            peut plus rien déchiffrer via l&apos;application ; pour une révocation cryptographique (membre parti avec ses
-            clés mémorisées), ré-invitez ensuite les membres restants pour régénérer les clés à la prochaine rotation.
-          </p>
+          <div className="text-xs text-emerald-800 mt-2 leading-relaxed space-y-3">
+            <p>
+              Chaque membre détient un <b>trousseau personnel</b> (déverrouillé par sa phrase secrète) contenant les clés
+              des contentieux auxquels il est habilité <i>ci-dessous</i>. Les clés ne transitent <b>jamais en clair</b> par
+              le serveur.
+            </p>
+
+            <div>
+              <p className="font-semibold text-emerald-900">Donner accès à un nouveau membre — dans cet ordre :</p>
+              <ol className="list-decimal ml-4 mt-1 space-y-1">
+                <li>
+                  <b>Créez sa fiche</b> ci-dessous (<i>Ajouter un utilisateur</i>) et cochez ses contentieux &amp; modules.
+                  Tant qu&apos;il ne s&apos;est pas enrôlé, son badge affiche <b>« Pas encore enrôlé »</b> et le bouton
+                  Inviter n&apos;apparaît pas encore — c&apos;est normal.
+                </li>
+                <li>
+                  <b>Lui s&apos;enrôle</b> : il ouvre l&apos;application et remplit l&apos;écran <i>Enrôlement</i> avec le
+                  <b> code d&apos;enrôlement du service</b> (la valeur <code>SIRAL_SETUP_CODE</code>, à lui communiquer de
+                  vive voix) puis son mot de passe. ⚠️ Il doit utiliser <b>exactement le même identifiant</b> que celui de
+                  sa fiche, sinon les deux ne se relient pas.
+                </li>
+                <li>
+                  <b>Vous l&apos;invitez</b> : son badge passe à <b>« À inviter »</b>. Dépliez sa carte → <b>Inviter</b> :
+                  vous obtenez un <b>code à usage unique</b> qui livre exactement ses clés. Transmettez-le maintenant, de
+                  vive voix ou par canal sûr — il ne sera <b>plus jamais affiché</b>.
+                </li>
+                <li>
+                  <b>Lui active son trousseau</b> : il saisit ce code d&apos;invitation et choisit sa <b>phrase
+                  personnelle</b> (irrécupérable — à noter en lieu sûr). Son badge passe alors à <b>« Trousseau actif »</b>.
+                </li>
+              </ol>
+            </div>
+
+            <p>
+              <b>Les badges</b> résument l&apos;état : <i>Pas encore enrôlé</i> (aucun compte) → <i>À inviter</i> (enrôlé,
+              sans clés) → <i>Invitation en attente</i> (code remis, pas encore activé) → <i>Trousseau actif</i>.
+            </p>
+
+            <p>
+              <b>Entretien.</b> Après avoir modifié une habilitation, <b>ré-invitez</b> le membre pour mettre son trousseau
+              à jour. <b>Révoquer</b> supprime son trousseau : il ne peut plus rien déchiffrer via l&apos;application ; pour
+              une révocation cryptographique (membre parti avec ses clés mémorisées), ré-invitez ensuite les membres
+              restants pour régénérer les clés à la prochaine rotation.
+            </p>
+          </div>
         </details>
       )}
 
