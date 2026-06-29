@@ -11,7 +11,8 @@ import { useTags } from '@/hooks/useTags';
 import { useActeStats } from '@/hooks/useActeStats';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { getYearlyStats } from '@/utils/audienceStats';
-import { Flag } from 'lucide-react';
+import { detectActesAberrants } from '@/utils/acteAnomalies';
+import { Flag, AlertTriangle } from 'lucide-react';
 
 ChartJS.register(
   ArcElement,
@@ -150,6 +151,10 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
 
   // Actes via hook
   const acteStats = useActeStats(enquetesForYear);
+
+  // Actes à date aberrante (sur tout le périmètre, pour aider à les localiser
+  // et corriger — indépendamment de l'année sélectionnée).
+  const actesAberrants = useMemo(() => detectActesAberrants(enquetes), [enquetes]);
 
   // Comparatif N-1
   const prevYear = selectedYear - 1;
@@ -565,6 +570,32 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
                 </div>
               </div>
             </div>
+            {/* Actes à date aberrante : repérage pour correction */}
+            {actesAberrants.length > 0 && (
+              <div className="mt-4 pt-4 border-t">
+                <div className="flex items-center gap-1.5 text-amber-600 mb-1">
+                  <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+                  <p className="text-xs font-semibold">
+                    {actesAberrants.length} acte{actesAberrants.length > 1 ? 's' : ''} à vérifier (date incohérente)
+                  </p>
+                </div>
+                <p className="text-[11px] text-gray-500 mb-2">
+                  Date manifestement erronée : ces actes sont exclus des estimations ci-dessus.
+                  Corrigez leur date de fin dans la fiche enquête concernée.
+                </p>
+                <div className="space-y-1">
+                  {actesAberrants.map((a, idx) => (
+                    <div key={`${a.enqueteId}-${a.type}-${a.libelle}-${idx}`} className="flex justify-between gap-2 text-xs">
+                      <span className="text-gray-700 truncate" title={`${a.enqueteNumero} · ${a.type} · ${a.libelle}`}>
+                        {a.enqueteNumero} · {a.type} · {a.libelle}
+                      </span>
+                      <span className="text-amber-600 flex-shrink-0">{a.raison}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Répartition par contentieux */}
             {isGlobal && contentieuxStats && contentieuxStats.filter(s => s.totalActes > 0).length > 0 && (() => {
               const actesData = contentieuxStats.filter(s => s.totalActes > 0).sort((a, b) => b.totalActes - a.totalActes);
