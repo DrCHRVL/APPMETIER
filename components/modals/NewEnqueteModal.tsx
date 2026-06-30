@@ -5,6 +5,7 @@ import { MecAutocompleteInput } from '@/components/ui/MecAutocompleteInput';
 import { Badge } from '@/components/ui/badge';
 import { NatinfBadge } from '@/components/natinf/NatinfBadge';
 import { NatinfPicker } from '@/components/natinf/NatinfPicker';
+import { NatinfGroupSuggestions } from '@/components/natinf/NatinfGroupSuggestions';
 import { useNatinf } from '@/hooks/useNatinf';
 import { Select } from '@/components/ui/select';
 import { X, Clock } from 'lucide-react';
@@ -307,6 +308,13 @@ export const NewEnqueteModal = ({
                   setSelectedNatinfCodes(prev => prev.includes(entry.code) ? prev : [...prev, entry.code])
                 }
                 placeholder="Rechercher une infraction (n° NATINF ou libellé)…"
+              />
+
+              <NatinfGroupSuggestions
+                selectedCodes={selectedNatinfCodes}
+                onAdd={(codes) =>
+                  setSelectedNatinfCodes(prev => Array.from(new Set([...prev, ...codes])))
+                }
               />
 
               <div className="flex flex-wrap gap-2 mt-2">
