@@ -444,10 +444,15 @@ return (
                 <Badge
                   key={inf.code || inf.label || i}
                   variant="outline"
-                  className="text-[10px] py-0 px-1.5 bg-gray-50 inline-flex items-center gap-1"
+                  className="text-[10px] py-0 px-1.5 bg-gray-50 inline-flex items-center gap-1 max-w-full"
+                  title={inf.label}
                 >
-                  {inf.label}
-                  {inf.code && <NatinfBadge code={inf.code} nature={inf.nature} quantumLabel={inf.quantumLabel} compact />}
+                  <span className="min-w-0 max-w-[10rem] truncate">{inf.label}</span>
+                  {inf.code && (
+                    <span className="shrink-0">
+                      <NatinfBadge code={inf.code} nature={inf.nature} quantumLabel={inf.quantumLabel} compact />
+                    </span>
+                  )}
                 </Badge>
               ))}
 

@@ -1,0 +1,426 @@
+{
+  "version": "2021-02",
+  "source": "Table NATAFF (nature d affaire) - Ministere de la Justice",
+  "n1": [
+    {
+      "code": "A",
+      "libelle": "Atteinte à la personne humaine"
+    },
+    {
+      "code": "B",
+      "libelle": "Atteinte aux biens"
+    },
+    {
+      "code": "C",
+      "libelle": "Atteinte à l'autorité de l'Etat"
+    },
+    {
+      "code": "D",
+      "libelle": "Autres atteintes à l'autorité de l'Etat / Crimes de guerre"
+    },
+    {
+      "code": "E",
+      "libelle": "Infractions financières"
+    },
+    {
+      "code": "F",
+      "libelle": "Infractions économiques"
+    },
+    {
+      "code": "G",
+      "libelle": "Infraction en matière de santé publique"
+    },
+    {
+      "code": "H",
+      "libelle": "Infraction à la législation du travail"
+    },
+    {
+      "code": "I",
+      "libelle": "Infraction à la réglementation de la circulation et des moyens de transports"
+    },
+    {
+      "code": "J",
+      "libelle": "Atteinte à l'environnement"
+    },
+    {
+      "code": "K",
+      "libelle": "Affaires pénales diverses"
+    },
+    {
+      "code": "L",
+      "libelle": "Affaires non pénales"
+    }
+  ],
+  "n2": [
+    {
+      "code": "A1",
+      "n1": "A",
+      "libelle": "Homicide volontaire et autres atteintes volontaires ayant entrainé la mort"
+    },
+    {
+      "code": "A2",
+      "n1": "A",
+      "libelle": "Découverte de cadavre"
+    },
+    {
+      "code": "A3",
+      "n1": "A",
+      "libelle": "Atteinte corporelle volontaire sur majeur"
+    },
+    {
+      "code": "A4",
+      "n1": "A",
+      "libelle": "Atteinte corporelle volontaire sur mineur"
+    },
+    {
+      "code": "A5",
+      "n1": "A",
+      "libelle": "Atteinte corporelle involontaire"
+    },
+    {
+      "code": "A6",
+      "n1": "A",
+      "libelle": "Atteinte à la vie privée"
+    },
+    {
+      "code": "A7",
+      "n1": "A",
+      "libelle": "Atteinte à la dignité de la personne"
+    },
+    {
+      "code": "A8",
+      "n1": "A",
+      "libelle": "Atteinte aux moeurs"
+    },
+    {
+      "code": "A9",
+      "n1": "A",
+      "libelle": "Atteinte à la famille"
+    },
+    {
+      "code": "B1",
+      "n1": "B",
+      "libelle": "Vol criminel"
+    },
+    {
+      "code": "B2",
+      "n1": "B",
+      "libelle": "Vol aggravé"
+    },
+    {
+      "code": "B3",
+      "n1": "B",
+      "libelle": "Vol simple"
+    },
+    {
+      "code": "B4",
+      "n1": "B",
+      "libelle": "Recel et infractions assimilées"
+    },
+    {
+      "code": "B5",
+      "n1": "B",
+      "libelle": "Détournement"
+    },
+    {
+      "code": "B6",
+      "n1": "B",
+      "libelle": "Escroquerie"
+    },
+    {
+      "code": "B7",
+      "n1": "B",
+      "libelle": "Destruction / Dégradation"
+    },
+    {
+      "code": "B8",
+      "n1": "B",
+      "libelle": "Infraction en matière informatique et de communication"
+    },
+    {
+      "code": "C1",
+      "n1": "C",
+      "libelle": "Atteinte à l'intégrité de l'Etat"
+    },
+    {
+      "code": "C2",
+      "n1": "C",
+      "libelle": "Armes, explosifs et autres moyens dangereux"
+    },
+    {
+      "code": "C3",
+      "n1": "C",
+      "libelle": "Atteinte à devoir de probité"
+    },
+    {
+      "code": "C4",
+      "n1": "C",
+      "libelle": "Atteinte à la confiance publique"
+    },
+    {
+      "code": "C5",
+      "n1": "C",
+      "libelle": "Atteinte à l'ordre administratif et judiciaire"
+    },
+    {
+      "code": "C6",
+      "n1": "C",
+      "libelle": "Atteinte à l'autorité publique"
+    },
+    {
+      "code": "C7",
+      "n1": "C",
+      "libelle": "Association de malfaiteurs"
+    },
+    {
+      "code": "D1",
+      "n1": "D",
+      "libelle": "Infraction à la législation sur les activités réglementées"
+    },
+    {
+      "code": "D2",
+      "n1": "D",
+      "libelle": "Infractions militaires"
+    },
+    {
+      "code": "D3",
+      "n1": "D",
+      "libelle": "Infractions électorales"
+    },
+    {
+      "code": "D4",
+      "n1": "D",
+      "libelle": "Police des étrangers"
+    },
+    {
+      "code": "D5",
+      "n1": "D",
+      "libelle": "Infraction liée au statut des nomades"
+    },
+    {
+      "code": "D6",
+      "n1": "D",
+      "libelle": "Infractions en matière de presse et publications"
+    },
+    {
+      "code": "D7",
+      "n1": "D",
+      "libelle": "Crimes et délits de guerre"
+    },
+    {
+      "code": "E1",
+      "n1": "E",
+      "libelle": "Infractions à la législation sur les sociétés"
+    },
+    {
+      "code": "E2",
+      "n1": "E",
+      "libelle": "Infractions fiscales ou douanières"
+    },
+    {
+      "code": "E3",
+      "n1": "E",
+      "libelle": "Infractions sur les moyens de paiement"
+    },
+    {
+      "code": "E4",
+      "n1": "E",
+      "libelle": "Infractions sur les établissements de crédit et les assurances"
+    },
+    {
+      "code": "E5",
+      "n1": "E",
+      "libelle": "Infractions boursières et épargne"
+    },
+    {
+      "code": "F1",
+      "n1": "F",
+      "libelle": "Infractions en matière de concurrence et prix"
+    },
+    {
+      "code": "F2",
+      "n1": "F",
+      "libelle": "Infractions en matière de consommation"
+    },
+    {
+      "code": "F3",
+      "n1": "F",
+      "libelle": "Atteinte à la réglementation des professions industrielles, commerciales et agricoles"
+    },
+    {
+      "code": "F4",
+      "n1": "F",
+      "libelle": "Contrefaçon"
+    },
+    {
+      "code": "G1",
+      "n1": "G",
+      "libelle": "Infraction à la législation sur les substances vénéneuses, les stupéfiants et les produits dopants"
+    },
+    {
+      "code": "G2",
+      "n1": "G",
+      "libelle": "Infraction à la réglementation sur les professions de santé"
+    },
+    {
+      "code": "G3",
+      "n1": "G",
+      "libelle": "Infraction à la réglementation sur l'alcool et le tabac"
+    },
+    {
+      "code": "G4",
+      "n1": "G",
+      "libelle": "Infraction en matière d'hygiène publique"
+    },
+    {
+      "code": "G5",
+      "n1": "G",
+      "libelle": "Infraction en matière d'hygiène alimentaire"
+    },
+    {
+      "code": "H1",
+      "n1": "H",
+      "libelle": "Infraction à la législation sur l'emploi"
+    },
+    {
+      "code": "H2",
+      "n1": "H",
+      "libelle": "Infraction à la réglementation du travail"
+    },
+    {
+      "code": "H3",
+      "n1": "H",
+      "libelle": "Infraction à la protection sociale"
+    },
+    {
+      "code": "H4",
+      "n1": "H",
+      "libelle": "Infraction aux prestations sociales"
+    },
+    {
+      "code": "I1",
+      "n1": "I",
+      "libelle": "Infraction à capacité de conduite"
+    },
+    {
+      "code": "I2",
+      "n1": "I",
+      "libelle": "Infraction règles de conduite"
+    },
+    {
+      "code": "I3",
+      "n1": "I",
+      "libelle": "Infraction à la réglementation des professions de transports"
+    },
+    {
+      "code": "I4",
+      "n1": "I",
+      "libelle": "Infraction à la réglementation du transport des matières dangereuses"
+    },
+    {
+      "code": "I5",
+      "n1": "I",
+      "libelle": "Infraction à la réglementation ferroviaire, transport public"
+    },
+    {
+      "code": "I6",
+      "n1": "I",
+      "libelle": "Infraction aux règles de la navigation fluviale et maritime"
+    },
+    {
+      "code": "I7",
+      "n1": "I",
+      "libelle": "Infraction à la législation sur la circulation aérienne"
+    },
+    {
+      "code": "I8",
+      "n1": "I",
+      "libelle": "Infractions aux règles sur l'usage des voies"
+    },
+    {
+      "code": "I9",
+      "n1": "I",
+      "libelle": "Infraction aux règles sur l'arrêt et le stationnement des véhicules"
+    },
+    {
+      "code": "J1",
+      "n1": "J",
+      "libelle": "Pollution, atteinte au cadre de vie et à l'occupation des sols"
+    },
+    {
+      "code": "J2",
+      "n1": "J",
+      "libelle": "Infraction à la législation sur l'environnement industriel"
+    },
+    {
+      "code": "J3",
+      "n1": "J",
+      "libelle": "Infraction à la législation sur les espaces naturels"
+    },
+    {
+      "code": "J4",
+      "n1": "J",
+      "libelle": "Infraction à la législation sur la chasse"
+    },
+    {
+      "code": "J5",
+      "n1": "J",
+      "libelle": "Infraction à la législation sur la pêche, l'eau et les milieux aquatiques"
+    },
+    {
+      "code": "J6",
+      "n1": "J",
+      "libelle": "Protection des espèces animales, végétales et des habitats"
+    },
+    {
+      "code": "K1",
+      "n1": "K",
+      "libelle": "Infractions pénales compétence OMP"
+    },
+    {
+      "code": "K2",
+      "n1": "K",
+      "libelle": "Procédures en provenance de parquets extérieurs ou de parquets étrangers"
+    },
+    {
+      "code": "K3",
+      "n1": "K",
+      "libelle": "Requêtes pénales"
+    },
+    {
+      "code": "K4",
+      "n1": "K",
+      "libelle": "AFFAIRES PENALES SANS CORRESPONDANCE EN REPRISE DE L'EXISTANT"
+    },
+    {
+      "code": "K5",
+      "n1": "K",
+      "libelle": "Disparition suspecte"
+    },
+    {
+      "code": "L1",
+      "n1": "L",
+      "libelle": "Affaires civiles ou administratives"
+    },
+    {
+      "code": "L2",
+      "n1": "L",
+      "libelle": "Affaires commerciales"
+    },
+    {
+      "code": "L3",
+      "n1": "L",
+      "libelle": "Affaires prud'homales"
+    },
+    {
+      "code": "L4",
+      "n1": "L",
+      "libelle": "Assistance éducative"
+    },
+    {
+      "code": "L5",
+      "n1": "L",
+      "libelle": "Autres affaires non pénales"
+    }
+  ]
+}
