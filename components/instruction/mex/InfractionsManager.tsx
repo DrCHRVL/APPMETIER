@@ -1,128 +1,128 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { Plus, Trash2, MapPin, Calendar as CalendarIcon, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Trash2, MapPin, Calendar as CalendarIcon, ChevronDown, ChevronUp, Scale } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
-import { useTags } from '@/hooks/useTags';
-import { useNatinf } from '@/hooks/useNatinf';
-import { toRef } from '@/lib/natinf/natinfData';
-import { NatinfPicker } from '../../natinf/NatinfPicker';
 import { NatinfGroupSuggestions } from '../../natinf/NatinfGroupSuggestions';
 import { NatinfBadge } from '../../natinf/NatinfBadge';
-import type { InfractionReproche } from '@/types/instructionTypes';
+import type { InfractionReproche, SaisineItem } from '@/types/instructionTypes';
 
 interface Props {
   value: InfractionReproche[];
   onChange: (next: InfractionReproche[]) => void;
+  /** Saisine in rem du dossier : périmètre des chefs possibles. On ne peut pas
+   *  mettre en examen pour un fait qui n'en fait pas partie. */
+  saisine?: SaisineItem[];
   readOnly?: boolean;
 }
 
-export const InfractionsManager = ({ value, onChange, readOnly }: Props) => {
-  const { getTagsByCategory, isLoading } = useTags();
-  const { getByCode } = useNatinf();
-  const infractionTags = useMemo(() => getTagsByCategory('infractions'), [getTagsByCategory]);
-  const sortedTags = useMemo(
-    () => [...infractionTags].sort((a, b) => a.value.localeCompare(b.value, 'fr')),
-    [infractionTags],
-  );
-  const selectedValues = useMemo(
-    () => new Set(value.map(v => v.qualification)),
-    [value],
-  );
+// Clé d'identité d'un chef (NATINF prioritaire, sinon libellé) servant à
+// rapprocher un chef de mise en examen d'une qualification de la saisine.
+const chefKey = (code: string | undefined, qualification: string) =>
+  code ? `c:${code}` : `q:${qualification.trim().toLowerCase()}`;
+
+export const InfractionsManager = ({ value, onChange, saisine = [], readOnly }: Props) => {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  const handleToggleTag = (tagValue: string) => {
-    if (readOnly) return;
-    if (selectedValues.has(tagValue)) {
-      onChange(value.filter(v => v.qualification !== tagValue));
-    } else {
-      // Continuité tags ↔ NATINF : si le tag est relié à un seul code NATINF,
-      // on rattache automatiquement le chef au référentiel.
-      const def = infractionTags.find(t => t.value === tagValue);
-      let natinfCode: string | undefined;
-      let natinfRef: InfractionReproche['natinfRef'];
-      if (def?.natinfCodes?.length === 1) {
-        natinfCode = def.natinfCodes[0];
-        const entry = getByCode(natinfCode);
-        if (entry) natinfRef = toRef(entry);
-      }
-      onChange([
-        ...value,
-        {
-          id: Date.now() + Math.floor(Math.random() * 1000),
-          qualification: tagValue,
-          natinfCode,
-          natinfRef,
-        },
-      ]);
+  // Qualifications disponibles, issues de la saisine in rem (dédoublonnées).
+  // C'est l'unique source des chefs : impossible d'inculper hors saisine.
+  const saisineOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const opts: { key: string; qualification: string; natinfCode?: string; natinfRef?: InfractionReproche['natinfRef'] }[] = [];
+    for (const item of saisine) {
+      const qualification = (item.qualification || item.natinfRef?.libelle || (item.natinfCode ? `NATINF ${item.natinfCode}` : '')).trim();
+      if (!qualification && !item.natinfCode) continue;
+      const key = chefKey(item.natinfCode, qualification);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      opts.push({ key, qualification, natinfCode: item.natinfCode, natinfRef: item.natinfRef });
     }
-  };
+    return opts;
+  }, [saisine]);
 
-  const handleSetNatinf = (id: number, entry: Parameters<typeof toRef>[0]) =>
-    handleUpdate(id, { natinfCode: entry.code, natinfRef: toRef(entry) });
+  // Chefs déjà retenus, indexés par clé d'identité.
+  const selectedKeys = useMemo(
+    () => new Set(value.map(v => chefKey(v.natinfCode, v.qualification))),
+    [value],
+  );
 
-  const handleClearNatinf = (id: number) =>
-    handleUpdate(id, { natinfCode: undefined, natinfRef: undefined });
+  // Codes NATINF de la saisine = périmètre proposable pour les familles.
+  const saisineCodes = useMemo(
+    () => saisineOptions.map(o => o.natinfCode).filter((c): c is string => Boolean(c)),
+    [saisineOptions],
+  );
 
   const handleRemove = (id: number) => onChange(value.filter(i => i.id !== id));
 
   const handleUpdate = (id: number, updates: Partial<InfractionReproche>) =>
     onChange(value.map(i => (i.id === id ? { ...i, ...updates } : i)));
 
-  // Création primaire d'un chef directement depuis le référentiel NATINF :
-  // qualification = libellé officiel, code + snapshot renseignés d'office.
-  const handleAddFromNatinf = (entry: Parameters<typeof toRef>[0]) => {
+  // Sélection / désélection d'un chef à partir d'une qualification de la saisine.
+  const handleToggleSaisine = (opt: (typeof saisineOptions)[number]) => {
     if (readOnly) return;
-    if (value.some(v => v.natinfCode === entry.code)) return; // évite les doublons
-    onChange([
-      ...value,
-      {
-        id: Date.now() + Math.floor(Math.random() * 1000),
-        qualification: entry.libelle,
-        natinfCode: entry.code,
-        natinfRef: toRef(entry),
-      },
-    ]);
+    if (selectedKeys.has(opt.key)) {
+      onChange(value.filter(v => chefKey(v.natinfCode, v.qualification) !== opt.key));
+    } else {
+      onChange([
+        ...value,
+        {
+          id: Date.now() + Math.floor(Math.random() * 1000),
+          qualification: opt.qualification,
+          natinfCode: opt.natinfCode,
+          natinfRef: opt.natinfRef,
+        },
+      ]);
+    }
   };
 
-  // Codes NATINF déjà rattachés à un chef (pour la détection de familles).
+  // Codes NATINF déjà retenus comme chefs (pour la détection de familles).
   const selectedNatinfCodes = useMemo(
     () => value.map(v => v.natinfCode).filter((c): c is string => Boolean(c)),
     [value],
   );
 
-  // Ajout en lot des chefs « jumeaux » d'une famille (suggestion).
+  // Ajout en lot des chefs « jumeaux » d'une famille — restreint à la saisine :
+  // on ne propose et n'ajoute que des codes effectivement visés par la saisine.
   const handleAddCodes = (codes: string[]) => {
     if (readOnly) return;
     const existing = new Set(value.map(v => v.natinfCode).filter(Boolean));
+    const byCode = new Map(saisineOptions.filter(o => o.natinfCode).map(o => [o.natinfCode!, o] as const));
     const toAdd: InfractionReproche[] = [];
     let seq = 0;
     for (const code of codes) {
       if (existing.has(code)) continue;
-      const entry = getByCode(code);
-      if (!entry) continue;
+      const opt = byCode.get(code);
+      if (!opt) continue; // hors saisine : ignoré
       existing.add(code);
       toAdd.push({
         id: Date.now() + Math.floor(Math.random() * 1000) + seq++,
-        qualification: entry.libelle,
-        natinfCode: entry.code,
-        natinfRef: toRef(entry),
+        qualification: opt.qualification,
+        natinfCode: opt.natinfCode,
+        natinfRef: opt.natinfRef,
       });
     }
     if (toAdd.length > 0) onChange([...value, ...toAdd]);
   };
 
+  // Chefs hors saisine (anciennes saisies, ou saisine modifiée depuis) : on les
+  // conserve mais on les signale, car ils sortent désormais du périmètre.
+  const horsSaisine = useMemo(
+    () => value.filter(v => !saisineOptions.some(o => o.key === chefKey(v.natinfCode, v.qualification))),
+    [value, saisineOptions],
+  );
+
   return (
     <div className="space-y-3">
-      {/* Liste des infractions sélectionnées avec détails (date, lieu, contexte) */}
+      {/* Liste des chefs retenus avec détails (date, lieu, contexte) */}
       {value.length === 0 ? (
-        <div className="text-xs text-gray-400 italic">Aucune infraction sélectionnée.</div>
+        <div className="text-xs text-gray-400 italic">Aucun chef d'inculpation retenu.</div>
       ) : (
         <div className="space-y-1.5">
           {value.map(inf => {
             const isExpanded = expandedId === inf.id;
             const hasDetails = !!(inf.dateInfraction || inf.lieuInfraction || inf.explication);
+            const isHorsSaisine = horsSaisine.some(h => h.id === inf.id);
             return (
               <div key={inf.id} className="border border-gray-200 rounded bg-white text-sm">
                 <div className="flex items-center gap-2 p-2">
@@ -136,6 +136,14 @@ export const InfractionsManager = ({ value, onChange, readOnly }: Props) => {
                       title={inf.natinfRef.libelle}
                       className="shrink-0"
                     />
+                  )}
+                  {isHorsSaisine && (
+                    <span
+                      className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-300"
+                      title="Ce chef ne figure pas dans la saisine in rem actuelle. Vérifiez la saisine ou retirez-le."
+                    >
+                      hors saisine
+                    </span>
                   )}
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-500 flex-1 min-w-0">
                     {inf.dateInfraction && (
@@ -182,33 +190,6 @@ export const InfractionsManager = ({ value, onChange, readOnly }: Props) => {
                       )
                     ) : (
                       <>
-                        <div className="space-y-1">
-                          <div className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
-                            NATINF
-                          </div>
-                          {inf.natinfRef ? (
-                            <div className="flex items-center gap-2">
-                              <NatinfBadge nature={inf.natinfRef.nature} code={inf.natinfRef.code} />
-                              <span className="min-w-0 flex-1 truncate text-xs text-gray-700" title={inf.natinfRef.libelle}>
-                                {inf.natinfRef.libelle}
-                              </span>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleClearNatinf(inf.id)}
-                                className="h-6 px-1 text-gray-400 hover:text-red-600"
-                                title="Détacher le NATINF"
-                              >
-                                <X className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <NatinfPicker
-                              onSelect={(entry) => handleSetNatinf(inf.id, entry)}
-                              placeholder="Rattacher un NATINF…"
-                            />
-                          )}
-                        </div>
                         <div className="grid grid-cols-2 gap-2">
                           <Input
                             type="date"
@@ -240,81 +221,52 @@ export const InfractionsManager = ({ value, onChange, readOnly }: Props) => {
         </div>
       )}
 
-      {/* Ajout primaire par le référentiel NATINF (remplit code + libellé). */}
+      {/* Sélection des chefs dans le périmètre de la saisine in rem.
+          La mise en examen ne peut viser que des faits dont le juge est saisi. */}
       {!readOnly && (
         <div className="border border-dashed border-emerald-300 rounded p-2 bg-emerald-50/40">
-          <div className="text-[11px] text-gray-600 mb-1.5">
-            Ajouter un chef d'infraction (référentiel NATINF)
+          <div className="flex items-center gap-1.5 text-[11px] text-gray-600 mb-1.5">
+            <Scale className="h-3 w-3" />
+            Chefs visés par la saisine in rem
           </div>
-          <NatinfPicker
-            onSelect={handleAddFromNatinf}
-            placeholder="Rechercher une infraction (n° NATINF ou libellé)…"
-          />
-          <NatinfGroupSuggestions
-            selectedCodes={selectedNatinfCodes}
-            onAdd={handleAddCodes}
-            className="mt-2"
-          />
-        </div>
-      )}
-
-      {/* Sélecteur de tags d'infraction (secondaire ; NATINF rattaché si possible) */}
-      {!readOnly && (
-        <div className="border border-dashed border-gray-300 rounded p-2 bg-gray-50">
-          <div className="text-[11px] text-gray-500 mb-1.5">
-            Ou sélectionnez un type d'infraction (référentiel commun aux enquêtes)
-            {isLoading && ' — chargement…'}
-          </div>
-          {sortedTags.length === 0 ? (
+          {saisineOptions.length === 0 ? (
             <div className="text-xs text-gray-400 italic">
-              Aucun tag d'infraction défini. Créez-en depuis la gestion des tags.
+              Aucune qualification dans la saisine in rem. Renseignez d'abord la saisine
+              (onglet Aperçu) pour pouvoir mettre en examen.
             </div>
           ) : (
             <div className="flex flex-wrap gap-1.5">
-              {sortedTags.map(tag => {
-                const isSelected = selectedValues.has(tag.value);
+              {saisineOptions.map(opt => {
+                const isSelected = selectedKeys.has(opt.key);
                 return (
                   <button
-                    key={tag.id}
+                    key={opt.key}
                     type="button"
-                    onClick={() => handleToggleTag(tag.value)}
-                    className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                    onClick={() => handleToggleSaisine(opt)}
+                    title={opt.qualification}
+                    className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border transition-colors ${
                       isSelected
                         ? 'bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700'
                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
                     }`}
                   >
-                    {tag.value}
+                    <span className="max-w-[16rem] truncate">{opt.qualification}</span>
+                    {opt.natinfCode && (
+                      <span className={`font-mono text-[10px] ${isSelected ? 'text-emerald-100' : 'text-gray-400'}`}>
+                        {opt.natinfCode}
+                      </span>
+                    )}
                   </button>
                 );
               })}
             </div>
           )}
-          {/* Infractions historiques non présentes dans la liste de tags
-              (ex: anciens dossiers saisis en texte libre). On les conserve
-              et permet leur suppression individuelle. */}
-          {value.some(v => !sortedTags.find(t => t.value === v.qualification)) && (
-            <div className="mt-2 pt-2 border-t border-gray-200">
-              <div className="text-[10px] text-amber-700 mb-1">
-                Anciennes saisies hors référentiel — à reclasser :
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {value
-                  .filter(v => !sortedTags.find(t => t.value === v.qualification))
-                  .map(v => (
-                    <button
-                      key={v.id}
-                      type="button"
-                      onClick={() => handleRemove(v.id)}
-                      className="text-xs px-2 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100"
-                      title="Retirer (saisie libre)"
-                    >
-                      {v.qualification} ×
-                    </button>
-                  ))}
-              </div>
-            </div>
-          )}
+          <NatinfGroupSuggestions
+            selectedCodes={selectedNatinfCodes}
+            availableCodes={saisineCodes}
+            onAdd={handleAddCodes}
+            className="mt-2"
+          />
         </div>
       )}
     </div>

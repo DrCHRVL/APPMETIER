@@ -11,6 +11,12 @@ interface NatinfGroupSuggestionsProps {
   selectedCodes: string[];
   /** Ajout des codes manquants d'une famille (dédoublonnage côté appelant). */
   onAdd: (codes: string[]) => void;
+  /**
+   * Périmètre des codes proposables. Si fourni, seuls les codes manquants
+   * présents dans cette liste sont suggérés (ex : mise en examen restreinte
+   * aux chefs de la saisine in rem).
+   */
+  availableCodes?: string[];
   className?: string;
 }
 
@@ -20,13 +26,13 @@ interface NatinfGroupSuggestionsProps {
  * Exemple : on saisit « Détention 7991 » → proposition d'ajouter Transport 7990,
  * Offre/cession 7992, Acquisition 7993. Chaque proposition peut être ignorée.
  */
-export const NatinfGroupSuggestions = ({ selectedCodes, onAdd, className }: NatinfGroupSuggestionsProps) => {
+export const NatinfGroupSuggestions = ({ selectedCodes, onAdd, availableCodes, className }: NatinfGroupSuggestionsProps) => {
   const { getByCode } = useNatinf();
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   const suggestions = useMemo(
-    () => getNatinfGroupSuggestions(selectedCodes).filter((s) => !dismissed.has(s.group.id)),
-    [selectedCodes, dismissed],
+    () => getNatinfGroupSuggestions(selectedCodes, availableCodes).filter((s) => !dismissed.has(s.group.id)),
+    [selectedCodes, availableCodes, dismissed],
   );
 
   if (suggestions.length === 0) return null;
