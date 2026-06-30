@@ -25,7 +25,7 @@ interface NatinfPickerProps {
  */
 export const NatinfPicker = ({
   onSelect,
-  placeholder = 'Premiers mots du libellé, ou n° NATINF (≥ 4 chiffres)…',
+  placeholder = 'Premiers mots du libellé, ou n° NATINF (≥ 3 chiffres)…',
   autoFocus,
   theme,
   frequentOnly,
@@ -39,9 +39,9 @@ export const NatinfPicker = ({
 
   const trimmed = query.trim();
   const numeric = /^\d+$/.test(trimmed);
-  // Recherche par n° seulement à partir de 4 chiffres ; par libellé dès 2 lettres.
-  const minLen = numeric ? 4 : 2;
-  const needMoreDigits = numeric && trimmed.length > 0 && trimmed.length < 4;
+  // Recherche par n° seulement à partir de 3 chiffres ; par libellé dès 2 lettres.
+  const minLen = numeric ? 3 : 2;
+  const needMoreDigits = numeric && trimmed.length > 0 && trimmed.length < 3;
 
   const results = useMemo(() => {
     if (query.trim().length < minLen) return [];
@@ -109,7 +109,7 @@ export const NatinfPicker = ({
       )}
 
       {needMoreDigits && (
-        <div className="mt-1 text-[11px] text-gray-400">Au moins 4 chiffres pour rechercher par n° NATINF.</div>
+        <div className="mt-1 text-[11px] text-gray-400">Au moins 3 chiffres pour rechercher par n° NATINF.</div>
       )}
 
       {open && (
