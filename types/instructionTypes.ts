@@ -460,8 +460,23 @@ export interface DossierInstruction {
    */
   saisine?: SaisineItem[];
   origine?: OrigineDossier;
-  /** Lien optionnel vers l'enquête préliminaire d'origine */
+  /**
+   * Rattachement à l'enquête préliminaire d'origine (résultat = OI).
+   * Quand il est renseigné, la cartographie n'affiche plus la préliminaire
+   * archivée comme un nœud distinct : le dossier d'instruction la représente
+   * (suppression du doublon). L'enquête préliminaire reste intacte dans son
+   * module — CR, actes et notes ne sont jamais perdus.
+   */
   enquetePreliminaireId?: number;
+  /**
+   * Contentieux de l'enquête préliminaire liée. Les ids d'enquête peuvent
+   * collisionner entre contentieux : on conserve le contentieux pour lever
+   * l'ambiguïté côté cartographie (suppression du bon nœud) et ouverture de
+   * la fiche d'origine.
+   */
+  enquetePreliminaireContentieuxId?: string;
+  /** N° de l'enquête préliminaire liée, dénormalisé pour l'affichage. */
+  enquetePreliminaireNumero?: string;
   serviceEnqueteur?: string;
   /** Tags (notamment infractions) */
   tags?: Tag[];

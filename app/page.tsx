@@ -23,8 +23,10 @@ import { Enquete, NewEnqueteData, Tag, ToDoItem } from '@/types/interfaces';
 import { StorageManager } from '@/utils/storage';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ToastProvider, useToast } from '@/contexts/ToastContext';
-import { AudienceProvider } from '@/contexts/AudienceContext';
+import { AudienceProvider, useAudience } from '@/contexts/AudienceContext';
+import { buildResultatKey } from '@/stores/useAudienceStore';
 import { InstructionResultatsProvider } from '@/contexts/InstructionResultatsContext';
+import type { EnquetePreliminaireOption } from '@/components/instruction/LierEnquetePreliminaireModal';
 import { UserProvider, useUser } from '@/contexts/UserContext';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
 import { ProlongationModal } from '@/components/modals/ProlongationModal';
@@ -35,6 +37,7 @@ import { ActeUtils } from '@/utils/acteUtils';
 import { PermanencePage } from '@/components/pages/PermanencePage';
 import { ArchivePage } from '@/components/pages/ArchivePage';
 import type { EnqueteWithContext } from '@/utils/mindmapGraph';
+import { normalizeMecName } from '@/utils/mindmapGraph';
 import { useTags } from '@/hooks/useTags';
 import { useSections } from '@/hooks/useSections';
 import { useUserServiceOrganization } from '@/hooks/useUserServiceOrganization';
@@ -347,6 +350,10 @@ function AppContent() {
 
   // Hook Overboard — données transversales (tous contentieux)
   const { enquetesByContentieux: overboardData, refresh: refreshOverboard, applyEnqueteUpdate: applyOverboardUpdate } = useOverboardData(contentieuxDefs);
+
+  // Résultats d'audience (dont le marqueur OI) — sert à proposer, dans le module
+  // instruction, les seules enquêtes préliminaires éligibles au rattachement.
+  const { audienceState } = useAudience();
 
   // Wrapper qui met à jour l'enquête dans le store scopé ET dans le snapshot
   // Overboard, pour que le tableau de bord (qui lit le snapshot) reflète
@@ -915,14 +922,84 @@ function AppContent() {
   // pseudo-Enquete pour rester compatibles avec le builder de graphe.
   const mindmapSources = useMemo<EnqueteWithContext[]>(() => {
     const out: EnqueteWithContext[] = [];
+    // Enquêtes préliminaires rattachées à un dossier d'instruction : on les
+    // masque pour ne pas créer de doublon sur la cartographie (l'affaire OI est
+    // déjà représentée par son dossier d'instruction). Clé = `${ctx}_${id}`,
+    // alignée sur l'identifiant de nœud de buildMindmapGraph.
+    const suppressedPrelimKeys = new Set<string>();
+    for (const inst of instructions) {
+      if (inst.enquetePreliminaireId == null) continue;
+      const ctx = inst.enquetePreliminaireContentieuxId || inst.contentieuxId;
+      if (!ctx) continue;
+      suppressedPrelimKeys.add(`${ctx}_${inst.enquetePreliminaireId}`);
+    }
     for (const [ctxId, list] of overboardData) {
-      for (const e of list) out.push({ enquete: e, contentieuxId: ctxId });
+      for (const e of list) {
+        if (suppressedPrelimKeys.has(`${ctxId}_${e.id}`)) continue;
+        out.push({ enquete: e, contentieuxId: ctxId });
+      }
     }
     for (const inst of instructions) {
       // Un dossier d'instruction n'apparaît sur la cartographie que s'il est
       // rattaché à un contentieux explicite (crimorg / ecofi / enviro / ...).
       // Les fiches "non précisé" sont volontairement masquées de la mindmap.
       if (!inst.contentieuxId) continue;
+      // Personnes projetées par le dossier d'instruction lui-même :
+      // mis en examen + victimes « sur carto » + suspects.
+      const personnes: Array<Record<string, unknown>> = [
+        ...inst.misEnExamen.map(m => ({
+          id: m.id,
+          nom: m.nom,
+          statut: m.mesureSurete.type,
+        })),
+        // Victimes explicitement marquées « faire apparaître sur la cartographie » :
+        // projetées comme des mis en cause mais étiquetées (Victime).
+        ...(inst.victimes || [])
+          .filter(v => v.surCarto && v.nom?.trim())
+          .map(v => ({
+            id: v.id,
+            nom: v.nom,
+            statut: 'victime',
+            isVictime: true,
+          })),
+        // Suspects : projetés sur la cartographie avec un visuel distinct
+        // (anneau orange, lien tireté orange vers le dossier).
+        ...(inst.suspects || [])
+          .filter(s => s.nom?.trim())
+          .map(s => ({
+            id: s.id,
+            nom: s.nom,
+            statut: 'suspect',
+            isSuspect: true,
+            suspectRole: s.role,
+          })),
+      ];
+
+      // Fusion : si une enquête préliminaire est rattachée, son nœud est masqué
+      // (anti-doublon). Pour ne perdre AUCUN protagoniste, on reverse ses mis en
+      // cause sur le nœud d'instruction — dédupliqués par nom canonique pour ne
+      // pas dupliquer ceux déjà repris comme mis en examen / suspect.
+      if (inst.enquetePreliminaireId != null) {
+        const prelimCtx = (inst.enquetePreliminaireContentieuxId || inst.contentieuxId) as ContentieuxId;
+        const prelim = overboardData.get(prelimCtx)?.find(e => e.id === inst.enquetePreliminaireId);
+        if (prelim?.misEnCause?.length) {
+          const seen = new Set(
+            personnes.map(p => normalizeMecName(String(p.nom || ''))).filter(Boolean),
+          );
+          for (const mc of prelim.misEnCause) {
+            const canon = normalizeMecName(mc.nom);
+            if (!canon || seen.has(canon)) continue;
+            seen.add(canon);
+            personnes.push({
+              id: mc.id,
+              nom: mc.nom,
+              statut: mc.statut,
+              isVictime: mc.isVictime,
+            });
+          }
+        }
+      }
+
       const pseudoEnquete = {
         id: inst.id,
         numero: inst.numeroInstruction,
@@ -936,34 +1013,7 @@ function AppContent() {
         documents: [],
         notes: '',
         tags: inst.tags || [],
-        misEnCause: [
-          ...inst.misEnExamen.map(m => ({
-            id: m.id,
-            nom: m.nom,
-            statut: m.mesureSurete.type,
-          })),
-          // Victimes explicitement marquées « faire apparaître sur la cartographie » :
-          // projetées comme des mis en cause mais étiquetées (Victime).
-          ...(inst.victimes || [])
-            .filter(v => v.surCarto && v.nom?.trim())
-            .map(v => ({
-              id: v.id,
-              nom: v.nom,
-              statut: 'victime',
-              isVictime: true,
-            })),
-          // Suspects : projetés sur la cartographie avec un visuel distinct
-          // (anneau orange, lien tireté orange vers le dossier).
-          ...(inst.suspects || [])
-            .filter(s => s.nom?.trim())
-            .map(s => ({
-              id: s.id,
-              nom: s.nom,
-              statut: 'suspect',
-              isSuspect: true,
-              suspectRole: s.role,
-            })),
-        ],
+        misEnCause: personnes,
       } as unknown as import('@/types/interfaces').Enquete;
       out.push({
         enquete: pseudoEnquete,
@@ -978,6 +1028,29 @@ function AppContent() {
   // mindmap, donc on n'a plus besoin du pseudo-contentieux "instructions" :
   // seuls les vrais contentieux (crimorg / ecofi / enviro / ...) sont exposés.
   const mindmapContentieuxDefs = contentieuxDefs;
+
+  // Enquêtes préliminaires éligibles au rattachement à un dossier d'instruction :
+  // uniquement celles dont le résultat d'audience est une OI (ouverture
+  // d'information). C'est le seul cas où l'instruction prolonge directement la
+  // préliminaire, et donc où le doublon de cartographie doit être levé.
+  const eligiblePrelimEnquetes = useMemo<EnquetePreliminaireOption[]>(() => {
+    const out: EnquetePreliminaireOption[] = [];
+    for (const [ctxId, list] of overboardData) {
+      const def = contentieuxDefs.find(d => d.id === ctxId);
+      for (const e of list) {
+        const res = audienceState.resultats[buildResultatKey(ctxId, e.id)];
+        if (!res?.isOI) continue;
+        out.push({
+          id: e.id,
+          numero: e.numero,
+          contentieuxId: ctxId,
+          contentieuxLabel: def?.label || ctxId,
+          dateArchivage: e.dateArchivage,
+        });
+      }
+    }
+    return out;
+  }, [overboardData, audienceState.resultats, contentieuxDefs]);
 
   // Recherche dans le contenu des documents (async, avec cache)
   const { documentMatchIds, isSearchingDocs } = useDocumentSearch(enquetes, debouncedSearchTerm);
@@ -1671,6 +1744,18 @@ return (
               ...(inst.suspects || []).map(s => s.nom),
             ]).filter(Boolean)
           ))}
+          enquetePreliminaireOptions={eligiblePrelimEnquetes}
+          onOpenEnquetePreliminaire={(enqueteId, ctxId) => {
+            const scoped = ctxId ? overboardData.get(ctxId as ContentieuxId) : undefined;
+            const found = scoped?.find(e => e.id === enqueteId)
+              ?? Array.from(overboardData.values()).flat().find(e => e.id === enqueteId);
+            if (found) {
+              setSelectedInstruction(null);
+              handleViewEnquete(found);
+            } else {
+              showToast('Enquête préliminaire introuvable (contentieux non chargé ?)', 'error');
+            }
+          }}
         />
       )}
 
