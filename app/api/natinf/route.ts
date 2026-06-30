@@ -96,6 +96,75 @@ export async function GET(req: Request) {
   })
 }
 
+/**
+ * Ajoute une seule infraction au référentiel courant (saisie manuelle admin).
+ * Le numéro NATINF doit être unique : la vérification et l'écriture se font
+ * sous verrou pour éviter toute course entre deux ajouts concurrents.
+ */
+async function addSingleEntry(session: { u: string }, raw: any) {
+  const code = typeof raw?.code === 'string' ? raw.code.trim() : ''
+  const libelle = typeof raw?.libelle === 'string' ? raw.libelle.trim() : ''
+  const articlesDefinition = typeof raw?.articlesDefinition === 'string' ? raw.articlesDefinition.trim() : ''
+  const articlesRepression = typeof raw?.articlesRepression === 'string' ? raw.articlesRepression.trim() : ''
+
+  if (!/^\d{1,7}$/.test(code)) {
+    return jsonResponse({ error: 'Numéro NATINF invalide (chiffres uniquement).' }, { status: 400 })
+  }
+  if (!libelle) {
+    return jsonResponse({ error: 'Le nom de l’infraction est obligatoire.' }, { status: 400 })
+  }
+  if (libelle.length > 300 || articlesDefinition.length > 500 || articlesRepression.length > 500) {
+    return jsonResponse({ error: 'Un des champs dépasse la longueur autorisée.' }, { status: 400 })
+  }
+
+  const newEntry: NatinfEntry = {
+    code,
+    libelle,
+    nature: 'inconnu',
+    quantum: {},
+    quantumLabel: '',
+    frequent: false,
+    ...(articlesDefinition ? { articlesDefinition } : {}),
+    ...(articlesRepression ? { articlesRepression } : {}),
+  }
+
+  let conflict = false
+  let count = 0
+  let version = 0
+  const updatedAt = new Date().toISOString()
+  await withFileLock('natinf', async () => {
+    const { entries } = currentEntries()
+    if (entries.some((e) => e.code === code)) {
+      conflict = true
+      return
+    }
+    version = Date.now()
+    const record: PublishedReferential = {
+      version,
+      updatedAt,
+      updatedBy: session.u,
+      source: `Ajout manuel — NATINF ${code}`,
+      count: entries.length + 1,
+      entries: [...entries, newEntry],
+    }
+    writeJson(filePath(), record)
+    count = record.count
+    cache = null
+  })
+
+  if (conflict) {
+    return jsonResponse({ error: `Le numéro NATINF ${code} est déjà utilisé.` }, { status: 409 })
+  }
+
+  await appendLog('audit.jsonl', {
+    timestamp: updatedAt,
+    user: session.u,
+    action: 'natinf.addEntry',
+    details: { code, libelle, version, count },
+  })
+  return jsonResponse({ ok: true, version, count })
+}
+
 export async function POST(req: Request) {
   return handle(async () => {
     const session = requireSession(req)
@@ -103,6 +172,14 @@ export async function POST(req: Request) {
       return jsonResponse({ error: 'Réservé à l’administrateur' }, { status: 403 })
     }
     const body = await req.json().catch(() => null)
+
+    // Ajout manuel d'une seule infraction (admin). Le numéro doit être unique :
+    // la vérification se fait sous verrou, à partir du référentiel courant
+    // (version publiée, sinon référentiel embarqué).
+    if (body?.addEntry) {
+      return addSingleEntry(session, body.addEntry)
+    }
+
     const entries = body?.entries
     if (!Array.isArray(entries) || entries.length === 0) {
       return jsonResponse({ error: 'Référentiel vide ou invalide' }, { status: 400 })
