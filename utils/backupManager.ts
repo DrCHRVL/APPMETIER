@@ -551,7 +551,7 @@ class BackupManager {
     try {
       console.log(`🔄 Restoring from backup: ${backupIdentifier}`);
       
-      if (isFileBackup && window.electronAPI && window.electronAPI.readFile) {
+      if (isFileBackup && window.electronAPI && typeof window.electronAPI.readFile === 'function') {
         return await this.restoreFromFileBackup(backupIdentifier);
       } else {
         return await this.restoreFromInternalBackup(backupIdentifier);

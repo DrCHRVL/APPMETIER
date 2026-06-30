@@ -167,7 +167,7 @@ export const StorageValidator = {
         }
         
         // Nettoyer le tableau pour enlever les éléments null/undefined
-        tags[category] = tags[category].filter(tag => tag !== null && tag !== undefined);
+        tags[category] = tags[category].filter((tag: unknown) => tag !== null && tag !== undefined);
       }
       
       return true;

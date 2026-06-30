@@ -686,7 +686,7 @@ export const AIRPage = ({
   ], []);
 
   const referentOptions = useMemo(() => {
-    const refs = new Set(mesures.map(m => m.referent).filter(Boolean));
+    const refs = new Set(mesures.map(m => m.referent).filter((r): r is string => Boolean(r)));
     const options = [{ value: '', label: 'Non défini' }];
     Array.from(refs).sort().forEach(ref => {
       options.push({ value: ref, label: ref });

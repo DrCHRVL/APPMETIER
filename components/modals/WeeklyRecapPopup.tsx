@@ -90,7 +90,9 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, buckets, alertRules, instruc
       .filter(e => e.statut === 'en_cours' && e.comptesRendus.length > 0)
       .map(e => {
         const lastCR = getLastCR(e.comptesRendus);
-        const days = Math.floor((today.getTime() - new Date(lastCR.date).getTime()) / (1000 * 60 * 60 * 24));
+        const days = lastCR
+          ? Math.floor((today.getTime() - new Date(lastCR.date).getTime()) / (1000 * 60 * 60 * 24))
+          : 0;
         return { enquete: e, contentieuxLabel: bucket.contentieuxLabel, days };
       })
       .filter(({ days }) => days >= crThreshold)

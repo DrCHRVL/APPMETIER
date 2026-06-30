@@ -21,7 +21,7 @@ function isAlertSyncAvailable(): boolean {
 
 // ─── Fusion des règles : union par ID, local prioritaire ─────────────────────
 function mergeRulesById(local: AlertRule[], server: AlertRule[]): AlertRule[] {
-  const map = new Map<string, AlertRule>();
+  const map = new Map<number, AlertRule>();
   for (const rule of server) {
     if (rule && rule.id) map.set(rule.id, rule);
   }

@@ -51,13 +51,13 @@ export const useFilterSort = (
         ) ||
 
         // Géolocalisations
-        e.geolocalisations.some(geo => 
+        e.geolocalisations?.some(geo =>
           geo.objet.toLowerCase().includes(searchTermLower) ||
           geo.description?.toLowerCase().includes(searchTermLower)
         ) ||
 
         // Écoutes
-        e.ecoutes.some(ecoute => 
+        e.ecoutes?.some(ecoute =>
           ecoute.numero.toLowerCase().includes(searchTermLower) ||
           ecoute.cible?.toLowerCase().includes(searchTermLower) ||
           ecoute.description?.toLowerCase().includes(searchTermLower)

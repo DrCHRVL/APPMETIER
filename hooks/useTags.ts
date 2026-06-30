@@ -725,7 +725,7 @@ export const useTags = (): UseTagsReturn => {
   // Organisation
   const updateTagOrganization = useCallback(async (tagId: string, organization: TagOrganization | null): Promise<boolean> => {
     try {
-      const success = await updateTag(tagId, { organization });
+      const success = await updateTag(tagId, { organization: organization ?? undefined });
       return success;
     } catch (error) {
       console.error('Error updating tag organization:', error);

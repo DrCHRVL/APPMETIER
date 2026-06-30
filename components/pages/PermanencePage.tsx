@@ -43,7 +43,7 @@ export const PermanencePage = () => {
     }
   };
 
-  const handleSaveDirectResult = async (resultat) => {
+  const handleSaveDirectResult = async (resultat: ResultatAudience) => {
   try {
     const directResultat = {
       ...resultat,

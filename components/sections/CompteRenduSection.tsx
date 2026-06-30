@@ -308,7 +308,7 @@ export const CompteRenduSection = memo(({
 
   // Drag : écouteurs globaux montés une seule fois, avec clamp dans le viewport
   useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
+    const onMouseMove = (e: globalThis.MouseEvent) => {
       if (!dragState.current.dragging || !dialogRef.current) return;
       const dx = e.clientX - dragState.current.startX;
       const dy = e.clientY - dragState.current.startY;
@@ -537,7 +537,7 @@ export const CompteRenduSection = memo(({
       id: Date.now() + Math.random(), // ID unique
       date: cr.dateActe,
       type: getTimelineType(cr.acteType),
-      title: ACTE_TYPES[selectedActeCategory]?.subtypes[cr.acteType] || cr.acteType,
+      title: (ACTE_TYPES as Record<string, { subtypes: Record<string, string> }>)[selectedActeCategory]?.subtypes[cr.acteType] || cr.acteType,
       description: `Synthèse rédigée le ${new Date(cr.date).toLocaleDateString()}`,
       automatic: false
     };
@@ -791,7 +791,7 @@ export const CompteRenduSection = memo(({
                 <div>
                   <Label className="text-sm font-medium mb-2 block">Type d'acte spécifique</Label>
                   <div className="space-y-2">
-                    {Object.entries(ACTE_TYPES[selectedActeCategory].subtypes).map(([key, label]) => (
+                    {Object.entries((ACTE_TYPES as Record<string, { subtypes: Record<string, string> }>)[selectedActeCategory].subtypes).map(([key, label]) => (
                       <Button
                         key={key}
                         variant={selectedActeType === key ? "default" : "outline"}

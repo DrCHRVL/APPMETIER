@@ -13,8 +13,9 @@ import {
   ModuleId,
   GlobalRole,
   ContentieuxRole,
+  UserPermissionsContext,
 } from '@/types/userTypes';
-import { buildPermissionsContext, UserPermissionsContext } from './permissions';
+import { buildPermissionsContext } from './permissions';
 
 // ──────────────────────────────────────────────
 // CONFIGURATION PAR DÉFAUT

@@ -30,10 +30,10 @@ const NataffBreakdownCard = ({
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
 
   const { groups, unclassified } = React.useMemo(() => {
-    const gtSets = new Map<string, Set<string>>(); // code grand titre -> ids d'enquête
-    const catSets = new Map<string, Set<string>>(); // code catégorie -> ids d'enquête
-    const unclassifiedSet = new Set<string>();
-    const add = (map: Map<string, Set<string>>, code: string, id: string) => {
+    const gtSets = new Map<string, Set<number>>(); // code grand titre -> ids d'enquête
+    const catSets = new Map<string, Set<number>>(); // code catégorie -> ids d'enquête
+    const unclassifiedSet = new Set<number>();
+    const add = (map: Map<string, Set<number>>, code: string, id: number) => {
       let s = map.get(code);
       if (!s) map.set(code, (s = new Set()));
       s.add(id);
