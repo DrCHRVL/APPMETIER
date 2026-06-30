@@ -1,11 +1,131 @@
 import React from 'react';
+import { ChevronRight } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Enquete } from '@/types/interfaces';
 import { useTags } from '@/hooks/useTags';
 import { useAudience } from '@/hooks/useAudience';
-import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
+import { useInfractionNatinf, type EnqueteInfractionItem } from '@/hooks/useInfractionNatinf';
 import { NatinfBadge } from '../natinf/NatinfBadge';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { nataffForEntry, NATAFF_N1, NATAFF_N2 } from '@/lib/natinf/nataff';
+
+/**
+ * Répartition des enquêtes par catégorie d'affaire NATAFF : maille N2 (ex. « G1
+ * — stupéfiants »), repliable sous la grande catégorie N1 (ex. « G — santé
+ * publique »). Une enquête est comptée une fois par catégorie qu'elle touche,
+ * quel que soit le nombre de NATINF qui s'y rattachent.
+ */
+const NataffBreakdownCard = ({
+  title,
+  subtitle,
+  enquetes,
+  infractionsForEnquete,
+}: {
+  title: string;
+  subtitle?: string;
+  enquetes: Enquete[];
+  infractionsForEnquete: (e: Enquete) => EnqueteInfractionItem[];
+}) => {
+  const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
+
+  const { groups, unclassified } = React.useMemo(() => {
+    const n1Sets = new Map<string, Set<string>>(); // code N1 -> ids d'enquête
+    const n2Sets = new Map<string, Set<string>>(); // code N2 -> ids d'enquête
+    const unclassifiedSet = new Set<string>();
+    const add = (map: Map<string, Set<string>>, code: string, id: string) => {
+      let s = map.get(code);
+      if (!s) map.set(code, (s = new Set()));
+      s.add(id);
+    };
+    enquetes.forEach((e) => {
+      infractionsForEnquete(e).forEach((inf) => {
+        const res = nataffForEntry(inf.entry);
+        if (!res) {
+          if (inf.label) unclassifiedSet.add(e.id);
+          return;
+        }
+        add(n1Sets, res.n1.code, e.id);
+        add(n2Sets, res.n2.code, e.id);
+      });
+    });
+    const built = NATAFF_N1.map((n1) => ({
+      n1,
+      total: n1Sets.get(n1.code)?.size || 0,
+      children: NATAFF_N2.filter((n2) => n2.n1 === n1.code && (n2Sets.get(n2.code)?.size || 0) > 0)
+        .map((n2) => ({ n2, count: n2Sets.get(n2.code)!.size }))
+        .sort((a, b) => b.count - a.count),
+    }))
+      .filter((g) => g.total > 0)
+      .sort((a, b) => b.total - a.total);
+    return { groups: built, unclassified: unclassifiedSet.size };
+  }, [enquetes, infractionsForEnquete]);
+
+  const toggle = (code: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        {subtitle && <p className="text-sm text-gray-500">{subtitle}</p>}
+      </CardHeader>
+      <CardContent>
+        {groups.length === 0 ? (
+          <div className="text-center text-gray-500 py-4">Aucune enquête avec infraction répertoriée</div>
+        ) : (
+          <div className="space-y-1">
+            {groups.map((g) => {
+              const isOpen = expanded.has(g.n1.code);
+              return (
+                <div key={g.n1.code}>
+                  <button
+                    onClick={() => toggle(g.n1.code)}
+                    className="flex w-full items-center justify-between gap-2 rounded bg-gray-50 p-2 text-left hover:bg-gray-100 transition-colors"
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <ChevronRight
+                        className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                      />
+                      <span className="font-mono text-xs text-gray-500">{g.n1.code}</span>
+                      <span className="truncate font-medium">{g.n1.libelle}</span>
+                    </span>
+                    <span className="shrink-0 text-sm">
+                      <span className="font-semibold">{g.total}</span> enquête{g.total > 1 ? 's' : ''}
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <div className="ml-6 mt-1 space-y-1 border-l border-gray-100 pl-3">
+                      {g.children.map(({ n2, count }) => (
+                        <div key={n2.code} className="flex items-center justify-between gap-2 text-sm">
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span className="font-mono text-xs text-gray-400">{n2.code}</span>
+                            <span className="truncate text-gray-700">{n2.libelle}</span>
+                          </span>
+                          <span className="shrink-0 font-medium">{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {unclassified > 0 && (
+              <div className="flex items-center justify-between gap-2 rounded bg-gray-50 p-2 text-sm text-gray-500">
+                <span className="italic">Non classé (sans rattachement NATAFF)</span>
+                <span className="font-medium">{unclassified}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 interface InfractionStatsProps {
   enquetes: Enquete[];
@@ -43,6 +163,32 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
     () => [...infractionReps.keys()].sort((a, b) =>
       (infractionReps.get(a)?.label || a).localeCompare(infractionReps.get(b)?.label || b, 'fr')),
     [infractionReps],
+  );
+
+  // Listes d'enquêtes (mêmes critères que les agrégats par NATINF ci-dessous),
+  // pour la répartition par catégorie NATAFF.
+  const enquetesEnCours = React.useMemo(
+    () => enquetes.filter((e) => {
+      if (e.statut !== 'en_cours') return false;
+      return new Date(e.dateCreation).getFullYear() <= selectedYear;
+    }),
+    [enquetes, selectedYear],
+  );
+
+  const enquetesTerminees = React.useMemo(
+    () => enquetes.filter((e) => {
+      if (e.statut !== 'archive') return false;
+      const audienceResult = Object.values(audienceState?.resultats || {}).find((r) => {
+        if (r.enqueteId !== e.id) return false;
+        if (!contentieuxId || contentieuxId === 'global') return true;
+        const ctx = r.contentieuxId || 'crimorg';
+        return ctx === contentieuxId;
+      });
+      if (!audienceResult?.dateAudience) return false;
+      if (audienceResult.isClassement || audienceResult.isOI) return false;
+      return new Date(audienceResult.dateAudience).getFullYear() === selectedYear;
+    }),
+    [enquetes, selectedYear, audienceState?.resultats, contentieuxId],
   );
 
   // Calculer les stats pour les enquêtes EN COURS
@@ -211,6 +357,20 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
           )}
         </CardContent>
       </Card>
+
+      {/* Répartition par catégorie d'affaire (NATAFF) — maille N2, repliable par N1 */}
+      <NataffBreakdownCard
+        title={`Répartition des enquêtes en cours par catégorie d'affaire NATAFF (${selectedYear})`}
+        subtitle="Regroupe les NATINF par nature d'affaire. Cliquer une catégorie pour voir le détail."
+        enquetes={enquetesEnCours}
+        infractionsForEnquete={infractionsForEnquete}
+      />
+      <NataffBreakdownCard
+        title={`Répartition des enquêtes terminées par catégorie d'affaire NATAFF (${selectedYear})`}
+        subtitle="Hors classements sans suite et ouvertures d'information."
+        enquetes={enquetesTerminees}
+        infractionsForEnquete={infractionsForEnquete}
+      />
     </div>
   );
 };
