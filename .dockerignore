@@ -4,7 +4,10 @@ node_modules
 out
 out-consultation
 consultation-shell
-data
+data/*
+# data/natinf contient le référentiel NATINF importé au build (route.ts + AdminNatinfPanel) :
+# on le garde dans le contexte de build, le reste de data/ (casiers, backups…) reste exclu.
+!data/natinf
 srv-data
 .git
 docs
