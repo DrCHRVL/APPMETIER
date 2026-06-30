@@ -22,6 +22,8 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
   const [githubError, setGithubError] = useState<string | null>(null);
   const [githubLocalSha, setGithubLocalSha] = useState<string | null>(null);
   const [githubRemoteSha, setGithubRemoteSha] = useState<string | null>(null);
+  const [logTail, setLogTail] = useState<string>('');
+  const [showLog, setShowLog] = useState(false);
 
   const [approvedSha, setApprovedSha] = useState<string | null>(null);
   const [approvedBy, setApprovedBy] = useState<string | null>(null);
@@ -46,12 +48,14 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
         }
         const data = await res.json() as {
           commits?: number; localSha?: string | null; remoteSha?: string | null; fetchOk?: boolean;
+          logTail?: string;
         };
         const hasUpdate = (data.commits || 0) > 0;
         setGithubUpdateAvailable(hasUpdate);
         setGithubCommits(data.commits || 0);
         setGithubLocalSha(data.localSha || null);
         setGithubRemoteSha(data.remoteSha || null);
+        if (typeof data.logTail === 'string') setLogTail(data.logTail);
         onGithubUpdateChange?.(hasUpdate, data.commits || 0);
       } else {
         // Version Electron
@@ -74,16 +78,17 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
     setGithubChecking(false);
   }, [onGithubUpdateChange, isWeb]);
 
-  const applyGithubUpdate = async () => {
+  // Version serveur : déclenche un job (pull+rebuild ou simple reconstruction) via
+  // l'API, puis interroge le statut jusqu'à 'done' (rechargement) ou 'error'.
+  const runServerJob = (action: 'apply' | 'rebuild') => {
     setGithubUpdating(true);
     setGithubError(null);
-    try {
-      if (isWeb) {
-        // Version serveur : déclenche le pull + rebuild via l'API (admin uniquement côté serveur)
+    (async () => {
+      try {
         const postRes = await fetch('/api/update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'apply' }),
+          body: JSON.stringify({ action }),
         });
         if (!postRes.ok) {
           const data = await postRes.json().catch(() => ({})) as { error?: string };
@@ -94,17 +99,32 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
           try {
             const res = await fetch('/api/update');
             if (!res.ok) return; // serveur en cours de redémarrage, on continue à attendre
-            const data = await res.json() as { status?: { state: string; message?: string } };
+            const data = await res.json() as { status?: { state: string; message?: string }; logTail?: string };
+            if (typeof data.logTail === 'string') setLogTail(data.logTail);
             if (data.status?.state === 'done') {
               clearInterval(pollRef.current!); pollRef.current = null;
               window.location.reload();
             } else if (data.status?.state === 'error') {
               clearInterval(pollRef.current!); pollRef.current = null;
               setGithubError(data.status?.message || 'Erreur lors de la mise à jour');
+              setShowLog(true);
               setGithubUpdating(false);
             }
           } catch { /* erreur réseau transitoire pendant le redémarrage, on réessaie */ }
         }, 3000);
+      } catch (e: any) {
+        setGithubError(`Erreur : ${e.message}`);
+        setGithubUpdating(false);
+      }
+    })();
+  };
+
+  const applyGithubUpdate = async () => {
+    setGithubUpdating(true);
+    setGithubError(null);
+    try {
+      if (isWeb) {
+        runServerJob('apply');
       } else {
         // Version Electron
         const result = await (window as any).electronAPI?.applyAppUpdate?.();
@@ -198,6 +218,18 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
             Vérifier GitHub
           </button>
 
+          {isWeb && !githubUpdateAvailable && (
+            <button
+              onClick={() => runServerJob('rebuild')}
+              disabled={githubChecking || githubUpdating}
+              title="Reconstruit et redémarre le serveur sur la version déjà récupérée — utile si une mise à jour a échoué au build alors que GitHub est déjà à jour."
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-violet-100 hover:bg-violet-200 text-violet-800 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {githubUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Forcer la reconstruction
+            </button>
+          )}
+
           {githubUpdateAvailable && (
             <button
               onClick={applyGithubUpdate}
@@ -255,6 +287,23 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
                 ? 'Reconstruction du serveur en cours (2 à 5 minutes)... La page se rechargera automatiquement. De brèves coupures sont normales pendant le redémarrage.'
                 : 'Téléchargement et installation en cours... L\'application va redémarrer.'}
             </span>
+          </div>
+        )}
+
+        {/* Journal technique (update.log) — diagnostic d'un échec de mise à jour côté serveur */}
+        {isWeb && logTail && (
+          <div className="pt-1">
+            <button
+              onClick={() => setShowLog((v) => !v)}
+              className="text-xs text-violet-700 hover:text-violet-900 underline underline-offset-2"
+            >
+              {showLog ? 'Masquer le journal technique (update.log)' : 'Afficher le journal technique (update.log)'}
+            </button>
+            {showLog && (
+              <pre className="mt-2 max-h-64 overflow-auto text-[11px] leading-snug bg-gray-900 text-gray-100 rounded-lg p-3 whitespace-pre-wrap break-words">
+                {logTail}
+              </pre>
+            )}
           </div>
         )}
       </div>
