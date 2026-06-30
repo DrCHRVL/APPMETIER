@@ -96,6 +96,21 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
     }
   };
 
+  const accumulateSaisies = (saisies: ResultatAudience['saisies']) => {
+    if (!saisies) return;
+    const sais = migrateConfiscations(saisies);
+    totalSaisiesVehicules += sais.vehicules.length;
+    totalSaisiesImmeubles += sais.immeubles.length;
+    totalSaisiesNumeraire += sais.numeraire || 0;
+    const sBancaire = sais.saisiesBancaires.reduce((s, b) => s + (b.montant || 0), 0);
+    totalSaisiesBancaire += sBancaire;
+    const sCrypto = sais.cryptomonnaies.reduce((s, c) => s + (c.montantEur || 0), 0);
+    totalSaisiesCrypto += sCrypto;
+    totalSaisiesArgent += (sais.numeraire || 0) + sBancaire + sCrypto;
+    totalSaisiesObjets += sais.objetsMobiliers.reduce((s, o) => s + (o.quantite || 1), 0);
+    countPreJugementFlags(sais);
+  };
+
   // Compteurs pour les types d'orientation
   const audiencesUniques = new Set<string>();
   const orientationsUniques = new Set<string>(); // Pour compter toutes les orientations (y compris classements et OI)
@@ -155,19 +170,7 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
     }
 
     // Compter les saisies des résultats en attente d'audience
-    if (special.saisies) {
-      const sais = migrateConfiscations(special.saisies);
-      totalSaisiesVehicules += sais.vehicules.length;
-      totalSaisiesImmeubles += sais.immeubles.length;
-      totalSaisiesNumeraire += sais.numeraire || 0;
-      const sBancaire = sais.saisiesBancaires.reduce((s, b) => s + (b.montant || 0), 0);
-      totalSaisiesBancaire += sBancaire;
-      const sCrypto = sais.cryptomonnaies.reduce((s, c) => s + (c.montantEur || 0), 0);
-      totalSaisiesCrypto += sCrypto;
-      totalSaisiesArgent += (sais.numeraire || 0) + sBancaire + sCrypto;
-      totalSaisiesObjets += sais.objetsMobiliers.reduce((s, o) => s + (o.quantite || 1), 0);
-      countPreJugementFlags(sais);
-    }
+    accumulateSaisies(special.saisies);
   }
 
   // Traitement normal uniquement pour les résultats standards
@@ -317,19 +320,7 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
     }
 
     // Traitement des saisies (phase enquête)
-    if (resultat.saisies) {
-      const sais = migrateConfiscations(resultat.saisies);
-      totalSaisiesVehicules += sais.vehicules.length;
-      totalSaisiesImmeubles += sais.immeubles.length;
-      totalSaisiesNumeraire += sais.numeraire || 0;
-      const sBancaire = sais.saisiesBancaires.reduce((s, b) => s + (b.montant || 0), 0);
-      totalSaisiesBancaire += sBancaire;
-      const sCrypto = sais.cryptomonnaies.reduce((s, c) => s + (c.montantEur || 0), 0);
-      totalSaisiesCrypto += sCrypto;
-      totalSaisiesArgent += (sais.numeraire || 0) + sBancaire + sCrypto;
-      totalSaisiesObjets += sais.objetsMobiliers.reduce((s, o) => s + (o.quantite || 1), 0);
-      countPreJugementFlags(sais);
-    }
+    accumulateSaisies(resultat.saisies);
   });
 
   // Préparation des statistiques par type d'infraction
