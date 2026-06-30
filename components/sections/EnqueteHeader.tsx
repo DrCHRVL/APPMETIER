@@ -105,6 +105,17 @@ export const EnqueteHeader = React.memo(({
   const suiviJIRS = tags.some(t => t.category === 'suivi' && t.value === 'JIRS');
   const suiviPG = tags.some(t => t.category === 'suivi' && t.value === 'PG');
 
+  // En consultation, les libellés NATINF (parfois très longs) débordaient sur
+  // plusieurs lignes chacun et faisaient gonfler tout l'en-tête. On affiche
+  // chaque infraction sur une seule ligne tronquée (libellé complet en infobulle)
+  // et on replie la liste au-delà d'un seuil, avec un bouton « + N autres ».
+  const [infractionsExpanded, setInfractionsExpanded] = useState(false);
+  const INFRACTIONS_COLLAPSED_COUNT = 3;
+  const hiddenInfractionsCount = infractionItems.length - INFRACTIONS_COLLAPSED_COUNT;
+  const visibleInfractions = infractionsExpanded
+    ? infractionItems
+    : infractionItems.slice(0, INFRACTIONS_COLLAPSED_COUNT);
+
   return (
     <div className="bg-gray-50 rounded-lg p-2 mb-4">
       {(suiviJIRS || suiviPG) && (
@@ -206,13 +217,36 @@ export const EnqueteHeader = React.memo(({
               />
             </div>
           ) : infractionItems.length > 0 ? (
-            <div className="flex flex-wrap gap-1 mt-0.5">
-              {infractionItems.map((inf, i) => (
-                <span key={inf.code || i} className="inline-flex items-center gap-1 text-sm">
-                  {inf.label}
-                  {inf.code && <NatinfBadge code={inf.code} nature={inf.nature} quantumLabel={inf.quantumLabel} compact />}
+            <div className="mt-0.5 flex flex-col gap-0.5">
+              {visibleInfractions.map((inf, i) => (
+                <span
+                  key={inf.code || i}
+                  title={inf.label}
+                  className="flex items-center gap-1 text-sm min-w-0"
+                >
+                  <span className="truncate">{inf.label}</span>
+                  {inf.code && (
+                    <NatinfBadge
+                      code={inf.code}
+                      nature={inf.nature}
+                      quantumLabel={inf.quantumLabel}
+                      compact
+                      className="flex-shrink-0"
+                    />
+                  )}
                 </span>
               ))}
+              {hiddenInfractionsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setInfractionsExpanded(v => !v)}
+                  className="mt-0.5 self-start text-xs font-medium text-emerald-700 hover:underline"
+                >
+                  {infractionsExpanded
+                    ? 'Réduire'
+                    : `+ ${hiddenInfractionsCount} autre${hiddenInfractionsCount > 1 ? 's' : ''}`}
+                </button>
+              )}
             </div>
           ) : (
             <p className="text-sm text-gray-400">—</p>
