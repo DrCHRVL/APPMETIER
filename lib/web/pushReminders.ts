@@ -77,14 +77,29 @@ export function reminderTimesForDeadline(deadlineIso: string): number[] {
   return [at9(new Date(d.getTime() - 2 * 24 * 3600 * 1000)), at9(d)].filter((t) => t > now)
 }
 
+/** Prochain 9h00 strictement futur — créneau du « digest » quotidien. */
+export function nextDailyDigestTime(): number {
+  const now = new Date()
+  const at9 = new Date(now)
+  at9.setHours(9, 0, 0, 0)
+  if (at9.getTime() <= now.getTime()) at9.setDate(at9.getDate() + 1)
+  return at9.getTime()
+}
+
 /**
  * Met à jour les rappels issus d'une source d'alertes ('enquetes' | 'instructions').
  * Appelé par les hooks d'alertes existants à chaque recalcul — sans effet si
  * les rappels ne sont pas activés.
+ *
+ * En plus des rappels d'échéance (J-2 / J), on dépose UN créneau « digest »
+ * quotidien à 9h dès qu'il reste des alertes actives sans échéance datée
+ * (délai CR, âge d'enquête…) : un seul rappel calme par jour plutôt qu'un
+ * flux continu.
  */
 export function updatePushSchedule(source: string, alerts: Array<{ deadline?: string }>): void {
   if (!isPushEnabled()) return
   const times = alerts.flatMap((a) => (a.deadline ? reminderTimesForDeadline(a.deadline) : []))
+  if (alerts.length > 0) times.push(nextDailyDigestTime())
   sourceTimes.set(source, times)
   if (flushTimer) clearTimeout(flushTimer)
   flushTimer = setTimeout(flushSchedule, 4000)

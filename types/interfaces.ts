@@ -312,12 +312,18 @@ export interface Alert {
     dateDebut: string;
     duree: string;
   };
-  snoozedUntil?: string;           // Date jusqu'à laquelle l'alerte est reportée
+  // Empreinte de l'état réel qui justifie l'alerte (date du dernier CR,
+  // palier d'âge, date d'expiration de l'acte…). « Valider » mémorise cette
+  // empreinte : l'alerte reste muette tant que l'empreinte ne change pas
+  // (= tant que la situation réelle n'a pas évolué). Voir AlertManager.
+  stateKey?: string;
+  snoozedUntil?: string;           // Date jusqu'à laquelle l'alerte est reportée (snooze manuel)
   snoozedCount?: number;           // Nombre de fois que l'alerte a été reportée
-  validatedUntil?: string;         // Date jusqu'à laquelle une alerte validée ne réapparaît pas
+  validatedUntil?: string;         // (déprécié) ancien report par durée fixe
   validatedForEnquete?: boolean;   // Si true, ne plus jamais montrer cette alerte pour cette enquête
-  recurrence?: RecurrenceConfig;   // Configuration de récurrence
-  lastRecurred?: string;           // Date de la dernière récurrence
+  /** @deprecated Récurrence-snooze supprimée : remplacée par la validation par empreinte d'état. */
+  recurrence?: RecurrenceConfig;
+  lastRecurred?: string;           // (déprécié)
   // Champs spécifiques pour les alertes AIR
   isAIRAlert?: boolean;            // Indique s'il s'agit d'une alerte AIR
   airIdentite?: string;            // Identité de la personne concernée par la mesure AIR
@@ -328,6 +334,10 @@ export interface AlertValidation {
   validatedAt: string;
   acteId?: number;
   type: string;
+  // Empreinte de l'état au moment de la validation. L'alerte ne réapparaît
+  // que si l'empreinte courante diffère (la situation réelle a changé).
+  // Absent = ancienne validation (avant refonte) : traitée comme « tout état ».
+  stateKey?: string;
 }
 
 export interface AlertValidations {
