@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Loader2, Database, AlertTriangle, Check, RefreshCw } from 'lucide-react';
+import { Loader2, Database, AlertTriangle, Check, RefreshCw, X } from 'lucide-react';
 import { useTags } from '@/hooks/useTags';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -13,6 +13,8 @@ import { APP_CONFIG } from '@/config/constants';
 import { useNatinf } from '@/hooks/useNatinf';
 import { toRef } from '@/lib/natinf/natinfData';
 import { deriveInfractionNatinfCodes, infractionTagsOf, type TagNatinfDef } from '@/utils/deriveEnqueteNatinf';
+import { NatinfPicker } from './NatinfPicker';
+import { NatinfBadge } from './NatinfBadge';
 import type { Enquete } from '@/types/interfaces';
 import type { ResultatAudience } from '@/types/audienceTypes';
 import type { DossierInstruction } from '@/types/instructionTypes';
@@ -98,6 +100,84 @@ interface Scan {
   chefsNonRattaches: number;
 }
 
+/** Données brutes chargées une fois au scan, recalculables sans relire le stockage. */
+interface RawData {
+  contentieux: { id: string; label: string; enquetes: Enquete[] }[];
+  resultats: ResultatAudience[];
+  chefs: { qualification: string; natinfCode?: string }[];
+}
+
+/**
+ * Rattachements manuels « valeur de tag → NATINF » saisis dans le dialogue, sous
+ * forme de définitions de tag synthétiques. Permet de rattacher d'ANCIENS tags
+ * (supprimés de la nomenclature) qui n'existent plus que comme valeurs sur les
+ * dossiers et sont donc hors de portée de l'assistant de réconciliation.
+ *
+ * Id préfixé (non vide, unique) pour ne pas percuter la résolution par id des
+ * pseudo-tags d'audience/chefs (qui utilisent `id: ''`) ; placés en tête pour
+ * primer sur d'éventuelles définitions homonymes lors de la résolution par valeur.
+ */
+const overrideDefs = (overrides: Record<string, NatinfEntry>): TagNatinfDef[] =>
+  Object.entries(overrides).map(([value, entry]) => ({
+    id: `__natinf_override__${value}`,
+    value,
+    natinfCodes: [entry.code],
+  }));
+
+/** Calcule l'aperçu de migration depuis les données brutes (pur, recalculable). */
+function computeScan(raw: RawData, defs: TagNatinfDef[]): Scan {
+  const unresolved = new Set<string>();
+  let totalDossiers = 0, avecInfractions = 0, migrables = 0, dejaMigres = 0, nonRattaches = 0;
+  const perContentieux: Scan['perContentieux'] = [];
+
+  for (const c of raw.contentieux) {
+    let ctxMig = 0;
+    for (const e of c.enquetes) {
+      totalDossiers++;
+      const infra = infractionTagsOf(e.tags || []);
+      if (infra.length === 0) continue;
+      avecInfractions++;
+      if (Array.isArray(e.infractionNatinfCodes)) { dejaMigres++; continue; }
+      const { codes, unresolved: u } = deriveInfractionNatinfCodes(infra, defs);
+      u.forEach(v => unresolved.add(v));
+      if (codes.length > 0) { migrables++; ctxMig++; }
+      else nonRattaches++;
+    }
+    perContentieux.push({ id: c.id, label: c.label, total: c.enquetes.length, migrables: ctxMig });
+  }
+
+  let audienceAvecInfractions = 0, audienceMigrables = 0, audienceDejaMigres = 0, audienceNonRattaches = 0;
+  for (const r of raw.resultats) {
+    const infra = resultInfractionTags(r);
+    if (infra.length === 0) continue;
+    audienceAvecInfractions++;
+    if (Array.isArray(r.infractionNatinfCodes)) { audienceDejaMigres++; continue; }
+    const { codes, unresolved: u } = deriveInfractionNatinfCodes(infra, defs);
+    u.forEach(v => unresolved.add(v));
+    if (codes.length > 0) audienceMigrables++;
+    else audienceNonRattaches++;
+  }
+
+  let chefsTotal = 0, chefsMigrables = 0, chefsDejaMigres = 0, chefsNonRattaches = 0;
+  for (const chef of raw.chefs) {
+    if (!chef.qualification) continue;
+    chefsTotal++;
+    if (chef.natinfCode) { chefsDejaMigres++; continue; }
+    const { codes, unresolved: u } = deriveInfractionNatinfCodes([{ id: '', value: chef.qualification }], defs);
+    u.forEach(v => unresolved.add(v));
+    if (codes.length > 0) chefsMigrables++;
+    else chefsNonRattaches++;
+  }
+
+  return {
+    totalDossiers, avecInfractions, migrables, dejaMigres, nonRattaches,
+    unresolvedValues: [...unresolved].sort((a, b) => a.localeCompare(b, 'fr')),
+    perContentieux,
+    audienceAvecInfractions, audienceMigrables, audienceDejaMigres, audienceNonRattaches,
+    chefsTotal, chefsMigrables, chefsDejaMigres, chefsNonRattaches,
+  };
+}
+
 /**
  * Migration batch « tags d'infraction → NATINF » des DOSSIERS (enquêtes).
  *
@@ -119,6 +199,11 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
   const [scan, setScan] = useState<Scan | null>(null);
   const [applied, setApplied] = useState<{ dossiers: number; contentieux: number; audience: number; chefs: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Liste figée (au scan) des valeurs orphelines à rattacher manuellement, et
+  // rattachements choisis (valeur de tag -> NATINF) appliqués à la migration.
+  const [orphanValues, setOrphanValues] = useState<string[]>([]);
+  const [overrides, setOverrides] = useState<Record<string, NatinfEntry>>({});
+  const rawRef = useRef<RawData | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -126,6 +211,9 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
       setScan(null);
       setApplied(null);
       setError(null);
+      setOrphanValues([]);
+      setOverrides({});
+      rawRef.current = null;
     }
   }, [open]);
 
@@ -139,66 +227,30 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
     setPhase('scanning');
     try {
       const defs = getTagsByCategory('infractions');
-      const unresolved = new Set<string>();
-      let totalDossiers = 0, avecInfractions = 0, migrables = 0, dejaMigres = 0, nonRattaches = 0;
-      const perContentieux: Scan['perContentieux'] = [];
 
+      // Chargement unique des données brutes (réutilisées pour le recalcul à chaud
+      // quand l'utilisateur rattache manuellement d'anciens tags).
+      const contentieux: RawData['contentieux'] = [];
       for (const c of accessibleContentieux) {
-        const enquetes = await loadCtx(c.id);
-        let ctxMig = 0;
-        for (const e of enquetes) {
-          totalDossiers++;
-          const infra = infractionTagsOf(e.tags || []);
-          if (infra.length === 0) continue;
-          avecInfractions++;
-          if (Array.isArray(e.infractionNatinfCodes)) { dejaMigres++; continue; }
-          const { codes, unresolved: u } = deriveInfractionNatinfCodes(infra, defs);
-          u.forEach(v => unresolved.add(v));
-          if (codes.length > 0) { migrables++; ctxMig++; }
-          else nonRattaches++;
-        }
-        perContentieux.push({ id: c.id, label: c.label, total: enquetes.length, migrables: ctxMig });
+        contentieux.push({ id: c.id, label: c.label, enquetes: await loadCtx(c.id) });
       }
-
-      // Résultats d'audience (clé globale, tous contentieux confondus)
-      const resultats = (await electronStorage.read<Record<string, ResultatAudience>>(AUDIENCE_STORAGE_KEY)) || {};
-      let audienceAvecInfractions = 0, audienceMigrables = 0, audienceDejaMigres = 0, audienceNonRattaches = 0;
-      for (const r of Object.values(resultats)) {
-        const infra = resultInfractionTags(r);
-        if (infra.length === 0) continue;
-        audienceAvecInfractions++;
-        if (Array.isArray(r.infractionNatinfCodes)) { audienceDejaMigres++; continue; }
-        const { codes, unresolved: u } = deriveInfractionNatinfCodes(infra, defs);
-        u.forEach(v => unresolved.add(v));
-        if (codes.length > 0) audienceMigrables++;
-        else audienceNonRattaches++;
-      }
-
-      // Chefs d'instruction (dossiers de l'utilisateur courant, stockage user-scoped)
-      let chefsTotal = 0, chefsMigrables = 0, chefsDejaMigres = 0, chefsNonRattaches = 0;
+      const resultatsMap = (await electronStorage.read<Record<string, ResultatAudience>>(AUDIENCE_STORAGE_KEY)) || {};
+      const resultats = Object.values(resultatsMap);
+      const chefs: RawData['chefs'] = [];
       const iKey = user?.windowsUsername ? instructionKey(user.windowsUsername) : null;
       if (iKey) {
         const dossiers = await ElectronBridge.getData<DossierInstruction[]>(iKey, []);
         for (const d of (Array.isArray(dossiers) ? dossiers : [])) {
-          for (const chef of chefsOf(d)) {
-            if (!chef.qualification) continue;
-            chefsTotal++;
-            if (chef.natinfCode) { chefsDejaMigres++; continue; }
-            const { codes, unresolved: u } = deriveInfractionNatinfCodes([{ id: '', value: chef.qualification }], defs);
-            u.forEach(v => unresolved.add(v));
-            if (codes.length > 0) chefsMigrables++;
-            else chefsNonRattaches++;
-          }
+          for (const chef of chefsOf(d)) chefs.push({ qualification: chef.qualification, natinfCode: chef.natinfCode });
         }
       }
 
-      setScan({
-        totalDossiers, avecInfractions, migrables, dejaMigres, nonRattaches,
-        unresolvedValues: [...unresolved].sort((a, b) => a.localeCompare(b, 'fr')),
-        perContentieux,
-        audienceAvecInfractions, audienceMigrables, audienceDejaMigres, audienceNonRattaches,
-        chefsTotal, chefsMigrables, chefsDejaMigres, chefsNonRattaches,
-      });
+      const raw: RawData = { contentieux, resultats, chefs };
+      rawRef.current = raw;
+      const fresh = computeScan(raw, defs);
+      setOverrides({});
+      setOrphanValues(fresh.unresolvedValues);
+      setScan(fresh);
       setPhase('preview');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Échec de l’analyse des dossiers.');
@@ -206,11 +258,32 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
     }
   };
 
+  /** Recalcule l'aperçu à chaud en intégrant les rattachements manuels. */
+  const recompute = (next: Record<string, NatinfEntry>) => {
+    if (!rawRef.current) return;
+    const defs = [...overrideDefs(next), ...getTagsByCategory('infractions')];
+    setScan(computeScan(rawRef.current, defs));
+  };
+
+  const assignOverride = (value: string, entry: NatinfEntry) => {
+    const next = { ...overrides, [value]: entry };
+    setOverrides(next);
+    recompute(next);
+  };
+
+  const removeOverride = (value: string) => {
+    const next = { ...overrides };
+    delete next[value];
+    setOverrides(next);
+    recompute(next);
+  };
+
   const apply = async () => {
     setError(null);
     setPhase('applying');
     try {
-      const defs = getTagsByCategory('infractions');
+      // Définitions réelles + rattachements manuels des anciens tags orphelins.
+      const defs = [...overrideDefs(overrides), ...getTagsByCategory('infractions')];
       let dossiers = 0, ctxTouched = 0;
 
       for (const c of accessibleContentieux) {
@@ -362,15 +435,50 @@ export function NatinfMigrateDialog({ open, onClose }: { open: boolean; onClose:
                 </div>
               )}
 
-              {scan.unresolvedValues.length > 0 && (
-                <div className="text-xs">
-                  <p className="text-amber-700 font-medium mb-1">
-                    {scan.unresolvedValues.length} type(s) d&apos;infraction non rattaché(s) au NATINF
-                    (ces infractions resteront en tag) :
+              {orphanValues.length > 0 && (
+                <div className="text-xs space-y-1.5">
+                  <p className="text-amber-700 font-medium">
+                    {orphanValues.length} type(s) d&apos;infraction non rattaché(s) au NATINF.
+                    Rattachez ici les anciens tags qui n&apos;existent plus dans la nomenclature
+                    (hors de portée de l&apos;assistant de réconciliation) :
                   </p>
-                  <div className="text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1 max-h-24 overflow-auto">
-                    {scan.unresolvedValues.join(' · ')}
+                  <div className="border border-amber-200 rounded-md divide-y divide-amber-100 max-h-56 overflow-auto">
+                    {orphanValues.map((value) => {
+                      const chosen = overrides[value];
+                      return (
+                        <div key={value} className="flex items-center gap-2 px-2 py-1.5">
+                          <span className="w-32 shrink-0 truncate font-medium text-gray-800" title={value}>{value}</span>
+                          <span className="text-gray-300">→</span>
+                          <div className="flex-1 min-w-0">
+                            {chosen ? (
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-[11px] text-gray-500">{chosen.code}</span>
+                                <span className="min-w-0 flex-1 truncate text-gray-700" title={chosen.libelle}>{chosen.libelle}</span>
+                                <NatinfBadge nature={chosen.nature} quantumLabel={chosen.quantumLabel} className="shrink-0" />
+                                <button
+                                  type="button"
+                                  onClick={() => removeOverride(value)}
+                                  className="shrink-0 text-gray-400 hover:text-red-600"
+                                  title="Retirer le rattachement"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <NatinfPicker onSelect={(e) => assignOverride(value, e)} placeholder="Rechercher un NATINF…" />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
+                  {Object.keys(overrides).length > 0 ? (
+                    <p className="text-emerald-700">
+                      {Object.keys(overrides).length} ancien(s) tag(s) rattaché(s) — pris en compte dans la migration.
+                    </p>
+                  ) : (
+                    <p className="text-gray-400">Les types laissés sans rattachement resteront en tag.</p>
+                  )}
                 </div>
               )}
             </div>
