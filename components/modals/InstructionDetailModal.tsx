@@ -35,6 +35,8 @@ import { OpsSection } from '../instruction/OpsSection';
 import { DebatsJLDSection } from '../instruction/DebatsJLDSection';
 import { NotesPersoSection } from '../instruction/NotesPersoSection';
 import { DossierTimelineSection } from '../instruction/DossierTimelineSection';
+import { RichTextEditor } from '../instruction/RichTextEditor';
+import { renderFormattedText } from '@/lib/formatCR';
 import type {
   DossierInstruction,
   EtatReglement,
@@ -57,6 +59,8 @@ interface InstructionDetailModalProps {
   onDelete: (id: number) => void;
   /** Liste des contentieux pour le sélecteur en mode édition. */
   contentieuxDefs?: import('@/types/userTypes').ContentieuxDefinition[];
+  /** Tous les noms MEX + suspects connus (cross-dossiers) pour l'autocomplete */
+  allKnownNames?: string[];
 }
 
 type TabKey = 'apercu' | 'mex' | 'victimes' | 'echeances' | 'timeline';
@@ -84,6 +88,7 @@ export const InstructionDetailModal = ({
   onUpdate,
   onDelete,
   contentieuxDefs = [],
+  allKnownNames = [],
 }: InstructionDetailModalProps) => {
   const { showToast } = useToast();
   const { getCabinetById } = useInstructionCabinets();
@@ -409,11 +414,10 @@ export const InstructionDetailModal = ({
                 {/* Description sur une largeur restreinte pour rester lisible */}
                 <div className="max-w-2xl">
                   <Label>Description</Label>
-                  <textarea
+                  <RichTextEditor
                     value={editData.description || ''}
-                    onChange={(e) => setEditData(d => ({ ...d, description: e.target.value }))}
-                    rows={6}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
+                    onChange={(val) => setEditData(d => ({ ...d, description: val }))}
+                    minHeight={120}
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
                     La saisine in rem dispose désormais d'une section dédiée (onglet Aperçu,
@@ -511,9 +515,10 @@ export const InstructionDetailModal = ({
                   <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 min-w-0">
                     <div className="text-xs font-semibold text-gray-500 uppercase mb-1.5">Description</div>
                     {dossier.description ? (
-                      <div className="text-sm text-gray-700 whitespace-pre-wrap break-words">
-                        {dossier.description}
-                      </div>
+                      <div
+                        className="text-sm text-gray-700 break-words prose prose-sm max-w-none"
+                        dangerouslySetInnerHTML={{ __html: renderFormattedText(dossier.description) }}
+                      />
                     ) : (
                       <div className="text-sm text-gray-400 italic">Aucune description.</div>
                     )}
@@ -543,9 +548,12 @@ export const InstructionDetailModal = ({
           {activeTab === 'mex' && (
             <MisEnExamenSection
               misEnExamen={dossier.misEnExamen}
+              suspects={dossier.suspects ?? []}
               onChange={(misEnExamen: MisEnExamen[]) =>
                 onUpdate(dossier.id, { misEnExamen })
               }
+              onSuspectsChange={(suspects) => onUpdate(dossier.id, { suspects })}
+              allKnownNames={allKnownNames}
             />
           )}
 

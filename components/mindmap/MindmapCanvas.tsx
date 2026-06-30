@@ -126,7 +126,7 @@ const CENTERED_HANDLE_STYLE: React.CSSProperties = {
 };
 
 const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
-  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus, isPinned, isVictime } = data;
+  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus, isPinned, isVictime, isSuspect, suspectRole } = data as MecNodeData & { isSuspect?: boolean; suspectRole?: string };
   const size = radius * 2;
   // MEC "pont" : présent sur ≥ 2 contentieux distincts → halo violet pour
   // matérialiser la transversalité (signal du score, mais visuel).
@@ -138,14 +138,21 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
     ? 'ring-4 ring-red-500 shadow-lg'
     : focused
       ? 'ring-4 ring-yellow-300 shadow-lg scale-105'
-      : isBoosted
-        ? 'ring-2 ring-amber-400 shadow-md hover:scale-105'
-        : isBridge
-          ? 'ring-2 ring-violet-400/70 shadow-md hover:scale-105'
-          : 'shadow-md hover:scale-105';
+      : isSuspect
+        ? 'ring-2 ring-orange-400 shadow-md hover:scale-105'
+        : isBoosted
+          ? 'ring-2 ring-amber-400 shadow-md hover:scale-105'
+          : isBridge
+            ? 'ring-2 ring-violet-400/70 shadow-md hover:scale-105'
+            : 'shadow-md hover:scale-105';
+  const titleExtra = isSuspect
+    ? ` • Suspect${suspectRole ? ` (${suspectRole})` : ''}`
+    : isBridge
+      ? ` • ${contentieuxIds.length} contentieux`
+      : '';
   return (
     <div
-      title={`${displayName} — ${dossierIds.length} dossier(s)${isBridge ? ` • ${contentieuxIds.length} contentieux` : ''}${isBoosted ? ' • importance manuelle' : ''}${isPinned ? ' • marqué' : ''}`}
+      title={`${displayName} — ${dossierIds.length} dossier(s)${titleExtra}${isBoosted ? ' • importance manuelle' : ''}${isPinned ? ' • marqué' : ''}`}
       style={{ width: size, height: size, opacity: dimmed ? 0.18 : 1, transition: 'opacity 200ms' }}
       className={`
         flex items-center justify-center rounded-full text-white text-center
@@ -158,9 +165,11 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
       <div
         className="absolute inset-0 rounded-full"
         style={{
-          background: recent
-            ? 'linear-gradient(135deg, #1f2937 0%, #374151 100%)'
-            : 'linear-gradient(135deg, #475569 0%, #64748b 100%)',
+          background: isSuspect
+            ? 'linear-gradient(135deg, #7c2d12 0%, #9a3412 100%)'
+            : recent
+              ? 'linear-gradient(135deg, #1f2937 0%, #374151 100%)'
+              : 'linear-gradient(135deg, #475569 0%, #64748b 100%)',
         }}
       />
       <span
@@ -171,6 +180,11 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
         {isVictime && (
           <span className="opacity-80 italic" style={{ fontSize: Math.max(8, Math.min(11, radius / 4.5)) }}>
             (Victime)
+          </span>
+        )}
+        {isSuspect && (
+          <span className="opacity-80 italic" style={{ fontSize: Math.max(8, Math.min(11, radius / 4.5)) }}>
+            {suspectRole ? `(${suspectRole})` : '(Suspect)'}
           </span>
         )}
       </span>
@@ -684,14 +698,12 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     return edges.map(e => {
       const highlighted = focusedId && (e.source === focusedId || e.target === focusedId);
       const isRens = e.kind === 'renseignement';
+      const isSuspectEdge = e.kind === 'suspect';
       // Bezier doux dès qu'un des deux endpoints est connecté à plus d'un autre
       // nœud — sinon trait droit (cas dyade isolée, plus net).
-      // Les liens "renseignement" utilisent toujours une courbe : leurs
-      // endpoints peuvent être très éloignés et un trait droit traverse
-      // alors littéralement d'autres nœuds (MEC, dossiers) qui n'ont rien
-      // à voir avec le lien — l'utilisateur lit ça comme une fausse relation.
+      // Les liens "renseignement" et "suspect" utilisent toujours une courbe.
       const dMax = Math.max(nodeDegree.get(e.source) || 0, nodeDegree.get(e.target) || 0);
-      const useCurve = isRens || dMax > 1;
+      const useCurve = isRens || isSuspectEdge || dMax > 1;
       return {
         id: e.id,
         source: e.source,
@@ -709,12 +721,20 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
               strokeDasharray: '8 5',
               strokeLinecap: 'round',
             }
-          : {
-              stroke: highlighted ? '#f59e0b' : '#64748b',
-              strokeWidth: highlighted ? 4 : 2.5,
-              strokeOpacity: highlighted ? 1 : 0.85,
-              strokeLinecap: 'round',
-            },
+          : isSuspectEdge
+            ? {
+                stroke: highlighted ? '#c2410c' : '#f97316',
+                strokeWidth: highlighted ? 3 : 2,
+                strokeDasharray: '5 4',
+                strokeOpacity: highlighted ? 1 : 0.75,
+                strokeLinecap: 'round',
+              }
+            : {
+                stroke: highlighted ? '#f59e0b' : '#64748b',
+                strokeWidth: highlighted ? 4 : 2.5,
+                strokeOpacity: highlighted ? 1 : 0.85,
+                strokeLinecap: 'round',
+              },
       };
     });
   }, [edges, focusedId, nodeDegree]);

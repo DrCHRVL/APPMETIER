@@ -73,6 +73,11 @@ export interface MecNode {
    *  vrai mis en cause). Le rendu affiche alors la mention « (Victime) ». Toute
    *  contribution d'un vrai MEC du même nom canonique repasse ce drapeau à faux. */
   isVictime?: boolean;
+  /** Vrai si ce nœud est uniquement présent en tant que suspect (pas encore mis
+   *  en examen). Un vrai MEC ou MEX du même nom canonique repasse ce drapeau à faux. */
+  isSuspect?: boolean;
+  /** Rôle présumé dans l'affaire (issu de la fiche suspect) */
+  suspectRole?: string;
   /** Notes manuelles (issues d'une fiche ex nihilo) */
   manualNotes?: string;
   /** Alias manuels — fusionnés avec les variants */
@@ -116,8 +121,9 @@ export interface GraphEdge {
   id: string;
   source: string;
   target: string;
-  /** 'data' = arête déduite des dossiers ; 'renseignement' = lien manuel utilisateur. */
-  kind: 'data' | 'renseignement';
+  /** 'data' = arête déduite des dossiers ; 'renseignement' = lien manuel ;
+   *  'suspect' = lien suspect → dossier d'instruction. */
+  kind: 'data' | 'renseignement' | 'suspect';
   /** Libellé optionnel (utile pour les liens renseignement) */
   label?: string;
   /** Notes manuelles (liens renseignement) */
@@ -389,12 +395,16 @@ export function buildMindmapGraph(
           manualBonus: 0,
           statuts: [],
           isVictime: !!mec.isVictime,
+          isSuspect: !!(mec as { isSuspect?: boolean }).isSuspect,
+          suspectRole: (mec as { suspectRole?: string }).suspectRole,
         };
         mecById.set(canonical, mecNode);
       }
       // Un vrai mis en cause portant le même nom qu'une victime prime : on retire
       // l'étiquette « Victime » dès qu'une contribution non-victime apparaît.
       if (!mec.isVictime) mecNode.isVictime = false;
+      // Un vrai MEX ou MEC prime sur le statut suspect.
+      if (!(mec as { isSuspect?: boolean }).isSuspect) mecNode.isSuspect = false;
 
       if (!mecNode.dossierIds.includes(dossierId)) {
         mecNode.dossierIds.push(dossierId);
@@ -418,7 +428,8 @@ export function buildMindmapGraph(
       const edgeKey = `${canonical}__${dossierId}`;
       if (!edgeKeys.has(edgeKey)) {
         edgeKeys.add(edgeKey);
-        edges.push({ id: edgeKey, source: canonical, target: dossierId, kind: 'data' });
+        const isSuspectMec = !!(mec as { isSuspect?: boolean }).isSuspect;
+        edges.push({ id: edgeKey, source: canonical, target: dossierId, kind: isSuspectMec ? 'suspect' : 'data' });
       }
     }
   }

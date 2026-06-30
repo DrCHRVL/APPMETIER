@@ -947,6 +947,17 @@ function AppContent() {
               statut: 'victime',
               isVictime: true,
             })),
+          // Suspects : projetés sur la cartographie avec un visuel distinct
+          // (anneau orange, lien tireté orange vers le dossier).
+          ...(inst.suspects || [])
+            .filter(s => s.nom?.trim())
+            .map(s => ({
+              id: s.id,
+              nom: s.nom,
+              statut: 'suspect',
+              isSuspect: true,
+              suspectRole: s.role,
+            })),
         ],
       } as unknown as import('@/types/interfaces').Enquete;
       out.push({
@@ -1647,6 +1658,12 @@ return (
           }}
           onDelete={handleDeleteInstruction}
           contentieuxDefs={contentieuxDefs}
+          allKnownNames={Array.from(new Set(
+            instructions.flatMap(inst => [
+              ...inst.misEnExamen.map(m => m.nom),
+              ...(inst.suspects || []).map(s => s.nom),
+            ]).filter(Boolean)
+          ))}
         />
       )}
 
