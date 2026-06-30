@@ -1,27 +1,87 @@
-// Résolution NATINF → NATAFF (nature d'affaire).
+// Résolution NATINF → catégorie métier (statistiques).
 //
-// La nomenclature NATAFF (data/natinf/nataff.json) ne fournit PAS de table de
-// correspondance officielle NATINF → NATAFF : on la déduit ici. La déduction
-// procède en trois temps, du plus spécifique au plus général :
-//   1. CODE_TO_N2  — correction explicite pour un n° NATINF précis ;
-//   2. THEME_TO_N2 — le thème « mémento » du NATINF (24 catégories couvrant les
-//      infractions fréquentes, soit l'essentiel du volume réel des dossiers) ;
-//   3. KEYWORD_RULES — repli sur le libellé pour les ~16 000 codes sans thème.
-// À défaut, le NATINF est « non classé ».
+// Axe principal : la taxonomie du Mémento parquet (Lebreton), c'est-à-dire le
+// langage du parquet — libellés courts et parlants (Vol, Stupéfiants,
+// Proxénétisme, Blanchiment, Armes ILA…), regroupés sous un « grand titre »
+// (Atteintes aux personnes / aux biens / à l'autorité de l'État…).
 //
-// Cette table est volontairement éditable à la main : pour corriger un
-// rattachement, ajouter une entrée dans CODE_TO_N2 (un code) ou ajuster
-// THEME_TO_N2 (tout un thème).
+// La catégorie se déduit du THÈME mémento du NATINF (24 thèmes fiables, déjà
+// présents dans les données) ; pour les thèmes hétérogènes (infractions
+// sexuelles, écofi), on affine PAR LIBELLÉ mais en restant BORNÉ au thème, ce
+// qui rend le découpage sûr. Repli mot-clé pour les codes sans thème.
+//
+// NATAFF (champ nataffN1 de chaque catégorie) n'est plus l'axe d'affichage : il
+// est conservé uniquement comme roll-up officiel A→L, pour un éventuel export
+// vers les nomenclatures de l'État (cf. data/natinf/nataff.json).
+//
+// Tout est éditable à la main : renommer un label, déplacer une catégorie de
+// grand titre, ou ajuster une règle de découpage.
 
 import type { NatinfEntry } from '@/types/natinf';
-import type { NataffN1, NataffN2, NataffResolution } from '@/types/nataff';
+import type { GrandTitre, StatCategory, CategoryResolution, NataffN1 } from '@/types/nataff';
 import nataffData from '@/data/natinf/nataff.json';
 
 export const NATAFF_N1 = nataffData.n1 as NataffN1[];
-export const NATAFF_N2 = nataffData.n2 as NataffN2[];
+const NATAFF_N1_BY_CODE = new Map(NATAFF_N1.map((x) => [x.code, x]));
 
-const N1_BY_CODE = new Map(NATAFF_N1.map((x) => [x.code, x]));
-const N2_BY_CODE = new Map(NATAFF_N2.map((x) => [x.code, x]));
+// ── Grands titres (axe macro d'affichage) ─────────────────────────────────────
+export const GRAND_TITRES: GrandTitre[] = [
+  { code: 'PERSONNES', label: 'Atteintes aux personnes', order: 1 },
+  { code: 'BIENS', label: 'Atteintes aux biens', order: 2 },
+  { code: 'ETAT', label: "Atteinte à l'autorité de l'État", order: 3 },
+  { code: 'STUP', label: 'Stupéfiants', order: 4 },
+  { code: 'ECOFI', label: 'Économique et financier', order: 5 },
+  { code: 'CIRCULATION', label: 'Circulation et transports', order: 6 },
+];
+const GRAND_TITRE_BY_CODE = new Map(GRAND_TITRES.map((g) => [g.code, g]));
+
+// ── Catégories métier ─────────────────────────────────────────────────────────
+// (code, label affiché, grand titre, lettre NATAFF N1 pour l'export officiel)
+export const STAT_CATEGORIES: StatCategory[] = [
+  // Atteintes aux personnes
+  { code: 'VIOLENCES', label: 'Violences', grandTitre: 'PERSONNES', nataffN1: 'A' },
+  { code: 'MENACES', label: 'Menaces', grandTitre: 'PERSONNES', nataffN1: 'A' },
+  { code: 'ATT_INVOL', label: 'Atteintes involontaires', grandTitre: 'PERSONNES', nataffN1: 'A' },
+  { code: 'AUTRES_VOL', label: 'Autres atteintes volontaires', grandTitre: 'PERSONNES', nataffN1: 'A' },
+  { code: 'VIOL', label: 'Viol', grandTitre: 'PERSONNES', nataffN1: 'A' },
+  { code: 'AGRESSION', label: 'Agression sexuelle', grandTitre: 'PERSONNES', nataffN1: 'A' },
+  { code: 'ATT_SEX_MINEUR', label: 'Atteinte sexuelle sur mineur', grandTitre: 'PERSONNES', nataffN1: 'A' },
+  { code: 'EXHIB', label: 'Exhibition / harcèlement sexuel', grandTitre: 'PERSONNES', nataffN1: 'A' },
+  { code: 'PEDOPORNO', label: 'Pédopornographie', grandTitre: 'PERSONNES', nataffN1: 'A' },
+  { code: 'PROXENETISME', label: 'Proxénétisme / prostitution', grandTitre: 'PERSONNES', nataffN1: 'A' },
+  { code: 'AUTRES_SEX', label: 'Autres infractions sexuelles', grandTitre: 'PERSONNES', nataffN1: 'A' },
+  { code: 'HARCELEMENT', label: 'Harcèlement', grandTitre: 'PERSONNES', nataffN1: 'A' },
+  { code: 'VIE_PRIVEE', label: 'Vie privée', grandTitre: 'PERSONNES', nataffN1: 'A' },
+  { code: 'FAMILLE', label: 'Famille', grandTitre: 'PERSONNES', nataffN1: 'A' },
+  // Atteintes aux biens
+  { code: 'VOL', label: 'Vol', grandTitre: 'BIENS', nataffN1: 'B' },
+  { code: 'RECEL', label: 'Recel', grandTitre: 'BIENS', nataffN1: 'B' },
+  { code: 'EXTORSION', label: 'Extorsion', grandTitre: 'BIENS', nataffN1: 'B' },
+  { code: 'DESTRUCTION', label: 'Destruction / dégradation', grandTitre: 'BIENS', nataffN1: 'B' },
+  { code: 'DESTRUCTION_INVOL', label: 'Destruction involontaire', grandTitre: 'BIENS', nataffN1: 'B' },
+  // Atteinte à l'autorité de l'État
+  { code: 'AUTORITE_ETAT', label: "Autorité de l'État", grandTitre: 'ETAT', nataffN1: 'C' },
+  { code: 'POST_SENTENCIEL', label: 'Post-sentenciel', grandTitre: 'ETAT', nataffN1: 'C' },
+  { code: 'ASSOC', label: 'Association de malfaiteurs', grandTitre: 'ETAT', nataffN1: 'C' },
+  { code: 'ARMES', label: 'Armes (ILA)', grandTitre: 'ETAT', nataffN1: 'C' },
+  { code: 'TERRORISME', label: 'Terrorisme', grandTitre: 'ETAT', nataffN1: 'C' },
+  { code: 'FAUX', label: 'Faux', grandTitre: 'ETAT', nataffN1: 'C' },
+  { code: 'OUTRAGE', label: 'Outrage / rébellion', grandTitre: 'ETAT', nataffN1: 'C' },
+  // Stupéfiants
+  { code: 'STUP', label: 'Trafic de stupéfiants (ILS)', grandTitre: 'STUP', nataffN1: 'G' },
+  // Économique et financier
+  { code: 'ESCROQUERIE', label: 'Escroquerie', grandTitre: 'ECOFI', nataffN1: 'B' },
+  { code: 'ABUS_CONFIANCE', label: 'Abus de confiance', grandTitre: 'ECOFI', nataffN1: 'B' },
+  { code: 'BLANCHIMENT', label: 'Blanchiment', grandTitre: 'ECOFI', nataffN1: 'E' },
+  { code: 'MOYENS_PAIEMENT', label: 'Moyens de paiement', grandTitre: 'ECOFI', nataffN1: 'E' },
+  { code: 'TRAVAIL_ILLEGAL', label: 'Travail illégal / vente sauvette', grandTitre: 'ECOFI', nataffN1: 'H' },
+  { code: 'ILT', label: 'Tabac (ILT)', grandTitre: 'ECOFI', nataffN1: 'G' },
+  { code: 'AUTRES_ECOFI', label: 'Autres écofi', grandTitre: 'ECOFI', nataffN1: 'E' },
+  // Circulation et transports
+  { code: 'CIRCULATION', label: 'Circulation routière', grandTitre: 'CIRCULATION', nataffN1: 'I' },
+  { code: 'TRANSPORTS', label: 'Transports', grandTitre: 'CIRCULATION', nataffN1: 'I' },
+];
+const CAT_BY_CODE = new Map(STAT_CATEGORIES.map((c) => [c.code, c]));
 
 /** Normalisation (minuscules, sans accents) pour comparer thèmes et libellés. */
 const norm = (s: string | undefined): string =>
@@ -31,110 +91,117 @@ const norm = (s: string | undefined): string =>
     .toLowerCase()
     .trim();
 
-// ── 2. Thème mémento → code NATAFF N2 ─────────────────────────────────────────
-// Clés normalisées (cf. norm) pour être insensible aux accents/apostrophes.
-// ⚠ = thème pouvant chevaucher plusieurs N2 ; valeur = N2 dominant retenu.
-const THEME_TO_N2_RAW: Record<string, string> = {
-  'Violences': 'A3',
-  'Atteintes volontaires aux personnes': 'A3',
-  'Infractions sexuelles': 'A3', // ⚠ majeur ; viol/agression sur mineur = A4, mœurs = A8
-  'Menaces': 'A7',
-  'Harcèlement': 'A7', // ⚠ harcèlement moral ; harcèlement sexuel = A8
-  'Homicide et blessures involontaires': 'A5',
-  'Atteintes à la vie privée': 'A6',
-  'Droit pénal de la famille': 'A9',
-  'Atteintes aux biens': 'B2', // ⚠ résiduel « vols » (recel/extorsion/destruction ont leur propre thème)
-  'Recel': 'B4',
-  'Extorsion': 'B5',
-  'Destructions et dégradations volontaires': 'B7',
-  'Destructions et dégradations involontaires': 'B7',
-  'Infractions terroristes': 'C1',
-  'Armes et explosifs (ILA)': 'C2',
-  'Faux': 'C4',
-  'Incriminations post-sentencielles': 'C5', // ⚠ violation de décision judiciaire / évasion
-  'Outrage et rébellion': 'C6',
-  "Infractions contre l'État et l'autorité": 'C6', // ⚠ peut relever de C1/C3/C5 selon le fait
-  'Association de malfaiteurs et ordre public': 'C7',
-  'Économique et financier (écofi)': 'E1', // ⚠ E1 sociétés ; fiscal/douanier/blanchiment = E2, paiement = E3
-  'Stupéfiants (ILS)': 'G1',
-  'Circulation routière': 'I2', // ⚠ règles de conduite ; usage des voies = I8, stationnement = I9
-  'Coordination des transports': 'I3',
+// Thèmes « simples » (un thème = une catégorie).
+const THEME_TO_CAT_RAW: Record<string, string> = {
+  'Violences': 'VIOLENCES',
+  'Atteintes volontaires aux personnes': 'AUTRES_VOL',
+  'Menaces': 'MENACES',
+  'Harcèlement': 'HARCELEMENT',
+  'Homicide et blessures involontaires': 'ATT_INVOL',
+  'Atteintes à la vie privée': 'VIE_PRIVEE',
+  'Droit pénal de la famille': 'FAMILLE',
+  'Atteintes aux biens': 'VOL',
+  'Recel': 'RECEL',
+  'Extorsion': 'EXTORSION',
+  'Destructions et dégradations volontaires': 'DESTRUCTION',
+  'Destructions et dégradations involontaires': 'DESTRUCTION_INVOL',
+  "Infractions contre l'État et l'autorité": 'AUTORITE_ETAT',
+  'Outrage et rébellion': 'OUTRAGE',
+  'Association de malfaiteurs et ordre public': 'ASSOC',
+  'Faux': 'FAUX',
+  'Incriminations post-sentencielles': 'POST_SENTENCIEL',
+  'Infractions terroristes': 'TERRORISME',
+  'Armes et explosifs (ILA)': 'ARMES',
+  'Stupéfiants (ILS)': 'STUP',
+  'Circulation routière': 'CIRCULATION',
+  'Coordination des transports': 'TRANSPORTS',
 };
-const THEME_TO_N2: Record<string, string> = Object.fromEntries(
-  Object.entries(THEME_TO_N2_RAW).map(([k, v]) => [norm(k), v]),
+const THEME_TO_CAT: Record<string, string> = Object.fromEntries(
+  Object.entries(THEME_TO_CAT_RAW).map(([k, v]) => [norm(k), v]),
 );
 
-// ── 3. Règles mot-clé (repli pour les codes sans thème) ───────────────────────
-// Best-effort : appliquées sur le libellé normalisé, première correspondance
-// gagnante. Ordonnées du plus spécifique au plus générique.
-const KEYWORD_RULES: { re: RegExp; n2: string }[] = [
-  { re: /stupefiant|trafic de stup/, n2: 'G1' },
-  { re: /abus de confiance/, n2: 'B5' },
-  { re: /\brecel\b/, n2: 'B4' },
-  { re: /extorsion/, n2: 'B5' },
-  { re: /escroquerie|abus de faiblesse|filouterie/, n2: 'B6' },
-  { re: /blanchiment|fraude fiscale|infraction douaniere|contrebande/, n2: 'E2' },
-  { re: /abus de biens sociaux|banqueroute|abus de credit/, n2: 'E1' },
-  { re: /cheque|carte de paiement|moyen de paiement/, n2: 'E3' },
-  { re: /proxenetisme/, n2: 'A3' },
-  { re: /harcelement sexuel|exhibition|pedopornographie|corruption de mineur|prostitution/, n2: 'A8' },
-  { re: /viol |agression sexuelle/, n2: 'A3' },
-  { re: /\bmenace|chantage/, n2: 'A7' },
-  { re: /outrage|rebellion/, n2: 'C6' },
-  { re: /association de malfaiteurs/, n2: 'C7' },
-  { re: /terroris/, n2: 'C1' },
-  { re: /\barme|explosif|munition/, n2: 'C2' },
-  { re: /corruption|trafic d.influence|prise illegale d.interet/, n2: 'C3' },
-  { re: /faux|falsification|fausse monnaie|contrefacon de marque/, n2: 'C4' },
-  { re: /homicide involontaire|blessures involontaires|atteinte.*involontaire/, n2: 'A5' },
-  { re: /meurtre|assassinat|homicide volontaire/, n2: 'A1' },
-  { re: /violence/, n2: 'A3' },
-  { re: /destruction|degradation|incendie/, n2: 'B7' },
-  { re: /\bvol\b|\bvols\b/, n2: 'B2' },
-  { re: /stationnement/, n2: 'I9' },
-  { re: /alcool|alcoolemie|delit de fuite|refus d.obtemperer/, n2: 'I2' },
-  { re: /permis de conduire/, n2: 'I1' },
+const THEME_SEXUEL = norm('Infractions sexuelles');
+const THEME_ECOFI = norm('Économique et financier (écofi)');
+
+/** Découpage du thème « Infractions sexuelles » par libellé (borné au thème). */
+function splitSexuel(lib: string): string {
+  if (/proxenet|prostitution|racolage/.test(lib)) return 'PROXENETISME';
+  if (/pedoporno|pornograph|image.*mineur/.test(lib)) return 'PEDOPORNO';
+  if (/\bviol\b|viol /.test(lib)) return 'VIOL';
+  if (/agression sexuelle/.test(lib)) return 'AGRESSION';
+  if (/atteinte sexuelle|incitation|proposition sexuelle|corruption de mineur/.test(lib)) return 'ATT_SEX_MINEUR';
+  if (/exhibition|harcelement sexuel/.test(lib)) return 'EXHIB';
+  return 'AUTRES_SEX';
+}
+
+/** Découpage du thème « écofi » par libellé (borné au thème). */
+function splitEcofi(lib: string): string {
+  if (/tabac/.test(lib)) return 'ILT';
+  if (/blanchiment/.test(lib)) return 'BLANCHIMENT';
+  if (/escroquerie|filouterie|abus de faiblesse/.test(lib)) return 'ESCROQUERIE';
+  if (/abus de confiance|detournement/.test(lib)) return 'ABUS_CONFIANCE';
+  if (/cheque|carte de paiement|moyen de paiement|monnaie/.test(lib)) return 'MOYENS_PAIEMENT';
+  if (/travail (dissimule|illegal)|sauvette/.test(lib)) return 'TRAVAIL_ILLEGAL';
+  return 'AUTRES_ECOFI';
+}
+
+// Repli mot-clé pour les codes SANS thème mémento (best-effort).
+const KEYWORD_FALLBACK: { re: RegExp; cat: string }[] = [
+  { re: /tabac/, cat: 'ILT' },
+  { re: /stupefiant/, cat: 'STUP' },
+  { re: /blanchiment/, cat: 'BLANCHIMENT' },
+  { re: /proxenet|prostitution/, cat: 'PROXENETISME' },
+  { re: /\brecel/, cat: 'RECEL' },
+  { re: /extorsion/, cat: 'EXTORSION' },
+  { re: /escroquerie/, cat: 'ESCROQUERIE' },
+  { re: /abus de confiance/, cat: 'ABUS_CONFIANCE' },
+  { re: /terroris/, cat: 'TERRORISME' },
+  { re: /association de malfaiteurs/, cat: 'ASSOC' },
+  { re: /\barme|explosif|munition/, cat: 'ARMES' },
+  { re: /outrage|rebellion/, cat: 'OUTRAGE' },
+  { re: /\bfaux\b|falsification|fausse monnaie/, cat: 'FAUX' },
+  { re: /destruction|degradation|incendie/, cat: 'DESTRUCTION' },
+  { re: /\bvols?\b|cambriolage/, cat: 'VOL' },
+  { re: /violence|coups/, cat: 'VIOLENCES' },
+  { re: /conduite|ivresse|alcoolemie|permis de conduire|stationnement/, cat: 'CIRCULATION' },
 ];
 
-// ── 1. Corrections explicites par n° NATINF ───────────────────────────────────
-// À compléter au fil des cas signalés (« ce code devrait être en X »).
-const CODE_TO_N2: Record<string, string> = {};
+const CODE_TO_CAT: Record<string, string> = {};
 
-/** Code NATAFF N2 déduit d'un NATINF, ou undefined si non classé. */
-function resolveN2Code(entry: Pick<NatinfEntry, 'code' | 'theme' | 'libelle'>): string | undefined {
-  const override = CODE_TO_N2[entry.code];
+function resolveCategoryCode(
+  entry: Pick<NatinfEntry, 'code' | 'theme' | 'libelle'>,
+): string | undefined {
+  const override = CODE_TO_CAT[entry.code];
   if (override) return override;
 
-  const fromTheme = entry.theme ? THEME_TO_N2[norm(entry.theme)] : undefined;
-  if (fromTheme) return fromTheme;
-
   const lib = norm(entry.libelle);
-  for (const { re, n2 } of KEYWORD_RULES) {
-    if (re.test(lib)) return n2;
+  const theme = norm(entry.theme);
+
+  if (theme === THEME_SEXUEL) return splitSexuel(lib);
+  if (theme === THEME_ECOFI) return splitEcofi(lib);
+  if (theme && THEME_TO_CAT[theme]) return THEME_TO_CAT[theme];
+
+  for (const { re, cat } of KEYWORD_FALLBACK) {
+    if (re.test(lib)) return cat;
   }
   return undefined;
 }
 
-/** Résout un NATINF vers sa NATAFF (N2 + N1 parent), ou undefined. */
-export function nataffForEntry(
+/** Catégorie métier + grand titre d'un NATINF, ou undefined si non classé. */
+export function categoryForEntry(
   entry: Pick<NatinfEntry, 'code' | 'theme' | 'libelle'> | undefined | null,
-): NataffResolution | undefined {
+): CategoryResolution | undefined {
   if (!entry) return undefined;
-  const n2code = resolveN2Code(entry);
-  if (!n2code) return undefined;
-  const n2 = N2_BY_CODE.get(n2code);
-  if (!n2) return undefined;
-  const n1 = N1_BY_CODE.get(n2.n1);
-  if (!n1) return undefined;
-  return { n2, n1 };
+  const code = resolveCategoryCode(entry);
+  if (!code) return undefined;
+  const category = CAT_BY_CODE.get(code);
+  if (!category) return undefined;
+  const grandTitre = GRAND_TITRE_BY_CODE.get(category.grandTitre);
+  if (!grandTitre) return undefined;
+  return { category, grandTitre };
 }
 
-/** Accès direct à une sous-catégorie N2 par son code. */
-export function nataffN2(code: string): NataffN2 | undefined {
-  return N2_BY_CODE.get(code);
-}
-
-/** Accès direct à une catégorie N1 par son code. */
-export function nataffN1(code: string): NataffN1 | undefined {
-  return N1_BY_CODE.get(code);
+/** Grande catégorie NATAFF (N1) d'une catégorie métier, pour l'export officiel. */
+export function nataffN1ForCategory(category: StatCategory): NataffN1 | undefined {
+  return NATAFF_N1_BY_CODE.get(category.nataffN1);
 }

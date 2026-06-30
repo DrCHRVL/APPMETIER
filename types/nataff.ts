@@ -29,8 +29,34 @@ export interface NataffN2 {
   libelle: string;
 }
 
-/** Résolution d'un NATINF vers sa NATAFF (N2 + N1 parent). */
-export interface NataffResolution {
-  n2: NataffN2;
-  n1: NataffN1;
+// ── Catégories métier (taxonomie Mémento parquet / Lebreton) ───────────────────
+// Axe principal des statistiques : libellés courts et parlants du parquet
+// (Vol, Stupéfiants, Proxénétisme, Blanchiment…), regroupés sous un « grand
+// titre » (Atteintes aux personnes / aux biens / à l'autorité de l'État…).
+// NATAFF (champ nataffN1) reste disponible comme roll-up officiel pour l'État.
+
+/** Grand titre Mémento : regroupement macro d'affichage. */
+export interface GrandTitre {
+  code: string;
+  label: string;
+  /** Ordre d'affichage. */
+  order: number;
+}
+
+/** Catégorie d'infraction « métier » (sous-titre Mémento). */
+export interface StatCategory {
+  /** Identifiant court et stable. */
+  code: string;
+  /** Libellé court affiché. */
+  label: string;
+  /** Code du grand titre Mémento parent (axe d'affichage). */
+  grandTitre: string;
+  /** Lettre NATAFF N1 (A → L) correspondante, pour l'export officiel. */
+  nataffN1: string;
+}
+
+/** Résolution d'un NATINF vers sa catégorie métier (+ grand titre). */
+export interface CategoryResolution {
+  category: StatCategory;
+  grandTitre: GrandTitre;
 }
