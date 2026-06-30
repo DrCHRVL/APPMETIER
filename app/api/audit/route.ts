@@ -10,7 +10,8 @@ interface AuditRecord { username: string, ct: string, iv: string, timestamp: num
 
 export async function GET(req: Request) {
   return handle(async () => {
-    requireSession(req)
+    const session = requireSession(req)
+    if (session.r !== 'admin') return jsonResponse({ error: 'Accès refusé' }, { status: 403 })
     const entries = readLog<AuditRecord>('audit-app.jsonl', { max: 2000 })
     return jsonResponse({ entries })
   })

@@ -13,8 +13,9 @@ interface EventRecord { id: string, username: string, ct: string, iv: string, ti
 export async function GET(req: Request) {
   return handle(async () => {
     requireSession(req)
-    const since = Number(new URL(req.url).searchParams.get('since') || 0)
-    const events = readLog<EventRecord>('events.jsonl', { sinceMs: since || Date.now() - 24 * 3600 * 1000, max: 500 })
+    const sinceParam = new URL(req.url).searchParams.get('since')
+    const since = sinceParam !== null ? Number(sinceParam) : undefined
+    const events = readLog<EventRecord>('events.jsonl', { sinceMs: since ?? Date.now() - 24 * 3600 * 1000, max: 500 })
     return jsonResponse({ events, partial: false })
   })
 }

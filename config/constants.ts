@@ -1,7 +1,6 @@
 import { AlertRule, VisualAlertRule, VisualAlertColorKey, VisualAlertTrigger } from '@/types/interfaces';
 
 export const APP_CONFIG = {
-  ALERT_CHECK_INTERVAL: 3600000, // 1 hour in milliseconds
   DEFAULT_ALERT_RULES: [
     {
       id: 1,

@@ -140,7 +140,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       const res = await api(`/api/vaults/${encodeURIComponent(name)}/versions/${encodeURIComponent(filename)}`)
       if (!res.ok) return null
       const { envelope } = await res.json()
-      return decryptJson(keyFor(name), envelope as CipherEnvelope)
+      return await decryptJson(keyFor(name), envelope as CipherEnvelope)
     } catch { return null }
   }
 
