@@ -7,6 +7,7 @@ import { useTags } from '@/hooks/useTags';
 import { useNatinf } from '@/hooks/useNatinf';
 import { NatinfBadge } from '../natinf/NatinfBadge';
 import type { NatinfEntry } from '@/types/natinf';
+import { GRAND_TITRES, STAT_CATEGORIES, categoryForEntry } from '@/lib/natinf/nataff';
 import { useToast } from '@/contexts/ToastContext';
 import type { CartographieScoreWeights } from '@/types/cartographieTypes';
 
@@ -75,10 +76,21 @@ const WEIGHT_FIELDS: WeightFieldDef[] = [
 ];
 
 export const AdminCartographyPanel: React.FC = () => {
-  const { config, isLoading, updateWeights, setNatinfWeight, setGroupByService, reset } = useCartographieConfig();
+  const { config, isLoading, updateWeights, setCategoryWeight, setNatinfWeight, setGroupByService, reset } = useCartographieConfig();
   const { getTagsByCategory, isLoading: tagsLoading } = useTags();
   const { getByCode } = useNatinf();
   const { showToast } = useToast();
+
+  // Catégories d'infraction (Mémento parquet) regroupées par grand titre, pour
+  // la pondération de BASE. Chaque NATINF hérite du poids de sa catégorie.
+  const categoriesByGrandTitre = React.useMemo(() => {
+    return [...GRAND_TITRES]
+      .sort((a, b) => a.order - b.order)
+      .map(gt => ({
+        grandTitre: gt,
+        categories: STAT_CATEGORIES.filter(c => c.grandTitre === gt.code),
+      }));
+  }, []);
 
   const infractionTags = React.useMemo(
     () => getTagsByCategory('infractions'),
@@ -121,6 +133,11 @@ export const AdminCartographyPanel: React.FC = () => {
     const n = parseFloat(value);
     if (Number.isNaN(n)) return;
     await guardSave(() => updateWeights({ [key]: n } as Partial<CartographieScoreWeights>));
+  };
+
+  const handleCategoryWeightChange = async (code: string, value: string) => {
+    const n = parseFloat(value);
+    await guardSave(() => setCategoryWeight(code, Number.isFinite(n) ? n : 0));
   };
 
   const handleNatinfWeightChange = async (code: string, value: string) => {
@@ -216,13 +233,53 @@ export const AdminCartographyPanel: React.FC = () => {
         </label>
       </section>
 
-      {/* Pondération par infraction (NATINF) */}
+      {/* Pondération de base par catégorie d'infraction (Mémento parquet) */}
       <section className="bg-white border border-slate-200 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-gray-800 mb-1">Pondération par infraction (NATINF)</h3>
+        <h3 className="text-sm font-semibold text-gray-800 mb-1">Pondération par catégorie d&apos;infraction</h3>
         <p className="text-xs text-gray-500 mb-3">
-          Bonus ajouté au score d&apos;un MEC pour chaque dossier le concernant, par code NATINF
-          (matché exactement sur les chefs). Seuls les NATINF effectivement rattachés à vos
-          infractions sont listés. Laisser à 0 pour ignorer.
+          Pondération de <strong>base</strong> : bonus ajouté au score d&apos;un MEC pour chaque
+          dossier le concernant, selon la catégorie d&apos;infraction (taxonomie Mémento parquet).
+          Chaque NATINF hérite automatiquement du poids de sa catégorie. Affinez ensuite
+          NATINF par NATINF ci-dessous si besoin. Laisser à 0 pour ignorer.
+        </p>
+
+        <div className="space-y-4">
+          {categoriesByGrandTitre.map(({ grandTitre, categories }) => (
+            <div key={grandTitre.code}>
+              <div className="text-[11px] uppercase tracking-wide font-semibold text-slate-500 mb-1">
+                {grandTitre.label}
+              </div>
+              <div className="divide-y divide-slate-100 border border-slate-200 rounded-md">
+                {categories.map(cat => {
+                  const current = config.categoryWeights[cat.code] ?? 0;
+                  return (
+                    <div key={cat.code} className="grid grid-cols-[1fr_100px] items-center gap-3 px-3 py-1.5">
+                      <span className="text-sm text-gray-800 truncate" title={cat.label}>{cat.label}</span>
+                      <input
+                        type="number"
+                        step={0.5}
+                        value={draft[`c:${cat.code}`] ?? String(current)}
+                        onChange={(e) => setDraft(d => ({ ...d, [`c:${cat.code}`]: e.target.value }))}
+                        onBlur={(e) => handleCategoryWeightChange(cat.code, e.target.value)}
+                        className="border border-slate-300 rounded-md px-2 py-1 text-sm text-right tabular-nums"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Affinage par NATINF (override la catégorie) */}
+      <section className="bg-white border border-slate-200 rounded-lg p-4">
+        <h3 className="text-sm font-semibold text-gray-800 mb-1">Affinage par NATINF (optionnel)</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          De <strong>luxe</strong> : un poids posé ici <strong>prime</strong> sur le poids de la
+          catégorie pour ce NATINF précis, quand vous avez besoin de descendre dans le détail.
+          Seuls les NATINF rattachés à vos infractions sont listés. Laisser à 0 = utiliser le
+          poids de la catégorie.
         </p>
 
         {unlinkedCount > 0 && (
@@ -240,17 +297,25 @@ export const AdminCartographyPanel: React.FC = () => {
           <div className="divide-y divide-slate-100 border border-slate-200 rounded-md">
             {usedNatinfs.map(n => {
               const current = config.natinfWeights[n.code] ?? 0;
+              const cat = categoryForEntry(n);
+              const inherited = cat ? (config.categoryWeights[cat.category.code] ?? 0) : 0;
               return (
                 <div key={n.code} className="grid grid-cols-[1fr_100px] items-center gap-3 px-3 py-2">
                   <span className="text-sm text-gray-800 inline-flex items-center gap-2 min-w-0">
                     <span className="font-mono text-xs text-gray-500 shrink-0">{n.code}</span>
                     <span className="truncate" title={n.libelle}>{n.libelle}</span>
                     <NatinfBadge nature={n.nature} quantumLabel={n.quantumLabel} compact />
+                    {cat && (
+                      <span className="text-[10px] text-slate-400 shrink-0" title="Catégorie héritée et son poids de base">
+                        {cat.category.label} ({inherited})
+                      </span>
+                    )}
                   </span>
                   <input
                     type="number"
                     step={0.5}
-                    value={draft[`n:${n.code}`] ?? String(current)}
+                    placeholder={String(inherited)}
+                    value={draft[`n:${n.code}`] ?? (current ? String(current) : '')}
                     onChange={(e) => setDraft(d => ({ ...d, [`n:${n.code}`]: e.target.value }))}
                     onBlur={(e) => handleNatinfWeightChange(n.code, e.target.value)}
                     className="border border-slate-300 rounded-md px-2 py-1 text-sm text-right tabular-nums"

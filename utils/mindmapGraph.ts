@@ -145,8 +145,11 @@ export interface OverlayInput {
     label: string;
     dateApprox?: string;
     mecIds: string[];
-    /** Tags d'infraction associés (par id). Pondère le score MEC quand
-     *  ces tags ont un poids configuré dans la config carto. */
+    /** Codes NATINF associés (cible). Pondère le score MEC via le poids NATINF
+     *  ou, à défaut, le poids de la catégorie du NATINF (cf. ScoreConfigInput). */
+    natinfCodes?: string[];
+    /** Tags d'infraction associés (par id). LEGACY : conservé pour les dossiers
+     *  créés avant la bascule NATINF. Pondère via tagInfractionWeights. */
     typeInfractionTagIds?: string[];
     notes?: string;
   }>;
@@ -240,8 +243,14 @@ export interface ScoreConfigInput {
    *  qualifications libres des `MisEnExamen.infractions[].qualification`
    *  (best-effort : on cherche la valeur du tag comme sous-chaîne). LEGACY. */
   tagInfractionValueById?: Record<string, string>;
-  /** Pondérations par code NATINF (clé = code). Cible : prioritaire sur le
-   *  poids par tag, matché exactement sur `InfractionReproche.natinfCode`. */
+  /** Pondération de BASE par catégorie d'infraction (clé = code StatCategory du
+   *  Mémento parquet). Chaque NATINF hérite du poids de sa catégorie. */
+  categoryWeights?: Record<string, number>;
+  /** Résout un code NATINF vers son code de catégorie (StatCategory). Fourni par
+   *  l'appelant (qui dispose du référentiel NATINF + de categoryForEntry). */
+  natinfCategoryOf?: (natinfCode: string) => string | undefined;
+  /** Pondérations par code NATINF (clé = code). AFFINAGE : prioritaire sur le
+   *  poids de catégorie, matché exactement sur `InfractionReproche.natinfCode`. */
   natinfWeights?: Record<string, number>;
 }
 
@@ -262,8 +271,23 @@ export function buildMindmapGraph(
   const weights = scoreConfig?.weights ?? DEFAULT_CARTO_WEIGHTS;
   const tagInfractionWeights = scoreConfig?.tagInfractionWeights ?? {};
   const tagInfractionValueById = scoreConfig?.tagInfractionValueById ?? {};
-  // Cible : pondération par code NATINF (prioritaire sur le poids par tag).
+  // Cible : pondération par code NATINF (affinage), prioritaire sur le poids de
+  // catégorie ; le poids de catégorie sert de base par défaut.
   const natinfWeights = scoreConfig?.natinfWeights ?? {};
+  const categoryWeights = scoreConfig?.categoryWeights ?? {};
+  const natinfCategoryOf = scoreConfig?.natinfCategoryOf;
+  /**
+   * Poids d'un code NATINF : l'affinage NATINF prime ; à défaut, le poids de la
+   * catégorie (Mémento parquet) du NATINF s'applique comme base. 0 si rien.
+   */
+  const weightForNatinf = (code: string | undefined): number => {
+    if (!code) return 0;
+    const exact = natinfWeights[code];
+    if (exact !== undefined) return exact;
+    const cat = natinfCategoryOf?.(code);
+    if (cat && categoryWeights[cat] !== undefined) return categoryWeights[cat];
+    return 0;
+  };
   /** Pré-calcule [valueLowerCase, weight] pour matcher les qualifications. */
   const tagWeightByValueLc: Array<[string, number]> = [];
   for (const [tagId, w] of Object.entries(tagInfractionWeights)) {
@@ -312,17 +336,21 @@ export function buildMindmapGraph(
           canonical,
           (chefsByCanonical.get(canonical) || 0) + (exa.infractions?.length || 0),
         );
-        if ((tagWeightByValueLc.length > 0 || Object.keys(natinfWeights).length > 0) && exa.infractions) {
+        if (exa.infractions) {
           let bonus = 0;
           for (const inf of exa.infractions) {
-            // 1) Cible : pondération par code NATINF (exacte, prioritaire)
+            // 1) Cible : poids NATINF (affinage) ou, à défaut, poids de la
+            //    catégorie d'infraction du NATINF (base Mémento parquet).
             const code = inf.natinfCode;
-            if (code && natinfWeights[code]) {
-              bonus += natinfWeights[code];
-              dossierMatchedTagW.set('natinf:' + code, natinfWeights[code]);
+            const wN = weightForNatinf(code);
+            if (wN) {
+              bonus += wN;
+              dossierMatchedTagW.set('natinf:' + code, wN);
               continue;
             }
             // 2) Legacy : match best-effort sur la valeur du tag d'infraction
+            //    (uniquement pour les anciens dossiers sans NATINF configuré).
+            if (tagWeightByValueLc.length === 0) continue;
             const q = (inf.qualification || '').toLowerCase();
             if (!q) continue;
             for (const [tagValueLc, w] of tagWeightByValueLc) {
@@ -490,9 +518,13 @@ export function buildMindmapGraph(
       };
       dossierById.set(d.id, node);
 
-      // Calcule le bonus infraction du dossier (somme des poids des tags
-      // associés). Appliqué une fois à chaque MEC du dossier.
+      // Calcule le bonus infraction du dossier. Appliqué une fois à chaque MEC
+      // du dossier. Cible : codes NATINF (poids NATINF ou poids de catégorie) ;
+      // legacy : anciens tags d'infraction pour les dossiers d'avant la bascule.
       let dossierInfractionBonus = 0;
+      if (d.natinfCodes && d.natinfCodes.length > 0) {
+        for (const code of d.natinfCodes) dossierInfractionBonus += weightForNatinf(code);
+      }
       if (d.typeInfractionTagIds && d.typeInfractionTagIds.length > 0) {
         for (const tagId of d.typeInfractionTagIds) {
           const w = tagInfractionWeights[tagId];

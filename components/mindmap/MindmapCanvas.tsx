@@ -772,11 +772,13 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       nodeTypes={NODE_TYPES}
       fitView
       fitViewOptions={{ padding: 0.2 }}
-      // minZoom à 0.1 : avec R=2200 + jitter 600, un cluster sain reste
-      // sous ±3000 px (POSITION_CLAMP=15000 est un filet hors champ qui
-      // ne devrait jamais se déclencher). fitView dimensionne donc à un
-      // zoom typique de ~0.2–0.3, bien au-dessus de la borne basse.
-      minZoom={0.1}
+      // minZoom très bas (0.01) : quand la carte devient « commune à tous »
+      // (tous contentieux confondus, ajouts de toute l'équipe), le nuage de
+      // nœuds peut s'étendre bien au-delà de ±3000 px. On laisse donc
+      // l'utilisateur dézoomer beaucoup plus loin pour reprendre une vue
+      // d'ensemble, même sur une carte très dense. fitView reste libre de
+      // choisir un zoom d'entrée confortable (~0.2–0.3) dans la plage élargie.
+      minZoom={0.01}
       maxZoom={2.5}
       onNodeClick={handleClick}
       onNodeDoubleClick={handleDoubleClick}

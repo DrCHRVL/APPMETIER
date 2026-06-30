@@ -44,6 +44,7 @@ function normalize(stored: Partial<CartographieModuleConfig> | null): Cartograph
   return {
     weights,
     tagInfractionWeights: { ...(stored?.tagInfractionWeights || {}) },
+    categoryWeights: { ...(stored?.categoryWeights || {}) },
     natinfWeights: { ...(stored?.natinfWeights || {}) },
     groupByService: stored?.groupByService ?? DEFAULT_CARTO_CONFIG.groupByService,
     version: stored?.version ?? DEFAULT_CARTO_CONFIG.version,
@@ -202,6 +203,19 @@ class CartographieConfigManagerService {
       next[tagId] = weight;
     }
     return this.save({ ...current, tagInfractionWeights: next });
+  }
+
+  /** Définit le poids de BASE associé à une catégorie d'infraction (clé = code
+   *  StatCategory). Passer 0 supprime l'entrée pour rester clean. */
+  async setCategoryWeight(categoryCode: string, weight: number): Promise<boolean> {
+    const current = await this.loadForWrite();
+    const next = { ...current.categoryWeights };
+    if (!weight) {
+      delete next[categoryCode];
+    } else {
+      next[categoryCode] = weight;
+    }
+    return this.save({ ...current, categoryWeights: next });
   }
 
   /** Définit le poids associé à un code NATINF. Passer 0 supprime l'entrée. */
