@@ -82,7 +82,6 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   const [inviteCode, setInviteCode] = useState('')
   const [pass1, setPass1] = useState('')
   const [pass2, setPass2] = useState('')
-  const [remember, setRemember] = useState(true)
   const installedRef = useRef(false)
   // trousseau prêt mais porte retenue le temps d'imprimer le kit de récupération
   const pendingEntryRef = useRef<{ keys: ScopedKeys, identity: BridgeIdentity, scopes: string[] } | null>(null)
@@ -126,26 +125,13 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  /**
-   * Réutilise le trousseau mémorisé sur cet appareil (case « Rester
-   * déverrouillé »), sans redemander la phrase. Appelé au démarrage ET après
-   * une reconnexion par mot de passe : ainsi la session (12 h) peut expirer
-   * sans que la clé soit redemandée à chaque fois. Retourne true si la porte
-   * a été ouverte.
-   */
-  const tryStoredKeyring = useCallback(async (identity: BridgeIdentity): Promise<boolean> => {
+  const tryStoredKeyring = useCallback(async (_identity: BridgeIdentity): Promise<boolean> => {
     try {
-      await idb.del('kv', LEGACY_KEY_STORE) // ancien format (clé unique) : obsolète
-      const stored = await idb.get<KeyringPayload>('kv', KEYRING_STORE)
-      if (stored && stored.keys && stored.keys[SCOPE_GLOBAL]) {
-        const scoped = await buildScopedKeys(stored)
-        const ok = await verifyOrCreateCanary(scoped.global, identity)
-        if (ok === true) { installBridge(scoped, identity); return true }
-        await idb.del('kv', KEYRING_STORE) // trousseau périmé : on l'oublie
-      }
+      await idb.del('kv', LEGACY_KEY_STORE)
+      await idb.del('kv', KEYRING_STORE)
     } catch {}
     return false
-  }, [verifyOrCreateCanary, installBridge])
+  }, [])
 
   /** Chiffre et dépose mon trousseau, verrouillé par ma phrase personnelle. */
   const pushKeyring = useCallback(async (payload: KeyringPayload, personalPhrase: string, identity: BridgeIdentity): Promise<void> => {
@@ -164,7 +150,6 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     const scoped = await buildScopedKeys(payload)
     const ok = await verifyOrCreateCanary(scoped.global, identity)
     if (ok !== true) throw new Error(ok)
-    if (remember) { try { await idb.set('kv', KEYRING_STORE, payload) } catch {} }
     setServicePass(''); setInviteCode(''); setPass1(''); setPass2('')
     if (offerKit) {
       // trousseau tout neuf : proposer le kit de récupération avant d'entrer
@@ -173,7 +158,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       return
     }
     installBridge(scoped, identity)
-  }, [remember, verifyOrCreateCanary, installBridge])
+  }, [verifyOrCreateCanary, installBridge])
 
   /** Ouvre la version imprimable du kit de récupération (à compléter à la main). */
   const printRecoveryKit = useCallback(() => {
@@ -428,13 +413,6 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     </>
   )
 
-  const rememberBox = (
-    <label className="siral-check">
-      <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-      Rester déverrouillé sur cet appareil
-    </label>
-  )
-
   const irrecoverableNote = (
     <div className="siral-note">
       <span><b>Votre phrase personnelle est irrécupérable.</b> Personne — ni l&apos;hébergeur, ni le développeur — ne peut la réinitialiser.
@@ -468,7 +446,6 @@ export function WebGate({ children }: { children: React.ReactNode }) {
         .siral-note { display: flex; gap: 9px; background: #f1f7f3; border: 1px solid #d6e6dc; border-radius: 10px; padding: 10px 12px;
           font-size: 11px; color: #3c5247; line-height: 1.45; margin-top: 12px; }
         .siral-link { font-size: 12px; color: #2B5746; font-weight: 600; cursor: pointer; text-align: center; display: block; margin-top: 14px; background: none; border: none; width: 100%; }
-        .siral-check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #5b6b63; margin-top: 12px; }
         .siral-foot { text-align: center; font-size: 10px; color: #93a29a; margin-top: 16px; }
         .siral-user { font-size: 12px; color: #5b6b63; background: #f1f7f3; border-radius: 99px; padding: 4px 12px; display: inline-block; margin-bottom: 10px; }
         .siral-sep { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #93a29a; margin-top: 16px; }
@@ -527,7 +504,6 @@ export function WebGate({ children }: { children: React.ReactNode }) {
             <div className="siral-title">Déverrouillage de votre trousseau</div>
             <div className="siral-text">Votre phrase personnelle déchiffre vos clés localement, dans ce navigateur. Elle n&apos;est jamais transmise au serveur.</div>
             {phraseFields(false)}
-            {rememberBox}
             <button className="siral-btn" onClick={doUnlock} disabled={busy || !pass1}>
               {busy ? 'Déchiffrement…' : 'Déverrouiller'}
             </button>
@@ -542,7 +518,6 @@ export function WebGate({ children }: { children: React.ReactNode }) {
             <div className="siral-text">Vous êtes le premier utilisateur de ce serveur. Des clés de chiffrement neuves vont être générées et scellées
               dans votre trousseau personnel. Vous pourrez ensuite inviter vos collègues depuis Paramètres → Accès &amp; clés.</div>
             {phraseFields(true)}
-            {rememberBox}
             <button className="siral-btn" onClick={doCreateFresh} disabled={busy || !pass1}>
               {busy ? 'Génération des clés…' : 'Créer mon trousseau'}
             </button>
@@ -561,7 +536,6 @@ export function WebGate({ children }: { children: React.ReactNode }) {
             <input className="siral-input" type="password" placeholder="Phrase du service (ancien système)" value={servicePass} onChange={(e) => setServicePass(e.target.value)} />
             <div className="siral-sep">Votre nouvelle phrase</div>
             {phraseFields(true)}
-            {rememberBox}
             <button className="siral-btn" onClick={doMigrate} disabled={busy || !servicePass || !pass1}>
               {busy ? 'Migration des clés…' : 'Migrer vers mon trousseau'}
             </button>
@@ -580,7 +554,6 @@ export function WebGate({ children }: { children: React.ReactNode }) {
               onChange={(e) => setInviteCode(e.target.value)} autoCapitalize="characters" />
             <div className="siral-sep">Votre phrase personnelle</div>
             {phraseFields(true)}
-            {rememberBox}
             <button className="siral-btn" onClick={doRedeem} disabled={busy || !inviteCode.trim() || !pass1}>
               {busy ? 'Activation…' : 'Activer mon accès'}
             </button>

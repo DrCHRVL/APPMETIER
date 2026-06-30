@@ -545,28 +545,25 @@ export const useAIR = () => {
 
   // Vérification automatique des statuts (comme dans l'ancien hook)
   useEffect(() => {
-    if (isLoading || mesures.length === 0) return;
-    
-    let hasChanges = false;
-    const updatedMesures = mesures.map(mesure => {
-      const newStatus = determineAIRStatus(
-        mesure.resultatMesure,
-        mesure.dateCloture,
-        mesure.dateFinPriseEnCharge
-      );
-      
-      if (newStatus !== mesure.statut) {
-        hasChanges = true;
-        return { ...mesure, statut: newStatus };
-      }
-      
-      return mesure;
+    if (isLoading) return;
+    setMesures(prev => {
+      if (prev.length === 0) return prev;
+      let hasChanges = false;
+      const updated = prev.map(mesure => {
+        const newStatus = determineAIRStatus(
+          mesure.resultatMesure,
+          mesure.dateCloture,
+          mesure.dateFinPriseEnCharge
+        );
+        if (newStatus !== mesure.statut) {
+          hasChanges = true;
+          return { ...mesure, statut: newStatus };
+        }
+        return mesure;
+      });
+      return hasChanges ? updated : prev;
     });
-    
-    if (hasChanges) {
-      setMesures(updatedMesures);
-    }
-  }, [mesures, isLoading]);
+  }, [isLoading]);
 
   // Fonctions utilitaires
   const getMesureByRef = useCallback((refAEM: string): AIRImportData | undefined => {

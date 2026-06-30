@@ -58,114 +58,96 @@ export function useUserPreferences() {
     return () => window.removeEventListener('global-sync-completed', onSync);
   }, [refresh]);
 
-  const setWeeklyRecapSubscriptions = useCallback(async (contentieux: string[]) => {
-    await userPreferencesSyncService.setWeeklyRecapSubscriptions(contentieux);
+  const apply = useCallback(async (fn: () => Promise<void>) => {
+    await fn();
     await refresh();
   }, [refresh]);
 
-  const setServiceOrganizationSections = useCallback(async (sections: string[]) => {
-    await userPreferencesSyncService.setServiceOrganizationSections(sections);
-    await refresh();
-  }, [refresh]);
-
-  const setServiceOrganizationTagSection = useCallback(async (tagId: string, section: string | null) => {
-    await userPreferencesSyncService.setServiceOrganizationTagSection(tagId, section);
-    await refresh();
-  }, [refresh]);
-
-  const seedServiceOrganization = useCallback(async (
-    sections: string[],
-    tagSections: Record<string, string>,
-  ) => {
-    const seeded = await userPreferencesSyncService.seedServiceOrganization(sections, tagSections);
+  const seed = useCallback(async (fn: () => Promise<boolean>) => {
+    const seeded = await fn();
     if (seeded) await refresh();
     return seeded;
   }, [refresh]);
 
-  const setContentieuxAlertsSubscriptions = useCallback(async (ids: ContentieuxId[]) => {
-    await userPreferencesSyncService.setContentieuxAlertsSubscriptions(ids);
-    await refresh();
-  }, [refresh]);
+  const setWeeklyRecapSubscriptions = useCallback(
+    (contentieux: string[]) => apply(() => userPreferencesSyncService.setWeeklyRecapSubscriptions(contentieux)),
+    [apply]);
 
-  const setCrDelayHighlight = useCallback(async (enabled: boolean) => {
-    await userPreferencesSyncService.setCrDelayHighlight(enabled);
-    await refresh();
-  }, [refresh]);
+  const setServiceOrganizationSections = useCallback(
+    (sections: string[]) => apply(() => userPreferencesSyncService.setServiceOrganizationSections(sections)),
+    [apply]);
 
-  const setAlertValidation = useCallback(async (key: string, validation: AlertValidation) => {
-    await userPreferencesSyncService.setAlertValidation(key, validation);
-    await refresh();
-  }, [refresh]);
+  const setServiceOrganizationTagSection = useCallback(
+    (tagId: string, section: string | null) => apply(() => userPreferencesSyncService.setServiceOrganizationTagSection(tagId, section)),
+    [apply]);
 
-  const setAlertValidations = useCallback(async (entries: AlertValidations) => {
-    await userPreferencesSyncService.setAlertValidations(entries);
-    await refresh();
-  }, [refresh]);
+  const seedServiceOrganization = useCallback(
+    (sections: string[], tagSections: Record<string, string>) => seed(() => userPreferencesSyncService.seedServiceOrganization(sections, tagSections)),
+    [seed]);
 
-  const seedAlertValidations = useCallback(async (entries: AlertValidations) => {
-    const seeded = await userPreferencesSyncService.seedAlertValidations(entries);
-    if (seeded) await refresh();
-    return seeded;
-  }, [refresh]);
+  const setContentieuxAlertsSubscriptions = useCallback(
+    (ids: ContentieuxId[]) => apply(() => userPreferencesSyncService.setContentieuxAlertsSubscriptions(ids)),
+    [apply]);
 
-  const setVisualAlertRules = useCallback(async (rules: VisualAlertRule[]) => {
-    await userPreferencesSyncService.setVisualAlertRules(rules);
-    await refresh();
-  }, [refresh]);
+  const setCrDelayHighlight = useCallback(
+    (enabled: boolean) => apply(() => userPreferencesSyncService.setCrDelayHighlight(enabled)),
+    [apply]);
 
-  const seedVisualAlertRules = useCallback(async (rules: VisualAlertRule[]) => {
-    const seeded = await userPreferencesSyncService.seedVisualAlertRules(rules);
-    if (seeded) await refresh();
-    return seeded;
-  }, [refresh]);
+  const setAlertValidation = useCallback(
+    (key: string, validation: AlertValidation) => apply(() => userPreferencesSyncService.setAlertValidation(key, validation)),
+    [apply]);
 
-  const setInstructionAlerts = useCallback(async (alerts: AlerteInstruction[]) => {
-    await userPreferencesSyncService.setInstructionAlerts(alerts);
-    await refresh();
-  }, [refresh]);
+  const setAlertValidations = useCallback(
+    (entries: AlertValidations) => apply(() => userPreferencesSyncService.setAlertValidations(entries)),
+    [apply]);
 
-  const seedInstructionAlerts = useCallback(async (alerts: AlerteInstruction[]) => {
-    const seeded = await userPreferencesSyncService.seedInstructionAlerts(alerts);
-    if (seeded) await refresh();
-    return seeded;
-  }, [refresh]);
+  const seedAlertValidations = useCallback(
+    (entries: AlertValidations) => seed(() => userPreferencesSyncService.seedAlertValidations(entries)),
+    [seed]);
 
-  const setInstructionAlertRules = useCallback(async (rules: InstructionAlertRule[]) => {
-    await userPreferencesSyncService.setInstructionAlertRules(rules);
-    await refresh();
-  }, [refresh]);
+  const setVisualAlertRules = useCallback(
+    (rules: VisualAlertRule[]) => apply(() => userPreferencesSyncService.setVisualAlertRules(rules)),
+    [apply]);
 
-  const seedInstructionAlertRules = useCallback(async (rules: InstructionAlertRule[]) => {
-    const seeded = await userPreferencesSyncService.seedInstructionAlertRules(rules);
-    if (seeded) await refresh();
-    return seeded;
-  }, [refresh]);
+  const seedVisualAlertRules = useCallback(
+    (rules: VisualAlertRule[]) => seed(() => userPreferencesSyncService.seedVisualAlertRules(rules)),
+    [seed]);
 
-  const setInstructionWeeklyRecapSubscribed = useCallback(async (subscribed: boolean) => {
-    await userPreferencesSyncService.setInstructionWeeklyRecapSubscribed(subscribed);
-    await refresh();
-  }, [refresh]);
+  const setInstructionAlerts = useCallback(
+    (alerts: AlerteInstruction[]) => apply(() => userPreferencesSyncService.setInstructionAlerts(alerts)),
+    [apply]);
 
-  const setInstructionNetworkPath = useCallback(async (networkPath: string) => {
-    await userPreferencesSyncService.setInstructionNetworkPath(networkPath);
-    await refresh();
-  }, [refresh]);
+  const seedInstructionAlerts = useCallback(
+    (alerts: AlerteInstruction[]) => seed(() => userPreferencesSyncService.seedInstructionAlerts(alerts)),
+    [seed]);
 
-  const setAgendaUrls = useCallback(async (urls: AgendaUrls) => {
-    await userPreferencesSyncService.setAgendaUrls(urls);
-    await refresh();
-  }, [refresh]);
+  const setInstructionAlertRules = useCallback(
+    (rules: InstructionAlertRule[]) => apply(() => userPreferencesSyncService.setInstructionAlertRules(rules)),
+    [apply]);
 
-  const setAgendaDisplay = useCallback(async (display: AgendaDisplaySettings) => {
-    await userPreferencesSyncService.setAgendaDisplay(display);
-    await refresh();
-  }, [refresh]);
+  const seedInstructionAlertRules = useCallback(
+    (rules: InstructionAlertRule[]) => seed(() => userPreferencesSyncService.seedInstructionAlertRules(rules)),
+    [seed]);
 
-  const seedAgenda = useCallback(async () => {
-    const seeded = await userPreferencesSyncService.seedAgenda();
-    if (seeded) await refresh();
-    return seeded;
-  }, [refresh]);
+  const setInstructionWeeklyRecapSubscribed = useCallback(
+    (subscribed: boolean) => apply(() => userPreferencesSyncService.setInstructionWeeklyRecapSubscribed(subscribed)),
+    [apply]);
+
+  const setInstructionNetworkPath = useCallback(
+    (networkPath: string) => apply(() => userPreferencesSyncService.setInstructionNetworkPath(networkPath)),
+    [apply]);
+
+  const setAgendaUrls = useCallback(
+    (urls: AgendaUrls) => apply(() => userPreferencesSyncService.setAgendaUrls(urls)),
+    [apply]);
+
+  const setAgendaDisplay = useCallback(
+    (display: AgendaDisplaySettings) => apply(() => userPreferencesSyncService.setAgendaDisplay(display)),
+    [apply]);
+
+  const seedAgenda = useCallback(
+    () => seed(() => userPreferencesSyncService.seedAgenda()),
+    [seed]);
 
   const subscribedContentieux: string[] = prefs?.weeklyRecap?.subscribedContentieux || [];
   const serviceOrganization = prefs?.serviceOrganization;
