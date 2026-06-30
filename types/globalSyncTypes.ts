@@ -119,6 +119,82 @@ export interface CartographieOverlaySyncFile extends GlobalSyncMetadata {
 }
 
 /**
+ * Projection MINIMALE d'un dossier (enquête ou instruction) publiée sur la
+ * cartographie commune. On ne transporte QUE ce dont le moteur de graphe a
+ * besoin (cf. utils/mindmapGraph.buildMindmapGraph) — jamais les notes perso,
+ * OPP, débats JLD ou pièces. Confidentialité + poids réseau maîtrisés.
+ */
+export interface CartoContributionMec {
+  /** Id d'origine (facultatif, purement informatif). */
+  id?: string | number;
+  nom: string;
+  statut?: string;
+  isVictime?: boolean;
+  isSuspect?: boolean;
+  suspectRole?: string;
+}
+
+export interface CartoContributionInfraction {
+  /** Code NATINF (source de pondération cible). */
+  natinfCode?: string;
+  /** Qualification libre (legacy, best-effort pour l'ancien matching par tag). */
+  qualification?: string;
+}
+
+export interface CartoContributionMisEnExamen {
+  nom: string;
+  infractions?: CartoContributionInfraction[];
+}
+
+export interface CartoContributionSource {
+  contentieuxId: string;
+  /** Id numérique du dossier source (clé de dédup : `${contentieuxId}_${id}`). */
+  enqueteId: number;
+  numero: string;
+  /** Statut du dossier (en_cours / archive / instruction…). */
+  statut: string;
+  dateCreation: string;
+  dateMiseAJour?: string;
+  /** Services d'enquête (ancrage zonal optionnel). */
+  services?: string[];
+  misEnCause: CartoContributionMec[];
+  /** Présent uniquement pour les dossiers d'instruction (chefs + NATINF). */
+  misEnExamen?: CartoContributionMisEnExamen[];
+}
+
+/**
+ * Contribution d'UN utilisateur à la cartographie commune : la projection de
+ * tout ce qu'il voit (ses enquêtes des contentieux accessibles + ses dossiers
+ * d'instruction rattachés à un contentieux). Chaque utilisateur n'écrit que sa
+ * propre entrée, identifiée par `windowsUsername` → pas de conflit par entité,
+ * fusion par "plus récent par utilisateur".
+ */
+export interface CartoContributorEntry {
+  windowsUsername: string;
+  /** Nom affichable de l'auteur (pour debug / futur affichage). */
+  displayName?: string;
+  /** Horodatage ms de la dernière mise à jour de CETTE entrée. */
+  updatedAt: number;
+  enquetes: CartoContributionSource[];
+  instructions: CartoContributionSource[];
+}
+
+/**
+ * Fichier serveur agrégeant les contributions cartographie de TOUTE l'équipe.
+ * Rend le module « commun à tous » : un collègue qui ajoute des dossiers /
+ * mis en examen rattachés à un contentieux les voit apparaître chez tout le
+ * monde, et la carte couvre tous les contentieux (pas seulement ceux auxquels
+ * l'utilisateur courant a accès). Fichier : `cartographie-contributions`.
+ *
+ * Fusion : chaque entrée est possédée par un seul auteur (clé windowsUsername),
+ * donc « le plus récent par auteur gagne ». Les entrées plus vieilles que le
+ * TTL (cf. service) sont élaguées pour borner la taille du fichier.
+ */
+export interface CartographieContributionsSyncFile extends GlobalSyncMetadata {
+  contributors: CartoContributorEntry[];
+}
+
+/**
  * Fichier serveur de la configuration du module Cartographie, PARTAGÉE par
  * toute l'équipe : pondérations du score Top 10, coefficients par tag
  * d'infraction, regroupement par service. Fichier : `cartographie-config`

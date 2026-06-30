@@ -55,8 +55,15 @@ export interface CartographieModuleConfig {
   /** Pondérations par tag d'infraction (clé = Tag.id). LEGACY : conservé pour
    *  rétrocompat le temps de la migration vers NATINF (cf. natinfWeights). */
   tagInfractionWeights: CartographieInfractionWeights;
-  /** Pondérations par code NATINF (clé = code NATINF). Cible : remplace
-   *  progressivement tagInfractionWeights. Prioritaire sur le poids par tag. */
+  /** Pondération de BASE par catégorie d'infraction (clé = code StatCategory du
+   *  Mémento parquet, cf. lib/natinf/nataff.ts — ex. 'STUP', 'BLANCHIMENT',
+   *  'VIOL'…). C'est l'axe principal recommandé : on pondère une fois par
+   *  catégorie, et chaque NATINF hérite du poids de sa catégorie. Évite le biais
+   *  des anciens « tags d'infraction » qui faussaient le score. */
+  categoryWeights: CartographieInfractionWeights;
+  /** Pondérations par code NATINF (clé = code NATINF). AFFINAGE « de luxe » :
+   *  un poids posé ici PRIME sur le poids de catégorie pour ce NATINF précis,
+   *  quand on a besoin de descendre dans le détail. */
   natinfWeights: CartographieInfractionWeights;
   /** Ancrage zonal par service d'enquête (puits de gravité). Quand activé,
    *  les galaxies partageant un même service dominant sont doucement
@@ -84,6 +91,7 @@ export const DEFAULT_CARTO_WEIGHTS: CartographieScoreWeights = {
 export const DEFAULT_CARTO_CONFIG: CartographieModuleConfig = {
   weights: { ...DEFAULT_CARTO_WEIGHTS },
   tagInfractionWeights: {},
+  categoryWeights: {},
   natinfWeights: {},
   groupByService: false,
   version: 1,

@@ -42,6 +42,13 @@ export const useCartographieConfig = () => {
     [],
   );
 
+  const setCategoryWeight = useCallback(
+    async (categoryCode: string, weight: number) => {
+      return CartographieConfigManager.setCategoryWeight(categoryCode, weight);
+    },
+    [],
+  );
+
   const setNatinfWeight = useCallback(
     async (code: string, weight: number) => {
       return CartographieConfigManager.setNatinfWeight(code, weight);
@@ -62,6 +69,7 @@ export const useCartographieConfig = () => {
     isLoading,
     updateWeights,
     setTagInfractionWeight,
+    setCategoryWeight,
     setNatinfWeight,
     setGroupByService,
     reset,

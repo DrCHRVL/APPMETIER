@@ -24,6 +24,7 @@ export const ELECTRON_API_NAMES = [
   'globalSync_pullDeletedIds', 'globalSync_pushDeletedIds',
   'globalSync_pullCartographie', 'globalSync_pushCartographie',
   'globalSync_pullCartographieConfig', 'globalSync_pushCartographieConfig',
+  'globalSync_pullCartographieContributions', 'globalSync_pushCartographieContributions',
   'globalSync_readLegacyAppData',
   'globalSync_pullUserPreferences', 'globalSync_pushUserPreferences',
   'globalSync_pullContentieuxAlerts', 'globalSync_pushContentieuxAlerts',

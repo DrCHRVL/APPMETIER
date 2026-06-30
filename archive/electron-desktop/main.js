@@ -2072,6 +2072,25 @@ function setupIpcHandlers() {
     }
   })
 
+  // Contributions cartographie : projection minimale des dossiers (enquêtes +
+  // instructions rattachées à un contentieux) de chaque utilisateur. Rend la
+  // carte « commune à tous » — un poste voit les ajouts de tous les collègues,
+  // tous contentieux confondus.
+  ipcMain.handle('globalSync:pullCartographieContributions', async () => {
+    return await readGlobalFile('cartographie-contributions.json')
+  })
+
+  ipcMain.handle('globalSync:pushCartographieContributions', async (event, payload) => {
+    try {
+      await writeGlobalFile('cartographie-contributions.json', payload)
+      pruneGlobalBackups('cartographie-contributions').catch(() => {})
+      return true
+    } catch (error) {
+      console.error('❌ GlobalSync: Erreur écriture cartographie-contributions.json:', error.message)
+      return false
+    }
+  })
+
   // ─── Préférences utilisateur (1 fichier JSON par utilisateur) ──────────────
   // Dossier : user-preferences/{windowsUsername}.json
   // Backups : admin/backups/user-preferences-{username}-{timestamp}.json

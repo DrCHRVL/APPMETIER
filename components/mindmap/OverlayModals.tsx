@@ -21,7 +21,9 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import type { GraphNode, MindmapGraph } from '@/utils/mindmapGraph';
 import type { MecExNihilo, DossierExNihilo, LienRenseignement, MecExNihiloStatut, ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
-import { useTags } from '@/hooks/useTags';
+import { NatinfPicker } from '../natinf/NatinfPicker';
+import { useNatinf } from '@/hooks/useNatinf';
+import { categoryForEntry } from '@/lib/natinf/nataff';
 
 // ─────────────────────────────────────────────────
 // AddMecModal
@@ -152,7 +154,7 @@ interface AddDossierModalProps {
   onClose: () => void;
   graph: MindmapGraph;
   initial?: DossierExNihilo;
-  onSubmit: (data: { label: string; dateApprox?: string; mecIds: string[]; typeInfractionTagIds?: string[]; notes?: string }) => void;
+  onSubmit: (data: { label: string; dateApprox?: string; mecIds: string[]; natinfCodes?: string[]; notes?: string }) => void;
   /** Crée un MEC ex nihilo et renvoie son id canonique (à ajouter aux mecIds liés). */
   onCreateMec?: (data: { displayName: string; alias: string[]; statut?: MecExNihiloStatut; notes?: string }) => string;
 }
@@ -166,13 +168,13 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
   const [label, setLabel] = useState(initial?.label || '');
   const [dateApprox, setDateApprox] = useState(initial?.dateApprox || '');
   const [mecIds, setMecIds] = useState<string[]>(initial?.mecIds || []);
-  const [typeInfractionTagIds, setTypeInfractionTagIds] = useState<string[]>(initial?.typeInfractionTagIds || []);
+  const [natinfCodes, setNatinfCodes] = useState<string[]>(initial?.natinfCodes || []);
   const [notes, setNotes] = useState(initial?.notes || '');
   const [search, setSearch] = useState('');
 
-  // Tags d'infraction disponibles (alimentés par Paramètres > Tags).
-  const { getTagsByCategory } = useTags();
-  const infractionTags = useMemo(() => getTagsByCategory('infractions'), [getTagsByCategory]);
+  // Référentiel NATINF : résolution code → libellé + catégorie (pour l'affichage
+  // des puces sélectionnées et la pondération du score).
+  const { getByCode } = useNatinf();
 
   // ── Création inline d'un MEC (mêmes champs que AddMecModal) ───
   const [createOpen, setCreateOpen] = useState(false);
@@ -198,7 +200,7 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
       setLabel(initial?.label || '');
       setDateApprox(initial?.dateApprox || '');
       setMecIds(initial?.mecIds || []);
-      setTypeInfractionTagIds(initial?.typeInfractionTagIds || []);
+      setNatinfCodes(initial?.natinfCodes || []);
       setNotes(initial?.notes || '');
       setSearch('');
       setCreateOpen(false);
@@ -255,8 +257,11 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
     setMecIds(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
   };
 
-  const toggleInfractionTag = (tagId: string) => {
-    setTypeInfractionTagIds(prev => prev.includes(tagId) ? prev.filter(t => t !== tagId) : [...prev, tagId]);
+  const addNatinf = (code: string) => {
+    setNatinfCodes(prev => prev.includes(code) ? prev : [...prev, code]);
+  };
+  const removeNatinf = (code: string) => {
+    setNatinfCodes(prev => prev.filter(c => c !== code));
   };
 
   const handleSubmit = () => {
@@ -265,7 +270,7 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
       label: label.trim(),
       dateApprox: dateApprox.trim() || undefined,
       mecIds,
-      typeInfractionTagIds: typeInfractionTagIds.length > 0 ? typeInfractionTagIds : undefined,
+      natinfCodes: natinfCodes.length > 0 ? natinfCodes : undefined,
       notes: notes.trim() || undefined,
     });
     onClose();
@@ -430,36 +435,43 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
             </p>
           </div>
           <div>
-            <Label>Type(s) d&apos;infraction</Label>
+            <Label>Infraction(s) — NATINF</Label>
             <p className="text-[11px] text-slate-400 mb-1.5">
-              Pondère le score top 10 selon les poids configurés dans
-              Paramètres &gt; Cartographie. N&apos;apparaît pas dans les stats.
+              Mentionne un ou plusieurs NATINF. Le score top 10 est pondéré par la
+              catégorie d&apos;infraction (réglée dans Paramètres &gt; Cartographie),
+              affinable NATINF par NATINF. N&apos;apparaît pas dans les stats.
             </p>
-            {infractionTags.length === 0 ? (
-              <div className="text-xs text-slate-400 italic px-2 py-1.5 border border-dashed border-slate-200 rounded">
-                Aucun tag d&apos;infraction défini (Paramètres &gt; Tags).
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {infractionTags.map(tag => {
-                  const sel = typeInfractionTagIds.includes(tag.id);
+            {natinfCodes.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {natinfCodes.map(code => {
+                  const entry = getByCode(code);
+                  const cat = categoryForEntry(entry);
                   return (
-                    <button
-                      key={tag.id}
-                      type="button"
-                      onClick={() => toggleInfractionTag(tag.id)}
-                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                        sel
-                          ? 'bg-emerald-100 border-emerald-300 text-emerald-800'
-                          : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                      }`}
+                    <span
+                      key={code}
+                      className="inline-flex items-center gap-1.5 text-xs bg-emerald-50 border border-emerald-200 text-emerald-900 rounded px-2 py-0.5 max-w-full"
+                      title={entry?.libelle || code}
                     >
-                      {tag.value}
-                    </button>
+                      <span className="font-mono text-[10px] text-emerald-700 shrink-0">{code}</span>
+                      <span className="truncate">{entry?.libelle || 'NATINF inconnu'}</span>
+                      {cat && (
+                        <span className="text-[9px] uppercase tracking-wide text-emerald-600 shrink-0">
+                          · {cat.category.label}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeNatinf(code)}
+                        className="text-emerald-400 hover:text-emerald-700 shrink-0"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
                   );
                 })}
               </div>
             )}
+            <NatinfPicker onSelect={(entry) => addNatinf(entry.code)} />
           </div>
           <div>
             <Label>Notes</Label>

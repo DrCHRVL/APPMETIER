@@ -26,9 +26,14 @@ import {
   type MecExNihilo,
 } from '@/stores/useCartographieOverlayStore';
 import { cartographieOverlaySyncService } from '@/utils/dataSync/CartographieOverlaySyncService';
+import { cartographieContributionsSyncService } from '@/utils/dataSync/CartographieContributionsSyncService';
+import { useCartographieContributionsStore } from '@/stores/useCartographieContributionsStore';
 import { CartographieConfigManager } from '@/utils/cartographieConfigManager';
 import { useCartographieConfig } from '@/hooks/useCartographieConfig';
 import { useTags } from '@/hooks/useTags';
+import { useNatinf } from '@/hooks/useNatinf';
+import { categoryForEntry } from '@/lib/natinf/nataff';
+import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 import type { InfluenceCluster } from '../mindmap/influenceHull';
 import { MindmapCanvas } from '../mindmap/MindmapCanvas';
@@ -133,6 +138,12 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const setMecScoreBoost = useCartographieOverlayStore(s => s.setMecScoreBoost);
 
   const { showToast } = useToast();
+  const { user } = useUser();
+  const { getByCode: getNatinfByCode } = useNatinf();
+  // Sources distantes : projection des dossiers de TOUTE l'équipe (tous
+  // contentieux confondus), rapatriée par le service de contributions. Rend la
+  // cartographie « commune à tous ».
+  const remoteSources = useCartographieContributionsStore(s => s.remoteSources);
 
   useEffect(() => {
     if (!overlayLoaded) loadOverlay();
@@ -147,11 +158,27 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     // La config de scoring (pondérations Top 10, coeff. par tag) est elle
     // aussi partagée par toute l'équipe : pull initial + sync périodique.
     CartographieConfigManager.start();
+    // Contributions communes : pull des projections de tous les collègues
+    // (enquêtes + instructions rattachées à un contentieux), tous contentieux
+    // confondus. C'est ce qui rend le module réellement commun à tous.
+    cartographieContributionsSyncService.start();
     return () => {
       cartographieOverlaySyncService.stop();
       CartographieConfigManager.stop();
+      cartographieContributionsSyncService.stop();
     };
   }, []);
+
+  // Publie la contribution locale de l'utilisateur (projection de ses sources :
+  // ses enquêtes accessibles + ses dossiers d'instruction rattachés à un
+  // contentieux) dès qu'elle change. Le service déduplique et débounce le push.
+  useEffect(() => {
+    cartographieContributionsSyncService.setLocalContribution(
+      user?.windowsUsername,
+      user?.displayName,
+      sources,
+    );
+  }, [user?.windowsUsername, user?.displayName, sources]);
 
   // Mode offline : on persiste à la fermeture du module (ou de l'app), pas
   // pendant l'utilisation, pour ne pas faire ramer la cartographie. ATTENTION :
@@ -185,6 +212,17 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   // d'infraction évolue (utile pour le matching qualifications ↔ valeur de tag).
   const { config: cartoConfig } = useCartographieConfig();
   const { getTagsByCategory } = useTags();
+  // Résolveur code NATINF → code de catégorie d'infraction (Mémento parquet),
+  // mémoïsé : le score hérite du poids de la catégorie, affinable par NATINF.
+  const natinfCategoryOf = useMemo(() => {
+    const cache = new Map<string, string | undefined>();
+    return (code: string): string | undefined => {
+      if (cache.has(code)) return cache.get(code);
+      const res = categoryForEntry(getNatinfByCode(code))?.category.code;
+      cache.set(code, res);
+      return res;
+    };
+  }, [getNatinfByCode]);
   const scoreConfig = useMemo(() => {
     const valueById: Record<string, string> = {};
     for (const tag of getTagsByCategory('infractions')) {
@@ -194,9 +232,11 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       weights: cartoConfig.weights,
       tagInfractionWeights: cartoConfig.tagInfractionWeights,
       tagInfractionValueById: valueById,
+      categoryWeights: cartoConfig.categoryWeights,
+      natinfCategoryOf,
       natinfWeights: cartoConfig.natinfWeights,
     };
-  }, [cartoConfig, getTagsByCategory]);
+  }, [cartoConfig, getTagsByCategory, natinfCategoryOf]);
 
   // Contentieux effectifs : on enrichit la liste des defs reçue en prop avec
   // les ids présents dans les sources mais inconnus des defs (typiquement
@@ -204,10 +244,32 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   // virtuel "instructions"). Sans ça, leur filtre serait absent et ils
   // disparaîtraient du graphe. Couleur indigo distinctive pour qu'ils
   // soient repérables tels quels.
+  // Sources effectives = sources locales + contributions distantes des
+  // collègues, dédupliquées par dossier (`${contentieuxId}_${enqueteId}`). La
+  // version locale prime (données complètes, ouvrables) ; la contribution
+  // distante ne sert qu'à faire APPARAÎTRE les dossiers que ce poste n'a pas
+  // (autres contentieux, instructions d'un collègue).
+  const allSources = useMemo<EnqueteWithContext[]>(() => {
+    if (remoteSources.length === 0) return sources;
+    const seen = new Set<string>();
+    const out: EnqueteWithContext[] = [];
+    for (const s of sources) {
+      seen.add(`${s.contentieuxId}_${s.enquete.id}`);
+      out.push(s);
+    }
+    for (const s of remoteSources) {
+      const key = `${s.contentieuxId}_${s.enquete.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(s);
+    }
+    return out;
+  }, [sources, remoteSources]);
+
   const effectiveContentieuxDefs = useMemo<ContentieuxDefinition[]>(() => {
     const known = new Set(contentieuxDefs.map(d => d.id));
     const orphans = new Set<ContentieuxId>();
-    for (const s of sources) {
+    for (const s of allSources) {
       if (!known.has(s.contentieuxId)) orphans.add(s.contentieuxId);
     }
     if (orphans.size === 0) return contentieuxDefs;
@@ -220,7 +282,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       } as ContentieuxDefinition);
     }
     return [...contentieuxDefs, ...virtuals];
-  }, [contentieuxDefs, sources]);
+  }, [contentieuxDefs, allSources]);
 
   // Si un nouveau contentieux apparaît dans les defs (ex. ajouté par l'admin),
   // on l'ajoute au filtre actif pour ne rien masquer par surprise. On utilise
@@ -245,16 +307,16 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   // Compte de dossiers par contentieux (pour les badges du filtre).
   const sourcesCountByContentieux = useMemo(() => {
     const m = new Map<ContentieuxId, number>();
-    for (const s of sources) {
+    for (const s of allSources) {
       m.set(s.contentieuxId, (m.get(s.contentieuxId) || 0) + 1);
     }
     return m;
-  }, [sources]);
+  }, [allSources]);
 
   // Sources filtrées : recalculé → graph rebuild → layout rebuild.
   const filteredSources = useMemo(
-    () => sources.filter(s => selectedContentieux.has(s.contentieuxId)),
-    [sources, selectedContentieux],
+    () => allSources.filter(s => selectedContentieux.has(s.contentieuxId)),
+    [allSources, selectedContentieux],
   );
 
   const graph = useMemo(
@@ -374,6 +436,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       // retentera dès que le réseau revient).
       await cartographieOverlaySyncService.flushPending();
       await CartographieConfigManager.flushPending();
+      await cartographieContributionsSyncService.flushPending();
       setSaveState('saved');
       setTimeout(() => setSaveState('idle'), 2000);
     } catch {
