@@ -23,8 +23,10 @@ import { Enquete, NewEnqueteData, Tag, ToDoItem } from '@/types/interfaces';
 import { StorageManager } from '@/utils/storage';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ToastProvider, useToast } from '@/contexts/ToastContext';
-import { AudienceProvider } from '@/contexts/AudienceContext';
+import { AudienceProvider, useAudience } from '@/contexts/AudienceContext';
+import { buildResultatKey } from '@/stores/useAudienceStore';
 import { InstructionResultatsProvider } from '@/contexts/InstructionResultatsContext';
+import type { EnquetePreliminaireOption } from '@/components/instruction/LierEnquetePreliminaireModal';
 import { UserProvider, useUser } from '@/contexts/UserContext';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
 import { ProlongationModal } from '@/components/modals/ProlongationModal';
@@ -347,6 +349,10 @@ function AppContent() {
 
   // Hook Overboard — données transversales (tous contentieux)
   const { enquetesByContentieux: overboardData, refresh: refreshOverboard, applyEnqueteUpdate: applyOverboardUpdate } = useOverboardData(contentieuxDefs);
+
+  // Résultats d'audience (dont le marqueur OI) — sert à proposer, dans le module
+  // instruction, les seules enquêtes préliminaires éligibles au rattachement.
+  const { audienceState } = useAudience();
 
   // Wrapper qui met à jour l'enquête dans le store scopé ET dans le snapshot
   // Overboard, pour que le tableau de bord (qui lit le snapshot) reflète
@@ -915,8 +921,22 @@ function AppContent() {
   // pseudo-Enquete pour rester compatibles avec le builder de graphe.
   const mindmapSources = useMemo<EnqueteWithContext[]>(() => {
     const out: EnqueteWithContext[] = [];
+    // Enquêtes préliminaires rattachées à un dossier d'instruction : on les
+    // masque pour ne pas créer de doublon sur la cartographie (l'affaire OI est
+    // déjà représentée par son dossier d'instruction). Clé = `${ctx}_${id}`,
+    // alignée sur l'identifiant de nœud de buildMindmapGraph.
+    const suppressedPrelimKeys = new Set<string>();
+    for (const inst of instructions) {
+      if (inst.enquetePreliminaireId == null) continue;
+      const ctx = inst.enquetePreliminaireContentieuxId || inst.contentieuxId;
+      if (!ctx) continue;
+      suppressedPrelimKeys.add(`${ctx}_${inst.enquetePreliminaireId}`);
+    }
     for (const [ctxId, list] of overboardData) {
-      for (const e of list) out.push({ enquete: e, contentieuxId: ctxId });
+      for (const e of list) {
+        if (suppressedPrelimKeys.has(`${ctxId}_${e.id}`)) continue;
+        out.push({ enquete: e, contentieuxId: ctxId });
+      }
     }
     for (const inst of instructions) {
       // Un dossier d'instruction n'apparaît sur la cartographie que s'il est
@@ -978,6 +998,29 @@ function AppContent() {
   // mindmap, donc on n'a plus besoin du pseudo-contentieux "instructions" :
   // seuls les vrais contentieux (crimorg / ecofi / enviro / ...) sont exposés.
   const mindmapContentieuxDefs = contentieuxDefs;
+
+  // Enquêtes préliminaires éligibles au rattachement à un dossier d'instruction :
+  // uniquement celles dont le résultat d'audience est une OI (ouverture
+  // d'information). C'est le seul cas où l'instruction prolonge directement la
+  // préliminaire, et donc où le doublon de cartographie doit être levé.
+  const eligiblePrelimEnquetes = useMemo<EnquetePreliminaireOption[]>(() => {
+    const out: EnquetePreliminaireOption[] = [];
+    for (const [ctxId, list] of overboardData) {
+      const def = contentieuxDefs.find(d => d.id === ctxId);
+      for (const e of list) {
+        const res = audienceState.resultats[buildResultatKey(ctxId, e.id)];
+        if (!res?.isOI) continue;
+        out.push({
+          id: e.id,
+          numero: e.numero,
+          contentieuxId: ctxId,
+          contentieuxLabel: def?.label || ctxId,
+          dateArchivage: e.dateArchivage,
+        });
+      }
+    }
+    return out;
+  }, [overboardData, audienceState.resultats, contentieuxDefs]);
 
   // Recherche dans le contenu des documents (async, avec cache)
   const { documentMatchIds, isSearchingDocs } = useDocumentSearch(enquetes, debouncedSearchTerm);
@@ -1671,6 +1714,18 @@ return (
               ...(inst.suspects || []).map(s => s.nom),
             ]).filter(Boolean)
           ))}
+          enquetePreliminaireOptions={eligiblePrelimEnquetes}
+          onOpenEnquetePreliminaire={(enqueteId, ctxId) => {
+            const scoped = ctxId ? overboardData.get(ctxId as ContentieuxId) : undefined;
+            const found = scoped?.find(e => e.id === enqueteId)
+              ?? Array.from(overboardData.values()).flat().find(e => e.id === enqueteId);
+            if (found) {
+              setSelectedInstruction(null);
+              handleViewEnquete(found);
+            } else {
+              showToast('Enquête préliminaire introuvable (contentieux non chargé ?)', 'error');
+            }
+          }}
         />
       )}
 

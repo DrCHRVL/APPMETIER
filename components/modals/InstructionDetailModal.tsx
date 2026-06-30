@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import {
   X, Edit, Trash2, Save, FileText, Users, Calendar, ListChecks,
   Lock, Scale, MapPin, ShieldOff, AlertTriangle, Archive, RotateCcw,
-  ShieldCheck, Plus, ExternalLink,
+  ShieldCheck, Plus, ExternalLink, Link2, Unlink,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -36,6 +36,10 @@ import { DebatsJLDSection } from '../instruction/DebatsJLDSection';
 import { NotesPersoSection } from '../instruction/NotesPersoSection';
 import { DossierTimelineSection } from '../instruction/DossierTimelineSection';
 import { RichTextEditor } from '../instruction/RichTextEditor';
+import {
+  LierEnquetePreliminaireModal,
+  type EnquetePreliminaireOption,
+} from '../instruction/LierEnquetePreliminaireModal';
 import { renderFormattedText } from '@/lib/formatCR';
 import type {
   DossierInstruction,
@@ -61,6 +65,14 @@ interface InstructionDetailModalProps {
   contentieuxDefs?: import('@/types/userTypes').ContentieuxDefinition[];
   /** Tous les noms MEX + suspects connus (cross-dossiers) pour l'autocomplete */
   allKnownNames?: string[];
+  /**
+   * Enquêtes préliminaires éligibles au rattachement (résultat = OI). Permet
+   * de lier ce dossier à sa préliminaire d'origine pour lever le doublon de
+   * cartographie sans perdre les données de l'enquête.
+   */
+  enquetePreliminaireOptions?: EnquetePreliminaireOption[];
+  /** Ouvre la fiche de l'enquête préliminaire liée (CR, actes, notes). */
+  onOpenEnquetePreliminaire?: (enqueteId: number, contentieuxId?: string) => void;
 }
 
 type TabKey = 'apercu' | 'mex' | 'victimes' | 'echeances' | 'timeline';
@@ -89,6 +101,8 @@ export const InstructionDetailModal = ({
   onDelete,
   contentieuxDefs = [],
   allKnownNames = [],
+  enquetePreliminaireOptions = [],
+  onOpenEnquetePreliminaire,
 }: InstructionDetailModalProps) => {
   const { showToast } = useToast();
   const { getCabinetById } = useInstructionCabinets();
@@ -96,6 +110,32 @@ export const InstructionDetailModal = ({
   const cabinetColor = cabinet?.color || FALLBACK_CABINET_COLOR;
 
   const [activeTab, setActiveTab] = useState<TabKey>('apercu');
+  // Picker de rattachement à l'enquête préliminaire d'origine.
+  const [showLierPrelim, setShowLierPrelim] = useState(false);
+
+  const handleLierPrelim = (option: EnquetePreliminaireOption) => {
+    onUpdate(dossier.id, {
+      enquetePreliminaireId: option.id,
+      enquetePreliminaireContentieuxId: option.contentieuxId,
+      enquetePreliminaireNumero: option.numero,
+    });
+    setShowLierPrelim(false);
+    showToast(`Enquête préliminaire ${option.numero} rattachée`, 'success');
+  };
+
+  const handleDelierPrelim = () => {
+    if (!confirm(
+      'Détacher l\'enquête préliminaire de ce dossier ?\n\n'
+      + 'L\'enquête et ses données ne sont pas supprimées. Elle réapparaîtra '
+      + 'comme un nœud distinct sur la cartographie.',
+    )) return;
+    onUpdate(dossier.id, {
+      enquetePreliminaireId: undefined,
+      enquetePreliminaireContentieuxId: undefined,
+      enquetePreliminaireNumero: undefined,
+    });
+    showToast('Enquête préliminaire détachée', 'success');
+  };
 
   // État local pour l'édition
   const [editData, setEditData] = useState<Partial<DossierInstruction>>({
@@ -308,7 +348,70 @@ export const InstructionDetailModal = ({
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {activeTab === 'apercu' && (
-            isEditing ? (
+            <>
+            {/* Rattachement enquête préliminaire d'origine (résultat OI) :
+                lève le doublon de cartographie, sans toucher aux données de
+                l'enquête. Géré indépendamment du mode édition. */}
+            {dossier.enquetePreliminaireId != null ? (
+              <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2.5">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Link2 className="h-4 w-4 text-emerald-700 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-[11px] uppercase font-semibold text-emerald-700">
+                        Enquête préliminaire d'origine
+                      </div>
+                      <div className="text-sm font-medium text-gray-900 truncate">
+                        {dossier.enquetePreliminaireNumero || `Enquête #${dossier.enquetePreliminaireId}`}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {onOpenEnquetePreliminaire && (
+                      <button
+                        onClick={() => onOpenEnquetePreliminaire(
+                          dossier.enquetePreliminaireId!,
+                          dossier.enquetePreliminaireContentieuxId,
+                        )}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-emerald-800 bg-white border border-emerald-300 rounded px-2 py-1 hover:bg-emerald-100"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" /> Ouvrir l'enquête
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setShowLierPrelim(true)}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded px-2 py-1 hover:bg-gray-100"
+                    >
+                      <Link2 className="h-3.5 w-3.5" /> Changer
+                    </button>
+                    <button
+                      onClick={handleDelierPrelim}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-red-700 bg-white border border-red-200 rounded px-2 py-1 hover:bg-red-50"
+                    >
+                      <Unlink className="h-3.5 w-3.5" /> Détacher
+                    </button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-emerald-700/80 mt-1.5">
+                  Masquée comme doublon sur la cartographie — ses notes, CR et actes restent accessibles dans le module enquêtes.
+                </p>
+              </div>
+            ) : (
+              <div className="mb-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <Link2 className="h-4 w-4 text-gray-400" />
+                  <span>Aucune enquête préliminaire rattachée.</span>
+                </div>
+                <button
+                  onClick={() => setShowLierPrelim(true)}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-[#2B5746] bg-white border border-[#2B5746]/40 rounded px-2 py-1 hover:bg-[#2B5746]/5"
+                >
+                  <Link2 className="h-3.5 w-3.5" /> Lier une enquête (OI)
+                </button>
+              </div>
+            )}
+
+            {isEditing ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -542,7 +645,8 @@ export const InstructionDetailModal = ({
                   </div>
                 </div>
               </div>
-            )
+            )}
+            </>
           )}
 
           {activeTab === 'mex' && (
@@ -608,6 +712,15 @@ export const InstructionDetailModal = ({
           )}
         </div>
       </div>
+
+      <LierEnquetePreliminaireModal
+        isOpen={showLierPrelim}
+        onClose={() => setShowLierPrelim(false)}
+        options={enquetePreliminaireOptions}
+        currentLinkId={dossier.enquetePreliminaireId}
+        currentLinkContentieuxId={dossier.enquetePreliminaireContentieuxId}
+        onSelect={handleLierPrelim}
+      />
     </div>
   );
 };
