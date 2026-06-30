@@ -2,15 +2,21 @@ import React, { useMemo } from 'react';
 import { MapPin } from 'lucide-react';
 import { Enquete } from '@/types/interfaces';
 
+type ActeKind = 'acte' | 'ecoute' | 'geoloc';
+
 interface PendingPoseProps {
   enquetes: Enquete[];
   onOpenEnquete?: (enquete: Enquete) => void;
+  /** Si fourni, prioritaire sur onOpenEnquete : ouvre l'aperçu de l'acte cliqué (profil JLD). */
+  onOpenActe?: (enquete: Enquete, acteId: number, kind: ActeKind) => void;
 }
 
 interface PendingPoseItem {
   acteType: string;
   cible?: string;
   enquete: Enquete;
+  acteId: number;
+  acteKind: ActeKind;
   daysSince: number;
 }
 
@@ -19,7 +25,7 @@ function serviceOf(e: Enquete): string | undefined {
   return e.tags?.find(t => t.category === 'services')?.value;
 }
 
-export const PendingPose = React.memo(({ enquetes, onOpenEnquete }: PendingPoseProps) => {
+export const PendingPose = React.memo(({ enquetes, onOpenEnquete, onOpenActe }: PendingPoseProps) => {
   const pendingPose = useMemo(() => {
     const now = Date.now();
     const dayMs = 1000 * 60 * 60 * 24;
@@ -28,17 +34,17 @@ export const PendingPose = React.memo(({ enquetes, onOpenEnquete }: PendingPoseP
     for (const e of enquetes) {
       for (const a of e.actes || []) {
         if (a.statut === 'pose_pending') {
-          items.push({ acteType: a.type || 'Acte', enquete: e, daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs) });
+          items.push({ acteType: a.type || 'Acte', enquete: e, acteId: a.id, acteKind: 'acte', daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs) });
         }
       }
       for (const a of e.ecoutes || []) {
         if (a.statut === 'pose_pending') {
-          items.push({ acteType: `Écoute ${a.numero}`, cible: a.cible, enquete: e, daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs) });
+          items.push({ acteType: `Écoute ${a.numero}`, cible: a.cible, enquete: e, acteId: a.id, acteKind: 'ecoute', daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs) });
         }
       }
       for (const a of e.geolocalisations || []) {
         if (a.statut === 'pose_pending') {
-          items.push({ acteType: `Géoloc ${a.objet}`, enquete: e, daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs) });
+          items.push({ acteType: `Géoloc ${a.objet}`, enquete: e, acteId: a.id, acteKind: 'geoloc', daysSince: Math.floor((now - new Date(a.dateDebut).getTime()) / dayMs) });
         }
       }
     }
@@ -83,9 +89,9 @@ export const PendingPose = React.memo(({ enquetes, onOpenEnquete }: PendingPoseP
             return (
             <li
               key={idx}
-              className={`flex items-baseline gap-1.5 py-1 group min-w-0 ${borderClass} ${onOpenEnquete ? 'cursor-pointer hover:text-teal-800' : ''}`}
-              onClick={() => onOpenEnquete?.(item.enquete)}
-              title={`${item.acteType} (${item.enquete.numero})${onOpenEnquete ? " — Ouvrir l'enquête" : ''}`}
+              className={`flex items-baseline gap-1.5 py-1 group min-w-0 ${borderClass} ${(onOpenActe || onOpenEnquete) ? 'cursor-pointer hover:text-teal-800' : ''}`}
+              onClick={() => onOpenActe ? onOpenActe(item.enquete, item.acteId, item.acteKind) : onOpenEnquete?.(item.enquete)}
+              title={`${item.acteType} (${item.enquete.numero})${(onOpenActe || onOpenEnquete) ? (onOpenActe ? " — Voir l'acte" : " — Ouvrir l'enquête") : ''}`}
             >
               <span className="text-xs text-gray-700 leading-snug select-none flex-1 min-w-0 break-words [overflow-wrap:anywhere]">
                 {item.acteType}

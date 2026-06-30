@@ -174,6 +174,9 @@ function AppContent() {
   const [settingsContentieuxId, setSettingsContentieuxId] = useState<ContentieuxId | null>(null);
   const [pendingUsersCount, setPendingUsersCount] = useState(0);
   const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
+  // Profil JLD : accès restreint au seul tableau de bord (aperçu d'acte dédié,
+  // aucune autre vue, aucune alerte, aucun paramètre).
+  const isJLDUser = user?.globalRole === 'jld';
 
   // Initialiser le contentieux actif au premier accessible.
   // La vue par défaut reste le Tableau de bord (on ne force pas les enquêtes).
@@ -185,6 +188,8 @@ function AppContent() {
 
   // Réinitialise la recherche à chaque changement de vue
   const handleViewChange = async (view: string, contentieuxId?: ContentieuxId) => {
+    // Le JLD est verrouillé sur le tableau de bord : toute autre vue est ignorée.
+    if (isJLDUser && view !== 'dashboard') return;
     // Vérifier que l'utilisateur a accès au contentieux demandé
     if (contentieuxId && !accessibleContentieux.some(c => c.id === contentieuxId)) {
       return;
@@ -1313,6 +1318,7 @@ return (
             isUpdating={isUpdating}
             remoteSha={updateRemoteSha}
             approvedSha={updateApprovedSha}
+            minimal={isJLDUser}
           />
           </div>
         </div>
@@ -1376,6 +1382,7 @@ return (
               onGlobalTodosChange={handleGlobalTodosChange}
               onOpenEnquete={handleViewEnquete}
               onOpenInstruction={(d) => { setSelectedInstruction(d); setIsEditingInstruction(false); }}
+              isJLD={isJLDUser}
             />
           )}
 

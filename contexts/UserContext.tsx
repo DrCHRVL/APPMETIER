@@ -47,6 +47,7 @@ export function useUser() {
   const contentieux = useUserStore(s => s.contentieux);
   const canDo = useUserStore(s => s.canDo);
   const isAdmin = useUserStore(s => s.isAdmin);
+  const isJLD = useUserStore(s => s.isJLD);
   const hasOverboard = useUserStore(s => s.hasOverboard);
   const hasModule = useUserStore(s => s.hasModule);
   const getSyncMode = useUserStore(s => s.getSyncMode);
@@ -68,6 +69,7 @@ export function useUser() {
     accessibleContentieux,
     canDo,
     isAdmin,
+    isJLD,
     hasOverboard,
     hasModule,
     getSyncMode,

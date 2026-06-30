@@ -8,7 +8,7 @@ import {
   UserPermissionsContext,
   ModuleId,
 } from '@/types/userTypes';
-import { canDo as canDoCheck, isAdmin as isAdminCheck, getSyncMode } from '@/utils/permissions';
+import { canDo as canDoCheck, isAdmin as isAdminCheck, isJLD as isJLDCheck, getSyncMode } from '@/utils/permissions';
 import { migrateToMultiContentieux } from '@/utils/migration/migrateToMultiContentieux';
 import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
 import { ContentieuxManager } from '@/utils/contentieuxManager';
@@ -28,6 +28,7 @@ interface UserState {
   // Helpers (fonctions stables — ne causent jamais de re-render)
   canDo: (contentieuxId: ContentieuxId, action: PermissionAction) => boolean;
   isAdmin: () => boolean;
+  isJLD: () => boolean;
   hasOverboard: () => boolean;
   hasModule: (moduleId: ModuleId) => boolean;
   getSyncMode: (contentieuxId: ContentieuxId) => 'read_write' | 'read_only' | 'none';
@@ -153,6 +154,12 @@ export const useUserStore = create<UserState>((set, get) => ({
     const { permissions } = get();
     if (!permissions) return false;
     return isAdminCheck(permissions);
+  },
+
+  isJLD: (): boolean => {
+    const { permissions } = get();
+    if (!permissions) return false;
+    return isJLDCheck(permissions);
   },
 
   hasOverboard: (): boolean => {

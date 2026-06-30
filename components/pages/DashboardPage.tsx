@@ -19,6 +19,7 @@ import { ElectronBridge } from '@/utils/electronBridge';
 import { AgendaCalendar } from '@/components/AgendaCalendar';
 import { fetchAgendaMulti, AgendaEvent, AgendaSource, AgendaUrls } from '@/lib/web/agenda';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
+import { JLDActePreviewModal, JLDActeRef, JLDActeKind } from '@/components/modals/JLDActePreviewModal';
 
 interface DashboardPageProps {
   enquetesByContentieux: Map<ContentieuxId, Enquete[]>;
@@ -30,6 +31,12 @@ interface DashboardPageProps {
   onGlobalTodosChange: (todos: any) => void;
   onOpenEnquete: (enqueteOrId: Enquete | number) => void;
   onOpenInstruction: (dossier: DossierInstruction) => void;
+  /**
+   * Mode JLD : tableau de bord restreint. Masque les instructions, les rappels
+   * « à faire » et l'agenda ; un clic sur un acte (attente JLD / pose / échéance)
+   * ouvre un aperçu d'acte dédié plutôt que la fiche enquête complète.
+   */
+  isJLD?: boolean;
 }
 
 const KPI = ({ label, value, accent, sub }: { label: string; value: number | string; accent?: string; sub?: string }) => (
@@ -49,9 +56,18 @@ export const DashboardPage = ({
   onUpdateEnquete,
   onGlobalTodosChange,
   onOpenEnquete,
+  isJLD = false,
 }: DashboardPageProps) => {
   const [selected, setSelected] = useState<ContentieuxId>(
     activeContentieux || contentieuxDefs[0]?.id || 'crimorg'
+  );
+
+  // Aperçu d'acte « forgé » pour le JLD (clic depuis les files du tableau de bord).
+  const [jldActeRef, setJldActeRef] = useState<JLDActeRef | null>(null);
+  const handleOpenActe = useMemo(
+    () => (enquete: Enquete, acteId: number, kind: JLDActeKind) =>
+      setJldActeRef({ enquete, acteId, kind }),
+    []
   );
   const selectedDef = contentieuxDefs.find(c => c.id === selected) || contentieuxDefs[0];
 
@@ -169,40 +185,65 @@ export const DashboardPage = ({
         </div>
       </div>
 
-      {/* Indicateurs clés du contentieux sélectionné */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Indicateurs clés du contentieux sélectionné.
+          Le JLD ne voit pas les instructions : 3 indicateurs au lieu de 4. */}
+      <div className={`grid grid-cols-2 gap-3 ${isJLD ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
         <KPI label="Enquêtes en cours" value={activeEnquetes.length} accent={selectedDef?.color} />
-        <KPI label="Instructions en cours" value={instructionsActives} sub={nbDetenus > 0 ? `dont ${nbDetenus} détenu${nbDetenus > 1 ? 's' : ''}` : undefined} />
+        {!isJLD && (
+          <KPI label="Instructions en cours" value={instructionsActives} sub={nbDetenus > 0 ? `dont ${nbDetenus} détenu${nbDetenus > 1 ? 's' : ''}` : undefined} />
+        )}
         <KPI label="Actes en cours" value={actesEnCours} accent={actesEnCours > 0 ? '#0f766e' : undefined} />
         <KPI label="Actes en attente" value={actesEnAttente} accent={actesEnAttente > 0 ? '#b45309' : undefined} />
       </div>
 
-      {/* OP à venir — du contentieux sélectionné */}
+      {/* OP à venir — du contentieux sélectionné.
+          Pour le JLD, le clic n'ouvre pas la fiche enquête (pas d'accès). */}
       <OPTimeline
         enquetesByContentieux={singleCtxMap}
         contentieuxDefs={contentieuxDefs}
-        onEnqueteClick={onOpenEnquete}
+        onEnqueteClick={isJLD ? undefined : onOpenEnquete}
       />
 
-      {/* Échéances d'actes à venir (7 jours) — cliquable vers l'enquête */}
-      <UpcomingActeDeadlines enquetes={activeEnquetes} onOpenEnquete={onOpenEnquete} />
+      {/* Échéances d'actes à venir (7 jours) — clic vers l'enquête, ou aperçu d'acte (JLD) */}
+      <UpcomingActeDeadlines
+        enquetes={activeEnquetes}
+        onOpenEnquete={isJLD ? undefined : onOpenEnquete}
+        onOpenActe={isJLD ? handleOpenActe : undefined}
+      />
 
-      {/* Rappels d'action (sans doublon dans la page Enquêtes) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-        <TodoReminderBar
+      {/* Rappels d'action. Le JLD ne voit ni « à faire » (qui ne le concerne pas)
+          ni l'agenda : seulement « Attente JLD » et « Pose en attente ». */}
+      <div className={`grid grid-cols-1 gap-4 items-start ${isJLD ? 'lg:grid-cols-2' : 'lg:grid-cols-3'}`}>
+        {!isJLD && (
+          <TodoReminderBar
+            enquetes={activeEnquetes}
+            globalTodos={globalTodos}
+            onUpdateEnquete={onUpdateEnquete}
+            onGlobalTodosChange={onGlobalTodosChange}
+            onOpenEnquete={onOpenEnquete}
+          />
+        )}
+        <PendingActsJLD
           enquetes={activeEnquetes}
-          globalTodos={globalTodos}
-          onUpdateEnquete={onUpdateEnquete}
-          onGlobalTodosChange={onGlobalTodosChange}
-          onOpenEnquete={onOpenEnquete}
+          onOpenEnquete={isJLD ? undefined : onOpenEnquete}
+          onOpenActe={isJLD ? handleOpenActe : undefined}
         />
-        <PendingActsJLD enquetes={activeEnquetes} onOpenEnquete={onOpenEnquete} />
-        <PendingPose enquetes={activeEnquetes} onOpenEnquete={onOpenEnquete} />
+        <PendingPose
+          enquetes={activeEnquetes}
+          onOpenEnquete={isJLD ? undefined : onOpenEnquete}
+          onOpenActe={isJLD ? handleOpenActe : undefined}
+        />
       </div>
 
-      {/* Calendrier mensuel (lecture seule) — Google + Outlook + iCloud fusionnés.
-          Distinct de la timeline « OPs à venir » ; toujours affiché, même vide. */}
-      <AgendaCalendar events={agenda} connectedSources={agendaSources} loading={agendaLoading} displaySettings={agendaDisplay} onRefresh={fetchAgendaData} />
+      {/* Calendrier mensuel (lecture seule) — masqué pour le JLD. */}
+      {!isJLD && (
+        <AgendaCalendar events={agenda} connectedSources={agendaSources} loading={agendaLoading} displaySettings={agendaDisplay} onRefresh={fetchAgendaData} />
+      )}
+
+      {/* Aperçu d'acte forgé pour le JLD */}
+      {isJLD && (
+        <JLDActePreviewModal acteRef={jldActeRef} onClose={() => setJldActeRef(null)} />
+      )}
     </div>
   );
 };
