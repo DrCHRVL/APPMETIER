@@ -102,7 +102,7 @@ export interface DocumentEnquete {
   taille: number;
   dateAjout: string;
   cheminRelatif: string; // Chemin relatif depuis le dossier de l'enquête
-  copieCommun?: 'ok' | 'attente'; // Copie vers le dossier commun : faite / en file d'attente
+  copieCommun?: 'ok' | 'attente' | 'absent'; // Copie vers le dossier commun : faite / en file d'attente / introuvable
   type: 'pdf' | 'doc' | 'docx' | 'odt' | 'image' | 'html' | 'msg' | 'txt' | 'autre';
 }
 
@@ -309,8 +309,10 @@ export interface Alert {
   deadline?: string;
   acteId?: number;
   prolongationData?: {
-    dateDebut: string;
-    duree: string;
+    dateDebut?: string;
+    duree?: string;
+    /** Spécifique aux alertes AIR : date de référence (dernier RDV ou début). */
+    dateReference?: string;
   };
   // Empreinte de l'état réel qui justifie l'alerte (date du dernier CR,
   // palier d'âge, date d'expiration de l'acte…). « Valider » mémorise cette
@@ -475,8 +477,27 @@ export interface AIRImportData {
 
 export type AIRStatus = 'en_cours' | 'termine' | 'echec' | 'reussite';
 
-/** Alias pour AIRImportData - utilisé dans les hooks d'alertes */
-export type AIRMesure = AIRImportData;
+/**
+ * Type consommé par le code d'alerte AIR (useCombinedAlerts /
+ * AlertManager.checkAIRMesure). En plus du modèle courant `AIRImportData`
+ * (qui expose `nomPrenom`, `dateReception`, …), il déclare des champs hérités
+ * (`id`, `identite`, `dateDebut`, `details.rdv`) que ce code lit encore.
+ *
+ * Ces champs sont OPTIONNELS : les objets réellement produits par `useAIR`
+ * sont des `AIRImportData` qui ne les portent pas. Le code d'alerte y accède
+ * donc via `?.` ou derrière des gardes (`if (!dateDebut) continue`), si bien
+ * que les alertes AIR restent inertes à l'exécution — comportement inchangé.
+ * (Cf. note de la PR : la génération d'alertes AIR n'est pas reliée au modèle
+ * de données actuel.)
+ */
+export interface AIRMesure extends AIRImportData {
+  id?: number;
+  identite?: string;
+  dateDebut?: string;
+  details?: {
+    rdv?: Array<{ date: string }>;
+  };
+}
 
 // 🆕 TYPES POUR LE GREFFE
 export interface GreffeData {

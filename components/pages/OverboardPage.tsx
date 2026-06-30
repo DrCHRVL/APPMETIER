@@ -79,7 +79,7 @@ export const OverboardPage = ({
         // Soit l'audience est marquée pending, soit elle a des condamnations pending
         const isPending = resultat.isAudiencePending ||
           resultat.hasPartialResults ||
-          resultat.pendingCondamnations?.length > 0 ||
+          (resultat.pendingCondamnations?.length ?? 0) > 0 ||
           resultat.condamnations?.some(c => c.isPending);
 
         if (!isPending) continue;

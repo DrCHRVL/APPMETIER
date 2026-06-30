@@ -65,7 +65,7 @@ const OrientationBarBlock = ({
             align: 'center',
             formatter: (value) => value || '',
             font: { weight: 'bold' },
-            display: (context) => context.dataset.data[context.dataIndex] > 0,
+            display: (context) => (context.dataset.data[context.dataIndex] as number) > 0,
           },
         },
       }}
@@ -329,7 +329,7 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                     tooltip: {
                       callbacks: {
                         label: (context) => {
-                          const value = context.raw;
+                          const value = context.raw as number;
                           const total = context.dataset.data.reduce((a: number, b: number) => a + b, 0);
                           const percentage = ((value / total) * 100).toFixed(1);
                           return ` ${context.label}: ${value} (${percentage}%)`;

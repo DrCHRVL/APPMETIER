@@ -185,7 +185,7 @@ type Acte = GeolocData | EcouteData | AutreActe;
 interface ProlongationResult {
   dateFin: string;
   duree: string;
-  statut: string;
+  statut: ActeStatus;
   warning?: string;
   prolongationData?: any;
 }
@@ -306,10 +306,10 @@ export const ActeUtils = {
     }
   },
 
-  createActe: (
-    acte: Omit<Acte, 'id' | 'statut'>,
+  createActe: <T extends Omit<Acte, 'id' | 'statut'>>(
+    acte: T,
     withPose: boolean
-  ): Acte => {
+  ): T & { id: number; statut: ActeStatus; dateFin: string } => {
     try {
       if (!acte.dateDebut || !acte.duree) {
         throw new Error('Start date and duration are required');
@@ -328,7 +328,7 @@ export const ActeUtils = {
         id: Date.now(),
         statut: withPose ? 'en_cours' : 'pose_pending',
         dateFin: dateFin
-      } as Acte;
+      } as T & { id: number; statut: ActeStatus; dateFin: string };
     } catch (error) {
       console.error('Error in createActe:', error);
       throw error;

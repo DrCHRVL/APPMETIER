@@ -1,4 +1,4 @@
-import { Alert, AlertRule, Enquete, AlertValidation, RecurrenceConfig, AlertValidations } from '@/types/interfaces';
+import { Alert, AlertRule, Enquete, AlertValidation, RecurrenceConfig, AlertValidations, AIRMesure } from '@/types/interfaces';
 import { DateUtils } from '../dateUtils';
 import { AlertStorage } from './alertStorage';
 import { getLastCR } from '../compteRenduUtils';
@@ -206,7 +206,7 @@ export class AlertManager {
           
           return {
             ...alert,
-            status: 'snoozed',
+            status: 'snoozed' as const,
             snoozedUntil: snoozeUntil.toISOString(),
             snoozedCount: (alert.snoozedCount || 0) + 1
           };
@@ -243,7 +243,7 @@ export class AlertManager {
     message: string,
     deadline?: string,
     acteId?: number,
-    prolongationData?: { dateDebut: string; duree: string },
+    prolongationData?: { dateDebut?: string; duree?: string; dateReference?: string },
     stateKey?: string,
   ): Alert {
     const alert: Alert = {
@@ -265,10 +265,10 @@ export class AlertManager {
   const enabledRules = rules.filter(rule => rule.enabled && rule.type.startsWith('air_'));
   
   // Si aucune règle activée ou si la mesure est terminée, retourner un tableau vide
-  if (enabledRules.length === 0 || 
-      mesure.statut === 'reussite' || 
-      mesure.statut === 'echec' || 
-      mesure.statut === 'inconnu') {
+  if (enabledRules.length === 0 ||
+      mesure.statut === 'reussite' ||
+      mesure.statut === 'echec' ||
+      (mesure.statut as string) === 'inconnu') {
     return alerts;
   }
   
@@ -353,10 +353,10 @@ export class AlertManager {
       joursSansRdv: joursSansDernierRdv,
     });
 
-    if (await this.wasAcknowledgedForState(mesure.id, rule.type, undefined, stateKey)) continue;
+    if (await this.wasAcknowledgedForState(mesure.id ?? 0, rule.type, undefined, stateKey)) continue;
 
     const alert = this.generateAlert(
-      mesure.id,
+      mesure.id ?? 0,
       rule.type,
       message,
       undefined,
@@ -383,7 +383,8 @@ export class AlertManager {
     // Vérification des CR
     const crRule = enabledRules.find(rule => rule.type === 'cr_delay');
     if (crRule && enquete.comptesRendus.length > 0) {
-      const lastCR = getLastCR(enquete.comptesRendus);
+      // length > 0 garantit un dernier CR : assertion non-null justifiée.
+      const lastCR = getLastCR(enquete.comptesRendus)!;
       const lastCRDate = lastCR.date.split('T')[0];
       const daysSinceLastCR = DateUtils.getDaysDifference(new Date(lastCR.date), new Date());
 

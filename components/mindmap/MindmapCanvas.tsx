@@ -68,7 +68,7 @@ interface MindmapCanvasProps {
 // NŒUDS PERSONNALISÉS
 // ──────────────────────────────────────────────
 
-type MecNodeData = MecNode & { focused: boolean; radius: number; dimmed: boolean; isPinned: boolean };
+type MecNodeData = MecNode & { focused: boolean; radius: number; dimmed: boolean; isPinned: boolean } & Record<string, unknown>;
 type DossierNodeData = DossierNode & {
   focused: boolean;
   radius: number;
@@ -86,7 +86,7 @@ type DossierNodeData = DossierNode & {
   contentieuxLabel: string;
   isExNihilo: boolean;
   dimmed: boolean;
-};
+} & Record<string, unknown>;
 
 type HullNodeData = {
   cluster: InfluenceCluster;

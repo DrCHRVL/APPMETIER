@@ -155,7 +155,7 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
       if (ecoute.id === prolongationEcouteId) {
         return {
           ...ecoute,
-          statut: 'prolongation_pending',
+          statut: 'prolongation_pending' as const,
           prolongationRequestedAt: new Date().toISOString()
         };
       }
@@ -211,7 +211,7 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
         return {
           ...ecoute,
           dateDebut: date,
-          statut: 'pose_pending'
+          statut: 'pose_pending' as const
         };
       }
       return ecoute;

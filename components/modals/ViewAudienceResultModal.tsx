@@ -79,6 +79,7 @@ export const ViewAudienceResultModal = ({
           sursisSimple: condamnation.sursisSimple || 0,
           peineAmende: condamnation.peineAmende || 0,
           interdictionParaitre: condamnation.interdictionParaitre || false,
+          interdictionGerer: condamnation.interdictionGerer || false,
           typeAudience: condamnation.typeAudience || 'CI',
           defere: condamnation.defere || false
         }))

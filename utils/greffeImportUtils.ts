@@ -633,45 +633,51 @@ export const compareAirWithGreffe = (
       similarity: number;
       greffeIndex: number;
     } | null = null;
-    
-    // Trouver la meilleure correspondance dans le greffe
-    greffeData.forEach((greffe, greffeIndex) => {
-      if (usedGreffeIndices.has(greffeIndex)) return;
-      
+
+    // Trouver la meilleure correspondance dans le greffe.
+    // NB : boucle `for…of` (et non `forEach`) pour que l'analyse de flux de
+    // TypeScript suive bien l'affectation de `bestMatch` (une closure masquerait
+    // le réassignement et réduirait le type à `never` dans le bloc ci-dessous).
+    let greffeIndex = -1;
+    for (const greffe of greffeData) {
+      greffeIndex++;
+      if (usedGreffeIndices.has(greffeIndex)) continue;
+
       const similarity = calculateSimilarity(air.nomPrenom, greffe.nomPrenom);
-      
+
       if (similarity > 0.3 && (!bestMatch || similarity > bestMatch.similarity)) {
         bestMatch = { greffe, similarity, greffeIndex };
       }
-    });
-    
-    if (bestMatch) {
-      console.log(`[MATCH] ${air.nomPrenom} ↔ ${bestMatch.greffe.nomPrenom} (${bestMatch.similarity.toFixed(3)})`);
-      
+    }
+
+    const best = bestMatch;
+    if (best) {
+      console.log(`[MATCH] ${air.nomPrenom} ↔ ${best.greffe.nomPrenom} (${best.similarity.toFixed(3)})`);
+
       const match: ComparisonMatch = {
-        greffe: bestMatch.greffe,
+        greffe: best.greffe,
         air,
-        similarity: bestMatch.similarity,
-        confidence: bestMatch.similarity >= 0.9 ? 'exact' :
-                   bestMatch.similarity >= 0.8 ? 'high' :
-                   bestMatch.similarity >= 0.6 ? 'medium' : 'low',
+        similarity: best.similarity,
+        confidence: best.similarity >= 0.9 ? 'exact' :
+                   best.similarity >= 0.8 ? 'high' :
+                   best.similarity >= 0.6 ? 'medium' : 'low',
         matchType: 'nom'
       };
-      
+
       // Seuils : garder strict pour auto, élargir pour validation manuelle
-      if (bestMatch.similarity >= 0.85) {
+      if (best.similarity >= 0.85) {
         // ENRICHISSEMENT AUTOMATIQUE : Ajout du numéro de parquet (seuil strict conservé)
-        console.log(`[ENRICHI] ${air.nomPrenom} reçoit le n° ${bestMatch.greffe.numeroParquet} (${bestMatch.similarity.toFixed(3)})`);
+        console.log(`[ENRICHI] ${air.nomPrenom} reçoit le n° ${best.greffe.numeroParquet} (${best.similarity.toFixed(3)})`);
         enrichedAir.push({
           ...air,
-          numeroParquet: bestMatch.greffe.numeroParquet
+          numeroParquet: best.greffe.numeroParquet
         });
-        usedGreffeIndices.add(bestMatch.greffeIndex);
+        usedGreffeIndices.add(best.greffeIndex);
         usedAirIndices.add(airIndex);
         console.log(`[DEBUG] AIR index ${airIndex} marqué comme utilisé`);
-      } else if (bestMatch.similarity >= 0.4) {
+      } else if (best.similarity >= 0.4) {
         // CORRESPONDANCE PROBABLE : À valider manuellement (seuil élargi)
-        console.log(`[PROBABLE] ${air.nomPrenom} ↔ ${bestMatch.greffe.nomPrenom} à vérifier (${bestMatch.similarity.toFixed(3)})`);
+        console.log(`[PROBABLE] ${air.nomPrenom} ↔ ${best.greffe.nomPrenom} à vérifier (${best.similarity.toFixed(3)})`);
         probables.push(match);
         // ⚠️ IMPORTANT : Ne pas marquer comme utilisé pour les probables car pas encore validé
       }

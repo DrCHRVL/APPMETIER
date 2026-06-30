@@ -1094,7 +1094,7 @@ function AppContent() {
     const hasSuiviTag = etags.some((tag: any) => tag.category === 'suivi' && tag.value === type);
     const newTags = hasSuiviTag
       ? etags.filter((tag: any) => !(tag.category === 'suivi' && tag.value === type))
-      : [...etags, { id: tagId, value: type, category: 'suivi' }];
+      : [...etags, { id: tagId, value: type, category: 'suivi' as const }];
     handleUpdateEnquete(enqueteId, { tags: newTags });
   }, [handleUpdateEnquete]);
   const handleActeRequest = useCallback((acteId: number, type: 'acte' | 'ecoute' | 'geoloc', enqueteId: number, modal: 'prolongation' | 'pose' | 'validation') => {

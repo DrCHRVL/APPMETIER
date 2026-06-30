@@ -356,12 +356,12 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
       const cEnquetesForYear = cEnquetes.filter(e => new Date(e.dateCreation).getFullYear() === selectedYear);
       const cActes = cEnquetesForYear.reduce((acc, e) => {
         const tags = e.tags || [];
-        const ecoutes = tags.filter(t => t.category === 'acte' && t.value === 'ecoute').length;
-        const geo = tags.filter(t => t.category === 'acte' && t.value === 'geolocalisation').length;
-        const autres = tags.filter(t => t.category === 'acte' && t.value === 'autre').length;
-        const prolongEcoutes = tags.filter(t => t.category === 'prolongation' && t.value === 'ecoute').length;
-        const prolongGeo = tags.filter(t => t.category === 'prolongation' && t.value === 'geolocalisation').length;
-        const prolongAutres = tags.filter(t => t.category === 'prolongation' && t.value === 'autre').length;
+        const ecoutes = tags.filter(t => (t.category as string) === 'acte' && t.value === 'ecoute').length;
+        const geo = tags.filter(t => (t.category as string) === 'acte' && t.value === 'geolocalisation').length;
+        const autres = tags.filter(t => (t.category as string) === 'acte' && t.value === 'autre').length;
+        const prolongEcoutes = tags.filter(t => (t.category as string) === 'prolongation' && t.value === 'ecoute').length;
+        const prolongGeo = tags.filter(t => (t.category as string) === 'prolongation' && t.value === 'geolocalisation').length;
+        const prolongAutres = tags.filter(t => (t.category as string) === 'prolongation' && t.value === 'autre').length;
         return acc + ecoutes + geo + autres + prolongEcoutes + prolongGeo + prolongAutres;
       }, 0);
 
@@ -434,9 +434,9 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
                 const prelimCount = enquetesTermineesFiltered.filter(e => {
                   const audienceResult = Object.values(scopedResultats)
                     .find(r => r.enqueteId === e.id);
+                  if (!audienceResult) return false;
                   const audienceDate = new Date(audienceResult.dateAudience);
-                  return audienceResult &&
-                         audienceDate.getMonth() === month &&
+                  return audienceDate.getMonth() === month &&
                          audienceDate.getFullYear() === selectedYear;
                 }).length;
                 const directCount = directResultsFiltered.filter(r => {

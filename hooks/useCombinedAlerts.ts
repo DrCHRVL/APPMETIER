@@ -228,7 +228,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
         for (const mesure of mesuresAIRRef.current) {
           if (mesure.statut !== 'en_cours') continue;
 
-          const dateDebut = parseDateString(mesure.dateDebut);
+          const dateDebut = parseDateString(mesure.dateDebut ?? '');
           if (!dateDebut) continue;
 
           const mesureAge = Math.floor((now.getTime() - dateDebut.getTime()) / (1000 * 60 * 60 * 24));
@@ -269,12 +269,12 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
               joursSansRdv: joursSansDernierRdv,
             });
             const ack = await AlertManager.wasAcknowledgedForState(
-              mesure.id, rule.type, undefined, stateKey,
+              mesure.id ?? 0, rule.type, undefined, stateKey,
             );
             if (ack) continue;
 
             const alert = AlertManager.generateAlert(
-              mesure.id,
+              mesure.id ?? 0,
               rule.type,
               message,
               undefined,
@@ -376,7 +376,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
           alert.id === alertId
             ? {
                 ...alert,
-                status: 'snoozed',
+                status: 'snoozed' as const,
                 snoozedUntil: snoozeUntil.toISOString(),
                 snoozedCount: (alert.snoozedCount || 0) + 1
               }

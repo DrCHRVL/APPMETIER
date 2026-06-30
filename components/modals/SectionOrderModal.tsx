@@ -151,9 +151,13 @@ export const SectionOrderModal = ({
 
                   {/* Indicateur actif/inactif */}
                   {active ? (
-                    <Eye className="h-3.5 w-3.5 text-green-500 flex-shrink-0" title="Section visible (contient des enquêtes)" />
+                    <span title="Section visible (contient des enquêtes)" className="flex-shrink-0">
+                      <Eye className="h-3.5 w-3.5 text-green-500" />
+                    </span>
                   ) : (
-                    <EyeOff className="h-3.5 w-3.5 text-gray-300 flex-shrink-0" title="Section vide (aucune enquête)" />
+                    <span title="Section vide (aucune enquête)" className="flex-shrink-0">
+                      <EyeOff className="h-3.5 w-3.5 text-gray-300" />
+                    </span>
                   )}
 
                   {/* Boutons de déplacement */}

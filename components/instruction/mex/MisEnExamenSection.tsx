@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Plus, X, ChevronsDownUp, ChevronsUpDown, ArrowRightCircle, UserSearch, Pencil, Trash2 } from 'lucide-react';
+import { Plus, X, ChevronsDownUp, ChevronsUpDown, ArrowRightCircle, Search, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
@@ -273,7 +273,7 @@ export const MisEnExamenSection = ({ misEnExamen, suspects = [], onChange, onSus
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-semibold text-amber-700 uppercase flex items-center gap-1.5">
-            <UserSearch className="h-3.5 w-3.5" />
+            <Search className="h-3.5 w-3.5" />
             Suspects / futurs MEX
             {suspects.length > 0 && (
               <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">

@@ -315,8 +315,8 @@ export class DataMergeService {
   /**
    * Union de deux tableaux par ID. Pour les doublons, `localIsNewer` détermine quelle version garder.
    */
-  private static unionById<T extends { id: number }>(local: T[], server: T[], localIsNewer: boolean): T[] {
-    const merged = new Map<number, T>();
+  private static unionById<T extends { id: string | number }>(local: T[], server: T[], localIsNewer: boolean): T[] {
+    const merged = new Map<string | number, T>();
 
     // D'abord la version "perdante", puis la "gagnante" qui écrase les doublons
     const first = localIsNewer ? server : local;
