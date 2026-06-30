@@ -275,15 +275,18 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
   };
 
   const now = new Date();
-  
+  // Une mesure n'apparaît dans "Mesures terminées" qu'un jour après sa date de fin
+  const terminationCutoff = new Date(now);
+  terminationCutoff.setDate(terminationCutoff.getDate() - 1);
+
   const activeGeolocs = enquete.geolocalisations?.filter(g => {
     if (!g.dateFin) return true;
-    return new Date(g.dateFin) >= now;
+    return new Date(g.dateFin) >= terminationCutoff;
   }) || [];
-  
+
   const terminatedGeolocs = enquete.geolocalisations?.filter(g => {
     if (!g.dateFin) return false;
-    return new Date(g.dateFin) < now;
+    return new Date(g.dateFin) < terminationCutoff;
   }).sort((a, b) => new Date(b.dateFin).getTime() - new Date(a.dateFin).getTime()) || [];
 
   const sevenDaysFromNow = new Date(now);
