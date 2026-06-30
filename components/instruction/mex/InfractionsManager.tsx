@@ -8,6 +8,7 @@ import { useTags } from '@/hooks/useTags';
 import { useNatinf } from '@/hooks/useNatinf';
 import { toRef } from '@/lib/natinf/natinfData';
 import { NatinfPicker } from '../../natinf/NatinfPicker';
+import { NatinfGroupSuggestions } from '../../natinf/NatinfGroupSuggestions';
 import { NatinfBadge } from '../../natinf/NatinfBadge';
 import type { InfractionReproche } from '@/types/instructionTypes';
 
@@ -83,6 +84,33 @@ export const InfractionsManager = ({ value, onChange, readOnly }: Props) => {
         natinfRef: toRef(entry),
       },
     ]);
+  };
+
+  // Codes NATINF déjà rattachés à un chef (pour la détection de familles).
+  const selectedNatinfCodes = useMemo(
+    () => value.map(v => v.natinfCode).filter((c): c is string => Boolean(c)),
+    [value],
+  );
+
+  // Ajout en lot des chefs « jumeaux » d'une famille (suggestion).
+  const handleAddCodes = (codes: string[]) => {
+    if (readOnly) return;
+    const existing = new Set(value.map(v => v.natinfCode).filter(Boolean));
+    const toAdd: InfractionReproche[] = [];
+    let seq = 0;
+    for (const code of codes) {
+      if (existing.has(code)) continue;
+      const entry = getByCode(code);
+      if (!entry) continue;
+      existing.add(code);
+      toAdd.push({
+        id: Date.now() + Math.floor(Math.random() * 1000) + seq++,
+        qualification: entry.libelle,
+        natinfCode: entry.code,
+        natinfRef: toRef(entry),
+      });
+    }
+    if (toAdd.length > 0) onChange([...value, ...toAdd]);
   };
 
   return (
@@ -221,6 +249,11 @@ export const InfractionsManager = ({ value, onChange, readOnly }: Props) => {
           <NatinfPicker
             onSelect={handleAddFromNatinf}
             placeholder="Rechercher une infraction (n° NATINF ou libellé)…"
+          />
+          <NatinfGroupSuggestions
+            selectedCodes={selectedNatinfCodes}
+            onAdd={handleAddCodes}
+            className="mt-2"
           />
         </div>
       )}

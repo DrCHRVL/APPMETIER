@@ -85,6 +85,7 @@ export const EnquetePreview = React.memo(({
   const [showAudienceResultModal, setShowAudienceResultModal] = useState(false);
   const [showAutorisationModal, setShowAutorisationModal] = useState(false);
   const [showHideConfirm, setShowHideConfirm] = useState(false);
+  const [showAllInfractions, setShowAllInfractions] = useState(false);
   const [selectedActe, setSelectedActe] = useState<{ id: number, type: 'acte' | 'ecoute' | 'geoloc' } | null>(null);
 
   // Hooks
@@ -166,6 +167,15 @@ export const EnquetePreview = React.memo(({
 
   // Services dérivés depuis les tags
   const displayServices = getServicesFromTags(enquete.tags);
+
+  // Infractions de l'enquête : repliées par défaut au-delà d'un seuil pour ne
+  // pas surcharger la carte (« +N » dépliable à la demande).
+  const infractionItems = useMemo(() => infractionsForEnquete(enquete), [infractionsForEnquete, enquete]);
+  const INFRACTION_PREVIEW_LIMIT = 3;
+  const visibleInfractions = showAllInfractions
+    ? infractionItems
+    : infractionItems.slice(0, INFRACTION_PREVIEW_LIMIT);
+  const hiddenInfractionsCount = infractionItems.length - visibleInfractions.length;
 
   // Évaluation des règles d'alerte visuelles (triées par priorité)
   const matchingVisualRules = useMemo(() => {
@@ -438,16 +448,16 @@ return (
       </CardTitle>
     </div>
 
-            {/* Tags d'infraction */}
+            {/* Tags d'infraction (repliés au-delà du seuil) */}
             <div className="flex flex-wrap gap-1 mb-1.5">
-              {infractionsForEnquete(enquete).map((inf, i) => (
+              {visibleInfractions.map((inf, i) => (
                 <Badge
                   key={inf.code || inf.label || i}
                   variant="outline"
                   className="text-[10px] py-0 px-1.5 bg-gray-50 inline-flex items-center gap-1 max-w-full"
                   title={inf.label}
                 >
-                  <span className="min-w-0 max-w-[10rem] truncate">{inf.label}</span>
+                  <span className="min-w-0 max-w-[8rem] truncate">{inf.label}</span>
                   {inf.code && (
                     <span className="shrink-0">
                       <NatinfBadge code={inf.code} nature={inf.nature} quantumLabel={inf.quantumLabel} compact />
@@ -455,6 +465,34 @@ return (
                   )}
                 </Badge>
               ))}
+
+              {/* Dépliage / repliage de la liste d'infractions */}
+              {hiddenInfractionsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowAllInfractions(true);
+                  }}
+                  className="text-[10px] py-0 px-1.5 rounded-full border border-gray-300 bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  title="Afficher toutes les infractions"
+                >
+                  +{hiddenInfractionsCount} autre{hiddenInfractionsCount > 1 ? 's' : ''}
+                </button>
+              )}
+              {showAllInfractions && infractionItems.length > INFRACTION_PREVIEW_LIMIT && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowAllInfractions(false);
+                  }}
+                  className="text-[10px] py-0 px-1.5 rounded-full border border-gray-300 bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  title="Réduire la liste"
+                >
+                  réduire
+                </button>
+              )}
 
               {/* Badge co-saisine : un seul badge selon qu'on est origine (a partagé)
                   ou destinataire (a reçu). On ne cumule jamais les deux. */}

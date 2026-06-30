@@ -9,6 +9,7 @@ import { useTags } from '@/hooks/useTags';
 import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { NatinfBadge } from '../natinf/NatinfBadge';
 import { NatinfPicker } from '../natinf/NatinfPicker';
+import { NatinfGroupSuggestions } from '../natinf/NatinfGroupSuggestions';
 
 interface EnqueteHeaderProps {
   numero: string;
@@ -198,6 +199,10 @@ export const EnqueteHeader = React.memo(({
               <NatinfPicker
                 onSelect={(entry) => setInfractionCodes([...currentCodes, entry.code])}
                 placeholder="Ajouter une infraction (n° NATINF ou libellé)…"
+              />
+              <NatinfGroupSuggestions
+                selectedCodes={currentCodes}
+                onAdd={(codes) => setInfractionCodes([...currentCodes, ...codes])}
               />
             </div>
           ) : infractionItems.length > 0 ? (
