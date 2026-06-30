@@ -4,7 +4,11 @@ node_modules
 out
 out-consultation
 consultation-shell
-data
+# data/ contient des données runtime (exclues) MAIS aussi data/natinf/ qui sont
+# des SOURCES nécessaires au build (référentiel NATINF). On exclut le runtime et
+# on ré-inclut explicitement data/natinf, sinon `next build` échoue (module not found).
+data/*
+!data/natinf
 srv-data
 .git
 docs
