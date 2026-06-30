@@ -76,7 +76,10 @@ export const MultiSideBar = ({
   crossSearchResults = [],
   pendingUsersCount = 0,
 }: MultiSideBarProps) => {
-  const { accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, permissions, user } = useUser();
+  const { accessibleContentieux, canDo, isAdmin, isJLD, hasOverboard, hasModule, permissions, user } = useUser();
+  // Le JLD n'a accès qu'au tableau de bord : on masque tous les blocs
+  // contentieux, modules, overboard et même les paramètres.
+  const jldRestricted = isJLD();
 
   // Libellé lisible du rôle global
   const roleLabel = (() => {
@@ -84,6 +87,7 @@ export const MultiSideBar = ({
       case 'admin': return 'Administrateur';
       case 'pra': return 'Procureur de la République adjoint';
       case 'vice_proc': return 'Vice-procureur';
+      case 'jld': return 'Juge des libertés et de la détention';
       default: return 'Membre';
     }
   })();
@@ -155,10 +159,10 @@ export const MultiSideBar = ({
           <LayoutDashboard className={`h-4 w-4 flex-shrink-0 ${currentView === 'dashboard' ? 'text-white' : 'text-white/60'}`} />
           {isOpen && <span className="truncate">Tableau de bord</span>}
         </button>
-        <div className="my-2 border-t border-white/10" />
+        {!jldRestricted && <div className="my-2 border-t border-white/10" />}
 
         {/* ── BLOCS CONTENTIEUX ── */}
-        {sortedContentieux
+        {!jldRestricted && sortedContentieux
           .map((ctxDef, idx) => {
             const colors = CONTENTIEUX_COLORS[ctxDef.id] || CONTENTIEUX_COLORS.crimorg;
             const readOnly = isReadOnly(ctxDef.id);
@@ -254,7 +258,7 @@ export const MultiSideBar = ({
         {/* ── MODULES TRANSVERSAUX ── */}
 
         {/* Instructions — module activable, transversal */}
-        {hasModule('instructions') && (
+        {!jldRestricted && hasModule('instructions') && (
           <>
             <div className="my-2 border-t border-white/10" />
             <button
@@ -306,7 +310,7 @@ export const MultiSideBar = ({
         )}
 
         {/* AIR — module activable */}
-        {hasModule('air') && (
+        {!jldRestricted && hasModule('air') && (
           <>
             <div className="my-2 border-t border-white/10" />
             <button
@@ -330,7 +334,7 @@ export const MultiSideBar = ({
         )}
 
         {/* Mindmap — module activable, transversal */}
-        {hasModule('mindmap') && (
+        {!jldRestricted && hasModule('mindmap') && (
           <>
             <div className="my-2 border-t border-white/10" />
             <button
@@ -354,7 +358,7 @@ export const MultiSideBar = ({
         )}
 
         {/* ── OVERBOARD ── */}
-        {hasOverboard() && (
+        {!jldRestricted && hasOverboard() && (
           <>
             <div className="my-2 border-t border-white/10" />
             <button
@@ -396,7 +400,8 @@ export const MultiSideBar = ({
 
       </div>
 
-      {/* ── PARAMÈTRES ── */}
+      {/* ── PARAMÈTRES ── (masqués pour le JLD : accès tableau de bord uniquement) */}
+      {!jldRestricted && (
       <div className="px-3 pb-1 pt-2 border-t border-white/10 mx-1">
         <button
           className={`
@@ -418,6 +423,7 @@ export const MultiSideBar = ({
           )}
         </button>
       </div>
+      )}
 
       {/* ── UTILISATEUR CONNECTÉ ── */}
       {user && (

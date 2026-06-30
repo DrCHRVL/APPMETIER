@@ -32,6 +32,8 @@ interface HeaderProps {
   isUpdating?: boolean;
   remoteSha?: string | null;
   approvedSha?: string | null;
+  /** Mode épuré (profil JLD) : masque la recherche et les actions (sauvegarde, sync, alertes). */
+  minimal?: boolean;
 }
 
 export const Header = ({
@@ -54,6 +56,7 @@ export const Header = ({
   isUpdating = false,
   remoteSha = null,
   approvedSha = null,
+  minimal = false,
 }: HeaderProps) => {
   // L'icône est visible :
   //  - pour l'admin : dès qu'une MAJ existe
@@ -81,6 +84,25 @@ export const Header = ({
       return "Erreur de date";
     }
   }, [lastSaveDate]);
+
+  // Profil JLD : en-tête épuré, sans recherche ni actions. On conserve le
+  // seul indicateur d'état réseau, utile en consultation.
+  if (minimal) {
+    return (
+      <header
+        className="bg-white p-3 px-5"
+        style={{
+          borderBottom: '1px solid hsl(214 25% 88%)',
+          boxShadow: '0 1px 8px rgba(0,0,0,0.05)',
+        }}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-gray-700">Tableau de bord</span>
+          <NetworkStatusIndicator />
+        </div>
+      </header>
+    );
+  }
 
   return (
     <header

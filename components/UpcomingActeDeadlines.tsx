@@ -2,9 +2,13 @@ import React, { useMemo } from 'react';
 import { CalendarClock } from 'lucide-react';
 import { Enquete } from '@/types/interfaces';
 
+type ActeKind = 'acte' | 'ecoute' | 'geoloc';
+
 interface UpcomingActeDeadlinesProps {
   enquetes: Enquete[];
   onOpenEnquete?: (enquete: Enquete) => void;
+  /** Si fourni, prioritaire sur onOpenEnquete : ouvre l'aperçu de l'acte cliqué (profil JLD). */
+  onOpenActe?: (enquete: Enquete, acteId: number, kind: ActeKind) => void;
   /** Fenêtre d'anticipation en jours (par défaut 7). */
   windowDays?: number;
 }
@@ -13,6 +17,8 @@ interface DeadlineItem {
   acteType: string;
   cible?: string;
   enquete: Enquete;
+  acteId: number;
+  acteKind: ActeKind;
   /** Jours restants : date du jour → date d'échéance (entiers, calendrier). */
   daysLeft: number;
   echeance: Date;
@@ -44,7 +50,7 @@ const WEEKDAYS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
  * terme dans les `windowDays` prochains jours. Uniquement les échéances d'actes
  * — pas les relances d'enquête. Chaque ligne est cliquable vers l'enquête.
  */
-export const UpcomingActeDeadlines = React.memo(({ enquetes, onOpenEnquete, windowDays = 7 }: UpcomingActeDeadlinesProps) => {
+export const UpcomingActeDeadlines = React.memo(({ enquetes, onOpenEnquete, onOpenActe, windowDays = 7 }: UpcomingActeDeadlinesProps) => {
   const items = useMemo(() => {
     // Aujourd'hui à minuit local : référence stable du décompte.
     const now = new Date();
@@ -53,12 +59,12 @@ export const UpcomingActeDeadlines = React.memo(({ enquetes, onOpenEnquete, wind
     const result: DeadlineItem[] = [];
 
     for (const e of enquetes) {
-      const buckets: Array<{ list: any[]; label: (a: any) => string; cible?: (a: any) => string | undefined }> = [
-        { list: e.actes || [], label: a => a.type || 'Acte' },
-        { list: e.ecoutes || [], label: a => `Écoute ${a.numero}`, cible: a => a.cible },
-        { list: e.geolocalisations || [], label: a => `Géoloc ${a.objet}` },
+      const buckets: Array<{ list: any[]; kind: ActeKind; label: (a: any) => string; cible?: (a: any) => string | undefined }> = [
+        { list: e.actes || [], kind: 'acte', label: a => a.type || 'Acte' },
+        { list: e.ecoutes || [], kind: 'ecoute', label: a => `Écoute ${a.numero}`, cible: a => a.cible },
+        { list: e.geolocalisations || [], kind: 'geoloc', label: a => `Géoloc ${a.objet}` },
       ];
-      for (const { list, label, cible } of buckets) {
+      for (const { list, kind, label, cible } of buckets) {
         for (const a of list) {
           if (a.statut !== 'en_cours' || !a.dateFin) continue;
           const echeance = parseLocalDate(a.dateFin);
@@ -71,6 +77,8 @@ export const UpcomingActeDeadlines = React.memo(({ enquetes, onOpenEnquete, wind
             acteType: label(a),
             cible: cible?.(a),
             enquete: e,
+            acteId: a.id,
+            acteKind: kind,
             daysLeft,
             echeance,
             isWeekend: day === 0 || day === 6,
@@ -111,9 +119,9 @@ export const UpcomingActeDeadlines = React.memo(({ enquetes, onOpenEnquete, wind
               key={item.key}
               className={`flex items-baseline gap-1.5 py-1 group min-w-0 rounded px-1 -mx-1 ${
                 item.daysLeft <= 2 ? 'bg-red-100/70' : ''
-              } ${onOpenEnquete ? 'cursor-pointer hover:text-amber-800' : ''}`}
-              onClick={() => onOpenEnquete?.(item.enquete)}
-              title={`${item.acteType} (${item.enquete.numero})${onOpenEnquete ? " — Ouvrir l'enquête" : ''}`}
+              } ${(onOpenActe || onOpenEnquete) ? 'cursor-pointer hover:text-amber-800' : ''}`}
+              onClick={() => onOpenActe ? onOpenActe(item.enquete, item.acteId, item.acteKind) : onOpenEnquete?.(item.enquete)}
+              title={`${item.acteType} (${item.enquete.numero})${(onOpenActe || onOpenEnquete) ? (onOpenActe ? " — Voir l'acte" : " — Ouvrir l'enquête") : ''}`}
             >
               <span className="text-xs text-gray-700 leading-snug select-none flex-1 min-w-0 break-words [overflow-wrap:anywhere]">
                 {item.acteType}

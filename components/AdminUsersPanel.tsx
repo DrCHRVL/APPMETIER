@@ -24,6 +24,7 @@ const GLOBAL_ROLE_LABELS: Record<string, string> = {
   admin: 'Administrateur',
   pra: 'PR / PRA',
   vice_proc: 'Vice-procureur',
+  jld: 'JLD (tableau de bord seul)',
 };
 
 const CONTENTIEUX_ROLE_LABELS: Record<ContentieuxRole, string> = {
@@ -527,6 +528,7 @@ export const AdminUsersPanel = () => {
                 <option value="admin">Administrateur</option>
                 <option value="pra">PR / PRA</option>
                 <option value="vice_proc">Vice-procureur</option>
+                <option value="jld">JLD (tableau de bord seul)</option>
               </select>
             </div>
           </div>
@@ -799,7 +801,9 @@ const UserCard = ({
       ? 'bg-purple-100 text-purple-700'
       : user.globalRole === 'vice_proc'
         ? 'bg-blue-100 text-blue-700'
-        : 'bg-gray-100 text-gray-600';
+        : user.globalRole === 'jld'
+          ? 'bg-teal-100 text-teal-700'
+          : 'bg-gray-100 text-gray-600';
 
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -846,6 +850,7 @@ const UserCard = ({
               <option value="admin">Administrateur</option>
               <option value="pra">PR / PRA</option>
               <option value="vice_proc">Vice-procureur</option>
+              <option value="jld">JLD (tableau de bord seul)</option>
             </select>
           </div>
 

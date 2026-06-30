@@ -31,6 +31,12 @@ const GLOBAL_ROLE_PERMISSIONS: Record<NonNullable<GlobalRole>, Set<PermissionAct
   vice_proc: new Set([
     'view', 'view_stats', 'pin_overboard',  // lecture seule + overboard
   ]),
+  // JLD : lecture seule, sans overboard ni statistiques. L'accès se limite au
+  // tableau de bord ; la permission 'view' suffit à charger les données des
+  // contentieux (indicateurs, timelines, files d'attente).
+  jld: new Set([
+    'view',
+  ]),
 };
 
 /** Permissions d'un rôle contentieux (sur SON contentieux uniquement) */
@@ -110,9 +116,11 @@ export function buildPermissionsContext(
 
   for (const cId of allContentieuxIds) {
     // Accessible si : rôle global transversal OU affecté à ce contentieux
+    // (le JLD a une vue transversale en lecture pour alimenter son tableau de bord)
     const hasGlobalAccess = user.globalRole === 'admin'
       || user.globalRole === 'pra'
-      || user.globalRole === 'vice_proc';
+      || user.globalRole === 'vice_proc'
+      || user.globalRole === 'jld';
     const hasDirectAccess = user.contentieux.some(c => c.contentieuxId === cId);
 
     if (hasGlobalAccess || hasDirectAccess) {
@@ -172,7 +180,13 @@ export function isAdmin(ctx: UserPermissionsContext): boolean {
 export function hasGlobalView(ctx: UserPermissionsContext): boolean {
   return ctx.user.globalRole === 'admin'
     || ctx.user.globalRole === 'pra'
-    || ctx.user.globalRole === 'vice_proc';
+    || ctx.user.globalRole === 'vice_proc'
+    || ctx.user.globalRole === 'jld';
+}
+
+/** Vérifie si l'utilisateur est un JLD (accès restreint au tableau de bord) */
+export function isJLD(ctx: UserPermissionsContext): boolean {
+  return ctx.user.globalRole === 'jld';
 }
 
 /** Retourne le mode de sync pour un contentieux */

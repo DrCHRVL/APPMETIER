@@ -3,15 +3,21 @@ import { Clock } from 'lucide-react';
 import { Enquete } from '@/types/interfaces';
 import { getProlongationRequestDate, getAutorisationRequestDate } from '@/utils/acteUtils';
 
+type ActeKind = 'acte' | 'ecoute' | 'geoloc';
+
 interface PendingActsJLDProps {
   enquetes: Enquete[];
   onOpenEnquete?: (enquete: Enquete) => void;
+  /** Si fourni, prioritaire sur onOpenEnquete : ouvre l'aperçu de l'acte cliqué (profil JLD). */
+  onOpenActe?: (enquete: Enquete, acteId: number, kind: ActeKind) => void;
 }
 
 interface PendingActeItem {
   acteType: string;
   cible?: string;
   enquete: Enquete;
+  acteId: number;
+  acteKind: ActeKind;
   daysSince: number;       // jours écoulés depuis la mise en attente JLD
   daysToDeadline?: number; // jours restants avant échéance de l'acte (dateFin), si connue
   kind: 'autorisation' | 'prolongation';
@@ -22,7 +28,7 @@ function serviceOf(e: Enquete): string | undefined {
   return e.tags?.find(t => t.category === 'services')?.value;
 }
 
-export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete }: PendingActsJLDProps) => {
+export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete, onOpenActe }: PendingActsJLDProps) => {
   const pendingActes = useMemo(() => {
     const now = Date.now();
     const dayMs = 1000 * 60 * 60 * 24;
@@ -39,22 +45,22 @@ export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete }: PendingAc
 
     for (const e of enquetes) {
       const mods = e.modifications;
-      const pushAutorisation = (label: string, a: { id: number; dateDebut: string; dateFin?: string; autorisationRequestedAt?: string }, cible?: string) =>
-        items.push({ acteType: label, cible, enquete: e, daysSince: Math.floor((now - new Date(getAutorisationRequestDate(a)).getTime()) / dayMs), daysToDeadline: deadlineDays(a.dateFin), kind: 'autorisation' });
-      const pushProlongation = (label: string, a: { id: number; dateDebut: string; dateFin?: string; prolongationRequestedAt?: string; prolongationDate?: string }, cible?: string) =>
-        items.push({ acteType: label, cible, enquete: e, daysSince: Math.floor((now - new Date(getProlongationRequestDate(a, mods)).getTime()) / dayMs), daysToDeadline: deadlineDays(a.dateFin), kind: 'prolongation' });
+      const pushAutorisation = (label: string, a: { id: number; dateDebut: string; dateFin?: string; autorisationRequestedAt?: string }, acteKind: ActeKind, cible?: string) =>
+        items.push({ acteType: label, cible, enquete: e, acteId: a.id, acteKind, daysSince: Math.floor((now - new Date(getAutorisationRequestDate(a)).getTime()) / dayMs), daysToDeadline: deadlineDays(a.dateFin), kind: 'autorisation' });
+      const pushProlongation = (label: string, a: { id: number; dateDebut: string; dateFin?: string; prolongationRequestedAt?: string; prolongationDate?: string }, acteKind: ActeKind, cible?: string) =>
+        items.push({ acteType: label, cible, enquete: e, acteId: a.id, acteKind, daysSince: Math.floor((now - new Date(getProlongationRequestDate(a, mods)).getTime()) / dayMs), daysToDeadline: deadlineDays(a.dateFin), kind: 'prolongation' });
 
       for (const a of e.actes || []) {
-        if (a.statut === 'autorisation_pending') pushAutorisation(a.type || 'Acte', a);
-        else if (a.statut === 'prolongation_pending') pushProlongation(a.type || 'Acte', a);
+        if (a.statut === 'autorisation_pending') pushAutorisation(a.type || 'Acte', a, 'acte');
+        else if (a.statut === 'prolongation_pending') pushProlongation(a.type || 'Acte', a, 'acte');
       }
       for (const a of e.ecoutes || []) {
-        if (a.statut === 'autorisation_pending') pushAutorisation(`Écoute ${a.numero}`, a, a.cible);
-        else if (a.statut === 'prolongation_pending') pushProlongation(`Écoute ${a.numero}`, a, a.cible);
+        if (a.statut === 'autorisation_pending') pushAutorisation(`Écoute ${a.numero}`, a, 'ecoute', a.cible);
+        else if (a.statut === 'prolongation_pending') pushProlongation(`Écoute ${a.numero}`, a, 'ecoute', a.cible);
       }
       for (const a of e.geolocalisations || []) {
-        if (a.statut === 'autorisation_pending') pushAutorisation(`Géoloc ${a.objet}`, a);
-        else if (a.statut === 'prolongation_pending') pushProlongation(`Géoloc ${a.objet}`, a);
+        if (a.statut === 'autorisation_pending') pushAutorisation(`Géoloc ${a.objet}`, a, 'geoloc');
+        else if (a.statut === 'prolongation_pending') pushProlongation(`Géoloc ${a.objet}`, a, 'geoloc');
       }
     }
     return items;
@@ -67,9 +73,9 @@ export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete }: PendingAc
   const renderItem = (item: PendingActeItem, idx: number) => (
     <li
       key={idx}
-      className={`flex items-start gap-1.5 py-1 group min-w-0 ${onOpenEnquete ? 'cursor-pointer hover:text-purple-800' : ''}`}
-      onClick={() => onOpenEnquete?.(item.enquete)}
-      title={`${item.acteType} (${item.enquete.numero})${onOpenEnquete ? " — Ouvrir l'enquête" : ''}`}
+      className={`flex items-start gap-1.5 py-1 group min-w-0 ${(onOpenActe || onOpenEnquete) ? 'cursor-pointer hover:text-purple-800' : ''}`}
+      onClick={() => onOpenActe ? onOpenActe(item.enquete, item.acteId, item.acteKind) : onOpenEnquete?.(item.enquete)}
+      title={`${item.acteType} (${item.enquete.numero})${(onOpenActe || onOpenEnquete) ? (onOpenActe ? " — Voir l'acte" : " — Ouvrir l'enquête") : ''}`}
     >
       <span className="text-xs text-gray-700 leading-snug select-none flex-1 min-w-0 break-words [overflow-wrap:anywhere]">
         {item.acteType}

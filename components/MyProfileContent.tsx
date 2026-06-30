@@ -19,6 +19,7 @@ const GLOBAL_ROLE_LABELS: Record<NonNullable<GlobalRole>, string> = {
   admin: 'Administrateur',
   pra: 'PR / PRA',
   vice_proc: 'Vice-procureur',
+  jld: 'JLD',
 };
 
 const CONTENTIEUX_ROLE_LABELS: Record<ContentieuxRole, string> = {
@@ -61,6 +62,19 @@ const GLOBAL_ROLE_EXPLANATIONS: Record<Exclude<NonNullable<GlobalRole>, 'admin'>
     cannot: [
       'Créer, modifier ou supprimer des enquêtes',
       'Gérer les tags, alertes, sauvegardes',
+    ],
+  },
+  jld: {
+    short: 'Accès restreint au seul tableau de bord (consultation).',
+    can: [
+      'Consulter le tableau de bord (indicateurs, OP à venir, échéances)',
+      'Voir les files « Attente JLD » et « Pose en attente »',
+      "Ouvrir l'aperçu d'un acte depuis ces listes",
+    ],
+    cannot: [
+      'Accéder aux enquêtes, instructions ou modules',
+      'Voir les alertes, statistiques ou paramètres',
+      'Créer, modifier ou supprimer quoi que ce soit',
     ],
   },
 };

@@ -5,7 +5,12 @@
 // ──────────────────────────────────────────────
 
 /** Rôle global (transversal, indépendant d'un contentieux) */
-export type GlobalRole = 'admin' | 'pra' | 'vice_proc' | null;
+// 'jld' : Juge des libertés et de la détention — accès restreint au seul
+// tableau de bord (lecture). Ne voit ni les enquêtes, ni les alertes, ni les
+// modules ; il consulte uniquement les indicateurs, la timeline des OP, les
+// échéances d'actes et les files d'attente JLD / pose, avec un aperçu d'acte
+// dédié.
+export type GlobalRole = 'admin' | 'pra' | 'vice_proc' | 'jld' | null;
 
 /** Rôle au sein d'un contentieux */
 export type ContentieuxRole = 'magistrat' | 'ja';
