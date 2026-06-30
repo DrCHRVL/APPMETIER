@@ -307,11 +307,17 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
 
   // ── État réseau ──
   type NetState = 'healthy' | 'slow' | 'unreachable'
-  let netStatus: { state: NetState, latency: number | null, lastProbeAt: string | null } = { state: 'healthy', latency: null, lastProbeAt: null }
-  const netCallbacks: Array<(state: NetState) => void> = []
+  type NetStatus = { state: NetState, latency: number | null, lastProbeAt: string | null }
+  let netStatus: NetStatus = { state: 'healthy', latency: null, lastProbeAt: null }
+  // Les callbacks reçoivent l'OBJET d'état complet (contrat identique à l'app
+  // Electron : main.js envoie `_networkStatus`, et NetworkStatusManager fait
+  // `this.realStatus = next`). Passer une simple chaîne corromprait realStatus
+  // en string → la déstructuration `{ state, latency }` côté UI donnerait
+  // `undefined` → l'indicateur resterait bloqué en rouge « Réseau injoignable ».
+  const netCallbacks: Array<(status: NetStatus) => void> = []
   let netTimer: ReturnType<typeof setInterval> | null = null
 
-  async function probe(): Promise<typeof netStatus> {
+  async function probe(): Promise<NetStatus> {
     const start = performance.now()
     let state: NetState = 'unreachable'
     let latency: number | null = null
@@ -327,7 +333,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     }
     const prev = netStatus.state
     netStatus = { state, latency, lastProbeAt: nowIso() }
-    if (prev !== state) netCallbacks.forEach((cb) => { try { cb(state) } catch {} })
+    if (prev !== state) netCallbacks.forEach((cb) => { try { cb(netStatus) } catch {} })
     return netStatus
   }
 
@@ -912,7 +918,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     },
     probeNetwork: async () => probe(),
     getNetworkStatus: async () => netStatus,
-    onNetworkStatus: (callback: unknown) => { netCallbacks.push(callback as (s: NetState) => void) },
+    onNetworkStatus: (callback: unknown) => { netCallbacks.push(callback as (s: NetStatus) => void) },
 
     // ── Journal d'audit ──
     appendAuditLog: async (entry: unknown) => {
