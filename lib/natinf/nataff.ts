@@ -29,9 +29,10 @@ export const GRAND_TITRES: GrandTitre[] = [
   { code: 'PERSONNES', label: 'Atteintes aux personnes', order: 1 },
   { code: 'BIENS', label: 'Atteintes aux biens', order: 2 },
   { code: 'ETAT', label: "Atteinte à l'autorité de l'État", order: 3 },
-  { code: 'STUP', label: 'Stupéfiants', order: 4 },
-  { code: 'ECOFI', label: 'Économique et financier', order: 5 },
-  { code: 'CIRCULATION', label: 'Circulation et transports', order: 6 },
+  { code: 'ETRANGERS', label: "Infractions à la législation sur les étrangers (ILE)", order: 4 },
+  { code: 'STUP', label: 'Stupéfiants', order: 5 },
+  { code: 'ECOFI', label: 'Économique et financier', order: 6 },
+  { code: 'CIRCULATION', label: 'Circulation et transports', order: 7 },
 ];
 const GRAND_TITRE_BY_CODE = new Map(GRAND_TITRES.map((g) => [g.code, g]));
 
@@ -67,6 +68,8 @@ export const STAT_CATEGORIES: StatCategory[] = [
   { code: 'TERRORISME', label: 'Terrorisme', grandTitre: 'ETAT', nataffN1: 'C' },
   { code: 'FAUX', label: 'Faux', grandTitre: 'ETAT', nataffN1: 'C' },
   { code: 'OUTRAGE', label: 'Outrage / rébellion', grandTitre: 'ETAT', nataffN1: 'C' },
+  // Infractions à la législation sur les étrangers (ILE)
+  { code: 'ILE', label: 'Étrangers (ILE)', grandTitre: 'ETRANGERS', nataffN1: 'D' },
   // Stupéfiants
   { code: 'STUP', label: 'Trafic de stupéfiants (ILS)', grandTitre: 'STUP', nataffN1: 'G' },
   // Économique et financier
@@ -164,9 +167,41 @@ const KEYWORD_FALLBACK: { re: RegExp; cat: string }[] = [
   { re: /\bvols?\b|cambriolage/, cat: 'VOL' },
   { re: /violence|coups/, cat: 'VIOLENCES' },
   { re: /conduite|ivresse|alcoolemie|permis de conduire|stationnement/, cat: 'CIRCULATION' },
+  // NB : pas de repli mot-clé pour l'ILE — « étranger » / « entrée irrégulière »
+  // sont trop ambigus (gouvernement étranger, entrée d'un bateau dans un port…).
+  // Les infractions ILE sont rattachées par leur code via ILE_CODES ci-dessus.
 ];
 
-const CODE_TO_CAT: Record<string, string> = {};
+// Overrides par code NATINF (testés AVANT le thème mémento). Indispensable pour
+// les infractions à la législation sur les étrangers (ILE) : dans les données,
+// ces codes portent à tort le thème « Armes et explosifs (ILA) » ; sans override
+// ils seraient comptés en Armes. Liste issue du Mémento parquet (titre ILE).
+const ILE_CODES = [
+  '16',    // Aide à l'entrée, à la circulation ou au séjour irréguliers
+  '22098', // … en bande organisée
+  '29525', // Entrée irrégulière sur le territoire
+  '29526', // Maintien irrégulier malgré arrêté d'expulsion
+  '29527', // Maintien irrégulier malgré arrêté de reconduite à la frontière
+  '29528', // Maintien irrégulier malgré OQTF
+  '29529', // Maintien irrégulier malgré ITF judiciaire
+  '30739', // Maintien irrégulier malgré ITF administrative
+  '22174', // Soustraction à un refus d'entrée en France (non-admission)
+  '6310',  // Soustraction à un arrêté d'expulsion
+  '6311',  // Soustraction à un arrêté de reconduite à la frontière
+  '26357', // Soustraction à une OQTF
+  '30740', // Soustraction à une ITF administrative
+  '6312',  // Pénétration malgré arrêté d'expulsion de moins de 3 mois
+  '6313',  // Pénétration malgré ITF judiciaire
+  '30741', // Pénétration malgré ITF administrative
+  '29524', // Pénétration malgré arrêté d'interdiction de retour
+  '31534', // Pénétration malgré arrêté d'interdiction de circulation
+  '31513', // Utilisation frauduleuse du document d'identité d'un tiers
+  '31514', // Utilisation frauduleuse du document de voyage d'un tiers
+];
+
+const CODE_TO_CAT: Record<string, string> = {
+  ...Object.fromEntries(ILE_CODES.map((c) => [c, 'ILE'])),
+};
 
 function resolveCategoryCode(
   entry: Pick<NatinfEntry, 'code' | 'theme' | 'libelle'>,
