@@ -20,6 +20,14 @@ import debounce from 'lodash/debounce';
 const ALERT_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const DEBOUNCE_DELAY = 1000; // 1 seconde
 
+// Identité stable d'une alerte (sans l'état) : sert au dédoublonnage snooze.
+const alertBaseId = (a: Alert): string =>
+  `${a.isAIRAlert ? 'air' : 'enq'}-${a.enqueteId}-${a.type}-${a.acteId ?? ''}`;
+
+// Identité « état compris » : sert au badge nouveautés. Un changement réel
+// (nouvelle empreinte stateKey) produit une nouvelle identité = re-notifié.
+const alertIdentity = (a: Alert): string => `${alertBaseId(a)}::${a.stateKey ?? ''}`;
+
 export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], contentieuxId?: string) => {
   const enquetesRef = useRef(enquetes);
   enquetesRef.current = enquetes;
@@ -31,6 +39,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
   alertsKeyRef.current = alertsKey;
 
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [unseenCount, setUnseenCount] = useState(0);
   const [alertsLoading, setAlertsLoading] = useState(true);
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
   const [rulesLoading, setRulesLoading] = useState(true);
@@ -228,13 +237,6 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
           const joursSansDernierRdv = Math.floor((now.getTime() - dateReference.getTime()) / (1000 * 60 * 60 * 24));
 
           for (const rule of enabledAIRRules) {
-            const wasValidated = await AlertManager.wasRecentlyValidated(
-              mesure.id,
-              rule.type,
-              undefined
-            );
-            if (wasValidated) continue;
-
             let shouldAlert = false;
             let message = '';
 
@@ -259,28 +261,62 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
                 break;
             }
 
-            if (shouldAlert) {
-              const alert = AlertManager.generateAlert(
-                mesure.id,
-                rule.type,
-                message,
-                undefined,
-                undefined,
-                { dateReference: dateReference.toISOString() }
-              );
-              alert.isAIRAlert = true;
-              alert.airIdentite = mesure.identite;
-              alert.airNumeroParquet = mesure.numeroParquet;
-              newAlerts.push(alert);
-            }
+            if (!shouldAlert) continue;
+
+            const stateKey = AlertManager.computeStateKey(rule.type, {
+              threshold: rule.threshold,
+              dateReference: dateReference.toISOString().split('T')[0],
+              joursSansRdv: joursSansDernierRdv,
+            });
+            const ack = await AlertManager.wasAcknowledgedForState(
+              mesure.id, rule.type, undefined, stateKey,
+            );
+            if (ack) continue;
+
+            const alert = AlertManager.generateAlert(
+              mesure.id,
+              rule.type,
+              message,
+              undefined,
+              undefined,
+              { dateReference: dateReference.toISOString() },
+              stateKey,
+            );
+            alert.isAIRAlert = true;
+            alert.airIdentite = mesure.identite;
+            alert.airNumeroParquet = mesure.numeroParquet;
+            newAlerts.push(alert);
           }
         }
 
-        const existingSnoozeAlerts = existingAlerts.filter(a => a.status === 'snoozed');
-        const allAlerts = [...newAlerts, ...existingSnoozeAlerts];
+        // Merge des snoozes manuels : on garde ceux non expirés, et on écarte
+        // l'alerte fraîche correspondante pour éviter le doublon actif+snoozé.
+        const nowMs = Date.now();
+        const liveSnoozes = existingAlerts.filter(a =>
+          a.status === 'snoozed' && a.snoozedUntil && new Date(a.snoozedUntil).getTime() > nowMs
+        );
+        const snoozedBaseIds = new Set(liveSnoozes.map(alertBaseId));
+        const freshActives = newAlerts.filter(a => !snoozedBaseIds.has(alertBaseId(a)));
+        const allAlerts = [...freshActives, ...liveSnoozes];
 
         await ElectronBridge.setData(currentAlertsKey, allAlerts);
         setAlerts(allAlerts);
+
+        // Badge « nouveautés » : compte les alertes actives dont l'identité
+        // (état compris) n'a jamais été vue. Un changement d'état réel
+        // (nouvelle empreinte) ré-incrémente le badge.
+        const activeIdentities = allAlerts
+          .filter(a => a.status === 'active')
+          .map(alertIdentity);
+        const seenRaw = await ElectronBridge.getData<string[]>(`${currentAlertsKey}_seen`, []);
+        const seenSet = new Set(Array.isArray(seenRaw) ? seenRaw : []);
+        setUnseenCount(activeIdentities.filter(id => !seenSet.has(id)).length);
+        // Élaguer le journal « vu » aux seules identités encore actives.
+        const prunedSeen = activeIdentities.filter(id => seenSet.has(id));
+        if (prunedSeen.length !== seenSet.size) {
+          await ElectronBridge.setData(`${currentAlertsKey}_seen`, prunedSeen);
+        }
+
         // rappels push (horodatages seuls — voir lib/web/pushReminders)
         updatePushSchedule('enquetes', allAlerts.filter(a => a.status === 'active'));
       } catch (error) {
@@ -406,6 +442,18 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     [alertRules, persistRules]
   );
 
+  // Marque toutes les alertes actives courantes comme « vues » (remet le
+  // badge nouveautés à zéro). Appelé à l'ouverture de la cloche.
+  const markAllSeen = useCallback(async () => {
+    const currentAlertsKey = alertsKeyRef.current;
+    const current = await ElectronBridge.getData<Alert[]>(currentAlertsKey, []);
+    const ids = (Array.isArray(current) ? current : [])
+      .filter(a => a.status === 'active')
+      .map(alertIdentity);
+    await ElectronBridge.setData(`${currentAlertsKey}_seen`, ids);
+    setUnseenCount(0);
+  }, []);
+
   const enqueteAlerts = useMemo(() =>
     alerts.filter(alert => !alert.isAIRAlert && alert.status === 'active'),
     [alerts]
@@ -423,6 +471,8 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     alertRules,
     isLoading,
     isSubscribed,
+    unseenCount,
+    markAllSeen,
     updateAlerts,
     handleUpdateAlertRule,
     handleDuplicateRule,

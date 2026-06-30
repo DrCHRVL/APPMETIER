@@ -14,7 +14,7 @@ import { Button } from './ui/button';
 import { Switch } from './ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Select } from './ui/select';
-import { Edit2, Save, X, Plus, Copy, Clock } from 'lucide-react';
+import { Edit2, Save, X, Plus, Copy } from 'lucide-react';
 import { AlertRule } from '@/types/interfaces';
 import { AlertValidation } from '@/utils/alerts/alertValidation';
 import { useContentieuxAlertRules } from '@/hooks/useContentieuxAlertRules';
@@ -60,11 +60,6 @@ const getDescription = (rule: AlertRule) => {
       break;
     default:
       base = rule.description || '';
-  }
-  if (rule.recurrence?.enabled) {
-    base += ` (récurrence tous les ${rule.recurrence.defaultInterval} jours`;
-    if (rule.recurrence.maxOccurrences) base += `, max. ${rule.recurrence.maxOccurrences} fois`;
-    base += ')';
   }
   return base;
 };
@@ -197,12 +192,6 @@ export const ContentieuxAlertsBubble: React.FC<Props> = ({
               <div>
                 <CardTitle className="text-base flex items-center gap-2">
                   {rule.name || getTypeLabel(rule.type)}
-                  {rule.recurrence?.enabled && (
-                    <span className="text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      Récurrent
-                    </span>
-                  )}
                 </CardTitle>
                 <p className="text-sm text-gray-500">{getDescription(rule)}</p>
               </div>
@@ -275,67 +264,13 @@ export const ContentieuxAlertsBubble: React.FC<Props> = ({
                   </div>
                 )}
 
-                <div className="border-t pt-4 mt-4">
-                  <div className="flex items-center gap-2 mb-4">
-                    <input
-                      type="checkbox"
-                      id={`recurrence-${contentieuxId}-${rule.id}`}
-                      checked={editingRule.recurrence?.enabled || false}
-                      onChange={(e) => setEditingRule({
-                        ...editingRule,
-                        recurrence: {
-                          ...(editingRule.recurrence || { defaultInterval: 7 }),
-                          enabled: e.target.checked,
-                        },
-                      })}
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                    <label htmlFor={`recurrence-${contentieuxId}-${rule.id}`} className="text-sm font-medium">
-                      Activer la récurrence
-                    </label>
-                  </div>
-                  {editingRule.recurrence?.enabled && (
-                    <div className="space-y-3 pl-6">
-                      <div className="flex items-center gap-4">
-                        <span className="text-sm text-gray-600">Répéter tous les:</span>
-                        <Input
-                          type="number"
-                          min="1"
-                          value={editingRule.recurrence?.defaultInterval || 7}
-                          onChange={(e) => setEditingRule({
-                            ...editingRule,
-                            recurrence: {
-                              ...(editingRule.recurrence || {}),
-                              defaultInterval: parseInt(e.target.value) || 7,
-                            },
-                          })}
-                          className="w-24"
-                        />
-                        <span className="text-sm text-gray-600">jours</span>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <span className="text-sm text-gray-600">Nombre maximum de répétitions:</span>
-                        <Input
-                          type="number"
-                          min="0"
-                          placeholder="Illimité"
-                          value={editingRule.recurrence?.maxOccurrences || ''}
-                          onChange={(e) => {
-                            const value = e.target.value.trim() === '' ? undefined : parseInt(e.target.value);
-                            setEditingRule({
-                              ...editingRule,
-                              recurrence: {
-                                ...(editingRule.recurrence || {}),
-                                maxOccurrences: value,
-                              },
-                            });
-                          }}
-                          className="w-24"
-                        />
-                        <span className="text-sm text-gray-600">fois (vide = illimité)</span>
-                      </div>
-                    </div>
-                  )}
+                <div className="border-t pt-3 mt-3">
+                  <p className="text-xs text-gray-500">
+                    Une fois validée dans la cloche, cette alerte reste muette jusqu'à
+                    ce que la situation change réellement (nouveau compte rendu, acte
+                    renouvelé, palier d'âge suivant…). Plus de rappel automatique tant
+                    que rien n'évolue.
+                  </p>
                 </div>
               </CardContent>
             )}
@@ -397,65 +332,11 @@ export const ContentieuxAlertsBubble: React.FC<Props> = ({
                 />
               </div>
 
-              <div className="border-t pt-4 mt-4">
-                <div className="flex items-center gap-2 mb-4">
-                  <input
-                    type="checkbox"
-                    id={`new-rule-recurrence-${contentieuxId}`}
-                    checked={newRule.recurrence?.enabled || false}
-                    onChange={(e) => setNewRule(prev => ({
-                      ...prev,
-                      recurrence: {
-                        ...(prev.recurrence || { defaultInterval: 7 }),
-                        enabled: e.target.checked,
-                      },
-                    }))}
-                    className="h-4 w-4 rounded border-gray-300"
-                  />
-                  <label htmlFor={`new-rule-recurrence-${contentieuxId}`} className="text-sm font-medium">
-                    Activer la récurrence
-                  </label>
-                </div>
-                {newRule.recurrence?.enabled && (
-                  <div className="space-y-3 pl-6">
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm text-gray-600">Répéter tous les:</span>
-                      <Input
-                        type="number"
-                        min="1"
-                        value={newRule.recurrence?.defaultInterval || 7}
-                        onChange={(e) => setNewRule(prev => ({
-                          ...prev,
-                          recurrence: {
-                            ...(prev.recurrence || {}),
-                            defaultInterval: parseInt(e.target.value) || 7,
-                          },
-                        }))}
-                        className="w-24"
-                      />
-                      <span className="text-sm text-gray-600">jours</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm text-gray-600">Nombre maximum de répétitions:</span>
-                      <Input
-                        type="number"
-                        min="0"
-                        placeholder="Illimité"
-                        value={newRule.recurrence?.maxOccurrences || ''}
-                        onChange={(e) => {
-                          const value = e.target.value.trim() === '' ? undefined : parseInt(e.target.value);
-                          setNewRule(prev => ({
-                            ...prev,
-                            recurrence: { ...(prev.recurrence || {}), maxOccurrences: value },
-                          }));
-                        }}
-                        className="w-24"
-                      />
-                      <span className="text-sm text-gray-600">fois (vide = illimité)</span>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <p className="text-xs text-gray-500 border-t pt-3">
+                Après validation dans la cloche, l'alerte se tait jusqu'à un
+                changement réel de la situation (nouveau compte rendu, acte
+                renouvelé, palier d'âge suivant…).
+              </p>
             </div>
 
             <DialogFooter>

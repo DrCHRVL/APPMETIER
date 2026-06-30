@@ -14,6 +14,7 @@ interface AlertsModalProps {
   alerts: Alert[];
   onValidateAlert: (alertId: number | number[]) => void;
   onSnoozeAlert: (alertId: number, daysOrDate: number | string) => void;
+  onOpenEnquete?: (enqueteId: number) => void;
 }
 
 export const AlertsModal = ({
@@ -21,7 +22,8 @@ export const AlertsModal = ({
   onClose,
   alerts,
   onValidateAlert,
-  onSnoozeAlert
+  onSnoozeAlert,
+  onOpenEnquete
 }: AlertsModalProps) => {
   const [snoozeType, setSnoozeType] = useState<'days' | 'date'>('days');
   const [snoozeDays, setSnoozeDays] = useState(7);
@@ -53,8 +55,14 @@ export const AlertsModal = ({
   const handleValidateSingleAlert = async (alert: Alert) => {
     // Marquer l'alerte comme validée dans l'historique des validations
     await AlertManager.markAlertAsValidated(alert);
-    
+
     onValidateAlert(alert.id);
+  };
+
+  const handleOpenEnquete = (alert: Alert) => {
+    if (!onOpenEnquete || alert.isAIRAlert) return;
+    onOpenEnquete(alert.enqueteId);
+    onClose();
   };
 
   const openSnoozeOptions = (alertId: number) => {
@@ -115,6 +123,11 @@ export const AlertsModal = ({
               </Button>
             )}
           </DialogHeader>
+          <p className="text-xs text-gray-500 -mt-2 mb-2">
+            « Valider » met l'alerte en silence jusqu'à ce que la situation change
+            réellement (nouveau compte rendu, acte renouvelé, palier d'âge suivant…).
+            « Reporter » la masque jusqu'à une date de ton choix.
+          </p>
           <div className="space-y-6">
             {Object.values(alertsByGroup).map((group) => (
               <div key={`${group.type}-${group.id}`} className="border rounded-lg p-4">
@@ -159,6 +172,14 @@ export const AlertsModal = ({
                         )}
                       </div>
                       <div className="flex gap-2">
+                        {onOpenEnquete && !alert.isAIRAlert && (
+                          <Button
+                            variant="outline"
+                            onClick={() => handleOpenEnquete(alert)}
+                          >
+                            Traiter
+                          </Button>
+                        )}
                         <Button
                           variant="outline"
                           onClick={() => openSnoozeOptions(alert.id)}

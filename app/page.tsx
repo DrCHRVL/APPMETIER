@@ -396,7 +396,9 @@ function AppContent() {
     handleDuplicateRule,
     handleDeleteRule,
     handleSnoozeAlert,
-    handleValidateAlert
+    handleValidateAlert,
+    unseenCount: unseenAlertsCount,
+    markAllSeen: markAlertsSeen
   } = useCombinedAlerts(enquetes, mesuresAIR, currentContentieuxId);
 
 
@@ -1284,7 +1286,8 @@ return (
             searchTerm={searchTerm}
             onSearch={handleSearchChange}
             alerts={headerAlertsList}
-            onShowAlerts={() => setShowAlertsModal(true)}
+            unseenAlertCount={unseenAlertsCount}
+            onShowAlerts={() => { setShowAlertsModal(true); markAlertsSeen(); }}
             onSave={handleManualSave}
             isSaving={isSaving}
             lastSaveDate={StorageManager.getLastSave() ?? undefined}
@@ -1671,6 +1674,7 @@ return (
             handleSnoozeAlert(alertId, daysOrDate);
           }
         }}
+        onOpenEnquete={(enqueteId: number) => handleViewEnquete(enqueteId)}
       />
 
       <ConfirmationDialog

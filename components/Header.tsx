@@ -17,6 +17,7 @@ interface HeaderProps {
   onSearch: (term: string) => void;
   alerts: Alert[];
   onShowAlerts: () => void;
+  unseenAlertCount?: number;   // « nouveautés » : alertes actives jamais vues
   onSave: () => void;
   isSaving: boolean;
   lastSaveDate?: string;
@@ -38,6 +39,7 @@ export const Header = ({
   onSearch,
   alerts,
   onShowAlerts,
+  unseenAlertCount = 0,
   onSave,
   isSaving,
   lastSaveDate,
@@ -206,7 +208,9 @@ export const Header = ({
               onClick={onShowAlerts}
             >
               <Bell className="h-4 w-4" />
-              <AlertBadge count={activeAlerts.length} size="sm" />
+              {/* Badge = nouveautés (alertes jamais vues). 0 → pas de pastille
+                  chiffrée : la cloche reste accessible sans « crier ». */}
+              {unseenAlertCount > 0 && <AlertBadge count={unseenAlertCount} size="sm" />}
             </Button>
           )}
         </div>

@@ -6,33 +6,69 @@ import { userPreferencesSyncService } from '../dataSync/UserPreferencesSyncServi
 
 export class AlertManager {
   private static ALERTS_KEY = 'alerts';
-  
-  // Périodes de validation différentes selon le type d'alerte.
-  // Une fois validée, l'alerte ne réapparaît pas pendant cette durée
-  // (sauf si la clé change, ex: nouveau CR pour cr_delay).
-  private static VALIDATION_PERIODS = {
-    'cr_delay': 30 * 24 * 60 * 60 * 1000,          // 30 jours (la clé inclut le dernier CR → reset si nouveau CR)
-    'acte_expiration': 8 * 24 * 60 * 60 * 1000,     // 8 jours (> seuil 7j par défaut)
-    'enquete_age': 30 * 24 * 60 * 60 * 1000,        // 30 jours
-    'prolongation_pending': 24 * 60 * 60 * 1000,    // 24h (statut change vite)
-    'default': 14 * 24 * 60 * 60 * 1000             // 14 jours par défaut
-  };
-  
-  private static HISTORY_CLEANUP_PERIOD = 30 * 24 * 60 * 60 * 1000; // 30 jours
 
-  private static generateAlertKey(enqueteId: number, type: string, acteId?: number, context?: string): string {
-    // Pour les alertes d'âge d'enquête, inclure l'année et le mois actuels dans la clé
-    if (type === 'enquete_age') {
-      const now = new Date();
-      const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      return `${enqueteId}-${type}-${yearMonth}`;
+  // Validités au-delà desquelles une validation obsolète est purgée du
+  // journal (hygiène de stockage uniquement — ce n'est PAS la durée pendant
+  // laquelle l'alerte reste muette : ça, c'est géré par l'empreinte d'état).
+  private static HISTORY_CLEANUP_PERIOD = 400 * 24 * 60 * 60 * 1000; // ~13 mois
+
+  // Clé stable d'une alerte = (enquête, type, acte). Ne contient AUCUNE
+  // notion de temps : c'est l'empreinte d'état (stateKey) stockée dans la
+  // validation qui décide si l'alerte est encore « la même situation ».
+  private static generateAlertKey(enqueteId: number, type: string, acteId?: number): string {
+    return `${enqueteId}-${type}${acteId !== undefined ? `-${acteId}` : ''}`;
+  }
+
+  /**
+   * Empreinte de l'état réel qui justifie l'alerte. « Valider » mémorise
+   * cette empreinte ; l'alerte ne réapparaît que lorsque l'empreinte change,
+   * c.-à-d. quand la situation a réellement évolué :
+   *  - cr_delay        → nouveau compte rendu, ou retard franchissant un
+   *                      nouveau palier (multiple du seuil) = filet de sécurité
+   *  - enquete_age     → l'enquête franchit un nouveau palier d'âge
+   *  - acte_expiration → la date d'expiration change (acte renouvelé/prolongé)
+   *  - prolongation    → la prolongation en attente change
+   *  - air_*           → nouveau palier / nouveau RDV procureur
+   */
+  static computeStateKey(
+    type: string,
+    ctx: {
+      threshold?: number;
+      lastCRDate?: string;       // ISO/court, date du dernier CR
+      daysSinceLastCR?: number;
+      age?: number;              // jours
+      acteId?: number;
+      dateFin?: string;          // expiration d'acte
+      prolongationStart?: string;
+      dateReference?: string;    // AIR : dernier RDV ou début
+      joursSansRdv?: number;
+    } = {},
+  ): string {
+    const seuil = Math.max(ctx.threshold || 1, 1);
+    switch (type) {
+      case 'cr_delay': {
+        const palier = Math.floor((ctx.daysSinceLastCR ?? 0) / seuil);
+        return `cr#${ctx.lastCRDate || ''}#${palier}`;
+      }
+      case 'enquete_age': {
+        const palier = Math.floor((ctx.age ?? 0) / seuil);
+        return `age#${palier}`;
+      }
+      case 'acte_expiration':
+        return `acte#${ctx.acteId ?? ''}#${ctx.dateFin || ''}`;
+      case 'prolongation_pending':
+        return `prol#${ctx.acteId ?? ''}#${ctx.prolongationStart || ''}`;
+      case 'air_6_mois':
+        return 'air6';
+      case 'air_12_mois':
+        return 'air12';
+      case 'air_rdv_delai': {
+        const palier = Math.floor((ctx.joursSansRdv ?? 0) / seuil);
+        return `airrdv#${ctx.dateReference || ''}#${palier}`;
+      }
+      default:
+        return `state#${type}`;
     }
-    // Pour cr_delay, le contexte contient la date du dernier CR.
-    // Ainsi la validation est liée à ce CR : si un nouveau CR est ajouté, la clé change
-    // et l'alerte peut réapparaître après le prochain threshold.
-    let key = `${enqueteId}-${type}${acteId ? `-${acteId}` : ''}`;
-    if (context) key += `-${context}`;
-    return key;
   }
 
   private static async cleanupValidationHistory(): Promise<void> {
@@ -57,90 +93,41 @@ export class AlertManager {
     }
   }
 
-  static async wasRecentlyValidated(enqueteId: number, type: string, acteId?: number, context?: string): Promise<boolean> {
+  /**
+   * L'alerte a-t-elle déjà été validée POUR L'ÉTAT COURANT ?
+   * Vrai uniquement si une validation existe avec la même empreinte d'état.
+   * Dès que la situation réelle change (empreinte différente), l'alerte
+   * redevient pertinente et réapparaît. Pas de fenêtre temporelle.
+   */
+  static async wasAcknowledgedForState(
+    enqueteId: number,
+    type: string,
+    acteId: number | undefined,
+    stateKey: string,
+  ): Promise<boolean> {
     const validations = await AlertStorage.getValidations();
-    const key = this.generateAlertKey(enqueteId, type, acteId, context);
+    const key = this.generateAlertKey(enqueteId, type, acteId);
     const validation = validations[key];
-    
     if (!validation) return false;
-    
-    const validationDate = new Date(validation.validatedAt);
-    const now = new Date();
-    
-    // Obtenir la période de validation appropriée pour ce type d'alerte
-    const validationPeriod = this.VALIDATION_PERIODS[type as keyof typeof this.VALIDATION_PERIODS] || 
-                          this.VALIDATION_PERIODS.default;
-    
-    // Vérifier si la validation est suffisamment récente
-    const isRecent = (now.getTime() - validationDate.getTime()) < validationPeriod;
-    console.log(`Validation check for ${key}: ${isRecent ? 'recently validated' : 'not recently validated'} (Period: ${validationPeriod / (24 * 60 * 60 * 1000)} days)`);
-    
-    return isRecent;
+    // Validation ancienne (avant refonte, sans empreinte) : on la respecte
+    // pendant une fenêtre d'extinction de 30 j pour éviter un retour massif
+    // juste après la mise à jour, puis le modèle par empreinte reprend la main.
+    if (validation.stateKey === undefined) {
+      const LEGACY_GRACE = 30 * 24 * 60 * 60 * 1000;
+      return Date.now() - new Date(validation.validatedAt).getTime() < LEGACY_GRACE;
+    }
+    return validation.stateKey === stateKey;
   }
 
   public static async markAlertAsValidated(alert: Alert): Promise<void> {
-    // Si l'alerte est récurrente, ne pas marquer comme validée définitivement
-    if (alert.recurrence?.enabled) {
-      await this.handleRecurrentAlertValidation(alert);
-      return;
-    }
-
-    // Sinon, procédure normale de validation
-    // Pour cr_delay, le contexte (date dernier CR) est dans alert.context s'il existe
-    const key = this.generateAlertKey(alert.enqueteId, alert.type, alert.acteId, (alert as any).context);
+    const key = this.generateAlertKey(alert.enqueteId, alert.type, alert.acteId);
     const validation: AlertValidation = {
       validatedAt: new Date().toISOString(),
       acteId: alert.acteId,
-      type: alert.type
+      type: alert.type,
+      stateKey: alert.stateKey,
     };
-
     await AlertStorage.saveValidation(key, validation);
-  }
-
-  private static async handleRecurrentAlertValidation(alert: Alert): Promise<void> {
-    try {
-      // Récupérer toutes les alertes
-      const alerts = await this.getAlerts();
-      
-      // Calculer la date de prochaine récurrence
-      const now = new Date();
-      const recurrenceInterval = alert.recurrence?.interval || 7; // Défaut à 7 jours
-      const nextRecurrenceDate = new Date();
-      nextRecurrenceDate.setDate(now.getDate() + recurrenceInterval);
-      
-      // Mettre à jour le compteur d'occurrences
-      const currentOccurrence = (alert.recurrence?.currentOccurrence || 0) + 1;
-      const maxOccurrences = alert.recurrence?.maxOccurrences;
-      
-      // Vérifier si le nombre maximum d'occurrences est atteint
-      if (maxOccurrences !== undefined && currentOccurrence >= maxOccurrences) {
-        // Si oui, supprimer l'alerte
-        const updatedAlerts = alerts.filter(a => a.id !== alert.id);
-        await this.saveAlerts(updatedAlerts);
-        return;
-      }
-      
-      // Si non, mettre à jour l'alerte pour la prochaine récurrence
-      const updatedAlerts = alerts.map(a => {
-        if (a.id === alert.id) {
-          return {
-            ...a,
-            status: 'snoozed',
-            snoozedUntil: nextRecurrenceDate.toISOString(),
-            lastRecurred: now.toISOString(),
-            recurrence: {
-              ...a.recurrence || {},
-              currentOccurrence
-            }
-          };
-        }
-        return a;
-      });
-      
-      await this.saveAlerts(updatedAlerts);
-    } catch (error) {
-      console.error('Error handling recurrent alert validation:', error);
-    }
   }
 
   static async saveAlerts(alerts: Alert[]): Promise<void> {
@@ -163,40 +150,23 @@ export class AlertManager {
         currentAlerts = [];
       }
 
-      // Vérifier si cette alerte existe déjà OU a été récemment validée
-      const alertExists = currentAlerts.some(existingAlert => 
+      // Doublon déjà actif ?
+      const alertExists = currentAlerts.some(existingAlert =>
         existingAlert.enqueteId === alert.enqueteId &&
         existingAlert.type === alert.type &&
         (existingAlert.acteId === alert.acteId || (!existingAlert.acteId && !alert.acteId)) &&
         existingAlert.status === 'active'
       );
 
-      // Pour les alertes non récurrentes, vérifier si elles ont été récemment validées
-      let wasRecentlyValidated = false;
-      if (!alert.recurrence?.enabled) {
-        wasRecentlyValidated = await this.wasRecentlyValidated(
-          alert.enqueteId, 
-          alert.type, 
-          alert.acteId
-        );
-      }
+      // Déjà validée pour cet état exact ? (silence jusqu'à changement réel)
+      const acknowledged = await this.wasAcknowledgedForState(
+        alert.enqueteId,
+        alert.type,
+        alert.acteId,
+        alert.stateKey || '',
+      );
 
-      // N'ajouter l'alerte que si elle n'existe pas déjà ET n'a pas été récemment validée
-      if (!alertExists && !wasRecentlyValidated) {
-        // Si c'est une alerte récurrente, ajouter une configuration de récurrence si nécessaire
-        if (alert.recurrence?.enabled) {
-          // Chercher la règle d'alerte correspondante pour obtenir les détails de récurrence
-          const rule = await this.findAlertRule(alert.type);
-          if (rule?.recurrence?.enabled) {
-            alert.recurrence = {
-              enabled: true,
-              interval: rule.recurrence.defaultInterval || 7,
-              maxOccurrences: rule.recurrence.maxOccurrences,
-              currentOccurrence: 0
-            };
-          }
-        }
-        
+      if (!alertExists && !acknowledged) {
         const newAlerts = [...currentAlerts, alert];
         await AlertStorage.saveAlerts(newAlerts);
       }
@@ -255,35 +225,14 @@ export class AlertManager {
   private static cleanupAlerts(alerts: Alert[]): Alert[] {
     const now = new Date();
 
-    // Traiter les alertes reportées (snoozed) dont la date de report est passée
-    const alertsToProcess = alerts.map(alert => {
+    // On garde les actives, et les snoozées dont le report n'est pas expiré.
+    // Un snooze expiré disparaît du cache : l'alerte sera régénérée comme
+    // active au prochain scan si la condition reste vraie (et non validée).
+    return alerts.filter(alert => {
+      if (alert.status === 'active') return true;
       if (alert.status === 'snoozed' && alert.snoozedUntil) {
-        const snoozeUntilDate = new Date(alert.snoozedUntil);
-
-        // Si la date de report est passée
-        if (snoozeUntilDate <= now) {
-          // Si c'est une alerte récurrente, la réactiver
-          if (alert.recurrence?.enabled) {
-            return { ...alert, status: 'active' };
-          }
-          // Sinon, la conserver comme reportée (et elle sera filtrée ci-dessous)
-        }
+        return new Date(alert.snoozedUntil) > now;
       }
-      return alert;
-    });
-
-    return alertsToProcess.filter(alert => {
-      // Pour les alertes actives, les conserver toutes
-      if (alert.status === 'active') {
-        return true;
-      }
-      
-      // Pour les alertes en report, vérifier la date de fin du report
-      if (alert.status === 'snoozed' && alert.snoozedUntil) {
-        const snoozeUntilDate = new Date(alert.snoozedUntil);
-        return snoozeUntilDate > now;
-      }
-
       return false;
     });
   }
@@ -294,9 +243,9 @@ export class AlertManager {
     message: string,
     deadline?: string,
     acteId?: number,
-    prolongationData?: { dateDebut: string; duree: string }
+    prolongationData?: { dateDebut: string; duree: string },
+    stateKey?: string,
   ): Alert {
-    // Création de l'alerte (sans attendre la promesse, elle sera mise à jour lors de l'ajout)
     const alert: Alert = {
       id: Date.now() + Math.random(),
       enqueteId,
@@ -306,10 +255,9 @@ export class AlertManager {
       status: 'active',
       deadline,
       acteId,
-      prolongationData
+      prolongationData,
+      stateKey,
     };
-
-    // Vérification et ajout de la récurrence se fera dans addAlert ou checkEnquete
     return alert;
   }
   static async checkAIRMesure(mesure: AIRMesure, rules: AlertRule[]): Promise<Alert[]> {
@@ -371,18 +319,9 @@ export class AlertManager {
   
   // Vérifier les règles d'alerte
   for (const rule of enabledRules) {
-    // Vérifier si cette alerte a déjà été validée récemment
-    const wasValidated = await this.wasRecentlyValidated(
-      mesure.id, 
-      rule.type, 
-      undefined
-    );
-    
-    if (wasValidated) continue;
-    
     let shouldAlert = false;
     let message = '';
-    
+
     switch(rule.type) {
       case 'air_6_mois':
         if (mesureAge >= 180 && mesureAge < 365) {
@@ -390,14 +329,14 @@ export class AlertManager {
           message = `La mesure AIR de ${mesure.identite} dépasse 6 mois (${Math.floor(mesureAge / 30)} mois)`;
         }
         break;
-      
+
       case 'air_12_mois':
         if (mesureAge >= 365) {
           shouldAlert = true;
           message = `La mesure AIR de ${mesure.identite} dépasse 12 mois (${Math.floor(mesureAge / 30)} mois)`;
         }
         break;
-      
+
       case 'air_rdv_delai':
         if (joursSansDernierRdv >= rule.threshold) {
           shouldAlert = true;
@@ -405,49 +344,36 @@ export class AlertManager {
         }
         break;
     }
-    
-    if (shouldAlert) {
-      const alert = this.generateAlert(
-        mesure.id,
-        rule.type,
-        message,
-        undefined,
-        undefined,
-        { dateReference: dateReference.toISOString() }
-      );
-      
-      // Ajouter la propriété isAIRAlert pour identifier ces alertes
-      alert.isAIRAlert = true;
-      
-      // Ajouter les informations d'identité de la mesure AIR
-      alert.airIdentite = mesure.identite;
-      alert.airNumeroParquet = mesure.numeroParquet;
-      
-      alerts.push(alert);
-    }
-  }
-  
-  // Pour chaque alerte générée, vérifier à nouveau si elle n'a pas été validée
-  // et l'ajouter uniquement si nécessaire
-  for (const alert of alerts) {
-    // Si l'alerte est récurrente, on l'ajoute sans vérifier si elle a été validée
-    if (alert.recurrence?.enabled) {
-      await this.addAlert(alert);
-      continue;
-    }
-    
-    const wasRecentlyValidated = await this.wasRecentlyValidated(
-      alert.enqueteId, 
-      alert.type, 
-      alert.acteId
+
+    if (!shouldAlert) continue;
+
+    const stateKey = this.computeStateKey(rule.type, {
+      threshold: rule.threshold,
+      dateReference: dateReference.toISOString().split('T')[0],
+      joursSansRdv: joursSansDernierRdv,
+    });
+
+    if (await this.wasAcknowledgedForState(mesure.id, rule.type, undefined, stateKey)) continue;
+
+    const alert = this.generateAlert(
+      mesure.id,
+      rule.type,
+      message,
+      undefined,
+      undefined,
+      { dateReference: dateReference.toISOString() },
+      stateKey,
     );
-    
-    // N'ajouter l'alerte que si elle n'a pas été récemment validée
-    if (!wasRecentlyValidated) {
-      await this.addAlert(alert);
-    }
+    alert.isAIRAlert = true;
+    alert.airIdentite = mesure.identite;
+    alert.airNumeroParquet = mesure.numeroParquet;
+    alerts.push(alert);
   }
-  
+
+  for (const alert of alerts) {
+    await this.addAlert(alert);
+  }
+
   return alerts;
 }
   static async checkEnquete(enquete: Enquete, rules: AlertRule[]): Promise<Alert[]> {
@@ -458,30 +384,28 @@ export class AlertManager {
     const crRule = enabledRules.find(rule => rule.type === 'cr_delay');
     if (crRule && enquete.comptesRendus.length > 0) {
       const lastCR = getLastCR(enquete.comptesRendus);
-      // La clé inclut la date du dernier CR : si un nouveau CR est ajouté, la validation est réinitialisée
-      const wasValidated = await this.wasRecentlyValidated(enquete.id, 'cr_delay', undefined, lastCR.date.split('T')[0]);
-      if (!wasValidated) {
-        const daysSinceLastCR = DateUtils.getDaysDifference(new Date(lastCR.date), new Date());
+      const lastCRDate = lastCR.date.split('T')[0];
+      const daysSinceLastCR = DateUtils.getDaysDifference(new Date(lastCR.date), new Date());
 
-        if (daysSinceLastCR >= crRule.threshold) {
+      if (daysSinceLastCR >= crRule.threshold) {
+        // Empreinte : dernier CR + palier de retard. Un nouveau CR (ou un
+        // retard qui franchit un multiple du seuil) change l'empreinte.
+        const stateKey = this.computeStateKey('cr_delay', {
+          threshold: crRule.threshold,
+          lastCRDate,
+          daysSinceLastCR,
+        });
+        const ack = await this.wasAcknowledgedForState(enquete.id, 'cr_delay', undefined, stateKey);
+        if (!ack) {
           const alert = this.generateAlert(
             enquete.id,
             'cr_delay',
-            `Aucun compte rendu depuis ${daysSinceLastCR} jours pour l'enquête ${enquete.numero}`
+            `Aucun compte rendu depuis ${daysSinceLastCR} jours pour l'enquête ${enquete.numero}`,
+            undefined,
+            undefined,
+            undefined,
+            stateKey,
           );
-          // Stocker le contexte pour que markAlertAsValidated puisse générer la même clé
-          (alert as any).context = lastCR.date.split('T')[0];
-          
-          // Ajouter les informations de récurrence si la règle est récurrente
-          if (crRule.recurrence?.enabled) {
-            alert.recurrence = {
-              enabled: true,
-              interval: crRule.recurrence.defaultInterval || 7,
-              maxOccurrences: crRule.recurrence.maxOccurrences,
-              currentOccurrence: 0
-            };
-          }
-          
           alerts.push(alert);
         }
       }
@@ -490,27 +414,26 @@ export class AlertManager {
     // Vérification de l'âge de l'enquête
     const ageRule = enabledRules.find(rule => rule.type === 'enquete_age');
     if (ageRule && enquete.dateDebut && !enquete.tags.some(tag => tag.value === 'enquête à venir')) {
-      const wasValidated = await this.wasRecentlyValidated(enquete.id, 'enquete_age');
-      if (!wasValidated) {
-        const enqueteAge = DateUtils.getDaysDifference(new Date(enquete.dateDebut), new Date());
-        
-        if (enqueteAge >= ageRule.threshold) {
+      const enqueteAge = DateUtils.getDaysDifference(new Date(enquete.dateDebut), new Date());
+
+      if (enqueteAge >= ageRule.threshold) {
+        // Empreinte : palier d'âge. Validée à 90 j → muette jusqu'au palier
+        // suivant (180 j…). Plus de retour mensuel artificiel.
+        const stateKey = this.computeStateKey('enquete_age', {
+          threshold: ageRule.threshold,
+          age: enqueteAge,
+        });
+        const ack = await this.wasAcknowledgedForState(enquete.id, 'enquete_age', undefined, stateKey);
+        if (!ack) {
           const alert = this.generateAlert(
             enquete.id,
             'enquete_age',
-            `L'enquête ${enquete.numero} a atteint ${enqueteAge} jours`
+            `L'enquête ${enquete.numero} a atteint ${enqueteAge} jours`,
+            undefined,
+            undefined,
+            undefined,
+            stateKey,
           );
-          
-          // Ajouter les informations de récurrence si la règle est récurrente
-          if (ageRule.recurrence?.enabled) {
-            alert.recurrence = {
-              enabled: true,
-              interval: ageRule.recurrence.defaultInterval || 7,
-              maxOccurrences: ageRule.recurrence.maxOccurrences,
-              currentOccurrence: 0
-            };
-          }
-          
           alerts.push(alert);
         }
       }
@@ -523,29 +446,26 @@ export class AlertManager {
 
       for (const acte of actesToCheck.filter(a => a.statut === 'en_cours')) {
         if (acte.dateFin) {
-          const wasValidated = await this.wasRecentlyValidated(enquete.id, 'acte_expiration', acte.id);
-          if (!wasValidated) {
-            const daysUntilExpiration = DateUtils.getDaysDifference(new Date(), new Date(acte.dateFin));
-            
-            if (daysUntilExpiration <= rule.threshold && daysUntilExpiration > 0) {
+          const daysUntilExpiration = DateUtils.getDaysDifference(new Date(), new Date(acte.dateFin));
+
+          if (daysUntilExpiration <= rule.threshold && daysUntilExpiration > 0) {
+            // Empreinte : acte + date d'expiration. Renouvellement/prolongation
+            // (nouvelle dateFin) → l'alerte réapparaît légitimement.
+            const stateKey = this.computeStateKey('acte_expiration', {
+              acteId: acte.id,
+              dateFin: acte.dateFin,
+            });
+            const ack = await this.wasAcknowledgedForState(enquete.id, 'acte_expiration', acte.id, stateKey);
+            if (!ack) {
               const alert = this.generateAlert(
                 enquete.id,
                 'acte_expiration',
                 `Un acte expire dans ${daysUntilExpiration} jours pour l'enquête ${enquete.numero}`,
                 acte.dateFin,
-                acte.id
+                acte.id,
+                undefined,
+                stateKey,
               );
-              
-              // Ajouter les informations de récurrence si la règle est récurrente
-              if (rule.recurrence?.enabled) {
-                alert.recurrence = {
-                  enabled: true,
-                  interval: rule.recurrence.defaultInterval || 7,
-                  maxOccurrences: rule.recurrence.maxOccurrences,
-                  currentOccurrence: 0
-                };
-              }
-              
               alerts.push(alert);
             }
           }
@@ -558,27 +478,24 @@ export class AlertManager {
     if (prolongationRule) {
       const allActes = this.getActesToCheck(enquete);
       for (const acte of allActes.filter(a => a.statut === 'prolongation_pending')) {
-        const wasValidated = await this.wasRecentlyValidated(enquete.id, `prolongation_${acte.id}`);
-        if (!wasValidated && acte.prolongationData) {
+        if (!acte.prolongationData) continue;
+        // Empreinte : acte + début de la prolongation en attente. Disparaît
+        // d'elle-même quand le statut change (prolongation validée/refusée).
+        const stateKey = this.computeStateKey('prolongation_pending', {
+          acteId: acte.id,
+          prolongationStart: acte.prolongationData.dateDebut,
+        });
+        const ack = await this.wasAcknowledgedForState(enquete.id, 'prolongation_pending', acte.id, stateKey);
+        if (!ack) {
           const alert = this.generateAlert(
             enquete.id,
             'prolongation_pending',
             `Prolongation en attente de validation pour l'enquête ${enquete.numero}`,
             DateUtils.addDays(new Date(), 2),
             acte.id,
-            acte.prolongationData
+            acte.prolongationData,
+            stateKey,
           );
-          
-          // Ajouter les informations de récurrence si la règle est récurrente
-          if (prolongationRule.recurrence?.enabled) {
-            alert.recurrence = {
-              enabled: true,
-              interval: prolongationRule.recurrence.defaultInterval || 7,
-              maxOccurrences: prolongationRule.recurrence.maxOccurrences,
-              currentOccurrence: 0
-            };
-          }
-          
           alerts.push(alert);
         }
       }
@@ -589,26 +506,8 @@ export class AlertManager {
       await this.cleanupValidationHistory();
     }
 
-    // Pour chaque alerte générée, vérifier à nouveau si elle n'a pas été validée
-    // et l'ajouter uniquement si nécessaire
     for (const alert of alerts) {
-      // Si l'alerte est récurrente, on l'ajoute sans vérifier si elle a été validée
-      if (alert.recurrence?.enabled) {
-        await this.addAlert(alert);
-        continue;
-      }
-      
-      const wasRecentlyValidated = await this.wasRecentlyValidated(
-        alert.enqueteId,
-        alert.type,
-        alert.acteId,
-        (alert as any).context
-      );
-
-      // N'ajouter l'alerte que si elle n'a pas été récemment validée
-      if (!wasRecentlyValidated) {
-        await this.addAlert(alert);
-      }
+      await this.addAlert(alert);
     }
 
     return alerts;
