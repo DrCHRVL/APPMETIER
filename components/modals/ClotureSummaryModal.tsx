@@ -2,22 +2,19 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Enquete } from '@/types/interfaces';
-import { Copy, Check, Pencil, RotateCcw } from 'lucide-react';
+import { Copy, Check, Pencil, RotateCcw, FileDown } from 'lucide-react';
 import { ElectronBridge } from '@/utils/electronBridge';
-import { copyPlainToClipboard } from '@/utils/richTextExport';
+import { copyPlainToClipboard, downloadAsDocx } from '@/utils/richTextExport';
 import { APP_CONFIG } from '@/config/constants';
-
-interface ClotureTemplate {
-  beforeEcoutes: string;
-  beforeGeolocs: string;
-  footer: string;
-}
-
-const DEFAULT_TEMPLATE: ClotureTemplate = {
-  beforeEcoutes: 'METTONS A DISPOSITION les pièces correspondant aux interceptions de correspondance des lignes suivantes :',
-  beforeGeolocs: 'METTONS A DISPOSITION les pièces correspondant aux géolocalisations des objets suivants :',
-  footer: 'Auprès de Monsieur le juge des libertés et de la détention et le prions de bien vouloir nous en faire retour revêtu de son visa.',
-};
+import {
+  ClotureTemplate,
+  DEFAULT_CLOTURE_TEMPLATE,
+  mergeClotureTemplate,
+  buildClotureText,
+  buildClotureHtml,
+  clotureFileName,
+  formatDateLong,
+} from '@/utils/clotureDocument';
 
 interface ClotureSummaryModalProps {
   isOpen: boolean;
@@ -25,9 +22,52 @@ interface ClotureSummaryModalProps {
   enquete: Enquete;
 }
 
+/** Définition d'un champ éditable de la trame. */
+type TemplateField = {
+  key: keyof ClotureTemplate;
+  label: string;
+  multiline?: boolean;
+};
+
+const FIELD_GROUPS: { title: string; fields: TemplateField[] }[] = [
+  {
+    title: 'En-tête',
+    fields: [
+      { key: 'enteteJuridiction', label: 'Juridiction' },
+      { key: 'enteteParquet', label: 'Parquet' },
+      { key: 'enteteService', label: 'Service / section' },
+    ],
+  },
+  {
+    title: 'Objet',
+    fields: [
+      { key: 'titre', label: 'Titre' },
+      { key: 'sousTitre', label: 'Sous-titre' },
+      { key: 'reference', label: 'Référence (article)' },
+    ],
+  },
+  {
+    title: 'Corps',
+    fields: [
+      { key: 'qualiteMagistrat', label: 'Qualité du magistrat', multiline: true },
+      { key: 'visa', label: 'Visa des textes', multiline: true },
+      { key: 'beforeEcoutes', label: 'Texte avant la liste des interceptions', multiline: true },
+      { key: 'beforeGeolocs', label: 'Texte avant la liste des géolocalisations', multiline: true },
+      { key: 'footer', label: 'Formule de retour', multiline: true },
+    ],
+  },
+  {
+    title: 'Signature',
+    fields: [
+      { key: 'lieu', label: 'Lieu' },
+      { key: 'signataire', label: 'Signataire' },
+    ],
+  },
+];
+
 export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummaryModalProps) => {
   const [copied, setCopied] = useState(false);
-  const [template, setTemplate] = useState<ClotureTemplate>(DEFAULT_TEMPLATE);
+  const [template, setTemplate] = useState<ClotureTemplate>(DEFAULT_CLOTURE_TEMPLATE);
   const [templateLoaded, setTemplateLoaded] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<ClotureTemplate | null>(null);
   // Snapshot du template au début de l'édition pour détecter si l'utilisateur a modifié
@@ -36,14 +76,16 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
   const [showConfirmReset, setShowConfirmReset] = useState(false);
   const [showConfirmDiscard, setShowConfirmDiscard] = useState(false);
 
-  // Charger la trame sauvegardée à l'ouverture du modal
+  // Charger la trame sauvegardée à l'ouverture du modal (fusion rétro-compatible)
   useEffect(() => {
     if (isOpen) {
-      ElectronBridge.getData<ClotureTemplate>(APP_CONFIG.STORAGE_KEYS.CLOTURE_TEMPLATE, DEFAULT_TEMPLATE)
-        .then((saved) => {
-          setTemplate(saved);
-          setTemplateLoaded(true);
-        });
+      ElectronBridge.getData<Partial<ClotureTemplate>>(
+        APP_CONFIG.STORAGE_KEYS.CLOTURE_TEMPLATE,
+        DEFAULT_CLOTURE_TEMPLATE,
+      ).then((saved) => {
+        setTemplate(mergeClotureTemplate(saved));
+        setTemplateLoaded(true);
+      });
     } else {
       // Reset des états d'édition à la fermeture
       setEditingTemplate(null);
@@ -58,10 +100,8 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
   // Détecte si la trame en cours d'édition a été modifiée par rapport au snapshot de départ
   const isEditingDirty = useMemo(() => {
     if (!editingTemplate || !editingSnapshot) return false;
-    return (
-      editingTemplate.beforeEcoutes !== editingSnapshot.beforeEcoutes ||
-      editingTemplate.beforeGeolocs !== editingSnapshot.beforeGeolocs ||
-      editingTemplate.footer !== editingSnapshot.footer
+    return (Object.keys(editingTemplate) as (keyof ClotureTemplate)[]).some(
+      (k) => editingTemplate[k] !== editingSnapshot[k],
     );
   }, [editingTemplate, editingSnapshot]);
 
@@ -76,19 +116,8 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
 
   const generatedText = useMemo(() => {
     if (!templateLoaded) return '';
-    const ecoutes = enquete.ecoutes || [];
-    const geolocalisations = enquete.geolocalisations || [];
-
-    const ecoutesLines = ecoutes.length > 0
-      ? ecoutes.map(e => `* ${e.numero}${e.cible ? ` (${e.cible})` : ''}`).join('\n')
-      : '* (aucune interception renseignée)';
-
-    const geolocsLines = geolocalisations.length > 0
-      ? geolocalisations.map(g => `* ${g.objet}`).join('\n')
-      : '* (aucune géolocalisation renseignée)';
-
-    return `${template.beforeEcoutes}\n${ecoutesLines}\n\n${template.beforeGeolocs}\n${geolocsLines}\n\n${template.footer}`;
-  }, [enquete.ecoutes, enquete.geolocalisations, template, templateLoaded]);
+    return buildClotureText(template, enquete);
+  }, [template, enquete, templateLoaded]);
 
   const handleCopy = async () => {
     const ok = await copyPlainToClipboard(generatedText);
@@ -96,6 +125,15 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const handleDownloadDocx = async () => {
+    const html = buildClotureHtml(template, enquete, formatDateLong());
+    await downloadAsDocx(
+      html,
+      clotureFileName(enquete),
+      `Soit-transmis JLD — Enquête ${enquete.numero}`,
+    );
   };
 
   const handleSaveTemplate = useCallback(async () => {
@@ -115,11 +153,12 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
     setEditingSnapshot(null);
   }, [isEditingDirty]);
 
+  const setField = (key: keyof ClotureTemplate, value: string) =>
+    setEditingTemplate((prev) => (prev ? { ...prev, [key]: value } : prev));
+
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
-      <DialogContent
-        className="max-w-2xl w-[calc(100%-2rem)] bg-white relative !inset-0 !translate-x-0 !translate-y-0 !m-auto !h-fit !max-h-[calc(100vh-2rem)] overflow-y-auto"
-      >
+      <DialogContent className="max-w-2xl bg-white max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-base">
             Récapitulatif de clôture — Enquête N° {enquete.numero}
@@ -129,49 +168,40 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
         <div className="space-y-4">
           {editingTemplate ? (
             // ── VUE ÉDITEUR ──
-            <div className="space-y-3">
+            <div className="space-y-4">
               <p className="text-xs text-gray-500">
-                Modifiez le texte de la trame. Les listes (écoutes, géolocalisations) sont insérées automatiquement.
+                Modifiez les libellés fixes de la trame. Les listes (écoutes, géolocalisations),
+                le numéro d'enquête et la date sont insérés automatiquement.
               </p>
 
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Texte avant la liste des interceptions :
-                </label>
-                <textarea
-                  value={editingTemplate.beforeEcoutes}
-                  onChange={(e) => setEditingTemplate(prev => prev ? { ...prev, beforeEcoutes: e.target.value } : prev)}
-                  className="w-full h-20 p-2 text-sm border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-                <p className="text-xs text-gray-400 mt-1 italic">
-                  ↓ Liste des écoutes (générée automatiquement)
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Texte avant la liste des géolocalisations :
-                </label>
-                <textarea
-                  value={editingTemplate.beforeGeolocs}
-                  onChange={(e) => setEditingTemplate(prev => prev ? { ...prev, beforeGeolocs: e.target.value } : prev)}
-                  className="w-full h-20 p-2 text-sm border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-                <p className="text-xs text-gray-400 mt-1 italic">
-                  ↓ Liste des géolocalisations (générée automatiquement)
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Texte de clôture :
-                </label>
-                <textarea
-                  value={editingTemplate.footer}
-                  onChange={(e) => setEditingTemplate(prev => prev ? { ...prev, footer: e.target.value } : prev)}
-                  className="w-full h-20 p-2 text-sm border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
+              {FIELD_GROUPS.map((group) => (
+                <div key={group.title} className="space-y-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                    {group.title}
+                  </h4>
+                  {group.fields.map((field) => (
+                    <div key={field.key}>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        {field.label}
+                      </label>
+                      {field.multiline ? (
+                        <textarea
+                          value={editingTemplate[field.key]}
+                          onChange={(e) => setField(field.key, e.target.value)}
+                          className="w-full h-16 p-2 text-sm border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          value={editingTemplate[field.key]}
+                          onChange={(e) => setField(field.key, e.target.value)}
+                          className="w-full p-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
 
               <div className="flex justify-between">
                 <Button
@@ -198,7 +228,7 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
             <>
               <div className="flex items-center gap-2">
                 <p className="text-xs text-gray-500">
-                  Copiez ce texte et collez-le dans votre document de mise à disposition JLD.
+                  Aperçu du soit-transmis. Téléchargez-le en Word ou copiez le texte.
                 </p>
                 <button
                   type="button"
@@ -220,7 +250,7 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
                 <Button variant="outline" size="sm" onClick={onClose}>
                   Fermer
                 </Button>
-                <Button size="sm" onClick={handleCopy} className="gap-2">
+                <Button variant="outline" size="sm" onClick={handleCopy} className="gap-2">
                   {copied ? (
                     <>
                       <Check className="h-4 w-4" />
@@ -232,6 +262,10 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
                       Copier
                     </>
                   )}
+                </Button>
+                <Button size="sm" onClick={handleDownloadDocx} className="gap-2">
+                  <FileDown className="h-4 w-4" />
+                  Télécharger Word
                 </Button>
               </div>
             </>
@@ -246,7 +280,7 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
                 Voulez-vous changer la trame de rédaction ?
               </p>
               <p className="text-xs text-gray-500">
-                Vous pourrez modifier le texte autour des listes dynamiques.
+                Vous pourrez modifier les libellés fixes autour des listes dynamiques.
               </p>
               <div className="flex gap-2 justify-center">
                 <Button variant="outline" size="sm" onClick={() => setShowConfirmEdit(false)}>
@@ -279,7 +313,7 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
                   Annuler
                 </Button>
                 <Button variant="destructive" size="sm" onClick={() => {
-                  setEditingTemplate({ ...DEFAULT_TEMPLATE });
+                  setEditingTemplate({ ...DEFAULT_CLOTURE_TEMPLATE });
                   setShowConfirmReset(false);
                 }}>
                   Réinitialiser
