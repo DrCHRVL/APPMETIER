@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import {
   X, Edit, Trash2, Save, FileText, Users, Calendar, ListChecks,
   Lock, Scale, MapPin, ShieldOff, AlertTriangle, Archive, RotateCcw,
-  ShieldCheck, Plus, ExternalLink, Link2, Unlink,
+  ShieldCheck, Plus, ExternalLink, Link2, Unlink, ClipboardPaste,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -40,6 +40,7 @@ import {
   LierEnquetePreliminaireModal,
   type EnquetePreliminaireOption,
 } from '../instruction/LierEnquetePreliminaireModal';
+import { CassiopeeImportModal, type CassiopeeImportResult } from './CassiopeeImportModal';
 import { renderFormattedText } from '@/lib/formatCR';
 import type {
   DossierInstruction,
@@ -112,6 +113,18 @@ export const InstructionDetailModal = ({
   const [activeTab, setActiveTab] = useState<TabKey>('apercu');
   // Picker de rattachement à l'enquête préliminaire d'origine.
   const [showLierPrelim, setShowLierPrelim] = useState(false);
+  // Import « bricolage » Cassiopée par copier-coller.
+  const [showCassiopeeImport, setShowCassiopeeImport] = useState(false);
+
+  const handleCassiopeeImport = (r: CassiopeeImportResult) => {
+    onUpdate(dossier.id, {
+      misEnExamen: [...dossier.misEnExamen, ...r.misEnExamen],
+      suspects: [...(dossier.suspects ?? []), ...r.suspects],
+      victimes: [...(dossier.victimes ?? []), ...r.victimes],
+      saisine: [...(dossier.saisine ?? []), ...r.saisine],
+      evenements: [...(dossier.evenements ?? []), ...r.evenements],
+    });
+  };
 
   const handleLierPrelim = (option: EnquetePreliminaireOption) => {
     onUpdate(dossier.id, {
@@ -312,10 +325,22 @@ export const InstructionDetailModal = ({
               </>
             )}
             {isEditing && (
-              <Button size="sm" onClick={handleSave} className="bg-[#2B5746] hover:bg-[#1f3d2f]">
-                <Save className="h-4 w-4 mr-1" />
-                Enregistrer
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowCassiopeeImport(true)}
+                  title="Importer des données depuis Cassiopée (copier-coller)"
+                  className="gap-1.5"
+                >
+                  <ClipboardPaste className="h-4 w-4" />
+                  Importer Cassiopée
+                </Button>
+                <Button size="sm" onClick={handleSave} className="bg-[#2B5746] hover:bg-[#1f3d2f]">
+                  <Save className="h-4 w-4 mr-1" />
+                  Enregistrer
+                </Button>
+              </>
             )}
             <Button variant="ghost" size="sm" onClick={onClose} title="Fermer">
               <X className="h-5 w-5" />
@@ -720,6 +745,16 @@ export const InstructionDetailModal = ({
         currentLinkId={dossier.enquetePreliminaireId}
         currentLinkContentieuxId={dossier.enquetePreliminaireContentieuxId}
         onSelect={handleLierPrelim}
+      />
+
+      <CassiopeeImportModal
+        isOpen={showCassiopeeImport}
+        onClose={() => setShowCassiopeeImport(false)}
+        onImport={handleCassiopeeImport}
+        existingMisEnExamen={dossier.misEnExamen}
+        existingSuspects={dossier.suspects ?? []}
+        existingVictimes={dossier.victimes ?? []}
+        existingSaisine={dossier.saisine ?? []}
       />
     </div>
   );
