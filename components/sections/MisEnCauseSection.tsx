@@ -15,7 +15,7 @@ interface MisEnCauseSectionProps {
   allKnownMec?: string[];
 }
 
-export const MisEnCauseSection = React.memo(({ enquete, onUpdate, isEditing, allKnownMec = [] }: MisEnCauseSectionProps) => {
+export const MisEnCauseSection = React.memo(function MisEnCauseSection({ enquete, onUpdate, isEditing, allKnownMec = [] }: MisEnCauseSectionProps) {
   const { showToast } = useToast();
   const [editingMecId, setEditingMecId] = useState<number | null>(null);
   const [editingData, setEditingData] = useState({ nom: '', role: '' });

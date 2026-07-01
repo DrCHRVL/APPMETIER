@@ -10,13 +10,13 @@ interface TodoReminderBarProps {
   onOpenEnquete?: (enquete: Enquete) => void;
 }
 
-export const TodoReminderBar = React.memo(({
+export const TodoReminderBar = React.memo(function TodoReminderBar({
   enquetes,
   globalTodos,
   onUpdateEnquete,
   onGlobalTodosChange,
   onOpenEnquete,
-}: TodoReminderBarProps) => {
+}: TodoReminderBarProps) {
   const [newText, setNewText] = useState('');
   const [showInput, setShowInput] = useState(false);
 

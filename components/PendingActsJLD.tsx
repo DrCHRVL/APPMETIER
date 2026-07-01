@@ -28,7 +28,7 @@ function serviceOf(e: Enquete): string | undefined {
   return e.tags?.find(t => t.category === 'services')?.value;
 }
 
-export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete, onOpenActe }: PendingActsJLDProps) => {
+export const PendingActsJLD = React.memo(function PendingActsJLD({ enquetes, onOpenEnquete, onOpenActe }: PendingActsJLDProps) {
   const pendingActes = useMemo(() => {
     const now = Date.now();
     const dayMs = 1000 * 60 * 60 * 24;

@@ -54,7 +54,7 @@ interface EnquetePreviewProps {
   onCreateGlobalTodo?: (todo: ToDoItem) => void;
 }
 
-export const EnquetePreview = React.memo(({
+export const EnquetePreview = React.memo(function EnquetePreview({
   enquete,
   contentieuxId,
   isArchived = false,
@@ -77,7 +77,7 @@ export const EnquetePreview = React.memo(({
   visualAlertRules = [],
   crDelayHighlight = true,
   onCreateGlobalTodo
-}: EnquetePreviewProps) => {
+}: EnquetePreviewProps) {
   // États pour les modales
   const [showStartModal, setShowStartModal] = useState(false);
   const [showAlertsModal, setShowAlertsModal] = useState(false);

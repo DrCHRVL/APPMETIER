@@ -126,7 +126,7 @@ const VisualAlertsSection = ({
 
   const handleCreateRule = () => {
     if (!newRule.trigger || !newRule.seuil) return;
-    const maxPriority = rules.length > 0 ? Math.max(...rules.map(r => r.priority)) : 0;
+    const maxPriority = localRules.length > 0 ? Math.max(...localRules.map(r => r.priority)) : 0;
     const rule: VisualAlertRule = {
       id: Date.now(),
       trigger: newRule.trigger as VisualAlertTrigger,

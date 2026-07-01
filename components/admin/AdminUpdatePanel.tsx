@@ -95,6 +95,7 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
           throw new Error(data.error || `Erreur ${postRes.status}`);
         }
         // Interroge le statut toutes les 3 s jusqu'à 'done' ou 'error'
+        if (pollRef.current) clearInterval(pollRef.current);
         pollRef.current = setInterval(async () => {
           try {
             const res = await fetch('/api/update');

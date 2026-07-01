@@ -50,7 +50,7 @@ const WEEKDAYS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
  * terme dans les `windowDays` prochains jours. Uniquement les échéances d'actes
  * — pas les relances d'enquête. Chaque ligne est cliquable vers l'enquête.
  */
-export const UpcomingActeDeadlines = React.memo(({ enquetes, onOpenEnquete, onOpenActe, windowDays = 7 }: UpcomingActeDeadlinesProps) => {
+export const UpcomingActeDeadlines = React.memo(function UpcomingActeDeadlines({ enquetes, onOpenEnquete, onOpenActe, windowDays = 7 }: UpcomingActeDeadlinesProps) {
   const items = useMemo(() => {
     // Aujourd'hui à minuit local : référence stable du décompte.
     const now = new Date();

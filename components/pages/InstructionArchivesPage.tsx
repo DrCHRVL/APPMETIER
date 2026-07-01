@@ -67,6 +67,7 @@ export const InstructionArchivesPage = ({
         d.numeroInstruction.toLowerCase().includes(term)
         || d.numeroParquet.toLowerCase().includes(term)
         || d.magistratInstructeur?.toLowerCase().includes(term)
+        || d.description?.toLowerCase().includes(term)
         || d.misEnExamen.some(m => m.nom.toLowerCase().includes(term)),
       );
     }

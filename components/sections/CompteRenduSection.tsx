@@ -211,7 +211,7 @@ const CompteRenduItem = memo(({ cr, isEditing, currentUser, contentieuxId, isIns
 });
 CompteRenduItem.displayName = 'CompteRenduItem';
 
-export const CompteRenduSection = memo(({
+export const CompteRenduSection = memo(function CompteRenduSection({
   enquete,
   editingCR,
   onAddCR,
@@ -220,7 +220,7 @@ export const CompteRenduSection = memo(({
   setEditingCR,
   isEditing,
   contentieuxId
-}: CompteRenduSectionProps) => {
+}: CompteRenduSectionProps) {
   // Détection si on est dans une instruction
   const isInstruction = 'numeroInstruction' in enquete && 'cabinet' in enquete;
 

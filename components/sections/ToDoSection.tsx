@@ -11,7 +11,7 @@ interface ToDoSectionProps {
   isEditing: boolean;
 }
 
-export const ToDoSection = React.memo(({ enquete, onUpdate, isEditing }: ToDoSectionProps) => {
+export const ToDoSection = React.memo(function ToDoSection({ enquete, onUpdate, isEditing }: ToDoSectionProps) {
   const [newTodoText, setNewTodoText] = useState('');
   const [showHistory, setShowHistory] = useState(false);
   const [editingTodoId, setEditingTodoId] = useState<number | null>(null);

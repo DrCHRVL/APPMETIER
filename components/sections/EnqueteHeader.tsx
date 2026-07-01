@@ -27,7 +27,7 @@ interface EnqueteHeaderProps {
   onUpdateImmediate?: (updates: Partial<any>) => void;
 }
 
-export const EnqueteHeader = React.memo(({
+export const EnqueteHeader = React.memo(function EnqueteHeader({
   numero,
   dateDebut,
   services,
@@ -40,7 +40,7 @@ export const EnqueteHeader = React.memo(({
   isEditing = false,
   onUpdate,
   onUpdateImmediate
-}: EnqueteHeaderProps) => {
+}: EnqueteHeaderProps) {
   // Pour les actions discrètes (date, select), utiliser le callback immédiat si disponible
   const discreteUpdate = onUpdateImmediate || onUpdate;
   // État local pour les champs texte : feedback instantané, propagation déboncée

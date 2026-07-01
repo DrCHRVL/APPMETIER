@@ -17,14 +17,14 @@ interface CoSaisineSectionProps {
   isShared?: boolean;
 }
 
-export const CoSaisineSection = React.memo(({
+export const CoSaisineSection = React.memo(function CoSaisineSection({
   enquete,
   isEditing,
   currentContentieuxId,
   onShare,
   onUnshare,
   isShared = false,
-}: CoSaisineSectionProps) => {
+}: CoSaisineSectionProps) {
   const { accessibleContentieux } = useUser();
 
   // Contentieux disponibles pour le partage (exclure le contentieux courant)

@@ -27,7 +27,7 @@ const MONTHS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', '
 
 // React.memo : la timeline itère toutes les enquêtes × phases — on ne recalcule
 // que si les props changent réellement (la Map est mémoïsée côté parent).
-export const OPTimeline = React.memo(({ enquetesByContentieux, contentieuxDefs, onEnqueteClick }: OPTimelineProps) => {
+export const OPTimeline = React.memo(function OPTimeline({ enquetesByContentieux, contentieuxDefs, onEnqueteClick }: OPTimelineProps) {
   const today = useMemo(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
