@@ -745,3 +745,4 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
     </div>
   );
 });
+ActeSection.displayName = 'ActeSection';

@@ -242,7 +242,7 @@ export const ContentieuxAlertsBubble: React.FC<Props> = ({
                     type="number"
                     min="1"
                     value={editingRule.threshold}
-                    onChange={(e) => setEditingRule({ ...editingRule, threshold: parseInt(e.target.value) })}
+                    onChange={(e) => setEditingRule({ ...editingRule, threshold: parseInt(e.target.value, 10) || 1 })}
                     className="w-24"
                   />
                   <span className="text-sm text-gray-600">jours</span>
@@ -328,7 +328,7 @@ export const ContentieuxAlertsBubble: React.FC<Props> = ({
                   type="number"
                   min="1"
                   value={newRule.threshold}
-                  onChange={(e) => setNewRule(prev => ({ ...prev, threshold: parseInt(e.target.value) }))}
+                  onChange={(e) => setNewRule(prev => ({ ...prev, threshold: parseInt(e.target.value, 10) || 1 }))}
                 />
               </div>
 

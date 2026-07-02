@@ -165,3 +165,4 @@ export const TodoReminderBar = React.memo(({
     </div>
   );
 });
+TodoReminderBar.displayName = 'TodoReminderBar';

@@ -120,3 +120,4 @@ export const PendingPose = React.memo(({ enquetes, onOpenEnquete, onOpenActe }: 
     </div>
   );
 });
+PendingPose.displayName = 'PendingPose';

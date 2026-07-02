@@ -262,9 +262,12 @@ export const AudienceResultModal = ({
         enqueteId,
         contentieuxId,
         dateAudience,
-        condamnations: finalizedCondamnations.filter(c => 
-          c.peinePrison > 0 || c.sursisProbatoire > 0 || 
-          c.sursisSimple > 0 || c.peineAmende > 0
+        condamnations: finalizedCondamnations.filter(c =>
+          c.peinePrison > 0 || c.sursisProbatoire > 0 ||
+          c.sursisSimple > 0 || c.peineAmende > 0 ||
+          // Une condamnation dont la seule peine est une interdiction (paraître /
+          // gérer) est une condamnation valide : ne pas la filtrer comme vide.
+          c.interdictionParaitre || c.interdictionGerer
         ),
         confiscations,
         // Source canonique : codes NATINF. Les libellés sont dérivés pour la

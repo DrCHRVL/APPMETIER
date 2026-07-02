@@ -142,3 +142,4 @@ export const CoSaisineSection = React.memo(({
     </div>
   );
 });
+CoSaisineSection.displayName = 'CoSaisineSection';

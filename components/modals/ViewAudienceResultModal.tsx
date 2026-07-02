@@ -73,6 +73,10 @@ export const ViewAudienceResultModal = ({
         contentieuxId,
         confiscations: migrateConfiscations(updatedResult.confiscations),
         condamnations: updatedResult.condamnations.map(condamnation => ({
+          // On conserve tous les champs existants (lieu/durée d'interdiction,
+          // misEnCauseId, dateDefere, isPending…) avant de normaliser ceux qui
+          // ont une valeur par défaut, sinon ils seraient perdus à la ré-écriture.
+          ...condamnation,
           nom: condamnation.nom || '',
           peinePrison: condamnation.peinePrison || 0,
           sursisProbatoire: condamnation.sursisProbatoire || 0,

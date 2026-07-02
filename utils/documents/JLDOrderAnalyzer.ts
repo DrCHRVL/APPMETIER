@@ -170,10 +170,13 @@ export class JLDOrderAnalyzer {
    * Convertit un nom de mois en numéro
    */
   private static parseMonthName(monthName: string): string | null {
+    // Clés SANS accent : la valeur comparée (`normalized`) est désaccentuée
+    // ci-dessous, donc des clés accentuées (février/août/décembre) ne
+    // correspondraient jamais et ces mois retomberaient sur la date du jour.
     const months: Record<string, string> = {
-      'janvier': '01', 'février': '02', 'mars': '03', 'avril': '04',
-      'mai': '05', 'juin': '06', 'juillet': '07', 'août': '08',
-      'septembre': '09', 'octobre': '10', 'novembre': '11', 'décembre': '12'
+      'janvier': '01', 'fevrier': '02', 'mars': '03', 'avril': '04',
+      'mai': '05', 'juin': '06', 'juillet': '07', 'aout': '08',
+      'septembre': '09', 'octobre': '10', 'novembre': '11', 'decembre': '12'
     };
 
     const normalized = monthName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');

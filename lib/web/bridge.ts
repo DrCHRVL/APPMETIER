@@ -109,7 +109,10 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       if (probe.status === 404) {
         failedPulls.delete(name) // réellement absent : écriture initiale sûre
       } else {
-        if (probe.ok) failedPulls.delete(name)
+        // Le coffre existe/est joignable : on NE lève PAS le drapeau ici. Seule
+        // une vraie relecture (vaultPull) peut le faire, sinon une ré-écriture
+        // immédiate — toujours porteuse de données locales périmées — repasserait
+        // le garde et écraserait la version serveur (perte de données partagées).
         throw new NetworkError('Dernière lecture échouée — resynchronisation requise avant écriture')
       }
     }

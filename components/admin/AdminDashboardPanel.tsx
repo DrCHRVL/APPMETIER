@@ -147,11 +147,11 @@ export const AdminDashboardPanel = () => {
               Aucun heartbeat détecté
             </div>
           )}
-          {onlineUsers
+          {[...onlineUsers]
             .sort((a, b) => (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0))
-            .map((user, i) => (
+            .map((user) => (
             <div
-              key={`${user.username}-${i}`}
+              key={user.username}
               className={`flex items-center justify-between p-3 rounded-lg border ${
                 user.isOnline
                   ? 'bg-green-50 border-green-200'

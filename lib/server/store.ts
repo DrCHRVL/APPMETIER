@@ -34,13 +34,17 @@ export async function withFileLock<T>(key: string, fn: () => Promise<T>): Promis
   const prev = locks.get(key) || Promise.resolve()
   let release: () => void
   const gate = new Promise<void>((r) => { release = r })
-  locks.set(key, prev.then(() => gate))
+  // On mémorise la promesse chaînée réellement stockée dans la map afin de
+  // pouvoir la comparer au nettoyage : comparer `gate` ne correspondait jamais,
+  // laissant fuir une entrée par clé distincte pour la durée du processus.
+  const chained = prev.then(() => gate)
+  locks.set(key, chained)
   await prev.catch(() => {})
   try {
     return await fn()
   } finally {
     release!()
-    if (locks.get(key) === gate) locks.delete(key)
+    if (locks.get(key) === chained) locks.delete(key)
   }
 }
 

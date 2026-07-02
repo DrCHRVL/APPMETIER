@@ -996,3 +996,4 @@ export const CompteRenduSection = memo(({
     </div>
   );
 });
+CompteRenduSection.displayName = 'CompteRenduSection';

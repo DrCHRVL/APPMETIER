@@ -41,7 +41,13 @@ export const calculatePeriodeDPEnd = (
   dureeMois: number,
 ): string => {
   const date = new Date(dateDebut);
+  const jour = date.getDate();
   date.setMonth(date.getMonth() + dureeMois);
+  // Anti-débordement : le 31 janvier + 1 mois ne doit pas basculer au 2/3 mars
+  // mais être ramené au dernier jour du mois cible (28/29 février).
+  if (date.getDate() !== jour) {
+    date.setDate(0);
+  }
   return date.toISOString().split('T')[0];
 };
 

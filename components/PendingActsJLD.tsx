@@ -159,3 +159,4 @@ export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete, onOpenActe 
     </div>
   );
 });
+PendingActsJLD.displayName = 'PendingActsJLD';

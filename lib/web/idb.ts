@@ -23,7 +23,12 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('handles')) db.createObjectStore('handles')
     }
     req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
+    req.onerror = () => {
+      // Ne pas conserver une promesse rejetée en cache : cela bloquerait
+      // définitivement tout accès IDB pour la session. On la réarme.
+      dbPromise = null
+      reject(req.error)
+    }
   })
   return dbPromise
 }

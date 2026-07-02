@@ -663,3 +663,4 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
     </div>
   );
 });
+GeolocSection.displayName = 'GeolocSection';

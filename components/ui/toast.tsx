@@ -14,7 +14,10 @@ export const Toast = ({ message, type, onClose, duration = 3000 }: ToastProps) =
   useEffect(() => {
     const timer = setTimeout(onClose, duration);
     return () => clearTimeout(timer);
-  }, [duration, onClose]);
+    // `message` fait partie des dépendances : le composant <Toast> est réutilisé
+    // (instance persistante dans ToastContext), donc sans lui un toast de
+    // remplacement hériterait du minuteur précédent et pourrait disparaître tôt.
+  }, [message, duration, onClose]);
 
   const bgColor = type === 'success' ? 'bg-green-500' :
                  type === 'error' ? 'bg-red-500' :

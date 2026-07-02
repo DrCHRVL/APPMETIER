@@ -357,8 +357,11 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     await persistRules(newRules);
   }, [alertRules, persistRules]);
 
+  // Actions discrètes par identifiant : surtout PAS de debounce — coalescer
+  // deux appels distincts (report de l'alerte A puis B en < 1 s) ferait perdre
+  // le premier. Chaque appel relit l'état frais depuis le pont avant d'écrire.
   const handleSnoozeAlert = useCallback(
-    debounce(async (alertId: number, daysOrDate: number | string): Promise<boolean> => {
+    async (alertId: number, daysOrDate: number | string): Promise<boolean> => {
       try {
         const currentAlertsKey = alertsKeyRef.current;
         const allAlerts = await ElectronBridge.getData<Alert[]>(currentAlertsKey, []);
@@ -390,12 +393,12 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
         console.error('Erreur lors du report d\'alerte:', error);
         return false;
       }
-    }, DEBOUNCE_DELAY),
+    },
     []
   );
 
   const handleValidateAlert = useCallback(
-    debounce(async (alertId: number | number[]): Promise<boolean> => {
+    async (alertId: number | number[]): Promise<boolean> => {
       try {
         const currentAlertsKey = alertsKeyRef.current;
         const allAlerts = await ElectronBridge.getData<Alert[]>(currentAlertsKey, []);
@@ -419,7 +422,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
         console.error('Erreur lors de la validation d\'alerte:', error);
         return false;
       }
-    }, DEBOUNCE_DELAY),
+    },
     []
   );
 
@@ -435,10 +438,10 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
   }, [handleUpdateAlertRule]);
 
   const handleDeleteRule = useCallback(
-    debounce(async (ruleId: number) => {
+    async (ruleId: number) => {
       const newRules = alertRules.filter(rule => rule.id !== ruleId);
       await persistRules(newRules);
-    }, DEBOUNCE_DELAY),
+    },
     [alertRules, persistRules]
   );
 

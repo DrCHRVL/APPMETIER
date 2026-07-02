@@ -1029,3 +1029,4 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     </>
   );
 });
+DocumentsSection.displayName = 'DocumentsSection';

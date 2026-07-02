@@ -194,7 +194,7 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
     }
 
     // Comptage des types d'audience
-    const audienceTypes = new Set(resultat.condamnations.map(c => c.typeAudience));
+    const audienceTypes = new Set((resultat.condamnations ?? []).map(c => c.typeAudience));
     if (audienceTypes.has('CI')) nombreCI++;
     if (audienceTypes.has('COPJ')) nombreCOPJ++;
     if (audienceTypes.has('OI')) nombreOI++;

@@ -773,3 +773,4 @@ return (
     </>
   );
 });
+EnquetePreview.displayName = 'EnquetePreview';

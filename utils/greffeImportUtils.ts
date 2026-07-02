@@ -161,7 +161,12 @@ export const calculateSimilarity = (nom1: string, nom2: string): number => {
   
   const normalized1 = normalizeNom(nom1);
   const normalized2 = normalizeNom(nom2);
-  
+
+  // Un nom qui se normalise en chaîne vide (ex. "(inconnu)") ne doit pas être
+  // considéré comme similaire : sinon `"".includes(x)`/`x.includes("")` renvoie
+  // true et l'auto-enrichissement attribuerait un mauvais numéro de parquet.
+  if (!normalized1 || !normalized2) return 0;
+
   if (DEBUG_SIMILARITY) console.log(`[SIMILARITY] "${nom1}" -> "${normalized1}"`);
   if (DEBUG_SIMILARITY) console.log(`[SIMILARITY] "${nom2}" -> "${normalized2}"`);
   
