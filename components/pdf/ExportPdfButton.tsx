@@ -8,6 +8,7 @@ import { Enquete } from '@/types/interfaces';
 import { getYearlyStats, getMonthlyStats } from '@/utils/audienceStats';
 import { exportStatsPdf, PdfExportData } from '@/utils/generateStatsPdf';
 import { UserManager } from '@/utils/userManager';
+import { categoryForEntry } from '@/lib/natinf/nataff';
 
 interface ExportPdfButtonProps {
   selectedYear?: number;
@@ -24,10 +25,6 @@ export const ExportPdfButton = ({
   const { audienceState } = useAudience();
   const { getServicesFromTags } = useTags();
   const { infractionsForEnquete } = useInfractionNatinf();
-  // Clé canonique d'une infraction : code NATINF si rattaché, sinon libellé.
-  // Regrouper par cette clé garde des comptes cohérents qu'un dossier soit migré
-  // au NATINF (infractionNatinfCodes) ou encore en tags.
-  const keyOf = (inf: { code?: string; label: string }) => inf.code ?? inf.label;
 
   const handleExportPDF = async () => {
     setIsExporting(true);
@@ -203,38 +200,37 @@ export const ExportPdfButton = ({
         };
       });
 
-      // Infractions : clé canonique (code NATINF ou libellé) → item représentatif
-      // (préférer celui qui a un code) pour l'affichage (libellé + code NATINF).
-      const infractionReps = new Map<string, ReturnType<typeof infractionsForEnquete>[number]>();
-      enquetes.forEach(e => {
-        infractionsForEnquete(e).forEach(inf => {
-          const k = keyOf(inf);
-          if (!k) return;
-          const existing = infractionReps.get(k);
-          if (!existing || (!existing.code && inf.code)) infractionReps.set(k, inf);
-        });
-      });
-      const infractions = [...infractionReps.keys()].sort();
+      // Infractions agrégées par CATÉGORIE NATINF (taxonomie Mémento parquet :
+      // Vol, Stupéfiants, Blanchiment…), en cohérence avec les cartes à l'écran.
+      // Chaque enquête est comptée une fois par catégorie qu'elle touche.
+      const categorieForInf = (inf: ReturnType<typeof infractionsForEnquete>[number]): string => {
+        const resolved = categoryForEntry(
+          inf.entry ?? { code: inf.code || '', libelle: inf.label || '', theme: undefined },
+        );
+        return resolved?.category.label ?? 'Autres / non classé';
+      };
 
-      const computeInfractionStats = (filter: (e: Enquete) => boolean) =>
-        infractions.reduce((acc, key) => {
-          const count = enquetes.filter(e => filter(e) && infractionsForEnquete(e).some(inf => keyOf(inf) === key)).length;
-          if (count > 0) {
-            const rep = infractionReps.get(key);
-            acc.push({ infraction: rep?.label ?? key, natinfCode: rep?.code, count });
-          }
-          return acc;
-        }, [] as { infraction: string; natinfCode?: string; count: number }[]);
+      const computeInfractionStats = (filter: (e: Enquete) => boolean) => {
+        const counts = new Map<string, number>();
+        enquetes.filter(filter).forEach(e => {
+          const cats = new Set<string>();
+          infractionsForEnquete(e).forEach(inf => cats.add(categorieForInf(inf)));
+          cats.forEach(c => counts.set(c, (counts.get(c) || 0) + 1));
+        });
+        return [...counts.entries()]
+          .map(([infraction, count]) => ({ infraction, count }))
+          .sort((a, b) => b.count - a.count);
+      };
 
       const infractionsEnCours = computeInfractionStats(e =>
         e.statut === 'en_cours' && new Date(e.dateCreation).getFullYear() <= selectedYear
-      ).sort((a, b) => b.count - a.count);
+      );
 
       const infractionsTerminees = computeInfractionStats(e => {
         if (e.statut !== 'archive') return false;
         const ar = Object.values(resultats).find(r => r.enqueteId === e.id);
         return ar?.dateAudience ? new Date(ar.dateAudience).getFullYear() === selectedYear : false;
-      }).sort((a, b) => b.count - a.count);
+      });
 
       // Déférements par mois
       const deferementsParMois = months.map(month => {

@@ -38,14 +38,24 @@ export interface NatinfGroupSuggestion {
  * Familles dont au moins un code est déjà sélectionné mais qui ne sont pas
  * complètes, avec la liste des codes manquants. Sert de source pour proposer
  * l'ajout des chefs « jumeaux » non encore saisis.
+ *
+ * @param availableCodes Si fourni, restreint les codes proposés à ce périmètre
+ *   (ex : la saisine in rem côté mise en examen — on ne peut pas inculper
+ *   d'un chef hors saisine). Une famille dont tous les codes manquants sont
+ *   hors périmètre n'est alors pas proposée.
  */
-export function getNatinfGroupSuggestions(selectedCodes: string[]): NatinfGroupSuggestion[] {
+export function getNatinfGroupSuggestions(
+  selectedCodes: string[],
+  availableCodes?: string[],
+): NatinfGroupSuggestion[] {
   const selected = new Set(selectedCodes.map((c) => String(c)));
+  const allowed = availableCodes ? new Set(availableCodes.map((c) => String(c))) : null;
   const suggestions: NatinfGroupSuggestion[] = [];
   for (const group of NATINF_GROUPS) {
     const present = group.codes.some((c) => selected.has(c));
     if (!present) continue;
-    const missing = group.codes.filter((c) => !selected.has(c));
+    let missing = group.codes.filter((c) => !selected.has(c));
+    if (allowed) missing = missing.filter((c) => allowed.has(c));
     if (missing.length === 0) continue;
     suggestions.push({ group, missing });
   }
