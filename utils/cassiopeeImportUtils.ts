@@ -13,7 +13,7 @@
 // Ce module parse ces trois tableaux et les convertit vers le modèle
 // d'instruction (MisEnExamen, Suspect, Victime, SaisineItem, EvenementInstruction).
 
-import type { NatinfEntry } from '@/types/natinf';
+import type { NatinfEntry, NatinfRef } from '@/types/natinf';
 import { toRef } from '@/lib/natinf/natinfData';
 import type {
   MisEnExamen,
@@ -23,7 +23,11 @@ import type {
   EvenementInstruction,
   MesureSurete,
   CategorieExpertise,
+  PeriodeDetentionProvisoire,
+  RegimeDetentionProvisoire,
 } from '@/types/instructionTypes';
+import { getCasDPById, type CasDP } from '@/config/dpRegimes';
+import { calculatePeriodeDPEnd } from '@/utils/instructionUtils';
 
 // ──────────────────────────────────────────────
 // GÉNÉRATEUR D'ID
@@ -349,11 +353,154 @@ export interface BuildContext {
   resolveNatinf?: (code: string) => NatinfEntry | undefined;
 }
 
-/** Mesure de sûreté déduite de la catégorie pénale Cassiopée.
- *  On NE reconstitue PAS les périodes de DP (dates de placement/prolongation) :
- *  elles proviennent des ordonnances JLD et doivent être saisies à la main pour
- *  ne pas fausser les décomptes légaux. On pose donc la bonne *nature* de mesure
- *  avec des périodes vides + une note d'invite. */
+// ──────────────────────────────────────────────
+// RÉGIME / CAS LÉGAL DE DP DÉDUIT DE LA SAISINE IN REM
+//
+// Le régime de détention (criminel/correctionnel) et le cas légal applicable
+// (durées initiale/max/tranche) découlent de la NATURE des faits dont le juge
+// est saisi (saisine in rem), pas d'un choix arbitraire. On dérive une
+// suggestion depuis les NATINF de la saisine ; elle reste modifiable.
+// ──────────────────────────────────────────────
+
+export interface CasDPSuggestion {
+  regime: RegimeDetentionProvisoire;
+  casDPId?: string;
+  cas?: CasDP;
+  /** Explication lisible du raisonnement (pour l'UI). */
+  reason: string;
+}
+
+const BO_STUP_TERRO_RE = /bande organisee|stupefiant|terror|proxenet|extorsion/;
+
+/**
+ * Déduit le régime de DP et un cas légal probable à partir des NATINF de la
+ * saisine in rem. Renvoie null si aucune NATINF exploitable.
+ */
+export const suggestCasDPFromNatinfRefs = (
+  refs: (NatinfRef | undefined | null)[],
+  resolve?: (code: string) => NatinfEntry | undefined,
+): CasDPSuggestion | null => {
+  const valid = refs.filter((r): r is NatinfRef => !!r);
+  if (valid.length === 0) return null;
+
+  const crimes = valid.filter(r => r.nature === 'crime');
+  const text = normalizeText(valid.map(r => r.libelle).join(' | '));
+  const boStupTerro = BO_STUP_TERRO_RE.test(text);
+
+  if (crimes.length > 0) {
+    // Régime criminel (art 145-2).
+    let peineSup20 = false;
+    for (const r of crimes) {
+      const e = resolve?.(r.code);
+      if (e?.quantum?.perpetuite || (e?.quantum?.reclusionAnnees ?? 0) >= 20) peineSup20 = true;
+    }
+    let casDPId: string;
+    let reason: string;
+    if (boStupTerro || crimes.length > 1) {
+      casDPId = 'crim-pluriel-ou-stup-terro';
+      reason = crimes.length > 1
+        ? 'Plusieurs crimes visés → régime criminel, cas art 145-2 (durée max 48 mois).'
+        : 'Crime en bande organisée / stupéfiants / terrorisme → régime criminel, cas art 145-2 (48 mois).';
+    } else if (peineSup20) {
+      casDPId = 'crim-peine-sup-20';
+      reason = 'Crime puni d\'au moins 20 ans → régime criminel, art 145-2 (durée max 36 mois).';
+    } else {
+      casDPId = 'crim-peine-inf-20';
+      reason = 'Crime puni de moins de 20 ans → régime criminel, art 145-2 (durée max 24 mois).';
+    }
+    return { regime: 'criminel', casDPId, cas: getCasDPById(casDPId), reason };
+  }
+
+  // Régime correctionnel (art 145-1 / 145-1-1).
+  let casDPId: string | undefined;
+  let reason: string;
+  if (boStupTerro) {
+    casDPId = 'del-stup-am-bo';
+    reason = 'Délit de stupéfiants / association de malfaiteurs / BO → art 145-1-1 (24 mois).';
+  } else {
+    let maxMois = 0;
+    for (const r of valid) {
+      const e = resolve?.(r.code);
+      maxMois = Math.max(maxMois, e?.quantum?.emprisonnementMois ?? 0);
+    }
+    if (maxMois > 60) {
+      casDPId = 'del-sup-5-ans';
+      reason = 'Délit puni de plus de 5 ans → art 145-1 al 2 (durée max 12 mois).';
+    } else if (maxMois >= 36) {
+      casDPId = 'del-3-5-ans';
+      reason = 'Délit puni de 3 à 5 ans → art 145-1 al 1 (durée max 4 mois, non prolongeable).';
+    } else {
+      casDPId = undefined;
+      reason = 'Régime correctionnel : cas légal à préciser (quantum indéterminé).';
+    }
+  }
+  return { regime: 'correctionnel', casDPId, cas: getCasDPById(casDPId), reason };
+};
+
+/** Variante prenant directement la saisine in rem. */
+export const suggestCasDPFromSaisine = (
+  saisine: SaisineItem[],
+  resolve?: (code: string) => NatinfEntry | undefined,
+): CasDPSuggestion | null =>
+  suggestCasDPFromNatinfRefs(
+    saisine.map(s => s.natinfRef ?? (s.natinfCode && resolve ? (() => {
+      const e = resolve(s.natinfCode!);
+      return e ? toRef(e) : null;
+    })() : null)),
+    resolve,
+  );
+
+// ──────────────────────────────────────────────
+// RECONSTITUTION PRUDENTE DES PÉRIODES DE DP
+//
+// Depuis les événements Cassiopée : la 1re ordonnance de DP (mandat de dépôt /
+// ORDDP) = placement initial ; les ORDDP suivantes = prolongations. Les durées
+// (initiale, tranche) proviennent du cas légal déduit de la saisine → cohérence
+// avec l'art applicable. Prudence : on ne devine ni les mises en liberté ni les
+// prolongations exceptionnelles CHINS ; le résultat est signalé « à vérifier ».
+// ──────────────────────────────────────────────
+
+/** Codes d'événement Cassiopée marquant une (re)décision de détention. */
+const DP_ORDONNANCE_CODES = new Set(['MD', 'ORDDP']);
+
+export const deriveDpPeriodesForPersonne = (
+  nom: string,
+  parsedEvents: ParsedEvenement[],
+  opts: { regime: RegimeDetentionProvisoire; cas?: CasDP; newId: () => number },
+): PeriodeDetentionProvisoire[] => {
+  const key = normalizeNom(nom);
+  const dpEvents = parsedEvents.filter(
+    ev =>
+      ev.date &&
+      ev.code &&
+      DP_ORDONNANCE_CODES.has(ev.code.toUpperCase()) &&
+      ev.auteurs.some(a => normalizeNom(a) === key),
+  );
+  if (dpEvents.length === 0) return [];
+
+  // Regroupe par date : mandat de dépôt + ORDDP du même jour = une ordonnance.
+  const dates = Array.from(new Set(dpEvents.map(ev => ev.date))).sort();
+
+  const dureeInit = opts.cas?.dureeInitialeMois || (opts.regime === 'criminel' ? 12 : 4);
+  const dureeTranche = opts.cas?.trancheProlongationMois || (opts.regime === 'criminel' ? 6 : 4);
+
+  return dates.map((d, i) => {
+    const type: 'placement' | 'prolongation' = i === 0 ? 'placement' : 'prolongation';
+    const duree = i === 0 ? dureeInit : dureeTranche;
+    return {
+      id: opts.newId(),
+      dateDebut: d,
+      dureeMois: duree,
+      dateFin: calculatePeriodeDPEnd(d, duree),
+      regime: opts.regime,
+      type,
+    };
+  });
+};
+
+/** Mesure de sûreté déduite de la catégorie pénale Cassiopée (repli sans DP
+ *  reconstituée). On pose la bonne *nature* de mesure avec des périodes vides
+ *  et une note d'invite : les dates de DP proviennent des ordonnances JLD. */
 const mesureFromCategorie = (cat?: string): { mesure: MesureSurete; note?: string } => {
   switch (cat) {
     case 'DP':
@@ -383,9 +530,44 @@ const buildNote = (p: ParsedPersonne, catNote?: string): string | undefined => {
   return parts.length ? parts.join('\n') : undefined;
 };
 
-/** Convertit un mis en examen parsé vers le modèle. */
-export const buildMisEnExamen = (p: ParsedPersonne, ctx: BuildContext): MisEnExamen => {
-  const { mesure, note } = mesureFromCategorie(p.categoriePenale);
+/** Options de construction d'un MEX : DP reconstituée depuis les événements. */
+export interface MexBuildOptions {
+  /** Périodes de DP reconstituées (placement + prolongations). */
+  dpPeriodes?: PeriodeDetentionProvisoire[];
+  /** Régime déduit de la saisine in rem. */
+  regime?: RegimeDetentionProvisoire;
+  /** Cas légal déduit de la saisine in rem. */
+  casDPId?: string;
+}
+
+/** Convertit un mis en examen parsé vers le modèle. Si la personne est en DP et
+ *  que des périodes ont pu être reconstituées depuis les événements, on pose une
+ *  mesure `detenu` complète (régime/cas déduits de la saisine in rem) ; sinon on
+ *  se rabat sur la nature de mesure seule. */
+export const buildMisEnExamen = (
+  p: ParsedPersonne,
+  ctx: BuildContext,
+  opts?: MexBuildOptions,
+): MisEnExamen => {
+  let mesure: MesureSurete;
+  let note: string | undefined;
+
+  if (p.categoriePenale === 'DP' && opts?.dpPeriodes && opts.dpPeriodes.length > 0) {
+    mesure = {
+      type: 'detenu',
+      depuis: opts.dpPeriodes[0].dateDebut,
+      regime: opts.regime ?? opts.dpPeriodes[0].regime,
+      casDPId: opts.casDPId,
+      periodes: opts.dpPeriodes,
+    };
+    const nbProl = opts.dpPeriodes.length - 1;
+    note = `⚠ DP reconstituée depuis Cassiopée : placement + ${nbProl} prolongation(s), régime/cas déduits de la saisine in rem. À vérifier (mises en liberté et prolongations exceptionnelles non reprises).`;
+  } else {
+    const r = mesureFromCategorie(p.categoriePenale);
+    mesure = r.mesure;
+    note = r.note;
+  }
+
   return {
     id: ctx.newId(),
     nom: p.nom,

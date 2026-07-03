@@ -25,10 +25,13 @@ import type {
   MesureSurete,
   InfractionReproche,
   DemandeMiseEnLiberte,
+  SaisineItem,
 } from '@/types/instructionTypes';
 
 interface Props {
   mex: MisEnExamen;
+  /** Saisine in rem du dossier : sert à déduire le régime/cas de DP. */
+  saisine?: SaisineItem[];
   onChange: (next: MisEnExamen) => void;
   onDelete: () => void;
   defaultExpanded?: boolean;
@@ -47,6 +50,7 @@ const MESURE_BADGE: Record<MesureSurete['type'], { short: string; full: string; 
 
 export const MisEnExamenCard = ({
   mex,
+  saisine,
   onChange,
   onDelete,
   defaultExpanded = false,
@@ -305,7 +309,7 @@ export const MisEnExamenCard = ({
 
           {/* Mesures de sûreté */}
           <Section title="Mesures de sûreté">
-            <MesureSureteEditor mex={mex} onChange={handleChangeMesureSurete} readOnly={readOnly} />
+            <MesureSureteEditor mex={mex} saisine={saisine} onChange={handleChangeMesureSurete} readOnly={readOnly} />
             <div className="mt-2">
               <VerificationLegaleDP mex={mex} />
             </div>

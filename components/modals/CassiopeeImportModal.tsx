@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, ClipboardPaste, Users, Scale, ListChecks, AlertTriangle, Download } from 'lucide-react';
+import { X, ClipboardPaste, Users, Scale, ListChecks, AlertTriangle, Download, Lock } from 'lucide-react';
 import { Button } from '../ui/button';
 import { useToast } from '@/contexts/ToastContext';
 import { useNatinf } from '@/hooks/useNatinf';
@@ -17,9 +17,13 @@ import {
   makeIdGen,
   normalizeNom,
   nameExists,
+  suggestCasDPFromNatinfRefs,
+  deriveDpPeriodesForPersonne,
   type ParsedPersonne,
   type CassiopeeRole,
 } from '@/utils/cassiopeeImportUtils';
+import { toRef } from '@/lib/natinf/natinfData';
+import type { NatinfRef } from '@/types/natinf';
 import type {
   MisEnExamen,
   Suspect,
@@ -139,6 +143,38 @@ export const CassiopeeImportModal = ({
     [existingSaisine],
   );
 
+  // Régime / cas légal de DP déduits de la saisine in rem (existante + collée).
+  // Sert à poser le bon régime et les bonnes durées de période lors de la
+  // reconstitution des DP.
+  const dpSuggestion = useMemo(() => {
+    const refs: (NatinfRef | undefined | null)[] = [
+      ...existingSaisine.map(s => s.natinfRef),
+      ...infractions.map(inf => {
+        const e = getByCode(inf.natinfCode);
+        return e ? toRef(e) : null;
+      }),
+    ];
+    return suggestCasDPFromNatinfRefs(refs, getByCode);
+  }, [existingSaisine, infractions, getByCode]);
+
+  // Périodes de DP reconstituées par personne (aperçu, id jetables).
+  const previewDp = useMemo(() => {
+    const gen = makeIdGen();
+    const map = new Map<string, ReturnType<typeof deriveDpPeriodesForPersonne>>();
+    personnes.forEach(p => {
+      if (p.categoriePenale !== 'DP') return;
+      map.set(
+        p.nom,
+        deriveDpPeriodesForPersonne(p.nom, evenements, {
+          regime: dpSuggestion?.regime ?? 'criminel',
+          cas: dpSuggestion?.cas,
+          newId: gen,
+        }),
+      );
+    });
+    return map;
+  }, [personnes, evenements, dpSuggestion]);
+
   // Doublons : mêmes noms / mêmes codes déjà dans le dossier.
   const personneIsDup = (p: ParsedPersonne) => nameExists(p.nom, existingPersons);
   const infractionIsDup = (code: string) => existingNatinfCodes.has(code);
@@ -203,8 +239,23 @@ export const CassiopeeImportModal = ({
     personnes.forEach((p, i) => {
       if (!isSel(`p:${i}`)) return;
       const t = targetForRole(p.role);
-      if (t === 'mex') misEnExamen.push(buildMisEnExamen(p, ctx));
-      else if (t === 'suspect') suspects.push(buildSuspect(p, ctx));
+      if (t === 'mex') {
+        const dpPeriodes =
+          p.categoriePenale === 'DP'
+            ? deriveDpPeriodesForPersonne(p.nom, evenements, {
+                regime: dpSuggestion?.regime ?? 'criminel',
+                cas: dpSuggestion?.cas,
+                newId,
+              })
+            : undefined;
+        misEnExamen.push(
+          buildMisEnExamen(p, ctx, {
+            dpPeriodes,
+            regime: dpSuggestion?.regime,
+            casDPId: dpSuggestion?.casDPId,
+          }),
+        );
+      } else if (t === 'suspect') suspects.push(buildSuspect(p, ctx));
       else if (t === 'victime') victimes.push(buildVictime(p, ctx));
     });
 
@@ -285,23 +336,49 @@ export const CassiopeeImportModal = ({
               placeholder="Collez ici le tableau « Personnes » (Rang / Identité / Rôle / …)"
               className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded resize-y font-mono"
             />
+            {dpSuggestion && personnes.some(p => p.categoriePenale === 'DP') && (
+              <div className="flex items-start gap-1.5 rounded border border-red-200 bg-red-50/60 px-2 py-1.5 text-[11px] text-red-800">
+                <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>
+                  <b>Régime de DP déduit de la saisine in rem :</b>{' '}
+                  {dpSuggestion.regime === 'criminel' ? 'criminel' : 'correctionnel'}
+                  {dpSuggestion.cas ? ` — ${dpSuggestion.cas.label}` : ' — cas à préciser'}.
+                  <span className="text-red-600"> {dpSuggestion.reason}</span>
+                  {' '}Les périodes de DP sont reconstituées avec ces durées (à vérifier).
+                </span>
+              </div>
+            )}
             {personnes.length > 0 && (
-              <div className="max-h-40 overflow-y-auto border border-gray-100 rounded divide-y divide-gray-50">
+              <div className="max-h-48 overflow-y-auto border border-gray-100 rounded divide-y divide-gray-50">
                 {personnes.map((p, i) => {
                   const target = targetForRole(p.role);
                   const dup = personneIsDup(p);
+                  const dp = target === 'mex' && p.categoriePenale === 'DP' ? previewDp.get(p.nom) : undefined;
                   return (
-                    <label key={i} className="flex items-center gap-2 px-2 py-1 text-xs hover:bg-gray-50 cursor-pointer">
-                      <input type="checkbox" checked={isSel(`p:${i}`)} onChange={() => toggle(`p:${i}`)} className="shrink-0" />
-                      <Chip target={target} />
-                      <span className="font-medium text-gray-800 truncate">{p.nom}</span>
-                      {p.dateNaissance && <span className="text-gray-400 shrink-0">{p.dateNaissance}</span>}
-                      {p.categoriePenale && (
-                        <span className="shrink-0 rounded bg-slate-100 px-1 text-[10px] text-slate-600">{p.categoriePenale}</span>
+                    <label key={i} className="block px-2 py-1 text-xs hover:bg-gray-50 cursor-pointer">
+                      <span className="flex items-center gap-2">
+                        <input type="checkbox" checked={isSel(`p:${i}`)} onChange={() => toggle(`p:${i}`)} className="shrink-0" />
+                        <Chip target={target} />
+                        <span className="font-medium text-gray-800 truncate">{p.nom}</span>
+                        {p.dateNaissance && <span className="text-gray-400 shrink-0">{p.dateNaissance}</span>}
+                        {p.categoriePenale && (
+                          <span className="shrink-0 rounded bg-slate-100 px-1 text-[10px] text-slate-600">{p.categoriePenale}</span>
+                        )}
+                        {dup && (
+                          <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 text-[10px] text-orange-600">
+                            <AlertTriangle className="h-3 w-3" /> déjà présent
+                          </span>
+                        )}
+                      </span>
+                      {dp && dp.length > 0 && (
+                        <span className="block pl-7 pt-0.5 text-[10px] text-red-700">
+                          DP reconstituée : placement {new Date(dp[0].dateDebut).toLocaleDateString()}
+                          {dp.length > 1 ? ` + ${dp.length - 1} prolongation(s)` : ''} · fin actuelle {new Date(dp[dp.length - 1].dateFin).toLocaleDateString()}
+                        </span>
                       )}
-                      {dup && (
-                        <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 text-[10px] text-orange-600">
-                          <AlertTriangle className="h-3 w-3" /> déjà présent
+                      {target === 'mex' && p.categoriePenale === 'DP' && (!dp || dp.length === 0) && (
+                        <span className="block pl-7 pt-0.5 text-[10px] text-gray-400 italic">
+                          DP : aucun mandat de dépôt / ORDDP trouvé dans les événements collés → à saisir manuellement.
                         </span>
                       )}
                     </label>

@@ -678,6 +678,7 @@ export const InstructionDetailModal = ({
             <MisEnExamenSection
               misEnExamen={dossier.misEnExamen}
               suspects={dossier.suspects ?? []}
+              saisine={dossier.saisine ?? []}
               onChange={(misEnExamen: MisEnExamen[]) =>
                 onUpdate(dossier.id, { misEnExamen })
               }

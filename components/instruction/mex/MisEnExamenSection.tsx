@@ -7,11 +7,13 @@ import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { MecAutocompleteInput } from '../../ui/MecAutocompleteInput';
 import { MisEnExamenCard } from './MisEnExamenCard';
-import type { MisEnExamen, Suspect } from '@/types/instructionTypes';
+import type { MisEnExamen, Suspect, SaisineItem } from '@/types/instructionTypes';
 
 interface Props {
   misEnExamen: MisEnExamen[];
   suspects?: Suspect[];
+  /** Saisine in rem du dossier : sert à déduire le régime/cas de DP. */
+  saisine?: SaisineItem[];
   onChange: (next: MisEnExamen[]) => void;
   onSuspectsChange?: (next: Suspect[]) => void;
   readOnly?: boolean;
@@ -168,7 +170,7 @@ const SuspectCard = ({ suspect, onDelete, onEdit, onConvert, readOnly, allKnownN
 
 // ── Section principale ─────────────────────────────────────────────────────────
 
-export const MisEnExamenSection = ({ misEnExamen, suspects = [], onChange, onSuspectsChange, readOnly, allKnownNames = [] }: Props) => {
+export const MisEnExamenSection = ({ misEnExamen, suspects = [], saisine = [], onChange, onSuspectsChange, readOnly, allKnownNames = [] }: Props) => {
   const [showAddMexForm, setShowAddMexForm] = useState(false);
   const [draftNom, setDraftNom] = useState('');
   const [draftDate, setDraftDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -405,6 +407,7 @@ export const MisEnExamenSection = ({ misEnExamen, suspects = [], onChange, onSus
             <MisEnExamenCard
               key={mex.id}
               mex={mex}
+              saisine={saisine}
               onChange={(next) => handleUpdateMex(mex.id, next)}
               onDelete={() => handleRemoveMex(mex.id)}
               expanded={expandedIds.has(mex.id)}

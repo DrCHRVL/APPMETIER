@@ -19,15 +19,20 @@ import {
   peutEtreProlonge,
   peutDemanderProlongationExceptionnelle,
 } from '@/utils/instructionUtils';
+import { useNatinf } from '@/hooks/useNatinf';
+import { suggestCasDPFromSaisine } from '@/utils/cassiopeeImportUtils';
 import type {
   MesureSurete,
   MisEnExamen,
   PeriodeDetentionProvisoire,
   RegimeDetentionProvisoire,
+  SaisineItem,
 } from '@/types/instructionTypes';
 
 interface Props {
   mex: MisEnExamen;
+  /** Saisine in rem du dossier : le régime/cas de DP en découle. */
+  saisine?: SaisineItem[];
   onChange: (next: MesureSurete) => void;
   readOnly?: boolean;
 }
@@ -41,10 +46,26 @@ const TYPE_META: Record<TypeMesure, { label: string; color: string; icon: React.
   detenu: { label: 'DP',    color: 'bg-red-100 text-red-700 border-red-300', icon: Lock },
 };
 
-export const MesureSureteEditor = ({ mex, onChange, readOnly }: Props) => {
+export const MesureSureteEditor = ({ mex, saisine = [], onChange, readOnly }: Props) => {
   const m = mex.mesureSurete;
   const cas = m.type === 'detenu' ? getCasDPById(m.casDPId) : undefined;
   const cumuleeMois = getDureeCumuleeDPMois(mex);
+
+  // Régime + cas légal déduits de la saisine in rem (nature des faits visés).
+  const { getByCode } = useNatinf();
+  const dpSuggestion = useMemo(
+    () => suggestCasDPFromSaisine(saisine, getByCode),
+    [saisine, getByCode],
+  );
+  const suggestionApplicable =
+    !!dpSuggestion &&
+    m.type === 'detenu' &&
+    (m.regime !== dpSuggestion.regime || (dpSuggestion.casDPId && m.casDPId !== dpSuggestion.casDPId));
+
+  const applySuggestion = () => {
+    if (m.type !== 'detenu' || !dpSuggestion) return;
+    onChange({ ...m, regime: dpSuggestion.regime, casDPId: dpSuggestion.casDPId });
+  };
 
   // ──────────────────────────────────────────────
   // Changement de type de mesure
@@ -66,11 +87,13 @@ export const MesureSureteEditor = ({ mex, onChange, readOnly }: Props) => {
         // Le placement effectif sera saisi ensuite ; on pré-remplit `depuis`
         // avec la date de mise en examen (cas le plus fréquent) pour que
         // l'estimation de fin reste cohérente avant la saisie du placement.
+        // Le régime et le cas légal sont déduits de la saisine in rem quand
+        // c'est possible (sinon repli correctionnel, à préciser).
         onChange({
           type: 'detenu',
           depuis: mex.dateMiseEnExamen || today,
-          regime: 'correctionnel',
-          casDPId: undefined,
+          regime: dpSuggestion?.regime ?? 'correctionnel',
+          casDPId: dpSuggestion?.casDPId,
           periodes: [],
         });
         break;
@@ -332,6 +355,30 @@ export const MesureSureteEditor = ({ mex, onChange, readOnly }: Props) => {
               </select>
             </div>
           </div>
+
+          {/* Suggestion depuis la saisine in rem */}
+          {dpSuggestion && (
+            <div className="flex items-start gap-1.5 rounded border border-blue-200 bg-blue-50/60 px-2 py-1.5 text-[11px] text-blue-900">
+              <Scale className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <span>
+                  <b>D'après la saisine in rem :</b> régime{' '}
+                  {dpSuggestion.regime === 'criminel' ? 'criminel' : 'correctionnel'}
+                  {dpSuggestion.cas ? ` — ${dpSuggestion.cas.label}` : ' — cas à préciser'}.{' '}
+                  <span className="text-blue-700">{dpSuggestion.reason}</span>
+                </span>
+              </div>
+              {!readOnly && suggestionApplicable && (
+                <Button
+                  size="sm"
+                  onClick={applySuggestion}
+                  className="h-6 shrink-0 bg-blue-600 hover:bg-blue-700 text-[11px] px-2"
+                >
+                  Appliquer
+                </Button>
+              )}
+            </div>
+          )}
 
           {/* Indicateurs légaux */}
           {cas && (
