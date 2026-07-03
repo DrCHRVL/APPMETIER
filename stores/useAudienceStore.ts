@@ -176,9 +176,12 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
       if (enquetePairs.size === 0) return;
 
       const cleanedResultats = cleanupAudienceResults(freshResultats, enquetePairs);
-      set({ resultats: cleanedResultats });
 
+      // Ne toucher au state (et donc ne re-render tous les abonnés) que si le
+      // nettoyage a réellement retiré un orphelin — cleanupAudienceResults
+      // renvoie sinon un nouvel objet identique à chaque tick (toutes les 30 s).
       if (Object.keys(cleanedResultats).length !== Object.keys(freshResultats).length) {
+        set({ resultats: cleanedResultats });
         electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, cleanedResultats);
         // Propager le nettoyage (résultats orphelins) vers le serveur commun
         audienceSyncService.schedulePush();

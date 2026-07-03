@@ -34,7 +34,10 @@ export async function withFileLock<T>(key: string, fn: () => Promise<T>): Promis
   const prev = locks.get(key) || Promise.resolve()
   let release: () => void
   const gate = new Promise<void>((r) => { release = r })
-  locks.set(key, prev.then(() => gate))
+  // On stocke `gate` (et non `prev.then(() => gate)`) pour que le test
+  // `locks.get(key) === gate` du finally réussisse et purge la Map une fois
+  // le dernier verrou relâché — sinon une entrée résolue fuit par clé.
+  locks.set(key, gate)
   await prev.catch(() => {})
   try {
     return await fn()

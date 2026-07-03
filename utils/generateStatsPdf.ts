@@ -597,7 +597,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   <div class="tricolore"></div>
   <div class="overline">Tribunal judiciaire d'Amiens &mdash; Parquet d'Amiens</div>
   <h1>${data.contentieuxLabel || 'Criminalité organisée'}</h1>
-  <div class="subtitle">Année ${selectedYear} — du 1er janvier ${selectedYear} au ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })} · Document interne, ne pas diffuser</div>
+  <div class="subtitle">Année ${selectedYear} — du 1er janvier ${selectedYear} au ${(selectedYear === new Date().getFullYear() ? new Date() : new Date(selectedYear, 11, 31)).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })} · Document interne, ne pas diffuser</div>
 </div>
 
 <div class="redige-par">Rédigé par ${data.redacteur || 'Audran CHEVALIER'}, à destination du Procureur de la République</div>
@@ -816,7 +816,7 @@ ${stats ? (() => {
 </div>
 
 <!-- Saisies vs confiscations : le delta, sans détail superflu -->
-${(stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalVehicules || 0) > 0 ? `
+${(stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalVehicules || 0) > 0 || (stats?.totalSaisiesImmeubles || 0) > 0 || (stats?.totalImmeubles || 0) > 0 ? `
 <div class="section-nobreak">
   <div class="section-title">Saisies &amp; confiscations</div>
   <table>
