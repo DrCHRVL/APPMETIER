@@ -9,8 +9,17 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(req: Request, { params }: { params: { name: string } }) {
   return handle(async () => {
-    requireSession(req)
+    const session = requireSession(req)
     if (!isSafeName(params.name)) return jsonResponse({ error: 'Nom invalide' }, { status: 400 })
+    // Un trousseau `keyring-<user>` est chiffré par la phrase PERSONNELLE de son
+    // titulaire (PBKDF2) : n'importe quel membre pourrait sinon le récupérer et
+    // brute-forcer la phrase hors-ligne. Lecture réservée au titulaire.
+    // (Les coffres de données restent lisibles par tous : le partage repose sur
+    // des clés de scope distribuées via les trousseaux/invitations.)
+    const keyring = /^keyring-(.+)$/.exec(params.name)
+    if (keyring && keyring[1] !== session.u) {
+      return jsonResponse({ error: 'Lecture non autorisée sur ce trousseau' }, { status: 403 })
+    }
     const envelope = readVault(params.name)
     if (!envelope) return jsonResponse({ exists: false }, { status: 404 })
     return jsonResponse({ exists: true, envelope })

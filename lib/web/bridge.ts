@@ -424,7 +424,8 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     },
     cleanOldBackups: async (keepCount: unknown) => {
       const list = await (bridge.listDataJsonBackups as () => Promise<Array<{ name: string, size: number }>>)()
-      const toDelete = list.slice(Number(keepCount) || 10)
+      const n = Number(keepCount)
+      const toDelete = list.slice(Number.isFinite(n) ? n : 10)
       let freed = 0
       for (const b of toDelete) { freed += b.size; await idb.del('backups', b.name) }
       return { deleted: toDelete.length, remaining: list.length - toDelete.length, totalSizeFreed: freed }
@@ -546,7 +547,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     getDocumentSize: async (enqueteNumero: unknown, cheminRelatif: unknown) => {
       const docs = await docList(String(enqueteNumero))
       const d = docs.find((x) => x.rel === String(cheminRelatif))
-      // taille chiffrée ≈ taille réelle + 16 octets de tag GCM
+      // taille chiffrée = taille réelle + 32 octets d'en-tête (4 magic + 12 IV + 16 tag GCM)
       return d ? Math.max(0, d.size - 32) : 0
     },
     extractPDFText: async (buffer: unknown) => extractPdfText(buffer as ArrayBuffer),

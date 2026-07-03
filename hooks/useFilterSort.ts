@@ -19,15 +19,15 @@ export const useFilterSort = (
 
       const matchesSearch = !searchTermLower || (
         // Numéro d'enquête
-        e.numero.toLowerCase().includes(searchTermLower) ||
+        e.numero?.toLowerCase().includes(searchTermLower) ||
 
         // Services
-        e.services.some(service => 
+        e.services?.some(service =>
           service?.toLowerCase().includes(searchTermLower)
         ) ||
 
         // Tous les tags
-        e.tags.some(tag => 
+        e.tags?.some(tag =>
           tag.value.toLowerCase().includes(searchTermLower)
         ) ||
 
@@ -35,17 +35,17 @@ export const useFilterSort = (
         (e.description?.toLowerCase().includes(searchTermLower) || false) ||
 
         // Mis en cause (nom et rôle)
-        e.misEnCause.some(m => 
+        e.misEnCause?.some(m =>
           m.nom.toLowerCase().includes(searchTermLower) ||
           m.role?.toLowerCase().includes(searchTermLower)
         ) ||
 
         // Dates (format YYYY-MM-DD)
-        e.dateDebut.includes(searchTermLower) ||
-        e.dateCreation.includes(searchTermLower) ||
+        e.dateDebut?.includes(searchTermLower) ||
+        e.dateCreation?.includes(searchTermLower) ||
 
         // Comptes rendus (enquêteur et contenu)
-        e.comptesRendus.some(cr => 
+        e.comptesRendus?.some(cr =>
           cr.enqueteur.toLowerCase().includes(searchTermLower) ||
           cr.description.toLowerCase().includes(searchTermLower)
         ) ||
@@ -64,15 +64,15 @@ export const useFilterSort = (
         ) ||
 
         // Autres actes
-        e.actes.some(acte => 
+        e.actes?.some(acte =>
           acte.type.toLowerCase().includes(searchTermLower) ||
           acte.description.toLowerCase().includes(searchTermLower)
         )
       );
 
       // Filtrage par tags sélectionnés
-      const matchesTags = selectedTags.length === 0 || 
-        selectedTags.every(tag => e.tags.some(t => t.id === tag.id));
+      const matchesTags = selectedTags.length === 0 ||
+        selectedTags.every(tag => e.tags?.some(t => t.id === tag.id));
 
       return matchesSearch && matchesTags;
     });

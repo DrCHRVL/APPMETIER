@@ -67,6 +67,11 @@ export const useCrossSearch = (
     // Clear timer on every change
     if (timerRef.current) clearTimeout(timerRef.current);
 
+    // Garde anti-résultat périmé : une recherche lente ne doit pas écraser
+    // le résultat d'une recherche plus récente (le clearTimeout n'annule pas
+    // un setTimeout déjà déclenché dont le Promise.all est en vol).
+    let active = true;
+
     const term = searchTerm.toLowerCase().trim();
 
     // Pas assez de caractères → vider
@@ -97,10 +102,11 @@ export const useCrossSearch = (
         })
       );
 
-      setResults(newResults);
+      if (active) setResults(newResults);
     }, DEBOUNCE_MS);
 
     return () => {
+      active = false;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [searchTerm, otherContentieuxIds]);
