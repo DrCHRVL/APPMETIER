@@ -54,6 +54,9 @@ export const useCrossSearch = (
 ) => {
   const [results, setResults] = useState<CrossSearchResult[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  // Identifiant de recherche courant : n'applique que le résultat du dernier
+  // lancement (les lectures disque/IPC peuvent se terminer dans le désordre).
+  const searchIdRef = useRef(0);
 
   // IDs des autres contentieux (pas le contentieux actif)
   const otherContentieuxIds = useMemo(
@@ -76,6 +79,7 @@ export const useCrossSearch = (
     }
 
     // Debounce
+    const searchId = ++searchIdRef.current;
     timerRef.current = setTimeout(async () => {
       const newResults: CrossSearchResult[] = [];
 
@@ -97,6 +101,8 @@ export const useCrossSearch = (
         })
       );
 
+      // Un lancement plus récent a démarré entre-temps → abandonner ce résultat.
+      if (searchId !== searchIdRef.current) return;
       setResults(newResults);
     }, DEBOUNCE_MS);
 
