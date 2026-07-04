@@ -29,6 +29,18 @@ import { APP_CONFIG } from '@/config/constants';
 // ──────────────────────────────────────────────
 
 /**
+ * Flush des sauvegardes locales en attente, appelé AVANT chaque lecture des
+ * données locales pour la sync. Le store d'enquêtes persiste avec un throttle :
+ * sans ce flush, une sync périodique tombant dans la fenêtre de throttle lisait
+ * un cache périmé et propageait des données obsolètes. Enregistré par l'UI
+ * (app/page.tsx) via `registerMultiSyncPreFlush`.
+ */
+let _preSyncFlush: (() => Promise<void>) | null = null;
+export function registerMultiSyncPreFlush(cb: (() => Promise<void>) | null): void {
+  _preSyncFlush = cb;
+}
+
+/**
  * Instance de synchronisation pour un seul contentieux.
  * Non-singleton : on en crée une par contentieux accessible.
  */
@@ -164,6 +176,12 @@ class ContentieuxSyncInstance {
     this.notifyStatus();
 
     try {
+      // Persister les modifications locales en attente (throttle du store)
+      // avant de lire les données locales, pour ne pas synchroniser un cache
+      // périmé.
+      if (_preSyncFlush) {
+        try { await _preSyncFlush(); } catch { /* flush best-effort */ }
+      }
       const localData = await this.getLocalData();
       const serverResponse = await this.getServerData();
 

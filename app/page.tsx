@@ -122,7 +122,7 @@ import { DataSyncConflictModal } from '@/components/modals/DataSyncConflictModal
 import { ConflictAction, SyncConflict, SyncData } from '@/types/dataSyncTypes';
 import { useMultiSyncStatus } from '@/hooks/useMultiSyncStatus';
 import { DataSyncManager } from '@/utils/dataSync/DataSyncManager';
-import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
+import { MultiSyncManager, registerMultiSyncPreFlush } from '@/utils/dataSync/MultiSyncManager';
 import { instructionSyncService } from '@/utils/dataSync/InstructionSyncService';
 import { airSyncService } from '@/utils/dataSync/AIRSyncService';
 import { UpdateChangelogModal } from '@/components/modals/UpdateChangelogModal';
@@ -486,9 +486,13 @@ function AppContent() {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [refreshEnquetes]);
 
-  // Enregistrer le flush de sauvegarde pour éviter la race condition sync/throttle
+  // Enregistrer le flush de sauvegarde pour éviter la race condition sync/throttle.
+  // MultiSyncManager est le pipeline actif ; DataSyncManager (legacy) est
+  // conservé pour compat mais désactivé.
   useEffect(() => {
+    registerMultiSyncPreFlush(flushPendingSave);
     DataSyncManager.registerPreSyncFlush(flushPendingSave);
+    return () => registerMultiSyncPreFlush(null);
   }, [flushPendingSave]);
 
   // Chargement des todos généraux au démarrage

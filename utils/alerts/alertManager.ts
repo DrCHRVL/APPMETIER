@@ -447,7 +447,11 @@ export class AlertManager {
 
       for (const acte of actesToCheck.filter(a => a.statut === 'en_cours')) {
         if (acte.dateFin) {
-          const daysUntilExpiration = DateUtils.getDaysDifference(new Date(), new Date(acte.dateFin));
+          // Différence SIGNÉE : `getDaysDifference` (valeur absolue) faisait
+          // qu'un acte expiré depuis N jours (N ≤ seuil) déclenchait à tort
+          // « expire dans N jours ». On ne veut alerter que sur les expirations
+          // À VENIR dans la fenêtre du seuil.
+          const daysUntilExpiration = DateUtils.getSignedDaysUntil(new Date(acte.dateFin));
 
           if (daysUntilExpiration <= rule.threshold && daysUntilExpiration > 0) {
             // Empreinte : acte + date d'expiration. Renouvellement/prolongation
