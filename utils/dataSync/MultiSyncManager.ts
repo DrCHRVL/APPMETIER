@@ -417,18 +417,21 @@ class ContentieuxSyncInstance {
       version: data.version,
     };
 
-    // Poser la sentinelle AVANT d'écrire : si l'app plante pendant l'écriture,
-    // on le détectera au prochain démarrage (checkWriteSentinel).
+    // Poser la sentinelle AVANT d'écrire, et la PERSISTER immédiatement (flush) :
+    // sinon la sauvegarde temporisée (throttle) n'atteint pas le disque avant un
+    // push rapide, et un crash pendant l'écriture passerait inaperçu.
     await ElectronBridge.setData(this.sentinelKey(), {
       timestamp: new Date().toISOString(),
       user: this.currentUser,
     });
+    await ElectronBridge.flush(this.sentinelKey());
 
     const success = await (window as any).electronAPI.dataSync_pushContentieux(this.contentieuxId, data, metadata);
     if (!success) throw new Error('Échec envoi vers serveur');
 
-    // Écriture réussie : lever la sentinelle.
-    await ElectronBridge.setData(this.sentinelKey(), null);
+    // Écriture réussie : lever la sentinelle. clearData (et non setData(null),
+    // refusé par la garde anti-érosion) supprime réellement la clé.
+    await ElectronBridge.clearData(this.sentinelKey());
     this.selfCausedCorruption = false;
   }
 
@@ -449,8 +452,11 @@ class ContentieuxSyncInstance {
           'Le fichier partagé sera réparé automatiquement si nécessaire.',
           'error'
         );
-        // Nettoyer maintenant (réécrite si on re-push)
-        await ElectronBridge.setData(this.sentinelKey(), null);
+        // Nettoyer maintenant (réécrite si on re-push). clearData supprime
+        // vraiment la clé — setData(null) était refusé par la garde anti-érosion,
+        // laissant la sentinelle en place et l'alerte se répéter à chaque
+        // démarrage.
+        await ElectronBridge.clearData(this.sentinelKey());
       }
     } catch {
       // Non bloquant
