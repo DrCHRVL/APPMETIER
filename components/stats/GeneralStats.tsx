@@ -52,7 +52,12 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
     return Object.fromEntries(
       Object.entries(all).filter(([, r]) => {
         const ctx = r.contentieuxId || 'crimorg';
-        return ctx === contentieuxId && enqueteIds.has(r.enqueteId);
+        // Les procédures de permanence (résultats directs) portent un enqueteId
+        // synthétique absent de la liste des enquêtes : sans le `|| isDirectResult`,
+        // elles étaient exclues des stats par contentieux alors que les cartes
+        // cherchent explicitement à les additionner (directResultsFiltered) — d'où
+        // un écart avec l'export PDF, qui les compte lui.
+        return ctx === contentieuxId && (r.isDirectResult === true || enqueteIds.has(r.enqueteId));
       })
     );
   }, [audienceState?.resultats, enqueteIds, contentieuxId]);

@@ -68,6 +68,46 @@ interface PdfExportData {
   enquetesEnCoursTotal: number;
   enquetesOuvertesAnnee: number;
   ouverturesParMois: { mois: string; count: number }[];
+  // Comparatif N-1 (reflète la carte « Comparatif {N-1}/{N} » de la page).
+  comparatif?: {
+    prevYear: number;
+    prevTotalTerminees: number;
+    currentTotalTerminees: number;
+    prevCondamnations: number;
+    currentCondamnations: number;
+    prevPrison: number;
+    currentPrison: number;
+    prevAmendes: number;
+    currentAmendes: number;
+    prevDeferements: number;
+    currentDeferements: number;
+  };
+  // Suivi parquet extérieur (reflète la carte « Suivi parquet extérieur »).
+  suivi?: {
+    total: number;
+    jirs: number;
+    pg: number;
+    both: number;
+  };
+  // Statistiques du module instruction (facultatif : présent seulement si des
+  // dossiers d'instruction existent pour le périmètre courant). Reflète la
+  // section « Statistiques instruction » de la page.
+  instructionStats?: {
+    nbDossiers: number;
+    nbDossiersActifs: number;
+    nbDossiersArchives: number;
+    nbDossiersAuReglement: number;
+    nbMisEnExamen: number;
+    nbDetenus: number;
+    nbARSE: number;
+    nbCJ: number;
+    nbLibres: number;
+    ageMoyenDossiersActifsJours: number;
+    ageMaxDossierActifJours: number;
+    dossiersAReglerTotal: number;
+    dossiersAReglerAvecDetenu: number;
+    topFaits: { qualification: string; count: number }[];
+  };
 }
 
 // Charte « Lumière » — palette Justice (DSFR) : Bleu France #000091, bleu nuit
@@ -447,6 +487,17 @@ function renderPieChartImg(
 }
 
 /** Camembert + tableau d'une répartition par service (même couleur par service que l'app). */
+/** Échappe le texte libre injecté dans le HTML du PDF (ex. qualifications
+ *  d'infraction saisies par l'utilisateur), pour ne pas casser la mise en page
+ *  ni injecter de balise. */
+function escapeHtml(s: string): string {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function renderServiceBlock(list: { service: string; count: number }[]): string {
   const total = list.reduce((s, i) => s + i.count, 0);
   const pie = renderPieChartImg(
@@ -624,6 +675,49 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
     </div>
   </div>
 </div>
+
+${data.suivi ? `
+<div class="section-nobreak">
+  <div class="section-title">Suivi parquet extérieur</div>
+  <div class="cards-row">
+    <div class="card">
+      <div class="card-label">Dossiers suivis</div>
+      <div class="card-value">${data.suivi.total}</div>
+      <div class="card-detail">${data.suivi.both > 0 ? `dont ${data.suivi.both} par les deux` : 'JIRS et/ou Parquet Général'}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">JIRS</div>
+      <div class="card-value">${data.suivi.jirs}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Parquet Général</div>
+      <div class="card-value">${data.suivi.pg}</div>
+    </div>
+  </div>
+</div>
+` : ''}
+
+${data.comparatif ? `
+<div class="section-nobreak">
+  <div class="section-title">Comparatif ${data.comparatif.prevYear} / ${selectedYear}</div>
+  <table>
+    <tr><th>Indicateur</th><th class="text-right">${data.comparatif.prevYear}</th><th class="text-right">${selectedYear}</th><th class="text-right">Évolution</th></tr>
+    ${[
+      { label: 'Procédures terminées', prev: data.comparatif.prevTotalTerminees, cur: data.comparatif.currentTotalTerminees, money: false },
+      { label: 'Condamnations', prev: data.comparatif.prevCondamnations, cur: data.comparatif.currentCondamnations, money: false },
+      { label: 'Prison ferme (mois)', prev: data.comparatif.prevPrison, cur: data.comparatif.currentPrison, money: false },
+      { label: 'Amendes totales', prev: data.comparatif.prevAmendes, cur: data.comparatif.currentAmendes, money: true },
+      { label: 'Déférements', prev: data.comparatif.prevDeferements, cur: data.comparatif.currentDeferements, money: false },
+    ].map(r => {
+      const diff = r.cur - r.prev;
+      const fmt = (v: number) => r.money ? formatCurrency(v) : String(v);
+      const diffStr = diff === 0 ? '=' : `${diff > 0 ? '+' : ''}${r.money ? formatCurrency(diff) : diff}`;
+      const color = diff === 0 ? '#56565E' : diff > 0 ? '#18753C' : '#E1000F';
+      return `<tr><td>${r.label}</td><td class="text-right">${fmt(r.prev)}</td><td class="text-right font-bold">${fmt(r.cur)}</td><td class="text-right" style="color:${color};font-weight:bold">${diffStr}</td></tr>`;
+    }).join('')}
+  </table>
+</div>
+` : ''}
 
 <!-- Procédures terminées par mois : tableau + courbe d'évolution -->
 <div class="section-nobreak">
@@ -846,6 +940,50 @@ ${(stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stat
     </div>
   </div>
 </div>
+
+${(() => {
+  const s = data.instructionStats;
+  if (!s || s.nbDossiers <= 0) return '';
+  const fmtDays = (j: number) => {
+    const r = Math.round(j);
+    if (r < 60) return `${r} j`;
+    return `${Math.round(r / 30)} mois`;
+  };
+  return `
+<div class="section">
+  <div class="section-title">Statistiques du module instruction</div>
+  <div class="cards-row">
+    <div class="card">
+      <div class="card-label">Dossiers d'instruction</div>
+      <div class="card-value">${s.nbDossiersActifs}</div>
+      <div class="card-detail">actifs · ${s.nbDossiersArchives} archivés · ${s.nbDossiers} au total</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Mis en examen</div>
+      <div class="card-value">${s.nbMisEnExamen}</div>
+      <div class="card-detail">${s.nbDetenus} détenu${s.nbDetenus > 1 ? 's' : ''} · ${s.nbARSE} ARSE · ${s.nbCJ} CJ · ${s.nbLibres} libre${s.nbLibres > 1 ? 's' : ''}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Âge moyen (actifs)</div>
+      <div class="card-value">${fmtDays(s.ageMoyenDossiersActifsJours)}</div>
+      <div class="card-detail">plus ancien : ${fmtDays(s.ageMaxDossierActifJours)}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Dossiers à régler (art. 175)</div>
+      <div class="card-value">${s.dossiersAReglerTotal}</div>
+      <div class="card-detail">dont ${s.dossiersAReglerAvecDetenu} avec détenu</div>
+    </div>
+  </div>
+  ${s.topFaits.length > 0 ? `
+  <div style="margin-top:12px">
+    <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Principaux types de faits (dossiers actifs)</h4>
+    <table>
+      <tr><th>Qualification</th><th class="text-right">Dossiers</th></tr>
+      ${s.topFaits.map(f => `<tr><td>${escapeHtml(f.qualification)}</td><td class="text-right font-bold">${f.count}</td></tr>`).join('')}
+    </table>
+  </div>` : ''}
+</div>`;
+})()}
 
 <div class="footer">
   Tribunal judiciaire d'Amiens — Parquet d'Amiens · en date du ${new Date().toLocaleDateString('fr-FR')} · Usage interne, ne pas diffuser

@@ -4,7 +4,9 @@ import { FileText, Loader2 } from 'lucide-react';
 import { useAudience } from '@/hooks/useAudience';
 import { useTags } from '@/hooks/useTags';
 import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
+import { useInstructionStats } from '@/hooks/useInstructionStats';
 import { Enquete } from '@/types/interfaces';
+import type { DossierInstruction } from '@/types/instructionTypes';
 import { getYearlyStats, getMonthlyStats } from '@/utils/audienceStats';
 import { exportStatsPdf, PdfExportData } from '@/utils/generateStatsPdf';
 import { UserManager } from '@/utils/userManager';
@@ -13,17 +15,23 @@ interface ExportPdfButtonProps {
   selectedYear?: number;
   enquetes: Enquete[];
   contentieuxId?: string;
+  /** Dossiers d'instruction du périmètre courant (pour refléter la section
+   *  « Statistiques instruction » de la page dans le PDF). */
+  instructions?: DossierInstruction[];
 }
 
 export const ExportPdfButton = ({
   selectedYear = new Date().getFullYear(),
   enquetes,
   contentieuxId,
+  instructions,
 }: ExportPdfButtonProps) => {
   const [isExporting, setIsExporting] = useState(false);
   const { audienceState } = useAudience();
   const { getServicesFromTags } = useTags();
   const { infractionsForEnquete } = useInfractionNatinf();
+  // Stats instruction (mêmes calculs que la section à l'écran).
+  const instructionStatsRaw = useInstructionStats(instructions || []);
   // Clé canonique d'une infraction : code NATINF si rattaché, sinon libellé.
   // Regrouper par cette clé garde des comptes cohérents qu'un dossier soit migré
   // au NATINF (infractionNatinfCodes) ou encore en tags.
@@ -233,7 +241,11 @@ export const ExportPdfButton = ({
       const infractionsTerminees = computeInfractionStats(e => {
         if (e.statut !== 'archive') return false;
         const ar = Object.values(resultats).find(r => r.enqueteId === e.id);
-        return ar?.dateAudience ? new Date(ar.dateAudience).getFullYear() === selectedYear : false;
+        if (!ar?.dateAudience) return false;
+        // Aligné sur l'écran (InfractionStats) : « Hors classements sans suite
+        // et ouvertures d'information ».
+        if (ar.isClassement || ar.isOI) return false;
+        return new Date(ar.dateAudience).getFullYear() === selectedYear;
       }).sort((a, b) => b.count - a.count);
 
       // Déférements par mois
@@ -284,6 +296,72 @@ export const ExportPdfButton = ({
         count: enquetesOuvertesAnnee.filter(e => new Date(e.dateCreation).getMonth() === month).length,
       }));
 
+      // Comparatif N-1 (miroir de GeneralStats.comparison) : totaux terminés
+      // hors OI/classements + condamnations/prison/amendes + déférements.
+      const prevYear = selectedYear - 1;
+      const countTermineesFilteredForYear = (year: number) => {
+        const prelim = enquetes.filter(e => {
+          if (e.statut !== 'archive') return false;
+          const ar = Object.values(resultats).find(r => r.enqueteId === e.id);
+          if (!ar?.dateAudience || ar.isClassement || ar.isOI) return false;
+          return new Date(ar.dateAudience).getFullYear() === year;
+        }).length;
+        const direct = Object.values(resultats)
+          .filter(r => r.isDirectResult && !r.isClassement && !r.isOI && new Date(r.dateAudience).getFullYear() === year).length;
+        return prelim + direct;
+      };
+      const countDeferementsForYear = (year: number) =>
+        Object.values(resultats).reduce((acc, r) => {
+          if (r.nombreDeferes && r.dateDefere) {
+            if (new Date(r.dateDefere).getFullYear() === year) return acc + r.nombreDeferes;
+          } else {
+            return acc + r.condamnations.filter(c => {
+              if (!c.defere) return false;
+              const d = new Date(c.dateDefere || r.dateAudience);
+              return d.getFullYear() === year;
+            }).length;
+          }
+          return acc;
+        }, 0);
+      const prevYearlyStats = getYearlyStats(resultats, enquetes, prevYear);
+      const prevTotalTerminees = countTermineesFilteredForYear(prevYear);
+      const hasPrevData = prevTotalTerminees > 0 || (prevYearlyStats?.nombreCondamnations || 0) > 0;
+      const comparatif = hasPrevData ? {
+        prevYear,
+        prevTotalTerminees,
+        currentTotalTerminees: totalTermineesFiltered,
+        prevCondamnations: prevYearlyStats?.nombreCondamnations || 0,
+        currentCondamnations: yearlyStats?.nombreCondamnations || 0,
+        prevPrison: prevYearlyStats?.totalPeinePrison || 0,
+        currentPrison: yearlyStats?.totalPeinePrison || 0,
+        prevAmendes: prevYearlyStats?.montantTotalAmendes || 0,
+        currentAmendes: yearlyStats?.montantTotalAmendes || 0,
+        prevDeferements: countDeferementsForYear(prevYear),
+        currentDeferements: countDeferementsForYear(selectedYear),
+      } : undefined;
+
+      // Suivi parquet extérieur (miroir de GeneralStats.suiviStats).
+      const isJIRS = (e: Enquete) => e.tags.some(t => t.category === 'suivi' && t.value === 'JIRS');
+      const isPG = (e: Enquete) => e.tags.some(t => t.category === 'suivi' && t.value === 'PG');
+      const relevantSuivi = enquetes.filter(e => {
+        if (new Date(e.dateCreation).getFullYear() > selectedYear) return false;
+        if (e.statut === 'en_cours' || e.statut === 'instruction') return true;
+        if (e.statut === 'archive') {
+          const ar = Object.values(resultats).find(r => r.enqueteId === e.id);
+          if (ar?.dateAudience) return new Date(ar.dateAudience).getFullYear() === selectedYear;
+          return new Date(e.dateMiseAJour).getFullYear() === selectedYear;
+        }
+        return false;
+      });
+      const suiviJirs = relevantSuivi.filter(isJIRS);
+      const suiviPg = relevantSuivi.filter(isPG);
+      const suivi = {
+        total: new Set([...suiviJirs, ...suiviPg].map(e => e.id)).size,
+        jirs: suiviJirs.length,
+        pg: suiviPg.length,
+        both: relevantSuivi.filter(e => isJIRS(e) && isPG(e)).length,
+      };
+
       // Titre du rapport : libellé du contentieux courant (vue globale = tous)
       const contentieuxLabel = (!contentieuxId || contentieuxId === 'global')
         ? 'Tous contentieux'
@@ -292,6 +370,30 @@ export const ExportPdfButton = ({
 
       // Rédacteur : utilisateur courant (à défaut, valeur de repli)
       const redacteur = UserManager.getInstance().getCurrentUser()?.displayName || 'Audran CHEVALIER';
+
+      // Section instruction — reflète InstructionStats (n'apparaît que s'il y a
+      // au moins un dossier). Top 8 des qualifications comme à l'écran.
+      const instructionStats = (instructions && instructionStatsRaw.nbDossiers > 0)
+        ? {
+            nbDossiers: instructionStatsRaw.nbDossiers,
+            nbDossiersActifs: instructionStatsRaw.nbDossiersActifs,
+            nbDossiersArchives: instructionStatsRaw.nbDossiersArchives,
+            nbDossiersAuReglement: instructionStatsRaw.nbDossiersAuReglement,
+            nbMisEnExamen: instructionStatsRaw.nbMisEnExamen,
+            nbDetenus: instructionStatsRaw.nbDetenus,
+            nbARSE: instructionStatsRaw.nbARSE,
+            nbCJ: instructionStatsRaw.nbCJ,
+            nbLibres: instructionStatsRaw.nbLibres,
+            ageMoyenDossiersActifsJours: instructionStatsRaw.ageMoyenDossiersActifs,
+            ageMaxDossierActifJours: instructionStatsRaw.ageMaxDossierActif,
+            dossiersAReglerTotal: instructionStatsRaw.dossiersARegler.total,
+            dossiersAReglerAvecDetenu: instructionStatsRaw.dossiersARegler.avecDetenu,
+            topFaits: Object.entries(instructionStatsRaw.repartitionFaits)
+              .sort(([, a], [, b]) => b - a)
+              .slice(0, 8)
+              .map(([qualification, count]) => ({ qualification, count })),
+          }
+        : undefined;
 
       // Assemblage des données
       const pdfData: PdfExportData = {
@@ -316,6 +418,9 @@ export const ExportPdfButton = ({
         enquetesEnCoursTotal,
         enquetesOuvertesAnnee: enquetesOuvertesAnnee.length,
         ouverturesParMois,
+        comparatif,
+        suivi: suivi.total > 0 ? suivi : undefined,
+        instructionStats,
       };
 
       await exportStatsPdf(pdfData);

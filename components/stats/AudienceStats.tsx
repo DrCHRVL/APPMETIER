@@ -207,7 +207,10 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
     return Object.fromEntries(
       Object.entries(all).filter(([, r]) => {
         const ctx = r.contentieuxId || 'crimorg';
-        return ctx === contentieuxId && enqueteIds.has(r.enqueteId);
+        // Inclure les procédures de permanence (résultats directs) : leur
+        // enqueteId synthétique n'est pas dans la liste des enquêtes mais elles
+        // relèvent bien du contentieux et sont comptées à l'export PDF.
+        return ctx === contentieuxId && (r.isDirectResult === true || enqueteIds.has(r.enqueteId));
       })
     );
   }, [audienceState?.resultats, enqueteIds, contentieuxId]);
