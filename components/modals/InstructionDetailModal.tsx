@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
+import { CopyButton } from '../ui/CopyButton';
 import { useToast } from '@/contexts/ToastContext';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
 import {
@@ -240,8 +241,11 @@ export const InstructionDetailModal = ({
         >
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-lg font-semibold text-gray-900 truncate">
+              <h2 className="text-lg font-semibold text-gray-900 truncate inline-flex items-center gap-1.5">
                 {dossier.numeroInstruction}
+                {dossier.numeroInstruction && (
+                  <CopyButton value={dossier.numeroInstruction} title="Copier le n° d'instruction" />
+                )}
               </h2>
               <Badge
                 variant="outline"
@@ -277,6 +281,9 @@ export const InstructionDetailModal = ({
                 </button>
               ) : (
                 dossier.numeroParquet
+              )}
+              {dossier.numeroParquet && (
+                <CopyButton value={dossier.numeroParquet} title="Copier le n° de parquet" className="ml-1 align-middle" />
               )}
               {dossier.magistratInstructeur && <> · {dossier.magistratInstructeur}</>}
               {' · '}

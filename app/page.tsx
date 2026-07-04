@@ -319,6 +319,7 @@ function AppContent() {
   const currentContentieuxId = effectiveContentieux || 'crimorg';
   const {
     enquetes,
+    isLoading: enquetesLoading,
     selectedEnquete,
     isEditing,
     editingCR,
@@ -1463,8 +1464,16 @@ return (
 
           {baseView === 'enquetes' && (
             <div className="space-y-6">
+              {/* Chargement : spinner discret plutôt que le flash « Aucune enquête »
+                  (anxiogène sur des données métier) tant que le store hydrate. */}
+              {enquetesLoading && enquetes.length === 0 && (
+                <div className="flex items-center justify-center py-16 text-gray-400 gap-3">
+                  <div className="w-6 h-6 rounded-full border-2 border-gray-200 border-t-emerald-500 animate-spin" />
+                  <span className="text-sm">Chargement des enquêtes…</span>
+                </div>
+              )}
               {/* États vides illustrés : service qui démarre vs recherche sans résultat */}
-              {activeEnquetes.length === 0 && (
+              {!enquetesLoading && activeEnquetes.length === 0 && (
                 <EmptyState
                   icon={<FolderSearch />}
                   title="Aucune enquête en cours"
