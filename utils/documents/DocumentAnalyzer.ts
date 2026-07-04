@@ -314,7 +314,12 @@ export class DocumentAnalyzer {
     // Extraire selon les patterns
     for (const [field, extractor] of Object.entries(pattern.extractors)) {
       for (const regex of extractor.patterns) {
-        const matches = dispositifText.match(regex);
+        // Les patterns portent le flag `g` ; `String.match` sur un regex global
+        // renvoie la liste des correspondances *complètes* et perd les groupes
+        // de capture (matches[1] devient la 2ᵉ occurrence, pas le groupe). On
+        // exécute une copie non-globale pour récupérer réellement le groupe.
+        const capture = new RegExp(regex.source, regex.flags.replace('g', ''));
+        const matches = capture.exec(dispositifText);
         if (matches) {
           let value = matches[1] || matches[0];
           
@@ -351,10 +356,13 @@ export class DocumentAnalyzer {
   }
 
   private static extractDecisionDate(text: string): string | undefined {
+    // Pas de flag `g` : sinon `String.match` renvoie les correspondances
+    // complètes sans les groupes de capture et `match[1]` reste undefined
+    // (l'extraction de date échouait alors sur tout document mono-date).
     const datePatterns = [
-      /Fait\s+(?:au\s+parquet,?\s+)?le\s+(\d{1,2}\s+\w+\s+\d{4})/gi,
-      /Fait\s+à\s+\w+,?\s+le\s+(\d{1,2}\s+\w+\s+\d{4})/gi,
-      /(\d{1,2}\s+\w+\s+\d{4})\s*$(?:(?!\w))/gim // Fin de document
+      /Fait\s+(?:au\s+parquet,?\s+)?le\s+(\d{1,2}\s+\w+\s+\d{4})/i,
+      /Fait\s+à\s+\w+,?\s+le\s+(\d{1,2}\s+\w+\s+\d{4})/i,
+      /(\d{1,2}\s+\w+\s+\d{4})\s*$(?:(?!\w))/im // Fin de document
     ];
 
     for (const pattern of datePatterns) {

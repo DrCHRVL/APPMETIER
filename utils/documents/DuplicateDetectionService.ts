@@ -897,6 +897,9 @@ export class DuplicateDetectionService {
     try {
       const a = new Date(dateA);
       const b = new Date(dateB);
+      // `new Date('garbage')` renvoie une Invalid Date (ne lève pas) : le catch
+      // ne se déclenchait jamais et la fonction retournait NaN au lieu de 999.
+      if (isNaN(a.getTime()) || isNaN(b.getTime())) return 999;
       return Math.abs(Math.round((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24)));
     } catch {
       return 999;

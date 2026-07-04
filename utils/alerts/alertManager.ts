@@ -296,8 +296,11 @@ export class AlertManager {
     return alerts;
   }
   
-  if (!dateDebut) return alerts;
-  
+  // `new Date(...)` peut produire une Invalid Date (truthy) : sans ce garde,
+  // `mesureAge` devenait NaN et toutes les comparaisons d'âge échouaient
+  // silencieusement.
+  if (!dateDebut || isNaN(dateDebut.getTime())) return alerts;
+
   // Calculer l'âge de la mesure
   const mesureAge = Math.floor((now.getTime() - dateDebut.getTime()) / (1000 * 60 * 60 * 24));
   

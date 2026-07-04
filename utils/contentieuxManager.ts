@@ -284,7 +284,14 @@ export class ContentieuxManager {
 
   private notifyListeners(contentieuxId: ContentieuxId): void {
     for (const listener of this.listeners) {
-      listener(contentieuxId);
+      // Isoler chaque abonné : un listener qui lève ne doit pas empêcher les
+      // suivants d'être notifiés (sinon la grille/les stats ne se rafraîchissent
+      // plus pour tout le monde).
+      try {
+        listener(contentieuxId);
+      } catch (error) {
+        console.error('ContentieuxManager: erreur dans un listener', error);
+      }
     }
   }
 

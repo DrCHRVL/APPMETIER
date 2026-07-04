@@ -695,7 +695,13 @@ class BackupManager {
   private extractDateFromKey(key: string): Date | null {
     try {
       const dateStr = key.replace('backup_', '');
-      return new Date(dateStr);
+      // Le timestamp de la clé a été créé avec .replace(/:/g, '-') : il faut
+      // restaurer les ':' de la partie heure (2026-03-07T19-43-00.000Z) sinon
+      // `new Date` renvoie une Invalid Date — ce qui faussait checkLastBackupTime
+      // (NaN → « aucune sauvegarde récente ») et le tri de listBackups.
+      const formattedDate = dateStr.replace(/T(\d{2})-(\d{2})-(\d{2})/, 'T$1:$2:$3');
+      const date = new Date(formattedDate);
+      return isNaN(date.getTime()) ? null : date;
     } catch (error) {
       return null;
     }

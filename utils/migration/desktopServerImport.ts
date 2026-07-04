@@ -120,7 +120,9 @@ function countOf(payload: unknown, kind: string): string | undefined {
         return Array.isArray(arr) ? `${arr.length} dossier(s)` : undefined;
       }
       case 'tags': {
-        const tags = (p?.tags ?? p) as Record<string, unknown>;
+        // Le coffre de tags stocke ses entrées sous `customTags` (et non `tags`) :
+        // sans ça on retombait sur `p` et on comptait les clés du fichier (version, …).
+        const tags = (p?.customTags ?? p?.tags ?? p) as Record<string, unknown>;
         return tags && typeof tags === 'object' ? `${Object.keys(tags).length} entrée(s)` : undefined;
       }
       case 'audience':

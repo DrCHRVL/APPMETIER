@@ -83,18 +83,9 @@ const searchInExistingMesures = (term: string): AIRImportData[] => {
  if (!term || term.length < 2) return [];
  
  return mesuresAIR.filter(mesure => {
-   // Utiliser la fonction de similarité corrigée
    const similarity = calculateSimilarity(term, mesure.nomPrenom);
-   
-   // DEBUG temporaire
-   if (term.includes("SCOTE") || mesure.nomPrenom.includes("SCOTE") ||
-       term.includes("PELTO") || mesure.nomPrenom.includes("PELTO") ||
-       term.includes("VANDAELE") || mesure.nomPrenom.includes("VANDAELE") ||
-       term.includes("CHATELAIN") || mesure.nomPrenom.includes("CHATELAIN")) {
-     console.log(`Search Debug: "${term}" vs "${mesure.nomPrenom}" = ${similarity}`);
-   }
-   
-   return similarity > 0.6 || 
+
+   return similarity > 0.6 ||
           mesure.refAEM.toLowerCase().includes(term.toLowerCase()) ||
           mesure.numeroParquet?.toLowerCase().includes(term.toLowerCase());
  }).slice(0, 10);

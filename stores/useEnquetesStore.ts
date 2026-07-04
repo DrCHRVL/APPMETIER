@@ -364,7 +364,8 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
   deleteEnquete: (id: number) => {
     set(state => ({
       ...updateOwn(state, prev => prev.filter(e => e.id !== id)),
-      selectedEnquete: null,
+      // Ne fermer le détail que si c'est bien l'enquête supprimée qui est ouverte.
+      selectedEnquete: state.selectedEnquete?.id === id ? null : state.selectedEnquete,
     }));
     // Pose un tombstone pour éviter que l'enquête ne revienne quand un
     // collègue avec un cache plus ancien re-pousse son état.
@@ -384,7 +385,8 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
           ]);
         })
       ),
-      selectedEnquete: null,
+      // Ne fermer le détail que si c'est bien l'enquête archivée qui est ouverte.
+      selectedEnquete: state.selectedEnquete?.id === id ? null : state.selectedEnquete,
     }));
     _saveThrottled();
   },
