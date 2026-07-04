@@ -11,6 +11,7 @@
  */
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
+import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { Enquete } from '@/types/interfaces';
 import ProgressBar from '../ProgressBar';
 import { Badge } from '@/components/ui/badge';
@@ -38,6 +39,7 @@ function serviceOf(e: Enquete): string | undefined {
 
 export const JLDActePreviewModal = ({ acteRef, onClose }: JLDActePreviewModalProps) => {
   const [historyOpen, setHistoryOpen] = useState(false);
+  useEscapeKey(onClose, !!acteRef);
 
   if (!acteRef) return null;
 

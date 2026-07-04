@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useEscapeKey } from '@/hooks/useEscapeKey';
 import {
   X, Edit, Trash2, Save, FileText, Users, Calendar, ListChecks,
   Lock, Scale, MapPin, ShieldOff, AlertTriangle, Archive, RotateCcw,
@@ -112,6 +113,11 @@ export const InstructionDetailModal = ({
   const [activeTab, setActiveTab] = useState<TabKey>('apercu');
   // Picker de rattachement à l'enquête préliminaire d'origine.
   const [showLierPrelim, setShowLierPrelim] = useState(false);
+
+  // Échap ferme la modale en consultation. En édition, on n'écoute pas pour ne
+  // pas fermer par mégarde pendant une saisie ; l'utilisateur sort via les
+  // boutons dédiés. Désactivé aussi quand le picker enfant est ouvert.
+  useEscapeKey(onClose, !isEditing && !showLierPrelim);
 
   const handleLierPrelim = (option: EnquetePreliminaireOption) => {
     onUpdate(dossier.id, {

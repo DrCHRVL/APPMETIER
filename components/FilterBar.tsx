@@ -129,6 +129,8 @@ export const FilterBar = ({
               <option value="date-asc">Date (plus ancien)</option>
               <option value="cr-desc">Dernier CR (plus récent)</option>
               <option value="cr-asc">Dernier CR (plus ancien)</option>
+              <option value="update-desc">Modifié (plus récent)</option>
+              <option value="update-asc">Modifié (plus ancien)</option>
             </Select>
           </div>
         </div>

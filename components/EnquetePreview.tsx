@@ -541,12 +541,12 @@ return (
              {isArchived ? (
   <>
     {onUnarchive && (
-      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onUnarchive}>
+      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onUnarchive} title="Désarchiver l'enquête">
         <RotateCcw className="h-3 w-3" />
       </Button>
     )}
     {onDelete && (
-      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onDelete}>
+      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onDelete} title="Supprimer l'enquête">
         <Trash className="h-3 w-3" />
       </Button>
     )}
@@ -554,12 +554,12 @@ return (
 ) : (
                 <>
                   {onEdit && (
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => onEdit?.(enquete.id)}>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => onEdit?.(enquete.id)} title="Modifier l'enquête">
                       <Edit className="h-3 w-3" />
                     </Button>
                   )}
                   {onArchive && !hasResultat(contentieuxId, enquete.id) && (
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setShowArchiveModal(true)}>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setShowArchiveModal(true)} title="Archiver / clôturer l'enquête">
                       <Archive className="h-3 w-3" />
                     </Button>
                   )}

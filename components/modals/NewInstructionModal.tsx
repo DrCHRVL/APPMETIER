@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { X } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -79,6 +80,9 @@ export const NewInstructionModal = ({
     reset();
     onClose();
   };
+
+  // Échap ferme la modale (comportement standard, aligné sur les autres modales).
+  useEscapeKey(handleClose, isOpen);
 
   const handleSubmit = () => {
     if (!numeroInstruction.trim()) {
