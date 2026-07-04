@@ -85,6 +85,37 @@ export const InstructionArchivesPage = ({
     return { pending: p, completed: c };
   }, [archived, instructionResultatsState.resultats, getResultat]);
 
+  // Audiences en attente groupées par mois d'audience (comme Overboard), triées
+  // chronologiquement (la plus proche en premier).
+  const pendingByMonth = useMemo(() => {
+    const groups = new Map<string, { label: string; sortKey: string; items: DossierInstruction[] }>();
+    for (const d of pending) {
+      const dateStr = getResultat(ctxOf(d), d.id)?.dateAudience;
+      const date = dateStr ? new Date(dateStr) : null;
+      const valid = date && !isNaN(date.getTime());
+      const monthKey = valid ? `${date!.getFullYear()}-${String(date!.getMonth() + 1).padStart(2, '0')}` : '9999-99';
+      let group = groups.get(monthKey);
+      if (!group) {
+        const label = valid
+          ? date!.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+          : 'Date à préciser';
+        group = { label, sortKey: monthKey, items: [] };
+        groups.set(monthKey, group);
+      }
+      group.items.push(d);
+    }
+    const ordered = [...groups.values()].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+    for (const g of ordered) {
+      g.items.sort((a, b) => {
+        const da = getResultat(ctxOf(a), a.id)?.dateAudience || '';
+        const db = getResultat(ctxOf(b), b.id)?.dateAudience || '';
+        return da.localeCompare(db);
+      });
+    }
+    return ordered;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, instructionResultatsState.resultats, getResultat]);
+
   // Groupe les complétées par mois/année (date d'audience > date archivage > miseAJour)
   const completedByMonth = useMemo(() => {
     const map = new Map<string, { date: Date; items: DossierInstruction[] }>();
@@ -173,22 +204,34 @@ export const InstructionArchivesPage = ({
               )}
             </div>
           </CardHeader>
-          <CardContent className="space-y-1.5 lg:max-h-[calc(100vh-220px)] lg:overflow-y-auto">
+          <CardContent className="space-y-2.5 lg:max-h-[calc(100vh-220px)] lg:overflow-y-auto">
             {pending.length === 0 ? (
               <p className="text-xs text-gray-500 text-center py-6 italic">
                 Aucune audience en attente.
               </p>
             ) : (
-              pending.map(d => (
-                <PendingCard
-                  key={d.id}
-                  dossier={d}
-                  resultat={getResultat(ctxOf(d), d.id)}
-                  cabinetColor={getCabinetById(d.cabinetId)?.color || FALLBACK_CABINET_COLOR}
-                  onClick={() => setActiveResultatDossierId(d.id)}
-                  onUnarchive={() => handleUnarchive(d)}
-                  onDelete={() => handleDelete(d)}
-                />
+              pendingByMonth.map(group => (
+                <div key={group.sortKey} className="space-y-1.5">
+                  {/* Barre de mois (comme Overboard) */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide capitalize whitespace-nowrap">
+                      {group.label}
+                    </span>
+                    <span className="h-px flex-1 bg-gray-200" />
+                    <span className="text-[10px] text-gray-400">{group.items.length}</span>
+                  </div>
+                  {group.items.map(d => (
+                    <PendingCard
+                      key={d.id}
+                      dossier={d}
+                      resultat={getResultat(ctxOf(d), d.id)}
+                      cabinetColor={getCabinetById(d.cabinetId)?.color || FALLBACK_CABINET_COLOR}
+                      onClick={() => setActiveResultatDossierId(d.id)}
+                      onUnarchive={() => handleUnarchive(d)}
+                      onDelete={() => handleDelete(d)}
+                    />
+                  ))}
+                </div>
               ))
             )}
           </CardContent>

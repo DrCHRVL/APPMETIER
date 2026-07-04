@@ -18,6 +18,7 @@ const StatsPage = dynamic(() => import('@/components/pages/StatsPage').then(m =>
 const DashboardPage = dynamic(() => import('@/components/pages/DashboardPage').then(m => ({ default: m.DashboardPage })), { ssr: false });
 import { useContentieuxEnquetesStore as useContentieuxEnquetes } from '@/hooks/useContentieuxEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
+import { useInfractionFilter } from '@/hooks/useInfractionFilter';
 import { useDocumentSearch } from '@/hooks/useDocumentSearch';
 import { Enquete, NewEnqueteData, Tag, ToDoItem } from '@/types/interfaces';
 import { StorageManager } from '@/utils/storage';
@@ -37,7 +38,7 @@ import { ActeUtils } from '@/utils/acteUtils';
 import { PermanencePage } from '@/components/pages/PermanencePage';
 import { ArchivePage } from '@/components/pages/ArchivePage';
 import type { EnqueteWithContext } from '@/utils/mindmapGraph';
-import { normalizeMecName } from '@/utils/mindmapGraph';
+import { sameMecPerson } from '@/utils/mindmapGraph';
 import { useTags } from '@/hooks/useTags';
 import { useSections } from '@/hooks/useSections';
 import { useUserServiceOrganization } from '@/hooks/useUserServiceOrganization';
@@ -909,7 +910,12 @@ function AppContent() {
     handleUpdateEnquete(enqueteId, { overboardPins: newPins });
   }, [user, handleUpdateEnquete, showToast]);
 
-  const filteredAndSortedEnquetes = useFilterSort(enquetes, debouncedSearchTerm, selectedTags, sortOrder);
+  // Filtre d'infractions évolutif : chips = infractions réellement présentes
+  // (thème NATINF pour les dossiers migrés, tag legacy sinon), et non plus tout
+  // le référentiel de tags historique.
+  const { infractionTags: infractionFilterTags, resolveInfractionKeys } = useInfractionFilter(enquetes);
+
+  const filteredAndSortedEnquetes = useFilterSort(enquetes, debouncedSearchTerm, selectedTags, sortOrder, resolveInfractionKeys);
 
   // Liste dédupliquée de tous les noms de MEC connus (cross-dossiers)
   const allKnownMec = useMemo(
@@ -945,58 +951,53 @@ function AppContent() {
       // Les fiches "non précisé" sont volontairement masquées de la mindmap.
       if (!inst.contentieuxId) continue;
       // Personnes projetées par le dossier d'instruction lui-même :
-      // mis en examen + victimes « sur carto » + suspects.
-      const personnes: Array<Record<string, unknown>> = [
-        ...inst.misEnExamen.map(m => ({
-          id: m.id,
-          nom: m.nom,
-          statut: m.mesureSurete.type,
-        })),
-        // Victimes explicitement marquées « faire apparaître sur la cartographie » :
-        // projetées comme des mis en cause mais étiquetées (Victime).
-        ...(inst.victimes || [])
-          .filter(v => v.surCarto && v.nom?.trim())
-          .map(v => ({
-            id: v.id,
-            nom: v.nom,
-            statut: 'victime',
-            isVictime: true,
-          })),
-        // Suspects : projetés sur la cartographie avec un visuel distinct
-        // (anneau orange, lien tireté orange vers le dossier).
-        ...(inst.suspects || [])
-          .filter(s => s.nom?.trim())
-          .map(s => ({
-            id: s.id,
-            nom: s.nom,
-            statut: 'suspect',
-            isSuspect: true,
-            suspectRole: s.role,
-          })),
-      ];
+      // mis en examen + victimes « sur carto » + suspects. Dédupliquées entre
+      // elles avec tolérance (ordre des mots, coquille, composés) : un suspect
+      // resté dans la liste après sa mise en examen ne crée pas de second nœud.
+      const personnes: Array<Record<string, unknown>> = [];
+      const nomsPresents: string[] = [];
+      const pushPersonne = (p: Record<string, unknown>, allowSubset = false) => {
+        const nom = String(p.nom || '').trim();
+        if (!nom) return;
+        const matches = nomsPresents.filter(existant => sameMecPerson(existant, nom, { allowSubset }));
+        // Nom partiel ambigu (plusieurs candidats) : on ne fusionne que si un
+        // match strict existe, sinon on garde la personne distincte.
+        if (matches.length === 1 || matches.some(existant => sameMecPerson(existant, nom))) return;
+        nomsPresents.push(nom);
+        personnes.push(p);
+      };
+      for (const m of inst.misEnExamen) {
+        pushPersonne({ id: m.id, nom: m.nom, statut: m.mesureSurete.type });
+      }
+      // Victimes explicitement marquées « faire apparaître sur la cartographie » :
+      // projetées comme des mis en cause mais étiquetées (Victime).
+      for (const v of inst.victimes || []) {
+        if (v.surCarto && v.nom?.trim()) {
+          pushPersonne({ id: v.id, nom: v.nom, statut: 'victime', isVictime: true });
+        }
+      }
+      // Suspects : projetés sur la cartographie avec un visuel distinct
+      // (anneau orange, lien tireté orange vers le dossier).
+      for (const s of inst.suspects || []) {
+        if (s.nom?.trim()) {
+          pushPersonne({ id: s.id, nom: s.nom, statut: 'suspect', isSuspect: true, suspectRole: s.role });
+        }
+      }
 
       // Fusion : si une enquête préliminaire est rattachée, son nœud est masqué
       // (anti-doublon). Pour ne perdre AUCUN protagoniste, on reverse ses mis en
-      // cause sur le nœud d'instruction — dédupliqués par nom canonique pour ne
-      // pas dupliquer ceux déjà repris comme mis en examen / suspect.
+      // cause sur le nœud d'instruction. La préliminaire et l'instruction ont
+      // souvent été saisies avec des conventions différentes ("Prénom NOM" vs
+      // "NOM Prénom", coquilles, composés) : la dédup tolère ces variantes, y
+      // compris un nom partiel si un seul candidat correspond.
       if (inst.enquetePreliminaireId != null) {
         const prelimCtx = (inst.enquetePreliminaireContentieuxId || inst.contentieuxId) as ContentieuxId;
         const prelim = overboardData.get(prelimCtx)?.find(e => e.id === inst.enquetePreliminaireId);
-        if (prelim?.misEnCause?.length) {
-          const seen = new Set(
-            personnes.map(p => normalizeMecName(String(p.nom || ''))).filter(Boolean),
+        for (const mc of prelim?.misEnCause || []) {
+          pushPersonne(
+            { id: mc.id, nom: mc.nom, statut: mc.statut, isVictime: mc.isVictime },
+            true,
           );
-          for (const mc of prelim.misEnCause) {
-            const canon = normalizeMecName(mc.nom);
-            if (!canon || seen.has(canon)) continue;
-            seen.add(canon);
-            personnes.push({
-              id: mc.id,
-              nom: mc.nom,
-              statut: mc.statut,
-              isVictime: mc.isVictime,
-            });
-          }
         }
       }
 
@@ -1440,6 +1441,7 @@ return (
             sections={sectionsList}
             onReorder={reorderSection}
             onAddSection={addSectionFn}
+            infractionTags={infractionFilterTags}
           />
         )}
 

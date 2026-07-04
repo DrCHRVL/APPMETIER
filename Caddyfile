@@ -16,5 +16,10 @@
 		-Server
 	}
 
-	reverse_proxy siral:3000
+	# Caddy ne fait confiance qu'aux en-têtes X-Forwarded-* provenant du réseau
+	# privé Docker ; l'IP réelle du client est réécrite proprement, ce qui
+	# empêche un client de forger X-Forwarded-For pour usurper une IP.
+	reverse_proxy siral:3000 {
+		trusted_proxies private_ranges
+	}
 }

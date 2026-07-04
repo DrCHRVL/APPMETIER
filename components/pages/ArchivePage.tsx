@@ -269,6 +269,38 @@ export const ArchivePage = ({
     return resultat.isAudiencePending !== true; // Inclut les partiellement terminées
   });
 
+  // Audiences en attente groupées par mois d'audience (comme Overboard), triées
+  // chronologiquement (la plus proche en premier). Les audiences sans date
+  // connue sont reléguées en fin de liste.
+  const pendingByMonth = useMemo(() => {
+    const groups = new Map<string, { label: string; sortKey: string; items: typeof pendingEnquetes }>();
+    for (const item of pendingEnquetes) {
+      const dateStr = lookupResultat(item.id)?.dateAudience;
+      const d = dateStr ? new Date(dateStr) : null;
+      const valid = d && !isNaN(d.getTime());
+      const monthKey = valid ? `${d!.getFullYear()}-${String(d!.getMonth() + 1).padStart(2, '0')}` : '9999-99';
+      let group = groups.get(monthKey);
+      if (!group) {
+        const label = valid
+          ? d!.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+          : 'Date à préciser';
+        group = { label, sortKey: monthKey, items: [] };
+        groups.set(monthKey, group);
+      }
+      group.items.push(item);
+    }
+    const ordered = [...groups.values()].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+    for (const g of ordered) {
+      g.items.sort((a, b) => {
+        const da = lookupResultat(a.id)?.dateAudience || '';
+        const db = lookupResultat(b.id)?.dateAudience || '';
+        return da.localeCompare(db);
+      });
+    }
+    return ordered;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingEnquetes, audienceState?.resultats]);
+
   // Grouper les enquêtes terminées par mois/année de la date de clôture
   const groupedCompletedEnquetes = completedEnquetes.reduce((acc, item) => {
     // Utiliser la date de clôture de l'enquête (quand elle a été archivée)
@@ -422,11 +454,21 @@ export const ArchivePage = ({
               )}
             </div>
           </CardHeader>
-          <CardContent className="space-y-1 lg:max-h-[calc(100vh-200px)] lg:overflow-y-auto">
+          <CardContent className="space-y-2 lg:max-h-[calc(100vh-200px)] lg:overflow-y-auto">
             {pendingEnquetes.length === 0 ? (
               <p className="text-xs text-gray-500 text-center py-4">Aucune audience en attente</p>
             ) : (
-              pendingEnquetes.map(item => {
+              pendingByMonth.map(group => (
+              <div key={group.sortKey} className="space-y-1">
+                {/* Barre de mois (comme Overboard) */}
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide capitalize whitespace-nowrap">
+                    {group.label}
+                  </span>
+                  <span className="h-px flex-1 bg-gray-200" />
+                  <span className="text-[10px] text-gray-400">{group.items.length}</span>
+                </div>
+                {group.items.map(item => {
                 const isPartialResult = isPartiallyPending(item.id);
                 const audienceDate = lookupResultat(item.id)?.dateAudience;
                 const isPassed = audienceDate && isAudiencePassed(item.id);
@@ -436,8 +478,8 @@ export const ArchivePage = ({
                   <div
                     key={item.id}
                     className={`p-2 border rounded transition-all ${
-                      isPassed 
-                        ? 'bg-red-50 border-red-200' 
+                      isPassed
+                        ? 'bg-red-50 border-red-200'
                         : 'bg-blue-50 border-blue-200'
                     }`}
                   >
@@ -514,7 +556,9 @@ export const ArchivePage = ({
                     </div>
                   </div>
                 );
-              })
+                })}
+              </div>
+              ))
             )}
           </CardContent>
         </Card>

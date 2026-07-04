@@ -10,6 +10,7 @@ import { DMLsManager } from './DMLsManager';
 import { MesureSureteEditor } from './MesureSureteEditor';
 import { VerificationLegaleDP } from './VerificationLegaleDP';
 import { RichTextEditor } from '../RichTextEditor';
+import { renderFormattedText } from '@/lib/formatCR';
 import {
   getJoursRestantsAvantFinDP,
   getDateFinDPCourante,
@@ -226,7 +227,7 @@ export const MisEnExamenCard = ({
           {hasNotes && (
             <div
               className="mt-1 text-[11px] text-gray-700 prose prose-xs max-w-none [&_strong]:font-semibold [&_em]:italic [&_u]:underline [&_mark]:bg-yellow-200 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4"
-              dangerouslySetInnerHTML={{ __html: mex.elementsCharge! }}
+              dangerouslySetInnerHTML={{ __html: renderFormattedText(mex.elementsCharge!) }}
             />
           )}
         </div>

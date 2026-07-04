@@ -1319,7 +1319,7 @@ const AggregateView: React.FC<{
                 </div>
                 <div
                   className="text-xs text-gray-700 prose-sm max-w-none"
-                  dangerouslySetInnerHTML={{ __html: syntheses[it.key] }}
+                  dangerouslySetInnerHTML={{ __html: renderFormattedText(syntheses[it.key]) }}
                 />
               </div>
             );

@@ -6,7 +6,13 @@
  * markdown-léger → HTML et le nettoyage des artefacts de presse-papier Office
  * (marqueurs <!-- StartFragment --> / <!-- EndFragment -->, espaces insécables,
  * balises vides Word/Outlook, conditionnels MSO, balises namespacées o:/w:/m:…).
+ *
+ * Sécurité : le rendu final est TOUJOURS passé par `sanitizeHtml` (allowlist)
+ * avant d'être injecté via `dangerouslySetInnerHTML`. `stripClipboardNoise` ne
+ * fait que du nettoyage cosmétique et ne protège PAS contre le HTML malveillant.
  */
+
+import { sanitizeHtml } from './sanitizeHtml';
 
 // Supprime les bruits propres au presse-papier Office/Windows
 export const stripClipboardNoise = (html: string): string => {
@@ -71,7 +77,10 @@ export const renderFormattedText = (text: string): string => {
   // Nettoyage entités-échappées en amont (CR historiques).
   const pre = decodeMsoEntities(text);
   if (looksLikeHtml(pre)) {
-    return stripClipboardNoise(pre);
+    // Assainissement obligatoire : le contenu HTML est saisi par un utilisateur
+    // et rendu chez un autre (`dangerouslySetInnerHTML`). On ne fait pas
+    // confiance à `stripClipboardNoise` seul (cosmétique).
+    return sanitizeHtml(stripClipboardNoise(pre));
   }
   // Défense en profondeur : certains CR markdown anciens peuvent contenir des
   // restes MSO mal découpés — on les retire AVANT l'échappement pour éviter
@@ -81,6 +90,8 @@ export const renderFormattedText = (text: string): string => {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+  // Le texte a été intégralement échappé : les règles markdown ci-dessous ne
+  // réintroduisent que des balises de mise en forme fixes et sûres.
   return escaped
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/__(.*?)__/g, '<u>$1</u>')
