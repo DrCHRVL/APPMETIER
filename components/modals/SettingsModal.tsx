@@ -203,7 +203,7 @@ export const SettingsModal = ({
         {/* Onglets contentieux (horizontal) */}
         {showContentieuxTabs && (
           <div className="flex items-center gap-1 px-6 pt-3 pb-0 border-b border-gray-100 overflow-x-auto">
-            {accessibleContentieux
+            {[...accessibleContentieux]
               .sort((a, b) => a.order - b.order)
               .map(ctxDef => {
                 const isActive = selectedCtx === ctxDef.id;

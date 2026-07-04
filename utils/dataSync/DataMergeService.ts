@@ -55,9 +55,12 @@ export class DataMergeService {
       serverData.enquetes || [],
       localDeletedIds,
       serverDeletedIds,
-      localDeletedActeIds,
-      localDeletedCRIds,
-      localDeletedMECIds
+      // Union local+serveur : une suppression d'acte/CR/MEC effectuée UNIQUEMENT
+      // côté serveur (tombstone pas encore propagé en local) doit aussi filtrer
+      // le sous-élément, sinon il ressuscite jusqu'au cycle de sync suivant.
+      new Set(mergedDeletedActeIds),
+      new Set(mergedDeletedCRIds),
+      new Set(mergedDeletedMECIds)
     );
 
     conflicts.push(...enqueteConflicts);

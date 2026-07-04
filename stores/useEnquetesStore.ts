@@ -395,7 +395,10 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       updateOwn(state, prev =>
         prev.map(e => {
           if (e.id !== id) return e;
-          const unarchived: Enquete = { ...e, statut: 'en_cours', dateMiseAJour: now };
+          // Effacer dateArchivage : sinon la résolution de conflit de sync
+          // (DataMergeService.mergeEnquete) ré-impose le statut « archive »
+          // (localArchiveTs >= serverTs) et le désarchivage ne se propage jamais.
+          const unarchived: Enquete = { ...e, statut: 'en_cours', dateArchivage: undefined, dateMiseAJour: now };
           return appendModifications(unarchived, [
             { type: 'enquete_unarchived', label: 'Enquête désarchivée' },
           ]);

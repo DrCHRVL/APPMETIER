@@ -501,9 +501,13 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
   if (!item.isCustom && item.derived) {
     const e = item.derived;
     const Icon = DERIVED_META[e.kind as DerivedKind].icon;
+    // Normaliser la date de l'événement à minuit LOCAL (comme `today`) : sans
+    // ça, une date « AAAA-MM-JJ » parsée en UTC décale le libellé d'un jour en
+    // France (« demain » pour un acte du jour). Cf. OpsSection/DebatsJLD.
+    const eDay = new Date(e.date); eDay.setHours(0, 0, 0, 0);
     const days = isPast
-      ? Math.floor((today.getTime() - e.date.getTime()) / 86400000)
-      : Math.ceil((e.date.getTime() - today.getTime()) / 86400000);
+      ? Math.round((today.getTime() - eDay.getTime()) / 86400000)
+      : Math.round((eDay.getTime() - today.getTime()) / 86400000);
     return (
       <li
         className={`ml-4 pl-2 rounded transition-colors ${
@@ -540,9 +544,10 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
   const Icon = evt.type === 'expertise' && evt.categorieExpertise
     ? getExpertiseIcon(evt.categorieExpertise)
     : meta.icon;
+  const evtDay = new Date(item.date); evtDay.setHours(0, 0, 0, 0);
   const days = isPast
-    ? Math.floor((today.getTime() - item.date.getTime()) / 86400000)
-    : Math.ceil((item.date.getTime() - today.getTime()) / 86400000);
+    ? Math.round((today.getTime() - evtDay.getTime()) / 86400000)
+    : Math.round((evtDay.getTime() - today.getTime()) / 86400000);
 
   const mexNom = evt.misEnExamenId
     ? misEnExamen.find(m => m.id === evt.misEnExamenId)?.nom
