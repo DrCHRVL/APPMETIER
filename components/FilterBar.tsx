@@ -18,8 +18,7 @@ interface FilterBarProps {
   onSortChange: (order: string) => void;
   activeSections?: string[];
   sections?: string[];
-  onReorder?: (name: string, direction: 'up' | 'down') => Promise<boolean>;
-  onAddSection?: (name: string) => Promise<boolean>;
+  onSetSectionsOrder?: (order: string[]) => Promise<void>;
   /** Liste évolutive des infractions à filtrer (remplace le référentiel de
    *  tags d'infraction historique). */
   infractionTags?: Tag[];
@@ -33,8 +32,7 @@ export const FilterBar = ({
   onSortChange,
   activeSections = [],
   sections = [],
-  onReorder,
-  onAddSection,
+  onSetSectionsOrder,
   infractionTags
 }: FilterBarProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -175,8 +173,7 @@ export const FilterBar = ({
         onClose={() => setShowSectionOrder(false)}
         sections={sections}
         activeSections={activeSections}
-        onReorder={onReorder ?? (async () => false)}
-        onAddSection={onAddSection ?? (async () => false)}
+        onSetOrder={onSetSectionsOrder ?? (async () => {})}
       />
     </div>
   );

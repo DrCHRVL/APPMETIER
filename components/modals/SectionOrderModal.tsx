@@ -10,8 +10,8 @@ interface SectionOrderModalProps {
   onClose: () => void;
   sections: string[];
   activeSections: string[];
-  onReorder: (name: string, direction: 'up' | 'down') => Promise<boolean>;
-  onAddSection: (name: string) => Promise<boolean>;
+  /** Persiste l'ordre complet en une seule écriture (robuste au drag multi-crans). */
+  onSetOrder: (order: string[]) => Promise<void>;
 }
 
 export const SectionOrderModal = ({
@@ -19,8 +19,7 @@ export const SectionOrderModal = ({
   onClose,
   sections,
   activeSections,
-  onReorder,
-  onAddSection
+  onSetOrder
 }: SectionOrderModalProps) => {
   // Fusionner : sections sauvegardées + sections actives non encore enregistrées
   const [orderedSections, setOrderedSections] = useState<string[]>([]);
@@ -35,24 +34,22 @@ export const SectionOrderModal = ({
     setOrderedSections([...sections, ...missing]);
   }, [sections, activeSections, isOpen]);
 
-  const handleMoveUp = async (index: number) => {
-    if (index === 0) return;
-    const name = orderedSections[index];
-    // Si la section n'est pas encore dans les sections sauvegardées, l'ajouter d'abord
-    if (!sections.includes(name)) {
-      await onAddSection(name);
-    }
-    await onReorder(name, 'up');
+  // Réordonne localement puis persiste l'ordre complet en une seule écriture.
+  const persistOrder = async (next: string[]) => {
+    setOrderedSections(next);
+    await onSetOrder(next);
   };
 
-  const handleMoveDown = async (index: number) => {
-    if (index === orderedSections.length - 1) return;
-    const name = orderedSections[index];
-    if (!sections.includes(name)) {
-      await onAddSection(name);
-    }
-    await onReorder(name, 'down');
+  const moveByOne = async (index: number, delta: -1 | 1) => {
+    const target = index + delta;
+    if (target < 0 || target >= orderedSections.length) return;
+    const next = [...orderedSections];
+    [next[index], next[target]] = [next[target], next[index]];
+    await persistOrder(next);
   };
+
+  const handleMoveUp = (index: number) => moveByOne(index, -1);
+  const handleMoveDown = (index: number) => moveByOne(index, 1);
 
   // Drag and drop
   const handleDragStart = (index: number) => {
@@ -71,24 +68,17 @@ export const SectionOrderModal = ({
       return;
     }
 
-    const name = orderedSections[draggedIndex];
-
-    // S'assurer que la section est enregistrée
-    if (!sections.includes(name)) {
-      await onAddSection(name);
-    }
-
-    // Calculer les déplacements nécessaires
-    const direction = targetIndex < draggedIndex ? 'up' : 'down';
-    const steps = Math.abs(targetIndex - draggedIndex);
-
-    for (let i = 0; i < steps; i++) {
-      await onReorder(name, direction);
-    }
+    // Déplacement en une seule passe : on retire l'élément glissé et on le
+    // réinsère à l'index cible (fiable quel que soit le nombre de crans).
+    const next = [...orderedSections];
+    const [moved] = next.splice(draggedIndex, 1);
+    next.splice(targetIndex, 0, moved);
 
     setDraggedIndex(null);
     setDragOverIndex(null);
-  }, [draggedIndex, orderedSections, sections, onAddSection, onReorder]);
+    setOrderedSections(next);
+    await onSetOrder(next);
+  }, [draggedIndex, orderedSections, onSetOrder]);
 
   const handleDragEnd = () => {
     setDraggedIndex(null);

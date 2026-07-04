@@ -423,7 +423,7 @@ function AppContent() {
     getTagsByCategory
   } = useTags();
 
-  const { getSectionOrder, sections: sectionsList, reorderSection, addSection: addSectionFn } = useSections();
+  const { getSectionOrder, sections: sectionsList, setSectionsOrder } = useSections();
   const { getTagSection } = useUserServiceOrganization();
 
   // Hook alertes visuelles
@@ -1440,8 +1440,7 @@ return (
             onSortChange={setSortOrder}
             activeSections={activeSections}
             sections={sectionsList}
-            onReorder={reorderSection}
-            onAddSection={addSectionFn}
+            onSetSectionsOrder={setSectionsOrder}
             infractionTags={infractionFilterTags}
           />
         )}
