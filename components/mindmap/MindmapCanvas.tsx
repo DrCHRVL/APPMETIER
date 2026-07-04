@@ -14,7 +14,6 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
-  useNodesState,
   type Edge,
   type Node,
   type NodeMouseHandler,
@@ -763,30 +762,12 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     [nodes, onNodeDoubleClick],
   );
 
-  // ReactFlow était en mode contrôlé (`nodes={rfNodes}`) SANS `onNodesChange` :
-  // les déplacements de nœuds étaient calculés puis jetés → bulles indéplaçables
-  // malgré `draggable: true`. On passe par un état interactif + onNodesChange.
-  // À chaque recalcul de rfNodes (focus, survol, filtres…), on réapplique le
-  // style/les données recalculés MAIS on PRÉSERVE la position courante des
-  // nœuds déjà déplacés par l'utilisateur (sinon ils sauteraient à chaque clic).
-  const [interactiveNodes, setInteractiveNodes, onNodesChange] = useNodesState(rfNodes);
-  useEffect(() => {
-    setInteractiveNodes(prev => {
-      const posById = new Map(prev.map(n => [n.id, n.position]));
-      return rfNodes.map(n => {
-        const kept = posById.get(n.id);
-        return kept ? { ...n, position: kept } : n;
-      });
-    });
-  }, [rfNodes, setInteractiveNodes]);
-
   return (
     // touch-action:none permet à ReactFlow de gérer le pinch-zoom nativement
     // sur mobile sans conflit avec le scroll système.
     <div style={{ width: '100%', height: '100%', touchAction: 'none' }}>
     <ReactFlow
-      nodes={interactiveNodes}
-      onNodesChange={onNodesChange}
+      nodes={rfNodes}
       edges={rfEdges}
       nodeTypes={NODE_TYPES}
       fitView
