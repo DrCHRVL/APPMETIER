@@ -8,7 +8,8 @@ import { useInstructionStats } from '@/hooks/useInstructionStats';
 import { Enquete } from '@/types/interfaces';
 import type { DossierInstruction } from '@/types/instructionTypes';
 import { getYearlyStats, getMonthlyStats } from '@/utils/audienceStats';
-import { exportStatsPdf, PdfExportData } from '@/utils/generateStatsPdf';
+import { exportStatsPdf, PdfExportData, type PdfExportOptions } from '@/utils/generateStatsPdf';
+import { ExportPdfOptionsModal } from '../modals/ExportPdfOptionsModal';
 import { UserManager } from '@/utils/userManager';
 import { categoryForEntry } from '@/lib/natinf/nataff';
 
@@ -28,13 +29,14 @@ export const ExportPdfButton = ({
   instructions,
 }: ExportPdfButtonProps) => {
   const [isExporting, setIsExporting] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
   const { audienceState } = useAudience();
   const { getServicesFromTags } = useTags();
   const { infractionsForEnquete } = useInfractionNatinf();
   // Stats instruction (mêmes calculs que la section à l'écran).
   const instructionStatsRaw = useInstructionStats(instructions || []);
 
-  const handleExportPDF = async () => {
+  const handleExportPDF = async (exportOptions: PdfExportOptions = {}) => {
     setIsExporting(true);
 
     try {
@@ -415,7 +417,8 @@ export const ExportPdfButton = ({
         instructionStats,
       };
 
-      await exportStatsPdf(pdfData);
+      await exportStatsPdf(pdfData, exportOptions);
+      setShowOptions(false);
     } catch (error) {
       console.error('Erreur lors de l\'export PDF:', error);
       alert('Une erreur est survenue lors de l\'export PDF. Veuillez réessayer.');
@@ -424,24 +427,36 @@ export const ExportPdfButton = ({
     }
   };
 
+  const defaultRedacteur = UserManager.getInstance().getCurrentUser()?.displayName || '';
+
   return (
-    <Button
-      onClick={handleExportPDF}
-      className="flex items-center gap-2 no-print"
-      variant="outline"
-      disabled={isExporting}
-    >
-      {isExporting ? (
-        <>
-          <Loader2 size={16} className="animate-spin" />
-          Génération du PDF…
-        </>
-      ) : (
-        <>
-          <FileText size={16} />
-          Exporter en PDF
-        </>
-      )}
-    </Button>
+    <>
+      <Button
+        onClick={() => setShowOptions(true)}
+        className="flex items-center gap-2 no-print"
+        variant="outline"
+        disabled={isExporting}
+      >
+        {isExporting ? (
+          <>
+            <Loader2 size={16} className="animate-spin" />
+            Génération du PDF…
+          </>
+        ) : (
+          <>
+            <FileText size={16} />
+            Exporter en PDF
+          </>
+        )}
+      </Button>
+
+      <ExportPdfOptionsModal
+        isOpen={showOptions}
+        onClose={() => setShowOptions(false)}
+        onConfirm={handleExportPDF}
+        isExporting={isExporting}
+        defaultRedacteur={defaultRedacteur}
+      />
+    </>
   );
 };
