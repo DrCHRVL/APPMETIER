@@ -12,10 +12,11 @@ import type { MisEnExamen, Suspect, SaisineItem } from '@/types/instructionTypes
 interface Props {
   misEnExamen: MisEnExamen[];
   suspects?: Suspect[];
+  /** Saisine in rem du dossier : périmètre des chefs d'inculpation possibles
+   *  et déduction du régime/cas de détention provisoire. */
+  saisine?: SaisineItem[];
   onChange: (next: MisEnExamen[]) => void;
   onSuspectsChange?: (next: Suspect[]) => void;
-  /** Saisine in rem du dossier : périmètre des chefs d'inculpation possibles. */
-  saisine?: SaisineItem[];
   readOnly?: boolean;
   /** Noms connus cross-dossiers pour l'autocomplete (MEX + suspects) */
   allKnownNames?: string[];
@@ -170,7 +171,7 @@ const SuspectCard = ({ suspect, onDelete, onEdit, onConvert, readOnly, allKnownN
 
 // ── Section principale ─────────────────────────────────────────────────────────
 
-export const MisEnExamenSection = ({ misEnExamen, suspects = [], onChange, onSuspectsChange, saisine = [], readOnly, allKnownNames = [] }: Props) => {
+export const MisEnExamenSection = ({ misEnExamen, suspects = [], saisine = [], onChange, onSuspectsChange, readOnly, allKnownNames = [] }: Props) => {
   const [showAddMexForm, setShowAddMexForm] = useState(false);
   const [draftNom, setDraftNom] = useState('');
   const [draftDate, setDraftDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -407,11 +408,11 @@ export const MisEnExamenSection = ({ misEnExamen, suspects = [], onChange, onSus
             <MisEnExamenCard
               key={mex.id}
               mex={mex}
+              saisine={saisine}
               onChange={(next) => handleUpdateMex(mex.id, next)}
               onDelete={() => handleRemoveMex(mex.id)}
               expanded={expandedIds.has(mex.id)}
               onToggleExpanded={() => toggleExpanded(mex.id)}
-              saisine={saisine}
               readOnly={readOnly}
             />
           ))}

@@ -30,14 +30,15 @@ import type {
 
 interface Props {
   mex: MisEnExamen;
+  /** Saisine in rem du dossier : périmètre des chefs d'inculpation possibles
+   *  et déduction du régime/cas de détention provisoire. */
+  saisine?: SaisineItem[];
   onChange: (next: MisEnExamen) => void;
   onDelete: () => void;
   defaultExpanded?: boolean;
   /** Mode contrôlé : si fourni, remplace l'état interne d'expansion. */
   expanded?: boolean;
   onToggleExpanded?: () => void;
-  /** Saisine in rem du dossier : périmètre des chefs d'inculpation possibles. */
-  saisine?: SaisineItem[];
   readOnly?: boolean;
 }
 
@@ -50,12 +51,12 @@ const MESURE_BADGE: Record<MesureSurete['type'], { short: string; full: string; 
 
 export const MisEnExamenCard = ({
   mex,
+  saisine = [],
   onChange,
   onDelete,
   defaultExpanded = false,
   expanded: expandedProp,
   onToggleExpanded,
-  saisine = [],
   readOnly,
 }: Props) => {
   const [expandedInternal, setExpandedInternal] = useState(defaultExpanded);
@@ -309,7 +310,7 @@ export const MisEnExamenCard = ({
 
           {/* Mesures de sûreté */}
           <Section title="Mesures de sûreté">
-            <MesureSureteEditor mex={mex} onChange={handleChangeMesureSurete} readOnly={readOnly} />
+            <MesureSureteEditor mex={mex} saisine={saisine} onChange={handleChangeMesureSurete} readOnly={readOnly} />
             <div className="mt-2">
               <VerificationLegaleDP mex={mex} />
             </div>
