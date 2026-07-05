@@ -30,7 +30,8 @@ import type {
 
 interface Props {
   mex: MisEnExamen;
-  /** Saisine in rem du dossier : sert à déduire le régime/cas de DP. */
+  /** Saisine in rem du dossier : périmètre des chefs d'inculpation possibles
+   *  et déduction du régime/cas de détention provisoire. */
   saisine?: SaisineItem[];
   onChange: (next: MisEnExamen) => void;
   onDelete: () => void;
@@ -50,7 +51,7 @@ const MESURE_BADGE: Record<MesureSurete['type'], { short: string; full: string; 
 
 export const MisEnExamenCard = ({
   mex,
-  saisine,
+  saisine = [],
   onChange,
   onDelete,
   defaultExpanded = false,
@@ -291,7 +292,7 @@ export const MisEnExamenCard = ({
 
           {/* Infractions */}
           <Section title={`Infractions reprochées (${mex.infractions.length})`}>
-            <InfractionsManager value={mex.infractions} onChange={handleChangeInfractions} readOnly={readOnly} />
+            <InfractionsManager value={mex.infractions} onChange={handleChangeInfractions} saisine={saisine} readOnly={readOnly} />
           </Section>
 
           {/* NOTES (ex-éléments à charge) avec éditeur riche */}

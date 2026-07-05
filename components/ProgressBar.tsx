@@ -84,13 +84,16 @@ const ProgressBar = ({ dateDebut, dateFin, datePose = null }: ProgressBarProps) 
     tomorrow.setHours(0, 0, 0, 0);
     const timeUntilMidnight = tomorrow.getTime() - now.getTime();
 
+    let interval: ReturnType<typeof setInterval> | undefined;
     const initialTimeout = setTimeout(() => {
       updateProgress();
-      const interval = setInterval(updateProgress, 24 * 60 * 60 * 1000);
-      return () => clearInterval(interval);
+      interval = setInterval(updateProgress, 24 * 60 * 60 * 1000);
     }, timeUntilMidnight);
 
-    return () => clearTimeout(initialTimeout);
+    return () => {
+      clearTimeout(initialTimeout);
+      if (interval) clearInterval(interval);
+    };
   }, [dateDebut, dateFin, datePose]);
 
   if (error) {

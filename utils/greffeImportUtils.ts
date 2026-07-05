@@ -704,7 +704,12 @@ export const compareAirWithGreffe = (
   console.log(`- Indices AIR utilisés: [${Array.from(usedAirIndices).join(', ')}]`);
   
   // ✅ VÉRIFICATION DE COHÉRENCE
-  const totalAirTraitees = enrichedAir.length + airWithoutParquet.length + probables.length;
+  // Chaque AIR est soit enrichie (index marqué utilisé) soit sans correspondance
+  // (index non utilisé). Les « probables » ne réservent PAS leur index : ils sont
+  // déjà comptés dans airWithoutParquet — il ne faut donc pas les additionner
+  // une seconde fois, sinon le total dépasse airData.length et l'erreur est
+  // déclenchée à tort (console.error conservée en production).
+  const totalAirTraitees = enrichedAir.length + airWithoutParquet.length;
   if (totalAirTraitees !== airData.length) {
     console.error(`[ERREUR COHÉRENCE] ${totalAirTraitees} traitées vs ${airData.length} total`);
   }

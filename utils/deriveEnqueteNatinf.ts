@@ -49,7 +49,17 @@ export function deriveInfractionNatinfCodes(
   const unresolved: string[] = [];
 
   for (const t of infractionTags) {
-    const def = byId.get(t.id) || byValueLc.get(norm(t.value));
+    const byIdDef = byId.get(t.id);
+    const byValueDef = byValueLc.get(norm(t.value));
+    // Préférer une définition RÉELLEMENT rattachée : un match par id dont
+    // `natinfCodes` est vide ne doit pas court-circuiter une définition de même
+    // valeur qui, elle, porte des codes (sinon le tag est marqué « à rattacher »
+    // alors qu'une résolution existe).
+    const def =
+      (byIdDef?.natinfCodes?.length ? byIdDef : undefined) ??
+      (byValueDef?.natinfCodes?.length ? byValueDef : undefined) ??
+      byIdDef ??
+      byValueDef;
     const linked = def?.natinfCodes ?? [];
     if (linked.length === 0) {
       if (t.value && !unresolved.includes(t.value)) unresolved.push(t.value);

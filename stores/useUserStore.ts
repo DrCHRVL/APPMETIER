@@ -133,7 +133,15 @@ export const useUserStore = create<UserState>((set, get) => ({
 
   refreshUsers: async () => {
     const manager = UserManager.getInstance();
-    const ctx = await manager.initialize();
+    let ctx: Awaited<ReturnType<typeof manager.initialize>> = null;
+    try {
+      ctx = await manager.initialize();
+    } catch (err: any) {
+      // Un rafraîchissement hors-ligne (UNREACHABLE_NO_CACHE) ne doit pas
+      // produire une rejection non gérée : on conserve l'état courant.
+      if (err?.message !== 'UNREACHABLE_NO_CACHE') throw err;
+      return;
+    }
     if (ctx) {
       set({
         user: ctx.user,

@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Trash2, ChevronDown, ChevronUp, X, Plus, Scale } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { NatinfPicker } from '../natinf/NatinfPicker';
+import { NatinfGroupSuggestions } from '../natinf/NatinfGroupSuggestions';
 import { NatinfBadge } from '../natinf/NatinfBadge';
 import { toRef } from '@/lib/natinf/natinfData';
+import { useNatinf } from '@/hooks/useNatinf';
 import type { NatinfEntry } from '@/types/natinf';
 import type { SaisineItem, ActeSaisine } from '@/types/instructionTypes';
 
@@ -23,6 +25,7 @@ const ACTE_BADGE: Record<ActeSaisine, { short: string; full: string; color: stri
 
 export const SaisineManager = ({ value, onChange, readOnly }: Props) => {
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const { getByCode } = useNatinf();
 
   const newId = () => Date.now() + Math.floor(Math.random() * 1000);
 
@@ -36,6 +39,35 @@ export const SaisineManager = ({ value, onChange, readOnly }: Props) => {
     };
     onChange([...value, item]);
     setExpandedId(item.id);
+  };
+
+  // Codes NATINF déjà visés par la saisine (détection des familles d'infractions).
+  const selectedNatinfCodes = useMemo(
+    () => value.map(v => v.natinfCode).filter((c): c is string => Boolean(c)),
+    [value],
+  );
+
+  // Ajout en lot des chefs « jumeaux » d'une famille (ex : quatuor stupéfiants).
+  // Les codes ajoutés héritent de l'acte introductif et du snapshot NATINF.
+  const addCodes = (codes: string[]) => {
+    if (readOnly) return;
+    const existing = new Set(value.map(v => v.natinfCode).filter(Boolean));
+    const toAdd: SaisineItem[] = [];
+    let seq = 0;
+    for (const code of codes) {
+      if (existing.has(code)) continue;
+      const entry = getByCode(code);
+      if (!entry) continue;
+      existing.add(code);
+      toAdd.push({
+        id: newId() + seq++,
+        qualification: entry.libelle,
+        natinfCode: entry.code,
+        natinfRef: toRef(entry),
+        acte: 'introductif',
+      });
+    }
+    if (toAdd.length > 0) onChange([...value, ...toAdd]);
   };
 
   const addFreeText = () => {
@@ -203,6 +235,7 @@ export const SaisineManager = ({ value, onChange, readOnly }: Props) => {
             Ajouter une qualification (recherche NATINF par n° ou libellé)
           </div>
           <NatinfPicker onSelect={addFromNatinf} placeholder="N° NATINF ou libellé…" />
+          <NatinfGroupSuggestions selectedCodes={selectedNatinfCodes} onAdd={addCodes} />
           <button
             type="button"
             onClick={addFreeText}

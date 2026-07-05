@@ -12,7 +12,8 @@ import type { MisEnExamen, Suspect, SaisineItem } from '@/types/instructionTypes
 interface Props {
   misEnExamen: MisEnExamen[];
   suspects?: Suspect[];
-  /** Saisine in rem du dossier : sert à déduire le régime/cas de DP. */
+  /** Saisine in rem du dossier : périmètre des chefs d'inculpation possibles
+   *  et déduction du régime/cas de détention provisoire. */
   saisine?: SaisineItem[];
   onChange: (next: MisEnExamen[]) => void;
   onSuspectsChange?: (next: Suspect[]) => void;

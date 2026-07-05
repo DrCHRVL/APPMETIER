@@ -59,9 +59,6 @@ export interface InstructionStats {
     }>;
   };
 
-  // Répartition par type de fait (qualifications des MEX)
-  repartitionFaits: Record<string, number>;
-
   // Âge moyen pour clôturer un dossier par cabinet, pondéré par nb de MEX
   ageMoyenClotureParCabinet: Record<
     string,
@@ -165,22 +162,6 @@ export function useInstructionStats(dossiers: DossierInstruction[]): Instruction
     });
     urgents.sort((a, b) => a.joursRestants - b.joursRestants);
 
-    // ── Répartition par type de fait (qualifications) ─────────────
-    const repartitionFaits: Record<string, number> = {};
-    actifs.forEach(d => {
-      const seen = new Set<string>();
-      (d.misEnExamen || []).forEach(m => {
-        (m.infractions || []).forEach(i => {
-          const q = (i.qualification || '').trim();
-          if (!q || seen.has(q)) return;
-          seen.add(q);
-        });
-      });
-      seen.forEach(q => {
-        repartitionFaits[q] = (repartitionFaits[q] || 0) + 1;
-      });
-    });
-
     // ── Âge moyen clôture par cabinet (pondéré par nb de MEX) ─────
     const byCabinet: Record<
       string,
@@ -244,7 +225,6 @@ export function useInstructionStats(dossiers: DossierInstruction[]): Instruction
         urgents,
       },
 
-      repartitionFaits,
       ageMoyenClotureParCabinet,
     };
   }, [dossiers]);

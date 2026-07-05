@@ -15,6 +15,8 @@ import { AlertTriangle, Clock, Gavel, Users, FileText } from 'lucide-react';
 import type { DossierInstruction } from '@/types/instructionTypes';
 import { useInstructionStats } from '@/hooks/useInstructionStats';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
+import { useNatinf } from '@/hooks/useNatinf';
+import { categoryForEntry } from '@/lib/natinf/nataff';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, ChartDataLabels);
 
@@ -45,18 +47,43 @@ const formatNumber = (n: number, digits = 1): string =>
 export const InstructionStats: React.FC<InstructionStatsProps> = ({ dossiers }) => {
   const stats = useInstructionStats(dossiers);
   const { allCabinets } = useInstructionCabinets();
+  const { getByCode } = useNatinf();
 
   const cabinetLabel = (id: string) =>
     allCabinets.find(c => c.id === id)?.label || (id === 'inconnu' ? 'Cabinet inconnu' : id);
   const cabinetColor = (id: string) =>
     allCabinets.find(c => c.id === id)?.color || '#94a3b8';
 
-  // Top 8 faits pour le bar chart
+  // Top 8 catégories d'infraction (taxonomie NATINF / Mémento parquet) des
+  // chefs de mise en examen des dossiers actifs. On abandonne l'ancien
+  // regroupement par libellé de tag : chaque chef est résolu vers sa catégorie
+  // NATINF (Vol, Stupéfiants, Blanchiment…). Un dossier est compté une fois par
+  // catégorie qu'il touche, quel que soit le nombre de chefs concernés.
   const topFaits = useMemo(() => {
-    return Object.entries(stats.repartitionFaits)
+    const counts: Record<string, number> = {};
+    dossiers
+      .filter(d => !d.archived)
+      .forEach(d => {
+        const categories = new Set<string>();
+        (d.misEnExamen || []).forEach(m => {
+          (m.infractions || []).forEach(inf => {
+            const entry = inf.natinfCode ? getByCode(inf.natinfCode) : undefined;
+            // À défaut d'entrée au référentiel, on tente le classement par
+            // libellé (repli mot-clé de categoryForEntry).
+            const resolved = categoryForEntry(
+              entry ?? { code: inf.natinfCode || '', libelle: inf.qualification || '', theme: undefined },
+            );
+            categories.add(resolved?.category.label ?? 'Autres / non classé');
+          });
+        });
+        categories.forEach(c => {
+          counts[c] = (counts[c] || 0) + 1;
+        });
+      });
+    return Object.entries(counts)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 8);
-  }, [stats.repartitionFaits]);
+  }, [dossiers, getByCode]);
 
   const sureteData = {
     labels: ['Détenu', 'ARSE', 'Contrôle judiciaire', 'Libre'],
@@ -296,8 +323,8 @@ export const InstructionStats: React.FC<InstructionStatsProps> = ({ dossiers }) 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Principaux types de faits</CardTitle>
-            <p className="text-xs text-gray-500">Top 8 — qualifications des MEX (dossiers actifs)</p>
+            <CardTitle className="text-base">Principales catégories d'infraction</CardTitle>
+            <p className="text-xs text-gray-500">Top 8 — catégories NATINF des MEX (dossiers actifs)</p>
           </CardHeader>
           <CardContent>
             {topFaits.length > 0 ? (
@@ -323,7 +350,7 @@ export const InstructionStats: React.FC<InstructionStatsProps> = ({ dossiers }) 
                 />
               </div>
             ) : (
-              <p className="text-sm text-gray-400 italic">Aucune qualification renseignée.</p>
+              <p className="text-sm text-gray-400 italic">Aucune infraction renseignée.</p>
             )}
           </CardContent>
         </Card>

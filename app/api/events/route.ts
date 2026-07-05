@@ -14,7 +14,10 @@ export async function GET(req: Request) {
   return handle(async () => {
     requireSession(req)
     const sinceParam = new URL(req.url).searchParams.get('since')
-    const since = sinceParam !== null ? Number(sinceParam) : undefined
+    const sinceNum = sinceParam !== null ? Number(sinceParam) : NaN
+    // Un `?since=` absent OU invalide (NaN) retombe sur la fenêtre 24 h par
+    // défaut ; sans ce garde, un NaN désactive le filtre et renvoie tout.
+    const since = Number.isFinite(sinceNum) ? sinceNum : undefined
     const events = readLog<EventRecord>('events.jsonl', { sinceMs: since ?? Date.now() - 24 * 3600 * 1000, max: 500 })
     return jsonResponse({ events, partial: false })
   })

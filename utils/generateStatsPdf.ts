@@ -55,10 +55,10 @@ interface PdfExportData {
     cdd: number;
     classement: number;
   }[];
-  // Infractions en cours
-  infractionsEnCours: { infraction: string; natinfCode?: string; count: number }[];
-  // Infractions terminées
-  infractionsTerminees: { infraction: string; natinfCode?: string; count: number }[];
+  // Répartition par catégorie d'infraction — enquêtes en cours
+  infractionsEnCours: { infraction: string; count: number }[];
+  // Répartition par catégorie d'infraction — enquêtes terminées
+  infractionsTerminees: { infraction: string; count: number }[];
   // Déférements par mois
   deferementsParMois: { mois: string; count: number }[];
   // Âge moyen (jours) des dossiers avant ouverture d'information / classement
@@ -597,7 +597,7 @@ export function generateStatsPdfHtml(data: PdfExportData): string {
   <div class="tricolore"></div>
   <div class="overline">Tribunal judiciaire d'Amiens &mdash; Parquet d'Amiens</div>
   <h1>${data.contentieuxLabel || 'Criminalité organisée'}</h1>
-  <div class="subtitle">Année ${selectedYear} — du 1er janvier ${selectedYear} au ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })} · Document interne, ne pas diffuser</div>
+  <div class="subtitle">Année ${selectedYear} — du 1er janvier ${selectedYear} au ${(selectedYear === new Date().getFullYear() ? new Date() : new Date(selectedYear, 11, 31)).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })} · Document interne, ne pas diffuser</div>
 </div>
 
 <div class="redige-par">Rédigé par ${data.redacteur || 'Audran CHEVALIER'}, à destination du Procureur de la République</div>
@@ -816,7 +816,7 @@ ${stats ? (() => {
 </div>
 
 <!-- Saisies vs confiscations : le delta, sans détail superflu -->
-${(stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalVehicules || 0) > 0 ? `
+${(stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalVehicules || 0) > 0 || (stats?.totalSaisiesImmeubles || 0) > 0 || (stats?.totalImmeubles || 0) > 0 ? `
 <div class="section-nobreak">
   <div class="section-title">Saisies &amp; confiscations</div>
   <table>
@@ -830,18 +830,18 @@ ${(stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stat
 ` : ''}
 
 <div class="section">
-  <div class="section-title">Répartition par type d'infraction</div>
+  <div class="section-title">Répartition par catégorie d'infraction</div>
   <div class="two-cols">
     <div>
       <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Enquêtes en cours</h4>
       ${data.infractionsEnCours.length > 0
-        ? renderBarChart(data.infractionsEnCours.map(i => ({ label: i.natinfCode ? `${i.natinfCode} · ${i.infraction}` : i.infraction, value: i.count, color: '#000091' })))
+        ? renderBarChart(data.infractionsEnCours.map(i => ({ label: i.infraction, value: i.count, color: '#000091' })))
         : '<p style="color:#56565E;font-size:10px;">Aucune donnée</p>'}
     </div>
     <div>
       <h4 style="font-size:11px;margin-bottom:6px;color:#56565E">Enquêtes terminées</h4>
       ${data.infractionsTerminees.length > 0
-        ? renderBarChart(data.infractionsTerminees.map(i => ({ label: i.natinfCode ? `${i.natinfCode} · ${i.infraction}` : i.infraction, value: i.count, color: '#18753C' })))
+        ? renderBarChart(data.infractionsTerminees.map(i => ({ label: i.infraction, value: i.count, color: '#18753C' })))
         : '<p style="color:#56565E;font-size:10px;">Aucune donnée</p>'}
     </div>
   </div>
