@@ -194,8 +194,11 @@ export class AlertManager {
         if (alert.id === alertId) {
           let snoozeUntil: Date;
           
-          // Si c'est une chaîne de caractères ISO, considérer comme une date
-          if (typeof daysOrDate === 'string' && daysOrDate.includes('T')) {
+          // Une chaîne NON numérique est une date (ISO complète « …T… » ou
+          // simple « YYYY-MM-DD »). Auparavant seuls les « …T… » étaient
+          // reconnus : « 2024-01-15 » tombait dans le parseInt → 2024 jours
+          // de report (~5 ans). Number('2024-01-15') = NaN ⇒ traité en date.
+          if (typeof daysOrDate === 'string' && isNaN(Number(daysOrDate))) {
             snoozeUntil = new Date(daysOrDate);
           } else {
             // Sinon, considérer comme un nombre de jours

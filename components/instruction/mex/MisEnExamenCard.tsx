@@ -26,6 +26,7 @@ import type {
   MesureSurete,
   InfractionReproche,
   DemandeMiseEnLiberte,
+  SaisineItem,
 } from '@/types/instructionTypes';
 
 interface Props {
@@ -36,6 +37,8 @@ interface Props {
   /** Mode contrôlé : si fourni, remplace l'état interne d'expansion. */
   expanded?: boolean;
   onToggleExpanded?: () => void;
+  /** Saisine in rem du dossier : périmètre des chefs d'inculpation possibles. */
+  saisine?: SaisineItem[];
   readOnly?: boolean;
 }
 
@@ -53,6 +56,7 @@ export const MisEnExamenCard = ({
   defaultExpanded = false,
   expanded: expandedProp,
   onToggleExpanded,
+  saisine = [],
   readOnly,
 }: Props) => {
   const [expandedInternal, setExpandedInternal] = useState(defaultExpanded);
@@ -288,7 +292,7 @@ export const MisEnExamenCard = ({
 
           {/* Infractions */}
           <Section title={`Infractions reprochées (${mex.infractions.length})`}>
-            <InfractionsManager value={mex.infractions} onChange={handleChangeInfractions} readOnly={readOnly} />
+            <InfractionsManager value={mex.infractions} onChange={handleChangeInfractions} saisine={saisine} readOnly={readOnly} />
           </Section>
 
           {/* NOTES (ex-éléments à charge) avec éditeur riche */}
