@@ -10,6 +10,9 @@ export async function POST(req: Request) {
       const options = await registrationOptions(req, String(username || ''), String(displayName || ''), String(setupCode || ''))
       return jsonResponse(options)
     } catch (e) {
+      // rateLimit() lève une Response 429 : la laisser remonter à handle()
+      // au lieu de la transformer en 400 générique.
+      if (e instanceof Response) throw e
       return jsonResponse({ error: e instanceof Error ? e.message : 'Erreur' }, { status: 400 })
     }
   })

@@ -129,7 +129,12 @@ if (str.toUpperCase().includes('TRANSFERE')) {
   // 🎯 CAS PRINCIPAL : Format DD/MM/YY (format Excel standard)
   if (/^\d{1,2}\/\d{1,2}\/\d{2}$/.test(str)) {
     const [day, month, year] = str.split('/');
-    return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/20${year}`;
+    // Pivot de siècle : une année à 2 chiffres postérieure à l'année courante
+    // appartient au XXe siècle (ex. dateNaissance « 12/05/72 » → 1972, pas 2072).
+    const yy = parseInt(year, 10);
+    const currentYY = new Date().getFullYear() % 100;
+    const century = yy > currentYY ? '19' : '20';
+    return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${century}${year}`;
   }
   
   // 🎯 CAS SECONDAIRE : Déjà au bon format DD/MM/YYYY
@@ -584,9 +589,14 @@ export const parseNumber = (value: any): number => {
   if (typeof value === 'number') return value;
   if (!value) return 0;
   
-  const cleaned = String(value).replace(/[^\d]/g, '');
-  const parsed = parseInt(cleaned, 10);
-  
+  // Conserve la décimale (ex. dureeEnMois « 3,5 ») : virgule FR → point, on
+  // retire les espaces (séparateurs de milliers) et tout caractère non numérique.
+  const cleaned = String(value)
+    .replace(/\s/g, '')
+    .replace(/,/g, '.')
+    .replace(/[^\d.-]/g, '');
+  const parsed = parseFloat(cleaned);
+
   return isNaN(parsed) ? 0 : parsed;
 };
 

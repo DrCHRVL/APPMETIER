@@ -88,7 +88,7 @@ export const PendingPose = React.memo(({ enquetes, onOpenEnquete, onOpenActe }: 
                 : 'border-t border-teal-200/70';
             return (
             <li
-              key={idx}
+              key={`${item.enquete.id}-${item.acteKind}-${item.acteId}`}
               className={`flex items-baseline gap-1.5 py-1 group min-w-0 ${borderClass} ${(onOpenActe || onOpenEnquete) ? 'cursor-pointer hover:text-teal-800' : ''}`}
               onClick={() => onOpenActe ? onOpenActe(item.enquete, item.acteId, item.acteKind) : onOpenEnquete?.(item.enquete)}
               title={`${item.acteType} (${item.enquete.numero})${(onOpenActe || onOpenEnquete) ? (onOpenActe ? " — Voir l'acte" : " — Ouvrir l'enquête") : ''}`}

@@ -82,7 +82,7 @@ export const UpcomingActeDeadlines = React.memo(({ enquetes, onOpenEnquete, onOp
             daysLeft,
             echeance,
             isWeekend: day === 0 || day === 6,
-            key: `${e.id}-${a.id}`,
+            key: `${e.id}-${kind}-${a.id}`,
           });
         }
       }

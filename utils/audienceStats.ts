@@ -197,7 +197,8 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
     const audienceTypes = new Set(resultat.condamnations.map(c => c.typeAudience));
     if (audienceTypes.has('CI')) nombreCI++;
     if (audienceTypes.has('COPJ')) nombreCOPJ++;
-    if (audienceTypes.has('OI')) nombreOI++;
+    // OI déjà compté via oiResults.length (résultats isOI, exclus de normalResults),
+    // comme nombreClassements : ne pas re-compter ici pour éviter le double-comptage.
     if (audienceTypes.has('CDD')) nombreCDD++;
 
     // Traitement des condamnations

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
@@ -11,10 +11,14 @@ interface ToastProps {
 }
 
 export const Toast = ({ message, type, onClose, duration = 3000 }: ToastProps) => {
+  // onClose via ref : un parent qui recrée le callback à chaque rendu ne doit
+  // pas relancer le minuteur (sinon le toast ne se fermerait jamais).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
-    const timer = setTimeout(onClose, duration);
+    const timer = setTimeout(() => onCloseRef.current(), duration);
     return () => clearTimeout(timer);
-  }, [duration, onClose]);
+  }, [duration]);
 
   const bgColor = type === 'success' ? 'bg-green-500' :
                  type === 'error' ? 'bg-red-500' :

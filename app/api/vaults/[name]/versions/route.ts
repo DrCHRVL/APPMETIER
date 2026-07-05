@@ -5,8 +5,15 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(req: Request, { params }: { params: { name: string } }) {
   return handle(async () => {
-    requireSession(req)
+    const session = requireSession(req)
     if (!isSafeName(params.name)) return jsonResponse({ error: 'Nom invalide' }, { status: 400 })
+    // Même restriction que la version courante : l'historique d'un trousseau
+    // `keyring-<user>` (enveloppes chiffrées par la phrase personnelle) n'est
+    // lisible que par son titulaire, sinon brute-force hors-ligne possible.
+    const keyring = /^keyring-(.+)$/.exec(params.name)
+    if (keyring && keyring[1] !== session.u) {
+      return jsonResponse({ error: 'Lecture non autorisée sur ce trousseau' }, { status: 403 })
+    }
     return jsonResponse({ versions: listVaultVersions(params.name) })
   })
 }

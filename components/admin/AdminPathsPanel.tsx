@@ -369,7 +369,7 @@ export const AdminPathsPanel = () => {
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
         <h4 className="text-sm font-semibold text-gray-800">Chemins par contentieux</h4>
         <p className="text-xs text-gray-500">Dossier de données (app-data.json, backups) par contentieux.</p>
-        {contentieuxDefs
+        {[...contentieuxDefs]
           .sort((a, b) => a.order - b.order)
           .map(def =>
             renderPathInput(

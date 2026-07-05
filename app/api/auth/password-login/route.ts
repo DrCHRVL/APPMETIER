@@ -2,7 +2,7 @@ import {
   handle, jsonResponse, createSessionCookie, sessionCookieHeader,
   findAccount, saveAccount, rateLimit, clientIp,
 } from '@/lib/server/auth'
-import { verifyPassword } from '@/lib/server/password'
+import { verifyPasswordConstantTime } from '@/lib/server/password'
 import { appendLog } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
@@ -18,8 +18,10 @@ export async function POST(req: Request) {
 
     const account = findAccount(username)
     // Message volontairement identique en cas d'utilisateur inconnu ou de mot de
-    // passe faux (ne révèle pas l'existence du compte).
-    const ok = account ? verifyPassword(password, account.passwordHash) : false
+    // passe faux (ne révèle pas l'existence du compte). La vérification tourne à
+    // temps constant (scrypt exécuté même sur un identifiant inconnu) pour ne pas
+    // révéler l'existence du compte par un oracle temporel.
+    const ok = verifyPasswordConstantTime(password, account?.passwordHash)
     if (!account || !ok) {
       return jsonResponse({ error: 'Identifiant ou mot de passe incorrect' }, { status: 401 })
     }

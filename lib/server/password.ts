@@ -46,3 +46,17 @@ export function verifyPassword(password: string, stored: string | undefined | nu
 export function isAcceptablePassword(password: string): boolean {
   return typeof password === 'string' && password.length >= 10
 }
+
+/**
+ * Hachage factice calculé une fois au chargement, pour égaliser le temps de
+ * réponse d'une connexion : sur un identifiant inconnu, on vérifie contre ce
+ * hash au lieu de court-circuiter, afin de ne pas offrir d'oracle temporel
+ * révélant l'existence du compte.
+ */
+const DUMMY_HASH = hashPassword('siral-timing-equalizer-dummy')
+
+/** Vérifie le mot de passe en temps constant même si le compte n'existe pas. */
+export function verifyPasswordConstantTime(password: string, stored: string | undefined | null): boolean {
+  const ok = verifyPassword(password, stored || DUMMY_HASH)
+  return stored ? ok : false
+}

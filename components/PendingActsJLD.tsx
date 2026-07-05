@@ -72,7 +72,7 @@ export const PendingActsJLD = React.memo(({ enquetes, onOpenEnquete, onOpenActe 
 
   const renderItem = (item: PendingActeItem, idx: number) => (
     <li
-      key={idx}
+      key={`${item.enquete.id}-${item.acteKind}-${item.acteId}`}
       className={`flex items-start gap-1.5 py-1 group min-w-0 ${(onOpenActe || onOpenEnquete) ? 'cursor-pointer hover:text-purple-800' : ''}`}
       onClick={() => onOpenActe ? onOpenActe(item.enquete, item.acteId, item.acteKind) : onOpenEnquete?.(item.enquete)}
       title={`${item.acteType} (${item.enquete.numero})${(onOpenActe || onOpenEnquete) ? (onOpenActe ? " — Voir l'acte" : " — Ouvrir l'enquête") : ''}`}

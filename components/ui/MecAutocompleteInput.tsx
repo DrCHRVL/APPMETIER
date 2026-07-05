@@ -88,12 +88,6 @@ export const MecAutocompleteInput = ({
     return combined.slice(0, 6);
   }, [value, suggestions, minTriggerLength, similarityThreshold]);
 
-  // Ouvrir/fermer le menu selon les résultats
-  useEffect(() => {
-    setOpen(matches.length > 0);
-    setActiveIndex(-1);
-  }, [matches]);
-
   // Fermer au clic extérieur
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -136,13 +130,20 @@ export const MecAutocompleteInput = ({
     <div ref={containerRef} className="relative">
       <Input
         value={value}
-        onChange={e => onChange(e.target.value)}
+        onChange={e => {
+          onChange(e.target.value);
+          // Le menu s'ouvre à la frappe (intention utilisateur) et se ferme à la
+          // sélection : ne pas le piloter par un effet sur `matches`, qui le
+          // rouvrirait juste après le choix (ex. « Martin » alors que « Martinez » existe).
+          setOpen(true);
+          setActiveIndex(-1);
+        }}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         className={className}
         autoFocus={autoFocus}
       />
-      {open && (
+      {open && matches.length > 0 && (
         <ul className="absolute z-50 w-full bg-white border border-gray-200 rounded shadow-lg mt-1 max-h-48 overflow-y-auto">
           {matches.map((nom, i) => (
             <li

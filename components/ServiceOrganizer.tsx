@@ -252,7 +252,7 @@ export const ServiceOrganizer = () => {
               </CardHeader>
               
               <CardContent className="space-y-2">
-                {sectionTags
+                {[...sectionTags]
                   .sort((a, b) => a.value.localeCompare(b.value))
                   .map(tag => renderTagCard(tag, section))
                 }

@@ -42,6 +42,9 @@ export function useUserPreferences() {
       userPreferencesSyncService.sync().finally(() => { refresh(); });
       userPreferencesSyncService.startPeriodic();
     } else {
+      // Déconnexion : arrêter la synchro périodique (service singleton, startPeriodic
+      // est idempotent — inutile d'arrêter au démontage d'une instance parmi d'autres).
+      userPreferencesSyncService.stopPeriodic();
       setPrefs(null);
       setIsLoading(false);
     }

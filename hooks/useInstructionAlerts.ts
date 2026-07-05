@@ -317,13 +317,29 @@ export const useInstructionAlerts = (dossiers: DossierInstruction[]) => {
     [prefs?.alerts],
   );
 
-  const refreshAlerts = useCallback(
-    throttle(async () => {
-      if (prefsLoading || rulesLoading) return;
+  // Les entrées volatiles sont lues via des refs pour garder `refreshAlerts`
+  // STABLE. Sinon, comme chaque génération réattribue de nouveaux id/createdAt,
+  // setInstructionAlerts change `allAlerts` → le callback serait recréé →
+  // l'effet ré-armé → réécriture des préférences (et push serveur) en boucle
+  // toutes les ~800 ms, même sans activité.
+  const dossiersRef = useRef(dossiers);
+  const rulesRef = useRef(rules);
+  const allAlertsRef = useRef(allAlerts);
+  const loadingRef = useRef({ prefsLoading, rulesLoading });
+  const setInstructionAlertsRef = useRef(setInstructionAlerts);
+  dossiersRef.current = dossiers;
+  rulesRef.current = rules;
+  allAlertsRef.current = allAlerts;
+  loadingRef.current = { prefsLoading, rulesLoading };
+  setInstructionAlertsRef.current = setInstructionAlerts;
 
-      const generated = generateAlerts(dossiers, rules);
+  const refreshAlerts = useMemo(
+    () => throttle(async () => {
+      if (loadingRef.current.prefsLoading || loadingRef.current.rulesLoading) return;
+
+      const generated = generateAlerts(dossiersRef.current, rulesRef.current);
       const existingMap = new Map<string, AlerteInstruction>();
-      for (const a of allAlerts) {
+      for (const a of allAlertsRef.current) {
         const key = `${a.instructionId}-${a.type}-${a.acteId || ''}`;
         existingMap.set(key, a);
       }
@@ -357,14 +373,14 @@ export const useInstructionAlerts = (dossiers: DossierInstruction[]) => {
         return a;
       });
 
-      await setInstructionAlerts(merged);
+      await setInstructionAlertsRef.current(merged);
       // rappels push (horodatages seuls — voir lib/web/pushReminders)
       updatePushSchedule('instructions', merged.filter(a => a.status === 'active'));
     }, THROTTLE_DELAY),
-    [dossiers, rules, prefsLoading, rulesLoading, allAlerts, setInstructionAlerts],
+    [],
   );
 
-  // Refresh initial + interval
+  // Refresh initial + interval périodique
   useEffect(() => {
     if (prefsLoading || rulesLoading) return;
     const t0 = setTimeout(() => refreshAlerts(), 800);
@@ -375,6 +391,14 @@ export const useInstructionAlerts = (dossiers: DossierInstruction[]) => {
       refreshAlerts.cancel();
     };
   }, [refreshAlerts, prefsLoading, rulesLoading]);
+
+  // Recalcul quand les dossiers ou les règles changent réellement (pas quand
+  // allAlerts change : ce dernier est piloté par le refresh lui-même). `dossiers`
+  // est une référence stable (useState) entre deux modifications de données.
+  useEffect(() => {
+    if (prefsLoading || rulesLoading) return;
+    refreshAlerts();
+  }, [dossiers, rules, prefsLoading, rulesLoading, refreshAlerts]);
 
   const handleValidateAlert = useCallback(
     async (alertId: number | number[]) => {

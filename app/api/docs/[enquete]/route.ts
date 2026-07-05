@@ -4,7 +4,7 @@
  * POST : dépôt d'un document { rel, b64, category?, originalName? }.
  */
 import { requireSession, handle, jsonResponse } from '@/lib/server/auth'
-import { listDocs, saveDoc, appendLog, isSafeName } from '@/lib/server/store'
+import { listDocs, saveDoc, appendLog, isSafeName, isSafeRelPath } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,6 +24,9 @@ export async function POST(req: Request, { params }: { params: { enquete: string
     if (typeof rel !== 'string' || typeof b64 !== 'string') {
       return jsonResponse({ error: 'rel et b64 requis' }, { status: 400 })
     }
+    // Valide le chemin relatif dès la route (400 explicite), comme GET/DELETE,
+    // plutôt que de laisser docPath() lever une 500 générique plus loin.
+    if (!isSafeRelPath(rel)) return jsonResponse({ error: 'Chemin invalide' }, { status: 400 })
     if (b64.length > 70 * 1024 * 1024) return jsonResponse({ error: 'Document trop volumineux (50 Mo max)' }, { status: 413 })
     const content = Buffer.from(b64, 'base64')
     const meta = await saveDoc(params.enquete, rel, content, { savedBy: session.u, category, originalName })

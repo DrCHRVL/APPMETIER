@@ -149,6 +149,17 @@ function pruneVersions(name: string) {
 }
 
 /**
+ * Nom de fichier d'archive : horodatage + auteur + suffixe aléatoire court.
+ * Le suffixe évite l'écrasement de deux archives écrites dans la même
+ * milliseconde par le même auteur (garantie « historique jamais écrasé »).
+ */
+function archiveFileName(stamp: string, savedBy: string | undefined): string {
+  const who = (savedBy || 'inconnu').replace(/[^a-zA-Z0-9._-]/g, '_')
+  const rand = crypto.randomBytes(3).toString('hex')
+  return `${stamp}~${who}~${rand}.json`
+}
+
+/**
  * Écrit la nouvelle version d'un coffre. L'ancienne version courante est
  * archivée AVANT toute écriture — l'historique ne peut jamais être écrasé.
  */
@@ -160,7 +171,7 @@ export async function writeVault(name: string, envelope: VaultEnvelope, savedBy:
     if (current) {
       const vdir = versionsDir(name)
       ensureDir(vdir)
-      const archName = `${stamp}~${(current.savedBy || 'inconnu').replace(/[^a-zA-Z0-9._-]/g, '_')}.json`
+      const archName = archiveFileName(stamp, current.savedBy)
       atomicWrite(path.join(vdir, archName), JSON.stringify(current))
       pruneVersions(name)
     }
@@ -203,7 +214,7 @@ export async function deleteVault(name: string): Promise<boolean> {
     const vdir = versionsDir(name)
     ensureDir(vdir)
     const stamp = new Date().toISOString().replace(/:/g, '_')
-    const archName = `${stamp}~${(current.savedBy || 'inconnu').replace(/[^a-zA-Z0-9._-]/g, '_')}.json`
+    const archName = archiveFileName(stamp, current.savedBy)
     atomicWrite(path.join(vdir, archName), JSON.stringify(current))
     fs.unlinkSync(vaultPath(name))
     return true
