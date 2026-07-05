@@ -14,7 +14,7 @@
 
 import { AudienceStats } from '@/types/audienceTypes';
 import { Enquete } from '@/types/interfaces';
-import { getServiceColor, ORIENTATION_DATASETS } from '@/utils/chartColors';
+import { getServiceColor, ORIENTATION_DATASETS, CHART_COLORS } from '@/utils/chartColors';
 
 interface PdfExportData {
   selectedYear: number;
@@ -356,6 +356,31 @@ function formatMoisEnAnnees(mois: number): string {
   return `${mois} mois`;
 }
 
+/** Abréviation de mois non ambiguë (juin/juillet ne doivent pas se confondre). */
+function shortMonth(label: string): string {
+  const map: Record<string, string> = {
+    janvier: 'janv', 'février': 'févr', fevrier: 'févr', mars: 'mars', avril: 'avr',
+    mai: 'mai', juin: 'juin', juillet: 'juil', 'août': 'août', aout: 'août',
+    septembre: 'sept', octobre: 'oct', novembre: 'nov', 'décembre': 'déc', decembre: 'déc',
+  };
+  return map[label.toLowerCase()] || label.slice(0, 4);
+}
+
+/** Convertit une couleur hex (#RRGGBB) en rgba() avec l'alpha donné. */
+function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+/** Légende horizontale (pastille + libellé) pour accompagner un graphe. */
+function renderLegend(items: { label: string; color: string }[]): string {
+  return `<div class="legend">${items.map(i =>
+    `<span class="legend-item"><span class="legend-dot" style="background:${i.color}"></span>${i.label}</span>`
+  ).join('')}</div>`;
+}
+
 function renderPieSubstitute(items: { label: string; value: number; color: string }[]): string {
   const total = items.reduce((s, i) => s + i.value, 0);
   if (total === 0) return '<p style="color:#56565E;">Aucune donnée</p>';
@@ -398,7 +423,9 @@ function renderPieChartImg(
   const cx = size / 2;
   const cy = size / 2;
   const r = size / 2 - 2 * ratio;
+  const rInner = r * 0.60; // trou central → donut
 
+  // Parts
   let angle = -Math.PI / 2;
   for (const item of data) {
     const slice = (item.value / total) * Math.PI * 2;
@@ -408,33 +435,190 @@ function renderPieChartImg(
     ctx.closePath();
     ctx.fillStyle = item.color;
     ctx.fill();
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2 * ratio;
+    angle += slice;
+  }
+  // Perce le centre (donut)
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.beginPath();
+  ctx.arc(cx, cy, rInner, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Séparateurs blancs entre les parts
+  angle = -Math.PI / 2;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2 * ratio;
+  for (const item of data) {
+    const slice = (item.value / total) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(angle) * rInner, cy + Math.sin(angle) * rInner);
+    ctx.lineTo(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r);
     ctx.stroke();
     angle += slice;
   }
 
+  // Étiquettes % sur l'anneau (parts assez grandes)
   angle = -Math.PI / 2;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold ${11 * ratio}px 'Segoe UI', Arial, sans-serif`;
+  ctx.font = `bold ${10 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+  const rMid = (r + rInner) / 2;
   for (const item of data) {
     const slice = (item.value / total) * Math.PI * 2;
     const mid = angle + slice / 2;
     const pct = (item.value / total) * 100;
-    const lx = cx + Math.cos(mid) * r * 0.62;
-    const ly = cy + Math.sin(mid) * r * 0.62;
-    if (labelMode === 'pct') {
-      if (pct >= 5) ctx.fillText(`${pct.toFixed(0)}%`, lx, ly);
-    } else if (item.value >= 2) {
-      ctx.fillText(`${item.value}`, lx, ly - 7 * ratio);
-      ctx.fillText(`${pct.toFixed(0)}%`, lx, ly + 7 * ratio);
+    if (pct >= 8) {
+      ctx.fillText(`${pct.toFixed(0)}%`, cx + Math.cos(mid) * rMid, cy + Math.sin(mid) * rMid);
     }
     angle += slice;
   }
 
+  // Total au centre (ou nombre de catégories selon labelMode)
+  ctx.fillStyle = '#0C1740';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `800 ${19 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+  ctx.fillText(String(total), cx, cy - 5 * ratio);
+  ctx.fillStyle = '#667085';
+  ctx.font = `${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+  ctx.fillText(labelMode === 'valuePct' ? 'dossiers' : 'total', cx, cy + 11 * ratio);
+
   return `<img src="${canvas.toDataURL('image/png')}" width="${displaySize}" height="${displaySize}" style="width:${displaySize}px;height:${displaySize}px">`;
+}
+
+/** Petit utilitaire : rectangle à coins supérieurs arrondis (barres). */
+function roundedTopRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, rad: number): void {
+  const r = Math.min(rad, w / 2, h);
+  ctx.beginPath();
+  ctx.moveTo(x, y + h);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
+ * Histogramme en colonnes (barres verticales) sur canvas → <img>. Utilisé pour
+ * les répartitions mensuelles (condamnations, ouvertures…). Retourne '' hors
+ * navigateur.
+ */
+function renderColumnChartImg(
+  points: { label: string; value: number }[],
+  displayWidth: number,
+  displayHeight: number,
+  color: string,
+): string {
+  if (points.length === 0 || typeof document === 'undefined') return '';
+  const ratio = 2;
+  const w = displayWidth * ratio, h = displayHeight * ratio;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  const padL = 24 * ratio, padR = 10 * ratio, padT = 16 * ratio, padB = 20 * ratio;
+  const plotW = w - padL - padR, plotH = h - padT - padB;
+  const maxVal = Math.max(...points.map(p => p.value), 1);
+  const niceMax = Math.max(5, Math.ceil(maxVal / 5) * 5);
+
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+  const ySteps = 5;
+  ctx.strokeStyle = '#EEF0F6'; ctx.lineWidth = 1 * ratio; ctx.fillStyle = '#98A0B4';
+  ctx.font = `${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (let i = 0; i <= ySteps; i++) {
+    const y = padT + plotH - (plotH * i) / ySteps;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+    ctx.fillText(String(Math.round((niceMax / ySteps) * i)), padL - 4 * ratio, y);
+  }
+
+  const n = points.length;
+  const slot = plotW / n;
+  const bw = Math.min(slot * 0.62, 30 * ratio);
+  points.forEach((p, i) => {
+    const x = padL + slot * i + (slot - bw) / 2;
+    const bh = (plotH * p.value) / niceMax;
+    const y = padT + plotH - bh;
+    ctx.fillStyle = color;
+    if (bh > 0) roundedTopRect(ctx, x, y, bw, bh, 3 * ratio);
+    if (p.value > 0) {
+      ctx.fillStyle = '#0C1740';
+      ctx.font = `bold ${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText(String(p.value), x + bw / 2, y - 2 * ratio);
+    }
+    ctx.fillStyle = '#98A0B4';
+    ctx.font = `${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(shortMonth(p.label), x + bw / 2, padT + plotH + 4 * ratio);
+  });
+  return `<img src="${canvas.toDataURL('image/png')}" width="${displayWidth}" height="${displayHeight}" style="width:${displayWidth}px;height:${displayHeight}px">`;
+}
+
+/**
+ * Histogramme EMPILÉ par mois (une pile par mois, segments = séries). Idéal pour
+ * l'orientation mensuelle (CRPC/CI/COPJ/OI/CDD/Classement). Retourne '' hors
+ * navigateur.
+ */
+function renderStackedColumnChartImg(
+  labels: string[],
+  series: { label: string; color: string; values: number[] }[],
+  displayWidth: number,
+  displayHeight: number,
+): string {
+  if (labels.length === 0 || typeof document === 'undefined') return '';
+  const ratio = 2;
+  const w = displayWidth * ratio, h = displayHeight * ratio;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  const padL = 24 * ratio, padR = 10 * ratio, padT = 14 * ratio, padB = 20 * ratio;
+  const plotW = w - padL - padR, plotH = h - padT - padB;
+  const colTotals = labels.map((_, i) => series.reduce((s, ser) => s + (ser.values[i] || 0), 0));
+  const maxVal = Math.max(...colTotals, 1);
+  const niceMax = Math.max(5, Math.ceil(maxVal / 5) * 5);
+
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+  const ySteps = 5;
+  ctx.strokeStyle = '#EEF0F6'; ctx.lineWidth = 1 * ratio; ctx.fillStyle = '#98A0B4';
+  ctx.font = `${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (let i = 0; i <= ySteps; i++) {
+    const y = padT + plotH - (plotH * i) / ySteps;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+    ctx.fillText(String(Math.round((niceMax / ySteps) * i)), padL - 4 * ratio, y);
+  }
+
+  const n = labels.length;
+  const slot = plotW / n;
+  const bw = Math.min(slot * 0.64, 30 * ratio);
+  labels.forEach((lab, i) => {
+    const x = padL + slot * i + (slot - bw) / 2;
+    let yBase = padT + plotH;
+    for (const ser of series) {
+      const v = ser.values[i] || 0;
+      if (v <= 0) continue;
+      const bh = (plotH * v) / niceMax;
+      yBase -= bh;
+      ctx.fillStyle = ser.color;
+      ctx.fillRect(x, yBase, bw, bh);
+    }
+    if (colTotals[i] > 0) {
+      ctx.fillStyle = '#0C1740';
+      ctx.font = `bold ${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText(String(colTotals[i]), x + bw / 2, yBase - 2 * ratio);
+    }
+    ctx.fillStyle = '#98A0B4';
+    ctx.font = `${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(shortMonth(lab), x + bw / 2, padT + plotH + 4 * ratio);
+  });
+  return `<img src="${canvas.toDataURL('image/png')}" width="${displayWidth}" height="${displayHeight}" style="width:${displayWidth}px;height:${displayHeight}px">`;
 }
 
 /** Camembert + tableau d'une répartition par service (même couleur par service que l'app). */
@@ -452,6 +636,19 @@ function renderServiceBlock(list: { service: string; count: number }[]): string 
           `<tr><td><span class="svc-dot" style="background:${getServiceColor(s.service)}"></span>${s.service}</td><td class="text-right font-bold">${s.count}</td><td class="text-right">${total > 0 ? ((s.count / total) * 100).toFixed(1) : 0}%</td></tr>`
         ).join('')}
       </table>`;
+}
+
+/** Camembert (donut) + légende détaillée d'une répartition par catégorie d'infraction. */
+function renderInfractionBlock(list: { infraction: string; count: number }[]): string {
+  if (list.length === 0) return '<p style="color:#667085;font-size:10px;">Aucune donnée</p>';
+  const items = list.map((i, idx) => ({
+    label: i.infraction,
+    value: i.count,
+    color: CHART_COLORS[idx % CHART_COLORS.length],
+  }));
+  const pie = renderPieChartImg(items, 160, 'pct');
+  return `${pie ? `<div style="text-align:center;margin-bottom:8px">${pie}</div>` : renderBarChart(items)}
+    ${pie ? renderPieSubstitute(items) : ''}`;
 }
 
 function renderBarChart(items: { label: string; value: number; color?: string }[]): string {
@@ -521,9 +718,22 @@ function renderLineChartImg(
   const xFor = (i: number) => (n === 1 ? padL + plotW / 2 : padL + (plotW * i) / (n - 1));
   const yFor = (v: number) => padT + plotH - (plotH * v) / niceMax;
 
+  // Aire sous la courbe (dégradé translucide de la couleur de série)
+  const grad = ctx.createLinearGradient(0, padT, 0, padT + plotH);
+  grad.addColorStop(0, hexToRgba(color, 0.22));
+  grad.addColorStop(1, hexToRgba(color, 0.02));
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(xFor(0), padT + plotH);
+  points.forEach((p, i) => ctx.lineTo(xFor(i), yFor(p.value)));
+  ctx.lineTo(xFor(n - 1), padT + plotH);
+  ctx.closePath();
+  ctx.fill();
+
   // Courbe
   ctx.strokeStyle = color;
   ctx.lineWidth = 2 * ratio;
+  ctx.lineJoin = 'round';
   ctx.beginPath();
   points.forEach((p, i) => {
     const x = xFor(i), y = yFor(p.value);
@@ -554,7 +764,7 @@ function renderLineChartImg(
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   points.forEach((p, i) => {
-    ctx.fillText(p.label.slice(0, 3), xFor(i), padT + plotH + 4 * ratio);
+    ctx.fillText(shortMonth(p.label), xFor(i), padT + plotH + 4 * ratio);
   });
 
   return `<img src="${canvas.toDataURL('image/png')}" width="${displayWidth}" height="${displayHeight}" style="width:${displayWidth}px;height:${displayHeight}px">`;
@@ -753,11 +963,12 @@ ${on('enquetes_encours') ? `
         <div class="card-detail">Ouvertures par mois (${selectedYear})</div>
       </div>
     </div>
-    <div>
-      <table>
+    <div style="padding-top:4px">
+      ${renderColumnChartImg(data.ouverturesParMois.map(d => ({ label: d.mois, value: d.count })), 360, 210, '#2980b9')
+        || `<table>
         <tr><th>Mois</th><th class="text-right">Ouvertures</th></tr>
         ${data.ouverturesParMois.map(d => `<tr><td>${d.mois}</td><td class="text-right font-bold">${d.count}</td></tr>`).join('')}
-      </table>
+      </table>`}
     </div>
   </div>
 </div>` : ''}
@@ -804,10 +1015,24 @@ ${on('orientation') ? `
 </div>` : ''}
 
 ${on('orientation_mois') ? `
-<!-- Orientation par mois -->
+<!-- Orientation par mois : histogramme empilé + tableau détaillé -->
 <div class="section-nobreak">
   <div class="section-title">Orientation par mois</div>
-  <table>
+  ${(() => {
+    const series = [
+      { label: 'CRPC', color: '#34495e', values: data.monthlyData.map(m => m.crpc) },
+      { label: 'CI', color: '#3498db', values: data.monthlyData.map(m => m.ci) },
+      { label: 'COPJ', color: '#2ecc71', values: data.monthlyData.map(m => m.copj) },
+      { label: 'OI', color: '#95a5a6', values: data.monthlyData.map(m => m.oi) },
+      { label: 'CDD', color: '#E8D0A9', values: data.monthlyData.map(m => m.cdd) },
+      { label: 'Classement', color: '#e74c3c', values: data.monthlyData.map(m => m.classement) },
+    ];
+    const chart = renderStackedColumnChartImg(data.monthlyData.map(m => m.mois), series, 680, 250);
+    return chart
+      ? `<div style="text-align:center">${chart}</div>${renderLegend(series)}`
+      : '';
+  })()}
+  <table style="margin-top:10px">
     <tr>
       <th>Mois</th>
       <th class="text-center">CRPC</th>
@@ -875,11 +1100,14 @@ ${on('oi_css') && stats ? (() => {
 })() : ''}
 
 ${on('condamnations_mois') ? `
-<!-- Condamnations par mois : un seul graphe, le nombre de condamnations -->
+<!-- Condamnations par mois : histogramme en colonnes -->
 <div class="section-nobreak">
   <div class="section-title">Condamnations par mois</div>
-  ${renderBarChart(data.monthlyData.map(m => ({ label: m.mois, value: m.condamnations, color: '#16307A' })))}
-  <div style="margin-top:8px;font-size:10px;color:#667085">
+  <div style="text-align:center">
+    ${renderColumnChartImg(data.monthlyData.map(m => ({ label: m.mois, value: m.condamnations })), 680, 240, '#16307A')
+      || renderBarChart(data.monthlyData.map(m => ({ label: m.mois, value: m.condamnations, color: '#16307A' })))}
+  </div>
+  <div style="margin-top:8px;font-size:10px;color:#667085;text-align:center">
     Total : <b style="color:#16307A">${data.monthlyData.reduce((s, m) => s + m.condamnations, 0)}</b> condamnations sur l'année
   </div>
 </div>` : ''}
@@ -922,15 +1150,11 @@ ${on('infractions') ? `
   <div class="two-cols">
     <div>
       <p class="section-note" style="font-weight:700;color:#16307A">Enquêtes en cours</p>
-      ${data.infractionsEnCours.length > 0
-        ? renderBarChart(data.infractionsEnCours.map(i => ({ label: i.infraction, value: i.count, color: '#16307A' })))
-        : '<p style="color:#667085;font-size:10px;">Aucune donnée</p>'}
+      ${renderInfractionBlock(data.infractionsEnCours)}
     </div>
     <div>
       <p class="section-note" style="font-weight:700;color:#067647">Enquêtes terminées</p>
-      ${data.infractionsTerminees.length > 0
-        ? renderBarChart(data.infractionsTerminees.map(i => ({ label: i.infraction, value: i.count, color: '#067647' })))
-        : '<p style="color:#667085;font-size:10px;">Aucune donnée</p>'}
+      ${renderInfractionBlock(data.infractionsTerminees)}
     </div>
   </div>
 </div>` : ''}
