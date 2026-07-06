@@ -170,17 +170,25 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
 
   const parseDateString = (dateString: string): Date | null => {
     if (!dateString) return null;
-    if (dateString.includes('/')) {
-      const parts = dateString.split('/');
-      if (parts.length === 3) {
-        const [day, month, year] = parts;
-        const fullYear = year.length === 2 ? `20${year}` : year;
-        return new Date(`${fullYear}-${month}-${day}`);
+    // Rejeter les dates hors calendrier (ex. « 45/13/2024 ») : sinon on renvoie
+    // une Invalid Date (truthy) qui échappe aux gardes `if (!date)` et produit
+    // soit une absence silencieuse d'alerte (mesureAge = NaN), soit un
+    // RangeError sur `.toISOString()` en aval.
+    const build = (): Date | null => {
+      if (dateString.includes('/')) {
+        const parts = dateString.split('/');
+        if (parts.length === 3) {
+          const [day, month, year] = parts;
+          const fullYear = year.length === 2 ? `20${year}` : year;
+          return new Date(`${fullYear}-${month}-${day}`);
+        }
+        return null;
       }
-    } else if (/^\d{4}-\d{2}-\d{2}/.test(dateString)) {
-      return new Date(dateString);
-    }
-    return null;
+      if (/^\d{4}-\d{2}-\d{2}/.test(dateString)) return new Date(dateString);
+      return null;
+    };
+    const d = build();
+    return d && !Number.isNaN(d.getTime()) ? d : null;
   };
 
   const getLastRdvDate = (mesure: AIRMesure): Date | null => {
@@ -357,8 +365,12 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     await persistRules(newRules);
   }, [alertRules, persistRules]);
 
+  // Pas de debounce : ce sont des mutations ponctuelles à identifiants
+  // DISTINCTS. Un debounce (trailing) fusionnait les appels rapprochés → seule
+  // la dernière alerte reportée/validée était traitée, les autres restaient
+  // actives, et le retour Promise<boolean> était faussé (undefined au 1er appel).
   const handleSnoozeAlert = useCallback(
-    debounce(async (alertId: number, daysOrDate: number | string): Promise<boolean> => {
+    async (alertId: number, daysOrDate: number | string): Promise<boolean> => {
       try {
         const currentAlertsKey = alertsKeyRef.current;
         const allAlerts = await ElectronBridge.getData<Alert[]>(currentAlertsKey, []);
@@ -390,12 +402,12 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
         console.error('Erreur lors du report d\'alerte:', error);
         return false;
       }
-    }, DEBOUNCE_DELAY),
+    },
     []
   );
 
   const handleValidateAlert = useCallback(
-    debounce(async (alertId: number | number[]): Promise<boolean> => {
+    async (alertId: number | number[]): Promise<boolean> => {
       try {
         const currentAlertsKey = alertsKeyRef.current;
         const allAlerts = await ElectronBridge.getData<Alert[]>(currentAlertsKey, []);
@@ -419,7 +431,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
         console.error('Erreur lors de la validation d\'alerte:', error);
         return false;
       }
-    }, DEBOUNCE_DELAY),
+    },
     []
   );
 
@@ -435,10 +447,10 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
   }, [handleUpdateAlertRule]);
 
   const handleDeleteRule = useCallback(
-    debounce(async (ruleId: number) => {
+    async (ruleId: number) => {
       const newRules = alertRules.filter(rule => rule.id !== ruleId);
       await persistRules(newRules);
-    }, DEBOUNCE_DELAY),
+    },
     [alertRules, persistRules]
   );
 

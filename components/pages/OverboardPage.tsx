@@ -364,8 +364,7 @@ export const OverboardPage = ({
           </p>
         ) : (
           <div className="space-y-4">
-            {contentieuxDefs
-              .sort((a, b) => a.order - b.order)
+            {sortedDefs
               .map(ctxDef => {
                 const pinned = pinnedByContentieux.get(ctxDef.id);
                 if (!pinned || pinned.length === 0) return null;

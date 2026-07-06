@@ -235,7 +235,15 @@ class ElectronBridgeService {
   public async clearData(key: string): Promise<boolean> {
     // Supprimer du cache
     this.dataCache.delete(key);
-    
+
+    // Annuler toute sauvegarde temporisée en attente pour cette clé : sinon un
+    // setData throttlé ré-écrirait la clé juste après sa suppression (cas de la
+    // sentinelle de sync, posée puis effacée en quelques centaines de ms).
+    if (this.pendingSaves.has(key)) {
+      clearTimeout(this.pendingSaves.get(key)!);
+      this.pendingSaves.delete(key);
+    }
+
     if (!this.isElectronAvailable) {
       console.warn('Electron API not available, data not cleared');
       return false;

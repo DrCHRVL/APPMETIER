@@ -311,17 +311,31 @@ export const useAIR = () => {
             .join(' ');
         };
 
-        // Créer un index des mesures existantes par nom normalisé
+        // Clé refAEM (identifiant unique de la mesure) si disponible.
+        const refKeyOf = (m: AIRImportData): string | null => {
+          const r = m.refAEM ? String(m.refAEM).trim() : '';
+          return r ? `ref:${r.toLowerCase()}` : null;
+        };
+
+        // Index des existantes : par refAEM (prioritaire) et par nom (secours).
+        // On ne remplace jamais une entrée déjà posée (garde la 1re) pour ne pas
+        // masquer une existante en cas de doublon interne.
+        const existingByRef = new Map<string, AIRImportData>();
         const existingByNom = new Map<string, AIRImportData>();
         mesures.forEach(mesure => {
+          const rk = refKeyOf(mesure);
+          if (rk && !existingByRef.has(rk)) existingByRef.set(rk, mesure);
           if (mesure.nomPrenom) {
-            const normalizedNom = normalizeNom(mesure.nomPrenom);
-            existingByNom.set(normalizedNom, mesure);
+            const nk = normalizeNom(mesure.nomPrenom);
+            if (!existingByNom.has(nk)) existingByNom.set(nk, mesure);
           }
         });
 
-        // Traiter chaque mesure importée
-        const processedMesures = new Set<string>(); // Pour éviter les doublons
+        // Suivi des existantes réellement fusionnées (par identité d'objet) pour
+        // ré-ajouter ensuite UNIQUEMENT celles non consommées — sans se fier au
+        // nom (qui pouvait faire disparaître une existante homonyme).
+        const consumedExisting = new Set<AIRImportData>();
+        const seenImportKeys = new Set<string>();
         const finalMesures: AIRImportData[] = [];
 
         importedData.forEach(imported => {
@@ -330,18 +344,30 @@ export const useAIR = () => {
             return;
           }
 
+          const importRef = refKeyOf(imported);
           const normalizedImportedNom = normalizeNom(imported.nomPrenom);
-          
-          // Éviter les doublons dans l'import
-          if (processedMesures.has(normalizedImportedNom)) {
+
+          // Dédoublonnage interne de l'import : par refAEM si présent, sinon nom.
+          const dedupKey = importRef || `nom:${normalizedImportedNom}`;
+          if (seenImportKeys.has(dedupKey)) {
             console.warn(`Doublon détecté dans l'import: ${imported.nomPrenom}`);
             return;
           }
-          processedMesures.add(normalizedImportedNom);
+          seenImportKeys.add(dedupKey);
 
-          const existing = existingByNom.get(normalizedImportedNom);
+          // Appariement : refAEM d'abord (fiable), nom seulement en secours et si
+          // l'existante trouvée n'a pas déjà été consommée par un autre import.
+          // IIFE → `const` pour conserver le narrowing dans les closures du corps.
+          const existing = ((): AIRImportData | undefined => {
+            const byRef = importRef ? existingByRef.get(importRef) : undefined;
+            if (byRef && !consumedExisting.has(byRef)) return byRef;
+            const byNom = existingByNom.get(normalizedImportedNom);
+            if (byNom && !consumedExisting.has(byNom)) return byNom;
+            return undefined;
+          })();
 
           if (existing) {
+            consumedExisting.add(existing);
             // FUSION : Mesure existante trouvée
             console.log(`Fusion pour: ${existing.nomPrenom} -> ${imported.nomPrenom}`);
             modifies++;
@@ -444,15 +470,10 @@ export const useAIR = () => {
           }
         });
 
-        // Ajouter les mesures existantes qui n'ont pas été touchées
+        // Ré-ajouter les mesures existantes NON fusionnées (par identité d'objet,
+        // pas par nom : une existante homonyme d'un import n'est plus perdue).
         mesures.forEach(existing => {
-          if (existing.nomPrenom) {
-            const normalizedNom = normalizeNom(existing.nomPrenom);
-            if (!processedMesures.has(normalizedNom)) {
-              finalMesures.push(existing);
-            }
-          } else {
-            // Garder les mesures sans nom (cas d'erreur)
+          if (!consumedExisting.has(existing)) {
             finalMesures.push(existing);
           }
         });

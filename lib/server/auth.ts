@@ -228,7 +228,15 @@ export function rateLimit(key: string, max: number, windowMs: number): void {
 }
 
 export function clientIp(req: Request): string {
-  return (req.headers.get('x-forwarded-for') || 'local').split(',')[0].trim()
+  // Le serveur applicatif n'est joignable QUE par le reverse-proxy Caddy (port
+  // 3000 non publié). Caddy AJOUTE l'IP réelle du client en fin de
+  // X-Forwarded-For. On lit donc le DERNIER segment : le premier est fourni par
+  // le client et peut être forgé pour contourner le rate-limiting (on prenait
+  // le premier auparavant → limites d'anti-force-brute contournables).
+  const xff = req.headers.get('x-forwarded-for')
+  if (!xff) return 'local'
+  const parts = xff.split(',').map(s => s.trim()).filter(Boolean)
+  return parts.length ? parts[parts.length - 1] : 'local'
 }
 
 /** Comparaison à temps constant (codes d'enrôlement…). */

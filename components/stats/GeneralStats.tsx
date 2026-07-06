@@ -8,7 +8,7 @@ import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearSca
 import { Line } from 'react-chartjs-2';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { useTags } from '@/hooks/useTags';
-import { useActeStats } from '@/hooks/useActeStats';
+import { useActeStats, computeActeStats } from '@/hooks/useActeStats';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { getYearlyStats } from '@/utils/audienceStats';
 import { detectActesAberrants } from '@/utils/acteAnomalies';
@@ -52,7 +52,12 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
     return Object.fromEntries(
       Object.entries(all).filter(([, r]) => {
         const ctx = r.contentieuxId || 'crimorg';
-        return ctx === contentieuxId && enqueteIds.has(r.enqueteId);
+        // Les procédures de permanence (résultats directs) portent un enqueteId
+        // synthétique absent de la liste des enquêtes : sans le `|| isDirectResult`,
+        // elles étaient exclues des stats par contentieux alors que les cartes
+        // cherchent explicitement à les additionner (directResultsFiltered) — d'où
+        // un écart avec l'export PDF, qui les compte lui.
+        return ctx === contentieuxId && (r.isDirectResult === true || enqueteIds.has(r.enqueteId));
       })
     );
   }, [audienceState?.resultats, enqueteIds, contentieuxId]);
@@ -63,7 +68,9 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
   const enquetesForYear = enquetes.filter(e =>
     new Date(e.dateCreation).getFullYear() === selectedYear
   );
-  const activeEnquetes = enquetesForYear.filter(e => e.statut === 'en_cours');
+  // Stock actuel d'enquêtes en cours (tous millésimes) — même population pour
+  // la carte « Nombre d'enquêtes en cours » et la durée moyenne « en cours ».
+  const allEnquetesEnCours = enquetes.filter(e => e.statut === 'en_cours');
 
   const enquetesTerminees = enquetes.filter(e => {
     if (e.statut !== 'archive') return false;
@@ -138,7 +145,9 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
   }, { total: 0, count: 0 });
   const averageDurationTerminees = durationTerminees.count > 0 ? durationTerminees.total / durationTerminees.count : 0;
 
-  const durationEnCours = activeEnquetes.reduce((result, e) => {
+  // Ancienneté moyenne du stock d'enquêtes en cours (tous millésimes, comme la
+  // carte « Nombre d'enquêtes en cours » — photo du stock actuel).
+  const durationEnCours = allEnquetesEnCours.reduce((result, e) => {
     if (!e.dateDebut) return result;
     const start = new Date(e.dateDebut);
     if (isNaN(start.getTime())) return result;
@@ -149,8 +158,9 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
   }, { total: 0, count: 0 });
   const averageDurationEnCours = durationEnCours.count > 0 ? durationEnCours.total / durationEnCours.count : 0;
 
-  // Actes via hook
-  const acteStats = useActeStats(enquetesForYear);
+  // Actes rattachés à leur année réelle (date de l'acte / de la prolongation),
+  // toutes enquêtes confondues — pas à l'année d'ouverture de l'enquête.
+  const acteStats = useActeStats(enquetes, selectedYear);
 
   // Actes à date aberrante (sur tout le périmètre, pour aider à les localiser
   // et corriger — indépendamment de l'année sélectionnée).
@@ -216,9 +226,15 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
     };
   }, [scopedResultats, enquetes, selectedYear, prevYear]);
 
-  // Services
+  // Services — population « globale » = enquêtes CRÉÉES dans l'année ∪ enquêtes
+  // JUGÉES dans l'année (dédupliquées) + procédures directes de l'année. Sans
+  // l'union, une enquête ouverte en N-1 et jugée en N apparaissait dans la
+  // carte « terminées » mais pas dans la carte « globale ».
   const combinedServiceStats: Record<string, number> = {};
-  enquetesForYear.forEach(e => {
+  const enquetesGlobalesVues = new Set<number>();
+  [...enquetesForYear, ...enquetesTerminees].forEach(e => {
+    if (enquetesGlobalesVues.has(e.id)) return;
+    enquetesGlobalesVues.add(e.id);
     getServicesFromTags(e.tags).forEach(service => {
       if (service) combinedServiceStats[service] = (combinedServiceStats[service] || 0) + 1;
     });
@@ -255,29 +271,25 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
     serviceColors[service] = getServiceColor(service, index);
   });
 
-  // Estimation temps actes
+  // Estimation temps actes : chiffre brut et assumé (35 min par acte ou
+  // prolongation), sans coefficient d'ajustement — plus simple à défendre
+  // dans un rapport. Moyennes calculées sur la période réellement écoulée.
   const tempsPourUnActe = 35;
   const tempsEstimeMinutes = acteStats.totalAvecProlongations * tempsPourUnActe;
-  const moisActuel = new Date().getMonth();
-  const moisComplexes = [0, 1, 5, 6, 8, 9, 10, 11];
-  const facteurComplexite = moisComplexes.includes(moisActuel) ? 1.18 : 1.05;
-  const tempsEstimeMinutesAjuste = Math.ceil(tempsEstimeMinutes * facteurComplexite);
-  const tempsEstimeHeures = Math.floor(tempsEstimeMinutesAjuste / 60);
-  const tempsEstimeMinutesRestantes = tempsEstimeMinutesAjuste % 60;
+  const tempsEstimeHeures = Math.floor(tempsEstimeMinutes / 60);
+  const tempsEstimeMinutesRestantes = tempsEstimeMinutes % 60;
 
   const debutAnnee = new Date(selectedYear, 0, 1);
   const finAnnee = selectedYear === new Date().getFullYear() ? new Date() : new Date(selectedYear, 11, 31);
   const millisecondesParSemaine = 7 * 24 * 60 * 60 * 1000;
-  const nombreSemainesReel = Math.max(1, Math.ceil((finAnnee.getTime() - debutAnnee.getTime()) / millisecondesParSemaine));
-  const nombreSemainesAjuste = Math.max(1, Math.floor(nombreSemainesReel * 0.95));
-  const nombreMoisReel = selectedYear === new Date().getFullYear() ? new Date().getMonth() + 1 : 12;
-  const nombreMoisAjuste = Math.max(1, Math.floor(nombreMoisReel * 0.93));
+  const nombreSemaines = Math.max(1, Math.ceil((finAnnee.getTime() - debutAnnee.getTime()) / millisecondesParSemaine));
+  const nombreMois = selectedYear === new Date().getFullYear() ? new Date().getMonth() + 1 : 12;
 
-  const arrondiFavorable = (nombre: number) => Math.ceil(nombre * 10) / 10;
-  const moyenneActesParSemaine = arrondiFavorable(acteStats.totalAvecProlongations / nombreSemainesAjuste);
-  const moyenneActesParMois = arrondiFavorable(acteStats.totalAvecProlongations / nombreMoisAjuste);
-  const moyenneTempsParSemaine = arrondiFavorable((tempsEstimeMinutesAjuste / nombreSemainesAjuste) / 60);
-  const moyenneTempsParMois = arrondiFavorable((tempsEstimeMinutesAjuste / nombreMoisAjuste) / 60);
+  const round1 = (nombre: number) => Math.round(nombre * 10) / 10;
+  const moyenneActesParSemaine = round1(acteStats.totalAvecProlongations / nombreSemaines);
+  const moyenneActesParMois = round1(acteStats.totalAvecProlongations / nombreMois);
+  const moyenneTempsParSemaine = round1((tempsEstimeMinutes / nombreSemaines) / 60);
+  const moyenneTempsParMois = round1((tempsEstimeMinutes / nombreMois) / 60);
 
   // Total déférements pour l'année sélectionnée
   const totalDeferementsYear = Object.values(scopedResultats)
@@ -298,11 +310,10 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
       return acc;
     }, 0);
 
-  // Enquêtes en cours
-  const allEnquetesEnCours = enquetes.filter(e => e.statut === 'en_cours');
-  const enquetesOuvertesAnnee = enquetes.filter(e =>
-    e.statut === 'en_cours' && new Date(e.dateCreation).getFullYear() === selectedYear
-  );
+  // Ouvertures de l'année : toutes les enquêtes CRÉÉES dans l'année, quel que
+  // soit leur statut actuel (une enquête ouverte en mars et déjà jugée en juin
+  // reste une ouverture de l'année — c'est un flux, pas un stock).
+  const enquetesOuvertesAnnee = enquetesForYear;
 
   // === Statistiques par contentieux (uniquement pour la vue globale) ===
   const isGlobal = contentieuxId === 'global' && enquetesByContentieux && contentieuxDefs;
@@ -352,18 +363,10 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
       // Enquêtes en cours
       const enCours = cEnquetes.filter(e => e.statut === 'en_cours').length;
 
-      // Actes - enquêtes de l'année
-      const cEnquetesForYear = cEnquetes.filter(e => new Date(e.dateCreation).getFullYear() === selectedYear);
-      const cActes = cEnquetesForYear.reduce((acc, e) => {
-        const tags = e.tags || [];
-        const ecoutes = tags.filter(t => (t.category as string) === 'acte' && t.value === 'ecoute').length;
-        const geo = tags.filter(t => (t.category as string) === 'acte' && t.value === 'geolocalisation').length;
-        const autres = tags.filter(t => (t.category as string) === 'acte' && t.value === 'autre').length;
-        const prolongEcoutes = tags.filter(t => (t.category as string) === 'prolongation' && t.value === 'ecoute').length;
-        const prolongGeo = tags.filter(t => (t.category as string) === 'prolongation' && t.value === 'geolocalisation').length;
-        const prolongAutres = tags.filter(t => (t.category as string) === 'prolongation' && t.value === 'autre').length;
-        return acc + ecoutes + geo + autres + prolongEcoutes + prolongGeo + prolongAutres;
-      }, 0);
+      // Actes de l'année (même calcul que la carte principale : rattachés à
+      // leur date réelle). L'ancien comptage lisait des tags `category: 'acte'`
+      // qui n'existent nulle part — la répartition restait toujours vide.
+      const cActes = computeActeStats(cEnquetes, selectedYear).totalAvecProlongations;
 
       // Déférements par mois
       const deferementsParMois: Record<number, number> = {};
@@ -405,13 +408,16 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
     });
   }, [isGlobal, enabledDefs, enquetesByContentieux, audienceState?.resultats, selectedYear]);
 
-  // Helper pour afficher les tendances
-  const DiffBadge = ({ diff, suffix = '' }: { diff: number; suffix?: string }) => {
-    if (diff === 0) return <span className="text-xs text-gray-400">= {suffix}</span>;
+  // Helper pour afficher les tendances (money = formatage EUR du delta)
+  const DiffBadge = ({ diff, suffix = '', money = false }: { diff: number; suffix?: string; money?: boolean }) => {
+    if (diff === 0) return <span className="text-xs text-gray-400">=</span>;
     const isPositive = diff > 0;
+    const formatted = money
+      ? new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(diff)
+      : `${diff}${suffix}`;
     return (
       <span className={`text-xs font-semibold ${isPositive ? 'text-green-600' : 'text-red-500'}`}>
-        {isPositive ? '+' : ''}{diff}{suffix}
+        {isPositive ? '+' : ''}{formatted}
       </span>
     );
   };
@@ -516,11 +522,14 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
         <Card>
           <CardHeader>
             <CardTitle>Actes d'enquête en préliminaire</CardTitle>
+            <p className="text-sm text-gray-500">
+              Actes et prolongations réalisés en {selectedYear} (rattachés à leur date, toutes enquêtes confondues)
+            </p>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">{acteStats.totalAvecProlongations}</div>
             <p className="text-sm text-gray-500 mb-4">
-              Moyenne de {arrondiFavorable(acteStats.totalAvecProlongations / (enquetesForYear.length || 1))} actes/prolongations par enquête
+              Moyenne de {round1(acteStats.totalAvecProlongations / (acteStats.enquetesAvecActes || 1))} actes/prolongations par enquête concernée ({acteStats.enquetesAvecActes} enquête{acteStats.enquetesAvecActes > 1 ? 's' : ''})
             </p>
 
             <div className="bg-gray-50 p-3 rounded-md mb-4">
@@ -530,9 +539,6 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
               </div>
               <div className="text-xs text-gray-500">
                 Basé sur une moyenne de 35 min par acte ou prolongation
-                {moisComplexes.includes(moisActuel) &&
-                  <span className="ml-1">(période à forte charge)</span>
-                }
               </div>
               <div className="text-sm mt-2">
                 Moyenne hebdomadaire : {moyenneActesParSemaine} actes ({moyenneTempsParSemaine}h)
@@ -932,7 +938,7 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
                 <div className="text-xs text-gray-500 mb-1">Amendes totales</div>
                 <div className="text-sm text-gray-400">{prevYear}: {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(comparison.prevAmendes)}</div>
                 <div className="text-lg font-bold">{selectedYear}: {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(comparison.currentAmendes)}</div>
-                <DiffBadge diff={comparison.diffAmendes} suffix=" EUR" />
+                <DiffBadge diff={comparison.diffAmendes} money />
               </div>
               <div className="text-center p-3 bg-gray-50 rounded-lg">
                 <div className="text-xs text-gray-500 mb-1">Déférements</div>

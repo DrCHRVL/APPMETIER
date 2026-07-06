@@ -113,7 +113,6 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
 
   // Compteurs pour les types d'orientation
   const audiencesUniques = new Set<string>();
-  const orientationsUniques = new Set<string>(); // Pour compter toutes les orientations (y compris classements et OI)
   let nombreCRPC = 0;
   let nombreCI = 0;
   let nombreCOPJ = 0;
@@ -143,20 +142,14 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
     countPeinesMixtesSimple: number;
   }> = {};
 
-  // Pour les OI, classements et audiences en attente, 
-  // on les compte uniquement dans le nombre total d'orientations
+  // OI, classements et audiences en attente : pas de peines à traiter.
+  // Les audiences EN ATTENTE (dateAudience future) ne comptent ni dans le
+  // nombre d'audiences ni dans les durées d'enquête : le dossier n'est pas
+  // encore jugé, l'inclure gonflerait les moyennes avec des dates à venir.
   for (const special of [...oiResults, ...classementResults, ...pendingResults]) {
-    // Gestion des orientations uniques 
-    const audienceId = special.numeroAudience || `${special.enqueteId}-${special.dateAudience}`;
-    orientationsUniques.add(audienceId);
-
-    // Ne pas compter dans les audiences (pour les statistiques de peines)
-    if (!special.isOI && !special.isClassement) {
-      audiencesUniques.add(audienceId);
-    }
-
-    // Calcul de la durée d'enquête
-    if (!special.isDirectResult) {
+    // Calcul de la durée d'enquête (OI et classements : la date de la décision
+    // clôt bien l'enquête ; en attente d'audience : durée non acquise, ignorée)
+    if (!special.isDirectResult && !special.isAudiencePending) {
       const enquete = enquetes.find(e => e.id === special.enqueteId);
       if (enquete?.dateDebut && special.dateAudience) {
         const dateDebut = new Date(enquete.dateDebut);
@@ -169,18 +162,19 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
       }
     }
 
-    // Compter les saisies des résultats en attente d'audience
+    // Compter les saisies (réalisées pendant l'enquête, donc acquises même
+    // avant jugement)
     accumulateSaisies(special.saisies);
   }
 
   // Traitement normal uniquement pour les résultats standards
   normalResults.forEach(resultat => {
     const enquete = enquetes.find(e => e.id === resultat.enqueteId);
-    
-    // Gestion des audiences et orientations uniques
+
+    // Gestion des audiences uniques (deux dossiers appelés à la même audience
+    // — même numeroAudience — comptent pour une seule audience)
     const audienceId = resultat.numeroAudience || `${resultat.enqueteId}-${resultat.dateAudience}`;
     audiencesUniques.add(audienceId);
-    orientationsUniques.add(audienceId);
 
     // Calcul de la durée d'enquête - ne pas compter pour les résultats directs
     if (!resultat.isDirectResult && enquete?.dateDebut && resultat.dateAudience) {
@@ -193,7 +187,10 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
       }
     }
 
-    // Comptage des types d'audience
+    // Comptage des types d'audience (1 par dossier). NB : un résultat normal
+    // peut porter une condamnation typée 'OI' (disjonction partielle : une
+    // partie du dossier jugée, l'autre à l'information) — elle s'ajoute aux
+    // résultats marqués isOI, qui eux n'ont pas de condamnations.
     const audienceTypes = new Set(resultat.condamnations.map(c => c.typeAudience));
     if (audienceTypes.has('CI')) nombreCI++;
     if (audienceTypes.has('COPJ')) nombreCOPJ++;
@@ -201,6 +198,7 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
     if (audienceTypes.has('CDD')) nombreCDD++;
 
     // Traitement des condamnations
+    let deferesDuResultat = 0;
     resultat.condamnations?.forEach(condamnation => {
       if (!condamnation) return;
 
@@ -213,7 +211,8 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
       // NOUVEAU : Utiliser dateDefere si disponible, sinon dateAudience (compatibilité)
       if (condamnation.defere) {
         nombreDeferements++;
-        
+        deferesDuResultat++;
+
         // Compter par mois selon la vraie date de déférement
         const dateDef = condamnation.dateDefere || resultat.dateAudience;
         if (dateDef) {
@@ -303,6 +302,24 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
       }
     });
 
+    // Déférements saisis au niveau du RÉSULTAT (champ `nombreDeferes`) et non
+    // cochés condamnation par condamnation : compter le surplus, pour que les
+    // deux modes de saisie donnent le même total (Math.max implicite — si les
+    // deux sont renseignés pour les mêmes déférés, pas de double compte).
+    const nombreDeferesResultat = Number(resultat.nombreDeferes) || 0;
+    if (nombreDeferesResultat > deferesDuResultat) {
+      const surplus = nombreDeferesResultat - deferesDuResultat;
+      nombreDeferements += surplus;
+      const dateDef = resultat.dateDefere || resultat.dateAudience;
+      if (dateDef) {
+        const date = new Date(dateDef);
+        if (!isNaN(date.getTime())) {
+          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          deferementsParMois[monthKey] = (deferementsParMois[monthKey] || 0) + surplus;
+        }
+      }
+    }
+
     // Traitement des confiscations (avec migration de l'ancien format)
     if (resultat.confiscations) {
       const conf = migrateConfiscations(resultat.confiscations);
@@ -355,6 +372,11 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
     tauxPeinesSimple: totalCondamnations > 0 ? Math.round((nombrePeinesSimple / totalCondamnations) * 1000) / 10 : 0,
     tauxPeinesMixtesProbation: totalCondamnations > 0 ? Math.round((nombrePeinesMixtesProbation / totalCondamnations) * 1000) / 10 : 0,
     tauxPeinesMixtesSimple: totalCondamnations > 0 ? Math.round((nombrePeinesMixtesSimple / totalCondamnations) * 1000) / 10 : 0,
+    nombrePeinesFermes,
+    nombrePeinesProbation,
+    nombrePeinesSimple,
+    nombrePeinesMixtesProbation,
+    nombrePeinesMixtesSimple,
     moyenneMixtesProbation: nombrePeinesMixtesProbation > 0 ? 
       `${Math.round(totalMixtesFermes / nombrePeinesMixtesProbation * 10) / 10} + ${Math.round(totalMixtesProbation / nombrePeinesMixtesProbation * 10) / 10}` : '',
     moyenneMixtesSimple: nombrePeinesMixtesSimple > 0 ?
@@ -399,26 +421,6 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
   };
 
   return stats;
-};
-
-export const getStatsByPeriod = (
-  resultats: ResultatAudience[] | Record<string, ResultatAudience>, 
-  enquetes: Enquete[], 
-  startDate: Date, 
-  endDate: Date
-) => {
-  const resultsArray = Array.isArray(resultats) ? resultats : Object.values(resultats);
-  
-  const endDateTime = new Date(endDate);
-  endDateTime.setHours(23, 59, 59, 999);
-
-  const filteredResultats = resultsArray.filter(resultat => {
-    if (!resultat.dateAudience) return false;
-    const audienceDate = new Date(resultat.dateAudience);
-    return audienceDate >= startDate && audienceDate <= endDateTime;
-  });
-
-  return calculateAudienceStats(filteredResultats, enquetes);
 };
 
 export const getYearlyStats = (
@@ -527,7 +529,6 @@ export const cleanupAudienceResults = (
 
 export const AudienceStatsUtils = {
   calculateAudienceStats,
-  getStatsByPeriod,
   getYearlyStats,
   getMonthlyStats,
   cleanupAudienceResults

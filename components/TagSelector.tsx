@@ -11,16 +11,21 @@ interface TagSelectorProps {
   onTagSelect: (tag: Tag) => void;
   onTagRemove: (tagId: string) => void;
   allowedCategories?: TagCategory[];
+  /** Remplace le référentiel pour la catégorie « infractions » : liste
+   *  évolutive des infractions réellement portées par les dossiers (NATINF ou
+   *  tags legacy encore utilisés), au lieu de tous les tags historiques. */
+  infractionTags?: Tag[];
 }
 
 export const TagSelector = ({
   selectedTags,
   onTagSelect,
   onTagRemove,
-  allowedCategories
+  allowedCategories,
+  infractionTags
 }: TagSelectorProps) => {
   const { getTagsByCategory, isLoading } = useTags();
-  
+
   const availableCategories = allowedCategories || ['infractions', 'services', 'duree', 'suivi', 'statut', 'juge'];
 
   if (isLoading) {
@@ -30,7 +35,9 @@ export const TagSelector = ({
   return (
     <div className="space-y-4">
       {availableCategories.map(category => {
-        const categoryTags = getTagsByCategory(category);
+        const categoryTags = category === 'infractions' && infractionTags !== undefined
+          ? infractionTags
+          : getTagsByCategory(category);
         
         if (categoryTags.length === 0) return null;
         

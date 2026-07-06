@@ -6,7 +6,7 @@ import { AlertBadge } from './AlertBadge';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from './ui/tooltip';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 import { DataSyncIndicator } from './sync/DataSyncIndicator';
 import { NetworkStatusIndicator } from './NetworkStatusIndicator';
@@ -70,6 +70,31 @@ export const Header = ({
     [alerts]
   );
 
+  // Raccourci clavier : Ctrl/Cmd+K (ou « / ») focalise la recherche. La recherche
+  // est l'action la plus fréquente ; elle n'exige plus la souris.
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (minimal) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const inField = !!target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      );
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      } else if (e.key === '/' && !inField) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [minimal]);
+
   const lastSaveText = useMemo(() => {
     if (!lastSaveDate) return "Aucune sauvegarde locale";
     try {
@@ -118,13 +143,20 @@ export const Header = ({
           <div className="relative flex-1 min-w-0 sm:flex-none">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
             <input
+              ref={searchRef}
               type="search"
-              placeholder="Rechercher..."
+              placeholder="Rechercher…  (Ctrl+K)"
               className="h-9 w-full sm:w-64 pl-9 pr-8 rounded-full border border-gray-200 bg-gray-50 text-sm
                 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400
                 focus:bg-white transition-all duration-150 placeholder:text-gray-400"
               value={searchTerm}
               onChange={(e) => onSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && searchTerm) {
+                  e.preventDefault();
+                  onSearch('');
+                }
+              }}
             />
             {/* Indicateur discret de scan des documents */}
             {isSearchingDocs && (

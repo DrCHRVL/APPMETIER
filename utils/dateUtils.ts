@@ -26,6 +26,24 @@ export const DateUtils = {
     }
   },
 
+  /**
+   * Nombre de jours SIGNÉ de maintenant jusqu'à `target` : positif si la date
+   * est future, négatif si elle est passée. À utiliser quand le signe compte
+   * (échéance à venir vs déjà dépassée) — `getDaysDifference` renvoie une valeur
+   * absolue et ne permet pas de distinguer les deux.
+   */
+  getSignedDaysUntil: (target: Date | string, from: Date | string = new Date()): number => {
+    try {
+      const t = typeof target === 'string' ? parseISO(target) : target;
+      const f = typeof from === 'string' ? parseISO(from) : from;
+      if (isNaN(t.getTime()) || isNaN(f.getTime())) return 0;
+      return differenceInDays(t, f);
+    } catch (error) {
+      console.error('Error calculating signed days:', error);
+      return 0;
+    }
+  },
+
   addDays: (date: Date | string, days: number): string => {
     try {
       const dateObj = typeof date === 'string' ? parseISO(date) : date;

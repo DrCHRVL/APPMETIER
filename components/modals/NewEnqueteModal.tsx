@@ -209,6 +209,7 @@ export const NewEnqueteModal = ({
           <div>
             <label className="text-sm font-medium">Numéro d'enquête</label>
             <Input
+              autoFocus
               placeholder="Numéro d'enquête"
               value={newEnqueteData.numero}
               onChange={(e) => {
@@ -244,6 +245,9 @@ export const NewEnqueteModal = ({
                 size="icon"
                 className={`mt-6 ${isEnqueteAVenir ? 'text-green-600' : 'text-gray-400'}`}
                 onClick={() => setIsEnqueteAVenir(!isEnqueteAVenir)}
+                title={isEnqueteAVenir
+                  ? 'Enquête à venir (sans date de début) — cliquer pour revenir à une date'
+                  : 'Marquer comme enquête à venir (sans date de début)'}
               >
                 <Clock className="h-5 w-5" />
               </Button>

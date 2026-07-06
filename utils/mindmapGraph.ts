@@ -201,6 +201,96 @@ export function normalizeMecName(name: string): string {
     .trim();
 }
 
+/**
+ * Cl\u00e9 d'identit\u00e9 insensible \u00e0 l'ordre des mots : "VANHOVE K\u00e9vin" et
+ * "K\u00e9vin VANHOVE" partagent la m\u00eame cl\u00e9. Sert \u00e0 fusionner les n\u0153uds MEC
+ * saisis avec des conventions Nom/Pr\u00e9nom diff\u00e9rentes selon les dossiers.
+ */
+export function mecSortedKey(name: string): string {
+  const canonical = normalizeMecName(name);
+  if (!canonical) return '';
+  return canonical.split(' ').sort().join(' ');
+}
+
+/** Distance d'\u00e9dition \u2264 1 entre deux mots ("miky"/"micky", "carol"/"carole").
+ *  R\u00e9serv\u00e9e aux mots d'au moins 4 caract\u00e8res pour ne pas confondre des
+ *  particules ou initiales courtes ("de"/"le", "j"/"p"). */
+function tokensAlmostEqual(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.min(a.length, b.length) < 4) return false;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1); // substitution
+  const [long, short] = a.length > b.length ? [a, b] : [b, a];
+  return long.slice(i + 1) === short.slice(i); // insertion / suppression
+}
+
+/**
+ * Apparie chaque mot de `a` \u00e0 un mot (ou deux mots adjacents recoll\u00e9s) de `b`,
+ * sans r\u00e9utilisation. `mustCoverB` exige que tous les mots de `b` soient
+ * consomm\u00e9s (comparaison compl\u00e8te) ; sinon `a` peut \u00eatre un sous-ensemble.
+ * Backtracking \u2014 les noms font au plus 5-6 mots, co\u00fbt n\u00e9gligeable.
+ */
+function coverTokens(a: string[], b: string[], mustCoverB: boolean): boolean {
+  const used = new Array<boolean>(b.length).fill(false);
+  const step = (i: number): boolean => {
+    if (i >= a.length) return !mustCoverB || used.every(Boolean);
+    for (let j = 0; j < b.length; j++) {
+      if (used[j]) continue;
+      // mot \u2194 mot (tol\u00e9rance d'une coquille)
+      if (tokensAlmostEqual(a[i], b[j])) {
+        used[j] = true;
+        if (step(i + 1)) return true;
+        used[j] = false;
+      }
+      // compos\u00e9 recoll\u00e9 c\u00f4t\u00e9 a : "rosemarie" \u2194 "rose"+"marie"
+      if (j + 1 < b.length && !used[j + 1] && a[i] === b[j] + b[j + 1]) {
+        used[j] = used[j + 1] = true;
+        if (step(i + 1)) return true;
+        used[j] = used[j + 1] = false;
+      }
+    }
+    // compos\u00e9 recoll\u00e9 c\u00f4t\u00e9 b : "rose"+"marie" \u2194 "rosemarie"
+    if (i + 1 < a.length) {
+      const merged = a[i] + a[i + 1];
+      for (let j = 0; j < b.length; j++) {
+        if (used[j]) continue;
+        if (merged === b[j]) {
+          used[j] = true;
+          if (step(i + 2)) return true;
+          used[j] = false;
+        }
+      }
+    }
+    return false;
+  };
+  return step(0);
+}
+
+/**
+ * Vrai si deux noms d\u00e9signent tr\u00e8s probablement la m\u00eame personne :
+ *   - m\u00eames mots dans un ordre diff\u00e9rent ("VANHOVE K\u00e9vin" / "K\u00e9vin VANHOVE")
+ *   - une coquille par mot tol\u00e9r\u00e9e ("Micky"/"Miky", "Carole"/"Carol")
+ *   - mots compos\u00e9s recoll\u00e9s ("Rose-Marie" / "Rosemarie")
+ *   - avec `allowSubset` : nom partiel inclus dans le nom complet
+ *     ("Shannon" \u2282 "MELLAH MAGREZ Shannon") \u2014 \u00e0 r\u00e9server aux contextes o\u00f9
+ *     l'appelant l\u00e8ve l'ambigu\u00eft\u00e9 (un seul candidat possible).
+ * Utilis\u00e9 pour d\u00e9dupliquer les protagonistes d'un m\u00eame dossier (fusion
+ * enqu\u00eate pr\u00e9liminaire \u2192 dossier d'instruction), o\u00f9 les m\u00eames personnes ont
+ * \u00e9t\u00e9 saisies deux fois avec des conventions diff\u00e9rentes.
+ */
+export function sameMecPerson(a: string, b: string, opts?: { allowSubset?: boolean }): boolean {
+  const na = normalizeMecName(a);
+  const nb = normalizeMecName(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const ta = na.split(' ');
+  const tb = nb.split(' ');
+  const [shortT, longT] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  return coverTokens(shortT, longT, !opts?.allowSubset);
+}
+
 // ──────────────────────────────────────────────
 // SCORE COMPOSITE
 // ──────────────────────────────────────────────
@@ -307,6 +397,29 @@ export function buildMindmapGraph(
   const edges: GraphEdge[] = [];
   const edgeKeys = new Set<string>();
 
+  // Fusion insensible à l'ordre des mots : "VANHOVE Kévin" et "Kévin VANHOVE"
+  // désignent la même personne (conventions Nom/Prénom différentes entre une
+  // préliminaire et son instruction, ou entre dossiers). Le premier canonical
+  // rencontré sert d'id de nœud ; les variantes réordonnées s'y rattachent.
+  const canonicalBySortedKey = new Map<string, string>();
+  const resolveCanonical = (name: string): string => {
+    const canonical = normalizeMecName(name);
+    if (!canonical) return '';
+    const key = canonical.split(' ').sort().join(' ');
+    const existing = canonicalBySortedKey.get(key);
+    if (existing) return existing;
+    canonicalBySortedKey.set(key, canonical);
+    return canonical;
+  };
+  // Résolution en lecture seule pour les références stockées (boosts, liens
+  // renseignement) : rattache un id "ancien ordre" au nœud existant sans
+  // créer de nouvelle entrée d'alias.
+  const lookupCanonical = (id: string): string => {
+    const canonical = normalizeMecName(id);
+    if (!canonical) return id;
+    return canonicalBySortedKey.get(canonical.split(' ').sort().join(' ')) || canonical;
+  };
+
   const variantCounts = new Map<string, Map<string, number>>(); // canonicalId → variant → count
   const now = Date.now();
 
@@ -329,7 +442,7 @@ export function buildMindmapGraph(
     const dossierMatchedTagW = new Map<string, number>();
     if (misEnExamen) {
       for (const exa of misEnExamen) {
-        const canonical = normalizeMecName(exa.nom);
+        const canonical = resolveCanonical(exa.nom);
         if (!canonical) continue;
         examenedCanonical.add(canonical);
         chefsByCanonical.set(
@@ -392,7 +505,7 @@ export function buildMindmapGraph(
 
     // Parcours des MEC du dossier
     for (const mec of enquete.misEnCause) {
-      const canonical = normalizeMecName(mec.nom);
+      const canonical = resolveCanonical(mec.nom);
       if (!canonical) continue;
 
       // Compte les variantes pour choisir le displayName le plus fréquent
@@ -466,7 +579,7 @@ export function buildMindmapGraph(
   // Création ou fusion (par canonical) avec les MEC déjà extraits des dossiers.
   if (overlay?.mecsExNihilo) {
     for (const m of overlay.mecsExNihilo) {
-      const canonical = m.id || normalizeMecName(m.displayName);
+      const canonical = resolveCanonical(m.id || m.displayName);
       if (!canonical) continue;
       let mecNode = mecById.get(canonical);
       if (!mecNode) {
@@ -534,7 +647,7 @@ export function buildMindmapGraph(
       if (dossierInfractionBonus > 0) dossierInfractionBonusById.set(d.id, dossierInfractionBonus);
 
       for (const rawMecId of d.mecIds) {
-        const canonical = normalizeMecName(rawMecId) || rawMecId;
+        const canonical = resolveCanonical(rawMecId) || rawMecId;
         if (!canonical) continue;
         // Crée un nœud MEC fantôme si le canonical n'existe pas encore (cas rare,
         // ex. on a référencé un MEC ex nihilo qui a été supprimé entre-temps).
@@ -579,29 +692,37 @@ export function buildMindmapGraph(
   // chaque MEC concerné (pour la pondération du score).
   if (overlay?.liensRenseignement) {
     for (const l of overlay.liensRenseignement) {
-      const sourceExists = mecById.has(l.source) || dossierById.has(l.source);
-      const targetExists = mecById.has(l.target) || dossierById.has(l.target);
+      // Rattache les endpoints MEC stockés sous une variante réordonnée du nom
+      // au nœud fusionné correspondant (les ids de dossier passent tels quels).
+      const source = mecById.has(l.source) || dossierById.has(l.source)
+        ? l.source
+        : lookupCanonical(l.source);
+      const target = mecById.has(l.target) || dossierById.has(l.target)
+        ? l.target
+        : lookupCanonical(l.target);
+      const sourceExists = mecById.has(source) || dossierById.has(source);
+      const targetExists = mecById.has(target) || dossierById.has(target);
       if (!sourceExists || !targetExists) continue;
       edges.push({
         id: l.id,
-        source: l.source,
-        target: l.target,
+        source,
+        target,
         kind: 'renseignement',
         label: l.label,
         notes: l.notes,
       });
-      const srcMec = mecById.get(l.source);
+      const srcMec = mecById.get(source);
       if (srcMec) srcMec.nbLiensRenseignement += 1;
-      const tgtMec = mecById.get(l.target);
+      const tgtMec = mecById.get(target);
       if (tgtMec) tgtMec.nbLiensRenseignement += 1;
 
       // Lien MEC ↔ dossier : on accorde au MEC une fraction (coef) du bonus
       // d'infraction du dossier — implication "indirecte", non comptée à plein.
       if (lienInfractionCoef > 0) {
-        if (srcMec && dossierInfractionBonusById.has(l.target)) {
-          srcMec.infractionWeight += dossierInfractionBonusById.get(l.target)! * lienInfractionCoef;
-        } else if (tgtMec && dossierInfractionBonusById.has(l.source)) {
-          tgtMec.infractionWeight += dossierInfractionBonusById.get(l.source)! * lienInfractionCoef;
+        if (srcMec && dossierInfractionBonusById.has(target)) {
+          srcMec.infractionWeight += dossierInfractionBonusById.get(target)! * lienInfractionCoef;
+        } else if (tgtMec && dossierInfractionBonusById.has(source)) {
+          tgtMec.infractionWeight += dossierInfractionBonusById.get(source)! * lienInfractionCoef;
         }
       }
     }
@@ -612,7 +733,7 @@ export function buildMindmapGraph(
   const boostByMec = new Map<string, { bonus: number; reason?: string }>();
   if (overlay?.mecScoreBoosts) {
     for (const b of overlay.mecScoreBoosts) {
-      const id = normalizeMecName(b.mecId) || b.mecId;
+      const id = lookupCanonical(b.mecId) || b.mecId;
       if (!id) continue;
       boostByMec.set(id, { bonus: b.bonus, reason: b.reason });
     }

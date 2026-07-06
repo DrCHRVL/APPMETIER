@@ -79,9 +79,14 @@ export const AlertsModal = ({
       onSnoozeAlert(snoozeAlertId, snoozeDate);
     }
 
-    // Réinitialiser les valeurs
+    // Réinitialiser TOUTES les valeurs : sans ça, le mode/date choisis pour une
+    // alerte étaient réappliqués tels quels à la suivante (report par mégarde
+    // à une date héritée).
     setShowSnoozeOptions(false);
     setSnoozeAlertId(null);
+    setSnoozeType('days');
+    setSnoozeDays(7);
+    setSnoozeDate('');
   };
 
   // Regrouper les alertes par type (enquête vs AIR)
@@ -104,8 +109,11 @@ export const AlertsModal = ({
     return acc;
   }, {} as Record<string, { type: 'air' | 'enquete', id: number, title: string, alerts: Alert[] }>);
 
-  // Obtenir la date minimale pour le sélecteur de date (aujourd'hui)
-  const today = new Date().toISOString().split('T')[0];
+  // Date minimale du sélecteur = aujourd'hui, en heure LOCALE. `toISOString()`
+  // renvoie la date UTC : entre minuit et ~2h en France, elle vaut la veille et
+  // autoriserait de choisir une date déjà passée.
+  const _now = new Date();
+  const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
 
   return (
     <>
@@ -147,7 +155,7 @@ export const AlertsModal = ({
                       <div>
                         <p className="font-medium">{alert.message}</p>
                         <p className="text-sm text-gray-500">
-                          il y a environ {formatDistanceToNow(new Date(alert.createdAt), { locale: fr })}
+                          {formatDistanceToNow(new Date(alert.createdAt), { addSuffix: true, locale: fr })}
                         </p>
                         {alert.type && (
                           <div className="mt-1">

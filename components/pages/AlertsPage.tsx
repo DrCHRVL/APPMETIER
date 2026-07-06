@@ -125,13 +125,15 @@ const VisualAlertsSection = ({
   };
 
   const handleCreateRule = () => {
-    if (!newRule.trigger || !newRule.seuil) return;
+    // Un seuil de 0 est valide (ex. « le jour même ») : tester la présence, pas
+    // la vérité falsy. `op_active` n'a pas de seuil (champ masqué).
+    if (!newRule.trigger || (newRule.trigger !== 'op_active' && newRule.seuil == null)) return;
     const maxPriority = rules.length > 0 ? Math.max(...rules.map(r => r.priority)) : 0;
     const rule: VisualAlertRule = {
       id: Date.now(),
       trigger: newRule.trigger as VisualAlertTrigger,
       label: newRule.label || VISUAL_ALERT_TRIGGER_LABELS[newRule.trigger] || '',
-      seuil: newRule.seuil,
+      seuil: newRule.seuil ?? 0,
       mode: newRule.mode as VisualAlertMode || 'fond_bordure',
       fondColor: newRule.fondColor as VisualAlertColorKey || 'orange',
       bordureColor: newRule.bordureColor as VisualAlertColorKey || 'orange',

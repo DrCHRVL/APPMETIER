@@ -42,6 +42,20 @@ export function verifyPassword(password: string, stored: string | undefined | nu
   return actual.length === expected.length && crypto.timingSafeEqual(actual, expected)
 }
 
+/**
+ * Vérifie un mot de passe en temps ~constant vis-à-vis de l'EXISTENCE du compte.
+ * Quand `stored` est absent (compte inconnu), on exécute quand même un scrypt
+ * contre un hash factice puis on renvoie false : sans cela, la réponse était
+ * immédiate pour un compte inconnu et lente pour un compte existant, révélant
+ * par le temps quels identifiants existent (oracle d'énumération).
+ */
+let _dummyHash: string | null = null
+export function verifyPasswordConstantTime(password: string, stored: string | undefined | null): boolean {
+  if (!_dummyHash) _dummyHash = hashPassword('siral-timing-equalizer-not-a-real-account')
+  const ok = verifyPassword(password, stored || _dummyHash)
+  return stored ? ok : false
+}
+
 /** Politique minimale : 10 caractères. Le reste (robustesse) est à l'appréciation de l'agent. */
 export function isAcceptablePassword(password: string): boolean {
   return typeof password === 'string' && password.length >= 10

@@ -7,6 +7,10 @@ interface UseSectionsReturn {
   addSection: (name: string) => Promise<boolean>;
   removeSection: (name: string) => Promise<boolean>;
   reorderSection: (name: string, direction: 'up' | 'down') => Promise<boolean>;
+  /** Persiste l'ordre complet des sections en une seule écriture. À préférer au
+   *  réordonnancement pas-à-pas (`reorderSection`), qui, appelé en boucle,
+   *  souffrait de closures figées (un déplacement de N crans n'en faisait qu'un). */
+  setSectionsOrder: (order: string[]) => Promise<void>;
   getSectionOrder: (sectionName: string) => number;
 }
 
@@ -38,6 +42,23 @@ export const useSections = (): UseSectionsReturn => {
     return true;
   }, [sections, setSections]);
 
+  const setSectionsOrder = useCallback(async (order: string[]): Promise<void> => {
+    // Dédupliquer en conservant le premier emplacement, et ne pas perdre une
+    // section connue absente de `order` (on l'ajoute en fin par sécurité).
+    const seen = new Set<string>();
+    const cleaned: string[] = [];
+    for (const s of order) {
+      const t = s.trim();
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      cleaned.push(t);
+    }
+    for (const s of sections) {
+      if (!seen.has(s)) { seen.add(s); cleaned.push(s); }
+    }
+    await setSections(cleaned);
+  }, [sections, setSections]);
+
   const getSectionOrder = useCallback((sectionName: string): number => {
     const index = sections.indexOf(sectionName);
     if (index !== -1) return index;
@@ -51,6 +72,7 @@ export const useSections = (): UseSectionsReturn => {
     addSection,
     removeSection,
     reorderSection,
+    setSectionsOrder,
     getSectionOrder,
   };
 };

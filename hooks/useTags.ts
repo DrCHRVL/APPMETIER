@@ -596,10 +596,65 @@ export const useTags = (): UseTagsReturn => {
 
     const loserIds = new Set<string>();
     const orgTransfers = new Map<string, TagOrganization>();
+    // Clé normalisée (catégorie::valeur en minuscules) → tag conservé (keeper).
+    const keeperByKey = new Map<string, { id: string; value: string; category: TagCategory }>();
     for (const { keeper, losers, transferOrg } of groups) {
       losers.forEach(l => loserIds.add(l.id));
       if (transferOrg) orgTransfers.set(keeper.id, transferOrg);
+      keeperByKey.set(
+        `${keeper.category}::${keeper.value.trim().toLowerCase()}`,
+        { id: keeper.id, value: keeper.value, category: keeper.category },
+      );
     }
+
+    // Propager doublon → keeper sur les enquêtes AVANT de supprimer les perdants.
+    // Contrairement au commentaire précédent, le filtrage des enquêtes matche
+    // les tags par ID (useFilterSort) : une enquête taguée avec l'id d'un
+    // doublon supprimé disparaissait silencieusement du filtre. On réaligne donc
+    // id ET valeur canonique (les doublons peuvent différer par la casse), et
+    // les services[] pour la catégorie « services ». Passe unique, chirurgicale.
+    const impacted = await updateEnquetesAcrossContentieux((enquete: any) => {
+      let changed = false;
+      const updated = { ...enquete };
+      if (Array.isArray(enquete.tags)) {
+        const seen = new Set<string>();
+        const newTags: any[] = [];
+        for (const tag of enquete.tags) {
+          if (typeof tag === 'string') { newTags.push(tag); continue; }
+          const keeper = keeperByKey.get(`${tag.category}::${String(tag.value).trim().toLowerCase()}`);
+          let t = tag;
+          if (keeper && (tag.id !== keeper.id || tag.value !== keeper.value)) {
+            t = { id: keeper.id, value: keeper.value, category: keeper.category };
+            changed = true;
+          }
+          const dk = `${t.category}::${t.value}`;
+          if (seen.has(dk)) { changed = true; continue; } // dédoublonne après réalignement
+          seen.add(dk);
+          newTags.push(t);
+        }
+        if (changed) updated.tags = newTags;
+      }
+      if (Array.isArray(enquete.services)) {
+        let sChanged = false;
+        const remapped = enquete.services.map((s: string) => {
+          const keeper = keeperByKey.get(`services::${String(s).trim().toLowerCase()}`);
+          if (keeper && keeper.category === 'services' && s !== keeper.value) { sChanged = true; return keeper.value; }
+          return s;
+        });
+        if (sChanged) { updated.services = Array.from(new Set(remapped)); changed = true; }
+      }
+      if (!changed) return null;
+      updated.dateMiseAJour = new Date().toISOString();
+      return updated;
+    });
+
+    // Tombstones (anti-résurrection au merge inter-postes) + retrait central.
+    const existing = await ElectronBridge.getData<TagTombstone[]>(DELETED_TAG_IDS_KEY, []);
+    const tombstones: TagTombstone[] = Array.isArray(existing) ? existing : [];
+    for (const id of loserIds) {
+      if (!tombstones.some(t => t.id === id)) tombstones.push({ id, deletedAt: new Date().toISOString() });
+    }
+    await ElectronBridge.setData(DELETED_TAG_IDS_KEY, tombstones);
 
     setTags(prev => prev
       .filter(t => !loserIds.has(t.id))
@@ -608,12 +663,11 @@ export const useTags = (): UseTagsReturn => {
         return org ? { ...t, organization: org } : t;
       })
     );
+    tagSyncService.schedulePush();
 
-    // Les enquêtes référencent les tags par valeur (et non par ID) : la valeur
-    // du tag conservé étant identique aux doublons supprimés, aucune
-    // propagation n'est nécessaire.
+    if (impacted > 0) console.log(`Fusion des doublons : ${impacted} enquête(s) réalignée(s)`);
     return loserIds.size;
-  }, [computeDuplicateGroups]);
+  }, [computeDuplicateGroups, updateEnquetesAcrossContentieux]);
 
   const updateTag = useCallback(async (id: string, updates: Partial<TagDefinition>): Promise<boolean> => {
     try {

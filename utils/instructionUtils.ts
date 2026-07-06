@@ -21,11 +21,18 @@ import { getCasDPById, SEUIL_MOTIVATION_RENFORCEE_MOIS } from '@/config/dpRegime
  * Conforme à la loi : on saute samedis et dimanches.
  */
 export const calculateDMLEcheance = (dateDepot: string): string => {
-  const date = new Date(dateDepot);
+  // Arithmétique en UTC pur : les dates d'instruction sont des dates civiles,
+  // pas des instants. Mélanger un parsing UTC (`new Date('YYYY-MM-DD')`) avec
+  // des accès en heure locale (`getDay`/`setDate`) décalait le résultat d'un
+  // jour selon le fuseau.
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateDepot);
+  const date = m
+    ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
+    : new Date(dateDepot);
   let count = 0;
   while (count < 10) {
-    date.setDate(date.getDate() + 1);
-    const day = date.getDay();
+    date.setUTCDate(date.getUTCDate() + 1);
+    const day = date.getUTCDay();
     if (day !== 0 && day !== 6) count++;
   }
   return date.toISOString().split('T')[0];
@@ -40,9 +47,27 @@ export const calculatePeriodeDPEnd = (
   dateDebut: string,
   dureeMois: number,
 ): string => {
-  const date = new Date(dateDebut);
-  date.setMonth(date.getMonth() + dureeMois);
-  return date.toISOString().split('T')[0];
+  // Ajout « de date à date » en UTC, avec repli sur le dernier jour du mois
+  // cible si le quantième de départ n'existe pas dans ce mois. C'est la règle
+  // légale de computation des délais en mois (le terme échoit au même
+  // quantième, ou au dernier jour du mois à défaut). L'ancien
+  // `setMonth(getMonth() + n)` débordait (31 janvier + 1 mois → 3 mars au lieu
+  // du 28/29 février) et mélangeait UTC et heure locale.
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateDebut);
+  if (!m) {
+    const fallback = new Date(dateDebut);
+    if (isNaN(fallback.getTime())) return dateDebut;
+    fallback.setMonth(fallback.getMonth() + dureeMois);
+    return fallback.toISOString().split('T')[0];
+  }
+  const year = Number(m[1]);
+  const day = Number(m[3]);
+  const monthIdx = Number(m[2]) - 1 + dureeMois;
+  const targetYear = year + Math.floor(monthIdx / 12);
+  const targetMonth = ((monthIdx % 12) + 12) % 12;
+  const lastDayOfTarget = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  const d = new Date(Date.UTC(targetYear, targetMonth, Math.min(day, lastDayOfTarget)));
+  return d.toISOString().split('T')[0];
 };
 
 /** Récupère la dernière période de DP d'un MEX détenu (la plus récente non clôturée) */

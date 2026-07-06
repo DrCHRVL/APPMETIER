@@ -6,7 +6,11 @@ export const useFilterSort = (
   enquetes: Enquete[],
   searchTerm: string,
   selectedTags: Tag[],
-  sortOrder: string
+  sortOrder: string,
+  /** Clés d'infraction évolutives d'une enquête (thème NATINF, ou code, ou
+   *  valeur de tag legacy non rattaché). Requis pour matcher les chips de
+   *  filtre d'infraction dont l'id commence par `infra:`. */
+  resolveInfractionKeys?: (e: Enquete) => Set<string>
 ) => {
   return useMemo(() => {
     // Ensure enquetes is an array
@@ -70,9 +74,18 @@ export const useFilterSort = (
         )
       );
 
-      // Filtrage par tags sélectionnés
+      // Filtrage par tags sélectionnés. Les chips d'infraction évolutifs
+      // (id `infra:<clé>`) matchent sur les clés d'infraction résolues de
+      // l'enquête (thème NATINF, code, ou valeur de tag legacy) ; les autres
+      // chips matchent sur les tags réellement portés.
+      const infractionKeys = resolveInfractionKeys ? resolveInfractionKeys(e) : null;
       const matchesTags = selectedTags.length === 0 ||
-        selectedTags.every(tag => e.tags?.some(t => t.id === tag.id));
+        selectedTags.every(tag => {
+          if (tag.id.startsWith('infra:')) {
+            return infractionKeys ? infractionKeys.has(tag.id.slice('infra:'.length)) : false;
+          }
+          return e.tags?.some(t => t.id === tag.id);
+        });
 
       return matchesSearch && matchesTags;
     });
@@ -98,5 +111,5 @@ export const useFilterSort = (
           return 0;
       }
     });
-  }, [enquetes, searchTerm, selectedTags, sortOrder]);
+  }, [enquetes, searchTerm, selectedTags, sortOrder, resolveInfractionKeys]);
 };

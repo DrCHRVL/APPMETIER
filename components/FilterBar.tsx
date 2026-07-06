@@ -18,8 +18,10 @@ interface FilterBarProps {
   onSortChange: (order: string) => void;
   activeSections?: string[];
   sections?: string[];
-  onReorder?: (name: string, direction: 'up' | 'down') => Promise<boolean>;
-  onAddSection?: (name: string) => Promise<boolean>;
+  onSetSectionsOrder?: (order: string[]) => Promise<void>;
+  /** Liste évolutive des infractions à filtrer (remplace le référentiel de
+   *  tags d'infraction historique). */
+  infractionTags?: Tag[];
 }
 
 export const FilterBar = ({
@@ -30,8 +32,8 @@ export const FilterBar = ({
   onSortChange,
   activeSections = [],
   sections = [],
-  onReorder,
-  onAddSection
+  onSetSectionsOrder,
+  infractionTags
 }: FilterBarProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSectionOrder, setShowSectionOrder] = useState(false);
@@ -125,6 +127,8 @@ export const FilterBar = ({
               <option value="date-asc">Date (plus ancien)</option>
               <option value="cr-desc">Dernier CR (plus récent)</option>
               <option value="cr-asc">Dernier CR (plus ancien)</option>
+              <option value="update-desc">Modifié (plus récent)</option>
+              <option value="update-asc">Modifié (plus ancien)</option>
             </Select>
           </div>
         </div>
@@ -159,6 +163,7 @@ export const FilterBar = ({
             selectedTags={selectedTags}
             onTagSelect={onTagSelect}
             onTagRemove={onTagRemove}
+            infractionTags={infractionTags}
           />
         </div>
       )}
@@ -168,8 +173,7 @@ export const FilterBar = ({
         onClose={() => setShowSectionOrder(false)}
         sections={sections}
         activeSections={activeSections}
-        onReorder={onReorder ?? (async () => false)}
-        onAddSection={onAddSection ?? (async () => false)}
+        onSetOrder={onSetSectionsOrder ?? (async () => {})}
       />
     </div>
   );

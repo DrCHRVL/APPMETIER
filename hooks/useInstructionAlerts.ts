@@ -92,8 +92,9 @@ const generateAlerts = (
     // Vérification périodique due
     const verifRule = ruleMap.get('verif_periodique_due');
     if (verifRule) {
-      const lastVerif = dossier.verifications
+      const lastVerif = (dossier.verifications || [])
         .map(v => new Date(v.date))
+        .filter(d => !Number.isNaN(d.getTime()))
         .sort((a, b) => b.getTime() - a.getTime())[0];
       const daysSince = lastVerif
         ? Math.floor((today.getTime() - lastVerif.getTime()) / 86400000)
@@ -193,7 +194,7 @@ const generateAlerts = (
       }
 
       // DML retard / échéance proche
-      for (const dml of mex.dmls) {
+      for (const dml of mex.dmls || []) {
         if (dml.statut !== 'en_attente') continue;
         const ech = new Date(dml.dateEcheance);
         ech.setHours(0, 0, 0, 0);
@@ -290,18 +291,22 @@ const generateAlerts = (
 const lastActivityDate = (d: DossierInstruction): Date | null => {
   const candidates: number[] = [];
   if (d.dateMiseAJour) candidates.push(new Date(d.dateMiseAJour).getTime());
-  for (const n of d.notesPerso) candidates.push(new Date(n.date).getTime());
-  for (const v of d.verifications) candidates.push(new Date(v.date).getTime());
-  for (const op of d.ops) candidates.push(new Date(op.date).getTime());
-  for (const j of d.debatsJLD) candidates.push(new Date(j.date).getTime());
-  for (const mex of d.misEnExamen) {
-    for (const dml of mex.dmls) candidates.push(new Date(dml.dateDepot).getTime());
+  for (const n of d.notesPerso || []) candidates.push(new Date(n.date).getTime());
+  for (const v of d.verifications || []) candidates.push(new Date(v.date).getTime());
+  for (const op of d.ops || []) candidates.push(new Date(op.date).getTime());
+  for (const j of d.debatsJLD || []) candidates.push(new Date(j.date).getTime());
+  for (const mex of d.misEnExamen || []) {
+    for (const dml of mex.dmls || []) candidates.push(new Date(dml.dateDepot).getTime());
     if (mex.mesureSurete.type === 'detenu') {
       for (const p of mex.mesureSurete.periodes ?? []) candidates.push(new Date(p.dateDebut).getTime());
     }
   }
-  if (candidates.length === 0) return null;
-  return new Date(Math.max(...candidates));
+  // Écarter les dates invalides : un seul NaN contaminerait Math.max → la date
+  // de dernière activité deviendrait « Invalid Date » et l'alerte « dossier
+  // dormant » ne se déclencherait jamais.
+  const valid = candidates.filter(t => !Number.isNaN(t));
+  if (valid.length === 0) return null;
+  return new Date(Math.max(...valid));
 };
 
 export const useInstructionAlerts = (dossiers: DossierInstruction[]) => {
@@ -317,13 +322,27 @@ export const useInstructionAlerts = (dossiers: DossierInstruction[]) => {
     [prefs?.alerts],
   );
 
-  const refreshAlerts = useCallback(
-    throttle(async () => {
-      if (prefsLoading || rulesLoading) return;
+  // Données mouvantes lues via des refs (et non des dépendances) pour que
+  // `refreshAlerts` reste STABLE. Sinon `allAlerts` change de référence à chaque
+  // écriture (setInstructionAlerts → nouvel objet prefs) → `refreshAlerts` est
+  // recréé → l'effet ci-dessous se relance et reprogramme un refresh → boucle
+  // permanente (réécriture des préférences + push réseau toutes les ~800 ms).
+  const dossiersRef = useRef(dossiers);
+  const rulesRef = useRef(rules);
+  const allAlertsRef = useRef(allAlerts);
+  const loadingRef = useRef(prefsLoading || rulesLoading);
+  dossiersRef.current = dossiers;
+  rulesRef.current = rules;
+  allAlertsRef.current = allAlerts;
+  loadingRef.current = prefsLoading || rulesLoading;
 
-      const generated = generateAlerts(dossiers, rules);
+  const refreshAlerts = useMemo(
+    () => throttle(async () => {
+      if (loadingRef.current) return;
+
+      const generated = generateAlerts(dossiersRef.current, rulesRef.current);
       const existingMap = new Map<string, AlerteInstruction>();
-      for (const a of allAlerts) {
+      for (const a of allAlertsRef.current) {
         const key = `${a.instructionId}-${a.type}-${a.acteId || ''}`;
         existingMap.set(key, a);
       }
@@ -361,7 +380,7 @@ export const useInstructionAlerts = (dossiers: DossierInstruction[]) => {
       // rappels push (horodatages seuls — voir lib/web/pushReminders)
       updatePushSchedule('instructions', merged.filter(a => a.status === 'active'));
     }, THROTTLE_DELAY),
-    [dossiers, rules, prefsLoading, rulesLoading, allAlerts, setInstructionAlerts],
+    [setInstructionAlerts],
   );
 
   // Refresh initial + interval

@@ -51,10 +51,15 @@ export const DMLsManager = ({ value, onChange, readOnly }: Props) => {
   const handleDateRequisitions = (id: number, date: string) =>
     onChange(value.map(d => (d.id === id ? { ...d, dateRequisitions: date || undefined } : d)));
 
-  // Tri : en_attente d'abord (par échéance), puis le reste par date dépôt
+  // Tri : DML en attente d'abord, la plus URGENTE en haut (échéance la plus
+  // proche/dépassée) — c'est celle à traiter en priorité pour un détenu.
+  // Le reste est trié par date de dépôt décroissante.
   const sorted = [...value].sort((a, b) => {
     if (a.statut === 'en_attente' && b.statut !== 'en_attente') return -1;
     if (a.statut !== 'en_attente' && b.statut === 'en_attente') return 1;
+    if (a.statut === 'en_attente' && b.statut === 'en_attente') {
+      return new Date(a.dateEcheance).getTime() - new Date(b.dateEcheance).getTime();
+    }
     return new Date(b.dateDepot).getTime() - new Date(a.dateDepot).getTime();
   });
 

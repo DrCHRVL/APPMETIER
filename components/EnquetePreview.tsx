@@ -21,6 +21,7 @@ import { AutorisationValidationModal } from './modals/AutorisationValidationModa
 import { useTags } from '@/hooks/useTags';
 import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { NatinfBadge } from './natinf/NatinfBadge';
+import { CopyButton } from './ui/CopyButton';
 import { useUser } from '@/contexts/UserContext';
 import { getLastCR } from '@/utils/compteRenduUtils';
 import { getProlongationRequestDate, getAutorisationRequestDate } from '@/utils/acteUtils';
@@ -311,7 +312,7 @@ export const EnquetePreview = React.memo(({
 return (
     <>
       <Card
-        className={`w-full card-hover cursor-pointer overflow-hidden ${cardBgClass} ${cardBorderClass}`}
+        className={`group w-full card-hover cursor-pointer overflow-hidden ${cardBgClass} ${cardBorderClass}`}
         onClick={() => onView(enquete.id)}
       >
         <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 pt-2 px-3">
@@ -322,6 +323,7 @@ return (
           {enquete.numero}
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          <CopyButton value={enquete.numero} title="Copier le numéro d'enquête" className="opacity-0 group-hover:opacity-100 transition-opacity" />
           {/* Modifications non vues (par d'autres utilisateurs) */}
           {unseenCount > 0 && (
             <div
@@ -541,12 +543,12 @@ return (
              {isArchived ? (
   <>
     {onUnarchive && (
-      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onUnarchive}>
+      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onUnarchive} title="Désarchiver l'enquête">
         <RotateCcw className="h-3 w-3" />
       </Button>
     )}
     {onDelete && (
-      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onDelete}>
+      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onDelete} title="Supprimer l'enquête">
         <Trash className="h-3 w-3" />
       </Button>
     )}
@@ -554,12 +556,12 @@ return (
 ) : (
                 <>
                   {onEdit && (
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => onEdit?.(enquete.id)}>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => onEdit?.(enquete.id)} title="Modifier l'enquête">
                       <Edit className="h-3 w-3" />
                     </Button>
                   )}
                   {onArchive && !hasResultat(contentieuxId, enquete.id) && (
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setShowArchiveModal(true)}>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setShowArchiveModal(true)} title="Archiver / clôturer l'enquête">
                       <Archive className="h-3 w-3" />
                     </Button>
                   )}
