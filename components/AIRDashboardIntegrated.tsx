@@ -2,13 +2,15 @@ import React, { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { 
+import { CopyButton } from '@/components/ui/copy-button';
+import { useAIRConvocationConfig } from '@/hooks/useAIRConvocationConfig';
+import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, LineChart, Line, AreaChart, Area
+  PieChart, Pie, Cell, LineChart, Line, AreaChart, Area, ComposedChart, Legend
 } from 'recharts';
-import { 
-  TrendingUp, Users, CheckCircle, XCircle, Calendar, Clock, Target, 
-  AlertTriangle, Download, MapPin, User, FileText, Activity, Award, AlertCircle, ChevronDown, ChevronUp, RefreshCw
+import {
+  TrendingUp, TrendingDown, Users, CheckCircle, XCircle, Calendar, Clock, Target,
+  AlertTriangle, Download, MapPin, User, FileText, Activity, Award, AlertCircle, ChevronDown, ChevronUp, RefreshCw, X
 } from 'lucide-react';
 
 // Interface basée sur vos vraies données AIR
@@ -37,6 +39,23 @@ interface AIRDashboardIntegratedProps {
   className?: string;
 }
 
+// Ligne de mesure déjà normalisée (dates formatées) pour l'affichage et la copie.
+interface MesureLigneCopie {
+  ref?: string;
+  nom?: string;
+  dateReception?: string;
+  referent?: string;
+}
+
+// Formate une liste de mesures en texte prêt à coller dans un e-mail.
+const formatMesuresPourCopie = (titre: string, lignes: MesureLigneCopie[]): string => {
+  const entete = `${titre} (${lignes.length})`;
+  const corps = lignes
+    .map(l => `- ${l.ref || ''} — ${l.nom || ''} — Reçue le ${l.dateReception || 'inconnue'} — Référent : ${l.referent || 'Non assigné'}`)
+    .join('\n');
+  return `${entete}\n\n${corps}`;
+};
+
 export const AIRDashboardIntegrated = ({ 
   mesures, 
   isLoading = false,
@@ -45,6 +64,12 @@ export const AIRDashboardIntegrated = ({
   const [showAnciennesDetails, setShowAnciennesDetails] = useState(false);
   const [showPropositionsDetails, setShowPropositionsDetails] = useState(false);
   const [showAlerteDetails, setShowAlerteDetails] = useState<number | null>(null);
+  // Référent dont on affiche le détail des mesures en cours (modal). null = fermé.
+  const [selectedReferent, setSelectedReferent] = useState<string | null>(null);
+
+  // Configuration des délais (seuils d'alertes de convocation + mesures
+  // anciennes), éditable depuis l'écran Paramètres → module AIR.
+  const { config: convocConfig } = useAIRConvocationConfig();
 
   // Parser les dates - format français dd/mm/yyyy
   const parseExcelDate = (dateStr: any): Date | null => {
@@ -130,30 +155,11 @@ const stats = useMemo(() => {
   const reussitesTotal = toutesLesMesuresCloturees.filter(m => estReussite(m.resultatMesure)).length;
   const echecsTotal = toutesLesMesuresCloturees.filter(m => estEchec(m.resultatMesure)).length;
   const mesuresAvecResultatTotal = reussitesTotal + echecsTotal;
-  const tauxReussite = mesuresAvecResultatTotal > 0 ? 
+  const tauxReussite = mesuresAvecResultatTotal > 0 ?
     Math.round((reussitesTotal / mesuresAvecResultatTotal) * 100) : 0;
 
-  // Stats 2025
-  const mesuresCloturees2025 = mesures.filter(m => {
-    const dateCloture = parseExcelDate(m.dateCloture) || parseExcelDate(m.dateFinPriseEnCharge);
-    return dateCloture && dateCloture.getFullYear() === 2025;
-  });
-  const reussites2025 = mesuresCloturees2025.filter(m => estReussite(m.resultatMesure)).length;
-  const echecs2025 = mesuresCloturees2025.filter(m => estEchec(m.resultatMesure)).length;
-  const mesuresAvecResultat2025 = reussites2025 + echecs2025;
-  const tauxReussite2025 = mesuresAvecResultat2025 > 0 ? 
-    Math.round((reussites2025 / mesuresAvecResultat2025) * 100) : 0;
-
-  // Stats 2024
-  const mesuresCloturees2024 = mesures.filter(m => {
-    const dateCloture = parseExcelDate(m.dateCloture) || parseExcelDate(m.dateFinPriseEnCharge);
-    return dateCloture && dateCloture.getFullYear() === 2024;
-  });
-  const reussites2024 = mesuresCloturees2024.filter(m => estReussite(m.resultatMesure)).length;
-  const echecs2024 = mesuresCloturees2024.filter(m => estEchec(m.resultatMesure)).length;
-  const mesuresAvecResultat2024 = reussites2024 + echecs2024;
-  const tauxReussite2024 = mesuresAvecResultat2024 > 0 ? 
-    Math.round((reussites2024 / mesuresAvecResultat2024) * 100) : 0;
+  // La ventilation par année (2024 / 2025 / 2026 …) est calculée dynamiquement
+  // dans le mémo `statsAnnuelles` ci-dessous et n'est plus figée ici.
 
   return {
     total,
@@ -162,25 +168,76 @@ const stats = useMemo(() => {
     reussites: reussitesTotal,
     echecs: echecsTotal,
     tauxReussite,
-    tauxReussite2024,
-    tauxReussite2025,
-    reussites2024,
-    reussites2025,
-    echecs2024,
-    echecs2025,
-    cloturees2024: mesuresCloturees2024.length,
-    cloturees2025: mesuresCloturees2025.length,
     anciennes: mesures.filter(m => {
       if (m.dateCloture || m.dateFinPriseEnCharge) return false;
       const dateReception = parseExcelDate(m.dateReception);
-      const sixMoisAvant = new Date();
-      sixMoisAvant.setMonth(sixMoisAvant.getMonth() - 6);
-      return dateReception && dateReception < sixMoisAvant;
+      const seuilAncien = new Date();
+      seuilAncien.setMonth(seuilAncien.getMonth() - convocConfig.ancienneteMois);
+      return dateReception && dateReception < seuilAncien;
     }).length,
-    moyenneEntretiensPR: total > 0 ? 
+    moyenneEntretiensPR: total > 0 ?
       Math.round((mesures.reduce((acc, m) => acc + (m.nombreRencontresPR || 0), 0) / total) * 10) / 10 : 0
   };
-}, [mesures]);
+}, [mesures, convocConfig]);
+
+  // Statistiques annuelles : ventilation par année sous les cartes KPI et série
+  // du graphe d'évolution annuelle. Deux bases distinctes, cohérentes avec le
+  // reste du dashboard :
+  //  - Total          → par année de RÉCEPTION (cohorte reçue dans l'année)
+  //  - Réussites / Échecs / Clôturées / Taux → par année de CLÔTURE
+  // Le taux est calculé dès qu'une année a au moins une mesure décidée, même si
+  // l'année n'est pas terminée (cas de l'année courante).
+  const statsAnnuelles = useMemo(() => {
+    const parReception: Record<number, number> = {};
+    const parCloture: Record<number, { cloturees: number; reussites: number; echecs: number }> = {};
+    const anneesSet = new Set<number>();
+
+    mesures.forEach(m => {
+      const rec = parseExcelDate(m.dateReception);
+      if (rec) {
+        const y = rec.getFullYear();
+        parReception[y] = (parReception[y] || 0) + 1;
+        anneesSet.add(y);
+      }
+      const clo = parseExcelDate(m.dateCloture) || parseExcelDate(m.dateFinPriseEnCharge);
+      if (clo) {
+        const y = clo.getFullYear();
+        if (!parCloture[y]) parCloture[y] = { cloturees: 0, reussites: 0, echecs: 0 };
+        parCloture[y].cloturees++;
+        if (estReussite(m.resultatMesure)) parCloture[y].reussites++;
+        else if (estEchec(m.resultatMesure)) parCloture[y].echecs++;
+        anneesSet.add(y);
+      }
+    });
+
+    const anneeCourante = new Date().getFullYear();
+    const tauxCloture = (y: number): number | null => {
+      const c = parCloture[y];
+      if (!c) return null;
+      const decidees = c.reussites + c.echecs;
+      return decidees > 0 ? Math.round((c.reussites / decidees) * 100) : null;
+    };
+
+    // Années à afficher sous les cartes : les 3 plus récentes (année courante
+    // incluse), pour rester lisible même après plusieurs années de données.
+    const toutesAnnees = Array.from(anneesSet)
+      .filter(y => y >= 2000 && y <= anneeCourante)
+      .sort((a, b) => a - b);
+    const anneesAffichees = toutesAnnees.slice(-3);
+
+    // Série complète pour le graphe d'évolution annuelle (par année de clôture).
+    const evolutionAnnuelle = toutesAnnees
+      .filter(y => parCloture[y])
+      .map(y => ({
+        annee: String(y),
+        reussites: parCloture[y].reussites,
+        echecs: parCloture[y].echecs,
+        cloturees: parCloture[y].cloturees,
+        taux: tauxCloture(y) ?? 0,
+      }));
+
+    return { parReception, parCloture, tauxCloture, anneesAffichees, anneeCourante, evolutionAnnuelle };
+  }, [mesures]);
 
   // Statistiques avec historique
   const statsWithHistory = useMemo(() => {
@@ -203,22 +260,22 @@ const stats = useMemo(() => {
       return acc;
     }, {} as { [year: number]: any });
 
-    const sixMoisAvant = new Date();
-    sixMoisAvant.setMonth(sixMoisAvant.getMonth() - 6);
+    const seuilAncien = new Date();
+    seuilAncien.setMonth(seuilAncien.getMonth() - convocConfig.ancienneteMois);
 
     const mesuresAnciennes = mesures.filter(m => {
       if (m.dateCloture || m.dateFinPriseEnCharge) return false;
       const dateReception = parseExcelDate(m.dateReception);
-      return dateReception && dateReception < sixMoisAvant;
+      return dateReception && dateReception < seuilAncien;
     });
 
-    const douzeMoisAvant = new Date();
-    douzeMoisAvant.setMonth(douzeMoisAvant.getMonth() - 12);
+    const seuilTresAncien = new Date();
+    seuilTresAncien.setMonth(seuilTresAncien.getMonth() - convocConfig.tresAncienneteMois);
 
     const mesuresTresAnciennes = mesures.filter(m => {
       if (m.dateCloture || m.dateFinPriseEnCharge) return false;
       const dateReception = parseExcelDate(m.dateReception);
-      return dateReception && dateReception < douzeMoisAvant;
+      return dateReception && dateReception < seuilTresAncien;
     });
 
     return {
@@ -228,7 +285,7 @@ const stats = useMemo(() => {
       mesuresTresAnciennes,
       allYears
     };
-  }, [mesures, stats]);
+  }, [mesures, stats, convocConfig]);
 
   // Données pour le suivi 36 mois glissants du stock de mesures + statistiques d'évolution + alertes prédictives
   const suivi36MoisData = useMemo(() => {
@@ -554,7 +611,7 @@ const stats = useMemo(() => {
     if (statsWithHistory.mesuresTresAnciennes.length > 0) {
       alerts.push({
         type: 'warning',
-        message: `${statsWithHistory.mesuresTresAnciennes.length} mesures en cours depuis plus de 12 mois`,
+        message: `${statsWithHistory.mesuresTresAnciennes.length} mesures en cours depuis plus de ${convocConfig.tresAncienneteMois} mois`,
         action: 'Cliquer pour voir le détail',
         details: statsWithHistory.mesuresTresAnciennes.map(m => ({
           ref: m.refAEM,
@@ -565,8 +622,25 @@ const stats = useMemo(() => {
       });
     }
 
+    // Mesures anciennes (> seuil, 6 mois par défaut) : miroir de la carte
+    // « + 6 mois » et de la recommandation « Planifier la clôture… ». Placée ici
+    // pour que l'utilisateur voie qui sont ces mesures et puisse les copier.
+    if (statsWithHistory.mesuresAnciennes.length > 0) {
+      alerts.push({
+        type: 'info',
+        message: `${statsWithHistory.mesuresAnciennes.length} mesures en cours depuis plus de ${convocConfig.ancienneteMois} mois`,
+        action: 'Cliquer pour voir le détail',
+        details: statsWithHistory.mesuresAnciennes.map(m => ({
+          ref: m.refAEM,
+          nom: m.nomPrenom,
+          dateReception: parseExcelDate(m.dateReception)?.toLocaleDateString('fr-FR') || 'Inconnue',
+          referent: m.referent
+        }))
+      });
+    }
+
     return alerts;
-  }, [referentData, statsWithHistory]);
+  }, [referentData, statsWithHistory, convocConfig]);
 
   // Analyse des convocations nécessaires
   const convocationsData = useMemo(() => {
@@ -587,9 +661,9 @@ const stats = useMemo(() => {
       
       const ageEnMois = (aujourdhui.getTime() - dateReception.getTime()) / (1000 * 60 * 60 * 24 * 30.44);
       const nbRDV = mesure.nombreRencontresPR || 0;
-      
-      // RDV attendus (1 tous les 1.75 mois en moyenne)
-      const rdvAttendus = Math.max(1, Math.floor(ageEnMois / 1.75));
+
+      // RDV attendus (1 tous les N mois en moyenne, N = cadence configurable)
+      const rdvAttendus = Math.max(1, Math.floor(ageEnMois / convocConfig.cadenceRDVMois));
       const retardRDV = rdvAttendus - nbRDV;
       
       // Une mesure clôturée n'a plus à être convoquée : on ne considère
@@ -608,14 +682,14 @@ const stats = useMemo(() => {
         score: 0
       };
 
-      // Alertes selon les critères (mesures en cours uniquement)
-      if (ageEnMois >= 4 && nbRDV === 0) {
+      // Alertes selon les critères configurables (mesures en cours uniquement)
+      if (ageEnMois >= convocConfig.urgentAgeMois && nbRDV <= convocConfig.urgentMaxRDV) {
         mesureInfo.score = 100;
         alertes.urgent.push(mesureInfo);
-      } else if (ageEnMois >= 6 && retardRDV >= 2) {
+      } else if (ageEnMois >= convocConfig.retardAgeMois && retardRDV >= convocConfig.retardMinRetardRDV) {
         mesureInfo.score = 80;
         alertes.retard.push(mesureInfo);
-      } else if (ageEnMois >= 8 && retardRDV >= 1) {
+      } else if (ageEnMois >= convocConfig.insuffisantAgeMois && retardRDV >= convocConfig.insuffisantMinRetardRDV) {
         mesureInfo.score = 60;
         alertes.insuffisant.push(mesureInfo);
       }
@@ -644,6 +718,33 @@ const stats = useMemo(() => {
       },
       propositionsParReferent
     };
+  }, [mesures, convocConfig]);
+
+  // Détail des mesures EN COURS par référent, pour le modal ouvert au clic sur
+  // le compteur « en cours » de la charge par référent. On reprend exactement la
+  // définition « en cours » de referentData (dateCloture/dateFinPriseEnCharge
+  // absentes) pour que la liste corresponde au nombre affiché, même quand la
+  // date de réception est illisible.
+  const mesuresEnCoursParReferent = useMemo(() => {
+    const map: { [referent: string]: { nom: string; ref: string; dateReception: string; dateTs: number; nbRDV: number }[] } = {};
+    mesures.forEach(mesure => {
+      if (mesure.dateCloture || mesure.dateFinPriseEnCharge) return;
+      const referent = mesure.referent || 'Non assigné';
+      const d = parseExcelDate(mesure.dateReception);
+      if (!map[referent]) map[referent] = [];
+      map[referent].push({
+        nom: mesure.nomPrenom,
+        ref: mesure.refAEM,
+        dateReception: d?.toLocaleDateString('fr-FR') || 'Inconnue',
+        dateTs: d ? d.getTime() : 0,
+        nbRDV: mesure.nombreRencontresPR || 0,
+      });
+    });
+    // Trier par ancienneté (mesure la plus ancienne en tête).
+    Object.keys(map).forEach(referent => {
+      map[referent].sort((a, b) => a.dateTs - b.dateTs);
+    });
+    return map;
   }, [mesures]);
 
   // Prédictions jusqu'à fin d'année
@@ -701,6 +802,21 @@ const stats = useMemo(() => {
     );
   }
 
+  // Helpers d'affichage des ventilations annuelles + indicateurs de tendance.
+  const { anneesAffichees, parReception, parCloture, tauxCloture, anneeCourante, evolutionAnnuelle } = statsAnnuelles;
+  const ventilation = (fn: (y: number) => string) => anneesAffichees.map(fn).join(' • ');
+
+  const anneePrec = anneeCourante - 1;
+  const tauxCourant = tauxCloture(anneeCourante);
+  const tauxPrec = tauxCloture(anneePrec);
+  const deltaTaux = (tauxCourant !== null && tauxPrec !== null) ? tauxCourant - tauxPrec : null;
+  const echecsCourant = parCloture[anneeCourante]?.echecs ?? null;
+  const echecsPrec = parCloture[anneePrec]?.echecs ?? null;
+  const deltaEchecs = (echecsCourant !== null && echecsPrec !== null) ? echecsCourant - echecsPrec : null;
+
+  // Liste des mesures en cours du référent sélectionné (pour le modal).
+  const selectedReferentListe = selectedReferent ? (mesuresEnCoursParReferent[selectedReferent] || []) : [];
+
   return (
     <div className={`${className} space-y-6 mb-6`}>
       {/* Header */}
@@ -741,8 +857,7 @@ const stats = useMemo(() => {
             <div className="text-2xl font-bold text-blue-600">{statsWithHistory.actuel.total}</div>
             <div className="text-xs text-gray-600">Total</div>
             <div className="text-xs text-gray-500 mt-1">
-              {statsWithHistory.parAnnee[2024] ? `2024: ${statsWithHistory.parAnnee[2024].total}` : '2024: ?'} • 
-              {statsWithHistory.parAnnee[2025] ? ` 2025: ${statsWithHistory.parAnnee[2025].total}` : ' 2025: ?'}
+              {ventilation(y => `${y}: ${parReception[y] || 0}`)}
             </div>
           </CardContent>
         </Card>
@@ -765,7 +880,7 @@ const stats = useMemo(() => {
             <div className="text-2xl font-bold text-green-600">{statsWithHistory.actuel.reussites}</div>
             <div className="text-xs text-gray-600">Réussites</div>
             <div className="text-xs text-gray-500 mt-1">
-              2024: {stats.reussites2024} • 2025: {stats.reussites2025}
+              {ventilation(y => `${y}: ${parCloture[y]?.reussites || 0}`)}
             </div>
           </CardContent>
         </Card>
@@ -778,8 +893,17 @@ const stats = useMemo(() => {
             <div className="text-2xl font-bold text-emerald-600">{stats.tauxReussite}%</div>
             <div className="text-xs text-gray-600">Taux réussite</div>
             <div className="text-xs text-gray-500 mt-1">
-              2024: {stats.tauxReussite2024}% • 2025: {stats.tauxReussite2025}%
+              {ventilation(y => { const t = tauxCloture(y); return `${y}: ${t === null ? '—' : t + '%'}`; })}
             </div>
+            {deltaTaux !== null && (
+              <div
+                className={`text-xs mt-0.5 flex items-center justify-center gap-0.5 font-medium ${deltaTaux >= 0 ? 'text-green-600' : 'text-red-600'}`}
+                title={`Évolution du taux ${anneeCourante} vs ${anneePrec}`}
+              >
+                {deltaTaux >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                {deltaTaux >= 0 ? '+' : ''}{deltaTaux} pts / {anneePrec}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -791,8 +915,17 @@ const stats = useMemo(() => {
             <div className="text-2xl font-bold text-red-600">{statsWithHistory.actuel.echecs}</div>
             <div className="text-xs text-gray-600">Échecs</div>
             <div className="text-xs text-gray-500 mt-1">
-              2024: {stats.echecs2024} • 2025: {stats.echecs2025}
+              {ventilation(y => `${y}: ${parCloture[y]?.echecs || 0}`)}
             </div>
+            {deltaEchecs !== null && (
+              <div
+                className={`text-xs mt-0.5 flex items-center justify-center gap-0.5 font-medium ${deltaEchecs <= 0 ? 'text-green-600' : 'text-red-600'}`}
+                title={`Échecs ${anneeCourante} vs ${anneePrec} (année en cours)`}
+              >
+                {deltaEchecs <= 0 ? <TrendingDown className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />}
+                {deltaEchecs > 0 ? '+' : ''}{deltaEchecs} / {anneePrec}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -804,7 +937,7 @@ const stats = useMemo(() => {
             <div className="text-2xl font-bold text-gray-600">{statsWithHistory.actuel.cloturees}</div>
             <div className="text-xs text-gray-600">Clôturées</div>
             <div className="text-xs text-gray-500 mt-1">
-              2024: {stats.cloturees2024} • 2025: {stats.cloturees2025}
+              {ventilation(y => `${y}: ${parCloture[y]?.cloturees || 0}`)}
             </div>
           </CardContent>
         </Card>
@@ -832,9 +965,25 @@ const stats = useMemo(() => {
       {showAnciennesDetails && statsWithHistory.mesuresAnciennes.length > 0 && (
         <Card className="border-orange-200 bg-orange-50">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-orange-800">
-              Mesures de plus de 6 mois ({statsWithHistory.mesuresAnciennes.length})
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm text-orange-800">
+                Mesures de plus de {convocConfig.ancienneteMois} mois ({statsWithHistory.mesuresAnciennes.length})
+              </CardTitle>
+              <CopyButton
+                label="Copier la liste"
+                title="Copier la liste pour la coller dans un e-mail"
+                className="text-xs text-orange-700 hover:text-orange-900 px-2 py-1"
+                getText={() => formatMesuresPourCopie(
+                  `Mesures en cours depuis plus de ${convocConfig.ancienneteMois} mois`,
+                  statsWithHistory.mesuresAnciennes.map(m => ({
+                    ref: m.refAEM,
+                    nom: m.nomPrenom,
+                    dateReception: parseExcelDate(m.dateReception)?.toLocaleDateString('fr-FR') || 'Inconnue',
+                    referent: m.referent,
+                  })),
+                )}
+              />
+            </div>
           </CardHeader>
           <CardContent className="pt-0">
             <div className="max-h-32 overflow-y-auto">
@@ -876,12 +1025,21 @@ const stats = useMemo(() => {
                     'border-blue-200 bg-blue-50'
                   }`}
                 >
-                  <div className={`text-sm font-medium ${
-                    alerte.type === 'error' ? 'text-red-800' :
-                    alerte.type === 'warning' ? 'text-orange-800' :
-                    'text-blue-800'
-                  }`}>
-                    {alerte.message}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className={`text-sm font-medium ${
+                      alerte.type === 'error' ? 'text-red-800' :
+                      alerte.type === 'warning' ? 'text-orange-800' :
+                      'text-blue-800'
+                    }`}>
+                      {alerte.message}
+                    </div>
+                    {alerte.details && (
+                      <CopyButton
+                        title="Copier la liste pour la coller dans un e-mail"
+                        className="shrink-0 text-gray-500 hover:text-gray-800 hover:bg-white/70 p-1"
+                        getText={() => formatMesuresPourCopie(alerte.message, alerte.details)}
+                      />
+                    )}
                   </div>
                   <div className={`text-xs ${
                     alerte.type === 'error' ? 'text-red-600' :
@@ -904,6 +1062,56 @@ const stats = useMemo(() => {
                   )}
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Évolution annuelle du taux de réussite */}
+      {evolutionAnnuelle.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Award className="h-4 w-4 text-emerald-600" />
+              Évolution annuelle du taux de réussite
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={evolutionAnnuelle}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="annee" fontSize={11} />
+                  <YAxis yAxisId="left" fontSize={10} allowDecimals={false} />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    fontSize={10}
+                    domain={[0, 100]}
+                    tickFormatter={(v) => `${v}%`}
+                  />
+                  <Tooltip
+                    formatter={(value: number, name: string) =>
+                      name === 'Taux de réussite' ? [`${value}%`, name] : [value, name]
+                    }
+                  />
+                  <Legend />
+                  <Bar yAxisId="left" dataKey="reussites" name="Réussites" fill={colors.success} radius={[4, 4, 0, 0]} />
+                  <Bar yAxisId="left" dataKey="echecs" name="Échecs" fill={colors.error} radius={[4, 4, 0, 0]} />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="taux"
+                    name="Taux de réussite"
+                    stroke={colors.info}
+                    strokeWidth={3}
+                    dot={{ r: 4 }}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="text-xs text-gray-500 text-center mt-2">
+              Barres : réussites / échecs par année de clôture • Ligne : taux de réussite (mesures décidées)
             </div>
           </CardContent>
         </Card>
@@ -1060,12 +1268,20 @@ const stats = useMemo(() => {
                       {ref.total} total • {ref.reussites}R {ref.echecs}E • {ref.tauxReussite}%
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className={`text-lg font-bold ${ref.surcharge ? 'text-orange-600' : 'text-blue-600'}`}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedReferent(ref.referent)}
+                    disabled={ref.enCours === 0}
+                    title={ref.enCours > 0 ? 'Voir la liste des mesures en cours' : undefined}
+                    className={`text-right rounded-md px-2 py-1 transition-colors ${
+                      ref.enCours > 0 ? 'hover:bg-blue-50 cursor-pointer' : 'cursor-default'
+                    }`}
+                  >
+                    <div className={`text-lg font-bold ${ref.surcharge ? 'text-orange-600' : 'text-blue-600'} ${ref.enCours > 0 ? 'underline decoration-dotted underline-offset-2' : ''}`}>
                       {ref.enCours}
                     </div>
                     <div className="text-xs text-gray-500">en cours</div>
-                  </div>
+                  </button>
                 </div>
               ))}
             </div>
@@ -1282,8 +1498,21 @@ const stats = useMemo(() => {
                   .filter(([referent, propositions]) => propositions.length > 0)
                   .map(([referent, propositions]) => (
                   <div key={referent} className="p-4 bg-gray-50 rounded-lg">
-                    <div className="font-medium text-gray-800 mb-3">
-                      {referent} ({propositions.length} propositions)
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="font-medium text-gray-800">
+                        {referent} ({propositions.length} propositions)
+                      </div>
+                      <CopyButton
+                        label="Copier"
+                        title={`Copier les propositions de ${referent}`}
+                        className="text-xs text-gray-500 hover:text-gray-800 hover:bg-white px-2 py-1"
+                        getText={() =>
+                          `Propositions de convocations — ${referent} (${propositions.length})\n\n` +
+                          propositions
+                            .map(m => `- ${m.nom || ''} (${m.ref || ''}) — ${m.ageEnMois} mois — ${m.nbRDV}/${m.rdvAttendus} RDV`)
+                            .join('\n')
+                        }
+                      />
                     </div>
                     <div className="space-y-2">
                       {propositions.map((mesure, i) => (
@@ -1433,6 +1662,79 @@ const stats = useMemo(() => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Modal : détail des mesures en cours d'un référent (clic sur le compteur
+          « en cours » de la charge par référent) */}
+      {selectedReferent && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setSelectedReferent(null)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <div className="flex items-center gap-2 min-w-0">
+                <User className="h-4 w-4 text-blue-600 shrink-0" />
+                <h3 className="font-semibold text-gray-800 truncate">
+                  Mesures en cours — {selectedReferent}
+                  <span className="ml-2 text-sm font-normal text-gray-500">({selectedReferentListe.length})</span>
+                </h3>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <CopyButton
+                  label="Copier la liste"
+                  title="Copier la liste pour la coller dans un e-mail"
+                  className="text-xs text-blue-700 hover:text-blue-900 hover:bg-blue-50 px-2 py-1"
+                  getText={() =>
+                    `Mesures en cours — ${selectedReferent} (${selectedReferentListe.length})\n\n` +
+                    selectedReferentListe
+                      .map(m => `- ${m.nom || ''} (${m.ref || ''}) — Début : ${m.dateReception} — RDV devant PR : ${m.nbRDV}`)
+                      .join('\n')
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={() => setSelectedReferent(null)}
+                  className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-md"
+                  title="Fermer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-y-auto p-4">
+              {selectedReferentListe.length === 0 ? (
+                <div className="text-sm text-gray-500 text-center py-6">Aucune mesure en cours.</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-gray-500 border-b">
+                      <th className="py-1.5 pr-2 font-medium">Nom / Prénom</th>
+                      <th className="py-1.5 px-2 font-medium">Réf. AEM</th>
+                      <th className="py-1.5 px-2 font-medium">Date début</th>
+                      <th className="py-1.5 pl-2 font-medium text-right">RDV devant PR</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedReferentListe.map((m, i) => (
+                      <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="py-1.5 pr-2 font-medium text-gray-800">{m.nom || '—'}</td>
+                        <td className="py-1.5 px-2 font-mono text-xs text-gray-600">{m.ref}</td>
+                        <td className="py-1.5 px-2 text-gray-600">{m.dateReception}</td>
+                        <td className="py-1.5 pl-2 text-right">
+                          <Badge variant="secondary" className="text-xs">{m.nbRDV}</Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

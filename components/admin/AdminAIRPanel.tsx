@@ -1,11 +1,13 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Check, X, Trash2, Loader2, RefreshCw, Users, UserPlus, Share2, Mail, Activity, RotateCcw } from 'lucide-react';
+import { Check, X, Trash2, Loader2, RefreshCw, Users, UserPlus, Share2, Mail, Activity, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import type { AIRShareState } from '@/utils/dataSync/AIRSyncService';
 import { airSyncService } from '@/utils/dataSync/AIRSyncService';
 import { useToast } from '@/contexts/ToastContext';
 import { UserManager } from '@/utils/userManager';
+import { useAIRConvocationConfig } from '@/hooks/useAIRConvocationConfig';
+import type { AIRConvocationConfig } from '@/types/airConfigTypes';
 
 const isWebApp = () =>
   typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
@@ -81,10 +83,162 @@ export const AdminAIRPanel = () => {
         </div>
       </section>
 
+      <AIRConvocationDelaysSection />
+
       <AIRPartageSection />
 
       <AIRBackupsSection />
     </div>
+  );
+};
+
+// Clés numériques de la config (exclut les métadonnées horodatées).
+type AIRDelayNumericKey = Exclude<keyof AIRConvocationConfig, 'updatedAt' | 'updatedBy'>;
+
+// Champs numériques regroupés par catégorie d'alerte de convocation.
+const DELAY_GROUPS: {
+  titre: string;
+  description: string;
+  dot: string;
+  champs: { key: AIRDelayNumericKey; label: string; step?: number; min?: number; suffix: string }[];
+}[] = [
+  {
+    titre: 'Cadence des rendez-vous',
+    description: 'Rythme de RDV attendu devant le Procureur, sert à calculer le retard de RDV.',
+    dot: 'bg-gray-400',
+    champs: [
+      { key: 'cadenceRDVMois', label: '1 RDV attendu tous les', step: 0.25, min: 0.25, suffix: 'mois' },
+    ],
+  },
+  {
+    titre: '🔴 Urgent à convoquer',
+    description: 'Mesure ancienne quasiment sans RDV : à convoquer en priorité.',
+    dot: 'bg-red-500',
+    champs: [
+      { key: 'urgentAgeMois', label: 'Ancienneté ≥', suffix: 'mois' },
+      { key: 'urgentMaxRDV', label: 'Nombre de RDV ≤', suffix: 'RDV' },
+    ],
+  },
+  {
+    titre: '🟠 Retard probable',
+    description: 'Mesure en retard significatif sur la cadence de RDV.',
+    dot: 'bg-orange-500',
+    champs: [
+      { key: 'retardAgeMois', label: 'Ancienneté ≥', suffix: 'mois' },
+      { key: 'retardMinRetardRDV', label: 'Retard de RDV ≥', suffix: 'RDV' },
+    ],
+  },
+  {
+    titre: '🟡 Suivi insuffisant',
+    description: 'Mesure plus ancienne avec un léger retard de RDV.',
+    dot: 'bg-yellow-400',
+    champs: [
+      { key: 'insuffisantAgeMois', label: 'Ancienneté ≥', suffix: 'mois' },
+      { key: 'insuffisantMinRetardRDV', label: 'Retard de RDV ≥', suffix: 'RDV' },
+    ],
+  },
+  {
+    titre: 'Mesures anciennes',
+    description: 'Seuils des cartes « + N mois » et des alertes système correspondantes.',
+    dot: 'bg-amber-500',
+    champs: [
+      { key: 'ancienneteMois', label: 'Mesure ancienne (carte + N mois) ≥', suffix: 'mois' },
+      { key: 'tresAncienneteMois', label: 'Mesure très ancienne (alerte) ≥', suffix: 'mois' },
+    ],
+  },
+];
+
+/**
+ * Réglage des délais qui pilotent les alertes de convocation Procureur
+ * (Urgent / Retard probable / Suivi insuffisant) et les seuils « mesures
+ * anciennes » du dashboard AIR. Édition immédiate : chaque champ est enregistré
+ * à la validation (blur) et le dashboard se met à jour en direct.
+ */
+const AIRConvocationDelaysSection = () => {
+  const { showToast } = useToast();
+  const { config, update, reset } = useAIRConvocationConfig();
+  // Brouillon en chaîne pour autoriser un champ vide pendant la saisie.
+  const [draft, setDraft] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    DELAY_GROUPS.forEach(g => g.champs.forEach(c => { next[c.key] = String(config[c.key] ?? ''); }));
+    setDraft(next);
+  }, [config]);
+
+  const commit = async (key: AIRDelayNumericKey, min: number) => {
+    const parsed = parseFloat(draft[key]);
+    if (Number.isNaN(parsed) || parsed < min) {
+      // Saisie invalide : on rétablit la valeur enregistrée.
+      setDraft(prev => ({ ...prev, [key]: String(config[key] ?? '') }));
+      return;
+    }
+    if (parsed !== config[key]) {
+      await update({ [key]: parsed } as Partial<AIRConvocationConfig>);
+    }
+  };
+
+  const handleReset = async () => {
+    await reset();
+    showToast('Délais rétablis aux valeurs par défaut', 'success');
+  };
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-1.5">
+            <SlidersHorizontal className="h-4 w-4 text-gray-500" />
+            Délais des alertes de convocation
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Ajustez les seuils qui déclenchent les alertes « Convocations Procureur »
+            et les seuils de « mesures anciennes » du dashboard AIR. Chaque
+            modification est enregistrée automatiquement.
+          </p>
+        </div>
+        <button
+          onClick={handleReset}
+          className="inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded-md shrink-0"
+          title="Rétablir les valeurs par défaut"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          Par défaut
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {DELAY_GROUPS.map(group => (
+          <div key={group.titre} className="border border-gray-200 rounded-lg p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className={`h-2.5 w-2.5 rounded-full ${group.dot}`} />
+              <span className="text-sm font-medium text-gray-800">{group.titre}</span>
+            </div>
+            <p className="text-[11px] text-gray-500 leading-snug">{group.description}</p>
+            <div className="space-y-1.5 pt-1">
+              {group.champs.map(champ => (
+                <label key={champ.key} className="flex items-center justify-between gap-2 text-xs text-gray-700">
+                  <span>{champ.label}</span>
+                  <span className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      value={draft[champ.key] ?? ''}
+                      min={champ.min ?? 0}
+                      step={champ.step ?? 1}
+                      onChange={(e) => setDraft(prev => ({ ...prev, [champ.key]: e.target.value }))}
+                      onBlur={() => commit(champ.key, champ.min ?? 0)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                      className="w-16 px-2 py-1 text-sm border border-gray-300 rounded-md text-right tabular-nums"
+                    />
+                    <span className="text-gray-400 w-9">{champ.suffix}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 };
 
