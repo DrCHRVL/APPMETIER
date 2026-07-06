@@ -56,6 +56,9 @@ export interface InstructionStats {
       date175: string;
       dateEcheance: string;
       joursRestants: number;
+      /** true si la date du 175 n'est pas connue précisément (repli sur la
+       *  dernière modification du dossier) : l'échéance est approximative. */
+      approx: boolean;
     }>;
   };
 
@@ -92,11 +95,14 @@ export function useInstructionStats(dossiers: DossierInstruction[]): Instruction
     const auReglement = actifs.filter(isAuReglement);
 
     // ── MEX & mesures de sûreté ───────────────────────────────────
+    // Un MEX sans mesure de sûreté renseignée est LIBRE (c'est l'état de droit
+    // par défaut) : le compter ainsi garantit détenus + ARSE + CJ + libres
+    // = total des mis en examen (le camembert et les compteurs concordent).
     const allMex: MisEnExamen[] = actifs.flatMap(d => d.misEnExamen || []);
     const nbDetenus = allMex.filter(m => m.mesureSurete?.type === 'detenu').length;
     const nbCJ = allMex.filter(m => m.mesureSurete?.type === 'cj').length;
     const nbARSE = allMex.filter(m => m.mesureSurete?.type === 'arse').length;
-    const nbLibres = allMex.filter(m => m.mesureSurete?.type === 'libre').length;
+    const nbLibres = allMex.length - nbDetenus - nbCJ - nbARSE;
 
     // ── Âge des dossiers (depuis dateOuverture) ───────────────────
     const agesActifs: number[] = [];
@@ -148,7 +154,11 @@ export function useInstructionStats(dossiers: DossierInstruction[]): Instruction
       const aDetenu = (d.misEnExamen || []).some(isDetenuMex);
       if (!aDetenu) return;
       dossiersAReglerAvecDetenu += 1;
-      const date175 = parseDate(evt?.date) || parseDate(d.dateMiseAJour);
+      // Date du 175 : celle de l'événement si connue. À défaut, repli sur la
+      // dernière modification du dossier — approximation SIGNALÉE (approx),
+      // car cette date glisse à chaque édition du dossier.
+      const dateEvt = parseDate(evt?.date);
+      const date175 = dateEvt || parseDate(d.dateMiseAJour);
       if (!date175) return;
       const dateEcheance = new Date(date175);
       dateEcheance.setDate(dateEcheance.getDate() + DELAI_REGLEMENT_175_DETENU_JOURS);
@@ -158,6 +168,7 @@ export function useInstructionStats(dossiers: DossierInstruction[]): Instruction
         date175: date175.toISOString(),
         dateEcheance: dateEcheance.toISOString(),
         joursRestants: dayDiff(now, dateEcheance),
+        approx: !dateEvt,
       });
     });
     urgents.sort((a, b) => a.joursRestants - b.joursRestants);

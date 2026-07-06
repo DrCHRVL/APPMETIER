@@ -244,6 +244,15 @@ export interface AudienceStats {
   tauxPeinesSimple: number;
   tauxPeinesMixtesProbation: number;
   tauxPeinesMixtesSimple: number;
+  // Effectifs par catégorie de peine (même population que les moyennes/taux
+  // ci-dessus : résultats validés par getYearlyStats). Les cartes affichent
+  // ces compteurs plutôt que de refiltrer les résultats bruts, pour que
+  // effectifs, pourcentages et moyennes proviennent de la même source.
+  nombrePeinesFermes: number;
+  nombrePeinesProbation: number;
+  nombrePeinesSimple: number;
+  nombrePeinesMixtesProbation: number;
+  nombrePeinesMixtesSimple: number;
   moyenneMixtesProbation: string;
   moyenneMixtesSimple: string;
   nombreCRPC: number;

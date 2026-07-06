@@ -45,6 +45,9 @@ const formatNumber = (n: number, digits = 1): string =>
   Number.isInteger(n) ? String(n) : n.toFixed(digits);
 
 export const InstructionStats: React.FC<InstructionStatsProps> = ({ dossiers }) => {
+  // NB : ces statistiques sont une photographie du STOCK ACTUEL des dossiers
+  // d'instruction — elles ne dépendent pas de l'année sélectionnée sur la page
+  // (contrairement aux stats d'enquêtes/audiences). Une note l'indique à l'écran.
   const stats = useInstructionStats(dossiers);
   const { allCabinets } = useInstructionCabinets();
   const { getByCode } = useNatinf();
@@ -116,6 +119,10 @@ export const InstructionStats: React.FC<InstructionStatsProps> = ({ dossiers }) 
 
   return (
     <div className="space-y-6">
+      <p className="text-xs text-gray-500 -mb-2">
+        Photographie du stock actuel des dossiers d'instruction — indépendante de l'année sélectionnée.
+      </p>
+
       {/* Ligne 1 — Compteurs principaux */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
         <Card>
@@ -277,13 +284,20 @@ export const InstructionStats: React.FC<InstructionStatsProps> = ({ dossiers }) 
                           className={`font-semibold ${
                             enRetard ? 'text-red-600' : u.joursRestants <= 7 ? 'text-amber-600' : 'text-gray-700'
                           }`}
+                          title={u.approx ? "Date du 175 non renseignée : échéance estimée depuis la dernière modification du dossier" : undefined}
                         >
-                          {enRetard ? `Retard ${-u.joursRestants} j` : `${u.joursRestants} j restants`}
+                          {u.approx ? '≈ ' : ''}{enRetard ? `Retard ${-u.joursRestants} j` : `${u.joursRestants} j restants`}
                         </span>
                       </div>
                     );
                   })}
                 </div>
+                {stats.dossiersARegler.urgents.some(u => u.approx) && (
+                  <p className="text-[11px] text-gray-400 mt-1.5">
+                    ≈ : date du 175 non renseignée sur le dossier — échéance estimée.
+                    Renseignez l'événement « 175 rendu » pour une échéance exacte.
+                  </p>
+                )}
               </div>
             )}
           </CardContent>

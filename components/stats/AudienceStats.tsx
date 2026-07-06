@@ -1,7 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { useAudience } from '@/hooks/useAudience';
-import { useTags } from '@/hooks/useTags';
 import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { useNatinf } from '@/hooks/useNatinf';
 import { NatinfBadge } from '../natinf/NatinfBadge';
@@ -84,6 +83,7 @@ const InterdictionsDetailButton = ({
   selectedYear: number;
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const { getByCode } = useNatinf();
 
   const interdictionsData = useMemo(() => {
     const result: Record<string, { nom: string; lieu?: string; duree?: number; dossier: string; dateAudience: string }[]> = {};
@@ -93,7 +93,10 @@ const InterdictionsDetailButton = ({
 
       const enquete = enquetes.find(e => e.id === r.enqueteId);
       const dossier = enquete?.numero || r.numeroAudience || `#${r.enqueteId}`;
-      const typeInfraction = r.typeInfraction || 'Non renseigné';
+      // Libellé résolu par NATINF si le résultat est migré, sinon libellé legacy.
+      const code = r.infractionNatinfCodes?.[0];
+      const typeInfraction = (code ? getByCode(code)?.libelle : undefined)
+        || r.typeInfraction || 'Non renseigné';
 
       r.condamnations?.forEach(c => {
         if (!c.interdictionParaitre) return;
@@ -109,7 +112,7 @@ const InterdictionsDetailButton = ({
     });
 
     return result;
-  }, [scopedResultats, enquetes, selectedYear]);
+  }, [scopedResultats, enquetes, selectedYear, getByCode]);
 
   const sortedTypes = Object.entries(interdictionsData).sort(([, a], [, b]) => b.length - a.length);
 
@@ -183,14 +186,21 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
   const [monthlyStats, setMonthlyStats] = useState<{ [key: number]: AudienceStatsType | null }>({});
 
   const { audienceState } = useAudience();
-  const { getTagsByCategory } = useTags();
   const { infractionsForEnquete } = useInfractionNatinf();
   const { getByCode } = useNatinf();
   // Clé canonique d'une infraction : code NATINF si rattaché, sinon libellé.
   // Regrouper par cette clé garde des comptes cohérents qu'un dossier soit migré
   // au NATINF (infractionNatinfCodes) ou encore en tags.
   const keyOf = (inf: { code?: string; label: string }) => inf.code ?? inf.label;
-  const infractions = getTagsByCategory('infractions');
+  // Clés canoniques d'un RÉSULTAT d'audience : codes NATINF dénormalisés si
+  // présents, sinon libellés legacy. Sert au filtre « Interdictions de gérer »
+  // (évolutif : les options viennent des résultats eux-mêmes, pas des tags).
+  const resultInfractionKeys = (r: ResultatAudience): string[] => {
+    if (r.infractionNatinfCodes?.length) return r.infractionNatinfCodes;
+    if (r.typesInfraction?.length) return r.typesInfraction;
+    return r.typeInfraction ? [r.typeInfraction] : [];
+  };
+  const labelForInfractionKey = (k: string) => getByCode(k)?.libelle ?? k;
   const [selectedGererTags, setSelectedGererTags] = useState<string[]>([]);
   const currentDate = new Date();
 
@@ -254,13 +264,13 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
       const cResultats = Object.fromEntries(
         Object.entries(allResultats).filter(([, r]) => {
           const ctx = r.contentieuxId || 'crimorg';
-          return ctx === def.id && cEnqueteIds.has(r.enqueteId);
+          return ctx === def.id && (r.isDirectResult === true || cEnqueteIds.has(r.enqueteId));
         })
       );
 
-      const total = Object.values(cResultats)
-        .filter(r => new Date(r.dateAudience).getFullYear() === selectedYear)
-        .reduce((acc, r) => acc + r.condamnations.length, 0);
+      // Même définition que la carte (getYearlyStats), pour que la somme des
+      // contentieux colle au total affiché au-dessus.
+      const total = getYearlyStats(cResultats, cEnquetes, selectedYear)?.nombreCondamnations || 0;
 
       return { def, total };
     });
@@ -382,7 +392,8 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
           </CardContent>
         </Card>
 
-        {/* Carte Condamnations */}
+        {/* Carte Condamnations — même source que les moyennes/taux (getYearlyStats),
+            pour que le total, les mois et les pourcentages coïncident partout. */}
         <Card>
           <CardHeader>
             <CardTitle>Condamnations</CardTitle>
@@ -390,26 +401,17 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
           </CardHeader>
           <CardContent>
             {(() => {
-              const totalCondamnations = Object.values(scopedResultats)
-                .filter(r => new Date(r.dateAudience).getFullYear() === selectedYear)
-                .reduce((acc, r) => acc + r.condamnations.length, 0);
-              const totalAudiences = Object.values(scopedResultats)
-                .filter(r => new Date(r.dateAudience).getFullYear() === selectedYear)
-                .length;
+              const totalCondamnations = yearlyStats.nombreCondamnations;
+              const totalAudiences = yearlyStats.nombreAudiences;
               return (
                 <>
                   <div className="text-3xl font-bold">{totalCondamnations}</div>
                   <p className="text-sm text-gray-500">
-                    Moyenne de {totalAudiences > 0 ? (totalCondamnations / totalAudiences).toFixed(1) : 0} par audience
+                    Moyenne de {totalAudiences > 0 ? (totalCondamnations / totalAudiences).toFixed(1) : 0} par audience ({totalAudiences} audience{totalAudiences > 1 ? 's' : ''})
                   </p>
                   <div className="mt-4 pt-4 border-t space-y-1">
                     {getMonthsToShow().map(month => {
-                      const count = Object.values(scopedResultats)
-                        .filter(r => {
-                          const d = new Date(r.dateAudience);
-                          return d.getFullYear() === selectedYear && d.getMonth() === month;
-                        })
-                        .reduce((acc, r) => acc + r.condamnations.length, 0);
+                      const count = monthlyStats[month]?.nombreCondamnations || 0;
                       return (
                         <div key={month} className="flex justify-between text-sm">
                           <span>{new Date(selectedYear, month).toLocaleString('default', { month: 'long' })}:</span>
@@ -489,38 +491,20 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
           </CardHeader>
           <CardContent className="space-y-4">
             {(() => {
-              const allCondamnations = Object.values(scopedResultats)
-                .filter(r => new Date(r.dateAudience).getFullYear() === selectedYear)
-                .flatMap(r => r.condamnations);
-              const totalCondamnations = allCondamnations.length;
-
-              const condamnationsFerme = allCondamnations.filter(c =>
-                c.peinePrison > 0 && (!c.sursisProbatoire || c.sursisProbatoire === 0) && (!c.sursisSimple || c.sursisSimple === 0)
-              );
-              const condamnationsProb = allCondamnations.filter(c =>
-                (!c.peinePrison || c.peinePrison === 0) && c.sursisProbatoire > 0 && (!c.sursisSimple || c.sursisSimple === 0)
-              );
-              const condamnationsSimple = allCondamnations.filter(c =>
-                (!c.peinePrison || c.peinePrison === 0) && (!c.sursisProbatoire || c.sursisProbatoire === 0) && c.sursisSimple > 0
-              );
-              const condamnationsMixteProb = allCondamnations.filter(c =>
-                c.peinePrison > 0 && c.sursisProbatoire > 0
-              );
-              const condamnationsMixteSimple = allCondamnations.filter(c =>
-                c.peinePrison > 0 && c.sursisSimple > 0 && (!c.sursisProbatoire || c.sursisProbatoire === 0)
-              );
-
-              const moyenneMixteProb = condamnationsMixteProb.length > 0 ? {
-                ferme: condamnationsMixteProb.reduce((acc, c) => acc + (Number(c.peinePrison) || 0), 0) / condamnationsMixteProb.length,
-                sursis: condamnationsMixteProb.reduce((acc, c) => acc + (Number(c.sursisProbatoire) || 0), 0) / condamnationsMixteProb.length
-              } : { ferme: 0, sursis: 0 };
-
-              const moyenneMixteSimple = condamnationsMixteSimple.length > 0 ? {
-                ferme: condamnationsMixteSimple.reduce((acc, c) => acc + (Number(c.peinePrison) || 0), 0) / condamnationsMixteSimple.length,
-                sursis: condamnationsMixteSimple.reduce((acc, c) => acc + (Number(c.sursisSimple) || 0), 0) / condamnationsMixteSimple.length
-              } : { ferme: 0, sursis: 0 };
-
+              // Effectifs et moyennes issus de la MÊME source (getYearlyStats) :
+              // avant, les effectifs refiltraient les résultats bruts (audiences
+              // en attente et enquêtes non archivées comprises), d'où de possibles
+              // écarts avec les moyennes affichées à côté.
+              const totalCondamnations = yearlyStats.nombreCondamnations;
               const pctOf = (n: number) => totalCondamnations > 0 ? ((n / totalCondamnations) * 100).toFixed(1) : '0';
+
+              // "12.5 + 6" (ferme + sursis) → décomposition pour l'affichage
+              const splitMixte = (s: string): { ferme: number; sursis: number } => {
+                const [ferme, sursis] = s.split(' + ').map(Number);
+                return { ferme: ferme || 0, sursis: sursis || 0 };
+              };
+              const mixteProb = splitMixte(yearlyStats.moyenneMixtesProbation);
+              const mixteSimple = splitMixte(yearlyStats.moyenneMixtesSimple);
 
               return (
                 <div className="grid gap-3">
@@ -528,39 +512,39 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                     <div className="font-medium mb-1">Prison ferme uniquement</div>
                     <div className="text-2xl font-bold">{yearlyStats.moyennePrison} mois</div>
                     <div className="text-xs text-gray-500 mt-1">
-                      {condamnationsFerme.length} condamnation{condamnationsFerme.length > 1 ? 's' : ''} ({pctOf(condamnationsFerme.length)}%)
+                      {yearlyStats.nombrePeinesFermes} condamnation{yearlyStats.nombrePeinesFermes > 1 ? 's' : ''} ({pctOf(yearlyStats.nombrePeinesFermes)}%)
                     </div>
                   </div>
                   <div>
                     <div className="font-medium mb-1">Sursis probatoire uniquement</div>
                     <div className="text-2xl font-bold">{yearlyStats.moyenneProbation} mois</div>
                     <div className="text-xs text-gray-500 mt-1">
-                      {condamnationsProb.length} condamnation{condamnationsProb.length > 1 ? 's' : ''} ({pctOf(condamnationsProb.length)}%)
+                      {yearlyStats.nombrePeinesProbation} condamnation{yearlyStats.nombrePeinesProbation > 1 ? 's' : ''} ({pctOf(yearlyStats.nombrePeinesProbation)}%)
                     </div>
                   </div>
                   <div>
                     <div className="font-medium mb-1">Sursis simple uniquement</div>
                     <div className="text-2xl font-bold">{yearlyStats.moyenneSimple} mois</div>
                     <div className="text-xs text-gray-500 mt-1">
-                      {condamnationsSimple.length} condamnation{condamnationsSimple.length > 1 ? 's' : ''} ({pctOf(condamnationsSimple.length)}%)
+                      {yearlyStats.nombrePeinesSimple} condamnation{yearlyStats.nombrePeinesSimple > 1 ? 's' : ''} ({pctOf(yearlyStats.nombrePeinesSimple)}%)
                     </div>
                   </div>
                   <div>
                     <div className="font-medium mb-1">Mixte avec sursis probatoire</div>
                     <div className="text-2xl font-bold">
-                      {(moyenneMixteProb.ferme + moyenneMixteProb.sursis).toFixed(1)} dont {moyenneMixteProb.sursis.toFixed(1)} avec sursis probatoire
+                      {(mixteProb.ferme + mixteProb.sursis).toFixed(1)} dont {mixteProb.sursis.toFixed(1)} avec sursis probatoire
                     </div>
                     <div className="text-xs text-gray-500 mt-1">
-                      {condamnationsMixteProb.length} condamnation{condamnationsMixteProb.length > 1 ? 's' : ''} ({pctOf(condamnationsMixteProb.length)}%)
+                      {yearlyStats.nombrePeinesMixtesProbation} condamnation{yearlyStats.nombrePeinesMixtesProbation > 1 ? 's' : ''} ({pctOf(yearlyStats.nombrePeinesMixtesProbation)}%)
                     </div>
                   </div>
                   <div>
                     <div className="font-medium mb-1">Mixte avec sursis simple</div>
                     <div className="text-lg">
-                      {(moyenneMixteSimple.ferme + moyenneMixteSimple.sursis).toFixed(1)} dont {moyenneMixteSimple.sursis.toFixed(1)} avec sursis simple
+                      {(mixteSimple.ferme + mixteSimple.sursis).toFixed(1)} dont {mixteSimple.sursis.toFixed(1)} avec sursis simple
                     </div>
                     <div className="text-xs text-gray-500 mt-1">
-                      {condamnationsMixteSimple.length} condamnation{condamnationsMixteSimple.length > 1 ? 's' : ''} ({pctOf(condamnationsMixteSimple.length)}%)
+                      {yearlyStats.nombrePeinesMixtesSimple} condamnation{yearlyStats.nombrePeinesMixtesSimple > 1 ? 's' : ''} ({pctOf(yearlyStats.nombrePeinesMixtesSimple)}%)
                     </div>
                   </div>
                 </div>
@@ -870,13 +854,17 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
           </CardHeader>
           <CardContent>
             {(() => {
-              // Filtre multi-select des tags
+              // Filtre multi-select — options dérivées des résultats de l'année
+              // (clé NATINF ou libellé legacy), donc évolutif : plus de
+              // dépendance aux tags « type d'infraction » d'avant migration.
               const allYearResults = Object.values(scopedResultats)
                 .filter(r => r.dateAudience && new Date(r.dateAudience).getFullYear() === selectedYear && !r.isOI && !r.isClassement && !r.isAudiencePending);
 
-              // Si des tags sont sélectionnés, filtrer les résultats par type d'infraction
+              const availableKeys = [...new Set(allYearResults.flatMap(resultInfractionKeys))]
+                .sort((a, b) => labelForInfractionKey(a).localeCompare(labelForInfractionKey(b), 'fr'));
+
               const filteredResults = selectedGererTags.length > 0
-                ? allYearResults.filter(r => r.typeInfraction && selectedGererTags.includes(r.typeInfraction))
+                ? allYearResults.filter(r => resultInfractionKeys(r).some(k => selectedGererTags.includes(k)))
                 : allYearResults;
 
               const totalCondFiltered = filteredResults.reduce((acc, r) => acc + r.condamnations.length, 0);
@@ -886,18 +874,18 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
 
               return (
                 <div className="space-y-4">
-                  {/* Sélecteur de tags */}
+                  {/* Sélecteur d'infractions (année courante) */}
                   <div>
                     <label className="text-xs font-medium text-gray-500 mb-1 block">Filtrer par infractions (vide = toutes)</label>
                     <div className="flex flex-wrap gap-1.5">
-                      {infractions.map(tag => {
-                        const isSelected = selectedGererTags.includes(tag.value);
+                      {availableKeys.map(key => {
+                        const isSelected = selectedGererTags.includes(key);
                         return (
                           <button
-                            key={tag.id}
+                            key={key}
                             onClick={() => {
                               setSelectedGererTags(prev =>
-                                isSelected ? prev.filter(t => t !== tag.value) : [...prev, tag.value]
+                                isSelected ? prev.filter(t => t !== key) : [...prev, key]
                               );
                             }}
                             className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
@@ -906,7 +894,7 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                                 : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
                             }`}
                           >
-                            {tag.value}
+                            {labelForInfractionKey(key)}
                           </button>
                         );
                       })}
@@ -938,18 +926,20 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                     <div className="border-t pt-2 space-y-1">
                       {Object.entries(
                         allYearResults.reduce<Record<string, { total: number; gerer: number }>>((acc, r) => {
-                          const type = r.typeInfraction || 'Non renseigné';
-                          if (!acc[type]) acc[type] = { total: 0, gerer: 0 };
-                          acc[type].total += r.condamnations.length;
-                          acc[type].gerer += r.condamnations.filter(c => c.interdictionGerer).length;
+                          const keys = resultInfractionKeys(r);
+                          for (const key of keys.length > 0 ? keys : ['Non renseigné']) {
+                            if (!acc[key]) acc[key] = { total: 0, gerer: 0 };
+                            acc[key].total += r.condamnations.length;
+                            acc[key].gerer += r.condamnations.filter(c => c.interdictionGerer).length;
+                          }
                           return acc;
                         }, {})
                       )
                         .filter(([, v]) => v.gerer > 0)
                         .sort(([, a], [, b]) => b.gerer - a.gerer)
-                        .map(([type, { total, gerer }]) => (
-                          <div key={type} className="flex justify-between text-sm">
-                            <span>{type}</span>
+                        .map(([key, { total, gerer }]) => (
+                          <div key={key} className="flex justify-between text-sm">
+                            <span>{labelForInfractionKey(key)}</span>
                             <span className="font-medium">{gerer}/{total} ({total > 0 ? ((gerer / total) * 100).toFixed(0) : 0}%)</span>
                           </div>
                         ))
@@ -1021,11 +1011,15 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
         {contentieuxId !== 'global' && <Card>
           <CardHeader>
             <CardTitle>Peines moyennes par type d'audience</CardTitle>
+            <p className="text-sm text-gray-500">Condamnations de l'année {selectedYear}</p>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {['CRPC-Def', 'CI', 'COPJ', 'CDD'].map(type => {
+                // Filtré par année d'audience — avant, cette carte agrégeait
+                // toutes les années confondues, insensible au sélecteur.
                 const condamnationsOfType = Object.values(scopedResultats)
+                  .filter(r => r.dateAudience && new Date(r.dateAudience).getFullYear() === selectedYear)
                   .flatMap(r => r.condamnations)
                   .filter(c => c && c.typeAudience === type);
                 if (condamnationsOfType.length === 0) return null;

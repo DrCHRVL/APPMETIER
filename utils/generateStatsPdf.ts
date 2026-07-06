@@ -856,8 +856,8 @@ ${on('synthese') ? `
   </div>
   <div class="kpi">
     <div class="kpi-value">${data.enquetesEnCours}</div>
-    <div class="kpi-label">Enquêtes en cours</div>
-    <div class="kpi-sub">Ouvertes en ${selectedYear}</div>
+    <div class="kpi-label">Enquêtes ouvertes</div>
+    <div class="kpi-sub">en ${selectedYear}, tous statuts</div>
   </div>
   <div class="kpi">
     <div class="kpi-value">${Math.round(data.dureeMoyenneTerminees)}<span class="unit">j</span></div>
@@ -935,7 +935,7 @@ ${on('procedures_mois') ? `
 </div>` : ''}
 
 <!-- Déférements par mois : placé juste sous les procédures terminées -->
-${on('deferements_mois') && data.deferementsParMois.length > 0 ? `
+${on('deferements_mois') && data.deferementsParMois.some(d => d.count > 0) ? `
 <div class="section-nobreak">
   <div class="section-title">Déférements par mois</div>
   <p class="section-note">Déférements rattachés à leur date réelle (date de déférement), toutes enquêtes confondues. Peut différer du « Dont … déférements » de l'orientation, calculé à la date d'audience sur les seuls dossiers jugés dans l'année.</p>
@@ -1170,6 +1170,7 @@ ${on('instruction') ? (() => {
   return `
 <div class="section">
   <div class="section-title">Statistiques du module instruction</div>
+  <p class="section-note">Photographie du stock actuel des dossiers d'instruction — indépendante de l'année sélectionnée.</p>
   <div class="cards-row">
     <div class="card">
       <div class="card-label">Dossiers d'instruction</div>

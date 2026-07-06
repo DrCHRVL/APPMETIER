@@ -3,6 +3,7 @@ import { Button } from '../ui/button';
 import { FileText, Loader2 } from 'lucide-react';
 import { useAudience } from '@/hooks/useAudience';
 import { useTags } from '@/hooks/useTags';
+import { computeActeStats } from '@/hooks/useActeStats';
 import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { useInstructionStats } from '@/hooks/useInstructionStats';
 import { Enquete } from '@/types/interfaces';
@@ -43,21 +44,27 @@ export const ExportPdfButton = ({
       const allResultats = audienceState?.resultats || {};
       // Pour les vues par contentieux, ne retenir que les résultats du contentieux
       // courant (legacy → crimorg). En vue globale, on garde tout.
+      // Même périmètre que l'écran : les résultats standards dont l'enquête a
+      // disparu (orphelins conservés par le cleanup) sont exclus — seuls les
+      // résultats directs (permanence) passent sans enquête associée.
+      const enqueteIds = new Set(enquetes.map(e => e.id));
       const resultats: typeof allResultats = (!contentieuxId || contentieuxId === 'global')
         ? allResultats
         : Object.fromEntries(
-            Object.entries(allResultats).filter(([, r]) => (r.contentieuxId || 'crimorg') === contentieuxId)
+            Object.entries(allResultats).filter(([, r]) =>
+              (r.contentieuxId || 'crimorg') === contentieuxId
+              && (r.isDirectResult === true || enqueteIds.has(r.enqueteId))
+            )
           );
       const directResults = Object.values(resultats)
         .filter(r => r.isDirectResult && new Date(r.dateAudience).getFullYear() === selectedYear);
 
       // --- Calcul des données pour le PDF ---
 
-      // Enquêtes filtrées par année
+      // Enquêtes filtrées par année (ouvertures = flux : tous statuts actuels)
       const enquetesForYear = enquetes.filter(e =>
         new Date(e.dateCreation).getFullYear() === selectedYear
       );
-      const activeEnquetes = enquetesForYear.filter(e => e.statut === 'en_cours');
 
       // Enquêtes terminées (par date d'audience)
       const enquetesTerminees = enquetes.filter(e => {
@@ -89,9 +96,11 @@ export const ExportPdfButton = ({
       }, { total: 0, count: 0 });
       const dureeMoyenneTerminees = durationTerminees.count > 0 ? durationTerminees.total / durationTerminees.count : 0;
 
-      // Durée moyenne en cours
+      // Durée moyenne en cours : ancienneté du stock actuel (tous millésimes),
+      // comme la carte « Nombre d'enquêtes en cours » de la page.
       const now = new Date();
-      const durationEnCours = activeEnquetes.reduce((result, e) => {
+      const enCoursStock = enquetes.filter(e => e.statut === 'en_cours');
+      const durationEnCours = enCoursStock.reduce((result, e) => {
         if (!e.dateDebut) return result;
         const start = new Date(e.dateDebut);
         if (isNaN(start.getTime())) return result;
@@ -122,53 +131,19 @@ export const ExportPdfButton = ({
         return { mois: monthName, count: prelimCount + directCount };
       });
 
-      // Actes d'enquête
-      const acteStats = enquetesForYear.reduce((acc, e) => {
-        const ecoutes = e.ecoutes?.length || 0;
-        const geolocalisations = e.geolocalisations?.length || 0;
-        const autresActes = e.actes?.length || 0;
+      // Actes d'enquête : MÊME fonction que l'écran (computeActeStats) — même
+      // rattachement à l'année réelle des actes et même plafond anti-dates
+      // aberrantes. L'ancien recalcul local n'avait pas ce garde-fou : une seule
+      // dateFin erronée faisait exploser les totaux du PDF.
+      const acteStats = computeActeStats(enquetes, selectedYear);
 
-        const prolongationsEcoutes = e.ecoutes?.reduce((sum, ecoute) => {
-          let count = 0;
-          if (ecoute.dateDebut && ecoute.dateFin) {
-            const duree = Math.floor((new Date(ecoute.dateFin).getTime() - new Date(ecoute.dateDebut).getTime()) / (1000 * 60 * 60 * 24));
-            if (duree > 30) count = Math.floor((duree - 30) / 30);
-          }
-          if (ecoute.prolongationsHistory?.length) count = Math.max(ecoute.prolongationsHistory.length, count);
-          if (count === 0 && (ecoute.prolongationData || ecoute.prolongationDate)) count = 1;
-          return sum + count;
-        }, 0) || 0;
-
-        const prolongationsGeo = e.geolocalisations?.reduce((sum, geoloc) => {
-          let count = 0;
-          if (geoloc.dateDebut && geoloc.dateFin) {
-            const duree = Math.floor((new Date(geoloc.dateFin).getTime() - new Date(geoloc.dateDebut).getTime()) / (1000 * 60 * 60 * 24));
-            if (duree > 15) count = Math.floor((duree - 15) / 30);
-          }
-          if (geoloc.prolongationsHistory?.length) count = Math.max(geoloc.prolongationsHistory.length, count);
-          if (count === 0 && (geoloc.prolongationData || geoloc.prolongationDate)) count = 1;
-          return sum + count;
-        }, 0) || 0;
-
-        const prolongationsAutres = e.actes?.reduce((sum, acte) => {
-          if (acte.prolongationsHistory?.length) return sum + acte.prolongationsHistory.length;
-          if (acte.prolongationData || acte.prolongationDate) return sum + 1;
-          return sum;
-        }, 0) || 0;
-
-        return {
-          ecoutes: acc.ecoutes + ecoutes,
-          geolocalisations: acc.geolocalisations + geolocalisations,
-          autresActes: acc.autresActes + autresActes,
-          prolongationsEcoutes: acc.prolongationsEcoutes + prolongationsEcoutes,
-          prolongationsGeo: acc.prolongationsGeo + prolongationsGeo,
-          prolongationsAutres: acc.prolongationsAutres + prolongationsAutres,
-        };
-      }, { ecoutes: 0, geolocalisations: 0, autresActes: 0, prolongationsEcoutes: 0, prolongationsGeo: 0, prolongationsAutres: 0 });
-
-      // Services
+      // Services — même union que l'écran : enquêtes créées dans l'année ∪
+      // enquêtes jugées dans l'année (dédupliquées) + procédures directes.
       const combinedServiceStats: Record<string, number> = {};
-      enquetesForYear.forEach(e => {
+      const vuesGlobales = new Set<number>();
+      [...enquetesForYear, ...enquetesTerminees].forEach(e => {
+        if (vuesGlobales.has(e.id)) return;
+        vuesGlobales.add(e.id);
         getServicesFromTags(e.tags).forEach(service => {
           if (service) combinedServiceStats[service] = (combinedServiceStats[service] || 0) + 1;
         });
@@ -264,7 +239,9 @@ export const ExportPdfButton = ({
           return acc;
         }, 0);
         return { mois: monthName, count };
-      }).filter(d => d.count > 0);
+      });
+      // NB : on garde les mois à zéro — les retirer déformait l'axe du temps
+      // de la courbe (mars collé à juin) alors que l'écran les affiche.
 
       // Âge moyen des dossiers avant ouverture d'information / classement
       // (même calcul que les cartes de la page Statistiques)
@@ -284,11 +261,11 @@ export const ExportPdfButton = ({
       const ouvertureInfoAgeMoyen = computeAgeMoyen(r => !!r.isOI);
       const classementAgeMoyen = computeAgeMoyen(r => !!r.isClassement);
 
-      // Enquêtes en cours (tous millésimes) et ouvertures par mois de l'année
-      const enquetesEnCoursTotal = enquetes.filter(e => e.statut === 'en_cours').length;
-      const enquetesOuvertesAnnee = enquetes.filter(e =>
-        e.statut === 'en_cours' && new Date(e.dateCreation).getFullYear() === selectedYear
-      );
+      // Enquêtes en cours (stock actuel, tous millésimes) et ouvertures de
+      // l'année (flux : toutes les enquêtes créées dans l'année, quel que soit
+      // leur statut actuel — une enquête déjà jugée reste une ouverture).
+      const enquetesEnCoursTotal = enCoursStock.length;
+      const enquetesOuvertesAnnee = enquetesForYear;
       const ouverturesParMois = months.map(month => ({
         mois: new Date(selectedYear, month).toLocaleString('fr-FR', { month: 'long' }),
         count: enquetesOuvertesAnnee.filter(e => new Date(e.dateCreation).getMonth() === month).length,
@@ -395,7 +372,7 @@ export const ExportPdfButton = ({
         contentieuxLabel,
         redacteur,
         enquetesTerminees: totalTermineesFiltered,
-        enquetesEnCours: activeEnquetes.length,
+        enquetesEnCours: enquetesOuvertesAnnee.length,
         dureeMoyenneTerminees,
         dureeMoyenneEnCours,
         proceduremoisData,
