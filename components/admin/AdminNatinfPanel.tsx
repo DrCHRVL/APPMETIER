@@ -68,6 +68,9 @@ export const AdminNatinfPanel = () => {
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
+    // Réinitialiser la valeur pour que resélectionner le même fichier redéclenche
+    // l'événement `change` (sinon rien ne se passe et l'UI semble cassée).
+    e.target.value = '';
     if (f) handleFile(f);
   };
 

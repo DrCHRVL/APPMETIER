@@ -938,6 +938,10 @@ class BackupManager {
   }
 
   public scheduleIntegrityCheck(): void {
+    // Éviter de cumuler les intervalles si initialize() est appelé plusieurs fois.
+    if (this.integrityCheckTimerId) {
+      clearInterval(this.integrityCheckTimerId);
+    }
     this.integrityCheckTimerId = setInterval(() => {
       setTimeout(() => {
         this.checkAndRepairData();

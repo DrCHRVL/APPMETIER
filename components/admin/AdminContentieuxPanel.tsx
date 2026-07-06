@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Save, Power, PowerOff, Edit2, X, Check, FolderOpen, AlertTriangle } from 'lucide-react';
+import { Plus, Power, PowerOff, Edit2, X, Check, AlertTriangle } from 'lucide-react';
 import { UserManager } from '@/utils/userManager';
 import { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import { useUser } from '@/contexts/UserContext';
@@ -70,7 +70,7 @@ export const AdminContentieuxPanel = () => {
       refreshUsers();
       load();
       setShowAddForm(false);
-      setNewId(''); setNewLabel(''); setNewServerFolder('');
+      setNewId(''); setNewLabel(''); setNewServerFolder(''); setNewColor('#9333ea');
     } else {
       showToast('Erreur: ID déjà existant ou droits insuffisants', 'error');
     }
@@ -229,7 +229,7 @@ export const AdminContentieuxPanel = () => {
 
       {/* Contentieux list */}
       <div className="space-y-2">
-        {contentieuxList
+        {[...contentieuxList]
           .sort((a, b) => a.order - b.order)
           .map(def => {
             const isEnabled = def.enabled !== false;

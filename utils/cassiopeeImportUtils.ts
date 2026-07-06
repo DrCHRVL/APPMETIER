@@ -75,7 +75,14 @@ export const parseFrDate = (raw: string | undefined | null): string => {
   const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
   if (!m) return '';
   const [, dd, mm, yyRaw] = m;
-  const year = yyRaw.length === 2 ? `20${yyRaw}` : yyRaw;
+  // Pivot pour les années à 2 chiffres : jusqu'à (année courante + 5) → 21e
+  // siècle, sinon 20e siècle (naissances : « 58 » → 1958, pas 2058).
+  let year = yyRaw;
+  if (yyRaw.length === 2) {
+    const n = parseInt(yyRaw, 10);
+    const pivot = (new Date().getFullYear() % 100) + 5;
+    year = `${n <= pivot ? 2000 + n : 1900 + n}`;
+  }
   const day = dd.padStart(2, '0');
   const month = mm.padStart(2, '0');
   if (Number(month) < 1 || Number(month) > 12) return '';

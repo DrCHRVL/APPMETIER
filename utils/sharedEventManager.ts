@@ -11,6 +11,7 @@ export class SharedEventManager {
   private static instance: SharedEventManager;
   private listeners: Array<(event: SharedEvent) => void> = [];
   private username: string = '';
+  private ipcRegistered = false;
 
   private constructor() {}
 
@@ -25,11 +26,14 @@ export class SharedEventManager {
   start(username: string): void {
     this.username = username;
 
-    // Écouter les événements envoyés depuis le main process (file watcher)
-    if (typeof window !== 'undefined') {
+    // Écouter les événements envoyés depuis le main process (file watcher).
+    // Enregistrement unique : un re-login sans rechargement complet ne doit pas
+    // cumuler les callbacks IPC (sinon chaque événement serait distribué N fois).
+    if (typeof window !== 'undefined' && !this.ipcRegistered) {
       window.electronAPI?.onSharedEvent?.((event: SharedEvent) => {
         this.dispatchInternal(event);
       });
+      this.ipcRegistered = true;
     }
   }
 

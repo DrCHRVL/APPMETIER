@@ -43,6 +43,13 @@ class InstructionConfigManagerService {
       null,
     );
 
+    // Lecture illisible (≠ config réellement absente) : renvoyer des défauts
+    // ÉPHÉMÈRES sans les mettre en cache ni les sauvegarder, sinon un échec de
+    // lecture transitoire écraserait les cabinets personnalisés de l'utilisateur.
+    if (stored === null && ElectronBridge.didReadFail(CONFIG_KEY)) {
+      return buildDefaultConfig();
+    }
+
     if (!stored || !Array.isArray(stored.cabinets) || stored.cabinets.length === 0) {
       const fresh = buildDefaultConfig();
       await this.save(fresh);

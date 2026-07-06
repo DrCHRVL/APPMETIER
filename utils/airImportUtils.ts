@@ -115,6 +115,16 @@ export interface MappingResult {
   missingFields: string[];
 }
 
+// Étend une année à 2 chiffres en 4 chiffres avec un pivot : les années jusqu'à
+// (année courante + 5) restent au 21e siècle (dates de procédure récentes), les
+// autres basculent au 20e siècle (dates de naissance : « 58 » → 1958, pas 2058).
+export const expandTwoDigitYear = (yy: string): string => {
+  const n = parseInt(yy, 10);
+  if (Number.isNaN(n)) return `20${yy}`;
+  const pivot = (new Date().getFullYear() % 100) + 5;
+  return `${n <= pivot ? 2000 + n : 1900 + n}`;
+};
+
 // 🎯 FONCTION DE FORMATAGE DES DATES SIMPLIFIÉE
 export const formatDateIfNeeded = (value: any): string => {
   if (!value) return '';
@@ -129,7 +139,7 @@ if (str.toUpperCase().includes('TRANSFERE')) {
   // 🎯 CAS PRINCIPAL : Format DD/MM/YY (format Excel standard)
   if (/^\d{1,2}\/\d{1,2}\/\d{2}$/.test(str)) {
     const [day, month, year] = str.split('/');
-    return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/20${year}`;
+    return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${expandTwoDigitYear(year)}`;
   }
   
   // 🎯 CAS SECONDAIRE : Déjà au bon format DD/MM/YYYY

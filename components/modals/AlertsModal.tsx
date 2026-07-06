@@ -66,6 +66,11 @@ export const AlertsModal = ({
   };
 
   const openSnoozeOptions = (alertId: number) => {
+    // Repartir des valeurs par défaut à chaque ouverture, sinon un report précédent
+    // (ex. « jusqu'au 01/08 ») resterait pré-rempli pour l'alerte suivante.
+    setSnoozeType('days');
+    setSnoozeDays(7);
+    setSnoozeDate('');
     setSnoozeAlertId(alertId);
     setShowSnoozeOptions(true);
   };

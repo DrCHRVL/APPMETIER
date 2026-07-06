@@ -1,6 +1,6 @@
 // components/modals/DataSyncConflictModal.tsx
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { SyncConflict, ConflictAction } from '@/types/dataSyncTypes';
@@ -38,13 +38,24 @@ export const DataSyncConflictModal = ({
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   
   // État de sélection : par défaut tout coché avec "merge"
-  const [selections, setSelections] = useState<Map<number, ConflictSelection>>(() => {
-    const initial = new Map();
-    conflicts.forEach((conflict, index) => {
+  const buildDefaultSelections = (list: SyncConflict[]) => {
+    const initial = new Map<number, ConflictSelection>();
+    list.forEach((_, index) => {
       initial.set(index, { enabled: true, action: 'merge' });
     });
     return initial;
-  });
+  };
+
+  const [selections, setSelections] = useState<Map<number, ConflictSelection>>(
+    () => buildDefaultSelections(conflicts),
+  );
+
+  // Le composant peut rester monté et être réutilisé pour une autre série de
+  // conflits : resynchroniser les sélections avec les `conflicts` courants, sinon
+  // des choix par index s'appliqueraient au mauvais conflit.
+  useEffect(() => {
+    setSelections(buildDefaultSelections(conflicts));
+  }, [conflicts]);
 
   const toggleExpand = (id: string) => {
     setExpandedItems(prev => {

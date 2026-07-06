@@ -314,7 +314,10 @@ export class DocumentAnalyzer {
     // Extraire selon les patterns
     for (const [field, extractor] of Object.entries(pattern.extractors)) {
       for (const regex of extractor.patterns) {
-        const matches = dispositifText.match(regex);
+        // Les patterns sont globaux (/gi) : String.match() renvoie alors les
+        // correspondances entières et perd les groupes de capture. On utilise
+        // exec() sur une instance fraîche pour récupérer le groupe 1 (la valeur).
+        const matches = new RegExp(regex.source, regex.flags).exec(dispositifText);
         if (matches) {
           let value = matches[1] || matches[0];
           

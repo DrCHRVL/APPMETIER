@@ -11,6 +11,7 @@ import type {
   DemandeMiseEnLiberte,
 } from '@/types/instructionTypes';
 import { getCasDPById, SEUIL_MOTIVATION_RENFORCEE_MOIS } from '@/config/dpRegimes';
+import { DateUtils } from '@/utils/dateUtils';
 
 // ──────────────────────────────────────────────
 // DML
@@ -40,9 +41,9 @@ export const calculatePeriodeDPEnd = (
   dateDebut: string,
   dureeMois: number,
 ): string => {
-  const date = new Date(dateDebut);
-  date.setMonth(date.getMonth() + dureeMois);
-  return date.toISOString().split('T')[0];
+  // addMonths borne au dernier jour du mois (31/12 + 2 mois → 28/02, pas 03/03),
+  // ce que setMonth ne fait pas : la date de fin de DP est juridiquement sensible.
+  return DateUtils.addCalendarMonths(dateDebut, dureeMois);
 };
 
 /** Récupère la dernière période de DP d'un MEX détenu (la plus récente non clôturée) */

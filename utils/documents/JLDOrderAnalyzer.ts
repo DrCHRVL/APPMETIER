@@ -94,8 +94,6 @@ export class JLDOrderAnalyzer {
    * Détecte si le document est une ordonnance JLD d'interception
    */
   private static detectJLDOrder(text: string): boolean {
-    console.log('🔍 TEXTE FINAL ANALYSÉ (premiers 500 chars):', text.substring(0, 500));
-    
     const indicators = [
       'PAR CES MOTIFS',
       'AUTORISONS pour une durée maximale',
@@ -109,14 +107,10 @@ export class JLDOrderAnalyzer {
     for (let i = 0; i < indicators.length; i++) {
       const indicator = indicators[i];
       const found = text.toUpperCase().includes(indicator.toUpperCase());
-      console.log(`🔍 Pattern ${i + 1} (${indicator}):`, found ? '✅ TROUVÉ' : '❌ PAS TROUVÉ');
       if (found) {
         matchCount++;
       }
     }
-
-    console.log('📊 TOTAL TROUVÉ:', matchCount, 'sur', indicators.length);
-    console.log('📊 SEUIL REQUIS: 4, RÉSULTAT:', matchCount >= 4 ? '✅ VALIDÉ' : '❌ ÉCHEC');
 
     // Au moins 4 indicateurs sur 6 doivent être présents
     return matchCount >= 4;

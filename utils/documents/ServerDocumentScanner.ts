@@ -501,8 +501,10 @@ export class ServerDocumentScanner {
     const pourMoisMatch = text.match(/pour\s+une?\s+dur[ée]e\s*(?:maximale?\s*)?d[''']?\s*(un|une)\s*mois/i);
     if (pourMoisMatch) return { duree: '1', dureeUnit: 'mois' };
 
-    // Durée en jours (mots) — "de quinze jours", "dequinzejours", "quinze jours"
-    const joursMotMatch = text.match(/dur[ée]e\s*(?:de\s*)?(\w+)\s*jours?/i);
+    // Durée en jours (mots) — "de quinze jours", "de quarante-huit jours".
+    // La classe inclut le trait d'union pour capturer les composés (« quarante-huit »),
+    // sinon (\w+) ne prendrait que « huit » → 8 au lieu de 48.
+    const joursMotMatch = text.match(/dur[ée]e\s*(?:de\s*)?([\wà-ÿ-]+)\s*jours?/i);
     if (joursMotMatch) {
       const nombre = NOMBRES_FR[joursMotMatch[1].toLowerCase()];
       if (nombre) return { duree: nombre.toString(), dureeUnit: 'jours' };
@@ -513,21 +515,23 @@ export class ServerDocumentScanner {
     if (joursNumMatch) return { duree: joursNumMatch[1], dureeUnit: 'jours' };
 
     // "quinze jours" / "quinzejours" isolé dans le dispositif (avant "à compter" ou ponctuation)
-    const quinzeJours = text.match(/(\w+)\s*jours?\s*[,.]?\s*(?:[àa]\s*compter|renouvelable)/i);
+    const quinzeJours = text.match(/([\wà-ÿ-]+)\s*jours?\s*[,.]?\s*(?:[àa]\s*compter|renouvelable)/i);
     if (quinzeJours) {
       const nombre = NOMBRES_FR[quinzeJours[1].toLowerCase()];
       if (nombre) return { duree: nombre.toString(), dureeUnit: 'jours' };
     }
 
     // Fallback : chercher un nombre en lettres suivi de "jours" n'importe où
-    // Utile si l'OCR a collé les mots : "quinzejours"
-    for (const [mot, valeur] of Object.entries(NOMBRES_FR)) {
+    // Utile si l'OCR a collé les mots : "quinzejours". On teste les libellés les
+    // plus longs d'abord pour que « quarante-huit » l'emporte sur « huit ».
+    const nombresParLongueur = Object.entries(NOMBRES_FR).sort((a, b) => b[0].length - a[0].length);
+    for (const [mot, valeur] of nombresParLongueur) {
       const regex = new RegExp(`${mot}\\s*jours?`, 'i');
       if (regex.test(text)) return { duree: valeur.toString(), dureeUnit: 'jours' };
     }
 
     // Même chose pour mois
-    for (const [mot, valeur] of Object.entries(NOMBRES_FR)) {
+    for (const [mot, valeur] of nombresParLongueur) {
       const regex = new RegExp(`${mot}\\s*mois`, 'i');
       if (regex.test(text)) return { duree: valeur.toString(), dureeUnit: 'mois' };
     }

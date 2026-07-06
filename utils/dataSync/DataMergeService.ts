@@ -55,9 +55,12 @@ export class DataMergeService {
       serverData.enquetes || [],
       localDeletedIds,
       serverDeletedIds,
-      localDeletedActeIds,
-      localDeletedCRIds,
-      localDeletedMECIds
+      // Filtrer les sous-éléments par l'UNION des tombstones (local + serveur) :
+      // une suppression d'acte/CR/MEC faite par un collègue doit aussi être
+      // respectée, sinon l'élément est ressuscité au prochain merge.
+      new Set(mergedDeletedActeIds),
+      new Set(mergedDeletedCRIds),
+      new Set(mergedDeletedMECIds)
     );
 
     conflicts.push(...enqueteConflicts);
