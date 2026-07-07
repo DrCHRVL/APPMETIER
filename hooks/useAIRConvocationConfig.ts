@@ -24,7 +24,9 @@ export const useAIRConvocationConfig = () => {
     const unsubscribe = AIRConfigManager.subscribe(c => {
       if (mounted) setConfig(c);
     });
-    return () => { mounted = false; unsubscribe(); };
+    // Récupère les ajustements des collègues (pull initial + sync périodique).
+    AIRConfigManager.start();
+    return () => { mounted = false; unsubscribe(); AIRConfigManager.stop(); };
   }, []);
 
   const update = useCallback(

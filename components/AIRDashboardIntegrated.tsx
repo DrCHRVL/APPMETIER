@@ -190,7 +190,20 @@ const stats = useMemo(() => {
   const statsAnnuelles = useMemo(() => {
     const parReception: Record<number, number> = {};
     const parCloture: Record<number, { cloturees: number; reussites: number; echecs: number }> = {};
+    // Variante « à date équivalente » (year-to-date) : ne compte, pour chaque
+    // année, que les clôtures survenues entre le 1er janvier et la date du jour
+    // ramenée à cette année. Permet une comparaison honnête de l'année en cours
+    // (incomplète) avec la même période de l'année précédente.
+    const parClotureYTD: Record<number, { reussites: number; echecs: number }> = {};
     const anneesSet = new Set<number>();
+
+    const maintenant = new Date();
+    const cutoffMois = maintenant.getMonth();
+    const cutoffJour = maintenant.getDate();
+    const estDansPeriodeYTD = (d: Date): boolean => {
+      const m = d.getMonth();
+      return m < cutoffMois || (m === cutoffMois && d.getDate() <= cutoffJour);
+    };
 
     mesures.forEach(m => {
       const rec = parseExcelDate(m.dateReception);
@@ -204,15 +217,28 @@ const stats = useMemo(() => {
         const y = clo.getFullYear();
         if (!parCloture[y]) parCloture[y] = { cloturees: 0, reussites: 0, echecs: 0 };
         parCloture[y].cloturees++;
-        if (estReussite(m.resultatMesure)) parCloture[y].reussites++;
-        else if (estEchec(m.resultatMesure)) parCloture[y].echecs++;
+        const reussite = estReussite(m.resultatMesure);
+        const echec = !reussite && estEchec(m.resultatMesure);
+        if (reussite) parCloture[y].reussites++;
+        else if (echec) parCloture[y].echecs++;
+        if (estDansPeriodeYTD(clo)) {
+          if (!parClotureYTD[y]) parClotureYTD[y] = { reussites: 0, echecs: 0 };
+          if (reussite) parClotureYTD[y].reussites++;
+          else if (echec) parClotureYTD[y].echecs++;
+        }
         anneesSet.add(y);
       }
     });
 
-    const anneeCourante = new Date().getFullYear();
+    const anneeCourante = maintenant.getFullYear();
     const tauxCloture = (y: number): number | null => {
       const c = parCloture[y];
+      if (!c) return null;
+      const decidees = c.reussites + c.echecs;
+      return decidees > 0 ? Math.round((c.reussites / decidees) * 100) : null;
+    };
+    const tauxClotureYTD = (y: number): number | null => {
+      const c = parClotureYTD[y];
       if (!c) return null;
       const decidees = c.reussites + c.echecs;
       return decidees > 0 ? Math.round((c.reussites / decidees) * 100) : null;
@@ -236,7 +262,7 @@ const stats = useMemo(() => {
         taux: tauxCloture(y) ?? 0,
       }));
 
-    return { parReception, parCloture, tauxCloture, anneesAffichees, anneeCourante, evolutionAnnuelle };
+    return { parReception, parCloture, parClotureYTD, tauxCloture, tauxClotureYTD, anneesAffichees, anneeCourante, evolutionAnnuelle };
   }, [mesures]);
 
   // Statistiques avec historique
@@ -803,16 +829,20 @@ const stats = useMemo(() => {
   }
 
   // Helpers d'affichage des ventilations annuelles + indicateurs de tendance.
-  const { anneesAffichees, parReception, parCloture, tauxCloture, anneeCourante, evolutionAnnuelle } = statsAnnuelles;
+  const { anneesAffichees, parReception, parCloture, parClotureYTD, tauxCloture, tauxClotureYTD, anneeCourante, evolutionAnnuelle } = statsAnnuelles;
   const ventilation = (fn: (y: number) => string) => anneesAffichees.map(fn).join(' • ');
 
+  // Indicateurs de tendance : comparaison « à date équivalente » (year-to-date)
+  // — l'année en cours, incomplète, est comparée à la MÊME PÉRIODE de l'année
+  // précédente (1er janvier → date du jour), pas à l'année pleine, pour éviter
+  // un écart trompeusement favorable.
   const anneePrec = anneeCourante - 1;
-  const tauxCourant = tauxCloture(anneeCourante);
-  const tauxPrec = tauxCloture(anneePrec);
-  const deltaTaux = (tauxCourant !== null && tauxPrec !== null) ? tauxCourant - tauxPrec : null;
-  const echecsCourant = parCloture[anneeCourante]?.echecs ?? null;
-  const echecsPrec = parCloture[anneePrec]?.echecs ?? null;
-  const deltaEchecs = (echecsCourant !== null && echecsPrec !== null) ? echecsCourant - echecsPrec : null;
+  const tauxCourantYTD = tauxClotureYTD(anneeCourante);
+  const tauxPrecYTD = tauxClotureYTD(anneePrec);
+  const deltaTaux = (tauxCourantYTD !== null && tauxPrecYTD !== null) ? tauxCourantYTD - tauxPrecYTD : null;
+  const echecsCourantYTD = parClotureYTD[anneeCourante]?.echecs ?? null;
+  const echecsPrecYTD = parClotureYTD[anneePrec]?.echecs ?? null;
+  const deltaEchecs = (echecsCourantYTD !== null && echecsPrecYTD !== null) ? echecsCourantYTD - echecsPrecYTD : null;
 
   // Liste des mesures en cours du référent sélectionné (pour le modal).
   const selectedReferentListe = selectedReferent ? (mesuresEnCoursParReferent[selectedReferent] || []) : [];
@@ -898,10 +928,10 @@ const stats = useMemo(() => {
             {deltaTaux !== null && (
               <div
                 className={`text-xs mt-0.5 flex items-center justify-center gap-0.5 font-medium ${deltaTaux >= 0 ? 'text-green-600' : 'text-red-600'}`}
-                title={`Évolution du taux ${anneeCourante} vs ${anneePrec}`}
+                title={`Taux ${anneeCourante} vs ${anneePrec} à date équivalente (1ᵉʳ janvier → aujourd'hui)`}
               >
                 {deltaTaux >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                {deltaTaux >= 0 ? '+' : ''}{deltaTaux} pts / {anneePrec}
+                {deltaTaux >= 0 ? '+' : ''}{deltaTaux} pts / {anneePrec} à date
               </div>
             )}
           </CardContent>
@@ -920,10 +950,10 @@ const stats = useMemo(() => {
             {deltaEchecs !== null && (
               <div
                 className={`text-xs mt-0.5 flex items-center justify-center gap-0.5 font-medium ${deltaEchecs <= 0 ? 'text-green-600' : 'text-red-600'}`}
-                title={`Échecs ${anneeCourante} vs ${anneePrec} (année en cours)`}
+                title={`Échecs ${anneeCourante} vs ${anneePrec} à date équivalente (1ᵉʳ janvier → aujourd'hui)`}
               >
                 {deltaEchecs <= 0 ? <TrendingDown className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />}
-                {deltaEchecs > 0 ? '+' : ''}{deltaEchecs} / {anneePrec}
+                {deltaEchecs > 0 ? '+' : ''}{deltaEchecs} / {anneePrec} à date
               </div>
             )}
           </CardContent>

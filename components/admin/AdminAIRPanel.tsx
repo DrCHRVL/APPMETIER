@@ -194,7 +194,8 @@ const AIRConvocationDelaysSection = () => {
           <p className="text-xs text-gray-500 mt-0.5">
             Ajustez les seuils qui déclenchent les alertes « Convocations Procureur »
             et les seuils de « mesures anciennes » du dashboard AIR. Chaque
-            modification est enregistrée automatiquement.
+            modification est enregistrée automatiquement et <strong>partagée avec
+            toute l'équipe</strong>.
           </p>
         </div>
         <button
