@@ -805,6 +805,8 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     globalSync_pushCartographie: async (payload: unknown) => { try { await vaultPush('cartographie', payload); return true } catch { return false } },
     globalSync_pullCartographieConfig: async () => vaultPullSoft('cartographie-config'),
     globalSync_pushCartographieConfig: async (payload: unknown) => { try { await vaultPush('cartographie-config', payload); return true } catch { return false } },
+    globalSync_pullAIRConfig: async () => vaultPullSoft('air-config'),
+    globalSync_pushAIRConfig: async (payload: unknown) => { try { await vaultPush('air-config', payload); return true } catch { return false } },
     globalSync_pullCartographieContributions: async () => vaultPullSoft('cartographie-contributions'),
     globalSync_pushCartographieContributions: async (payload: unknown) => { try { await vaultPush('cartographie-contributions', payload); return true } catch { return false } },
     globalSync_readLegacyAppData: async () => vaultPullSoft('legacy-app-data'),

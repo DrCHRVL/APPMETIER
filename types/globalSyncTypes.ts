@@ -210,6 +210,15 @@ export type CartographieConfigSyncFile =
   import('@/types/cartographieTypes').CartographieModuleConfig;
 
 /**
+ * Configuration des délais du module AIR (seuils d'alertes de convocation +
+ * « mesures anciennes »), partagée par toute l'équipe. Fichier : `air-config`
+ * à la racine du serveur commun. Objet unique → fusion last-write-wins par
+ * `updatedAt`, comme la config cartographie.
+ */
+export type AIRConfigSyncFile =
+  import('@/types/airConfigTypes').AIRConvocationConfig;
+
+/**
  * Préférences utilisateur synchronisées sur le serveur commun.
  * Un fichier par utilisateur : user-preferences/{windowsUsername}.json.
  * Structure volontairement ouverte (chaque clé est optionnelle) pour pouvoir

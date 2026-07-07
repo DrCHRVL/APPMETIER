@@ -8,9 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
-import { FileUp, Search, Users, TrendingUp, Clock, Target, Calendar, Trash2, BarChart3, Plus, Minus, Edit3, Building2, ChevronUp, ChevronDown } from 'lucide-react';
+import { FileUp, Search, Users, TrendingUp, Clock, Target, Calendar, Trash2, BarChart3, Plus, Minus, Edit3, ChevronUp, ChevronDown } from 'lucide-react';
 import { AIRImportModal } from '@/components/modals/AIRImportModal';
-import { GreffeImportModal } from '@/components/modals/GreffeImportModal';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { AIRDashboardIntegrated } from '@/components/AIRDashboardIntegrated';
 
@@ -612,7 +611,6 @@ export const AIRPage = ({
   const [referentFilter, setReferentFilter] = useState<string>('');
   const [secteurFilter, setSecteurFilter] = useState<string>('');
   const [showImportModal, setShowImportModal] = useState(false);
-  const [showGreffeModal, setShowGreffeModal] = useState(false);
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
   const [showFinalDeleteDialog, setShowFinalDeleteDialog] = useState(false);
   const [showDashboard, setShowDashboard] = useState(mesures.length > 0);
@@ -772,19 +770,6 @@ export const AIRPage = ({
 
     return filtered;
   }, [mesures, statusFilter, referentFilter, secteurFilter, searchTerm, sortField, sortDirection]);
-
-  // Gestionnaires pour l'import greffe
-  const handleGreffeUpdates = (updates: { mesure: AIRImportData, numeroParquet: string }[]) => {
-    updates.forEach(({ mesure, numeroParquet }) => {
-      onUpdateMesure(mesure.refAEM, { numeroParquet });
-    });
-  };
-
-  const handleGreffeNewMesures = (newMesures: (Omit<AIRImportData, 'refAEM'> & { refAEM: string })[]) => {
-    newMesures.forEach(mesure => {
-      onAddMesure(mesure);
-    });
-  };
 
   // Gestionnaires d'événements pour toutes les modifications
   const handleUpdateField = (refAEM: string, field: keyof AIRImportData, value: any) => {
@@ -1002,17 +987,7 @@ export const AIRPage = ({
                 <FileUp className="mr-2 h-4 w-4" />
                 Importer AEM
               </Button>
-              
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowGreffeModal(true)}
-                className="bg-blue-50 hover:bg-blue-100 border-blue-200"
-              >
-                <Building2 className="mr-2 h-4 w-4" />
-                Importer Greffe
-              </Button>
-              
+
               {mesures.length > 0 && (
                 <Button
                   variant="ghost"
@@ -1077,7 +1052,7 @@ export const AIRPage = ({
           {filteredAndSortedMesures.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <p>Aucune mesure AIR trouvée.</p>
-              <p className="text-sm mt-2">Utilisez les boutons "Importer AEM" ou "Importer Greffe" pour charger vos données.</p>
+              <p className="text-sm mt-2">Utilisez le bouton "Importer AEM" pour charger vos données.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -1269,17 +1244,6 @@ export const AIRPage = ({
           isOpen={showImportModal}
           onClose={() => setShowImportModal(false)}
           onImport={onImportMesures}
-        />
-      )}
-
-      {/* Modal d'import Greffe */}
-      {showGreffeModal && (
-        <GreffeImportModal
-          isOpen={showGreffeModal}
-          onClose={() => setShowGreffeModal(false)}
-          mesuresAIR={mesures}
-          onUpdateMesures={handleGreffeUpdates}
-          onAddMesures={handleGreffeNewMesures}
         />
       )}
 
