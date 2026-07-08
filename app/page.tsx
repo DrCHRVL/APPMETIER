@@ -137,6 +137,7 @@ import { useCrossSearch } from '@/hooks/useCrossSearch';
 const AdminUsersPanel = dynamic(() => import('@/components/AdminUsersPanel').then(m => ({ default: m.AdminUsersPanel })), { ssr: false });
 import { UserManager } from '@/utils/userManager';
 const AdminContentieuxPanel = dynamic(() => import('@/components/admin/AdminContentieuxPanel').then(m => ({ default: m.AdminContentieuxPanel })), { ssr: false });
+const AdminTJPanel = dynamic(() => import('@/components/admin/AdminTJPanel').then(m => ({ default: m.AdminTJPanel })), { ssr: false });
 const AdminInstructionPanel = dynamic(() => import('@/components/admin/AdminInstructionPanel').then(m => ({ default: m.AdminInstructionPanel })), { ssr: false });
 const AdminAIRPanel = dynamic(() => import('@/components/admin/AdminAIRPanel').then(m => ({ default: m.AdminAIRPanel })), { ssr: false });
 const AdminCartographyPanel = dynamic(() => import('@/components/admin/AdminCartographyPanel').then(m => ({ default: m.AdminCartographyPanel })), { ssr: false });
@@ -2067,6 +2068,7 @@ return (
           />
         }
         adminUsersContent={<AdminUsersPanel />}
+        adminTJContent={<AdminTJPanel />}
         adminContentieuxContent={<AdminContentieuxPanel />}
         moduleInstructionContent={hasModule('instructions') ? <AdminInstructionPanel /> : null}
         moduleAIRContent={hasModule('air') ? <AdminAIRPanel /> : null}

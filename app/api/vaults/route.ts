@@ -9,7 +9,7 @@
  * une allowlist pour éviter d'exposer d'autres familles de coffres (trousseaux,
  * invitations, données partagées…).
  */
-import { requireSession, handle, jsonResponse } from '@/lib/server/auth'
+import { requireTjSession, handle, jsonResponse } from '@/lib/server/auth'
 import { listVaults } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
@@ -19,12 +19,12 @@ const ALLOWED_PREFIXES = ['air-', 'instructions-']
 
 export async function GET(req: Request) {
   return handle(async () => {
-    requireSession(req)
+    const session = requireTjSession(req)
     const prefix = new URL(req.url).searchParams.get('prefix') || ''
     if (!ALLOWED_PREFIXES.includes(prefix)) {
       return jsonResponse({ error: 'Préfixe non autorisé' }, { status: 400 })
     }
-    const names = listVaults().filter((n) => n.startsWith(prefix))
+    const names = listVaults(session.tj).filter((n) => n.startsWith(prefix))
     return jsonResponse({ names })
   })
 }

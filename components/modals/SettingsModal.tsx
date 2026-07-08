@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId, ModuleId } from '@/types/userTypes';
 
@@ -12,7 +12,7 @@ import { ContentieuxId, ModuleId } from '@/types/userTypes';
 type SettingsTab =
   | 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'agenda' | 'a_propos'
   | 'module_instruction' | 'module_cartographie' | 'module_air'
-  | 'admin_users' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_natinf' | 'admin_update';
+  | 'admin_users' | 'admin_tjs' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_natinf' | 'admin_update';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -28,6 +28,8 @@ interface SettingsModalProps {
   /** Panneau du module cartographie (pondérations du score top 10) */
   moduleCartographieContent?: React.ReactNode;
   adminUsersContent?: React.ReactNode;
+  /** Panneau multi-TJ : création de tribunaux, codes d'accès, rattachements */
+  adminTJContent?: React.ReactNode;
   adminContentieuxContent?: React.ReactNode;
   adminPathsContent?: React.ReactNode;
   adminDashboardContent?: React.ReactNode;
@@ -77,6 +79,7 @@ const TABS: TabDef[] = [
 
   // Administration (admin uniquement)
   { id: 'admin_users',       label: 'Utilisateurs & accès', icon: Users,     section: 'admin', isAdmin: true },
+  { id: 'admin_tjs',         label: 'Tribunaux',        icon: Landmark,      section: 'admin', isAdmin: true },
   { id: 'admin_contentieux', label: 'Contentieux',      icon: Layers,        section: 'admin', isAdmin: true },
   { id: 'admin_paths',       label: 'Chemins réseau',   icon: Network,       section: 'admin', isAdmin: true },
   { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      section: 'admin', isAdmin: true },
@@ -114,6 +117,7 @@ export const SettingsModal = ({
   moduleCartographieContent,
   agendaContent,
   adminUsersContent,
+  adminTJContent,
   adminContentieuxContent,
   adminPathsContent,
   adminDashboardContent,
@@ -160,6 +164,7 @@ export const SettingsModal = ({
       case 'module_air':          return moduleAIRContent;
       case 'module_cartographie': return moduleCartographieContent;
       case 'admin_users':        return adminUsersContent;
+      case 'admin_tjs':          return adminTJContent;
       case 'admin_contentieux':  return adminContentieuxContent;
       case 'admin_paths':        return adminPathsContent;
       case 'admin_dashboard':    return adminDashboardContent;

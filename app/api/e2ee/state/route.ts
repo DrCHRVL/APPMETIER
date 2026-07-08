@@ -1,22 +1,23 @@
 /**
- * État E2EE pour l'utilisateur connecté : guide la porte d'entrée web.
+ * État E2EE pour l'utilisateur connecté, dans l'espace de son TJ actif :
+ * guide la porte d'entrée web.
  *  - legacyKdf    : un coffre « phrase de service » historique existe (kdf.json)
  *  - hasKeyring   : MON trousseau individuel existe
  *  - hasGrant     : une invitation m'attend
- *  - anyKeyrings  : au moins un trousseau existe sur ce serveur
+ *  - anyKeyrings  : au moins un trousseau existe dans ce TJ
  */
-import { requireSession, handle, jsonResponse } from '@/lib/server/auth'
-import { dataDir, readJson, listVaults, readVault } from '@/lib/server/store'
+import { requireTjSession, handle, jsonResponse } from '@/lib/server/auth'
+import { tjDataDir, readJson, listVaults, readVault } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: Request) {
   return handle(async () => {
-    const session = requireSession(req)
-    const kdf = readJson<{ salt: string } | null>(dataDir('kdf.json'), null)
-    const vaults = listVaults()
+    const session = requireTjSession(req)
+    const kdf = readJson<{ salt: string } | null>(tjDataDir(session.tj, 'kdf.json'), null)
+    const vaults = listVaults(session.tj)
     const grantName = `grant-${session.u}`
-    const grant = vaults.includes(grantName) ? readVault(grantName) : null
+    const grant = vaults.includes(grantName) ? readVault(session.tj, grantName) : null
     return jsonResponse({
       legacyKdf: !!kdf,
       legacyKdfParams: kdf,

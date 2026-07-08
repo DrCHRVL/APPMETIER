@@ -8,12 +8,26 @@
 const DB_NAME = 'siral-local'
 const DB_VERSION = 2
 
+// Cloisonnement par TJ : chaque tribunal a SA base IndexedDB. Le TJ par
+// défaut conserve le nom historique (aucune perte du cache existant) ; les
+// autres TJ utilisent une base dédiée. À définir AVANT toute lecture/écriture
+// (WebGate l'appelle dès que l'identité — donc le TJ actif — est connue).
+let dbName = DB_NAME
+
+export function setIdbNamespace(tjId: string) {
+  const next = !tjId || tjId === 'default' ? DB_NAME : `${DB_NAME}--${tjId.replace(/[^a-z0-9-]/gi, '_')}`
+  if (next !== dbName) {
+    dbName = next
+    dbPromise = null // la prochaine transaction ouvrira la base du bon TJ
+  }
+}
+
 let dbPromise: Promise<IDBDatabase> | null = null
 
 function openDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise
   dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION)
+    const req = indexedDB.open(dbName, DB_VERSION)
     req.onupgradeneeded = () => {
       const db = req.result
       if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv')

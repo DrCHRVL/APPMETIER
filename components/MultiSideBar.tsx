@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   FileText, CheckCircle2, BarChart, Settings, Target,
-  Plus, Scale, Activity, Eye, PieChart, Network, LayoutDashboard
+  Plus, Scale, Activity, Eye, PieChart, Network, LayoutDashboard, Landmark, ChevronDown
 } from 'lucide-react';
 import { AlertBadge } from './AlertBadge';
 import { useUser } from '@/contexts/UserContext';
@@ -41,6 +41,83 @@ const CountPill = ({ n }: { n: number }) => (
     {n}
   </span>
 );
+
+// ──────────────────────────────────────────────
+// TRIBUNAL ACTIF (multi-TJ)
+// ──────────────────────────────────────────────
+
+/**
+ * Affiche le TJ actif ; si le compte est rattaché à plusieurs TJ (rare —
+ * autorisé par l'admin), propose de basculer. Chaque TJ est un espace de
+ * données strictement séparé : la bascule ré-émet la session côté serveur
+ * puis recharge l'application (trousseau et cache du nouveau TJ).
+ */
+const TjSwitcher = ({ isOpen }: { isOpen: boolean }) => {
+  const info = typeof window !== 'undefined' ? window.__SIRAL_TJ__ : undefined;
+  const [expanded, setExpanded] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  if (!info) return null;
+  const multi = info.tjs.length > 1;
+
+  const switchTo = async (id: string) => {
+    if (switching || id === info.active.id) { setExpanded(false); return; }
+    setSwitching(true);
+    try {
+      const res = await fetch('/api/auth/switch-tj', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tj: id }),
+        credentials: 'same-origin',
+      });
+      if (res.ok) { window.location.reload(); return; }
+    } catch { /* réseau : on reste sur le TJ courant */ }
+    setSwitching(false);
+    setExpanded(false);
+  };
+
+  if (!isOpen) {
+    return (
+      <div className="flex justify-center pb-1" title={info.active.name}>
+        <Landmark className="h-4 w-4 text-white/50" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-3 pb-1">
+      <button
+        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] font-semibold
+          text-white/75 bg-white/5 ${multi ? 'hover:bg-white/10 hover:text-white cursor-pointer' : 'cursor-default'}`}
+        onClick={() => multi && setExpanded(v => !v)}
+        title={multi ? 'Changer de tribunal' : info.active.name}
+      >
+        <Landmark className="h-3.5 w-3.5 flex-shrink-0 text-white/55" />
+        <span className="truncate">{info.active.name}</span>
+        {multi && <ChevronDown className={`h-3 w-3 ml-auto flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />}
+      </button>
+      {expanded && multi && (
+        <div className="mt-1 rounded-lg bg-white/5 overflow-hidden">
+          {info.tjs.map(t => (
+            <button
+              key={t.id}
+              className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] text-left
+                ${t.id === info.active.id ? 'text-white font-semibold bg-white/10' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}
+              onClick={() => switchTo(t.id)}
+              disabled={switching}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${t.id === info.active.id ? 'bg-emerald-400' : 'bg-white/30'}`} />
+              <span className="truncate">{t.name}</span>
+              {switching && t.id !== info.active.id && <span className="ml-auto text-white/40">…</span>}
+            </button>
+          ))}
+          <div className="px-2.5 py-1.5 text-[9.5px] leading-tight text-white/40 border-t border-white/10">
+            Données strictement séparées par tribunal — l&apos;application se recharge.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ──────────────────────────────────────────────
 // COULEURS CONTENTIEUX (Tailwind-safe)
@@ -424,6 +501,9 @@ export const MultiSideBar = ({
         </button>
       </div>
       )}
+
+      {/* ── TRIBUNAL ACTIF (multi-TJ) ── */}
+      <TjSwitcher isOpen={isOpen} />
 
       {/* ── UTILISATEUR CONNECTÉ ── */}
       {user && (

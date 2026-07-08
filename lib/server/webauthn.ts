@@ -16,9 +16,11 @@ import type {
 import crypto from 'crypto'
 import {
   Account, StoredCredential, findAccount, listAccounts, saveAccount,
-  storeChallenge, takeChallenge, rpFromRequest, isValidUsername, setupCode,
-  getSession, rateLimit, clientIp, safeEqual,
+  storeChallenge, takeChallenge, rpFromRequest, isValidUsername,
+  getSession, rateLimit, clientIp,
 } from './auth'
+import { resolveRegistrationTj, findTj } from './tj'
+import { DEFAULT_TJ_ID } from './store'
 
 const b64u = {
   enc: (buf: Uint8Array | Buffer): string => Buffer.from(buf).toString('base64url'),
@@ -26,11 +28,13 @@ const b64u = {
 }
 
 export async function registrationOptions(req: Request, username: string, displayName: string, code: string) {
-  rateLimit('reg:' + clientIp(req), 10, 15 * 60 * 1000) // anti force brute du code d'enrôlement
-  const expected = setupCode()
-  if (!expected) throw new Error("Le code d'enrôlement (SIRAL_SETUP_CODE) n'est pas configuré sur le serveur")
-  if (!safeEqual(code, expected)) throw new Error("Code d'enrôlement incorrect")
+  rateLimit('reg:' + clientIp(req), 10, 15 * 60 * 1000) // anti force brute du code d'accès
+  // Le code d'accès détermine le TJ de rattachement du nouveau compte ; on le
+  // mémorise avec le défi pour l'appliquer à la vérification (le code ne
+  // transite qu'une fois).
+  const tj = resolveRegistrationTj(code, listAccounts().length === 0)
   if (!isValidUsername(username)) throw new Error("Nom d'utilisateur invalide (lettres, chiffres, . _ -)")
+  storeChallenge('regtj:' + username.toLowerCase(), tj.id)
 
   const existing = findAccount(username)
   // Un compte existant ne peut recevoir une passkey supplémentaire que depuis
@@ -64,9 +68,11 @@ export async function registrationOptions(req: Request, username: string, displa
   return options
 }
 
-export async function registrationVerify(req: Request, username: string, displayName: string, response: RegistrationResponseJSON, label?: string, tribunal?: string) {
+export async function registrationVerify(req: Request, username: string, displayName: string, response: RegistrationResponseJSON, label?: string) {
   const challenge = takeChallenge('reg:' + username.toLowerCase())
   if (!challenge) throw new Error('Défi expiré, recommencez')
+  // TJ résolu par le code d'accès à l'étape des options (même TTL que le défi)
+  const tjId = takeChallenge('regtj:' + username.toLowerCase()) || DEFAULT_TJ_ID
   const { rpID, origin } = rpFromRequest(req)
   const verification = await verifyRegistrationResponse({
     response,
@@ -93,14 +99,15 @@ export async function registrationVerify(req: Request, username: string, display
       throw new Error('Ce compte existe déjà — connectez-vous avec votre passkey, ou demandez à un admin')
     }
     account.credentials.push(cred)
-    if (tribunal && !account.tribunal) account.tribunal = tribunal.slice(0, 80)
   } else {
+    const tj = findTj(tjId)
     account = {
       id: crypto.randomUUID(),
       username,
       displayName: displayName || username,
       role: listAccounts().length === 0 ? 'admin' : 'member',
-      tribunal: tribunal ? tribunal.slice(0, 80) : undefined,
+      tribunal: tj?.name,
+      tjs: [tjId],
       credentials: [cred],
       createdAt: new Date().toISOString(),
     }

@@ -23,9 +23,11 @@ import {
   ScopedKeys, KeyringPayload, buildScopedKeys, freshKeyringPayload, deriveRawKey,
   importAesKey, randomRawKey, newKdfParams, normalizeInvitationCode, KNOWN_CONTENTIEUX, SCOPE_GLOBAL,
 } from '@/lib/web/keyring'
-import { idb } from '@/lib/web/idb'
+import { idb, setIdbNamespace } from '@/lib/web/idb'
 
 type Phase = 'boot' | 'login' | 'register' | 'unlock' | 'create-fresh' | 'migrate' | 'redeem' | 'no-access' | 'recovery-kit' | 'ready'
+
+export interface TjInfo { id: string, name: string }
 
 const KEYRING_STORE = '__siral_keyring__'
 const LEGACY_KEY_STORE = '__siral_cryptokey__'
@@ -44,6 +46,8 @@ declare global {
     __SIRAL_WEB__?: boolean
     __SIRAL_BRIDGE_SET__?: (bridge: Record<string, unknown>) => void
     __APP_READONLY__?: boolean
+    /** TJ actif + TJ accessibles du compte (lu par la sidebar pour le sélecteur). */
+    __SIRAL_TJ__?: { active: TjInfo, tjs: TjInfo[] }
   }
 }
 
@@ -65,13 +69,13 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   // tant que `mounted` est faux, on rend un voile neutre, jamais l'app.
   const [mounted, setMounted] = useState(false)
   const [me, setMe] = useState<BridgeIdentity | null>(null)
+  const [tj, setTj] = useState<TjInfo | null>(null)
   const [e2ee, setE2ee] = useState<E2eeState | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   // formulaire d'enrôlement
   const [regUsername, setRegUsername] = useState('')
   const [regDisplay, setRegDisplay] = useState('')
-  const [regTribunal, setRegTribunal] = useState('')
   const [regCode, setRegCode] = useState('')
   // connexion / enrôlement par mot de passe (postes sans Windows Hello)
   const [loginUsername, setLoginUsername] = useState('')
@@ -218,6 +222,22 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     return state
   }, [routeByState])
 
+  /**
+   * Adopte l'identité de la session : TJ actif (cache local cloisonné par TJ,
+   * à définir AVANT toute lecture IndexedDB) + liste des TJ pour la sidebar.
+   */
+  const adoptMe = useCallback(async (): Promise<BridgeIdentity | null> => {
+    const { status, json } = await apiJson('/api/me')
+    if (status !== 200) return null
+    const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
+    const active = (json.tj as TjInfo | undefined) || { id: 'default', name: '' }
+    setIdbNamespace(active.id)
+    window.__SIRAL_TJ__ = { active, tjs: (json.tjs as TjInfo[] | undefined) || [active] }
+    setTj(active)
+    setMe(identity)
+    return identity
+  }, [])
+
   // Boot : session existante ? trousseau mémorisé ?
   useEffect(() => { setMounted(true) }, [])
   useEffect(() => {
@@ -225,17 +245,15 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     if (!isWeb) { setPhase('ready'); return }
     let cancelled = false
     ;(async () => {
-      const { status, json } = await apiJson('/api/me')
+      const identity = await adoptMe()
       if (cancelled) return
-      if (status !== 200) { setPhase('login'); return }
-      const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
-      setMe(identity)
+      if (!identity) { setPhase('login'); return }
       // trousseau mémorisé sur cet appareil ? (case « Rester déverrouillé »)
       if (await tryStoredKeyring(identity)) return
       if (!cancelled) await loadStateAndRoute()
     })()
     return () => { cancelled = true }
-  }, [mounted, isWeb, tryStoredKeyring, loadStateAndRoute])
+  }, [mounted, isWeb, adoptMe, tryStoredKeyring, loadStateAndRoute])
 
   // Session expirée pendant l'utilisation
   useEffect(() => {
@@ -252,8 +270,9 @@ export function WebGate({ children }: { children: React.ReactNode }) {
         username: loginUsername.trim(), password: loginPassword,
       })
       if (status !== 200) throw new Error(String(json.error || 'Connexion refusée'))
-      const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
-      setMe(identity)
+      // /api/me apporte le TJ actif (cloisonnement du cache local par TJ)
+      const identity = await adoptMe()
+      if (!identity) throw new Error('Session indisponible — réessayez')
       setLoginPassword('')
       // clé mémorisée sur cet appareil ? on évite de redemander la phrase
       if (await tryStoredKeyring(identity)) return
@@ -268,11 +287,11 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     try {
       const { status, json } = await apiJson('/api/auth/password-register', {
         username: regUsername.trim(), displayName: regDisplay.trim() || regUsername.trim(),
-        tribunal: regTribunal.trim() || undefined, password: regPassword, setupCode: regCode.trim(),
+        password: regPassword, setupCode: regCode.trim(),
       })
       if (status !== 200) throw new Error(String(json.error || 'Enrôlement refusé'))
-      const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
-      setMe(identity)
+      const identity = await adoptMe()
+      if (!identity) throw new Error('Session indisponible — réessayez')
       setRegPassword('')
       await loadStateAndRoute()
     } catch (e) {
@@ -483,11 +502,11 @@ export function WebGate({ children }: { children: React.ReactNode }) {
         {phase === 'register' && (
           <>
             <div className="siral-title">Enrôlement</div>
-            <div className="siral-text">Réservé aux membres du service munis du code d&apos;enrôlement. Utilisez votre identifiant habituel (le même que dans l&apos;app du service).</div>
+            <div className="siral-text">Réservé aux membres munis du <b>code d&apos;accès de leur tribunal</b> (remis par l&apos;administrateur — il identifie
+              votre TJ et n&apos;est demandé qu&apos;à cette première inscription). Utilisez votre identifiant habituel.</div>
             <input className="siral-input" placeholder="Identifiant (ex. a.chevalier)" value={regUsername} onChange={(e) => setRegUsername(e.target.value)} autoCapitalize="none" />
             <input className="siral-input" placeholder="Nom affiché (ex. A. Chevalier)" value={regDisplay} onChange={(e) => setRegDisplay(e.target.value)} />
-            <input className="siral-input" placeholder="Tribunal / juridiction (ex. TJ Marseille)" value={regTribunal} onChange={(e) => setRegTribunal(e.target.value)} />
-            <input className="siral-input" placeholder="Code d'enrôlement" value={regCode} onChange={(e) => setRegCode(e.target.value)} />
+            <input className="siral-input" placeholder="Code d'accès du tribunal" value={regCode} onChange={(e) => setRegCode(e.target.value)} autoCapitalize="characters" />
             <input className="siral-input" type="password" placeholder="Mot de passe (10 caractères minimum)" value={regPassword}
               onChange={(e) => setRegPassword(e.target.value)} />
             <button className="siral-btn" onClick={doPasswordRegister} disabled={busy || !regUsername.trim() || !regCode.trim() || regPassword.length < 10}>
@@ -500,7 +519,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
 
         {phase === 'unlock' && (
           <>
-            {me && <span className="siral-user">Connecté : {me.displayName}</span>}
+            {me && <span className="siral-user">Connecté : {me.displayName}{tj?.name ? ` · ${tj.name}` : ''}</span>}
             <div className="siral-title">Déverrouillage de votre trousseau</div>
             <div className="siral-text">Votre phrase personnelle déchiffre vos clés localement, dans ce navigateur. Elle n&apos;est jamais transmise au serveur.</div>
             {phraseFields(false)}
@@ -513,9 +532,10 @@ export function WebGate({ children }: { children: React.ReactNode }) {
 
         {phase === 'create-fresh' && (
           <>
-            {me && <span className="siral-user">Connecté : {me.displayName}</span>}
+            {me && <span className="siral-user">Connecté : {me.displayName}{tj?.name ? ` · ${tj.name}` : ''}</span>}
             <div className="siral-title">Initialisation du chiffrement</div>
-            <div className="siral-text">Vous êtes le premier utilisateur de ce serveur. Des clés de chiffrement neuves vont être générées et scellées
+            <div className="siral-text">Vous êtes le premier utilisateur de {tj?.name ? <b>{tj.name}</b> : 'ce tribunal'} sur ce serveur.
+              Des clés de chiffrement neuves, propres à ce tribunal, vont être générées et scellées
               dans votre trousseau personnel. Vous pourrez ensuite inviter vos collègues depuis Paramètres → Accès &amp; clés.</div>
             {phraseFields(true)}
             <button className="siral-btn" onClick={doCreateFresh} disabled={busy || !pass1}>
@@ -528,7 +548,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
 
         {phase === 'migrate' && (
           <>
-            {me && <span className="siral-user">Connecté : {me.displayName}</span>}
+            {me && <span className="siral-user">Connecté : {me.displayName}{tj?.name ? ` · ${tj.name}` : ''}</span>}
             <div className="siral-title">Passage aux clés individuelles</div>
             <div className="siral-text">Ce serveur utilise encore la phrase de service partagée. Saisissez-la une dernière fois, puis choisissez
               votre phrase personnelle : les clés des contentieux seront régénérées (cloisonnement) et scellées dans votre trousseau.
@@ -546,7 +566,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
 
         {phase === 'redeem' && (
           <>
-            {me && <span className="siral-user">Connecté : {me.displayName}</span>}
+            {me && <span className="siral-user">Connecté : {me.displayName}{tj?.name ? ` · ${tj.name}` : ''}</span>}
             <div className="siral-title">Activer votre invitation</div>
             <div className="siral-text">{e2ee?.grantKdf?.grantedBy ? `${e2ee.grantKdf.grantedBy} vous a invité.` : 'Une invitation vous attend.'} Saisissez
               le code d&apos;invitation qui vous a été transmis, puis choisissez votre phrase personnelle.</div>
@@ -564,7 +584,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
 
         {phase === 'no-access' && (
           <>
-            {me && <span className="siral-user">Connecté : {me.displayName}</span>}
+            {me && <span className="siral-user">Connecté : {me.displayName}{tj?.name ? ` · ${tj.name}` : ''}</span>}
             <div className="siral-title">Accès en attente</div>
             <div className="siral-text">Votre compte est créé mais aucun trousseau de clés ne vous a encore été remis.
               Demandez à un membre du service de vous inviter (Paramètres → Accès &amp; clés), puis revenez ici.</div>
@@ -577,7 +597,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
 
         {phase === 'recovery-kit' && (
           <>
-            {me && <span className="siral-user">Connecté : {me.displayName}</span>}
+            {me && <span className="siral-user">Connecté : {me.displayName}{tj?.name ? ` · ${tj.name}` : ''}</span>}
             <div className="siral-title">Votre trousseau est prêt — imprimez le kit de récupération</div>
             <div className="siral-text">Une page à imprimer, où vous écrirez votre phrase personnelle <b>à la main</b>.
               Sous enveloppe scellée, au coffre du service : c&apos;est votre seule porte de sortie en cas d&apos;oubli
