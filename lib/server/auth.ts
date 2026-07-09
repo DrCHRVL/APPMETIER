@@ -12,7 +12,7 @@
  */
 import fs from 'fs'
 import crypto from 'crypto'
-import { dataDir, ensureDir, readJson, writeJson, withFileLock } from './store'
+import { dataDir, ensureDir, readJson, writeJson, withFileLock, DEFAULT_TJ_ID } from './store'
 
 const SESSION_HOURS = 12
 const COOKIE_NAME = 'siral_session'
@@ -31,13 +31,28 @@ export interface Account {
   username: string
   displayName: string
   role: 'admin' | 'member'
-  /** Juridiction de rattachement (ex. « TJ Marseille ») — informatif et filtrage futur */
+  /** Juridiction de rattachement (nom lisible du TJ principal) — informatif */
   tribunal?: string
+  /** TJ accessibles (identifiants du registre tjs.json). Absent = TJ par défaut. */
+  tjs?: string[]
+  /** Dernier TJ actif (repris à la connexion suivante s'il est toujours autorisé). */
+  lastTj?: string
   credentials: StoredCredential[]
   /** Hachage scrypt du mot de passe (optionnel — complément aux passkeys). */
   passwordHash?: string
   createdAt: string
   lastLoginAt?: string
+}
+
+/** TJ accessibles d'un compte — les comptes historiques relèvent du TJ par défaut. */
+export function accountTjs(account: Account): string[] {
+  return account.tjs && account.tjs.length ? account.tjs : [DEFAULT_TJ_ID]
+}
+
+/** TJ actif à la connexion : le dernier utilisé s'il est encore autorisé, sinon le premier. */
+export function initialTj(account: Account): string {
+  const tjs = accountTjs(account)
+  return account.lastTj && tjs.includes(account.lastTj) ? account.lastTj : tjs[0]
 }
 
 function accountsPath() { return dataDir('accounts.json') }
@@ -90,16 +105,18 @@ export function setupCode(): string | null {
 }
 
 // ── Cookies de session signés ──
-interface SessionPayload { u: string, r: 'admin' | 'member', exp: number }
+interface SessionPayload { u: string, r: 'admin' | 'member', tj: string, exp: number }
 
 function sign(data: string): string {
   return crypto.createHmac('sha256', serverSecret()).update(data).digest('base64url')
 }
 
-export function createSessionCookie(account: Account): string {
+export function createSessionCookie(account: Account, tj?: string): string {
+  const active = tj && accountTjs(account).includes(tj) ? tj : initialTj(account)
   const payload: SessionPayload = {
     u: account.username,
     r: account.role,
+    tj: active,
     exp: Date.now() + SESSION_HOURS * 3600 * 1000,
   }
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
@@ -117,6 +134,8 @@ export function verifySessionCookie(value: string | undefined | null): SessionPa
   try {
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as SessionPayload
     if (!payload.u || payload.exp < Date.now()) return null
+    // cookies émis avant le multi-TJ : ils relèvent du TJ par défaut
+    if (!payload.tj) payload.tj = DEFAULT_TJ_ID
     return payload
   } catch {
     return null
@@ -151,6 +170,23 @@ export function requireSession(req: Request): SessionPayload {
   if (!s) {
     throw new Response(JSON.stringify({ error: 'Non authentifié' }), {
       status: 401,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+  return s
+}
+
+/**
+ * Garde des routes de DONNÉES : session valide ET accès au TJ actif encore
+ * autorisé sur le compte (révocation par l'admin effective immédiatement,
+ * sans attendre l'expiration du cookie). Lève 401/403 sinon.
+ */
+export function requireTjSession(req: Request): SessionPayload {
+  const s = requireSession(req)
+  const account = findAccount(s.u)
+  if (!account || !accountTjs(account).includes(s.tj)) {
+    throw new Response(JSON.stringify({ error: 'Accès à ce tribunal révoqué — reconnectez-vous' }), {
+      status: 403,
       headers: { 'content-type': 'application/json' },
     })
   }

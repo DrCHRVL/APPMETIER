@@ -14,6 +14,30 @@ import crypto from 'crypto'
 
 const DATA_DIR = process.env.SIRAL_DATA_DIR || path.join(process.cwd(), 'srv-data')
 
+// ── Cloisonnement par tribunal (TJ) ──
+// Chaque TJ dispose de son propre espace de données (coffres, documents,
+// événements, présence, kdf…). Le TJ « default » (historique — TJ d'origine)
+// reste sur les chemins legacy pour ne toucher à AUCUNE donnée existante ;
+// les autres TJ vivent sous tj/<id>/.
+export const DEFAULT_TJ_ID = 'default'
+
+const TJ_ID_RE = /^[a-z0-9][a-z0-9-]{0,40}$/
+export function isSafeTjId(id: string): boolean {
+  return TJ_ID_RE.test(id) && !id.includes('..')
+}
+
+/** Chemin d'un fichier/dossier dans l'espace du TJ donné. */
+export function tjDataDir(tj: string, ...segments: string[]): string {
+  if (!isSafeTjId(tj)) throw new Error('Identifiant de TJ invalide')
+  return tj === DEFAULT_TJ_ID ? dataDir(...segments) : dataDir('tj', tj, ...segments)
+}
+
+/** Nom de fichier relatif (journaux) dans l'espace du TJ donné. */
+export function tjFile(tj: string, name: string): string {
+  if (!isSafeTjId(tj)) throw new Error('Identifiant de TJ invalide')
+  return tj === DEFAULT_TJ_ID ? name : path.join('tj', tj, name)
+}
+
 // Rétention des versions : tout < 48 h, puis 1/jour sur 30 j, puis 1/semaine sur 1 an.
 const RETENTION_FULL_MS = 48 * 3600 * 1000
 const RETENTION_DAILY_MS = 30 * 24 * 3600 * 1000
@@ -103,17 +127,17 @@ export interface VaultEnvelope {
   [k: string]: unknown
 }
 
-function vaultPath(name: string) { return dataDir('vaults', name + '.json') }
-function versionsDir(name: string) { return dataDir('vaults', '.versions', name) }
+function vaultPath(tj: string, name: string) { return tjDataDir(tj, 'vaults', name + '.json') }
+function versionsDir(tj: string, name: string) { return tjDataDir(tj, 'vaults', '.versions', name) }
 
-export function readVault(name: string): VaultEnvelope | null {
+export function readVault(tj: string, name: string): VaultEnvelope | null {
   if (!isSafeName(name)) throw new Error('Nom de coffre invalide')
-  return readJson<VaultEnvelope | null>(vaultPath(name), null)
+  return readJson<VaultEnvelope | null>(vaultPath(tj, name), null)
 }
 
 /** Élagage de l'historique : conserve tout < 48 h, 1/jour 30 j, 1/sem 1 an. */
-function pruneVersions(name: string) {
-  const dir = versionsDir(name)
+function pruneVersions(tj: string, name: string) {
+  const dir = versionsDir(tj, name)
   if (!fs.existsSync(dir)) return
   const now = Date.now()
   const files = fs.readdirSync(dir)
@@ -152,27 +176,27 @@ function pruneVersions(name: string) {
  * Écrit la nouvelle version d'un coffre. L'ancienne version courante est
  * archivée AVANT toute écriture — l'historique ne peut jamais être écrasé.
  */
-export async function writeVault(name: string, envelope: VaultEnvelope, savedBy: string): Promise<{ version: string }> {
+export async function writeVault(tj: string, name: string, envelope: VaultEnvelope, savedBy: string): Promise<{ version: string }> {
   if (!isSafeName(name)) throw new Error('Nom de coffre invalide')
-  return withFileLock('vault:' + name, async () => {
-    const current = readVault(name)
+  return withFileLock(`vault:${tj}:${name}`, async () => {
+    const current = readVault(tj, name)
     const stamp = new Date().toISOString().replace(/:/g, '_')
     if (current) {
-      const vdir = versionsDir(name)
+      const vdir = versionsDir(tj, name)
       ensureDir(vdir)
       const archName = `${stamp}~${(current.savedBy || 'inconnu').replace(/[^a-zA-Z0-9._-]/g, '_')}.json`
       atomicWrite(path.join(vdir, archName), JSON.stringify(current))
-      pruneVersions(name)
+      pruneVersions(tj, name)
     }
     const toStore: VaultEnvelope = { ...envelope, receivedAt: new Date().toISOString(), savedBy }
-    writeJson(vaultPath(name), toStore)
+    writeJson(vaultPath(tj, name), toStore)
     return { version: stamp }
   })
 }
 
-export function listVaultVersions(name: string): Array<{ filename: string, mtime: string, size: number }> {
+export function listVaultVersions(tj: string, name: string): Array<{ filename: string, mtime: string, size: number }> {
   if (!isSafeName(name)) throw new Error('Nom de coffre invalide')
-  const dir = versionsDir(name)
+  const dir = versionsDir(tj, name)
   if (!fs.existsSync(dir)) return []
   return fs.readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
@@ -183,11 +207,11 @@ export function listVaultVersions(name: string): Array<{ filename: string, mtime
     .sort((a, b) => (a.filename < b.filename ? 1 : -1))
 }
 
-export function readVaultVersion(name: string, filename: string): VaultEnvelope | null {
+export function readVaultVersion(tj: string, name: string, filename: string): VaultEnvelope | null {
   if (!isSafeName(name) || !/^[\w.~-]+\.json$/.test(filename) || filename.includes('..')) {
     throw new Error('Nom invalide')
   }
-  return readJson<VaultEnvelope | null>(path.join(versionsDir(name), filename), null)
+  return readJson<VaultEnvelope | null>(path.join(versionsDir(tj, name), filename), null)
 }
 
 /**
@@ -195,23 +219,23 @@ export function readVaultVersion(name: string, filename: string): VaultEnvelope 
  * d'une invitation). L'historique `.versions/` est conservé : la suppression
  * est elle-même archivée, rien n'est perdu définitivement.
  */
-export async function deleteVault(name: string): Promise<boolean> {
+export async function deleteVault(tj: string, name: string): Promise<boolean> {
   if (!isSafeName(name)) throw new Error('Nom de coffre invalide')
-  return withFileLock('vault:' + name, async () => {
-    const current = readVault(name)
+  return withFileLock(`vault:${tj}:${name}`, async () => {
+    const current = readVault(tj, name)
     if (!current) return false
-    const vdir = versionsDir(name)
+    const vdir = versionsDir(tj, name)
     ensureDir(vdir)
     const stamp = new Date().toISOString().replace(/:/g, '_')
     const archName = `${stamp}~${(current.savedBy || 'inconnu').replace(/[^a-zA-Z0-9._-]/g, '_')}.json`
     atomicWrite(path.join(vdir, archName), JSON.stringify(current))
-    fs.unlinkSync(vaultPath(name))
+    fs.unlinkSync(vaultPath(tj, name))
     return true
   })
 }
 
-export function listVaults(): string[] {
-  const dir = dataDir('vaults')
+export function listVaults(tj: string): string[] {
+  const dir = tjDataDir(tj, 'vaults')
   if (!fs.existsSync(dir)) return []
   return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5))
 }
@@ -220,49 +244,49 @@ export function listVaults(): string[] {
 // DOCUMENTS — fichiers binaires chiffrés, par enquête
 // ════════════════════════════════════════════════════════════════════════
 
-export function docPath(enquete: string, rel: string): string {
+export function docPath(tj: string, enquete: string, rel: string): string {
   if (!isSafeName(enquete) || !isSafeRelPath(rel)) throw new Error('Chemin de document invalide')
-  return dataDir('docs', enquete, rel + '.enc')
+  return tjDataDir(tj, 'docs', enquete, rel + '.enc')
 }
 
-export function docMetaPath(enquete: string): string {
+export function docMetaPath(tj: string, enquete: string): string {
   if (!isSafeName(enquete)) throw new Error('Nom invalide')
-  return dataDir('docs', enquete, '.index.json')
+  return tjDataDir(tj, 'docs', enquete, '.index.json')
 }
 
 export interface DocMeta { rel: string, size: number, savedAt: string, savedBy: string, category?: string, originalName?: string }
 
-export async function saveDoc(enquete: string, rel: string, content: Buffer, meta: Omit<DocMeta, 'rel' | 'size' | 'savedAt'>): Promise<DocMeta> {
-  const p = docPath(enquete, rel)
-  return withFileLock('docs:' + enquete, async () => {
+export async function saveDoc(tj: string, enquete: string, rel: string, content: Buffer, meta: Omit<DocMeta, 'rel' | 'size' | 'savedAt'>): Promise<DocMeta> {
+  const p = docPath(tj, enquete, rel)
+  return withFileLock(`docs:${tj}:${enquete}`, async () => {
     atomicWrite(p, content)
-    const index = readJson<DocMeta[]>(docMetaPath(enquete), [])
+    const index = readJson<DocMeta[]>(docMetaPath(tj, enquete), [])
     const entry: DocMeta = { rel, size: content.length, savedAt: new Date().toISOString(), ...meta }
     const next = index.filter((d) => d.rel !== rel).concat(entry)
-    writeJson(docMetaPath(enquete), next)
+    writeJson(docMetaPath(tj, enquete), next)
     return entry
   })
 }
 
-export function readDoc(enquete: string, rel: string): Buffer | null {
-  const p = docPath(enquete, rel)
+export function readDoc(tj: string, enquete: string, rel: string): Buffer | null {
+  const p = docPath(tj, enquete, rel)
   return fs.existsSync(p) ? fs.readFileSync(p) : null
 }
 
-export async function deleteDoc(enquete: string, rel: string): Promise<boolean> {
-  const p = docPath(enquete, rel)
-  return withFileLock('docs:' + enquete, async () => {
+export async function deleteDoc(tj: string, enquete: string, rel: string): Promise<boolean> {
+  const p = docPath(tj, enquete, rel)
+  return withFileLock(`docs:${tj}:${enquete}`, async () => {
     let existed = false
     if (fs.existsSync(p)) { fs.unlinkSync(p); existed = true }
-    const index = readJson<DocMeta[]>(docMetaPath(enquete), [])
-    writeJson(docMetaPath(enquete), index.filter((d) => d.rel !== rel))
+    const index = readJson<DocMeta[]>(docMetaPath(tj, enquete), [])
+    writeJson(docMetaPath(tj, enquete), index.filter((d) => d.rel !== rel))
     return existed
   })
 }
 
-export function listDocs(enquete: string): DocMeta[] {
+export function listDocs(tj: string, enquete: string): DocMeta[] {
   if (!isSafeName(enquete)) throw new Error('Nom invalide')
-  return readJson<DocMeta[]>(docMetaPath(enquete), [])
+  return readJson<DocMeta[]>(docMetaPath(tj, enquete), [])
 }
 
 // ════════════════════════════════════════════════════════════════════════
