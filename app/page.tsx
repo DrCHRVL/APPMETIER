@@ -141,6 +141,7 @@ const AdminTJPanel = dynamic(() => import('@/components/admin/AdminTJPanel').the
 const AdminInstructionPanel = dynamic(() => import('@/components/admin/AdminInstructionPanel').then(m => ({ default: m.AdminInstructionPanel })), { ssr: false });
 const AdminAIRPanel = dynamic(() => import('@/components/admin/AdminAIRPanel').then(m => ({ default: m.AdminAIRPanel })), { ssr: false });
 const AdminCartographyPanel = dynamic(() => import('@/components/admin/AdminCartographyPanel').then(m => ({ default: m.AdminCartographyPanel })), { ssr: false });
+const OfflineModePanel = dynamic(() => import('@/components/admin/OfflineModePanel').then(m => ({ default: m.OfflineModePanel })), { ssr: false });
 const AdminPathsPanel = dynamic(() => import('@/components/admin/AdminPathsPanel').then(m => ({ default: m.AdminPathsPanel })), { ssr: false });
 const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashboardPanel').then(m => ({ default: m.AdminDashboardPanel })), { ssr: false });
 const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHistoryPanel').then(m => ({ default: m.AdminTagHistoryPanel })), { ssr: false });
@@ -2067,6 +2068,7 @@ return (
             syncStatus={syncStatus}
           />
         }
+        modeHorsLigneContent={<OfflineModePanel onSync={handleManualSync} />}
         adminUsersContent={<AdminUsersPanel />}
         adminTJContent={<AdminTJPanel />}
         adminContentieuxContent={<AdminContentieuxPanel />}
