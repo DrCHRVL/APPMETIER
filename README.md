@@ -33,6 +33,14 @@ L'architecture et la migration sont décrites dans
 **[docs/PLAN-MIGRATION-WEB.md](docs/PLAN-MIGRATION-WEB.md)** et le déploiement dans
 **[docs/TUTO-DEPLOIEMENT.md](docs/TUTO-DEPLOIEMENT.md)**.
 
+### Attaché de justice (IA) — optionnel
+
+Assistant intégré, réservé à l'administrateur (invisible des autres
+utilisateurs, un seul TJ/contentieux) : lecture des dossiers, écritures
+réversibles et journalisées, boîte mail dédiée avec traitement proactif,
+mémoire corrigeable. Propulsé par Claude Code via l'abonnement Claude
+(pas d'API). Voir **[docs/ATTACHE.md](docs/ATTACHE.md)**.
+
 ## Édition Electron desktop — archivée
 
 L'ancienne édition Electron portable (Windows, données dans `data/` synchronisées

@@ -946,6 +946,23 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       } catch { return [] }
     },
 
+    // ── Attaché de justice (admin) : enveloppes clé « global » ──
+    // Le service attaché chiffre avec la même clé globale que le navigateur :
+    // feed, audit, mémoire et conversations se déchiffrent ICI, jamais côté app.
+    attache_decrypt: async (envelope: unknown) => {
+      try { return await decryptJson(key, envelope as CipherEnvelope) } catch { return null }
+    },
+    attache_encrypt: async (payload: unknown) => encryptJson(key, payload, { savedBy: me.username }),
+    /** Remise du trousseau : exporte les clés brutes des périmètres demandés. */
+    attache_exportKeys: async (scopes: unknown) => {
+      const wanted = Array.isArray(scopes) ? scopes.map(String) : []
+      const out: Record<string, string> = {}
+      for (const s of wanted) {
+        if (keys.raw[s]) out[s] = keys.raw[s]
+      }
+      return out
+    },
+
     // ── Mises à jour (pilotées par le conteneur « updater » du serveur) ──
     // GET /api/update est réservé à l'admin : pour les autres comptes (403),
     // la mise à jour serveur est transparente — aucune notification.

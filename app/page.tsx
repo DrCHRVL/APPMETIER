@@ -143,6 +143,9 @@ const AdminAIRPanel = dynamic(() => import('@/components/admin/AdminAIRPanel').t
 const AdminCartographyPanel = dynamic(() => import('@/components/admin/AdminCartographyPanel').then(m => ({ default: m.AdminCartographyPanel })), { ssr: false });
 const AdminPathsPanel = dynamic(() => import('@/components/admin/AdminPathsPanel').then(m => ({ default: m.AdminPathsPanel })), { ssr: false });
 const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashboardPanel').then(m => ({ default: m.AdminDashboardPanel })), { ssr: false });
+// Attaché de justice IA — chargé uniquement en session admin quand le serveur l'active
+const AttachePanel = dynamic(() => import('@/components/attache/AttachePanel').then(m => ({ default: m.AttachePanel })), { ssr: false });
+const AdminAttachePanel = dynamic(() => import('@/components/admin/AdminAttachePanel').then(m => ({ default: m.AdminAttachePanel })), { ssr: false });
 const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHistoryPanel').then(m => ({ default: m.AdminTagHistoryPanel })), { ssr: false });
 const AdminNatinfPanel = dynamic(() => import('@/components/admin/AdminNatinfPanel').then(m => ({ default: m.AdminNatinfPanel })), { ssr: false });
 const AdminUpdatePanel = dynamic(() => import('@/components/admin/AdminUpdatePanel').then(m => ({ default: m.AdminUpdatePanel })), { ssr: false });
@@ -178,6 +181,9 @@ function AppContent() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsContentieuxId, setSettingsContentieuxId] = useState<ContentieuxId | null>(null);
   const [pendingUsersCount, setPendingUsersCount] = useState(0);
+  // Attaché de justice IA (admin uniquement, activé côté serveur)
+  const [attacheAvailable, setAttacheAvailable] = useState(false);
+  const [showAttache, setShowAttache] = useState(false);
   const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
   // Profil JLD : accès restreint au seul tableau de bord (aperçu d'acte dédié,
   // aucune autre vue, aucune alerte, aucun paramètre).
@@ -509,6 +515,15 @@ function AppContent() {
     const count = UserManager.getInstance().getPendingUsersCount();
     setPendingUsersCount(count);
   }, [isAdmin, showSettingsModal]);
+
+  // Attaché de justice IA : disponible seulement si le serveur l'active pour
+  // CE TJ et CE compte (la route répond 404 à tout non-admin — invisible).
+  useEffect(() => {
+    if (!isAuthenticated || !isAdmin()) { setAttacheAvailable(false); return; }
+    fetch('/api/attache/status')
+      .then((r) => setAttacheAvailable(r.ok))
+      .catch(() => setAttacheAvailable(false));
+  }, [isAuthenticated, isAdmin]);
 
   // Démarrage des services temps réel (heartbeat, événements, audit)
   useEffect(() => {
@@ -1399,6 +1414,7 @@ return (
             remoteSha={updateRemoteSha}
             approvedSha={updateApprovedSha}
             minimal={isJLDUser}
+            onShowAttache={attacheAvailable && isAdmin() ? () => setShowAttache(true) : undefined}
           />
           </div>
         </div>
@@ -2031,6 +2047,11 @@ return (
       {/* Invitations de partage entrantes (AIR / instruction) — pop-up un clic */}
       <ShareInvitationModal />
 
+      {/* Attaché de justice IA — panneau latéral (admin uniquement) */}
+      {attacheAvailable && isAdmin() && (
+        <AttachePanel open={showAttache} onClose={() => setShowAttache(false)} />
+      )}
+
       {/* 🆕 Modal Paramètres multi-onglets */}
       <SettingsModal
         isOpen={showSettingsModal}
@@ -2082,6 +2103,7 @@ return (
           setUpdateAvailable(hasUpdate);
           setUpdateCommits(commits);
         }} />}
+        adminAttacheContent={attacheAvailable ? <AdminAttachePanel /> : undefined}
         aProposContent={<AboutContent />}
         monProfilContent={<MyProfileContent />}
         pendingUsersCount={pendingUsersCount}

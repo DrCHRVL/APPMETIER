@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark, Scale } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId, ModuleId } from '@/types/userTypes';
 
@@ -12,7 +12,7 @@ import { ContentieuxId, ModuleId } from '@/types/userTypes';
 type SettingsTab =
   | 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'agenda' | 'a_propos'
   | 'module_instruction' | 'module_cartographie' | 'module_air'
-  | 'admin_users' | 'admin_tjs' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_natinf' | 'admin_update';
+  | 'admin_users' | 'admin_tjs' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_natinf' | 'admin_update' | 'admin_attache';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -36,6 +36,8 @@ interface SettingsModalProps {
   adminTagHistoryContent?: React.ReactNode;
   adminNatinfContent?: React.ReactNode;
   adminUpdateContent?: React.ReactNode;
+  /** Panneau de l'attaché de justice IA (admin uniquement — masqué si non fourni) */
+  adminAttacheContent?: React.ReactNode;
   agendaContent?: React.ReactNode;
   aProposContent?: React.ReactNode;
   /** Currently active contentieux (used as default) */
@@ -86,6 +88,7 @@ const TABS: TabDef[] = [
   { id: 'admin_tag_history', label: 'Historique tags',  icon: ClipboardList, section: 'admin', isAdmin: true },
   { id: 'admin_natinf',      label: 'Référentiel NATINF', icon: Gavel,       section: 'admin', isAdmin: true },
   { id: 'admin_update',      label: 'Mise à jour',      icon: Upload,        section: 'admin', isAdmin: true },
+  { id: 'admin_attache',     label: 'Attaché IA',       icon: Scale,         section: 'admin', isAdmin: true },
 ];
 
 const SECTION_LABELS: Record<TabSection, string> = {
@@ -124,6 +127,7 @@ export const SettingsModal = ({
   adminTagHistoryContent,
   adminNatinfContent,
   adminUpdateContent,
+  adminAttacheContent,
   aProposContent,
   activeContentieuxId,
   onContentieuxChange,
@@ -144,6 +148,8 @@ export const SettingsModal = ({
   const visibleTabs = TABS.filter(t => {
     if (t.isAdmin && !userIsAdmin) return false;
     if (t.requiresModule && !hasModule(t.requiresModule)) return false;
+    // L'attaché IA n'apparaît que si la fonctionnalité est activée côté serveur
+    if (t.id === 'admin_attache' && !adminAttacheContent) return false;
     return true;
   });
 
@@ -171,6 +177,7 @@ export const SettingsModal = ({
       case 'admin_tag_history':  return adminTagHistoryContent;
       case 'admin_natinf':       return adminNatinfContent;
       case 'admin_update':       return adminUpdateContent;
+      case 'admin_attache':      return adminAttacheContent;
       default:                   return null;
     }
   };
