@@ -52,6 +52,10 @@ export class HeartbeatManager {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    if (typeof window !== 'undefined' && this.beforeUnloadHandler) {
+      window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+      this.beforeUnloadHandler = null;
+    }
     this.removeHeartbeat();
   }
 

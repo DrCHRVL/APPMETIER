@@ -186,7 +186,7 @@ export const useAIR = () => {
         statut: newMesure.statut || determineAIRStatus(
           newMesure.resultatMesure,
           newMesure.dateCloture,
-          newMesure.dateFinPriseEnCharge
+          newMesure.natureFinAIR
         ),
         dateMiseAJour: nowIso()
       };
@@ -212,16 +212,17 @@ export const useAIR = () => {
       const enrichedUpdates = { ...updates };
       
       // Recalculer le statut si les champs pertinents ont changé
-      if (updates.resultatMesure !== undefined || 
-          updates.dateCloture !== undefined || 
-          updates.dateFinPriseEnCharge !== undefined) {
-        
+      if (updates.resultatMesure !== undefined ||
+          updates.dateCloture !== undefined ||
+          updates.dateFinPriseEnCharge !== undefined ||
+          updates.natureFinAIR !== undefined) {
+
         const mesure = mesures.find(m => m.refAEM === refAEM);
         if (mesure) {
           enrichedUpdates.statut = determineAIRStatus(
             updates.resultatMesure ?? mesure.resultatMesure,
             updates.dateCloture ?? mesure.dateCloture,
-            updates.dateFinPriseEnCharge ?? mesure.dateFinPriseEnCharge
+            updates.natureFinAIR ?? mesure.natureFinAIR
           );
         }
       }
@@ -288,7 +289,7 @@ export const useAIR = () => {
           statut: data.statut || determineAIRStatus(
             data.resultatMesure,
             data.dateCloture,
-            data.dateFinPriseEnCharge
+            data.natureFinAIR
           ),
           dateMiseAJour: importedAt
         }));
@@ -444,7 +445,7 @@ export const useAIR = () => {
               mergedMesure.statut = determineAIRStatus(
                 mergedMesure.resultatMesure,
                 mergedMesure.dateCloture,
-                mergedMesure.dateFinPriseEnCharge
+                mergedMesure.natureFinAIR
               );
             }
 
@@ -461,7 +462,7 @@ export const useAIR = () => {
               statut: imported.statut || determineAIRStatus(
                 imported.resultatMesure,
                 imported.dateCloture,
-                imported.dateFinPriseEnCharge
+                imported.natureFinAIR
               ),
               dateMiseAJour: nowIso()
             };
@@ -549,7 +550,7 @@ export const useAIR = () => {
         statut: determineAIRStatus(
           mesure.resultatMesure,
           mesure.dateCloture,
-          mesure.dateFinPriseEnCharge
+          mesure.natureFinAIR
         ),
         dateMiseAJour: nowIso()
       }));
@@ -574,7 +575,7 @@ export const useAIR = () => {
         const newStatus = determineAIRStatus(
           mesure.resultatMesure,
           mesure.dateCloture,
-          mesure.dateFinPriseEnCharge
+          mesure.natureFinAIR
         );
         if (newStatus !== mesure.statut) {
           hasChanges = true;

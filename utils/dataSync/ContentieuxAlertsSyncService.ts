@@ -133,16 +133,9 @@ export class ContentieuxAlertsSyncService {
       state.serverVersion = serverFile?.version ?? 0;
 
       if (serverFile) {
-        // Le serveur est la source de vérité pour les règles partagées.
-        // Si le cache local diffère, on l'aligne et on émet un event de
-        // resync pour que l'UI rafraîchisse.
-        if (rulesDiffer(localRules, serverFile.rules)) {
-          await writeLocal(contentieuxId, serverFile.rules);
-          emitSyncCompleted(`contentieuxAlerts:${contentieuxId}`);
-        }
-        // Si le local a été marqué dirty par une édition récente,
-        // on pousse (le serveur est repris en base pour le build).
         if (state.dirty && rulesDiffer(localRules, serverFile.rules)) {
+          // Une édition locale récente est en attente : le local prime, on
+          // pousse au serveur sans écraser le cache local par l'ancien état.
           const user = await getCurrentUserInfo();
           const payload: ContentieuxAlertsSyncFile = {
             ...buildMetadata(state.serverVersion, user),
@@ -155,6 +148,13 @@ export class ContentieuxAlertsSyncService {
             state.dirty = false;
           }
         } else {
+          // Pas d'édition locale en attente → le serveur est la source de
+          // vérité. Si le cache local diffère, on l'aligne et on émet un
+          // event de resync pour que l'UI rafraîchisse.
+          if (rulesDiffer(localRules, serverFile.rules)) {
+            await writeLocal(contentieuxId, serverFile.rules);
+            emitSyncCompleted(`contentieuxAlerts:${contentieuxId}`);
+          }
           state.dirty = false;
         }
       } else {

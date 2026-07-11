@@ -344,7 +344,7 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                         label: (context) => {
                           const value = context.raw as number;
                           const total = context.dataset.data.reduce((a: number, b: number) => a + b, 0);
-                          const percentage = ((value / total) * 100).toFixed(1);
+                          const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
                           return ` ${context.label}: ${value} (${percentage}%)`;
                         }
                       }
@@ -354,7 +354,7 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                       font: { weight: 'bold', size: 11 },
                       formatter: (value: number, ctx: any) => {
                         const total = ctx.dataset.data.reduce((a: number, b: number) => a + b, 0);
-                        const percentage = ((value / total) * 100).toFixed(0);
+                        const percentage = total > 0 ? ((value / total) * 100).toFixed(0) : '0';
                         if (Number(percentage) < 5) return '';
                         return `${percentage}%`;
                       },
@@ -867,9 +867,9 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                 ? allYearResults.filter(r => resultInfractionKeys(r).some(k => selectedGererTags.includes(k)))
                 : allYearResults;
 
-              const totalCondFiltered = filteredResults.reduce((acc, r) => acc + r.condamnations.length, 0);
+              const totalCondFiltered = filteredResults.reduce((acc, r) => acc + (r.condamnations || []).length, 0);
               const totalGererFiltered = filteredResults.reduce((acc, r) =>
-                acc + r.condamnations.filter(c => c.interdictionGerer).length, 0);
+                acc + (r.condamnations || []).filter(c => c.interdictionGerer).length, 0);
               const ratioFiltered = totalCondFiltered > 0 ? ((totalGererFiltered / totalCondFiltered) * 100).toFixed(1) : '0';
 
               return (
@@ -1020,7 +1020,7 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                 // toutes les années confondues, insensible au sélecteur.
                 const condamnationsOfType = Object.values(scopedResultats)
                   .filter(r => r.dateAudience && new Date(r.dateAudience).getFullYear() === selectedYear)
-                  .flatMap(r => r.condamnations)
+                  .flatMap(r => r.condamnations || [])
                   .filter(c => c && c.typeAudience === type);
                 if (condamnationsOfType.length === 0) return null;
 

@@ -191,7 +191,7 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
     // peut porter une condamnation typée 'OI' (disjonction partielle : une
     // partie du dossier jugée, l'autre à l'information) — elle s'ajoute aux
     // résultats marqués isOI, qui eux n'ont pas de condamnations.
-    const audienceTypes = new Set(resultat.condamnations.map(c => c.typeAudience));
+    const audienceTypes = new Set((resultat.condamnations || []).map(c => c.typeAudience));
     if (audienceTypes.has('CI')) nombreCI++;
     if (audienceTypes.has('COPJ')) nombreCOPJ++;
     if (audienceTypes.has('OI')) nombreOI++;

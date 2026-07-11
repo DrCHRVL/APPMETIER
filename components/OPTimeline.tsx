@@ -241,3 +241,5 @@ export const OPTimeline = React.memo(({ enquetesByContentieux, contentieuxDefs, 
     </div>
   );
 });
+
+OPTimeline.displayName = 'OPTimeline';
