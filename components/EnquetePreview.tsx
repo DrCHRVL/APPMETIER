@@ -775,3 +775,5 @@ return (
     </>
   );
 });
+
+EnquetePreview.displayName = 'EnquetePreview';

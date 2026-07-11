@@ -766,3 +766,5 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
     </div>
   );
 });
+
+EcouteSection.displayName = 'EcouteSection';

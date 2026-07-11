@@ -94,9 +94,9 @@ export const useFilterSort = (
     return filtered.sort((a, b) => {
       switch (sortOrder) {
         case 'date-asc':
-          return new Date(a.dateDebut).getTime() - new Date(b.dateDebut).getTime();
+          return new Date(a.dateDebut || 0).getTime() - new Date(b.dateDebut || 0).getTime();
         case 'date-desc':
-          return new Date(b.dateDebut).getTime() - new Date(a.dateDebut).getTime();
+          return new Date(b.dateDebut || 0).getTime() - new Date(a.dateDebut || 0).getTime();
         case 'cr-asc':
           return new Date(getLastCR(a.comptesRendus)?.date || 0).getTime() -
                  new Date(getLastCR(b.comptesRendus)?.date || 0).getTime();

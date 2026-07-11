@@ -270,3 +270,5 @@ export const ToDoSection = React.memo(({ enquete, onUpdate, isEditing }: ToDoSec
     </div>
   );
 });
+
+ToDoSection.displayName = 'ToDoSection';
