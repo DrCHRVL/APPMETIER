@@ -36,7 +36,7 @@ export const OfflineModePanel: React.FC<{ onSync?: () => void | Promise<void> }>
   const canPrepare = offlineMode.canPrepareNow();
 
   const handlePrepare = async () => {
-    if (code.length < 4) { showToast('Code trop court (4 caractères minimum)', 'error'); return; }
+    if (code.length < 8) { showToast('Code trop court (8 caractères minimum)', 'error'); return; }
     if (code !== confirm) { showToast('Les deux codes ne correspondent pas', 'error'); return; }
     setBusy(true);
     try {
@@ -151,7 +151,7 @@ export const OfflineModePanel: React.FC<{ onSync?: () => void | Promise<void> }>
               value={code}
               onChange={(e) => setCode(e.target.value)}
               disabled={!canPrepare || busy}
-              placeholder="4 caractères minimum"
+              placeholder="8 caractères minimum"
               className="mt-1 w-full border border-slate-300 rounded-md px-3 py-1.5 text-sm disabled:bg-slate-50"
             />
           </div>

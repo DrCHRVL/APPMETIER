@@ -138,7 +138,7 @@ export async function prepareOffline(code: string): Promise<void> {
   if (!liveKeyring || !liveIdentity) {
     throw new Error('Session non déverrouillée : rouvrez l’application avant de préparer le poste.')
   }
-  if (code.length < 4) throw new Error('Choisissez un code d’au moins 4 caractères.')
+  if (code.length < 8) throw new Error('Choisissez un code d’au moins 8 caractères.')
   const kdf = newKdfParams()
   const codeKey = await importAesKey(await deriveRawKey(code, kdf.salt, kdf.iterations))
   const envelope = await encryptJson(codeKey, liveKeyring, { savedBy: liveIdentity.username })
