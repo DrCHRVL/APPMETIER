@@ -10,8 +10,11 @@ import {
 } from 'recharts';
 import {
   TrendingUp, TrendingDown, Users, CheckCircle, XCircle, Calendar, Clock, Target,
-  AlertTriangle, Download, MapPin, User, FileText, Activity, Award, AlertCircle, ChevronDown, ChevronUp, RefreshCw, X
+  AlertTriangle, Download, MapPin, User, FileText, Activity, Award, AlertCircle, ChevronDown, ChevronUp, RefreshCw, X, Loader2
 } from 'lucide-react';
+import { exportAIRPdf, type AIRPdfData, type AIRPdfOptions } from '@/utils/generateAIRPdf';
+import { AIRExportPdfModal } from '@/components/modals/AIRExportPdfModal';
+import { UserManager } from '@/utils/userManager';
 
 // Interface basée sur vos vraies données AIR
 interface AIRImportData {
@@ -66,6 +69,9 @@ export const AIRDashboardIntegrated = ({
   const [showAlerteDetails, setShowAlerteDetails] = useState<number | null>(null);
   // Référent dont on affiche le détail des mesures en cours (modal). null = fermé.
   const [selectedReferent, setSelectedReferent] = useState<string | null>(null);
+  // Export du rapport AEM en PDF.
+  const [isExporting, setIsExporting] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   // Configuration des délais (seuils d'alertes de convocation + mesures
   // anciennes), éditable depuis l'écran Paramètres → module AIR.
@@ -847,6 +853,69 @@ const stats = useMemo(() => {
   // Liste des mesures en cours du référent sélectionné (pour le modal).
   const selectedReferentListe = selectedReferent ? (mesuresEnCoursParReferent[selectedReferent] || []) : [];
 
+  // Rédacteur par défaut du rapport (utilisateur courant).
+  const defaultRedacteur = UserManager.getInstance().getCurrentUser()?.displayName || '';
+
+  // Assemble les données du PDF à partir des mémos affichés (parité stricte
+  // avec l'écran : mêmes chiffres, mêmes séries).
+  const buildPdfData = (): AIRPdfData => ({
+    ancienneteMois: convocConfig.ancienneteMois,
+    tresAncienneteMois: convocConfig.tresAncienneteMois,
+    total: stats.total,
+    enCours: stats.enCours,
+    cloturees: stats.cloturees,
+    reussites: stats.reussites,
+    echecs: stats.echecs,
+    tauxReussite: stats.tauxReussite,
+    anciennes: statsWithHistory.mesuresAnciennes.length,
+    tresAnciennes: statsWithHistory.mesuresTresAnciennes.length,
+    moyenneEntretiensPR: stats.moyenneEntretiensPR,
+    anneeCourante,
+    anneePrec,
+    deltaTaux,
+    deltaEchecs,
+    annees: anneesAffichees.map(y => ({
+      annee: y,
+      recues: parReception[y] || 0,
+      cloturees: parCloture[y]?.cloturees || 0,
+      reussites: parCloture[y]?.reussites || 0,
+      echecs: parCloture[y]?.echecs || 0,
+      taux: tauxCloture(y),
+    })),
+    evolutionAnnuelle,
+    evolutionMensuelle: evolutionData,
+    suivi36: {
+      data: suivi36MoisData.data,
+      evolutionEnCours: suivi36MoisData.stats.evolutionEnCours,
+      evolutionCapacite: suivi36MoisData.stats.evolutionCapacite,
+      stockActuel: suivi36MoisData.stats.stockActuel,
+      mesuresTraitees: suivi36MoisData.stats.mesuresTraitees,
+      alertes: suivi36MoisData.alertes.map(a => ({ type: a.type, titre: a.titre, message: a.message })),
+    },
+    infractions: infractionsData,
+    referents: referentData,
+    alertesSysteme: alertes.map(a => ({ type: a.type, message: a.message, action: a.action })),
+    convocations: {
+      urgent: convocationsData.alertes.urgent.map(m => ({ nom: m.nom, ref: m.ref, ageEnMois: m.ageEnMois, nbRDV: m.nbRDV, referent: m.referent })),
+      retard: convocationsData.alertes.retard.map(m => ({ nom: m.nom, ref: m.ref, ageEnMois: m.ageEnMois, nbRDV: m.nbRDV, referent: m.referent })),
+      insuffisant: convocationsData.alertes.insuffisant.map(m => ({ nom: m.nom, ref: m.ref, ageEnMois: m.ageEnMois, nbRDV: m.nbRDV, referent: m.referent })),
+    },
+    predictions,
+  });
+
+  const handleExportPdf = async (options: AIRPdfOptions) => {
+    setIsExporting(true);
+    try {
+      await exportAIRPdf(buildPdfData(), options);
+      setShowExportModal(false);
+    } catch (error) {
+      console.error('Erreur lors de l\'export du rapport AEM :', error);
+      alert("Une erreur est survenue lors de l'export du rapport AEM. Veuillez réessayer.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className={`${className} space-y-6 mb-6`}>
       {/* Header */}
@@ -862,15 +931,18 @@ const stats = useMemo(() => {
             </CardTitle>
             
             <div className="flex items-center gap-3">
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
-                onClick={() => {
-                  console.log('Export AIR demandé');
-                }}
+                onClick={() => setShowExportModal(true)}
+                disabled={isExporting || mesures.length === 0}
               >
-                <Download className="h-4 w-4 mr-2" />
-                Export rapport AEM
+                {isExporting ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-2" />
+                )}
+                {isExporting ? 'Génération…' : 'Export rapport AEM'}
               </Button>
             </div>
           </div>
@@ -1765,6 +1837,15 @@ const stats = useMemo(() => {
           </div>
         </div>
       )}
+
+      {/* Modal d'options d'export du rapport AEM */}
+      <AIRExportPdfModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        onConfirm={handleExportPdf}
+        isExporting={isExporting}
+        defaultRedacteur={defaultRedacteur}
+      />
     </div>
   );
 };
