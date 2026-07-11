@@ -23,6 +23,7 @@ import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats } from './attache/mail.mjs'
 import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation } from './attache/agent.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
+import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 
 const PORT = Number(process.env.SIRAL_ATTACHE_PORT || 8787)
 const POLL_MINUTES = Math.max(1, Number(process.env.SIRAL_ATTACHE_POLL_MIN || 5))
@@ -114,7 +115,8 @@ function briefingPrompt() {
     '3. projet_dml — s\'il existe des DML archivées (lister_dml) et que le dossier a évolué depuis la dernière,',
     '   prépare la version actualisée ; publie AUSSI une verification NPP pour les actes récents que tu ne vois pas.',
     '4. appel — les relances où un mail ne suffit plus.',
-    '5. DOSSIERS DORMANTS (priorité haute) — tout dossier sans mouvement depuis plus de 2 mois (derniereMaj, CR anciens) :',
+    '5. DOSSIERS DORMANTS (priorité haute) — ceux que lister_dossiers marque dormant:true (le seuil est CELUI de',
+    '   l\'alerte « dossier sans CR » configurée dans SIRAL, champ seuilSansCR — jamais un délai de ton choix) :',
     '   publie le projet_mail de relance au directeur d\'enquête, prêt à coller (point d\'étape, actualisation, ou envoi',
     '   du dossier complet pour relecture selon le cas).',
     '6. DESCRIPTIONS PÉRIMÉES — si la description d\'un dossier ne reflète plus son état (nouveaux CR/actes/documents),',
@@ -139,6 +141,44 @@ async function runBriefing(trigger = 'planifié') {
     return { ok: result.ok, convId: result.convId, error: result.error }
   } finally {
     briefingRunning = false
+  }
+}
+
+// ── Routines du magistrat : exécutées à leur cadence, sérialisées ──
+let routineRunning = false
+async function runRoutine(routine, trigger = 'planifiée') {
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  console.log(`[attache] routine « ${routine.nom} » (${trigger})`)
+  // réserver l'exécution AVANT le run (évite un doublon si le run est long)
+  await markRun(keys, routine.id, null)
+  const prompt = [
+    `ROUTINE « ${routine.nom} » — consigne récurrente définie par le magistrat, exécutée automatiquement :`,
+    '',
+    routine.prompt,
+    '',
+    'Termine par signaler (le fil « pendant votre absence ») si ton travail appelle un geste du magistrat ;',
+    'si la consigne demande un envoi, utilise envoyer_a_mon_magistrat. Si rien de notable : ne publie rien.',
+  ].join('\n')
+  const result = await runAgent({ keys, prompt, runLabel: `routine:${routine.nom}`, title: `Routine ${routine.nom} ${new Date().toISOString().slice(0, 10)}` })
+  await markRun(keys, routine.id, result.ok)
+  await audit(keys, 'routine_executee', { routine: routine.nom, trigger, ok: result.ok, convId: result.convId, erreur: result.error })
+  return { ok: result.ok, convId: result.convId, error: result.error }
+}
+
+async function maybeDueRoutines() {
+  if (routineRunning) return
+  const keys = loadKeyring()
+  if (!keys) return
+  const due = dueRoutines(keys)
+  if (!due.length) return
+  routineRunning = true
+  try {
+    for (const r of due) {
+      await runRoutine(r).catch((e) => console.error('[attache] routine :', e))
+    }
+  } finally {
+    routineRunning = false
   }
 }
 
@@ -242,6 +282,40 @@ const server = http.createServer(async (req, res) => {
       return json(res, 202, { ok: true, started: true })
     }
 
+    if (route === 'GET /routines') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      return json(res, 200, { routines: listRoutines(keys) })
+    }
+
+    if (route === 'POST /routines') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const body = await readBody(req)
+      const out = await upsertRoutine(keys, body)
+      await audit(keys, 'routine_enregistree', { nom: body.nom, par: String(body.par || 'admin') })
+      return json(res, 200, { ok: true, ...out })
+    }
+
+    if (route === 'DELETE /routines') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const id = url.searchParams.get('id') || ''
+      const out = await deleteRoutine(keys, id)
+      return json(res, 200, { ok: true, ...out })
+    }
+
+    if (route === 'POST /routines/run') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const id = url.searchParams.get('id') || ''
+      const routine = listRoutines(keys).find((r) => r.id === id)
+      if (!routine) return json(res, 404, { error: 'Routine inconnue' })
+      // lancée en fond : la réponse ne bloque pas sur le run
+      runRoutine(routine, 'manuelle').catch((e) => console.error('[attache] routine :', e))
+      return json(res, 202, { ok: true, started: true })
+    }
+
     if (route === 'GET /chronologie') {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
@@ -337,6 +411,7 @@ server.listen(PORT, () => {
 setInterval(() => {
   pollOnce().catch((e) => console.error('[attache] relève :', e))
   maybeScheduledBriefing().catch((e) => console.error('[attache] brief planifié :', e))
+  maybeDueRoutines().catch((e) => console.error('[attache] routines :', e))
 }, POLL_MINUTES * 60 * 1000)
 // première relève 20 s après le démarrage (laisse le réseau docker s'établir)
 setTimeout(() => { pollOnce('démarrage').catch(() => {}) }, 20_000)

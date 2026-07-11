@@ -11,12 +11,17 @@
  * - Journal d'audit : chaque action de l'attaché, déchiffrée ici.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText } from 'lucide-react';
+import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus } from 'lucide-react';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
 
 interface AuditEntry { action: string; at?: string; outil?: string; contexte?: string; [k: string]: unknown }
+
+interface Routine {
+  id: string; nom: string; prompt: string; heure?: string; intervalleHeures?: number;
+  actif: boolean; lastRunAt?: string; lastRunOk?: boolean | null;
+}
 
 function Dot({ ok, label }: { ok: boolean | undefined; label: string }) {
   return (
@@ -34,6 +39,9 @@ export function AdminAttachePanel() {
   const [notice, setNotice] = useState<string | null>(null);
   const [audit, setAudit] = useState<Array<AuditEntry & { ts: number }>>([]);
   const [showAudit, setShowAudit] = useState(false);
+  const [routines, setRoutines] = useState<Routine[]>([]);
+  const [showRoutineForm, setShowRoutineForm] = useState(false);
+  const [rForm, setRForm] = useState({ nom: '', prompt: '', heure: '07:00', mode: 'heure' as 'heure' | 'intervalle', intervalleHeures: 4 });
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -47,7 +55,62 @@ export function AdminAttachePanel() {
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  const loadRoutines = useCallback(async () => {
+    try {
+      const res = await fetch('/api/attache/routines');
+      if (res.ok) setRoutines((await res.json()).routines || []);
+    } catch { /* silencieux */ }
+  }, []);
+
+  useEffect(() => { refresh(); loadRoutines(); }, [refresh, loadRoutines]);
+
+  const saveRoutine = useCallback(async () => {
+    if (!rForm.nom.trim() || !rForm.prompt.trim()) return;
+    setWorking('routine');
+    try {
+      const res = await fetch('/api/attache/routines', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          nom: rForm.nom,
+          prompt: rForm.prompt,
+          heure: rForm.mode === 'heure' ? rForm.heure : undefined,
+          intervalleHeures: rForm.mode === 'intervalle' ? rForm.intervalleHeures : undefined,
+          actif: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setShowRoutineForm(false);
+        setRForm({ nom: '', prompt: '', heure: '07:00', mode: 'heure', intervalleHeures: 4 });
+        loadRoutines();
+      } else {
+        setNotice(data.error || 'Enregistrement refusé');
+      }
+    } finally {
+      setWorking(null);
+    }
+  }, [rForm, loadRoutines]);
+
+  const toggleRoutine = useCallback(async (r: Routine) => {
+    await fetch('/api/attache/routines', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...r, actif: !r.actif }),
+    }).catch(() => {});
+    loadRoutines();
+  }, [loadRoutines]);
+
+  const removeRoutine = useCallback(async (id: string) => {
+    if (!window.confirm('Supprimer cette routine ?')) return;
+    await fetch('/api/attache/routines?id=' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {});
+    loadRoutines();
+  }, [loadRoutines]);
+
+  const runRoutineNow = useCallback(async (id: string) => {
+    await fetch('/api/attache/routines?run=' + encodeURIComponent(id), { method: 'POST' }).catch(() => {});
+    setNotice('Routine lancée — le résultat arrivera dans le fil « pendant votre absence ».');
+  }, []);
 
   const grantKeys = useCallback(async () => {
     if (!status?.scopesAttendus?.length) return;
@@ -216,6 +279,100 @@ export function AdminAttachePanel() {
           Pour les périmètres confiés, le serveur de l'attaché peut déchiffrer — révoquez au moindre doute.
         </p>
       )}
+
+      {/* Routines — consignes récurrentes exécutées sans vous */}
+      <div className="rounded-xl border border-gray-200">
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <AlarmClock className="h-4 w-4 text-[#2B5746]" />
+          <span className="text-sm font-semibold text-gray-800">Routines</span>
+          <span className="text-[11px] text-gray-400">quotidiennes (HH:MM) ou toutes les N heures</span>
+          <button
+            onClick={() => setShowRoutineForm((v) => !v)}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+          >
+            <Plus className="h-3 w-3" />Nouvelle
+          </button>
+        </div>
+
+        {showRoutineForm && (
+          <div className="space-y-2 border-b border-gray-100 bg-gray-50/50 p-3">
+            <input
+              value={rForm.nom}
+              onChange={(e) => setRForm({ ...rForm, nom: e.target.value })}
+              placeholder="Nom (ex. Préparation d'audience)"
+              className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs outline-none focus:border-[#2B5746]/50"
+            />
+            <textarea
+              value={rForm.prompt}
+              onChange={(e) => setRForm({ ...rForm, prompt: e.target.value })}
+              rows={3}
+              placeholder="La consigne, comme vous la donneriez dans le panneau (ex. « Chaque veille d'audience, prépare pour chaque affaire du rôle une fiche : faits, personnalité, points faibles, réquisitions envisageables — et envoie-la-moi par mail. »)"
+              className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs leading-relaxed outline-none focus:border-[#2B5746]/50"
+            />
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+              <label className="inline-flex items-center gap-1.5">
+                <input type="radio" checked={rForm.mode === 'heure'} onChange={() => setRForm({ ...rForm, mode: 'heure' })} />
+                Chaque jour à
+                <input
+                  type="time"
+                  value={rForm.heure}
+                  onChange={(e) => setRForm({ ...rForm, heure: e.target.value })}
+                  className="rounded border border-gray-200 px-1.5 py-0.5"
+                />
+              </label>
+              <label className="inline-flex items-center gap-1.5">
+                <input type="radio" checked={rForm.mode === 'intervalle'} onChange={() => setRForm({ ...rForm, mode: 'intervalle' })} />
+                Toutes les
+                <input
+                  type="number" min={1} max={168}
+                  value={rForm.intervalleHeures}
+                  onChange={(e) => setRForm({ ...rForm, intervalleHeures: Number(e.target.value) })}
+                  className="w-14 rounded border border-gray-200 px-1.5 py-0.5"
+                />
+                heures
+              </label>
+              <button
+                onClick={saveRoutine}
+                disabled={working === 'routine' || !rForm.nom.trim() || !rForm.prompt.trim()}
+                className="ml-auto rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                {working === 'routine' ? 'Enregistrement…' : 'Enregistrer'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {routines.length === 0 ? (
+          <p className="px-3 py-3 text-center text-xs text-gray-400">Aucune routine — le brief quotidien du majordome tourne déjà tout seul.</p>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {routines.map((r) => (
+              <div key={r.id} className="flex items-center gap-2 px-3 py-2">
+                <button
+                  onClick={() => toggleRoutine(r)}
+                  title={r.actif ? 'Active — cliquer pour suspendre' : 'Suspendue — cliquer pour activer'}
+                  className={`h-4 w-7 rounded-full transition-colors ${r.actif ? 'bg-[#2B5746]' : 'bg-gray-300'}`}
+                >
+                  <span className={`block h-3 w-3 rounded-full bg-white transition-transform ${r.actif ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-semibold text-gray-800">{r.nom}</div>
+                  <div className="text-[10.5px] text-gray-400">
+                    {r.heure ? `chaque jour à ${r.heure}` : `toutes les ${r.intervalleHeures} h`}
+                    {r.lastRunAt ? ` · dernier run ${new Date(r.lastRunAt).toLocaleString('fr-FR')} ${r.lastRunOk === false ? '⚠️' : r.lastRunOk ? '✓' : '…'}` : ' · jamais exécutée'}
+                  </div>
+                </div>
+                <button onClick={() => runRoutineNow(r.id)} title="Exécuter maintenant" className="rounded-md p-1 text-gray-400 hover:bg-emerald-50 hover:text-[#2B5746]">
+                  <Play className="h-3.5 w-3.5" />
+                </button>
+                <button onClick={() => removeRoutine(r.id)} title="Supprimer" className="rounded-md p-1 text-gray-400 hover:bg-red-50 hover:text-red-500">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Journal d'audit */}
       {showAudit && (

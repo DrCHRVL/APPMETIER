@@ -801,9 +801,15 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
             </div>
           )}
 
-          {/* Grille des 4 zones */}
+          {/* Grille des zones — la zone DML (détention provisoire) n'a de sens
+              que pour un dossier À L'INSTRUCTION : masquée ailleurs, sauf si des
+              DML y ont déjà été déposées (jamais de documents inaccessibles). */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {DOCUMENT_ZONES.map((zone) => {
+            {DOCUMENT_ZONES.filter((zone) =>
+              zone.category !== 'dml'
+              || enquete.statut === 'instruction'
+              || documentsByCategory.dml.length > 0
+            ).map((zone) => {
               const docsInZone = documentsByCategory[zone.category];
               const isDragOver = dragOverZone === zone.category;
               const isExpanded = expandedCategories.has(zone.category);

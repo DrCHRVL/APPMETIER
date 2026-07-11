@@ -71,24 +71,42 @@ function findEnquete(data, numero) {
 
 // ── Lecture ──
 
-/** Liste compacte des enquêtes (pour l'orientation de l'agent). */
+/**
+ * Liste compacte des enquêtes (pour l'orientation de l'agent).
+ * Le caractère « dormant » suit le SEUIL CONFIGURÉ dans SIRAL pour l'alerte
+ * « dossier sans CR » (alertRules, type cr_delay) — jamais une valeur
+ * arbitraire. À défaut de règle activée : 60 jours.
+ */
 export function listEnquetes(keys, { includeArchived = false } = {}) {
   const { data } = loadContentieux(keys)
+  const crRule = (data.alertRules || []).find((r) => r && r.type === 'cr_delay' && r.enabled)
+  const seuilSansCR = Number(crRule?.threshold) > 0 ? Number(crRule.threshold) : 60
+  const now = Date.now()
   return (data.enquetes || [])
     .filter((e) => includeArchived || e.statut !== 'archive')
-    .map((e) => ({
-      numero: e.numero,
-      objet: stripHtml(e.description || '').slice(0, 180),
-      statut: e.statut,
-      services: e.services || [],
-      misEnCause: (e.misEnCause || []).length,
-      ecoutes: (e.ecoutes || []).length,
-      geolocalisations: (e.geolocalisations || []).length,
-      autresActes: (e.actes || []).length,
-      comptesRendus: (e.comptesRendus || []).length,
-      documents: (e.documents || []).length,
-      derniereMaj: e.dateMiseAJour,
-    }))
+    .map((e) => {
+      const lastCr = (e.comptesRendus || [])
+        .map((c) => Date.parse(c.date))
+        .filter(Number.isFinite)
+        .sort((x, y) => y - x)[0]
+      const joursSansCR = lastCr ? Math.floor((now - lastCr) / 86_400_000) : null
+      return {
+        numero: e.numero,
+        objet: stripHtml(e.description || '').slice(0, 180),
+        statut: e.statut,
+        services: e.services || [],
+        misEnCause: (e.misEnCause || []).length,
+        ecoutes: (e.ecoutes || []).length,
+        geolocalisations: (e.geolocalisations || []).length,
+        autresActes: (e.actes || []).length,
+        comptesRendus: (e.comptesRendus || []).length,
+        documents: (e.documents || []).length,
+        derniereMaj: e.dateMiseAJour,
+        joursSansCR,
+        seuilSansCR,
+        dormant: e.statut === 'en_cours' && (joursSansCR === null || joursSansCR >= seuilSansCR),
+      }
+    })
 }
 
 function acteLine(kind, a) {

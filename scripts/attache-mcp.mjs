@@ -142,7 +142,7 @@ const TOOLS = [
   },
   {
     name: 'actualiser_description',
-    description: 'Réécrit la description (« objet ») du dossier pour donner la vision à l\'instant T : synthèse dense intégrant les derniers CR et documents. L\'ancienne description est ARCHIVÉE (jamais perdue) dans l\'historique du dossier. Texte brut, retours à la ligne autorisés.',
+    description: 'Réécrit la description (« objet ») du dossier : vision à l\'instant T, derniers CR et documents intégrés. FORMAT prise de notes, catégorisé puis chronologique : FAITS / MEC / ACTES EN COURS / ATTENTION / CHRONO (tournants seulement) / MAJ JJ-MM-AA. Complet mais synthétique — efficacité et accessibilité avant tout. L\'ancienne description est ARCHIVÉE (jamais perdue).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' }, description: { type: 'string' } }, required: ['numero', 'description'] },
     handler: async (a) => actualiserDescription(keys, a),
     write: true,
