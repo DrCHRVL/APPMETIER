@@ -22,6 +22,7 @@ import { attacheTj, attacheContentieux, readState, writeState } from './attache/
 import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats } from './attache/mail.mjs'
 import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation } from './attache/agent.mjs'
+import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 
 const PORT = Number(process.env.SIRAL_ATTACHE_PORT || 8787)
 const POLL_MINUTES = Math.max(1, Number(process.env.SIRAL_ATTACHE_POLL_MIN || 5))
@@ -113,6 +114,11 @@ function briefingPrompt() {
     '3. projet_dml — s\'il existe des DML archivées (lister_dml) et que le dossier a évolué depuis la dernière,',
     '   prépare la version actualisée ; publie AUSSI une verification NPP pour les actes récents que tu ne vois pas.',
     '4. appel — les relances où un mail ne suffit plus.',
+    '5. DOSSIERS DORMANTS (priorité haute) — tout dossier sans mouvement depuis plus de 2 mois (derniereMaj, CR anciens) :',
+    '   publie le projet_mail de relance au directeur d\'enquête, prêt à coller (point d\'étape, actualisation, ou envoi',
+    '   du dossier complet pour relecture selon le cas).',
+    '6. DESCRIPTIONS PÉRIMÉES — si la description d\'un dossier ne reflète plus son état (nouveaux CR/actes/documents),',
+    '   actualise-la directement (actualiser_description) : c\'est réversible et archivé.',
     'Termine par signaler (type note) : un résumé du brief en 2 phrases. Sois sélectif : uniquement ce qui appelle',
     'un geste du magistrat. Ne republie pas ce qui n\'a pas changé depuis le brief précédent (ta mémoire et les',
     'conversations récentes t\'indiquent ce qui a déjà été publié).',
@@ -234,6 +240,23 @@ const server = http.createServer(async (req, res) => {
       if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
       runBriefing('manuel').catch((e) => console.error('[attache] brief :', e))
       return json(res, 202, { ok: true, started: true })
+    }
+
+    if (route === 'GET /chronologie') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const numero = url.searchParams.get('numero') || ''
+      const chrono = buildChronologie(keys, numero)
+      return chrono ? json(res, 200, chrono) : json(res, 404, { error: 'Dossier introuvable' })
+    }
+
+    if (route === 'POST /cotes') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const body = await readBody(req, 8 * 1024 * 1024)
+      const out = await saveArchitecture(keys, String(body.numero || ''), String(body.texte || ''))
+      if (out.ok) await audit(keys, 'cotes_importees', { numero: body.numero, nbCotes: out.nbCotes, par: String(body.par || 'admin') })
+      return json(res, out.ok ? 200 : 400, out)
     }
 
     if (route === 'GET /inbox') {

@@ -41,6 +41,25 @@ l'usage).
   - **qui appeler**, quand un mail ne suffit plus.
   Chaque item se règle d'un geste : Copier · Traité · Ignorer. Bouton
   « Générer le brief » pour relancer à la demande.
+- **Tient la description à jour** : quand un dossier évolue, l'attaché
+  réécrit son « objet » pour donner la vision à l'instant T — l'ancienne
+  description est archivée dans le dossier (`descriptionHistory`), rien
+  n'est jamais perdu (en plus du versionnage du coffre).
+- **Relance les dossiers dormants** : tout dossier sans mouvement depuis
+  plus de 2 mois reçoit au brief un projet de mail de relance au directeur
+  d'enquête, prêt à coller.
+- **Chronologie probatoire** : dans le détail d'une enquête (section
+  visible du seul administrateur), la frise fusionnée de tout ce qui est
+  daté — actes, prolongations, attentes JLD, CR, apparition de mis en
+  cause, DML archivées. Le magistrat peut y **coller l'architecture NPP**
+  d'un dossier d'instruction (arborescence des cotes A/B/C/D/E/G/S/Z) :
+  un parseur la structure, l'attaché comprend le sens et l'ordre du
+  dossier, et les cotes datées rejoignent la frise.
+- **Suit les trames du magistrat** : ses plans-types et consignes de
+  rédaction (DML, réquisitions, TSE — ceux qu'il utilisait dans Claude
+  web) se collent dans le panneau (« enregistre cette trame sous… ») ;
+  l'attaché les relit avant chaque rédaction du même type. Chiffrées,
+  versionnées.
 
 ## Architecture et modèle de sécurité
 

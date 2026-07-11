@@ -24,6 +24,7 @@ import { Badge } from '../ui/badge';
 import { EnqueteHeader } from '../sections/EnqueteHeader';
 import { CoSaisineSection } from '../sections/CoSaisineSection';
 import { TransfertContentieuxSection } from '../sections/TransfertContentieuxSection';
+import { ChronologieSection } from '../attache/ChronologieSection';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
 import { SuiviAlertModal } from './SuiviAlertModal';
@@ -89,7 +90,7 @@ const EnqueteDetailModalImpl = ({
   const [showModificationsPopup, setShowModificationsPopup] = useState(false);
   useEffect(() => { setLocalNumero(enquete.numero); }, [enquete.numero]);
   const { showToast } = useToast();
-  const { user } = useUser();
+  const { user, isAdmin } = useUser();
   const markEnqueteAsSeen = useEnquetesStore(s => s.markEnqueteAsSeen);
 
   const effectiveReadOnly = readOnly;
@@ -296,6 +297,10 @@ const EnqueteDetailModalImpl = ({
               onUpdate={isEditing ? (updates) => debouncedOnUpdate(enquete.id, updates) : undefined}
               onUpdateImmediate={isEditing ? (updates) => handleUpdateImmediate(enquete.id, updates) : undefined}
             />
+
+            {/* Chronologie probatoire (attaché IA) — admin uniquement, se
+                masque d'elle-même si la fonctionnalité n'est pas activée. */}
+            {isAdmin() && <ChronologieSection numero={enquete.numero} />}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div className="space-y-6">

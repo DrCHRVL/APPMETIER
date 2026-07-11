@@ -17,8 +17,11 @@ import { audit, publishFeed } from './attache/journal.mjs'
 import {
   listEnquetes, dossierMarkdown, readDocumentText, verifierCompletude,
   enregistrerActe, acterProlongation, classerNote, ajouterTodo, listerDml,
+  actualiserDescription,
 } from './attache/dossier.mjs'
 import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
+import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
+import { saveTrame, listTrames, readTrame } from './attache/trames.mjs'
 import { appendMemory } from './attache/memory.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed, sendToOwner } from './attache/mail.mjs'
 
@@ -136,6 +139,58 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { section: { type: 'string' }, note: { type: 'string' } }, required: ['section', 'note'] },
     handler: async (a) => ({ ajoute: await appendMemory(keys, a.section, a.note, 'attache-ia') }),
     write: true,
+  },
+  {
+    name: 'actualiser_description',
+    description: 'Réécrit la description (« objet ») du dossier pour donner la vision à l\'instant T : synthèse dense intégrant les derniers CR et documents. L\'ancienne description est ARCHIVÉE (jamais perdue) dans l\'historique du dossier. Texte brut, retours à la ligne autorisés.',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string' }, description: { type: 'string' } }, required: ['numero', 'description'] },
+    handler: async (a) => actualiserDescription(keys, a),
+    write: true,
+  },
+  {
+    name: 'cotes_enregistrer',
+    description: 'Enregistre l\'architecture d\'un dossier d\'instruction collée depuis NPP (arborescence des cotes A/B/C/D/E/G/S/Z). Un parseur structure chaque cote (section, libellé, dates). Base de la chronologie et de la compréhension du dossier — à demander au magistrat quand elle manque.',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string' }, texte: { type: 'string', description: 'L\'arborescence NPP brute, collée telle quelle' } }, required: ['numero', 'texte'] },
+    handler: async (a) => saveArchitecture(keys, a.numero, a.texte),
+    write: true,
+  },
+  {
+    name: 'cotes_lire',
+    description: 'Relit l\'architecture NPP importée d\'un dossier : cotes structurées par section (Fond, Audience, CJ/détention, Personnalité…), libellés, dates. `section` (optionnel) filtre sur une lettre (D, E, C…).',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string' }, section: { type: 'string' } }, required: ['numero'] },
+    handler: async (a) => {
+      const archi = loadArchitecture(keys, a.numero)
+      if (!archi) return { erreur: 'Aucune architecture importée pour ce dossier — demander au magistrat de la coller (NPP)' }
+      const entries = a.section
+        ? archi.entries.filter((e) => e.lettre === String(a.section).toUpperCase()[0])
+        : archi.entries
+      return { reference: archi.reference, importeLe: archi.importeLe, nbCotes: archi.nbCotes, entries: entries.slice(0, 4000) }
+    },
+  },
+  {
+    name: 'chronologie_lire',
+    description: 'Chronologie probatoire fusionnée du dossier : actes SIRAL (débuts, fins, prolongations, poses, attentes JLD), CR, modifications (apparition de MEC), DML archivées et cotes NPP datées — triée par date. Base de tout réquisitoire, rapport ou préparation d\'audience.',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
+    handler: async (a) => buildChronologie(keys, a.numero) ?? { erreur: 'Dossier introuvable' },
+  },
+  {
+    name: 'trame_enregistrer',
+    description: 'Enregistre ou met à jour une trame de rédaction du magistrat (plan-type de DML, réquisition, TSE, consignes de style). Versionnée à chaque réécriture. À utiliser quand le magistrat colle une trame ou dit « enregistre cette trame ».',
+    inputSchema: { type: 'object', properties: { nom: { type: 'string', description: 'ex: reponse-dml, requisition-tse' }, contenu: { type: 'string' }, description: { type: 'string' } }, required: ['nom', 'contenu'] },
+    handler: async (a) => saveTrame(keys, a),
+    write: true,
+  },
+  {
+    name: 'trames_lister',
+    description: 'Liste les trames de rédaction disponibles. AVANT toute rédaction type (DML, réquisition, TSE, mail), vérifier ici s\'il existe une trame et la suivre.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => listTrames(keys),
+  },
+  {
+    name: 'trame_lire',
+    description: 'Lit le contenu complet d\'une trame par son nom.',
+    inputSchema: { type: 'object', properties: { nom: { type: 'string' } }, required: ['nom'] },
+    handler: async (a) => readTrame(keys, a.nom) ?? { erreur: 'Trame inconnue — voir trames_lister' },
   },
   {
     name: 'lister_dml',

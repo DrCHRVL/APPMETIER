@@ -338,6 +338,28 @@ export function listerDml(keys, numero) {
     .sort((a, b) => String(b.deposeLe).localeCompare(String(a.deposeLe)))
 }
 
+/**
+ * Actualise la description (l'« objet ») du dossier pour refléter l'état à
+ * l'instant T — derniers CR et documents intégrés. RIEN n'est perdu : la
+ * description précédente est archivée dans e.descriptionHistory (en plus du
+ * versionnage du coffre). Champ additif, invisible pour l'app existante.
+ */
+export async function actualiserDescription(keys, { numero, description }) {
+  const texte = String(description || '').trim()
+  if (!texte) throw new Error('Description vide')
+  return mutate(keys, numero, (e) => {
+    const ancienne = String(e.description || '')
+    if (ancienne.trim()) {
+      e.descriptionHistory = e.descriptionHistory || []
+      e.descriptionHistory.push({ date: new Date().toISOString(), description: ancienne, remplacePar: SAVED_BY })
+      // garde-fou : capé aux 20 dernières versions (le coffre versionné garde tout le reste)
+      if (e.descriptionHistory.length > 20) e.descriptionHistory = e.descriptionHistory.slice(-20)
+    }
+    e.description = escapeHtml(texte).replace(/\n/g, '<br>')
+    return { versionsConservees: (e.descriptionHistory || []).length }
+  })
+}
+
 export async function ajouterTodo(keys, { numero, texte }) {
   return mutate(keys, numero, (e) => {
     e.toDos = e.toDos || []

@@ -1,0 +1,63 @@
+/**
+ * SIRAL — Attaché de justice · bibliothèque de trames.
+ *
+ * Les trames et consignes de rédaction du magistrat (celles qu'il utilisait
+ * dans Claude web : plan-type de DML, de réquisition, de TSE…). Il les colle
+ * dans le panneau (« enregistre cette trame sous "reponse-dml" »), l'attaché
+ * les range ici et les relit avant chaque rédaction du même type. Chiffrées
+ * (clé globale), versionnées à chaque réécriture.
+ */
+import fs from 'node:fs'
+import path from 'node:path'
+import { attacheDir, ensureDir, atomicWrite, readJson } from './store.mjs'
+import { encryptJson, decryptJson } from './crypto.mjs'
+
+function safeName(nom) {
+  const s = String(nom).toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
+  if (!s) throw new Error('Nom de trame invalide')
+  return s
+}
+
+export async function saveTrame(keys, { nom, contenu, description }) {
+  const name = safeName(nom)
+  const record = {
+    nom: name,
+    description: description ? String(description).slice(0, 300) : undefined,
+    contenu: String(contenu).slice(0, 200_000),
+    updatedAt: new Date().toISOString(),
+  }
+  const dir = attacheDir('trames')
+  ensureDir(dir)
+  const p = path.join(dir, name + '.json')
+  if (fs.existsSync(p)) {
+    const vdir = path.join(dir, '.versions', name)
+    ensureDir(vdir)
+    fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '.json'))
+  }
+  atomicWrite(p, JSON.stringify(encryptJson(keys.global, record, { savedAt: record.updatedAt })))
+  return { nom: name }
+}
+
+export function listTrames(keys) {
+  const dir = attacheDir('trames')
+  if (!fs.existsSync(dir)) return []
+  const out = []
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith('.json') || f.startsWith('.')) continue
+    const env = readJson(path.join(dir, f), null)
+    if (!env) continue
+    try {
+      const t = decryptJson(keys.global, env)
+      out.push({ nom: t.nom, description: t.description, updatedAt: t.updatedAt, taille: (t.contenu || '').length })
+    } catch {}
+  }
+  return out.sort((a, b) => a.nom.localeCompare(b.nom))
+}
+
+export function readTrame(keys, nom) {
+  const p = attacheDir('trames', safeName(nom) + '.json')
+  const env = readJson(p, null)
+  if (!env) return null
+  try { return decryptJson(keys.global, env) } catch { return null }
+}
