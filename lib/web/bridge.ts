@@ -646,7 +646,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       await fsa.flushPendingCopies(docDownload).catch(() => {})
       const internal = await docList(enq)
       result.totalInternal = internal.length
-      const cats = Array.from(new Set(['Geoloc', 'Ecoutes', 'Actes', 'PV', ...internal.map((d) => d.rel.split('/')[0])]))
+      const cats = Array.from(new Set(['Geoloc', 'Ecoutes', 'Actes', 'PV', 'DML', ...internal.map((d) => d.rel.split('/')[0])]))
       for (const cat of cats) {
         const externalNames = await fsa.listFolderFiles(token, enq, sub, cat)
         result.totalExternal += externalNames.length

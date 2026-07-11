@@ -26,6 +26,21 @@ l'usage).
   paramètre de l'outil : il est câblé côté serveur.
 - **Retient** : une mémoire markdown (préférences, réflexes appris) relue à
   chaque intervention — lisible, corrigeable et effaçable depuis le panneau.
+- **Sert de majordome** : un **brief quotidien** (heure configurable,
+  `SIRAL_ATTACHE_BRIEFING_HOUR`, défaut 6 h) balaye tous les dossiers et
+  alimente un **widget du tableau de bord** visible du seul administrateur :
+  - **échéances** à préparer (actes expirants, attentes JLD, CR anciens) ;
+  - **projets de mail au directeur d'enquête** (demande de requête, point
+    d'étape, actualisation, envoi du dossier pour relecture) — RIEN ne part :
+    bouton **Copier**, c'est le magistrat qui colle et envoie ;
+  - **projets de DML actualisées**, générés à partir des anciennes DML
+    archivées dans la **zone DML** de la section documents (dossier `DML/`,
+    synchronisé avec le commun Windows comme les autres catégories) ;
+  - **vérifications que lui seul peut faire** (nouveaux actes dans NPP,
+    Cassiopée — l'attaché n'y a aucun accès et ne l'invente jamais) ;
+  - **qui appeler**, quand un mail ne suffit plus.
+  Chaque item se règle d'un geste : Copier · Traité · Ignorer. Bouton
+  « Générer le brief » pour relancer à la demande.
 
 ## Architecture et modèle de sécurité
 

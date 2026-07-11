@@ -323,6 +323,21 @@ export async function classerNote(keys, { numero, titre, contenu }) {
   })
 }
 
+/**
+ * DML archivées d'un dossier : la zone « DML » de la section documents
+ * (fichiers déposés sous DML/…, synchronisés depuis le commun Windows).
+ * Base de travail pour actualiser une DML : lire la plus récente avec
+ * lire_document, reprendre sa structure, mettre à jour avec les actes
+ * intervenus depuis.
+ */
+export function listerDml(keys, numero) {
+  const docs = listDocsMeta(attacheTj(), docServerKey(numero))
+  return docs
+    .filter((d) => d.rel.startsWith('DML/') || String(d.category || '').toUpperCase() === 'DML')
+    .map((d) => ({ chemin: d.rel, nomOriginal: d.originalName, taille: d.size, deposeLe: d.savedAt }))
+    .sort((a, b) => String(b.deposeLe).localeCompare(String(a.deposeLe)))
+}
+
 export async function ajouterTodo(keys, { numero, texte }) {
   return mutate(keys, numero, (e) => {
     e.toDos = e.toDos || []

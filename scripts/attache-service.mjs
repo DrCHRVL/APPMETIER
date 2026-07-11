@@ -99,6 +99,55 @@ function queueProactiveRun(keys, mailId) {
   return proactiveChain
 }
 
+// ── Brief du majordome : un run quotidien qui balaye tout ──
+const BRIEFING_HOUR = Math.min(23, Math.max(0, Number(process.env.SIRAL_ATTACHE_BRIEFING_HOUR || 6)))
+
+function briefingPrompt() {
+  return [
+    'C\'est l\'heure du brief quotidien du magistrat. Balaye TOUS les dossiers en cours (lister_dossiers,',
+    'verifier_completude sur chacun, lire_dossier quand un point mérite le contexte) et prépare son tableau',
+    'de bord via majordome_publier :',
+    '1. echeance — actes expirant sous 15 jours, attentes JLD qui traînent, CR anciens : dis QUOI préparer et POUR QUAND.',
+    '2. projet_mail — pour chaque dossier qui le justifie, le mail prêt à coller au directeur d\'enquête',
+    '   (demande de requête pour prolongation, point d\'étape, actualisation, envoi du dossier pour relecture).',
+    '3. projet_dml — s\'il existe des DML archivées (lister_dml) et que le dossier a évolué depuis la dernière,',
+    '   prépare la version actualisée ; publie AUSSI une verification NPP pour les actes récents que tu ne vois pas.',
+    '4. appel — les relances où un mail ne suffit plus.',
+    'Termine par signaler (type note) : un résumé du brief en 2 phrases. Sois sélectif : uniquement ce qui appelle',
+    'un geste du magistrat. Ne republie pas ce qui n\'a pas changé depuis le brief précédent (ta mémoire et les',
+    'conversations récentes t\'indiquent ce qui a déjà été publié).',
+  ].join('\n')
+}
+
+let briefingRunning = false
+async function runBriefing(trigger = 'planifié') {
+  if (briefingRunning) return { ok: false, error: 'brief déjà en cours' }
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  briefingRunning = true
+  try {
+    console.log(`[attache] brief du majordome (${trigger})`)
+    const result = await runAgent({ keys, prompt: briefingPrompt(), runLabel: 'majordome', title: `Brief ${new Date().toISOString().slice(0, 10)}` })
+    await audit(keys, 'brief_majordome', { trigger, ok: result.ok, convId: result.convId, erreur: result.error })
+    await writeState({ lastBriefingAt: new Date().toISOString(), lastBriefingOk: result.ok })
+    return { ok: result.ok, convId: result.convId, error: result.error }
+  } finally {
+    briefingRunning = false
+  }
+}
+
+/** Déclenche le brief quotidien à l'heure dite (vérifié à chaque tick de relève). */
+async function maybeScheduledBriefing() {
+  const now = new Date()
+  if (now.getHours() < BRIEFING_HOUR) return
+  const today = now.toISOString().slice(0, 10)
+  const state = readState()
+  if ((state.lastBriefingAt || '').slice(0, 10) === today) return
+  // réserver la date AVANT le run (évite un double brief si le run est long)
+  await writeState({ lastBriefingAt: now.toISOString(), lastBriefingOk: null })
+  runBriefing('planifié').catch((e) => console.error('[attache] brief :', e))
+}
+
 // ── Boucle de relève ──
 let polling = false
 async function pollOnce(trigger = 'planifié') {
@@ -178,6 +227,15 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, out)
     }
 
+    if (route === 'POST /briefing') {
+      // lancé en arrière-plan : la réponse ne bloque pas sur le run complet
+      if (briefingRunning) return json(res, 409, { ok: false, error: 'Brief déjà en cours' })
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      runBriefing('manuel').catch((e) => console.error('[attache] brief :', e))
+      return json(res, 202, { ok: true, started: true })
+    }
+
     if (route === 'GET /inbox') {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
@@ -253,7 +311,10 @@ server.listen(PORT, () => {
   console.log(`[attache] relève boîte toutes les ${POLL_MINUTES} min`)
 })
 
-setInterval(() => { pollOnce().catch((e) => console.error('[attache] relève :', e)) }, POLL_MINUTES * 60 * 1000)
+setInterval(() => {
+  pollOnce().catch((e) => console.error('[attache] relève :', e))
+  maybeScheduledBriefing().catch((e) => console.error('[attache] brief planifié :', e))
+}, POLL_MINUTES * 60 * 1000)
 // première relève 20 s après le démarrage (laisse le réseau docker s'établir)
 setTimeout(() => { pollOnce('démarrage').catch(() => {}) }, 20_000)
 writeState({ startedAt: new Date().toISOString() }).catch(() => {})

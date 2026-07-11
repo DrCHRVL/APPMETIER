@@ -53,6 +53,7 @@ services:
       - SIRAL_ATTACHE_FROM=${SIRAL_ATTACHE_FROM:-}
       - SIRAL_ATTACHE_POLL_MIN=${SIRAL_ATTACHE_POLL_MIN:-5}
       - SIRAL_ATTACHE_MODEL=${SIRAL_ATTACHE_MODEL:-}
+      - SIRAL_ATTACHE_BRIEFING_HOUR=${SIRAL_ATTACHE_BRIEFING_HOUR:-6}
     volumes:
       - siral-data:/data
       - claude-auth:/home/attache

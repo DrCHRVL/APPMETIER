@@ -16,8 +16,9 @@ import { attacheContentieux } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
 import {
   listEnquetes, dossierMarkdown, readDocumentText, verifierCompletude,
-  enregistrerActe, acterProlongation, classerNote, ajouterTodo,
+  enregistrerActe, acterProlongation, classerNote, ajouterTodo, listerDml,
 } from './attache/dossier.mjs'
+import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
 import { appendMemory } from './attache/memory.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed, sendToOwner } from './attache/mail.mjs'
 
@@ -134,6 +135,46 @@ const TOOLS = [
     description: 'Consigne un enseignement durable dans la mémoire (préférence du magistrat, réflexe, consigne). section: "Préférences du magistrat" | "Réflexes appris" | "Consignes permanentes".',
     inputSchema: { type: 'object', properties: { section: { type: 'string' }, note: { type: 'string' } }, required: ['section', 'note'] },
     handler: async (a) => ({ ajoute: await appendMemory(keys, a.section, a.note, 'attache-ia') }),
+    write: true,
+  },
+  {
+    name: 'lister_dml',
+    description: 'Liste les DML archivées d\'un dossier (zone DML de la section documents, plus récente en premier). Lire ensuite avec lire_document pour s\'appuyer sur leur structure et rédiger une version actualisée.',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
+    handler: async (a) => listerDml(keys, a.numero),
+  },
+  {
+    name: 'majordome_publier',
+    description: `Publie des items dans le brief du magistrat (widget du tableau de bord). Types : ${ITEM_TYPES.join(', ')}. Un projet_mail N'EST JAMAIS envoyé : le magistrat le copie et l'envoie lui-même — rédiger le corps prêt à coller (destinataire = ex. « Directeur d'enquête — GIR Amiens »). Une verification = ce que SEUL le magistrat peut faire (consulter NPP/Cassiopée…). Un appel = { qui, motif }.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ITEM_TYPES },
+              titre: { type: 'string' },
+              detail: { type: 'string' },
+              dossier: { type: 'string', description: 'Numéro du dossier concerné' },
+              echeance: { type: 'string', description: 'AAAA-MM-JJ si une date butoir existe' },
+              mail: {
+                type: 'object',
+                properties: { destinataire: { type: 'string' }, objet: { type: 'string' }, corps: { type: 'string' } },
+              },
+              appel: {
+                type: 'object',
+                properties: { qui: { type: 'string' }, motif: { type: 'string' } },
+              },
+            },
+            required: ['type', 'titre'],
+          },
+        },
+      },
+      required: ['items'],
+    },
+    handler: async (a) => ({ publies: await publishItems(keys, a.items) }),
     write: true,
   },
   {

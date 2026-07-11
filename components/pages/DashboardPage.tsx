@@ -20,6 +20,7 @@ import { AgendaCalendar } from '@/components/AgendaCalendar';
 import { fetchAgendaMulti, AgendaEvent, AgendaSource, AgendaUrls } from '@/lib/web/agenda';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
 import { JLDActePreviewModal, JLDActeRef, JLDActeKind } from '@/components/modals/JLDActePreviewModal';
+import { MajordomeWidget } from '@/components/attache/MajordomeWidget';
 
 interface DashboardPageProps {
   enquetesByContentieux: Map<ContentieuxId, Enquete[]>;
@@ -184,6 +185,10 @@ export const DashboardPage = ({
           })}
         </div>
       </div>
+
+      {/* Brief du majordome (attaché IA) — se masque de lui-même pour tout
+          compte non-admin ou si la fonctionnalité n'est pas activée. */}
+      {!isJLD && <MajordomeWidget />}
 
       {/* Indicateurs clés du contentieux sélectionné.
           Le JLD ne voit pas les instructions : 3 indicateurs au lieu de 4. */}
