@@ -11,6 +11,8 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { CopyButton } from '../ui/CopyButton';
 import { useToast } from '@/contexts/ToastContext';
+import { useUser } from '@/contexts/UserContext';
+import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
 import {
   ETAT_REGLEMENT_LABELS,
@@ -108,6 +110,7 @@ export const InstructionDetailModal = ({
   onOpenEnquetePreliminaire,
 }: InstructionDetailModalProps) => {
   const { showToast } = useToast();
+  const { isAdmin } = useUser();
   const { getCabinetById } = useInstructionCabinets();
   const cabinet = getCabinetById(dossier.cabinetId);
   const cabinetColor = cabinet?.color || FALLBACK_CABINET_COLOR;
@@ -770,6 +773,15 @@ export const InstructionDetailModal = ({
         existingVictimes={dossier.victimes ?? []}
         existingSaisine={dossier.saisine ?? []}
       />
+
+      {/* Chat flottant de l'attaché sur ce dossier d'instruction — admin only. */}
+      {isAdmin() && (dossier.numeroInstruction || dossier.numeroParquet) && (
+        <FloatingDossierChat
+          numero={dossier.numeroInstruction || dossier.numeroParquet || ''}
+          cadre="instruction"
+          label={dossier.numeroInstruction || dossier.numeroParquet}
+        />
+      )}
     </div>
   );
 };

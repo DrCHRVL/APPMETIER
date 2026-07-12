@@ -17,7 +17,7 @@ import { audit, publishFeed } from './attache/journal.mjs'
 import {
   listEnquetes, dossierMarkdown, readDocumentText, verifierCompletude,
   enregistrerActe, acterProlongation, classerNote, ajouterTodo, listerDml,
-  actualiserDescription,
+  actualiserDescription, diagnostiquerDossier,
 } from './attache/dossier.mjs'
 import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
@@ -140,6 +140,12 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { section: { type: 'string' }, note: { type: 'string' } }, required: ['section', 'note'] },
     handler: async (a) => ({ ajoute: await appendMemory(keys, a.section, a.note, 'attache-ia') }),
     write: true,
+  },
+  {
+    name: 'diagnostic_dossier',
+    description: 'Diagnostic objectif d\'un dossier pour l\'aide au contrôle et à la maîtrise : délais (ancienneté, durée cumulée de chaque acte avec prolongations, jours avant échéance, ancienneté des attentes JLD), cohérence (actes expirés encore « en cours », demandes JLD qui traînent), éparpillement (diversité des cibles rapportée aux mis en cause), cadence des CR. `cadre` distingue préliminaire (délais TSE serrés — 2 mois typiques) et instruction. Interpréter ces chiffres à l\'aune du droit et de la direction d\'enquête.',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
+    handler: async (a) => diagnostiquerDossier(keys, a.numero) ?? { erreur: 'Dossier introuvable' },
   },
   {
     name: 'actualiser_description',

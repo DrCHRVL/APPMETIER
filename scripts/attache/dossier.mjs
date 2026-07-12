@@ -240,6 +240,107 @@ export function verifierCompletude(keys, numero) {
   return { numero: e.numero, findings, documentsDisponibles: docsServeur.length }
 }
 
+/**
+ * Diagnostic objectif d'un dossier — matière première pour l'aide au
+ * contrôle et à la maîtrise (l'agent interprète ensuite). Mesure :
+ *  - délais : ancienneté du dossier, durée cumulée de chaque acte
+ *    (initiale + prolongations) et ancienneté des attentes JLD ;
+ *  - cohérence : actes expirés encore « en_cours », demandes JLD qui
+ *    traînent, actes sans document justificatif ;
+ *  - éparpillement : nombre de cibles/lignes/objets distincts rapporté au
+ *    nombre de mis en cause et à la durée — signal de dispersion ;
+ *  - cadence des comptes-rendus (rythme de compte-rendu des enquêteurs).
+ * `cadre` distingue préliminaire (délais TSE serrés) et instruction.
+ */
+export function diagnostiquerDossier(keys, numero) {
+  const { data } = loadContentieux(keys)
+  const e = findEnquete(data, numero)
+  if (!e) return null
+  const now = Date.now()
+  const jours = (ms) => Math.floor((now - ms) / 86_400_000)
+
+  const debut = Date.parse(e.dateOP || e.dateCreation || '') || null
+  const ageJours = debut ? jours(debut) : null
+
+  const dureeCumuleeJours = (a) => {
+    const unitJ = (v, u) => (u === 'mois' ? Number(v) * 30 : Number(v)) || 0
+    let total = unitJ(a.duree, a.dureeUnit)
+    for (const p of a.prolongationsHistory || []) total += unitJ(p.dureeAjoutee, p.dureeUnit)
+    return total
+  }
+
+  const actes = []
+  const collect = (kind, list, labelOf) => {
+    for (const a of list || []) {
+      const dureeCumul = dureeCumuleeJours(a)
+      const fin = Date.parse(a.dateFin || '') || null
+      actes.push({
+        kind, id: a.id, label: labelOf(a), statut: a.statut,
+        dureeCumuleeJours: dureeCumul,
+        nbProlongations: (a.prolongationsHistory || []).length,
+        dateDebut: a.dateDebut || null, dateFin: a.dateFin || null,
+        expire: fin ? jours(fin) : null, // >0 = dépassé de N jours ; <0 = dans N jours
+        attenteJldJours: a.prolongationRequestedAt ? jours(Date.parse(a.prolongationRequestedAt))
+          : a.autorisationRequestedAt ? jours(Date.parse(a.autorisationRequestedAt)) : null,
+      })
+    }
+  }
+  collect('interception', e.ecoutes, (a) => `${a.numero}${a.cible ? ` (${a.cible})` : ''}`)
+  collect('geolocalisation', e.geolocalisations, (a) => a.objet)
+  collect('autre', e.actes, (a) => a.type || 'acte')
+
+  // incohérences objectives
+  const incoherences = []
+  for (const a of actes) {
+    if (a.expire != null && a.expire > 0 && a.statut === 'en_cours') {
+      incoherences.push(`${a.kind} « ${a.label} » : échéance dépassée de ${a.expire} j mais toujours « en cours »`)
+    }
+    if (a.attenteJldJours != null && a.attenteJldJours > 15) {
+      incoherences.push(`${a.kind} « ${a.label} » : en attente JLD depuis ${a.attenteJldJours} j`)
+    }
+  }
+
+  // éparpillement : diversité des cibles rapportée aux MEC
+  const ciblesDistinctes = new Set(actes.map((a) => normalizeNom(a.label))).size
+  const nbMec = (e.misEnCause || []).length
+  const crs = (e.comptesRendus || []).map((c) => Date.parse(c.date)).filter(Number.isFinite).sort((x, y) => x - y)
+  const dernierCr = crs.length ? jours(crs[crs.length - 1]) : null
+  let intervalleMoyenCr = null
+  if (crs.length >= 2) {
+    let s = 0
+    for (let i = 1; i < crs.length; i++) s += (crs[i] - crs[i - 1]) / 86_400_000
+    intervalleMoyenCr = Math.round(s / (crs.length - 1))
+  }
+
+  return {
+    numero: e.numero,
+    cadre: e.statut === 'instruction' ? 'instruction' : 'préliminaire',
+    ageJours,
+    misEnCause: nbMec,
+    delais: {
+      actes: actes.map(({ kind, label, statut, dureeCumuleeJours, nbProlongations, expire, attenteJldJours }) =>
+        ({ kind, label, statut, dureeCumuleeJours, nbProlongations, joursAvantEcheance: expire == null ? null : -expire, attenteJldJours })),
+    },
+    coherence: {
+      actesTotal: actes.length,
+      incoherences,
+    },
+    eparpillement: {
+      ciblesDistinctes,
+      misEnCause: nbMec,
+      ratioCiblesParMec: nbMec ? Math.round((ciblesDistinctes / nbMec) * 10) / 10 : null,
+      commentaireBrut: ciblesDistinctes > Math.max(4, nbMec * 2)
+        ? 'Diversité de cibles élevée au regard du nombre de mis en cause — dispersion possible'
+        : 'Cohérent',
+    },
+    comptesRendus: {
+      total: crs.length,
+      dernierIlYaJours: dernierCr,
+      intervalleMoyenJours: intervalleMoyenCr,
+    },
+  }
+}
+
 // ── Écritures (réversibles : coffre archivé avant chaque écrasement) ──
 
 async function mutate(keys, numero, fn) {

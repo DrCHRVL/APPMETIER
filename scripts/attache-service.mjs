@@ -381,6 +381,22 @@ const server = http.createServer(async (req, res) => {
       const message = String(body.message || '').slice(0, 100_000)
       if (!message.trim()) return json(res, 400, { error: 'Message vide' })
 
+      // Chat rattaché à un dossier précis (chat flottant) : on injecte le
+      // contexte au PREMIER message de la conversation, pour cadrer l'agent
+      // sans le répéter à chaque tour.
+      let prompt = message
+      if (body.dossier && !body.convId) {
+        const cadre = body.cadre === 'instruction' ? 'à l\'instruction' : 'en enquête préliminaire'
+        prompt = [
+          `CONTEXTE : le magistrat te consulte sur le dossier « ${String(body.dossier).slice(0, 80)} » (${cadre}), depuis le chat flottant ouvert sur ce dossier.`,
+          'Sauf mention contraire, TOUTES ses questions portent sur ce dossier. Commence par lire_dossier ; utilise diagnostic_dossier, chronologie_lire, verifier_completude selon le besoin.',
+          'RÔLE — aide au contrôle et à la maîtrise : surveiller la direction d\'enquête (éparpillement des enquêteurs : partent-ils dans tous les sens ?), la cohérence entre actes demandés et réalisés, et LES DÉLAIS (en préliminaire, les TSE sont enserrés dans des délais courts — 2 mois typiquement — qui contraignent l\'action ; signale tout risque de dépassement et son incidence).',
+          'Réponses concises, factuelles, chiffrées, orientées décision. Tu peux déposer des propositions (proposer_mec/acte/cr) mais tu n\'écris jamais directement au dossier sans instruction explicite.',
+          '',
+          `Question du magistrat : ${message}`,
+        ].join('\n')
+      }
+
       res.writeHead(200, {
         'content-type': 'text/event-stream; charset=utf-8',
         'cache-control': 'no-cache, no-transform',
@@ -390,12 +406,13 @@ const server = http.createServer(async (req, res) => {
       const send = (ev) => { try { res.write(`data: ${JSON.stringify(ev)}\n\n`) } catch {} }
       const heartbeat = setInterval(() => { try { res.write(': ping\n\n') } catch {} }, 15_000)
 
-      await audit(keys, 'chat_message', { convId: body.convId || '(nouvelle)', apercu: message.slice(0, 200) })
+      await audit(keys, 'chat_message', { convId: body.convId || '(nouvelle)', dossier: body.dossier || null, apercu: message.slice(0, 200) })
       const result = await runAgent({
         keys,
-        prompt: message,
+        prompt,
         convId: body.convId || undefined,
-        runLabel: 'chat',
+        title: body.dossier ? `Dossier ${body.dossier}` : undefined,
+        runLabel: body.dossier ? 'chat-dossier' : 'chat',
         onEvent: send,
       })
       clearInterval(heartbeat)

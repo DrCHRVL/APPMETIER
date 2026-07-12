@@ -26,6 +26,7 @@ import { CoSaisineSection } from '../sections/CoSaisineSection';
 import { TransfertContentieuxSection } from '../sections/TransfertContentieuxSection';
 import { ChronologieSection } from '../attache/ChronologieSection';
 import { PropositionsBar } from '../attache/PropositionsBar';
+import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
 import { SuiviAlertModal } from './SuiviAlertModal';
@@ -521,6 +522,16 @@ const EnqueteDetailModalImpl = ({
         modifications={unseenModifications}
         enqueteNumero={enquete.numero}
       />
+
+      {/* Chat flottant de l'attaché sur ce dossier — admin uniquement,
+          déplaçable, toujours accessible (même pendant la rédaction d'un CR). */}
+      {isAdmin() && (
+        <FloatingDossierChat
+          numero={enquete.numero}
+          cadre={enquete.statut === 'instruction' ? 'instruction' : 'preliminaire'}
+          label={enquete.numero}
+        />
+      )}
     </>
   );
 };
