@@ -85,6 +85,16 @@ l'usage).
   **mémoire légère** (petit markdown plafonné) que l'attaché relit au début
   de chaque échange et enrichit d'une ligne quand du neuf apparaît —
   consultable et éditable via l'icône livre du chat.
+- **Atelier des actes rédigés** : section « Actes rédigés » dans le détail
+  d'un dossier (admin only). L'attaché y range les actes qu'il rédige
+  (réquisition, demande de prolongation JLD, saisine, projet de réponse —
+  suivant les trames, via l'outil `produire_document`). Le magistrat les
+  visionne, demande à l'IA de les retoucher (chat du dossier), les **édite
+  légèrement à la main** (puis Enregistrer — le navigateur rechiffre, l'app
+  ne voit jamais le clair), les **exporte en PDF / Word**, et surtout les
+  **glisse directement vers son parapheur** (portail de signature) grâce à
+  la puce « parapheur » (après « Préparer pour signature », qui génère le
+  PDF joint au glisser-déposer).
 
 ## Architecture et modèle de sécurité
 

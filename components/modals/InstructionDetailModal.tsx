@@ -13,6 +13,7 @@ import { CopyButton } from '../ui/CopyButton';
 import { useToast } from '@/contexts/ToastContext';
 import { useUser } from '@/contexts/UserContext';
 import { FloatingDossierChat } from '../attache/FloatingDossierChat';
+import { ProductionsSection } from '../attache/ProductionsSection';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
 import {
   ETAT_REGLEMENT_LABELS,
@@ -734,6 +735,11 @@ export const InstructionDetailModal = ({
                     onUpdate(dossier.id, { debatsJLD })
                   }
                 />
+
+                {/* Atelier des actes rédigés (attaché IA) — admin only. */}
+                {isAdmin() && (dossier.numeroInstruction || dossier.numeroParquet) && (
+                  <ProductionsSection numero={dossier.numeroInstruction || dossier.numeroParquet || ''} />
+                )}
               </div>
             </div>
           )}
