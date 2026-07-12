@@ -24,7 +24,7 @@ import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/
 import { saveTrame, listTrames, readTrame } from './attache/trames.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
-import { analyserReseau, listerLiens } from './attache/carto.mjs'
+import { analyserReseau, listerLiens, rapprochementsInterDossiers } from './attache/carto.mjs'
 import { appendMemory } from './attache/memory.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed, sendToOwner } from './attache/mail.mjs'
 
@@ -281,6 +281,12 @@ const TOOLS = [
     description: 'Analyse le réseau (cartographie) : figures centrales, « ponts » (personnes présentes dans plusieurs dossiers, qui relient des affaires), co-occurrences, nombre de liens de renseignement déjà tracés. Pour aider à voir les connexions et améliorer la visibilité. Interpréter : centralité, cloisonnements, liens manquants à tracer.',
     inputSchema: { type: 'object', properties: { archives: { type: 'boolean', description: 'Inclure les dossiers archivés' } } },
     handler: async (a) => { const r = analyserReseau(keys, { includeArchived: Boolean(a?.archives) }); delete r._liensExistantsKeys; return r },
+  },
+  {
+    name: 'carto_rapprochements',
+    description: 'Rapprochements inter-dossiers : entités (téléphone, plaque, IBAN, ADRESSE) présentes dans plusieurs dossiers qui ne partagent AUCUN mis en cause — donc des ponts potentiels entre affaires que rien ne reliait. Pour chaque rapprochement pertinent, proposer un lien de renseignement (proposer_lien) entre un MEC de chaque dossier, l\'entité partagée en source/label. Vérifie la pertinence (un numéro de service, une banque, ne relie rien).',
+    inputSchema: { type: 'object', properties: { archives: { type: 'boolean' } } },
+    handler: async (a) => rapprochementsInterDossiers(keys, { includeArchived: Boolean(a?.archives) }),
   },
   {
     name: 'carto_lister_liens',

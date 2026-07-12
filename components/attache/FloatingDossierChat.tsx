@@ -201,7 +201,7 @@ export function FloatingDossierChat({
             <p className="text-xs text-gray-500">{carto ? 'Questions sur le réseau, ou analyse.' : 'Questions sur ce dossier, ou diagnostic.'}</p>
             <div className="flex flex-wrap justify-center gap-1.5">
               {(carto
-                ? ['Qui sont les figures centrales ?', 'Quels ponts entre affaires ?', 'Quels liens manquent ?']
+                ? ['Qui sont les figures centrales ?', 'Rapprochements entre dossiers ?', 'Quels liens manquent ?']
                 : ['Fais le point du dossier', 'Les délais sont-ils tenus ?', 'Cohérence des actes ?']).map((s) => (
                 <button key={s} onClick={() => ask(s)} className="rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-[10.5px] text-gray-600 hover:bg-gray-100">{s}</button>
               ))}
