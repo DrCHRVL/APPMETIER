@@ -24,8 +24,10 @@ import {
   importAesKey, randomRawKey, newKdfParams, normalizeInvitationCode, KNOWN_CONTENTIEUX, SCOPE_GLOBAL,
 } from '@/lib/web/keyring'
 import { idb, setIdbNamespace } from '@/lib/web/idb'
+import * as offlineMode from '@/lib/web/offlineMode'
+import { NetworkStatusManager } from '@/utils/networkStatusManager'
 
-type Phase = 'boot' | 'login' | 'register' | 'unlock' | 'create-fresh' | 'migrate' | 'redeem' | 'no-access' | 'recovery-kit' | 'ready'
+type Phase = 'boot' | 'login' | 'register' | 'unlock' | 'create-fresh' | 'migrate' | 'redeem' | 'no-access' | 'recovery-kit' | 'offline-unlock' | 'ready'
 
 export interface TjInfo { id: string, name: string }
 
@@ -86,6 +88,8 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   const [inviteCode, setInviteCode] = useState('')
   const [pass1, setPass1] = useState('')
   const [pass2, setPass2] = useState('')
+  // Code de déverrouillage hors-ligne (mode « poste préparé », cf. offlineMode)
+  const [offlineCode, setOfflineCode] = useState('')
   const installedRef = useRef(false)
   // trousseau prêt mais porte retenue le temps d'imprimer le kit de récupération
   const pendingEntryRef = useRef<{ keys: ScopedKeys, identity: BridgeIdentity, scopes: string[] } | null>(null)
@@ -154,6 +158,17 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     const scoped = await buildScopedKeys(payload)
     const ok = await verifyOrCreateCanary(scoped.global, identity)
     if (ok !== true) throw new Error(ok)
+    // Mémoriser la session en mémoire vive : permet de « préparer ce poste »
+    // (mode hors-ligne) sans redemander la phrase personnelle. Prolonge aussi
+    // la fenêtre hors-ligne si un poste a déjà été préparé.
+    const tjState = window.__SIRAL_TJ__
+    offlineMode.rememberSession(
+      payload,
+      { username: identity.username, displayName: identity.displayName, role: identity.role },
+      tjState?.active ?? null,
+      tjState?.tjs ?? [],
+    )
+    offlineMode.touchOfflineWindow()
     setServicePass(''); setInviteCode(''); setPass1(''); setPass2('')
     if (offerKit) {
       // trousseau tout neuf : proposer le kit de récupération avant d'entrer
@@ -245,9 +260,22 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     if (!isWeb) { setPhase('ready'); return }
     let cancelled = false
     ;(async () => {
-      const identity = await adoptMe()
+      // adoptMe() lève si le réseau est injoignable (fetch rejeté) et renvoie
+      // null si la session est simplement absente (non connecté).
+      let identity: BridgeIdentity | null = null
+      let networkDown = false
+      try {
+        identity = await adoptMe()
+      } catch {
+        networkDown = true
+      }
       if (cancelled) return
-      if (!identity) { setPhase('login'); return }
+      if (!identity) {
+        // Réseau injoignable + poste préparé → entrée hors-ligne locale, sans
+        // serveur (les données sont déjà dans IndexedDB). Sinon, connexion.
+        if (networkDown && offlineMode.hasOfflineBundle()) { setPhase('offline-unlock'); return }
+        setPhase('login'); return
+      }
       // trousseau mémorisé sur cet appareil ? (case « Rester déverrouillé »)
       if (await tryStoredKeyring(identity)) return
       if (!cancelled) await loadStateAndRoute()
@@ -323,6 +351,29 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       await finishUnlock(payload, me)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Déverrouillage impossible')
+    } finally { setBusy(false) }
+  }
+
+  /**
+   * Entrée hors-ligne : ouvre le trousseau scellé sur ce poste avec le code de
+   * déverrouillage hors-ligne, sans aucun appel serveur. L'app tourne alors
+   * contre le cache IndexedDB ; la sync est suspendue (mode hors-ligne forcé).
+   */
+  const doOfflineUnlock = async () => {
+    setBusy(true); setError('')
+    try {
+      const { keys, identity, tj, tjs } = await offlineMode.unlockOffline(offlineCode)
+      // Fixer le namespace IndexedDB (cloisonnement par TJ) AVANT toute lecture.
+      setIdbNamespace(tj.id)
+      window.__SIRAL_TJ__ = { active: tj, tjs: tjs.length ? tjs : [tj] }
+      setTj(tj)
+      setMe(identity)
+      // Suspendre la synchronisation : on travaille en local jusqu'au retour réseau.
+      NetworkStatusManager.setForcedOffline(true)
+      setOfflineCode('')
+      installBridge(keys, identity)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Déverrouillage hors-ligne impossible')
     } finally { setBusy(false) }
   }
 
@@ -529,6 +580,33 @@ export function WebGate({ children }: { children: React.ReactNode }) {
             {error && <div className="siral-error">{error}</div>}
           </>
         )}
+
+        {phase === 'offline-unlock' && (() => {
+          const st = offlineMode.getOfflineStatus()
+          return (
+            <>
+              <span className="siral-user">Hors ligne{st.identity?.displayName ? ` · ${st.identity.displayName}` : ''}{st.tj?.name ? ` · ${st.tj.name}` : ''}</span>
+              <div className="siral-title">Mode hors-ligne</div>
+              <div className="siral-text">Réseau injoignable. Saisissez votre <b>code de déverrouillage hors-ligne</b>
+                {' '}(choisi lors de la préparation du poste) pour travailler sur les données déjà présentes sur cette
+                machine. Vos saisies seront synchronisées à la reconnexion.</div>
+              {st.expired && (
+                <div className="siral-error">Poste préparé il y a plus de 48 h — reconnectez-vous dès que possible
+                  pour resynchroniser et limiter les conflits.</div>
+              )}
+              <input className="siral-input" type="password" placeholder="Code de déverrouillage hors-ligne" value={offlineCode}
+                onChange={(e) => setOfflineCode(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && offlineCode) doOfflineUnlock() }} />
+              <button className="siral-btn" onClick={doOfflineUnlock} disabled={busy || !offlineCode}>
+                {busy ? 'Déverrouillage…' : 'Travailler hors-ligne'}
+              </button>
+              <button className="siral-link" onClick={() => { setError(''); setOfflineCode(''); setPhase('login') }}>
+                Réessayer la connexion en ligne
+              </button>
+              {error && <div className="siral-error">{error}</div>}
+            </>
+          )
+        })()}
 
         {phase === 'create-fresh' && (
           <>
