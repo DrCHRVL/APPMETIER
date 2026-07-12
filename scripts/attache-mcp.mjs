@@ -24,6 +24,7 @@ import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/
 import { saveTrame, listTrames, readTrame } from './attache/trames.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
+import { analyserReseau, listerLiens } from './attache/carto.mjs'
 import { appendMemory } from './attache/memory.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed, sendToOwner } from './attache/mail.mjs'
 
@@ -274,6 +275,35 @@ const TOOLS = [
     description: 'Liste les propositions en attente de validation (évite les redondances : ne jamais re-proposer ce qui attend déjà).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' } } },
     handler: async (a) => listPropositions(keys, { numero: a?.numero }).map(({ payload, ...meta }) => ({ ...meta, apercu: JSON.stringify(payload).slice(0, 200) })),
+  },
+  {
+    name: 'carto_analyser',
+    description: 'Analyse le réseau (cartographie) : figures centrales, « ponts » (personnes présentes dans plusieurs dossiers, qui relient des affaires), co-occurrences, nombre de liens de renseignement déjà tracés. Pour aider à voir les connexions et améliorer la visibilité. Interpréter : centralité, cloisonnements, liens manquants à tracer.',
+    inputSchema: { type: 'object', properties: { archives: { type: 'boolean', description: 'Inclure les dossiers archivés' } } },
+    handler: async (a) => { const r = analyserReseau(keys, { includeArchived: Boolean(a?.archives) }); delete r._liensExistantsKeys; return r },
+  },
+  {
+    name: 'carto_lister_liens',
+    description: 'Liste les liens de renseignement déjà tracés sur la carte (person↔person), pour éviter de re-proposer un lien existant.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => listerLiens(keys),
+  },
+  {
+    name: 'proposer_lien',
+    description: 'Propose un LIEN DE RENSEIGNEMENT entre deux personnes, détecté en lisant une pièce (communications récurrentes, lien familial, logistique…) et non encore tracé sur la carte. Créé sur la carte SEULEMENT au ✓ de l\'administrateur. Toujours citer la source. `numero` = dossier d\'où vient la détection (pour l\'affichage de la proposition).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string', description: 'Dossier d\'où vient la détection' },
+        sourceNom: { type: 'string' }, targetNom: { type: 'string' },
+        label: { type: 'string', description: 'Nature du lien (ex: communications, fournisseur, fratrie)' },
+        notes: { type: 'string' },
+        source: { type: 'string', description: 'Pièce source (ex: PV D1808, retranscription du 12/07)' },
+      },
+      required: ['numero', 'sourceNom', 'targetNom', 'source'],
+    },
+    handler: async (a) => addProposition(keys, { numero: a.numero, type: 'lien', payload: { sourceNom: a.sourceNom, targetNom: a.targetNom, label: a.label, notes: a.notes }, source: a.source }),
+    write: true,
   },
   {
     name: 'lister_dml',

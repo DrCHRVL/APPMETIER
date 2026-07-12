@@ -401,7 +401,15 @@ const server = http.createServer(async (req, res) => {
       // contexte au PREMIER message de la conversation, pour cadrer l'agent
       // sans le répéter à chaque tour.
       let prompt = message
-      if (body.dossier && !body.convId) {
+      if (body.carto && !body.convId) {
+        prompt = [
+          'CONTEXTE : le magistrat te consulte depuis le module CARTOGRAPHIE (vue réseau des personnes et affaires du contentieux).',
+          'Commence par carto_analyser (figures centrales, ponts entre affaires, co-occurrences, liens de renseignement tracés). Objectif : l\'aider à VOIR LES CONNEXIONS et améliorer la visibilité.',
+          'Tu peux : identifier les figures pivots et les ponts entre affaires, repérer les cloisonnements, et SUGGÉRER les liens de renseignement manquants — que tu déposes en propositions (proposer_lien, avec la pièce source), jamais tracés d\'office. Réponses concises et structurées.',
+          '',
+          `Question du magistrat : ${message}`,
+        ].join('\n')
+      } else if (body.dossier && !body.convId) {
         const cadre = body.cadre === 'instruction' ? 'à l\'instruction' : 'en enquête préliminaire'
         const memoire = readDossierMemory(keys, String(body.dossier))
         prompt = [
@@ -425,13 +433,13 @@ const server = http.createServer(async (req, res) => {
       const send = (ev) => { try { res.write(`data: ${JSON.stringify(ev)}\n\n`) } catch {} }
       const heartbeat = setInterval(() => { try { res.write(': ping\n\n') } catch {} }, 15_000)
 
-      await audit(keys, 'chat_message', { convId: body.convId || '(nouvelle)', dossier: body.dossier || null, apercu: message.slice(0, 200) })
+      await audit(keys, 'chat_message', { convId: body.convId || '(nouvelle)', dossier: body.dossier || null, carto: Boolean(body.carto), apercu: message.slice(0, 200) })
       const result = await runAgent({
         keys,
         prompt,
         convId: body.convId || undefined,
-        title: body.dossier ? `Dossier ${body.dossier}` : undefined,
-        runLabel: body.dossier ? 'chat-dossier' : 'chat',
+        title: body.carto ? 'Cartographie' : body.dossier ? `Dossier ${body.dossier}` : undefined,
+        runLabel: body.carto ? 'chat-carto' : body.dossier ? 'chat-dossier' : 'chat',
         onEvent: send,
       })
       clearInterval(heartbeat)

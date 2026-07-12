@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     const upstream = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-attache-secret': secret },
-      body: JSON.stringify({ message: body.message, convId: body.convId || undefined, dossier: body.dossier || undefined, cadre: body.cadre || undefined }),
+      body: JSON.stringify({ message: body.message, convId: body.convId || undefined, dossier: body.dossier || undefined, cadre: body.cadre || undefined, carto: body.carto || undefined }),
       cache: 'no-store',
       // @ts-expect-error duplex requis par Node pour les corps streamés
       duplex: 'half',

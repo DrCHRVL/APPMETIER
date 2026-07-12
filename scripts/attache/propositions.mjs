@@ -15,10 +15,11 @@ import crypto from 'node:crypto'
 import { attacheDir, ensureDir, atomicWrite, readJson, withFileLock } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { ajouterMec, enregistrerActe, classerNote, getMecNoms, normalizeNom } from './dossier.mjs'
+import { appendLien } from './carto.mjs'
 import { audit } from './journal.mjs'
 
 const FILE = () => attacheDir('propositions.json')
-const TYPES = ['mec', 'acte', 'cr']
+const TYPES = ['mec', 'acte', 'cr', 'lien']
 
 function load(keys) {
   const env = readJson(FILE(), null)
@@ -89,6 +90,7 @@ export async function addProposition(keys, { numero, type, payload, source, titr
 }
 
 function defaultTitre(type, payload) {
+  if (type === 'lien') return `Lien de renseignement : ${payload.sourceNom} ↔ ${payload.targetNom}${payload.label ? ` (${payload.label})` : ''}`
   if (type === 'mec') return `Nouveau mis en cause : ${payload.nom}${payload.role ? ` (${payload.role})` : ''}`
   if (type === 'acte') {
     const quoi = payload.kind === 'ecoute' ? `interception ${payload.cible || payload.objet || ''}`
@@ -125,6 +127,8 @@ export async function decideProposition(keys, { id, action, par }) {
       applique = await enregistrerActe(keys, { numero: prop.numero, ...prop.payload })
     } else if (prop.type === 'cr') {
       applique = await classerNote(keys, { numero: prop.numero, ...prop.payload, enqueteur: auteur })
+    } else if (prop.type === 'lien') {
+      applique = await appendLien(keys, prop.payload)
     }
   }
 

@@ -21,10 +21,13 @@ export function FloatingDossierChat({
   numero,
   cadre = 'preliminaire',
   label,
+  carto = false,
 }: {
   numero: string;
   cadre?: 'preliminaire' | 'instruction';
   label?: string;
+  /** Mode cartographie : chat rattaché au réseau, pas à un dossier. */
+  carto?: boolean;
 }) {
   const [available, setAvailable] = useState(false);
   const [open, setOpen] = useState(false);
@@ -38,7 +41,7 @@ export function FloatingDossierChat({
   const [memSaving, setMemSaving] = useState(false);
   const streamRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
-  const convKey = `attache_dossier_conv_${numero}`;
+  const convKey = carto ? 'attache_carto_conv' : `attache_dossier_conv_${numero}`;
 
   // Disponibilité (admin + service actif)
   useEffect(() => {
@@ -84,7 +87,9 @@ export function FloatingDossierChat({
       const res = await fetch('/api/attache/chat', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message: text, convId: convId || undefined, dossier: numero, cadre }),
+        body: JSON.stringify(carto
+          ? { message: text, convId: convId || undefined, carto: true }
+          : { message: text, convId: convId || undefined, dossier: numero, cadre }),
       });
       if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({ error: 'Service indisponible' }));
@@ -121,7 +126,7 @@ export function FloatingDossierChat({
     } finally {
       setBusy(false); scrollDown();
     }
-  }, [busy, convId, numero, cadre, convKey, scrollDown]);
+  }, [busy, convId, numero, cadre, carto, convKey, scrollDown]);
 
   const openMemory = useCallback(async () => {
     try {
@@ -181,10 +186,10 @@ export function FloatingDossierChat({
           <Scale className="h-3 w-3" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-semibold text-gray-800">Attaché · {label || numero}</div>
-          <div className="text-[10px] text-gray-400">{cadre === 'instruction' ? 'instruction' : 'préliminaire'} · vous seul</div>
+          <div className="truncate text-xs font-semibold text-gray-800">Attaché · {carto ? 'Cartographie' : (label || numero)}</div>
+          <div className="text-[10px] text-gray-400">{carto ? 'réseau' : (cadre === 'instruction' ? 'instruction' : 'préliminaire')} · vous seul</div>
         </div>
-        <button onClick={openMemory} title="Mémoire du dossier" className="rounded p-1 text-gray-400 hover:bg-gray-100"><BookOpen className="h-3.5 w-3.5" /></button>
+        {!carto && <button onClick={openMemory} title="Mémoire du dossier" className="rounded p-1 text-gray-400 hover:bg-gray-100"><BookOpen className="h-3.5 w-3.5" /></button>}
         <button onClick={() => setOpen(false)} title="Réduire" className="rounded p-1 text-gray-400 hover:bg-gray-100"><Minus className="h-3.5 w-3.5" /></button>
         <button onClick={() => { setOpen(false); }} title="Fermer" className="rounded p-1 text-gray-400 hover:bg-gray-100"><X className="h-3.5 w-3.5" /></button>
       </div>
@@ -193,9 +198,11 @@ export function FloatingDossierChat({
       <div ref={streamRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
         {msgs.length === 0 && (
           <div className="mt-4 space-y-2 text-center">
-            <p className="text-xs text-gray-500">Questions sur ce dossier, ou diagnostic.</p>
+            <p className="text-xs text-gray-500">{carto ? 'Questions sur le réseau, ou analyse.' : 'Questions sur ce dossier, ou diagnostic.'}</p>
             <div className="flex flex-wrap justify-center gap-1.5">
-              {['Fais le point du dossier', 'Les délais sont-ils tenus ?', 'Cohérence des actes ?'].map((s) => (
+              {(carto
+                ? ['Qui sont les figures centrales ?', 'Quels ponts entre affaires ?', 'Quels liens manquent ?']
+                : ['Fais le point du dossier', 'Les délais sont-ils tenus ?', 'Cohérence des actes ?']).map((s) => (
                 <button key={s} onClick={() => ask(s)} className="rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-[10.5px] text-gray-600 hover:bg-gray-100">{s}</button>
               ))}
             </div>
@@ -225,11 +232,13 @@ export function FloatingDossierChat({
       <div className="border-t border-gray-200 p-2">
         <div className="mb-1.5 flex">
           <button
-            onClick={() => ask('Fais un diagnostic du dossier : éparpillement des enquêteurs, cohérence entre actes demandés et réalisés, et respect des délais (TSE en préliminaire). Sois concret et chiffré.')}
+            onClick={() => ask(carto
+              ? 'Analyse le réseau : figures centrales, ponts entre affaires, cloisonnements, et liens de renseignement qui semblent manquer. Propose ceux que tu détectes (avec la source).'
+              : 'Fais un diagnostic du dossier : éparpillement des enquêteurs, cohérence entre actes demandés et réalisés, et respect des délais (TSE en préliminaire). Sois concret et chiffré.')}
             disabled={busy}
             className="inline-flex items-center gap-1.5 rounded-lg border border-[#2B5746]/25 bg-emerald-50/50 px-2.5 py-1.5 text-[11px] font-semibold text-[#2B5746] hover:bg-emerald-50 disabled:opacity-50"
           >
-            <Stethoscope className="h-3.5 w-3.5" />Diagnostic du dossier
+            <Stethoscope className="h-3.5 w-3.5" />{carto ? 'Analyser le réseau' : 'Diagnostic du dossier'}
           </button>
         </div>
         <div className="flex items-end gap-1.5 rounded-xl border border-gray-200 px-2.5 py-1.5 focus-within:border-[#2B5746]/40">
@@ -237,7 +246,7 @@ export function FloatingDossierChat({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(input); } }}
-            placeholder="Question sur ce dossier…"
+            placeholder={carto ? 'Question sur le réseau…' : 'Question sur ce dossier…'}
             rows={1}
             className="max-h-24 flex-1 resize-none bg-transparent text-[12.5px] text-gray-800 outline-none placeholder:text-gray-400"
           />
