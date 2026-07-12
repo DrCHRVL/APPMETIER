@@ -159,9 +159,9 @@ export const AdminCartographyPanel: React.FC = () => {
     <div className="space-y-6 max-w-3xl">
       {/* Header */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900">Paramètres du module Cartographie</h2>
+        <h2 className="text-lg font-semibold text-gray-900">Scoring du module Cartographie</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Ces pondérations contrôlent uniquement le score «&nbsp;Top mis en cause&nbsp;» de la
+          Ces pondérations définissent le <strong>scoring</strong> «&nbsp;Top mis en cause&nbsp;» de la
           cartographie. Elles n&apos;ont pas d&apos;impact sur les stats ni sur les autres modules.
         </p>
       </div>
@@ -169,7 +169,7 @@ export const AdminCartographyPanel: React.FC = () => {
       {/* Pondérations principales */}
       <section className="bg-white border border-slate-200 rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-800">Formule du score</h3>
+          <h3 className="text-sm font-semibold text-gray-800">Formule du scoring</h3>
           <button
             onClick={handleReset}
             className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800"
@@ -203,7 +203,7 @@ export const AdminCartographyPanel: React.FC = () => {
         <div className="mt-4 flex items-start gap-2 text-xs text-gray-500 bg-slate-50 border border-slate-200 rounded-md p-3">
           <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
           <p>
-            Score = (dossiers × poids) + (contentieux × poids) + (ME × poids) + (chefs ×
+            Scoring = (dossiers × poids) + (contentieux × poids) + (ME × poids) + (chefs ×
             poids) + (liens × poids) + bonus infraction. Un MEC relié à un dossier par
             un lien de renseignement reçoit en plus le bonus d&apos;infraction de ce
             dossier × le coef. ci-dessus. Le tout est multiplié par le coefficient

@@ -193,7 +193,7 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
           const date = new Date(r.dateDefere);
           if (date.getFullYear() === year) return acc + r.nombreDeferes;
         } else {
-          return acc + r.condamnations.filter(c => {
+          return acc + (r.condamnations || []).filter(c => {
             if (!c.defere) return false;
             const dateRef = c.dateDefere || r.dateAudience;
             const date = new Date(dateRef);

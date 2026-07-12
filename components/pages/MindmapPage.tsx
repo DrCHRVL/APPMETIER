@@ -966,7 +966,7 @@ const Top10Panel: React.FC<{
       <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Trophy className="h-4 w-4 text-slate-600" />
-          <span className="text-sm font-semibold text-slate-900">Top mis en cause</span>
+          <span className="text-sm font-semibold text-slate-900">Scoring · Top mis en cause</span>
         </div>
         <button
           onClick={onClose}

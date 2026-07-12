@@ -190,3 +190,5 @@ export const MisEnCauseSection = React.memo(({ enquete, onUpdate, isEditing, all
     </div>
   );
 });
+
+MisEnCauseSection.displayName = 'MisEnCauseSection';

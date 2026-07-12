@@ -58,8 +58,11 @@ export default function RootLayout({
       <body>
         {IS_CONSULTATION ? (
           <>
-            {/* Instantané + shim — chargés synchronement avant React */}
+            {/* Instantané + shim — volontairement synchrones : doivent être
+                exécutés dans l'ordre, avant l'hydratation de React. */}
+            {/* eslint-disable-next-line @next/next/no-sync-scripts */}
             <script src="./data-snapshot.js" />
+            {/* eslint-disable-next-line @next/next/no-sync-scripts */}
             <script src="./shim.js" />
             {children}
           </>

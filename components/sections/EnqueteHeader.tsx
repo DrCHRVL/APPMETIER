@@ -326,3 +326,5 @@ export const EnqueteHeader = React.memo(({
     </div>
   );
 });
+
+EnqueteHeader.displayName = 'EnqueteHeader';

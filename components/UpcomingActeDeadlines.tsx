@@ -154,3 +154,5 @@ export const UpcomingActeDeadlines = React.memo(({ enquetes, onOpenEnquete, onOp
     </div>
   );
 });
+
+UpcomingActeDeadlines.displayName = 'UpcomingActeDeadlines';

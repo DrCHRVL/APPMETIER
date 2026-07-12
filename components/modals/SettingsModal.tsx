@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark, Scale } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark, Scale, WifiOff } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId, ModuleId } from '@/types/userTypes';
 
@@ -10,7 +10,7 @@ import { ContentieuxId, ModuleId } from '@/types/userTypes';
 // ──────────────────────────────────────────────
 
 type SettingsTab =
-  | 'alertes' | 'tags' | 'sauvegardes' | 'mon_profil' | 'agenda' | 'a_propos'
+  | 'alertes' | 'tags' | 'sauvegardes' | 'mode_hors_ligne' | 'mon_profil' | 'agenda' | 'a_propos'
   | 'module_instruction' | 'module_cartographie' | 'module_air'
   | 'admin_users' | 'admin_tjs' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_natinf' | 'admin_update' | 'admin_attache';
 
@@ -20,12 +20,14 @@ interface SettingsModalProps {
   alertesContent: React.ReactNode;
   tagsContent: React.ReactNode;
   sauvegardesContent: React.ReactNode;
+  /** Panneau « Mode hors-ligne » (édition web : préparer le poste, synchroniser) */
+  modeHorsLigneContent?: React.ReactNode;
   monProfilContent?: React.ReactNode;
   /** Panneau du module instruction (visible si l'utilisateur a le module activé) */
   moduleInstructionContent?: React.ReactNode;
   /** Panneau du module AIR (sauvegarde réseau privée + partage) */
   moduleAIRContent?: React.ReactNode;
-  /** Panneau du module cartographie (pondérations du score top 10) */
+  /** Panneau du module cartographie (scoring : pondérations du Top 10) */
   moduleCartographieContent?: React.ReactNode;
   adminUsersContent?: React.ReactNode;
   /** Panneau multi-TJ : création de tribunaux, codes d'accès, rattachements */
@@ -70,6 +72,7 @@ const TABS: TabDef[] = [
   { id: 'alertes',     label: 'Alertes',     icon: Bell, section: 'general' },
   { id: 'tags',        label: 'Tags',        icon: Tags, section: 'general' },
   { id: 'sauvegardes', label: 'Sauvegardes', icon: Save, section: 'general' },
+  { id: 'mode_hors_ligne', label: 'Mode hors-ligne', icon: WifiOff, section: 'general' },
   { id: 'mon_profil',  label: 'Mon profil',  icon: User, section: 'general' },
   { id: 'agenda',      label: 'Agenda',      icon: CalendarDays, section: 'general' },
   { id: 'a_propos',    label: 'À propos',    icon: Info, section: 'general' },
@@ -114,6 +117,7 @@ export const SettingsModal = ({
   alertesContent,
   tagsContent,
   sauvegardesContent,
+  modeHorsLigneContent,
   monProfilContent,
   moduleInstructionContent,
   moduleAIRContent,
@@ -163,6 +167,7 @@ export const SettingsModal = ({
       case 'alertes':            return alertesContent;
       case 'tags':               return tagsContent;
       case 'sauvegardes':        return sauvegardesContent;
+      case 'mode_hors_ligne':    return modeHorsLigneContent;
       case 'mon_profil':         return monProfilContent;
       case 'agenda':             return agendaContent;
       case 'a_propos':           return aProposContent;
@@ -188,7 +193,8 @@ export const SettingsModal = ({
     && !activeTab.startsWith('admin_')
     && !activeTab.startsWith('module_')
     && activeTab !== 'a_propos'
-    && activeTab !== 'mon_profil';
+    && activeTab !== 'mon_profil'
+    && activeTab !== 'mode_hors_ligne';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
