@@ -26,6 +26,7 @@ import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
+import { listEnvelopes, readEnvelope, writeEnvelope, deleteProduction } from './attache/productions.mjs'
 
 const PORT = Number(process.env.SIRAL_ATTACHE_PORT || 8787)
 const POLL_MINUTES = Math.max(1, Number(process.env.SIRAL_ATTACHE_POLL_MIN || 5))
@@ -282,6 +283,34 @@ const server = http.createServer(async (req, res) => {
       if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
       runBriefing('manuel').catch((e) => console.error('[attache] brief :', e))
       return json(res, 202, { ok: true, started: true })
+    }
+
+    if (route === 'GET /productions') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      return json(res, 200, { productions: listEnvelopes(url.searchParams.get('numero') || '') })
+    }
+
+    if (route === 'PUT /production') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const body = await readBody(req, 4 * 1024 * 1024)
+      const env = body.envelope
+      if (!env || env.encrypted !== true || typeof env.iv !== 'string' || typeof env.ct !== 'string') {
+        return json(res, 400, { error: 'Enveloppe chiffrée requise' })
+      }
+      if (!/^[a-f0-9]{6,32}$/.test(String(body.id || ''))) return json(res, 400, { error: 'id invalide' })
+      await writeEnvelope(String(body.numero || ''), String(body.id), env)
+      await audit(keys, 'production_editee_main', { numero: body.numero, id: body.id })
+      return json(res, 200, { ok: true })
+    }
+
+    if (route === 'DELETE /production') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const ok = await deleteProduction(url.searchParams.get('numero') || '', url.searchParams.get('id') || '')
+      if (ok) await audit(keys, 'production_supprimee', { numero: url.searchParams.get('numero'), id: url.searchParams.get('id') })
+      return json(res, 200, { ok })
     }
 
     if (route === 'GET /dossier-memoire') {

@@ -25,6 +25,7 @@ import { saveTrame, listTrames, readTrame } from './attache/trames.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
 import { analyserReseau, listerLiens, rapprochementsInterDossiers } from './attache/carto.mjs'
+import { saveProduction, listProductions, readProduction, deleteProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
 import { appendMemory } from './attache/memory.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed, sendToOwner } from './attache/mail.mjs'
 
@@ -194,6 +195,43 @@ const TOOLS = [
     description: 'Chronologie probatoire fusionnée du dossier : actes SIRAL (débuts, fins, prolongations, poses, attentes JLD), CR, modifications (apparition de MEC), DML archivées et cotes NPP datées — triée par date. Base de tout réquisitoire, rapport ou préparation d\'audience.',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
     handler: async (a) => buildChronologie(keys, a.numero) ?? { erreur: 'Dossier introuvable' },
+  },
+  {
+    name: 'produire_document',
+    description: `Rédige un ACTE et le range dans « Actes rédigés » du dossier (le magistrat le visionne, l'édite, le glisse vers son parapheur). Type : ${PRODUCTION_TYPES.join(', ')}. Suis la trame correspondante (trames_lister/trame_lire) et le dossier (lire_dossier, chronologie_lire). Rédaction complète, prête à signer, texte brut (paragraphes séparés par des lignes vides). Pour MODIFIER un acte existant, passe son id.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        id: { type: 'string', description: 'id d\'une production à mettre à jour (sinon nouvelle)' },
+        type: { type: 'string', enum: PRODUCTION_TYPES },
+        titre: { type: 'string' },
+        contenu: { type: 'string', description: 'Le texte complet de l\'acte' },
+        source: { type: 'string', description: 'Trame suivie (ex: requisition-tse)' },
+      },
+      required: ['numero', 'type', 'titre', 'contenu'],
+    },
+    handler: async (a) => saveProduction(keys, a),
+    write: true,
+  },
+  {
+    name: 'productions_lister',
+    description: 'Liste les actes rédigés d\'un dossier (id, type, titre, dates) — pour retrouver un document à modifier.',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
+    handler: async (a) => listProductions(keys, a.numero),
+  },
+  {
+    name: 'production_lire',
+    description: 'Lit le texte complet d\'un acte rédigé (pour le modifier ensuite avec produire_document en réutilisant son id).',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string' }, id: { type: 'string' } }, required: ['numero', 'id'] },
+    handler: async (a) => readProduction(keys, a.numero, a.id) ?? { erreur: 'Acte introuvable' },
+  },
+  {
+    name: 'production_supprimer',
+    description: 'Supprime un acte rédigé (réversible : version archivée).',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string' }, id: { type: 'string' } }, required: ['numero', 'id'] },
+    handler: async (a) => ({ ok: await deleteProduction(a.numero, a.id) }),
+    write: true,
   },
   {
     name: 'trame_enregistrer',

@@ -27,6 +27,7 @@ import { TransfertContentieuxSection } from '../sections/TransfertContentieuxSec
 import { ChronologieSection } from '../attache/ChronologieSection';
 import { PropositionsBar } from '../attache/PropositionsBar';
 import { FloatingDossierChat } from '../attache/FloatingDossierChat';
+import { ProductionsSection } from '../attache/ProductionsSection';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
 import { SuiviAlertModal } from './SuiviAlertModal';
@@ -303,6 +304,7 @@ const EnqueteDetailModalImpl = ({
             {/* Propositions de l'attaché en attente (✓/✗) + chronologie
                 probatoire — admin uniquement, auto-masquées sinon. */}
             {isAdmin() && <PropositionsBar numero={enquete.numero} />}
+            {isAdmin() && <ProductionsSection numero={enquete.numero} />}
             {isAdmin() && <ChronologieSection numero={enquete.numero} />}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
