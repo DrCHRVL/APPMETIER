@@ -646,7 +646,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       await fsa.flushPendingCopies(docDownload).catch(() => {})
       const internal = await docList(enq)
       result.totalInternal = internal.length
-      const cats = Array.from(new Set(['Geoloc', 'Ecoutes', 'Actes', 'PV', ...internal.map((d) => d.rel.split('/')[0])]))
+      const cats = Array.from(new Set(['Geoloc', 'Ecoutes', 'Actes', 'PV', 'DML', ...internal.map((d) => d.rel.split('/')[0])]))
       for (const cat of cats) {
         const externalNames = await fsa.listFolderFiles(token, enq, sub, cat)
         result.totalExternal += externalNames.length
@@ -944,6 +944,23 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
         }
         return out.reverse() // plus récent en premier
       } catch { return [] }
+    },
+
+    // ── Attaché de justice (admin) : enveloppes clé « global » ──
+    // Le service attaché chiffre avec la même clé globale que le navigateur :
+    // feed, audit, mémoire et conversations se déchiffrent ICI, jamais côté app.
+    attache_decrypt: async (envelope: unknown) => {
+      try { return await decryptJson(key, envelope as CipherEnvelope) } catch { return null }
+    },
+    attache_encrypt: async (payload: unknown) => encryptJson(key, payload, { savedBy: me.username }),
+    /** Remise du trousseau : exporte les clés brutes des périmètres demandés. */
+    attache_exportKeys: async (scopes: unknown) => {
+      const wanted = Array.isArray(scopes) ? scopes.map(String) : []
+      const out: Record<string, string> = {}
+      for (const s of wanted) {
+        if (keys.raw[s]) out[s] = keys.raw[s]
+      }
+      return out
     },
 
     // ── Mises à jour (pilotées par le conteneur « updater » du serveur) ──

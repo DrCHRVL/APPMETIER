@@ -24,6 +24,9 @@ import { Badge } from '../ui/badge';
 import { EnqueteHeader } from '../sections/EnqueteHeader';
 import { CoSaisineSection } from '../sections/CoSaisineSection';
 import { TransfertContentieuxSection } from '../sections/TransfertContentieuxSection';
+import { ChronologieSection } from '../attache/ChronologieSection';
+import { PropositionsBar } from '../attache/PropositionsBar';
+import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
 import { SuiviAlertModal } from './SuiviAlertModal';
@@ -89,7 +92,7 @@ const EnqueteDetailModalImpl = ({
   const [showModificationsPopup, setShowModificationsPopup] = useState(false);
   useEffect(() => { setLocalNumero(enquete.numero); }, [enquete.numero]);
   const { showToast } = useToast();
-  const { user } = useUser();
+  const { user, isAdmin } = useUser();
   const markEnqueteAsSeen = useEnquetesStore(s => s.markEnqueteAsSeen);
 
   const effectiveReadOnly = readOnly;
@@ -296,6 +299,11 @@ const EnqueteDetailModalImpl = ({
               onUpdate={isEditing ? (updates) => debouncedOnUpdate(enquete.id, updates) : undefined}
               onUpdateImmediate={isEditing ? (updates) => handleUpdateImmediate(enquete.id, updates) : undefined}
             />
+
+            {/* Propositions de l'attaché en attente (✓/✗) + chronologie
+                probatoire — admin uniquement, auto-masquées sinon. */}
+            {isAdmin() && <PropositionsBar numero={enquete.numero} />}
+            {isAdmin() && <ChronologieSection numero={enquete.numero} />}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div className="space-y-6">
@@ -514,6 +522,16 @@ const EnqueteDetailModalImpl = ({
         modifications={unseenModifications}
         enqueteNumero={enquete.numero}
       />
+
+      {/* Chat flottant de l'attaché sur ce dossier — admin uniquement,
+          déplaçable, toujours accessible (même pendant la rédaction d'un CR). */}
+      {isAdmin() && (
+        <FloatingDossierChat
+          numero={enquete.numero}
+          cadre={enquete.statut === 'instruction' ? 'instruction' : 'preliminaire'}
+          label={enquete.numero}
+        />
+      )}
     </>
   );
 };

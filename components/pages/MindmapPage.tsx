@@ -34,6 +34,7 @@ import { useTags } from '@/hooks/useTags';
 import { useNatinf } from '@/hooks/useNatinf';
 import { categoryForEntry } from '@/lib/natinf/nataff';
 import { useUser } from '@/contexts/UserContext';
+import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { useToast } from '@/contexts/ToastContext';
 import type { InfluenceCluster } from '../mindmap/influenceHull';
 import { MindmapCanvas } from '../mindmap/MindmapCanvas';
@@ -138,7 +139,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const setMecScoreBoost = useCartographieOverlayStore(s => s.setMecScoreBoost);
 
   const { showToast } = useToast();
-  const { user } = useUser();
+  const { user, isAdmin } = useUser();
   const { getByCode: getNatinfByCode } = useNatinf();
   // Sources distantes : projection des dossiers de TOUTE l'équipe (tous
   // contentieux confondus), rapatriée par le service de contributions. Rend la
@@ -939,6 +940,10 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         <span><kbd className="px-1 bg-slate-100 rounded border border-slate-200">Recherche</kbd> centre la caméra sur le nœud</span>
         <span><kbd className="px-1 bg-slate-100 rounded border border-slate-200">Molette</kbd> zoom</span>
       </div>
+
+      {/* Chat carto de l'attaché — admin only : analyse du réseau, propose
+          les liens de renseignement manquants (auto-masqué si inactif). */}
+      {isAdmin() && <FloatingDossierChat numero="carto" carto label="Cartographie" />}
     </div>
   );
 };

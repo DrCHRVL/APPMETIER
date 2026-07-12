@@ -1,0 +1,29 @@
+# SIRAL — service « Attaché de justice » (sidecar).
+#
+# Seul conteneur détenteur de la clé-maître et des clés déchiffrées : il relève
+# la boîte dédiée, lance les runs Claude Code (abonnement, pas d'API) et sert
+# l'API interne du panneau. Jamais publié sur Internet (réseau docker interne).
+#
+# Authentification Claude (une fois, après le premier démarrage) :
+#   docker compose exec -it attache claude
+#   (ou : claude setup-token sur une machine de confiance, puis coller le token)
+# L'état de connexion persiste dans le volume claude-auth.
+FROM node:20-bookworm-slim
+
+# Le CLI Claude Code — le « cerveau », connecté à l'abonnement du magistrat
+RUN npm install -g @anthropic-ai/claude-code --no-audit --no-fund
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
+COPY scripts ./scripts
+
+ENV NODE_ENV=production
+ENV SIRAL_DATA_DIR=/data
+
+# Le CLI a besoin d'un HOME inscriptible pour ~/.claude (volume claude-auth)
+ENV HOME=/home/attache
+RUN mkdir -p /home/attache /data
+
+EXPOSE 8787
+CMD ["node", "scripts/attache-service.mjs"]

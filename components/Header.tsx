@@ -1,4 +1,4 @@
-import { Bell, Search, Save, RefreshCw, Download } from 'lucide-react';
+import { Bell, Search, Save, RefreshCw, Download, Scale } from 'lucide-react';
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { Alert } from '@/types/interfaces';
@@ -34,6 +34,8 @@ interface HeaderProps {
   approvedSha?: string | null;
   /** Mode épuré (profil JLD) : masque la recherche et les actions (sauvegarde, sync, alertes). */
   minimal?: boolean;
+  /** Attaché de justice IA — fourni UNIQUEMENT en session admin quand la fonctionnalité est active. */
+  onShowAttache?: () => void;
 }
 
 export const Header = ({
@@ -57,6 +59,7 @@ export const Header = ({
   remoteSha = null,
   approvedSha = null,
   minimal = false,
+  onShowAttache,
 }: HeaderProps) => {
   // L'icône est visible :
   //  - pour l'admin : dès qu'une MAJ existe
@@ -195,6 +198,27 @@ export const Header = ({
 
           {/* État de la cible de synchro : partage P:\ (bureau) ou serveur SIRAL (web) */}
           <NetworkStatusIndicator />
+
+          {/* Attaché de justice IA — admin uniquement, fonctionnalité activée */}
+          {onShowAttache && (
+            <TooltipProvider>
+              <TooltipRoot>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="relative h-8 w-8 p-0 rounded-lg text-gray-500 hover:text-[#2B5746] hover:bg-emerald-50"
+                    onClick={onShowAttache}
+                  >
+                    <Scale className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>Attaché de justice (IA)</p>
+                </TooltipContent>
+              </TooltipRoot>
+            </TooltipProvider>
+          )}
 
           {/* Sauvegarde locale */}
           <TooltipProvider>

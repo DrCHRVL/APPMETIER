@@ -45,7 +45,7 @@ interface DocumentsSectionProps {
   isEditing: boolean;
 }
 
-type DocumentCategory = 'geoloc' | 'ecoutes' | 'actes' | 'pv';
+type DocumentCategory = 'geoloc' | 'ecoutes' | 'actes' | 'pv' | 'dml';
 
 interface DocumentZone {
   category: DocumentCategory;
@@ -102,6 +102,13 @@ const DOCUMENT_ZONES: DocumentZone[] = [
     icon: <ClipboardList className="h-5 w-5" />,
     description: 'PV et documents généraux',
     color: 'border-orange-300 bg-orange-50 hover:bg-orange-100'
+  },
+  {
+    category: 'dml',
+    title: 'DML',
+    icon: <FileText className="h-5 w-5" />,
+    description: 'Demandes de mise en liberté — l\'attaché IA s\'appuie sur les anciennes pour actualiser',
+    color: 'border-rose-300 bg-rose-50 hover:bg-rose-100'
   }
 ];
 
@@ -179,7 +186,8 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     geoloc: null,
     ecoutes: null,
     actes: null,
-    pv: null
+    pv: null,
+    dml: null
   });
 
   const { showToast } = useToast();
@@ -191,7 +199,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   const documentsByCategory = useMemo(() => {
     // 1 seule passe au lieu de 4 .filter() — plus rapide pour les grosses listes
     const result: Record<DocumentCategory, DocumentEnquete[]> = {
-      geoloc: [], ecoutes: [], actes: [], pv: []
+      geoloc: [], ecoutes: [], actes: [], pv: [], dml: []
     };
     for (const doc of (enquete.documents || [])) {
       const path = doc.cheminRelatif;
@@ -199,6 +207,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
       else if (path.startsWith('Ecoutes/')) result.ecoutes.push(doc);
       else if (path.startsWith('Actes/')) result.actes.push(doc);
       else if (path.startsWith('PV/')) result.pv.push(doc);
+      else if (path.startsWith('DML/')) result.dml.push(doc);
     }
     return result;
   }, [enquete.documents]);
@@ -398,7 +407,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     setCopyStatus(null);
 
     const categoryMapping: Record<DocumentCategory, string> = {
-      geoloc: 'Geoloc', ecoutes: 'Ecoutes', actes: 'Actes', pv: 'PV'
+      geoloc: 'Geoloc', ecoutes: 'Ecoutes', actes: 'Actes', pv: 'PV', dml: 'DML'
     };
     const electronCategory = categoryMapping[category];
 
@@ -792,9 +801,15 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
             </div>
           )}
 
-          {/* Grille des 4 zones */}
+          {/* Grille des zones — la zone DML (détention provisoire) n'a de sens
+              que pour un dossier À L'INSTRUCTION : masquée ailleurs, sauf si des
+              DML y ont déjà été déposées (jamais de documents inaccessibles). */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {DOCUMENT_ZONES.map((zone) => {
+            {DOCUMENT_ZONES.filter((zone) =>
+              zone.category !== 'dml'
+              || enquete.statut === 'instruction'
+              || documentsByCategory.dml.length > 0
+            ).map((zone) => {
               const docsInZone = documentsByCategory[zone.category];
               const isDragOver = dragOverZone === zone.category;
               const isExpanded = expandedCategories.has(zone.category);

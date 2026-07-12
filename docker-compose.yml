@@ -17,11 +17,48 @@ services:
       - SIRAL_RP_ID=${SIRAL_DOMAINE}
       - SIRAL_ORIGIN=https://${SIRAL_DOMAINE}
       - SIRAL_UPDATER_DIR=/updater
+      # Attaché de justice IA (laisser vide pour désactiver totalement)
+      - SIRAL_ATTACHE_URL=${SIRAL_ATTACHE_URL:-}
+      - SIRAL_ATTACHE_TJ=${SIRAL_ATTACHE_TJ:-default}
     volumes:
       - siral-data:/data
       - updater-state:/updater
     expose:
       - "3000"
+
+  # ── Attaché de justice IA (optionnel — voir docs/ATTACHE.md) ──
+  # Seul détenteur de la clé-maître et des clés remises ; jamais exposé sur
+  # Internet (réseau docker interne). Inactif tant que SIRAL_ATTACHE_URL est
+  # vide côté app. Le CLI Claude Code s'authentifie avec l'ABONNEMENT :
+  #   docker compose exec -it attache claude   (une fois, état persistant)
+  attache:
+    build:
+      context: .
+      dockerfile: Dockerfile.attache
+    restart: unless-stopped
+    environment:
+      - SIRAL_SECRET=${SIRAL_SECRET}
+      - SIRAL_ATTACHE_MASTER_KEY=${SIRAL_ATTACHE_MASTER_KEY:-}
+      - SIRAL_ATTACHE_TJ=${SIRAL_ATTACHE_TJ:-default}
+      - SIRAL_ATTACHE_CONTENTIEUX=${SIRAL_ATTACHE_CONTENTIEUX:-crimorg}
+      - SIRAL_ATTACHE_OWNER_EMAIL=${SIRAL_ATTACHE_OWNER_EMAIL:-}
+      - SIRAL_ATTACHE_IMAP_HOST=${SIRAL_ATTACHE_IMAP_HOST:-}
+      - SIRAL_ATTACHE_IMAP_PORT=${SIRAL_ATTACHE_IMAP_PORT:-993}
+      - SIRAL_ATTACHE_IMAP_USER=${SIRAL_ATTACHE_IMAP_USER:-}
+      - SIRAL_ATTACHE_IMAP_PASSWORD=${SIRAL_ATTACHE_IMAP_PASSWORD:-}
+      - SIRAL_ATTACHE_SMTP_HOST=${SIRAL_ATTACHE_SMTP_HOST:-}
+      - SIRAL_ATTACHE_SMTP_PORT=${SIRAL_ATTACHE_SMTP_PORT:-465}
+      - SIRAL_ATTACHE_SMTP_USER=${SIRAL_ATTACHE_SMTP_USER:-}
+      - SIRAL_ATTACHE_SMTP_PASSWORD=${SIRAL_ATTACHE_SMTP_PASSWORD:-}
+      - SIRAL_ATTACHE_FROM=${SIRAL_ATTACHE_FROM:-}
+      - SIRAL_ATTACHE_POLL_MIN=${SIRAL_ATTACHE_POLL_MIN:-5}
+      - SIRAL_ATTACHE_MODEL=${SIRAL_ATTACHE_MODEL:-}
+      - SIRAL_ATTACHE_BRIEFING_HOUR=${SIRAL_ATTACHE_BRIEFING_HOUR:-6}
+    volumes:
+      - siral-data:/data
+      - claude-auth:/home/attache
+    expose:
+      - "8787"
 
   caddy:
     image: caddy:2-alpine
@@ -58,3 +95,4 @@ volumes:
   caddy-data:
   caddy-config:
   updater-state:
+  claude-auth:
