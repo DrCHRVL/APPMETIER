@@ -13,7 +13,7 @@
  * cohérence actes demandés/réalisés, délais TSE en préliminaire).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Scale, X, Send, Loader2, Minus, Stethoscope, GripHorizontal, Wrench } from 'lucide-react';
+import { Scale, X, Send, Loader2, Minus, Stethoscope, GripHorizontal, Wrench, BookOpen } from 'lucide-react';
 
 interface Msg { role: 'user' | 'assistant'; text: string; streaming?: boolean; tools?: string[] }
 
@@ -33,6 +33,9 @@ export function FloatingDossierChat({
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [convId, setConvId] = useState<string | null>(null);
+  const [showMem, setShowMem] = useState(false);
+  const [mem, setMem] = useState('');
+  const [memSaving, setMemSaving] = useState(false);
   const streamRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
   const convKey = `attache_dossier_conv_${numero}`;
@@ -120,6 +123,26 @@ export function FloatingDossierChat({
     }
   }, [busy, convId, numero, cadre, convKey, scrollDown]);
 
+  const openMemory = useCallback(async () => {
+    try {
+      const res = await fetch('/api/attache/dossier-memoire?numero=' + encodeURIComponent(numero));
+      setMem(res.ok ? ((await res.json()).memoire || '') : '');
+    } catch { setMem(''); }
+    setShowMem(true);
+  }, [numero]);
+
+  const saveMemory = useCallback(async () => {
+    setMemSaving(true);
+    try {
+      await fetch('/api/attache/dossier-memoire', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ numero, contenu: mem }),
+      });
+      setShowMem(false);
+    } finally { setMemSaving(false); }
+  }, [numero, mem]);
+
   if (!available) return null;
 
   // Bouton fermé — décalé vers le haut pour ne pas heurter le flottant « + CR »
@@ -161,6 +184,7 @@ export function FloatingDossierChat({
           <div className="truncate text-xs font-semibold text-gray-800">Attaché · {label || numero}</div>
           <div className="text-[10px] text-gray-400">{cadre === 'instruction' ? 'instruction' : 'préliminaire'} · vous seul</div>
         </div>
+        <button onClick={openMemory} title="Mémoire du dossier" className="rounded p-1 text-gray-400 hover:bg-gray-100"><BookOpen className="h-3.5 w-3.5" /></button>
         <button onClick={() => setOpen(false)} title="Réduire" className="rounded p-1 text-gray-400 hover:bg-gray-100"><Minus className="h-3.5 w-3.5" /></button>
         <button onClick={() => { setOpen(false); }} title="Fermer" className="rounded p-1 text-gray-400 hover:bg-gray-100"><X className="h-3.5 w-3.5" /></button>
       </div>
@@ -222,6 +246,31 @@ export function FloatingDossierChat({
           </button>
         </div>
       </div>
+
+      {/* Mémoire du dossier — petit md, relu et enrichi par l'attaché,
+          éditable à la main. Volontairement court (plafonné côté serveur). */}
+      {showMem && (
+        <div className="absolute inset-0 z-10 flex flex-col bg-white">
+          <div className="flex items-center gap-2 border-b border-gray-200 px-3 py-2">
+            <BookOpen className="h-3.5 w-3.5 text-[#2B5746]" />
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold text-gray-800">Mémoire du dossier</div>
+              <div className="text-[10px] text-gray-400">l'essentiel de vos échanges — court par choix</div>
+            </div>
+            <button onClick={() => setShowMem(false)} className="rounded p-1 text-gray-400 hover:bg-gray-100"><X className="h-3.5 w-3.5" /></button>
+          </div>
+          <textarea
+            value={mem}
+            onChange={(e) => setMem(e.target.value)}
+            placeholder="(vide — l'attaché la remplira au fil des échanges)"
+            className="flex-1 resize-none p-3 font-mono text-[11.5px] leading-relaxed text-gray-800 outline-none"
+          />
+          <div className="flex justify-end gap-2 border-t border-gray-200 p-2">
+            <button onClick={() => setShowMem(false)} className="rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50">Fermer</button>
+            <button onClick={saveMemory} disabled={memSaving} className="rounded-lg bg-[#2B5746] px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50">{memSaving ? '…' : 'Enregistrer'}</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

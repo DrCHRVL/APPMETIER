@@ -23,6 +23,7 @@ import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { saveTrame, listTrames, readTrame } from './attache/trames.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
+import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
 import { appendMemory } from './attache/memory.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed, sendToOwner } from './attache/mail.mjs'
 
@@ -139,6 +140,19 @@ const TOOLS = [
     description: 'Consigne un enseignement durable dans la mémoire (préférence du magistrat, réflexe, consigne). section: "Préférences du magistrat" | "Réflexes appris" | "Consignes permanentes".',
     inputSchema: { type: 'object', properties: { section: { type: 'string' }, note: { type: 'string' } }, required: ['section', 'note'] },
     handler: async (a) => ({ ajoute: await appendMemory(keys, a.section, a.note, 'attache-ia') }),
+    write: true,
+  },
+  {
+    name: 'memoire_dossier_lire',
+    description: 'Lit la mémoire légère du dossier : l\'essentiel des échanges passés du chat (ce que le magistrat a dit, décidé, découvert). À consulter au début d\'une conversation sur un dossier.',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
+    handler: async (a) => ({ memoire: readDossierMemory(keys, a.numero) || '(vide)' }),
+  },
+  {
+    name: 'memoire_dossier_noter',
+    description: 'Ajoute UNE ligne télégraphique à la mémoire du dossier — seulement quand un échange apporte du neuf (décision du magistrat, orientation, élément découvert). Court et factuel : la mémoire est volontairement petite (plafonnée). Ne pas noter les banalités.',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string' }, note: { type: 'string' } }, required: ['numero', 'note'] },
+    handler: async (a) => appendDossierMemory(keys, a.numero, a.note),
     write: true,
   },
   {

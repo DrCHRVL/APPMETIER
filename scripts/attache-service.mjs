@@ -25,6 +25,7 @@ import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, 
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
+import { readDossierMemory } from './attache/dossierMemory.mjs'
 
 const PORT = Number(process.env.SIRAL_ATTACHE_PORT || 8787)
 const POLL_MINUTES = Math.max(1, Number(process.env.SIRAL_ATTACHE_POLL_MIN || 5))
@@ -283,6 +284,21 @@ const server = http.createServer(async (req, res) => {
       return json(res, 202, { ok: true, started: true })
     }
 
+    if (route === 'GET /dossier-memoire') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      return json(res, 200, { memoire: readDossierMemory(keys, url.searchParams.get('numero') || '') })
+    }
+
+    if (route === 'PUT /dossier-memoire') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const body = await readBody(req)
+      const { setDossierMemory } = await import('./attache/dossierMemory.mjs')
+      await setDossierMemory(keys, String(body.numero || ''), String(body.contenu || ''))
+      return json(res, 200, { ok: true })
+    }
+
     if (route === 'GET /propositions') {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
@@ -387,11 +403,14 @@ const server = http.createServer(async (req, res) => {
       let prompt = message
       if (body.dossier && !body.convId) {
         const cadre = body.cadre === 'instruction' ? 'à l\'instruction' : 'en enquête préliminaire'
+        const memoire = readDossierMemory(keys, String(body.dossier))
         prompt = [
           `CONTEXTE : le magistrat te consulte sur le dossier « ${String(body.dossier).slice(0, 80)} » (${cadre}), depuis le chat flottant ouvert sur ce dossier.`,
           'Sauf mention contraire, TOUTES ses questions portent sur ce dossier. Commence par lire_dossier ; utilise diagnostic_dossier, chronologie_lire, verifier_completude selon le besoin.',
           'RÔLE — aide au contrôle et à la maîtrise : surveiller la direction d\'enquête (éparpillement des enquêteurs : partent-ils dans tous les sens ?), la cohérence entre actes demandés et réalisés, et LES DÉLAIS (en préliminaire, les TSE sont enserrés dans des délais courts — 2 mois typiquement — qui contraignent l\'action ; signale tout risque de dépassement et son incidence).',
           'Réponses concises, factuelles, chiffrées, orientées décision. Tu peux déposer des propositions (proposer_mec/acte/cr) mais tu n\'écris jamais directement au dossier sans instruction explicite.',
+          'MÉMOIRE DU DOSSIER : ci-dessous l\'essentiel retenu des échanges passés sur ce dossier. Tiens-la à jour — dès qu\'un échange apporte du neuf (une décision, une orientation, un élément découvert), ajoute UNE ligne télégraphique avec memoire_dossier_noter. Reste bref : cette mémoire est volontairement petite.',
+          memoire ? `--- mémoire du dossier ---\n${memoire}\n--- fin ---` : '(mémoire du dossier vide pour l\'instant)',
           '',
           `Question du magistrat : ${message}`,
         ].join('\n')

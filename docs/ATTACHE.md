@@ -77,6 +77,14 @@ l'usage).
 - **Routines** : consignes récurrentes définies par le magistrat
   (quotidiennes à HH:MM ou toutes les N heures), gérées dans Paramètres →
   Attaché IA — créer, suspendre, exécuter immédiatement, supprimer.
+- **Chat flottant par dossier** : depuis le détail d'une enquête ou d'un
+  dossier d'instruction, une bulle déplaçable (admin only), toujours
+  accessible même pendant la rédaction d'un CR. Une conversation par
+  dossier ; bouton **Diagnostic** (délais TSE, cohérence actes
+  demandés/réalisés, éparpillement des enquêteurs). Chaque dossier a une
+  **mémoire légère** (petit markdown plafonné) que l'attaché relit au début
+  de chaque échange et enrichit d'une ligne quand du neuf apparaît —
+  consultable et éditable via l'icône livre du chat.
 
 ## Architecture et modèle de sécurité
 
