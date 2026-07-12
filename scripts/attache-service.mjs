@@ -24,6 +24,7 @@ import { fetchInbox, listInbox, mailConfig, inboxStats } from './attache/mail.mj
 import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation } from './attache/agent.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
+import { listPropositions, decideProposition } from './attache/propositions.mjs'
 
 const PORT = Number(process.env.SIRAL_ATTACHE_PORT || 8787)
 const POLL_MINUTES = Math.max(1, Number(process.env.SIRAL_ATTACHE_POLL_MIN || 5))
@@ -280,6 +281,25 @@ const server = http.createServer(async (req, res) => {
       if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
       runBriefing('manuel').catch((e) => console.error('[attache] brief :', e))
       return json(res, 202, { ok: true, started: true })
+    }
+
+    if (route === 'GET /propositions') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const numero = url.searchParams.get('numero') || undefined
+      return json(res, 200, { propositions: listPropositions(keys, { numero }) })
+    }
+
+    if (route === 'POST /propositions/decide') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const body = await readBody(req)
+      try {
+        const out = await decideProposition(keys, { id: String(body.id || ''), action: String(body.action || ''), par: String(body.par || '') })
+        return json(res, 200, out)
+      } catch (e) {
+        return json(res, 400, { ok: false, error: String(e?.message || e) })
+      }
     }
 
     if (route === 'GET /routines') {

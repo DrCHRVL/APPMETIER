@@ -25,6 +25,7 @@ import { EnqueteHeader } from '../sections/EnqueteHeader';
 import { CoSaisineSection } from '../sections/CoSaisineSection';
 import { TransfertContentieuxSection } from '../sections/TransfertContentieuxSection';
 import { ChronologieSection } from '../attache/ChronologieSection';
+import { PropositionsBar } from '../attache/PropositionsBar';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
 import { SuiviAlertModal } from './SuiviAlertModal';
@@ -298,8 +299,9 @@ const EnqueteDetailModalImpl = ({
               onUpdateImmediate={isEditing ? (updates) => handleUpdateImmediate(enquete.id, updates) : undefined}
             />
 
-            {/* Chronologie probatoire (attaché IA) — admin uniquement, se
-                masque d'elle-même si la fonctionnalité n'est pas activée. */}
+            {/* Propositions de l'attaché en attente (✓/✗) + chronologie
+                probatoire — admin uniquement, auto-masquées sinon. */}
+            {isAdmin() && <PropositionsBar numero={enquete.numero} />}
             {isAdmin() && <ChronologieSection numero={enquete.numero} />}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">

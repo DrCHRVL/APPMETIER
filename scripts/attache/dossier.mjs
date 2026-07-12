@@ -19,7 +19,16 @@ import { encryptJson, decryptJson, decryptDocBlob } from './crypto.mjs'
 
 const require = createRequire(import.meta.url)
 
-const SAVED_BY = 'attache-ia'
+/**
+ * Signature des écritures VISIBLES des autres utilisateurs (CR, metadata de
+ * synchro, historique) : le NOM DE L'ADMINISTRATEUR qui a remis les clés —
+ * jamais « attache-ia ». L'existence de l'assistant ne doit laisser AUCUNE
+ * trace dans les données partagées ; l'attribution réelle vit dans le
+ * journal d'audit chiffré, visible du seul administrateur.
+ */
+function authorOf(keys) {
+  return keys?.grantedBy || 'admin'
+}
 
 function ctxScope() { return `ctx-${attacheContentieux()}` }
 
@@ -39,17 +48,18 @@ export function loadContentieux(keys) {
 async function saveContentieux(keys, payload) {
   const data = payload.data || {}
   data.version = (Number(data.version) || 0) + 1
+  const author = authorOf(keys)
   const metadata = {
     lastModified: new Date().toISOString(),
-    modifiedBy: SAVED_BY,
-    computerName: 'serveur-attache',
+    modifiedBy: author,
+    computerName: 'SIRAL',
     version: data.version,
   }
   const envelope = encryptJson(ctxKey(keys), { data, metadata }, {
     savedAt: metadata.lastModified,
-    savedBy: SAVED_BY,
+    savedBy: author,
   })
-  await writeVault(attacheTj(), ctxScope(), envelope, SAVED_BY)
+  await writeVault(attacheTj(), ctxScope(), envelope, author)
 }
 
 function stripHtml(s) {
@@ -323,20 +333,52 @@ export async function acterProlongation(keys, { numero, acteId, mode, duree, dur
   })
 }
 
-/** Classe une note/synthèse comme compte-rendu signé « Attaché IA ». */
-export async function classerNote(keys, { numero, titre, contenu }) {
+/**
+ * Classe une note/synthèse comme compte-rendu. Signature = le magistrat
+ * administrateur (dissimulation : aucune trace « IA » dans les données
+ * partagées ; l'attribution réelle est dans l'audit chiffré).
+ */
+export async function classerNote(keys, { numero, titre, contenu, date, enqueteur }) {
+  const author = enqueteur || authorOf(keys)
   return mutate(keys, numero, (e) => {
     e.comptesRendus = e.comptesRendus || []
     const id = Date.now()
-    const html = `<b>${escapeHtml(titre || 'Note de l\'attaché')}</b><br>` +
+    const html = (titre ? `<b>${escapeHtml(titre)}</b><br>` : '') +
       escapeHtml(String(contenu || '')).replace(/\n/g, '<br>')
     e.comptesRendus.push({
       id,
-      date: new Date().toISOString().slice(0, 10),
-      enqueteur: 'Attaché IA',
+      date: (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) ? date : new Date().toISOString().slice(0, 10),
+      enqueteur: author,
       description: html,
-      createdBy: SAVED_BY,
+      createdBy: author,
     })
+    return { id }
+  })
+}
+
+/** Normalisation d'un nom pour le dédoublonnage (accents, casse, espaces). */
+export function normalizeNom(nom) {
+  return String(nom).normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z]/g, '')
+}
+
+/** Noms des mis en cause existants d'un dossier (pour le dédoublonnage). */
+export function getMecNoms(keys, numero) {
+  const { data } = loadContentieux(keys)
+  const e = findEnquete(data, numero)
+  return (e?.misEnCause || []).map((m) => m.nom)
+}
+
+/** Ajoute un mis en cause — REFUSE tout doublon (nom normalisé identique). */
+export async function ajouterMec(keys, { numero, nom, role, statut }) {
+  const cleanNom = String(nom || '').trim()
+  if (!cleanNom) throw new Error('Nom requis')
+  return mutate(keys, numero, (e) => {
+    e.misEnCause = e.misEnCause || []
+    const norm = normalizeNom(cleanNom)
+    const doublon = e.misEnCause.find((m) => normalizeNom(m.nom) === norm)
+    if (doublon) throw new Error(`Doublon : « ${doublon.nom} » figure déjà aux mis en cause`)
+    const id = Date.now()
+    e.misEnCause.push({ id, nom: cleanNom, role: role ? String(role).slice(0, 120) : undefined, statut: String(statut || 'mis en cause').slice(0, 60) })
     return { id }
   })
 }
@@ -369,7 +411,7 @@ export async function actualiserDescription(keys, { numero, description }) {
     const ancienne = String(e.description || '')
     if (ancienne.trim()) {
       e.descriptionHistory = e.descriptionHistory || []
-      e.descriptionHistory.push({ date: new Date().toISOString(), description: ancienne, remplacePar: SAVED_BY })
+      e.descriptionHistory.push({ date: new Date().toISOString(), description: ancienne, remplacePar: authorOf(keys) })
       // garde-fou : capé aux 20 dernières versions (le coffre versionné garde tout le reste)
       if (e.descriptionHistory.length > 20) e.descriptionHistory = e.descriptionHistory.slice(-20)
     }

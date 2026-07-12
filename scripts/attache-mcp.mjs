@@ -22,6 +22,7 @@ import {
 import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { saveTrame, listTrames, readTrame } from './attache/trames.mjs'
+import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { appendMemory } from './attache/memory.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed, sendToOwner } from './attache/mail.mjs'
 
@@ -191,6 +192,68 @@ const TOOLS = [
     description: 'Lit le contenu complet d\'une trame par son nom.',
     inputSchema: { type: 'object', properties: { nom: { type: 'string' } }, required: ['nom'] },
     handler: async (a) => readTrame(keys, a.nom) ?? { erreur: 'Trame inconnue — voir trames_lister' },
+  },
+  {
+    name: 'proposer_mec',
+    description: 'Propose un NOUVEAU mis en cause détecté dans un document/PV/mail — n\'écrit PAS directement : la proposition apparaît dans le dossier avec ✓/✗ pour l\'administrateur. Dédoublonnage automatique (nom déjà présent ou déjà proposé ⇒ refus). Toujours citer la source.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' }, nom: { type: 'string' },
+        role: { type: 'string', description: 'Rôle supposé (fournisseur, logisticien…)' },
+        statut: { type: 'string', description: 'Défaut : mis en cause' },
+        source: { type: 'string', description: 'Pièce d\'où vient la détection (ex: PV D8092, mail du 12/07)' },
+      },
+      required: ['numero', 'nom', 'source'],
+    },
+    handler: async (a) => addProposition(keys, { numero: a.numero, type: 'mec', payload: { nom: a.nom, role: a.role, statut: a.statut }, source: a.source }),
+    write: true,
+  },
+  {
+    name: 'proposer_acte',
+    description: 'Propose un acte détecté (demande d\'interception, de géolocalisation, autre mesure — y compris statut autorisation_pending pour une demande JLD). L\'acte est entièrement pré-construit mais N\'EST créé qu\'au ✓ de l\'administrateur. Mêmes champs qu\'enregistrer_acte + source.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' }, kind: { type: 'string', enum: ['ecoute', 'geolocalisation', 'autre'] },
+        dateDebut: { type: 'string' }, duree: { type: 'number' }, dureeUnit: { type: 'string', enum: ['jours', 'mois'] },
+        cible: { type: 'string' }, objet: { type: 'string' }, type: { type: 'string' }, description: { type: 'string' },
+        statut: { type: 'string', enum: ['en_cours', 'autorisation_pending'] },
+        source: { type: 'string' },
+      },
+      required: ['numero', 'kind', 'source'],
+    },
+    handler: async (a) => {
+      const { numero, source, ...payload } = a
+      return addProposition(keys, { numero, type: 'acte', payload, source })
+    },
+    write: true,
+  },
+  {
+    name: 'proposer_cr',
+    description: 'Propose un compte-rendu rédigé en PRISE DE NOTES (nouveaux éléments : véhicule, adresse, ligne, demande d\'actes…) — court, télégraphique, efficace. Créé au dossier seulement au ✓ de l\'administrateur, SIGNÉ DE SON NOM (jamais de trace de l\'assistant).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        titre: { type: 'string' },
+        contenu: { type: 'string', description: 'Prise de notes : « Nouveau VL : Clio GC-560-NP (MELLAH). Demande géoloc formulée par GIR. À suivre : retour opérateur. »' },
+        date: { type: 'string', description: 'AAAA-MM-JJ (défaut : aujourd\'hui)' },
+        source: { type: 'string' },
+      },
+      required: ['numero', 'contenu', 'source'],
+    },
+    handler: async (a) => {
+      const { numero, source, ...payload } = a
+      return addProposition(keys, { numero, type: 'cr', payload, source })
+    },
+    write: true,
+  },
+  {
+    name: 'propositions_en_attente',
+    description: 'Liste les propositions en attente de validation (évite les redondances : ne jamais re-proposer ce qui attend déjà).',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string' } } },
+    handler: async (a) => listPropositions(keys, { numero: a?.numero }).map(({ payload, ...meta }) => ({ ...meta, apercu: JSON.stringify(payload).slice(0, 200) })),
   },
   {
     name: 'lister_dml',

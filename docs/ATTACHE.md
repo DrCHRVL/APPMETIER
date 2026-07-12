@@ -60,6 +60,23 @@ l'usage).
   web) se collent dans le panneau (« enregistre cette trame sous… ») ;
   l'attaché les relit avant chaque rédaction du même type. Chiffrées,
   versionnées.
+- **Propose au lieu d'écrire quand il DÉTECTE** : à la lecture d'une pièce
+  (document, PV, mail), un nom nouveau → proposition de **mis en cause**
+  (dédoublonnage automatique, casse/accents compris) ; une mesure évoquée →
+  **acte pré-construit** (jusqu'à la demande JLD) ; des éléments nouveaux →
+  **CR en prise de notes**. Les propositions apparaissent en bandeau dans le
+  détail du dossier, pour le seul administrateur, avec **✓** (appliquer) et
+  **✗** (refuser) discrets. Rien n'est écrit avant le ✓. L'écriture directe
+  reste réservée aux instructions explicites du magistrat.
+- **Ne laisse AUCUNE trace dans les données partagées** : les CR et
+  écritures sont signés **du nom de l'administrateur** (jamais « Attaché
+  IA »), y compris le `modifiedBy` de la synchronisation. L'attribution
+  réelle de chaque action vit dans le journal d'audit chiffré, visible du
+  seul administrateur. Les routes répondent 404 aux non-admins : la
+  fonctionnalité est indistinguable d'une route inexistante.
+- **Routines** : consignes récurrentes définies par le magistrat
+  (quotidiennes à HH:MM ou toutes les N heures), gérées dans Paramètres →
+  Attaché IA — créer, suspendre, exécuter immédiatement, supprimer.
 
 ## Architecture et modèle de sécurité
 
