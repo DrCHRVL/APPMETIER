@@ -60,6 +60,19 @@ l'usage).
   web) se collent dans le panneau (« enregistre cette trame sous… ») ;
   l'attaché les relit avant chaque rédaction du même type. Chiffrées,
   versionnées.
+- **Analyse automatique des documents (IA)** : la fonctionnalité « Analyse
+  automatique des documents » de SIRAL (détection d'actes à partir des PDF du
+  dossier) bascule, pour le seul administrateur, sur le modèle Claude de
+  l'attaché — bien plus robuste que les heuristiques regex sur les formats
+  atypiques, l'OCR bruité ou les cibles mal formatées. L'IA lit chaque
+  ordonnance, en extrait l'acte (type, cibles, durée, dates, tribunal,
+  chaînage des prolongations) **et évalue la chaîne légale** (requêtes /
+  autorisations initiales / prolongations manquantes). L'analyse est en un
+  seul tour, **sans aucun outil** (pas de MCP, pas d'écriture) : rien n'est
+  créé sans le ✓ du magistrat — le résultat repasse par le dédoublonnage et la
+  validation habituels. Bascule IA ⟷ Classique dans la fenêtre, repli
+  automatique sur le moteur classique si le service est indisponible. Modèle
+  configurable via `SIRAL_ATTACHE_ANALYSE_MODEL` (défaut : sonnet).
 - **Propose au lieu d'écrire quand il DÉTECTE** : à la lecture d'une pièce
   (document, PV, mail), un nom nouveau → proposition de **mis en cause**
   (dédoublonnage automatique, casse/accents compris) ; une mesure évoquée →

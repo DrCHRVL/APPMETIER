@@ -71,6 +71,8 @@ export interface ParsedActe {
   warnings: string[];
   /** Ce document correspond à un acte existant avec des divergences — à vérifier via "Vérifier doublons" */
   correctionPossible?: boolean;
+  /** Analyse IA : phrase de justification du modèle (type retenu, ambiguïtés) */
+  motif?: string;
 }
 
 export interface AlerteDocumentManquant {
@@ -95,6 +97,10 @@ export interface AnalysisResult {
   nonReconnus: ScannedDocument[];
   /** Alertes de documents manquants dans la chaîne légale */
   alertes: AlerteDocumentManquant[];
+  /** Moteur ayant produit ce résultat : IA (Claude) ou heuristiques regex */
+  analyzedBy?: 'ia' | 'regex';
+  /** Synthèse libre du modèle (analyse IA uniquement) */
+  iaResume?: string;
   /** Erreurs globales */
   errors: string[];
   /** Statistiques */
@@ -165,6 +171,7 @@ export class ServerDocumentScanner {
       doublonsIgnores: [],
       nonReconnus: [],
       alertes: [],
+      analyzedBy: 'regex',
       errors: [],
       stats: {
         totalDocumentsScanned: scannedDocuments.length,
@@ -212,6 +219,266 @@ export class ServerDocumentScanner {
     result.alertes = this.checkMissingDocuments(enquete, allParsedDocuments);
 
     return result;
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // 1b. ANALYSE IA (attaché — administrateur uniquement)
+  // ════════════════════════════════════════════════════════════
+
+  /** Type de la réponse brute du modèle (route /api/attache/analyse-documents). */
+  private static readonly AI_ROUTE = '/api/attache/analyse-documents';
+
+  /**
+   * L'analyse IA est-elle disponible ? (admin du TJ confié + attaché actif).
+   * Renvoie false silencieusement pour tout autre compte — la route répond 404.
+   */
+  static async isAIAvailable(): Promise<boolean> {
+    try {
+      const res = await fetch(this.AI_ROUTE, { method: 'GET', cache: 'no-store' });
+      if (!res.ok) return false;
+      const data = await res.json().catch(() => null);
+      return Boolean(data?.available);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Analyse un lot de documents avec le modèle Claude de l'attaché, puis
+   * réinjecte les actes extraits dans le MÊME pipeline de validation que le
+   * moteur regex (dédoublonnage flou, chaînage des prolongations, alertes de
+   * chaîne légale). L'IA remplace uniquement l'ÉTAPE D'EXTRACTION — rien n'est
+   * écrit : l'utilisateur valide (✓) avant toute création d'acte.
+   *
+   * Lève une erreur si le service est injoignable ou renvoie une erreur, pour
+   * que l'appelant puisse retomber sur le moteur classique.
+   */
+  static async analyzeExternalDocumentsAI(
+    enquete: Enquete,
+    scannedDocuments: ScannedDocument[]
+  ): Promise<AnalysisResult> {
+    const actesExistants = this.buildActesExistantsSummary(enquete);
+
+    const res = await fetch(this.AI_ROUTE, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify({
+        docs: scannedDocuments.map(d => ({
+          fileName: d.fileName,
+          sourceFolder: d.sourceFolder,
+          textContent: d.textContent,
+        })),
+        actesExistants,
+      }),
+    });
+
+    if (!res.ok) {
+      const msg = await res.json().catch(() => null);
+      throw new Error(msg?.error || `Service d'analyse IA indisponible (${res.status})`);
+    }
+    const data = await res.json().catch(() => null) as {
+      ok?: boolean; actes?: unknown[]; chaineLegale?: unknown[]; resume?: string; error?: string;
+    } | null;
+    if (!data || data.ok === false) {
+      throw new Error(data?.error || 'Analyse IA échouée');
+    }
+
+    const result: AnalysisResult = {
+      actesDetectes: [],
+      doublonsIgnores: [],
+      nonReconnus: [],
+      alertes: [],
+      analyzedBy: 'ia',
+      iaResume: typeof data.resume === 'string' ? data.resume : undefined,
+      errors: [],
+      stats: {
+        totalDocumentsScanned: scannedDocuments.length,
+        totalPDFs: scannedDocuments.length,
+        totalReconnus: 0,
+        totalDoublons: 0,
+        totalNonReconnus: 0,
+        totalErrors: 0,
+        foldersScanned: [...new Set(scannedDocuments.map(d => d.sourceFolder))],
+      },
+    };
+
+    const byName = new Map(scannedDocuments.map(d => [d.fileName, d]));
+    const reconnusFiles = new Set<string>();
+
+    for (const raw of (Array.isArray(data.actes) ? data.actes : [])) {
+      const parsed = this.aiActeToParsed(raw, byName);
+      if (!parsed) continue;
+      reconnusFiles.add(parsed.source.fileName);
+
+      const doublonRaison = this.detectDoublon(parsed, enquete, result.actesDetectes);
+      if (doublonRaison) {
+        result.doublonsIgnores.push({ acte: parsed, raison: doublonRaison });
+        result.stats.totalDoublons++;
+        continue;
+      }
+      result.actesDetectes.push(parsed);
+      result.stats.totalReconnus++;
+    }
+
+    // Documents dont le modèle n'a pas tiré d'acte exploitable
+    result.nonReconnus = scannedDocuments.filter(d => !reconnusFiles.has(d.fileName));
+    result.stats.totalNonReconnus = result.nonReconnus.length;
+
+    // Chaîne légale : on privilégie l'évaluation du modèle, avec repli sur les
+    // règles déterministes si le modèle n'a rien renvoyé.
+    const alertesIA = this.aiChaineLegaleToAlertes(data.chaineLegale, enquete);
+    if (alertesIA.length > 0) {
+      result.alertes = alertesIA;
+    } else {
+      const allParsed = [...result.actesDetectes, ...result.doublonsIgnores.map(d => d.acte)];
+      result.alertes = this.checkMissingDocuments(enquete, allParsed);
+    }
+
+    return result;
+  }
+
+  /** Résumé indexé (par type) des actes de l'enquête, pour l'évaluation de chaîne légale. */
+  private static buildActesExistantsSummary(enquete: Enquete): Array<Record<string, unknown>> {
+    const out: Array<Record<string, unknown>> = [];
+    (enquete.ecoutes || []).forEach((e, i) => {
+      out.push({
+        acteType: 'ecoute',
+        acteIndex: i,
+        numero: e.numero,
+        cible: e.cible || '',
+        dateDebut: e.dateDebut || '',
+        prolongations: (e.prolongationsHistory || []).map(p => ({ date: p.date })),
+      });
+    });
+    (enquete.geolocalisations || []).forEach((g, i) => {
+      out.push({
+        acteType: 'geoloc',
+        acteIndex: i,
+        objet: g.objet,
+        dateDebut: g.dateDebut || '',
+        prolongations: (g.prolongationsHistory || []).map(p => ({ date: p.date })),
+      });
+    });
+    return out;
+  }
+
+  /** Convertit un acte brut du modèle en ParsedActe validé (ou null si inexploitable). */
+  private static aiActeToParsed(
+    raw: unknown,
+    byName: Map<string, ScannedDocument>
+  ): ParsedActe | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const a = raw as Record<string, unknown>;
+
+    const validTypes: DocumentType[] = [
+      'autorisation_initiale_ecoute', 'autorisation_initiale_geoloc',
+      'prolongation_ecoute', 'prolongation_geoloc',
+      'requete_ecoute', 'requete_geoloc',
+    ];
+    const type = a.type as DocumentType;
+    if (!validTypes.includes(type)) return null; // 'autre' ou inconnu → non reconnu
+
+    const fileName = String(a.fileName || '');
+    const source = byName.get(fileName) || {
+      filePath: fileName, fileName, sourceFolder: '', textContent: '',
+    };
+
+    const autorite: Autorite = a.autorite === 'jld' ? 'jld' : 'procureur';
+    const dureeUnit: 'jours' | 'mois' = a.dureeUnit === 'mois' ? 'mois' : 'jours';
+
+    // Cibles : on normalise les numéros de téléphone pour le matching aval.
+    const rawCibles = Array.isArray(a.cibles) ? a.cibles.map(c => String(c || '').trim()).filter(Boolean) : [];
+    const cibles = rawCibles.map(c => {
+      if (type.includes('ecoute')) {
+        const norm = this.normalizePhoneNumber(c);
+        return norm || c;
+      }
+      return c;
+    });
+
+    const dateAutorisation = this.coerceISODate(a.dateAutorisation);
+    const duree = a.duree != null && String(a.duree).trim() !== '' ? String(a.duree).replace(/[^\d]/g, '') : '';
+    const confidence = Math.max(0, Math.min(0.99, Number(a.confidence) || 0.5));
+
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    if (cibles.length === 0) errors.push('Aucune cible détectée (numéro de téléphone ou véhicule)');
+    if (!dateAutorisation) errors.push('Date d\'autorisation non trouvée');
+
+    let dateAutorisationInitiale: string | undefined;
+    let dureeInitiale: string | undefined;
+    if (type.startsWith('prolongation_')) {
+      dateAutorisationInitiale = this.coerceISODate(a.dateAutorisationInitiale) || undefined;
+      dureeInitiale = a.dureeInitiale != null && String(a.dureeInitiale).trim() !== ''
+        ? String(a.dureeInitiale).replace(/[^\d]/g, '') || undefined
+        : undefined;
+      if (!dateAutorisationInitiale) {
+        warnings.push('Date de l\'autorisation initiale non identifiée par l\'IA — chaînage à vérifier.');
+      }
+    }
+
+    return {
+      source,
+      type,
+      autorite,
+      confidence,
+      cibles,
+      duree: duree || (dureeUnit === 'mois' ? '1' : '15'),
+      dureeUnit,
+      dateAutorisation: dateAutorisation || new Date().toISOString().split('T')[0],
+      tribunal: (a.tribunal ? String(a.tribunal) : '').toUpperCase() || 'AMIENS',
+      numeroPV: a.numeroPV ? String(a.numeroPV) : undefined,
+      titulaire: a.titulaire ? String(a.titulaire) : undefined,
+      utilisateur: a.utilisateur ? String(a.utilisateur) : undefined,
+      objetDescription: a.objetDescription ? String(a.objetDescription) : undefined,
+      dateAutorisationInitiale,
+      dureeInitiale,
+      errors,
+      warnings,
+      motif: a.motif ? String(a.motif) : undefined,
+    };
+  }
+
+  /** Mappe les alertes de chaîne légale du modèle vers la structure de l'UI. */
+  private static aiChaineLegaleToAlertes(
+    raw: unknown,
+    enquete: Enquete
+  ): AlerteDocumentManquant[] {
+    if (!Array.isArray(raw)) return [];
+    const alertes: AlerteDocumentManquant[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue;
+      const it = item as Record<string, unknown>;
+      const acteType = it.acteType === 'geoloc' ? 'geoloc' : it.acteType === 'ecoute' ? 'ecoute' : null;
+      if (!acteType) continue;
+      const acteIndex = Number(it.acteIndex);
+      if (!Number.isInteger(acteIndex) || acteIndex < 0) continue;
+      const documentManquant = String(it.documentManquant || '').trim();
+      if (!documentManquant) continue;
+      const severite: 'warning' | 'error' = it.severite === 'error' ? 'error' : 'warning';
+
+      let acteLabel = '';
+      if (acteType === 'ecoute') {
+        const e = (enquete.ecoutes || [])[acteIndex];
+        if (!e) continue;
+        acteLabel = `Écoute ${e.numero}${e.cible ? ` (${e.cible})` : ''}`;
+      } else {
+        const g = (enquete.geolocalisations || [])[acteIndex];
+        if (!g) continue;
+        acteLabel = `Géoloc ${g.objet}`;
+      }
+      alertes.push({ acteType, acteIndex, acteLabel, documentManquant, severite });
+    }
+    return alertes;
+  }
+
+  /** Normalise une date fournie par le modèle vers AAAA-MM-JJ (ou '' si invalide). */
+  private static coerceISODate(v: unknown): string {
+    const s = String(v || '').trim();
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    return '';
   }
 
   // ════════════════════════════════════════════════════════════

@@ -25,6 +25,7 @@ import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, 
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
+import { analyseDocuments } from './attache/analyse.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
 import { listEnvelopes, readEnvelope, writeEnvelope, deleteProduction } from './attache/productions.mjs'
 
@@ -344,6 +345,21 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, out)
       } catch (e) {
         return json(res, 400, { ok: false, error: String(e?.message || e) })
+      }
+    }
+
+    if (route === 'POST /analyse-documents') {
+      // Extraction stateless : ne touche à AUCUNE donnée chiffrée du coffre —
+      // le navigateur admin envoie le texte des PDF et le résumé des actes.
+      // Pas besoin du trousseau ; seul le CLI claude est sollicité.
+      const body = await readBody(req, 8 * 1024 * 1024)
+      const docs = Array.isArray(body.docs) ? body.docs : []
+      if (!docs.length) return json(res, 400, { ok: false, error: 'Aucun document fourni' })
+      try {
+        const out = await analyseDocuments({ docs, actesExistants: body.actesExistants || [] })
+        return json(res, out.ok ? 200 : 502, out)
+      } catch (e) {
+        return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 400) })
       }
     }
 
