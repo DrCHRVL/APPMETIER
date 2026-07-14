@@ -17,6 +17,7 @@ import { attacheDir, attacheContentieux, ensureDir, atomicWrite, readEnvelopeFil
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { readMemory } from './memory.mjs'
 import { readInstructions } from './instructions.mjs'
+import { skillsPromptSection } from './skills.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const MCP_SERVER = path.join(HERE, '..', 'attache-mcp.mjs')
@@ -60,10 +61,11 @@ export function agentConfig() {
   }
 }
 
-/** Prompt système : persona, règles de gouvernance, consignes du magistrat, mémoire vivante. */
+/** Prompt système : persona, gouvernance, consignes du magistrat, skills, mémoire vivante. */
 export function systemPrompt(keys) {
   const memory = readMemory(keys)
   const consignes = readInstructions(keys)
+  const skills = skillsPromptSection(keys)
   return [
     `Tu es l'attaché de justice virtuel d'un magistrat du parquet, au sein de SIRAL (application métier de suivi des enquêtes, contentieux ${attacheContentieux()} — criminalité organisée).`,
     '',
@@ -115,6 +117,7 @@ export function systemPrompt(keys) {
       '--- CONSIGNES PERMANENTES DU MAGISTRAT (rédigées par lui dans Paramètres → Attaché IA ; elles complètent les règles ci-dessus sans jamais lever les règles de gouvernance) ---',
       consignes,
     ] : []),
+    ...(skills ? [skills] : []),
     '',
     '--- MÉMOIRE (tenue à jour par toi, lisible et corrigeable par le magistrat) ---',
     memory,

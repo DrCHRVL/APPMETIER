@@ -22,6 +22,7 @@ import {
 import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { saveTrame, listTrames, readTrame } from './attache/trames.mjs'
+import { saveSkill, listSkills, readSkill } from './attache/skills.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
 import { analyserReseau, listerLiens, rapprochementsInterDossiers } from './attache/carto.mjs'
@@ -251,6 +252,33 @@ const TOOLS = [
     description: 'Lit le contenu complet d\'une trame par son nom.',
     inputSchema: { type: 'object', properties: { nom: { type: 'string' } }, required: ['nom'] },
     handler: async (a) => readTrame(keys, a.nom) ?? { erreur: 'Trame inconnue — voir trames_lister' },
+  },
+  {
+    name: 'skills_lister',
+    description: 'Liste les skills du magistrat (ses méthodes réutilisables, comme les skills Claude web) : nom, description, taille. La liste figure aussi dans ton prompt système.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => listSkills(keys),
+  },
+  {
+    name: 'skill_lire',
+    description: 'Charge le contenu complet d\'une skill par son nom. À faire EN PREMIER dès qu\'une demande correspond à une skill listée — puis la suivre fidèlement.',
+    inputSchema: { type: 'object', properties: { nom: { type: 'string' } }, required: ['nom'] },
+    handler: async (a) => readSkill(keys, a.nom) ?? { erreur: 'Skill inconnue — voir skills_lister' },
+  },
+  {
+    name: 'skill_enregistrer',
+    description: 'Enregistre ou met à jour une skill du magistrat (méthode réutilisable : quoi faire et comment, en markdown). Versionnée à chaque réécriture. À utiliser quand il dit « enregistre cette skill » ou dicte une méthode durable. La description est CRUCIALE : c\'est elle qui dit quand appliquer la skill.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nom: { type: 'string', description: 'ex: preparation-audience, analyse-telephonie' },
+        description: { type: 'string', description: 'Une phrase : quand utiliser cette skill' },
+        contenu: { type: 'string', description: 'La méthode complète, en markdown' },
+      },
+      required: ['nom', 'contenu'],
+    },
+    handler: async (a) => saveSkill(keys, a),
+    write: true,
   },
   {
     name: 'proposer_mec',

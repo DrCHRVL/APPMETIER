@@ -36,6 +36,16 @@ l'usage).
   de vos instructions Claude web : style, méthode, réflexes), relu au début de
   chaque intervention. Chiffré, versionné, modifiable à tout moment. Il
   complète la persona et les règles de gouvernance, il ne les remplace pas.
+- **Skills, comme Claude web** : des méthodes réutilisables (nom +
+  description + contenu markdown), gérées dans Paramètres → Attaché IA →
+  « Skills » — vos skills Claude web s'y collent telles quelles. Même
+  divulgation progressive que Claude web : l'attaché voit en permanence la
+  liste (nom + description) dans son prompt, et charge le contenu complet
+  (outil `skill_lire`) dès qu'une tâche correspond. En chat, « enregistre
+  cette skill » fonctionne aussi (`skill_enregistrer`). Chiffrées (clé
+  globale), versionnées à chaque réécriture, suppression réversible.
+  Différence avec les trames : la trame est un plan-type de document, la
+  skill une méthode générale.
 - **Recherche web en option** : décochée par défaut. Si le magistrat l'active
   (section « Cerveau »), l'attaché gagne WebSearch/WebFetch — comme Claude
   web, utile pour jurisprudence et textes — et RIEN d'autre : shell et

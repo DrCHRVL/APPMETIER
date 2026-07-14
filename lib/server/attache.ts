@@ -129,6 +129,54 @@ export async function writeInstructionsEnvelope(envelope: AttacheEnvelope): Prom
   await writeVersionedEnvelope('instructions', envelope)
 }
 
+// ── Skills du magistrat (comme Claude web) : une enveloppe par skill ──
+// Même répertoire et même format que le service attaché (attache/skills/) :
+// le navigateur admin chiffre/déchiffre, l'app ne voit que des enveloppes.
+
+const SKILL_ID_RE = /^[a-z0-9][a-z0-9-]{0,59}$/
+
+export function listSkillEnvelopes(): Array<{ id: string, envelope: AttacheEnvelope }> {
+  const dir = attacheDir('skills')
+  if (!fs.existsSync(dir)) return []
+  const out: Array<{ id: string, envelope: AttacheEnvelope }> = []
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith('.json') || f.startsWith('.')) continue
+    const id = f.slice(0, -'.json'.length)
+    if (!SKILL_ID_RE.test(id)) continue
+    const envelope = readJson<AttacheEnvelope | null>(path.join(dir, f), null)
+    if (envelope) out.push({ id, envelope })
+  }
+  return out.sort((a, b) => a.id.localeCompare(b.id))
+}
+
+export async function writeSkillEnvelope(id: string, envelope: AttacheEnvelope): Promise<void> {
+  if (!SKILL_ID_RE.test(id)) throw new Error('Nom de skill invalide')
+  const p = attacheDir('skills', id + '.json')
+  await withFileLock('attache-skill-' + id, async () => {
+    if (fs.existsSync(p)) {
+      const vdir = attacheDir('skills', '.versions', id)
+      ensureDir(vdir)
+      fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '.json'))
+    }
+    ensureDir(path.dirname(p))
+    atomicWrite(p, JSON.stringify(envelope, null, 2))
+  })
+}
+
+/** Suppression réversible : la version courante est archivée avant retrait. */
+export async function deleteSkillEnvelope(id: string): Promise<boolean> {
+  if (!SKILL_ID_RE.test(id)) throw new Error('Nom de skill invalide')
+  const p = attacheDir('skills', id + '.json')
+  return withFileLock('attache-skill-' + id, async () => {
+    if (!fs.existsSync(p)) return false
+    const vdir = attacheDir('skills', '.versions', id)
+    ensureDir(vdir)
+    fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '~suppression.json'))
+    fs.unlinkSync(p)
+    return true
+  })
+}
+
 /** Écrit une enveloppe d'attaché en archivant la version précédente (jamais d'écrasement sec). */
 async function writeVersionedEnvelope(name: 'memory' | 'instructions', envelope: AttacheEnvelope): Promise<void> {
   const p = attacheDir(name + '.json')
