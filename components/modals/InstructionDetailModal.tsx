@@ -14,6 +14,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { useUser } from '@/contexts/UserContext';
 import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { ProductionsSection } from '../attache/ProductionsSection';
+import { DmlArchiveSection } from '../instruction/DmlArchiveSection';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
 import {
   ETAT_REGLEMENT_LABELS,
@@ -735,6 +736,11 @@ export const InstructionDetailModal = ({
                     onUpdate(dossier.id, { debatsJLD })
                   }
                 />
+
+                {/* Archive DML du dossier : PDF signés conservés intacts (tous utilisateurs). */}
+                {(dossier.numeroInstruction || dossier.numeroParquet) && (
+                  <DmlArchiveSection numero={dossier.numeroInstruction || dossier.numeroParquet || ''} />
+                )}
 
                 {/* Atelier des actes rédigés (attaché IA) — admin only. */}
                 {isAdmin() && (dossier.numeroInstruction || dossier.numeroParquet) && (

@@ -129,6 +129,23 @@ l'usage).
   (`kb_enregistrer`). Chiffrée (clé globale), versionnée, réversible.
   PDF scannés (image, sans texte) : détectés et signalés au téléversement —
   passez-les par un OCR avant.
+- **Gère les DML de bout en bout (module instruction)** : l'attaché lit les
+  dossiers d'instruction du magistrat (coffres `instructions-*`, clé
+  globale — lecture seule) : saisine, mis en examen avec périodes de
+  détention, DML en attente et leur échéance (+10 jours), débats JLD,
+  chronologie. Workflow d'une DML : le magistrat transfère le mail
+  « nouvelle DML dossier X » à la boîte dédiée → l'attaché identifie le
+  dossier et le mis en examen (`instru_lister`, `lire_dossier`), s'appuie
+  sur la **réponse précédente archivée** (zone « Archive DML » du détail
+  d'instruction — les PDF signés y restent INTACTS), sur les trames et la
+  base de connaissances → **demande systématiquement au magistrat** si un
+  acte récent (audition, expertise — souvent dans NPP, invisible pour lui)
+  doit enrichir la motivation → rédige SANS attendre le projet complet
+  (type « Réponse DML », points suspendus marqués [À CONFIRMER]) → à la
+  réponse du magistrat, révise l'acte. Le magistrat retouche dans « Actes
+  rédigés » puis **glisse vers son parapheur** pour signature numérique.
+  Le brief quotidien anticipe aussi les échéances instruction : DML en
+  attente, débats JLD sans réquisitions, fins de détention proches.
 - **Analyse automatique des documents (IA)** : la fonctionnalité « Analyse
   automatique des documents » de SIRAL (détection d'actes à partir des PDF du
   dossier) bascule, pour le seul administrateur, sur le modèle Claude de

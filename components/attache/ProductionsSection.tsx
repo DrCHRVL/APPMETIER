@@ -37,6 +37,7 @@ interface Production {
 
 const TYPE_LABEL: Record<string, string> = {
   requisition: 'Réquisition',
+  reponse_dml: 'Réponse DML',
   prolongation_jld: 'Prolongation JLD',
   saisine_jld: 'Saisine JLD',
   projet_reponse: 'Projet de réponse',

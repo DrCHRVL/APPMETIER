@@ -25,6 +25,7 @@ import { saveTrame, listTrames, readTrame, setTrameDescription } from './attache
 import { saveSkill, listSkills, readSkill } from './attache/skills.mjs'
 import { saveKbEntry, listKb, readKbEntry, searchKb, KB_CATEGORIES } from './attache/kb.mjs'
 import { runSubagents } from './attache/subagents.mjs'
+import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
 import { analyserReseau, listerLiens, rapprochementsInterDossiers } from './attache/carto.mjs'
@@ -48,9 +49,17 @@ const TOOLS = [
   },
   {
     name: 'lire_dossier',
-    description: 'Dossier complet en markdown : objet, mis en cause, actes (avec id et statut), à-faire, documents déposés, comptes-rendus chronologiques.',
+    description: 'Dossier complet en markdown. Enquête du contentieux : objet, mis en cause, actes (id + statut), à-faire, documents, CR chronologiques. Si le numéro correspond à un dossier d\'INSTRUCTION du module instruction (n° instruction ou n° parquet), le rend aussi : saisine, mis en examen (détention, DML), débats JLD, opérations, chronologie.',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
-    handler: async (a) => dossierMarkdown(keys, a.numero) ?? { erreur: `Dossier ${a.numero} introuvable — utiliser lister_dossiers` },
+    handler: async (a) => dossierMarkdown(keys, a.numero)
+      ?? instructionDossierMarkdown(keys, a.numero)
+      ?? { erreur: `Dossier ${a.numero} introuvable — voir lister_dossiers (enquêtes) et instru_lister (instruction)` },
+  },
+  {
+    name: 'instru_lister',
+    description: 'Dossiers d\'INSTRUCTION du module instruction (cabinets suivis par le magistrat) : numéros, juge, mis en examen (détenus comptés), DML EN ATTENTE (avec échéance à +10 jours), débats JLD à venir (réquisitions rédigées ou non). Point de départ pour toute DML, préparation de débat ou anticipation d\'échéance. Détail : lire_dossier avec le n° d\'instruction ou de parquet.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => listInstructionDossiers(keys),
   },
   {
     name: 'lire_document',

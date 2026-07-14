@@ -544,6 +544,8 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       const docs = await docList(String(enqueteNumero))
       return docs.some((d) => d.rel === String(cheminRelatif))
     },
+    /** Index serveur des documents d'un dossier (rel, taille, dates) — zone DML instruction notamment. */
+    listServerDocuments: async (enqueteNumero: unknown) => docList(String(enqueteNumero)),
     getDocumentSize: async (enqueteNumero: unknown, cheminRelatif: unknown) => {
       const docs = await docList(String(enqueteNumero))
       const d = docs.find((x) => x.rel === String(cheminRelatif))
