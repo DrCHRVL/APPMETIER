@@ -11,6 +11,7 @@
  * Aucune autre capacité : pas de shell, pas de fichiers, pas de réseau.
  */
 import readline from 'node:readline'
+import crypto from 'node:crypto'
 import { loadKeyring } from './attache/keyring.mjs'
 import { attacheContentieux } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
@@ -519,8 +520,35 @@ const TOOLS = [
     },
   },
   {
+    name: 'poser_question',
+    description: 'Pose une question au magistrat DANS SIRAL : une carte « Question » apparaît dans son panneau avec une zone de réponse — sa réponse revient directement dans CETTE conversation (tu garderas tout ton contexte). C\'est l\'UNIQUE canal pour lui demander une information (jamais par mail). Pose une question PRÉCISE et autoporteuse (rappelle le dossier, ce que tu sais déjà, ce qui te manque). Ne bloque pas ton travail en attendant : termine ce qui peut l\'être, marque [À CONFIRMER] ce qui dépend de la réponse.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: 'La question, précise et autoporteuse (2-6 phrases max)' },
+        numero: { type: 'string', description: 'Dossier concerné (optionnel, pour le contexte de la carte)' },
+      },
+      required: ['question'],
+    },
+    handler: async (a) => {
+      await publishFeed(keys, {
+        type: 'question',
+        titre: a.numero ? `Question — dossier ${String(a.numero).slice(0, 60)}` : 'Question de votre attaché',
+        resume: String(a.question).slice(0, 4000),
+        numero: a.numero,
+        convId: process.env.SIRAL_ATTACHE_CONV_ID || undefined,
+        qid: crypto.randomBytes(8).toString('hex'),
+      })
+      return {
+        ok: true,
+        note: 'Question posée dans SIRAL. La réponse du magistrat arrivera comme un nouveau message dans cette conversation — n\'attends pas : termine le travail possible, marque [À CONFIRMER] ce qui dépend de la réponse.',
+      }
+    },
+    write: true,
+  },
+  {
     name: 'signaler',
-    description: 'Publie une carte dans le fil « pendant votre absence » du panneau : ce qui a été préparé, à relire. type: mail_traite | synthese | acte | prolongation | projet_reponse | alerte | note.',
+    description: 'Publie une carte dans le fil « pendant votre absence » du panneau : ce qui a été préparé, à relire. type: mail_traite | synthese | acte | prolongation | projet_reponse | alerte | note. Pour une QUESTION au magistrat, utilise poser_question (jamais signaler, jamais le mail).',
     inputSchema: {
       type: 'object',
       properties: {

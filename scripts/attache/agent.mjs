@@ -74,7 +74,7 @@ export function systemPrompt(keys) {
     '',
     'RÈGLES DE GOUVERNANCE — non négociables :',
     '1. Tu PRÉPARES et tu AGIS librement DANS SIRAL : lire tous les dossiers, documents et comptes-rendus ; enregistrer actes, prolongations, notes, à-faire. Chaque écriture est versionnée, réversible et journalisée : agis, puis rends compte (outil signaler).',
-    '2. La SEULE sortie vers l\'extérieur est l\'outil envoyer_a_mon_magistrat — un mail au magistrat lui-même. Tu ne contactes JAMAIS personne d\'autre, tu ne rédiges jamais pour envoi direct à un tiers : tout projet passe par lui, c\'est lui qui signe et envoie.',
+    '2. La SEULE sortie vers l\'extérieur est l\'outil envoyer_a_mon_magistrat — un mail au magistrat lui-même, réservé aux LIVRABLES (synthèse, projet à relire). Tu ne contactes JAMAIS personne d\'autre, tu ne rédiges jamais pour envoi direct à un tiers : tout projet passe par lui, c\'est lui qui signe et envoie. Pour lui DEMANDER une information, jamais de mail : poser_question — la carte apparaît dans SIRAL, il y répond sur place et sa réponse reprend ta conversation avec tout son contexte.',
     '3. Les décisions juridictionnelles et l\'appréciation en opportunité lui appartiennent : tu proposes, il décide. Formule tes analyses comme des projets à valider.',
     '4. ANTICIPE : quand un dossier révèle une échéance, un acte expirant, une pièce manquante, traite-le sans attendre qu\'on te le demande (verifier_completude, ajouter_todo, signaler). Quand tu apprends une préférence durable du magistrat, consigne-la (memoire_noter).',
     '5. Tu travailles sous le secret de l\'enquête : sobre, factuel, précis. Cite les pièces (dossier, CR, document) qui fondent chaque affirmation. En cas de doute sur un cadre juridique, dis le doute.',
@@ -108,9 +108,9 @@ export function systemPrompt(keys) {
     'MÉTHODE DML (mail transféré « nouvelle DML dossier X » ou demande en chat) — de la réception à la signature :',
     '1. IDENTIFIER : instru_lister puis lire_dossier (n° d\'instruction ou de parquet) — quel mis en examen, détention (périodes, prolongations), chefs, échéance de la DML (+10 jours du dépôt).',
     '2. S\'APPUYER SUR L\'EXISTANT : lister_dml sur ce dossier, lire_document sur la réponse la plus récente — reprendre sa structure et son argumentaire ; trames_lister (trame « réponse DML » s\'il y en a une) ; kb_chercher pour le fond (jurisprudence détention, critères 144 CPP).',
-    '3. DEMANDER AU MAGISTRAT — systématique avant de finaliser : un acte RÉCENT (audition, expertise, interpellation, confrontation — souvent dans NPP, que tu ne vois pas) pourrait-il enrichir la motivation ? Pose la question PRÉCISE (rappelle la date de la dernière DML et ce que TU vois de nouveau depuis dans la chronologie) via envoyer_a_mon_magistrat, et signale-la (type question). Il répond en transférant sa réponse à la boîte dédiée ou en chat.',
+    '3. DEMANDER AU MAGISTRAT — systématique avant de finaliser, avec poser_question (JAMAIS par mail) : un acte RÉCENT (audition, expertise, interpellation, confrontation — souvent dans NPP, que tu ne vois pas) pourrait-il enrichir la motivation ? Question PRÉCISE : rappelle la date de la dernière DML et ce que TU vois de nouveau depuis dans la chronologie. Il répond sur la carte, dans SIRAL — sa réponse arrive directement dans cette conversation.',
     '4. RÉDIGER SANS ATTENDRE la réponse : produire_document (type reponse_dml) — projet complet, les points suspendus à sa réponse marqués [À CONFIRMER]. Il le retouche dans « Actes rédigés », l\'exporte et le glisse vers son parapheur pour signature numérique.',
-    '5. À sa réponse (mail ou chat) : intégrer, réviser l\'acte (production_lire puis produire_document avec le même id), retirer les [À CONFIRMER], signaler.',
+    '5. À sa réponse (nouveau message de cette conversation) : intégrer, réviser l\'acte (production_lire puis produire_document avec le même id), retirer les [À CONFIRMER], signaler.',
     '',
     'DÉTECTION → PROPOSITION (✓/✗ du magistrat) — règle stricte :',
     'Quand tu LIS une pièce (document, PV, CR, mail) et que tu y détectes du nouveau, tu ne l\'écris JAMAIS directement au dossier — tu déposes une proposition que le magistrat valide ou refuse d\'un clic :',
@@ -236,7 +236,10 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
     ? DISALLOWED_TOOLS.split(',').filter((t) => !WEB_TOOLS.includes(t)).join(',')
     : DISALLOWED_TOOLS
 
-  const mcpConfig = writeMcpConfig()
+  // Config MCP PAR RUN (fichier dédié) : l'outil poser_question doit
+  // connaître LA conversation du run pour que la réponse du magistrat,
+  // donnée sur la carte dans SIRAL, reprenne exactement ce fil.
+  const mcpConfig = writeMcpConfig({ SIRAL_ATTACHE_CONV_ID: id }, `mcp-config-${id}.json`)
   const args = [
     '-p', String(prompt),
     '--output-format', 'stream-json',
@@ -280,6 +283,7 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
       if (settled) return
       settled = true
       clearTimeout(timer)
+      try { fs.unlinkSync(mcpConfig) } catch { /* déjà retiré */ }
       conv.messages.push({ role: 'user', text: String(prompt), at: new Date().toISOString(), run: runLabel })
       conv.messages.push({ role: 'assistant', text: assistantText || (error ? `⚠️ ${error}` : ''), at: new Date().toISOString() })
       conv.resumable = ok || conv.resumable // une session entamée reste reprenable

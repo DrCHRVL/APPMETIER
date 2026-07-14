@@ -111,6 +111,25 @@ export async function setMajordomeStatus(id: string, status: MajordomeStatus, by
   })
 }
 
+// ── Statuts des questions posées par l'attaché (répondu / ignoré) ──
+// Même modèle que les statuts du majordome : fichier en clair indexé par
+// ids opaques (qid aléatoires) — aucun contenu n'y transite.
+
+export type QuestionStatus = 'repondu' | 'ignore'
+
+export function readQuestionStatuses(): Record<string, { status: QuestionStatus, at: string, by: string }> {
+  return readJson(attacheDir('questions-status.json'), {})
+}
+
+export async function setQuestionStatus(id: string, status: QuestionStatus, by: string): Promise<void> {
+  if (!/^[a-f0-9]{6,32}$/.test(id)) throw new Error('Identifiant invalide')
+  await withFileLock('attache-questions-status', async () => {
+    const all = readQuestionStatuses()
+    all[id] = { status, at: new Date().toISOString(), by }
+    atomicWrite(attacheDir('questions-status.json'), JSON.stringify(all, null, 2))
+  })
+}
+
 export function readMemoryEnvelope(): AttacheEnvelope | null {
   return readJson<AttacheEnvelope | null>(attacheDir('memory.json'), null)
 }

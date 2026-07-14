@@ -22,8 +22,16 @@ l'usage).
   actions, synthèses, projets — dont le résultat s'affiche dans le fil
   « Pendant votre absence » du panneau.
 - **N'écrit à l'extérieur qu'au magistrat** : l'unique sortie du système est
-  un mail vers `SIRAL_ATTACHE_OWNER_EMAIL`. Le destinataire n'est pas un
-  paramètre de l'outil : il est câblé côté serveur.
+  un mail vers `SIRAL_ATTACHE_OWNER_EMAIL` — réservé aux **livrables**. Le
+  destinataire n'est pas un paramètre de l'outil : il est câblé côté serveur.
+- **Pose ses questions DANS SIRAL — jamais par mail** : quand une
+  information lui manque (un acte récent dans NPP, une orientation à
+  trancher), l'attaché publie une carte **« Question ❓ »** dans le fil
+  « pendant votre absence », avec **zone de réponse intégrée**. La réponse
+  du magistrat reprend **la conversation d'origine du run** (l'attaché
+  garde tout son contexte et poursuit : révision de l'acte, retrait des
+  [À CONFIRMER]…). Boutons Répondre / Ignorer, statut persistant. Une seule
+  entrée (mail transféré ou chat), puis tout se passe dans l'application.
 - **Retient** : une mémoire markdown (préférences, réflexes appris) relue à
   chaque intervention — lisible, corrigeable et effaçable depuis le panneau.
 - **Se règle comme Claude web** : choix du **modèle** (Fable 5, Opus 4.8,
@@ -138,11 +146,12 @@ l'usage).
   dossier et le mis en examen (`instru_lister`, `lire_dossier`), s'appuie
   sur la **réponse précédente archivée** (zone « Archive DML » du détail
   d'instruction — les PDF signés y restent INTACTS), sur les trames et la
-  base de connaissances → **demande systématiquement au magistrat** si un
+  base de connaissances → **demande systématiquement au magistrat**, via la
+  carte Question du panneau (réponse sur place, jamais par mail), si un
   acte récent (audition, expertise — souvent dans NPP, invisible pour lui)
   doit enrichir la motivation → rédige SANS attendre le projet complet
   (type « Réponse DML », points suspendus marqués [À CONFIRMER]) → à la
-  réponse du magistrat, révise l'acte. Le magistrat retouche dans « Actes
+  réponse du magistrat, révise l'acte dans la même conversation. Le magistrat retouche dans « Actes
   rédigés » puis **glisse vers son parapheur** pour signature numérique.
   Le brief quotidien anticipe aussi les échéances instruction : DML en
   attente, débats JLD sans réquisitions, fins de détention proches.

@@ -22,14 +22,18 @@ type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
 
 interface ChatMessage { role: 'user' | 'assistant'; text: string; at?: string; run?: string; streaming?: boolean; tools?: string[] }
-interface FeedCard { type: string; titre: string; resume: string; numero?: string; at?: string }
+interface FeedCard {
+  type: string; titre: string; resume: string; numero?: string; at?: string;
+  /** Questions (poser_question) : conversation d'origine + id opaque de statut. */
+  convId?: string; qid?: string;
+}
 interface ConvMeta { id: string; mtime: string }
 
 const FEED_SEEN_KEY = 'attache_feed_seen_ts';
 
 const FEED_ICONS: Record<string, string> = {
   mail_traite: '📨', synthese: '📋', acte: '⚖️', prolongation: '🕐',
-  projet_reponse: '✉️', alerte: '⚠️', note: '📝',
+  projet_reponse: '✉️', alerte: '⚠️', note: '📝', question: '❓',
 };
 
 export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -119,10 +123,10 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
   }, []);
 
   // ── Envoi + streaming SSE ──
-  const send = useCallback(async () => {
-    const text = input.trim();
-    if (!text || busy) return;
-    setInput('');
+  // `cid` force la conversation cible (réponse à une question de l'attaché :
+  // elle reprend LE fil d'origine, il garde tout son contexte).
+  const sendMessage = useCallback(async (text: string, cid?: string | null) => {
+    if (!text.trim() || busy) return;
     setBusy(true);
     setMessages((prev) => [...prev, { role: 'user', text }, { role: 'assistant', text: '', streaming: true, tools: [] }]);
     scrollDown();
@@ -135,7 +139,7 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           message: text,
-          convId: convId || undefined,
+          convId: (cid ?? convId) || undefined,
           model: cfg.model || undefined,
           effort: cfg.effort || undefined,
         }),
@@ -210,7 +214,46 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
       loadFeed();
       scrollDown();
     }
-  }, [input, busy, convId, cfg, scrollDown, loadConversations, loadFeed]);
+  }, [busy, convId, cfg, scrollDown, loadConversations, loadFeed]);
+
+  const send = useCallback(() => {
+    const text = input.trim();
+    if (!text) return;
+    setInput('');
+    sendMessage(text);
+  }, [input, sendMessage]);
+
+  // ── Questions de l'attaché : réponse SUR la carte, dans SIRAL ──
+  const [questionStatuses, setQuestionStatuses] = useState<Record<string, { status: string }>>({});
+  const [questionDraft, setQuestionDraft] = useState<Record<string, string>>({});
+
+  const loadQuestionStatuses = useCallback(async () => {
+    try {
+      const res = await fetch('/api/attache/questions');
+      if (res.ok) setQuestionStatuses((await res.json()).statuses || {});
+    } catch { /* silencieux */ }
+  }, []);
+
+  const setQuestionStatus = useCallback(async (qid: string, status: 'repondu' | 'ignore') => {
+    setQuestionStatuses((prev) => ({ ...prev, [qid]: { status } }));
+    await fetch('/api/attache/questions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: qid, status }),
+    }).catch(() => {});
+  }, []);
+
+  /** Répond à une question : rouvre SA conversation puis y envoie la réponse. */
+  const repondreQuestion = useCallback(async (f: FeedCard) => {
+    const text = (f.qid ? questionDraft[f.qid] : '')?.trim();
+    if (!text || busy || !f.convId) return;
+    setQuestionDraft((prev) => ({ ...prev, [f.qid!]: '' }));
+    if (f.qid) await setQuestionStatus(f.qid, 'repondu');
+    await openConversation(f.convId);
+    await sendMessage(`RÉPONSE À TA QUESTION${f.numero ? ` (dossier ${f.numero})` : ''} : ${text}`, f.convId);
+  }, [questionDraft, busy, setQuestionStatus, openConversation, sendMessage]);
+
+  useEffect(() => { if (open) loadQuestionStatuses(); }, [open, loadQuestionStatuses]);
 
   // ── Mémoire ──
   const openMemory = useCallback(async () => {
@@ -322,17 +365,53 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
           </button>
           {feedOpen && (
             <div className="max-h-56 space-y-2 overflow-y-auto px-4 pb-3">
-              {feed.slice(0, 20).map((f, i) => (
-                <div key={i} className="rounded-lg border border-gray-200 bg-white p-2.5">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-800">
-                    <span>{FEED_ICONS[f.type] || '•'}</span>
-                    <span className="flex-1 truncate">{f.titre}</span>
-                    {f.numero && <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{f.numero}</span>}
+              {feed.slice(0, 20).map((f, i) => {
+                const isQuestion = f.type === 'question' && f.convId && f.qid;
+                const qStatus = f.qid ? questionStatuses[f.qid]?.status : undefined;
+                return (
+                  <div key={i} className={`rounded-lg border bg-white p-2.5 ${isQuestion && !qStatus ? 'border-amber-300 ring-1 ring-amber-100' : 'border-gray-200'}`}>
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-800">
+                      <span>{FEED_ICONS[f.type] || '•'}</span>
+                      <span className="flex-1 truncate">{f.titre}</span>
+                      {f.numero && <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{f.numero}</span>}
+                      {isQuestion && qStatus && (
+                        <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                          {qStatus === 'repondu' ? 'répondu ✓' : 'ignorée'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 text-[11.5px] leading-relaxed text-gray-600">{f.resume}</div>
+                    <div className="mt-1 text-[10px] text-gray-400">{f.at ? new Date(f.at).toLocaleString('fr-FR') : ''}</div>
+                    {isQuestion && !qStatus && (
+                      <div className="mt-2 space-y-1.5 border-t border-amber-100 pt-2">
+                        <textarea
+                          value={questionDraft[f.qid!] || ''}
+                          onChange={(e) => setQuestionDraft((prev) => ({ ...prev, [f.qid!]: e.target.value }))}
+                          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); repondreQuestion(f); } }}
+                          rows={2}
+                          placeholder="Votre réponse — elle reprend directement sa conversation, avec tout le contexte…"
+                          className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11.5px] leading-relaxed outline-none focus:border-[#2B5746]/50"
+                        />
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setQuestionStatus(f.qid!, 'ignore')}
+                            className="rounded-lg border border-gray-200 px-2.5 py-1 text-[10.5px] font-medium text-gray-500 hover:bg-gray-50"
+                          >
+                            Ignorer
+                          </button>
+                          <button
+                            onClick={() => repondreQuestion(f)}
+                            disabled={busy || !(questionDraft[f.qid!] || '').trim()}
+                            className="rounded-lg bg-[#2B5746] px-2.5 py-1 text-[10.5px] font-semibold text-white disabled:opacity-40"
+                          >
+                            Répondre
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="mt-1 text-[11.5px] leading-relaxed text-gray-600">{f.resume}</div>
-                  <div className="mt-1 text-[10px] text-gray-400">{f.at ? new Date(f.at).toLocaleString('fr-FR') : ''}</div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
