@@ -11,6 +11,7 @@
  * les clients web fusionnent proprement (le plus récent gagne, par enquête).
  */
 import { createRequire } from 'node:module'
+import crypto from 'node:crypto'
 import {
   attacheTj, attacheContentieux, readVault, writeVault,
   listDocsMeta, readDocBlob, docServerKey,
@@ -519,6 +520,84 @@ export async function actualiserDescription(keys, { numero, description }) {
     e.description = escapeHtml(texte).replace(/\n/g, '<br>')
     return { versionsConservees: (e.descriptionHistory || []).length }
   })
+}
+
+/** Vrai si un dossier de ce numéro existe déjà dans le contentieux. */
+export function dossierExiste(keys, numero) {
+  const { data } = loadContentieux(keys)
+  return Boolean(findEnquete(data, numero))
+}
+
+/**
+ * Crée un NOUVEAU dossier (enquête) dans le contentieux — appliqué à la
+ * validation ✓ d'une proposition. Reproduit la forme de useEnquetesStore.
+ * addEnquete pour que le client web l'affiche à l'identique : id incrémental,
+ * statut « en_cours », dates de création/màj, entrée de modification
+ * « enquete_created » signée du nom de l'administrateur. Les mis en cause
+ * sont dédoublonnés entre eux (nom normalisé). REFUSE un numéro déjà pris.
+ */
+export async function creerDossier(keys, { numero, dateDebut, services, description, misEnCause }) {
+  const num = String(numero || '').trim()
+  if (!num) throw new Error('Numéro (nom) du dossier requis')
+  const payload = loadContentieux(keys)
+  payload.data.enquetes = payload.data.enquetes || []
+  if (findEnquete(payload.data, num)) throw new Error(`Un dossier « ${num} » existe déjà`)
+
+  const author = authorOf(keys)
+  const now = new Date().toISOString()
+  const today = now.slice(0, 10)
+  const maxId = payload.data.enquetes.reduce((m, e) => Math.max(m, Number(e.id) || 0), 0)
+
+  // Mis en cause : dédoublonnage interne (nom normalisé), ids numériques.
+  const mecs = []
+  const vus = new Set()
+  for (const m of Array.isArray(misEnCause) ? misEnCause : []) {
+    const nom = String((typeof m === 'string' ? m : m?.nom) || '').trim()
+    if (!nom) continue
+    const norm = normalizeNom(nom)
+    if (vus.has(norm)) continue
+    vus.add(norm)
+    mecs.push({
+      id: Date.now() + mecs.length,
+      nom,
+      role: (typeof m === 'object' && m?.role) ? String(m.role).slice(0, 120) : undefined,
+      statut: String((typeof m === 'object' && m?.statut) || 'mis en cause').slice(0, 60),
+    })
+  }
+
+  const svc = Array.isArray(services) ? services.filter(Boolean).map(String)
+    : services ? [String(services)] : []
+  const desc = String(description || '').trim()
+
+  const enquete = {
+    id: maxId + 1,
+    numero: num,
+    dateDebut: /^\d{4}-\d{2}-\d{2}/.test(String(dateDebut || '')) ? String(dateDebut).slice(0, 10) : today,
+    services: svc,
+    description: desc ? escapeHtml(desc).replace(/\n/g, '<br>') : '',
+    misEnCause: mecs,
+    geolocalisations: [],
+    ecoutes: [],
+    actes: [],
+    comptesRendus: [],
+    documents: [],
+    toDos: [],
+    notes: '',
+    tags: [],
+    statut: 'en_cours',
+    dateCreation: now,
+    dateMiseAJour: now,
+    modifications: [{
+      id: `${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+      type: 'enquete_created',
+      label: `Création de l'enquête ${num}`,
+      user: { username: author, displayName: author },
+      timestamp: now,
+    }],
+  }
+  payload.data.enquetes.push(enquete)
+  await saveContentieux(keys, payload)
+  return { numero: num, id: enquete.id, misEnCause: mecs.length }
 }
 
 export async function ajouterTodo(keys, { numero, texte }) {

@@ -42,7 +42,10 @@ export function PropositionsBar({ numero }: { numero: string }) {
       const res = await fetch('/api/attache/propositions?numero=' + encodeURIComponent(numero));
       if (!res.ok) { setAvailable(false); return; }
       setAvailable(true);
-      setProps(((await res.json()).propositions || []) as Proposition[]);
+      // Ne rend que les types rattachés à ce dossier (mec/acte/cr) : les
+      // propositions de lien ou de création de dossier ont leur propre surface.
+      const all = ((await res.json()).propositions || []) as Proposition[];
+      setProps(all.filter((p) => p.type in TYPE_META));
     } catch {
       setAvailable(false);
     }

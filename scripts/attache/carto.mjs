@@ -14,6 +14,7 @@
  * (nom normalisé, mots triés) — reproduite ici à l'identique pour que les
  * liens proposés s'attachent aux BONS nœuds sur la carte.
  */
+import crypto from 'node:crypto'
 import { attacheTj, readVault, writeVault } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { loadContentieux, normalizeNom } from './dossier.mjs'
@@ -267,6 +268,127 @@ export async function appendLien(keys, { sourceNom, targetNom, label, notes }) {
   })
   await saveOverlay(keys, ov)
   return { ok: true, source, target }
+}
+
+// ── Recoupement des personnes (aide à la création de dossier) ────────────
+// Pour une liste de noms détectés dans une pièce, dit lesquels sont DÉJÀ
+// connus — soit comme mis en cause d'un dossier réel, soit comme MEC ex
+// nihilo de la carte — et lesquels sont nouveaux. Le rapprochement est
+// insensible à l'ordre des mots (clé triée, miroir du moteur de graphe).
+
+/**
+ * @param {string[]|{nom:string}[]} noms
+ * @returns {{contentieux, recoupements: Array<{nom, connu, source, ou, nomConnu?}>}}
+ *  source : 'dossier' (MEC d'un dossier réel) | 'carto' (MEC ex nihilo) | null (nouveau)
+ *  ou     : numéros de dossiers concernés (source 'dossier')
+ */
+export function recoupementMecs(keys, noms) {
+  const { data } = loadContentieux(keys)
+  const reels = new Map() // cléTriée → { nom, dossiers:Set }
+  for (const e of data.enquetes || []) {
+    for (const m of e.misEnCause || []) {
+      if (!m.nom) continue
+      const key = mecCanonId(m.nom)
+      if (!key) continue
+      if (!reels.has(key)) reels.set(key, { nom: m.nom, dossiers: new Set() })
+      reels.get(key).dossiers.add(String(e.numero))
+    }
+  }
+  const ov = loadOverlay(keys)
+  const exn = new Map()
+  for (const m of ov?.mecsExNihilo || []) {
+    const key = mecCanonId(m.displayName || m.id)
+    if (key) exn.set(key, m.displayName || m.id)
+  }
+  const list = (Array.isArray(noms) ? noms : []).map((raw) => {
+    const nom = String((typeof raw === 'string' ? raw : raw?.nom) || '').trim()
+    const key = mecCanonId(nom)
+    if (key && reels.has(key)) {
+      const info = reels.get(key)
+      return { nom, connu: true, source: 'dossier', ou: [...info.dossiers], nomConnu: info.nom }
+    }
+    if (key && exn.has(key)) return { nom, connu: true, source: 'carto', ou: [], nomConnu: exn.get(key) }
+    return { nom, connu: false, source: null, ou: [] }
+  })
+  return {
+    contentieux: attacheTj(),
+    note: 'Les personnes « connu:true » existent déjà (source : dossier réel ou carte). À la création, elles seront RATTACHÉES (pas recréées). Les « connu:false » seront créées ex nihilo sur la carte.',
+    recoupements: list,
+  }
+}
+
+/** Vrai si un dossier ex nihilo de ce libellé existe déjà sur la carte. */
+export function dossierExNihiloExiste(keys, label) {
+  const norm = String(label || '').trim().toLowerCase()
+  if (!norm) return false
+  const ov = loadOverlay(keys)
+  return (ov?.dossiersExNihilo || []).some((d) => String(d.label || '').trim().toLowerCase() === norm)
+}
+
+/**
+ * Crée un dossier EX NIHILO sur la carte (nœud d'annotation, distinct des
+ * vrais dossiers) — appliqué à la validation ✓. Les mis en cause déjà connus
+ * (dossier réel ou carte) sont RATTACHÉS par leur identité canonique ; les
+ * inconnus sont créés comme MEC ex nihilo (« mis en cause lié ex nihilo »).
+ * L'id d'un MEC est le nom normalisé (miroir de useCartographieOverlayStore.
+ * addMec) pour se fondre avec un éventuel nœud réel homonyme.
+ */
+export async function appendDossierExNihilo(keys, { label, dateApprox, misEnCause, natinfCodes, notes }) {
+  const lbl = String(label || '').trim()
+  if (!lbl) throw new Error('Libellé du dossier requis')
+  const ov = loadOverlay(keys) || emptyOverlay()
+  ov.dossiersExNihilo = ov.dossiersExNihilo || []
+  ov.mecsExNihilo = ov.mecsExNihilo || []
+  if (ov.dossiersExNihilo.some((d) => String(d.label || '').trim().toLowerCase() === lbl.toLowerCase())) {
+    return { doublon: true, message: `Un dossier ex nihilo « ${lbl} » existe déjà` }
+  }
+
+  // Index des personnes connues (par clé triée) → id canonique à rattacher.
+  const { data } = loadContentieux(keys)
+  const connus = new Map()
+  for (const e of data.enquetes || []) {
+    for (const m of e.misEnCause || []) {
+      const key = mecCanonId(m.nom)
+      if (key && !connus.has(key)) connus.set(key, normalizeMecName(m.nom))
+    }
+  }
+  for (const m of ov.mecsExNihilo) {
+    const key = mecCanonId(m.displayName || m.id)
+    if (key && !connus.has(key)) connus.set(key, m.id)
+  }
+
+  const mecIds = []
+  const crees = []
+  const lies = []
+  const pushId = (id) => { if (id && !mecIds.includes(id)) mecIds.push(id) }
+  for (const raw of Array.isArray(misEnCause) ? misEnCause : []) {
+    const nom = String((typeof raw === 'string' ? raw : raw?.nom) || '').trim()
+    if (!nom) continue
+    const key = mecCanonId(nom)
+    if (!key) continue
+    if (connus.has(key)) { pushId(connus.get(key)); lies.push(nom); continue }
+    const id = normalizeMecName(nom)
+    if (!id) continue
+    const now = Date.now()
+    ov.mecsExNihilo.push({ id, displayName: nom, alias: [], createdAt: now, updatedAt: now })
+    connus.set(key, id)
+    pushId(id)
+    crees.push(nom)
+  }
+
+  const now = Date.now()
+  ov.dossiersExNihilo.push({
+    id: 'dexn_' + now.toString(36) + '_' + crypto.randomBytes(3).toString('hex'),
+    label: lbl,
+    dateApprox: dateApprox ? String(dateApprox).slice(0, 40) : undefined,
+    mecIds,
+    natinfCodes: (Array.isArray(natinfCodes) && natinfCodes.length) ? natinfCodes.map(String) : undefined,
+    notes: notes ? String(notes).slice(0, 1000) : undefined,
+    createdAt: now,
+    updatedAt: now,
+  })
+  await saveOverlay(keys, ov)
+  return { ok: true, mecsCrees: crees, mecsLies: lies }
 }
 
 function emptyOverlay() {
