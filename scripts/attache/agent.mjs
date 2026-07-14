@@ -18,6 +18,7 @@ import { encryptJson, decryptJson } from './crypto.mjs'
 import { readMemory } from './memory.mjs'
 import { readInstructions } from './instructions.mjs'
 import { skillsPromptSection } from './skills.mjs'
+import { kbPromptSection } from './kb.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const MCP_SERVER = path.join(HERE, '..', 'attache-mcp.mjs')
@@ -66,6 +67,7 @@ export function systemPrompt(keys) {
   const memory = readMemory(keys)
   const consignes = readInstructions(keys)
   const skills = skillsPromptSection(keys)
+  const kb = kbPromptSection(keys)
   return [
     `Tu es l'attaché de justice virtuel d'un magistrat du parquet, au sein de SIRAL (application métier de suivi des enquêtes, contentieux ${attacheContentieux()} — criminalité organisée).`,
     '',
@@ -118,6 +120,7 @@ export function systemPrompt(keys) {
       consignes,
     ] : []),
     ...(skills ? [skills] : []),
+    ...(kb ? [kb] : []),
     '',
     '--- MÉMOIRE (tenue à jour par toi, lisible et corrigeable par le magistrat) ---',
     memory,

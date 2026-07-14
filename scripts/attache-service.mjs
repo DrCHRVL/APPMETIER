@@ -198,6 +198,39 @@ async function maybeScheduledBriefing() {
   runBriefing('planifié').catch((e) => console.error('[attache] brief :', e))
 }
 
+// ── Analyse des trames téléversées : classement + propositions d'amélioration ──
+let trameAnalyseRunning = false
+async function runTrameAnalyse(noms) {
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  trameAnalyseRunning = true
+  try {
+    console.log(`[attache] analyse de ${noms.length} trame(s) téléversée(s)`)
+    const prompt = [
+      `Le magistrat vient de téléverser ${noms.length} trame(s) dans sa bibliothèque : ${noms.join(', ')}.`,
+      'Pour CHACUNE, dans l\'ordre :',
+      '1. Lis-la intégralement (trame_lire).',
+      '2. Comprends-en le sens et CLASSE-la : rédige sa description en une phrase — type d\'acte (ST, ddeJLD, autorisation, saisine…), cadre juridique (articles visés, régime 706-80 ou non), quand l\'utiliser — et enregistre-la avec trame_decrire (qui ne touche PAS au contenu).',
+      '3. Évalue-la : solidité juridique (fondements cités encore en vigueur, mentions obligatoires, points de fragilité procédurale) et structure (plan, clarté, champs à compléter, doublons avec une autre trame de la bibliothèque).',
+      'À LA FIN, un SEUL signaler (type note, titre « Trames téléversées : classement et propositions ») : pour chaque trame, sa classification retenue et tes propositions d\'amélioration LÉGALE ou STRUCTURELLE, concrètes et hiérarchisées (ce qui fragilise l\'acte d\'abord).',
+      'RÈGLE STRICTE : tu ne MODIFIES JAMAIS le contenu d\'une trame — tu proposes, le magistrat décide. Seule la description (classement) est mise à jour via trame_decrire.',
+      'Si le corpus de la base de connaissances (kb_chercher) éclaire une trame (circulaire, jurisprudence), appuie tes propositions dessus et cite l\'entrée.',
+    ].join('\n')
+    const result = await runAgent({ keys, prompt, runLabel: 'trames-analyse', title: `Analyse trames ${new Date().toISOString().slice(0, 10)}` })
+    await audit(keys, 'trames_analysees', { nb: noms.length, noms: noms.join(', ').slice(0, 500), ok: result.ok, convId: result.convId, erreur: result.error })
+    if (!result.ok) {
+      await publishFeed(keys, {
+        type: 'alerte',
+        titre: 'Analyse des trames interrompue',
+        resume: `L'analyse des trames téléversées (${noms.slice(0, 5).join(', ')}${noms.length > 5 ? '…' : ''}) a échoué (${result.error || 'erreur inconnue'}). Relancez-la depuis Paramètres → Attaché IA.`,
+      })
+    }
+    return { ok: result.ok, convId: result.convId, error: result.error }
+  } finally {
+    trameAnalyseRunning = false
+  }
+}
+
 // ── Boucle de relève ──
 let polling = false
 async function pollOnce(trigger = 'planifié') {
@@ -413,6 +446,19 @@ const server = http.createServer(async (req, res) => {
       if (!routine) return json(res, 404, { error: 'Routine inconnue' })
       // lancée en fond : la réponse ne bloque pas sur le run
       runRoutine(routine, 'manuelle').catch((e) => console.error('[attache] routine :', e))
+      return json(res, 202, { ok: true, started: true })
+    }
+
+    if (route === 'POST /trames/analyse') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      if (trameAnalyseRunning) return json(res, 409, { ok: false, error: 'Analyse déjà en cours' })
+      const body = await readBody(req)
+      const noms = (Array.isArray(body.noms) ? body.noms : [])
+        .map((n) => String(n).slice(0, 80)).filter(Boolean).slice(0, 100)
+      if (!noms.length) return json(res, 400, { ok: false, error: 'Aucune trame à analyser' })
+      // lancée en fond : la réponse ne bloque pas sur le run complet
+      runTrameAnalyse(noms).catch((e) => console.error('[attache] analyse trames :', e))
       return json(res, 202, { ok: true, started: true })
     }
 

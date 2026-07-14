@@ -129,32 +129,35 @@ export async function writeInstructionsEnvelope(envelope: AttacheEnvelope): Prom
   await writeVersionedEnvelope('instructions', envelope)
 }
 
-// ── Skills du magistrat (comme Claude web) : une enveloppe par skill ──
-// Même répertoire et même format que le service attaché (attache/skills/) :
-// le navigateur admin chiffre/déchiffre, l'app ne voit que des enveloppes.
+// ── Collections d'enveloppes (skills, trames, base de connaissances) ──
+// Un fichier-enveloppe par entrée, dans le même répertoire et au même format
+// que le service attaché (attache/<collection>/) : le navigateur admin
+// chiffre/déchiffre, l'app ne voit que des enveloppes. Versionnage avant
+// toute réécriture ou suppression — rien n'est jamais écrasé à sec.
 
-const SKILL_ID_RE = /^[a-z0-9][a-z0-9-]{0,59}$/
+const ENTRY_ID_RE = /^[a-z0-9][a-z0-9-]{0,59}$/
+type AttacheCollection = 'skills' | 'trames' | 'kb'
 
-export function listSkillEnvelopes(): Array<{ id: string, envelope: AttacheEnvelope }> {
-  const dir = attacheDir('skills')
+export function listCollectionEnvelopes(collection: AttacheCollection): Array<{ id: string, envelope: AttacheEnvelope }> {
+  const dir = attacheDir(collection)
   if (!fs.existsSync(dir)) return []
   const out: Array<{ id: string, envelope: AttacheEnvelope }> = []
   for (const f of fs.readdirSync(dir)) {
     if (!f.endsWith('.json') || f.startsWith('.')) continue
     const id = f.slice(0, -'.json'.length)
-    if (!SKILL_ID_RE.test(id)) continue
+    if (!ENTRY_ID_RE.test(id)) continue
     const envelope = readJson<AttacheEnvelope | null>(path.join(dir, f), null)
     if (envelope) out.push({ id, envelope })
   }
   return out.sort((a, b) => a.id.localeCompare(b.id))
 }
 
-export async function writeSkillEnvelope(id: string, envelope: AttacheEnvelope): Promise<void> {
-  if (!SKILL_ID_RE.test(id)) throw new Error('Nom de skill invalide')
-  const p = attacheDir('skills', id + '.json')
-  await withFileLock('attache-skill-' + id, async () => {
+export async function writeCollectionEnvelope(collection: AttacheCollection, id: string, envelope: AttacheEnvelope): Promise<void> {
+  if (!ENTRY_ID_RE.test(id)) throw new Error('Identifiant invalide')
+  const p = attacheDir(collection, id + '.json')
+  await withFileLock(`attache-${collection}-` + id, async () => {
     if (fs.existsSync(p)) {
-      const vdir = attacheDir('skills', '.versions', id)
+      const vdir = attacheDir(collection, '.versions', id)
       ensureDir(vdir)
       fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '.json'))
     }
@@ -164,18 +167,22 @@ export async function writeSkillEnvelope(id: string, envelope: AttacheEnvelope):
 }
 
 /** Suppression réversible : la version courante est archivée avant retrait. */
-export async function deleteSkillEnvelope(id: string): Promise<boolean> {
-  if (!SKILL_ID_RE.test(id)) throw new Error('Nom de skill invalide')
-  const p = attacheDir('skills', id + '.json')
-  return withFileLock('attache-skill-' + id, async () => {
+export async function deleteCollectionEnvelope(collection: AttacheCollection, id: string): Promise<boolean> {
+  if (!ENTRY_ID_RE.test(id)) throw new Error('Identifiant invalide')
+  const p = attacheDir(collection, id + '.json')
+  return withFileLock(`attache-${collection}-` + id, async () => {
     if (!fs.existsSync(p)) return false
-    const vdir = attacheDir('skills', '.versions', id)
+    const vdir = attacheDir(collection, '.versions', id)
     ensureDir(vdir)
     fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '~suppression.json'))
     fs.unlinkSync(p)
     return true
   })
 }
+
+export const listSkillEnvelopes = () => listCollectionEnvelopes('skills')
+export const writeSkillEnvelope = (id: string, envelope: AttacheEnvelope) => writeCollectionEnvelope('skills', id, envelope)
+export const deleteSkillEnvelope = (id: string) => deleteCollectionEnvelope('skills', id)
 
 /** Écrit une enveloppe d'attaché en archivant la version précédente (jamais d'écrasement sec). */
 async function writeVersionedEnvelope(name: 'memory' | 'instructions', envelope: AttacheEnvelope): Promise<void> {

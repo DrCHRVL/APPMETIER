@@ -196,14 +196,14 @@ Priorité **moyenne** (le socle existe, c'est de l'enrichissement).
 
 ## 3. Feuille de route proposée
 
-| # | Chantier | Valeur | Effort | Priorité |
-|---|---|---|---|---|
-| 1 | **Convertisseur PDF → md** + cache | Débloque tout, ↓ place & tokens | Moyen | 🔴 Haute |
-| 2 | **Base de connaissances** (LLM-wiki + `kb_*`) | Fond juridique réutilisable | Moyen | 🔴 Haute |
-| 3 | **Subagents** (brief + analyse docs en parallèle) | ↓ latence, ↑ robustesse | Moyen-élevé | 🔴 Haute |
-| 4 | **Trames → gabarits** (catégories + variables) | Rédaction plus rapide | Faible-moyen | 🟠 Moyenne |
-| 5 | **Projets/dossiers persistants** enrichis | Continuité du travail | Faible | 🟢 Basse |
-| 6 | **Citations systématiques** | Confiance / vérifiabilité | Faible | 🟢 Basse |
+| # | Chantier | Valeur | Effort | Priorité | État |
+|---|---|---|---|---|---|
+| 1 | **Convertisseur → md au téléversement** (PDF, ODT, DOCX — dans le navigateur) | Débloque tout, ↓ place & tokens | Moyen | 🔴 Haute | ✅ Fait |
+| 2 | **Base de connaissances** (LLM-wiki + `kb_*`, téléversement en masse) | Fond juridique réutilisable | Moyen | 🔴 Haute | ✅ Fait |
+| 3 | **Subagents** (brief + analyse docs en parallèle) | ↓ latence, ↑ robustesse | Moyen-élevé | 🔴 Haute | À faire |
+| 4 | **Trames** : téléversement en masse + analyse IA (classement, propositions d'amélioration) | Bibliothèque vivante | Faible-moyen | 🟠 Moyenne | ✅ Fait (variables/gabarits : à faire) |
+| 5 | **Projets/dossiers persistants** enrichis | Continuité du travail | Faible | 🟢 Basse | À faire |
+| 6 | **Citations systématiques** | Confiance / vérifiabilité | Faible | 🟢 Basse | Partiel (règle de prompt) |
 
 **Séquence recommandée** : 1 → 2 → 3 (le convertisseur alimente la base ;
 les subagents accélèrent l'analyse et le brief une fois le corpus prêt).

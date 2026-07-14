@@ -85,6 +85,29 @@ l'usage).
   web) se collent dans le panneau (« enregistre cette trame sous… ») ;
   l'attaché les relit avant chaque rédaction du même type. Chiffrées,
   versionnées.
+- **Bibliothèque de trames téléversable en masse** : le stock du cabinet
+  (fichiers `.odt`, `.docx`, `.pdf`, texte…) se téléverse d'un coup dans
+  Paramètres → Attaché IA → « Trames ». La conversion en **markdown se fait
+  dans le navigateur** (le fichier ne quitte jamais le poste en clair), puis
+  chaque trame est chiffrée et versionnée comme les autres. Option « Faire
+  analyser » : l'attaché lit chaque trame, la **classe** (description mise à
+  jour via `trame_decrire` — le contenu n'est JAMAIS modifié) et publie dans
+  le fil « pendant votre absence » ses **propositions d'amélioration légale
+  ou structurelle** — propositions seulement, le magistrat décide. Bouton
+  « Analyser toute la bibliothèque » pour relancer à la demande.
+- **Base de connaissances** : le fond documentaire durable du cabinet —
+  jurisprudences, conventions et circulaires, modes opératoires, fiches
+  réflexes, contacts de services — téléversé en masse (mêmes formats, même
+  conversion markdown côté navigateur : seule la version texte est
+  conservée, place et tokens économisés) ou saisi à la main, classé par
+  catégories libres. Pas d'index vectoriel : **recherche agentique** à la
+  demande (`kb_chercher` insensible casse/accents, puis `kb_lire`) — le
+  sommaire (titres + descriptions) figure dans le prompt de l'attaché, le
+  contenu ne se charge que quand une tâche le réclame, comme les skills.
+  En chat, « ajoute à la base de connaissances » fonctionne aussi
+  (`kb_enregistrer`). Chiffrée (clé globale), versionnée, réversible.
+  PDF scannés (image, sans texte) : détectés et signalés au téléversement —
+  passez-les par un OCR avant.
 - **Analyse automatique des documents (IA)** : la fonctionnalité « Analyse
   automatique des documents » de SIRAL (détection d'actes à partir des PDF du
   dossier) bascule, pour le seul administrateur, sur le modèle Claude de

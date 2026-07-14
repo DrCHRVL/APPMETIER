@@ -10,9 +10,10 @@
  * - Révocation : suppression du trousseau — l'attaché est aveugle aussitôt.
  * - Journal d'audit : chaque action de l'attaché, déchiffrée ici.
  */
-import { useCallback, useEffect, useState } from 'react';
-import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, Library, UploadCloud, AlertTriangle } from 'lucide-react';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig } from '../attache/modelOptions';
+import { fileToMarkdown, titreDepuisFichier } from '@/lib/web/fileToMarkdown';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { electronAPI?: Record<string, AnyFn> }).electronAPI;
@@ -35,12 +36,32 @@ interface Routine {
 }
 
 interface Skill { nom: string; description?: string; contenu: string; updatedAt?: string }
+interface Trame { nom: string; description?: string; contenu: string; updatedAt?: string }
+interface KbEntry { id: string; titre: string; categorie: string; description?: string; contenu: string; source?: string; updatedAt?: string }
+
+/** Ligne en attente après conversion d'un fichier téléversé (avant chiffrement + enregistrement). */
+interface StagedDoc {
+  fichier: string;
+  titre: string;        // trames : deviendra le nom (slug) ; kb : le titre affiché
+  categorie: string;    // kb uniquement
+  contenu: string;
+  avertissement?: string;
+  erreur?: string;
+}
 
 /** Nom de fichier d'une skill — miroir EXACT de safeSkillName (scripts/attache/skills.mjs). */
 function skillSlug(nom: string): string {
   return String(nom).toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
 }
+
+/** Miroir de safeKbId (kb.mjs) et safeName (trames.mjs) — mêmes règles que skillSlug. */
+const entrySlug = skillSlug;
+
+/** Catégories proposées — miroir de KB_CATEGORIES (scripts/attache/kb.mjs), champ libre accepté. */
+const KB_CATEGORIES = ['jurisprudence', 'textes-circulaires', 'modes-operatoires', 'fiches-reflexes', 'contacts-services', 'autre'];
+
+const UPLOAD_ACCEPT = '.pdf,.odt,.ott,.docx,.doc,.txt,.md,.markdown,.csv,.html,.htm,.eml,.rtf,.log';
 
 function Dot({ ok, label }: { ok: boolean | undefined; label: string }) {
   return (
@@ -68,6 +89,18 @@ export function AdminAttachePanel() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillForm, setSkillForm] = useState<{ open: boolean; original?: string; nom: string; description: string; contenu: string }>({ open: false, nom: '', description: '', contenu: '' });
   const [skillSaving, setSkillSaving] = useState(false);
+  // ── Bibliothèque de trames + base de connaissances (téléversement en masse) ──
+  const [trames, setTrames] = useState<Trame[]>([]);
+  const [trameForm, setTrameForm] = useState<{ open: boolean; original?: string; nom: string; description: string; contenu: string }>({ open: false, nom: '', description: '', contenu: '' });
+  const [kbEntries, setKbEntries] = useState<KbEntry[]>([]);
+  const [kbForm, setKbForm] = useState<{ open: boolean; original?: string; titre: string; categorie: string; description: string; contenu: string }>({ open: false, titre: '', categorie: KB_CATEGORIES[0], description: '', contenu: '' });
+  const [staged, setStaged] = useState<StagedDoc[]>([]);
+  const [stagedKind, setStagedKind] = useState<'trames' | 'kb' | null>(null);
+  const [converting, setConverting] = useState(false);
+  const [analyseAfter, setAnalyseAfter] = useState(true);
+  const [uploadBusy, setUploadBusy] = useState<string | null>(null); // « 3/12 » pendant l'enregistrement
+  const trameFileInput = useRef<HTMLInputElement>(null);
+  const kbFileInput = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -118,7 +151,195 @@ export function AdminAttachePanel() {
     } catch { /* silencieux — les erreurs remontent sur les actions */ }
   }, []);
 
-  useEffect(() => { refresh(); loadRoutines(); loadSkills(); }, [refresh, loadRoutines, loadSkills]);
+  // ── Trames et base de connaissances : mêmes enveloppes, déchiffrées ICI ──
+  const loadTrames = useCallback(async () => {
+    try {
+      const res = await fetch('/api/attache/trames');
+      if (!res.ok) return;
+      const { trames: envs } = await res.json();
+      const decrypt = bridgeFn('attache_decrypt');
+      const out: Trame[] = [];
+      for (const e of (envs || []) as Array<{ id: string; envelope: unknown }>) {
+        const payload = await decrypt(e.envelope) as Trame | null;
+        if (payload?.contenu) out.push({ ...payload, nom: payload.nom || e.id });
+      }
+      setTrames(out.sort((a, b) => a.nom.localeCompare(b.nom)));
+    } catch { /* silencieux — les erreurs remontent sur les actions */ }
+  }, []);
+
+  const loadKb = useCallback(async () => {
+    try {
+      const res = await fetch('/api/attache/kb');
+      if (!res.ok) return;
+      const { entries: envs } = await res.json();
+      const decrypt = bridgeFn('attache_decrypt');
+      const out: KbEntry[] = [];
+      for (const e of (envs || []) as Array<{ id: string; envelope: unknown }>) {
+        const payload = await decrypt(e.envelope) as KbEntry | null;
+        if (payload?.contenu) out.push({ ...payload, id: payload.id || e.id, categorie: payload.categorie || 'autre' });
+      }
+      setKbEntries(out.sort((a, b) => a.categorie.localeCompare(b.categorie) || a.titre.localeCompare(b.titre)));
+    } catch { /* silencieux */ }
+  }, []);
+
+  useEffect(() => { refresh(); loadRoutines(); loadSkills(); loadTrames(); loadKb(); }, [refresh, loadRoutines, loadSkills, loadTrames, loadKb]);
+
+  /** Conversion des fichiers choisis — tout se passe dans CE navigateur (E2EE). */
+  const stageFiles = useCallback(async (kind: 'trames' | 'kb', files: FileList | null) => {
+    if (!files?.length) return;
+    setConverting(true);
+    setStagedKind(kind);
+    setStaged([]);
+    const rows: StagedDoc[] = [];
+    for (const file of Array.from(files)) {
+      const base = { fichier: file.name, titre: titreDepuisFichier(file.name), categorie: KB_CATEGORIES[0], contenu: '' };
+      try {
+        const { markdown, avertissement } = await fileToMarkdown(file);
+        if (!markdown.trim()) rows.push({ ...base, erreur: 'aucun texte extractible' });
+        else rows.push({ ...base, contenu: markdown, avertissement });
+      } catch (e) {
+        rows.push({ ...base, erreur: e instanceof Error ? e.message : String(e) });
+      }
+      setStaged([...rows]); // progression visible fichier par fichier
+    }
+    setConverting(false);
+  }, []);
+
+  /** Enregistrement en masse : chiffrement navigateur puis dépôt enveloppe par enveloppe. */
+  const saveStaged = useCallback(async () => {
+    if (!stagedKind) return;
+    const valid = staged.filter((s) => !s.erreur && s.contenu.trim() && entrySlug(s.titre));
+    if (!valid.length) return;
+    const encrypt = bridgeFn('attache_encrypt');
+    const savedNoms: string[] = [];
+    const failed: string[] = [];
+    let n = 0;
+    for (const s of valid) {
+      n++;
+      setUploadBusy(`${n}/${valid.length}`);
+      const id = entrySlug(s.titre);
+      const record = stagedKind === 'trames'
+        ? { nom: id, description: '', contenu: s.contenu.slice(0, 200_000), updatedAt: new Date().toISOString() }
+        : { id, titre: s.titre.trim().slice(0, 160), categorie: s.categorie || 'autre', description: '', contenu: s.contenu.slice(0, 400_000), source: s.fichier, updatedAt: new Date().toISOString() };
+      try {
+        const envelope = await encrypt(record);
+        const res = await fetch(stagedKind === 'trames' ? '/api/attache/trames' : '/api/attache/kb', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id, envelope }),
+        });
+        if (res.ok) savedNoms.push(id); else failed.push(s.fichier);
+      } catch {
+        failed.push(s.fichier);
+      }
+    }
+    setUploadBusy(null);
+    setStaged([]);
+    const kind = stagedKind;
+    setStagedKind(null);
+    if (kind === 'trames') {
+      loadTrames();
+      if (savedNoms.length && analyseAfter) {
+        const res = await fetch('/api/attache/trames', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ analyse: savedNoms }),
+        }).catch(() => null);
+        setNotice(
+          `${savedNoms.length} trame(s) enregistrée(s)${failed.length ? ` — échec : ${failed.join(', ')}` : ''}. ` +
+          (res?.ok ? 'Analyse lancée : classement et propositions d\'amélioration arriveront dans le fil « pendant votre absence ».'
+            : 'Analyse non lancée (service occupé ou injoignable) — relancez depuis ce panneau.')
+        );
+      } else {
+        setNotice(`${savedNoms.length} trame(s) enregistrée(s)${failed.length ? ` — échec : ${failed.join(', ')}` : ''}.`);
+      }
+    } else {
+      loadKb();
+      setNotice(`${savedNoms.length} entrée(s) ajoutée(s) à la base de connaissances${failed.length ? ` — échec : ${failed.join(', ')}` : ''}.`);
+    }
+  }, [staged, stagedKind, analyseAfter, loadTrames, loadKb]);
+
+  /** Relance l'analyse IA (classement + propositions) sur des trames déjà en bibliothèque. */
+  const analyseTrames = useCallback(async (noms: string[]) => {
+    if (!noms.length) return;
+    const res = await fetch('/api/attache/trames', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ analyse: noms }),
+    }).catch(() => null);
+    const data = res ? await res.json().catch(() => ({} as { error?: string })) : { error: 'service injoignable' };
+    setNotice(res?.ok
+      ? `Analyse de ${noms.length} trame(s) lancée — résultat dans le fil « pendant votre absence ».`
+      : `Analyse impossible : ${data.error || 'erreur'}`);
+  }, []);
+
+  const saveTrameForm = useCallback(async () => {
+    const id = entrySlug(trameForm.nom);
+    if (!id) { setNotice('Nom de trame invalide — lettres, chiffres et tirets.'); return; }
+    if (!trameForm.contenu.trim()) return;
+    try {
+      const envelope = await bridgeFn('attache_encrypt')({
+        nom: id,
+        description: trameForm.description.trim().slice(0, 300),
+        contenu: trameForm.contenu.slice(0, 200_000),
+        updatedAt: new Date().toISOString(),
+      });
+      const res = await fetch('/api/attache/trames', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, envelope }),
+      });
+      if (!res.ok) { setNotice(`Enregistrement refusé : ${(await res.json().catch(() => ({} as { error?: string }))).error || res.status}`); return; }
+      if (trameForm.original && trameForm.original !== id) {
+        await fetch('/api/attache/trames?id=' + encodeURIComponent(trameForm.original), { method: 'DELETE' }).catch(() => {});
+      }
+      setTrameForm({ open: false, nom: '', description: '', contenu: '' });
+      setNotice(`Trame « ${id} » enregistrée — l'attaché la suivra pour les rédactions de ce type.`);
+      loadTrames();
+    } catch (e) {
+      setNotice(`Enregistrement impossible : ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [trameForm, loadTrames]);
+
+  const removeTrame = useCallback(async (nom: string) => {
+    if (!window.confirm(`Supprimer la trame « ${nom} » ?\nLa dernière version reste archivée côté serveur.`)) return;
+    await fetch('/api/attache/trames?id=' + encodeURIComponent(nom), { method: 'DELETE' }).catch(() => {});
+    loadTrames();
+  }, [loadTrames]);
+
+  const saveKbForm = useCallback(async () => {
+    const id = entrySlug(kbForm.titre);
+    if (!id) { setNotice('Titre invalide — lettres, chiffres et tirets.'); return; }
+    if (!kbForm.contenu.trim()) return;
+    try {
+      const envelope = await bridgeFn('attache_encrypt')({
+        id,
+        titre: kbForm.titre.trim().slice(0, 160),
+        categorie: entrySlug(kbForm.categorie) || 'autre',
+        description: kbForm.description.trim().slice(0, 300),
+        contenu: kbForm.contenu.slice(0, 400_000),
+        updatedAt: new Date().toISOString(),
+      });
+      const res = await fetch('/api/attache/kb', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, envelope }),
+      });
+      if (!res.ok) { setNotice(`Enregistrement refusé : ${(await res.json().catch(() => ({} as { error?: string }))).error || res.status}`); return; }
+      if (kbForm.original && kbForm.original !== id) {
+        await fetch('/api/attache/kb?id=' + encodeURIComponent(kbForm.original), { method: 'DELETE' }).catch(() => {});
+      }
+      setKbForm({ open: false, titre: '', categorie: KB_CATEGORIES[0], description: '', contenu: '' });
+      setNotice(`Entrée « ${id} » enregistrée — l'attaché la voit dès le prochain échange.`);
+      loadKb();
+    } catch (e) {
+      setNotice(`Enregistrement impossible : ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [kbForm, loadKb]);
+
+  const removeKbEntry = useCallback(async (id: string) => {
+    if (!window.confirm(`Supprimer l'entrée « ${id} » de la base de connaissances ?\nLa dernière version reste archivée côté serveur.`)) return;
+    await fetch('/api/attache/kb?id=' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {});
+    loadKb();
+  }, [loadKb]);
 
   const saveSkill = useCallback(async () => {
     const id = skillSlug(skillForm.nom);
@@ -588,6 +809,265 @@ export function AdminAttachePanel() {
                   <PenLine className="h-3.5 w-3.5" />
                 </button>
                 <button onClick={() => removeSkill(s.nom)} title="Supprimer" className="rounded-md p-1 text-gray-400 hover:bg-red-50 hover:text-red-500">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Bibliothèque de trames — plans-types d'actes, téléversables en masse */}
+      <div className="rounded-xl border border-gray-200">
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <BookOpen className="h-4 w-4 text-[#2B5746]" />
+          <span className="text-sm font-semibold text-gray-800">Trames</span>
+          <span className="text-[11px] text-gray-400">plans-types d'actes (ST, ddeJLD, saisines…) · converties en markdown au téléversement · chiffrées, versionnées</span>
+          <input ref={trameFileInput} type="file" multiple accept={UPLOAD_ACCEPT} className="hidden"
+            onChange={(e) => { stageFiles('trames', e.target.files); e.target.value = ''; }} />
+          <button
+            onClick={() => trameFileInput.current?.click()}
+            disabled={converting || uploadBusy !== null}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+          >
+            <UploadCloud className="h-3 w-3" />Téléverser
+          </button>
+          <button
+            onClick={() => setTrameForm({ open: !trameForm.open, nom: '', description: '', contenu: '' })}
+            className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+          >
+            <Plus className="h-3 w-3" />Nouvelle
+          </button>
+        </div>
+
+        {stagedKind === 'trames' && (
+          <div className="space-y-2 border-b border-gray-100 bg-gray-50/50 p-3">
+            <div className="text-[11px] font-semibold text-gray-600">
+              {converting ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" />Conversion en markdown ({staged.length} fichier{staged.length > 1 ? 's' : ''})…</span>
+                : `${staged.filter((s) => !s.erreur).length} trame(s) prête(s) sur ${staged.length} — vérifiez les noms avant d'enregistrer.`}
+            </div>
+            <div className="max-h-56 space-y-1 overflow-y-auto">
+              {staged.map((s, i) => (
+                <div key={s.fichier + i} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5">
+                  <span className="max-w-[30%] truncate text-[10.5px] text-gray-400" title={s.fichier}>{s.fichier}</span>
+                  {s.erreur ? (
+                    <span className="flex-1 truncate text-[11px] text-red-500" title={s.erreur}>✗ {s.erreur}</span>
+                  ) : (
+                    <>
+                      <input
+                        value={s.titre}
+                        onChange={(e) => setStaged(staged.map((r, j) => (j === i ? { ...r, titre: e.target.value } : r)))}
+                        className="min-w-0 flex-1 rounded border border-gray-200 px-2 py-1 text-[11px] outline-none focus:border-[#2B5746]/50"
+                      />
+                      <span className="whitespace-nowrap text-[10px] text-gray-400">{Math.round(s.contenu.length / 1000)} k</span>
+                      {s.avertissement && <span title={s.avertissement}><AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-amber-500" /></span>}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+            {staged.some((s) => s.avertissement) && (
+              <p className="text-[10.5px] text-amber-600">⚠ {staged.find((s) => s.avertissement)?.avertissement}</p>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-gray-600">
+                <input type="checkbox" checked={analyseAfter} onChange={(e) => setAnalyseAfter(e.target.checked)} />
+                Faire analyser par l'attaché : classement + propositions d'amélioration légale/structurelle (fil « pendant votre absence »)
+              </label>
+              <button onClick={() => { setStaged([]); setStagedKind(null); }} disabled={uploadBusy !== null}
+                className="ml-auto rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">Annuler</button>
+              <button onClick={saveStaged} disabled={converting || uploadBusy !== null || !staged.some((s) => !s.erreur)}
+                className="rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                {uploadBusy ? `Enregistrement ${uploadBusy}…` : `Enregistrer ${staged.filter((s) => !s.erreur).length} trame(s)`}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {trameForm.open && (
+          <div className="space-y-2 border-b border-gray-100 bg-gray-50/50 p-3">
+            <div className="flex gap-2">
+              <input value={trameForm.nom} onChange={(e) => setTrameForm({ ...trameForm, nom: e.target.value })}
+                placeholder="Nom (ex. ddejld-sonorisation)"
+                className="w-52 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
+              <input value={trameForm.description} onChange={(e) => setTrameForm({ ...trameForm, description: e.target.value })}
+                placeholder="Description — type d'acte, cadre juridique, quand l'utiliser"
+                className="flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
+            </div>
+            <textarea value={trameForm.contenu} onChange={(e) => setTrameForm({ ...trameForm, contenu: e.target.value })} rows={8}
+              placeholder="Le plan-type complet (markdown) — l'attaché le suivra fidèlement avant toute rédaction du même type."
+              className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-2 font-mono text-[12px] leading-relaxed outline-none focus:border-[#2B5746]/50" />
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setTrameForm({ open: false, nom: '', description: '', contenu: '' })}
+                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">Annuler</button>
+              <button onClick={saveTrameForm} disabled={!trameForm.nom.trim() || !trameForm.contenu.trim()}
+                className="rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">Enregistrer</button>
+            </div>
+          </div>
+        )}
+
+        {trames.length === 0 && !trameForm.open && stagedKind !== 'trames' ? (
+          <p className="px-3 py-3 text-xs text-gray-400">
+            Aucune trame. Téléversez votre stock (.odt, .docx, .pdf…) : conversion en markdown ici même, puis
+            classement et propositions d'amélioration par l'attaché. En chat, « enregistre cette trame » fonctionne aussi.
+          </p>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {trames.map((t) => (
+              <div key={t.nom} className="flex items-center gap-2 px-3 py-2">
+                <BookOpen className="h-3.5 w-3.5 flex-shrink-0 text-gray-300" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-semibold text-gray-800">{t.nom}</div>
+                  <div className="truncate text-[10.5px] text-gray-400">
+                    {t.description || 'pas encore classée — lancez l\'analyse ou ajoutez une description'}
+                    {t.updatedAt ? ` · maj ${new Date(t.updatedAt).toLocaleDateString('fr-FR')}` : ''}
+                  </div>
+                </div>
+                <button onClick={() => setTrameForm({ open: true, original: t.nom, nom: t.nom, description: t.description || '', contenu: t.contenu })}
+                  title="Modifier" className="rounded-md p-1 text-gray-400 hover:bg-emerald-50 hover:text-[#2B5746]">
+                  <PenLine className="h-3.5 w-3.5" />
+                </button>
+                <button onClick={() => removeTrame(t.nom)} title="Supprimer" className="rounded-md p-1 text-gray-400 hover:bg-red-50 hover:text-red-500">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {trames.length > 0 && (
+          <div className="border-t border-gray-100 px-3 py-2">
+            <button onClick={() => analyseTrames(trames.map((t) => t.nom))} disabled={!kr?.granted}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+              title="L'attaché relit chaque trame, met à jour son classement et publie ses propositions d'amélioration">
+              <Sparkles className="h-3 w-3" />Analyser toute la bibliothèque
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Base de connaissances — le fond documentaire du cabinet */}
+      <div className="rounded-xl border border-gray-200">
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <Library className="h-4 w-4 text-[#2B5746]" />
+          <span className="text-sm font-semibold text-gray-800">Base de connaissances</span>
+          <span className="text-[11px] text-gray-400">jurisprudences, circulaires, modes opératoires, fiches, contacts · convertie en markdown au téléversement</span>
+          <input ref={kbFileInput} type="file" multiple accept={UPLOAD_ACCEPT} className="hidden"
+            onChange={(e) => { stageFiles('kb', e.target.files); e.target.value = ''; }} />
+          <button
+            onClick={() => kbFileInput.current?.click()}
+            disabled={converting || uploadBusy !== null}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+          >
+            <UploadCloud className="h-3 w-3" />Téléverser
+          </button>
+          <button
+            onClick={() => setKbForm({ open: !kbForm.open, titre: '', categorie: KB_CATEGORIES[0], description: '', contenu: '' })}
+            className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+          >
+            <Plus className="h-3 w-3" />Nouvelle
+          </button>
+        </div>
+
+        {stagedKind === 'kb' && (
+          <div className="space-y-2 border-b border-gray-100 bg-gray-50/50 p-3">
+            <div className="text-[11px] font-semibold text-gray-600">
+              {converting ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" />Conversion en markdown ({staged.length} fichier{staged.length > 1 ? 's' : ''})…</span>
+                : `${staged.filter((s) => !s.erreur).length} entrée(s) prête(s) sur ${staged.length} — ajustez titre et catégorie avant d'enregistrer.`}
+            </div>
+            <div className="max-h-56 space-y-1 overflow-y-auto">
+              {staged.map((s, i) => (
+                <div key={s.fichier + i} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5">
+                  <span className="max-w-[22%] truncate text-[10.5px] text-gray-400" title={s.fichier}>{s.fichier}</span>
+                  {s.erreur ? (
+                    <span className="flex-1 truncate text-[11px] text-red-500" title={s.erreur}>✗ {s.erreur}</span>
+                  ) : (
+                    <>
+                      <input
+                        value={s.titre}
+                        onChange={(e) => setStaged(staged.map((r, j) => (j === i ? { ...r, titre: e.target.value } : r)))}
+                        className="min-w-0 flex-1 rounded border border-gray-200 px-2 py-1 text-[11px] outline-none focus:border-[#2B5746]/50"
+                      />
+                      <select
+                        value={s.categorie}
+                        onChange={(e) => setStaged(staged.map((r, j) => (j === i ? { ...r, categorie: e.target.value } : r)))}
+                        className="rounded border border-gray-200 bg-white px-1.5 py-1 text-[10.5px] text-gray-600 outline-none"
+                      >
+                        {KB_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <span className="whitespace-nowrap text-[10px] text-gray-400">{Math.round(s.contenu.length / 1000)} k</span>
+                      {s.avertissement && <span title={s.avertissement}><AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-amber-500" /></span>}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+            {staged.some((s) => s.avertissement) && (
+              <p className="text-[10.5px] text-amber-600">⚠ {staged.find((s) => s.avertissement)?.avertissement}</p>
+            )}
+            <div className="flex items-center justify-end gap-2">
+              <span className="mr-auto text-[10.5px] text-gray-400">Seul le markdown est conservé (pas le fichier d'origine) : place et tokens économisés.</span>
+              <button onClick={() => { setStaged([]); setStagedKind(null); }} disabled={uploadBusy !== null}
+                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">Annuler</button>
+              <button onClick={saveStaged} disabled={converting || uploadBusy !== null || !staged.some((s) => !s.erreur)}
+                className="rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                {uploadBusy ? `Enregistrement ${uploadBusy}…` : `Enregistrer ${staged.filter((s) => !s.erreur).length} entrée(s)`}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {kbForm.open && (
+          <div className="space-y-2 border-b border-gray-100 bg-gray-50/50 p-3">
+            <div className="flex gap-2">
+              <input value={kbForm.titre} onChange={(e) => setKbForm({ ...kbForm, titre: e.target.value })}
+                placeholder="Titre (ex. Circulaire captation de données 2024)"
+                className="flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
+              <input value={kbForm.categorie} onChange={(e) => setKbForm({ ...kbForm, categorie: e.target.value })}
+                list="kb-categories" placeholder="Catégorie"
+                className="w-44 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
+              <datalist id="kb-categories">
+                {KB_CATEGORIES.map((c) => <option key={c} value={c} />)}
+              </datalist>
+            </div>
+            <input value={kbForm.description} onChange={(e) => setKbForm({ ...kbForm, description: e.target.value })}
+              placeholder="Description — ce que contient l'entrée et quand s'en servir (guide la recherche de l'attaché)"
+              className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
+            <textarea value={kbForm.contenu} onChange={(e) => setKbForm({ ...kbForm, contenu: e.target.value })} rows={8}
+              placeholder="Le contenu (markdown) — collez un texte, une jurisprudence, une fiche, une liste de contacts…"
+              className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-2 font-mono text-[12px] leading-relaxed outline-none focus:border-[#2B5746]/50" />
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setKbForm({ open: false, titre: '', categorie: KB_CATEGORIES[0], description: '', contenu: '' })}
+                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">Annuler</button>
+              <button onClick={saveKbForm} disabled={!kbForm.titre.trim() || !kbForm.contenu.trim()}
+                className="rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">Enregistrer</button>
+            </div>
+          </div>
+        )}
+
+        {kbEntries.length === 0 && !kbForm.open && stagedKind !== 'kb' ? (
+          <p className="px-3 py-3 text-xs text-gray-400">
+            Base vide. Téléversez votre fond documentaire (jurisprudences, conventions et circulaires, modes opératoires,
+            contacts utiles…) : converti en markdown ici même, chiffré, puis consulté par l'attaché à la demande
+            (kb_chercher / kb_lire) avant ses analyses et rédactions.
+          </p>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {kbEntries.map((e) => (
+              <div key={e.id} className="flex items-center gap-2 px-3 py-2">
+                <span className="w-32 flex-shrink-0 truncate rounded bg-gray-100 px-1.5 py-0.5 text-center text-[10px] font-medium text-gray-500" title={e.categorie}>{e.categorie}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-semibold text-gray-800">{e.titre}</div>
+                  <div className="truncate text-[10.5px] text-gray-400">
+                    {e.description || (e.source ? `depuis ${e.source}` : 'sans description')}
+                    {` · ${Math.round((e.contenu || '').length / 1000)} k`}
+                    {e.updatedAt ? ` · maj ${new Date(e.updatedAt).toLocaleDateString('fr-FR')}` : ''}
+                  </div>
+                </div>
+                <button onClick={() => setKbForm({ open: true, original: e.id, titre: e.titre, categorie: e.categorie, description: e.description || '', contenu: e.contenu })}
+                  title="Modifier" className="rounded-md p-1 text-gray-400 hover:bg-emerald-50 hover:text-[#2B5746]">
+                  <PenLine className="h-3.5 w-3.5" />
+                </button>
+                <button onClick={() => removeKbEntry(e.id)} title="Supprimer" className="rounded-md p-1 text-gray-400 hover:bg-red-50 hover:text-red-500">
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>

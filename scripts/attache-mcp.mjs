@@ -21,8 +21,9 @@ import {
 } from './attache/dossier.mjs'
 import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
-import { saveTrame, listTrames, readTrame } from './attache/trames.mjs'
+import { saveTrame, listTrames, readTrame, setTrameDescription } from './attache/trames.mjs'
 import { saveSkill, listSkills, readSkill } from './attache/skills.mjs'
+import { saveKbEntry, listKb, readKbEntry, searchKb, KB_CATEGORIES } from './attache/kb.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
 import { analyserReseau, listerLiens, rapprochementsInterDossiers } from './attache/carto.mjs'
@@ -252,6 +253,59 @@ const TOOLS = [
     description: 'Lit le contenu complet d\'une trame par son nom.',
     inputSchema: { type: 'object', properties: { nom: { type: 'string' } }, required: ['nom'] },
     handler: async (a) => readTrame(keys, a.nom) ?? { erreur: 'Trame inconnue — voir trames_lister' },
+  },
+  {
+    name: 'trame_decrire',
+    description: 'Met à jour la SEULE description d\'une trame (une phrase : type d\'acte, cadre juridique visé, quand l\'utiliser) — le contenu de la trame n\'est PAS touché. À utiliser pour classer les trames téléversées en masse.',
+    inputSchema: { type: 'object', properties: { nom: { type: 'string' }, description: { type: 'string' } }, required: ['nom', 'description'] },
+    handler: async (a) => setTrameDescription(keys, a.nom, a.description),
+    write: true,
+  },
+  {
+    name: 'kb_lister',
+    description: 'Sommaire de la base de connaissances du magistrat (son fond documentaire : jurisprudences, circulaires, modes opératoires, fiches, contacts) : id, titre, catégorie, description — jamais le contenu. Le sommaire figure aussi dans ton prompt système.',
+    inputSchema: { type: 'object', properties: { categorie: { type: 'string', description: 'Filtrer sur une catégorie' } } },
+    handler: async (a) => {
+      const all = listKb(keys)
+      return a?.categorie ? all.filter((e) => e.categorie === String(a.categorie).toLowerCase()) : all
+    },
+  },
+  {
+    name: 'kb_chercher',
+    description: 'Recherche plein-texte dans la base de connaissances (insensible casse/accents) : retourne les meilleures entrées avec un extrait autour de la première occurrence. Réflexe AVANT toute analyse juridique ou rédaction : chercher ici, puis kb_lire les entrées pertinentes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        requete: { type: 'string', description: 'Mots-clés (ex: géolocalisation prolongation 230-33)' },
+        categorie: { type: 'string' },
+        limite: { type: 'number' },
+      },
+      required: ['requete'],
+    },
+    handler: async (a) => searchKb(keys, a),
+  },
+  {
+    name: 'kb_lire',
+    description: 'Charge le contenu complet d\'une entrée de la base de connaissances par son id. Cite l\'entrée (id) quand tu t\'appuies dessus.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    handler: async (a) => readKbEntry(keys, a.id) ?? { erreur: 'Entrée inconnue — voir kb_lister / kb_chercher' },
+  },
+  {
+    name: 'kb_enregistrer',
+    description: `Enregistre ou met à jour une entrée de la base de connaissances (fond documentaire durable : extrait de jurisprudence, circulaire, mode opératoire, fiche, contacts). Catégories usuelles : ${KB_CATEGORIES.join(', ')} (champ libre). À utiliser quand le magistrat dit « ajoute à la base de connaissances » ou transmet un contenu de référence durable. Versionnée à chaque réécriture.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        titre: { type: 'string' },
+        categorie: { type: 'string' },
+        description: { type: 'string', description: 'Une phrase : ce que contient l\'entrée et quand s\'en servir' },
+        contenu: { type: 'string', description: 'Le contenu complet, en markdown' },
+        source: { type: 'string', description: 'Provenance (fichier, référence, mail du magistrat…)' },
+      },
+      required: ['titre', 'categorie', 'contenu'],
+    },
+    handler: async (a) => saveKbEntry(keys, a),
+    write: true,
   },
   {
     name: 'skills_lister',
