@@ -168,7 +168,10 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       tjState?.active ?? null,
       tjState?.tjs ?? [],
     )
-    offlineMode.touchOfflineWindow()
+    // Garde la copie hors-ligne à jour tant qu'on se connecte normalement :
+    // repousse la fenêtre, rafraîchit les métadonnées et re-scelle le trousseau
+    // si les clés ont changé (sinon marque « à re-préparer »). Best-effort.
+    offlineMode.autoRefreshOffline().catch(() => {})
     setServicePass(''); setInviteCode(''); setPass1(''); setPass2('')
     if (offerKit) {
       // trousseau tout neuf : proposer le kit de récupération avant d'entrer
