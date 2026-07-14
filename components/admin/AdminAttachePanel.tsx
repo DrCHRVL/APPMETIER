@@ -137,6 +137,8 @@ export function AdminAttachePanel() {
       const data = await res.json().catch(() => ({}));
       setNotice(res.ok ? 'Clés remises — l\'attaché peut travailler.' : `Refusé : ${data.error || res.status}`);
       refresh();
+    } catch (e) {
+      setNotice(`Erreur inattendue : ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setWorking(null);
     }
@@ -146,9 +148,11 @@ export function AdminAttachePanel() {
     if (!window.confirm('Révoquer le trousseau de l\'attaché ?\nIl ne pourra plus rien déchiffrer, immédiatement. Les données ne sont pas touchées.')) return;
     setWorking('revoke');
     try {
-      await fetch('/api/attache/keyring', { method: 'DELETE' });
-      setNotice('Trousseau révoqué — l\'attaché est aveugle.');
+      const res = await fetch('/api/attache/keyring', { method: 'DELETE' });
+      setNotice(res.ok ? 'Trousseau révoqué — l\'attaché est aveugle.' : `Refusé : ${res.status}`);
       refresh();
+    } catch (e) {
+      setNotice(`Erreur inattendue : ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setWorking(null);
     }
