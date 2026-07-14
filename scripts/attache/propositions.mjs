@@ -14,12 +14,15 @@
 import crypto from 'node:crypto'
 import { attacheDir, ensureDir, atomicWrite, readJson, withFileLock } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
-import { ajouterMec, enregistrerActe, classerNote, getMecNoms, normalizeNom } from './dossier.mjs'
-import { appendLien } from './carto.mjs'
+import { ajouterMec, enregistrerActe, classerNote, getMecNoms, normalizeNom, creerDossier, dossierExiste } from './dossier.mjs'
+import { appendLien, appendDossierExNihilo, dossierExNihiloExiste } from './carto.mjs'
 import { audit } from './journal.mjs'
 
 const FILE = () => attacheDir('propositions.json')
-const TYPES = ['mec', 'acte', 'cr', 'lien']
+const TYPES = ['mec', 'acte', 'cr', 'lien', 'dossier', 'dossier_carto']
+// Types rattachés à un dossier EXISTANT (numéro requis). « dossier » porte le
+// numéro du dossier à créer ; « dossier_carto » est global (pas de numéro).
+const TYPES_DOSSIER = ['mec', 'acte', 'cr', 'lien']
 
 function load(keys) {
   const env = readJson(FILE(), null)
@@ -55,9 +58,32 @@ async function save(keys, propositions) {
  */
 export async function addProposition(keys, { numero, type, payload, source, titre }) {
   if (!TYPES.includes(type)) throw new Error(`Type inconnu : ${type}`)
-  if (!String(numero || '').trim()) throw new Error('Numéro de dossier requis')
   if (!payload || typeof payload !== 'object') throw new Error('Payload requis')
+  if (TYPES_DOSSIER.includes(type) && !String(numero || '').trim()) throw new Error('Numéro de dossier requis')
   const propositions = load(keys)
+
+  // Création d'un NOUVEAU dossier réel : le numéro EST celui à créer.
+  if (type === 'dossier') {
+    const num = String(payload.numero || numero || '').trim()
+    if (!num) throw new Error('Numéro (nom) du dossier requis')
+    if (dossierExiste(keys, num)) return { doublon: true, message: `Un dossier « ${num} » existe déjà — création NON déposée` }
+    const pendante = propositions.find((p) => p.statut === 'en_attente' && p.type === 'dossier'
+      && String(p.payload?.numero || p.numero).trim() === num)
+    if (pendante) return { doublon: true, message: 'Une création de ce dossier est déjà en attente' }
+    payload.numero = num
+    numero = num
+  }
+
+  // Création d'un dossier EX NIHILO sur la carte : global (pas de numéro).
+  if (type === 'dossier_carto') {
+    const lbl = String(payload.label || '').trim()
+    if (!lbl) throw new Error('Libellé du dossier requis')
+    if (dossierExNihiloExiste(keys, lbl)) return { doublon: true, message: `Un dossier ex nihilo « ${lbl} » existe déjà — création NON déposée` }
+    const pendante = propositions.find((p) => p.statut === 'en_attente' && p.type === 'dossier_carto'
+      && String(p.payload?.label || '').trim().toLowerCase() === lbl.toLowerCase())
+    if (pendante) return { doublon: true, message: 'Une création de ce dossier ex nihilo est déjà en attente' }
+    numero = ''
+  }
 
   if (type === 'mec') {
     const nom = String(payload.nom || '').trim()
@@ -90,6 +116,14 @@ export async function addProposition(keys, { numero, type, payload, source, titr
 }
 
 function defaultTitre(type, payload) {
+  if (type === 'dossier') {
+    const n = (Array.isArray(payload.misEnCause) ? payload.misEnCause.length : 0)
+    return `Nouveau dossier : ${payload.numero || '?'}${n ? ` — ${n} mis en cause` : ''}`
+  }
+  if (type === 'dossier_carto') {
+    const n = (Array.isArray(payload.misEnCause) ? payload.misEnCause.length : 0)
+    return `Dossier ex nihilo (carte) : ${payload.label || '?'}${n ? ` — ${n} personne(s)` : ''}`
+  }
   if (type === 'lien') return `Lien de renseignement : ${payload.sourceNom} ↔ ${payload.targetNom}${payload.label ? ` (${payload.label})` : ''}`
   if (type === 'mec') return `Nouveau mis en cause : ${payload.nom}${payload.role ? ` (${payload.role})` : ''}`
   if (type === 'acte') {
@@ -129,6 +163,10 @@ export async function decideProposition(keys, { id, action, par }) {
       applique = await classerNote(keys, { numero: prop.numero, ...prop.payload, enqueteur: auteur })
     } else if (prop.type === 'lien') {
       applique = await appendLien(keys, prop.payload)
+    } else if (prop.type === 'dossier') {
+      applique = await creerDossier(keys, prop.payload)
+    } else if (prop.type === 'dossier_carto') {
+      applique = await appendDossierExNihilo(keys, prop.payload)
     }
   }
 

@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig } from './modelOptions';
 
+import { NouveauxDossiersPropositions } from './NouveauxDossiersPropositions';
+
 type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
 
@@ -46,6 +48,9 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
   const [showMemory, setShowMemory] = useState(false);
   const [memoryText, setMemoryText] = useState('');
   const [memorySaving, setMemorySaving] = useState(false);
+  // Bumpé à la fin de chaque tour de chat : recharge les propositions de
+  // création de dossier (l'attaché a pu en déposer une pendant le run).
+  const [propositionsReload, setPropositionsReload] = useState(0);
   const streamRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -208,6 +213,7 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
       abortRef.current = null;
       loadConversations();
       loadFeed();
+      setPropositionsReload((n) => n + 1);
       scrollDown();
     }
   }, [input, busy, convId, cfg, scrollDown, loadConversations, loadFeed]);
@@ -337,6 +343,11 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
           )}
         </div>
       )}
+
+      {/* Propositions de création de dossier réel issues du chat (créées à la ✓). */}
+      <div className="px-4 pt-3 empty:hidden">
+        <NouveauxDossiersPropositions kinds={['dossier']} title="Proposition de dossier" reloadSignal={propositionsReload} />
+      </div>
 
       {/* Messages */}
       <div ref={streamRef} className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
