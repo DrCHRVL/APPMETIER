@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import {
   Search, Loader, CheckCircle, XCircle, AlertTriangle, Phone, MapPin,
-  FileText, ChevronDown, ChevronUp, Eye, EyeOff, ArrowRight, Info, Shield
+  FileText, ChevronDown, ChevronUp, Eye, EyeOff, ArrowRight, Info, Shield,
+  Sparkles, Cpu
 } from 'lucide-react';
 import { Enquete } from '@/types/interfaces';
 import { ServerDocumentScanner, ParsedActe, AnalysisResult, ScannedDocument, AlerteDocumentManquant } from '@/utils/documents/ServerDocumentScanner';
@@ -40,21 +41,55 @@ export const AnalyseDocumentsModal = ({
   const [showAlertes, setShowAlertes] = useState(true);
   const [scanError, setScanError] = useState<string | null>(null);
   const [showVerification, setShowVerification] = useState(false);
+  // Moteur d'analyse : IA (Claude de l'attaché, admin uniquement) ou classique
+  // (heuristiques regex). L'IA est le défaut dès qu'elle est disponible.
+  const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
+  const [engine, setEngine] = useState<'ia' | 'regex'>('ia');
+  const aiAvailableRef = useRef(false);
+  const engineRef = useRef<'ia' | 'regex'>('ia');
+  useEffect(() => { engineRef.current = engine; }, [engine]);
 
   const { showToast } = useToast();
 
-  // Reset on open (+ analyse immédiate si documents pré-extraits)
+  // Reset on open : sonde la disponibilité de l'IA, puis lance l'analyse
+  // immédiate si des documents ont été pré-extraits (téléversement).
   useEffect(() => {
-    if (isOpen) {
-      setPhase('idle');
-      setResult(null);
-      setSelectedActes(new Set());
-      setExpandedDetails(new Set());
-      setScanError(null);
+    if (!isOpen) return;
+    setPhase('idle');
+    setResult(null);
+    setSelectedActes(new Set());
+    setExpandedDetails(new Set());
+    setScanError(null);
+    let cancelled = false;
+    (async () => {
+      const ok = await ServerDocumentScanner.isAIAvailable();
+      if (cancelled) return;
+      aiAvailableRef.current = ok;
+      setAiAvailable(ok);
       if (precomputedDocs && precomputedDocs.length > 0) startAnalysis();
-    }
+    })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+
+  /**
+   * Choisit le moteur et exécute l'analyse. IA par défaut (repli automatique
+   * sur le moteur classique en cas d'indisponibilité ou d'erreur du service).
+   */
+  const analyzeDocs = useCallback(async (docs: ScannedDocument[]): Promise<AnalysisResult> => {
+    const useAI = engineRef.current === 'ia' && aiAvailableRef.current;
+    if (useAI) {
+      setProgress(`Analyse IA de ${docs.length} document(s) — lecture des actes et de la chaîne légale…`);
+      try {
+        return await ServerDocumentScanner.analyzeExternalDocumentsAI(enquete, docs);
+      } catch (error) {
+        console.warn('Analyse IA indisponible, repli sur le moteur classique:', error);
+        showToast('Analyse IA indisponible — repli sur l\'analyse classique', 'warning');
+        setProgress(`Analyse classique de ${docs.length} document(s)…`);
+      }
+    }
+    return ServerDocumentScanner.analyzeExternalDocuments(enquete, docs);
+  }, [enquete, showToast]);
 
   // Lancer l'analyse
   const startAnalysis = useCallback(async () => {
@@ -64,7 +99,7 @@ export const AnalyseDocumentsModal = ({
       setProgress(`Analyse de ${precomputedDocs.length} PDF en cours...`);
       setScanError(null);
       try {
-        const analysisResult = await ServerDocumentScanner.analyzeExternalDocuments(enquete, precomputedDocs);
+        const analysisResult = await analyzeDocs(precomputedDocs);
         const preSelected = new Set<number>();
         analysisResult.actesDetectes.forEach((acte, index) => {
           if (acte.confidence >= 0.6 && acte.errors.length === 0 && !acte.correctionPossible) preSelected.add(index);
@@ -140,12 +175,9 @@ export const AnalyseDocumentsModal = ({
       setPhase('analyzing');
       setProgress(`Analyse de ${scanResult.documents.length} PDF en cours...`);
 
-      // 2. Analyser les documents
+      // 2. Analyser les documents (IA si disponible, sinon moteur classique)
       const scannedDocs: ScannedDocument[] = scanResult.documents;
-      const analysisResult = await ServerDocumentScanner.analyzeExternalDocuments(
-        enquete,
-        scannedDocs
-      );
+      const analysisResult = await analyzeDocs(scannedDocs);
 
       // Ajouter les infos de dossiers scannés
       analysisResult.stats.foldersScanned = scanResult.foldersScanned;
@@ -191,7 +223,7 @@ export const AnalyseDocumentsModal = ({
       showToast('Erreur lors de l\'analyse des documents', 'error');
       setPhase('idle');
     }
-  }, [precomputedDocs, enquete]);
+  }, [precomputedDocs, enquete, analyzeDocs, showToast]);
 
   // Appliquer les actes sélectionnés
   const handleApply = useCallback(() => {
@@ -334,8 +366,45 @@ export const AnalyseDocumentsModal = ({
           <DialogTitle className="flex items-center gap-2">
             <Search className="h-5 w-5" />
             Analyse automatique des documents
+            {aiAvailable && engine === 'ia' && (
+              <Badge className="ml-1 bg-violet-100 text-violet-700 border border-violet-200 gap-1 text-xs">
+                <Sparkles className="h-3 w-3" /> IA
+              </Badge>
+            )}
           </DialogTitle>
         </DialogHeader>
+
+        {/* ── Sélecteur de moteur (admin, attaché actif) ── */}
+        {aiAvailable && phase === 'idle' && (
+          <div className="flex items-center justify-between rounded-lg border border-violet-200/70 bg-violet-50/50 px-3 py-2">
+            <div className="flex items-center gap-2 text-xs text-violet-800">
+              <Sparkles className="h-3.5 w-3.5 text-violet-600" />
+              <span className="font-medium">Analyse assistée par l&apos;IA</span>
+              <span className="text-violet-500/80 hidden sm:inline">— lecture fine des actes et de la chaîne légale, réservée à l&apos;administrateur</span>
+            </div>
+            <div className="flex items-center gap-1 rounded-md bg-white border border-violet-200 p-0.5">
+              <button
+                type="button"
+                onClick={() => setEngine('ia')}
+                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
+                  engine === 'ia' ? 'bg-violet-600 text-white' : 'text-violet-700 hover:bg-violet-50'
+                }`}
+              >
+                <Sparkles className="h-3 w-3" /> IA
+              </button>
+              <button
+                type="button"
+                onClick={() => setEngine('regex')}
+                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
+                  engine === 'regex' ? 'bg-gray-700 text-white' : 'text-gray-600 hover:bg-gray-50'
+                }`}
+                title="Analyse par règles (heuristiques), sans IA"
+              >
+                <Cpu className="h-3 w-3" /> Classique
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── Phase idle ── */}
         {phase === 'idle' && (
@@ -350,6 +419,12 @@ export const AnalyseDocumentsModal = ({
                     <li>Extraire les données clés : cibles, durées, dates, tribunal</li>
                     <li>Vérifier les doublons avec les actes existants</li>
                     <li>Proposer la création automatique des actes (après votre validation)</li>
+                    {aiAvailable && engine === 'ia' && (
+                      <li className="text-violet-700">
+                        <strong>Mode IA</strong> : lecture fine des ordonnances (formats atypiques, OCR bruité) et
+                        évaluation de la chaîne légale par le modèle Claude de l&apos;attaché.
+                      </li>
+                    )}
                   </ul>
                   <p className="text-xs mt-2">
                     Tous les sous-dossiers seront scannés (y compris les dossiers en double comme "Geoloc" et "Géoloc").
@@ -417,10 +492,27 @@ export const AnalyseDocumentsModal = ({
               </div>
             </div>
 
-            {/* Dossiers scannés */}
-            <p className="text-xs text-gray-500">
-              Dossiers scannés : {result.stats.foldersScanned.join(', ')}
-            </p>
+            {/* Dossiers scannés + moteur utilisé */}
+            <div className="flex items-center justify-between flex-wrap gap-1">
+              <p className="text-xs text-gray-500">
+                Dossiers scannés : {result.stats.foldersScanned.join(', ')}
+              </p>
+              <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${
+                result.analyzedBy === 'ia' ? 'text-violet-600' : 'text-gray-400'
+              }`}>
+                {result.analyzedBy === 'ia'
+                  ? <><Sparkles className="h-3 w-3" /> Analysé par l&apos;IA</>
+                  : <><Cpu className="h-3 w-3" /> Analyse classique</>}
+              </span>
+            </div>
+
+            {/* Synthèse de l'IA */}
+            {result.analyzedBy === 'ia' && result.iaResume && (
+              <div className="flex items-start gap-2 rounded-lg border border-violet-200 bg-violet-50/60 p-3">
+                <Sparkles className="h-4 w-4 text-violet-600 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-violet-900 leading-relaxed">{result.iaResume}</p>
+              </div>
+            )}
 
             {/* ─── 1. Nouveaux actes détectés ─── */}
             {nouveauxActes.length > 0 && (
@@ -491,6 +583,12 @@ export const AnalyseDocumentsModal = ({
 
                       {expandedDetails.has(index) && (
                         <div className="mt-3 ml-7 space-y-2 text-xs border-t pt-2">
+                          {acte.motif && (
+                            <div className="flex items-start gap-1.5 rounded bg-violet-50 border border-violet-100 p-2">
+                              <Sparkles className="h-3 w-3 text-violet-500 mt-0.5 flex-shrink-0" />
+                              <p className="text-violet-800"><span className="font-medium">Analyse IA :</span> {acte.motif}</p>
+                            </div>
+                          )}
                           <p><span className="font-medium">Fichier :</span> {acte.source.fileName}</p>
                           <p><span className="font-medium">Chemin :</span> <span className="text-muted-foreground break-all">{acte.source.filePath}</span></p>
                           <p><span className="font-medium">Dossier :</span> {acte.source.sourceFolder}</p>
@@ -628,6 +726,12 @@ export const AnalyseDocumentsModal = ({
 
                       {expandedDetails.has(index) && (
                         <div className="mt-3 ml-7 space-y-2 text-xs border-t border-orange-200 pt-2">
+                          {acte.motif && (
+                            <div className="flex items-start gap-1.5 rounded bg-violet-50 border border-violet-100 p-2">
+                              <Sparkles className="h-3 w-3 text-violet-500 mt-0.5 flex-shrink-0" />
+                              <p className="text-violet-800"><span className="font-medium">Analyse IA :</span> {acte.motif}</p>
+                            </div>
+                          )}
                           <p><span className="font-medium">Fichier :</span> {acte.source.fileName}</p>
                           <p><span className="font-medium">Chemin :</span> <span className="text-muted-foreground break-all">{acte.source.filePath}</span></p>
                           {acte.numeroPV && <p><span className="font-medium">N° PV :</span> {acte.numeroPV}</p>}
@@ -681,6 +785,11 @@ export const AnalyseDocumentsModal = ({
                   {showAlertes ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                   <AlertTriangle className="h-4 w-4" />
                   {result.alertes.length} document(s) manquant(s) dans la chaîne légale
+                  {result.analyzedBy === 'ia' && (
+                    <Badge className="ml-1 bg-violet-100 text-violet-700 border border-violet-200 gap-1 text-[10px] px-1.5 py-0">
+                      <Sparkles className="h-2.5 w-2.5" /> IA
+                    </Badge>
+                  )}
                 </button>
                 {showAlertes && (
                   <div className="ml-5 space-y-1 text-xs bg-orange-50 border border-orange-200 rounded-lg p-3">
