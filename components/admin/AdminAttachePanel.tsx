@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, Library, UploadCloud, AlertTriangle } from 'lucide-react';
-import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig } from '../attache/modelOptions';
+import { MODEL_OPTIONS, EFFORT_OPTIONS, SUBMODEL_OPTIONS, AttacheConfig, saveAttacheConfig } from '../attache/modelOptions';
 import { fileToMarkdown, titreDepuisFichier } from '@/lib/web/fileToMarkdown';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
@@ -668,6 +668,14 @@ export function AdminAttachePanel() {
             title="Niveau d'effort de raisonnement"
           >
             {EFFORT_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+          <select
+            value={config.subModel || ''}
+            onChange={(e) => updateConfig({ subModel: e.target.value })}
+            className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-[#2B5746]/50"
+            title="Modèle des sous-agents (lots parallèles : analyse de PDF, balayage du brief, trames) — un modèle rapide suffit souvent"
+          >
+            {SUBMODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
           <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-gray-700">
             <input

@@ -11,9 +11,11 @@
  * les clients web fusionnent proprement (le plus récent gagne, par enquête).
  */
 import { createRequire } from 'node:module'
+import crypto from 'node:crypto'
 import {
   attacheTj, attacheContentieux, readVault, writeVault,
   listDocsMeta, readDocBlob, docServerKey,
+  attacheDir, readJson, atomicWrite,
 } from './store.mjs'
 import { encryptJson, decryptJson, decryptDocBlob } from './crypto.mjs'
 
@@ -170,7 +172,49 @@ export function dossierMarkdown(keys, numero) {
   return parts.join('\n').slice(0, 380_000)
 }
 
-/** Texte d'un document chiffré du dossier (PDF → texte, txt/html bruts). */
+// ── Cache markdown des documents ──
+// Les PDF déposés au dossier sont des ORIGINAUX (souvent signés
+// numériquement) : ils ne sont JAMAIS modifiés ni remplacés. Pour épargner
+// une ré-extraction à chaque lecture (CPU + tokens), le texte extrait est
+// mis en cache dans attache/doccache/ — une enveloppe chiffrée (clé globale)
+// par document, indexée par le hash du blob : si le PDF change, le cache
+// est régénéré ; le répertoire des documents, synchronisé avec le commun,
+// n'est pas touché.
+
+function docCachePath(enqueteKey, cheminRelatif) {
+  const h = crypto.createHash('sha256').update(enqueteKey + '\n' + cheminRelatif).digest('hex').slice(0, 32)
+  return attacheDir('doccache', h + '.json')
+}
+
+function readDocCache(keys, enqueteKey, cheminRelatif, blobHash) {
+  const env = readJson(docCachePath(enqueteKey, cheminRelatif), null)
+  if (!env) return null
+  try {
+    const c = decryptJson(keys.global, env)
+    return c.blobHash === blobHash ? c : null
+  } catch { return null }
+}
+
+function writeDocCache(keys, enqueteKey, cheminRelatif, blobHash, texte) {
+  const record = { chemin: cheminRelatif, blobHash, texte, extraitLe: new Date().toISOString() }
+  atomicWrite(docCachePath(enqueteKey, cheminRelatif), JSON.stringify(encryptJson(keys.global, record)))
+}
+
+/** Nettoyage du texte extrait d'un PDF : dé-hyphénation, lignes vides en rafale. */
+function tidyPdfText(text) {
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/([a-zà-ÿ])-\n([a-zà-ÿ])/g, '$1$2')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/**
+ * Texte d'un document chiffré du dossier (PDF → texte, txt/html bruts).
+ * L'extraction PDF n'a lieu qu'UNE fois : le résultat est mis en cache
+ * (voir ci-dessus) — l'original PDF reste intact sur le serveur.
+ */
 export async function readDocumentText(keys, numero, cheminRelatif) {
   const key = docServerKey(numero)
   const blob = readDocBlob(attacheTj(), key, cheminRelatif)
@@ -178,20 +222,27 @@ export async function readDocumentText(keys, numero, cheminRelatif) {
     const known = listDocsMeta(attacheTj(), key).map((d) => d.rel)
     return { ok: false, error: 'Document introuvable', disponibles: known.slice(0, 60) }
   }
-  const plain = decryptDocBlob(keys.global, blob)
-  if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }
   const lower = cheminRelatif.toLowerCase()
   if (lower.endsWith('.pdf')) {
+    const blobHash = crypto.createHash('sha256').update(blob).digest('hex')
+    const cached = readDocCache(keys, key, cheminRelatif, blobHash)
+    if (cached) return { ok: true, texte: cached.texte, cache: true }
+    const plain = decryptDocBlob(keys.global, blob)
+    if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }
     try {
       // import direct de l'implémentation : le point d'entrée de pdf-parse
       // exécute un bloc de debug quand il se croit lancé en script
       const pdfParse = require('pdf-parse/lib/pdf-parse.js')
       const parsed = await pdfParse(plain)
-      return { ok: true, texte: String(parsed.text || '').slice(0, 200_000) }
+      const texte = tidyPdfText(parsed.text).slice(0, 200_000)
+      try { writeDocCache(keys, key, cheminRelatif, blobHash, texte) } catch { /* cache facultatif */ }
+      return { ok: true, texte }
     } catch (e) {
       return { ok: false, error: 'Extraction PDF échouée : ' + (e?.message || e) }
     }
   }
+  const plain = decryptDocBlob(keys.global, blob)
+  if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }
   if (/\.(txt|html?|md|csv|json|eml)$/.test(lower)) {
     return { ok: true, texte: stripHtml(plain.toString('utf8')).slice(0, 200_000) }
   }

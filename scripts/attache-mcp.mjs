@@ -24,6 +24,7 @@ import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/
 import { saveTrame, listTrames, readTrame, setTrameDescription } from './attache/trames.mjs'
 import { saveSkill, listSkills, readSkill } from './attache/skills.mjs'
 import { saveKbEntry, listKb, readKbEntry, searchKb, KB_CATEGORIES } from './attache/kb.mjs'
+import { runSubagents } from './attache/subagents.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
 import { analyserReseau, listerLiens, rapprochementsInterDossiers } from './attache/carto.mjs'
@@ -33,6 +34,9 @@ import { listInbox, readInboxMessage, markInboxProcessed, sendToOwner } from './
 
 const keys = loadKeyring()
 const runContext = process.env.SIRAL_ATTACHE_RUN || 'chat'
+// Mode sous-agent : lancé par l'outil sous_agents — LECTURE SEULE (aucun
+// outil d'écriture, pas de sous_agents imbriqué : pas de récursion possible).
+const IS_SUBAGENT = process.env.SIRAL_ATTACHE_SUBAGENT === '1'
 
 // ── Définition des outils ──
 const TOOLS = [
@@ -472,6 +476,40 @@ const TOOLS = [
     write: true,
   },
   {
+    name: 'sous_agents',
+    description: 'Délègue un LOT de sous-tâches INDÉPENDANTES à des sous-agents Claude exécutés EN PARALLÈLE (24 max par lot). Chaque tâche = { titre, consigne } — la consigne doit être AUTONOME (numéro de dossier, chemin du document, attendu, format de réponse) : le sous-agent ne voit pas ta conversation. Ils ont les mêmes outils de LECTURE que toi mais AUCUNE écriture : leurs analyses te reviennent, c\'est toi qui agis. Idéal : analyser chaque PDF d\'un dossier, balayer chaque dossier du brief, évaluer chaque trame d\'un lot. Inutile pour une tâche unique ou des étapes dépendantes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taches: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              titre: { type: 'string', description: 'Étiquette courte (ex: dossier 24/123, PV D8092.pdf)' },
+              consigne: { type: 'string', description: 'La sous-tâche complète et autonome' },
+            },
+            required: ['titre', 'consigne'],
+          },
+        },
+        contexte: { type: 'string', description: 'Contexte commun donné à TOUS les sous-agents (optionnel)' },
+        modele: { type: 'string', description: 'Modèle pour ce lot (sinon réglage « sous-agents » du panneau)' },
+        effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max'] },
+      },
+      required: ['taches'],
+    },
+    handler: async (a) => {
+      const results = await runSubagents(a)
+      await audit(keys, 'sous_agents', {
+        contexte: runContext,
+        nb: results.length,
+        ok: results.filter((r) => r.ok).length,
+        titres: results.map((r) => r.titre).join(' · ').slice(0, 500),
+      }).catch(() => {})
+      return results
+    },
+  },
+  {
     name: 'signaler',
     description: 'Publie une carte dans le fil « pendant votre absence » du panneau : ce qui a été préparé, à relire. type: mail_traite | synthese | acte | prolongation | projet_reponse | alerte | note.',
     inputSchema: {
@@ -512,11 +550,14 @@ rl.on('line', async (line) => {
     }
     if (method === 'notifications/initialized' || method === 'notifications/cancelled') return
     if (method === 'ping') return reply({})
+    // En mode sous-agent, seuls les outils de lecture existent : les
+    // écritures et sous_agents (récursion) ne sont ni listés ni appelables.
+    const availableTools = IS_SUBAGENT ? TOOLS.filter((t) => !t.write && t.name !== 'sous_agents') : TOOLS
     if (method === 'tools/list') {
-      return reply({ tools: TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) })
+      return reply({ tools: availableTools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) })
     }
     if (method === 'tools/call') {
-      const tool = TOOLS.find((t) => t.name === params?.name)
+      const tool = availableTools.find((t) => t.name === params?.name)
       if (!tool) return fail(-32602, `Outil inconnu : ${params?.name}`)
       if (!keys) {
         return reply({ content: [{ type: 'text', text: JSON.stringify({ erreur: 'Trousseau non remis ou révoqué : demander à l\'administrateur de remettre les clés.' }) }], isError: true })

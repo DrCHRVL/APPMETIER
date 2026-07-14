@@ -31,6 +31,27 @@ l'usage).
   d'effort** de raisonnement (faible → maximal), depuis le composer du chat
   ou Paramètres → Attaché IA (section « Cerveau »). Le réglage est persisté
   et vaut pour TOUS les runs : chat, mails transférés, brief, routines.
+  S'y règle aussi le **modèle des sous-agents** (un modèle rapide — Sonnet,
+  Haiku — suffit souvent pour les lots).
+- **Travaille en parallèle (sous-agents)** : pour un lot de sous-tâches
+  indépendantes — analyser les 20 PDF d'un dossier, balayer chaque dossier
+  du brief quotidien, évaluer un lot de trames — l'attaché délègue à des
+  **sous-agents Claude exécutés en parallèle** (outil `sous_agents`, 24
+  tâches max, concurrence bornée, timeout par tâche : un document illisible
+  ne bloque pas le lot). Garde-fous : les sous-agents sont en **lecture
+  seule** (aucun outil d'écriture, pas de mail, pas de sous-agents
+  imbriqués) — seul l'agent principal écrit, propose et signale, et chaque
+  lot est journalisé dans l'audit. Réglages : concurrence
+  `SIRAL_ATTACHE_SUBAGENT_CONCURRENCY` (défaut 3), timeout
+  `SIRAL_ATTACHE_SUBAGENT_TIMEOUT_MIN` (défaut 8 min).
+- **Ne ré-extrait jamais deux fois un PDF** : les documents déposés au
+  dossier sont des **originaux** (souvent signés numériquement) — ils ne
+  sont JAMAIS modifiés ni remplacés. À la première lecture d'un PDF,
+  l'attaché met le texte extrait en **cache chiffré** (`attache/doccache/`,
+  indexé par le hash du fichier) : les relectures sont instantanées et
+  n'usent plus ni CPU ni tokens ; si le PDF change, le cache se régénère
+  tout seul. Le répertoire des documents, synchronisé avec le commun
+  Windows, n'est pas touché.
 - **Suit vos consignes permanentes** : un « prompt » libre, rédigé par le
   magistrat (Paramètres → Attaché IA → « Consignes permanentes » — l'équivalent
   de vos instructions Claude web : style, méthode, réflexes), relu au début de

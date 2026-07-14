@@ -52,13 +52,14 @@ export function sanitizeEffort(value) {
   return EFFORT_LEVELS.has(v) ? v : ''
 }
 
-/** Configuration persistée (Paramètres → Attaché IA) : modèle, effort, web. */
+/** Configuration persistée (Paramètres → Attaché IA) : modèle, effort, web, sous-agents. */
 export function agentConfig() {
   const cfg = readState().config || {}
   return {
     model: sanitizeModel(cfg.model),
     effort: sanitizeEffort(cfg.effort),
     webAccess: cfg.webAccess === true,
+    subModel: sanitizeModel(cfg.subModel),
   }
 }
 
@@ -112,6 +113,8 @@ export function systemPrompt(keys) {
     '- lien de renseignement entre deux personnes repéré dans une pièce (communications récurrentes, fratrie, fournisseur/logistique) et absent de la carte → proposer_lien (vérifie carto_lister_liens avant). Enrichit la cartographie une fois validé.',
     'L\'écriture DIRECTE (enregistrer_acte, classer_note, ajouter todo) reste réservée aux instructions EXPLICITES du magistrat en conversation, et au traitement des mails qu\'il te transfère (son transfert vaut instruction).',
     '',
+    'SOUS-AGENTS (sous_agents) — travail en parallèle : pour un LOT de sous-tâches indépendantes (analyser chaque PDF d\'un dossier, balayer chaque dossier du brief, évaluer chaque trame téléversée), délègue à des sous-agents exécutés en parallèle plutôt que de tout faire séquentiellement — c\'est plus rapide et un document illisible ne bloque pas le reste. Une tâche = un titre + une consigne AUTONOME (le sous-agent ne voit pas ta conversation : donne-lui le numéro de dossier, le chemin du document, ce que tu attends et le format de réponse). Les sous-agents sont en LECTURE SEULE : c\'est TOI qui écris, proposes et signales à partir de leurs analyses. N\'y recours pas pour une tâche unique ou des étapes dépendantes.',
+    '',
     'CARTOGRAPHIE — aide à voir les connexions : carto_analyser donne les figures centrales, les ponts entre affaires et les co-occurrences. carto_rapprochements repère les entités partagées (téléphone, plaque, IBAN, adresse) entre dossiers SANS mis en cause commun — des ponts inédits entre affaires : pour chacun de pertinent, propose un lien de renseignement entre un MEC de chaque dossier (proposer_lien, entité en source). Écarte les faux positifs (numéro de service, banque). Suggère, ne trace jamais d\'office.',
     'DISSIMULATION : tes écritures et CR sont signés du nom du magistrat — tu n\'existes nulle part dans les données partagées. Ne te désigne jamais (« Attaché IA », « assistant ») dans un CR, une description ou une note versée au dossier.',
     ...(consignes ? [
@@ -151,8 +154,12 @@ async function saveConversation(keys, conv) {
   await writeEnvelopeFile(path.join('conversations', conv.id + '.json'), env)
 }
 
-/** Fichier de configuration MCP consommé par le CLI (régénéré à chaque run). */
-function writeMcpConfig() {
+/**
+ * Fichier de configuration MCP consommé par le CLI (régénéré à chaque run).
+ * `extraEnv` s'ajoute à l'environnement du serveur MCP — utilisé par les
+ * sous-agents (SIRAL_ATTACHE_SUBAGENT=1 : outils d'écriture désactivés).
+ */
+export function writeMcpConfig(extraEnv = {}, fileName = 'mcp-config.json') {
   const cfg = {
     mcpServers: {
       siral: {
@@ -177,12 +184,13 @@ function writeMcpConfig() {
           SIRAL_ATTACHE_IMAP_PASSWORD: process.env.SIRAL_ATTACHE_IMAP_PASSWORD || '',
           SIRAL_ATTACHE_FROM: process.env.SIRAL_ATTACHE_FROM || '',
           SIRAL_ATTACHE_RUN: process.env.SIRAL_ATTACHE_RUN || 'chat',
+          ...extraEnv,
         },
       },
     },
   }
   ensureDir(attacheDir('workdir'))
-  const p = attacheDir('workdir', 'mcp-config.json')
+  const p = attacheDir('workdir', fileName)
   atomicWrite(p, JSON.stringify(cfg))
   return p
 }
@@ -243,7 +251,13 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
   return new Promise((resolve) => {
     const child = spawn(CLAUDE_BIN, args, {
       cwd,
-      env: { ...process.env, SIRAL_ATTACHE_RUN: runLabel },
+      env: {
+        ...process.env,
+        SIRAL_ATTACHE_RUN: runLabel,
+        // sous_agents peut travailler plusieurs minutes (lot de PDF, brief) :
+        // le timeout d'outil MCP du CLI doit couvrir le lot entier.
+        MCP_TOOL_TIMEOUT: process.env.MCP_TOOL_TIMEOUT || '1200000',
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
 

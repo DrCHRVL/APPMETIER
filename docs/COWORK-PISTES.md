@@ -200,7 +200,7 @@ Priorité **moyenne** (le socle existe, c'est de l'enrichissement).
 |---|---|---|---|---|---|
 | 1 | **Convertisseur → md au téléversement** (PDF, ODT, DOCX — dans le navigateur) | Débloque tout, ↓ place & tokens | Moyen | 🔴 Haute | ✅ Fait |
 | 2 | **Base de connaissances** (LLM-wiki + `kb_*`, téléversement en masse) | Fond juridique réutilisable | Moyen | 🔴 Haute | ✅ Fait |
-| 3 | **Subagents** (brief + analyse docs en parallèle) | ↓ latence, ↑ robustesse | Moyen-élevé | 🔴 Haute | À faire |
+| 3 | **Subagents** (`sous_agents` : lots parallèles lecture seule, brief + trames câblés) | ↓ latence, ↑ robustesse | Moyen-élevé | 🔴 Haute | ✅ Fait |
 | 4 | **Trames** : téléversement en masse + analyse IA (classement, propositions d'amélioration) | Bibliothèque vivante | Faible-moyen | 🟠 Moyenne | ✅ Fait (variables/gabarits : à faire) |
 | 5 | **Projets/dossiers persistants** enrichis | Continuité du travail | Faible | 🟢 Basse | À faire |
 | 6 | **Citations systématiques** | Confiance / vérifiabilité | Faible | 🟢 Basse | Partiel (règle de prompt) |

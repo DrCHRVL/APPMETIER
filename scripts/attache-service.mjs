@@ -110,9 +110,11 @@ const BRIEFING_HOUR = Math.min(23, Math.max(0, Number(process.env.SIRAL_ATTACHE_
 
 function briefingPrompt() {
   return [
-    'C\'est l\'heure du brief quotidien du magistrat. Balaye TOUS les dossiers en cours (lister_dossiers,',
-    'verifier_completude sur chacun, lire_dossier quand un point mérite le contexte) et prépare son tableau',
-    'de bord via majordome_publier :',
+    'C\'est l\'heure du brief quotidien du magistrat. Balaye TOUS les dossiers en cours et prépare son tableau',
+    'de bord via majordome_publier. MÉTHODE : lister_dossiers, puis DÉLÈGUE le balayage à des sous-agents en',
+    'parallèle (sous_agents — un lot de tâches, une par dossier ou par petit groupe : chaque consigne donne le',
+    'numéro et demande verifier_completude + diagnostic_dossier + les points saillants, réponse télégraphique).',
+    'Tu synthétises leurs analyses et c\'est TOI qui publies (eux ne peuvent pas écrire) :',
     '1. echeance — actes expirant sous 15 jours, attentes JLD qui traînent, CR anciens : dis QUOI préparer et POUR QUAND.',
     '2. projet_mail — pour chaque dossier qui le justifie, le mail prêt à coller au directeur d\'enquête',
     '   (demande de requête pour prolongation, point d\'étape, actualisation, envoi du dossier pour relecture).',
@@ -208,10 +210,13 @@ async function runTrameAnalyse(noms) {
     console.log(`[attache] analyse de ${noms.length} trame(s) téléversée(s)`)
     const prompt = [
       `Le magistrat vient de téléverser ${noms.length} trame(s) dans sa bibliothèque : ${noms.join(', ')}.`,
-      'Pour CHACUNE, dans l\'ordre :',
-      '1. Lis-la intégralement (trame_lire).',
-      '2. Comprends-en le sens et CLASSE-la : rédige sa description en une phrase — type d\'acte (ST, ddeJLD, autorisation, saisine…), cadre juridique (articles visés, régime 706-80 ou non), quand l\'utiliser — et enregistre-la avec trame_decrire (qui ne touche PAS au contenu).',
-      '3. Évalue-la : solidité juridique (fondements cités encore en vigueur, mentions obligatoires, points de fragilité procédurale) et structure (plan, clarté, champs à compléter, doublons avec une autre trame de la bibliothèque).',
+      'MÉTHODE : si le lot dépasse 3 trames, DÉLÈGUE lecture et évaluation à des sous-agents en parallèle',
+      '(sous_agents — une tâche par trame : « lis la trame X (trame_lire) et livre : (a) classification en une',
+      'phrase — type d\'acte, cadre juridique, articles visés, régime 706-80 ou non, quand l\'utiliser ; (b) analyse',
+      'de solidité juridique et de structure »). Sinon traite-les toi-même une à une.',
+      'Puis, à partir de ces analyses, pour CHAQUE trame :',
+      '1. Enregistre sa classification avec trame_decrire (qui ne touche PAS au contenu).',
+      '2. Retiens ses points d\'amélioration : solidité juridique (fondements cités encore en vigueur, mentions obligatoires, points de fragilité procédurale) et structure (plan, clarté, champs à compléter, doublons avec une autre trame de la bibliothèque).',
       'À LA FIN, un SEUL signaler (type note, titre « Trames téléversées : classement et propositions ») : pour chaque trame, sa classification retenue et tes propositions d\'amélioration LÉGALE ou STRUCTURELLE, concrètes et hiérarchisées (ce qui fragilise l\'acte d\'abord).',
       'RÈGLE STRICTE : tu ne MODIFIES JAMAIS le contenu d\'une trame — tu proposes, le magistrat décide. Seule la description (classement) est mise à jour via trame_decrire.',
       'Si le corpus de la base de connaissances (kb_chercher) éclaire une trame (circulaire, jurisprudence), appuie tes propositions dessus et cite l\'entrée.',
@@ -302,6 +307,7 @@ const server = http.createServer(async (req, res) => {
         model: 'model' in body ? sanitizeModel(body.model) : current.model,
         effort: 'effort' in body ? sanitizeEffort(body.effort) : current.effort,
         webAccess: 'webAccess' in body ? body.webAccess === true : current.webAccess,
+        subModel: 'subModel' in body ? sanitizeModel(body.subModel) : current.subModel,
       }
       await writeState({ config })
       const keys = loadKeyring()
