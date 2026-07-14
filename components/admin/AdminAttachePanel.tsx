@@ -11,10 +11,21 @@
  * - Journal d'audit : chaque action de l'attaché, déchiffrée ici.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus } from 'lucide-react';
+import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine } from 'lucide-react';
+import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig } from '../attache/modelOptions';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
-const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
+const eapi = () => (window as unknown as { electronAPI?: Record<string, AnyFn> }).electronAPI;
+
+/** Fonction du pont web/Electron — erreur claire si le bundle est périmé. */
+function bridgeFn(name: string): AnyFn {
+  const api = eapi();
+  const fn = api?.[name];
+  if (typeof fn !== 'function') {
+    throw new Error(`fonction « ${name} » indisponible — rechargez l'application (Ctrl+Maj+R) après mise à jour`);
+  }
+  return fn;
+}
 
 interface AuditEntry { action: string; at?: string; outil?: string; contexte?: string; [k: string]: unknown }
 
@@ -42,18 +53,36 @@ export function AdminAttachePanel() {
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [showRoutineForm, setShowRoutineForm] = useState(false);
   const [rForm, setRForm] = useState({ nom: '', prompt: '', heure: '07:00', mode: 'heure' as 'heure' | 'intervalle', intervalleHeures: 4 });
+  const [config, setConfig] = useState<AttacheConfig>({});
+  const [showInstructions, setShowInstructions] = useState(false);
+  const [instructions, setInstructions] = useState('');
+  const [instructionsSaving, setInstructionsSaving] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/attache/status');
-      setStatus(res.ok ? await res.json() : { unavailable: true, code: res.status });
+      if (res.ok) {
+        const data = await res.json();
+        setStatus(data);
+        setConfig(data.config || {});
+      } else {
+        setStatus({ unavailable: true, code: res.status });
+      }
     } catch {
       setStatus({ unavailable: true });
     } finally {
       setLoading(false);
     }
   }, []);
+
+  /** Modèle / effort / web : appliqué à TOUS les runs (chat, mails, brief, routines). */
+  const updateConfig = useCallback(async (patch: AttacheConfig) => {
+    const next = { ...config, ...patch };
+    setConfig(next);
+    const ok = await saveAttacheConfig(patch);
+    if (!ok) setNotice('Enregistrement de la configuration refusé — service attaché injoignable ?');
+  }, [config]);
 
   const loadRoutines = useCallback(async () => {
     try {
@@ -123,7 +152,7 @@ export function AdminAttachePanel() {
     setWorking('grant');
     setNotice(null);
     try {
-      const keys = await eapi().attache_exportKeys(status.scopesAttendus);
+      const keys = await bridgeFn('attache_exportKeys')(status.scopesAttendus);
       const missing = (status.scopesAttendus as string[]).filter((s) => !keys[s]);
       if (missing.length) {
         setNotice(`Votre trousseau ne contient pas : ${missing.join(', ')} — impossible de remettre ces clés.`);
@@ -137,6 +166,9 @@ export function AdminAttachePanel() {
       const data = await res.json().catch(() => ({}));
       setNotice(res.ok ? 'Clés remises — l\'attaché peut travailler.' : `Refusé : ${data.error || res.status}`);
       refresh();
+    } catch (e) {
+      // JAMAIS d'échec silencieux ici : un clic sans effet est indéchiffrable pour l'admin.
+      setNotice(`Échec de la remise des clés : ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setWorking(null);
     }
@@ -172,14 +204,57 @@ export function AdminAttachePanel() {
       const res = await fetch('/api/attache/audit');
       if (!res.ok) return;
       const { entries } = await res.json();
+      const decrypt = bridgeFn('attache_decrypt');
       const out: Array<AuditEntry & { ts: number }> = [];
       for (const e of entries as Array<{ ts: number; iv: string; ct: string }>) {
-        const payload = await eapi().attache_decrypt({ v: 1, encrypted: true, iv: e.iv, ct: e.ct });
+        const payload = await decrypt({ v: 1, encrypted: true, iv: e.iv, ct: e.ct });
         if (payload) out.push({ ...(payload as AuditEntry), ts: e.ts });
       }
       setAudit(out.reverse());
-    } catch { /* silencieux */ }
+    } catch (e) {
+      setNotice(`Lecture du journal impossible : ${e instanceof Error ? e.message : String(e)}`);
+    }
   }, []);
+
+  // ── Consignes permanentes : le « prompt » du magistrat, chiffré côté navigateur ──
+  const openInstructions = useCallback(async () => {
+    try {
+      const res = await fetch('/api/attache/instructions');
+      const { envelope } = await res.json();
+      if (envelope) {
+        const payload = await bridgeFn('attache_decrypt')(envelope);
+        setInstructions((payload as { content?: string } | null)?.content || '');
+      } else {
+        setInstructions('');
+      }
+      setShowInstructions(true);
+    } catch (e) {
+      setNotice(`Lecture des consignes impossible : ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, []);
+
+  const saveInstructions = useCallback(async () => {
+    setInstructionsSaving(true);
+    try {
+      const envelope = await bridgeFn('attache_encrypt')({ content: instructions });
+      const res = await fetch('/api/attache/instructions', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ envelope }),
+      });
+      if (res.ok) {
+        setShowInstructions(false);
+        setNotice('Consignes enregistrées — l\'attaché les relira à chaque intervention.');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setNotice(`Enregistrement refusé : ${data.error || res.status}`);
+      }
+    } catch (e) {
+      setNotice(`Enregistrement impossible : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setInstructionsSaving(false);
+    }
+  }, [instructions]);
 
   if (loading) {
     return <div className="flex items-center gap-2 p-6 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" />Interrogation du service attaché…</div>;
@@ -279,6 +354,87 @@ export function AdminAttachePanel() {
           Pour les périmètres confiés, le serveur de l'attaché peut déchiffrer — révoquez au moindre doute.
         </p>
       )}
+
+      {/* Cerveau — modèle, effort, accès web : mêmes réglages que Claude web */}
+      <div className="rounded-xl border border-gray-200">
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <SlidersHorizontal className="h-4 w-4 text-[#2B5746]" />
+          <span className="text-sm font-semibold text-gray-800">Cerveau</span>
+          <span className="text-[11px] text-gray-400">appliqué à tous les runs — chat, mails, brief, routines</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
+          <select
+            value={config.model || ''}
+            onChange={(e) => updateConfig({ model: e.target.value })}
+            className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-[#2B5746]/50"
+            title="Modèle Claude utilisé par l'attaché"
+          >
+            {MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+          <select
+            value={config.effort || ''}
+            onChange={(e) => updateConfig({ effort: e.target.value })}
+            className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-[#2B5746]/50"
+            title="Niveau d'effort de raisonnement"
+          >
+            {EFFORT_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-gray-700">
+            <input
+              type="checkbox"
+              checked={config.webAccess === true}
+              onChange={(e) => updateConfig({ webAccess: e.target.checked })}
+            />
+            <Globe className="h-3.5 w-3.5 text-gray-400" />
+            Recherche web
+          </label>
+        </div>
+        {config.webAccess === true && (
+          <p className="border-t border-amber-100 bg-amber-50/60 px-3 py-2 text-[11px] leading-relaxed text-amber-700">
+            L'attaché peut interroger Internet (WebSearch / WebFetch) comme Claude web — utile pour jurisprudence et textes.
+            Ses requêtes de recherche partent vers l'extérieur : il reste tenu au secret, mais décochez au moindre doute.
+            Shell, fichiers et tout autre accès restent interdits.
+          </p>
+        )}
+      </div>
+
+      {/* Consignes permanentes — le « prompt » du magistrat, relu à chaque run */}
+      <div className="rounded-xl border border-gray-200">
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <PenLine className="h-4 w-4 text-[#2B5746]" />
+          <span className="text-sm font-semibold text-gray-800">Consignes permanentes</span>
+          <span className="text-[11px] text-gray-400">votre prompt — relu à chaque intervention · chiffré, versionné</span>
+          <button
+            onClick={() => (showInstructions ? setShowInstructions(false) : openInstructions())}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+          >
+            {showInstructions ? 'Fermer' : 'Modifier'}
+          </button>
+        </div>
+        {showInstructions ? (
+          <div className="space-y-2 p-3">
+            <textarea
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              rows={9}
+              placeholder={'Écrivez ici ce que vous colleriez en préambule de Claude web : votre façon de travailler, vos exigences de style, vos réflexes métier.\n\nEx. « Cite toujours la pièce et sa date. Pour toute DML, suis ma trame et rappelle le délai. Réponds en plan apparent I/II. Tutoie-moi. »'}
+              className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-2 font-mono text-[12px] leading-relaxed outline-none focus:border-[#2B5746]/50"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <span className="mr-auto text-[10.5px] text-gray-400">S'ajoute à la persona et aux règles de gouvernance (docs/ATTACHE.md) — ne les remplace pas.</span>
+              <button onClick={() => setShowInstructions(false)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">Annuler</button>
+              <button onClick={saveInstructions} disabled={instructionsSaving} className="rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                {instructionsSaving ? 'Enregistrement…' : 'Enregistrer'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="px-3 py-3 text-xs text-gray-400">
+            Vos consignes libres (l'équivalent de vos instructions Claude web) : style, méthode, réflexes.
+            L'attaché les relit avant chaque chat, mail traité, brief et routine.
+          </p>
+        )}
+      </div>
 
       {/* Routines — consignes récurrentes exécutées sans vous */}
       <div className="rounded-xl border border-gray-200">

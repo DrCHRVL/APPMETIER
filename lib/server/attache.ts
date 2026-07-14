@@ -117,10 +117,24 @@ export function readMemoryEnvelope(): AttacheEnvelope | null {
 
 /** Écrit la mémoire (enveloppe fournie par le navigateur admin), version archivée avant. */
 export async function writeMemoryEnvelope(envelope: AttacheEnvelope): Promise<void> {
-  const p = attacheDir('memory.json')
-  await withFileLock('attache-memory', async () => {
+  await writeVersionedEnvelope('memory', envelope)
+}
+
+/** Consignes permanentes (le « prompt » du magistrat) — même modèle que la mémoire. */
+export function readInstructionsEnvelope(): AttacheEnvelope | null {
+  return readJson<AttacheEnvelope | null>(attacheDir('instructions.json'), null)
+}
+
+export async function writeInstructionsEnvelope(envelope: AttacheEnvelope): Promise<void> {
+  await writeVersionedEnvelope('instructions', envelope)
+}
+
+/** Écrit une enveloppe d'attaché en archivant la version précédente (jamais d'écrasement sec). */
+async function writeVersionedEnvelope(name: 'memory' | 'instructions', envelope: AttacheEnvelope): Promise<void> {
+  const p = attacheDir(name + '.json')
+  await withFileLock('attache-' + name, async () => {
     if (fs.existsSync(p)) {
-      const vdir = path.join(path.dirname(p), '.versions', 'memory')
+      const vdir = path.join(path.dirname(p), '.versions', name)
       ensureDir(vdir)
       const stamp = new Date().toISOString().replace(/:/g, '_')
       fs.copyFileSync(p, path.join(vdir, stamp + '.json'))

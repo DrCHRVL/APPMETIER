@@ -26,6 +26,21 @@ l'usage).
   paramètre de l'outil : il est câblé côté serveur.
 - **Retient** : une mémoire markdown (préférences, réflexes appris) relue à
   chaque intervention — lisible, corrigeable et effaçable depuis le panneau.
+- **Se règle comme Claude web** : choix du **modèle** (Fable 5, Opus 4.8,
+  Sonnet 5, Haiku 4.5 — ou le défaut de l'abonnement) et du **niveau
+  d'effort** de raisonnement (faible → maximal), depuis le composer du chat
+  ou Paramètres → Attaché IA (section « Cerveau »). Le réglage est persisté
+  et vaut pour TOUS les runs : chat, mails transférés, brief, routines.
+- **Suit vos consignes permanentes** : un « prompt » libre, rédigé par le
+  magistrat (Paramètres → Attaché IA → « Consignes permanentes » — l'équivalent
+  de vos instructions Claude web : style, méthode, réflexes), relu au début de
+  chaque intervention. Chiffré, versionné, modifiable à tout moment. Il
+  complète la persona et les règles de gouvernance, il ne les remplace pas.
+- **Recherche web en option** : décochée par défaut. Si le magistrat l'active
+  (section « Cerveau »), l'attaché gagne WebSearch/WebFetch — comme Claude
+  web, utile pour jurisprudence et textes — et RIEN d'autre : shell et
+  fichiers restent interdits. Les requêtes de recherche partent alors vers
+  l'extérieur : à activer en connaissance de cause, révocable d'un clic.
 - **Sert de majordome** : un **brief quotidien** (heure configurable,
   `SIRAL_ATTACHE_BRIEFING_HOUR`, défaut 6 h) balaye tous les dossiers et
   alimente un **widget du tableau de bord** visible du seul administrateur :
@@ -123,9 +138,10 @@ l'usage).
 - **L'app web ne détient aucune clé de l'attaché** : elle relaie (chat,
   trousseau) et sert des enveloppes chiffrées que le navigateur admin
   déchiffre avec sa clé globale (feed, audit, mémoire, transcripts).
-- **L'agent n'a ni shell, ni fichiers, ni web** : uniquement les outils MCP
-  SIRAL (liste blanche + liste noire explicite). Chaque outil d'écriture est
-  audité.
+- **L'agent n'a ni shell, ni fichiers** : uniquement les outils MCP SIRAL
+  (liste blanche + liste noire explicite) — et, SEULEMENT si le magistrat
+  l'active dans « Cerveau », la recherche web (WebSearch/WebFetch). Chaque
+  outil d'écriture est audité.
 - Les routes `/api/attache/*` répondent **404** à tout non-admin, tout autre
   TJ, ou si la fonctionnalité est désactivée — indistinguable d'une route
   inexistante.
