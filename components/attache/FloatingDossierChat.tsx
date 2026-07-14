@@ -14,6 +14,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Scale, X, Send, Loader2, Minus, Stethoscope, GripHorizontal, Wrench, BookOpen } from 'lucide-react';
+import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig, loadAttacheConfig } from './modelOptions';
 
 interface Msg { role: 'user' | 'assistant'; text: string; streaming?: boolean; tools?: string[] }
 
@@ -22,12 +23,22 @@ export function FloatingDossierChat({
   cadre = 'preliminaire',
   label,
   carto = false,
+  inDialog = false,
 }: {
   numero: string;
   cadre?: 'preliminaire' | 'instruction';
   label?: string;
   /** Mode cartographie : chat rattaché au réseau, pas à un dossier. */
   carto?: boolean;
+  /**
+   * À poser quand la bulle vit DANS le contenu d'une Dialog Radix modale
+   * (ex. détail d'enquête) : Radix rend tout l'extérieur inerte
+   * (pointer-events: none + piège de focus), une bulle « fixed » hors du
+   * contenu serait visible mais morte. En mode inDialog, la bulle se
+   * positionne en absolute dans la boîte de la modale et le drag est borné
+   * à cette boîte.
+   */
+  inDialog?: boolean;
 }) {
   const [available, setAvailable] = useState(false);
   const [open, setOpen] = useState(false);
@@ -39,13 +50,26 @@ export function FloatingDossierChat({
   const [showMem, setShowMem] = useState(false);
   const [mem, setMem] = useState('');
   const [memSaving, setMemSaving] = useState(false);
+  const [cfg, setCfg] = useState<AttacheConfig>({});
   const streamRef = useRef<HTMLDivElement>(null);
+  const winRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
   const convKey = carto ? 'attache_carto_conv' : `attache_dossier_conv_${numero}`;
 
   // Disponibilité (admin + service actif)
   useEffect(() => {
     fetch('/api/attache/status').then((r) => setAvailable(r.ok)).catch(() => setAvailable(false));
+  }, []);
+
+  // Choix modèle/effort (partagé avec le panneau) : chargé à l'ouverture de la fenêtre
+  useEffect(() => {
+    if (!open) return;
+    loadAttacheConfig().then(setCfg);
+  }, [open]);
+
+  const updateCfg = useCallback((patch: AttacheConfig) => {
+    setCfg((prev) => ({ ...prev, ...patch }));
+    saveAttacheConfig(patch);
   }, []);
 
   // reprise de la conversation de CE dossier
@@ -66,9 +90,17 @@ export function FloatingDossierChat({
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (!dragRef.current) return;
-    const w = 380, h = 520;
-    const x = Math.min(Math.max(8, e.clientX - dragRef.current.dx), window.innerWidth - w - 8);
-    const y = Math.min(Math.max(8, e.clientY - dragRef.current.dy), window.innerHeight - 60);
+    const w = 380;
+    // Bornes du drag : le viewport, ou la boîte de la modale en mode inDialog
+    // (les left/top posés sont alors relatifs à cette boîte, pas au viewport).
+    let bx = 0, by = 0, bw = window.innerWidth, bh = window.innerHeight;
+    if (inDialog) {
+      const host = winRef.current?.offsetParent as HTMLElement | null;
+      const r = host?.getBoundingClientRect();
+      if (r) { bx = r.left; by = r.top; bw = r.width; bh = r.height; }
+    }
+    const x = Math.min(Math.max(8, e.clientX - dragRef.current.dx - bx), Math.max(8, bw - w - 8));
+    const y = Math.min(Math.max(8, e.clientY - dragRef.current.dy - by), Math.max(8, bh - 60));
     setPos({ x, y });
   };
   const onPointerUp = (e: React.PointerEvent) => {
@@ -87,9 +119,13 @@ export function FloatingDossierChat({
       const res = await fetch('/api/attache/chat', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(carto
-          ? { message: text, convId: convId || undefined, carto: true }
-          : { message: text, convId: convId || undefined, dossier: numero, cadre }),
+        body: JSON.stringify({
+          ...(carto
+            ? { message: text, convId: convId || undefined, carto: true }
+            : { message: text, convId: convId || undefined, dossier: numero, cadre }),
+          model: cfg.model || undefined,
+          effort: cfg.effort || undefined,
+        }),
       });
       if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({ error: 'Service indisponible' }));
@@ -126,7 +162,7 @@ export function FloatingDossierChat({
     } finally {
       setBusy(false); scrollDown();
     }
-  }, [busy, convId, numero, cadre, carto, convKey, scrollDown]);
+  }, [busy, convId, numero, cadre, carto, cfg, convKey, scrollDown]);
 
   const openMemory = useCallback(async () => {
     try {
@@ -150,13 +186,15 @@ export function FloatingDossierChat({
 
   if (!available) return null;
 
+  const anchor = inDialog ? 'absolute' : 'fixed';
+
   // Bouton fermé — décalé vers le haut pour ne pas heurter le flottant « + CR »
   if (!open) {
     return (
       <button
         onClick={() => setOpen(true)}
         title="Discuter de ce dossier avec l'attaché"
-        className="fixed bottom-24 right-5 z-[60] flex items-center gap-2 rounded-full bg-gradient-to-br from-[#2B5746] to-[#3c7a5f] px-3.5 py-2.5 text-white shadow-lg hover:brightness-110"
+        className={`${anchor} bottom-24 right-5 z-[60] flex items-center gap-2 rounded-full bg-gradient-to-br from-[#2B5746] to-[#3c7a5f] px-3.5 py-2.5 text-white shadow-lg hover:brightness-110`}
       >
         <Scale className="h-4 w-4" />
         <span className="text-xs font-semibold">Attaché</span>
@@ -171,8 +209,9 @@ export function FloatingDossierChat({
   return (
     <div
       data-chatwin
+      ref={winRef}
       style={style}
-      className="fixed z-[60] flex h-[520px] w-[380px] max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
+      className={`${anchor} z-[60] flex h-[520px] w-[380px] max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl`}
     >
       {/* Barre de titre — poignée de déplacement */}
       <div
@@ -230,7 +269,7 @@ export function FloatingDossierChat({
 
       {/* Composer */}
       <div className="border-t border-gray-200 p-2">
-        <div className="mb-1.5 flex">
+        <div className="mb-1.5 flex items-center gap-1">
           <button
             onClick={() => ask(carto
               ? 'Analyse le réseau : figures centrales, ponts entre affaires, cloisonnements, et liens de renseignement qui semblent manquer. Propose ceux que tu détectes (avec la source).'
@@ -240,6 +279,23 @@ export function FloatingDossierChat({
           >
             <Stethoscope className="h-3.5 w-3.5" />{carto ? 'Analyser le réseau' : 'Diagnostic du dossier'}
           </button>
+          {/* Cerveau — mêmes réglages que Claude web, partagés avec le panneau */}
+          <select
+            value={cfg.model || ''}
+            onChange={(e) => updateCfg({ model: e.target.value })}
+            title="Modèle Claude"
+            className="ml-auto max-w-[96px] cursor-pointer truncate rounded-md border border-transparent bg-transparent py-0.5 text-[10px] text-gray-500 outline-none hover:border-gray-200"
+          >
+            {MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+          <select
+            value={cfg.effort || ''}
+            onChange={(e) => updateCfg({ effort: e.target.value })}
+            title="Niveau d'effort de raisonnement"
+            className="max-w-[96px] cursor-pointer truncate rounded-md border border-transparent bg-transparent py-0.5 text-[10px] text-gray-500 outline-none hover:border-gray-200"
+          >
+            {EFFORT_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
         </div>
         <div className="flex items-end gap-1.5 rounded-xl border border-gray-200 px-2.5 py-1.5 focus-within:border-[#2B5746]/40">
           <textarea

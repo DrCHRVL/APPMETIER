@@ -493,6 +493,19 @@ const EnqueteDetailModalImpl = ({
                 : <ChevronUp className="h-6 w-6" />}
             </button>
           )}
+
+          {/* Chat flottant de l'attaché sur ce dossier — admin uniquement, déplaçable,
+              toujours accessible (même pendant la rédaction d'un CR). DANS le contenu
+              de la Dialog : Radix (modale) rend inerte tout ce qui vit dehors —
+              une bulle montée à l'extérieur serait visible mais insensible au clic. */}
+          {isAdmin() && (
+            <FloatingDossierChat
+              numero={enquete.numero}
+              cadre={enquete.statut === 'instruction' ? 'instruction' : 'preliminaire'}
+              label={enquete.numero}
+              inDialog
+            />
+          )}
         </DialogContent>
       </Dialog>
 
@@ -525,15 +538,6 @@ const EnqueteDetailModalImpl = ({
         enqueteNumero={enquete.numero}
       />
 
-      {/* Chat flottant de l'attaché sur ce dossier — admin uniquement,
-          déplaçable, toujours accessible (même pendant la rédaction d'un CR). */}
-      {isAdmin() && (
-        <FloatingDossierChat
-          numero={enquete.numero}
-          cadre={enquete.statut === 'instruction' ? 'instruction' : 'preliminaire'}
-          label={enquete.numero}
-        />
-      )}
     </>
   );
 };

@@ -21,7 +21,7 @@ import { loadKeyring, grantKeyring, revokeKeyring, keyringStatus, allowedScopes 
 import { attacheTj, attacheContentieux, readState, writeState } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats } from './attache/mail.mjs'
-import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation } from './attache/agent.mjs'
+import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort } from './attache/agent.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
@@ -253,7 +253,26 @@ const server = http.createServer(async (req, res) => {
         inbox: keys ? inboxStats(keys) : null,
         runsEnCours: running,
         state: readState(),
+        config: agentConfig(),
       })
+    }
+
+    if (route === 'GET /config') {
+      return json(res, 200, { config: agentConfig() })
+    }
+
+    if (route === 'PUT /config') {
+      const body = await readBody(req)
+      const current = agentConfig()
+      const config = {
+        model: 'model' in body ? sanitizeModel(body.model) : current.model,
+        effort: 'effort' in body ? sanitizeEffort(body.effort) : current.effort,
+        webAccess: 'webAccess' in body ? body.webAccess === true : current.webAccess,
+      }
+      await writeState({ config })
+      const keys = loadKeyring()
+      if (keys) await audit(keys, 'config_modifiee', { ...config, par: String(body.par || 'admin') })
+      return json(res, 200, { ok: true, config })
     }
 
     if (route === 'POST /keyring') {
@@ -470,6 +489,8 @@ const server = http.createServer(async (req, res) => {
         title: body.carto ? 'Cartographie' : body.dossier ? `Dossier ${body.dossier}` : undefined,
         runLabel: body.carto ? 'chat-carto' : body.dossier ? 'chat-dossier' : 'chat',
         onEvent: send,
+        model: body.model,
+        effort: body.effort,
       })
       clearInterval(heartbeat)
       send({ type: 'final', convId: result.convId, ok: result.ok, error: result.error })

@@ -16,6 +16,7 @@ import {
   X, Send, Plus, Scale, BookOpen, RefreshCw, Loader2, Inbox,
   History, ChevronDown, ChevronUp, Wrench, AlertTriangle, Sparkles,
 } from 'lucide-react';
+import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig } from './modelOptions';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
@@ -41,6 +42,7 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
   const [feed, setFeed] = useState<Array<FeedCard & { ts: number }>>([]);
   const [feedOpen, setFeedOpen] = useState(true);
   const [status, setStatus] = useState<any>(null);
+  const [cfg, setCfg] = useState<AttacheConfig>({});
   const [showMemory, setShowMemory] = useState(false);
   const [memoryText, setMemoryText] = useState('');
   const [memorySaving, setMemorySaving] = useState(false);
@@ -79,10 +81,21 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
 
   useEffect(() => {
     if (!open) return;
-    fetch('/api/attache/status').then(async (r) => setStatus(r.ok ? await r.json() : { error: true })).catch(() => setStatus({ error: true }));
+    fetch('/api/attache/status').then(async (r) => {
+      if (!r.ok) { setStatus({ error: true }); return; }
+      const data = await r.json();
+      setStatus(data);
+      setCfg(data.config || {});
+    }).catch(() => setStatus({ error: true }));
     loadFeed();
     loadConversations();
   }, [open, loadFeed, loadConversations]);
+
+  /** Choix modèle/effort : persistés côté service, envoyés avec chaque message. */
+  const updateCfg = useCallback((patch: AttacheConfig) => {
+    setCfg((prev) => ({ ...prev, ...patch }));
+    saveAttacheConfig(patch);
+  }, []);
 
   // ── Conversation ──
   const openConversation = useCallback(async (id: string) => {
@@ -120,7 +133,12 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
       const res = await fetch('/api/attache/chat', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message: text, convId: convId || undefined }),
+        body: JSON.stringify({
+          message: text,
+          convId: convId || undefined,
+          model: cfg.model || undefined,
+          effort: cfg.effort || undefined,
+        }),
         signal: ctrl.signal,
       });
       if (!res.ok || !res.body) {
@@ -192,7 +210,7 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
       loadFeed();
       scrollDown();
     }
-  }, [input, busy, convId, scrollDown, loadConversations, loadFeed]);
+  }, [input, busy, convId, cfg, scrollDown, loadConversations, loadFeed]);
 
   // ── Mémoire ──
   const openMemory = useCallback(async () => {
@@ -375,7 +393,23 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
             className="w-full resize-none bg-transparent text-[13px] text-gray-800 outline-none placeholder:text-gray-400"
           />
           <div className="flex items-center gap-2 pt-1">
-            <span className="text-[10.5px] text-gray-400">Claude · votre abonnement</span>
+            {/* Choix du cerveau — comme dans Claude web (persisté côté service) */}
+            <select
+              value={cfg.model || ''}
+              onChange={(e) => updateCfg({ model: e.target.value })}
+              title="Modèle Claude (abonnement)"
+              className="max-w-[118px] cursor-pointer truncate rounded-md border border-transparent bg-transparent py-0.5 pl-0.5 pr-1 text-[10.5px] text-gray-500 outline-none hover:border-gray-200 hover:text-gray-700"
+            >
+              {MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+            <select
+              value={cfg.effort || ''}
+              onChange={(e) => updateCfg({ effort: e.target.value })}
+              title="Niveau d'effort de raisonnement"
+              className="max-w-[118px] cursor-pointer truncate rounded-md border border-transparent bg-transparent py-0.5 pl-0.5 pr-1 text-[10.5px] text-gray-500 outline-none hover:border-gray-200 hover:text-gray-700"
+            >
+              {EFFORT_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
             {status?.inbox?.nonTraites > 0 && (
               <span className="inline-flex items-center gap-1 text-[10.5px] text-amber-600"><Inbox className="h-3 w-3" />{status.inbox.nonTraites} mail(s) en cours</span>
             )}

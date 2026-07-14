@@ -13,9 +13,11 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { attacheDir, attacheContentieux, ensureDir, atomicWrite, readEnvelopeFile, writeEnvelopeFile, listFiles } from './store.mjs'
+import { attacheDir, attacheContentieux, ensureDir, atomicWrite, readEnvelopeFile, writeEnvelopeFile, listFiles, readState } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { readMemory } from './memory.mjs'
+import { readInstructions } from './instructions.mjs'
+import { skillsPromptSection } from './skills.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const MCP_SERVER = path.join(HERE, '..', 'attache-mcp.mjs')
@@ -27,12 +29,43 @@ const RUN_TIMEOUT_MS = Number(process.env.SIRAL_ATTACHE_RUN_TIMEOUT_MIN || 20) *
 
 // Défense en profondeur : en headless les outils non listés sont refusés,
 // on interdit EN PLUS explicitement tout ce qui touche machine et réseau.
+// La recherche web (WebSearch/WebFetch) peut être ré-autorisée par le
+// magistrat depuis Paramètres → Attaché IA (config.webAccess) — parité avec
+// Claude web ; le reste (shell, fichiers) reste interdit dans tous les cas.
 const ALLOWED_TOOLS = 'mcp__siral__*'
 const DISALLOWED_TOOLS = 'Bash,Edit,Write,NotebookEdit,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite,KillShell,BashOutput'
+const WEB_TOOLS = ['WebSearch', 'WebFetch']
 
-/** Prompt système : persona, règles de gouvernance, mémoire vivante. */
+// Choix du cerveau (mêmes réglages que Claude web) : validés strictement
+// avant d'être passés au CLI. Vide = défaut de l'abonnement.
+const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
+const MODEL_RE = /^[a-zA-Z0-9][a-zA-Z0-9._[\]-]{0,63}$/
+
+export function sanitizeModel(value) {
+  const v = String(value || '').trim()
+  return MODEL_RE.test(v) ? v : ''
+}
+
+export function sanitizeEffort(value) {
+  const v = String(value || '').trim()
+  return EFFORT_LEVELS.has(v) ? v : ''
+}
+
+/** Configuration persistée (Paramètres → Attaché IA) : modèle, effort, web. */
+export function agentConfig() {
+  const cfg = readState().config || {}
+  return {
+    model: sanitizeModel(cfg.model),
+    effort: sanitizeEffort(cfg.effort),
+    webAccess: cfg.webAccess === true,
+  }
+}
+
+/** Prompt système : persona, gouvernance, consignes du magistrat, skills, mémoire vivante. */
 export function systemPrompt(keys) {
   const memory = readMemory(keys)
+  const consignes = readInstructions(keys)
+  const skills = skillsPromptSection(keys)
   return [
     `Tu es l'attaché de justice virtuel d'un magistrat du parquet, au sein de SIRAL (application métier de suivi des enquêtes, contentieux ${attacheContentieux()} — criminalité organisée).`,
     '',
@@ -79,6 +112,12 @@ export function systemPrompt(keys) {
     '',
     'CARTOGRAPHIE — aide à voir les connexions : carto_analyser donne les figures centrales, les ponts entre affaires et les co-occurrences. carto_rapprochements repère les entités partagées (téléphone, plaque, IBAN, adresse) entre dossiers SANS mis en cause commun — des ponts inédits entre affaires : pour chacun de pertinent, propose un lien de renseignement entre un MEC de chaque dossier (proposer_lien, entité en source). Écarte les faux positifs (numéro de service, banque). Suggère, ne trace jamais d\'office.',
     'DISSIMULATION : tes écritures et CR sont signés du nom du magistrat — tu n\'existes nulle part dans les données partagées. Ne te désigne jamais (« Attaché IA », « assistant ») dans un CR, une description ou une note versée au dossier.',
+    ...(consignes ? [
+      '',
+      '--- CONSIGNES PERMANENTES DU MAGISTRAT (rédigées par lui dans Paramètres → Attaché IA ; elles complètent les règles ci-dessus sans jamais lever les règles de gouvernance) ---',
+      consignes,
+    ] : []),
+    ...(skills ? [skills] : []),
     '',
     '--- MÉMOIRE (tenue à jour par toi, lisible et corrigeable par le magistrat) ---',
     memory,
@@ -154,9 +193,11 @@ function writeMcpConfig() {
  *  - title       : titre de la conversation à la création
  *  - runLabel    : 'chat' | 'proactif' (audit + prompt MCP)
  *  - onEvent     : callback({type, ...}) — delta de texte, outil, fin
+ *  - model       : modèle pour CE run (sinon config persistée, sinon env, sinon défaut CLI)
+ *  - effort      : niveau d'effort pour CE run (low|medium|high|xhigh|max)
  * @returns {Promise<{convId, text, ok, error?}>}
  */
-export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat', onEvent = () => {} }) {
+export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat', onEvent = () => {}, model, effort }) {
   const isNew = !convId
   const id = convId || new Date().toISOString().slice(0, 10) + '-' + crypto.randomBytes(4).toString('hex')
   const conv = (!isNew && readConversation(keys, id)) || {
@@ -167,6 +208,16 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
     messages: [],
   }
 
+  const cfg = agentConfig()
+  const useModel = sanitizeModel(model) || cfg.model || sanitizeModel(MODEL)
+  const useEffort = sanitizeEffort(effort) || cfg.effort
+  // Recherche web autorisée par le magistrat : WebSearch/WebFetch sortent de
+  // la liste noire et entrent dans la liste blanche — rien d'autre ne bouge.
+  const allowedTools = cfg.webAccess ? [ALLOWED_TOOLS, ...WEB_TOOLS].join(',') : ALLOWED_TOOLS
+  const disallowedTools = cfg.webAccess
+    ? DISALLOWED_TOOLS.split(',').filter((t) => !WEB_TOOLS.includes(t)).join(',')
+    : DISALLOWED_TOOLS
+
   const mcpConfig = writeMcpConfig()
   const args = [
     '-p', String(prompt),
@@ -174,11 +225,12 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
     '--verbose',
     '--include-partial-messages',
     '--mcp-config', mcpConfig,
-    '--allowedTools', ALLOWED_TOOLS,
-    '--disallowedTools', DISALLOWED_TOOLS,
+    '--allowedTools', allowedTools,
+    '--disallowedTools', disallowedTools,
     '--append-system-prompt', systemPrompt(keys),
     '--max-turns', String(MAX_TURNS),
-    ...(MODEL ? ['--model', MODEL] : []),
+    ...(useModel ? ['--model', useModel] : []),
+    ...(useEffort ? ['--effort', useEffort] : []),
     ...(isNew || !conv.resumable ? ['--session-id', conv.claudeSessionId] : ['--resume', conv.claudeSessionId]),
   ]
 

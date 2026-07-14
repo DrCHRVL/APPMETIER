@@ -48,6 +48,7 @@ export const ELECTRON_API_NAMES = [
   'consultation_getStatus', 'consultation_pickFolder', 'consultation_activate',
   'consultation_deactivate', 'consultation_refreshNow',
   'e2ee_myScopes', 'e2ee_listAccounts', 'e2ee_invite', 'e2ee_revoke',
+  'attache_decrypt', 'attache_encrypt', 'attache_exportKeys',
   'desktopImport_pushVault', 'desktopImport_uploadDocument',
   'readDocumentText', 'readDocumentData',
   'fullSnapshot_push', 'fullSnapshot_info', 'fullSnapshot_listVersions',
