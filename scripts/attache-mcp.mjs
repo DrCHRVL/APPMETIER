@@ -19,12 +19,14 @@ import {
   listEnquetes, dossierMarkdown, readDocumentText, verifierCompletude,
   enregistrerActe, acterProlongation, classerNote, ajouterTodo, listerDml,
   actualiserDescription, diagnostiquerDossier, arborescenceDocuments,
+  ajouterNatinfs, creerDossier,
 } from './attache/dossier.mjs'
+import { searchNatinf } from './attache/natinf.mjs'
 import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { saveTrame, listTrames, readTrame, setTrameDescription } from './attache/trames.mjs'
 import { saveSkill, listSkills, readSkill } from './attache/skills.mjs'
-import { saveKbEntry, listKb, readKbEntry, searchKb, KB_CATEGORIES } from './attache/kb.mjs'
+import { saveKbEntry, setKbMeta, listKb, readKbEntry, searchKb, KB_CATEGORIES } from './attache/kb.mjs'
 import { runSubagents } from './attache/subagents.mjs'
 import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
 import { listDepot, readDepotText, rangerDocument, ecarterDepot, ZONES } from './attache/depot.mjs'
@@ -33,10 +35,29 @@ import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.
 import { analyserReseau, listerLiens, rapprochementsInterDossiers, recoupementMecs } from './attache/carto.mjs'
 import { saveProduction, listProductions, readProduction, deleteProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
 import { appendMemory } from './attache/memory.mjs'
-import { listInbox, readInboxMessage, markInboxProcessed, sendToOwner } from './attache/mail.mjs'
+import { listInbox, readInboxMessage, markInboxProcessed } from './attache/mail.mjs'
 
 const keys = loadKeyring()
 const runContext = process.env.SIRAL_ATTACHE_RUN || 'chat'
+
+/**
+ * Pseudo-dossier des actes SANS procédure : une demande d'acte arrive (mail
+ * transféré) mais ne correspond à aucun dossier en cours — l'acte rédigé est
+ * rangé ici et apparaît dans la section « Actes rédigés — hors dossier » du
+ * tableau de bord, en attendant que le magistrat décide de la suite.
+ */
+export const HORS_DOSSIER = '_hors-dossier'
+
+/** Remise d'un livrable DANS SIRAL — corps commun de remettre_livrable et de son alias. */
+async function publierLivrable(a) {
+  await publishFeed(keys, {
+    type: 'livrable',
+    titre: String(a.sujet || 'Livrable').slice(0, 200),
+    resume: String(a.corps || '').slice(0, 100_000),
+    numero: a.numero ? String(a.numero).slice(0, 80) : undefined,
+  })
+  return { ok: true, note: 'Livrable remis dans SIRAL (fil « pendant votre absence ») — rien n\'est parti par mail.' }
+}
 // Mode sous-agent : lancé par l'outil sous_agents — LECTURE SEULE (aucun
 // outil d'écriture, pas de sous_agents imbriqué : pas de récursion possible).
 const IS_SUBAGENT = process.env.SIRAL_ATTACHE_SUBAGENT === '1'
@@ -131,6 +152,34 @@ const TOOLS = [
     write: true,
   },
   {
+    name: 'natinf_chercher',
+    description: 'Recherche dans le référentiel NATINF officiel (nomenclature des infractions) : par code exact ou par mots du libellé (insensible casse/accents). Retourne code, libellé, nature, articles. À utiliser AVANT ajouter_natinfs et avant de citer une qualification dans un acte.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        requete: { type: 'string', description: 'Code (ex: 7989) ou mots-clés (ex: trafic stupefiants transport)' },
+        limite: { type: 'number' },
+      },
+      required: ['requete'],
+    },
+    handler: async (a) => searchNatinf(a.requete, { limite: a.limite }),
+  },
+  {
+    name: 'ajouter_natinfs',
+    description: 'Ajoute des codes NATINF aux infractions ENREGISTRÉES du dossier — écriture AUTONOME (pas de validation préalable), à faire dès que des NATINF cohérents apparaissent : mentionnés dans un acte d\'autorisation ou une requête téléversée, déduits des faits avant une rédaction. Dédoublonnage automatique ; les codes inconnus du référentiel sont refusés (natinf_chercher d\'abord). L\'ajout apparaît dans les modifications récentes du dossier, signé du nom du magistrat. Cite la pièce source.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        codes: { type: 'array', items: { type: 'string' }, description: 'Codes NATINF (ex: ["7989","7101"])' },
+        source: { type: 'string', description: 'D\'où viennent ces qualifications (ex: ordonnance JLD du 12/06 — Actes/…, ou « déduits des faits »)' },
+      },
+      required: ['numero', 'codes'],
+    },
+    handler: async (a) => ajouterNatinfs(keys, a),
+    write: true,
+  },
+  {
     name: 'boite_lister',
     description: 'Liste la boîte mail dédiée (messages transférés par le magistrat) : id, expéditeur, sujet, traité ou non.',
     inputSchema: { type: 'object', properties: {} },
@@ -154,10 +203,47 @@ const TOOLS = [
     write: true,
   },
   {
+    name: 'remettre_livrable',
+    description: 'Remet un LIVRABLE complet au magistrat DANS SIRAL (synthèse, projet de mail à recopier, note, projet de réponse) : une carte « Livrable » apparaît dans le fil « pendant votre absence », avec le texte intégral et un bouton Copier. AUCUN mail ne part — les mails sortants sont supprimés (rejets de messagerie) : tout se remet dans l\'application. Pour un ACTE à retoucher/exporter, préfère produire_document (atelier « Actes rédigés »).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sujet: { type: 'string', description: 'Titre du livrable (une ligne)' },
+        corps: { type: 'string', description: 'Le livrable complet, prêt à lire ou à copier' },
+        numero: { type: 'string', description: 'Dossier concerné (optionnel)' },
+      },
+      required: ['sujet', 'corps'],
+    },
+    handler: publierLivrable,
+    write: true,
+  },
+  {
+    // Alias hérité : d'anciennes conversations/routines appellent encore ce nom.
     name: 'envoyer_a_mon_magistrat',
-    description: 'Envoie un projet (synthèse, trame de réquisition, projet de réponse) par mail au magistrat — UNIQUE destinataire possible, câblé côté serveur. À utiliser pour tout ce qu\'il devra relire ou renvoyer lui-même.',
-    inputSchema: { type: 'object', properties: { sujet: { type: 'string' }, corps: { type: 'string' } }, required: ['sujet', 'corps'] },
-    handler: async (a) => sendToOwner(keys, a),
+    description: 'DÉPRÉCIÉ — alias de remettre_livrable : le livrable s\'affiche DANS SIRAL (fil « pendant votre absence »), plus aucun mail ne part.',
+    inputSchema: { type: 'object', properties: { sujet: { type: 'string' }, corps: { type: 'string' }, numero: { type: 'string' } }, required: ['sujet', 'corps'] },
+    handler: publierLivrable,
+    write: true,
+  },
+  {
+    name: 'creer_dossier',
+    description: 'Crée DIRECTEMENT un nouveau dossier (enquête) dans le contentieux — SANS validation préalable. Réservé à une instruction EXPLICITE du magistrat : mail transféré contenant « créer procédure » (ou équivalent sans ambiguïté), ou demande explicite en chat. Dans tous les autres cas de détection, utilise proposer_dossier (✓/✗). Renseigne tout depuis la pièce : numero, dateDebut, services, description (prise de notes), misEnCause (recoupe d\'abord avec recouper_personnes). Refus si le numéro existe déjà. Ensuite : ajoute les NATINF (ajouter_natinfs), range les pièces (ranger_document) et rédige les actes demandés (produire_document) dans CE dossier.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string', description: 'Nom/numéro du dossier (ex: « 2026/000123 » ou « Réseau ZOUAOUI »)' },
+        dateDebut: { type: 'string', description: 'AAAA-MM-JJ (défaut : aujourd\'hui)' },
+        services: { type: 'array', items: { type: 'string' } },
+        description: { type: 'string', description: 'Objet — faits, qualification, résumé télégraphique' },
+        misEnCause: {
+          type: 'array',
+          items: { type: 'object', properties: { nom: { type: 'string' }, role: { type: 'string' }, statut: { type: 'string' } }, required: ['nom'] },
+        },
+        source: { type: 'string', description: 'D\'où vient l\'instruction (ex: mail transféré du 15/07 « créer procédure »)' },
+      },
+      required: ['numero', 'source'],
+    },
+    handler: async (a) => creerDossier(keys, a),
     write: true,
   },
   {
@@ -221,7 +307,9 @@ const TOOLS = [
   },
   {
     name: 'produire_document',
-    description: `Rédige un ACTE et le range dans « Actes rédigés » du dossier (le magistrat le visionne, l'édite, le glisse vers son parapheur). Type : ${PRODUCTION_TYPES.join(', ')}. Suis la trame correspondante (trames_lister/trame_lire) et le dossier (lire_dossier, chronologie_lire). Rédaction complète, prête à signer, texte brut (paragraphes séparés par des lignes vides). Pour MODIFIER un acte existant, passe son id.`,
+    description: `Rédige un ACTE et le range dans « Actes rédigés » du dossier (le magistrat le visionne, l'édite, l'exporte en PDF/Word officiel, puis le VALIDE). Type : ${PRODUCTION_TYPES.join(', ')}. Suis la trame correspondante (trames_lister/trame_lire) et le dossier (lire_dossier, chronologie_lire). COHÉRENCE NATINF OBLIGATOIRE : vise les qualifications enregistrées du dossier (section « Infractions (NATINF) » de lire_dossier) — si elles manquent, ajoute-les d'abord (natinf_chercher + ajouter_natinfs). Rédaction complète, prête à signer, texte brut (paragraphes séparés par des lignes vides). ` +
+      'Renseigne `source` avec le nom EXACT de la trame suivie : il impose le formalisme du nom de fichier à l\'export. Pour MODIFIER un acte existant, passe son id. ' +
+      `DEMANDE SANS DOSSIER : si l'acte demandé (mail transféré) ne correspond à AUCUN dossier en cours et que la consigne ne dit pas de créer la procédure, range-le sous numero "${HORS_DOSSIER}" — il apparaît dans « Actes rédigés — hors dossier » du tableau de bord.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -326,6 +414,22 @@ const TOOLS = [
       required: ['titre', 'categorie', 'contenu'],
     },
     handler: async (a) => saveKbEntry(keys, a),
+    write: true,
+  },
+  {
+    name: 'kb_decrire',
+    description: 'Met à jour les MÉTADONNÉES d\'une entrée de la base de connaissances — description (une phrase : contenu + quand s\'en servir), categorie, chemin (pochette d\'arborescence, ex: Jurisprudence/Cassation/arret-2024.md) — le CONTENU n\'est jamais touché. C\'est ton outil de bibliothécaire : classer les documents téléversés en masse, ranger une entrée mal placée.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Identifiant exact (kb_lister)' },
+        description: { type: 'string' },
+        categorie: { type: 'string' },
+        chemin: { type: 'string', description: 'Pochette de rangement (arborescence, séparateur /)' },
+      },
+      required: ['id'],
+    },
+    handler: async (a) => setKbMeta(keys, a.id, a),
     write: true,
   },
   {

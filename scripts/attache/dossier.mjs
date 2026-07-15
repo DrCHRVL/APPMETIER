@@ -18,6 +18,7 @@ import {
   attacheDir, readJson, atomicWrite,
 } from './store.mjs'
 import { encryptJson, decryptJson, decryptDocBlob } from './crypto.mjs'
+import { natinfEntry, natinfLabel } from './natinf.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -148,6 +149,17 @@ export function dossierMarkdown(keys, numero) {
   if (e.dateOP) parts.push(`**Date d'OP :** ${e.dateOP}`)
   parts.push(`**Statut :** ${e.statut} — dernière mise à jour ${e.dateMiseAJour || '?'}`)
 
+  const natinfs = e.infractionNatinfCodes || []
+  if (natinfs.length) {
+    parts.push('\n## Infractions (NATINF) — les qualifications OFFICIELLES du dossier, à reprendre telles quelles dans tout acte')
+    for (const code of natinfs) {
+      const lib = natinfLabel(code)
+      parts.push(`- NATINF ${code}${lib ? ` — ${lib}` : ''}`)
+    }
+  } else {
+    parts.push('\n## Infractions (NATINF)\n(aucun code enregistré — avant de rédiger un acte, détermine les qualifications : natinf_chercher puis ajouter_natinfs)')
+  }
+
   if (e.misEnCause?.length) {
     parts.push('\n## Mis en cause')
     for (const m of e.misEnCause) parts.push(`- ${m.nom}${m.role ? ` — ${m.role}` : ''}${m.statut ? ` (${m.statut})` : ''}`)
@@ -223,10 +235,21 @@ function tidyPdfText(text) {
  */
 export async function readDocumentText(keys, numero, cheminRelatif) {
   const key = docServerKey(numero)
+  // Copie markdown déposée AU TÉLÉVERSEMENT (MD/<chemin>.md) : servie en
+  // priorité pour les formats non textuels — zéro extraction, texte fidèle
+  // (conversion navigateur), tokens et CPU économisés.
+  if (!/\.(txt|html?|md|csv|json|eml)$/i.test(cheminRelatif) && !cheminRelatif.startsWith('MD/')) {
+    const mdRel = 'MD/' + cheminRelatif.replace(/\.[^./]+$/, '') + '.md'
+    const mdBlob = readDocBlob(attacheTj(), key, mdRel)
+    if (mdBlob) {
+      const plain = decryptDocBlob(keys.global, mdBlob)
+      if (plain) return { ok: true, texte: plain.toString('utf8').slice(0, 200_000), source: 'copie markdown du téléversement' }
+    }
+  }
   const blob = readDocBlob(attacheTj(), key, cheminRelatif)
   if (!blob) {
     const known = listDocsMeta(attacheTj(), key).map((d) => d.rel)
-    return { ok: false, error: 'Document introuvable', disponibles: known.slice(0, 60) }
+    return { ok: false, error: 'Document introuvable', disponibles: known.filter((r) => !r.startsWith('MD/')).slice(0, 60) }
   }
   const lower = cheminRelatif.toLowerCase()
   if (lower.endsWith('.pdf')) {
@@ -287,7 +310,7 @@ export function verifierCompletude(keys, numero) {
   if (!crs.length) findings.push('📋 Aucun compte-rendu au dossier')
   else if (lastCr && now - lastCr > 45 * 24 * 3600 * 1000) findings.push(`📋 Dernier CR ancien (${new Date(lastCr).toISOString().slice(0, 10)}) — point d'étape à demander ?`)
 
-  const docsServeur = listDocsMeta(attacheTj(), docServerKey(e.numero))
+  const docsServeur = listDocsMeta(attacheTj(), docServerKey(e.numero)).filter((d) => !String(d.rel).startsWith('MD/'))
   const nbActesJld = (e.ecoutes || []).length + (e.geolocalisations || []).length
   if (nbActesJld > 0 && !docsServeur.length) findings.push(`📎 ${nbActesJld} acte(s) JLD mais aucun document déposé — autorisations manquantes au dossier ?`)
 
@@ -542,6 +565,47 @@ export async function ajouterMec(keys, { numero, nom, role, statut }) {
 }
 
 /**
+ * Ajoute des codes NATINF au dossier — écriture AUTONOME de l'attaché
+ * (pas de proposition ✓/✗ : le magistrat l'a voulue ainsi), mais tracée :
+ *  - les codes inconnus du référentiel sont REFUSÉS (natinf_chercher d'abord) ;
+ *  - dédoublonnage avec l'existant ;
+ *  - une entrée « modifications » (ajouts récents) signée du nom de
+ *    l'administrateur rend l'ajout visible dans la fiche du dossier —
+ *    l'attribution réelle vit dans le journal d'audit chiffré.
+ */
+export async function ajouterNatinfs(keys, { numero, codes, source }) {
+  const wanted = (Array.isArray(codes) ? codes : [codes])
+    .map((c) => String(c ?? '').trim()).filter(Boolean)
+  if (!wanted.length) throw new Error('Aucun code NATINF fourni')
+  const inconnus = wanted.filter((c) => !natinfEntry(c))
+  const valides = wanted.filter((c) => natinfEntry(c))
+  const author = authorOf(keys)
+  return mutate(keys, numero, (e) => {
+    e.infractionNatinfCodes = e.infractionNatinfCodes || []
+    const dejaPresents = valides.filter((c) => e.infractionNatinfCodes.includes(c))
+    const ajoutes = valides.filter((c) => !e.infractionNatinfCodes.includes(c))
+    if (ajoutes.length) {
+      e.infractionNatinfCodes.push(...ajoutes)
+      e.modifications = e.modifications || []
+      e.modifications.push({
+        id: `${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+        type: 'general_info_updated',
+        label: `Infractions NATINF ajoutées : ${ajoutes.map((c) => `${c}${natinfLabel(c) ? ` (${String(natinfLabel(c)).slice(0, 60)})` : ''}`).join(', ')}${source ? ` — source : ${String(source).slice(0, 80)}` : ''}`,
+        user: { username: author, displayName: author },
+        timestamp: new Date().toISOString(),
+      })
+    }
+    return {
+      ajoutes,
+      dejaPresents,
+      inconnus: inconnus.length ? inconnus : undefined,
+      note: inconnus.length ? 'Codes inconnus du référentiel REFUSÉS — vérifie avec natinf_chercher' : undefined,
+      natinfsDuDossier: e.infractionNatinfCodes,
+    }
+  })
+}
+
+/**
  * DML archivées d'un dossier : la zone « DML » de la section documents
  * (fichiers déposés sous DML/…, synchronisés depuis le commun Windows).
  * Base de travail pour actualiser une DML : lire la plus récente avec
@@ -557,6 +621,9 @@ export async function ajouterMec(keys, { numero, nom, role, statut }) {
 export function arborescenceDocuments(numero) {
   const metas = listDocsMeta(attacheTj(), docServerKey(numero))
   const pieces = metas
+    // MD/ = copies markdown des originaux : lire_document les sert déjà de
+    // lui-même quand on demande l'original — les lister doublerait tout.
+    .filter((d) => !String(d.rel).startsWith('MD/'))
     .map((d) => ({ chemin: d.rel, taille: d.size, deposeLe: d.savedAt, nomOriginal: d.originalName }))
     .sort((a, b) => a.chemin.localeCompare(b.chemin))
   return { total: pieces.length, pieces: pieces.slice(0, 2000) }

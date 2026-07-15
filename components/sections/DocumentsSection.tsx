@@ -30,6 +30,8 @@ import {
 } from 'lucide-react';
 import { Enquete, DocumentEnquete } from '@/types/interfaces';
 import { useToast } from '@/contexts/ToastContext';
+import { collectDropEntries, incomingFromFileList, cleanRelPath, type Incoming } from '@/lib/web/folderUpload';
+import { fileToMarkdown } from '@/lib/web/fileToMarkdown';
 import { DocumentPathModal } from '../modals/DocumentPathModal';
 import { AnalyseDocumentsModal } from '../modals/AnalyseDocumentsModal';
 import type { ScannedDocument } from '@/utils/documents/ServerDocumentScanner';
@@ -189,6 +191,14 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     pv: null,
     dml: null
   });
+  // Sélecteurs de DOSSIERS entiers (webkitdirectory) — arborescence préservée
+  const folderInputRefs = useRef<Record<DocumentCategory, HTMLInputElement | null>>({
+    geoloc: null,
+    ecoutes: null,
+    actes: null,
+    pv: null,
+    dml: null
+  });
 
   const { showToast } = useToast();
 
@@ -203,6 +213,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     };
     for (const doc of (enquete.documents || [])) {
       const path = doc.cheminRelatif;
+      if (path.startsWith('MD/')) continue; // copies markdown pour l'IA : jamais listées
       if (path.startsWith('Geoloc/')) result.geoloc.push(doc);
       else if (path.startsWith('Ecoutes/')) result.ecoutes.push(doc);
       else if (path.startsWith('Actes/')) result.actes.push(doc);
@@ -449,6 +460,12 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           'success'
         );
 
+        // Copie markdown « pour l'IA » de chaque document (best-effort, silencieux)
+        for (let i = 0; i < filesToUpload.length; i++) {
+          const rel = String(annotated[i]?.cheminRelatif || '');
+          if (rel) await deposerCopieMarkdown(filesToUpload[i].file, rel);
+        }
+
         // Synchro automatique au téléversement (web) : réconcilie aussi P:\ → serveur
         // si des fichiers y ont été déposés à la main. Silencieux, dédupliqué.
         if (isWeb && enquete.cheminExterne?.startsWith('fsa://')) {
@@ -484,6 +501,103 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     } catch (err) {
       console.error('Erreur upload:', err);
       showToast("Erreur lors de l'upload des documents", 'error');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  /**
+   * Copie markdown « pour l'IA » d'un document téléversé : convertie dans CE
+   * navigateur, déposée sous MD/<chemin>.md — invisible dans les zones, mais
+   * lue en priorité par l'attaché (zéro ré-extraction, tokens économisés).
+   * Best-effort : un échec de conversion n'empêche jamais le dépôt du fichier.
+   */
+  const deposerCopieMarkdown = async (file: File, relOriginal: string) => {
+    if (/\.(jpg|jpeg|png|gif|bmp|webp|msg)$/i.test(file.name)) return;
+    try {
+      const { markdown } = await fileToMarkdown(file);
+      if (!markdown.trim()) return;
+      const mdRel = 'MD/' + relOriginal.replace(/\.[^./]+$/, '') + '.md';
+      const bytes = new TextEncoder().encode(markdown);
+      await window.electronAPI.depositDocument(
+        enquete.numero, mdRel,
+        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        'MD', file.name
+      );
+    } catch { /* conversion impossible (scan, format exotique) : l'original suffit */ }
+  };
+
+  /**
+   * Versement d'une ARBORESCENCE dans une zone : chaque fichier garde son
+   * chemin relatif (sous-pochettes comprises) sous <Zone>/… + copie markdown.
+   */
+  const uploadTree = async (incoming: Incoming[], category: DocumentCategory) => {
+    if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
+    const categoryMapping: Record<DocumentCategory, string> = {
+      geoloc: 'Geoloc', ecoutes: 'Ecoutes', actes: 'Actes', pv: 'PV', dml: 'DML'
+    };
+    const zone = categoryMapping[category];
+    const valid = incoming.filter(({ file }) => isValidFileType(file));
+    const skipped = incoming.length - valid.length;
+    if (!valid.length) {
+      showToast('Aucun fichier pris en charge dans ce dossier', 'warning');
+      return;
+    }
+    setIsUploading(true);
+    try {
+      // chemins réservés AVANT dispatch (anti-collision), puis dépôts par
+      // lots de 4 en parallèle — 2 allers-retours HTTP par fichier sinon
+      const existingRels = new Set((enquete.documents || []).map(d => d.cheminRelatif));
+      const plan = valid.slice(0, 500).map(({ file, path }) => {
+        let rel = `${zone}/${cleanRelPath(path)}`;
+        let counter = 1;
+        while (existingRels.has(rel)) {
+          const dot = rel.lastIndexOf('.');
+          rel = dot > rel.lastIndexOf('/') ? `${rel.slice(0, dot)}_${counter}${rel.slice(dot)}` : `${rel}_${counter}`;
+          counter++;
+        }
+        existingRels.add(rel);
+        return { file, rel };
+      });
+      const added: DocumentEnquete[] = [];
+      let errors = 0;
+      const LOT = 4;
+      for (let i = 0; i < plan.length; i += LOT) {
+        await Promise.all(plan.slice(i, i + LOT).map(async ({ file, rel }) => {
+          try {
+            const buf = await file.arrayBuffer();
+            const cleanRel = await window.electronAPI.depositDocument(enquete.numero, rel, buf, zone, file.name);
+            added.push({
+              id: Date.now() + added.length,
+              nom: String(cleanRel).split('/').pop() || file.name,
+              nomOriginal: file.name,
+              extension: '.' + (file.name.split('.').pop() || ''),
+              taille: file.size,
+              dateAjout: new Date().toISOString(),
+              cheminRelatif: String(cleanRel),
+              type: (file.name.toLowerCase().endsWith('.pdf') ? 'pdf'
+                : /\.docx$/i.test(file.name) ? 'docx'
+                : /\.doc$/i.test(file.name) ? 'doc'
+                : /\.odt$/i.test(file.name) ? 'odt'
+                : /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(file.name) ? 'image'
+                : /\.html?$/i.test(file.name) ? 'html'
+                : /\.msg$/i.test(file.name) ? 'msg'
+                : /\.txt$/i.test(file.name) ? 'txt' : 'autre') as DocumentEnquete['type'],
+            });
+            await deposerCopieMarkdown(file, String(cleanRel));
+          } catch {
+            errors++;
+          }
+        }));
+      }
+      if (added.length) {
+        onUpdate(enquete.id, { documents: [...(enquete.documents || []), ...added] });
+      }
+      showToast(
+        `${added.length} document(s) versé(s) dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title} — sous-pochettes préservées, copies markdown créées pour l'IA` +
+        `${skipped ? ` · ${skipped} fichier(s) non pris en charge` : ''}${errors ? ` · ${errors} échec(s)` : ''}`,
+        errors ? 'warning' : 'success'
+      );
     } finally {
       setIsUploading(false);
     }
@@ -550,11 +664,19 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     showToast(`"${name}" ignoré`, 'info');
   };
 
-  // ── Drag & drop ──
-  const handleDrop = (e: React.DragEvent, category: DocumentCategory) => {
+  // ── Drag & drop — fichiers OU dossiers entiers (récursif, sous-pochettes) ──
+  const handleDrop = async (e: React.DragEvent, category: DocumentCategory) => {
     e.preventDefault();
     setDragOverZone(null);
-    if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files, category);
+    const items = e.dataTransfer.items;
+    const flatFiles = e.dataTransfer.files;
+    // Parcours récursif : détecte les dossiers déposés et préserve l'arborescence
+    const incoming = items?.length ? await collectDropEntries(items) : [];
+    if (incoming.some((i) => i.path.includes('/'))) {
+      await uploadTree(incoming, category);
+      return;
+    }
+    if (flatFiles.length > 0) handleFiles(flatFiles, category);
   };
   const handleDragOver = (e: React.DragEvent, category: DocumentCategory) => {
     e.preventDefault();
@@ -841,11 +963,21 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                         <h3 className="font-medium text-sm">{zone.title}</h3>
                         <p className="text-xs text-gray-600 mb-2">{zone.description}</p>
                         <p className="text-xs text-gray-500">
-                          {isUploading ? 'Upload...' : 'Cliquer ou glisser-déposer'}
+                          {isUploading ? 'Upload...' : 'Cliquer ou glisser-déposer — dossiers entiers acceptés (sous-pochettes préservées)'}
                         </p>
-                        <Badge variant="outline" className="mt-1 text-xs">
-                          {docsInZone.length} document{docsInZone.length !== 1 ? 's' : ''}
-                        </Badge>
+                        <div className="mt-1 flex items-center justify-center gap-1.5">
+                          <Badge variant="outline" className="text-xs">
+                            {docsInZone.length} document{docsInZone.length !== 1 ? 's' : ''}
+                          </Badge>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); folderInputRefs.current[zone.category]?.click(); }}
+                            className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10.5px] font-medium text-gray-600 hover:bg-gray-100"
+                            title="Téléverser un DOSSIER entier — sous-pochettes comprises, organisation préservée, copies markdown pour l'IA"
+                          >
+                            <FolderOpen className="h-3 w-3" />Dossier
+                          </button>
+                        </div>
                       </div>
                     </div>
                     <input
@@ -853,6 +985,17 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                       type="file" multiple
                       accept=".pdf,.doc,.docx,.odt,.txt,.jpg,.jpeg,.png,.gif,.bmp,.webp,.html,.htm,.msg"
                       onChange={(e) => handleFileSelect(e, zone.category)}
+                      className="hidden"
+                    />
+                    <input
+                      ref={(el) => { folderInputRefs.current[zone.category] = el; }}
+                      type="file" multiple
+                      {...({ webkitdirectory: '' } as Record<string, string>)}
+                      onChange={(e) => {
+                        const incoming = incomingFromFileList(e.target.files);
+                        if (incoming.length) uploadTree(incoming, zone.category);
+                        if (folderInputRefs.current[zone.category]) folderInputRefs.current[zone.category]!.value = '';
+                      }}
                       className="hidden"
                     />
                   </div>
@@ -877,7 +1020,10 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                                     onClick={() => handleOpenDocument(doc)}
                                   >
                                     <p className="text-xs font-medium text-gray-900 truncate">
-                                      {doc.nomOriginal}
+                                      {/* fichier versé en arborescence : montrer la sous-pochette */}
+                                      {doc.cheminRelatif.split('/').length > 2
+                                        ? doc.cheminRelatif.split('/').slice(1).join(' / ')
+                                        : doc.nomOriginal}
                                     </p>
                                     <div className="flex items-center gap-1 text-xs text-gray-500">
                                       <span>{formatFileSize(doc.taille)}</span>

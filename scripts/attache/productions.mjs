@@ -5,8 +5,8 @@
  * de prolongation au JLD, saisine, projet de réponse…). Chaque production est
  * conservée par dossier, chiffrée (clé globale), versionnée. Le magistrat les
  * visionne dans « Actes rédigés », les fait retoucher par l'IA (chat), les
- * édite légèrement à la main, puis les glisse vers son parapheur pour
- * signature électronique.
+ * édite légèrement à la main, les exporte en PDF/Word officiel, puis les
+ * VALIDE (traite) — l'acte quitte alors la liste courante.
  *
  * Chaque production = un fichier-enveloppe. L'attaché l'écrit chiffré côté
  * serveur ; le navigateur de l'administrateur la déchiffre pour l'afficher,
@@ -84,6 +84,10 @@ export async function saveProduction(keys, { numero, id, type, titre, contenu, s
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     updatedBy: author,
+    // un acte VALIDÉ (traité) par le magistrat qui est retouché par l'IA
+    // redevient « en attente » : le nouveau contenu appelle une relecture.
+    traite: existing?.traite && existing?.contenu === String(contenu) ? existing.traite : false,
+    traiteLe: existing?.traite && existing?.contenu === String(contenu) ? existing.traiteLe : undefined,
   }
   await writeEnvelope(numero, rec.id, encryptJson(keys.global, rec, { savedAt: rec.updatedAt, savedBy: author }))
   return { id: rec.id, titre: rec.titre }

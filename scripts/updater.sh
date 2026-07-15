@@ -107,13 +107,13 @@ do_apply() {
   fi
   write_status updating build ""
   free_space
-  if ! $COMPOSE build siral >> "$STATE/update.log" 2>&1; then
+  if ! $COMPOSE build $(services_to_update) >> "$STATE/update.log" 2>&1; then
     rollback_to "$prev_sha"
     write_status error build "Échec de la reconstruction Docker (disque ou mémoire insuffisants ?) — $(log_tail)"
     return
   fi
   write_status updating restart ""
-  if ! $COMPOSE up -d siral >> "$STATE/update.log" 2>&1; then
+  if ! $COMPOSE up -d $(services_to_update) >> "$STATE/update.log" 2>&1; then
     rollback_to "$prev_sha"
     write_status error restart "Échec du redémarrage du conteneur — $(log_tail)"
     return
@@ -121,6 +121,18 @@ do_apply() {
   do_check
   write_status done done "Mise à jour appliquée"
   log "── mise à jour terminée : $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null) ──"
+}
+
+# Périmètre d'une mise à jour : toujours l'app web ; le service attaché AUSSI
+# quand il tourne (il partage le dépôt : scripts/attache*, prompts, outils —
+# le laisser sur une vieille image désynchroniserait app et service). Les
+# déploiements sans attaché (conteneur jamais démarré) ne sont pas touchés.
+services_to_update() {
+  if $COMPOSE ps --status running --services 2>/dev/null | grep -q '^attache$'; then
+    echo "siral attache"
+  else
+    echo "siral"
+  fi
 }
 
 # Reconstruit + redémarre le conteneur sur le code DÉJÀ présent dans le dépôt,
@@ -132,12 +144,12 @@ do_rebuild() {
   log "── reconstruction forcée (version inchangée) ──"
   write_status updating build ""
   free_space
-  if ! $COMPOSE build siral >> "$STATE/update.log" 2>&1; then
+  if ! $COMPOSE build $(services_to_update) >> "$STATE/update.log" 2>&1; then
     write_status error build "Échec de la reconstruction Docker (disque ou mémoire insuffisants ?) — $(log_tail)"
     return
   fi
   write_status updating restart ""
-  if ! $COMPOSE up -d siral >> "$STATE/update.log" 2>&1; then
+  if ! $COMPOSE up -d $(services_to_update) >> "$STATE/update.log" 2>&1; then
     write_status error restart "Échec du redémarrage du conteneur — $(log_tail)"
     return
   fi

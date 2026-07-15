@@ -89,6 +89,7 @@ export async function fetchInbox(keys) {
           html: undefined, // le texte suffit à l'agent ; pas de HTML stocké
           attachments,
           traite: false,
+          statut: 'recu', // recu → en_cours → traite (affiché dans le widget BAL du tableau de bord)
         }
         const env = encryptJson(keys.global, record, { savedAt: record.recuLe })
         ensureDir(attacheDir('inbox'))
@@ -118,10 +119,25 @@ export function listInbox(keys, { max = 100 } = {}) {
     if (!env) continue
     try {
       const rec = decryptJson(keys.global, env)
-      out.push({ id: rec.id, recuLe: rec.recuLe, de: rec.de, sujet: rec.sujet, pieces: (rec.attachments || []).length, traite: Boolean(rec.traite), resume: rec.resume })
+      out.push({
+        id: rec.id, recuLe: rec.recuLe, de: rec.de, sujet: rec.sujet,
+        pieces: (rec.attachments || []).length, traite: Boolean(rec.traite),
+        statut: rec.statut || (rec.traite ? 'traite' : 'recu'),
+        traiteLe: rec.traiteLe, resume: rec.resume,
+      })
     } catch {}
   }
   return out
+}
+
+/** Statut d'avancement d'un message (recu | en_cours | traite | erreur). */
+export async function markInboxStatus(keys, id, statut) {
+  const rec = readInboxMessage(keys, id)
+  if (!rec) return false
+  rec.statut = statut
+  const env = encryptJson(keys.global, rec, { savedAt: new Date().toISOString() })
+  atomicWrite(attacheDir('inbox', id + '.json'), JSON.stringify(env))
+  return true
 }
 
 export function readInboxMessage(keys, id) {
@@ -136,6 +152,7 @@ export async function markInboxProcessed(keys, id, resume) {
   if (!rec) return false
   rec.traite = true
   rec.traiteLe = new Date().toISOString()
+  rec.statut = 'traite'
   if (resume) rec.resume = String(resume).slice(0, 2000)
   const env = encryptJson(keys.global, rec, { savedAt: rec.traiteLe })
   atomicWrite(attacheDir('inbox', id + '.json'), JSON.stringify(env))
@@ -143,9 +160,11 @@ export async function markInboxProcessed(keys, id, resume) {
 }
 
 /**
- * Envoi d'un projet au magistrat — SEULE sortie autorisée du système.
- * Aucun paramètre destinataire : l'adresse vient de la configuration,
- * et un garde-fou final vérifie l'en-tête construit.
+ * DÉPRÉCIÉ — plus appelé par aucun outil : les livrables se remettent DANS
+ * SIRAL (remettre_livrable → fil « pendant votre absence »), les mails
+ * sortants ayant été supprimés (rejets de messagerie côté justice.fr).
+ * Conservé pour un éventuel retour arrière : destinataire toujours câblé
+ * (SIRAL_ATTACHE_OWNER_EMAIL), jamais un paramètre.
  */
 export async function sendToOwner(keys, { sujet, corps }) {
   const cfg = mailConfig()
