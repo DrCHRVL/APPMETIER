@@ -15,9 +15,10 @@
  * liens proposés s'attachent aux BONS nœuds sur la carte.
  */
 import crypto from 'node:crypto'
-import { attacheTj, readVault, writeVault } from './store.mjs'
+import { attacheTj, readVault, writeVault, listDocsMeta, docServerKey } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { loadContentieux, normalizeNom } from './dossier.mjs'
+import { instructionCorpus } from './instru.mjs'
 
 const OVERLAY = 'cartographie'
 
@@ -244,6 +245,84 @@ export function rapprochementsInterDossiers(keys, { includeArchived = false } = 
     note: 'Chaque entrée est une entité (téléphone, plaque, IBAN, adresse) présente dans PLUSIEURS dossiers qui ne partagent aucun mis en cause — donc un pont potentiel entre affaires. Vérifier la pertinence puis proposer_lien entre un MEC de chaque dossier, avec l\'entité en source.',
     rapprochements: partages.slice(0, 120).map((p) => ({ ...p, type: libelle[p.type] || p.type })),
   }
+}
+
+// ── Corpus complet pour l'analyse transversale de renseignement ──────────
+// Toutes les enquêtes (archivées comprises) ET tous les dossiers
+// d'instruction, avec leurs mis en cause déclarés et le nombre de pièces —
+// la carte de ce qu'il reste à DÉPOUILLER (les signaux faibles sont dans les
+// pièces, pas dans la liste des MEC). Base de l'analyse déléguée aux
+// sous-agents (un par dossier), qui lisent les documents et remontent les
+// personnes, surnoms, adresses, plaques et téléphones.
+
+export function cartoCorpus(keys, { includeArchived = true } = {}) {
+  const { data } = loadContentieux(keys)
+  const enquetes = (data.enquetes || [])
+    .filter((e) => includeArchived || e.statut !== 'archive')
+    .map((e) => {
+      const metas = listDocsMeta(attacheTj(), docServerKey(e.numero)).filter((m) => !String(m.rel).startsWith('MD/'))
+      return {
+        numero: e.numero, kind: 'enquete', statut: e.statut,
+        objet: stripHtml(e.description || '').slice(0, 200),
+        misEnCause: (e.misEnCause || []).map((m) => m.nom).filter(Boolean),
+        nbDocuments: metas.length,
+      }
+    })
+  let instruction = []
+  try { instruction = instructionCorpus(keys) } catch { /* module instruction absent : on continue */ }
+  const ov = loadOverlay(keys)
+  return {
+    contentieux: attacheTj(),
+    nbEnquetes: enquetes.length,
+    nbInstruction: instruction.length,
+    dossiers: [...enquetes, ...instruction],
+    mecsExNihiloExistants: (ov?.mecsExNihilo || []).map((m) => m.displayName || m.id).slice(0, 300),
+    dossiersExNihiloExistants: (ov?.dossiersExNihilo || []).map((d) => d.label).slice(0, 200),
+    liensRenseignementTraces: (ov?.liensRenseignement || []).length,
+    note: 'Corpus COMPLET pour une analyse transversale de renseignement : toutes les enquêtes (archivées comprises) et tous les dossiers d\'instruction, avec leurs mis en cause DÉCLARÉS et le nombre de pièces. Les signaux faibles (surnoms, personnes au 2nd plan jamais mises en cause, adresses, plaques, téléphones, comptes) sont dans les PIÈCES — pas dans la liste des mis en cause. MÉTHODE : pour chaque dossier, dossier_arborescence(numero) puis lire_document sur les PV et pièces ; DÉLÈGUE à des sous_agents (un par dossier ou petit groupe, consigne autonome : « relève toute personne — nom, surnom, alias —, adresse, plaque, téléphone, compte, et ce qui la relie à une autre ; format : liste »). Recoupe (recouper_personnes) puis PROPOSE (jamais tracé d\'office) : proposer_lien entre personnes reliées, proposer_mec_carto pour un suspect/surnom absent des dossiers, proposer_dossier_carto pour une architecture cachée (grappe autour d\'une même figure — ex. un détenu qui pilote plusieurs affaires).',
+  }
+}
+
+// ── Mis en cause EX NIHILO autonome (suspect / surnom isolé) ─────────────
+// Un nœud « personne » sur la carte qui n'apparaît dans AUCUN dossier réel :
+// un suspect au second plan, un surnom entendu dans des PV, une figure de
+// renseignement. Distinct de appendDossierExNihilo (qui crée un dossier +
+// ses personnes) : ici on crée UNE personne seule, avec ses alias.
+
+/** Vrai si la personne existe déjà (MEC réel OU nœud ex nihilo). */
+export function mecExNihiloExiste(keys, nom) {
+  const key = mecCanonId(nom)
+  if (!key) return false
+  const ov = loadOverlay(keys)
+  if ((ov?.mecsExNihilo || []).some((m) => mecCanonId(m.displayName || m.id) === key)) return true
+  const { data } = loadContentieux(keys)
+  for (const e of data.enquetes || []) {
+    for (const m of e.misEnCause || []) if (mecCanonId(m.nom) === key) return true
+  }
+  return false
+}
+
+/** Crée un MEC ex nihilo autonome (appliqué à la validation ✓). */
+export async function appendMecExNihilo(keys, { nom, alias, notes }) {
+  const clean = String(nom || '').trim()
+  if (!clean) throw new Error('Nom de la personne requis')
+  const key = mecCanonId(clean)
+  if (!key) throw new Error('Nom invalide')
+  const ov = loadOverlay(keys) || emptyOverlay()
+  ov.mecsExNihilo = ov.mecsExNihilo || []
+  if (ov.mecsExNihilo.some((m) => mecCanonId(m.displayName || m.id) === key)) {
+    return { doublon: true, message: `« ${clean} » figure déjà sur la carte` }
+  }
+  const now = Date.now()
+  const id = normalizeMecName(clean)
+  ov.mecsExNihilo.push({
+    id, displayName: clean,
+    alias: Array.isArray(alias) ? alias.map((a) => String(a).trim()).filter(Boolean).slice(0, 12) : [],
+    notes: notes ? String(notes).slice(0, 500) : undefined,
+    createdAt: now, updatedAt: now,
+  })
+  await saveOverlay(keys, ov)
+  return { ok: true, id }
 }
 
 /** Ajoute un lien de renseignement à la carte (appliqué à la validation ✓). */

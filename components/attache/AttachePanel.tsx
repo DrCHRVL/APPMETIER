@@ -20,6 +20,10 @@ import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig } from 
 
 import { NouveauxDossiersPropositions } from './NouveauxDossiersPropositions';
 
+// Constantes stables (un tableau inline relancerait le chargement à chaque rendu).
+const DOSSIER_KINDS = ['dossier'] as const;
+const CARTO_KINDS = ['dossier_carto', 'mec_carto', 'lien'] as const;
+
 type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
 
@@ -462,7 +466,13 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
 
       {/* Propositions de création de dossier réel issues du chat (créées à la ✓). */}
       <div className="px-4 pt-3 empty:hidden">
-        <NouveauxDossiersPropositions kinds={['dossier']} title="Proposition de dossier" reloadSignal={propositionsReload} />
+        <NouveauxDossiersPropositions kinds={DOSSIER_KINDS} title="Proposition de dossier" reloadSignal={propositionsReload} />
+      </div>
+
+      {/* Propositions de renseignement (analyse transversale) : liens,
+          personnes et dossiers ex nihilo — revue ✓/✗, tracés sur la carte. */}
+      <div className="px-4 pt-2 empty:hidden">
+        <NouveauxDossiersPropositions kinds={CARTO_KINDS} title="Proposition de renseignement" reloadSignal={propositionsReload} />
       </div>
 
       {/* Messages */}

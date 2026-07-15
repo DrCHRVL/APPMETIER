@@ -140,6 +140,24 @@ l'usage).
 - **Relance les dossiers dormants** : tout dossier sans mouvement depuis
   plus de 2 mois reçoit au brief un projet de mail de relance au directeur
   d'enquête, prêt à coller.
+- **Analyse transversale de renseignement (cartographie)** : sur demande
+  (« analyse tous les dossiers et trouve les liens cachés ») ou en routine,
+  l'attaché balaie le **corpus complet** — toutes les enquêtes (archivées
+  comprises) ET tous les dossiers du **module instruction** (`carto_corpus`)
+  — et **lit les pièces**, pas seulement les listes de mis en cause : les
+  signaux faibles (surnoms, personnes au second plan jamais mises en cause,
+  adresses, plaques, téléphones, comptes récurrents d'une affaire à l'autre)
+  sont dans les PV. Il délègue le dépouillement à des **sous-agents** (un par
+  dossier), recoupe les noms, puis **propose** — jamais tracé d'office :
+  **liens de renseignement** personne↔personne (`proposer_lien`, numéro
+  facultatif pour un lien transversal), **personnes ex nihilo** autonomes
+  (`proposer_mec_carto` — un suspect ou un surnom absent des dossiers, avec
+  ses alias), **dossiers ex nihilo** (`proposer_dossier_carto` — une grappe
+  cachée, ex. « réseau autour d'un détenu de maison d'arrêt, pivot de 6
+  affaires »). Le magistrat valide chaque proposition dans un **module de
+  revue** flottant (bas-gauche de la cartographie, et fil du panneau) :
+  ✓ trace sur la carte (signé de son nom), ✗ refuse. Idéal en routine
+  hebdomadaire.
 - **Chronologie probatoire** : dans le détail d'une enquête (section
   visible du seul administrateur), la frise fusionnée de tout ce qui est
   daté — actes, prolongations, attentes JLD, CR, apparition de mis en

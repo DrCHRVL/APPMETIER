@@ -104,6 +104,24 @@ export function instructionExiste(keys, numero) {
   return loadAllDossiers(keys).some((x) => matchNumero(x, numero))
 }
 
+/**
+ * Inventaire compact des dossiers d'instruction pour l'analyse transversale
+ * de la cartographie : numéro, mis en examen (noms) et nombre de pièces
+ * versées — même forme que les enquêtes dans cartoCorpus.
+ */
+export function instructionCorpus(keys) {
+  return loadAllDossiers(keys).map((d) => {
+    const numero = d.numeroInstruction || d.numeroParquet
+    const metas = numero ? listDocsMeta(attacheTj(), docServerKey(numero)).filter((m) => !String(m.rel).startsWith('MD/')) : []
+    return {
+      numero, kind: 'instruction', statut: 'instruction',
+      objet: stripHtml(d.description || '').slice(0, 200),
+      misEnCause: (d.misEnExamen || []).map((m) => m.nom).filter(Boolean),
+      nbDocuments: metas.length,
+    }
+  }).filter((d) => d.numero)
+}
+
 /** Dossier d'instruction complet, en markdown compact. */
 export function instructionDossierMarkdown(keys, numero) {
   const d = loadAllDossiers(keys).find((x) => matchNumero(x, numero))

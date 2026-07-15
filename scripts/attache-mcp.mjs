@@ -32,7 +32,7 @@ import { listInstructionDossiers, instructionDossierMarkdown } from './attache/i
 import { listDepot, readDepotText, rangerDocument, ecarterDepot, ZONES } from './attache/depot.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
-import { analyserReseau, listerLiens, rapprochementsInterDossiers, recoupementMecs } from './attache/carto.mjs'
+import { analyserReseau, listerLiens, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
 import { saveProduction, listProductions, readProduction, deleteProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
 import { appendMemory } from './attache/memory.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed } from './attache/mail.mjs'
@@ -585,6 +585,25 @@ const TOOLS = [
     write: true,
   },
   {
+    name: 'proposer_mec_carto',
+    description: 'Propose une PERSONNE EX NIHILO autonome sur la carte (un suspect, une figure de renseignement, un SURNOM entendu dans les pièces) qui n\'apparaît dans AUCUN dossier réel — n\'écrit PAS directement : ✓/✗. Distinct de proposer_dossier_carto (qui crée un dossier + ses personnes) : ici une SEULE personne, avec ses alias/surnoms. Créée sur la carte au ✓. Refus automatique si la personne existe déjà (dossier réel ou carte). Recoupe d\'abord (recouper_personnes). Toujours citer la source. Ensuite, relie-la avec proposer_lien.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nom: { type: 'string', description: 'Nom ou désignation principale de la personne' },
+        alias: { type: 'array', items: { type: 'string' }, description: 'Surnoms / alias entendus (ex: « le Grand », « Momo »)' },
+        notes: { type: 'string', description: 'Ce qu\'on sait d\'elle et pourquoi elle compte (rôle supposé, dossiers où elle est évoquée)' },
+        source: { type: 'string', description: 'Pièce(s) d\'où vient la détection (ex: PV D8092 du dossier X)' },
+      },
+      required: ['nom', 'source'],
+    },
+    handler: async (a) => addProposition(keys, {
+      type: 'mec_carto', source: a.source,
+      payload: { nom: a.nom, alias: a.alias, notes: a.notes },
+    }),
+    write: true,
+  },
+  {
     name: 'carto_analyser',
     description: 'Analyse le réseau (cartographie) : figures centrales, « ponts » (personnes présentes dans plusieurs dossiers, qui relient des affaires), co-occurrences, nombre de liens de renseignement déjà tracés. Pour aider à voir les connexions et améliorer la visibilité. Interpréter : centralité, cloisonnements, liens manquants à tracer.',
     inputSchema: { type: 'object', properties: { archives: { type: 'boolean', description: 'Inclure les dossiers archivés' } } },
@@ -592,9 +611,15 @@ const TOOLS = [
   },
   {
     name: 'carto_rapprochements',
-    description: 'Rapprochements inter-dossiers : entités (téléphone, plaque, IBAN, ADRESSE) présentes dans plusieurs dossiers qui ne partagent AUCUN mis en cause — donc des ponts potentiels entre affaires que rien ne reliait. Pour chaque rapprochement pertinent, proposer un lien de renseignement (proposer_lien) entre un MEC de chaque dossier, l\'entité partagée en source/label. Vérifie la pertinence (un numéro de service, une banque, ne relie rien).',
+    description: 'Rapprochements inter-dossiers RAPIDES (sur le TEXTE des enquêtes seulement : objet, CR, actes — pas les pièces) : entités (téléphone, plaque, IBAN, ADRESSE) présentes dans plusieurs dossiers qui ne partagent AUCUN mis en cause — donc des ponts potentiels entre affaires que rien ne reliait. Pour une analyse EN PROFONDEUR (pièces, surnoms, personnes au 2nd plan, instruction), pars plutôt de carto_corpus. Pour chaque rapprochement pertinent, proposer_lien entre un MEC de chaque dossier, l\'entité partagée en source/label. Vérifie la pertinence (un numéro de service, une banque, ne relie rien).',
     inputSchema: { type: 'object', properties: { archives: { type: 'boolean' } } },
     handler: async (a) => rapprochementsInterDossiers(keys, { includeArchived: Boolean(a?.archives) }),
+  },
+  {
+    name: 'carto_corpus',
+    description: 'Point de départ de l\'ANALYSE TRANSVERSALE DE RENSEIGNEMENT : le corpus COMPLET — toutes les enquêtes (archivées comprises) ET tous les dossiers d\'instruction, avec leurs mis en cause déclarés et le nombre de pièces, plus les personnes/dossiers ex nihilo et liens déjà sur la carte. Les signaux faibles (surnoms, personnes au 2nd plan jamais mises en cause, adresses, plaques, téléphones, comptes reliant deux affaires) sont dans les PIÈCES : pour chaque dossier, dossier_arborescence puis lire_document (PV surtout), en DÉLÉGUANT à des sous_agents (un par dossier). Puis recouper_personnes et PROPOSE (jamais tracé d\'office) : proposer_lien, proposer_mec_carto, proposer_dossier_carto. Idéal en routine (« chaque semaine, cherche les liens cachés entre tous les dossiers »).',
+    inputSchema: { type: 'object', properties: { archives: { type: 'boolean', description: 'Inclure les enquêtes archivées (défaut : oui)' } } },
+    handler: async (a) => cartoCorpus(keys, { includeArchived: a?.archives !== false }),
   },
   {
     name: 'carto_lister_liens',
@@ -604,17 +629,17 @@ const TOOLS = [
   },
   {
     name: 'proposer_lien',
-    description: 'Propose un LIEN DE RENSEIGNEMENT entre deux personnes, détecté en lisant une pièce (communications récurrentes, lien familial, logistique…) et non encore tracé sur la carte. Créé sur la carte SEULEMENT au ✓ de l\'administrateur. Toujours citer la source. `numero` = dossier d\'où vient la détection (pour l\'affichage de la proposition).',
+    description: 'Propose un LIEN DE RENSEIGNEMENT entre deux personnes, détecté en lisant une pièce (communications récurrentes, lien familial, logistique, même adresse/plaque/téléphone…) et non encore tracé sur la carte. Créé sur la carte SEULEMENT au ✓ de l\'administrateur. Toujours citer la source. Les deux personnes peuvent être des MEC réels OU des personnes ex nihilo (proposer_mec_carto d\'abord si l\'une est un surnom/second plan absent des dossiers). `numero` FACULTATIF = dossier d\'où vient la détection (contexte d\'affichage) ; pour un lien transversal entre plusieurs affaires, laisse-le vide.',
     inputSchema: {
       type: 'object',
       properties: {
-        numero: { type: 'string', description: 'Dossier d\'où vient la détection' },
+        numero: { type: 'string', description: 'Dossier d\'où vient la détection (facultatif)' },
         sourceNom: { type: 'string' }, targetNom: { type: 'string' },
-        label: { type: 'string', description: 'Nature du lien (ex: communications, fournisseur, fratrie)' },
+        label: { type: 'string', description: 'Nature du lien (ex: communications, fournisseur, fratrie, même adresse)' },
         notes: { type: 'string' },
-        source: { type: 'string', description: 'Pièce source (ex: PV D1808, retranscription du 12/07)' },
+        source: { type: 'string', description: 'Pièce source (ex: PV D1808 du dossier X, retranscription du 12/07)' },
       },
-      required: ['numero', 'sourceNom', 'targetNom', 'source'],
+      required: ['sourceNom', 'targetNom', 'source'],
     },
     handler: async (a) => addProposition(keys, { numero: a.numero, type: 'lien', payload: { sourceNom: a.sourceNom, targetNom: a.targetNom, label: a.label, notes: a.notes }, source: a.source }),
     write: true,

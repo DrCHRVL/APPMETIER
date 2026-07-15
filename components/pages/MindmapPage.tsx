@@ -44,6 +44,10 @@ import { AddClusterAnnotationModal, AddDossierModal, AddLienModal, AddMecModal }
 import { ManageOverlayPanel } from '../mindmap/ManageOverlayPanel';
 import { clearLayoutCache } from '../mindmap/useForceLayout';
 
+// Types de propositions carto revus depuis la carte (constante stable :
+// évite qu'un tableau inline ne relance le chargement à chaque rendu).
+const CARTO_REVIEW_KINDS = ['dossier_carto', 'mec_carto', 'lien'] as const;
+
 // ──────────────────────────────────────────────
 // PROPS
 // ──────────────────────────────────────────────
@@ -946,12 +950,15 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           les liens de renseignement manquants (auto-masqué si inactif). */}
       {isAdmin() && <FloatingDossierChat numero="carto" carto label="Cartographie" />}
 
-      {/* Propositions de dossier ex nihilo issues du chat carto (créées à la ✓,
-          avec création automatique des MEC inconnus). Panneau flottant bas-gauche. */}
+      {/* Revue des propositions de renseignement de l'attaché : liens
+          personne↔personne, personnes ex nihilo (surnoms/2nd plan) et
+          dossiers ex nihilo issus de l'analyse transversale — validés ✓ ou
+          refusés ✗ un à un, tracés sur la carte à la validation. Panneau
+          flottant bas-gauche, admin only, auto-masqué si vide. */}
       {isAdmin() && (
-        <div className="pointer-events-none fixed bottom-4 left-4 z-40 w-[360px] max-w-[calc(100vw-2rem)]">
+        <div className="pointer-events-none fixed bottom-4 left-4 z-40 w-[380px] max-w-[calc(100vw-2rem)]">
           <div className="pointer-events-auto">
-            <NouveauxDossiersPropositions kinds={['dossier_carto']} title="Proposition de dossier ex nihilo" />
+            <NouveauxDossiersPropositions kinds={CARTO_REVIEW_KINDS} title="Proposition de renseignement" />
           </div>
         </div>
       )}

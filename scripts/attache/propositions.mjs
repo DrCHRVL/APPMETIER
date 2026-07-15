@@ -15,14 +15,16 @@ import crypto from 'node:crypto'
 import { attacheDir, ensureDir, atomicWrite, readJson, withFileLock } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { ajouterMec, enregistrerActe, classerNote, getMecNoms, normalizeNom, creerDossier, dossierExiste } from './dossier.mjs'
-import { appendLien, appendDossierExNihilo, dossierExNihiloExiste } from './carto.mjs'
+import { appendLien, appendDossierExNihilo, dossierExNihiloExiste, appendMecExNihilo, mecExNihiloExiste } from './carto.mjs'
 import { audit } from './journal.mjs'
 
 const FILE = () => attacheDir('propositions.json')
-const TYPES = ['mec', 'acte', 'cr', 'lien', 'dossier', 'dossier_carto']
+const TYPES = ['mec', 'acte', 'cr', 'lien', 'dossier', 'dossier_carto', 'mec_carto']
 // Types rattachés à un dossier EXISTANT (numéro requis). « dossier » porte le
-// numéro du dossier à créer ; « dossier_carto » est global (pas de numéro).
-const TYPES_DOSSIER = ['mec', 'acte', 'cr', 'lien']
+// numéro du dossier à créer ; « dossier_carto », « mec_carto » et « lien »
+// sont globaux (carte — numéro facultatif pour un lien : simple contexte
+// d'affichage quand il est détecté dans un dossier précis).
+const TYPES_DOSSIER = ['mec', 'acte', 'cr']
 
 function load(keys) {
   const env = readJson(FILE(), null)
@@ -59,7 +61,10 @@ async function save(keys, propositions) {
 export async function addProposition(keys, { numero, type, payload, source, titre }) {
   if (!TYPES.includes(type)) throw new Error(`Type inconnu : ${type}`)
   if (!payload || typeof payload !== 'object') throw new Error('Payload requis')
-  if (TYPES_DOSSIER.includes(type) && !String(numero || '').trim()) throw new Error('Numéro de dossier requis')
+  // normalisé une fois : jamais de « undefined » littéral stocké (un lien
+  // transversal arrive sans numéro).
+  numero = String(numero || '').trim()
+  if (TYPES_DOSSIER.includes(type) && !numero) throw new Error('Numéro de dossier requis')
   const propositions = load(keys)
 
   // Création d'un NOUVEAU dossier réel : le numéro EST celui à créer.
@@ -82,6 +87,18 @@ export async function addProposition(keys, { numero, type, payload, source, titr
     const pendante = propositions.find((p) => p.statut === 'en_attente' && p.type === 'dossier_carto'
       && String(p.payload?.label || '').trim().toLowerCase() === lbl.toLowerCase())
     if (pendante) return { doublon: true, message: 'Une création de ce dossier ex nihilo est déjà en attente' }
+    numero = ''
+  }
+
+  // Création d'un MEC ex nihilo autonome sur la carte : global (pas de numéro).
+  if (type === 'mec_carto') {
+    const nom = String(payload.nom || '').trim()
+    if (!nom) throw new Error('Nom de la personne requis')
+    if (mecExNihiloExiste(keys, nom)) return { doublon: true, message: `« ${nom} » figure déjà (dossier réel ou carte) — proposition NON déposée` }
+    const norm = normalizeNom(nom)
+    const pendante = propositions.find((p) => p.statut === 'en_attente' && p.type === 'mec_carto'
+      && normalizeNom(p.payload?.nom || '') === norm)
+    if (pendante) return { doublon: true, message: 'Une création de cette personne est déjà en attente' }
     numero = ''
   }
 
@@ -124,6 +141,7 @@ function defaultTitre(type, payload) {
     const n = (Array.isArray(payload.misEnCause) ? payload.misEnCause.length : 0)
     return `Dossier ex nihilo (carte) : ${payload.label || '?'}${n ? ` — ${n} personne(s)` : ''}`
   }
+  if (type === 'mec_carto') return `Personne ex nihilo (carte) : ${payload.nom || '?'}${Array.isArray(payload.alias) && payload.alias.length ? ` (alias ${payload.alias.slice(0, 3).join(', ')})` : ''}`
   if (type === 'lien') return `Lien de renseignement : ${payload.sourceNom} ↔ ${payload.targetNom}${payload.label ? ` (${payload.label})` : ''}`
   if (type === 'mec') return `Nouveau mis en cause : ${payload.nom}${payload.role ? ` (${payload.role})` : ''}`
   if (type === 'acte') {
@@ -167,6 +185,8 @@ export async function decideProposition(keys, { id, action, par }) {
       applique = await creerDossier(keys, prop.payload)
     } else if (prop.type === 'dossier_carto') {
       applique = await appendDossierExNihilo(keys, prop.payload)
+    } else if (prop.type === 'mec_carto') {
+      applique = await appendMecExNihilo(keys, prop.payload)
     }
   }
 

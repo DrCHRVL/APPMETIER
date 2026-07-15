@@ -1,21 +1,25 @@
 'use client';
 
 /**
- * SIRAL — Attaché de justice · propositions de CRÉATION de dossier (✓/✗).
+ * SIRAL — Attaché de justice · propositions de CRÉATION (✓/✗).
  *
  * Contrairement à PropositionsBar (rattachée à un dossier existant), ce
- * bandeau surface les propositions qui n'ont pas encore de dossier support :
+ * bandeau surface les propositions globales, sans dossier support :
  *   - `dossier`        : nouveau dossier réel extrait d'un PV/résumé collé
  *                        dans le chat (créé dans le contentieux à la ✓) ;
  *   - `dossier_carto`  : dossier ex nihilo sur la carte, avec création
- *                        automatique des mis en cause inconnus à la ✓.
+ *                        automatique des mis en cause inconnus à la ✓ ;
+ *   - `mec_carto`      : personne ex nihilo autonome (suspect/surnom au 2nd
+ *                        plan, absent des dossiers) ;
+ *   - `lien`           : lien de renseignement personne↔personne détecté par
+ *                        l'analyse transversale (module de revue de la carte).
  * Visible du SEUL administrateur (l'API renvoie 404 sinon). Le paramètre
  * `kinds` restreint aux types pertinents selon l'endroit d'affichage.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Check, X, FolderPlus, Network, Loader2, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import { Check, X, FolderPlus, Network, UserPlus, GitBranch, Loader2, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 
-type Kind = 'dossier' | 'dossier_carto';
+type Kind = 'dossier' | 'dossier_carto' | 'mec_carto' | 'lien';
 
 interface Mec { nom?: string; role?: string; statut?: string }
 
@@ -34,6 +38,12 @@ interface Proposition {
     natinfCodes?: string[];
     notes?: string;
     misEnCause?: Array<Mec | string>;
+    // mec_carto
+    nom?: string;
+    alias?: string[];
+    // lien
+    sourceNom?: string;
+    targetNom?: string;
   };
   source?: string;
   creeLe: string;
@@ -42,7 +52,11 @@ interface Proposition {
 const TYPE_META: Record<Kind, { icon: typeof FolderPlus; label: string; tint: string }> = {
   dossier:       { icon: FolderPlus, label: 'Nouveau dossier',      tint: 'text-indigo-700 bg-indigo-50' },
   dossier_carto: { icon: Network,    label: 'Dossier ex nihilo',    tint: 'text-violet-700 bg-violet-50' },
+  mec_carto:     { icon: UserPlus,   label: 'Personne ex nihilo',   tint: 'text-sky-700 bg-sky-50' },
+  lien:          { icon: GitBranch,  label: 'Lien de renseignement', tint: 'text-teal-700 bg-teal-50' },
 };
+
+const CARTO_KINDS: Kind[] = ['dossier_carto', 'mec_carto', 'lien'];
 
 function mecName(m: Mec | string): string {
   return typeof m === 'string' ? m : (m?.nom || '');
@@ -53,7 +67,7 @@ export function NouveauxDossiersPropositions({
   title = 'Propositions de dossier',
   reloadSignal,
 }: {
-  kinds?: Kind[];
+  kinds?: readonly Kind[];
   title?: string;
   /** Toute variation déclenche un rechargement (ex. fin d'un tour de chat). */
   reloadSignal?: number;
@@ -76,7 +90,10 @@ export function NouveauxDossiersPropositions({
     } catch {
       setAvailable(false);
     }
-  }, [kinds]);
+    // kinds sérialisé : un tableau inline (prop) change d'identité à chaque
+    // rendu — sans cela, rechargement en boucle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kinds.join(',')]);
 
   useEffect(() => { load(); }, [load, reloadSignal]);
 
@@ -91,9 +108,13 @@ export function NouveauxDossiersPropositions({
       });
       const data = await res.json().catch(() => ({}));
       if (data.ok) {
-        setProps((prev) => prev.filter((p) => p.id !== id));
+        const p = props.find((x) => x.id === id);
+        setProps((prev) => prev.filter((x) => x.id !== id));
         if (action === 'valider') {
-          setNotice('Dossier créé — la synchronisation le fera apparaître dans quelques secondes.');
+          const onCarte = p && CARTO_KINDS.includes(p.type);
+          setNotice(onCarte
+            ? 'Enregistré sur la carte — la synchronisation l\'affichera dans quelques secondes.'
+            : 'Dossier créé — la synchronisation le fera apparaître dans quelques secondes.');
         }
       } else {
         setNotice(data.error || 'Décision refusée par le serveur');
@@ -101,9 +122,11 @@ export function NouveauxDossiersPropositions({
     } finally {
       setBusy(null);
     }
-  }, []);
+  }, [props]);
 
   if (!available || props.length === 0) return null;
+
+  const allCarto = props.every((p) => CARTO_KINDS.includes(p.type));
 
   return (
     <div className="rounded-xl border border-amber-200/70 bg-amber-50/40">
@@ -112,7 +135,7 @@ export function NouveauxDossiersPropositions({
         <span className="text-xs font-bold text-gray-800">
           {props.length} {title.toLowerCase()}{props.length > 1 ? 's' : ''} de l'attaché
         </span>
-        <span className="text-[10.5px] text-gray-400">visibles de vous seul · ✓ crée le dossier (signé de votre nom) · ✗ refuse</span>
+        <span className="text-[10.5px] text-gray-400">visibles de vous seul · ✓ {allCarto ? 'trace sur la carte' : 'crée (signé de votre nom)'} · ✗ refuse</span>
       </div>
       <div className="divide-y divide-amber-100/70">
         {props.map((p) => {
@@ -140,7 +163,7 @@ export function NouveauxDossiersPropositions({
                   <>
                     <button
                       onClick={() => decide(p.id, 'valider')}
-                      title="Valider — créer le dossier"
+                      title={CARTO_KINDS.includes(p.type) ? 'Valider — tracer sur la carte' : 'Valider — créer le dossier'}
                       className="grid h-6 w-6 place-items-center rounded-md text-emerald-600 hover:bg-emerald-100"
                     >
                       <Check className="h-4 w-4" />
@@ -158,18 +181,33 @@ export function NouveauxDossiersPropositions({
               {p.source && <div className="mt-0.5 pl-1 text-[10.5px] text-gray-400">Source : {p.source}</div>}
               {isOpen && (
                 <div className="mt-1.5 space-y-1 rounded-lg border border-amber-100 bg-white p-2 text-[11.5px] leading-relaxed text-gray-700">
-                  {p.type === 'dossier' ? (
+                  {p.type === 'dossier' && (
                     <>
                       <Field label="Numéro" value={p.payload.numero} />
                       <Field label="Date de début" value={p.payload.dateDebut} />
                       <Field label="Service(s)" value={(p.payload.services || []).join(', ')} />
                       <Field label="Objet" value={p.payload.description} />
                     </>
-                  ) : (
+                  )}
+                  {p.type === 'dossier_carto' && (
                     <>
                       <Field label="Libellé" value={p.payload.label} />
                       <Field label="Date" value={p.payload.dateApprox} />
                       <Field label="NATINF" value={(p.payload.natinfCodes || []).join(', ')} />
+                      <Field label="Notes" value={p.payload.notes} />
+                    </>
+                  )}
+                  {p.type === 'mec_carto' && (
+                    <>
+                      <Field label="Personne" value={p.payload.nom} />
+                      <Field label="Alias / surnoms" value={(p.payload.alias || []).join(', ')} />
+                      <Field label="Notes" value={p.payload.notes} />
+                    </>
+                  )}
+                  {p.type === 'lien' && (
+                    <>
+                      <Field label="Entre" value={`${p.payload.sourceNom || '?'}  ↔  ${p.payload.targetNom || '?'}`} />
+                      <Field label="Nature" value={p.payload.label} />
                       <Field label="Notes" value={p.payload.notes} />
                     </>
                   )}
