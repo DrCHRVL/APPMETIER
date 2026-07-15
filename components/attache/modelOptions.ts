@@ -11,6 +11,8 @@ export interface AttacheConfig {
   model?: string
   effort?: string
   webAccess?: boolean
+  /** Modèle des sous-agents (lots parallèles) — vide = celui de l'attaché. */
+  subModel?: string
 }
 
 export const MODEL_OPTIONS: Array<{ value: string; label: string }> = [
@@ -19,6 +21,12 @@ export const MODEL_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'claude-opus-4-8', label: 'Opus 4.8' },
   { value: 'claude-sonnet-5', label: 'Sonnet 5' },
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+]
+
+/** Modèle des lots parallèles : un modèle rapide (Sonnet/Haiku) suffit souvent. */
+export const SUBMODEL_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: 'Sous-agents : même modèle' },
+  ...MODEL_OPTIONS.slice(1).map((m) => ({ value: m.value, label: `Sous-agents : ${m.label}` })),
 ]
 
 export const EFFORT_OPTIONS: Array<{ value: string; label: string }> = [

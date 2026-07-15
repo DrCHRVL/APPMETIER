@@ -55,6 +55,16 @@ export function listTrames(keys) {
   return out.sort((a, b) => a.nom.localeCompare(b.nom))
 }
 
+/**
+ * Met à jour la SEULE description d'une trame (classification par l'attaché
+ * après téléversement en masse) — le contenu n'est jamais touché.
+ */
+export async function setTrameDescription(keys, nom, description) {
+  const existing = readTrame(keys, nom)
+  if (!existing) throw new Error('Trame inconnue — voir trames_lister')
+  return saveTrame(keys, { ...existing, description: String(description || '').slice(0, 300) })
+}
+
 export function readTrame(keys, nom) {
   const p = attacheDir('trames', safeName(nom) + '.json')
   const env = readJson(p, null)

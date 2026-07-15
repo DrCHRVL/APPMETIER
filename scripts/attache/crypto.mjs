@@ -67,6 +67,12 @@ export function decryptDocBlob(rawKey, blob) {
   return decryptBytes(rawKey, iv, blob.subarray(16))
 }
 
+/** Chiffre des octets au format document du client web (SIR1 + iv + ct). */
+export function encryptDocBlob(rawKey, bytes) {
+  const { iv, ct } = encryptBytes(rawKey, bytes)
+  return Buffer.concat([DOC_MAGIC, Buffer.from(b64.decode(iv)), ct])
+}
+
 // ── Clé-maître du service attaché ──
 
 /**

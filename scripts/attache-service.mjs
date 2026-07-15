@@ -110,9 +110,11 @@ const BRIEFING_HOUR = Math.min(23, Math.max(0, Number(process.env.SIRAL_ATTACHE_
 
 function briefingPrompt() {
   return [
-    'C\'est l\'heure du brief quotidien du magistrat. Balaye TOUS les dossiers en cours (lister_dossiers,',
-    'verifier_completude sur chacun, lire_dossier quand un point mérite le contexte) et prépare son tableau',
-    'de bord via majordome_publier :',
+    'C\'est l\'heure du brief quotidien du magistrat. Balaye TOUS les dossiers en cours et prépare son tableau',
+    'de bord via majordome_publier. MÉTHODE : lister_dossiers, puis DÉLÈGUE le balayage à des sous-agents en',
+    'parallèle (sous_agents — un lot de tâches, une par dossier ou par petit groupe : chaque consigne donne le',
+    'numéro et demande verifier_completude + diagnostic_dossier + les points saillants, réponse télégraphique).',
+    'Tu synthétises leurs analyses et c\'est TOI qui publies (eux ne peuvent pas écrire) :',
     '1. echeance — actes expirant sous 15 jours, attentes JLD qui traînent, CR anciens : dis QUOI préparer et POUR QUAND.',
     '2. projet_mail — pour chaque dossier qui le justifie, le mail prêt à coller au directeur d\'enquête',
     '   (demande de requête pour prolongation, point d\'étape, actualisation, envoi du dossier pour relecture).',
@@ -125,6 +127,11 @@ function briefingPrompt() {
     '   du dossier complet pour relecture selon le cas).',
     '6. DESCRIPTIONS PÉRIMÉES — si la description d\'un dossier ne reflète plus son état (nouveaux CR/actes/documents),',
     '   actualise-la directement (actualiser_description) : c\'est réversible et archivé.',
+    '7. INSTRUCTION (instru_lister) — les échéances du module instruction : DML en attente (réquisitions à rendre',
+    '   avant l\'échéance +10 jours — publie une echeance, et prépare la réponse selon ta MÉTHODE DML si elle manque),',
+    '   débats JLD à venir sans réquisitions rédigées, fins de période de détention proches.',
+    '8. DÉPÔT (depot_lister) — des pièces confiées attendent encore d\'être rangées ? Range-les (MAJORDOME DES PIÈCES)',
+    '   ou pose la question qui te bloque.',
     'Termine par signaler (type note) : un résumé du brief en 2 phrases. Sois sélectif : uniquement ce qui appelle',
     'un geste du magistrat. Ne republie pas ce qui n\'a pas changé depuis le brief précédent (ta mémoire et les',
     'conversations récentes t\'indiquent ce qui a déjà été publié).',
@@ -198,6 +205,42 @@ async function maybeScheduledBriefing() {
   runBriefing('planifié').catch((e) => console.error('[attache] brief :', e))
 }
 
+// ── Analyse des trames téléversées : classement + propositions d'amélioration ──
+let trameAnalyseRunning = false
+async function runTrameAnalyse(noms) {
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  trameAnalyseRunning = true
+  try {
+    console.log(`[attache] analyse de ${noms.length} trame(s) téléversée(s)`)
+    const prompt = [
+      `Le magistrat vient de téléverser ${noms.length} trame(s) dans sa bibliothèque : ${noms.join(', ')}.`,
+      'MÉTHODE : si le lot dépasse 3 trames, DÉLÈGUE lecture et évaluation à des sous-agents en parallèle',
+      '(sous_agents — une tâche par trame : « lis la trame X (trame_lire) et livre : (a) classification en une',
+      'phrase — type d\'acte, cadre juridique, articles visés, régime 706-80 ou non, quand l\'utiliser ; (b) analyse',
+      'de solidité juridique et de structure »). Sinon traite-les toi-même une à une.',
+      'Puis, à partir de ces analyses, pour CHAQUE trame :',
+      '1. Enregistre sa classification avec trame_decrire (qui ne touche PAS au contenu).',
+      '2. Retiens ses points d\'amélioration : solidité juridique (fondements cités encore en vigueur, mentions obligatoires, points de fragilité procédurale) et structure (plan, clarté, champs à compléter, doublons avec une autre trame de la bibliothèque).',
+      'À LA FIN, un SEUL signaler (type note, titre « Trames téléversées : classement et propositions ») : pour chaque trame, sa classification retenue et tes propositions d\'amélioration LÉGALE ou STRUCTURELLE, concrètes et hiérarchisées (ce qui fragilise l\'acte d\'abord).',
+      'RÈGLE STRICTE : tu ne MODIFIES JAMAIS le contenu d\'une trame — tu proposes, le magistrat décide. Seule la description (classement) est mise à jour via trame_decrire.',
+      'Si le corpus de la base de connaissances (kb_chercher) éclaire une trame (circulaire, jurisprudence), appuie tes propositions dessus et cite l\'entrée.',
+    ].join('\n')
+    const result = await runAgent({ keys, prompt, runLabel: 'trames-analyse', title: `Analyse trames ${new Date().toISOString().slice(0, 10)}` })
+    await audit(keys, 'trames_analysees', { nb: noms.length, noms: noms.join(', ').slice(0, 500), ok: result.ok, convId: result.convId, erreur: result.error })
+    if (!result.ok) {
+      await publishFeed(keys, {
+        type: 'alerte',
+        titre: 'Analyse des trames interrompue',
+        resume: `L'analyse des trames téléversées (${noms.slice(0, 5).join(', ')}${noms.length > 5 ? '…' : ''}) a échoué (${result.error || 'erreur inconnue'}). Relancez-la depuis Paramètres → Attaché IA.`,
+      })
+    }
+    return { ok: result.ok, convId: result.convId, error: result.error }
+  } finally {
+    trameAnalyseRunning = false
+  }
+}
+
 // ── Boucle de relève ──
 let polling = false
 async function pollOnce(trigger = 'planifié') {
@@ -269,6 +312,7 @@ const server = http.createServer(async (req, res) => {
         model: 'model' in body ? sanitizeModel(body.model) : current.model,
         effort: 'effort' in body ? sanitizeEffort(body.effort) : current.effort,
         webAccess: 'webAccess' in body ? body.webAccess === true : current.webAccess,
+        subModel: 'subModel' in body ? sanitizeModel(body.subModel) : current.subModel,
       }
       await writeState({ config })
       const keys = loadKeyring()
@@ -413,6 +457,19 @@ const server = http.createServer(async (req, res) => {
       if (!routine) return json(res, 404, { error: 'Routine inconnue' })
       // lancée en fond : la réponse ne bloque pas sur le run
       runRoutine(routine, 'manuelle').catch((e) => console.error('[attache] routine :', e))
+      return json(res, 202, { ok: true, started: true })
+    }
+
+    if (route === 'POST /trames/analyse') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      if (trameAnalyseRunning) return json(res, 409, { ok: false, error: 'Analyse déjà en cours' })
+      const body = await readBody(req)
+      const noms = (Array.isArray(body.noms) ? body.noms : [])
+        .map((n) => String(n).slice(0, 80)).filter(Boolean).slice(0, 100)
+      if (!noms.length) return json(res, 400, { ok: false, error: 'Aucune trame à analyser' })
+      // lancée en fond : la réponse ne bloque pas sur le run complet
+      runTrameAnalyse(noms).catch((e) => console.error('[attache] analyse trames :', e))
       return json(res, 202, { ok: true, started: true })
     }
 

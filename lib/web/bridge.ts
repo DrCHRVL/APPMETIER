@@ -544,6 +544,23 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       const docs = await docList(String(enqueteNumero))
       return docs.some((d) => d.rel === String(cheminRelatif))
     },
+    /** Index serveur des documents d'un dossier (rel, taille, dates) — zone DML instruction notamment. */
+    listServerDocuments: async (enqueteNumero: unknown) => docList(String(enqueteNumero)),
+    /**
+     * Dépose un document sous un chemin relatif COMPLET (sous-pochettes
+     * permises) — versement « dossier complet » du module instruction :
+     * le markdown converti part chiffré, l'arborescence d'origine est
+     * préservée (chaque segment nettoyé, jamais de `..`).
+     */
+    depositDocument: async (enqueteNumero: unknown, rel: unknown, bytes: unknown, category: unknown, originalName: unknown) => {
+      const cleanRel = String(rel).split('/')
+        .map((seg) => encodeDocName(seg))
+        .filter((seg) => seg && !seg.startsWith('.'))
+        .join('/')
+      if (!cleanRel || cleanRel.length > 580) throw new Error('Chemin de document invalide')
+      await docUpload(String(enqueteNumero), cleanRel, new Uint8Array(bytes as ArrayBuffer), String(category || 'Dossier'), String(originalName || cleanRel.split('/').pop()))
+      return cleanRel
+    },
     getDocumentSize: async (enqueteNumero: unknown, cheminRelatif: unknown) => {
       const docs = await docList(String(enqueteNumero))
       const d = docs.find((x) => x.rel === String(cheminRelatif))

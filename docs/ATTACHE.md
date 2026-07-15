@@ -22,8 +22,41 @@ l'usage).
   actions, synthèses, projets — dont le résultat s'affiche dans le fil
   « Pendant votre absence » du panneau.
 - **N'écrit à l'extérieur qu'au magistrat** : l'unique sortie du système est
-  un mail vers `SIRAL_ATTACHE_OWNER_EMAIL`. Le destinataire n'est pas un
-  paramètre de l'outil : il est câblé côté serveur.
+  un mail vers `SIRAL_ATTACHE_OWNER_EMAIL` — réservé aux **livrables**. Le
+  destinataire n'est pas un paramètre de l'outil : il est câblé côté serveur.
+- **Dossier complet (module instruction)** : le magistrat verse tout ou
+  partie du dossier réel dans la fiche d'instruction — sélection d'un
+  dossier entier ou glisser-déposer, **sous-pochettes comprises**
+  (l'arborescence d'origine est préservée : D - Fond, E - Personnalité…).
+  Chaque pièce est **convertie en markdown dans le navigateur au passage**
+  puis chiffrée : ici seul le TEXTE est conservé (les originaux signés
+  vivent dans l'Archive DML et les zones documents) — place serveur et
+  tokens réduits d'autant. Arbre repliable, aperçu d'une pièce, suppression
+  par pièce ou par pochette. L'attaché dépouille : `dossier_arborescence`
+  (table des matières), lecture ciblée (`lire_document`), et sous-agents
+  par pochette pour les synthèses massives — chaque affirmation cite la
+  pièce.
+- **Reçoit et range les pièces (majordome)** : le magistrat lui CONFIE un
+  document sans décider où il va — trombone / glisser-déposer dans le
+  panneau, ou pièce jointe d'un mail transféré. L'attaché l'identifie
+  (lecture du contenu au dépôt si besoin), retrouve le **bon dossier**
+  (enquête ou instruction), choisit la **bonne zone** (audition → PV,
+  ordonnance → Actes, DML → DML, rapport géoloc → Geoloc, retranscription
+  → Ecoutes), le **nomme proprement** (daté, explicite) et le range — la
+  pièce apparaît dans la fiche du dossier, intacte et chiffrée, signée du
+  nom du magistrat. Puis il l'**exploite** : lecture, détections →
+  propositions, intégration au travail en cours (ex. l'audition attendue
+  pour une réponse DML). Doute → question dans SIRAL ; pièce non
+  pertinente → corbeille du dépôt (jamais détruite). Le brief quotidien
+  vérifie qu'aucune pièce ne dort au dépôt.
+- **Pose ses questions DANS SIRAL — jamais par mail** : quand une
+  information lui manque (un acte récent dans NPP, une orientation à
+  trancher), l'attaché publie une carte **« Question ❓ »** dans le fil
+  « pendant votre absence », avec **zone de réponse intégrée**. La réponse
+  du magistrat reprend **la conversation d'origine du run** (l'attaché
+  garde tout son contexte et poursuit : révision de l'acte, retrait des
+  [À CONFIRMER]…). Boutons Répondre / Ignorer, statut persistant. Une seule
+  entrée (mail transféré ou chat), puis tout se passe dans l'application.
 - **Retient** : une mémoire markdown (préférences, réflexes appris) relue à
   chaque intervention — lisible, corrigeable et effaçable depuis le panneau.
 - **Se règle comme Claude web** : choix du **modèle** (Fable 5, Opus 4.8,
@@ -31,6 +64,27 @@ l'usage).
   d'effort** de raisonnement (faible → maximal), depuis le composer du chat
   ou Paramètres → Attaché IA (section « Cerveau »). Le réglage est persisté
   et vaut pour TOUS les runs : chat, mails transférés, brief, routines.
+  S'y règle aussi le **modèle des sous-agents** (un modèle rapide — Sonnet,
+  Haiku — suffit souvent pour les lots).
+- **Travaille en parallèle (sous-agents)** : pour un lot de sous-tâches
+  indépendantes — analyser les 20 PDF d'un dossier, balayer chaque dossier
+  du brief quotidien, évaluer un lot de trames — l'attaché délègue à des
+  **sous-agents Claude exécutés en parallèle** (outil `sous_agents`, 24
+  tâches max, concurrence bornée, timeout par tâche : un document illisible
+  ne bloque pas le lot). Garde-fous : les sous-agents sont en **lecture
+  seule** (aucun outil d'écriture, pas de mail, pas de sous-agents
+  imbriqués) — seul l'agent principal écrit, propose et signale, et chaque
+  lot est journalisé dans l'audit. Réglages : concurrence
+  `SIRAL_ATTACHE_SUBAGENT_CONCURRENCY` (défaut 3), timeout
+  `SIRAL_ATTACHE_SUBAGENT_TIMEOUT_MIN` (défaut 8 min).
+- **Ne ré-extrait jamais deux fois un PDF** : les documents déposés au
+  dossier sont des **originaux** (souvent signés numériquement) — ils ne
+  sont JAMAIS modifiés ni remplacés. À la première lecture d'un PDF,
+  l'attaché met le texte extrait en **cache chiffré** (`attache/doccache/`,
+  indexé par le hash du fichier) : les relectures sont instantanées et
+  n'usent plus ni CPU ni tokens ; si le PDF change, le cache se régénère
+  tout seul. Le répertoire des documents, synchronisé avec le commun
+  Windows, n'est pas touché.
 - **Suit vos consignes permanentes** : un « prompt » libre, rédigé par le
   magistrat (Paramètres → Attaché IA → « Consignes permanentes » — l'équivalent
   de vos instructions Claude web : style, méthode, réflexes), relu au début de
@@ -85,6 +139,47 @@ l'usage).
   web) se collent dans le panneau (« enregistre cette trame sous… ») ;
   l'attaché les relit avant chaque rédaction du même type. Chiffrées,
   versionnées.
+- **Bibliothèque de trames téléversable en masse** : le stock du cabinet
+  (fichiers `.odt`, `.docx`, `.pdf`, texte…) se téléverse d'un coup dans
+  Paramètres → Attaché IA → « Trames ». La conversion en **markdown se fait
+  dans le navigateur** (le fichier ne quitte jamais le poste en clair), puis
+  chaque trame est chiffrée et versionnée comme les autres. Option « Faire
+  analyser » : l'attaché lit chaque trame, la **classe** (description mise à
+  jour via `trame_decrire` — le contenu n'est JAMAIS modifié) et publie dans
+  le fil « pendant votre absence » ses **propositions d'amélioration légale
+  ou structurelle** — propositions seulement, le magistrat décide. Bouton
+  « Analyser toute la bibliothèque » pour relancer à la demande.
+- **Base de connaissances** : le fond documentaire durable du cabinet —
+  jurisprudences, conventions et circulaires, modes opératoires, fiches
+  réflexes, contacts de services — téléversé en masse (mêmes formats, même
+  conversion markdown côté navigateur : seule la version texte est
+  conservée, place et tokens économisés) ou saisi à la main, classé par
+  catégories libres. Pas d'index vectoriel : **recherche agentique** à la
+  demande (`kb_chercher` insensible casse/accents, puis `kb_lire`) — le
+  sommaire (titres + descriptions) figure dans le prompt de l'attaché, le
+  contenu ne se charge que quand une tâche le réclame, comme les skills.
+  En chat, « ajoute à la base de connaissances » fonctionne aussi
+  (`kb_enregistrer`). Chiffrée (clé globale), versionnée, réversible.
+  PDF scannés (image, sans texte) : détectés et signalés au téléversement —
+  passez-les par un OCR avant.
+- **Gère les DML de bout en bout (module instruction)** : l'attaché lit les
+  dossiers d'instruction du magistrat (coffres `instructions-*`, clé
+  globale — lecture seule) : saisine, mis en examen avec périodes de
+  détention, DML en attente et leur échéance (+10 jours), débats JLD,
+  chronologie. Workflow d'une DML : le magistrat transfère le mail
+  « nouvelle DML dossier X » à la boîte dédiée → l'attaché identifie le
+  dossier et le mis en examen (`instru_lister`, `lire_dossier`), s'appuie
+  sur la **réponse précédente archivée** (zone « Archive DML » du détail
+  d'instruction — les PDF signés y restent INTACTS), sur les trames et la
+  base de connaissances → **demande systématiquement au magistrat**, via la
+  carte Question du panneau (réponse sur place, jamais par mail), si un
+  acte récent (audition, expertise — souvent dans NPP, invisible pour lui)
+  doit enrichir la motivation → rédige SANS attendre le projet complet
+  (type « Réponse DML », points suspendus marqués [À CONFIRMER]) → à la
+  réponse du magistrat, révise l'acte dans la même conversation. Le magistrat retouche dans « Actes
+  rédigés » puis **glisse vers son parapheur** pour signature numérique.
+  Le brief quotidien anticipe aussi les échéances instruction : DML en
+  attente, débats JLD sans réquisitions, fins de détention proches.
 - **Analyse automatique des documents (IA)** : la fonctionnalité « Analyse
   automatique des documents » de SIRAL (détection d'actes à partir des PDF du
   dossier) bascule, pour le seul administrateur, sur le modèle Claude de
