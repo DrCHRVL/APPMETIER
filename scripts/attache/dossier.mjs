@@ -548,6 +548,20 @@ export async function ajouterMec(keys, { numero, nom, role, statut }) {
  * lire_document, reprendre sa structure, mettre à jour avec les actes
  * intervenus depuis.
  */
+/**
+ * Table des matières de TOUTES les pièces déposées sous un numéro : zones
+ * (Geoloc/Ecoutes/Actes/PV/DML) et « Dossier complet » versé (Dossier/…,
+ * sous-pochettes = organisation du dossier). Chemins exacts pour
+ * lire_document. Plafonnée — le tri par chemin rend l'arborescence lisible.
+ */
+export function arborescenceDocuments(numero) {
+  const metas = listDocsMeta(attacheTj(), docServerKey(numero))
+  const pieces = metas
+    .map((d) => ({ chemin: d.rel, taille: d.size, deposeLe: d.savedAt, nomOriginal: d.originalName }))
+    .sort((a, b) => a.chemin.localeCompare(b.chemin))
+  return { total: pieces.length, pieces: pieces.slice(0, 2000) }
+}
+
 export function listerDml(keys, numero) {
   const docs = listDocsMeta(attacheTj(), docServerKey(numero))
   return docs

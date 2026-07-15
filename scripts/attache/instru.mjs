@@ -11,7 +11,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { attacheTj, tjDataDir, readVault } from './store.mjs'
+import { attacheTj, tjDataDir, readVault, listDocsMeta, docServerKey } from './store.mjs'
 import { decryptJson } from './crypto.mjs'
 
 function stripHtml(s) {
@@ -162,6 +162,14 @@ export function instructionDossierMarkdown(keys, numero) {
 
   if (d.notesActesJI) parts.push('\n## Actes à faire / à demander à la JI\n' + stripHtml(d.notesActesJI).slice(0, 4000))
 
-  parts.push(`\n(Réponses DML archivées du dossier : lister_dml avec le numéro « ${d.numeroInstruction || d.numeroParquet} » — puis lire_document sur la plus récente.)`)
+  const numeroDocs = d.numeroInstruction || d.numeroParquet
+  const metas = listDocsMeta(attacheTj(), docServerKey(numeroDocs))
+  const nbDossierComplet = metas.filter((m) => m.rel.startsWith('Dossier/')).length
+  const nbDml = metas.filter((m) => m.rel.startsWith('DML/')).length
+  parts.push('')
+  if (nbDossierComplet) {
+    parts.push(`DOSSIER COMPLET VERSÉ : ${nbDossierComplet} pièce(s) en texte, organisées en pochettes — dossier_arborescence(« ${numeroDocs} ») pour la table des matières, puis lire_document. C'est la matière première de toute synthèse, DML ou réquisitoire.`)
+  }
+  parts.push(`(${nbDml || 'Aucune'} réponse(s) DML archivée(s) : lister_dml avec le numéro « ${numeroDocs} » — puis lire_document sur la plus récente.)`)
   return parts.join('\n').slice(0, 200_000)
 }

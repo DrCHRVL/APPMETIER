@@ -24,6 +24,18 @@ l'usage).
 - **N'écrit à l'extérieur qu'au magistrat** : l'unique sortie du système est
   un mail vers `SIRAL_ATTACHE_OWNER_EMAIL` — réservé aux **livrables**. Le
   destinataire n'est pas un paramètre de l'outil : il est câblé côté serveur.
+- **Dossier complet (module instruction)** : le magistrat verse tout ou
+  partie du dossier réel dans la fiche d'instruction — sélection d'un
+  dossier entier ou glisser-déposer, **sous-pochettes comprises**
+  (l'arborescence d'origine est préservée : D - Fond, E - Personnalité…).
+  Chaque pièce est **convertie en markdown dans le navigateur au passage**
+  puis chiffrée : ici seul le TEXTE est conservé (les originaux signés
+  vivent dans l'Archive DML et les zones documents) — place serveur et
+  tokens réduits d'autant. Arbre repliable, aperçu d'une pièce, suppression
+  par pièce ou par pochette. L'attaché dépouille : `dossier_arborescence`
+  (table des matières), lecture ciblée (`lire_document`), et sous-agents
+  par pochette pour les synthèses massives — chaque affirmation cite la
+  pièce.
 - **Reçoit et range les pièces (majordome)** : le magistrat lui CONFIE un
   document sans décider où il va — trombone / glisser-déposer dans le
   panneau, ou pièce jointe d'un mail transféré. L'attaché l'identifie

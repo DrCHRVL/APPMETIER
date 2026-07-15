@@ -18,7 +18,7 @@ import { audit, publishFeed } from './attache/journal.mjs'
 import {
   listEnquetes, dossierMarkdown, readDocumentText, verifierCompletude,
   enregistrerActe, acterProlongation, classerNote, ajouterTodo, listerDml,
-  actualiserDescription, diagnostiquerDossier,
+  actualiserDescription, diagnostiquerDossier, arborescenceDocuments,
 } from './attache/dossier.mjs'
 import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
@@ -65,9 +65,15 @@ const TOOLS = [
   },
   {
     name: 'lire_document',
-    description: 'Texte intégral d\'un document déposé au dossier (PDF/TXT/HTML). `chemin` = cheminRelatif tel que listé dans lire_dossier.',
+    description: 'Texte intégral d\'un document déposé sous un numéro de dossier — enquête OU instruction (PDF/TXT/MD/HTML). `chemin` = cheminRelatif exact (voir lire_dossier ou dossier_arborescence), y compris les pièces du « Dossier complet » versé (Dossier/…).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' }, chemin: { type: 'string' } }, required: ['numero', 'chemin'] },
     handler: async (a) => readDocumentText(keys, a.numero, a.chemin),
+  },
+  {
+    name: 'dossier_arborescence',
+    description: 'Table des matières de TOUTES les pièces déposées sous un numéro (enquête ou instruction) : zones Geoloc/Ecoutes/Actes/PV/DML et « Dossier complet » versé (Dossier/… — les sous-pochettes reflètent l\'organisation du dossier réel, en texte). Chemins exacts pour lire_document. Point de départ de tout dépouillement.',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
+    handler: async (a) => arborescenceDocuments(a.numero),
   },
   {
     name: 'verifier_completude',
