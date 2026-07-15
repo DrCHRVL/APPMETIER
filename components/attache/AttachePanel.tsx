@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  X, Send, Plus, Scale, BookOpen, RefreshCw, Loader2, Inbox,
+  X, Send, Plus, Scale, BookOpen, RefreshCw, Loader2, Inbox, Paperclip, FileText,
   History, ChevronDown, ChevronUp, Wrench, AlertTriangle, Sparkles,
 } from 'lucide-react';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig } from './modelOptions';
@@ -216,13 +216,6 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
     }
   }, [busy, convId, cfg, scrollDown, loadConversations, loadFeed]);
 
-  const send = useCallback(() => {
-    const text = input.trim();
-    if (!text) return;
-    setInput('');
-    sendMessage(text);
-  }, [input, sendMessage]);
-
   // ── Questions de l'attaché : réponse SUR la carte, dans SIRAL ──
   const [questionStatuses, setQuestionStatuses] = useState<Record<string, { status: string }>>({});
   const [questionDraft, setQuestionDraft] = useState<Record<string, string>>({});
@@ -254,6 +247,40 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
   }, [questionDraft, busy, setQuestionStatus, openConversation, sendMessage]);
 
   useEffect(() => { if (open) loadQuestionStatuses(); }, [open, loadQuestionStatuses]);
+
+  // ── Dépôt majordome : confier des pièces à ranger (trombone / glisser) ──
+  // Les fichiers partent chiffrés dans la zone `_depot` ; le message envoyé
+  // les annonce et l'attaché les identifie, les nomme et les range
+  // (ranger_document) dans la bonne zone du bon dossier.
+  const [depotFiles, setDepotFiles] = useState<Array<{ rel: string; nom: string }>>([]);
+  const [depotBusy, setDepotBusy] = useState(false);
+  const depotInput = useRef<HTMLInputElement>(null);
+
+  const deposerFichiers = useCallback(async (files: FileList | File[] | null) => {
+    const list = Array.from(files || []);
+    if (!list.length || depotBusy) return;
+    setDepotBusy(true);
+    try {
+      const payload = await Promise.all(list.map(async (f) => ({ name: f.name, arrayBuffer: await f.arrayBuffer() })));
+      const saved = await eapi().saveDocuments('_depot', payload, 'Depot') as Array<{ cheminRelatif: string; nomOriginal: string }>;
+      setDepotFiles((prev) => [...prev, ...saved.map((s) => ({ rel: s.cheminRelatif, nom: s.nomOriginal }))]);
+    } catch { /* le chip absent dira l'échec */ } finally {
+      setDepotBusy(false);
+    }
+  }, [depotBusy]);
+
+  const sendWithDepot = useCallback(() => {
+    const text = input.trim();
+    if (busy || (!text && !depotFiles.length)) return;
+    setInput('');
+    if (depotFiles.length) {
+      const pieces = depotFiles.map((f) => `${f.rel} (${f.nom})`).join(', ');
+      setDepotFiles([]);
+      sendMessage(`PIÈCES CONFIÉES au dépôt majordome : ${pieces}.\n\n${text || 'Identifie chaque pièce, range-la au bon endroit (bon dossier, bonne zone, nom propre) et exploite-la.'}`);
+    } else {
+      sendMessage(text);
+    }
+  }, [input, busy, depotFiles, sendMessage]);
 
   // ── Mémoire ──
   const openMemory = useCallback(async () => {
@@ -461,13 +488,29 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
       </div>
 
       {/* Composer */}
-      <div className="border-t border-gray-200 p-3">
+      <div
+        className="border-t border-gray-200 p-3"
+        onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
+        onDrop={(e) => { if (e.dataTransfer.files?.length) { e.preventDefault(); deposerFichiers(e.dataTransfer.files); } }}
+      >
         <div className="rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm focus-within:border-[#2B5746]/40">
+          {depotFiles.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pb-1.5">
+              {depotFiles.map((f) => (
+                <span key={f.rel} className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10.5px] text-emerald-800">
+                  <FileText className="h-3 w-3 flex-shrink-0" />
+                  <span className="truncate">{f.nom}</span>
+                  <button onClick={() => setDepotFiles((prev) => prev.filter((x) => x.rel !== f.rel))} className="text-emerald-500 hover:text-emerald-800">×</button>
+                </span>
+              ))}
+              <span className="self-center text-[10px] text-gray-400">l'attaché rangera ces pièces au bon endroit</span>
+            </div>
+          )}
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-            placeholder="Parlez à votre attaché…"
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendWithDepot(); } }}
+            placeholder={depotFiles.length ? 'Une précision sur ces pièces ? (dossier, contexte…) — sinon envoyez, il se débrouille' : 'Parlez à votre attaché… (déposez-lui aussi des pièces : trombone ou glisser)'}
             rows={2}
             className="w-full resize-none bg-transparent text-[13px] text-gray-800 outline-none placeholder:text-gray-400"
           />
@@ -499,9 +542,19 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
             >
               <RefreshCw className="h-3.5 w-3.5" />
             </button>
+            <input ref={depotInput} type="file" multiple className="hidden"
+              onChange={(e) => { deposerFichiers(e.target.files); e.target.value = ''; }} />
             <button
-              onClick={send}
-              disabled={busy || !input.trim()}
+              onClick={() => depotInput.current?.click()}
+              disabled={depotBusy}
+              title="Confier des pièces à ranger (audition, ordonnance, rapport…) — il identifie le dossier et classe au bon endroit"
+              className="rounded-md p-1 text-gray-400 hover:bg-gray-50 hover:text-gray-600 disabled:opacity-40"
+            >
+              {depotBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              onClick={sendWithDepot}
+              disabled={busy || (!input.trim() && !depotFiles.length)}
               className="grid h-7 w-7 place-items-center rounded-lg bg-[#2B5746] text-white disabled:opacity-40"
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}

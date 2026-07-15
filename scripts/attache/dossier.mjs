@@ -81,6 +81,12 @@ function findEnquete(data, numero) {
     || null
 }
 
+/** Le numéro correspond-il à une enquête du contentieux confié ? */
+export function enqueteExiste(keys, numero) {
+  const { data } = loadContentieux(keys)
+  return Boolean(findEnquete(data, numero))
+}
+
 // ── Lecture ──
 
 /**

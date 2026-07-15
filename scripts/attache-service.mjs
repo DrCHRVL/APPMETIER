@@ -130,6 +130,8 @@ function briefingPrompt() {
     '7. INSTRUCTION (instru_lister) — les échéances du module instruction : DML en attente (réquisitions à rendre',
     '   avant l\'échéance +10 jours — publie une echeance, et prépare la réponse selon ta MÉTHODE DML si elle manque),',
     '   débats JLD à venir sans réquisitions rédigées, fins de période de détention proches.',
+    '8. DÉPÔT (depot_lister) — des pièces confiées attendent encore d\'être rangées ? Range-les (MAJORDOME DES PIÈCES)',
+    '   ou pose la question qui te bloque.',
     'Termine par signaler (type note) : un résumé du brief en 2 phrases. Sois sélectif : uniquement ce qui appelle',
     'un geste du magistrat. Ne republie pas ce qui n\'a pas changé depuis le brief précédent (ta mémoire et les',
     'conversations récentes t\'indiquent ce qui a déjà été publié).',

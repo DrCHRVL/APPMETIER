@@ -24,6 +24,19 @@ l'usage).
 - **N'écrit à l'extérieur qu'au magistrat** : l'unique sortie du système est
   un mail vers `SIRAL_ATTACHE_OWNER_EMAIL` — réservé aux **livrables**. Le
   destinataire n'est pas un paramètre de l'outil : il est câblé côté serveur.
+- **Reçoit et range les pièces (majordome)** : le magistrat lui CONFIE un
+  document sans décider où il va — trombone / glisser-déposer dans le
+  panneau, ou pièce jointe d'un mail transféré. L'attaché l'identifie
+  (lecture du contenu au dépôt si besoin), retrouve le **bon dossier**
+  (enquête ou instruction), choisit la **bonne zone** (audition → PV,
+  ordonnance → Actes, DML → DML, rapport géoloc → Geoloc, retranscription
+  → Ecoutes), le **nomme proprement** (daté, explicite) et le range — la
+  pièce apparaît dans la fiche du dossier, intacte et chiffrée, signée du
+  nom du magistrat. Puis il l'**exploite** : lecture, détections →
+  propositions, intégration au travail en cours (ex. l'audition attendue
+  pour une réponse DML). Doute → question dans SIRAL ; pièce non
+  pertinente → corbeille du dépôt (jamais détruite). Le brief quotidien
+  vérifie qu'aucune pièce ne dort au dépôt.
 - **Pose ses questions DANS SIRAL — jamais par mail** : quand une
   information lui manque (un acte récent dans NPP, une orientation à
   trancher), l'attaché publie une carte **« Question ❓ »** dans le fil

@@ -27,6 +27,7 @@ import { saveSkill, listSkills, readSkill } from './attache/skills.mjs'
 import { saveKbEntry, listKb, readKbEntry, searchKb, KB_CATEGORIES } from './attache/kb.mjs'
 import { runSubagents } from './attache/subagents.mjs'
 import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
+import { listDepot, readDepotText, rangerDocument, ecarterDepot, ZONES } from './attache/depot.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
 import { analyserReseau, listerLiens, rapprochementsInterDossiers } from './attache/carto.mjs'
@@ -518,6 +519,44 @@ const TOOLS = [
       }).catch(() => {})
       return results
     },
+  },
+  {
+    name: 'depot_lister',
+    description: 'Pièces que le magistrat a CONFIÉES au dépôt (trombone du panneau) et qui attendent d\'être rangées : rel, nom d\'origine, taille, date. À vérifier quand il dit « je t\'ai déposé… » et au brief quotidien. Chaque pièce doit finir rangée (ranger_document) ou écartée (depot_ecarter).',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => listDepot(),
+  },
+  {
+    name: 'depot_lire',
+    description: 'Texte d\'une pièce ENCORE au dépôt (avant rangement) — pour identifier le dossier et la nature quand la consigne ne les dit pas : numéro cité, noms des mis en cause, type d\'acte.',
+    inputSchema: { type: 'object', properties: { rel: { type: 'string' } }, required: ['rel'] },
+    handler: async (a) => readDepotText(keys, a.rel),
+  },
+  {
+    name: 'ranger_document',
+    description: `Range une pièce dans la section documents du BON dossier (enquête ou instruction) — le magistrat te confie la pièce, TOI tu la classes. source "depot" (rel de depot_lister) ou "mail" (mailId + piece de boite_lire). zone : ${Object.keys(ZONES).join(' | ')} — audition/PV/garde à vue → pv ; ordonnance/réquisition/autorisation → actes ; DML et réponses → dml ; rapports de géolocalisation → geoloc ; retranscriptions d'interceptions → ecoutes. Donne un nom PROPRE et daté (ex: 2026-07-12_Audition_DUPONT). La pièce d'origine est conservée telle quelle (chiffrée) ; elle apparaît dans la fiche du dossier, signée du nom du magistrat. Après rangement : lis-la et déclenche tes détections (propositions).`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        source: { type: 'string', enum: ['depot', 'mail'] },
+        rel: { type: 'string', description: 'source=depot : rel exact de depot_lister' },
+        mailId: { type: 'string', description: 'source=mail : id du message' },
+        piece: { type: 'string', description: 'source=mail : nom exact de la pièce jointe' },
+        numero: { type: 'string', description: 'Dossier cible (enquête ou n° instruction/parquet)' },
+        zone: { type: 'string', enum: Object.keys(ZONES) },
+        nom: { type: 'string', description: 'Nom final, daté et explicite (extension d\'origine préservée)' },
+      },
+      required: ['source', 'numero', 'zone'],
+    },
+    handler: async (a) => rangerDocument(keys, a),
+    write: true,
+  },
+  {
+    name: 'depot_ecarter',
+    description: 'Écarte une pièce du dépôt sans la ranger (doublon, pièce non pertinente) — déplacée en Corbeille/ du dépôt, jamais détruite. Dis toujours au magistrat pourquoi (signaler ou réponse en chat).',
+    inputSchema: { type: 'object', properties: { rel: { type: 'string' } }, required: ['rel'] },
+    handler: async (a) => ecarterDepot(a.rel),
+    write: true,
   },
   {
     name: 'poser_question',

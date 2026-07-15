@@ -99,6 +99,11 @@ export function listInstructionDossiers(keys) {
   })
 }
 
+/** Le numéro correspond-il à un dossier du module instruction ? */
+export function instructionExiste(keys, numero) {
+  return loadAllDossiers(keys).some((x) => matchNumero(x, numero))
+}
+
 /** Dossier d'instruction complet, en markdown compact. */
 export function instructionDossierMarkdown(keys, numero) {
   const d = loadAllDossiers(keys).find((x) => matchNumero(x, numero))

@@ -114,6 +114,43 @@ export function readDocBlob(tj, enqueteKey, rel) {
   return fs.existsSync(p) ? fs.readFileSync(p) : null
 }
 
+function safeRel(rel) {
+  const r = String(rel || '')
+  if (!r || r.includes('..') || r.includes('\\') || path.isAbsolute(r) || r.startsWith('.')) throw new Error('Chemin invalide')
+  return r
+}
+
+/**
+ * Dépose un blob document DÉJÀ chiffré (format SIR1 du client) et tient
+ * l'index `.index.json` — même contrat que saveDoc côté app : le scanner de
+ * la section documents ramasse l'entrée au prochain passage.
+ */
+export function writeDocBlob(tj, enqueteKey, rel, blob, meta = {}) {
+  safeRel(rel)
+  const dir = tjDataDir(tj, 'docs', enqueteKey)
+  const p = path.join(dir, rel + '.enc')
+  ensureDir(path.dirname(p))
+  atomicWrite(p, blob)
+  const indexPath = path.join(dir, '.index.json')
+  const index = readJson(indexPath, []).filter((d) => d.rel !== rel)
+  const entry = { rel, size: blob.length, savedAt: new Date().toISOString(), ...meta }
+  atomicWrite(indexPath, JSON.stringify(index.concat(entry), null, 2))
+  return entry
+}
+
+/** Retire un blob document et son entrée d'index. */
+export function deleteDocBlob(tj, enqueteKey, rel) {
+  safeRel(rel)
+  const dir = tjDataDir(tj, 'docs', enqueteKey)
+  const p = path.join(dir, rel + '.enc')
+  let existed = false
+  if (fs.existsSync(p)) { fs.unlinkSync(p); existed = true }
+  const indexPath = path.join(dir, '.index.json')
+  const index = readJson(indexPath, [])
+  atomicWrite(indexPath, JSON.stringify(index.filter((d) => d.rel !== rel), null, 2))
+  return existed
+}
+
 /**
  * Clé serveur d'une enquête — même normalisation que le client web
  * (bridge.ts/serverKey) pour retrouver le dossier de documents.
