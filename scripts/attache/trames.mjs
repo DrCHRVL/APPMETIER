@@ -9,7 +9,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { attacheDir, ensureDir, atomicWrite, readJson } from './store.mjs'
+import { attacheDir, readJson, writeCollectionEnvelopeRaw } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 
 function safeName(nom) {
@@ -27,15 +27,8 @@ export async function saveTrame(keys, { nom, contenu, description }) {
     contenu: String(contenu).slice(0, 200_000),
     updatedAt: new Date().toISOString(),
   }
-  const dir = attacheDir('trames')
-  ensureDir(dir)
-  const p = path.join(dir, name + '.json')
-  if (fs.existsSync(p)) {
-    const vdir = path.join(dir, '.versions', name)
-    ensureDir(vdir)
-    fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '.json'))
-  }
-  atomicWrite(p, JSON.stringify(encryptJson(keys.global, record, { savedAt: record.updatedAt })))
+  // même verrou + même archivage .versions que les dépôts relayés du navigateur
+  await writeCollectionEnvelopeRaw('trames', name, encryptJson(keys.global, record, { savedAt: record.updatedAt }))
   return { nom: name }
 }
 

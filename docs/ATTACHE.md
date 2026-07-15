@@ -21,9 +21,15 @@ l'usage).
   réponse JLD, notification d'instruction…), rapprochement avec le dossier,
   actions, synthèses, projets — dont le résultat s'affiche dans le fil
   « Pendant votre absence » du panneau.
-- **N'écrit à l'extérieur qu'au magistrat** : l'unique sortie du système est
-  un mail vers `SIRAL_ATTACHE_OWNER_EMAIL` — réservé aux **livrables**. Le
-  destinataire n'est pas un paramètre de l'outil : il est câblé côté serveur.
+- **Ne sort JAMAIS du système** : plus aucun mail sortant (les réponses vers
+  les boîtes professionnelles étaient rejetées — réputation de domaine). Les
+  **livrables** se remettent DANS SIRAL : carte « Livrable 📦 » du fil
+  « pendant votre absence » (texte intégral + bouton Copier, outil
+  `remettre_livrable`) et actes dans l'atelier « Actes rédigés ». Le widget
+  **Boîte de l'attaché** du tableau de bord (admin seul, sous le calendrier)
+  montre chaque message reçu et son avancement — **reçu → en cours →
+  traité** (avec résumé), toasts à chaque transition : on vérifie d'un coup
+  d'œil que rien ne se perd.
 - **Dossier complet (module instruction)** : le magistrat verse tout ou
   partie du dossier réel dans la fiche d'instruction — sélection d'un
   dossier entier ou glisser-déposer, **sous-pochettes comprises**
@@ -92,14 +98,21 @@ l'usage).
   complète la persona et les règles de gouvernance, il ne les remplace pas.
 - **Skills, comme Claude web** : des méthodes réutilisables (nom +
   description + contenu markdown), gérées dans Paramètres → Attaché IA →
-  « Skills » — vos skills Claude web s'y collent telles quelles. Même
-  divulgation progressive que Claude web : l'attaché voit en permanence la
-  liste (nom + description) dans son prompt, et charge le contenu complet
-  (outil `skill_lire`) dès qu'une tâche correspond. En chat, « enregistre
-  cette skill » fonctionne aussi (`skill_enregistrer`). Chiffrées (clé
-  globale), versionnées à chaque réécriture, suppression réversible.
-  Différence avec les trames : la trame est un plan-type de document, la
-  skill une méthode générale.
+  « Skills ». **Téléversez directement vos fichiers `.skill` exportés de
+  Claude web** (archives ZIP : SKILL.md + références — déballées dans le
+  navigateur, front-matter name/description repris, références concaténées),
+  ou collez le markdown. Même divulgation progressive que Claude web :
+  l'attaché voit en permanence la liste (nom + description) dans son prompt,
+  et charge le contenu complet (outil `skill_lire`) dès qu'une tâche
+  correspond. **L'attaché les rédige et les édite à la demande, en chat** :
+  « crée une skill qui fait X » → il écrit lui-même la méthode et sa
+  description (`skill_enregistrer`) ; « modifie la skill Z comme ça » → il la
+  relit, applique le changement et la ré-enregistre sous le même nom
+  (versionné, rien n'est perdu) ; « supprime-la » (`skill_supprimer`,
+  réversible). « Enregistre cette skill » (dictée/collée) fonctionne toujours.
+  Chiffrées (clé globale), versionnées à chaque
+  réécriture, suppression réversible. Différence avec les trames : la trame
+  est un plan-type de document, la skill une méthode générale.
 - **Recherche web en option** : décochée par défaut. Si le magistrat l'active
   (section « Cerveau »), l'attaché gagne WebSearch/WebFetch — comme Claude
   web, utile pour jurisprudence et textes — et RIEN d'autre : shell et
@@ -127,6 +140,24 @@ l'usage).
 - **Relance les dossiers dormants** : tout dossier sans mouvement depuis
   plus de 2 mois reçoit au brief un projet de mail de relance au directeur
   d'enquête, prêt à coller.
+- **Analyse transversale de renseignement (cartographie)** : sur demande
+  (« analyse tous les dossiers et trouve les liens cachés ») ou en routine,
+  l'attaché balaie le **corpus complet** — toutes les enquêtes (archivées
+  comprises) ET tous les dossiers du **module instruction** (`carto_corpus`)
+  — et **lit les pièces**, pas seulement les listes de mis en cause : les
+  signaux faibles (surnoms, personnes au second plan jamais mises en cause,
+  adresses, plaques, téléphones, comptes récurrents d'une affaire à l'autre)
+  sont dans les PV. Il délègue le dépouillement à des **sous-agents** (un par
+  dossier), recoupe les noms, puis **propose** — jamais tracé d'office :
+  **liens de renseignement** personne↔personne (`proposer_lien`, numéro
+  facultatif pour un lien transversal), **personnes ex nihilo** autonomes
+  (`proposer_mec_carto` — un suspect ou un surnom absent des dossiers, avec
+  ses alias), **dossiers ex nihilo** (`proposer_dossier_carto` — une grappe
+  cachée, ex. « réseau autour d'un détenu de maison d'arrêt, pivot de 6
+  affaires »). Le magistrat valide chaque proposition dans un **module de
+  revue** flottant (bas-gauche de la cartographie, et fil du panneau) :
+  ✓ trace sur la carte (signé de son nom), ✗ refuse. Idéal en routine
+  hebdomadaire.
 - **Chronologie probatoire** : dans le détail d'une enquête (section
   visible du seul administrateur), la frise fusionnée de tout ce qui est
   daté — actes, prolongations, attentes JLD, CR, apparition de mis en
@@ -140,7 +171,8 @@ l'usage).
   l'attaché les relit avant chaque rédaction du même type. Chiffrées,
   versionnées.
 - **Bibliothèque de trames téléversable en masse** : le stock du cabinet
-  (fichiers `.odt`, `.docx`, `.pdf`, texte…) se téléverse d'un coup dans
+  (fichiers `.odt`, `.docx`, **`.doc` (ancien Word)**, `.pdf`, texte…) se
+  téléverse d'un coup dans
   Paramètres → Attaché IA → « Trames ». La conversion en **markdown se fait
   dans le navigateur** (le fichier ne quitte jamais le poste en clair), puis
   chaque trame est chiffrée et versionnée comme les autres. Option « Faire
@@ -149,14 +181,22 @@ l'usage).
   le fil « pendant votre absence » ses **propositions d'amélioration légale
   ou structurelle** — propositions seulement, le magistrat décide. Bouton
   « Analyser toute la bibliothèque » pour relancer à la demande.
-- **Base de connaissances** : le fond documentaire durable du cabinet —
-  jurisprudences, conventions et circulaires, modes opératoires, fiches
-  réflexes, contacts de services — téléversé en masse (mêmes formats, même
-  conversion markdown côté navigateur : seule la version texte est
-  conservée, place et tokens économisés) ou saisi à la main, classé par
-  catégories libres. Pas d'index vectoriel : **recherche agentique** à la
-  demande (`kb_chercher` insensible casse/accents, puis `kb_lire`) — le
-  sommaire (titres + descriptions) figure dans le prompt de l'attaché, le
+- **Base de connaissances — le cerveau documentaire** (pensez Obsidian
+  branché sur l'IA) : le fond durable du cabinet — jurisprudences,
+  conventions et circulaires, modes opératoires, fiches réflexes, contacts —
+  versé par **dossiers entiers, sous-pochettes comprises** (sélecteur de
+  dossier ou glisser-déposer récursif : l'arborescence d'origine est
+  préservée), converti en **markdown dans le navigateur** (seul le texte est
+  conservé : place et tokens économisés) puis chiffré. Le panneau l'affiche
+  **comme un explorateur Windows** : pochettes repliables, lecture d'une
+  entrée au clic, édition, suppression par fichier ou par pochette.
+  L'attaché en est le **bibliothécaire** : « Faire analyser et classer »
+  (au téléversement ou sur toute la base) lui fait lire chaque document,
+  écrire sa description, corriger catégorie et rangement (`kb_decrire` —
+  le contenu n'est jamais modifié) et signaler doublons et textes périmés.
+  Pas d'index vectoriel : **recherche agentique** à la demande
+  (`kb_chercher` insensible casse/accents, puis `kb_lire`) — le sommaire
+  (arborescence + descriptions) figure dans le prompt de l'attaché, le
   contenu ne se charge que quand une tâche le réclame, comme les skills.
   En chat, « ajoute à la base de connaissances » fonctionne aussi
   (`kb_enregistrer`). Chiffrée (clé globale), versionnée, réversible.
@@ -177,7 +217,8 @@ l'usage).
   doit enrichir la motivation → rédige SANS attendre le projet complet
   (type « Réponse DML », points suspendus marqués [À CONFIRMER]) → à la
   réponse du magistrat, révise l'acte dans la même conversation. Le magistrat retouche dans « Actes
-  rédigés » puis **glisse vers son parapheur** pour signature numérique.
+  rédigés », l'exporte en PDF/Word officiel puis le **valide** une fois
+  traité.
   Le brief quotidien anticipe aussi les échéances instruction : DML en
   attente, débats JLD sans réquisitions, fins de détention proches.
 - **Analyse automatique des documents (IA)** : la fonctionnalité « Analyse
@@ -221,13 +262,42 @@ l'usage).
 - **Atelier des actes rédigés** : section « Actes rédigés » dans le détail
   d'un dossier (admin only). L'attaché y range les actes qu'il rédige
   (réquisition, demande de prolongation JLD, saisine, projet de réponse —
-  suivant les trames, via l'outil `produire_document`). Le magistrat les
-  visionne, demande à l'IA de les retoucher (chat du dossier), les **édite
-  légèrement à la main** (puis Enregistrer — le navigateur rechiffre, l'app
-  ne voit jamais le clair), les **exporte en PDF / Word**, et surtout les
-  **glisse directement vers son parapheur** (portail de signature) grâce à
-  la puce « parapheur » (après « Préparer pour signature », qui génère le
-  PDF joint au glisser-déposer).
+  suivant les trames, via l'outil `produire_document`, en reprenant les
+  **NATINF enregistrés du dossier**). Le magistrat les visionne, demande à
+  l'IA de les retoucher (chat du dossier), les **édite légèrement à la
+  main** (puis Enregistrer — le navigateur rechiffre, l'app ne voit jamais
+  le clair), les **exporte en PDF / Word au gabarit officiel** (en-tête
+  République française — drapeau, devise —, Times 12 pt justifié ; nom de
+  fichier au formalisme de la trame suivie :
+  `<trame>_<dossier>_<date>.pdf`), puis les **VALIDE** (✓) : l'acte est
+  considéré traité et quitte la liste courante (récupérable via « voir les
+  actes traités » ; une retouche IA le remet en attente de relecture).
+- **NATINF cohérents, app ↔ actes** : les qualifications officielles d'un
+  dossier sont ses codes NATINF enregistrés dans SIRAL — l'attaché les lit
+  (section « Infractions (NATINF) » de `lire_dossier`) et les **reprend
+  obligatoirement** dans chaque requête, autorisation ou réquisition
+  (`natinf_chercher` pour le référentiel). Quand une pièce du dossier — un
+  acte d'autorisation téléversé notamment — mentionne des NATINF absents de
+  l'application, il les **ajoute en autonomie** (`ajouter_natinfs`, sans
+  validation) : refus des codes inconnus du référentiel, dédoublonnage, et
+  l'ajout apparaît dans les modifications récentes du dossier.
+- **Demandes d'actes SANS dossier** : quand un mail transféré réclame un
+  acte qui ne correspond à **aucune procédure en cours**, deux issues selon
+  la consigne du transfert : « **et créer procédure** » (ou équivalent sans
+  ambiguïté) → l'attaché **crée le dossier lui-même** (`creer_dossier` —
+  tout renseigné depuis la pièce : mis en cause recoupés, NATINF, pièces
+  rangées) puis y traite la demande ; « **traiter** » seul → l'acte est
+  rédigé sous le pseudo-dossier `_hors-dossier` et apparaît dans la section
+  « **Actes rédigés — hors dossier** » du tableau de bord (admin seul,
+  masquée quand vide) — mêmes exports officiels, même validation ✓.
+- **Documents d'enquête par dossiers entiers** : chaque zone de la section
+  documents (Geoloc, Écoutes, Actes, PV, DML) accepte désormais un **dossier
+  complet, sous-pochettes comprises** (bouton « Dossier » ou glisser-déposer
+  récursif) — l'organisation d'origine est préservée sous la zone. Au
+  passage, chaque pièce reçoit une **copie markdown** (`MD/…`, convertie
+  dans le navigateur, invisible dans les listes) que l'attaché lit en
+  priorité : zéro ré-extraction de PDF, tokens économisés — les originaux
+  restent intacts.
 
 ## Architecture et modèle de sécurité
 

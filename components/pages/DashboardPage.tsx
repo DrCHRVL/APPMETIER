@@ -21,6 +21,8 @@ import { fetchAgendaMulti, AgendaEvent, AgendaSource, AgendaUrls } from '@/lib/w
 import { useUserPreferences } from '@/hooks/useUserPreferences';
 import { JLDActePreviewModal, JLDActeRef, JLDActeKind } from '@/components/modals/JLDActePreviewModal';
 import { MajordomeWidget } from '@/components/attache/MajordomeWidget';
+import { InboxWidget } from '@/components/attache/InboxWidget';
+import { ProductionsSection } from '@/components/attache/ProductionsSection';
 
 interface DashboardPageProps {
   enquetesByContentieux: Map<ContentieuxId, Enquete[]>;
@@ -190,6 +192,12 @@ export const DashboardPage = ({
           compte non-admin ou si la fonctionnalité n'est pas activée. */}
       {!isJLD && <MajordomeWidget />}
 
+      {/* Actes rédigés HORS DOSSIER (attaché IA) : demandes d'actes arrivées
+          par mail sans procédure correspondante, traitées sur consigne — le
+          magistrat les retrouve ici, les exporte et les valide. Admin only
+          (auto-masqué), invisible tant qu'il n'y en a aucun. */}
+      {!isJLD && <ProductionsSection numero="_hors-dossier" titre="Actes rédigés — hors dossier" masquerSiVide />}
+
       {/* Indicateurs clés du contentieux sélectionné.
           Le JLD ne voit pas les instructions : 3 indicateurs au lieu de 4. */}
       <div className={`grid grid-cols-2 gap-3 ${isJLD ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
@@ -244,6 +252,11 @@ export const DashboardPage = ({
       {!isJLD && (
         <AgendaCalendar events={agenda} connectedSources={agendaSources} loading={agendaLoading} displaySettings={agendaDisplay} onRefresh={fetchAgendaData} />
       )}
+
+      {/* Boîte mail de l'attaché IA — tout en bas, sous le calendrier.
+          Se masque de lui-même pour tout compte non-admin (404 côté API) :
+          vue de contrôle « bien reçu / en cours / traité » de chaque message. */}
+      {!isJLD && <InboxWidget />}
 
       {/* Aperçu d'acte forgé pour le JLD */}
       {isJLD && (

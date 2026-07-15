@@ -18,9 +18,9 @@ import http from 'node:http'
 import crypto from 'node:crypto'
 import { loadMasterKey } from './attache/crypto.mjs'
 import { loadKeyring, grantKeyring, revokeKeyring, keyringStatus, allowedScopes } from './attache/keyring.mjs'
-import { attacheTj, attacheContentieux, readState, writeState } from './attache/store.mjs'
+import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
-import { fetchInbox, listInbox, mailConfig, inboxStats } from './attache/mail.mjs'
+import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage } from './attache/mail.mjs'
 import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort } from './attache/agent.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
@@ -80,11 +80,19 @@ function queueProactiveRun(keys, mailId) {
   proactiveChain = proactiveChain.then(async () => {
     running++
     try {
+      // statut visible dans le widget BAL : reçu → EN COURS → traité
+      await markInboxStatus(keys, mailId, 'en_cours').catch(() => {})
       const prompt = [
         `Un nouveau message vient d'arriver dans la boîte dédiée (id : ${mailId}).`,
         'Traite-le entièrement selon ta méthode : boite_lire pour prendre connaissance de la consigne et de la pièce,',
         'qualification, rapprochement avec le dossier SIRAL concerné, actions dans SIRAL si elles s\'imposent,',
-        'préparation des synthèses/projets et envoi au magistrat si utile, puis boite_marquer_traite et signaler.',
+        'préparation des synthèses/projets — remis DANS SIRAL (remettre_livrable, signaler, produire_document) :',
+        'aucun mail sortant n\'existe plus.',
+        'SI AUCUN dossier en cours ne correspond : (a) la consigne du transfert dit « créer procédure » (ou équivalent',
+        'sans ambiguïté) → crée le dossier (creer_dossier, tout renseigné depuis la pièce), puis traite-y la demande ;',
+        '(b) la consigne dit seulement de traiter → rédige l\'acte demandé sous le pseudo-dossier "_hors-dossier"',
+        '(produire_document) : il apparaîtra dans « Actes rédigés — hors dossier » du tableau de bord.',
+        'Termine par boite_marquer_traite (résumé d\'une phrase) et signaler.',
         'Si le message est hors sujet (spam, notification technique), marque-le traité avec un résumé d\'un mot et ne signale rien.',
       ].join('\n')
       const result = await runAgent({ keys, prompt, runLabel: 'proactif', title: `Mail ${mailId}` })
@@ -96,8 +104,15 @@ function queueProactiveRun(keys, mailId) {
           resume: `Le mail ${mailId} n'a pas pu être traité (${result.error || 'erreur inconnue'}). Il reste dans la boîte, non marqué traité.`,
         })
       }
+      // si l'agent n'a pas marqué traité (erreur, oubli), le statut redevient « reçu »
+      const rec = readInboxMessage(keys, mailId)
+      if (rec && !rec.traite) await markInboxStatus(keys, mailId, result.ok ? 'recu' : 'erreur').catch(() => {})
     } catch (e) {
       console.error('[attache] run proactif :', e)
+      try {
+        const rec = readInboxMessage(keys, mailId)
+        if (rec && !rec.traite) await markInboxStatus(keys, mailId, 'erreur')
+      } catch { /* statut best-effort */ }
     } finally {
       running--
     }
@@ -169,7 +184,8 @@ async function runRoutine(routine, trigger = 'planifiée') {
     routine.prompt,
     '',
     'Termine par signaler (le fil « pendant votre absence ») si ton travail appelle un geste du magistrat ;',
-    'si la consigne demande un envoi, utilise envoyer_a_mon_magistrat. Si rien de notable : ne publie rien.',
+    'si la consigne demande une remise (« envoie-moi », « prépare-moi »), utilise remettre_livrable — le livrable',
+    's\'affiche dans SIRAL, aucun mail ne part. Si rien de notable : ne publie rien.',
   ].join('\n')
   const result = await runAgent({ keys, prompt, runLabel: `routine:${routine.nom}`, title: `Routine ${routine.nom} ${new Date().toISOString().slice(0, 10)}` })
   await markRun(keys, routine.id, result.ok)
@@ -238,6 +254,41 @@ async function runTrameAnalyse(noms) {
     return { ok: result.ok, convId: result.convId, error: result.error }
   } finally {
     trameAnalyseRunning = false
+  }
+}
+
+// ── Analyse/classement des entrées de la base de connaissances ──
+let kbAnalyseRunning = false
+async function runKbAnalyse(ids) {
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  kbAnalyseRunning = true
+  try {
+    console.log(`[attache] classement de ${ids.length} entrée(s) de la base de connaissances`)
+    const prompt = [
+      `Le magistrat vient de verser ${ids.length} document(s) dans sa base de connaissances : ${ids.join(', ')}.`,
+      'Tu es le BIBLIOTHÉCAIRE de ce fonds. MÉTHODE : si le lot dépasse 3 entrées, DÉLÈGUE la lecture à des',
+      'sous-agents en parallèle (sous_agents — une tâche par entrée : « lis l\'entrée X (kb_lire) et livre : (a) une',
+      'description d\'une phrase — ce que contient le document et quand s\'en servir ; (b) la catégorie la plus juste ;',
+      '(c) si le chemin actuel est incohérent avec le contenu, le chemin de pochette recommandé »). Sinon lis-les toi-même.',
+      'Puis, pour CHAQUE entrée : enregistre description/catégorie (et chemin si tu recommandes un rangement plus',
+      'cohérent) avec kb_decrire — le CONTENU n\'est JAMAIS modifié.',
+      'Signale aussi les doublons manifestes et les documents visiblement périmés (texte abrogé, version ancienne).',
+      'À LA FIN, un SEUL signaler (type note, titre « Base de connaissances : classement ») : le rangement effectué',
+      'en 2-5 phrases, et tes signalements (doublons, contenu périmé) s\'il y en a.',
+    ].join('\n')
+    const result = await runAgent({ keys, prompt, runLabel: 'kb-analyse', title: `Classement base ${new Date().toISOString().slice(0, 10)}` })
+    await audit(keys, 'kb_analysee', { nb: ids.length, ids: ids.join(', ').slice(0, 500), ok: result.ok, convId: result.convId, erreur: result.error })
+    if (!result.ok) {
+      await publishFeed(keys, {
+        type: 'alerte',
+        titre: 'Classement de la base de connaissances interrompu',
+        resume: `Le classement des entrées versées (${ids.slice(0, 5).join(', ')}${ids.length > 5 ? '…' : ''}) a échoué (${result.error || 'erreur inconnue'}). Relancez-le depuis Paramètres → Attaché IA.`,
+      })
+    }
+    return { ok: result.ok, convId: result.convId, error: result.error }
+  } finally {
+    kbAnalyseRunning = false
   }
 }
 
@@ -473,6 +524,19 @@ const server = http.createServer(async (req, res) => {
       return json(res, 202, { ok: true, started: true })
     }
 
+    if (route === 'POST /kb/analyse') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      if (kbAnalyseRunning) return json(res, 409, { ok: false, error: 'Classement déjà en cours' })
+      const body = await readBody(req)
+      const ids = (Array.isArray(body.ids) ? body.ids : [])
+        .map((n) => String(n).slice(0, 80)).filter(Boolean).slice(0, 200)
+      if (!ids.length) return json(res, 400, { ok: false, error: 'Aucune entrée à analyser' })
+      // lancé en fond : la réponse ne bloque pas sur le run complet
+      runKbAnalyse(ids).catch((e) => console.error('[attache] classement kb :', e))
+      return json(res, 202, { ok: true, started: true })
+    }
+
     if (route === 'GET /chronologie') {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
@@ -494,6 +558,66 @@ const server = http.createServer(async (req, res) => {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
       return json(res, 200, { messages: listInbox(keys) })
+    }
+
+    // ── Relais d'écriture des collections (trames, skills, kb) ──
+    // L'app web écrit d'abord elle-même sur le volume partagé ; quand son
+    // utilisateur non-root se heurte à un répertoire créé par le service
+    // (EACCES), elle relaie ici — le service écrit la même enveloppe opaque.
+    if (route === 'PUT /collection') {
+      const body = await readBody(req, 4 * 1024 * 1024)
+      const env = body.envelope
+      if (!env || env.encrypted !== true || typeof env.iv !== 'string' || typeof env.ct !== 'string') {
+        return json(res, 400, { error: 'Enveloppe chiffrée requise' })
+      }
+      try {
+        await writeCollectionEnvelopeRaw(String(body.collection || ''), String(body.id || ''), env)
+        return json(res, 200, { ok: true })
+      } catch (e) {
+        return json(res, 400, { error: String(e?.message || e) })
+      }
+    }
+
+    if (route === 'DELETE /collection') {
+      try {
+        const removed = await deleteCollectionEnvelopeRaw(
+          url.searchParams.get('collection') || '',
+          url.searchParams.get('id') || '',
+        )
+        return json(res, 200, { ok: removed })
+      } catch (e) {
+        return json(res, 400, { error: String(e?.message || e) })
+      }
+    }
+
+    // Mêmes relais pour la mémoire / les consignes (enveloppe unique)…
+    if (route === 'PUT /envelope-file') {
+      const body = await readBody(req, 4 * 1024 * 1024)
+      const env = body.envelope
+      if (!env || env.encrypted !== true || typeof env.iv !== 'string' || typeof env.ct !== 'string') {
+        return json(res, 400, { error: 'Enveloppe chiffrée requise' })
+      }
+      try {
+        await writeSingleEnvelopeRaw(String(body.name || ''), env)
+        return json(res, 200, { ok: true })
+      } catch (e) {
+        return json(res, 400, { error: String(e?.message || e) })
+      }
+    }
+
+    // …et pour les cartes de statut en clair (majordome / questions).
+    if (route === 'PUT /status-map') {
+      const body = await readBody(req)
+      try {
+        await setStatusMapEntryRaw(String(body.file || ''), String(body.id || ''), {
+          status: String(body.status || '').slice(0, 20),
+          at: new Date().toISOString(),
+          by: String(body.by || 'admin').slice(0, 80),
+        })
+        return json(res, 200, { ok: true })
+      } catch (e) {
+        return json(res, 400, { error: String(e?.message || e) })
+      }
     }
 
     if (route === 'GET /conversations') {
@@ -527,6 +651,7 @@ const server = http.createServer(async (req, res) => {
           'CONTEXTE : le magistrat te consulte depuis le module CARTOGRAPHIE (vue réseau des personnes et affaires du contentieux).',
           'S\'il te colle un PV / un résumé / une synthèse pour en cartographier l\'affaire : RECOUPE d\'abord les noms (recouper_personnes), puis dépose une proposition de dossier EX NIHILO (proposer_dossier_carto — label, misEnCause, source). Les personnes connues seront rattachées, les inconnues créées en « MEC lié ex nihilo ». Le dossier n\'est créé qu\'à la validation ✓.',
           'Sinon, commence par carto_analyser (figures centrales, ponts entre affaires, co-occurrences, liens de renseignement tracés). Objectif : l\'aider à VOIR LES CONNEXIONS et améliorer la visibilité.',
+          'S\'il te demande une ANALYSE TRANSVERSALE (« analyse TOUS les dossiers », « trouve les liens cachés », « quelle architecture derrière ces affaires ») : suis la MÉTHODE D\'ANALYSE TRANSVERSALE DE RENSEIGNEMENT de ton prompt système — carto_corpus (enquêtes archivées + instruction, avec pièces), puis sous_agents qui LISENT les pièces pour remonter surnoms, personnes au 2nd plan, adresses, plaques, téléphones, puis proposer_lien / proposer_mec_carto / proposer_dossier_carto. Les signaux faibles sont dans les PV, pas dans les listes de mis en cause.',
           'Tu peux aussi : identifier les figures pivots et les ponts entre affaires, repérer les cloisonnements, et SUGGÉRER les liens de renseignement manquants — que tu déposes en propositions (proposer_lien, avec la pièce source), jamais tracés d\'office. Réponses concises et structurées.',
           '',
           `Question du magistrat : ${message}`,
@@ -580,6 +705,12 @@ const server = http.createServer(async (req, res) => {
 })
 
 // ── Démarrage ──
+// Tout ce que le service crée sur le volume partagé doit rester inscriptible
+// par l'app web (utilisateur non-root de son conteneur) : umask nul pour les
+// nouvelles écritures, remise à niveau du stock existant au démarrage.
+process.umask(0)
+try { fixSharedPermissions() } catch (e) { console.error('[attache] permissions partagées :', e) }
+
 const master = loadMasterKey()
 if (!master) {
   console.error('[attache] SIRAL_ATTACHE_MASTER_KEY absente ou invalide (64 hex attendus) — service inactif.')

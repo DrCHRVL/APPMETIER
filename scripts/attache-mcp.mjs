@@ -19,24 +19,45 @@ import {
   listEnquetes, dossierMarkdown, readDocumentText, verifierCompletude,
   enregistrerActe, acterProlongation, classerNote, ajouterTodo, listerDml,
   actualiserDescription, diagnostiquerDossier, arborescenceDocuments,
+  ajouterNatinfs, creerDossier,
 } from './attache/dossier.mjs'
+import { searchNatinf } from './attache/natinf.mjs'
 import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { saveTrame, listTrames, readTrame, setTrameDescription } from './attache/trames.mjs'
-import { saveSkill, listSkills, readSkill } from './attache/skills.mjs'
-import { saveKbEntry, listKb, readKbEntry, searchKb, KB_CATEGORIES } from './attache/kb.mjs'
+import { saveSkill, listSkills, readSkill, deleteSkill } from './attache/skills.mjs'
+import { saveKbEntry, setKbMeta, listKb, readKbEntry, searchKb, KB_CATEGORIES } from './attache/kb.mjs'
 import { runSubagents } from './attache/subagents.mjs'
 import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
 import { listDepot, readDepotText, rangerDocument, ecarterDepot, ZONES } from './attache/depot.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
-import { analyserReseau, listerLiens, rapprochementsInterDossiers, recoupementMecs } from './attache/carto.mjs'
+import { analyserReseau, listerLiens, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
 import { saveProduction, listProductions, readProduction, deleteProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
 import { appendMemory } from './attache/memory.mjs'
-import { listInbox, readInboxMessage, markInboxProcessed, sendToOwner } from './attache/mail.mjs'
+import { listInbox, readInboxMessage, markInboxProcessed } from './attache/mail.mjs'
 
 const keys = loadKeyring()
 const runContext = process.env.SIRAL_ATTACHE_RUN || 'chat'
+
+/**
+ * Pseudo-dossier des actes SANS procédure : une demande d'acte arrive (mail
+ * transféré) mais ne correspond à aucun dossier en cours — l'acte rédigé est
+ * rangé ici et apparaît dans la section « Actes rédigés — hors dossier » du
+ * tableau de bord, en attendant que le magistrat décide de la suite.
+ */
+export const HORS_DOSSIER = '_hors-dossier'
+
+/** Remise d'un livrable DANS SIRAL — corps commun de remettre_livrable et de son alias. */
+async function publierLivrable(a) {
+  await publishFeed(keys, {
+    type: 'livrable',
+    titre: String(a.sujet || 'Livrable').slice(0, 200),
+    resume: String(a.corps || '').slice(0, 100_000),
+    numero: a.numero ? String(a.numero).slice(0, 80) : undefined,
+  })
+  return { ok: true, note: 'Livrable remis dans SIRAL (fil « pendant votre absence ») — rien n\'est parti par mail.' }
+}
 // Mode sous-agent : lancé par l'outil sous_agents — LECTURE SEULE (aucun
 // outil d'écriture, pas de sous_agents imbriqué : pas de récursion possible).
 const IS_SUBAGENT = process.env.SIRAL_ATTACHE_SUBAGENT === '1'
@@ -131,6 +152,34 @@ const TOOLS = [
     write: true,
   },
   {
+    name: 'natinf_chercher',
+    description: 'Recherche dans le référentiel NATINF officiel (nomenclature des infractions) : par code exact ou par mots du libellé (insensible casse/accents). Retourne code, libellé, nature, articles. À utiliser AVANT ajouter_natinfs et avant de citer une qualification dans un acte.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        requete: { type: 'string', description: 'Code (ex: 7989) ou mots-clés (ex: trafic stupefiants transport)' },
+        limite: { type: 'number' },
+      },
+      required: ['requete'],
+    },
+    handler: async (a) => searchNatinf(a.requete, { limite: a.limite }),
+  },
+  {
+    name: 'ajouter_natinfs',
+    description: 'Ajoute des codes NATINF aux infractions ENREGISTRÉES du dossier — écriture AUTONOME (pas de validation préalable), à faire dès que des NATINF cohérents apparaissent : mentionnés dans un acte d\'autorisation ou une requête téléversée, déduits des faits avant une rédaction. Dédoublonnage automatique ; les codes inconnus du référentiel sont refusés (natinf_chercher d\'abord). L\'ajout apparaît dans les modifications récentes du dossier, signé du nom du magistrat. Cite la pièce source.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        codes: { type: 'array', items: { type: 'string' }, description: 'Codes NATINF (ex: ["7989","7101"])' },
+        source: { type: 'string', description: 'D\'où viennent ces qualifications (ex: ordonnance JLD du 12/06 — Actes/…, ou « déduits des faits »)' },
+      },
+      required: ['numero', 'codes'],
+    },
+    handler: async (a) => ajouterNatinfs(keys, a),
+    write: true,
+  },
+  {
     name: 'boite_lister',
     description: 'Liste la boîte mail dédiée (messages transférés par le magistrat) : id, expéditeur, sujet, traité ou non.',
     inputSchema: { type: 'object', properties: {} },
@@ -154,10 +203,47 @@ const TOOLS = [
     write: true,
   },
   {
+    name: 'remettre_livrable',
+    description: 'Remet un LIVRABLE complet au magistrat DANS SIRAL (synthèse, projet de mail à recopier, note, projet de réponse) : une carte « Livrable » apparaît dans le fil « pendant votre absence », avec le texte intégral et un bouton Copier. AUCUN mail ne part — les mails sortants sont supprimés (rejets de messagerie) : tout se remet dans l\'application. Pour un ACTE à retoucher/exporter, préfère produire_document (atelier « Actes rédigés »).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sujet: { type: 'string', description: 'Titre du livrable (une ligne)' },
+        corps: { type: 'string', description: 'Le livrable complet, prêt à lire ou à copier' },
+        numero: { type: 'string', description: 'Dossier concerné (optionnel)' },
+      },
+      required: ['sujet', 'corps'],
+    },
+    handler: publierLivrable,
+    write: true,
+  },
+  {
+    // Alias hérité : d'anciennes conversations/routines appellent encore ce nom.
     name: 'envoyer_a_mon_magistrat',
-    description: 'Envoie un projet (synthèse, trame de réquisition, projet de réponse) par mail au magistrat — UNIQUE destinataire possible, câblé côté serveur. À utiliser pour tout ce qu\'il devra relire ou renvoyer lui-même.',
-    inputSchema: { type: 'object', properties: { sujet: { type: 'string' }, corps: { type: 'string' } }, required: ['sujet', 'corps'] },
-    handler: async (a) => sendToOwner(keys, a),
+    description: 'DÉPRÉCIÉ — alias de remettre_livrable : le livrable s\'affiche DANS SIRAL (fil « pendant votre absence »), plus aucun mail ne part.',
+    inputSchema: { type: 'object', properties: { sujet: { type: 'string' }, corps: { type: 'string' }, numero: { type: 'string' } }, required: ['sujet', 'corps'] },
+    handler: publierLivrable,
+    write: true,
+  },
+  {
+    name: 'creer_dossier',
+    description: 'Crée DIRECTEMENT un nouveau dossier (enquête) dans le contentieux — SANS validation préalable. Réservé à une instruction EXPLICITE du magistrat : mail transféré contenant « créer procédure » (ou équivalent sans ambiguïté), ou demande explicite en chat. Dans tous les autres cas de détection, utilise proposer_dossier (✓/✗). Renseigne tout depuis la pièce : numero, dateDebut, services, description (prise de notes), misEnCause (recoupe d\'abord avec recouper_personnes). Refus si le numéro existe déjà. Ensuite : ajoute les NATINF (ajouter_natinfs), range les pièces (ranger_document) et rédige les actes demandés (produire_document) dans CE dossier.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string', description: 'Nom/numéro du dossier (ex: « 2026/000123 » ou « Réseau ZOUAOUI »)' },
+        dateDebut: { type: 'string', description: 'AAAA-MM-JJ (défaut : aujourd\'hui)' },
+        services: { type: 'array', items: { type: 'string' } },
+        description: { type: 'string', description: 'Objet — faits, qualification, résumé télégraphique' },
+        misEnCause: {
+          type: 'array',
+          items: { type: 'object', properties: { nom: { type: 'string' }, role: { type: 'string' }, statut: { type: 'string' } }, required: ['nom'] },
+        },
+        source: { type: 'string', description: 'D\'où vient l\'instruction (ex: mail transféré du 15/07 « créer procédure »)' },
+      },
+      required: ['numero', 'source'],
+    },
+    handler: async (a) => creerDossier(keys, a),
     write: true,
   },
   {
@@ -221,7 +307,9 @@ const TOOLS = [
   },
   {
     name: 'produire_document',
-    description: `Rédige un ACTE et le range dans « Actes rédigés » du dossier (le magistrat le visionne, l'édite, le glisse vers son parapheur). Type : ${PRODUCTION_TYPES.join(', ')}. Suis la trame correspondante (trames_lister/trame_lire) et le dossier (lire_dossier, chronologie_lire). Rédaction complète, prête à signer, texte brut (paragraphes séparés par des lignes vides). Pour MODIFIER un acte existant, passe son id.`,
+    description: `Rédige un ACTE et le range dans « Actes rédigés » du dossier (le magistrat le visionne, l'édite, l'exporte en PDF/Word officiel, puis le VALIDE). Type : ${PRODUCTION_TYPES.join(', ')}. Suis la trame correspondante (trames_lister/trame_lire) et le dossier (lire_dossier, chronologie_lire). COHÉRENCE NATINF OBLIGATOIRE : vise les qualifications enregistrées du dossier (section « Infractions (NATINF) » de lire_dossier) — si elles manquent, ajoute-les d'abord (natinf_chercher + ajouter_natinfs). Rédaction complète, prête à signer, texte brut (paragraphes séparés par des lignes vides). ` +
+      'Renseigne `source` avec le nom EXACT de la trame suivie : il impose le formalisme du nom de fichier à l\'export. Pour MODIFIER un acte existant, passe son id. ' +
+      `DEMANDE SANS DOSSIER : si l'acte demandé (mail transféré) ne correspond à AUCUN dossier en cours et que la consigne ne dit pas de créer la procédure, range-le sous numero "${HORS_DOSSIER}" — il apparaît dans « Actes rédigés — hors dossier » du tableau de bord.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -329,6 +417,22 @@ const TOOLS = [
     write: true,
   },
   {
+    name: 'kb_decrire',
+    description: 'Met à jour les MÉTADONNÉES d\'une entrée de la base de connaissances — description (une phrase : contenu + quand s\'en servir), categorie, chemin (pochette d\'arborescence, ex: Jurisprudence/Cassation/arret-2024.md) — le CONTENU n\'est jamais touché. C\'est ton outil de bibliothécaire : classer les documents téléversés en masse, ranger une entrée mal placée.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Identifiant exact (kb_lister)' },
+        description: { type: 'string' },
+        categorie: { type: 'string' },
+        chemin: { type: 'string', description: 'Pochette de rangement (arborescence, séparateur /)' },
+      },
+      required: ['id'],
+    },
+    handler: async (a) => setKbMeta(keys, a.id, a),
+    write: true,
+  },
+  {
     name: 'skills_lister',
     description: 'Liste les skills du magistrat (ses méthodes réutilisables, comme les skills Claude web) : nom, description, taille. La liste figure aussi dans ton prompt système.',
     inputSchema: { type: 'object', properties: {} },
@@ -342,17 +446,24 @@ const TOOLS = [
   },
   {
     name: 'skill_enregistrer',
-    description: 'Enregistre ou met à jour une skill du magistrat (méthode réutilisable : quoi faire et comment, en markdown). Versionnée à chaque réécriture. À utiliser quand il dit « enregistre cette skill » ou dicte une méthode durable. La description est CRUCIALE : c\'est elle qui dit quand appliquer la skill.',
+    description: 'Crée ou met à jour une skill du magistrat (méthode réutilisable : quoi faire et comment, en markdown). Versionnée à chaque réécriture. TROIS USAGES : (1) il te dicte/colle une méthode → range-la telle quelle ; (2) « CRÉE une skill qui fait X » → c\'est TOI qui rédiges la méthode complète et sa description ; (3) « MODIFIE la skill Z comme ça » → skill_lire d\'abord, applique le changement, ré-enregistre avec le MÊME nom (l\'ancienne version est archivée). La description est CRUCIALE : c\'est elle qui dit QUAND appliquer la skill — soigne-la à chaque fois.',
     inputSchema: {
       type: 'object',
       properties: {
-        nom: { type: 'string', description: 'ex: preparation-audience, analyse-telephonie' },
+        nom: { type: 'string', description: 'ex: preparation-audience, analyse-telephonie (même nom qu\'une skill existante = mise à jour)' },
         description: { type: 'string', description: 'Une phrase : quand utiliser cette skill' },
         contenu: { type: 'string', description: 'La méthode complète, en markdown' },
       },
       required: ['nom', 'contenu'],
     },
     handler: async (a) => saveSkill(keys, a),
+    write: true,
+  },
+  {
+    name: 'skill_supprimer',
+    description: 'Supprime une skill du magistrat par son nom (réversible : la dernière version reste archivée côté serveur). À utiliser uniquement quand il te le demande explicitement (« supprime la skill Z »).',
+    inputSchema: { type: 'object', properties: { nom: { type: 'string' } }, required: ['nom'] },
+    handler: async (a) => ({ ok: await deleteSkill(a.nom) }),
     write: true,
   },
   {
@@ -474,6 +585,25 @@ const TOOLS = [
     write: true,
   },
   {
+    name: 'proposer_mec_carto',
+    description: 'Propose une PERSONNE EX NIHILO autonome sur la carte (un suspect, une figure de renseignement, un SURNOM entendu dans les pièces) qui n\'apparaît dans AUCUN dossier réel — n\'écrit PAS directement : ✓/✗. Distinct de proposer_dossier_carto (qui crée un dossier + ses personnes) : ici une SEULE personne, avec ses alias/surnoms. Créée sur la carte au ✓. Refus automatique si la personne existe déjà (dossier réel ou carte). Recoupe d\'abord (recouper_personnes). Toujours citer la source. Ensuite, relie-la avec proposer_lien.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nom: { type: 'string', description: 'Nom ou désignation principale de la personne' },
+        alias: { type: 'array', items: { type: 'string' }, description: 'Surnoms / alias entendus (ex: « le Grand », « Momo »)' },
+        notes: { type: 'string', description: 'Ce qu\'on sait d\'elle et pourquoi elle compte (rôle supposé, dossiers où elle est évoquée)' },
+        source: { type: 'string', description: 'Pièce(s) d\'où vient la détection (ex: PV D8092 du dossier X)' },
+      },
+      required: ['nom', 'source'],
+    },
+    handler: async (a) => addProposition(keys, {
+      type: 'mec_carto', source: a.source,
+      payload: { nom: a.nom, alias: a.alias, notes: a.notes },
+    }),
+    write: true,
+  },
+  {
     name: 'carto_analyser',
     description: 'Analyse le réseau (cartographie) : figures centrales, « ponts » (personnes présentes dans plusieurs dossiers, qui relient des affaires), co-occurrences, nombre de liens de renseignement déjà tracés. Pour aider à voir les connexions et améliorer la visibilité. Interpréter : centralité, cloisonnements, liens manquants à tracer.',
     inputSchema: { type: 'object', properties: { archives: { type: 'boolean', description: 'Inclure les dossiers archivés' } } },
@@ -481,9 +611,15 @@ const TOOLS = [
   },
   {
     name: 'carto_rapprochements',
-    description: 'Rapprochements inter-dossiers : entités (téléphone, plaque, IBAN, ADRESSE) présentes dans plusieurs dossiers qui ne partagent AUCUN mis en cause — donc des ponts potentiels entre affaires que rien ne reliait. Pour chaque rapprochement pertinent, proposer un lien de renseignement (proposer_lien) entre un MEC de chaque dossier, l\'entité partagée en source/label. Vérifie la pertinence (un numéro de service, une banque, ne relie rien).',
+    description: 'Rapprochements inter-dossiers RAPIDES (sur le TEXTE des enquêtes seulement : objet, CR, actes — pas les pièces) : entités (téléphone, plaque, IBAN, ADRESSE) présentes dans plusieurs dossiers qui ne partagent AUCUN mis en cause — donc des ponts potentiels entre affaires que rien ne reliait. Pour une analyse EN PROFONDEUR (pièces, surnoms, personnes au 2nd plan, instruction), pars plutôt de carto_corpus. Pour chaque rapprochement pertinent, proposer_lien entre un MEC de chaque dossier, l\'entité partagée en source/label. Vérifie la pertinence (un numéro de service, une banque, ne relie rien).',
     inputSchema: { type: 'object', properties: { archives: { type: 'boolean' } } },
     handler: async (a) => rapprochementsInterDossiers(keys, { includeArchived: Boolean(a?.archives) }),
+  },
+  {
+    name: 'carto_corpus',
+    description: 'Point de départ de l\'ANALYSE TRANSVERSALE DE RENSEIGNEMENT : le corpus COMPLET — toutes les enquêtes (archivées comprises) ET tous les dossiers d\'instruction, avec leurs mis en cause déclarés et le nombre de pièces, plus les personnes/dossiers ex nihilo et liens déjà sur la carte. Les signaux faibles (surnoms, personnes au 2nd plan jamais mises en cause, adresses, plaques, téléphones, comptes reliant deux affaires) sont dans les PIÈCES : pour chaque dossier, dossier_arborescence puis lire_document (PV surtout), en DÉLÉGUANT à des sous_agents (un par dossier). Puis recouper_personnes et PROPOSE (jamais tracé d\'office) : proposer_lien, proposer_mec_carto, proposer_dossier_carto. Idéal en routine (« chaque semaine, cherche les liens cachés entre tous les dossiers »).',
+    inputSchema: { type: 'object', properties: { archives: { type: 'boolean', description: 'Inclure les enquêtes archivées (défaut : oui)' } } },
+    handler: async (a) => cartoCorpus(keys, { includeArchived: a?.archives !== false }),
   },
   {
     name: 'carto_lister_liens',
@@ -493,17 +629,17 @@ const TOOLS = [
   },
   {
     name: 'proposer_lien',
-    description: 'Propose un LIEN DE RENSEIGNEMENT entre deux personnes, détecté en lisant une pièce (communications récurrentes, lien familial, logistique…) et non encore tracé sur la carte. Créé sur la carte SEULEMENT au ✓ de l\'administrateur. Toujours citer la source. `numero` = dossier d\'où vient la détection (pour l\'affichage de la proposition).',
+    description: 'Propose un LIEN DE RENSEIGNEMENT entre deux personnes, détecté en lisant une pièce (communications récurrentes, lien familial, logistique, même adresse/plaque/téléphone…) et non encore tracé sur la carte. Créé sur la carte SEULEMENT au ✓ de l\'administrateur. Toujours citer la source. Les deux personnes peuvent être des MEC réels OU des personnes ex nihilo (proposer_mec_carto d\'abord si l\'une est un surnom/second plan absent des dossiers). `numero` FACULTATIF = dossier d\'où vient la détection (contexte d\'affichage) ; pour un lien transversal entre plusieurs affaires, laisse-le vide.',
     inputSchema: {
       type: 'object',
       properties: {
-        numero: { type: 'string', description: 'Dossier d\'où vient la détection' },
+        numero: { type: 'string', description: 'Dossier d\'où vient la détection (facultatif)' },
         sourceNom: { type: 'string' }, targetNom: { type: 'string' },
-        label: { type: 'string', description: 'Nature du lien (ex: communications, fournisseur, fratrie)' },
+        label: { type: 'string', description: 'Nature du lien (ex: communications, fournisseur, fratrie, même adresse)' },
         notes: { type: 'string' },
-        source: { type: 'string', description: 'Pièce source (ex: PV D1808, retranscription du 12/07)' },
+        source: { type: 'string', description: 'Pièce source (ex: PV D1808 du dossier X, retranscription du 12/07)' },
       },
-      required: ['numero', 'sourceNom', 'targetNom', 'source'],
+      required: ['sourceNom', 'targetNom', 'source'],
     },
     handler: async (a) => addProposition(keys, { numero: a.numero, type: 'lien', payload: { sourceNom: a.sourceNom, targetNom: a.targetNom, label: a.label, notes: a.notes }, source: a.source }),
     write: true,

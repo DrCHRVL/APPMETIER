@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FolderOpen, FolderTree, UploadCloud, Trash2, Eye, Loader2, ChevronRight, ChevronDown, FileText, X } from 'lucide-react';
 import { fileToMarkdown } from '@/lib/web/fileToMarkdown';
+import { collectDropEntries, incomingFromFileList, type Incoming } from '@/lib/web/folderUpload';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
@@ -26,30 +27,6 @@ const SKIP_RE = /\.(png|jpe?g|gif|bmp|tiff?|heic|mp3|wav|m4a|ogg|mp4|avi|mov|mkv
 
 interface DocRow { rel: string; size: number; savedAt?: string; originalName?: string }
 interface TreeNode { folders: Map<string, TreeNode>; files: DocRow[] }
-
-/** Fichier + chemin relatif, quel que soit le mode d'entrée (input ou drop). */
-interface Incoming { file: File; path: string }
-
-async function collectDropEntries(items: DataTransferItemList): Promise<Incoming[]> {
-  const out: Incoming[] = [];
-  const walk = async (entry: any, prefix: string): Promise<void> => {
-    if (!entry) return;
-    if (entry.isFile) {
-      const file: File = await new Promise((res, rej) => entry.file(res, rej));
-      out.push({ file, path: prefix + file.name });
-    } else if (entry.isDirectory) {
-      const reader = entry.createReader();
-      for (;;) {
-        const batch: any[] = await new Promise((res, rej) => reader.readEntries(res, rej));
-        if (!batch.length) break;
-        for (const child of batch) await walk(child, prefix + entry.name + '/');
-      }
-    }
-  };
-  const entries = Array.from(items).map((it) => (it as any).webkitGetAsEntry?.()).filter(Boolean);
-  for (const e of entries) await walk(e, '');
-  return out;
-}
 
 export function DossierCompletSection({ numero }: { numero: string }) {
   const [docs, setDocs] = useState<DocRow[]>([]);
@@ -97,11 +74,7 @@ export function DossierCompletSection({ numero }: { numero: string }) {
   }, [numero, refresh]);
 
   const onPickFolder = useCallback((files: FileList | null) => {
-    const list = Array.from(files || []).map((f) => ({
-      file: f,
-      path: ((f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name),
-    }));
-    verser(list);
+    verser(incomingFromFileList(files));
   }, [verser]);
 
   const supprimer = useCallback(async (rels: string[], label: string) => {

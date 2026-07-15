@@ -37,6 +37,98 @@ export function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
 }
 
+/**
+ * Aligne les permissions du sous-arbre partagé avec l'app web.
+ *
+ * Le service tourne root dans son conteneur, l'app web sous un utilisateur
+ * non-root (`siral`) : tout répertoire créé par le service en 755 devenait
+ * INSCRIPTIBLE PAR LE SEUL ROOT — les téléversements et suppressions de
+ * trames/skills/base de connaissances côté app échouaient alors en silence
+ * (EACCES). Le volume est privé aux deux conteneurs et ne contient que des
+ * enveloppes chiffrées : ouvrir les droits ne dévoile rien.
+ */
+export function fixSharedPermissions() {
+  // Une seule remise à niveau complète par volume : une fois faite (et avec
+  // umask(0) au démarrage, tout ce qui se crée ensuite naît déjà ouvert),
+  // re-balayer docs/ et vaults/ à chaque redémarrage serait de l'E/S pure perte.
+  const marker = readState().permissionsPartageesV
+  if (marker === 1) return
+  const roots = [attacheDir(), tjDataDir(attacheTj(), 'docs'), tjDataDir(attacheTj(), 'vaults')]
+  const walk = (p) => {
+    let st
+    try { st = fs.statSync(p) } catch { return }
+    const wanted = st.isDirectory() ? 0o777 : 0o666
+    if ((st.mode & 0o777) !== wanted) {
+      try { fs.chmodSync(p, wanted) } catch { /* volume en lecture seule : tant pis */ }
+    }
+    if (!st.isDirectory()) return
+    let entries = []
+    try { entries = fs.readdirSync(p) } catch { return }
+    for (const e of entries) walk(path.join(p, e))
+  }
+  for (const r of roots) walk(r)
+  writeState({ permissionsPartageesV: 1 }).catch(() => {})
+}
+
+// ── Collections d'enveloppes (trames, skills, kb) — miroir de lib/server/attache.ts ──
+// Le service peut TOUJOURS écrire (root) : l'app web lui relaie l'écriture ou
+// la suppression quand son propre accès disque est refusé (volumes hérités
+// d'anciennes versions, propriétés croisées).
+
+const COLLECTION_RE = /^(trames|skills|kb)$/
+const COLLECTION_ID_RE = /^[a-z0-9][a-z0-9-]{0,79}$/
+
+export async function writeCollectionEnvelopeRaw(collection, id, envelope) {
+  if (!COLLECTION_RE.test(collection)) throw new Error('Collection inconnue')
+  if (!COLLECTION_ID_RE.test(id)) throw new Error('Identifiant invalide')
+  const p = attacheDir(collection, id + '.json')
+  await withFileLock(`coll:${collection}:${id}`, async () => {
+    if (fs.existsSync(p)) {
+      const vdir = attacheDir(collection, '.versions', id)
+      ensureDir(vdir)
+      fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '.json'))
+    }
+    atomicWrite(p, JSON.stringify(envelope, null, 2))
+  })
+}
+
+// Fichiers-enveloppes uniques (mémoire, consignes) et cartes de statut en
+// clair (majordome-status, questions-status) : mêmes relais que les
+// collections — l'app web délègue quand son accès disque est refusé.
+
+const SINGLE_ENVELOPE_RE = /^(memory|instructions)$/
+const STATUS_MAP_RE = /^(majordome-status|questions-status)$/
+
+export async function writeSingleEnvelopeRaw(name, envelope) {
+  if (!SINGLE_ENVELOPE_RE.test(name)) throw new Error('Fichier inconnu')
+  await writeEnvelopeFile(name + '.json', envelope)
+}
+
+export async function setStatusMapEntryRaw(file, id, entry) {
+  if (!STATUS_MAP_RE.test(file)) throw new Error('Fichier de statut inconnu')
+  if (!/^[a-f0-9]{6,32}$/.test(String(id || ''))) throw new Error('Identifiant invalide')
+  const p = attacheDir(file + '.json')
+  await withFileLock('status:' + file, async () => {
+    const all = readJson(p, {})
+    all[id] = entry
+    atomicWrite(p, JSON.stringify(all, null, 2))
+  })
+}
+
+export async function deleteCollectionEnvelopeRaw(collection, id) {
+  if (!COLLECTION_RE.test(collection)) throw new Error('Collection inconnue')
+  if (!COLLECTION_ID_RE.test(id)) throw new Error('Identifiant invalide')
+  const p = attacheDir(collection, id + '.json')
+  return withFileLock(`coll:${collection}:${id}`, async () => {
+    if (!fs.existsSync(p)) return false
+    const vdir = attacheDir(collection, '.versions', id)
+    ensureDir(vdir)
+    fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '~suppression.json'))
+    fs.unlinkSync(p)
+    return true
+  })
+}
+
 export function atomicWrite(filePath, content) {
   ensureDir(path.dirname(filePath))
   const tmp = filePath + '.tmp-' + crypto.randomBytes(4).toString('hex')

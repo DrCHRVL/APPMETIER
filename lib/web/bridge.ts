@@ -663,7 +663,11 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       await fsa.flushPendingCopies(docDownload).catch(() => {})
       const internal = await docList(enq)
       result.totalInternal = internal.length
+      // MD/ (copies markdown pour l'IA) et Dossier/ (arborescences versées) sont
+      // des zones internes à l'application : jamais poussées vers le commun
+      // (la copie plate y écraserait les sous-pochettes homonymes).
       const cats = Array.from(new Set(['Geoloc', 'Ecoutes', 'Actes', 'PV', 'DML', ...internal.map((d) => d.rel.split('/')[0])]))
+        .filter((c) => c !== 'MD' && c !== 'Dossier')
       for (const cat of cats) {
         const externalNames = await fsa.listFolderFiles(token, enq, sub, cat)
         result.totalExternal += externalNames.length

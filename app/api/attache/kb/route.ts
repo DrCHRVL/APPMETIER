@@ -6,10 +6,13 @@
  * GET : liste des enveloppes (le navigateur admin déchiffre).
  * PUT : dépôt d'une entrée (enveloppe chiffrée ; version archivée).
  * DELETE : retrait réversible (?id=…, version archivée avant suppression).
+ * POST : déclenche l'analyse IA des entrées téléversées (description +
+ *        classement via kb_decrire) — relayée au service attaché, exécutée en
+ *        arrière-plan, résultat dans le fil « pendant votre absence ».
  * Le service attaché lit les mêmes fichiers : l'entrée vaut dès le run suivant.
  */
 import { handle, jsonResponse } from '@/lib/server/auth'
-import { requireAttacheAdmin, listCollectionEnvelopes, writeCollectionEnvelope, deleteCollectionEnvelope, AttacheEnvelope } from '@/lib/server/attache'
+import { requireAttacheAdmin, attacheFetch, listCollectionEnvelopes, writeCollectionEnvelope, deleteCollectionEnvelope, AttacheEnvelope } from '@/lib/server/attache'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,5 +52,16 @@ export async function DELETE(req: Request) {
     } catch (e) {
       return jsonResponse({ error: e instanceof Error ? e.message : 'Suppression refusée' }, { status: 400 })
     }
+  })
+}
+
+export async function POST(req: Request) {
+  return handle(async () => {
+    requireAttacheAdmin(req)
+    const body = await req.json().catch(() => null) as { analyse?: string[] } | null
+    const ids = (Array.isArray(body?.analyse) ? body!.analyse : []).map(String).filter(Boolean).slice(0, 200)
+    if (!ids.length) return jsonResponse({ error: 'Aucune entrée à analyser' }, { status: 400 })
+    const res = await attacheFetch('/kb/analyse', { method: 'POST', body: { ids } })
+    return new Response(await res.text(), { status: res.status, headers: { 'content-type': 'application/json' } })
   })
 }

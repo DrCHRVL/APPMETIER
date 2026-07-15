@@ -17,6 +17,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 COPY scripts ./scripts
+# Référentiel NATINF embarqué (repli si aucun référentiel publié dans /data)
+COPY data/natinf ./data/natinf
 
 ENV NODE_ENV=production
 ENV SIRAL_DATA_DIR=/data

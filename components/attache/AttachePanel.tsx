@@ -20,6 +20,10 @@ import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig } from 
 
 import { NouveauxDossiersPropositions } from './NouveauxDossiersPropositions';
 
+// Constantes stables (un tableau inline relancerait le chargement à chaque rendu).
+const DOSSIER_KINDS = ['dossier'] as const;
+const CARTO_KINDS = ['dossier_carto', 'mec_carto', 'lien'] as const;
+
 type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
 
@@ -35,7 +39,7 @@ const FEED_SEEN_KEY = 'attache_feed_seen_ts';
 
 const FEED_ICONS: Record<string, string> = {
   mail_traite: '📨', synthese: '📋', acte: '⚖️', prolongation: '🕐',
-  projet_reponse: '✉️', alerte: '⚠️', note: '📝', question: '❓',
+  projet_reponse: '✉️', alerte: '⚠️', note: '📝', question: '❓', livrable: '📦',
 };
 
 export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -400,20 +404,30 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
             <div className="max-h-56 space-y-2 overflow-y-auto px-4 pb-3">
               {feed.slice(0, 20).map((f, i) => {
                 const isQuestion = f.type === 'question' && f.convId && f.qid;
+                const isLivrable = f.type === 'livrable';
                 const qStatus = f.qid ? questionStatuses[f.qid]?.status : undefined;
                 return (
-                  <div key={i} className={`rounded-lg border bg-white p-2.5 ${isQuestion && !qStatus ? 'border-amber-300 ring-1 ring-amber-100' : 'border-gray-200'}`}>
+                  <div key={i} className={`rounded-lg border bg-white p-2.5 ${isQuestion && !qStatus ? 'border-amber-300 ring-1 ring-amber-100' : isLivrable ? 'border-[#2B5746]/30' : 'border-gray-200'}`}>
                     <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-800">
                       <span>{FEED_ICONS[f.type] || '•'}</span>
                       <span className="flex-1 truncate">{f.titre}</span>
                       {f.numero && <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{f.numero}</span>}
+                      {isLivrable && (
+                        <button
+                          onClick={() => { navigator.clipboard?.writeText(f.resume).catch(() => {}); }}
+                          className="rounded-md border border-[#2B5746]/30 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-[#2B5746] hover:bg-emerald-100"
+                          title="Copier le livrable complet"
+                        >
+                          Copier
+                        </button>
+                      )}
                       {isQuestion && qStatus && (
                         <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
                           {qStatus === 'repondu' ? 'répondu ✓' : 'ignorée'}
                         </span>
                       )}
                     </div>
-                    <div className="mt-1 text-[11.5px] leading-relaxed text-gray-600">{f.resume}</div>
+                    <div className={`mt-1 text-[11.5px] leading-relaxed text-gray-600 ${isLivrable ? 'max-h-48 overflow-y-auto whitespace-pre-wrap rounded bg-gray-50 px-2 py-1.5' : ''}`}>{f.resume}</div>
                     <div className="mt-1 text-[10px] text-gray-400">{f.at ? new Date(f.at).toLocaleString('fr-FR') : ''}</div>
                     {isQuestion && !qStatus && (
                       <div className="mt-2 space-y-1.5 border-t border-amber-100 pt-2">
@@ -452,7 +466,13 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
 
       {/* Propositions de création de dossier réel issues du chat (créées à la ✓). */}
       <div className="px-4 pt-3 empty:hidden">
-        <NouveauxDossiersPropositions kinds={['dossier']} title="Proposition de dossier" reloadSignal={propositionsReload} />
+        <NouveauxDossiersPropositions kinds={DOSSIER_KINDS} title="Proposition de dossier" reloadSignal={propositionsReload} />
+      </div>
+
+      {/* Propositions de renseignement (analyse transversale) : liens,
+          personnes et dossiers ex nihilo — revue ✓/✗, tracés sur la carte. */}
+      <div className="px-4 pt-2 empty:hidden">
+        <NouveauxDossiersPropositions kinds={CARTO_KINDS} title="Proposition de renseignement" reloadSignal={propositionsReload} />
       </div>
 
       {/* Messages */}

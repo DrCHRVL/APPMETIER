@@ -104,11 +104,15 @@ export function readMajordomeStatuses(): Record<string, { status: MajordomeStatu
 
 export async function setMajordomeStatus(id: string, status: MajordomeStatus, by: string): Promise<void> {
   if (!/^[a-f0-9]{6,32}$/.test(id)) throw new Error('Identifiant invalide')
-  await withFileLock('attache-majordome-status', async () => {
-    const all = readMajordomeStatuses()
-    all[id] = { status, at: new Date().toISOString(), by }
-    atomicWrite(attacheDir('majordome-status.json'), JSON.stringify(all, null, 2))
-  })
+  try {
+    await withFileLock('attache-majordome-status', async () => {
+      const all = readMajordomeStatuses()
+      all[id] = { status, at: new Date().toISOString(), by }
+      atomicWrite(attacheDir('majordome-status.json'), JSON.stringify(all, null, 2))
+    })
+  } catch (e) {
+    await relayStatusMap('majordome-status', id, status, by, e)
+  }
 }
 
 // ── Statuts des questions posées par l'attaché (répondu / ignoré) ──
@@ -123,11 +127,24 @@ export function readQuestionStatuses(): Record<string, { status: QuestionStatus,
 
 export async function setQuestionStatus(id: string, status: QuestionStatus, by: string): Promise<void> {
   if (!/^[a-f0-9]{6,32}$/.test(id)) throw new Error('Identifiant invalide')
-  await withFileLock('attache-questions-status', async () => {
-    const all = readQuestionStatuses()
-    all[id] = { status, at: new Date().toISOString(), by }
-    atomicWrite(attacheDir('questions-status.json'), JSON.stringify(all, null, 2))
-  })
+  try {
+    await withFileLock('attache-questions-status', async () => {
+      const all = readQuestionStatuses()
+      all[id] = { status, at: new Date().toISOString(), by }
+      atomicWrite(attacheDir('questions-status.json'), JSON.stringify(all, null, 2))
+    })
+  } catch (e) {
+    await relayStatusMap('questions-status', id, status, by, e)
+  }
+}
+
+/** Repli commun des cartes de statut : écriture relayée au service attaché. */
+async function relayStatusMap(file: string, id: string, status: string, by: string, cause: unknown): Promise<void> {
+  const relayed = await attacheFetch('/status-map', { method: 'PUT', body: { file, id, status, by } })
+  if (!relayed.ok) {
+    const detail = await relayed.json().catch(() => ({} as { error?: string }))
+    throw new Error(detail.error || (cause instanceof Error ? cause.message : 'Écriture refusée'))
+  }
 }
 
 export function readMemoryEnvelope(): AttacheEnvelope | null {
@@ -154,7 +171,7 @@ export async function writeInstructionsEnvelope(envelope: AttacheEnvelope): Prom
 // chiffre/déchiffre, l'app ne voit que des enveloppes. Versionnage avant
 // toute réécriture ou suppression — rien n'est jamais écrasé à sec.
 
-const ENTRY_ID_RE = /^[a-z0-9][a-z0-9-]{0,59}$/
+const ENTRY_ID_RE = /^[a-z0-9][a-z0-9-]{0,79}$/
 type AttacheCollection = 'skills' | 'trames' | 'kb'
 
 export function listCollectionEnvelopes(collection: AttacheCollection): Array<{ id: string, envelope: AttacheEnvelope }> {
@@ -174,29 +191,51 @@ export function listCollectionEnvelopes(collection: AttacheCollection): Array<{ 
 export async function writeCollectionEnvelope(collection: AttacheCollection, id: string, envelope: AttacheEnvelope): Promise<void> {
   if (!ENTRY_ID_RE.test(id)) throw new Error('Identifiant invalide')
   const p = attacheDir(collection, id + '.json')
-  await withFileLock(`attache-${collection}-` + id, async () => {
-    if (fs.existsSync(p)) {
-      const vdir = attacheDir(collection, '.versions', id)
-      ensureDir(vdir)
-      fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '.json'))
+  try {
+    await withFileLock(`attache-${collection}-` + id, async () => {
+      if (fs.existsSync(p)) {
+        const vdir = attacheDir(collection, '.versions', id)
+        ensureDir(vdir)
+        fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '.json'))
+      }
+      ensureDir(path.dirname(p))
+      atomicWrite(p, JSON.stringify(envelope, null, 2))
+    })
+  } catch (e) {
+    // Volume partagé : le répertoire peut appartenir au conteneur du service
+    // (créé root avant le correctif de permissions) — on relaie l'écriture au
+    // service, qui écrit la même enveloppe opaque. Sans service : erreur claire.
+    const relayed = await attacheFetch('/collection', { method: 'PUT', body: { collection, id, envelope } })
+    if (!relayed.ok) {
+      const detail = await relayed.json().catch(() => ({} as { error?: string }))
+      throw new Error(detail.error || (e instanceof Error ? e.message : 'Écriture refusée'))
     }
-    ensureDir(path.dirname(p))
-    atomicWrite(p, JSON.stringify(envelope, null, 2))
-  })
+  }
 }
 
 /** Suppression réversible : la version courante est archivée avant retrait. */
 export async function deleteCollectionEnvelope(collection: AttacheCollection, id: string): Promise<boolean> {
   if (!ENTRY_ID_RE.test(id)) throw new Error('Identifiant invalide')
   const p = attacheDir(collection, id + '.json')
-  return withFileLock(`attache-${collection}-` + id, async () => {
-    if (!fs.existsSync(p)) return false
-    const vdir = attacheDir(collection, '.versions', id)
-    ensureDir(vdir)
-    fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '~suppression.json'))
-    fs.unlinkSync(p)
-    return true
-  })
+  try {
+    return await withFileLock(`attache-${collection}-` + id, async () => {
+      if (!fs.existsSync(p)) return false
+      const vdir = attacheDir(collection, '.versions', id)
+      ensureDir(vdir)
+      fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '~suppression.json'))
+      fs.unlinkSync(p)
+      return true
+    })
+  } catch (e) {
+    // Même repli que l'écriture : suppression relayée au service attaché.
+    const relayed = await attacheFetch('/collection?collection=' + encodeURIComponent(collection) + '&id=' + encodeURIComponent(id), { method: 'DELETE' })
+    if (!relayed.ok) {
+      const detail = await relayed.json().catch(() => ({} as { error?: string }))
+      throw new Error(detail.error || (e instanceof Error ? e.message : 'Suppression refusée'))
+    }
+    const out = await relayed.json().catch(() => ({ ok: false })) as { ok?: boolean }
+    return Boolean(out.ok)
+  }
 }
 
 export const listSkillEnvelopes = () => listCollectionEnvelopes('skills')
@@ -206,13 +245,22 @@ export const deleteSkillEnvelope = (id: string) => deleteCollectionEnvelope('ski
 /** Écrit une enveloppe d'attaché en archivant la version précédente (jamais d'écrasement sec). */
 async function writeVersionedEnvelope(name: 'memory' | 'instructions', envelope: AttacheEnvelope): Promise<void> {
   const p = attacheDir(name + '.json')
-  await withFileLock('attache-' + name, async () => {
-    if (fs.existsSync(p)) {
-      const vdir = path.join(path.dirname(p), '.versions', name)
-      ensureDir(vdir)
-      const stamp = new Date().toISOString().replace(/:/g, '_')
-      fs.copyFileSync(p, path.join(vdir, stamp + '.json'))
+  try {
+    await withFileLock('attache-' + name, async () => {
+      if (fs.existsSync(p)) {
+        const vdir = path.join(path.dirname(p), '.versions', name)
+        ensureDir(vdir)
+        const stamp = new Date().toISOString().replace(/:/g, '_')
+        fs.copyFileSync(p, path.join(vdir, stamp + '.json'))
+      }
+      atomicWrite(p, JSON.stringify(envelope, null, 2))
+    })
+  } catch (e) {
+    // même repli que les collections : écriture relayée au service attaché
+    const relayed = await attacheFetch('/envelope-file', { method: 'PUT', body: { name, envelope } })
+    if (!relayed.ok) {
+      const detail = await relayed.json().catch(() => ({} as { error?: string }))
+      throw new Error(detail.error || (e instanceof Error ? e.message : 'Écriture refusée'))
     }
-    atomicWrite(p, JSON.stringify(envelope, null, 2))
-  })
+  }
 }

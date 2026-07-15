@@ -72,6 +72,16 @@ interface ElectronAPI {
     files: Array<{name: string, arrayBuffer: ArrayBuffer}>,
     category: string
   ) => Promise<DocumentEnquete[]>;
+
+  /** Dépose un document sous un chemin relatif COMPLET (sous-pochettes permises)
+   *  — versements d'arborescences et copies markdown MD/. Retourne le chemin nettoyé. */
+  depositDocument: (
+    enqueteNumero: string,
+    rel: string,
+    bytes: ArrayBuffer,
+    category?: string,
+    originalName?: string
+  ) => Promise<string>;
   
   // API POUR GESTION EXTERNE AVEC SUPPORT USESUBFOLDER
   copyToExternalPath: (

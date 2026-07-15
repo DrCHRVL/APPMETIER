@@ -19,7 +19,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { attacheDir, ensureDir, atomicWrite, readJson } from './store.mjs'
+import { attacheDir, readJson, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 
 // Même règle que components/admin (skillSlug) : les deux côtés écrivent le
@@ -40,15 +40,8 @@ export async function saveSkill(keys, { nom, description, contenu }) {
     contenu: String(contenu).slice(0, 200_000),
     updatedAt: new Date().toISOString(),
   }
-  const dir = attacheDir('skills')
-  ensureDir(dir)
-  const p = path.join(dir, name + '.json')
-  if (fs.existsSync(p)) {
-    const vdir = path.join(dir, '.versions', name)
-    ensureDir(vdir)
-    fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '.json'))
-  }
-  atomicWrite(p, JSON.stringify(encryptJson(keys.global, record, { savedAt: record.updatedAt })))
+  // même verrou + même archivage .versions que les dépôts relayés du navigateur
+  await writeCollectionEnvelopeRaw('skills', name, encryptJson(keys.global, record, { savedAt: record.updatedAt }))
   return { nom: name }
 }
 
@@ -75,6 +68,11 @@ export function readSkill(keys, nom) {
   try { return decryptJson(keys.global, env) } catch { return null }
 }
 
+/** Suppression réversible d'une skill (dernière version archivée côté serveur). */
+export async function deleteSkill(nom) {
+  return deleteCollectionEnvelopeRaw('skills', safeSkillName(nom))
+}
+
 /** Bloc « skills disponibles » du prompt système — vide s'il n'y en a aucune. */
 export function skillsPromptSection(keys) {
   const skills = listSkills(keys)
@@ -84,6 +82,11 @@ export function skillsPromptSection(keys) {
     'SKILLS DU MAGISTRAT (ses méthodes enregistrées — Paramètres → Attaché IA, comme les skills Claude web) :',
     ...skills.map((s) => `- ${s.nom}${s.description ? ` : ${s.description}` : ''}`),
     'Dès qu\'une demande correspond à une skill, commence par la charger (skill_lire) et suis-la fidèlement.',
-    'Quand le magistrat te dicte une méthode durable (« enregistre cette skill », « à partir de maintenant, procède ainsi pour… »), range-la avec skill_enregistrer.',
+    'TU GÈRES CES SKILLS À SA DEMANDE — c\'est TOI qui rédiges, pas seulement lui qui dicte :',
+    '- « crée une skill qui fait X / pour Y » → rédige toi-même la méthode complète (markdown structuré, étapes claires) + une description qui dit QUAND l\'appliquer, puis skill_enregistrer. Récapitule-lui ce que contient la skill créée.',
+    '- « modifie la skill Z comme ça / ajoute ceci / retire cela » → skill_lire pour la lire, applique le changement demandé au contenu (ou à la description), puis skill_enregistrer avec le MÊME nom (versionné : rien n\'est perdu). Confirme la modification.',
+    '- « supprime la skill Z » → skill_supprimer (réversible : dernière version archivée).',
+    'Quand il te dicte/colle une méthode durable (« enregistre cette skill », « à partir de maintenant, procède ainsi pour… »), range-la telle quelle avec skill_enregistrer.',
+    'Dans tous les cas la description est CRUCIALE : c\'est elle qui déclenche la skill plus tard — soigne-la.',
   ].join('\n')
 }
