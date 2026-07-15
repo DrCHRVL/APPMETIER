@@ -30,7 +30,7 @@ import { listInstructionDossiers, instructionDossierMarkdown } from './attache/i
 import { listDepot, readDepotText, rangerDocument, ecarterDepot, ZONES } from './attache/depot.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
-import { analyserReseau, listerLiens, rapprochementsInterDossiers } from './attache/carto.mjs'
+import { analyserReseau, listerLiens, rapprochementsInterDossiers, recoupementMecs } from './attache/carto.mjs'
 import { saveProduction, listProductions, readProduction, deleteProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
 import { appendMemory } from './attache/memory.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed, sendToOwner } from './attache/mail.mjs'
@@ -416,6 +416,62 @@ const TOOLS = [
     description: 'Liste les propositions en attente de validation (évite les redondances : ne jamais re-proposer ce qui attend déjà).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' } } },
     handler: async (a) => listPropositions(keys, { numero: a?.numero }).map(({ payload, ...meta }) => ({ ...meta, apercu: JSON.stringify(payload).slice(0, 200) })),
+  },
+  {
+    name: 'recouper_personnes',
+    description: 'RECOUPEMENT global d\'une liste de noms détectés dans une pièce, AVANT de créer un dossier. Pour chacun : déjà mis en cause d\'un dossier réel (source « dossier », avec les numéros) / déjà présent comme MEC ex nihilo sur la carte (source « carto ») / nouveau. À utiliser systématiquement avant proposer_dossier ou proposer_dossier_carto pour ne pas dupliquer une personne connue et pour signaler les recoupements inter-dossiers.',
+    inputSchema: {
+      type: 'object',
+      properties: { noms: { type: 'array', items: { type: 'string' }, description: 'Noms détectés (un par personne)' } },
+      required: ['noms'],
+    },
+    handler: async (a) => recoupementMecs(keys, a.noms),
+  },
+  {
+    name: 'proposer_dossier',
+    description: 'Propose la CRÉATION d\'un nouveau dossier réel, extrait d\'un PV/résumé collé — n\'écrit PAS directement : la proposition apparaît avec ✓/✗ (le dossier n\'est créé qu\'à la validation, signé du nom du magistrat). Renseigne toi-même : numero (nom/numéro du dossier), dateDebut, services (service d\'enquête), description (objet, format prise de notes), misEnCause. RECOUPE d\'abord les noms (recouper_personnes) pour ne pas dupliquer une personne déjà connue. Refus automatique si le numéro existe déjà. Toujours citer la source.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string', description: 'Nom/numéro du dossier (identifiant, ex: « 2024-0142 » ou « Réseau ZOUAOUI »)' },
+        dateDebut: { type: 'string', description: 'Date de début AAAA-MM-JJ (défaut : aujourd\'hui)' },
+        services: { type: 'array', items: { type: 'string' }, description: 'Service(s) d\'enquête (ex: « GIR Amiens »)' },
+        description: { type: 'string', description: 'Objet du dossier — faits, qualification, résumé télégraphique' },
+        misEnCause: {
+          type: 'array',
+          description: 'Mis en cause détectés',
+          items: { type: 'object', properties: { nom: { type: 'string' }, role: { type: 'string' }, statut: { type: 'string' } }, required: ['nom'] },
+        },
+        source: { type: 'string', description: 'Pièce d\'où vient la détection (ex: PV D8092, résumé collé le 14/07)' },
+      },
+      required: ['numero', 'source'],
+    },
+    handler: async (a) => addProposition(keys, {
+      numero: a.numero, type: 'dossier', source: a.source,
+      payload: { numero: a.numero, dateDebut: a.dateDebut, services: a.services, description: a.description, misEnCause: a.misEnCause },
+    }),
+    write: true,
+  },
+  {
+    name: 'proposer_dossier_carto',
+    description: 'Propose la création d\'un dossier EX NIHILO sur la carte (nœud d\'annotation, distinct des vrais dossiers) depuis la cartographie — n\'écrit PAS directement : ✓/✗. À la validation, les mis en cause déjà connus (dossier réel ou carte) sont RATTACHÉS, les inconnus sont créés comme MEC ex nihilo (« mis en cause lié ex nihilo »). RECOUPE d\'abord (recouper_personnes). Refus automatique si un dossier ex nihilo du même libellé existe. Toujours citer la source.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        label: { type: 'string', description: 'Libellé court du dossier (ex: « Réseau ZOUAOUI », « 2018-1234 vieux jugement »)' },
+        dateApprox: { type: 'string', description: 'Date approximative (ISO ou texte libre)' },
+        misEnCause: { type: 'array', items: { type: 'string' }, description: 'Noms des personnes liées (connues → rattachées, inconnues → créées ex nihilo)' },
+        natinfCodes: { type: 'array', items: { type: 'string' }, description: 'Codes NATINF associés (optionnel)' },
+        notes: { type: 'string' },
+        source: { type: 'string', description: 'Pièce d\'où vient la détection' },
+      },
+      required: ['label', 'source'],
+    },
+    handler: async (a) => addProposition(keys, {
+      type: 'dossier_carto', source: a.source,
+      payload: { label: a.label, dateApprox: a.dateApprox, misEnCause: a.misEnCause, natinfCodes: a.natinfCodes, notes: a.notes },
+    }),
+    write: true,
   },
   {
     name: 'carto_analyser',

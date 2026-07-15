@@ -35,6 +35,7 @@ import { useNatinf } from '@/hooks/useNatinf';
 import { categoryForEntry } from '@/lib/natinf/nataff';
 import { useUser } from '@/contexts/UserContext';
 import { FloatingDossierChat } from '../attache/FloatingDossierChat';
+import { NouveauxDossiersPropositions } from '../attache/NouveauxDossiersPropositions';
 import { useToast } from '@/contexts/ToastContext';
 import type { InfluenceCluster } from '../mindmap/influenceHull';
 import { MindmapCanvas } from '../mindmap/MindmapCanvas';
@@ -944,6 +945,16 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       {/* Chat carto de l'attaché — admin only : analyse du réseau, propose
           les liens de renseignement manquants (auto-masqué si inactif). */}
       {isAdmin() && <FloatingDossierChat numero="carto" carto label="Cartographie" />}
+
+      {/* Propositions de dossier ex nihilo issues du chat carto (créées à la ✓,
+          avec création automatique des MEC inconnus). Panneau flottant bas-gauche. */}
+      {isAdmin() && (
+        <div className="pointer-events-none fixed bottom-4 left-4 z-40 w-[360px] max-w-[calc(100vw-2rem)]">
+          <div className="pointer-events-auto">
+            <NouveauxDossiersPropositions kinds={['dossier_carto']} title="Proposition de dossier ex nihilo" />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
