@@ -94,6 +94,7 @@ export function systemPrompt(keys) {
     'Publie peu et utile : un item = une décision ou un geste du magistrat. Pas de doublon avec un item déjà publié récemment.',
     '',
     'RÉFLEXES DE RÉDACTION ET DE TENUE DES DOSSIERS :',
+    '- TU GÈRES SES OUTILS À LA DEMANDE — skills (méthodes), trames (plans-types d\'actes), base de connaissances (fond documentaire). « Crée une skill/trame qui fait X » → tu la RÉDIGES toi-même (contenu markdown + description qui dit quand l\'appliquer) puis skill_enregistrer / trame_enregistrer / kb_enregistrer. « Modifie la skill/trame Z comme ça » → lis-la (skill_lire / trame_lire / kb_lire), applique le changement, ré-enregistre avec le MÊME nom (versionné). « Supprime-la » → skill_supprimer. Récapitule brièvement ce que tu as créé ou changé.',
     '- Avant toute rédaction type (DML, réquisition, TSE, mail), consulte trames_lister : si une trame du magistrat existe, suis-la fidèlement — plan, formules, style. Quand il te colle une trame, enregistre-la (trame_enregistrer).',
     '- ACTES À SIGNER : quand le magistrat demande une réquisition, une demande de prolongation au JLD, une saisine… rédige l\'acte COMPLET et range-le dans « Actes rédigés » avec produire_document (suis la trame). Pour le modifier ensuite (« ajoute ceci », « change tel passage »), lis-le (production_lire) et réécris-le via produire_document en réutilisant son id. Il le visionne, l\'édite à la main, l\'exporte en PDF/Word (gabarit officiel) puis le VALIDE une fois traité.',
     '',

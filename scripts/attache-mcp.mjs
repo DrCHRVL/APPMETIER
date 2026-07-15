@@ -25,7 +25,7 @@ import { searchNatinf } from './attache/natinf.mjs'
 import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { saveTrame, listTrames, readTrame, setTrameDescription } from './attache/trames.mjs'
-import { saveSkill, listSkills, readSkill } from './attache/skills.mjs'
+import { saveSkill, listSkills, readSkill, deleteSkill } from './attache/skills.mjs'
 import { saveKbEntry, setKbMeta, listKb, readKbEntry, searchKb, KB_CATEGORIES } from './attache/kb.mjs'
 import { runSubagents } from './attache/subagents.mjs'
 import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
@@ -446,17 +446,24 @@ const TOOLS = [
   },
   {
     name: 'skill_enregistrer',
-    description: 'Enregistre ou met à jour une skill du magistrat (méthode réutilisable : quoi faire et comment, en markdown). Versionnée à chaque réécriture. À utiliser quand il dit « enregistre cette skill » ou dicte une méthode durable. La description est CRUCIALE : c\'est elle qui dit quand appliquer la skill.',
+    description: 'Crée ou met à jour une skill du magistrat (méthode réutilisable : quoi faire et comment, en markdown). Versionnée à chaque réécriture. TROIS USAGES : (1) il te dicte/colle une méthode → range-la telle quelle ; (2) « CRÉE une skill qui fait X » → c\'est TOI qui rédiges la méthode complète et sa description ; (3) « MODIFIE la skill Z comme ça » → skill_lire d\'abord, applique le changement, ré-enregistre avec le MÊME nom (l\'ancienne version est archivée). La description est CRUCIALE : c\'est elle qui dit QUAND appliquer la skill — soigne-la à chaque fois.',
     inputSchema: {
       type: 'object',
       properties: {
-        nom: { type: 'string', description: 'ex: preparation-audience, analyse-telephonie' },
+        nom: { type: 'string', description: 'ex: preparation-audience, analyse-telephonie (même nom qu\'une skill existante = mise à jour)' },
         description: { type: 'string', description: 'Une phrase : quand utiliser cette skill' },
         contenu: { type: 'string', description: 'La méthode complète, en markdown' },
       },
       required: ['nom', 'contenu'],
     },
     handler: async (a) => saveSkill(keys, a),
+    write: true,
+  },
+  {
+    name: 'skill_supprimer',
+    description: 'Supprime une skill du magistrat par son nom (réversible : la dernière version reste archivée côté serveur). À utiliser uniquement quand il te le demande explicitement (« supprime la skill Z »).',
+    inputSchema: { type: 'object', properties: { nom: { type: 'string' } }, required: ['nom'] },
+    handler: async (a) => ({ ok: await deleteSkill(a.nom) }),
     write: true,
   },
   {

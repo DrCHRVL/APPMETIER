@@ -104,8 +104,13 @@ l'usage).
   ou collez le markdown. Même divulgation progressive que Claude web :
   l'attaché voit en permanence la liste (nom + description) dans son prompt,
   et charge le contenu complet (outil `skill_lire`) dès qu'une tâche
-  correspond. En chat, « enregistre cette skill » fonctionne aussi
-  (`skill_enregistrer`). Chiffrées (clé globale), versionnées à chaque
+  correspond. **L'attaché les rédige et les édite à la demande, en chat** :
+  « crée une skill qui fait X » → il écrit lui-même la méthode et sa
+  description (`skill_enregistrer`) ; « modifie la skill Z comme ça » → il la
+  relit, applique le changement et la ré-enregistre sous le même nom
+  (versionné, rien n'est perdu) ; « supprime-la » (`skill_supprimer`,
+  réversible). « Enregistre cette skill » (dictée/collée) fonctionne toujours.
+  Chiffrées (clé globale), versionnées à chaque
   réécriture, suppression réversible. Différence avec les trames : la trame
   est un plan-type de document, la skill une méthode générale.
 - **Recherche web en option** : décochée par défaut. Si le magistrat l'active
