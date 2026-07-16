@@ -81,6 +81,8 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
   const [converting, setConverting] = useState(false);
   const [uploadBusy, setUploadBusy] = useState<string | null>(null);
   const [analyseAfter, setAnalyseAfter] = useState(true);
+  const [analyseBusy, setAnalyseBusy] = useState(false);            // « Faire ranger toute la base » en cours
+  const [analyseMsg, setAnalyseMsg] = useState<string | null>(null); // retour affiché AU BOUTON (le toast est loin en haut)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [dragOver, setDragOver] = useState(false);
   const [preview, setPreview] = useState<KbEntry | null>(null);
@@ -253,16 +255,30 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
 
   const analyse = useCallback(async (ids: string[]) => {
     if (!ids.length) return;
+    // Sans trousseau, le service ne peut pas déchiffrer la base : on le dit
+    // clairement AU LIEU d'un bouton mort qui ne réagit pas (feedback local + toast).
+    if (!granted) {
+      const m = 'Remettez d\'abord les clés à l\'attaché (bouton « Remettre les clés » en haut du panneau) — sans elles, il ne peut pas lire la base pour la ranger.';
+      setAnalyseMsg(m);
+      onNotice(m);
+      return;
+    }
+    setAnalyseBusy(true);
+    setAnalyseMsg(`Rangement de ${ids.length} entrée(s) en cours de lancement…`);
+    onNotice(`Rangement de ${ids.length} entrée(s) en cours de lancement…`);
     const res = await fetch('/api/attache/kb', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ analyse: ids }),
     }).catch(() => null);
     const data = res ? await res.json().catch(() => ({} as { error?: string })) : { error: 'service injoignable' };
-    onNotice(res?.ok
-      ? `Analyse de ${ids.length} entrée(s) lancée — l'attaché les décrit et les classe (fil « pendant votre absence »).`
-      : `Analyse impossible : ${data.error || 'erreur'}`);
-  }, [onNotice]);
+    const msg = res?.ok
+      ? `Rangement de ${ids.length} entrée(s) lancé — l'attaché lit chaque document, le décrit, le classe et signale doublons/contenu périmé (fil « pendant votre absence »).`
+      : `Rangement impossible : ${data.error || 'erreur'}`;
+    setAnalyseMsg(msg);
+    onNotice(msg);
+    setAnalyseBusy(false);
+  }, [granted, onNotice]);
 
   // ── Arborescence type explorateur : chemin > catégorie/titre ──
   const tree = useMemo(() => {
@@ -486,13 +502,24 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
       )}
 
       {entries.length > 0 && (
-        <div className="flex items-center gap-2 border-t border-gray-100 px-3 py-2">
-          <button onClick={() => analyse(entries.map((e) => e.id))} disabled={!granted}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-            title="L'attaché relit chaque entrée, met à jour description et catégorie, signale les doublons et le contenu périmé">
-            <Sparkles className="h-3 w-3" />Faire ranger toute la base par l&apos;attaché
-          </button>
-          <span className="ml-auto text-[10.5px] text-gray-400">{entries.length} entrée(s) · tout est markdown, chiffré, versionné</span>
+        <div className="space-y-1.5 border-t border-gray-100 px-3 py-2">
+          <div className="flex items-center gap-2">
+            <button onClick={() => analyse(entries.map((e) => e.id))} disabled={analyseBusy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+              title="L'attaché relit chaque entrée, met à jour description et catégorie, signale les doublons et le contenu périmé">
+              {analyseBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              Faire ranger toute la base par l&apos;attaché
+            </button>
+            <span className="ml-auto text-[10.5px] text-gray-400">{entries.length} entrée(s) · tout est markdown, chiffré, versionné</span>
+          </div>
+          {!granted && (
+            <p className="text-[10.5px] text-amber-600">
+              Remettez d&apos;abord les clés à l&apos;attaché (bouton « Remettre les clés » en haut du panneau) pour lancer le rangement.
+            </p>
+          )}
+          {analyseMsg && (
+            <p className="text-[10.5px] leading-relaxed text-gray-500">{analyseMsg}</p>
+          )}
         </div>
       )}
 
