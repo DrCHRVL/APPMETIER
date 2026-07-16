@@ -11,7 +11,7 @@
  * - Journal d'audit : chaque action de l'attaché, déchiffrée ici.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle } from 'lucide-react';
+import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Mail, Wifi } from 'lucide-react';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, SUBMODEL_OPTIONS, AttacheConfig, saveAttacheConfig } from '../attache/modelOptions';
 import { fileToMarkdown, titreDepuisFichier, decodeText } from '@/lib/web/fileToMarkdown';
 import { skillFromArchive } from '@/lib/web/skillImport';
@@ -86,6 +86,11 @@ export function AdminAttachePanel() {
   const [showRoutineForm, setShowRoutineForm] = useState(false);
   const [rForm, setRForm] = useState({ nom: '', prompt: '', heure: '07:00', mode: 'heure' as 'heure' | 'intervalle', intervalleHeures: 4 });
   const [config, setConfig] = useState<AttacheConfig>({});
+  const [showMailDiag, setShowMailDiag] = useState(false);
+  const [mailTest, setMailTest] = useState<any>(null);
+  const [mailTesting, setMailTesting] = useState(false);
+  const [mailForm, setMailForm] = useState<{ open: boolean; imapHost: string; imapPort: string; imapSecure: boolean; imapUser: string; imapPassword: string }>({ open: false, imapHost: '', imapPort: '993', imapSecure: true, imapUser: '', imapPassword: '' });
+  const [mailSaving, setMailSaving] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
   const [instructions, setInstructions] = useState('');
   const [instructionsSaving, setInstructionsSaving] = useState(false);
@@ -515,6 +520,79 @@ export function AdminAttachePanel() {
     }
   }, [refresh]);
 
+  /** Diagnostic boîte mail : teste la connexion IMAP (lecture seule, rien n'est relevé). */
+  const testMail = useCallback(async () => {
+    setShowMailDiag(true);
+    setMailTesting(true);
+    setMailTest(null);
+    try {
+      const res = await fetch('/api/attache/mail-test', { method: 'POST' });
+      const data = await res.json().catch(() => ({ ok: false, error: 'réponse illisible du service' }));
+      setMailTest(data);
+    } catch (e) {
+      setMailTest({ ok: false, error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setMailTesting(false);
+    }
+  }, []);
+
+  /** Ouvre le formulaire de réglages mail, pré-rempli avec la config connue (jamais le mot de passe). */
+  const openMailForm = useCallback(() => {
+    const m = status?.mail || {};
+    setMailForm({
+      open: true,
+      imapHost: m.imapHost || '',
+      imapPort: String(m.imapPort || 993),
+      imapSecure: m.imapSecure !== false,
+      imapUser: m.imapUser || '',
+      imapPassword: '',
+    });
+  }, [status]);
+
+  /** Enregistre les réglages IMAP saisis dans l'app, puis teste aussitôt la connexion. */
+  const saveMailForm = useCallback(async () => {
+    setMailSaving(true);
+    try {
+      const body: Record<string, unknown> = {
+        imapHost: mailForm.imapHost.trim(),
+        imapPort: Number(mailForm.imapPort) || 993,
+        imapSecure: mailForm.imapSecure,
+        imapUser: mailForm.imapUser.trim(),
+      };
+      if (mailForm.imapPassword) body.imapPassword = mailForm.imapPassword;
+      const res = await fetch('/api/attache/mail-config', {
+        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({ ok: false } as { ok?: boolean; error?: string }));
+      if (data.ok) {
+        setMailForm((f) => ({ ...f, open: false, imapPassword: '' }));
+        setNotice('Réglages mail enregistrés — test de connexion en cours…');
+        await refresh();
+        await testMail();
+      } else {
+        setNotice(`Enregistrement refusé : ${data.error || res.status}`);
+      }
+    } catch (e) {
+      setNotice(`Enregistrement impossible : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setMailSaving(false);
+    }
+  }, [mailForm, refresh, testMail]);
+
+  /** Efface les réglages in-app : retour aux variables d'environnement du serveur. */
+  const revertMailConfig = useCallback(async () => {
+    if (!window.confirm('Revenir aux réglages du serveur (.env) et effacer ceux saisis dans l\'app ?')) return;
+    setMailSaving(true);
+    try {
+      const res = await fetch('/api/attache/mail-config', { method: 'DELETE' });
+      const data = await res.json().catch(() => ({ ok: false } as { ok?: boolean; error?: string }));
+      setNotice(data.ok ? 'Réglages in-app effacés — retour aux réglages du serveur.' : `Échec : ${data.error || res.status}`);
+      await refresh();
+    } finally {
+      setMailSaving(false);
+    }
+  }, [refresh]);
+
   const loadAudit = useCallback(async () => {
     setShowAudit(true);
     try {
@@ -671,6 +749,157 @@ export function AdminAttachePanel() {
           Pour les périmètres confiés, le serveur de l'attaché peut déchiffrer — révoquez au moindre doute.
         </p>
       )}
+
+      {/* Boîte mail — diagnostic : vérifier que la boîte dédiée fonctionne */}
+      <div className="rounded-xl border border-gray-200">
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <Mail className="h-4 w-4 text-[#2B5746]" />
+          <span className="text-sm font-semibold text-gray-800">Boîte mail (diagnostic)</span>
+          <span className="text-[11px] text-gray-400">vérifier que la boîte dédiée répond — sans rien relever</span>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={openMailForm}
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+              title="Saisir l'adresse, le serveur IMAP et le mot de passe de la boîte dédiée directement dans l'app"
+            >
+              <PenLine className="h-3 w-3" />Régler
+            </button>
+            <button
+              onClick={testMail}
+              disabled={mailTesting}
+              className="inline-flex items-center gap-1 rounded-lg bg-[#2B5746] px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+              title="Se connecte à la boîte dédiée en lecture seule et compte les messages — aucun message n'est relevé ni marqué lu."
+            >
+              {mailTesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wifi className="h-3 w-3" />}Tester la connexion
+            </button>
+            <button
+              onClick={() => setShowMailDiag((v) => !v)}
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+            >
+              {showMailDiag ? 'Masquer' : 'Détails'}
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-2 px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <Dot ok={status?.mail?.imapReady} label={status?.mail?.imapReady ? 'Boîte configurée' : 'Boîte non configurée'} />
+            {status?.state?.lastFetchAt && (
+              <span className="text-[11px] text-gray-500">
+                Dernière relève : {new Date(status.state.lastFetchAt).toLocaleString('fr-FR')}
+                {status.state.lastFetchOk === false ? ' · en échec' : status.state.lastFetchOk ? ' · réussie' : ''}
+              </span>
+            )}
+          </div>
+
+          {status?.mail && (
+            <div className="flex items-center gap-2 text-[10.5px] text-gray-400">
+              <span>Réglages {status.mail.overrideActive ? "saisis dans l'app" : 'du serveur (.env)'}.</span>
+              {status.mail.overrideActive && (
+                <button onClick={revertMailConfig} disabled={mailSaving} className="underline hover:text-gray-600 disabled:opacity-50">Revenir aux réglages du serveur</button>
+              )}
+            </div>
+          )}
+
+          {/* Formulaire de réglages IMAP saisis dans l'app */}
+          {mailForm.open && (
+            <div className="space-y-2 rounded-lg border border-[#2B5746]/25 bg-emerald-50/30 p-3">
+              <div className="text-[11px] font-semibold text-gray-700">Réglages de la boîte dédiée (IMAP)</div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="block text-[11px] text-gray-600">Adresse de la boîte
+                  <input value={mailForm.imapUser} onChange={(e) => setMailForm({ ...mailForm, imapUser: e.target.value })}
+                    placeholder="crimorg@siral.fr"
+                    className="mt-0.5 w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
+                </label>
+                <label className="block text-[11px] text-gray-600">Mot de passe
+                  <input type="password" value={mailForm.imapPassword} onChange={(e) => setMailForm({ ...mailForm, imapPassword: e.target.value })}
+                    placeholder={status?.mail?.imapPasswordSet ? '•••••• (laisser vide = inchangé)' : 'mot de passe de la boîte'}
+                    className="mt-0.5 w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
+                </label>
+                <label className="block text-[11px] text-gray-600">Serveur IMAP
+                  <input value={mailForm.imapHost} onChange={(e) => setMailForm({ ...mailForm, imapHost: e.target.value })}
+                    placeholder="zimbra1.mail.ovh.net"
+                    className="mt-0.5 w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
+                </label>
+                <div className="flex items-end gap-3">
+                  <label className="block text-[11px] text-gray-600">Port
+                    <input value={mailForm.imapPort} onChange={(e) => setMailForm({ ...mailForm, imapPort: e.target.value.replace(/[^0-9]/g, '') })}
+                      className="mt-0.5 w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 pb-1.5 text-[11px] text-gray-600">
+                    <input type="checkbox" checked={mailForm.imapSecure} onChange={(e) => setMailForm({ ...mailForm, imapSecure: e.target.checked })} />SSL/TLS
+                  </label>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span className="mr-auto text-[10.5px] text-gray-400">Boîte OVH/Zimbra : <code>zimbra1.mail.ovh.net</code> · 993 · SSL · identifiant = adresse complète.</span>
+                <button onClick={() => setMailForm({ ...mailForm, open: false })} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">Annuler</button>
+                <button onClick={saveMailForm} disabled={mailSaving || !mailForm.imapHost.trim() || !mailForm.imapUser.trim()}
+                  className="rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                  {mailSaving ? 'Enregistrement…' : 'Enregistrer et tester'}
+                </button>
+              </div>
+              <p className="text-[10.5px] leading-relaxed text-gray-400">
+                Le mot de passe est confié au service attaché, qui le chiffre avec sa clé-maître — l'app ne le conserve jamais.
+                L'envoi (SMTP) reste désactivé : ces réglages ne servent qu'à <b>relever</b> la boîte.
+              </p>
+            </div>
+          )}
+
+          {/* Dernière erreur de relève automatique, si présente */}
+          {status?.state?.lastFetchOk === false && status?.state?.lastFetchError && (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
+              <AlertTriangle className="mr-1 inline h-3 w-3" />
+              Dernière relève automatique en échec : {String(status.state.lastFetchError).slice(0, 300)}
+            </p>
+          )}
+
+          {/* Résultat du test manuel */}
+          {mailTesting && (
+            <p className="inline-flex items-center gap-1.5 text-[11px] text-gray-500"><Loader2 className="h-3 w-3 animate-spin" />Connexion à la boîte dédiée…</p>
+          )}
+          {mailTest && !mailTesting && (
+            mailTest.ok ? (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-[11px] text-emerald-800">
+                <div className="font-semibold"><CheckCircle2 className="mr-1 inline h-3.5 w-3.5" />Connexion réussie.</div>
+                <div className="mt-0.5">
+                  {mailTest.messages} message(s) dans la boîte, dont {mailTest.unseen} non lu(s).
+                  {mailTest.messages === 0 && ' La boîte est réellement vide — c\'est normal tant qu\'aucun mail n\'y a été transféré.'}
+                  {mailTest.messages > 0 && mailTest.unseen === 0 && ' Tout est déjà relevé (les messages lus ne réapparaissent pas ici).'}
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-[11px] text-red-700">
+                <div className="font-semibold"><XCircle className="mr-1 inline h-3.5 w-3.5" />Connexion impossible.</div>
+                <div className="mt-0.5">{String(mailTest.error || 'erreur inconnue').slice(0, 400)}</div>
+                {mailTest.configured === false ? (
+                  <div className="mt-1 text-red-600">Renseignez sur le serveur <code>SIRAL_ATTACHE_IMAP_HOST</code>, <code>_USER</code> et <code>_PASSWORD</code> (voir <code>docs/ATTACHE.md</code>), puis redémarrez le service attaché.</div>
+                ) : (
+                  <div className="mt-1 text-red-600">Vérifiez l'adresse de la boîte, le mot de passe (mot de passe d'application si le fournisseur l'exige), l'hôte et le port IMAP ci-dessous.</div>
+                )}
+              </div>
+            )
+          )}
+
+          {/* Détail de configuration (non secret) */}
+          {showMailDiag && status?.mail && (
+            <div className="grid grid-cols-1 gap-x-6 gap-y-1 rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-[11px] text-gray-600 sm:grid-cols-2">
+              <div><span className="text-gray-400">Adresse de la boîte : </span>{status.mail.imapUser || <span className="text-red-500">non renseignée</span>}</div>
+              <div><span className="text-gray-400">Mot de passe : </span>{status.mail.imapPasswordSet ? 'défini' : <span className="text-red-500">absent</span>}</div>
+              <div><span className="text-gray-400">Serveur IMAP : </span>{status.mail.imapHost ? `${status.mail.imapHost}:${status.mail.imapPort} ${status.mail.imapSecure ? '(TLS)' : '(non chiffré)'}` : <span className="text-red-500">non renseigné</span>}</div>
+              <div><span className="text-gray-400">Relève automatique : </span>toutes les 5 min</div>
+            </div>
+          )}
+
+          <p className="text-[10.5px] leading-relaxed text-gray-400">
+            Une boîte <b>vide</b> n'est pas forcément un problème : elle le reste tant qu'aucun mail n'y est transféré,
+            et les messages déjà relevés n'y réapparaissent pas (ils passent dans le fil « pendant votre absence »).
+            Le test ci-dessus se connecte en <b>lecture seule</b> et ne relève rien — il sert à distinguer « boîte vide »
+            d'un vrai problème de connexion. Les identifiants de la boîte se règlent sur le serveur (<code>docs/ATTACHE.md</code>) ;
+            l'envoi de mails est désactivé (les réponses restent dans l'application).
+          </p>
+        </div>
+      </div>
 
       {/* Cerveau — modèle, effort, accès web : mêmes réglages que Claude web */}
       <div className="rounded-xl border border-gray-200">

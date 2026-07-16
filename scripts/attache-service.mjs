@@ -20,7 +20,7 @@ import { loadMasterKey } from './attache/crypto.mjs'
 import { loadKeyring, grantKeyring, revokeKeyring, keyringStatus, allowedScopes } from './attache/keyring.mjs'
 import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
-import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage } from './attache/mail.mjs'
+import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride } from './attache/mail.mjs'
 import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort } from './attache/agent.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
@@ -344,6 +344,7 @@ const server = http.createServer(async (req, res) => {
         mail: {
           imap: mail.imapReady, smtp: mail.smtpReady,
           owner: mail.owner ? mail.owner.replace(/^(..).*(@.*)$/, '$1…$2') : null,
+          ...describeMailConfig(),
         },
         inbox: keys ? inboxStats(keys) : null,
         runsEnCours: running,
@@ -389,6 +390,47 @@ const server = http.createServer(async (req, res) => {
     if (route === 'POST /check-mail') {
       const out = await pollOnce('manuel')
       return json(res, 200, out)
+    }
+
+    if (route === 'POST /mail-test') {
+      // diagnostic seul : ouvre INBOX en lecture seule, ne relève rien
+      const out = await testImapConnection()
+      const keys = loadKeyring()
+      if (keys) await audit(keys, 'mail_test', { ok: out.ok, messages: out.messages ?? null, erreur: out.error || null })
+      return json(res, 200, out)
+    }
+
+    if (route === 'PUT /mail-config') {
+      // réglages IMAP/SMTP saisis dans l'app — chiffrés au repos par la clé-maître
+      const body = await readBody(req)
+      const str = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : undefined)
+      const patch = {}
+      if ('imapHost' in body) patch.imapHost = str(body.imapHost, 255)
+      if ('imapUser' in body) patch.imapUser = str(body.imapUser, 320)
+      if ('imapPassword' in body) patch.imapPassword = typeof body.imapPassword === 'string' ? body.imapPassword.slice(0, 1024) : undefined
+      if ('imapPort' in body) patch.imapPort = Number(body.imapPort) || 993
+      if ('imapSecure' in body) patch.imapSecure = body.imapSecure !== false
+      if ('smtpHost' in body) patch.smtpHost = str(body.smtpHost, 255)
+      if ('smtpUser' in body) patch.smtpUser = str(body.smtpUser, 320)
+      if ('smtpPassword' in body) patch.smtpPassword = typeof body.smtpPassword === 'string' ? body.smtpPassword.slice(0, 1024) : undefined
+      if ('smtpPort' in body) patch.smtpPort = Number(body.smtpPort) || 465
+      if ('smtpSecure' in body) patch.smtpSecure = body.smtpSecure !== false
+      if ('from' in body) patch.from = str(body.from, 320)
+      try {
+        writeMailOverride(patch, String(body.par || 'admin'))
+      } catch (e) {
+        return json(res, 500, { ok: false, error: String(e?.message || e) })
+      }
+      const keys = loadKeyring()
+      if (keys) await audit(keys, 'mail_config_modifiee', { imapHost: patch.imapHost ?? null, imapUser: patch.imapUser ?? null, par: String(body.par || 'admin') })
+      return json(res, 200, { ok: true, mail: describeMailConfig() })
+    }
+
+    if (route === 'DELETE /mail-config') {
+      const removed = clearMailOverride()
+      const keys = loadKeyring()
+      if (keys) await audit(keys, 'mail_config_effacee', { removed })
+      return json(res, 200, { ok: true, removed, mail: describeMailConfig() })
     }
 
     if (route === 'POST /briefing') {
