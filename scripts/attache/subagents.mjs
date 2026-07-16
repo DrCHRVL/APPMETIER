@@ -18,6 +18,7 @@ import { spawn } from 'node:child_process'
 import os from 'node:os'
 import { attacheContentieux } from './store.mjs'
 import { writeMcpConfig, agentConfig, sanitizeModel, sanitizeEffort } from './agent.mjs'
+import { extractUsage, recordUsage } from './usage.mjs'
 
 const CLAUDE_BIN = process.env.SIRAL_ATTACHE_CLAUDE_BIN || 'claude'
 const MAX_TACHES = 24
@@ -41,7 +42,7 @@ function subagentSystemPrompt(contexte) {
 }
 
 /** Exécute UNE sous-tâche (un run headless, résultat = texte final). */
-function runOne({ consigne, mcpConfig, systemPrompt, allowedTools, disallowedTools, model, effort }) {
+function runOne({ consigne, mcpConfig, systemPrompt, allowedTools, disallowedTools, model, effort, maxTurns }) {
   const args = [
     '-p', String(consigne),
     '--output-format', 'json',
@@ -49,7 +50,7 @@ function runOne({ consigne, mcpConfig, systemPrompt, allowedTools, disallowedToo
     '--allowedTools', allowedTools,
     '--disallowedTools', disallowedTools,
     '--append-system-prompt', systemPrompt,
-    '--max-turns', String(SUB_MAX_TURNS),
+    '--max-turns', String(maxTurns || SUB_MAX_TURNS),
     ...(model ? ['--model', model] : []),
     ...(effort ? ['--effort', effort] : []),
   ]
@@ -74,6 +75,10 @@ function runOne({ consigne, mcpConfig, systemPrompt, allowedTools, disallowedToo
     child.on('close', (code) => {
       let parsed = null
       try { parsed = JSON.parse(out) } catch {}
+      // Chaque sous-agent est un process CLI distinct : son bilan de jetons
+      // s'ajoute à celui de l'agent principal (pas de double comptage).
+      const usage = extractUsage(parsed)
+      if (usage) recordUsage({ run: 'sous-agent', model, usage })
       if (parsed && parsed.subtype === 'success' && typeof parsed.result === 'string') {
         return finish(true, parsed.result.slice(0, 60_000))
       }
@@ -98,8 +103,13 @@ export async function runSubagents({ taches, contexte, modele, effort }) {
   if (!list.length) throw new Error('Aucune tâche valide (titre + consigne requis, 24 max)')
 
   const cfg = agentConfig()
-  const model = sanitizeModel(modele) || cfg.subModel || cfg.model
-  const useEffort = sanitizeEffort(effort) || cfg.effort
+  // Mode économe : les sous-agents (lots parallèles) sont le premier poste de
+  // dépense. On les bascule sur un modèle rapide (Haiku) par défaut et on
+  // resserre leur plafond de tours — sauf choix explicite du magistrat.
+  const ECO_SUBMODEL = 'claude-haiku-4-5-20251001'
+  const model = sanitizeModel(modele) || cfg.subModel || (cfg.econome ? ECO_SUBMODEL : cfg.model)
+  const useEffort = sanitizeEffort(effort) || (cfg.econome ? 'low' : cfg.effort)
+  const subMaxTurns = cfg.econome ? Math.min(SUB_MAX_TURNS, 8) : SUB_MAX_TURNS
   const allowedTools = cfg.webAccess ? [ALLOWED_TOOLS, ...WEB_TOOLS].join(',') : ALLOWED_TOOLS
   const disallowedTools = cfg.webAccess
     ? DISALLOWED_TOOLS.split(',').filter((t) => !WEB_TOOLS.includes(t)).join(',')
@@ -113,7 +123,7 @@ export async function runSubagents({ taches, contexte, modele, effort }) {
     while (next < list.length) {
       const i = next++
       const t = list[i]
-      const r = await runOne({ consigne: t.consigne, mcpConfig, systemPrompt, allowedTools, disallowedTools, model, effort: useEffort })
+      const r = await runOne({ consigne: t.consigne, mcpConfig, systemPrompt, allowedTools, disallowedTools, model, effort: useEffort, maxTurns: subMaxTurns })
       results[i] = { titre: t.titre, ...r }
     }
   }

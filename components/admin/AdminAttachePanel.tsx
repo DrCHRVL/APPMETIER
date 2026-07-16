@@ -11,8 +11,8 @@
  * - Journal d'audit : chaque action de l'attaché, déchiffrée ici.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Mail, Wifi } from 'lucide-react';
-import { MODEL_OPTIONS, EFFORT_OPTIONS, SUBMODEL_OPTIONS, AttacheConfig, saveAttacheConfig } from '../attache/modelOptions';
+import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Mail, Wifi, Gauge, Leaf } from 'lucide-react';
+import { MODEL_OPTIONS, EFFORT_OPTIONS, SUBMODEL_OPTIONS, PLAN_PRESETS, AttacheConfig, saveAttacheConfig, formatTokens, formatCostEur } from '../attache/modelOptions';
 import { fileToMarkdown, titreDepuisFichier, decodeText } from '@/lib/web/fileToMarkdown';
 import { skillFromArchive } from '@/lib/web/skillImport';
 import { entrySlug } from '@/lib/web/slug';
@@ -75,6 +75,46 @@ function Dot({ ok, label }: { ok: boolean | undefined; label: string }) {
   );
 }
 
+/** Couleur d'une jauge selon le taux de remplissage (vert → ambre → rouge). */
+function gaugeColor(pct: number): string {
+  if (pct >= 90) return '#dc2626';
+  if (pct >= 70) return '#d97706';
+  return '#2B5746';
+}
+
+/** Grande jauge « % du forfait » avec repli sur le nombre brut si pas de plafond. */
+function UsageGauge({ label, hint, total, cap }: { label: string; hint: string; total: number; cap: number }) {
+  const pct = cap > 0 ? Math.min(999, Math.round((total / cap) * 100)) : null;
+  const width = pct == null ? 0 : Math.min(100, pct);
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</span>
+        {pct != null
+          ? <span className="text-lg font-bold" style={{ color: gaugeColor(pct) }}>{pct} %</span>
+          : <span className="text-sm font-semibold text-gray-700">{formatTokens(total)}</span>}
+      </div>
+      <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+        <div className="h-full rounded-full transition-all" style={{ width: `${width}%`, backgroundColor: pct == null ? '#cbd5e1' : gaugeColor(pct) }} />
+      </div>
+      <div className="mt-1 flex items-center justify-between text-[10.5px] text-gray-400">
+        <span>{hint}</span>
+        <span>{formatTokens(total)}{cap > 0 ? ` / ${formatTokens(cap)} jetons` : ' jetons'}</span>
+      </div>
+    </div>
+  );
+}
+
+const USAGE_CATS: Record<string, { label: string; color: string }> = {
+  conversations: { label: 'Vos conversations', color: '#2B5746' },
+  'sous-agents': { label: 'Sous-agents (lots parallèles)', color: '#b45309' },
+  mails: { label: 'Mails traités automatiquement', color: '#0e7490' },
+  brief: { label: 'Brief quotidien', color: '#6d28d9' },
+  routines: { label: 'Routines', color: '#be185d' },
+  classements: { label: 'Classements (trames, base)', color: '#4b5563' },
+  autres: { label: 'Autres', color: '#9ca3af' },
+};
+
 export function AdminAttachePanel() {
   const [status, setStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -86,6 +126,8 @@ export function AdminAttachePanel() {
   const [showRoutineForm, setShowRoutineForm] = useState(false);
   const [rForm, setRForm] = useState({ nom: '', prompt: '', heure: '07:00', mode: 'heure' as 'heure' | 'intervalle', intervalleHeures: 4 });
   const [config, setConfig] = useState<AttacheConfig>({});
+  const [usage, setUsage] = useState<any>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
   const [showMailDiag, setShowMailDiag] = useState(false);
   const [mailTest, setMailTest] = useState<any>(null);
   const [mailTesting, setMailTesting] = useState(false);
@@ -135,6 +177,30 @@ export function AdminAttachePanel() {
     const ok = await saveAttacheConfig(patch);
     if (!ok) setNotice('Enregistrement de la configuration refusé — service attaché injoignable ?');
   }, [config]);
+
+  /** Bilan de consommation de jetons (nombres seulement, aucune donnée d'enquête). */
+  const loadUsage = useCallback(async () => {
+    setUsageLoading(true);
+    try {
+      const res = await fetch('/api/attache/usage');
+      if (res.ok) {
+        const data = await res.json();
+        setUsage(data.usage || null);
+      }
+    } catch { /* silencieux : le bilan est secondaire */ } finally {
+      setUsageLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadUsage(); }, [loadUsage]);
+
+  /** Applique un forfait de référence : remplit les plafonds repères. */
+  const applyPlan = useCallback((plan: string) => {
+    const preset = PLAN_PRESETS.find((p) => p.value === plan);
+    if (!preset) return;
+    if (plan === 'custom' || plan === '') updateConfig({ plan });
+    else updateConfig({ plan, cap5h: preset.cap5h, capHebdo: preset.capHebdo });
+  }, [updateConfig]);
 
   const loadRoutines = useCallback(async () => {
     try {
@@ -966,6 +1032,170 @@ export function AdminAttachePanel() {
             Shell, fichiers et tout autre accès restent interdits.
           </p>
         )}
+      </div>
+
+      {/* Consommation IA — traduire les jetons pour le magistrat (profane) */}
+      <div className="rounded-xl border border-gray-200">
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <Gauge className="h-4 w-4 text-[#2B5746]" />
+          <span className="text-sm font-semibold text-gray-800">Consommation IA</span>
+          <span className="text-[11px] text-gray-400">où passent vos jetons — mesuré à chaque run</span>
+          <button
+            onClick={loadUsage}
+            disabled={usageLoading}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3 w-3 ${usageLoading ? 'animate-spin' : ''}`} /> Actualiser
+          </button>
+        </div>
+
+        <div className="space-y-3 p-3">
+          {(() => {
+            const u = usage;
+            if (!u || !u.entries) {
+              return (
+                <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-[12px] text-gray-500">
+                  Aucun run mesuré pour l'instant. Dès que l'attaché travaille (chat, mails, brief, sous-agents),
+                  sa consommation de jetons s'affiche ici, traduite en pourcentage de votre forfait.
+                </p>
+              );
+            }
+            const cap5h = config.cap5h || 0;
+            const capHebdo = config.capHebdo || 0;
+            const w5h = u.w5h || {}; const w7d = u.w7d || {}; const w30d = u.w30d || {}; const today = u.today || {};
+            const total7 = w7d.total || 0;
+            const cats = Object.entries(w7d.byCategory || {})
+              .map(([k, v]: [string, any]) => ({ k, ...(USAGE_CATS[k] || USAGE_CATS.autres), total: v.total || 0, runs: v.runs || 0 }))
+              .sort((a, b) => b.total - a.total)
+              .filter((c) => c.total > 0);
+            const top = cats[0];
+            const subShare = total7 > 0 ? Math.round(((w7d.byCategory?.['sous-agents']?.total || 0) / total7) * 100) : 0;
+            const pct5h = cap5h > 0 ? Math.round(((w5h.total || 0) / cap5h) * 100) : null;
+            return (
+              <>
+                {/* Traduction en clair */}
+                <p className="text-[12px] leading-relaxed text-gray-600">
+                  {pct5h != null ? (
+                    <>Sur la <b>fenêtre glissante de 5 h</b> (celle qui vous bride le plus vite), l'attaché a consommé
+                      environ <b style={{ color: gaugeColor(pct5h) }}>{pct5h} %</b> de votre forfait
+                      {config.plan ? ` ${PLAN_PRESETS.find((p) => p.value === config.plan)?.label?.replace('Claude ', '') || ''}` : ''}.{' '}</>
+                  ) : (
+                    <>Renseignez votre forfait ci-dessous pour traduire la consommation en pourcentage.{' '}</>
+                  )}
+                  Sur 7 jours : <b>{formatTokens(total7)} jetons</b> (équivalent crédits API ≈ {formatCostEur(w7d.cost || 0)}).
+                  {top ? <> Premier poste : <b style={{ color: top.color }}>{top.label.toLowerCase()}</b>.</> : null}
+                </p>
+
+                {/* Deux jauges : maintenant (5 h) et 7 jours */}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <UsageGauge label="Maintenant · 5 h" hint="fenêtre glissante du forfait" total={w5h.total || 0} cap={cap5h} />
+                  <UsageGauge label="7 derniers jours" hint="plafond hebdomadaire" total={total7} cap={capHebdo} />
+                </div>
+
+                {/* Chiffres bruts sur plusieurs fenêtres */}
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  {[
+                    { l: "Aujourd'hui", b: today },
+                    { l: '7 jours', b: w7d },
+                    { l: '30 jours', b: w30d },
+                  ].map(({ l, b }) => (
+                    <div key={l} className="rounded-lg border border-gray-100 bg-gray-50/60 px-2 py-1.5">
+                      <div className="text-[10px] uppercase tracking-wide text-gray-400">{l}</div>
+                      <div className="text-sm font-semibold text-gray-800">{formatTokens(b?.total || 0)}</div>
+                      <div className="text-[10px] text-gray-400">{b?.runs || 0} run{(b?.runs || 0) > 1 ? 's' : ''} · ≈ {formatCostEur(b?.cost || 0)}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Répartition par poste (7 jours) — met les sous-agents en évidence */}
+                {cats.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-semibold text-gray-500">Où passent les jetons (7 jours)</div>
+                    {cats.map((c) => {
+                      const pct = total7 > 0 ? Math.round((c.total / total7) * 100) : 0;
+                      return (
+                        <div key={c.k} className="flex items-center gap-2">
+                          <span className="w-40 shrink-0 truncate text-[11px] text-gray-600" title={c.label}>{c.label}</span>
+                          <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
+                            <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: c.color }} />
+                          </div>
+                          <span className="w-24 shrink-0 text-right text-[10.5px] text-gray-400">{formatTokens(c.total)} · {pct} %</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Alerte sous-agents : le poste que le magistrat a signalé */}
+                {subShare >= 40 && (
+                  <p className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-[11px] leading-relaxed text-amber-700">
+                    Les <b>sous-agents</b> représentent {subShare} % de votre consommation sur 7 jours. Ils travaillent en
+                    parallèle (un run par PDF, par dossier…) : rapides, mais gourmands. Le <b>mode économe</b> ci-dessous les
+                    bride nettement (modèle rapide + moins de tours) sans toucher à vos conversations.
+                  </p>
+                )}
+              </>
+            );
+          })()}
+
+          {/* Forfait de référence — le dénominateur du pourcentage (ajustable) */}
+          <div className="rounded-lg border border-gray-100 bg-gray-50/40 p-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-semibold text-gray-600">Votre forfait</span>
+              <select
+                value={config.plan || ''}
+                onChange={(e) => applyPlan(e.target.value)}
+                className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-[#2B5746]/50"
+                title="Sert de repère pour le pourcentage"
+              >
+                {PLAN_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+              </select>
+              {(config.plan === 'custom') && (
+                <>
+                  <label className="inline-flex items-center gap-1 text-[11px] text-gray-500">
+                    5 h
+                    <input
+                      type="number" min={0} step={1000000}
+                      value={config.cap5h || 0}
+                      onChange={(e) => updateConfig({ cap5h: Math.max(0, Number(e.target.value) || 0) })}
+                      className="w-28 rounded border border-gray-200 px-1.5 py-1 text-[11px] outline-none focus:border-[#2B5746]/50"
+                    />
+                  </label>
+                  <label className="inline-flex items-center gap-1 text-[11px] text-gray-500">
+                    7 j
+                    <input
+                      type="number" min={0} step={1000000}
+                      value={config.capHebdo || 0}
+                      onChange={(e) => updateConfig({ capHebdo: Math.max(0, Number(e.target.value) || 0) })}
+                      className="w-28 rounded border border-gray-200 px-1.5 py-1 text-[11px] outline-none focus:border-[#2B5746]/50"
+                    />
+                  </label>
+                </>
+              )}
+            </div>
+            <p className="mt-1.5 text-[10.5px] leading-relaxed text-gray-400">
+              Repère indicatif : l'abonnement Claude ne publie pas ses plafonds en jetons (limites en messages/heures,
+              fenêtre glissante de 5 h + plafond hebdomadaire). Ces valeurs donnent un dénominateur au pourcentage —
+              ajustez-les à votre ressenti. Les jetons mesurés, eux, sont exacts.
+            </p>
+          </div>
+
+          {/* Mode économe — le levier pour freiner la consommation */}
+          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50/40 px-3 py-2">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={config.econome === true}
+              onChange={(e) => updateConfig({ econome: e.target.checked })}
+            />
+            <span className="text-[11.5px] leading-relaxed text-gray-700">
+              <span className="inline-flex items-center gap-1 font-semibold text-emerald-800"><Leaf className="h-3.5 w-3.5" /> Mode économe</span>
+              {' '}— pour freiner la consommation, surtout des sous-agents : ils basculent sur un modèle rapide
+              (Haiku), avec moins de tours et un effort réduit ; le run principal est aussi resserré. Vos conversations
+              gardent le modèle choisi. À activer quand les jetons filent vite ; à couper pour les dépouillements lourds.
+            </span>
+          </label>
+        </div>
       </div>
 
       {/* Consignes permanentes — le « prompt » du magistrat, relu à chaque run */}

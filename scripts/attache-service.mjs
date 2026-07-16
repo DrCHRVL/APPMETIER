@@ -21,7 +21,8 @@ import { loadKeyring, grantKeyring, revokeKeyring, keyringStatus, allowedScopes 
 import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride } from './attache/mail.mjs'
-import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort } from './attache/agent.mjs'
+import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap } from './attache/agent.mjs'
+import { usageSummary } from './attache/usage.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
@@ -386,6 +387,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { config: agentConfig() })
     }
 
+    if (route === 'GET /usage') {
+      // Bilan de consommation (jetons) — nombres et horodatages seulement,
+      // aucune donnée d'enquête : lisible même trousseau non remis.
+      return json(res, 200, { usage: usageSummary(), config: agentConfig() })
+    }
+
     if (route === 'PUT /config') {
       const body = await readBody(req)
       const current = agentConfig()
@@ -394,6 +401,10 @@ const server = http.createServer(async (req, res) => {
         effort: 'effort' in body ? sanitizeEffort(body.effort) : current.effort,
         webAccess: 'webAccess' in body ? body.webAccess === true : current.webAccess,
         subModel: 'subModel' in body ? sanitizeModel(body.subModel) : current.subModel,
+        econome: 'econome' in body ? body.econome === true : current.econome,
+        plan: 'plan' in body ? sanitizePlan(body.plan) : current.plan,
+        cap5h: 'cap5h' in body ? sanitizeCap(body.cap5h) : current.cap5h,
+        capHebdo: 'capHebdo' in body ? sanitizeCap(body.capHebdo) : current.capHebdo,
       }
       await writeState({ config })
       const keys = loadKeyring()
