@@ -20,7 +20,7 @@ import { loadMasterKey } from './attache/crypto.mjs'
 import { loadKeyring, grantKeyring, revokeKeyring, keyringStatus, allowedScopes } from './attache/keyring.mjs'
 import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
-import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage } from './attache/mail.mjs'
+import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection } from './attache/mail.mjs'
 import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort } from './attache/agent.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
@@ -344,6 +344,7 @@ const server = http.createServer(async (req, res) => {
         mail: {
           imap: mail.imapReady, smtp: mail.smtpReady,
           owner: mail.owner ? mail.owner.replace(/^(..).*(@.*)$/, '$1…$2') : null,
+          ...describeMailConfig(),
         },
         inbox: keys ? inboxStats(keys) : null,
         runsEnCours: running,
@@ -388,6 +389,14 @@ const server = http.createServer(async (req, res) => {
 
     if (route === 'POST /check-mail') {
       const out = await pollOnce('manuel')
+      return json(res, 200, out)
+    }
+
+    if (route === 'POST /mail-test') {
+      // diagnostic seul : ouvre INBOX en lecture seule, ne relève rien
+      const out = await testImapConnection()
+      const keys = loadKeyring()
+      if (keys) await audit(keys, 'mail_test', { ok: out.ok, messages: out.messages ?? null, erreur: out.error || null })
       return json(res, 200, out)
     }
 

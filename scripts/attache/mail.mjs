@@ -47,6 +47,77 @@ export function mailConfig(env = process.env) {
 }
 
 /**
+ * Détail NON secret de la configuration mail, pour l'écran de diagnostic de
+ * l'administrateur : hôtes, ports, adresse de la boîte dédiée, présence d'un
+ * mot de passe (jamais sa valeur). Rien ici ne permet de se connecter.
+ */
+export function describeMailConfig(env = process.env) {
+  const cfg = mailConfig(env)
+  return {
+    imapHost: cfg.imap.host || '',
+    imapPort: cfg.imap.port,
+    imapSecure: cfg.imap.secure,
+    imapUser: cfg.imap.auth.user || '',
+    imapPasswordSet: Boolean(cfg.imap.auth.pass),
+    smtpHost: cfg.smtp.host || '',
+    smtpPort: cfg.smtp.port,
+    smtpUser: cfg.smtp.auth.user || '',
+    smtpPasswordSet: Boolean(cfg.smtp.auth.pass),
+    from: cfg.from || '',
+    imapReady: cfg.imapReady,
+    smtpReady: cfg.smtpReady,
+  }
+}
+
+/**
+ * Vérifie la boîte dédiée SANS rien modifier : ouvre INBOX en lecture seule,
+ * compte les messages (total et non lus), se déconnecte. Aucun message n'est
+ * relevé, chiffré, ni marqué lu. Sert au bouton « Tester la connexion » du
+ * panneau d'administration pour distinguer « boîte simplement vide » d'un
+ * vrai problème (identifiants, hôte injoignable, TLS…).
+ */
+export async function testImapConnection() {
+  const detail = describeMailConfig()
+  if (!detail.imapReady) {
+    return {
+      ok: false,
+      configured: false,
+      error: 'Boîte non configurée côté serveur — renseignez SIRAL_ATTACHE_IMAP_HOST / _USER / _PASSWORD (voir docs/ATTACHE.md).',
+      ...detail,
+    }
+  }
+  const cfg = mailConfig()
+  const client = new ImapFlow({ ...cfg.imap, logger: false })
+  const started = Date.now()
+  try {
+    await client.connect()
+    // lecture seule : on ne touche à aucun flag (rien n'est marqué lu)
+    const mb = await client.mailboxOpen('INBOX', { readOnly: true })
+    const unseenUids = await client.search({ seen: false }, { uid: true })
+    const unseen = Array.isArray(unseenUids) ? unseenUids.length : 0
+    await client.mailboxClose().catch(() => {})
+    await client.logout()
+    return {
+      ok: true,
+      configured: true,
+      messages: Number(mb?.exists || 0),
+      unseen,
+      dureeMs: Date.now() - started,
+      ...detail,
+    }
+  } catch (e) {
+    try { await client.logout() } catch {}
+    return {
+      ok: false,
+      configured: true,
+      error: String(e?.message || e),
+      dureeMs: Date.now() - started,
+      ...detail,
+    }
+  }
+}
+
+/**
  * Relève les messages non lus, les chiffre dans inbox/, les marque lus.
  * Retourne les identifiants des messages fraîchement ingérés.
  */

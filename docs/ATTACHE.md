@@ -366,6 +366,15 @@ l'usage).
    Paramètres → **Attaché IA** → *Remettre les clés*. Le panneau affiche
    l'état complet (clé-maître, trousseau, Claude, IMAP/SMTP).
 
+   Si la **Boîte de l'attaché** reste vide, la section *Boîte mail
+   (diagnostic)* du même panneau permet de vérifier : cliquer *Tester la
+   connexion* se connecte à la boîte dédiée en **lecture seule** (rien n'est
+   relevé ni marqué lu) et indique soit « boîte réellement vide » soit
+   l'erreur précise (identifiants, hôte, TLS). *Détails* affiche la
+   configuration non secrète (adresse de la boîte, hôte/port IMAP, présence
+   du mot de passe) et la dernière erreur de relève automatique. Les
+   identifiants se règlent côté serveur (`SIRAL_ATTACHE_IMAP_*`).
+
 6. **Utiliser** : l'icône balance ⚖ apparaît dans l'en-tête (admin
    uniquement). Transférer un mail à `ia@…` avec une consigne dans le corps —
    ou parler directement dans le panneau.
