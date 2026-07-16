@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   FileText, CheckCircle2, BarChart, Settings, Target,
-  Plus, Scale, Activity, Eye, PieChart, Network, LayoutDashboard, Landmark, ChevronDown
+  Plus, Scale, Activity, Eye, PieChart, Network, LayoutDashboard, Landmark, ChevronDown, Bot
 } from 'lucide-react';
 import { AlertBadge } from './AlertBadge';
 import { useUser } from '@/contexts/UserContext';
@@ -33,6 +33,8 @@ interface MultiSideBarProps {
   crossSearchResults?: CrossSearchResult[];
   /** Nombre d'utilisateurs en attente d'approbation (badge sur Paramètres) */
   pendingUsersCount?: number;
+  /** Affiche l'entrée « Assistant de justice » (attaché IA activé + admin). */
+  showAssistant?: boolean;
 }
 
 /** Petit compteur discret (enquêtes/instructions en cours). */
@@ -152,6 +154,7 @@ export const MultiSideBar = ({
   instructionCount = 0,
   crossSearchResults = [],
   pendingUsersCount = 0,
+  showAssistant = false,
 }: MultiSideBarProps) => {
   const { accessibleContentieux, canDo, isAdmin, isJLD, hasOverboard, hasModule, permissions, user } = useUser();
   // Le JLD n'a accès qu'au tableau de bord : on masque tous les blocs
@@ -236,6 +239,27 @@ export const MultiSideBar = ({
           <LayoutDashboard className={`h-4 w-4 flex-shrink-0 ${currentView === 'dashboard' ? 'text-white' : 'text-white/60'}`} />
           {isOpen && <span className="truncate">Tableau de bord</span>}
         </button>
+
+        {/* ── ASSISTANT DE JUSTICE (attaché IA) — administrateur uniquement ── */}
+        {!jldRestricted && showAssistant && (
+          <button
+            className={`
+              w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm mb-1
+              transition-all duration-150
+              ${currentView === 'assistant'
+                ? 'bg-white/20 text-white font-semibold'
+                : 'font-medium text-white/70 hover:bg-white/10 hover:text-white'
+              }
+            `}
+            style={currentView === 'assistant' ? { boxShadow: 'inset 3px 0 0 rgba(255,255,255,0.85)' } : {}}
+            onClick={() => onViewChange('assistant')}
+            title="Ce que votre attaché IA a préparé — visible de vous seul"
+          >
+            <Bot className={`h-4 w-4 flex-shrink-0 ${currentView === 'assistant' ? 'text-white' : 'text-white/60'}`} />
+            {isOpen && <span className="truncate">Assistant de justice</span>}
+          </button>
+        )}
+
         {!jldRestricted && <div className="my-2 border-t border-white/10" />}
 
         {/* ── BLOCS CONTENTIEUX ── */}

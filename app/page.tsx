@@ -16,6 +16,7 @@ import { AlertsModal } from '@/components/modals/AlertsModal';
 import { SavePage } from '@/components/pages/SavePage';
 const StatsPage = dynamic(() => import('@/components/pages/StatsPage').then(m => ({ default: m.StatsPage })), { ssr: false });
 const DashboardPage = dynamic(() => import('@/components/pages/DashboardPage').then(m => ({ default: m.DashboardPage })), { ssr: false });
+const AssistantJusticePage = dynamic(() => import('@/components/pages/AssistantJusticePage').then(m => ({ default: m.AssistantJusticePage })), { ssr: false });
 import { useContentieuxEnquetesStore as useContentieuxEnquetes } from '@/hooks/useContentieuxEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
 import { useInfractionFilter } from '@/hooks/useInfractionFilter';
@@ -209,6 +210,8 @@ function AppContent() {
   const handleViewChange = async (view: string, contentieuxId?: ContentieuxId) => {
     // Le JLD est verrouillé sur le tableau de bord : toute autre vue est ignorée.
     if (isJLDUser && view !== 'dashboard') return;
+    // L'assistant de justice (attaché IA) est réservé à l'administrateur.
+    if (view === 'assistant' && !isAdmin()) return;
     // Vérifier que l'utilisateur a accès au contentieux demandé
     if (contentieuxId && !accessibleContentieux.some(c => c.id === contentieuxId)) {
       return;
@@ -1366,6 +1369,7 @@ return (
           instructionCount={sidebarInstructionCount}
           crossSearchResults={crossSearchResults}
           pendingUsersCount={pendingUsersCount}
+          showAssistant={attacheAvailable && isAdmin()}
         />
       </div>
       {mobileNavOpen && (
@@ -1386,6 +1390,7 @@ return (
               instructionCount={sidebarInstructionCount}
               crossSearchResults={crossSearchResults}
               pendingUsersCount={pendingUsersCount}
+              showAssistant={attacheAvailable && isAdmin()}
             />
           </div>
         </div>
@@ -1488,6 +1493,11 @@ return (
               onOpenInstruction={(d) => { setSelectedInstruction(d); setIsEditingInstruction(false); }}
               isJLD={isJLDUser}
             />
+          )}
+
+          {/* Assistant de justice (attaché IA) — page dédiée, admin uniquement */}
+          {baseView === 'assistant' && isAdmin() && (
+            <AssistantJusticePage />
           )}
 
           {baseView === 'enquetes' && (

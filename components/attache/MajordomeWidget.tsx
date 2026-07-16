@@ -44,6 +44,18 @@ const TYPE_META: Record<Item['type'], { label: string; icon: React.ElementType; 
 };
 const TYPE_ORDER: Item['type'][] = ['echeance', 'verification', 'projet_mail', 'projet_dml', 'appel', 'note'];
 
+/** Échéance AAAA-MM-JJ → JJ-MM-AAAA (format français). Chaîne inchangée sinon. */
+function formatEcheance(s?: string): string {
+  if (!s) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s.trim());
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : s;
+}
+
+/** Détail assez long pour risquer d'être tronqué (2 lignes) → mérite un dépliage. */
+function detailIsLong(s?: string): boolean {
+  return !!s && (s.length > 110 || s.includes('\n'));
+}
+
 function CopyButton({ text, label = 'Copier' }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
   return (
@@ -169,7 +181,7 @@ export function MajordomeWidget() {
                           <div className="text-[12.5px] font-semibold leading-snug text-gray-800">
                             {it.titre}
                             {it.dossier && <span className="ml-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">{it.dossier}</span>}
-                            {it.echeance && <span className="ml-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">→ {it.echeance}</span>}
+                            {it.echeance && <span className="ml-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">→ {formatEcheance(it.echeance)}</span>}
                           </div>
                           {it.appel && (
                             <div className="mt-0.5 text-[11.5px] text-gray-600"><b>{it.appel.qui}</b> — {it.appel.motif}</div>
@@ -194,18 +206,23 @@ export function MajordomeWidget() {
                           </button>
                         </div>
                       </div>
-                      {/* corps du mail / détail long, dépliable */}
-                      {(it.mail || (it.detail && it.type === 'projet_dml')) && (
+                      {/* Dépliage : corps de mail à copier, OU tout détail long
+                          (échéance, vérification, appel, note…) que le clamp à
+                          2 lignes coupait — le texte doit être lisible en entier. */}
+                      {(it.mail || detailIsLong(it.detail)) && (
                         <button
                           onClick={() => setExpanded(expanded === it.id ? null : it.id)}
                           className="mt-1 text-[10.5px] font-medium text-gray-400 hover:text-gray-600"
                         >
-                          {expanded === it.id ? '▲ replier' : '▼ relire le texte complet'}
+                          {expanded === it.id ? '▲ replier' : (it.mail ? '▼ relire le texte complet' : '▼ voir tout le détail')}
                         </button>
                       )}
-                      {expanded === it.id && (it.mail?.corps || it.detail) && (
+                      {/* Corps du mail : bloc dédié copiable. Le détail non-mail
+                          est déplié directement dans la ligne ci-dessus (plus de
+                          clamp), inutile de le répéter ici. */}
+                      {expanded === it.id && it.mail?.corps && (
                         <pre className="mt-1.5 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-gray-100 bg-gray-50 p-2.5 font-sans text-[11.5px] leading-relaxed text-gray-700">
-                          {it.mail?.corps || it.detail}
+                          {it.mail.corps}
                         </pre>
                       )}
                     </div>
