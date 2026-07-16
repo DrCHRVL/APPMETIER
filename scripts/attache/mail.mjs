@@ -130,7 +130,12 @@ export async function fetchInbox(keys) {
     await client.connect()
     const lock = await client.getMailboxLock('INBOX')
     try {
-      const uids = await client.search({ seen: false })
+      // { uid: true } est INDISPENSABLE : sans lui, search() renvoie des
+      // numéros de séquence, alors que fetchOne/messageFlagsAdd ci-dessous
+      // les traitent comme des UID. Dès que séquence ≠ UID (boîte avec de
+      // l'historique), fetchOne ne trouve rien → aucun message ingéré, sans
+      // erreur (« rien de nouveau ») bien que la boîte contienne des non-lus.
+      const uids = await client.search({ seen: false }, { uid: true })
       for (const uid of uids || []) {
         const msg = await client.fetchOne(uid, { source: true }, { uid: true })
         if (!msg?.source) continue
