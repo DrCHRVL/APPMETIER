@@ -60,6 +60,9 @@ async function writeKbRecord(keys, id, record) {
 export async function saveKbEntry(keys, { titre, categorie, chemin, description, contenu, source }) {
   const id = safeKbId(titre)
   if (!String(contenu || '').trim()) throw new Error('Contenu vide')
+  // Ré-enregistrement du même id : on préserve le marquage « réflexe » (le
+  // contenu change, la désignation du magistrat, elle, ne doit pas sauter).
+  const existing = readKbEntry(keys, id)
   const record = {
     id,
     titre: String(titre).slice(0, 160),
@@ -69,6 +72,7 @@ export async function saveKbEntry(keys, { titre, categorie, chemin, description,
     contenu: String(contenu).slice(0, 400_000),
     source: source ? String(source).slice(0, 200) : undefined,
     updatedAt: new Date().toISOString(),
+    ...(existing?.reflexe ? { reflexe: true } : {}),
   }
   await writeKbRecord(keys, id, record)
   return { id, categorie: record.categorie }
@@ -97,6 +101,41 @@ export async function setKbMeta(keys, id, { description, categorie, chemin }) {
   return { id: clean, categorie: record.categorie, chemin: record.chemin }
 }
 
+// ── Documents « réflexes » ──────────────────────────────────────────────────
+// Le magistrat désigne 2-3 documents au plus comme référence de premier rang :
+// ils remontent en tête du sommaire et l'attaché les consulte par réflexe
+// (kb_lire) avant les autres — SANS que les autres soient rabaissés. Le
+// marquage vit dans l'enveloppe chiffrée (champ « reflexe ») : le navigateur
+// admin l'écrit à l'étoile, l'attaché le lit ici. Le contenu n'est jamais touché.
+
+export const MAX_REFLEXE = 3
+
+/** Nombre d'entrées déjà en réflexe (hors « exceptId » — l'entrée qu'on bascule). */
+export function countReflexe(keys, exceptId) {
+  return listKb(keys).filter((e) => e.reflexe && e.id !== exceptId).length
+}
+
+/**
+ * Marque (reflexe=true) ou retire (reflexe=false) une entrée comme document
+ * réflexe. Plafond MAX_REFLEXE appliqué au marquage ; le contenu et le reste
+ * des métadonnées restent intacts.
+ */
+export async function setKbReflexe(keys, id, reflexe) {
+  const clean = String(id || '').toLowerCase()
+  if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(clean)) throw new Error('Identifiant invalide')
+  const existing = readKbEntry(keys, clean)
+  if (!existing) throw new Error('Entrée inconnue — voir kb_lister')
+  const want = reflexe !== false
+  if (want && !existing.reflexe && countReflexe(keys, clean) >= MAX_REFLEXE) {
+    throw new Error(`Déjà ${MAX_REFLEXE} documents réflexes — retirez-en un d'abord (kb_reflexe id … reflexe=false).`)
+  }
+  const record = { ...existing, updatedAt: new Date().toISOString() }
+  if (want) record.reflexe = true
+  else delete record.reflexe
+  await writeKbRecord(keys, clean, record)
+  return { id: clean, reflexe: Boolean(record.reflexe) }
+}
+
 /** Métadonnées de toutes les entrées (jamais le contenu — divulgation progressive). */
 export function listKb(keys) {
   const dir = attacheDir('kb')
@@ -112,6 +151,7 @@ export function listKb(keys) {
         id: e.id || f.slice(0, -5), titre: e.titre, categorie: e.categorie || 'autre',
         chemin: e.chemin, description: e.description, source: e.source, updatedAt: e.updatedAt,
         taille: (e.contenu || '').length,
+        ...(e.reflexe ? { reflexe: true } : {}),
       })
     } catch {}
   }
@@ -176,6 +216,10 @@ export function searchKb(keys, { requete, categorie, limite = 8 }) {
 export function kbPromptSection(keys) {
   const entries = listKb(keys)
   if (!entries.length) return ''
+  // Documents réflexes : la poignée de références de premier rang désignées par
+  // le magistrat (★). Plafonnées ici aussi, par sécurité, si jamais plus de
+  // MAX_REFLEXE se retrouvaient marquées.
+  const reflexes = entries.filter((e) => e.reflexe).slice(0, MAX_REFLEXE)
   const MAX_LISTED = 100
   const lines = []
   let dossier = null
@@ -183,15 +227,24 @@ export function kbPromptSection(keys) {
     // regroupement par pochette (chemin d'arborescence), à défaut par catégorie
     const d = e.chemin ? e.chemin.split('/').slice(0, -1).join('/') || '(racine)' : `[${e.categorie}]`
     if (d !== dossier) { dossier = d; lines.push(`${d} :`) }
-    lines.push(`- ${e.id}${e.description ? ` : ${e.description}` : ` — ${e.titre}`}`)
+    lines.push(`- ${e.reflexe ? '★ ' : ''}${e.id}${e.description ? ` : ${e.description}` : ` — ${e.titre}`}`)
   }
   if (entries.length > MAX_LISTED) lines.push(`… et ${entries.length - MAX_LISTED} autres entrées — utilise kb_chercher.`)
+  const reflexeBloc = reflexes.length ? [
+    '',
+    `DOCUMENTS RÉFLEXES (★) — le magistrat a désigné ${reflexes.length === 1 ? 'ce document' : 'ces documents'} comme référence de premier rang. Dès qu'une analyse juridique, une rédaction ou une question de procédure PEUT y toucher, ton tout premier geste est de le consulter (kb_lire), avant même kb_chercher et même si une autre entrée semblait suffire :`,
+    ...reflexes.map((e) => `- ★ ${e.id}${e.description ? ` : ${e.description}` : ` — ${e.titre}`}`),
+    'Ces documents PRIMENT sans rabaisser le reste du fond : continue d\'utiliser kb_chercher / kb_lire sur les autres entrées comme d\'habitude.',
+  ] : []
   return [
     '',
     'BASE DE CONNAISSANCES DU MAGISTRAT — SON CERVEAU DOCUMENTAIRE (jurisprudences, circulaires, modes opératoires, fiches, contacts — arborescence de pochettes, tout en markdown — Paramètres → Attaché IA) :',
+    ...reflexeBloc,
+    '',
+    'Sommaire complet (★ = document réflexe) :',
     ...lines,
     'Avant une analyse juridique, une rédaction ou une question de procédure : kb_chercher (mots-clés) puis kb_lire sur les entrées pertinentes — cite l\'entrée utilisée. Ce fond fait FOI sur les pratiques du cabinet ; le droit y est daté : vérifie la date de mise à jour avant de t\'y fier aveuglément.',
-    'Quand le magistrat te transmet un contenu durable (« ajoute à la base de connaissances… »), range-le avec kb_enregistrer dans la bonne catégorie et la bonne pochette (chemin).',
+    'Quand le magistrat te transmet un contenu durable (« ajoute à la base de connaissances… »), range-le avec kb_enregistrer dans la bonne catégorie et la bonne pochette (chemin). S\'il te dit « mets tel document en réflexe / en tête / prioritaire » (ou de l\'en retirer) : kb_reflexe.',
     'Tu es le BIBLIOTHÉCAIRE de cette base : une entrée sans description, mal classée ou mal rangée → kb_decrire (description, catégorie, chemin de pochette) — le contenu, lui, ne se modifie que par kb_enregistrer sur consigne.',
   ].join('\n')
 }

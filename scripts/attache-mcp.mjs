@@ -26,7 +26,7 @@ import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { saveTrame, listTrames, readTrame, setTrameDescription } from './attache/trames.mjs'
 import { saveSkill, listSkills, readSkill, deleteSkill } from './attache/skills.mjs'
-import { saveKbEntry, setKbMeta, listKb, readKbEntry, searchKb, KB_CATEGORIES } from './attache/kb.mjs'
+import { saveKbEntry, setKbMeta, setKbReflexe, listKb, readKbEntry, searchKb, KB_CATEGORIES, MAX_REFLEXE } from './attache/kb.mjs'
 import { runSubagents } from './attache/subagents.mjs'
 import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
 import { listDepot, readDepotText, rangerDocument, ecarterDepot, ZONES } from './attache/depot.mjs'
@@ -461,6 +461,20 @@ const TOOLS = [
       required: ['id'],
     },
     handler: async (a) => setKbMeta(keys, a.id, a),
+    write: true,
+  },
+  {
+    name: 'kb_reflexe',
+    description: `Désigne (reflexe=true) ou retire (reflexe=false) une entrée comme « document réflexe » : une référence de premier rang, mise en tête du sommaire, que tu consultes en priorité (kb_lire) avant toute analyse ou rédaction. Le magistrat en garde ${MAX_REFLEXE} au plus. À utiliser quand il dit « mets tel document en réflexe / en tête / prioritaire » ou « retire-le des réflexes ». Le contenu et le reste des métadonnées ne sont jamais modifiés.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Identifiant exact (kb_lister)' },
+        reflexe: { type: 'boolean', description: 'true pour désigner (défaut), false pour retirer' },
+      },
+      required: ['id'],
+    },
+    handler: async (a) => setKbReflexe(keys, a.id, a.reflexe),
     write: true,
   },
   {

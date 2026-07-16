@@ -230,6 +230,14 @@ l'usage).
   (`kb_chercher` insensible casse/accents, puis `kb_lire`) — le sommaire
   (arborescence + descriptions) figure dans le prompt de l'attaché, le
   contenu ne se charge que quand une tâche le réclame, comme les skills.
+  **Documents réflexes (★)** : le magistrat épingle d'une étoile 2-3 documents
+  au plus (par ex. le Memento parquet) — ils remontent en tête du sommaire et
+  l'attaché les consulte **par réflexe** (`kb_lire`) avant toute analyse ou
+  rédaction dès que le sujet peut y toucher, **sans** que les autres entrées
+  soient rabaissées. Le marquage voyage dans l'enveloppe chiffrée (aucun contenu
+  n'est injecté en clair dans le prompt : le coût en tokens reste celui d'un
+  simple pointeur, la lecture se fait à la demande). Étoile dans le panneau ou,
+  en chat, « mets tel document en réflexe / retire-le » (`kb_reflexe`).
   En chat, « ajoute à la base de connaissances » fonctionne aussi
   (`kb_enregistrer`). Chiffrée (clé globale), versionnée, réversible.
   PDF scannés (image, sans texte) : détectés et signalés au téléversement —

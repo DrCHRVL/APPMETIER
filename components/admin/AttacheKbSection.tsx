@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Library, UploadCloud, FolderOpen, FolderTree, Plus, PenLine, Trash2, Eye, X,
-  ChevronRight, ChevronDown, FileText, Loader2, AlertTriangle, Sparkles,
+  ChevronRight, ChevronDown, FileText, Loader2, AlertTriangle, Sparkles, Star,
 } from 'lucide-react';
 import { fileToMarkdown, titreDepuisFichier } from '@/lib/web/fileToMarkdown';
 import { collectDropEntries, incomingFromFileList, cleanRelPath, type Incoming } from '@/lib/web/folderUpload';
@@ -43,6 +43,8 @@ export interface KbEntry {
   contenu: string;
   source?: string;
   updatedAt?: string;
+  /** Document « réflexe » : référence de premier rang, consultée en priorité par l'attaché (2-3 au plus). */
+  reflexe?: boolean;
 }
 
 interface StagedKb {
@@ -60,6 +62,8 @@ interface TreeNode { folders: Map<string, TreeNode>; files: KbEntry[] }
 export const KB_CATEGORIES = ['jurisprudence', 'textes-circulaires', 'modes-operatoires', 'fiches-reflexes', 'contacts-services', 'autre'];
 
 const MAX_FILES = 400;
+/** Plafond de documents « réflexes » — la poignée de références mises en tête. */
+const MAX_REFLEXE = 3;
 const SKIP_RE = /\.(png|jpe?g|gif|bmp|tiff?|heic|mp3|wav|m4a|ogg|mp4|avi|mov|mkv|zip|rar|7z|exe|dll)$/i;
 
 /** Identifiant d'une entrée versée en arborescence : slug du nom + empreinte du chemin. */
@@ -86,7 +90,7 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [dragOver, setDragOver] = useState(false);
   const [preview, setPreview] = useState<KbEntry | null>(null);
-  const [form, setForm] = useState<{ open: boolean; original?: string; titre: string; categorie: string; chemin: string; description: string; contenu: string }>({ open: false, titre: '', categorie: KB_CATEGORIES[0], chemin: '', description: '', contenu: '' });
+  const [form, setForm] = useState<{ open: boolean; original?: string; titre: string; categorie: string; chemin: string; description: string; contenu: string; reflexe?: boolean }>({ open: false, titre: '', categorie: KB_CATEGORIES[0], chemin: '', description: '', contenu: '' });
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
 
@@ -148,6 +152,37 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
       return [...byId.values()].sort((a, b) => (a.chemin || a.titre).localeCompare(b.chemin || b.titre));
     });
   }, []);
+
+  const reflexes = useMemo(() => entries.filter((e) => e.reflexe), [entries]);
+
+  /**
+   * Étoile « réflexe » : bascule le marquage d'une entrée. Plafonné à
+   * MAX_REFLEXE — le flag voyage DANS l'enveloppe chiffrée (re-chiffrée ici),
+   * l'attaché le lit ensuite pour consulter ces documents en priorité.
+   */
+  const toggleReflexe = useCallback(async (entry: KbEntry) => {
+    const want = !entry.reflexe;
+    if (want && entries.filter((e) => e.reflexe && e.id !== entry.id).length >= MAX_REFLEXE) {
+      onNotice(`Déjà ${MAX_REFLEXE} documents réflexes — retirez l'étoile d'un autre avant d'en désigner un nouveau.`);
+      return;
+    }
+    const record: KbEntry = { ...entry, updatedAt: new Date().toISOString() };
+    if (want) record.reflexe = true; else delete record.reflexe;
+    try {
+      const envelope = await bridgeFn('attache_encrypt')(record);
+      const res = await fetch('/api/attache/kb', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: record.id, envelope }),
+      });
+      if (!res.ok) { onNotice(`Marquage refusé : ${(await res.json().catch(() => ({} as { error?: string }))).error || res.status}`); return; }
+      upsertLocal([record]);
+      onNotice(want
+        ? `« ${entry.titre} » est désormais un document réflexe — l'attaché le consultera par réflexe, avant les autres.`
+        : `« ${entry.titre} » n'est plus un document réflexe.`);
+    } catch (e) {
+      onNotice(`Marquage impossible : ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [entries, upsertLocal, onNotice]);
 
   const saveStaged = useCallback(async () => {
     const valid = staged.filter((s) => !s.erreur && s.contenu.trim() && slug(s.titre));
@@ -219,6 +254,7 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
         description: form.description.trim().slice(0, 300),
         contenu: form.contenu.slice(0, 400_000),
         updatedAt: new Date().toISOString(),
+        ...(form.reflexe ? { reflexe: true } : {}),
       };
       const envelope = await bridgeFn('attache_encrypt')(record);
       const res = await fetch('/api/attache/kb', {
@@ -332,17 +368,24 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
     for (const e of [...node.files].sort((a, b) => a.titre.localeCompare(b.titre))) {
       rows.push(
         <div key={e.id} className="flex items-center gap-1.5 px-2 py-1 hover:bg-gray-50" style={{ paddingLeft: 8 + depth * 16 + 16 }}>
-          <FileText className="h-3.5 w-3.5 flex-shrink-0 text-gray-300" />
+          {e.reflexe
+            ? <Star className="h-3.5 w-3.5 flex-shrink-0 fill-amber-400 text-amber-400" />
+            : <FileText className="h-3.5 w-3.5 flex-shrink-0 text-gray-300" />}
           <button onClick={() => setPreview(e)} className="min-w-0 flex-1 truncate text-left text-xs text-gray-700 hover:text-gray-900" title={e.description || e.titre}>
             {e.titre}
             {e.description && <span className="ml-1.5 text-[10px] text-gray-400">— {e.description}</span>}
           </button>
           <span className="whitespace-nowrap text-[10px] text-gray-400">{Math.round((e.contenu || '').length / 1000)} k</span>
+          <button onClick={() => toggleReflexe(e)}
+            title={e.reflexe ? 'Document réflexe — cliquer pour retirer l’étoile' : `Désigner comme document réflexe (consulté en priorité par l’attaché, ${MAX_REFLEXE} au plus)`}
+            className={`rounded p-0.5 ${e.reflexe ? 'text-amber-400 hover:bg-amber-50 hover:text-amber-500' : 'text-gray-300 hover:bg-amber-50 hover:text-amber-400'}`}>
+            <Star className={`h-3 w-3 ${e.reflexe ? 'fill-amber-400' : ''}`} />
+          </button>
           <button onClick={() => setPreview(e)} title="Lire" className="rounded p-0.5 text-gray-300 hover:bg-indigo-50 hover:text-indigo-600">
             <Eye className="h-3 w-3" />
           </button>
           <button
-            onClick={() => setForm({ open: true, original: e.id, titre: e.titre, categorie: e.categorie, chemin: e.chemin || '', description: e.description || '', contenu: e.contenu })}
+            onClick={() => setForm({ open: true, original: e.id, titre: e.titre, categorie: e.categorie, chemin: e.chemin || '', description: e.description || '', contenu: e.contenu, reflexe: e.reflexe })}
             title="Modifier" className="rounded p-0.5 text-gray-300 hover:bg-emerald-50 hover:text-[#2B5746]">
             <PenLine className="h-3 w-3" />
           </button>
@@ -360,7 +403,7 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
       <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
         <Library className="h-4 w-4 text-[#2B5746]" />
         <span className="text-sm font-semibold text-gray-800">Base de connaissances</span>
-        <span className="text-[11px] text-gray-400">le cerveau documentaire de l&apos;attaché — markdown, arborescence préservée, classement IA</span>
+        <span className="text-[11px] text-gray-400">le cerveau documentaire de l&apos;attaché — markdown, arborescence préservée, classement IA · ★ documents réflexes</span>
         <input ref={fileInput} type="file" multiple className="hidden"
           onChange={(e) => { stage(incomingFromFileList(e.target.files)); e.currentTarget.value = ''; }} />
         <input ref={folderInput} type="file" multiple className="hidden" {...({ webkitdirectory: '' } as Record<string, string>)}
@@ -489,6 +532,29 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
         </div>
       )}
 
+      {reflexes.length > 0 && (
+        <div className="border-b border-amber-100 bg-amber-50/50 px-3 py-2">
+          <div className="mb-1 flex items-center gap-1.5">
+            <Star className="h-3.5 w-3.5 flex-shrink-0 fill-amber-400 text-amber-400" />
+            <span className="text-[11px] font-semibold text-amber-700">Documents réflexes</span>
+            <span className="text-[10px] text-amber-600/80">consultés en priorité par l&apos;attaché, avant le reste du fond · {reflexes.length}/{MAX_REFLEXE}</span>
+          </div>
+          {reflexes.map((e) => (
+            <div key={e.id} className="flex items-center gap-1.5 py-0.5">
+              <Star className="h-3 w-3 flex-shrink-0 fill-amber-400 text-amber-400" />
+              <button onClick={() => setPreview(e)} className="min-w-0 flex-1 truncate text-left text-xs text-gray-800 hover:text-gray-900" title={e.description || e.titre}>
+                {e.titre}
+                {e.description && <span className="ml-1.5 text-[10px] text-gray-500">— {e.description}</span>}
+              </button>
+              <button onClick={() => toggleReflexe(e)} title="Retirer des documents réflexes"
+                className="rounded p-0.5 text-amber-500 hover:bg-amber-100 hover:text-amber-700">
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {entries.length === 0 && staged.length === 0 && !form.open ? (
         <p className="px-3 py-3 text-xs text-gray-400">
           Base vide. Téléversez votre fond documentaire — un DOSSIER ENTIER avec ses sous-pochettes si vous voulez :
@@ -535,7 +601,7 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
                 </div>
               </div>
               <button
-                onClick={() => { setForm({ open: true, original: preview.id, titre: preview.titre, categorie: preview.categorie, chemin: preview.chemin || '', description: preview.description || '', contenu: preview.contenu }); setPreview(null); }}
+                onClick={() => { setForm({ open: true, original: preview.id, titre: preview.titre, categorie: preview.categorie, chemin: preview.chemin || '', description: preview.description || '', contenu: preview.contenu, reflexe: preview.reflexe }); setPreview(null); }}
                 className="rounded-md p-1 text-gray-400 hover:bg-emerald-50 hover:text-[#2B5746]" title="Modifier"
               >
                 <PenLine className="h-4 w-4" />
