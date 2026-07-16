@@ -16,33 +16,91 @@ import { ImapFlow } from 'imapflow'
 import { simpleParser } from 'mailparser'
 import nodemailer from 'nodemailer'
 import { attacheDir, ensureDir, atomicWrite, readJson, readState, writeState, listFiles } from './store.mjs'
-import { encryptJson, decryptJson } from './crypto.mjs'
+import { encryptJson, decryptJson, loadMasterKey, wrapWithMaster, unwrapWithMaster } from './crypto.mjs'
 import { audit } from './journal.mjs'
+
+// ── Réglages IMAP/SMTP saisis DANS L'APP (Paramètres → Attaché IA) ──
+// Facultatifs : ils PRÉVALENT sur les variables d'environnement quand ils
+// sont présents. Stockés chiffrés au repos par la clé-maître (comme le
+// trousseau) — l'app ne détient jamais le mot de passe en clair.
+const MAIL_OVERRIDE_FILE = () => attacheDir('mail-override.enc.json')
+const MAIL_FIELDS = ['imapHost', 'imapPort', 'imapSecure', 'imapUser', 'imapPassword', 'smtpHost', 'smtpPort', 'smtpSecure', 'smtpUser', 'smtpPassword', 'from']
+
+export function readMailOverride() {
+  const master = loadMasterKey()
+  if (!master) return null
+  const stored = readJson(MAIL_OVERRIDE_FILE(), null)
+  if (!stored?.envelope) return null
+  try { return unwrapWithMaster(master, stored.envelope) } catch { return null }
+}
+
+export function mailOverrideActive() {
+  return Boolean(readJson(MAIL_OVERRIDE_FILE(), null)?.envelope)
+}
+
+/**
+ * Enregistre/complète les réglages mail saisis dans l'app. Un champ absent
+ * du patch reste inchangé ; un mot de passe VIDE est ignoré (on garde
+ * l'ancien) — l'admin n'a donc pas à le ressaisir pour changer juste l'hôte.
+ */
+export function writeMailOverride(patch = {}, by = 'admin') {
+  const master = loadMasterKey()
+  if (!master) throw new Error('Clé-maître absente (SIRAL_ATTACHE_MASTER_KEY)')
+  const next = { ...(readMailOverride() || {}) }
+  for (const f of MAIL_FIELDS) {
+    if (patch[f] === undefined) continue
+    if ((f === 'imapPassword' || f === 'smtpPassword') && patch[f] === '') continue
+    next[f] = patch[f]
+  }
+  next.updatedAt = new Date().toISOString()
+  next.updatedBy = by
+  ensureDir(attacheDir())
+  atomicWrite(MAIL_OVERRIDE_FILE(), JSON.stringify({ updatedAt: next.updatedAt, updatedBy: by, envelope: wrapWithMaster(master, next) }, null, 2))
+  return true
+}
+
+/** Efface les réglages in-app : retour aux variables d'environnement. */
+export function clearMailOverride() {
+  const p = MAIL_OVERRIDE_FILE()
+  if (fs.existsSync(p)) { fs.unlinkSync(p); return true }
+  return false
+}
 
 const MAX_ATTACHMENT = 15 * 1024 * 1024   // 15 Mo par pièce
 const MAX_TOTAL = 40 * 1024 * 1024        // 40 Mo par message
 
 export function mailConfig(env = process.env) {
+  // Réglages in-app prioritaires sur l'environnement (champ par champ).
+  const ov = readMailOverride() || {}
+  const pick = (o, e) => (o !== undefined && o !== '' ? o : e)
   const owner = (env.SIRAL_ATTACHE_OWNER_EMAIL || '').trim().toLowerCase()
+
+  const imapUser = pick(ov.imapUser, env.SIRAL_ATTACHE_IMAP_USER)
+  const imapPass = pick(ov.imapPassword, env.SIRAL_ATTACHE_IMAP_PASSWORD)
+  const imapHost = pick(ov.imapHost, env.SIRAL_ATTACHE_IMAP_HOST)
   const imap = {
-    host: env.SIRAL_ATTACHE_IMAP_HOST,
-    port: Number(env.SIRAL_ATTACHE_IMAP_PORT || 993),
-    secure: env.SIRAL_ATTACHE_IMAP_SECURE !== '0',
-    auth: { user: env.SIRAL_ATTACHE_IMAP_USER, pass: env.SIRAL_ATTACHE_IMAP_PASSWORD },
+    host: imapHost,
+    port: Number(pick(ov.imapPort, env.SIRAL_ATTACHE_IMAP_PORT) || 993),
+    secure: ov.imapSecure !== undefined ? ov.imapSecure !== false : env.SIRAL_ATTACHE_IMAP_SECURE !== '0',
+    auth: { user: imapUser, pass: imapPass },
   }
   const smtp = {
-    host: env.SIRAL_ATTACHE_SMTP_HOST || env.SIRAL_ATTACHE_IMAP_HOST,
-    port: Number(env.SIRAL_ATTACHE_SMTP_PORT || 465),
-    secure: env.SIRAL_ATTACHE_SMTP_SECURE !== '0',
-    auth: { user: env.SIRAL_ATTACHE_SMTP_USER || env.SIRAL_ATTACHE_IMAP_USER, pass: env.SIRAL_ATTACHE_SMTP_PASSWORD || env.SIRAL_ATTACHE_IMAP_PASSWORD },
+    host: pick(ov.smtpHost, env.SIRAL_ATTACHE_SMTP_HOST) || imapHost,
+    port: Number(pick(ov.smtpPort, env.SIRAL_ATTACHE_SMTP_PORT) || 465),
+    secure: ov.smtpSecure !== undefined ? ov.smtpSecure !== false : env.SIRAL_ATTACHE_SMTP_SECURE !== '0',
+    auth: {
+      user: pick(ov.smtpUser, env.SIRAL_ATTACHE_SMTP_USER) || imapUser,
+      pass: pick(ov.smtpPassword, env.SIRAL_ATTACHE_SMTP_PASSWORD) || imapPass,
+    },
   }
   return {
     owner,
     imap,
     smtp,
-    from: env.SIRAL_ATTACHE_FROM || smtp.auth.user,
+    from: pick(ov.from, env.SIRAL_ATTACHE_FROM) || smtp.auth.user,
     imapReady: Boolean(imap.host && imap.auth.user && imap.auth.pass),
     smtpReady: Boolean(owner && smtp.host && smtp.auth.user && smtp.auth.pass),
+    overrideActive: mailOverrideActive(),
   }
 }
 
@@ -66,6 +124,7 @@ export function describeMailConfig(env = process.env) {
     from: cfg.from || '',
     imapReady: cfg.imapReady,
     smtpReady: cfg.smtpReady,
+    overrideActive: Boolean(cfg.overrideActive),
   }
 }
 

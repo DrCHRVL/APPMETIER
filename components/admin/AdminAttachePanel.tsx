@@ -89,6 +89,8 @@ export function AdminAttachePanel() {
   const [showMailDiag, setShowMailDiag] = useState(false);
   const [mailTest, setMailTest] = useState<any>(null);
   const [mailTesting, setMailTesting] = useState(false);
+  const [mailForm, setMailForm] = useState<{ open: boolean; imapHost: string; imapPort: string; imapSecure: boolean; imapUser: string; imapPassword: string }>({ open: false, imapHost: '', imapPort: '993', imapSecure: true, imapUser: '', imapPassword: '' });
+  const [mailSaving, setMailSaving] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
   const [instructions, setInstructions] = useState('');
   const [instructionsSaving, setInstructionsSaving] = useState(false);
@@ -534,6 +536,63 @@ export function AdminAttachePanel() {
     }
   }, []);
 
+  /** Ouvre le formulaire de réglages mail, pré-rempli avec la config connue (jamais le mot de passe). */
+  const openMailForm = useCallback(() => {
+    const m = status?.mail || {};
+    setMailForm({
+      open: true,
+      imapHost: m.imapHost || '',
+      imapPort: String(m.imapPort || 993),
+      imapSecure: m.imapSecure !== false,
+      imapUser: m.imapUser || '',
+      imapPassword: '',
+    });
+  }, [status]);
+
+  /** Enregistre les réglages IMAP saisis dans l'app, puis teste aussitôt la connexion. */
+  const saveMailForm = useCallback(async () => {
+    setMailSaving(true);
+    try {
+      const body: Record<string, unknown> = {
+        imapHost: mailForm.imapHost.trim(),
+        imapPort: Number(mailForm.imapPort) || 993,
+        imapSecure: mailForm.imapSecure,
+        imapUser: mailForm.imapUser.trim(),
+      };
+      if (mailForm.imapPassword) body.imapPassword = mailForm.imapPassword;
+      const res = await fetch('/api/attache/mail-config', {
+        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({ ok: false } as { ok?: boolean; error?: string }));
+      if (data.ok) {
+        setMailForm((f) => ({ ...f, open: false, imapPassword: '' }));
+        setNotice('Réglages mail enregistrés — test de connexion en cours…');
+        await refresh();
+        await testMail();
+      } else {
+        setNotice(`Enregistrement refusé : ${data.error || res.status}`);
+      }
+    } catch (e) {
+      setNotice(`Enregistrement impossible : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setMailSaving(false);
+    }
+  }, [mailForm, refresh, testMail]);
+
+  /** Efface les réglages in-app : retour aux variables d'environnement du serveur. */
+  const revertMailConfig = useCallback(async () => {
+    if (!window.confirm('Revenir aux réglages du serveur (.env) et effacer ceux saisis dans l\'app ?')) return;
+    setMailSaving(true);
+    try {
+      const res = await fetch('/api/attache/mail-config', { method: 'DELETE' });
+      const data = await res.json().catch(() => ({ ok: false } as { ok?: boolean; error?: string }));
+      setNotice(data.ok ? 'Réglages in-app effacés — retour aux réglages du serveur.' : `Échec : ${data.error || res.status}`);
+      await refresh();
+    } finally {
+      setMailSaving(false);
+    }
+  }, [refresh]);
+
   const loadAudit = useCallback(async () => {
     setShowAudit(true);
     try {
@@ -699,6 +758,13 @@ export function AdminAttachePanel() {
           <span className="text-[11px] text-gray-400">vérifier que la boîte dédiée répond — sans rien relever</span>
           <div className="ml-auto flex items-center gap-2">
             <button
+              onClick={openMailForm}
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+              title="Saisir l'adresse, le serveur IMAP et le mot de passe de la boîte dédiée directement dans l'app"
+            >
+              <PenLine className="h-3 w-3" />Régler
+            </button>
+            <button
               onClick={testMail}
               disabled={mailTesting}
               className="inline-flex items-center gap-1 rounded-lg bg-[#2B5746] px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
@@ -725,6 +791,60 @@ export function AdminAttachePanel() {
               </span>
             )}
           </div>
+
+          {status?.mail && (
+            <div className="flex items-center gap-2 text-[10.5px] text-gray-400">
+              <span>Réglages {status.mail.overrideActive ? "saisis dans l'app" : 'du serveur (.env)'}.</span>
+              {status.mail.overrideActive && (
+                <button onClick={revertMailConfig} disabled={mailSaving} className="underline hover:text-gray-600 disabled:opacity-50">Revenir aux réglages du serveur</button>
+              )}
+            </div>
+          )}
+
+          {/* Formulaire de réglages IMAP saisis dans l'app */}
+          {mailForm.open && (
+            <div className="space-y-2 rounded-lg border border-[#2B5746]/25 bg-emerald-50/30 p-3">
+              <div className="text-[11px] font-semibold text-gray-700">Réglages de la boîte dédiée (IMAP)</div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="block text-[11px] text-gray-600">Adresse de la boîte
+                  <input value={mailForm.imapUser} onChange={(e) => setMailForm({ ...mailForm, imapUser: e.target.value })}
+                    placeholder="crimorg@siral.fr"
+                    className="mt-0.5 w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
+                </label>
+                <label className="block text-[11px] text-gray-600">Mot de passe
+                  <input type="password" value={mailForm.imapPassword} onChange={(e) => setMailForm({ ...mailForm, imapPassword: e.target.value })}
+                    placeholder={status?.mail?.imapPasswordSet ? '•••••• (laisser vide = inchangé)' : 'mot de passe de la boîte'}
+                    className="mt-0.5 w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
+                </label>
+                <label className="block text-[11px] text-gray-600">Serveur IMAP
+                  <input value={mailForm.imapHost} onChange={(e) => setMailForm({ ...mailForm, imapHost: e.target.value })}
+                    placeholder="zimbra1.mail.ovh.net"
+                    className="mt-0.5 w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
+                </label>
+                <div className="flex items-end gap-3">
+                  <label className="block text-[11px] text-gray-600">Port
+                    <input value={mailForm.imapPort} onChange={(e) => setMailForm({ ...mailForm, imapPort: e.target.value.replace(/[^0-9]/g, '') })}
+                      className="mt-0.5 w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 pb-1.5 text-[11px] text-gray-600">
+                    <input type="checkbox" checked={mailForm.imapSecure} onChange={(e) => setMailForm({ ...mailForm, imapSecure: e.target.checked })} />SSL/TLS
+                  </label>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span className="mr-auto text-[10.5px] text-gray-400">Boîte OVH/Zimbra : <code>zimbra1.mail.ovh.net</code> · 993 · SSL · identifiant = adresse complète.</span>
+                <button onClick={() => setMailForm({ ...mailForm, open: false })} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">Annuler</button>
+                <button onClick={saveMailForm} disabled={mailSaving || !mailForm.imapHost.trim() || !mailForm.imapUser.trim()}
+                  className="rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                  {mailSaving ? 'Enregistrement…' : 'Enregistrer et tester'}
+                </button>
+              </div>
+              <p className="text-[10.5px] leading-relaxed text-gray-400">
+                Le mot de passe est confié au service attaché, qui le chiffre avec sa clé-maître — l'app ne le conserve jamais.
+                L'envoi (SMTP) reste désactivé : ces réglages ne servent qu'à <b>relever</b> la boîte.
+              </p>
+            </div>
+          )}
 
           {/* Dernière erreur de relève automatique, si présente */}
           {status?.state?.lastFetchOk === false && status?.state?.lastFetchError && (

@@ -372,8 +372,16 @@ l'usage).
    relevé ni marqué lu) et indique soit « boîte réellement vide » soit
    l'erreur précise (identifiants, hôte, TLS). *Détails* affiche la
    configuration non secrète (adresse de la boîte, hôte/port IMAP, présence
-   du mot de passe) et la dernière erreur de relève automatique. Les
-   identifiants se règlent côté serveur (`SIRAL_ATTACHE_IMAP_*`).
+   du mot de passe) et la dernière erreur de relève automatique.
+
+   Les identifiants se règlent au choix côté serveur (`SIRAL_ATTACHE_IMAP_*`)
+   **ou directement dans l'app** : bouton *Régler* de cette même section
+   (adresse, serveur IMAP, port, SSL, mot de passe). Les valeurs saisies dans
+   l'app **prévalent** sur l'environnement ; le mot de passe est confié au
+   service attaché qui le chiffre avec sa clé-maître (jamais stocké par
+   l'app). *Revenir aux réglages du serveur* efface cette saisie.
+   Boîte OVH/Zimbra type : `zimbra1.mail.ovh.net`, port 993, SSL,
+   identifiant = adresse complète (ex. `crimorg@siral.fr`).
 
 6. **Utiliser** : l'icône balance ⚖ apparaît dans l'en-tête (admin
    uniquement). Transférer un mail à `ia@…` avec une consigne dans le corps —
