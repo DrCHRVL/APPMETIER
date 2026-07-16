@@ -5,8 +5,18 @@
  *  - navigations      → réseau d'abord, repli sur la coquille en cache
  *  - statiques (_next) → cache d'abord (immuables, hashés par le build)
  */
-const SHELL_CACHE = 'siral-shell-v1'
-const STATIC_CACHE = 'siral-static-v1'
+const SHELL_CACHE = 'siral-shell-v2'
+const STATIC_CACHE = 'siral-static-v2'
+
+/* Ne mettre en cache que les VRAIES réponses de l'app : un 200 same-origin,
+ * non redirigé. Sans ce garde-fou, une réponse transitoire (502 au reboot du
+ * serveur, page de redirection, maintenance HTML) pouvait être mémorisée comme
+ * coquille et rejouée à chaque lancement de l'app installée → écran blanc /
+ * « client-side exception », alors que Safari (chargement réseau frais) marche.
+ */
+function isCacheable(res) {
+  return !!res && res.ok && res.status === 200 && res.type === 'basic' && !res.redirected
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -34,8 +44,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone()
-          caches.open(SHELL_CACHE).then((c) => c.put('/', copy)).catch(() => {})
+          if (isCacheable(res)) {
+            const copy = res.clone()
+            caches.open(SHELL_CACHE).then((c) => c.put('/', copy)).catch(() => {})
+          }
           return res
         })
         .catch(() => caches.match('/'))
@@ -51,8 +63,10 @@ self.addEventListener('fetch', (event) => {
       caches.match(req).then((hit) => {
         if (hit) return hit
         return fetch(req).then((res) => {
-          const copy = res.clone()
-          caches.open(STATIC_CACHE).then((c) => c.put(req, copy)).catch(() => {})
+          if (isCacheable(res)) {
+            const copy = res.clone()
+            caches.open(STATIC_CACHE).then((c) => c.put(req, copy)).catch(() => {})
+          }
           return res
         })
       })
