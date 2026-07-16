@@ -176,11 +176,17 @@ l'usage).
   Paramètres → Attaché IA → « Trames ». La conversion en **markdown se fait
   dans le navigateur** (le fichier ne quitte jamais le poste en clair), puis
   chaque trame est chiffrée et versionnée comme les autres. Option « Faire
-  analyser » : l'attaché lit chaque trame, la **classe** (description mise à
-  jour via `trame_decrire` — le contenu n'est JAMAIS modifié) et publie dans
-  le fil « pendant votre absence » ses **propositions d'amélioration légale
-  ou structurelle** — propositions seulement, le magistrat décide. Bouton
-  « Analyser toute la bibliothèque » pour relancer à la demande.
+  analyser » : l'attaché lit chaque trame **en profondeur** (délégation à des
+  sous-agents en parallèle au-delà de 2 trames), la **classe** (description
+  mise à jour via `trame_decrire` — le contenu n'est JAMAIS modifié) et remet
+  dans le fil « pendant votre absence » un **livrable détaillé** : contrôle de
+  légalité fondement par fondement (textes en vigueur, mentions obligatoires à
+  peine de nullité, régime dérogatoire 706-80), solidité procédurale, structure
+  et rédaction, puis une **synthèse transversale** (doublons, lacunes,
+  incohérences entre trames) — propositions **hiérarchisées par gravité**, le
+  magistrat décide. Bouton « Analyser toute la bibliothèque » pour relancer à la
+  demande ; le bouton indique clairement s'il faut d'abord remettre les clés et
+  affiche l'état du lancement sur place.
 - **Base de connaissances — le cerveau documentaire** (pensez Obsidian
   branché sur l'IA) : le fond durable du cabinet — jurisprudences,
   conventions et circulaires, modes opératoires, fiches réflexes, contacts —

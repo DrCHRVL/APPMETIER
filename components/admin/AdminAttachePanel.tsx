@@ -105,6 +105,8 @@ export function AdminAttachePanel() {
   const [converting, setConverting] = useState(false);
   const [analyseAfter, setAnalyseAfter] = useState(true);
   const [uploadBusy, setUploadBusy] = useState<string | null>(null); // « 3/12 » pendant l'enregistrement
+  const [trameAnalyseBusy, setTrameAnalyseBusy] = useState(false);    // « Analyser toute la bibliothèque » en cours
+  const [trameAnalyseMsg, setTrameAnalyseMsg] = useState<string | null>(null); // retour affiché AU BOUTON (le toast est loin en haut)
   const trameFileInput = useRef<HTMLInputElement>(null);
   const skillFileInput = useRef<HTMLInputElement>(null);
 
@@ -308,19 +310,33 @@ export function AdminAttachePanel() {
     setNotice(`${saved.length} skill(s) importée(s)${failed.length ? ` — échec : ${failed.join(', ')}` : ''}. L'attaché les applique dès le prochain échange.`);
   }, [skillStaged, loadSkills]);
 
-  /** Relance l'analyse IA (classement + propositions) sur des trames déjà en bibliothèque. */
+  /** Relance l'analyse IA approfondie (classement + contrôle de légalité + propositions) sur des trames en bibliothèque. */
   const analyseTrames = useCallback(async (noms: string[]) => {
     if (!noms.length) return;
+    // Sans trousseau, le service attaché ne peut pas déchiffrer les trames : on le
+    // dit clairement AU LIEU d'un bouton mort qui ne réagit pas (feedback local + toast).
+    if (!status?.keyring?.granted) {
+      const m = 'Remettez d\'abord les clés à l\'attaché (bouton « Remettre les clés » en haut) — sans elles, il ne peut pas lire les trames pour les analyser.';
+      setTrameAnalyseMsg(m);
+      setNotice(m);
+      return;
+    }
+    setTrameAnalyseBusy(true);
+    setTrameAnalyseMsg('Analyse approfondie en cours de lancement…');
+    setNotice('Analyse approfondie en cours de lancement…');
     const res = await fetch('/api/attache/trames', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ analyse: noms }),
     }).catch(() => null);
     const data = res ? await res.json().catch(() => ({} as { error?: string })) : { error: 'service injoignable' };
-    setNotice(res?.ok
-      ? `Analyse de ${noms.length} trame(s) lancée — résultat dans le fil « pendant votre absence ».`
-      : `Analyse impossible : ${data.error || 'erreur'}`);
-  }, []);
+    const msg = res?.ok
+      ? `Analyse approfondie de ${noms.length} trame(s) lancée — classement, contrôle de légalité et propositions hiérarchisées arriveront dans le fil « pendant votre absence » (livrable détaillé).`
+      : `Analyse impossible : ${data.error || 'erreur'}`;
+    setTrameAnalyseMsg(msg);
+    setNotice(msg);
+    setTrameAnalyseBusy(false);
+  }, [status]);
 
   const saveTrameForm = useCallback(async () => {
     const id = entrySlug(trameForm.nom);
@@ -1254,12 +1270,24 @@ export function AdminAttachePanel() {
           </div>
         )}
         {trames.length > 0 && (
-          <div className="border-t border-gray-100 px-3 py-2">
-            <button onClick={() => analyseTrames(trames.map((t) => t.nom))} disabled={!kr?.granted}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-              title="L'attaché relit chaque trame, met à jour son classement et publie ses propositions d'amélioration">
-              <Sparkles className="h-3 w-3" />Analyser toute la bibliothèque
-            </button>
+          <div className="space-y-1.5 border-t border-gray-100 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => analyseTrames(trames.map((t) => t.nom))} disabled={trameAnalyseBusy}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+                title="L'attaché relit CHAQUE trame en profondeur : classement, contrôle de légalité (fondements en vigueur, mentions obligatoires, nullités, régime 706-80) et propositions hiérarchisées — livrable détaillé dans le fil « pendant votre absence ».">
+                {trameAnalyseBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                Analyser toute la bibliothèque
+              </button>
+              <span className="text-[10.5px] text-gray-400">{trames.length} trame(s) · analyse juridique approfondie</span>
+            </div>
+            {!kr?.granted && (
+              <p className="text-[10.5px] text-amber-600">
+                Remettez d&apos;abord les clés à l&apos;attaché (bouton « Remettre les clés » en haut) pour lancer l&apos;analyse.
+              </p>
+            )}
+            {trameAnalyseMsg && (
+              <p className="text-[10.5px] leading-relaxed text-gray-500">{trameAnalyseMsg}</p>
+            )}
           </div>
         )}
       </div>
