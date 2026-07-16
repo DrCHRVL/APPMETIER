@@ -91,6 +91,32 @@ l'usage).
   n'usent plus ni CPU ni tokens ; si le PDF change, le cache se régénère
   tout seul. Le répertoire des documents, synchronisé avec le commun
   Windows, n'est pas touché.
+- **Montre où passent les jetons** : chaque run du CLI émet, en fin
+  d'exécution, un bilan `usage` (jetons entrée/sortie/cache) et un
+  `total_cost_usd` (équivalent au tarif API). Le service les consigne dans
+  `attache/usage.jsonl` — **en clair** : ce ne sont que des nombres et des
+  horodatages, aucune donnée d'enquête, lisibles même trousseau non remis.
+  Paramètres → Attaché IA → **« Consommation IA »** les traduit pour un
+  profane : deux jauges (fenêtre glissante de **5 h**, celle qui bride le
+  plus vite, et **7 jours**) en **pourcentage du forfait**, la répartition
+  par poste (conversations, mails, brief, routines, classements,
+  **sous-agents**), et l'équivalent crédits en euros. Le forfait sert de
+  **repère ajustable** : l'abonnement ne publie pas ses plafonds en jetons
+  (limites en messages/heures), donc les plafonds Pro / Max 5× / Max 20×
+  sont des ordres de grandeur que le magistrat affine — les jetons mesurés,
+  eux, sont exacts. Route interne `GET /usage`.
+- **Mode économe (levier anti-consommation)** : Paramètres → Attaché IA →
+  « Consommation IA » → **Mode économe**. Les **sous-agents** sont le premier
+  poste de dépense (un run complet par PDF/dossier, en parallèle) : le mode
+  les bascule sur un **modèle rapide** (Haiku) avec **moins de tours**
+  (8 au lieu de 15) et un **effort réduit**, et resserre le run principal
+  (24 tours au lieu de 40). Les conversations gardent le modèle choisi.
+  À activer quand les jetons filent ; à couper pour un dépouillement lourd.
+  Autres leviers permanents : choisir un **modèle de sous-agents** plus léger
+  (« Cerveau »), baisser l'**effort**, borner la concurrence
+  (`SIRAL_ATTACHE_SUBAGENT_CONCURRENCY`) et les tours des sous-agents
+  (`SIRAL_ATTACHE_SUBAGENT_MAX_TURNS`), et laisser jouer le **cache de PDF**
+  (ci-dessus) qui évite de re-payer l'extraction à chaque relecture.
 - **Suit vos consignes permanentes** : un « prompt » libre, rédigé par le
   magistrat (Paramètres → Attaché IA → « Consignes permanentes » — l'équivalent
   de vos instructions Claude web : style, méthode, réflexes), relu au début de

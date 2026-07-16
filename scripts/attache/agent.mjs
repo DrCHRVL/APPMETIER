@@ -17,6 +17,7 @@ import { attacheDir, attacheContentieux, ensureDir, atomicWrite, readEnvelopeFil
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { readMemory } from './memory.mjs'
 import { readInstructions } from './instructions.mjs'
+import { extractUsage, recordUsage } from './usage.mjs'
 import { skillsPromptSection } from './skills.mjs'
 import { kbPromptSection } from './kb.mjs'
 
@@ -41,6 +42,7 @@ const WEB_TOOLS = ['WebSearch', 'WebFetch']
 // avant d'être passés au CLI. Vide = défaut de l'abonnement.
 const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 const MODEL_RE = /^[a-zA-Z0-9][a-zA-Z0-9._[\]-]{0,63}$/
+const PLANS = new Set(['', 'pro', 'max5', 'max20', 'custom'])
 
 export function sanitizeModel(value) {
   const v = String(value || '').trim()
@@ -52,7 +54,19 @@ export function sanitizeEffort(value) {
   return EFFORT_LEVELS.has(v) ? v : ''
 }
 
-/** Configuration persistée (Paramètres → Attaché IA) : modèle, effort, web, sous-agents. */
+export function sanitizePlan(value) {
+  const v = String(value || '').trim()
+  return PLANS.has(v) ? v : ''
+}
+
+/** Plafond de jetons (repère du forfait) : entier positif borné, 0 = non défini. */
+export function sanitizeCap(value) {
+  const n = Math.floor(Number(value))
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return Math.min(n, 100_000_000_000)
+}
+
+/** Configuration persistée (Paramètres → Attaché IA) : modèle, effort, web, sous-agents, forfait. */
 export function agentConfig() {
   const cfg = readState().config || {}
   return {
@@ -60,6 +74,15 @@ export function agentConfig() {
     effort: sanitizeEffort(cfg.effort),
     webAccess: cfg.webAccess === true,
     subModel: sanitizeModel(cfg.subModel),
+    // Mode économe : bride les sous-agents (modèle rapide + moins de tours) et
+    // resserre le run principal — la consommation, surtout en parallèle, chute.
+    econome: cfg.econome === true,
+    // Repère du forfait (pour traduire la consommation en %) : plafonds de
+    // jetons estimés, ajustables. Purement indicatifs (l'abonnement ne publie
+    // pas ses seuils en jetons).
+    plan: sanitizePlan(cfg.plan),
+    cap5h: sanitizeCap(cfg.cap5h),
+    capHebdo: sanitizeCap(cfg.capHebdo),
   }
 }
 
@@ -263,6 +286,9 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
   const cfg = agentConfig()
   const useModel = sanitizeModel(model) || cfg.model || sanitizeModel(MODEL)
   const useEffort = sanitizeEffort(effort) || cfg.effort
+  // Mode économe : on resserre le plafond de tours du run principal (moins
+  // d'allers-retours = moins de jetons), sans descendre sous un minimum utile.
+  const maxTurns = cfg.econome ? Math.min(MAX_TURNS, 24) : MAX_TURNS
   // Recherche web autorisée par le magistrat : WebSearch/WebFetch sortent de
   // la liste noire et entrent dans la liste blanche — rien d'autre ne bouge.
   const allowedTools = cfg.webAccess ? [ALLOWED_TOOLS, ...WEB_TOOLS].join(',') : ALLOWED_TOOLS
@@ -283,7 +309,7 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
     '--allowedTools', allowedTools,
     '--disallowedTools', disallowedTools,
     '--append-system-prompt', systemPrompt(keys),
-    '--max-turns', String(MAX_TURNS),
+    '--max-turns', String(maxTurns),
     ...(useModel ? ['--model', useModel] : []),
     ...(useEffort ? ['--effort', useEffort] : []),
     ...(isNew || !conv.resumable ? ['--session-id', conv.claudeSessionId] : ['--resume', conv.claudeSessionId]),
@@ -364,6 +390,9 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
           continue
         }
         if (ev.type === 'result') {
+          // Bilan de jetons du run (consommés que le run réussisse ou non).
+          const usage = extractUsage(ev)
+          if (usage) recordUsage({ run: runLabel, model: useModel, usage })
           if (ev.subtype === 'success') {
             if (!assistantText && typeof ev.result === 'string') {
               assistantText = ev.result
