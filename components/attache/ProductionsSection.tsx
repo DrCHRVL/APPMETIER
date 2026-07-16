@@ -49,6 +49,7 @@ const TYPE_LABEL: Record<string, string> = {
   projet_reponse: 'Projet de réponse',
   soit_transmis: 'Soit-transmis',
   note: 'Note',
+  livrable: 'Livrable',
   autre: 'Acte',
 };
 

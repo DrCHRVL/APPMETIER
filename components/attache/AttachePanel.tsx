@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   X, Send, Plus, Scale, BookOpen, RefreshCw, Loader2, Inbox, Paperclip, FileText,
-  History, ChevronDown, ChevronUp, Wrench, AlertTriangle, Sparkles,
+  History, ChevronDown, ChevronUp, Wrench, AlertTriangle,
 } from 'lucide-react';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig } from './modelOptions';
 
@@ -34,13 +34,6 @@ interface FeedCard {
   convId?: string; qid?: string;
 }
 interface ConvMeta { id: string; mtime: string }
-
-const FEED_SEEN_KEY = 'attache_feed_seen_ts';
-
-const FEED_ICONS: Record<string, string> = {
-  mail_traite: '📨', synthese: '📋', acte: '⚖️', prolongation: '🕐',
-  projet_reponse: '✉️', alerte: '⚠️', note: '📝', question: '❓', livrable: '📦',
-};
 
 export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -322,13 +315,12 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
     }
   }, [memoryText]);
 
-  // fil : marquer vu à la fermeture du bloc
-  const unseenCount = feed.filter((f) => f.ts > Number(localStorage.getItem(FEED_SEEN_KEY) || 0)).length;
-  const markFeedSeen = useCallback(() => {
-    if (feed.length) localStorage.setItem(FEED_SEEN_KEY, String(feed[0].ts));
-  }, [feed]);
-
   if (!open) return null;
+
+  // « À trancher » : questions de l'attaché encore sans réponse (les autres
+  // cartes du fil — ce qui a été fait — vivent désormais dans le journal
+  // « pendant votre absence » du tableau de bord).
+  const aTrancher = feed.filter((f) => f.type === 'question' && f.qid && !questionStatuses[f.qid]?.status);
 
   const keyringOk = status?.keyring?.granted;
   const claudeOk = status?.claude?.ok;
@@ -386,79 +378,58 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
         </div>
       )}
 
-      {/* Fil « pendant votre absence » */}
-      {feed.length > 0 && (
-        <div className="border-b border-gray-200 bg-gray-50/70">
+      {/* « À trancher » — les questions de l'attaché qui attendent votre décision */}
+      {aTrancher.length > 0 && (
+        <div className="border-b border-amber-200 bg-amber-50/70">
           <button
-            onClick={() => { setFeedOpen((v) => !v); if (feedOpen) markFeedSeen(); }}
-            className="flex w-full items-center gap-2 px-4 py-2 text-left"
+            onClick={() => setFeedOpen((v) => !v)}
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left"
           >
-            <Sparkles className="h-3.5 w-3.5 text-[#2B5746]" />
-            <span className="flex-1 text-xs font-semibold text-gray-700">
-              Pendant votre absence
-              {unseenCount > 0 && <span className="ml-2 rounded-full bg-[#2B5746] px-1.5 py-0.5 text-[10px] font-bold text-white">{unseenCount}</span>}
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <span className="flex-1 text-[13px] font-bold text-amber-900">
+              À trancher
+              <span className="ml-2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{aTrancher.length}</span>
             </span>
-            {feedOpen ? <ChevronUp className="h-3.5 w-3.5 text-gray-400" /> : <ChevronDown className="h-3.5 w-3.5 text-gray-400" />}
+            {feedOpen ? <ChevronUp className="h-3.5 w-3.5 text-amber-500" /> : <ChevronDown className="h-3.5 w-3.5 text-amber-500" />}
           </button>
           {feedOpen && (
-            <div className="max-h-56 space-y-2 overflow-y-auto px-4 pb-3">
-              {feed.slice(0, 20).map((f, i) => {
-                const isQuestion = f.type === 'question' && f.convId && f.qid;
-                const isLivrable = f.type === 'livrable';
-                const qStatus = f.qid ? questionStatuses[f.qid]?.status : undefined;
-                return (
-                  <div key={i} className={`rounded-lg border bg-white p-2.5 ${isQuestion && !qStatus ? 'border-amber-300 ring-1 ring-amber-100' : isLivrable ? 'border-[#2B5746]/30' : 'border-gray-200'}`}>
-                    <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-800">
-                      <span>{FEED_ICONS[f.type] || '•'}</span>
-                      <span className="flex-1 truncate">{f.titre}</span>
-                      {f.numero && <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{f.numero}</span>}
-                      {isLivrable && (
-                        <button
-                          onClick={() => { navigator.clipboard?.writeText(f.resume).catch(() => {}); }}
-                          className="rounded-md border border-[#2B5746]/30 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-[#2B5746] hover:bg-emerald-100"
-                          title="Copier le livrable complet"
-                        >
-                          Copier
-                        </button>
-                      )}
-                      {isQuestion && qStatus && (
-                        <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
-                          {qStatus === 'repondu' ? 'répondu ✓' : 'ignorée'}
-                        </span>
-                      )}
-                    </div>
-                    <div className={`mt-1 text-[11.5px] leading-relaxed text-gray-600 ${isLivrable ? 'max-h-48 overflow-y-auto whitespace-pre-wrap rounded bg-gray-50 px-2 py-1.5' : ''}`}>{f.resume}</div>
-                    <div className="mt-1 text-[10px] text-gray-400">{f.at ? new Date(f.at).toLocaleString('fr-FR') : ''}</div>
-                    {isQuestion && !qStatus && (
-                      <div className="mt-2 space-y-1.5 border-t border-amber-100 pt-2">
-                        <textarea
-                          value={questionDraft[f.qid!] || ''}
-                          onChange={(e) => setQuestionDraft((prev) => ({ ...prev, [f.qid!]: e.target.value }))}
-                          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); repondreQuestion(f); } }}
-                          rows={2}
-                          placeholder="Votre réponse — elle reprend directement sa conversation, avec tout le contexte…"
-                          className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11.5px] leading-relaxed outline-none focus:border-[#2B5746]/50"
-                        />
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => setQuestionStatus(f.qid!, 'ignore')}
-                            className="rounded-lg border border-gray-200 px-2.5 py-1 text-[10.5px] font-medium text-gray-500 hover:bg-gray-50"
-                          >
-                            Ignorer
-                          </button>
-                          <button
-                            onClick={() => repondreQuestion(f)}
-                            disabled={busy || !(questionDraft[f.qid!] || '').trim()}
-                            className="rounded-lg bg-[#2B5746] px-2.5 py-1 text-[10.5px] font-semibold text-white disabled:opacity-40"
-                          >
-                            Répondre
-                          </button>
-                        </div>
-                      </div>
-                    )}
+            <div className="max-h-[22rem] space-y-2.5 overflow-y-auto px-4 pb-3">
+              {aTrancher.map((f, i) => (
+                <div key={i} className="rounded-xl border border-amber-300 bg-white p-3 shadow-sm ring-1 ring-amber-100">
+                  <div className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-900">
+                    <span>❓</span>
+                    <span className="flex-1">{f.titre}</span>
+                    {f.numero && <span className="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{f.numero}</span>}
                   </div>
-                );
-              })}
+                  <div className="mt-1.5 text-[12.5px] leading-relaxed text-gray-700 whitespace-pre-wrap">{f.resume}</div>
+                  <div className="mt-1 text-[10px] text-gray-400">{f.at ? new Date(f.at).toLocaleString('fr-FR') : ''}</div>
+                  <div className="mt-2 space-y-1.5 border-t border-amber-100 pt-2">
+                    <textarea
+                      value={questionDraft[f.qid!] || ''}
+                      onChange={(e) => setQuestionDraft((prev) => ({ ...prev, [f.qid!]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); repondreQuestion(f); } }}
+                      rows={2}
+                      placeholder="Votre réponse — elle reprend directement sa conversation, avec tout le contexte…"
+                      className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-1.5 text-[12.5px] leading-relaxed outline-none focus:border-[#2B5746]/50"
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => setQuestionStatus(f.qid!, 'ignore')}
+                        className="rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-50"
+                      >
+                        Ignorer
+                      </button>
+                      <button
+                        onClick={() => repondreQuestion(f)}
+                        disabled={busy || !(questionDraft[f.qid!] || '').trim()}
+                        className="rounded-lg bg-[#2B5746] px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
+                      >
+                        Répondre
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

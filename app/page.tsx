@@ -185,6 +185,13 @@ function AppContent() {
   // Attaché de justice IA (admin uniquement, activé côté serveur)
   const [attacheAvailable, setAttacheAvailable] = useState(false);
   const [showAttache, setShowAttache] = useState(false);
+  // Le journal « pendant votre absence » (tableau de bord) peut demander
+  // l'ouverture du panneau attaché pour répondre aux décisions à trancher.
+  useEffect(() => {
+    const open = () => setShowAttache(true);
+    window.addEventListener('siral:open-attache', open);
+    return () => window.removeEventListener('siral:open-attache', open);
+  }, []);
   const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
   // Profil JLD : accès restreint au seul tableau de bord (aperçu d'acte dédié,
   // aucune autre vue, aucune alerte, aucun paramètre).
