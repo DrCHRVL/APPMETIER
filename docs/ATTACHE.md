@@ -21,6 +21,21 @@ l'usage).
   réponse JLD, notification d'instruction…), rapprochement avec le dossier,
   actions, synthèses, projets — dont le résultat s'affiche dans le fil
   « Pendant votre absence » du panneau.
+- **Dispatch — confier une tâche à distance** (l'équivalent du « Dispatch »
+  de Claude, côté SIRAL) : depuis le **téléphone** (ou le poste), le magistrat
+  CONFIE une tâche à l'attaché — « prépare la synthèse du dossier X et vérifie
+  ses échéances », « actualise les DML en attente » — qui l'exécute **en tâche
+  de fond sur le serveur, même l'application refermée**. Il en suit
+  l'avancement (**reçu → en cours → terminé**, avec l'étape en cours) dans le
+  volet **Dispatch** de l'attaché (icône fusée de l'en-tête, pastille du nombre
+  de tâches en cours), et **reprend la conversation depuis n'importe quel
+  appareil** : une tâche confiée n'est qu'une conversation amorcée par une
+  consigne, reprenable comme une autre. Le livrable est remis DANS SIRAL
+  (`remettre_livrable`, `produire_document`), la fin de tâche s'affiche aussi
+  dans le fil « pendant votre absence », et si une information manque l'attaché
+  pose sa **question** dans SIRAL (sa réponse relance la même conversation).
+  Runs sérialisés (un à la fois), journalisés, historique borné ; état de
+  suivi chiffré (clé globale) comme les routines.
 - **Ne sort JAMAIS du système** : plus aucun mail sortant (les réponses vers
   les boîtes professionnelles étaient rejetées — réputation de domaine). Les
   **livrables** se remettent DANS SIRAL : carte « Livrable 📦 » du fil

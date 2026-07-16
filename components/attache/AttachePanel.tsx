@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   X, Send, Plus, Scale, BookOpen, RefreshCw, Loader2, Inbox, Paperclip, FileText,
   History, ChevronDown, ChevronUp, Wrench, AlertTriangle, Sparkles,
+  Rocket, Trash2, CheckCircle2, MessageSquare,
 } from 'lucide-react';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig } from './modelOptions';
 
@@ -40,7 +41,14 @@ const FEED_SEEN_KEY = 'attache_feed_seen_ts';
 const FEED_ICONS: Record<string, string> = {
   mail_traite: '📨', synthese: '📋', acte: '⚖️', prolongation: '🕐',
   projet_reponse: '✉️', alerte: '⚠️', note: '📝', question: '❓', livrable: '📦',
+  dispatch: '📮',
 };
+
+interface Dispatch {
+  id: string; convId: string; titre: string; consigne: string;
+  statut: 'en_cours' | 'termine' | 'erreur'; resume: string;
+  createdAt: string; updatedAt: string; etape?: string | null;
+}
 
 export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -59,6 +67,11 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
   // Bumpé à la fin de chaque tour de chat : recharge les propositions de
   // création de dossier (l'attaché a pu en déposer une pendant le run).
   const [propositionsReload, setPropositionsReload] = useState(0);
+  // Dispatch : tâches confiées à distance, exécutées en tâche de fond.
+  const [view, setView] = useState<'chat' | 'dispatch'>('chat');
+  const [dispatches, setDispatches] = useState<Dispatch[]>([]);
+  const [dispatchInput, setDispatchInput] = useState('');
+  const [dispatchBusy, setDispatchBusy] = useState(false);
   const streamRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -92,6 +105,15 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
     } catch { /* silencieux */ }
   }, []);
 
+  const loadDispatches = useCallback(async () => {
+    try {
+      const res = await fetch('/api/attache/dispatch');
+      if (!res.ok) return;
+      const { dispatches: list } = await res.json();
+      setDispatches(Array.isArray(list) ? list : []);
+    } catch { /* silencieux */ }
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     fetch('/api/attache/status').then(async (r) => {
@@ -102,7 +124,17 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
     }).catch(() => setStatus({ error: true }));
     loadFeed();
     loadConversations();
-  }, [open, loadFeed, loadConversations]);
+    loadDispatches();
+  }, [open, loadFeed, loadConversations, loadDispatches]);
+
+  // Suivi vivant : tant qu'une tâche confiée tourne, on rafraîchit la liste
+  // (statut reçu → en cours → terminé, et l'étape en cours) toutes les 4 s.
+  const hasRunningDispatch = dispatches.some((d) => d.statut === 'en_cours');
+  useEffect(() => {
+    if (!open || !hasRunningDispatch) return;
+    const t = setInterval(loadDispatches, 4000);
+    return () => clearInterval(t);
+  }, [open, hasRunningDispatch, loadDispatches]);
 
   /** Choix modèle/effort : persistés côté service, envoyés avec chaque message. */
   const updateCfg = useCallback((patch: AttacheConfig) => {
@@ -130,6 +162,37 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
     setMessages([]);
     setShowConvList(false);
   }, []);
+
+  // ── Dispatch : confier une tâche exécutée en tâche de fond ──
+  const confierTache = useCallback(async () => {
+    const consigne = dispatchInput.trim();
+    if (!consigne || dispatchBusy) return;
+    setDispatchBusy(true);
+    try {
+      const res = await fetch('/api/attache/dispatch', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ consigne }),
+      });
+      if (res.ok) {
+        setDispatchInput('');
+        await loadDispatches();
+      }
+    } finally {
+      setDispatchBusy(false);
+    }
+  }, [dispatchInput, dispatchBusy, loadDispatches]);
+
+  const supprimerDispatch = useCallback(async (id: string) => {
+    setDispatches((prev) => prev.filter((d) => d.id !== id));
+    await fetch('/api/attache/dispatch?id=' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {});
+  }, []);
+
+  /** Ouvre la conversation d'une tâche confiée pour la lire ou la poursuivre. */
+  const ouvrirDispatch = useCallback((d: Dispatch) => {
+    setView('chat');
+    openConversation(d.convId);
+  }, [openConversation]);
 
   // ── Envoi + streaming SSE ──
   // `cid` force la conversation cible (réponse à une question de l'attaché :
@@ -332,6 +395,7 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
 
   const keyringOk = status?.keyring?.granted;
   const claudeOk = status?.claude?.ok;
+  const runningDispatchCount = dispatches.filter((d) => d.statut === 'en_cours').length;
 
   return (
     <div className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-[440px] flex-col border-l border-gray-200 bg-white shadow-2xl">
@@ -349,6 +413,16 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
               'administrateur · ' + (status?.contentieux || '')}
           </div>
         </div>
+        <button
+          onClick={() => setView((v) => (v === 'dispatch' ? 'chat' : 'dispatch'))}
+          title="Dispatch — confier une tâche exécutée en tâche de fond"
+          className={`relative rounded-lg border p-1.5 ${view === 'dispatch' ? 'border-[#2B5746] bg-emerald-50 text-[#2B5746]' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+        >
+          <Rocket className="h-4 w-4" />
+          {runningDispatchCount > 0 && (
+            <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[#2B5746] px-1 text-[9px] font-bold text-white">{runningDispatchCount}</span>
+          )}
+        </button>
         <button onClick={openMemory} title="Mémoire de l'attaché" className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50">
           <BookOpen className="h-4 w-4" />
         </button>
@@ -386,6 +460,109 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
         </div>
       )}
 
+      {/* ── Vue Dispatch : tâches confiées, exécutées en tâche de fond ── */}
+      {view === 'dispatch' && (
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="border-b border-gray-200 bg-gray-50/70 px-4 py-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+              <Rocket className="h-4 w-4 text-[#2B5746]" /> Dispatch
+            </div>
+            <p className="mt-0.5 text-[11.5px] leading-relaxed text-gray-500">
+              Confiez une tâche à votre attaché — il la traite en arrière-plan, même app fermée. Suivez son
+              avancement ici, reprenez la conversation depuis n'importe quel appareil.
+            </p>
+            <div className="mt-2.5 rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm focus-within:border-[#2B5746]/40">
+              <textarea
+                value={dispatchInput}
+                onChange={(e) => setDispatchInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); confierTache(); } }}
+                rows={3}
+                placeholder="Ex. « Prépare la synthèse du dossier 24/0123 et vérifie ses échéances », « Actualise les DML en attente »…"
+                className="w-full resize-none bg-transparent text-[13px] text-gray-800 outline-none placeholder:text-gray-400"
+              />
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[10px] text-gray-400">Il agit dans SIRAL · livrables remis dans l'app</span>
+                <button
+                  onClick={confierTache}
+                  disabled={dispatchBusy || !dispatchInput.trim() || !keyringOk || !claudeOk}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#2B5746] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-40"
+                >
+                  {dispatchBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  Confier la tâche
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 space-y-2.5 overflow-y-auto px-4 py-3">
+            {dispatches.length === 0 && (
+              <div className="mt-10 space-y-2 text-center">
+                <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-[#2B5746] to-[#3c7a5f] text-white">
+                  <Rocket className="h-6 w-6" />
+                </div>
+                <p className="text-sm text-gray-600">Aucune tâche confiée.</p>
+                <p className="mx-auto max-w-xs text-[11.5px] leading-relaxed text-gray-400">
+                  Idéal depuis le téléphone : confiez une tâche, refermez l'app, retrouvez le résultat dans SIRAL.
+                </p>
+              </div>
+            )}
+            {dispatches.map((d) => {
+              const running = d.statut === 'en_cours';
+              const erreur = d.statut === 'erreur';
+              return (
+                <div key={d.id} className={`rounded-xl border bg-white p-3 ${running ? 'border-amber-300 ring-1 ring-amber-100' : erreur ? 'border-red-200' : 'border-gray-200'}`}>
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5 text-base leading-none">📮</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-semibold text-gray-800">{d.titre}</div>
+                      <div className="mt-0.5 flex items-center gap-1.5 text-[11px]">
+                        {running ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700">
+                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                            En cours{d.etape ? ` · ${d.etape}` : ''}
+                          </span>
+                        ) : erreur ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-1.5 py-0.5 font-medium text-red-700">
+                            <AlertTriangle className="h-2.5 w-2.5" /> Interrompue
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700">
+                            <CheckCircle2 className="h-2.5 w-2.5" /> Terminé
+                          </span>
+                        )}
+                        <span className="text-gray-400">{new Date(d.createdAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => supprimerDispatch(d.id)}
+                      title="Retirer de la liste"
+                      className="rounded-md p-1 text-gray-300 hover:bg-gray-50 hover:text-gray-500"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  {!running && d.resume && (
+                    <div className={`mt-2 whitespace-pre-wrap rounded-lg px-2.5 py-1.5 text-[11.5px] leading-relaxed ${erreur ? 'bg-red-50/60 text-red-800' : 'bg-gray-50 text-gray-600'}`}>
+                      {d.resume}
+                    </div>
+                  )}
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      onClick={() => ouvrirDispatch(d)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50"
+                    >
+                      <MessageSquare className="h-3 w-3" />
+                      {running ? 'Voir la conversation' : 'Ouvrir · poursuivre'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {view === 'chat' && (<>
       {/* Fil « pendant votre absence » */}
       {feed.length > 0 && (
         <div className="border-b border-gray-200 bg-gray-50/70">
@@ -596,6 +773,7 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
           Il agit dans SIRAL (réversible, journalisé) · seule sortie : votre adresse mail
         </p>
       </div>
+      </>)}
 
       {/* Modale mémoire */}
       {showMemory && (

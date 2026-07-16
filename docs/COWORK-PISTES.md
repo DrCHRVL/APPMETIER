@@ -204,6 +204,7 @@ Priorité **moyenne** (le socle existe, c'est de l'enrichissement).
 | 4 | **Trames** : téléversement en masse + analyse IA (classement, propositions d'amélioration) | Bibliothèque vivante | Faible-moyen | 🟠 Moyenne | ✅ Fait (variables/gabarits : à faire) |
 | 5 | **Projets/dossiers persistants** enrichis | Continuité du travail | Faible | 🟢 Basse | À faire |
 | 6 | **Citations systématiques** | Confiance / vérifiabilité | Faible | 🟢 Basse | Partiel (règle de prompt) |
+| 7 | **Dispatch** (confier une tâche à distance, exécutée en tâche de fond, suivie et reprise depuis n'importe quel appareil) | Travail mobile, continuité | Faible-moyen | 🟠 Moyenne | ✅ Fait |
 
 **Séquence recommandée** : 1 → 2 → 3 (le convertisseur alimente la base ;
 les subagents accélèrent l'analyse et le brief une fois le corpus prêt).

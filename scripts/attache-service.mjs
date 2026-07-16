@@ -24,6 +24,7 @@ import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInb
 import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort } from './attache/agent.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
+import { listDispatches, createDispatch, markDispatch, deleteDispatch } from './attache/dispatch.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
@@ -207,6 +208,78 @@ async function maybeDueRoutines() {
   } finally {
     routineRunning = false
   }
+}
+
+// ── Dispatch : tâches confiées à distance, exécutées en tâche de fond ──
+// Sérialisées (un run à la fois) comme les runs proactifs — un run d'agent
+// est lourd. L'avancement vivant (« lecture du dossier… ») est tenu en
+// mémoire et fusionné à la liste renvoyée : pas d'E/S disque à chaque delta.
+let dispatchChain = Promise.resolve()
+const dispatchProgress = new Map()
+
+function friendlyTool(name) {
+  return String(name || 'outil').replace(/^mcp__siral__/, '').replace(/_/g, ' ')
+}
+
+function dispatchPrompt(consigne) {
+  return [
+    'TÂCHE CONFIÉE À DISTANCE — le magistrat te remet cette tâche (depuis son téléphone ou son poste) et',
+    'la referme : tu la traites SEUL, en tâche de fond, puis il en retrouvera le résultat dans SIRAL.',
+    'MÉTHODE : agis selon ta méthode habituelle — lis ce qu\'il faut, agis dans SIRAL (réversible, journalisé),',
+    'et REMETS le livrable DANS SIRAL : remettre_livrable pour une synthèse/note, produire_document pour un acte',
+    'à signer. Aucun mail ne part. S\'il te manque une information que toi seul ne peux trouver (un acte récent',
+    'dans NPP, une orientation à trancher), pose la question (poser_question) : la carte apparaîtra dans SIRAL et',
+    'sa réponse reprendra CETTE conversation. Termine par signaler si ton travail appelle un geste de sa part.',
+    'Ta DERNIÈRE réponse doit être un compte rendu bref (2-4 phrases) de ce que tu as fait et de ce qui l\'attend',
+    'dans SIRAL : elle sert de résumé de la tâche.',
+    '',
+    `Consigne du magistrat : ${consigne}`,
+  ].join('\n')
+}
+
+async function runDispatch(dispatch) {
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  dispatchProgress.set(dispatch.id, { etape: 'démarrage…', at: Date.now() })
+  try {
+    console.log(`[attache] dispatch « ${dispatch.titre} »`)
+    const result = await runAgent({
+      keys,
+      prompt: dispatchPrompt(dispatch.consigne),
+      convId: dispatch.convId,
+      title: dispatch.titre,
+      runLabel: 'dispatch',
+      onEvent: (ev) => {
+        if (ev.type === 'tool') dispatchProgress.set(dispatch.id, { etape: friendlyTool(ev.name), at: Date.now() })
+        else if (ev.type === 'delta') dispatchProgress.set(dispatch.id, { etape: 'rédaction du compte rendu…', at: Date.now() })
+      },
+    })
+    const resume = String(result.text || '').replace(/\s+/g, ' ').trim().slice(0, 500)
+    await markDispatch(keys, dispatch.id, {
+      statut: result.ok ? 'termine' : 'erreur',
+      resume: result.ok ? resume : (result.error || 'échec du run'),
+      convId: result.convId,
+    })
+    await audit(keys, 'dispatch_execute', { id: dispatch.id, titre: dispatch.titre, ok: result.ok, convId: result.convId, erreur: result.error })
+    await publishFeed(keys, {
+      type: 'dispatch',
+      titre: `Tâche confiée : ${dispatch.titre}`,
+      resume: result.ok ? (resume || 'Terminé.') : `La tâche n'a pas abouti (${result.error || 'erreur inconnue'}).`,
+      convId: result.convId,
+    })
+    return result
+  } catch (e) {
+    console.error('[attache] dispatch :', e)
+    try { await markDispatch(keys, dispatch.id, { statut: 'erreur', resume: String(e?.message || e).slice(0, 300) }) } catch { /* best-effort */ }
+    return { ok: false, error: String(e?.message || e) }
+  } finally {
+    dispatchProgress.delete(dispatch.id)
+  }
+}
+
+function queueDispatch(dispatch) {
+  dispatchChain = dispatchChain.then(() => runDispatch(dispatch).catch((e) => console.error('[attache] dispatch :', e)))
+  return dispatchChain
 }
 
 /** Déclenche le brief quotidien à l'heure dite (vérifié à chaque tick de relève). */
@@ -509,6 +582,40 @@ const server = http.createServer(async (req, res) => {
       // lancée en fond : la réponse ne bloque pas sur le run
       runRoutine(routine, 'manuelle').catch((e) => console.error('[attache] routine :', e))
       return json(res, 202, { ok: true, started: true })
+    }
+
+    if (route === 'GET /dispatch') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const dispatches = listDispatches(keys).map((d) => ({
+        ...d,
+        etape: d.statut === 'en_cours' ? (dispatchProgress.get(d.id)?.etape || null) : null,
+      }))
+      return json(res, 200, { dispatches })
+    }
+
+    if (route === 'POST /dispatch') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const body = await readBody(req)
+      let created
+      try {
+        created = await createDispatch(keys, { consigne: body.consigne, par: String(body.par || 'admin') })
+      } catch (e) {
+        return json(res, 400, { ok: false, error: String(e?.message || e) })
+      }
+      await audit(keys, 'dispatch_confie', { id: created.id, convId: created.convId, par: String(body.par || 'admin') })
+      // lancé en fond : la réponse ne bloque pas sur le run — le client suit le statut
+      const record = listDispatches(keys).find((d) => d.id === created.id)
+      if (record) queueDispatch(record)
+      return json(res, 202, { ok: true, ...created })
+    }
+
+    if (route === 'DELETE /dispatch') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const out = await deleteDispatch(keys, url.searchParams.get('id') || '')
+      return json(res, 200, { ok: true, ...out })
     }
 
     if (route === 'POST /trames/analyse') {
