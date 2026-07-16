@@ -48,15 +48,31 @@ const runContext = process.env.SIRAL_ATTACHE_RUN || 'chat'
  */
 export const HORS_DOSSIER = '_hors-dossier'
 
-/** Remise d'un livrable DANS SIRAL — corps commun de remettre_livrable et de son alias. */
+/** Remise d'un livrable DANS SIRAL — corps commun de remettre_livrable et de son alias.
+ *
+ * Le livrable devient une PRODUCTION éditable (comme un acte) : le magistrat le
+ * relit, le retouche (à la main ou via le chat), l'exporte PDF/Word et le
+ * valide — depuis le journal « pendant votre absence » comme depuis le dossier.
+ * La carte du fil ne porte plus qu'un extrait ; le texte vit dans la production
+ * (source unique), qu'elle référence par son `prodId`. */
 async function publierLivrable(a) {
+  const numero = a.numero ? String(a.numero).slice(0, 80) : HORS_DOSSIER
+  const titre = String(a.sujet || 'Livrable').slice(0, 200)
+  const { id } = await saveProduction(keys, {
+    numero,
+    type: 'livrable',
+    titre,
+    contenu: String(a.corps || ''),
+    source: 'livrable',
+  })
   await publishFeed(keys, {
     type: 'livrable',
-    titre: String(a.sujet || 'Livrable').slice(0, 200),
-    resume: String(a.corps || '').slice(0, 100_000),
+    titre,
+    resume: String(a.corps || '').slice(0, 2000),
     numero: a.numero ? String(a.numero).slice(0, 80) : undefined,
+    prodId: id,
   })
-  return { ok: true, note: 'Livrable remis dans SIRAL (fil « pendant votre absence ») — rien n\'est parti par mail.' }
+  return { ok: true, note: 'Livrable remis dans SIRAL (fil « pendant votre absence ») — éditable/exportable, rien n\'est parti par mail.' }
 }
 // Mode sous-agent : lancé par l'outil sous_agents — LECTURE SEULE (aucun
 // outil d'écriture, pas de sous_agents imbriqué : pas de récursion possible).
@@ -309,7 +325,8 @@ const TOOLS = [
     name: 'produire_document',
     description: `Rédige un ACTE et le range dans « Actes rédigés » du dossier (le magistrat le visionne, l'édite, l'exporte en PDF/Word officiel, puis le VALIDE). Type : ${PRODUCTION_TYPES.join(', ')}. Suis la trame correspondante (trames_lister/trame_lire) et le dossier (lire_dossier, chronologie_lire). COHÉRENCE NATINF OBLIGATOIRE : vise les qualifications enregistrées du dossier (section « Infractions (NATINF) » de lire_dossier) — si elles manquent, ajoute-les d'abord (natinf_chercher + ajouter_natinfs). Rédaction complète, prête à signer, texte brut (paragraphes séparés par des lignes vides). ` +
       'Renseigne `source` avec le nom EXACT de la trame suivie : il impose le formalisme du nom de fichier à l\'export. Pour MODIFIER un acte existant, passe son id. ' +
-      `DEMANDE SANS DOSSIER : si l'acte demandé (mail transféré) ne correspond à AUCUN dossier en cours et que la consigne ne dit pas de créer la procédure, range-le sous numero "${HORS_DOSSIER}" — il apparaît dans « Actes rédigés — hors dossier » du tableau de bord.`,
+      `DEMANDE SANS DOSSIER : si l'acte demandé (mail transféré) ne correspond à AUCUN dossier en cours et que la consigne ne dit pas de créer la procédure, range-le sous numero "${HORS_DOSSIER}" — il apparaît dans « Actes rédigés — hors dossier » du tableau de bord. ` +
+      'Un NOUVEL acte fait automatiquement apparaître une carte reliée (éditable) dans le journal « pendant votre absence » : ne la signale (signaler) pas en double.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -322,7 +339,21 @@ const TOOLS = [
       },
       required: ['numero', 'type', 'titre', 'contenu'],
     },
-    handler: async (a) => saveProduction(keys, a),
+    handler: async (a) => {
+      const r = await saveProduction(keys, a)
+      // Nouvel acte (pas une modification) : une carte reliée apparaît dans le
+      // journal « pendant votre absence » — inutile de la signaler en plus.
+      if (!a.id) {
+        await publishFeed(keys, {
+          type: 'acte',
+          titre: r.titre,
+          resume: `Acte rédigé (${a.type}) — à relire, éditer et valider.`,
+          numero: a.numero,
+          prodId: r.id,
+        })
+      }
+      return r
+    },
     write: true,
   },
   {
@@ -785,7 +816,7 @@ const TOOLS = [
   },
   {
     name: 'signaler',
-    description: 'Publie une carte dans le fil « pendant votre absence » du panneau : ce qui a été préparé, à relire. type: mail_traite | synthese | acte | prolongation | projet_reponse | alerte | note. Pour une QUESTION au magistrat, utilise poser_question (jamais signaler, jamais le mail).',
+    description: 'Publie une carte d\'INFORMATION dans le journal « pendant votre absence » : ce qui a été fait/repéré, à titre indicatif. type: mail_traite | synthese | prolongation | alerte | note. N\'utilise PAS signaler pour un acte ou un livrable déjà produit (produire_document / remettre_livrable créent déjà une carte reliée, éditable) — ce serait un doublon. Pour une QUESTION au magistrat, utilise poser_question (jamais signaler, jamais le mail).',
     inputSchema: {
       type: 'object',
       properties: {

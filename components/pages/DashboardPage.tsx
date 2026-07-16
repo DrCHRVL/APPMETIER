@@ -21,6 +21,7 @@ import { fetchAgendaMulti, AgendaEvent, AgendaSource, AgendaUrls } from '@/lib/w
 import { useUserPreferences } from '@/hooks/useUserPreferences';
 import { JLDActePreviewModal, JLDActeRef, JLDActeKind } from '@/components/modals/JLDActePreviewModal';
 import { MajordomeWidget } from '@/components/attache/MajordomeWidget';
+import { AbsenceJournal } from '@/components/attache/AbsenceJournal';
 import { InboxWidget } from '@/components/attache/InboxWidget';
 import { ProductionsSection } from '@/components/attache/ProductionsSection';
 
@@ -191,6 +192,11 @@ export const DashboardPage = ({
       {/* Brief du majordome (attaché IA) — se masque de lui-même pour tout
           compte non-admin ou si la fonctionnalité n'est pas activée. */}
       {!isJLD && <MajordomeWidget />}
+
+      {/* Journal « pendant votre absence » (attaché IA) : ce qui a été fait/préparé
+          en votre absence, groupé par dossier — les documents rédigés s'ouvrent
+          en grand (lecture, édition, retouche, export). Admin only (auto-masqué). */}
+      {!isJLD && <AbsenceJournal />}
 
       {/* Actes rédigés HORS DOSSIER (attaché IA) : demandes d'actes arrivées
           par mail sans procédure correspondante, traitées sur consigne — le
