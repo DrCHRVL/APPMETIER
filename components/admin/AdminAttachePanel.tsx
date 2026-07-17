@@ -163,6 +163,12 @@ const SIGNAL_LABELS: Record<string, string> = {
   correction_conversation: 'corrections repérées en conversation',
 };
 
+/** Proposition d'amélioration d'une trame/skill du magistrat, en attente de ✓/✗. */
+interface MethodProp {
+  id: string; type: 'trame' | 'skill'; titre: string; source?: string; creeLe?: string;
+  payload: { nom: string; contenu: string; description?: string; motif?: string; existante?: boolean };
+}
+
 /** Une tuile de progression : valeur sur 30 j, flèche face aux 30 j précédents. */
 function ProgressionTile({ label, now, before, invert = false, unit = '' }: { label: string; now: number | null; before: number | null; invert?: boolean; unit?: string }) {
   const delta = now != null && before != null ? now - before : null;
@@ -392,7 +398,44 @@ export function AdminAttachePanel() {
     }
   }, [assoc, loadAssociations]);
 
-  useEffect(() => { refresh(); loadRoutines(); loadSkills(); loadTrames(); loadAssociations(); }, [refresh, loadRoutines, loadSkills, loadTrames, loadAssociations]);
+  // ── Propositions de méthode (trames & skills révisées par l'attaché, ✓/✗) ──
+  const [methodProps, setMethodProps] = useState<MethodProp[]>([]);
+  const [methodBusy, setMethodBusy] = useState<string | null>(null);
+
+  const loadMethodProps = useCallback(async () => {
+    try {
+      const res = await fetch('/api/attache/propositions');
+      if (!res.ok) return;
+      const { propositions } = await res.json();
+      setMethodProps(((propositions || []) as MethodProp[]).filter((p) => p.type === 'trame' || p.type === 'skill'));
+    } catch { /* silencieux */ }
+  }, []);
+
+  const decideMethodProp = useCallback(async (p: MethodProp, action: 'valider' | 'refuser') => {
+    setMethodBusy(p.id);
+    try {
+      const res = await fetch('/api/attache/propositions', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: p.id, action }),
+      });
+      const data = await res.json().catch(() => ({} as { ok?: boolean; error?: string }));
+      if (res.ok && data.ok) {
+        setNotice(action === 'valider'
+          ? `${p.type === 'trame' ? 'Trame' : 'Skill'} « ${p.payload.nom} » mise à jour (l'ancienne version reste archivée).`
+          : 'Proposition refusée — l\'attaché en tirera la leçon à la prochaine consolidation.');
+        if (action === 'valider') { loadTrames(); loadSkills(); }
+      } else {
+        setNotice(`Décision refusée : ${data.error || res.status}`);
+      }
+      loadMethodProps();
+    } catch (e) {
+      setNotice(`Décision impossible : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setMethodBusy(null);
+    }
+  }, [loadMethodProps, loadTrames, loadSkills]);
+
+  useEffect(() => { refresh(); loadRoutines(); loadSkills(); loadTrames(); loadAssociations(); loadMethodProps(); }, [refresh, loadRoutines, loadSkills, loadTrames, loadAssociations, loadMethodProps]);
 
   /** Conversion des fichiers choisis en trames — tout se passe dans CE navigateur (E2EE). */
   const stageFiles = useCallback(async (files: FileList | null) => {
@@ -1489,6 +1532,56 @@ export function AdminAttachePanel() {
           {apprMsg && <p className="rounded-lg bg-gray-50 px-3 py-2 text-[11.5px] text-gray-600">{apprMsg}</p>}
         </div>
       </div>
+
+      {/* Propositions de méthode — trames/skills révisées par l'attaché, appliquées d'un ✓ */}
+      {methodProps.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/30">
+          <div className="flex items-center gap-2 border-b border-amber-100 px-3 py-2">
+            <Sparkles className="h-4 w-4 text-amber-600" />
+            <span className="text-sm font-semibold text-gray-800">Propositions de méthode</span>
+            <span className="text-[11px] text-gray-500">
+              {methodProps.length} amélioration{methodProps.length > 1 ? 's' : ''} de trame/skill en attente de votre décision — rien n&apos;est modifié sans votre ✓
+            </span>
+          </div>
+          <div className="space-y-2 p-3">
+            {methodProps.map((p) => (
+              <div key={p.id} className="rounded-lg border border-gray-200 bg-white p-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">{p.type}</span>
+                  <span className="text-xs font-semibold text-gray-800">{p.titre}</span>
+                  {p.creeLe && <span className="text-[10px] text-gray-400">{new Date(p.creeLe).toLocaleDateString('fr-FR')}</span>}
+                  <span className="ml-auto flex items-center gap-1.5">
+                    <button
+                      onClick={() => decideMethodProp(p, 'valider')}
+                      disabled={methodBusy === p.id}
+                      className="inline-flex items-center gap-1 rounded-lg bg-[#2B5746] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#234639] disabled:opacity-50"
+                      title="Applique le texte révisé (l'ancienne version reste archivée — réversible)."
+                    >
+                      {methodBusy === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />} Appliquer
+                    </button>
+                    <button
+                      onClick={() => decideMethodProp(p, 'refuser')}
+                      disabled={methodBusy === p.id}
+                      className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      <XCircle className="h-3 w-3" /> Refuser
+                    </button>
+                  </span>
+                </div>
+                {p.payload.motif && (
+                  <p className="mt-1.5 text-[11.5px] leading-relaxed text-gray-600"><b>Pourquoi :</b> {p.payload.motif}</p>
+                )}
+                {p.source && <p className="mt-0.5 text-[10.5px] text-gray-400">Source : {p.source}</p>}
+                <details className="mt-1.5">
+                  <summary className="cursor-pointer text-[11px] font-semibold text-[#2B5746]">Voir le texte proposé ({(p.payload.contenu || '').length.toLocaleString('fr-FR')} caractères)</summary>
+                  {p.payload.description && <p className="mt-1 text-[11px] text-gray-500">Description : {p.payload.description}</p>}
+                  <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-2.5 font-mono text-[11px] leading-relaxed text-gray-700">{p.payload.contenu}</pre>
+                </details>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Consignes permanentes — le « prompt » du magistrat, relu à chaque run */}
       <div className="rounded-xl border border-gray-200">

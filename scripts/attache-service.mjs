@@ -425,12 +425,17 @@ async function runTrameAnalyse(noms) {
       '   l\'acte à la nullité, ENSUITE les faiblesses de solidité, ENFIN la structure et la clarté. Sois précis et cite les',
       '   textes ; à la fin du livrable, une SYNTHÈSE TRANSVERSALE : doublons manifestes, lacunes de la bibliothèque (actes',
       '   du même régime qui manquent) et incohérences entre trames.',
-      '3. Termine par UN SEUL signaler (type note, titre « Trames : analyse juridique approfondie ») renvoyant au livrable',
-      '   et résumant en 2-3 phrases les points les plus urgents (nullités potentielles repérées en priorité).',
+      '3. Pour chaque trame dont un défaut expose l\'acte à la NULLITÉ (fondement abrogé, mention obligatoire absente,',
+      '   motivation exigée non prévue) : dépose proposer_trame — le texte INTÉGRAL corrigé (uniquement ce que le défaut',
+      '   impose, tout le reste conservé à l\'identique) + motif citant le texte/la jurisprudence. Le magistrat applique',
+      '   d\'un ✓ dans Paramètres → Attaché IA, ou refuse. Les améliorations de moindre gravité restent dans le livrable.',
+      '4. Termine par UN SEUL signaler (type note, titre « Trames : analyse juridique approfondie ») renvoyant au livrable,',
+      '   résumant en 2-3 phrases les points les plus urgents (nullités en priorité) et le nombre de propositions déposées.',
       '',
-      'RÈGLE STRICTE : tu ne MODIFIES JAMAIS le contenu d\'une trame — tu proposes, le magistrat décide. Seule la description',
-      '(classement) est mise à jour via trame_decrire. Appuie chaque affirmation de légalité sur un texte ou une entrée de la',
-      'base de connaissances que tu cites ; si un point reste incertain faute de source, dis-le explicitement plutôt que d\'affirmer.',
+      'RÈGLE STRICTE : tu ne MODIFIES JAMAIS le contenu d\'une trame d\'office — tu PROPOSES (proposer_trame, ✓/✗ du',
+      'magistrat), et seule la description (classement) se met à jour via trame_decrire. Appuie chaque affirmation de',
+      'légalité sur un texte ou une entrée de la base de connaissances que tu cites ; si un point reste incertain faute',
+      'de source, dis-le explicitement plutôt que d\'affirmer.',
     ].join('\n')
     // Lot analysé en parallèle (sous_agents, vagues de ~3, ~8 min/trame) : le
     // plafond de 20 min du run principal était TROP COURT et le SIGKILL

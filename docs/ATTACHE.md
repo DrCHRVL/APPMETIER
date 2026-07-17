@@ -126,17 +126,39 @@ l'usage).
     7 j) — jamais deux tentatives à moins de 12 h. Chaque consolidation
     laisse une carte « Apprentissage » dans le fil « pendant votre
     absence » : on VOIT ce qu'il a retenu.
-  - **Les MÉTHODES se bonifient aussi (workflows composés)** : quand
-    plusieurs signaux convergent sur un même type de travail, la
-    consolidation **amende la skill** concernée (modification minimale,
-    même nom — versionnée, réversible), **rédige une skill** pour un
-    processus récurrent qu'aucune ne couvre, ou **fixe une association**
-    type d'acte → trame + skill (appliquée d'office ensuite). Les TRAMES
-    (gabarits du magistrat) ne sont JAMAIS modifiées d'office. Chaque
-    évolution est listée dans la carte « Apprentissage » — vérifiable et
-    annulable. Et une skill peut **référencer d'autres ressources** (autre
-    skill, trame, entrée de la base) : l'attaché charge l'ensemble quand il
-    l'applique — les méthodes se composent.
+  - **Les MÉTHODES se bonifient aussi (workflows composés)** — avec une
+    **gouvernance de propriété imposée dans le code**, pas seulement dans le
+    prompt :
+    - **Ses méthodes à lui** : skills `auto-*` (créées par consolidation) et
+      trames `modele-*` (extraites du corpus) — l'attaché les crée et les
+      réécrit librement (versionnées). Dans les runs autonomes
+      (consolidation, étude), `skill_enregistrer`/`trame_enregistrer`
+      **refusent tout autre nom** : la règle n'est pas une consigne, c'est
+      un garde-fou logiciel. Plafond anti-prolifération :
+      `SIRAL_ATTACHE_AUTO_SKILLS_MAX` (défaut 12) — la liste des skills se
+      paie dans CHAQUE prompt, au-delà l'attaché doit **fusionner** avant de
+      créer, et la consolidation a un devoir d'hygiène (regrouper les
+      `auto-*` qui se recouvrent, supprimer l'inutile).
+    - **Vos méthodes à vous** : jamais d'écriture d'office. L'attaché dépose
+      une **proposition d'amélioration** (`proposer_trame` /
+      `proposer_skill`) : le texte **intégral révisé** + le **motif**
+      (signaux, écart au corpus validé, fragilité de légalité). Elle
+      apparaît dans Paramètres → Attaché IA, encadré **« Propositions de
+      méthode »** : motif, texte complet déroulable, **✓ Appliquer** (écriture
+      versionnée — l'ancienne version reste archivée) ou **✗ Refuser** (et le
+      refus est lui-même un signal d'apprentissage). L'analyse de trames
+      (« Faire analyser ») dépose désormais ces propositions pour les défauts
+      qui exposent à la **nullité** ; l'étude du corpus en dépose quand vos
+      propres actes signés divergent de votre trame.
+    - **Ciblage par corrélation** : les signaux d'actes retouchés portent la
+      trame suivie — une trame/skill dont l'usage produit des retouches
+      répétées devient la priorité de la consolidation suivante.
+    - La consolidation peut aussi **fixer une association** type d'acte →
+      trame + skill (appliquée d'office ensuite). Chaque évolution — écrite
+      (`auto-*`/`modele-*`) ou proposée (en attente de ✓) — est listée dans
+      la carte « Apprentissage ». Et une skill peut **référencer d'autres
+      ressources** (autre skill, trame, entrée de la base) : l'attaché charge
+      l'ensemble quand il l'applique — les méthodes se composent.
   Paramètres → Attaché IA → **« Apprentissage »** montre les signaux en
   attente, la dernière consolidation, la jauge mémoire/budget, et un bouton
   **« Consolider maintenant »**. Le coût des consolidations apparaît dans

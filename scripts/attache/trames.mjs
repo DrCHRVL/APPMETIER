@@ -18,6 +18,16 @@ function safeName(nom) {
   if (!s) throw new Error('Nom de trame invalide')
   return s
 }
+export const safeTrameName = safeName
+
+/**
+ * Préfixe de PROPRIÉTÉ de l'attaché : les trames « modele-* » sont les
+ * gabarits qu'il extrait des actes validés (étude du corpus) — les seules
+ * qu'il peut créer et réécrire de sa propre initiative. Toute autre trame
+ * appartient au magistrat : l'attaché PROPOSE (proposer_trame, ✓/✗), il
+ * n'écrit jamais d'office.
+ */
+export const MODELE_PREFIX = 'modele-'
 
 export async function saveTrame(keys, { nom, contenu, description }) {
   const name = safeName(nom)
