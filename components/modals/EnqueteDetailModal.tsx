@@ -61,6 +61,9 @@ interface EnqueteDetailModalProps {
   onTransferEnquete?: (enqueteId: number, targetContentieuxId: string) => Promise<boolean>;
   /** Si true, cette enquête provient d'un autre contentieux */
   isSharedEnquete?: boolean;
+  /** Si true, le panneau « Attaché de justice » (chat) est ouvert à droite :
+   *  on décale le modal vers la zone libre à gauche pour éviter la superposition. */
+  attacheOpen?: boolean;
 }
 
 const EnqueteDetailModalImpl = ({
@@ -83,6 +86,7 @@ const EnqueteDetailModalImpl = ({
   onUnshareEnquete,
   onTransferEnquete,
   isSharedEnquete = false,
+  attacheOpen = false,
 }: EnqueteDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showClotureSummary, setShowClotureSummary] = useState(false);
@@ -233,7 +237,17 @@ const EnqueteDetailModalImpl = ({
   return (
     <>
       <Dialog open={!!enquete} onOpenChange={handleClose}>
-        <DialogContent className="max-w-6xl max-h-[90vh] bg-white overflow-hidden flex flex-col max-sm:left-0 max-sm:right-0 max-sm:top-[env(safe-area-inset-top)] max-sm:bottom-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:max-w-full max-sm:max-h-none max-sm:rounded-none max-sm:border-0 max-sm:p-0">
+        <DialogContent
+          className={`max-w-6xl max-h-[90vh] bg-white overflow-hidden flex flex-col max-sm:left-0 max-sm:right-0 max-sm:top-[env(safe-area-inset-top)] max-sm:bottom-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:max-w-full max-sm:max-h-none max-sm:rounded-none max-sm:border-0 max-sm:p-0 lg:transition-[left,max-width] lg:duration-200 ${
+            // Chat « Attaché » ouvert : le drawer (440px) est fixé à droite. Sur
+            // écran large, on recentre le modal dans l'espace restant à gauche
+            // (décalage du centre de 220px + largeur plafonnée) au lieu de le
+            // laisser centré sous le panneau.
+            attacheOpen
+              ? 'lg:left-[calc(50%-13.75rem)] lg:max-w-[min(72rem,calc(100vw-29.5rem))]'
+              : ''
+          }`}
+        >
           <DialogHeader className="flex-shrink-0 max-sm:px-4 max-sm:pt-2">
             <div className="flex justify-between items-center">
               <div className="flex-1">
@@ -549,6 +563,7 @@ export const EnqueteDetailModal = React.memo(EnqueteDetailModalImpl, (a, b) =>
   a.contentieuxId === b.contentieuxId &&
   a.readOnly === b.readOnly &&
   a.isSharedEnquete === b.isSharedEnquete &&
+  a.attacheOpen === b.attacheOpen &&
   a.allKnownMec === b.allKnownMec &&
   a.onClose === b.onClose &&
   a.onEdit === b.onEdit &&
