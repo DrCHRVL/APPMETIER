@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Scale, RefreshCw, Loader2, Copy, Check, X, ChevronDown, ChevronUp,
-  CalendarClock, Mail, FileText, Eye, Phone, StickyNote, Sparkles, Wand2,
+  CalendarClock, Mail, FileText, Eye, Phone, StickyNote, Sparkles,
 } from 'lucide-react';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
@@ -90,28 +90,6 @@ function dedupeItems(items: Item[]): Item[] {
   return out;
 }
 
-/** Ouvre le panneau attaché avec une consigne pré-remplie (raccourci d'un item). */
-function openInAttache(prompt: string) {
-  try { window.dispatchEvent(new CustomEvent('siral:open-attache', { detail: { prompt } })); } catch { /* */ }
-}
-
-/** Consigne de départ pour « éditer / consigne IA / trancher » un item du brief. */
-function itemPrompt(it: Item): string {
-  const parts: string[] = [];
-  parts.push(
-    `Ouvrons ensemble ce point du brief : « ${it.titre} »` +
-    (it.dossier ? ` — dossier ${it.dossier}` : '') +
-    (it.echeance ? `, échéance ${formatEcheance(it.echeance)}` : '') + '.',
-  );
-  if (it.detail) parts.push(it.detail);
-  if (it.mail) parts.push(`(Un projet de mail est déjà préparé — objet : ${it.mail.objet}.)`);
-  parts.push(
-    'Je veux pouvoir l\'éditer, te donner une consigne ou trancher : montre-moi le projet ou l\'acte concerné, ' +
-    'propose-moi les options s\'il y a une décision à prendre, puis attends mes instructions.',
-  );
-  return parts.join('\n\n');
-}
-
 function CopyButton({ text, label = 'Copier' }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
   return (
@@ -127,7 +105,7 @@ function CopyButton({ text, label = 'Copier' }: { text: string; label?: string }
   );
 }
 
-export function MajordomeWidget() {
+export function MajordomeWidget({ onOpenDossier }: { onOpenDossier?: (numero: string) => void }) {
   const [available, setAvailable] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
@@ -235,8 +213,12 @@ export function MajordomeWidget() {
                   {list.map((it) => (
                     <div key={it.id} className="px-3 py-2.5">
                       <div className="flex items-start gap-2">
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[12.5px] font-semibold leading-snug text-gray-800">
+                        <div
+                          className={`min-w-0 flex-1 ${onOpenDossier && it.dossier ? 'cursor-pointer' : ''}`}
+                          onClick={onOpenDossier && it.dossier ? () => onOpenDossier(it.dossier!) : undefined}
+                          title={onOpenDossier && it.dossier ? 'Ouvrir la fiche du dossier (l\'acte rédigé est dans « Actes rédigés »)' : undefined}
+                        >
+                          <div className={`text-[12.5px] font-semibold leading-snug text-gray-800 ${onOpenDossier && it.dossier ? 'hover:text-[#2B5746]' : ''}`}>
                             {it.titre}
                             {it.dossier && <span className="ml-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">{it.dossier}</span>}
                             {it.echeance && <span className="ml-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">→ {formatEcheance(it.echeance)}</span>}
@@ -254,13 +236,6 @@ export function MajordomeWidget() {
                           )}
                         </div>
                         <div className="flex flex-shrink-0 items-center gap-1">
-                          <button
-                            onClick={() => openInAttache(itemPrompt(it))}
-                            title="Éditer / donner une consigne à l'attaché / trancher"
-                            className="rounded-md p-1 text-gray-300 hover:bg-emerald-50 hover:text-[#2B5746]"
-                          >
-                            <Wand2 className="h-3.5 w-3.5" />
-                          </button>
                           {it.mail && <CopyButton text={`À : ${it.mail.destinataire}\nObjet : ${it.mail.objet}\n\n${it.mail.corps}`} />}
                           {!it.mail && it.detail && it.type === 'projet_dml' && <CopyButton text={it.detail} />}
                           <button onClick={() => mark(it.id, 'traite')} title="Traité" className="rounded-md p-1 text-gray-300 hover:bg-emerald-50 hover:text-emerald-600">

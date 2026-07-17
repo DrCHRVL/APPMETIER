@@ -19,7 +19,7 @@ import { AbsenceJournal } from '@/components/attache/AbsenceJournal';
 import { InboxWidget } from '@/components/attache/InboxWidget';
 import { ProductionsSection } from '@/components/attache/ProductionsSection';
 
-export const AssistantJusticePage = () => {
+export const AssistantJusticePage = ({ onOpenDossier }: { onOpenDossier?: (numero: string) => void }) => {
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
   return (
@@ -40,10 +40,10 @@ export const AssistantJusticePage = () => {
       </div>
 
       {/* Brief du majordome — « Votre attaché a préparé » */}
-      <MajordomeWidget />
+      <MajordomeWidget onOpenDossier={onOpenDossier} />
 
       {/* Journal « pendant votre absence » — actions préparées, documents rédigés */}
-      <AbsenceJournal />
+      <AbsenceJournal onOpenDossier={onOpenDossier} />
 
       {/* Actes rédigés HORS DOSSIER : demandes arrivées par mail sans procédure
           correspondante, traitées sur consigne — invisible tant qu'il n'y en a aucun. */}

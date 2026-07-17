@@ -472,29 +472,10 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           setTimeout(() => syncRef.current(true), 1500);
         }
 
-        // Analyse automatique : texte des PDF téléversés → proposition d'actes
-        // (autorisations/prolongations écoutes et géoloc au format standard).
-        if (window.electronAPI.extractPDFText) {
-          try {
-            const scanned: ScannedDocument[] = [];
-            for (let i = 0; i < filesData.length; i++) {
-              if (!filesData[i].name.toLowerCase().endsWith('.pdf')) continue;
-              const text = String(await window.electronAPI.extractPDFText(new Uint8Array(filesData[i].arrayBuffer)) || '').trim();
-              if (text.length > 50) {
-                scanned.push({
-                  filePath: String(annotated[i]?.cheminRelatif || filesData[i].name),
-                  fileName: filesData[i].name,
-                  sourceFolder: electronCategory,
-                  textContent: text,
-                });
-              }
-            }
-            if (scanned.length > 0) {
-              setAutoAnalyseDocs(scanned);
-              setShowAnalyseModal(true);
-            }
-          } catch { /* PDF illisible : pas d'analyse, le dépôt reste acquis */ }
-        }
+        // Analyse automatique des PDF au téléversement : DÉSACTIVÉE pour l'instant.
+        // La détection d'actes n'est pas assez fiable à ce stade et gênait plus
+        // qu'elle n'aidait — elle sera reprise plus tard. L'analyse reste
+        // disponible À LA DEMANDE via le bouton « Analyser actes ».
       } else {
         showToast('Erreur lors de la sauvegarde des documents', 'error');
       }
@@ -824,7 +805,8 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
               )}
 
               {/* « Analyser actes » au clic scanne un dossier réseau — indisponible en web.
-                  (L'analyse automatique des PDF au téléversement, elle, reste active.) */}
+                  (L'analyse automatique des PDF au téléversement est désactivée ;
+                  cette analyse-ci reste disponible à la demande.) */}
               {enquete.cheminExterne && !isWeb && (
                 <Button
                   variant="outline" size="sm"

@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   FileText, CheckCircle2, BarChart, Settings, Target,
-  Plus, Scale, Activity, Eye, PieChart, Network, LayoutDashboard, Landmark, ChevronDown, Sparkles
+  Plus, Scale, Activity, Eye, PieChart, Network, LayoutDashboard, Landmark, ChevronDown
 } from 'lucide-react';
 import { AlertBadge } from './AlertBadge';
 import { useUser } from '@/contexts/UserContext';
@@ -255,8 +255,9 @@ export const MultiSideBar = ({
             onClick={() => onViewChange('assistant')}
             title="Ce que votre attaché IA a préparé — visible de vous seul"
           >
-            <Sparkles className={`h-4 w-4 flex-shrink-0 ${currentView === 'assistant' ? 'text-white' : 'text-white/60'}`} />
-            {isOpen && <span className="truncate">Assistant de justice</span>}
+            {isOpen
+              ? <span className="truncate">Assistant de justice</span>
+              : <span className="mx-auto text-[11px] font-bold tracking-tight">AJ</span>}
           </button>
         )}
 

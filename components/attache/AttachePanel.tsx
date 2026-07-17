@@ -35,7 +35,7 @@ interface FeedCard {
 }
 interface ConvMeta { id: string; mtime: string }
 
-export function AttachePanel({ open, onClose, prefill }: { open: boolean; onClose: () => void; prefill?: { text: string; nonce: number } }) {
+export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [convId, setConvId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConvMeta[]>([]);
@@ -54,20 +54,6 @@ export function AttachePanel({ open, onClose, prefill }: { open: boolean; onClos
   const [propositionsReload, setPropositionsReload] = useState(0);
   const streamRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
-  // Consigne pré-remplie (ouverture depuis une échéance / une carte du journal) :
-  // on remplit le composer et on focalise, sans envoyer — le magistrat édite
-  // puis envoie. Le nonce évite de ré-appliquer la même consigne en boucle.
-  const lastPrefillNonce = useRef<number | null>(null);
-  useEffect(() => {
-    if (!open || !prefill || prefill.nonce === lastPrefillNonce.current) return;
-    lastPrefillNonce.current = prefill.nonce;
-    setInput(prefill.text);
-    requestAnimationFrame(() => {
-      const el = composerRef.current;
-      if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
-    });
-  }, [open, prefill]);
 
   const scrollDown = useCallback(() => {
     requestAnimationFrame(() => {
@@ -523,7 +509,6 @@ export function AttachePanel({ open, onClose, prefill }: { open: boolean; onClos
             </div>
           )}
           <textarea
-            ref={composerRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendWithDepot(); } }}

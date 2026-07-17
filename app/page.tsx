@@ -186,19 +186,10 @@ function AppContent() {
   // Attaché de justice IA (admin uniquement, activé côté serveur)
   const [attacheAvailable, setAttacheAvailable] = useState(false);
   const [showAttache, setShowAttache] = useState(false);
-  // Consigne pré-remplie dans le composer quand on ouvre l'attaché depuis un
-  // item (échéance du brief, carte du journal) : « éditer / consigne IA /
-  // trancher » sur cet objet précis. Le nonce force la ré-application même si
-  // deux ouvertures portent le même texte.
-  const [attachePrefill, setAttachePrefill] = useState<{ text: string; nonce: number } | undefined>(undefined);
-  // Le journal « pendant votre absence » et le brief peuvent demander
-  // l'ouverture du panneau attaché — éventuellement avec une consigne pré-remplie.
+  // Le journal « pendant votre absence » peut demander l'ouverture du panneau
+  // attaché pour répondre aux décisions à trancher.
   useEffect(() => {
-    const open = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { prompt?: string } | undefined;
-      if (detail?.prompt) setAttachePrefill({ text: detail.prompt, nonce: Date.now() });
-      setShowAttache(true);
-    };
+    const open = () => setShowAttache(true);
     window.addEventListener('siral:open-attache', open);
     return () => window.removeEventListener('siral:open-attache', open);
   }, []);
@@ -1206,6 +1197,40 @@ function AppContent() {
     setSelectedEnquete(enquete);
     setIsEditing(true);
   }, []);
+
+  // Ouvre la fiche d'un dossier depuis son NUMÉRO (raccourci « Assistant de
+  // justice » : un clic sur un item du brief ou une carte du journal ouvre
+  // directement l'EnquêteDetail — où l'acte rédigé se retrouve dans la section
+  // « Actes rédigés », éditable/exportable). Cherche dans tous les contentieux,
+  // puis dans les instructions.
+  const handleOpenDossierByNumero = useCallback((numero: string) => {
+    const norm = (s?: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const nt = norm(numero);
+    if (!nt) return;
+    const matches = (candidate?: string) => {
+      const nc = norm(candidate);
+      return !!nc && (nc === nt || nc.includes(nt) || nt.includes(nc));
+    };
+    for (const [ctxId, list] of overboardData) {
+      const found = list.find(e => matches(e.numero));
+      if (found) {
+        if (ctxId !== activeContentieux) {
+          setActiveContentieux(ctxId);
+          setCurrentView(`enquetes_${ctxId}`);
+        }
+        setSelectedEnquete(found);
+        setIsEditing(false);
+        return;
+      }
+    }
+    const inst = instructions.find(d => matches(d.numeroInstruction) || matches((d as { numeroParquet?: string }).numeroParquet));
+    if (inst) {
+      setSelectedInstruction(inst);
+      setIsEditingInstruction(false);
+      return;
+    }
+    showToast(`Dossier « ${numero} » introuvable dans vos enquêtes`, 'info');
+  }, [overboardData, activeContentieux, instructions, showToast, setActiveContentieux, setCurrentView, setSelectedEnquete, setIsEditing, setSelectedInstruction, setIsEditingInstruction]);
   const handleToggleSuivi = useCallback((enqueteId: number, type: 'JIRS' | 'PG') => {
     const enquete = enquetesLookupRef.current.find(e => e.id === enqueteId);
     if (!enquete) return;
@@ -1506,7 +1531,7 @@ return (
 
           {/* Assistant de justice (attaché IA) — page dédiée, admin uniquement */}
           {baseView === 'assistant' && isAdmin() && (
-            <AssistantJusticePage />
+            <AssistantJusticePage onOpenDossier={handleOpenDossierByNumero} />
           )}
 
           {baseView === 'enquetes' && (
@@ -2076,7 +2101,7 @@ return (
 
       {/* Attaché de justice IA — panneau latéral (admin uniquement) */}
       {attacheAvailable && isAdmin() && (
-        <AttachePanel open={showAttache} onClose={() => setShowAttache(false)} prefill={attachePrefill} />
+        <AttachePanel open={showAttache} onClose={() => setShowAttache(false)} />
       )}
 
       {/* 🆕 Modal Paramètres multi-onglets */}
