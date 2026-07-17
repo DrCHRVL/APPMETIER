@@ -63,8 +63,70 @@ l'usage).
   garde tout son contexte et poursuit : révision de l'acte, retrait des
   [À CONFIRMER]…). Boutons Répondre / Ignorer, statut persistant. Une seule
   entrée (mail transféré ou chat), puis tout se passe dans l'application.
-- **Retient** : une mémoire markdown (préférences, réflexes appris) relue à
+- **Retient — et APPREND de vos corrections (apprentissage progressif)** :
+  une mémoire markdown (exigences, réflexes appris, pièges à éviter) relue à
   chaque intervention — lisible, corrigeable et effaçable depuis le panneau.
+  Elle ne se contente plus d'accumuler : l'attaché **s'améliore d'une
+  intervention à l'autre, sans surcoût de jetons**, en deux temps :
+  - **Capture gratuite des signaux d'expérience** (aucun appel au modèle) :
+    chaque proposition refusée ✗ ou validée ✓, chaque acte qu'il a dû
+    réviser, chaque acte **corrigé à la main** par le magistrat, chaque
+    leçon notée en conversation (`memoire_noter`) part en une ligne chiffrée
+    dans `attache/apprentissage.jsonl`. Le prompt lui impose de tirer la
+    **règle générale** de chaque correction — pas l'anecdote.
+  - **Consolidation périodique** : un run **court** (14 tours max), sur le
+    **modèle économe des sous-agents**, relit les signaux
+    (`apprentissage_bilan`) et la mémoire, **distille** (règles générales,
+    doublons fusionnés, contradictions tranchées — la consigne la plus
+    récente prime —, anecdotique et périmé supprimés) puis **réécrit** la
+    mémoire (`memoire_reecrire`) **sous un budget strict**
+    (`SIRAL_ATTACHE_MEMOIRE_BUDGET`, défaut 6 000 caractères ≈ 1 500
+    jetons). La mémoire, relue à CHAQUE run, reste donc courte et dense :
+    l'apprentissage fait **baisser** la consommation (moins d'erreurs →
+    moins de retouches → moins de runs), au lieu de la faire enfler.
+    Déclencheurs : accumulation de signaux
+    (`SIRAL_ATTACHE_APPRENTISSAGE_SEUIL`, défaut 12), mémoire au-dessus du
+    budget, ou cadence de fond (`SIRAL_ATTACHE_APPRENTISSAGE_JOURS`, défaut
+    7 j) — jamais deux tentatives à moins de 12 h. Chaque consolidation
+    laisse une carte « Apprentissage » dans le fil « pendant votre
+    absence » : on VOIT ce qu'il a retenu.
+  - **Les MÉTHODES se bonifient aussi (workflows composés)** : quand
+    plusieurs signaux convergent sur un même type de travail, la
+    consolidation **amende la skill** concernée (modification minimale,
+    même nom — versionnée, réversible), **rédige une skill** pour un
+    processus récurrent qu'aucune ne couvre, ou **fixe une association**
+    type d'acte → trame + skill (appliquée d'office ensuite). Les TRAMES
+    (gabarits du magistrat) ne sont JAMAIS modifiées d'office. Chaque
+    évolution est listée dans la carte « Apprentissage » — vérifiable et
+    annulable. Et une skill peut **référencer d'autres ressources** (autre
+    skill, trame, entrée de la base) : l'attaché charge l'ensemble quand il
+    l'applique — les méthodes se composent.
+  Paramètres → Attaché IA → **« Apprentissage »** montre les signaux en
+  attente, la dernière consolidation, la jauge mémoire/budget, et un bouton
+  **« Consolider maintenant »**. Le coût des consolidations apparaît dans
+  « Consommation IA » (poste « Apprentissage »). Tout reste sous contrôle :
+  signaux chiffrés (clé globale), mémoire versionnée à chaque réécriture,
+  et toujours éditable/effaçable par le magistrat.
+- **Portes de qualité auto-appliquées** : des contrôles **déterministes, à
+  coût de jetons nul**, exécutés au moment où l'attaché remet une
+  production (`produire_document`, `remettre_livrable`) — marqueur
+  d'inachèvement oublié (`[À COMPLÉTER]`, `TODO`, `XXXX` — `[À CONFIRMER]`
+  reste autorisé), auto-désignation (« Attaché IA », « en tant qu'IA » :
+  règle de dissimulation), HTML dans un acte, **acte à signer
+  squelettique** (< 600 caractères). Une violation **rejette l'écriture**
+  avec une erreur actionnable : l'agent corrige et re-soumet dans le même
+  run — le magistrat ne voit jamais le travail non conforme. Chaque rejet
+  est capté en signal d'apprentissage : une porte qui claque souvent
+  devient un réflexe consolidé.
+- **Traite plusieurs choses à la fois** : conversations, brief, routines et
+  mails transférés cohabitent déjà ; les runs proactifs (un par mail) sont
+  désormais exécutés par un **pool borné**
+  (`SIRAL_ATTACHE_PROACTIVE_CONCURRENCY`, défaut 2, max 4 ; 1 = séquentiel
+  strict) : trois transferts d'affilée ne font plus attendre le troisième.
+  Les écritures restent sérialisées fichier par fichier et le dédoublonnage
+  des propositions est vérifié au dépôt ET à l'application — la concurrence
+  ne crée pas de doublons. À régler selon la mémoire du serveur et le
+  rythme du forfait.
 - **Se règle comme Claude web** : choix du **modèle** (Fable 5, Opus 4.8,
   Sonnet 5, Haiku 4.5 — ou le défaut de l'abonnement) et du **niveau
   d'effort** de raisonnement (faible → maximal), depuis le composer du chat

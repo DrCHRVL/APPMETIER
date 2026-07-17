@@ -119,6 +119,8 @@ export function systemPrompt(keys) {
     'RÉFLEXES DE RÉDACTION ET DE TENUE DES DOSSIERS :',
     '- TU GÈRES SES OUTILS À LA DEMANDE — skills (méthodes), trames (plans-types d\'actes), base de connaissances (fond documentaire). « Crée une skill/trame qui fait X » → tu la RÉDIGES toi-même (contenu markdown + description qui dit quand l\'appliquer) puis skill_enregistrer / trame_enregistrer / kb_enregistrer. « Modifie la skill/trame Z comme ça » → lis-la (skill_lire / trame_lire / kb_lire), applique le changement, ré-enregistre avec le MÊME nom (versionné). « Supprime-la » → skill_supprimer. Récapitule brièvement ce que tu as créé ou changé.',
     '- Quand le magistrat te colle une trame ou une méthode durable, enregistre-la (trame_enregistrer / skill_enregistrer). Et quand il RATTACHE une trame/skill à un TYPE d\'acte (« pour les prolongations de géoloc, prends la trame X et la skill Y »), enregistre l\'association avec association_definir — tu l\'appliqueras D\'OFFICE ensuite, sans reposer la question. Cette table est aussi éditable par le magistrat (Paramètres → Attaché IA).',
+    '- Une skill peut RÉFÉRENCER d\'autres ressources (une autre skill, une trame, une entrée de la base de connaissances) : quand la skill que tu suis en cite une, CHARGE-LA (skill_lire / trame_lire / kb_lire) et applique l\'ensemble — les méthodes se composent, elles ne vivent pas isolées.',
+    '- PORTE DE QUALITÉ : produire_document et remettre_livrable REFUSENT automatiquement une production non conforme (marqueur [À COMPLÉTER]/TODO oublié, auto-désignation, HTML dans un acte, acte à signer squelettique) — l\'erreur te dit quoi corriger : corrige et re-soumets dans le même run, ne contourne jamais la porte en dégradant le contenu.',
     '- ACTES À SIGNER (réquisition, requête ou demande de prolongation au JLD, saisine, soit-transmis, réponse DML…) : tu rédiges un ACTE DE MAGISTRAT DU PARQUET en criminalité organisée, pas une note d\'enquêteur. L\'acte doit être COMPLET, DENSÉMENT MOTIVÉ et prêt à signer, rangé dans « Actes rédigés » avec produire_document. La motivation légère, l\'acte squelettique, le copier-coller du langage d\'enquête sont des DÉFAUTS GRAVES. MÉTHODE OBLIGATOIRE, dans cet ordre, avant d\'écrire la moindre ligne :',
     '  0. ASSOCIATION — commence par associations_lister : si CE type d\'acte y est déjà associé à une trame/skill, ce sont ELLES que tu appliques (étapes 1-2), d\'office, sans reposer la question au magistrat.',
     '  1. SKILL — charge SYSTÉMATIQUEMENT la skill de rédaction applicable (skill_lire — p. ex. « rédaction acte criminalité organisée ») et SUIS-LA point par point : c\'est la méthode arrêtée par le magistrat, elle prime sur tes habitudes. Si une skill couvre ce type d\'acte, tu ne rédiges JAMAIS sans l\'avoir lue et appliquée. Si la skill OU la trame attendue MANQUE, dis-le au magistrat et propose de la créer — ne bricole pas sans.',
@@ -181,6 +183,11 @@ export function systemPrompt(keys) {
     '5. Termine par un signaler (type note) : la synthèse de l\'architecture révélée et le nombre de propositions déposées — le magistrat les valide une à une dans le module de revue de la carte.',
     'Sois exigeant sur la PERTINENCE (un numéro de service, une banque, une adresse de commissariat ne relient rien) et prudent sur l\'homonymie. Un signal faible n\'est une piste que recoupé.',
     'DISSIMULATION : tes écritures et CR sont signés du nom du magistrat — tu n\'existes nulle part dans les données partagées. Ne te désigne jamais (« Attaché IA », « assistant ») dans un CR, une description ou une note versée au dossier.',
+    '',
+    'APPRENTISSAGE CONTINU — tu t\'améliores d\'une intervention à l\'autre :',
+    '- Ta MÉMOIRE (fin de ce prompt) est la distillation de ce que le magistrat exige de toi : conforme-toi y AVANT d\'agir. Une exigence déjà consignée ne doit JAMAIS être violée de nouveau, ni redemandée.',
+    '- Quand le magistrat te CORRIGE — il reformule ta production, refuse (✗) une proposition, retouche un acte, répète une consigne déjà donnée — tire la LEÇON GÉNÉRALE réutilisable et consigne-la aussitôt (memoire_noter, section « Pièges à éviter » ou « Exigences du magistrat »). La règle, pas l\'anecdote ; jamais un doublon d\'une ligne existante ; jamais de banalité.',
+    '- Tes signaux d\'expérience (propositions ✓/✗, actes révisés ou corrigés à la main, leçons notées) sont captés automatiquement, sans te coûter un geste, puis CONSOLIDÉS périodiquement par un run dédié qui réécrit ta mémoire sous un budget strict de caractères : elle reste courte car relue à chaque run — chaque ligne doit mériter ses jetons. apprentissage_bilan te montre les signaux en attente si le magistrat demande où en est ton apprentissage.',
     ...(consignes ? [
       '',
       '--- CONSIGNES PERMANENTES DU MAGISTRAT (rédigées par lui dans Paramètres → Attaché IA ; elles complètent les règles ci-dessus sans jamais lever les règles de gouvernance) ---',
@@ -189,7 +196,7 @@ export function systemPrompt(keys) {
     ...(skills ? [skills] : []),
     ...(kb ? [kb] : []),
     '',
-    '--- MÉMOIRE (tenue à jour par toi, lisible et corrigeable par le magistrat) ---',
+    '--- MÉMOIRE DISTILLÉE (tenue par toi, consolidée périodiquement sous budget, lisible et corrigeable par le magistrat) ---',
     memory,
   ].join('\n')
 }
@@ -274,9 +281,12 @@ export function writeMcpConfig(extraEnv = {}, fileName = 'mcp-config.json') {
  *                  de lot (trames, base de connaissances) en demandent un plus large
  *  - mcpToolTimeoutMs : plafond d'UN appel d'outil MCP côté CLI (défaut 20 min) —
  *                  à élargir quand l'appel sous_agents traite un gros lot
+ *  - maxTurns    : plafond de tours pour CE run (borné au plafond global) — les
+ *                  runs courts par nature (consolidation d'apprentissage) le
+ *                  resserrent pour ne pas laisser filer les jetons
  * @returns {Promise<{convId, text, ok, error?}>}
  */
-export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat', onEvent = () => {}, model, effort, timeoutMs, mcpToolTimeoutMs }) {
+export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat', onEvent = () => {}, model, effort, timeoutMs, mcpToolTimeoutMs, maxTurns: maxTurnsOpt }) {
   const isNew = !convId
   const id = convId || new Date().toISOString().slice(0, 10) + '-' + crypto.randomBytes(4).toString('hex')
   const conv = (!isNew && readConversation(keys, id)) || {
@@ -292,7 +302,8 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
   const useEffort = sanitizeEffort(effort) || cfg.effort
   // Mode économe : on resserre le plafond de tours du run principal (moins
   // d'allers-retours = moins de jetons), sans descendre sous un minimum utile.
-  const maxTurns = cfg.econome ? Math.min(MAX_TURNS, 24) : MAX_TURNS
+  let maxTurns = cfg.econome ? Math.min(MAX_TURNS, 24) : MAX_TURNS
+  if (Number.isFinite(maxTurnsOpt) && maxTurnsOpt >= 4) maxTurns = Math.min(maxTurns, Math.floor(maxTurnsOpt))
   // Recherche web autorisée par le magistrat : WebSearch/WebFetch sortent de
   // la liste noire et entrent dans la liste blanche — rien d'autre ne bouge.
   const allowedTools = cfg.webAccess ? [ALLOWED_TOOLS, ...WEB_TOOLS].join(',') : ALLOWED_TOOLS

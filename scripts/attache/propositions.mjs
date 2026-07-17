@@ -17,6 +17,7 @@ import { encryptJson, decryptJson } from './crypto.mjs'
 import { ajouterMec, enregistrerActe, classerNote, getMecNoms, normalizeNom, creerDossier, dossierExiste } from './dossier.mjs'
 import { appendLien, appendDossierExNihilo, dossierExNihiloExiste, appendMecExNihilo, mecExNihiloExiste } from './carto.mjs'
 import { audit } from './journal.mjs'
+import { recordLearningSignal } from './apprentissage.mjs'
 
 const FILE = () => attacheDir('propositions.json')
 const TYPES = ['mec', 'acte', 'cr', 'lien', 'dossier', 'dossier_carto', 'mec_carto']
@@ -195,5 +196,13 @@ export async function decideProposition(keys, { id, action, par }) {
   prop.decidePar = auteur
   await save(keys, propositions)
   await audit(keys, 'proposition_' + prop.statut, { id, numero: prop.numero, type: prop.type, titre: prop.titre, par: auteur })
+  // Signal d'apprentissage (coût zéro) : un ✗ dit à l'attaché que sa détection
+  // manquait de pertinence, un ✓ conforte le réflexe — distillés plus tard.
+  await recordLearningSignal(keys, {
+    type: action === 'valider' ? 'proposition_validee' : 'proposition_refusee',
+    dossier: prop.numero || undefined,
+    detail: `${prop.type} — ${prop.titre}`,
+    source: prop.source || undefined,
+  })
   return { ok: true, statut: prop.statut, applique }
 }

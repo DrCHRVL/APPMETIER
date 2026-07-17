@@ -29,6 +29,9 @@ import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
 import { listEnvelopes, readEnvelope, writeEnvelope, deleteProduction } from './attache/productions.mjs'
+import { recordLearningSignal, consolidationDue, consolidationPrompt, learningStatus, learningState, latestSignalTs } from './attache/apprentissage.mjs'
+import { MEMORY_BUDGET } from './attache/memory.mjs'
+import { economicalModel } from './attache/subagents.mjs'
 
 const PORT = Number(process.env.SIRAL_ATTACHE_PORT || 8787)
 const POLL_MINUTES = Math.max(1, Number(process.env.SIRAL_ATTACHE_POLL_MIN || 5))
@@ -73,52 +76,79 @@ async function readBody(req, maxBytes = 2 * 1024 * 1024) {
   })
 }
 
-// ── Runs proactifs : un mail = un run, sérialisés ──
-let proactiveChain = Promise.resolve()
+// ── Runs proactifs : un mail = un run — POOL BORNÉ (plusieurs de front) ──
+// Le magistrat peut transférer 3 mails d'affilée : les traiter l'un après
+// l'autre faisait attendre le dernier ~1 h sur de gros dossiers. Les écritures
+// sont déjà sérialisées fichier par fichier (withFileLock) et le dédoublonnage
+// des propositions est vérifié au dépôt ET à l'application : une concurrence
+// bornée est sûre. Défaut 2 (mémoire du serveur oblige) ; 1 = retour à
+// l'ancien comportement strictement séquentiel.
+const PROACTIVE_CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.SIRAL_ATTACHE_PROACTIVE_CONCURRENCY || 2)))
+const proactiveQueue = []
+const proactiveQueued = new Set() // mails en file ou en cours — jamais deux fois
+let proactiveWorkers = 0
 let running = 0
 
 function queueProactiveRun(keys, mailId) {
-  proactiveChain = proactiveChain.then(async () => {
-    running++
-    try {
-      // statut visible dans le widget BAL : reçu → EN COURS → traité
-      await markInboxStatus(keys, mailId, 'en_cours').catch(() => {})
-      const prompt = [
-        `Un nouveau message vient d'arriver dans la boîte dédiée (id : ${mailId}).`,
-        'Traite-le entièrement selon ta méthode : boite_lire pour prendre connaissance de la consigne et de la pièce,',
-        'qualification, rapprochement avec le dossier SIRAL concerné, actions dans SIRAL si elles s\'imposent,',
-        'préparation des synthèses/projets — remis DANS SIRAL (remettre_livrable, signaler, produire_document) :',
-        'aucun mail sortant n\'existe plus.',
-        'SI AUCUN dossier en cours ne correspond : (a) la consigne du transfert dit « créer procédure » (ou équivalent',
-        'sans ambiguïté) → crée le dossier (creer_dossier, tout renseigné depuis la pièce), puis traite-y la demande ;',
-        '(b) la consigne dit seulement de traiter → rédige l\'acte demandé sous le pseudo-dossier "_hors-dossier"',
-        '(produire_document) : il apparaîtra dans « Actes rédigés — hors dossier » du tableau de bord.',
-        'Termine par boite_marquer_traite (résumé d\'une phrase) et signaler.',
-        'Si le message est hors sujet (spam, notification technique), marque-le traité avec un résumé d\'un mot et ne signale rien.',
-      ].join('\n')
-      const result = await runAgent({ keys, prompt, runLabel: 'proactif', title: `Mail ${mailId}` })
-      await audit(keys, 'run_proactif', { mailId, ok: result.ok, convId: result.convId, erreur: result.error })
-      if (!result.ok) {
-        await publishFeed(keys, {
-          type: 'alerte',
-          titre: 'Traitement automatique interrompu',
-          resume: `Le mail ${mailId} n'a pas pu être traité (${result.error || 'erreur inconnue'}). Il reste dans la boîte, non marqué traité.`,
-        })
-      }
-      // si l'agent n'a pas marqué traité (erreur, oubli), le statut redevient « reçu »
-      const rec = readInboxMessage(keys, mailId)
-      if (rec && !rec.traite) await markInboxStatus(keys, mailId, result.ok ? 'recu' : 'erreur').catch(() => {})
-    } catch (e) {
-      console.error('[attache] run proactif :', e)
-      try {
-        const rec = readInboxMessage(keys, mailId)
-        if (rec && !rec.traite) await markInboxStatus(keys, mailId, 'erreur')
-      } catch { /* statut best-effort */ }
-    } finally {
-      running--
+  if (proactiveQueued.has(mailId)) return
+  proactiveQueued.add(mailId)
+  proactiveQueue.push({ keys, mailId })
+  pumpProactive()
+}
+
+function pumpProactive() {
+  while (proactiveWorkers < PROACTIVE_CONCURRENCY && proactiveQueue.length) {
+    const { keys, mailId } = proactiveQueue.shift()
+    proactiveWorkers++
+    processProactiveRun(keys, mailId)
+      .catch((e) => console.error('[attache] run proactif :', e))
+      .finally(() => {
+        proactiveWorkers--
+        proactiveQueued.delete(mailId)
+        pumpProactive()
+      })
+  }
+}
+
+async function processProactiveRun(keys, mailId) {
+  running++
+  try {
+    // statut visible dans le widget BAL : reçu → EN COURS → traité
+    await markInboxStatus(keys, mailId, 'en_cours').catch(() => {})
+    const prompt = [
+      `Un nouveau message vient d'arriver dans la boîte dédiée (id : ${mailId}).`,
+      'Traite-le entièrement selon ta méthode : boite_lire pour prendre connaissance de la consigne et de la pièce,',
+      'qualification, rapprochement avec le dossier SIRAL concerné, actions dans SIRAL si elles s\'imposent,',
+      'préparation des synthèses/projets — remis DANS SIRAL (remettre_livrable, signaler, produire_document) :',
+      'aucun mail sortant n\'existe plus.',
+      'SI AUCUN dossier en cours ne correspond : (a) la consigne du transfert dit « créer procédure » (ou équivalent',
+      'sans ambiguïté) → crée le dossier (creer_dossier, tout renseigné depuis la pièce), puis traite-y la demande ;',
+      '(b) la consigne dit seulement de traiter → rédige l\'acte demandé sous le pseudo-dossier "_hors-dossier"',
+      '(produire_document) : il apparaîtra dans « Actes rédigés — hors dossier » du tableau de bord.',
+      'Termine par boite_marquer_traite (résumé d\'une phrase) et signaler.',
+      'Si le message est hors sujet (spam, notification technique), marque-le traité avec un résumé d\'un mot et ne signale rien.',
+    ].join('\n')
+    const result = await runAgent({ keys, prompt, runLabel: 'proactif', title: `Mail ${mailId}` })
+    await audit(keys, 'run_proactif', { mailId, ok: result.ok, convId: result.convId, erreur: result.error })
+    if (!result.ok) {
+      await publishFeed(keys, {
+        type: 'alerte',
+        titre: 'Traitement automatique interrompu',
+        resume: `Le mail ${mailId} n'a pas pu être traité (${result.error || 'erreur inconnue'}). Il reste dans la boîte, non marqué traité.`,
+      })
     }
-  })
-  return proactiveChain
+    // si l'agent n'a pas marqué traité (erreur, oubli), le statut redevient « reçu »
+    const rec = readInboxMessage(keys, mailId)
+    if (rec && !rec.traite) await markInboxStatus(keys, mailId, result.ok ? 'recu' : 'erreur').catch(() => {})
+  } catch (e) {
+    console.error('[attache] run proactif :', e)
+    try {
+      const rec = readInboxMessage(keys, mailId)
+      if (rec && !rec.traite) await markInboxStatus(keys, mailId, 'erreur')
+    } catch { /* statut best-effort */ }
+  } finally {
+    running--
+  }
 }
 
 // ── Brief du majordome : un run quotidien qui balaye tout ──
@@ -220,6 +250,65 @@ async function maybeScheduledBriefing() {
   // réserver la date AVANT le run (évite un double brief si le run est long)
   await writeState({ lastBriefingAt: now.toISOString(), lastBriefingOk: null })
   runBriefing('planifié').catch((e) => console.error('[attache] brief :', e))
+}
+
+// ── Apprentissage : consolidation périodique de la mémoire ──
+// Les signaux d'expérience (propositions ✓/✗, actes révisés/corrigés à la
+// main, leçons notées) sont captés au fil de l'eau SANS le modèle — la
+// consolidation est le seul moment payé en jetons : un run COURT, sur le
+// modèle économe des sous-agents, qui distille signaux + mémoire en un
+// document sous budget. Déclenchée par accumulation, dépassement du budget
+// mémoire ou cadence de fond (consolidationDue), et à la demande depuis
+// Paramètres → Attaché IA → Apprentissage.
+let apprentissageRunning = false
+async function runApprentissage(trigger = 'auto') {
+  if (apprentissageRunning) return { ok: false, error: 'consolidation déjà en cours' }
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  apprentissageRunning = true
+  try {
+    console.log(`[attache] consolidation d'apprentissage (${trigger})`)
+    // borne haute des signaux couverts par CE run, figée AVANT (ceux qui
+    // arrivent pendant le run resteront pour la consolidation suivante) ;
+    // la tentative est réservée tout de suite (garde anti-rafale de 12 h).
+    const borne = latestSignalTs()
+    await writeState({ apprentissage: { ...learningState(), lastAttemptAt: new Date().toISOString() } })
+    const result = await runAgent({
+      keys,
+      prompt: consolidationPrompt({ budget: MEMORY_BUDGET, trigger }),
+      runLabel: 'apprentissage',
+      title: `Apprentissage ${new Date().toISOString().slice(0, 10)}`,
+      model: economicalModel(agentConfig()),
+      effort: 'medium',
+      maxTurns: 18,
+      timeoutMs: 15 * 60 * 1000,
+    })
+    await writeState({
+      apprentissage: {
+        ...learningState(),
+        lastRunAt: new Date().toISOString(),
+        lastRunOk: result.ok,
+        lastTrigger: trigger,
+        // le point de consolidation n'avance QUE si le run a abouti — sinon
+        // les signaux restent en attente pour la prochaine tentative
+        ...(result.ok ? { consolidatedTs: borne } : {}),
+      },
+    })
+    await audit(keys, 'apprentissage_consolide', { trigger, ok: result.ok, convId: result.convId, erreur: result.error })
+    return { ok: result.ok, convId: result.convId, error: result.error }
+  } finally {
+    apprentissageRunning = false
+  }
+}
+
+/** Consolide quand l'échéancier le justifie (vérifié à chaque tick de relève — comptage gratuit). */
+async function maybeScheduledApprentissage() {
+  if (apprentissageRunning) return
+  const keys = loadKeyring()
+  if (!keys) return
+  const raison = consolidationDue(keys)
+  if (!raison) return
+  runApprentissage(`auto — ${raison}`).catch((e) => console.error('[attache] apprentissage :', e))
 }
 
 // Plafond de durée d'une analyse de LOT (trames, base de connaissances) : ces
@@ -499,6 +588,21 @@ const server = http.createServer(async (req, res) => {
       return json(res, 202, { ok: true, started: true })
     }
 
+    if (route === 'GET /apprentissage') {
+      // statut de l'apprentissage : signaux en attente, dernière consolidation,
+      // mémoire face à son budget — lisible même trousseau non remis (dégradé)
+      return json(res, 200, { apprentissage: { ...learningStatus(loadKeyring()), running: apprentissageRunning } })
+    }
+
+    if (route === 'POST /apprentissage') {
+      // consolidation à la demande — lancée en fond, comme le brief
+      if (apprentissageRunning) return json(res, 409, { ok: false, error: 'Consolidation déjà en cours' })
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      runApprentissage('manuelle').catch((e) => console.error('[attache] apprentissage :', e))
+      return json(res, 202, { ok: true, started: true })
+    }
+
     if (route === 'GET /productions') {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
@@ -516,6 +620,14 @@ const server = http.createServer(async (req, res) => {
       if (!/^[a-f0-9]{6,32}$/.test(String(body.id || ''))) return json(res, 400, { error: 'id invalide' })
       await writeEnvelope(String(body.numero || ''), String(body.id), env)
       await audit(keys, 'production_editee_main', { numero: body.numero, id: body.id })
+      // Signal d'apprentissage fort : le magistrat a dû corriger l'acte À LA
+      // MAIN — le premier jet ne répondait pas pleinement à ses exigences.
+      // (Le contenu reste E2EE : seul le fait de l'édition est capté.)
+      await recordLearningSignal(keys, {
+        type: 'acte_edite_main',
+        dossier: String(body.numero || ''),
+        detail: `acte ${String(body.id)} corrigé à la main par le magistrat (production_lire pour l'état actuel)`,
+      })
       return json(res, 200, { ok: true })
     }
 
@@ -830,6 +942,7 @@ setInterval(() => {
   pollOnce().catch((e) => console.error('[attache] relève :', e))
   maybeScheduledBriefing().catch((e) => console.error('[attache] brief planifié :', e))
   maybeDueRoutines().catch((e) => console.error('[attache] routines :', e))
+  maybeScheduledApprentissage().catch((e) => console.error('[attache] apprentissage planifié :', e))
 }, POLL_MINUTES * 60 * 1000)
 // première relève 20 s après le démarrage (laisse le réseau docker s'établir)
 setTimeout(() => { pollOnce('démarrage').catch(() => {}) }, 20_000)

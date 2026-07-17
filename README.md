@@ -38,8 +38,10 @@ L'architecture et la migration sont décrites dans
 Assistant intégré, réservé à l'administrateur (invisible des autres
 utilisateurs, un seul TJ/contentieux) : lecture des dossiers, écritures
 réversibles et journalisées, boîte mail dédiée avec traitement proactif,
-mémoire corrigeable. Propulsé par Claude Code via l'abonnement Claude
-(pas d'API). Voir **[docs/ATTACHE.md](docs/ATTACHE.md)**.
+mémoire corrigeable avec apprentissage progressif (il apprend de chaque
+correction, à coût de jetons nul, et consolide périodiquement). Propulsé
+par Claude Code via l'abonnement Claude (pas d'API).
+Voir **[docs/ATTACHE.md](docs/ATTACHE.md)**.
 
 ## Édition Electron desktop — archivée
 

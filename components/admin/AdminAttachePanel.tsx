@@ -11,7 +11,7 @@
  * - Journal d'audit : chaque action de l'attaché, déchiffrée ici.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Mail, Wifi, Gauge, Leaf } from 'lucide-react';
+import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Mail, Wifi, Gauge, Leaf, GraduationCap } from 'lucide-react';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, SUBMODEL_OPTIONS, PLAN_PRESETS, AttacheConfig, saveAttacheConfig, formatTokens, formatCostEur } from '../attache/modelOptions';
 import { fileToMarkdown, titreDepuisFichier, decodeText } from '@/lib/web/fileToMarkdown';
 import { skillFromArchive } from '@/lib/web/skillImport';
@@ -122,7 +122,32 @@ const USAGE_CATS: Record<string, { label: string; color: string }> = {
   brief: { label: 'Brief quotidien', color: '#6d28d9' },
   routines: { label: 'Routines', color: '#be185d' },
   classements: { label: 'Classements (trames, base)', color: '#4b5563' },
+  apprentissage: { label: 'Apprentissage (consolidations)', color: '#0f766e' },
   autres: { label: 'Autres', color: '#9ca3af' },
+};
+
+/** Statut de l'apprentissage progressif (GET /api/attache/apprentissage). */
+interface ApprStatus {
+  keyring?: boolean;
+  pending?: number | null;
+  parType?: Record<string, number>;
+  memoire?: { chars: number; budget: number; over: boolean } | null;
+  lastRunAt?: string | null;
+  lastRunOk?: boolean | null;
+  lastTrigger?: string | null;
+  seuilSignaux?: number;
+  cadenceJours?: number;
+  due?: string | null;
+  running?: boolean;
+}
+
+/** Libellés lisibles des types de signaux d'apprentissage. */
+const SIGNAL_LABELS: Record<string, string> = {
+  proposition_refusee: 'propositions refusées ✗',
+  proposition_validee: 'propositions validées ✓',
+  acte_revise: 'actes révisés',
+  acte_edite_main: 'actes corrigés à la main',
+  lecon: 'leçons notées',
 };
 
 export function AdminAttachePanel() {
@@ -206,6 +231,37 @@ export function AdminAttachePanel() {
   }, []);
 
   useEffect(() => { loadUsage(); }, [loadUsage]);
+
+  // ── Apprentissage progressif : signaux captés, consolidation de la mémoire ──
+  const [appr, setAppr] = useState<ApprStatus | null>(null);
+  const [apprLoading, setApprLoading] = useState(false);
+  const [apprMsg, setApprMsg] = useState<string | null>(null);
+
+  const loadAppr = useCallback(async () => {
+    setApprLoading(true);
+    try {
+      const res = await fetch('/api/attache/apprentissage');
+      if (res.ok) setAppr((await res.json()).apprentissage || null);
+    } catch { /* silencieux : statut secondaire */ } finally {
+      setApprLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadAppr(); }, [loadAppr]);
+
+  const runAppr = useCallback(async () => {
+    setApprMsg(null);
+    try {
+      const res = await fetch('/api/attache/apprentissage', { method: 'POST' });
+      const data = await res.json().catch(() => ({} as { ok?: boolean; error?: string }));
+      setApprMsg(res.ok && data.ok
+        ? 'Consolidation lancée (run court, modèle économe) — la carte « Apprentissage » arrivera dans le fil « pendant votre absence », et la mémoire distillée sera visible dans le panneau de l\'attaché.'
+        : `Lancement refusé : ${data.error || res.status}`);
+      setTimeout(loadAppr, 1500);
+    } catch (e) {
+      setApprMsg(`Lancement impossible : ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [loadAppr]);
 
   /** Applique un forfait de référence : remplit les plafonds repères. */
   const applyPlan = useCallback((plan: string) => {
@@ -1254,6 +1310,100 @@ export function AdminAttachePanel() {
               gardent le modèle choisi. À activer quand les jetons filent vite ; à couper pour les dépouillements lourds.
             </span>
           </label>
+        </div>
+      </div>
+
+      {/* Apprentissage progressif — signaux captés gratuitement, mémoire consolidée sous budget */}
+      <div className="rounded-xl border border-gray-200">
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <GraduationCap className="h-4 w-4 text-[#2B5746]" />
+          <span className="text-sm font-semibold text-gray-800">Apprentissage</span>
+          <span className="text-[11px] text-gray-400">il apprend de vos corrections — mémoire distillée sous budget</span>
+          <button
+            onClick={loadAppr}
+            disabled={apprLoading}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3 w-3 ${apprLoading ? 'animate-spin' : ''}`} /> Actualiser
+          </button>
+        </div>
+        <div className="space-y-3 p-3">
+          <p className="text-[12px] leading-relaxed text-gray-600">
+            Chaque correction de votre part est <b>captée automatiquement, sans consommer un seul jeton</b> :
+            proposition refusée ✗ ou validée ✓, acte que l&apos;attaché a dû réviser, acte que vous corrigez à la main,
+            leçon notée en conversation. Périodiquement, un <b>run court sur le modèle économe</b> distille ces signaux
+            en règles générales et réécrit sa mémoire <b>sous un budget strict</b> — relue à chaque intervention, elle
+            reste courte : l&apos;attaché s&apos;améliore <b>en faisant baisser</b> la consommation (moins d&apos;erreurs,
+            moins de retouches), pas en l&apos;alourdissant.
+          </p>
+
+          {(() => {
+            const a = appr;
+            if (!a) {
+              return <p className="rounded-lg bg-gray-50 px-3 py-3 text-center text-[12px] text-gray-500">Statut indisponible — service attaché injoignable ?</p>;
+            }
+            const mem = a.memoire;
+            const memPct = mem && mem.budget > 0 ? Math.min(999, Math.round((mem.chars / mem.budget) * 100)) : 0;
+            const types = Object.entries(a.parType || {}).filter(([, n]) => n > 0);
+            return (
+              <>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-400">Signaux à distiller</div>
+                    <div className="text-lg font-bold text-gray-800">{a.keyring === false ? '—' : a.pending ?? 0}</div>
+                    <div className="text-[10px] text-gray-400">consolidation à {a.seuilSignaux ?? 12} signaux, ou tous les {a.cadenceJours ?? 7} j</div>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-400">Dernière consolidation</div>
+                    <div className="text-sm font-semibold text-gray-800">
+                      {a.running ? 'en cours…' : a.lastRunAt ? new Date(a.lastRunAt).toLocaleDateString('fr-FR') : 'jamais'}
+                    </div>
+                    <div className="text-[10px] text-gray-400">
+                      {a.running ? 'run économe lancé' : a.lastRunAt ? (a.lastRunOk === false ? 'échouée — retentera' : 'réussie') : 'rien encore à distiller'}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-400">Mémoire</div>
+                    <div className="text-sm font-semibold" style={{ color: mem?.over ? '#d97706' : '#1f2937' }}>
+                      {mem ? `${memPct} % du budget` : '—'}
+                    </div>
+                    <div className="text-[10px] text-gray-400">{mem ? `${mem.chars.toLocaleString('fr-FR')} / ${mem.budget.toLocaleString('fr-FR')} caractères` : 'trousseau non remis'}</div>
+                  </div>
+                </div>
+
+                {types.length > 0 && (
+                  <div className="text-[11px] text-gray-500">
+                    En attente : {types.map(([t, n]) => `${n} ${SIGNAL_LABELS[t] || t}`).join(' · ')}
+                  </div>
+                )}
+                {a.due && !a.running && (
+                  <p className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-[11px] text-amber-700">
+                    Consolidation due ({a.due}) — elle partira automatiquement au prochain passage du service.
+                  </p>
+                )}
+              </>
+            );
+          })()}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={runAppr}
+              disabled={appr?.running === true || appr?.keyring === false}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#234639] disabled:opacity-50"
+              title="Run court sur le modèle économe : distille les signaux et la mémoire, puis dépose une carte « Apprentissage » dans le fil."
+            >
+              {appr?.running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              Consolider maintenant
+            </button>
+            <span className="text-[10.5px] text-gray-400">
+              La mémoire distillée reste lisible et corrigeable (icône livre du panneau de l&apos;attaché) ; le coût des
+              consolidations apparaît dans « Consommation IA », poste « Apprentissage ».
+            </span>
+          </div>
+          {appr?.keyring === false && (
+            <p className="text-[11px] text-amber-700">Remettez d&apos;abord les clés à l&apos;attaché (bouton « Remettre les clés » en haut) pour consulter les signaux et consolider.</p>
+          )}
+          {apprMsg && <p className="rounded-lg bg-gray-50 px-3 py-2 text-[11.5px] text-gray-600">{apprMsg}</p>}
         </div>
       </div>
 

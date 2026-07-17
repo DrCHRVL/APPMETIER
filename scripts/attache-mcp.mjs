@@ -34,7 +34,9 @@ import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
 import { analyserReseau, listerLiens, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
 import { saveProduction, listProductions, readProduction, deleteProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
-import { appendMemory } from './attache/memory.mjs'
+import { appendMemory, rewriteMemory, memoryStats, MEMORY_BUDGET } from './attache/memory.mjs'
+import { recordLearningSignal, pendingSignals, learningState } from './attache/apprentissage.mjs'
+import { controlerProduction } from './attache/qualite.mjs'
 import { listAssociations, setAssociation, removeAssociation } from './attache/associations.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed } from './attache/mail.mjs'
 
@@ -49,6 +51,24 @@ const runContext = process.env.SIRAL_ATTACHE_RUN || 'chat'
  */
 export const HORS_DOSSIER = '_hors-dossier'
 
+/**
+ * Porte de qualité auto-appliquée : contrôles déterministes (zéro jeton) au
+ * moment de la remise. Violation → l'écriture N'A PAS LIEU, l'agent reçoit
+ * une erreur actionnable et corrige dans le même run. Chaque rejet est capté
+ * en signal d'apprentissage : une porte qui claque souvent devient un
+ * réflexe consolidé.
+ */
+async function porteQualiteOuSignal({ type, titre, contenu, numero }, mode) {
+  const violations = controlerProduction({ type, contenu, mode })
+  if (!violations.length) return
+  await recordLearningSignal(keys, {
+    type: 'garde_qualite',
+    dossier: numero,
+    detail: `${type || mode} — ${String(titre || '').slice(0, 80)} : ${violations.map((v) => v.code).join(', ')}`,
+  })
+  throw new Error(`PORTE DE QUALITÉ — production refusée, corrige puis re-soumets :\n- ${violations.map((v) => v.message).join('\n- ')}`)
+}
+
 /** Remise d'un livrable DANS SIRAL — corps commun de remettre_livrable et de son alias.
  *
  * Le livrable devient une PRODUCTION éditable (comme un acte) : le magistrat le
@@ -57,6 +77,7 @@ export const HORS_DOSSIER = '_hors-dossier'
  * La carte du fil ne porte plus qu'un extrait ; le texte vit dans la production
  * (source unique), qu'elle référence par son `prodId`. */
 async function publierLivrable(a) {
+  await porteQualiteOuSignal({ type: 'livrable', titre: a.sujet, contenu: a.corps, numero: a.numero }, 'livrable')
   const numero = a.numero ? String(a.numero).slice(0, 80) : HORS_DOSSIER
   const titre = String(a.sujet || 'Livrable').slice(0, 200)
   const { id } = await saveProduction(keys, {
@@ -275,10 +296,43 @@ const TOOLS = [
   },
   {
     name: 'memoire_noter',
-    description: 'Consigne un enseignement durable dans la mémoire (préférence du magistrat, réflexe, consigne). section: "Préférences du magistrat" | "Réflexes appris" | "Consignes permanentes".',
+    description: 'Consigne un enseignement durable dans la mémoire, relue à chaque intervention. section: "Exigences du magistrat" | "Réflexes appris" | "Pièges à éviter". Note la RÈGLE GÉNÉRALE réutilisable (une ligne), pas l\'anecdote — et jamais un doublon d\'une ligne existante : la mémoire est consolidée périodiquement sous un budget strict.',
     inputSchema: { type: 'object', properties: { section: { type: 'string' }, note: { type: 'string' } }, required: ['section', 'note'] },
-    handler: async (a) => ({ ajoute: await appendMemory(keys, a.section, a.note, 'attache-ia') }),
+    handler: async (a) => {
+      const ajoute = await appendMemory(keys, a.section, a.note, 'attache-ia')
+      // La note vaut aussi signal d'apprentissage : la consolidation la verra
+      // (fusion des doublons, généralisation) sans relire toute la mémoire.
+      await recordLearningSignal(keys, { type: 'lecon', detail: `${String(a.section).slice(0, 60)} : ${String(a.note).slice(0, 300)}` })
+      return { ajoute }
+    },
     write: true,
+  },
+  {
+    name: 'memoire_reecrire',
+    description: `Réécrit la mémoire EN ENTIER (document markdown complet, ≤ ${MEMORY_BUDGET} caractères) — versionnée, le magistrat garde la main. Réservé à la CONSOLIDATION de l'apprentissage (run dédié) ou à une demande explicite du magistrat de réorganiser ta mémoire. Pour un simple ajout : memoire_noter.`,
+    inputSchema: { type: 'object', properties: { contenu: { type: 'string', description: 'Le document complet (remplace tout)' } }, required: ['contenu'] },
+    handler: async (a) => rewriteMemory(keys, a.contenu, 'attache-ia'),
+    write: true,
+  },
+  {
+    name: 'apprentissage_bilan',
+    description: 'Bilan des signaux d\'expérience captés depuis la dernière consolidation de la mémoire : corrections du magistrat (propositions refusées ✗, actes révisés ou corrigés à la main), validations ✓, leçons notées — avec l\'état de la mémoire face à son budget. Sert au run de consolidation, et à répondre à « qu\'as-tu appris récemment ? ».',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => {
+      const signaux = pendingSignals(keys, 80)
+      return {
+        depuisConsolidation: learningState().lastRunAt || '(jamais consolidé)',
+        nombre: signaux.length,
+        memoire: memoryStats(keys),
+        signaux: signaux.map((s) => ({
+          quand: new Date(s.ts).toISOString().slice(0, 10),
+          type: s.type,
+          dossier: s.dossier,
+          detail: s.detail,
+          source: s.source,
+        })),
+      }
+    },
   },
   {
     name: 'associations_lister',
@@ -371,6 +425,9 @@ const TOOLS = [
       required: ['numero', 'type', 'titre', 'contenu'],
     },
     handler: async (a) => {
+      // Porte de qualité AVANT toute écriture : inachevé, auto-désignation,
+      // HTML, acte squelettique → refus actionnable, l'agent corrige et re-soumet.
+      await porteQualiteOuSignal({ type: a.type, titre: a.titre, contenu: a.contenu, numero: a.numero }, 'acte')
       const r = await saveProduction(keys, a)
       // Nouvel acte (pas une modification) : une carte reliée apparaît dans le
       // journal « pendant votre absence » — inutile de la signaler en plus.
@@ -381,6 +438,15 @@ const TOOLS = [
           resume: `Acte rédigé (${a.type}) — à relire, éditer et valider.`,
           numero: a.numero,
           prodId: r.id,
+        })
+      } else {
+        // Révision d'un acte existant : signal d'apprentissage (le premier jet
+        // n'a pas suffi — retour du magistrat ou complément attendu).
+        await recordLearningSignal(keys, {
+          type: 'acte_revise',
+          dossier: a.numero,
+          detail: `${a.type} — ${String(a.titre).slice(0, 150)}`,
+          source: a.source ? `trame ${a.source}` : undefined,
         })
       }
       return r
