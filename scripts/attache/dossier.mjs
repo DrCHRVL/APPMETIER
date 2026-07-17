@@ -138,54 +138,218 @@ function acteLine(kind, a) {
   return `- [id ${a.id}] ${label} : ${a.dateDebut || '?'} → ${a.dateFin || '?'} (${flags.join(', ') || 'sans statut'})`
 }
 
-/** Markdown complet d'un dossier — structure + CR chronologiques. */
-export function dossierMarkdown(keys, numero) {
-  const { data } = loadContentieux(keys)
-  const e = findEnquete(data, numero)
-  if (!e) return null
+// ── Rendu markdown d'une enquête, PAR SECTIONS ──
+// Motif : un résultat d'outil trop gros dépasse le plafond de sortie du CLI,
+// qui le déverse alors dans un fichier — que l'attaché (sans outil Read, cf.
+// DISALLOWED_TOOLS) ne peut PAS rouvrir : le dossier devient illisible et les
+// sous-agents bouclent (error_max_turns). Les comptes-rendus intégraux sont la
+// seule partie vraiment volumineuse. On rend donc un APERÇU compact par défaut
+// (CR en index daté) et on sert le détail à la demande, borné : section « cr »
+// paginée, « fiche » ciblée sur une personne/ligne, etc. — jamais de spill.
+
+const CR_SNIPPET = 220        // longueur d'un extrait de CR dans l'index / la fiche
+const APERCU_CR_MAX = 40      // CR les plus récents montrés dans l'index de l'aperçu
+const CR_PAGE_BUDGET = 28_000 // budget caractères d'une page de CR intégraux
+
+function sortedCrs(e) {
+  return [...(e.comptesRendus || [])].sort((a, b) => String(a.date).localeCompare(String(b.date)))
+}
+
+function enTete(e) {
   const parts = [`# Dossier ${e.numero}`]
   if (e.description) parts.push(`**Objet :** ${stripHtml(e.description)}`)
   if (e.services?.length) parts.push(`**Services :** ${e.services.join(', ')}`)
   if (e.dateOP) parts.push(`**Date d'OP :** ${e.dateOP}`)
   parts.push(`**Statut :** ${e.statut} — dernière mise à jour ${e.dateMiseAJour || '?'}`)
+  return parts
+}
 
+function blocNatinf(e) {
   const natinfs = e.infractionNatinfCodes || []
-  if (natinfs.length) {
-    parts.push('\n## Infractions (NATINF) — les qualifications OFFICIELLES du dossier, à reprendre telles quelles dans tout acte')
-    for (const code of natinfs) {
-      const lib = natinfLabel(code)
-      parts.push(`- NATINF ${code}${lib ? ` — ${lib}` : ''}`)
-    }
-  } else {
-    parts.push('\n## Infractions (NATINF)\n(aucun code enregistré — avant de rédiger un acte, détermine les qualifications : natinf_chercher puis ajouter_natinfs)')
+  if (!natinfs.length) {
+    return ['\n## Infractions (NATINF)\n(aucun code enregistré — avant de rédiger un acte, détermine les qualifications : natinf_chercher puis ajouter_natinfs)']
   }
-
-  if (e.misEnCause?.length) {
-    parts.push('\n## Mis en cause')
-    for (const m of e.misEnCause) parts.push(`- ${m.nom}${m.role ? ` — ${m.role}` : ''}${m.statut ? ` (${m.statut})` : ''}`)
+  const parts = ['\n## Infractions (NATINF) — les qualifications OFFICIELLES du dossier, à reprendre telles quelles dans tout acte']
+  for (const code of natinfs) {
+    const lib = natinfLabel(code)
+    parts.push(`- NATINF ${code}${lib ? ` — ${lib}` : ''}`)
   }
-  if (e.ecoutes?.length) { parts.push('\n## Interceptions'); for (const a of e.ecoutes) parts.push(acteLine('ecoute', a)) }
-  if (e.geolocalisations?.length) { parts.push('\n## Géolocalisations'); for (const a of e.geolocalisations) parts.push(acteLine('geoloc', a)) }
-  if (e.actes?.length) { parts.push('\n## Autres actes'); for (const a of e.actes) parts.push(acteLine('autre', a)) }
+  return parts
+}
 
-  if (e.toDos?.length) {
-    parts.push('\n## À faire')
-    for (const t of e.toDos) parts.push(`- [${t.status === 'completed' ? 'x' : ' '}] ${t.text}`)
-  }
+// Dans l'aperçu, les listes potentiellement longues sont bornées (renvoi vers
+// la section dédiée) pour garantir qu'un dossier hors norme ne déborde jamais ;
+// les sections dédiées (mec, actes, documents) passent max = Infinity.
+function trimList(items, max, renvoi) {
+  if (!Number.isFinite(max) || items.length <= max) return items
+  return [...items.slice(0, max), `_(+${items.length - max} — ${renvoi})_`]
+}
 
+function blocMec(e, max = Infinity) {
+  if (!e.misEnCause?.length) return []
+  const lignes = e.misEnCause.map((m) => `- ${m.nom}${m.role ? ` — ${m.role}` : ''}${m.statut ? ` (${m.statut})` : ''}`)
+  return ['\n## Mis en cause', ...trimList(lignes, max, 'section:"mec" pour la liste complète')]
+}
+
+function blocActes(e, max = Infinity) {
+  const parts = []
+  if (e.ecoutes?.length) { parts.push('\n## Interceptions'); parts.push(...trimList(e.ecoutes.map((a) => acteLine('ecoute', a)), max, 'section:"actes"')) }
+  if (e.geolocalisations?.length) { parts.push('\n## Géolocalisations'); parts.push(...trimList(e.geolocalisations.map((a) => acteLine('geoloc', a)), max, 'section:"actes"')) }
+  if (e.actes?.length) { parts.push('\n## Autres actes'); parts.push(...trimList(e.actes.map((a) => acteLine('autre', a)), max, 'section:"actes"')) }
+  return parts
+}
+
+function blocAFaire(e) {
+  if (!e.toDos?.length) return []
+  const parts = ['\n## À faire']
+  for (const t of e.toDos) parts.push(`- [${t.status === 'completed' ? 'x' : ' '}] ${t.text}`)
+  return parts
+}
+
+function blocDocuments(e, max = Infinity) {
   const docs = e.documents || []
-  if (docs.length) {
-    parts.push('\n## Documents déposés')
-    for (const d of docs) parts.push(`- ${d.cheminRelatif} (${d.type}, ${Math.round((d.taille || 0) / 1024)} Ko, ajouté le ${d.dateAjout?.slice?.(0, 10) || '?'})`)
-  }
+  if (!docs.length) return []
+  const lignes = docs.map((d) => `- ${d.cheminRelatif} (${d.type}, ${Math.round((d.taille || 0) / 1024)} Ko, ajouté le ${d.dateAjout?.slice?.(0, 10) || '?'})`)
+  return ['\n## Documents déposés', ...trimList(lignes, max, 'dossier_arborescence pour tout, ou section:"documents"')]
+}
 
-  const crs = [...(e.comptesRendus || [])].sort((a, b) => String(a.date).localeCompare(String(b.date)))
-  if (crs.length) {
-    parts.push('\n## Comptes-rendus (chronologique)')
-    for (const cr of crs) {
-      parts.push(`\n### CR du ${cr.date}${cr.enqueteur ? ` — ${cr.enqueteur}` : ''}`)
-      parts.push(stripHtml(cr.description || ''))
+/** Index daté des CR (le [#i] sert d'offset pour section « cr »). */
+function crIndex(crs) {
+  const total = crs.length
+  const start = Math.max(0, total - APERCU_CR_MAX)
+  const parts = ['\n## Comptes-rendus — index chronologique (texte intégral : section:"cr")']
+  if (start > 0) parts.push(`_(${start} CR plus anciens masqués — section:"cr" offset:0 pour remonter au début)_`)
+  for (let i = start; i < total; i++) {
+    const cr = crs[i]
+    const snip = stripHtml(cr.description || '').replace(/\s+/g, ' ').slice(0, CR_SNIPPET)
+    parts.push(`- [#${i}] ${cr.date}${cr.enqueteur ? ` · ${cr.enqueteur}` : ''} — ${snip}${snip.length >= CR_SNIPPET ? '…' : ''}`)
+  }
+  return parts
+}
+
+/** Page de CR intégraux à partir de `offset`, bornée par nombre et budget caractères. */
+function crPage(e, crs, offset, limit) {
+  const total = crs.length
+  const from = Math.min(Math.max(0, Number.isFinite(offset) ? Math.floor(offset) : 0), Math.max(0, total))
+  const maxCount = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : Infinity
+  const parts = [`# Dossier ${e.numero} — comptes-rendus (à partir du #${from} sur ${total})`]
+  if (!total) { parts.push('\n(aucun compte-rendu)'); return parts }
+  let used = 0
+  let shown = 0
+  let i = from
+  for (; i < total && shown < maxCount; i++) {
+    const cr = crs[i]
+    let block = `\n### [#${i}] CR du ${cr.date}${cr.enqueteur ? ` — ${cr.enqueteur}` : ''}\n${stripHtml(cr.description || '')}`
+    if (block.length > CR_PAGE_BUDGET) block = block.slice(0, CR_PAGE_BUDGET) + '\n…(CR tronqué — pièce source via dossier_arborescence puis lire_document)'
+    if (shown > 0 && used + block.length > CR_PAGE_BUDGET) break
+    parts.push(block)
+    used += block.length
+    shown++
+  }
+  parts.push(i < total
+    ? `\n---\n_Suite : section:"cr" offset:${i} (il reste ${total - i} CR)._`
+    : `\n---\n_Fin des comptes-rendus (${total} au total)._`)
+  return parts
+}
+
+/** Vue ciblée sur une personne / ligne / cible / id d'acte : MEC, actes et mentions dans les CR. */
+function blocFiche(e, cible) {
+  const q = String(cible || '').trim().toLowerCase()
+  const parts = [...enTete(e).slice(0, 2), `\n# Fiche ciblée : « ${cible || ''} »`]
+  if (!q) { parts.push('\n_(précisez une cible : nom, ligne, objet ou id d\'acte)_'); return parts }
+  const match = (s) => String(s || '').toLowerCase().includes(q)
+
+  const mec = (e.misEnCause || []).filter((m) => match(m.nom) || match(m.role))
+  if (mec.length) { parts.push('\n## Mis en cause correspondants'); for (const m of mec) parts.push(`- ${m.nom}${m.role ? ` — ${m.role}` : ''}${m.statut ? ` (${m.statut})` : ''}`) }
+
+  const actes = []
+  for (const a of (e.ecoutes || [])) if (match(a.cible) || match(a.description) || String(a.id) === q) actes.push(['ecoute', a])
+  for (const a of (e.geolocalisations || [])) if (match(a.objet) || match(a.description) || String(a.id) === q) actes.push(['geoloc', a])
+  for (const a of (e.actes || [])) if (match(a.type) || match(a.description) || String(a.id) === q) actes.push(['autre', a])
+  if (actes.length) { parts.push('\n## Actes liés'); for (const [k, a] of actes) parts.push(acteLine(k, a)) }
+
+  const crs = sortedCrs(e)
+  const hits = []
+  for (let i = 0; i < crs.length; i++) {
+    const text = stripHtml(crs[i].description || '')
+    const idx = text.toLowerCase().indexOf(q)
+    if (idx < 0) continue
+    const around = text.slice(Math.max(0, idx - 120), idx + 200).replace(/\s+/g, ' ')
+    hits.push(`- [#${i}] ${crs[i].date} — …${around}…`)
+  }
+  if (hits.length) {
+    parts.push(`\n## Mentions dans les comptes-rendus (${hits.length})`)
+    parts.push(...hits.slice(0, 40))
+    if (hits.length > 40) parts.push(`_(+${hits.length - 40} autres mentions — affinez la cible, ou section:"cr" pour le texte entier)_`)
+  }
+  if (mec.length + actes.length + hits.length === 0) {
+    parts.push('\n_Aucune correspondance directe. Vérifiez l\'orthographe, ou consultez l\'aperçu (lire_dossier sans section)._')
+  }
+  return parts
+}
+
+/**
+ * Markdown d'une enquête. `opts.section` :
+ *   - « apercu » (défaut) : compact — entête, NATINF, MEC, actes, à-faire,
+ *     documents, INDEX des CR + rappel des sections. Ne déborde jamais.
+ *   - « cr » : CR intégraux paginés (opts.offset = index du 1er CR, opts.limit
+ *     = nombre max ; page bornée aussi par un budget caractères).
+ *   - « fiche » : tout ce qui concerne opts.cible (MEC, actes, mentions CR).
+ *   - « mec » | « actes » | « documents » : la section seule.
+ *   - « complet » : tout, CR intégraux inclus (échappatoire — évite sur un gros
+ *     dossier, préfère la pagination « cr »).
+ * @returns {string|null} null si le numéro n'est pas une enquête du contentieux.
+ */
+export function dossierMarkdown(keys, numero, opts = {}) {
+  const { data } = loadContentieux(keys)
+  const e = findEnquete(data, numero)
+  if (!e) return null
+  const section = String(opts.section || 'apercu').toLowerCase()
+  const crs = sortedCrs(e)
+  let parts
+
+  switch (section) {
+    case 'cr':
+    case 'comptes-rendus':
+      parts = crPage(e, crs, Number(opts.offset), Number(opts.limit))
+      break
+    case 'fiche':
+      parts = blocFiche(e, opts.cible)
+      break
+    case 'mec':
+    case 'personnes':
+      parts = [...enTete(e), ...blocMec(e)]
+      break
+    case 'actes':
+      parts = [...enTete(e), ...blocActes(e)]
+      break
+    case 'documents':
+    case 'pieces':
+      parts = [...enTete(e), ...blocDocuments(e)]
+      break
+    case 'complet': {
+      parts = [...enTete(e), ...blocNatinf(e), ...blocMec(e), ...blocActes(e), ...blocAFaire(e), ...blocDocuments(e)]
+      if (crs.length) {
+        parts.push('\n## Comptes-rendus (chronologique)')
+        for (let i = 0; i < crs.length; i++) {
+          parts.push(`\n### [#${i}] CR du ${crs[i].date}${crs[i].enqueteur ? ` — ${crs[i].enqueteur}` : ''}`)
+          parts.push(stripHtml(crs[i].description || ''))
+        }
+      }
+      break
     }
+    case 'apercu':
+    default:
+      parts = [
+        ...enTete(e), ...blocNatinf(e), ...blocMec(e, 60), ...blocActes(e, 60), ...blocAFaire(e), ...blocDocuments(e, 80),
+        ...(crs.length ? crIndex(crs) : ['\n## Comptes-rendus\n(aucun)']),
+        '\n---',
+        'Aperçu compact. Pour le détail de CE dossier, sans tout relire :',
+        '- un compte-rendu entier / les suivants : `lire_dossier` section:"cr" offset:0 limit:5',
+        '- tout sur une personne, une ligne ou une cible : `lire_dossier` section:"fiche" cible:"<nom>"',
+        '- une pièce déposée (PDF, PV…) : `dossier_arborescence` puis `lire_document`',
+      ]
+      break
   }
   return parts.join('\n').slice(0, 380_000)
 }
