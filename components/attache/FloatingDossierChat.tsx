@@ -13,10 +13,15 @@
  * cohérence actes demandés/réalisés, délais TSE en préliminaire).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Scale, X, Send, Loader2, Minus, Stethoscope, GripHorizontal, Wrench, BookOpen } from 'lucide-react';
+import { Scale, X, Send, Loader2, Minus, Stethoscope, GripHorizontal, Wrench, BookOpen, History } from 'lucide-react';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig, loadAttacheConfig } from './modelOptions';
 
 interface Msg { role: 'user' | 'assistant'; text: string; streaming?: boolean; tools?: string[] }
+
+// Déchiffrement des enveloppes de l'attaché (conversations, mémoire…) : la clé
+// globale vit dans le navigateur admin — comme dans AttachePanel, on déchiffre ICI.
+type AnyFn = (...args: unknown[]) => Promise<any>;
+const eapi = () => (window as unknown as { electronAPI?: Record<string, AnyFn> }).electronAPI;
 
 export function FloatingDossierChat({
   numero,
@@ -47,6 +52,11 @@ export function FloatingDossierChat({
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [convId, setConvId] = useState<string | null>(null);
+  // Reprise : une conversation existe pour ce dossier (convId persisté) mais le
+  // fil affiché est vide (composant fraîchement monté — ex. détail rouvert).
+  const [askResume, setAskResume] = useState(false);
+  const [loadingHist, setLoadingHist] = useState(false);
+  const resumeAskedRef = useRef(false);
   const [showMem, setShowMem] = useState(false);
   const [mem, setMem] = useState('');
   const [memSaving, setMemSaving] = useState(false);
@@ -72,7 +82,9 @@ export function FloatingDossierChat({
     saveAttacheConfig(patch);
   }, []);
 
-  // reprise de la conversation de CE dossier
+  // reprise de la conversation de CE dossier : on restaure le pointeur (convId)
+  // persisté. Le fil lui-même n'est pas rechargé d'office — on propose (ci-dessous)
+  // de le reprendre ou d'en commencer un neuf.
   useEffect(() => {
     try { const v = localStorage.getItem(convKey); if (v) setConvId(v); } catch { /* */ }
   }, [convKey]);
@@ -80,6 +92,45 @@ export function FloatingDossierChat({
   const scrollDown = useCallback(() => {
     requestAnimationFrame(() => streamRef.current?.scrollTo({ top: streamRef.current.scrollHeight }));
   }, []);
+
+  // À l'ouverture de la fenêtre : s'il existe une conversation persistée pour ce
+  // dossier mais que le fil affiché est vide (le composant se démonte quand le
+  // détail se ferme, l'état en mémoire est perdu), proposer de la reprendre ou
+  // d'en démarrer une nouvelle — plutôt que de la perdre silencieusement.
+  useEffect(() => {
+    if (!open || resumeAskedRef.current) return;
+    if (convId && msgs.length === 0) {
+      resumeAskedRef.current = true;
+      setAskResume(true);
+    }
+  }, [open, convId, msgs.length]);
+
+  // « Continuer » : recharge et déchiffre le fil de la conversation persistée.
+  const resumeConversation = useCallback(async () => {
+    if (!convId) { setAskResume(false); return; }
+    setAskResume(false);
+    setLoadingHist(true);
+    try {
+      const res = await fetch('/api/attache/conversations/' + encodeURIComponent(convId));
+      if (res.ok) {
+        const { envelope } = await res.json();
+        const conv = await eapi()?.attache_decrypt(envelope);
+        const loaded: Msg[] = ((conv?.messages || []) as Array<{ role: Msg['role']; text: string }>)
+          .map((m) => ({ role: m.role, text: m.text }));
+        if (loaded.length) { setMsgs(loaded); scrollDown(); }
+      }
+    } catch { /* le fil reste vide : repli sur l'accueil */ }
+    finally { setLoadingHist(false); }
+  }, [convId, scrollDown]);
+
+  // « Nouvelle conversation » : on oublie le pointeur (le fil serveur n'est pas
+  // détruit — il reste accessible depuis le panneau de l'attaché) et on repart à zéro.
+  const startFresh = useCallback(() => {
+    setAskResume(false);
+    setConvId(null);
+    setMsgs([]);
+    try { localStorage.removeItem(convKey); } catch { /* */ }
+  }, [convKey]);
 
   // ── Drag ──
   const onPointerDown = (e: React.PointerEvent) => {
@@ -111,6 +162,8 @@ export function FloatingDossierChat({
   // ── Envoi + streaming ──
   const ask = useCallback(async (text: string) => {
     if (!text.trim() || busy) return;
+    // Envoyer vaut décision : on poursuit la conversation en cours (convId conservé).
+    setAskResume(false);
     setInput('');
     setBusy(true);
     setMsgs((p) => [...p, { role: 'user', text }, { role: 'assistant', text: '', streaming: true, tools: [] }]);
@@ -235,7 +288,28 @@ export function FloatingDossierChat({
 
       {/* Fil */}
       <div ref={streamRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
-        {msgs.length === 0 && (
+        {/* Reprise : une conversation existe pour ce dossier — continuer ou repartir ? */}
+        {askResume && (
+          <div className="mt-4 space-y-3 rounded-xl border border-[#2B5746]/20 bg-emerald-50/40 p-4 text-center">
+            <div className="mx-auto grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-[#2B5746] to-[#3c7a5f] text-white">
+              <History className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-gray-800">Reprendre la conversation précédente ?</p>
+              <p className="mt-0.5 text-[11px] text-gray-500">Vous aviez déjà échangé avec l'attaché sur ce dossier.</p>
+            </div>
+            <div className="flex justify-center gap-2">
+              <button onClick={resumeConversation} className="rounded-lg bg-[#2B5746] px-3 py-1.5 text-[11px] font-semibold text-white hover:brightness-110">Continuer</button>
+              <button onClick={startFresh} className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50">Nouvelle conversation</button>
+            </div>
+          </div>
+        )}
+        {loadingHist && (
+          <div className="mt-6 flex items-center justify-center gap-2 text-xs text-gray-400">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />Reprise de la conversation…
+          </div>
+        )}
+        {!askResume && !loadingHist && msgs.length === 0 && (
           <div className="mt-4 space-y-2 text-center">
             <p className="text-xs text-gray-500">{carto ? 'Questions sur le réseau, ou analyse.' : 'Questions sur ce dossier, ou diagnostic.'}</p>
             <div className="flex flex-wrap justify-center gap-1.5">
