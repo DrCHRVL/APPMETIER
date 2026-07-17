@@ -35,6 +35,7 @@ import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.
 import { analyserReseau, listerLiens, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
 import { saveProduction, listProductions, readProduction, deleteProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
 import { appendMemory } from './attache/memory.mjs'
+import { listAssociations, setAssociation, removeAssociation } from './attache/associations.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed } from './attache/mail.mjs'
 
 const keys = loadKeyring()
@@ -267,6 +268,26 @@ const TOOLS = [
     description: 'Consigne un enseignement durable dans la mémoire (préférence du magistrat, réflexe, consigne). section: "Préférences du magistrat" | "Réflexes appris" | "Consignes permanentes".',
     inputSchema: { type: 'object', properties: { section: { type: 'string' }, note: { type: 'string' } }, required: ['section', 'note'] },
     handler: async (a) => ({ ajoute: await appendMemory(keys, a.section, a.note, 'attache-ia') }),
+    write: true,
+  },
+  {
+    name: 'associations_lister',
+    description: 'Table « type d\'acte → trame(s) + skill(s) » définie par le magistrat. À CONSULTER avant de rédiger un acte : si le type d\'acte y figure, applique D\'OFFICE la trame et la skill associées, sans reposer la question.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => ({ associations: listAssociations(keys) }),
+  },
+  {
+    name: 'association_definir',
+    description: 'Enregistre (ou met à jour) l\'association d\'un type d\'acte à une/des trame(s) et skill(s), pour l\'appliquer d\'office ensuite. À utiliser quand le magistrat rattache une trame/skill à un type d\'acte (« pour les prolongations de géoloc, prends la trame X et la skill Y »). acte : libellé du type d\'acte ; trames / skills : noms.',
+    inputSchema: { type: 'object', properties: { acte: { type: 'string' }, trames: { type: 'array', items: { type: 'string' } }, skills: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' } }, required: ['acte'] },
+    handler: async (a) => ({ association: await setAssociation(keys, a, 'attache-ia') }),
+    write: true,
+  },
+  {
+    name: 'association_supprimer',
+    description: 'Retire l\'association d\'un type d\'acte (par son libellé).',
+    inputSchema: { type: 'object', properties: { acte: { type: 'string' } }, required: ['acte'] },
+    handler: async (a) => removeAssociation(keys, a.acte, 'attache-ia'),
     write: true,
   },
   {

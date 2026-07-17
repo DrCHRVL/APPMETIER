@@ -165,6 +165,15 @@ export async function writeInstructionsEnvelope(envelope: AttacheEnvelope): Prom
   await writeVersionedEnvelope('instructions', envelope)
 }
 
+/** Table « type d'acte → trame(s)/skill(s) » — même modèle d'enveloppe unique. */
+export function readAssociationsEnvelope(): AttacheEnvelope | null {
+  return readJson<AttacheEnvelope | null>(attacheDir('associations.json'), null)
+}
+
+export async function writeAssociationsEnvelope(envelope: AttacheEnvelope): Promise<void> {
+  await writeVersionedEnvelope('associations', envelope)
+}
+
 // ── Collections d'enveloppes (skills, trames, base de connaissances) ──
 // Un fichier-enveloppe par entrée, dans le même répertoire et au même format
 // que le service attaché (attache/<collection>/) : le navigateur admin
@@ -243,7 +252,7 @@ export const writeSkillEnvelope = (id: string, envelope: AttacheEnvelope) => wri
 export const deleteSkillEnvelope = (id: string) => deleteCollectionEnvelope('skills', id)
 
 /** Écrit une enveloppe d'attaché en archivant la version précédente (jamais d'écrasement sec). */
-async function writeVersionedEnvelope(name: 'memory' | 'instructions', envelope: AttacheEnvelope): Promise<void> {
+async function writeVersionedEnvelope(name: 'memory' | 'instructions' | 'associations', envelope: AttacheEnvelope): Promise<void> {
   const p = attacheDir(name + '.json')
   try {
     await withFileLock('attache-' + name, async () => {
