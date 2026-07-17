@@ -65,7 +65,7 @@ export const MODEL_OPTIONS: Array<{ value: string; label: string }> = [
 
 /** Modèle des lots parallèles : un modèle rapide (Sonnet/Haiku) suffit souvent. */
 export const SUBMODEL_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '', label: 'Sous-agents : même modèle' },
+  { value: '', label: 'Sous-agents : Sonnet (défaut)' },
   ...MODEL_OPTIONS.slice(1).map((m) => ({ value: m.value, label: `Sous-agents : ${m.label}` })),
 ]
 

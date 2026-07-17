@@ -222,6 +222,18 @@ async function maybeScheduledBriefing() {
   runBriefing('planifié').catch((e) => console.error('[attache] brief :', e))
 }
 
+// Plafond de durée d'une analyse de LOT (trames, base de connaissances) : ces
+// runs délèguent à des sous-agents en parallèle (vagues bornées par la
+// concurrence, ~8 min/tâche) et dépassent facilement les 20 min d'un run de
+// chat. On échelonne selon la taille du lot, borné à ~2 h, ajustable par env.
+const BATCH_TIMEOUT_MIN_BASE = Number(process.env.SIRAL_ATTACHE_BATCH_TIMEOUT_MIN || 25)
+const BATCH_TIMEOUT_MIN_MAX = Number(process.env.SIRAL_ATTACHE_BATCH_TIMEOUT_MAX_MIN || 120)
+function batchTimeoutMs(count) {
+  const n = Math.max(1, Number(count) || 1)
+  const minutes = Math.min(BATCH_TIMEOUT_MIN_MAX, BATCH_TIMEOUT_MIN_BASE + n * 6)
+  return minutes * 60 * 1000
+}
+
 // ── Analyse des trames téléversées : classement + propositions d'amélioration ──
 let trameAnalyseRunning = false
 async function runTrameAnalyse(noms) {
@@ -272,7 +284,11 @@ async function runTrameAnalyse(noms) {
       '(classement) est mise à jour via trame_decrire. Appuie chaque affirmation de légalité sur un texte ou une entrée de la',
       'base de connaissances que tu cites ; si un point reste incertain faute de source, dis-le explicitement plutôt que d\'affirmer.',
     ].join('\n')
-    const result = await runAgent({ keys, prompt, runLabel: 'trames-analyse', title: `Analyse trames ${new Date().toISOString().slice(0, 10)}` })
+    // Lot analysé en parallèle (sous_agents, vagues de ~3, ~8 min/trame) : le
+    // plafond de 20 min du run principal était TROP COURT et le SIGKILL
+    // remontait un cryptique « code null ». On l'élargit selon la taille du lot.
+    const timeoutMs = batchTimeoutMs(noms.length)
+    const result = await runAgent({ keys, prompt, runLabel: 'trames-analyse', title: `Analyse trames ${new Date().toISOString().slice(0, 10)}`, timeoutMs, mcpToolTimeoutMs: timeoutMs - 120_000 })
     await audit(keys, 'trames_analysees', { nb: noms.length, noms: noms.join(', ').slice(0, 500), ok: result.ok, convId: result.convId, erreur: result.error })
     if (!result.ok) {
       await publishFeed(keys, {
@@ -307,7 +323,8 @@ async function runKbAnalyse(ids) {
       'À LA FIN, un SEUL signaler (type note, titre « Base de connaissances : classement ») : le rangement effectué',
       'en 2-5 phrases, et tes signalements (doublons, contenu périmé) s\'il y en a.',
     ].join('\n')
-    const result = await runAgent({ keys, prompt, runLabel: 'kb-analyse', title: `Classement base ${new Date().toISOString().slice(0, 10)}` })
+    const timeoutMs = batchTimeoutMs(ids.length)
+    const result = await runAgent({ keys, prompt, runLabel: 'kb-analyse', title: `Classement base ${new Date().toISOString().slice(0, 10)}`, timeoutMs, mcpToolTimeoutMs: timeoutMs - 120_000 })
     await audit(keys, 'kb_analysee', { nb: ids.length, ids: ids.join(', ').slice(0, 500), ok: result.ok, convId: result.convId, erreur: result.error })
     if (!result.ok) {
       await publishFeed(keys, {

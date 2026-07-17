@@ -103,11 +103,17 @@ export async function runSubagents({ taches, contexte, modele, effort }) {
   if (!list.length) throw new Error('Aucune tâche valide (titre + consigne requis, 24 max)')
 
   const cfg = agentConfig()
-  // Mode économe : les sous-agents (lots parallèles) sont le premier poste de
-  // dépense. On les bascule sur un modèle rapide (Haiku) par défaut et on
-  // resserre leur plafond de tours — sauf choix explicite du magistrat.
+  // Les sous-agents sont des OUVRIERS DE LECTURE (extraction, audit, balayage
+  // de PDF ou de trames) exécutés EN PARALLÈLE : le premier poste de dépense.
+  // Par défaut on les met sur un modèle RAPIDE (Sonnet ; Haiku en mode économe)
+  // et surtout PAS sur le modèle du run principal — qui peut être Opus et
+  // rendrait N runs lourds simultanés, lents et gourmands en mémoire (c'était
+  // la cause des analyses de trames qui s'éternisaient puis se faisaient tuer).
+  // Le magistrat garde la main : sélecteur « Sous-agents » du panneau
+  // (cfg.subModel) ou paramètre `modele` du lot pour forcer un autre modèle.
+  const DEFAULT_SUBMODEL = sanitizeModel(process.env.SIRAL_ATTACHE_SUBAGENT_MODEL) || 'claude-sonnet-5'
   const ECO_SUBMODEL = 'claude-haiku-4-5-20251001'
-  const model = sanitizeModel(modele) || cfg.subModel || (cfg.econome ? ECO_SUBMODEL : cfg.model)
+  const model = sanitizeModel(modele) || cfg.subModel || (cfg.econome ? ECO_SUBMODEL : DEFAULT_SUBMODEL)
   const useEffort = sanitizeEffort(effort) || (cfg.econome ? 'low' : cfg.effort)
   const subMaxTurns = cfg.econome ? Math.min(SUB_MAX_TURNS, 8) : SUB_MAX_TURNS
   const allowedTools = cfg.webAccess ? [ALLOWED_TOOLS, ...WEB_TOOLS].join(',') : ALLOWED_TOOLS

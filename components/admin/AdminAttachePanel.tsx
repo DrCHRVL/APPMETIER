@@ -1011,7 +1011,7 @@ export function AdminAttachePanel() {
             value={config.subModel || ''}
             onChange={(e) => updateConfig({ subModel: e.target.value })}
             className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-[#2B5746]/50"
-            title="Modèle des sous-agents (lots parallèles : analyse de PDF, balayage du brief, trames) — un modèle rapide suffit souvent"
+            title="Modèle des sous-agents (lots parallèles : analyse de PDF, balayage du brief, trames). Par défaut Sonnet (Haiku en mode économe) — jamais le modèle du run principal, pour ne pas lancer plusieurs runs lourds à la fois. Ne le montez que si l'analyse manque de finesse."
           >
             {SUBMODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
