@@ -146,6 +146,10 @@ interface ApprStatus {
   cadenceJours?: number;
   due?: string | null;
   running?: boolean;
+  etude?: {
+    corpus: number; dossiers: number; nouveaux: number; seuil: number; cadenceJours: number;
+    lastRunAt?: string | null; lastRunOk?: boolean | null; running?: boolean;
+  };
 }
 
 /** Libellés lisibles des types de signaux d'apprentissage. */
@@ -274,13 +278,18 @@ export function AdminAttachePanel() {
 
   useEffect(() => { loadAppr(); }, [loadAppr]);
 
-  const runAppr = useCallback(async () => {
+  const runAppr = useCallback(async (action: 'consolidation' | 'etude' = 'consolidation') => {
     setApprMsg(null);
     try {
-      const res = await fetch('/api/attache/apprentissage', { method: 'POST' });
+      const res = await fetch('/api/attache/apprentissage', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
       const data = await res.json().catch(() => ({} as { ok?: boolean; error?: string }));
       setApprMsg(res.ok && data.ok
-        ? 'Consolidation lancée (run court, modèle économe) — la carte « Apprentissage » arrivera dans le fil « pendant votre absence », et la mémoire distillée sera visible dans le panneau de l\'attaché.'
+        ? (action === 'etude'
+          ? 'Étude du corpus lancée — l\'attaché dépouille vos actes validés (sous-agents) ; les modèles extraits (trames « modele-… ») et le livrable arriveront dans le fil « pendant votre absence ».'
+          : 'Consolidation lancée (run court, modèle économe) — la carte « Apprentissage » arrivera dans le fil « pendant votre absence », et la mémoire distillée sera visible dans le panneau de l\'attaché.')
         : `Lancement refusé : ${data.error || res.status}`);
       setTimeout(loadAppr, 1500);
     } catch (e) {
@@ -1430,7 +1439,7 @@ export function AdminAttachePanel() {
 
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={runAppr}
+              onClick={() => runAppr()}
               disabled={appr?.running === true || appr?.keyring === false}
               className="inline-flex items-center gap-1.5 rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#234639] disabled:opacity-50"
               title="Run court sur le modèle économe : distille les signaux et la mémoire, puis dépose une carte « Apprentissage » dans le fil."
@@ -1443,6 +1452,36 @@ export function AdminAttachePanel() {
               premier signal) — ce bouton sert seulement à ne pas attendre. La mémoire distillée reste lisible et corrigeable
               (icône livre du panneau) ; le coût des consolidations apparaît dans « Consommation IA », poste « Apprentissage ».
             </span>
+          </div>
+
+          {/* Étude du corpus : vos actes validés (zones Actes/DML) deviennent des modèles */}
+          <div className="rounded-lg border border-gray-100 bg-gray-50/40 p-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-semibold text-gray-600">Étude du corpus d&apos;actes validés</span>
+              <span className="text-[10.5px] text-gray-400">
+                {appr?.etude
+                  ? <>{appr.etude.corpus} acte{appr.etude.corpus > 1 ? 's' : ''} en zones Actes/DML ({appr.etude.dossiers} dossier{appr.etude.dossiers > 1 ? 's' : ''})
+                    {appr.etude.nouveaux > 0 ? <> · <b className="text-gray-600">{appr.etude.nouveaux} nouveau{appr.etude.nouveaux > 1 ? 'x' : ''}</b> depuis la dernière étude</> : null}
+                    {appr.etude.lastRunAt ? <> · dernière étude {new Date(appr.etude.lastRunAt).toLocaleDateString('fr-FR')}{appr.etude.lastRunOk === false ? ' (échouée)' : ''}</> : ' · jamais étudié'}</>
+                  : 'statut indisponible'}
+              </span>
+              <button
+                onClick={() => runAppr('etude')}
+                disabled={appr?.etude?.running === true || appr?.keyring === false}
+                className="ml-auto inline-flex items-center gap-1 rounded-lg border border-[#2B5746]/30 px-2.5 py-1 text-[11px] font-semibold text-[#2B5746] hover:bg-[#2B5746]/5 disabled:opacity-50"
+                title="Dépouille les actes signés et ordonnances JLD téléversés (sous-agents, copies markdown) et en extrait des modèles par type d'acte (trames « modele-… », versionnées)."
+              >
+                {appr?.etude?.running ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                Étudier mes actes maintenant
+              </button>
+            </div>
+            <p className="mt-1.5 text-[10.5px] leading-relaxed text-gray-400">
+              Vos actes téléversés en zones <b>Actes</b> et <b>DML</b> sont des versions <b>validées</b> — vos actes signés, et les
+              ordonnances des JLD qui reprennent ou reformulent vos requêtes. L&apos;attaché les étudie tout seul (à l&apos;arrivée de{' '}
+              {appr?.etude?.seuil ?? 5} nouveaux actes, ou tous les {appr?.etude?.cadenceJours ?? 30} jours s&apos;il y a du nouveau) et en extrait des{' '}
+              <b>modèles par type d&apos;acte</b> (trames « modele-… », anonymisées, versionnées — supprimables d&apos;un geste), plus les exigences de
+              motivation des juges (paires requête ↔ ordonnance). Vos propres trames ne sont jamais modifiées.
+            </p>
           </div>
           {appr?.keyring === false && (
             <p className="text-[11px] text-amber-700">Remettez d&apos;abord les clés à l&apos;attaché (bouton « Remettre les clés » en haut) pour consulter les signaux et consolider.</p>

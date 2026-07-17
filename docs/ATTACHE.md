@@ -91,6 +91,25 @@ l'usage).
     « Apprentissage » du panneau, et fournie au run de consolidation qui
     **cible ses régressions** (un indicateur qui se dégrade devient sa
     priorité de la consolidation suivante).
+  - **Il étudie vos actes VALIDÉS et en extrait des MODÈLES** : les pièces
+    téléversées en zones **Actes** et **DML** sont des versions validées —
+    vos actes signés, et les **ordonnances des JLD** qui reprennent ou
+    reformulent vos requêtes (des juges : la meilleure école de motivation).
+    Un run d'étude périodique les dépouille (sous-agents, lecture des
+    copies markdown — économe) et en extrait des **gabarits par type
+    d'acte** : trames préfixées `modele-` (anonymisées — jamais un nom, une
+    ligne ou une plaque d'un dossier réel), que l'attaché est **seul
+    autorisé à créer et réécrire** — vos propres trames restent
+    intouchables et **priment toujours** sur un `modele-` du même type. Les
+    paires requête ↔ ordonnance JLD livrent en prime ce que les juges
+    reprennent, reformulent ou exigent — consigné en réflexes. Déclenchement
+    automatique : `SIRAL_ATTACHE_ETUDE_SEUIL` nouveaux actes validés
+    (défaut 5), ou cadence `SIRAL_ATTACHE_ETUDE_JOURS` (défaut 30 j) s'il y
+    a du nouveau — première étude du stock existant dès la mise en service ;
+    comptage déterministe (index en clair), anti-rafale 24 h ; bouton
+    « Étudier mes actes maintenant » pour ne pas attendre. Chaque étude
+    remet un **livrable** (modèles créés, observations sur vos trames,
+    leçons) — tout est versionné, supprimable d'un geste.
   - **Consolidation périodique** : un run **court** (14 tours max), sur le
     **modèle économe des sous-agents**, relit les signaux
     (`apprentissage_bilan`) et la mémoire, **distille** (règles générales,

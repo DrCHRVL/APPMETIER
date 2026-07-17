@@ -30,6 +30,7 @@ import { analyseDocuments } from './attache/analyse.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
 import { listEnvelopes, readEnvelope, writeEnvelope, deleteProduction } from './attache/productions.mjs'
 import { recordLearningSignal, consolidationDue, consolidationPrompt, learningStatus, learningState, latestSignalTs } from './attache/apprentissage.mjs'
+import { corpusActesValides, etudeDue, etudePrompt, etudeState, etudeStatus } from './attache/etude.mjs'
 import { MEMORY_BUDGET } from './attache/memory.mjs'
 import { economicalModel } from './attache/subagents.mjs'
 
@@ -311,6 +312,64 @@ async function maybeScheduledApprentissage() {
   runApprentissage(`auto — ${raison}`).catch((e) => console.error('[attache] apprentissage :', e))
 }
 
+// ── Étude du corpus d'actes validés : extraction de modèles (trames modele-*) ──
+// Les pièces des zones Actes/DML sont des versions VALIDÉES (actes signés du
+// magistrat, ordonnances JLD) : un run périodique les dépouille (sous-agents,
+// copies markdown) et en extrait des GABARITS par type d'acte, plus les
+// exigences de motivation des juges (paires requête ↔ ordonnance). Déclenché
+// par l'arrivée de nouveaux actes validés ou par cadence — comptage
+// déterministe à chaque tick, aucun jeton hors du run lui-même.
+let etudeRunning = false
+async function runEtude(trigger = 'auto') {
+  if (etudeRunning) return { ok: false, error: 'étude déjà en cours' }
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  etudeRunning = true
+  try {
+    console.log(`[attache] étude du corpus d'actes validés (${trigger})`)
+    // le niveau du corpus couvert par CETTE étude est figé AVANT le run ;
+    // la tentative est réservée tout de suite (garde anti-rafale de 24 h)
+    const corpus = corpusActesValides()
+    await writeState({ etude: { ...etudeState(), lastAttemptAt: new Date().toISOString() } })
+    // dépouillement délégué aux sous-agents (un lot par dossier) : le plafond
+    // s'échelonne comme les autres analyses de lot
+    const timeoutMs = batchTimeoutMs(Math.max(2, corpus.dossiers))
+    const result = await runAgent({
+      keys,
+      prompt: etudePrompt(trigger),
+      runLabel: 'etude',
+      title: `Étude corpus ${new Date().toISOString().slice(0, 10)}`,
+      maxTurns: 30,
+      timeoutMs,
+      mcpToolTimeoutMs: timeoutMs - 120_000,
+    })
+    await writeState({
+      etude: {
+        ...etudeState(),
+        lastRunAt: new Date().toISOString(),
+        lastRunOk: result.ok,
+        lastTrigger: trigger,
+        // le niveau couvert n'avance QUE si l'étude a abouti
+        ...(result.ok ? { corpusAtRun: corpus.count } : {}),
+      },
+    })
+    await audit(keys, 'etude_corpus', { trigger, corpus: corpus.count, dossiers: corpus.dossiers, ok: result.ok, convId: result.convId, erreur: result.error })
+    return { ok: result.ok, convId: result.convId, error: result.error }
+  } finally {
+    etudeRunning = false
+  }
+}
+
+/** Étudie quand l'échéancier le justifie (comptage d'index en clair — gratuit). */
+async function maybeScheduledEtude() {
+  if (etudeRunning) return
+  const keys = loadKeyring()
+  if (!keys) return
+  const raison = etudeDue()
+  if (!raison) return
+  runEtude(`auto — ${raison}`).catch((e) => console.error('[attache] étude :', e))
+}
+
 // Plafond de durée d'une analyse de LOT (trames, base de connaissances) : ces
 // runs délèguent à des sous-agents en parallèle (vagues bornées par la
 // concurrence, ~8 min/tâche) et dépassent facilement les 20 min d'un run de
@@ -590,8 +649,15 @@ const server = http.createServer(async (req, res) => {
 
     if (route === 'GET /apprentissage') {
       // statut de l'apprentissage : signaux en attente, dernière consolidation,
-      // mémoire face à son budget — lisible même trousseau non remis (dégradé)
-      return json(res, 200, { apprentissage: { ...learningStatus(loadKeyring()), running: apprentissageRunning } })
+      // mémoire face à son budget, étude du corpus — lisible même trousseau
+      // non remis (dégradé)
+      return json(res, 200, {
+        apprentissage: {
+          ...learningStatus(loadKeyring()),
+          running: apprentissageRunning,
+          etude: { ...etudeStatus(), running: etudeRunning },
+        },
+      })
     }
 
     if (route === 'POST /apprentissage') {
@@ -600,6 +666,15 @@ const server = http.createServer(async (req, res) => {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
       runApprentissage('manuelle').catch((e) => console.error('[attache] apprentissage :', e))
+      return json(res, 202, { ok: true, started: true })
+    }
+
+    if (route === 'POST /etude') {
+      // étude du corpus à la demande — lancée en fond
+      if (etudeRunning) return json(res, 409, { ok: false, error: 'Étude déjà en cours' })
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      runEtude('manuelle').catch((e) => console.error('[attache] étude :', e))
       return json(res, 202, { ok: true, started: true })
     }
 
@@ -943,6 +1018,7 @@ setInterval(() => {
   maybeScheduledBriefing().catch((e) => console.error('[attache] brief planifié :', e))
   maybeDueRoutines().catch((e) => console.error('[attache] routines :', e))
   maybeScheduledApprentissage().catch((e) => console.error('[attache] apprentissage planifié :', e))
+  maybeScheduledEtude().catch((e) => console.error('[attache] étude planifiée :', e))
 }, POLL_MINUTES * 60 * 1000)
 // première relève 20 s après le démarrage (laisse le réseau docker s'établir)
 setTimeout(() => { pollOnce('démarrage').catch(() => {}) }, 20_000)
