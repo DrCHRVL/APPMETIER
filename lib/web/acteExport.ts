@@ -1,15 +1,14 @@
 /**
  * SIRAL — export officiel des actes rédigés (PDF / Word).
  *
- * Un seul gabarit pour les deux formats : en-tête à la française (drapeau
- * tricolore embarqué en data-URI — la CSP interdit toute ressource externe —,
- * RÉPUBLIQUE FRANÇAISE, devise), corps en Times New Roman 12 pt justifié,
- * format A4. Le nom du fichier téléchargé respecte le formalisme de la trame
- * suivie : <trame>_<dossier>_<AAAA-MM-JJ>.pdf|docx.
+ * Un seul gabarit pour les deux formats. On rend FIDÈLEMENT le texte de l'acte
+ * tel que l'attaché l'a rédigé en suivant la trame du magistrat : c'est la
+ * trame (son en-tête, son titre, ses visas, sa mise en forme) qui commande la
+ * présentation, PAS un habillage générique imposé. Aucun drapeau, aucun
+ * en-tête « République française » ajouté d'office : rien qui ne soit dans la
+ * trame. Corps en Times New Roman 12 pt justifié, format A4. Le nom du fichier
+ * respecte le formalisme de la trame suivie : <trame>_<dossier>_<AAAA-MM-JJ>.
  */
-
-// Drapeau 120×80 (bleu #000091 · blanc · rouge #E1000F, liseré gris), 224 octets.
-export const DRAPEAU_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAABQCAIAAABd+SbeAAAAp0lEQVR42u3QAQ0AIQADsTlA+7vCBkr4YGIkpJfNQDNVKef5+tuXWhn9gQYNGjRo0KBBgwYNGjRo0KBBgwYNGjRo0KBBgwYNGjRo0KBBgwYNGjRo0KBBgwYNGjRo0KBBgwYNGjRo0KBBgwYNGjRo0KBBgwYNGjRo0KBBgwYNGjRo0KBBgwYNGjRo0KBBgwYNGjRo0KBBgwYNGjRo0KBBgwYN+g1oFfoBb7ftytwQencAAAAASUVORK5CYII='
 
 export interface ActeExportable {
   titre: string
@@ -22,6 +21,13 @@ export interface ActeExportable {
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/** Mise en forme légère héritée des trames (déjà échappée en amont). */
+function inlineMarkup(s: string): string {
+  return s
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.+?)__/g, '<u>$1</u>')
 }
 
 function safeFileSegment(s: string): string {
@@ -42,27 +48,54 @@ export function acteFileBase(p: ActeExportable): string {
 }
 
 /**
- * Gabarit HTML officiel commun aux exports PDF et Word : en-tête République
- * française (drapeau + devise), titre centré, corps justifié « acte ».
+ * Corps de l'acte → HTML fidèle. On respecte la structure du texte tel qu'il
+ * a été rédigé d'après la trame : titres markdown (# / ## / ###), listes à
+ * puces (- ou *), gras (**…**) et souligné (__…__), paragraphes séparés par
+ * une ligne vide. Aucun titre ni en-tête n'est ajouté : la trame les porte.
+ */
+function acteBodyHtml(contenu: string): string {
+  const lines = String(contenu || '').replace(/\r\n?/g, '\n').split('\n')
+  const out: string[] = []
+  let para: string[] = []
+  let bullets: string[] = []
+  const flushPara = () => {
+    if (para.length) { out.push(`<p style="margin:0 0 10pt 0;text-align:justify;">${para.join('<br>')}</p>`); para = [] }
+  }
+  const flushBullets = () => {
+    if (bullets.length) {
+      out.push(`<ul style="margin:0 0 10pt 0;padding-left:22pt;">${bullets.map((b) => `<li style="margin:0 0 3pt 0;text-align:justify;">${b}</li>`).join('')}</ul>`)
+      bullets = []
+    }
+  }
+  for (const raw of lines) {
+    const t = raw.trim()
+    if (!t) { flushPara(); flushBullets(); continue }
+    const h = t.match(/^(#{1,3})\s+(.+)$/)
+    if (h) {
+      flushPara(); flushBullets()
+      const txt = inlineMarkup(escapeHtml(h[2]))
+      out.push(h[1].length === 1
+        ? `<p style="text-align:center;font-weight:bold;font-size:13pt;margin:6pt 0 12pt 0;">${txt}</p>`
+        : `<p style="font-weight:bold;margin:12pt 0 6pt 0;">${txt}</p>`)
+      continue
+    }
+    const b = t.match(/^[-*]\s+(.+)$/)
+    if (b) { flushPara(); bullets.push(inlineMarkup(escapeHtml(b[1]))); continue }
+    flushBullets()
+    para.push(inlineMarkup(escapeHtml(t)))
+  }
+  flushPara(); flushBullets()
+  return out.join('\n')
+}
+
+/**
+ * Gabarit HTML commun aux exports PDF et Word : corps « acte » en Times New
+ * Roman 12 pt justifié, rendu fidèle du texte de la trame. Rien d'imposé
+ * au-dessus du contenu.
  */
 export function acteHtml(p: ActeExportable): string {
-  const paras = String(p.contenu || '')
-    .split(/\n{2,}/)
-    .map((b) => `<p style="margin:0 0 10pt 0;text-align:justify;">${escapeHtml(b).replace(/\n/g, '<br>')}</p>`)
-    .join('\n')
   return `<div style="font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.5;color:#000;">
-  <table style="width:100%;border-collapse:collapse;margin:0 0 18pt 0;"><tr>
-    <td style="width:120px;vertical-align:top;padding:0;">
-      <img src="${DRAPEAU_PNG}" alt="Drapeau français" width="90" height="60" style="display:block;width:90px;height:60px;" />
-      <div style="font-size:9.5pt;font-weight:bold;letter-spacing:0.5px;margin-top:4pt;">RÉPUBLIQUE<br>FRANÇAISE</div>
-      <div style="font-size:7.5pt;font-style:italic;color:#333;margin-top:2pt;">Liberté · Égalité · Fraternité</div>
-    </td>
-    <td style="vertical-align:top;text-align:right;font-size:10pt;color:#333;padding:0;">
-      MINISTÈRE DE LA JUSTICE
-    </td>
-  </tr></table>
-  <h3 style="text-align:center;font-size:13pt;margin:0 0 14pt 0;text-transform:uppercase;text-decoration:underline;">${escapeHtml(p.titre || 'Acte')}</h3>
-  ${paras}
+${acteBodyHtml(p.contenu)}
 </div>`
 }
 

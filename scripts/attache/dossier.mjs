@@ -654,7 +654,11 @@ export async function actualiserDescription(keys, { numero, description }) {
       // garde-fou : capé aux 20 dernières versions (le coffre versionné garde tout le reste)
       if (e.descriptionHistory.length > 20) e.descriptionHistory = e.descriptionHistory.slice(-20)
     }
-    e.description = escapeHtml(texte).replace(/\n/g, '<br>')
+    // Texte BRUT (sauts de ligne réels) : la fiche d'enquête l'affiche en
+    // « whitespace-pre-wrap » et le module instruction via renderFormattedText
+    // — les deux rendent le texte plat proprement. Surtout PAS d'HTML ni de
+    // <br> ici : ils s'affichaient littéralement dans la fiche préliminaire.
+    e.description = texte
     return { versionsConservees: (e.descriptionHistory || []).length }
   })
 }
@@ -711,7 +715,7 @@ export async function creerDossier(keys, { numero, dateDebut, services, descript
     numero: num,
     dateDebut: /^\d{4}-\d{2}-\d{2}/.test(String(dateDebut || '')) ? String(dateDebut).slice(0, 10) : today,
     services: svc,
-    description: desc ? escapeHtml(desc).replace(/\n/g, '<br>') : '',
+    description: desc, // texte brut (voir actualiserDescription) — jamais d'HTML
     misEnCause: mecs,
     geolocalisations: [],
     ecoutes: [],

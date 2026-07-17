@@ -290,7 +290,7 @@ const TOOLS = [
   },
   {
     name: 'actualiser_description',
-    description: 'Réécrit la description (« objet ») du dossier : vision à l\'instant T, derniers CR et documents intégrés. FORMAT prise de notes, catégorisé puis chronologique : FAITS / MEC / ACTES EN COURS / ATTENTION / CHRONO (tournants seulement) / MAJ JJ-MM-AA. Complet mais synthétique — efficacité et accessibilité avant tout. L\'ancienne description est ARCHIVÉE (jamais perdue).',
+    description: 'Réécrit la description (« objet ») du dossier : vision factuelle à l\'instant T, derniers CR et documents intégrés. RÉSUMÉ LISIBLE en TEXTE BRUT (jamais d\'HTML ni de <br>), phrases claires en quelques courts paragraphes : d\'abord les faits (qualification, mode opératoire, lieux, période), puis les principaux mis en cause et leur rôle, puis l\'état des mesures et les échéances qui pressent. NI fiche à rubriques, NI style télégraphique, NI abréviations obscures — un collègue doit comprendre à la lecture. L\'ancienne description est ARCHIVÉE (jamais perdue).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' }, description: { type: 'string' } }, required: ['numero', 'description'] },
     handler: async (a) => actualiserDescription(keys, a),
     write: true,
