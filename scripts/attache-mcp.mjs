@@ -89,9 +89,19 @@ const TOOLS = [
   },
   {
     name: 'lire_dossier',
-    description: 'Dossier complet en markdown. Enquête du contentieux : objet, mis en cause, actes (id + statut), à-faire, documents, CR chronologiques. Si le numéro correspond à un dossier d\'INSTRUCTION du module instruction (n° instruction ou n° parquet), le rend aussi : saisine, mis en examen (détention, DML), débats JLD, opérations, chronologie.',
-    inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
-    handler: async (a) => dossierMarkdown(keys, a.numero)
+    description: 'Dossier en markdown COMPACT (aperçu par défaut) : objet, NATINF, mis en cause, actes (id + statut + échéance), à-faire, documents, et un INDEX daté des comptes-rendus. Ne sature jamais la sortie. Le détail se tire à la demande, borné, via `section` : "cr" = CR intégraux PAGINÉS (offset = index d\'un CR vu dans l\'index [#i], limit = nombre par page) ; "fiche" avec `cible` = tout ce qui concerne une personne / une ligne / une cible (MEC, actes, mentions dans les CR) — l\'outil pour retrouver un propriétaire, une date, une échéance précise sans tout relire ; "mec" | "actes" | "documents" = la section seule ; "complet" = tout, CR inclus (à éviter sur un gros dossier). Si le numéro est un dossier d\'INSTRUCTION (n° instruction ou parquet), rend : saisine, mis en examen (détention, DML), débats JLD, opérations, chronologie.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        section: { type: 'string', enum: ['apercu', 'cr', 'fiche', 'mec', 'actes', 'documents', 'complet'], description: 'Défaut "apercu" (compact). "cr" = CR intégraux paginés ; "fiche" (avec cible) = vue ciblée sur une personne/ligne.' },
+        cible: { type: 'string', description: 'Pour section:"fiche" — nom, ligne, objet ou id d\'acte à isoler (ex: "HADBI", "3008").' },
+        offset: { type: 'number', description: 'Pour section:"cr" — index du 1er CR à afficher (cf. [#i] de l\'index de l\'aperçu). Défaut 0.' },
+        limit: { type: 'number', description: 'Pour section:"cr" — nombre max de CR par page (la page est aussi bornée en taille).' },
+      },
+      required: ['numero'],
+    },
+    handler: async (a) => dossierMarkdown(keys, a.numero, { section: a.section, cible: a.cible, offset: a.offset, limit: a.limit })
       ?? instructionDossierMarkdown(keys, a.numero)
       ?? { erreur: `Dossier ${a.numero} introuvable — voir lister_dossiers (enquêtes) et instru_lister (instruction)` },
   },
@@ -311,7 +321,7 @@ const TOOLS = [
   },
   {
     name: 'actualiser_description',
-    description: 'Réécrit la description (« objet ») du dossier : vision à l\'instant T, derniers CR et documents intégrés. FORMAT prise de notes, catégorisé puis chronologique : FAITS / MEC / ACTES EN COURS / ATTENTION / CHRONO (tournants seulement) / MAJ JJ-MM-AA. Complet mais synthétique — efficacité et accessibilité avant tout. L\'ancienne description est ARCHIVÉE (jamais perdue).',
+    description: 'Réécrit la description (« objet ») du dossier : vision factuelle à l\'instant T, derniers CR et documents intégrés. RÉSUMÉ LISIBLE en TEXTE BRUT (jamais d\'HTML ni de <br>), phrases claires en quelques courts paragraphes : d\'abord les faits (qualification, mode opératoire, lieux, période), puis les principaux mis en cause et leur rôle, puis l\'état des mesures et les échéances qui pressent. NI fiche à rubriques, NI style télégraphique, NI abréviations obscures — un collègue doit comprendre à la lecture. L\'ancienne description est ARCHIVÉE (jamais perdue).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' }, description: { type: 'string' } }, required: ['numero', 'description'] },
     handler: async (a) => actualiserDescription(keys, a),
     write: true,

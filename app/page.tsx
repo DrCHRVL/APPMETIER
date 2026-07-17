@@ -1682,6 +1682,7 @@ return (
               onAjoutCR={handleAjoutCR}
               onUpdateCR={handleUpdateCR}
               onDeleteCR={handleDeleteCR}
+              attacheOpen={showAttache}
             />
           )}
 
@@ -1797,6 +1798,7 @@ return (
           onUnshareEnquete={handleUnshareEnquete}
           onTransferEnquete={handleTransferEnquete}
           isSharedEnquete={isSharedEnquete(selectedEnquete.id)}
+          attacheOpen={showAttache}
         />
       )}
 

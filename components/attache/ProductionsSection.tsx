@@ -7,9 +7,10 @@
  * actes que l'attaché a rédigés (réquisitions, demandes de prolongation JLD,
  * saisines, projets de réponse — suivant les trames). Le magistrat :
  *  - les visionne et les édite légèrement à la main (textarea) puis enregistre ;
- *  - demande à l'IA de les retoucher via le chat flottant du dossier ;
- *  - les exporte en PDF / Word au gabarit officiel (en-tête République
- *    française, nom de fichier au formalisme de la trame suivie) ;
+ *  - demande à l'IA de les retoucher SUR PLACE (mini-zone « Demander à l'IA »)
+ *    ou via le chat flottant du dossier ;
+ *  - les exporte en PDF / Word — mise en forme de la trame suivie, sans
+ *    habillage imposé, nom de fichier au formalisme de la trame ;
  *  - les VALIDE (✓) une fois traités : l'acte quitte la liste courante
  *    (récupérable via « voir les actes traités »).
  *
@@ -19,7 +20,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   FileSignature, ChevronDown, ChevronUp, RefreshCw, Loader2, Save, Trash2,
-  FileDown, FileText, CheckCircle2, Undo2,
+  FileDown, FileText, CheckCircle2, Undo2, Wand2,
 } from 'lucide-react';
 import { downloadActePdf, downloadActeDocx, acteFileBase } from '@/lib/web/acteExport';
 
@@ -69,6 +70,10 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [showTraites, setShowTraites] = useState(false);
+  // Retouche IA en place : consigne libre par acte + acte en cours de retouche.
+  const [aiInput, setAiInput] = useState<Record<string, string>>({});
+  const [aiBusy, setAiBusy] = useState<string | null>(null);
+  const [aiTools, setAiTools] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -188,6 +193,82 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
     } finally { setBusy(null); }
   }, [draft]);
 
+  /**
+   * Retouche l'acte par l'IA, en place : on relaie la consigne libre du
+   * magistrat à l'attaché (même canal que le chat du dossier), en lui donnant
+   * l'id de l'acte à réécrire. L'attaché relit l'acte, applique la demande en
+   * suivant la trame et la skill, puis ré-enregistre au même id ; on recharge
+   * la liste pour afficher la nouvelle version.
+   */
+  const askAiRevise = useCallback(async (p: Production) => {
+    const instruction = (aiInput[p.id] ?? '').trim();
+    if (!instruction || aiBusy) return;
+    setAiBusy(p.id);
+    setAiTools([]);
+    setNotice(null);
+    const convKey = `attache_dossier_conv_${p.numero}`;
+    let convId: string | null = null;
+    try { convId = localStorage.getItem(convKey); } catch { /* */ }
+    const message = [
+      `Retouche l'acte déjà rédigé « ${p.titre} » (id: ${p.id}) du dossier ${p.numero}, sans repartir de zéro.`,
+      '',
+      `Demande du magistrat : ${instruction}`,
+      '',
+      `Méthode : relis d'abord le texte EXACT de l'acte (production_lire numero="${p.numero}" id="${p.id}")` +
+        `${p.source ? `, relis la trame « ${p.source} » (trame_lire)` : ''}, et charge la skill de rédaction d'acte applicable (skill_lire) puis suis-la. ` +
+        `Applique précisément la demande ci-dessus en conservant tout le reste de l'acte (structure, visas, motivation). ` +
+        `Ré-enregistre ensuite l'acte avec produire_document en réutilisant le MÊME id ("${p.id}"). Termine par une phrase indiquant ce que tu as changé.`,
+    ].join('\n');
+    try {
+      const res = await fetch('/api/attache/chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message, dossier: p.numero, convId: convId || undefined }),
+      });
+      if (!res.ok || !res.body) {
+        const err = await res.json().catch(() => ({ error: 'Service indisponible' }));
+        setNotice(`Retouche impossible : ${err.error || res.status}`);
+        return;
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      let finalConv: string | null = null;
+      let finalErr: string | undefined;
+      let ok = true;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const dataLine = buf.slice(0, idx).split('\n').find((l) => l.startsWith('data: '));
+          buf = buf.slice(idx + 2);
+          if (!dataLine) continue;
+          let ev: { type?: string; name?: string; convId?: string; ok?: boolean; error?: string };
+          try { ev = JSON.parse(dataLine.slice(6)); } catch { continue; }
+          if (ev.type === 'tool' && ev.name) {
+            setAiTools((t) => (t.length > 8 ? t : [...t, String(ev.name).replace(/^mcp__siral__/, '')]));
+          } else if (ev.type === 'final') {
+            finalConv = ev.convId || null; finalErr = ev.error; ok = ev.ok !== false;
+          }
+        }
+      }
+      if (finalConv) { try { localStorage.setItem(convKey, finalConv); } catch { /* */ } }
+      if (!ok) { setNotice(`Retouche interrompue : ${finalErr || 'run interrompu'}`); return; }
+      // Vider la consigne et le brouillon local, puis recharger la version à jour.
+      setAiInput((m) => ({ ...m, [p.id]: '' }));
+      setDraft((d) => { const n = { ...d }; delete n[p.id]; return n; });
+      await load();
+      setNotice(`« ${p.titre} » retouché par l'IA — relisez la nouvelle version.`);
+    } catch {
+      setNotice('Retouche impossible — connexion interrompue.');
+    } finally {
+      setAiBusy(null);
+      setAiTools([]);
+    }
+  }, [aiInput, aiBusy, load]);
+
   if (!available) return null;
   if (masquerSiVide && items.length === 0) return null;
 
@@ -201,7 +282,7 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
         <FileSignature className="h-4 w-4 text-[#2B5746]" />
         <span className="flex-1 text-sm font-semibold text-gray-800">
           {titre || 'Actes rédigés'}
-          <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#2B5746]">Attaché · vous seul</span>
+          <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#2B5746]">Attaché</span>
           {enAttente.length > 0 && <span className="ml-2 text-[11px] font-normal text-gray-400">{enAttente.length}</span>}
         </span>
         <button onClick={(e) => { e.stopPropagation(); load(); }} className="rounded p-1 text-gray-400 hover:bg-gray-50 hover:text-gray-600" title="Actualiser">
@@ -273,16 +354,47 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
                           >
                             {busy === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}Enregistrer
                           </button>
-                          <button onClick={() => downloadPdf(p)} disabled={busy === p.id + ':pdf'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title={`Télécharge « ${acteFileBase(p)}.pdf » — gabarit officiel (en-tête République française)`}>
+                          <button onClick={() => downloadPdf(p)} disabled={busy === p.id + ':pdf'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title={`Télécharge « ${acteFileBase(p)}.pdf » — mise en forme de la trame suivie`}>
                             {busy === p.id + ':pdf' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}PDF
                           </button>
-                          <button onClick={() => downloadDocx(p)} disabled={busy === p.id + ':docx'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title={`Télécharge « ${acteFileBase(p)}.docx » — gabarit officiel (en-tête République française)`}>
+                          <button onClick={() => downloadDocx(p)} disabled={busy === p.id + ':docx'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title={`Télécharge « ${acteFileBase(p)}.docx » — mise en forme de la trame suivie`}>
                             {busy === p.id + ':docx' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}Word
                           </button>
                           <button onClick={() => remove(p)} className="ml-auto rounded-md p-1 text-gray-300 hover:bg-red-50 hover:text-red-500" title="Supprimer">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
+
+                        {/* Retouche IA en place — « là je veux plus comme ça » */}
+                        <div className="mt-2 rounded-lg border border-[#2B5746]/20 bg-emerald-50/30 p-2">
+                          <div className="flex items-end gap-1.5">
+                            <textarea
+                              value={aiInput[p.id] ?? ''}
+                              onChange={(e) => setAiInput((m) => ({ ...m, [p.id]: e.target.value }))}
+                              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askAiRevise(p); } }}
+                              disabled={aiBusy === p.id}
+                              rows={1}
+                              placeholder="Dire à l'IA comment retoucher : « motive davantage la nécessité », « ajoute le visa 706-96 », « allège le rappel des faits »…"
+                              className="max-h-28 flex-1 resize-none rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[11.5px] leading-relaxed text-gray-800 outline-none focus:border-[#2B5746]/40 disabled:opacity-60"
+                            />
+                            <button
+                              onClick={() => askAiRevise(p)}
+                              disabled={aiBusy === p.id || !(aiInput[p.id] ?? '').trim()}
+                              className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-[#2B5746] px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40"
+                              title="L'attaché relit l'acte, applique votre demande en suivant la trame et la skill, puis réécrit l'acte"
+                            >
+                              {aiBusy === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}Demander à l'IA
+                            </button>
+                          </div>
+                          {aiBusy === p.id && (
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px] text-[#2B5746]">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              <span>Retouche en cours — l'acte se rechargera à la fin.</span>
+                              {aiTools.length > 0 && <span className="text-gray-400">{aiTools.join(' · ')}</span>}
+                            </div>
+                          )}
+                        </div>
+
                         {p.source && <div className="mt-1 text-[10px] text-gray-400">Trame : {p.source} — fichier : {acteFileBase(p)}.pdf</div>}
                       </div>
                     )}

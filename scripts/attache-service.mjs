@@ -222,6 +222,18 @@ async function maybeScheduledBriefing() {
   runBriefing('planifié').catch((e) => console.error('[attache] brief :', e))
 }
 
+// Plafond de durée d'une analyse de LOT (trames, base de connaissances) : ces
+// runs délèguent à des sous-agents en parallèle (vagues bornées par la
+// concurrence, ~8 min/tâche) et dépassent facilement les 20 min d'un run de
+// chat. On échelonne selon la taille du lot, borné à ~2 h, ajustable par env.
+const BATCH_TIMEOUT_MIN_BASE = Number(process.env.SIRAL_ATTACHE_BATCH_TIMEOUT_MIN || 25)
+const BATCH_TIMEOUT_MIN_MAX = Number(process.env.SIRAL_ATTACHE_BATCH_TIMEOUT_MAX_MIN || 120)
+function batchTimeoutMs(count) {
+  const n = Math.max(1, Number(count) || 1)
+  const minutes = Math.min(BATCH_TIMEOUT_MIN_MAX, BATCH_TIMEOUT_MIN_BASE + n * 6)
+  return minutes * 60 * 1000
+}
+
 // ── Analyse des trames téléversées : classement + propositions d'amélioration ──
 let trameAnalyseRunning = false
 async function runTrameAnalyse(noms) {
@@ -272,7 +284,11 @@ async function runTrameAnalyse(noms) {
       '(classement) est mise à jour via trame_decrire. Appuie chaque affirmation de légalité sur un texte ou une entrée de la',
       'base de connaissances que tu cites ; si un point reste incertain faute de source, dis-le explicitement plutôt que d\'affirmer.',
     ].join('\n')
-    const result = await runAgent({ keys, prompt, runLabel: 'trames-analyse', title: `Analyse trames ${new Date().toISOString().slice(0, 10)}` })
+    // Lot analysé en parallèle (sous_agents, vagues de ~3, ~8 min/trame) : le
+    // plafond de 20 min du run principal était TROP COURT et le SIGKILL
+    // remontait un cryptique « code null ». On l'élargit selon la taille du lot.
+    const timeoutMs = batchTimeoutMs(noms.length)
+    const result = await runAgent({ keys, prompt, runLabel: 'trames-analyse', title: `Analyse trames ${new Date().toISOString().slice(0, 10)}`, timeoutMs, mcpToolTimeoutMs: timeoutMs - 120_000 })
     await audit(keys, 'trames_analysees', { nb: noms.length, noms: noms.join(', ').slice(0, 500), ok: result.ok, convId: result.convId, erreur: result.error })
     if (!result.ok) {
       await publishFeed(keys, {
@@ -307,7 +323,8 @@ async function runKbAnalyse(ids) {
       'À LA FIN, un SEUL signaler (type note, titre « Base de connaissances : classement ») : le rangement effectué',
       'en 2-5 phrases, et tes signalements (doublons, contenu périmé) s\'il y en a.',
     ].join('\n')
-    const result = await runAgent({ keys, prompt, runLabel: 'kb-analyse', title: `Classement base ${new Date().toISOString().slice(0, 10)}` })
+    const timeoutMs = batchTimeoutMs(ids.length)
+    const result = await runAgent({ keys, prompt, runLabel: 'kb-analyse', title: `Classement base ${new Date().toISOString().slice(0, 10)}`, timeoutMs, mcpToolTimeoutMs: timeoutMs - 120_000 })
     await audit(keys, 'kb_analysee', { nb: ids.length, ids: ids.join(', ').slice(0, 500), ok: result.ok, convId: result.convId, erreur: result.error })
     if (!result.ok) {
       await publishFeed(keys, {
@@ -743,7 +760,7 @@ const server = http.createServer(async (req, res) => {
         const memoire = readDossierMemory(keys, String(body.dossier))
         prompt = [
           `CONTEXTE : le magistrat te consulte sur le dossier « ${String(body.dossier).slice(0, 80)} » (${cadre}), depuis le chat flottant ouvert sur ce dossier.`,
-          'Sauf mention contraire, TOUTES ses questions portent sur ce dossier. Commence par lire_dossier ; utilise diagnostic_dossier, chronologie_lire, verifier_completude selon le besoin.',
+          'Sauf mention contraire, TOUTES ses questions portent sur ce dossier. Commence par lire_dossier (aperçu compact : objet, parties, actes + échéances, index des CR). Pour une donnée PRÉCISE (un propriétaire, une date, une échéance, une ligne), NE relis pas tout : cible-la — lire_dossier section:"fiche" cible:"<nom/ligne>", section:"cr" offset/limit pour un CR entier, ou lire_document sur une pièce. diagnostic_dossier, chronologie_lire, verifier_completude selon le besoin.',
           'RÔLE — aide au contrôle et à la maîtrise : surveiller la direction d\'enquête (éparpillement des enquêteurs : partent-ils dans tous les sens ?), la cohérence entre actes demandés et réalisés, et LES DÉLAIS (en préliminaire, les TSE sont enserrés dans des délais courts — 2 mois typiquement — qui contraignent l\'action ; signale tout risque de dépassement et son incidence).',
           'Réponses concises, factuelles, chiffrées, orientées décision. Tu peux déposer des propositions (proposer_mec/acte/cr) mais tu n\'écris jamais directement au dossier sans instruction explicite.',
           'MÉMOIRE DU DOSSIER : ci-dessous l\'essentiel retenu des échanges passés sur ce dossier. Tiens-la à jour — dès qu\'un échange apporte du neuf (une décision, une orientation, un élément découvert), ajoute UNE ligne télégraphique avec memoire_dossier_noter. Reste bref : cette mémoire est volontairement petite.',
