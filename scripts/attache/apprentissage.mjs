@@ -32,13 +32,41 @@ const MAX_LINES = 4000 // lecture bornée — plusieurs mois de signaux
 
 /** Types de signaux captés (tout autre libellé est refusé). */
 export const SIGNAL_TYPES = [
-  'proposition_refusee', // ✗ du magistrat sur une proposition — signal fort
-  'proposition_validee', // ✓ du magistrat — signal faible (confirme un réflexe)
-  'acte_revise',         // l'attaché a dû réviser un acte déjà produit
-  'acte_edite_main',     // le magistrat a corrigé un acte À LA MAIN — signal fort
-  'lecon',               // leçon explicite notée en cours d'échange
-  'garde_qualite',       // une porte de qualité a rejeté une production (inachevé, squelettique…)
+  'proposition_refusee',      // ✗ du magistrat sur une proposition — signal fort
+  'proposition_validee',      // ✓ du magistrat — signal faible (confirme un réflexe)
+  'acte_revise',              // l'attaché a dû réviser un acte déjà produit
+  'acte_edite_main',          // le magistrat a corrigé un acte À LA MAIN — signal fort
+  'lecon',                    // leçon explicite notée en cours d'échange
+  'garde_qualite',            // une porte de qualité a rejeté une production (inachevé, squelettique…)
+  'correction_conversation',  // le magistrat a repris l'attaché en chat (repérage heuristique)
 ]
+
+/**
+ * Un message du magistrat ressemble-t-il à une CORRECTION de l'attaché ?
+ * Repérage heuristique, volontairement ÉTROIT (mieux vaut manquer une
+ * correction — la consolidation a d'autres signaux — que polluer le journal
+ * de faux positifs qui coûteraient des relectures de conversations).
+ * Aucun appel au modèle : appelé à chaque sauvegarde de conversation.
+ */
+const CORRECTION_RE = [
+  /^non\b/i,                                        // « Non, ce n'est pas… »
+  /\brefais(?:-le|-la|-les)?\b/i,
+  /\brecommence\b/i,
+  /\bpas comme ça\b/i,
+  /\bce n'est pas ce que je\b/i,
+  /\bje t'(?:ai|avais) (?:déjà )?(?:dit|demandé|expliqué)\b/i,
+  /\bje te l'(?:ai|avais) déjà (?:dit|demandé)\b/i,
+  /\btu n'as pas (?:suivi|respecté|appliqué|repris|lu)\b/i,
+  /\btu (?:as|avais) oublié\b/i,
+  /\bencore (?:une fois|cette erreur)\b/i,
+  /^corrige\b/i,
+]
+
+export function detecterCorrection(message) {
+  const m = String(message || '').trim()
+  if (!m || m.length > 4000) return false // un long collage n'est pas une reprise
+  return CORRECTION_RE.some((re) => re.test(m))
+}
 
 // Cadence et seuils de consolidation — ajustables sans toucher au code.
 const bounded = (v, min, max, dflt) => {
@@ -49,8 +77,9 @@ const bounded = (v, min, max, dflt) => {
 export const SEUIL_SIGNAUX = bounded(process.env.SIRAL_ATTACHE_APPRENTISSAGE_SEUIL, 3, 200, 12)
 /** Cadence de fond (jours) — ne tourne que s'il y a des signaux à distiller. */
 export const CADENCE_JOURS = bounded(process.env.SIRAL_ATTACHE_APPRENTISSAGE_JOURS, 1, 90, 7)
-/** Minimum de signaux pour que la cadence de fond justifie un run. */
-const MIN_SIGNAUX_CADENCE = 3
+/** Cadence de fond : UN signal suffit — l'apprentissage est entièrement
+ * autonome, rien ne doit attendre un geste du magistrat. */
+const MIN_SIGNAUX_CADENCE = 1
 /** Garde anti-rafale : pas de déclenchement automatique 2 fois en moins de 12 h. */
 const ATTEMPT_COOLDOWN_MS = 12 * 3600 * 1000
 
@@ -125,6 +154,48 @@ export function latestSignalTs() {
 }
 
 /**
+ * Progression mesurée — AUCUN appel au modèle : agrégats des signaux sur les
+ * 30 derniers jours face aux 30 jours précédents. C'est le tableau de bord de
+ * l'amélioration : un taux d'acceptation des propositions qui monte et des
+ * retouches d'actes qui baissent = l'attaché répond mieux aux exigences.
+ * Fourni à l'interface ET au run de consolidation (qui cible ses régressions).
+ */
+export function learningMetrics(keys, now = Date.now()) {
+  const J30 = 30 * 24 * 3600 * 1000
+  const fenetre = () => ({ validees: 0, refusees: 0, revisions: 0, editionsMain: 0, portes: 0, lecons: 0, corrections: 0 })
+  const j30 = fenetre()
+  const j30prec = fenetre()
+  const lines = readEncryptedLines(FILE, MAX_LINES)
+  for (const l of lines) {
+    if (!l || typeof l.ts !== 'number' || l.ts < now - 2 * J30) continue
+    let sig
+    try { sig = decryptJson(keys.global, { iv: l.iv, ct: l.ct }) } catch { continue }
+    const b = l.ts >= now - J30 ? j30 : j30prec
+    if (sig.type === 'proposition_validee') b.validees++
+    else if (sig.type === 'proposition_refusee') b.refusees++
+    else if (sig.type === 'acte_revise') b.revisions++
+    else if (sig.type === 'acte_edite_main') b.editionsMain++
+    else if (sig.type === 'garde_qualite') b.portes++
+    else if (sig.type === 'lecon') b.lecons++
+    else if (sig.type === 'correction_conversation') b.corrections++
+  }
+  const taux = (b) => (b.validees + b.refusees > 0 ? Math.round((b.validees / (b.validees + b.refusees)) * 100) : null)
+  return {
+    j30: { ...j30, tauxAcceptation: taux(j30) },
+    j30prec: { ...j30prec, tauxAcceptation: taux(j30prec) },
+  }
+}
+
+/** La progression en UNE phrase compacte — pour le bilan du run de consolidation. */
+export function metricsSummary(m) {
+  const t = (v) => (v == null ? 'n/a' : `${v} %`)
+  return `propositions acceptées : ${t(m.j30.tauxAcceptation)} sur 30 j (${t(m.j30prec.tauxAcceptation)} les 30 j précédents) · `
+    + `actes retouchés (révisions + éditions à la main) : ${m.j30.revisions + m.j30.editionsMain} (vs ${m.j30prec.revisions + m.j30prec.editionsMain}) · `
+    + `portes de qualité déclenchées : ${m.j30.portes} (vs ${m.j30prec.portes}) · `
+    + `corrections en conversation : ${m.j30.corrections} (vs ${m.j30prec.corrections})`
+}
+
+/**
  * Statut complet pour l'interface (Paramètres → Attaché IA → Apprentissage).
  * Sans trousseau, on rend ce qui reste lisible (dates, budget) — jamais d'erreur.
  */
@@ -147,6 +218,7 @@ export function learningStatus(keys) {
     pending: pendingCount().count,
     parType,
     memoire: memoryStats(keys),
+    progression: learningMetrics(keys),
     due: consolidationDue(keys),
   }
 }
@@ -189,7 +261,11 @@ export function consolidationPrompt({ budget, trigger }) {
     'MÉTHODE, dans cet ordre :',
     '1. apprentissage_bilan — les signaux depuis la dernière consolidation : corrections du magistrat',
     '   (propositions refusées ✗, actes retouchés après ta rédaction, actes corrigés à la main), validations ✓,',
-    '   leçons notées. Si un signal manque de contexte, tu PEUX consulter le dossier cité — mais reste bref.',
+    '   leçons notées — et ta PROGRESSION mesurée (taux d\'acceptation, retouches, portes de qualité, 30 j vs',
+    '   30 j précédents) : si un indicateur RÉGRESSE, cherche la cause dans les signaux et traite-la en priorité.',
+    '   Pour un signal correction_conversation, LIS la conversation citée (conversation_lire, id dans source) :',
+    '   la reprise du magistrat y est en clair — c\'est ta matière première la plus précieuse. Si un autre signal',
+    '   manque de contexte, tu PEUX consulter le dossier cité — mais reste bref.',
     '2. RELIS ta mémoire actuelle (en fin de ton prompt système) et DISTILLE l\'ensemble mémoire + signaux :',
     '   - transforme les épisodes en RÈGLES GÉNÉRALES actionnables (ex. trois propositions de CR refusées sur des',
     '     pièces déjà exploitées → « Ne proposer un CR que s\'il apporte des éléments nouveaux non déjà consignés ») ;',

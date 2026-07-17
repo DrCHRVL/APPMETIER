@@ -74,6 +74,23 @@ l'usage).
     leçon notée en conversation (`memoire_noter`) part en une ligne chiffrée
     dans `attache/apprentissage.jsonl`. Le prompt lui impose de tirer la
     **règle générale** de chaque correction — pas l'anecdote.
+  - **Les reprises en conversation sont repérées TOUTES SEULES** : quand le
+    magistrat tape « non, refais », « pas comme ça », « je t'avais déjà
+    dit… », une heuristique (regex, coût nul, volontairement étroite) le
+    détecte à la sauvegarde de la conversation et dépose un signal pointant
+    l'échange. La consolidation **relit alors la conversation citée**
+    (`conversation_lire`, réservé à l'agent principal — jamais aux
+    sous-agents) pour en extraire la règle générale. Rien à noter, ni pour
+    le magistrat, ni pour l'agent : l'apprentissage est **entièrement
+    automatique** — le bouton « Consolider maintenant » sert seulement à ne
+    pas attendre (tout signal est distillé au plus tard sous la cadence).
+  - **La progression est MESURÉE** (aucun appel au modèle) : taux
+    d'acceptation des propositions, actes retouchés (révisions + éditions à
+    la main), portes de qualité déclenchées, corrections en conversation —
+    sur 30 jours face aux 30 jours précédents. Affichée dans la section
+    « Apprentissage » du panneau, et fournie au run de consolidation qui
+    **cible ses régressions** (un indicateur qui se dégrade devient sa
+    priorité de la consolidation suivante).
   - **Consolidation périodique** : un run **court** (14 tours max), sur le
     **modèle économe des sous-agents**, relit les signaux
     (`apprentissage_bilan`) et la mémoire, **distille** (règles générales,

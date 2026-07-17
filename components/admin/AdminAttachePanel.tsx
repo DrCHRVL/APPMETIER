@@ -126,12 +126,19 @@ const USAGE_CATS: Record<string, { label: string; color: string }> = {
   autres: { label: 'Autres', color: '#9ca3af' },
 };
 
+/** Fenêtre de progression mesurée (30 j) — agrégats de signaux, aucun LLM. */
+interface ApprFenetre {
+  validees: number; refusees: number; revisions: number; editionsMain: number;
+  portes: number; lecons: number; corrections: number; tauxAcceptation: number | null;
+}
+
 /** Statut de l'apprentissage progressif (GET /api/attache/apprentissage). */
 interface ApprStatus {
   keyring?: boolean;
   pending?: number | null;
   parType?: Record<string, number>;
   memoire?: { chars: number; budget: number; over: boolean } | null;
+  progression?: { j30: ApprFenetre; j30prec: ApprFenetre };
   lastRunAt?: string | null;
   lastRunOk?: boolean | null;
   lastTrigger?: string | null;
@@ -148,7 +155,25 @@ const SIGNAL_LABELS: Record<string, string> = {
   acte_revise: 'actes révisés',
   acte_edite_main: 'actes corrigés à la main',
   lecon: 'leçons notées',
+  garde_qualite: 'portes de qualité déclenchées',
+  correction_conversation: 'corrections repérées en conversation',
 };
+
+/** Une tuile de progression : valeur sur 30 j, flèche face aux 30 j précédents. */
+function ProgressionTile({ label, now, before, invert = false, unit = '' }: { label: string; now: number | null; before: number | null; invert?: boolean; unit?: string }) {
+  const delta = now != null && before != null ? now - before : null;
+  // invert : pour les compteurs d'erreurs, BAISSER est un progrès
+  const good = delta == null || delta === 0 ? null : (invert ? delta < 0 : delta > 0);
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
+      <div className="text-[10px] uppercase tracking-wide text-gray-400">{label}</div>
+      <div className="text-sm font-semibold text-gray-800">{now == null ? '—' : `${now}${unit}`}</div>
+      <div className="text-[10px]" style={{ color: good == null ? '#9ca3af' : good ? '#059669' : '#d97706' }}>
+        {delta == null ? '30 j précédents : n/a' : delta === 0 ? 'stable vs 30 j précédents' : `${delta > 0 ? '+' : ''}${delta}${unit} vs 30 j précédents`}
+      </div>
+    </div>
+  );
+}
 
 export function AdminAttachePanel() {
   const [status, setStatus] = useState<any>(null);
@@ -1329,12 +1354,13 @@ export function AdminAttachePanel() {
         </div>
         <div className="space-y-3 p-3">
           <p className="text-[12px] leading-relaxed text-gray-600">
-            Chaque correction de votre part est <b>captée automatiquement, sans consommer un seul jeton</b> :
-            proposition refusée ✗ ou validée ✓, acte que l&apos;attaché a dû réviser, acte que vous corrigez à la main,
-            leçon notée en conversation. Périodiquement, un <b>run court sur le modèle économe</b> distille ces signaux
-            en règles générales et réécrit sa mémoire <b>sous un budget strict</b> — relue à chaque intervention, elle
-            reste courte : l&apos;attaché s&apos;améliore <b>en faisant baisser</b> la consommation (moins d&apos;erreurs,
-            moins de retouches), pas en l&apos;alourdissant.
+            <b>Entièrement automatique — vous n&apos;avez rien à faire.</b> Chaque correction de votre part est
+            captée au vol, <b>sans consommer un seul jeton</b> : proposition refusée ✗ ou validée ✓, acte que
+            l&apos;attaché a dû réviser, acte que vous corrigez à la main, reprise en conversation (« non, refais »,
+            « je t&apos;avais dit… » — repérée d&apos;elle-même). Périodiquement, un <b>run court sur le modèle
+            économe</b> distille ces signaux en règles générales, réécrit sa mémoire <b>sous un budget strict</b> et
+            fait évoluer ses skills — l&apos;attaché s&apos;améliore <b>en faisant baisser</b> la consommation
+            (moins d&apos;erreurs, moins de retouches), pas en l&apos;alourdissant.
           </p>
 
           {(() => {
@@ -1371,6 +1397,23 @@ export function AdminAttachePanel() {
                   </div>
                 </div>
 
+                {a.progression && (() => {
+                  const p = a.progression;
+                  const retouches = (f: ApprFenetre) => f.revisions + f.editionsMain;
+                  const aDesDonnees = p.j30.tauxAcceptation != null || retouches(p.j30) + p.j30.portes + p.j30.corrections > 0
+                    || p.j30prec.tauxAcceptation != null || retouches(p.j30prec) + p.j30prec.portes + p.j30prec.corrections > 0;
+                  if (!aDesDonnees) return null;
+                  return (
+                    <div className="space-y-1.5">
+                      <div className="text-[11px] font-semibold text-gray-500">Progression mesurée (30 jours)</div>
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        <ProgressionTile label="Propositions acceptées" now={p.j30.tauxAcceptation} before={p.j30prec.tauxAcceptation} unit=" %" />
+                        <ProgressionTile label="Actes retouchés" now={retouches(p.j30)} before={retouches(p.j30prec)} invert />
+                        <ProgressionTile label="Corrections & portes" now={p.j30.corrections + p.j30.portes} before={p.j30prec.corrections + p.j30prec.portes} invert />
+                      </div>
+                    </div>
+                  );
+                })()}
                 {types.length > 0 && (
                   <div className="text-[11px] text-gray-500">
                     En attente : {types.map(([t, n]) => `${n} ${SIGNAL_LABELS[t] || t}`).join(' · ')}
@@ -1396,8 +1439,9 @@ export function AdminAttachePanel() {
               Consolider maintenant
             </button>
             <span className="text-[10.5px] text-gray-400">
-              La mémoire distillée reste lisible et corrigeable (icône livre du panneau de l&apos;attaché) ; le coût des
-              consolidations apparaît dans « Consommation IA », poste « Apprentissage ».
+              Optionnel : tout part tout seul (accumulation, budget dépassé, ou au plus tard sous {appr?.cadenceJours ?? 7} jours dès le
+              premier signal) — ce bouton sert seulement à ne pas attendre. La mémoire distillée reste lisible et corrigeable
+              (icône livre du panneau) ; le coût des consolidations apparaît dans « Consommation IA », poste « Apprentissage ».
             </span>
           </div>
           {appr?.keyring === false && (

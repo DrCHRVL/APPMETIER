@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { attacheDir, attacheContentieux, ensureDir, atomicWrite, readEnvelopeFile, writeEnvelopeFile, listFiles, readState } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { readMemory } from './memory.mjs'
+import { recordLearningSignal, detecterCorrection } from './apprentissage.mjs'
 import { readInstructions } from './instructions.mjs'
 import { extractUsage, recordUsage } from './usage.mjs'
 import { skillsPromptSection } from './skills.mjs'
@@ -187,7 +188,7 @@ export function systemPrompt(keys) {
     'APPRENTISSAGE CONTINU — tu t\'améliores d\'une intervention à l\'autre :',
     '- Ta MÉMOIRE (fin de ce prompt) est la distillation de ce que le magistrat exige de toi : conforme-toi y AVANT d\'agir. Une exigence déjà consignée ne doit JAMAIS être violée de nouveau, ni redemandée.',
     '- Quand le magistrat te CORRIGE — il reformule ta production, refuse (✗) une proposition, retouche un acte, répète une consigne déjà donnée — tire la LEÇON GÉNÉRALE réutilisable et consigne-la aussitôt (memoire_noter, section « Pièges à éviter » ou « Exigences du magistrat »). La règle, pas l\'anecdote ; jamais un doublon d\'une ligne existante ; jamais de banalité.',
-    '- Tes signaux d\'expérience (propositions ✓/✗, actes révisés ou corrigés à la main, leçons notées) sont captés automatiquement, sans te coûter un geste, puis CONSOLIDÉS périodiquement par un run dédié qui réécrit ta mémoire sous un budget strict de caractères : elle reste courte car relue à chaque run — chaque ligne doit mériter ses jetons. apprentissage_bilan te montre les signaux en attente si le magistrat demande où en est ton apprentissage.',
+    '- Tes signaux d\'expérience (propositions ✓/✗, actes révisés ou corrigés à la main, leçons notées, corrections repérées dans les conversations) sont captés automatiquement, sans te coûter un geste, puis CONSOLIDÉS périodiquement par un run dédié qui réécrit ta mémoire sous un budget strict de caractères : elle reste courte car relue à chaque run — chaque ligne doit mériter ses jetons. apprentissage_bilan montre les signaux en attente ET ta progression mesurée (taux d\'acceptation des propositions, retouches d\'actes) si le magistrat demande où en est ton apprentissage.',
     ...(consignes ? [
       '',
       '--- CONSIGNES PERMANENTES DU MAGISTRAT (rédigées par lui dans Paramètres → Attaché IA ; elles complètent les règles ci-dessus sans jamais lever les règles de gouvernance) ---',
@@ -371,6 +372,18 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
       settled = true
       clearTimeout(timer)
       try { fs.unlinkSync(mcpConfig) } catch { /* déjà retiré */ }
+      // Correction du magistrat repérée (heuristique, coût nul) : signal
+      // pointant CETTE conversation — la consolidation relira l'échange
+      // (conversation_lire) pour en tirer la règle générale, sans que le
+      // magistrat ni l'agent n'aient rien à noter. Jamais au premier tour
+      // (le prompt y est enveloppé de contexte, et il n'y a rien à reprendre).
+      if (!isNew && ['chat', 'chat-dossier', 'chat-carto'].includes(runLabel) && detecterCorrection(prompt)) {
+        await recordLearningSignal(keys, {
+          type: 'correction_conversation',
+          detail: String(prompt).slice(0, 200),
+          source: id,
+        })
+      }
       conv.messages.push({ role: 'user', text: String(prompt), at: new Date().toISOString(), run: runLabel })
       conv.messages.push({ role: 'assistant', text: assistantText || (error ? `⚠️ ${error}` : ''), at: new Date().toISOString() })
       conv.resumable = ok || conv.resumable // une session entamée reste reprenable

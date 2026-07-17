@@ -35,7 +35,8 @@ import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.
 import { analyserReseau, listerLiens, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
 import { saveProduction, listProductions, readProduction, deleteProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
 import { appendMemory, rewriteMemory, memoryStats, MEMORY_BUDGET } from './attache/memory.mjs'
-import { recordLearningSignal, pendingSignals, learningState } from './attache/apprentissage.mjs'
+import { recordLearningSignal, pendingSignals, learningState, learningMetrics, metricsSummary } from './attache/apprentissage.mjs'
+import { readConversation } from './attache/agent.mjs'
 import { controlerProduction } from './attache/qualite.mjs'
 import { listAssociations, setAssociation, removeAssociation } from './attache/associations.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed } from './attache/mail.mjs'
@@ -316,7 +317,7 @@ const TOOLS = [
   },
   {
     name: 'apprentissage_bilan',
-    description: 'Bilan des signaux d\'expérience captés depuis la dernière consolidation de la mémoire : corrections du magistrat (propositions refusées ✗, actes révisés ou corrigés à la main), validations ✓, leçons notées — avec l\'état de la mémoire face à son budget. Sert au run de consolidation, et à répondre à « qu\'as-tu appris récemment ? ».',
+    description: 'Bilan des signaux d\'expérience captés depuis la dernière consolidation de la mémoire : corrections du magistrat (propositions refusées ✗, actes révisés ou corrigés à la main, reprises en conversation), validations ✓, leçons notées — avec la progression mesurée (taux d\'acceptation, retouches, 30 j vs 30 j précédents) et l\'état de la mémoire face à son budget. Sert au run de consolidation, et à répondre à « qu\'as-tu appris récemment ? ».',
     inputSchema: { type: 'object', properties: {} },
     handler: async () => {
       const signaux = pendingSignals(keys, 80)
@@ -324,6 +325,7 @@ const TOOLS = [
         depuisConsolidation: learningState().lastRunAt || '(jamais consolidé)',
         nombre: signaux.length,
         memoire: memoryStats(keys),
+        progression: metricsSummary(learningMetrics(keys)),
         signaux: signaux.map((s) => ({
           quand: new Date(s.ts).toISOString().slice(0, 10),
           type: s.type,
@@ -333,6 +335,26 @@ const TOOLS = [
         })),
       }
     },
+  },
+  {
+    name: 'conversation_lire',
+    description: 'Relit le transcript d\'une conversation passée avec le magistrat (id donné par un signal correction_conversation, champ source). Sert à la CONSOLIDATION d\'apprentissage : retrouver la reprise exacte du magistrat pour en tirer la règle générale. Derniers échanges seulement, bornés.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, derniers: { type: 'number', description: 'Nombre de messages en partant de la fin (défaut 12, max 30)' } }, required: ['id'] },
+    handler: async (a) => {
+      const conv = readConversation(keys, String(a.id || ''))
+      if (!conv) return { erreur: `Conversation ${a.id} introuvable` }
+      const n = Math.max(2, Math.min(30, Number(a.derniers) || 12))
+      return {
+        id: conv.id,
+        titre: conv.titre || conv.title,
+        messages: (conv.messages || []).slice(-n).map((m) => ({
+          role: m.role,
+          quand: (m.at || '').slice(0, 16),
+          texte: String(m.text || '').slice(0, 2500),
+        })),
+      }
+    },
+    mainOnly: true, // échanges privés du magistrat : jamais exposés aux sous-agents
   },
   {
     name: 'associations_lister',
@@ -967,8 +989,9 @@ rl.on('line', async (line) => {
     if (method === 'notifications/initialized' || method === 'notifications/cancelled') return
     if (method === 'ping') return reply({})
     // En mode sous-agent, seuls les outils de lecture existent : les
-    // écritures et sous_agents (récursion) ne sont ni listés ni appelables.
-    const availableTools = IS_SUBAGENT ? TOOLS.filter((t) => !t.write && t.name !== 'sous_agents') : TOOLS
+    // écritures, sous_agents (récursion) et les outils réservés à l'agent
+    // principal (conversations privées) ne sont ni listés ni appelables.
+    const availableTools = IS_SUBAGENT ? TOOLS.filter((t) => !t.write && !t.mainOnly && t.name !== 'sous_agents') : TOOLS
     if (method === 'tools/list') {
       return reply({ tools: availableTools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) })
     }
