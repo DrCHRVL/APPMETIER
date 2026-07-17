@@ -10,7 +10,6 @@
  * version bumpées, coffre re-chiffré et archivé avant écrasement — pour que
  * les clients web fusionnent proprement (le plus récent gagne, par enquête).
  */
-import { createRequire } from 'node:module'
 import crypto from 'node:crypto'
 import {
   attacheTj, attacheContentieux, readVault, writeVault,
@@ -19,8 +18,7 @@ import {
 } from './store.mjs'
 import { encryptJson, decryptJson, decryptDocBlob } from './crypto.mjs'
 import { natinfEntry, natinfLabel } from './natinf.mjs'
-
-const require = createRequire(import.meta.url)
+import { extractPdfText } from './ocr.mjs'
 
 /**
  * Signature des écritures VISIBLES des autres utilisateurs (CR, metadata de
@@ -258,17 +256,12 @@ export async function readDocumentText(keys, numero, cheminRelatif) {
     if (cached) return { ok: true, texte: cached.texte, cache: true }
     const plain = decryptDocBlob(keys.global, blob)
     if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }
-    try {
-      // import direct de l'implémentation : le point d'entrée de pdf-parse
-      // exécute un bloc de debug quand il se croit lancé en script
-      const pdfParse = require('pdf-parse/lib/pdf-parse.js')
-      const parsed = await pdfParse(plain)
-      const texte = tidyPdfText(parsed.text).slice(0, 200_000)
-      try { writeDocCache(keys, key, cheminRelatif, blobHash, texte) } catch { /* cache facultatif */ }
-      return { ok: true, texte }
-    } catch (e) {
-      return { ok: false, error: 'Extraction PDF échouée : ' + (e?.message || e) }
-    }
+    // Couche texte native, avec OCR de secours si la pièce est un scan image.
+    const res = await extractPdfText(plain)
+    if (!res.ok) return { ok: false, error: res.error, scanned: res.scanned }
+    const texte = tidyPdfText(res.texte).slice(0, 200_000)
+    try { writeDocCache(keys, key, cheminRelatif, blobHash, texte) } catch { /* cache facultatif */ }
+    return { ok: true, texte, source: res.source }
   }
   const plain = decryptDocBlob(keys.global, blob)
   if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }

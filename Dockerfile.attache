@@ -10,6 +10,13 @@
 # L'état de connexion persiste dans le volume claude-auth.
 FROM node:20-bookworm-slim
 
+# OCR de secours pour les PDF scannés (PV de motivation illisibles par
+# extraction texte) : poppler (pdftoppm) rastérise, tesseract lit le français.
+# Sans ces binaires, l'attaché signale simplement la pièce comme illisible.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-fra \
+  && rm -rf /var/lib/apt/lists/*
+
 # Le CLI Claude Code — le « cerveau », connecté à l'abonnement du magistrat
 RUN npm install -g @anthropic-ai/claude-code --no-audit --no-fund
 

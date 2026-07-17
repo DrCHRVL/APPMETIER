@@ -14,7 +14,7 @@
  * masque de lui-même. Tout est chiffré : le navigateur déchiffre pour afficher.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Sparkles, RefreshCw, ChevronDown, ChevronUp, FileText, ArrowRight, X } from 'lucide-react';
+import { Sparkles, RefreshCw, ChevronDown, ChevronUp, FileText, ArrowRight, X, Wand2 } from 'lucide-react';
 import { ProductionPopup } from './ProductionPopup';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
@@ -49,6 +49,17 @@ const cardKey = (c: { ts: number; titre?: string }) => `${c.ts}|${c.titre || ''}
 
 /** Résumé assez long pour être coupé par le clamp (2 lignes) → dépliable. */
 const resumeIsLong = (s?: string) => !!s && (s.length > 110 || s.includes('\n'));
+
+/** Ouvre le panneau attaché avec une consigne pré-remplie sur cette carte. */
+const openInAttache = (prompt: string) => {
+  try { window.dispatchEvent(new CustomEvent('siral:open-attache', { detail: { prompt } })); } catch { /* */ }
+};
+
+/** Consigne de départ pour « éditer / consigne IA » sur une action du journal. */
+const cardPrompt = (c: { titre: string; numero?: string; resume?: string }) =>
+  `Reviens sur ce que tu as préparé : « ${c.titre} »${c.numero ? ` — dossier ${c.numero}` : ''}.` +
+  (c.resume ? `\n\n${c.resume}` : '') +
+  '\n\nJe veux le revoir, l\'éditer ou te donner mes consignes — montre-moi le document ou l\'action concernée et attends mes instructions.';
 
 export function AbsenceJournal() {
   const [available, setAvailable] = useState(false);
@@ -234,6 +245,14 @@ export function AbsenceJournal() {
                           <FileText className="h-3 w-3" />Ouvrir
                         </span>
                       )}
+                      {/* Éditer / donner une consigne à l'attaché sur cette action. */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openInAttache(cardPrompt(c)); }}
+                        title="Éditer / donner une consigne à l'attaché"
+                        className="mt-0.5 flex-shrink-0 rounded p-1 text-gray-300 hover:bg-emerald-50 hover:text-[#2B5746]"
+                      >
+                        <Wand2 className="h-3.5 w-3.5" />
+                      </button>
                       {/* Ranger la carte pour éviter l'entassement (masquage local). */}
                       <button
                         onClick={(e) => { e.stopPropagation(); dismiss(c); }}

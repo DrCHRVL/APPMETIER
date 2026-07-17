@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Scale, RefreshCw, Loader2, Copy, Check, X, ChevronDown, ChevronUp,
-  CalendarClock, Mail, FileText, Eye, Phone, StickyNote, Sparkles,
+  CalendarClock, Mail, FileText, Eye, Phone, StickyNote, Sparkles, Wand2,
 } from 'lucide-react';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
@@ -56,6 +56,62 @@ function detailIsLong(s?: string): boolean {
   return !!s && (s.length > 110 || s.includes('\n'));
 }
 
+/** Identifiants forts d'un objet (plaque, IMEI, ligne) pour reconnaître un doublon. */
+function extractIdentifiers(text: string): string[] {
+  const ids = new Set<string>();
+  const s = text || '';
+  // Plaques SIV (AB-123-CD, tirets optionnels)
+  for (const m of s.matchAll(/\b[A-Z]{2}-?\d{3}-?[A-Z]{2}\b/g)) ids.add('plaque:' + m[0].replace(/-/g, '').toUpperCase());
+  // IMEI (15 chiffres)
+  for (const m of s.matchAll(/\b\d{15}\b/g)) ids.add('imei:' + m[0]);
+  // Lignes téléphoniques FR (0X XX XX XX XX, séparateurs libres)
+  for (const m of s.matchAll(/\b0[1-9](?:[ .\-]?\d{2}){4}\b/g)) ids.add('tel:' + m[0].replace(/[ .\-]/g, ''));
+  return [...ids];
+}
+
+/** Signature d'un item : même type + même dossier + mêmes identifiants = doublon. */
+function itemSignature(it: Item): string {
+  const ids = extractIdentifiers(`${it.titre} ${it.detail || ''}`);
+  if (ids.length) return `${it.type}|${it.dossier || ''}|${ids.sort().join(',')}`;
+  const titre = it.titre.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40);
+  return `${it.type}|${it.dossier || ''}|${it.echeance || ''}|${titre}`;
+}
+
+/** Dédoublonne en gardant la 1re occurrence (la liste est triée du plus récent au plus ancien). */
+function dedupeItems(items: Item[]): Item[] {
+  const seen = new Set<string>();
+  const out: Item[] = [];
+  for (const it of items) {
+    const sig = itemSignature(it);
+    if (seen.has(sig)) continue;
+    seen.add(sig);
+    out.push(it);
+  }
+  return out;
+}
+
+/** Ouvre le panneau attaché avec une consigne pré-remplie (raccourci d'un item). */
+function openInAttache(prompt: string) {
+  try { window.dispatchEvent(new CustomEvent('siral:open-attache', { detail: { prompt } })); } catch { /* */ }
+}
+
+/** Consigne de départ pour « éditer / consigne IA / trancher » un item du brief. */
+function itemPrompt(it: Item): string {
+  const parts: string[] = [];
+  parts.push(
+    `Ouvrons ensemble ce point du brief : « ${it.titre} »` +
+    (it.dossier ? ` — dossier ${it.dossier}` : '') +
+    (it.echeance ? `, échéance ${formatEcheance(it.echeance)}` : '') + '.',
+  );
+  if (it.detail) parts.push(it.detail);
+  if (it.mail) parts.push(`(Un projet de mail est déjà préparé — objet : ${it.mail.objet}.)`);
+  parts.push(
+    'Je veux pouvoir l\'éditer, te donner une consigne ou trancher : montre-moi le projet ou l\'acte concerné, ' +
+    'propose-moi les options s\'il y a une décision à prendre, puis attends mes instructions.',
+  );
+  return parts.join('\n\n');
+}
+
 function CopyButton({ text, label = 'Copier' }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
   return (
@@ -92,7 +148,9 @@ export function MajordomeWidget() {
         const item = await eapi().attache_decrypt({ v: 1, encrypted: true, iv: e.iv, ct: e.ct });
         if (item) out.push({ ...(item as Item), ts: e.ts });
       }
-      setItems(out.reverse());
+      // Plus récent d'abord, puis dédoublonnage (un objet = un seul item) :
+      // nettoie les répétitions accumulées sur plusieurs briefs.
+      setItems(dedupeItems(out.reverse()));
     } catch {
       setAvailable(false);
     } finally {
@@ -196,6 +254,13 @@ export function MajordomeWidget() {
                           )}
                         </div>
                         <div className="flex flex-shrink-0 items-center gap-1">
+                          <button
+                            onClick={() => openInAttache(itemPrompt(it))}
+                            title="Éditer / donner une consigne à l'attaché / trancher"
+                            className="rounded-md p-1 text-gray-300 hover:bg-emerald-50 hover:text-[#2B5746]"
+                          >
+                            <Wand2 className="h-3.5 w-3.5" />
+                          </button>
                           {it.mail && <CopyButton text={`À : ${it.mail.destinataire}\nObjet : ${it.mail.objet}\n\n${it.mail.corps}`} />}
                           {!it.mail && it.detail && it.type === 'projet_dml' && <CopyButton text={it.detail} />}
                           <button onClick={() => mark(it.id, 'traite')} title="Traité" className="rounded-md p-1 text-gray-300 hover:bg-emerald-50 hover:text-emerald-600">

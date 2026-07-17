@@ -186,10 +186,19 @@ function AppContent() {
   // Attaché de justice IA (admin uniquement, activé côté serveur)
   const [attacheAvailable, setAttacheAvailable] = useState(false);
   const [showAttache, setShowAttache] = useState(false);
-  // Le journal « pendant votre absence » (tableau de bord) peut demander
-  // l'ouverture du panneau attaché pour répondre aux décisions à trancher.
+  // Consigne pré-remplie dans le composer quand on ouvre l'attaché depuis un
+  // item (échéance du brief, carte du journal) : « éditer / consigne IA /
+  // trancher » sur cet objet précis. Le nonce force la ré-application même si
+  // deux ouvertures portent le même texte.
+  const [attachePrefill, setAttachePrefill] = useState<{ text: string; nonce: number } | undefined>(undefined);
+  // Le journal « pendant votre absence » et le brief peuvent demander
+  // l'ouverture du panneau attaché — éventuellement avec une consigne pré-remplie.
   useEffect(() => {
-    const open = () => setShowAttache(true);
+    const open = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { prompt?: string } | undefined;
+      if (detail?.prompt) setAttachePrefill({ text: detail.prompt, nonce: Date.now() });
+      setShowAttache(true);
+    };
     window.addEventListener('siral:open-attache', open);
     return () => window.removeEventListener('siral:open-attache', open);
   }, []);
@@ -2067,7 +2076,7 @@ return (
 
       {/* Attaché de justice IA — panneau latéral (admin uniquement) */}
       {attacheAvailable && isAdmin() && (
-        <AttachePanel open={showAttache} onClose={() => setShowAttache(false)} />
+        <AttachePanel open={showAttache} onClose={() => setShowAttache(false)} prefill={attachePrefill} />
       )}
 
       {/* 🆕 Modal Paramètres multi-onglets */}
