@@ -44,6 +44,52 @@ const TYPE_META: Record<Item['type'], { label: string; icon: React.ElementType; 
 };
 const TYPE_ORDER: Item['type'][] = ['echeance', 'verification', 'projet_mail', 'projet_dml', 'appel', 'note'];
 
+/** Échéance AAAA-MM-JJ → JJ-MM-AAAA (format français). Chaîne inchangée sinon. */
+function formatEcheance(s?: string): string {
+  if (!s) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s.trim());
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : s;
+}
+
+/** Détail assez long pour risquer d'être tronqué (2 lignes) → mérite un dépliage. */
+function detailIsLong(s?: string): boolean {
+  return !!s && (s.length > 110 || s.includes('\n'));
+}
+
+/** Identifiants forts d'un objet (plaque, IMEI, ligne) pour reconnaître un doublon. */
+function extractIdentifiers(text: string): string[] {
+  const ids = new Set<string>();
+  const s = text || '';
+  // Plaques SIV (AB-123-CD, tirets optionnels)
+  for (const m of s.matchAll(/\b[A-Z]{2}-?\d{3}-?[A-Z]{2}\b/g)) ids.add('plaque:' + m[0].replace(/-/g, '').toUpperCase());
+  // IMEI (15 chiffres)
+  for (const m of s.matchAll(/\b\d{15}\b/g)) ids.add('imei:' + m[0]);
+  // Lignes téléphoniques FR (0X XX XX XX XX, séparateurs libres)
+  for (const m of s.matchAll(/\b0[1-9](?:[ .\-]?\d{2}){4}\b/g)) ids.add('tel:' + m[0].replace(/[ .\-]/g, ''));
+  return [...ids];
+}
+
+/** Signature d'un item : même type + même dossier + mêmes identifiants = doublon. */
+function itemSignature(it: Item): string {
+  const ids = extractIdentifiers(`${it.titre} ${it.detail || ''}`);
+  if (ids.length) return `${it.type}|${it.dossier || ''}|${ids.sort().join(',')}`;
+  const titre = it.titre.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40);
+  return `${it.type}|${it.dossier || ''}|${it.echeance || ''}|${titre}`;
+}
+
+/** Dédoublonne en gardant la 1re occurrence (la liste est triée du plus récent au plus ancien). */
+function dedupeItems(items: Item[]): Item[] {
+  const seen = new Set<string>();
+  const out: Item[] = [];
+  for (const it of items) {
+    const sig = itemSignature(it);
+    if (seen.has(sig)) continue;
+    seen.add(sig);
+    out.push(it);
+  }
+  return out;
+}
+
 function CopyButton({ text, label = 'Copier' }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
   return (
@@ -59,7 +105,7 @@ function CopyButton({ text, label = 'Copier' }: { text: string; label?: string }
   );
 }
 
-export function MajordomeWidget() {
+export function MajordomeWidget({ onOpenDossier }: { onOpenDossier?: (numero: string) => void }) {
   const [available, setAvailable] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
@@ -80,7 +126,9 @@ export function MajordomeWidget() {
         const item = await eapi().attache_decrypt({ v: 1, encrypted: true, iv: e.iv, ct: e.ct });
         if (item) out.push({ ...(item as Item), ts: e.ts });
       }
-      setItems(out.reverse());
+      // Plus récent d'abord, puis dédoublonnage (un objet = un seul item) :
+      // nettoie les répétitions accumulées sur plusieurs briefs.
+      setItems(dedupeItems(out.reverse()));
     } catch {
       setAvailable(false);
     } finally {
@@ -165,11 +213,15 @@ export function MajordomeWidget() {
                   {list.map((it) => (
                     <div key={it.id} className="px-3 py-2.5">
                       <div className="flex items-start gap-2">
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[12.5px] font-semibold leading-snug text-gray-800">
+                        <div
+                          className={`min-w-0 flex-1 ${onOpenDossier && it.dossier ? 'cursor-pointer' : ''}`}
+                          onClick={onOpenDossier && it.dossier ? () => onOpenDossier(it.dossier!) : undefined}
+                          title={onOpenDossier && it.dossier ? 'Ouvrir la fiche du dossier (l\'acte rédigé est dans « Actes rédigés »)' : undefined}
+                        >
+                          <div className={`text-[12.5px] font-semibold leading-snug text-gray-800 ${onOpenDossier && it.dossier ? 'hover:text-[#2B5746]' : ''}`}>
                             {it.titre}
                             {it.dossier && <span className="ml-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">{it.dossier}</span>}
-                            {it.echeance && <span className="ml-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">→ {it.echeance}</span>}
+                            {it.echeance && <span className="ml-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">→ {formatEcheance(it.echeance)}</span>}
                           </div>
                           {it.appel && (
                             <div className="mt-0.5 text-[11.5px] text-gray-600"><b>{it.appel.qui}</b> — {it.appel.motif}</div>
@@ -194,18 +246,23 @@ export function MajordomeWidget() {
                           </button>
                         </div>
                       </div>
-                      {/* corps du mail / détail long, dépliable */}
-                      {(it.mail || (it.detail && it.type === 'projet_dml')) && (
+                      {/* Dépliage : corps de mail à copier, OU tout détail long
+                          (échéance, vérification, appel, note…) que le clamp à
+                          2 lignes coupait — le texte doit être lisible en entier. */}
+                      {(it.mail || detailIsLong(it.detail)) && (
                         <button
                           onClick={() => setExpanded(expanded === it.id ? null : it.id)}
                           className="mt-1 text-[10.5px] font-medium text-gray-400 hover:text-gray-600"
                         >
-                          {expanded === it.id ? '▲ replier' : '▼ relire le texte complet'}
+                          {expanded === it.id ? '▲ replier' : (it.mail ? '▼ relire le texte complet' : '▼ voir tout le détail')}
                         </button>
                       )}
-                      {expanded === it.id && (it.mail?.corps || it.detail) && (
+                      {/* Corps du mail : bloc dédié copiable. Le détail non-mail
+                          est déplié directement dans la ligne ci-dessus (plus de
+                          clamp), inutile de le répéter ici. */}
+                      {expanded === it.id && it.mail?.corps && (
                         <pre className="mt-1.5 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-gray-100 bg-gray-50 p-2.5 font-sans text-[11.5px] leading-relaxed text-gray-700">
-                          {it.mail?.corps || it.detail}
+                          {it.mail.corps}
                         </pre>
                       )}
                     </div>

@@ -40,6 +40,16 @@ interface Routine {
 
 interface Skill { nom: string; fileId?: string; description?: string; contenu: string; updatedAt?: string }
 interface Trame { nom: string; fileId?: string; description?: string; contenu: string; updatedAt?: string }
+/** Ligne éditable de la table « type d'acte → trame(s) + skill(s) ». */
+interface AssocRow { id: string; acte: string; tramesText: string; skillsText: string; notes: string }
+
+/** Identifiant hex stable pour une association (compatible côté service). */
+const assocId = () => {
+  const c = (typeof crypto !== 'undefined' ? crypto : undefined) as Crypto | undefined;
+  const raw = c?.randomUUID ? c.randomUUID().replace(/-/g, '') : Math.floor(Math.random() * 1e16).toString(16);
+  return raw.slice(0, 12).padEnd(6, '0');
+};
+const splitAssocList = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean).slice(0, 20);
 
 /** Trame en attente après conversion d'un fichier téléversé (avant chiffrement + enregistrement). */
 interface StagedDoc {
@@ -151,6 +161,9 @@ export function AdminAttachePanel() {
   const [trameAnalyseMsg, setTrameAnalyseMsg] = useState<string | null>(null); // retour affiché AU BOUTON (le toast est loin en haut)
   const trameFileInput = useRef<HTMLInputElement>(null);
   const skillFileInput = useRef<HTMLInputElement>(null);
+  // ── Associations « type d'acte → trame(s) + skill(s) » (table durable, éditable) ──
+  const [assoc, setAssoc] = useState<AssocRow[]>([]);
+  const [assocSaving, setAssocSaving] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -243,7 +256,53 @@ export function AdminAttachePanel() {
     } catch { /* silencieux — les erreurs remontent sur les actions */ }
   }, []);
 
-  useEffect(() => { refresh(); loadRoutines(); loadSkills(); loadTrames(); }, [refresh, loadRoutines, loadSkills, loadTrames]);
+  // ── Associations : enveloppe unique, déchiffrée ICI (comme la mémoire) ──
+  const loadAssociations = useCallback(async () => {
+    try {
+      const res = await fetch('/api/attache/associations');
+      if (!res.ok) return;
+      const { envelope } = await res.json();
+      if (!envelope) { setAssoc([]); return; }
+      const payload = await bridgeFn('attache_decrypt')(envelope) as { entries?: Array<{ id?: string; acte?: string; trames?: string[]; skills?: string[]; notes?: string }> } | null;
+      setAssoc((payload?.entries || []).map((e) => ({
+        id: /^[a-f0-9]{6,32}$/.test(String(e.id || '')) ? e.id! : assocId(),
+        acte: e.acte || '',
+        tramesText: (e.trames || []).join(', '),
+        skillsText: (e.skills || []).join(', '),
+        notes: e.notes || '',
+      })));
+    } catch { /* silencieux — les erreurs remontent sur l'enregistrement */ }
+  }, []);
+
+  const saveAssociations = useCallback(async () => {
+    setAssocSaving(true);
+    try {
+      const entries = assoc
+        .map((r) => ({
+          id: /^[a-f0-9]{6,32}$/.test(r.id) ? r.id : assocId(),
+          acte: r.acte.trim().slice(0, 120),
+          trames: splitAssocList(r.tramesText),
+          skills: splitAssocList(r.skillsText),
+          notes: r.notes.trim().slice(0, 500) || undefined,
+          updatedAt: new Date().toISOString(),
+        }))
+        .filter((e) => e.acte);
+      const envelope = await bridgeFn('attache_encrypt')({ entries });
+      const res = await fetch('/api/attache/associations', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ envelope }),
+      });
+      if (res.ok) setNotice('Associations enregistrées — l\'attaché appliquera d\'office la trame et la skill du type d\'acte, sans reposer la question.');
+      else { const d = await res.json().catch(() => ({} as { error?: string })); setNotice(`Enregistrement refusé : ${d.error || res.status}`); }
+      loadAssociations();
+    } catch (e) {
+      setNotice(`Enregistrement impossible : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setAssocSaving(false);
+    }
+  }, [assoc, loadAssociations]);
+
+  useEffect(() => { refresh(); loadRoutines(); loadSkills(); loadTrames(); loadAssociations(); }, [refresh, loadRoutines, loadSkills, loadTrames, loadAssociations]);
 
   /** Conversion des fichiers choisis en trames — tout se passe dans CE navigateur (E2EE). */
   const stageFiles = useCallback(async (files: FileList | null) => {
@@ -1520,6 +1579,83 @@ export function AdminAttachePanel() {
             )}
           </div>
         )}
+      </div>
+
+      {/* Associations « type d'acte → trame + skill » — appliquées d'office par l'attaché */}
+      <div className="rounded-xl border border-gray-200">
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <SlidersHorizontal className="h-4 w-4 text-[#2B5746]" />
+          <span className="text-sm font-semibold text-gray-800">Associations acte → trame + skill</span>
+          <span className="hidden text-[11px] text-gray-400 sm:inline">la trame et la skill appliquées d&apos;office pour chaque type d&apos;acte</span>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setAssoc((rows) => [...rows, { id: assocId(), acte: '', tramesText: '', skillsText: '', notes: '' }])}
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+            >
+              <Plus className="h-3 w-3" />Ajouter
+            </button>
+            <button
+              onClick={saveAssociations}
+              disabled={assocSaving}
+              className="inline-flex items-center gap-1 rounded-lg bg-[#2B5746] px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+            >
+              {assocSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}Enregistrer
+            </button>
+          </div>
+        </div>
+
+        {/* Autocomplétion depuis les trames/skills existantes */}
+        <datalist id="assoc-trames">{trames.map((t) => <option key={t.nom} value={t.nom} />)}</datalist>
+        <datalist id="assoc-skills">{skills.map((s) => <option key={s.nom} value={s.nom} />)}</datalist>
+
+        <div className="space-y-2 p-3">
+          <p className="text-[11px] leading-relaxed text-gray-500">
+            L&apos;attaché consulte cette table avant de rédiger : si le type d&apos;acte y figure, il applique directement la
+            trame et la skill indiquées — il ne redemande plus. Plusieurs noms séparés par des virgules.
+          </p>
+          {assoc.length === 0 && (
+            <p className="rounded-lg border border-dashed border-gray-200 px-3 py-4 text-center text-[11px] text-gray-400">
+              Aucune association. « Ajouter » pour lier un type d&apos;acte à sa trame et sa skill.
+            </p>
+          )}
+          {assoc.map((r, i) => (
+            <div key={r.id} className="grid grid-cols-1 gap-1.5 rounded-lg border border-gray-200 p-2 sm:grid-cols-[1.4fr_1fr_1fr_auto]">
+              <input
+                value={r.acte}
+                onChange={(e) => setAssoc((rows) => rows.map((x, j) => (j === i ? { ...x, acte: e.target.value } : x)))}
+                placeholder="Type d'acte (ex. prolongation géoloc JLD)"
+                className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50"
+              />
+              <input
+                value={r.tramesText}
+                onChange={(e) => setAssoc((rows) => rows.map((x, j) => (j === i ? { ...x, tramesText: e.target.value } : x)))}
+                placeholder="Trame(s)"
+                list="assoc-trames"
+                className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50"
+              />
+              <input
+                value={r.skillsText}
+                onChange={(e) => setAssoc((rows) => rows.map((x, j) => (j === i ? { ...x, skillsText: e.target.value } : x)))}
+                placeholder="Skill(s)"
+                list="assoc-skills"
+                className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50"
+              />
+              <button
+                onClick={() => setAssoc((rows) => rows.filter((_, j) => j !== i))}
+                title="Retirer cette ligne"
+                className="inline-flex items-center justify-center rounded-lg border border-gray-200 px-2 text-gray-400 hover:bg-red-50 hover:text-red-500"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+              <input
+                value={r.notes}
+                onChange={(e) => setAssoc((rows) => rows.map((x, j) => (j === i ? { ...x, notes: e.target.value } : x)))}
+                placeholder="Note (optionnel)"
+                className="rounded-lg border border-gray-100 bg-gray-50/60 px-2 py-1.5 text-[11px] outline-none focus:border-[#2B5746]/40 sm:col-span-4"
+              />
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Base de connaissances — le cerveau documentaire, explorateur + arborescence */}

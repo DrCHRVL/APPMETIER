@@ -13,11 +13,10 @@
  * nom de l'administrateur (l'attaché ne laisse aucune trace). Un dépôt
  * supprimé part en Corbeille/ du dépôt — rien n'est jamais détruit à sec.
  */
-import { createRequire } from 'node:module'
 import { attacheTj, listDocsMeta, readDocBlob, writeDocBlob, deleteDocBlob, docServerKey } from './store.mjs'
 import { encryptDocBlob, decryptDocBlob } from './crypto.mjs'
+import { extractPdfText } from './ocr.mjs'
 
-const require = createRequire(import.meta.url)
 import { enqueteExiste } from './dossier.mjs'
 import { instructionExiste } from './instru.mjs'
 import { readInboxMessage } from './mail.mjs'
@@ -59,13 +58,10 @@ export async function readDepotText(keys, rel) {
   if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }
   const lower = String(rel).toLowerCase()
   if (lower.endsWith('.pdf')) {
-    try {
-      const pdfParse = require('pdf-parse/lib/pdf-parse.js')
-      const parsed = await pdfParse(plain)
-      return { ok: true, texte: String(parsed.text || '').slice(0, 200_000) }
-    } catch (e) {
-      return { ok: false, error: 'Extraction PDF échouée : ' + (e?.message || e) }
-    }
+    // Couche texte native, avec OCR de secours si la pièce est un scan.
+    const res = await extractPdfText(plain)
+    if (res.ok) return { ok: true, texte: res.texte.slice(0, 200_000), source: res.source }
+    return { ok: false, error: res.error, scanned: res.scanned }
   }
   if (/\.(txt|html?|md|csv|json|eml)$/.test(lower)) {
     return { ok: true, texte: plain.toString('utf8').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 200_000) }

@@ -14,7 +14,7 @@
  * masque de lui-même. Tout est chiffré : le navigateur déchiffre pour afficher.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Sparkles, RefreshCw, ChevronDown, ChevronUp, FileText, ArrowRight } from 'lucide-react';
+import { Sparkles, RefreshCw, ChevronDown, ChevronUp, FileText, ArrowRight, X } from 'lucide-react';
 import { ProductionPopup } from './ProductionPopup';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
@@ -39,8 +39,18 @@ const FEED_ICONS: Record<string, string> = {
 };
 
 const JOURNAL_SEEN_KEY = 'attache_journal_seen_ts';
+// Cartes masquées par le magistrat (« supprimer » côté client, pour éviter que
+// le journal s'entasse) : le fil serveur est en lecture seule et append-only,
+// on retient donc localement les cartes rangées — persistant sur ce navigateur.
+const JOURNAL_DISMISSED_KEY = 'attache_journal_dismissed';
 
-export function AbsenceJournal() {
+/** Clé stable d'une carte (le fil n'a pas d'id) : horodatage + titre. */
+const cardKey = (c: { ts: number; titre?: string }) => `${c.ts}|${c.titre || ''}`;
+
+/** Résumé assez long pour être coupé par le clamp (2 lignes) → dépliable. */
+const resumeIsLong = (s?: string) => !!s && (s.length > 110 || s.includes('\n'));
+
+export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: string) => void }) {
   const [available, setAvailable] = useState(false);
   const [cards, setCards] = useState<Card[]>([]);
   const [qStatuses, setQStatuses] = useState<Record<string, { status: string }>>({});
@@ -48,6 +58,8 @@ export function AbsenceJournal() {
   const [collapsed, setCollapsed] = useState(false);
   const [popup, setPopup] = useState<{ numero: string; prodId: string } | null>(null);
   const [seenTs, setSeenTs] = useState(0);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   const loadFeed = useCallback(async () => {
     setLoading(true);
@@ -82,7 +94,22 @@ export function AbsenceJournal() {
     loadFeed();
     loadStatuses();
     try { setSeenTs(Number(localStorage.getItem(JOURNAL_SEEN_KEY) || 0)); } catch { /* */ }
+    try {
+      const raw = localStorage.getItem(JOURNAL_DISMISSED_KEY);
+      if (raw) setDismissed(new Set(JSON.parse(raw) as string[]));
+    } catch { /* */ }
   }, [loadFeed, loadStatuses]);
+
+  // Ranger une carte (client-side) : elle disparaît du journal et ne reviendra
+  // plus au rechargement sur ce navigateur.
+  const dismiss = useCallback((c: Card) => {
+    setDismissed((prev) => {
+      const next = new Set(prev);
+      next.add(cardKey(c));
+      try { localStorage.setItem(JOURNAL_DISMISSED_KEY, JSON.stringify([...next])); } catch { /* */ }
+      return next;
+    });
+  }, []);
 
   const reload = useCallback(() => { loadFeed(); loadStatuses(); }, [loadFeed, loadStatuses]);
 
@@ -96,8 +123,9 @@ export function AbsenceJournal() {
     try { window.dispatchEvent(new CustomEvent('siral:open-attache')); } catch { /* */ }
   }, []);
 
-  // Journal = tout sauf les questions (qui vivent dans « À trancher »).
-  const journal = cards.filter((c) => c.type !== 'question');
+  // Journal = tout sauf les questions (qui vivent dans « À trancher ») et les
+  // cartes rangées par le magistrat.
+  const journal = cards.filter((c) => c.type !== 'question' && !dismissed.has(cardKey(c)));
 
   const markSeen = useCallback(() => {
     if (journal.length) {
@@ -171,12 +199,24 @@ export function AbsenceJournal() {
                 <span className="ml-auto text-[10.5px] text-gray-400">{list.length} action{list.length > 1 ? 's' : ''}</span>
               </div>
               <div className="divide-y divide-gray-50">
-                {list.map((c, i) => {
+                {list.map((c) => {
                   const isDoc = !!c.prodId;
                   const isNew = c.ts > seenTs;
+                  const k = cardKey(c);
+                  const isExpanded = expandedKey === k;
+                  // Clic : dossier réel → ouvre l'EnquêteDetail (l'acte rédigé y
+                  // est dans « Actes rédigés »). Hors dossier avec document →
+                  // ouvre le document. Sinon, non cliquable.
+                  const canOpenDossier = !!onOpenDossier && !!c.numero && c.numero !== '_hors-dossier';
+                  const onCardClick = canOpenDossier
+                    ? () => onOpenDossier!(c.numero!)
+                    : isDoc
+                      ? () => setPopup({ numero: c.numero || '_hors-dossier', prodId: c.prodId! })
+                      : undefined;
                   return (
-                    <div key={i} className={`flex items-start gap-2.5 px-3 py-2.5 ${isDoc ? 'cursor-pointer hover:bg-gray-50' : ''}`}
-                      onClick={isDoc ? () => setPopup({ numero: c.numero || '_hors-dossier', prodId: c.prodId! }) : undefined}
+                    <div key={k} className={`flex items-start gap-2.5 px-3 py-2.5 ${onCardClick ? 'cursor-pointer hover:bg-gray-50' : ''}`}
+                      onClick={onCardClick}
+                      title={canOpenDossier ? 'Ouvrir la fiche du dossier (acte rédigé dans « Actes rédigés »)' : undefined}
                     >
                       <span className="mt-0.5 text-[15px] leading-none">{FEED_ICONS[c.type] || '•'}</span>
                       <div className="min-w-0 flex-1">
@@ -185,15 +225,33 @@ export function AbsenceJournal() {
                           {isNew && <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[#2B5746]" title="Nouveau" />}
                         </div>
                         {!isDoc && c.resume && (
-                          <div className="mt-0.5 line-clamp-2 text-[11.5px] leading-relaxed text-gray-500">{c.resume}</div>
+                          <>
+                            <div className={`mt-0.5 whitespace-pre-wrap text-[11.5px] leading-relaxed text-gray-500 ${isExpanded ? '' : 'line-clamp-2'}`}>{c.resume}</div>
+                            {resumeIsLong(c.resume) && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setExpandedKey(isExpanded ? null : k); }}
+                                className="mt-0.5 text-[10.5px] font-medium text-gray-400 hover:text-gray-600"
+                              >
+                                {isExpanded ? '▲ replier' : '▼ voir tout le détail'}
+                              </button>
+                            )}
+                          </>
                         )}
                         <div className="mt-0.5 text-[10px] text-gray-400">{c.at ? new Date(c.at).toLocaleString('fr-FR') : ''}</div>
                       </div>
-                      {isDoc && (
+                      {onCardClick && (
                         <span className="mt-0.5 inline-flex flex-shrink-0 items-center gap-1 rounded-md border border-[#2B5746]/30 bg-emerald-50 px-2 py-1 text-[10.5px] font-semibold text-[#2B5746]">
                           <FileText className="h-3 w-3" />Ouvrir
                         </span>
                       )}
+                      {/* Ranger la carte pour éviter l'entassement (masquage local). */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); dismiss(c); }}
+                        title="Ranger cette carte"
+                        className="mt-0.5 flex-shrink-0 rounded p-1 text-gray-300 hover:bg-gray-100 hover:text-gray-500"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   );
                 })}

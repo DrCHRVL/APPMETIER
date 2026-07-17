@@ -16,6 +16,7 @@ import { AlertsModal } from '@/components/modals/AlertsModal';
 import { SavePage } from '@/components/pages/SavePage';
 const StatsPage = dynamic(() => import('@/components/pages/StatsPage').then(m => ({ default: m.StatsPage })), { ssr: false });
 const DashboardPage = dynamic(() => import('@/components/pages/DashboardPage').then(m => ({ default: m.DashboardPage })), { ssr: false });
+const AssistantJusticePage = dynamic(() => import('@/components/pages/AssistantJusticePage').then(m => ({ default: m.AssistantJusticePage })), { ssr: false });
 import { useContentieuxEnquetesStore as useContentieuxEnquetes } from '@/hooks/useContentieuxEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
 import { useInfractionFilter } from '@/hooks/useInfractionFilter';
@@ -185,8 +186,8 @@ function AppContent() {
   // Attaché de justice IA (admin uniquement, activé côté serveur)
   const [attacheAvailable, setAttacheAvailable] = useState(false);
   const [showAttache, setShowAttache] = useState(false);
-  // Le journal « pendant votre absence » (tableau de bord) peut demander
-  // l'ouverture du panneau attaché pour répondre aux décisions à trancher.
+  // Le journal « pendant votre absence » peut demander l'ouverture du panneau
+  // attaché pour répondre aux décisions à trancher.
   useEffect(() => {
     const open = () => setShowAttache(true);
     window.addEventListener('siral:open-attache', open);
@@ -209,6 +210,8 @@ function AppContent() {
   const handleViewChange = async (view: string, contentieuxId?: ContentieuxId) => {
     // Le JLD est verrouillé sur le tableau de bord : toute autre vue est ignorée.
     if (isJLDUser && view !== 'dashboard') return;
+    // L'assistant de justice (attaché IA) est réservé à l'administrateur.
+    if (view === 'assistant' && !isAdmin()) return;
     // Vérifier que l'utilisateur a accès au contentieux demandé
     if (contentieuxId && !accessibleContentieux.some(c => c.id === contentieuxId)) {
       return;
@@ -1194,6 +1197,40 @@ function AppContent() {
     setSelectedEnquete(enquete);
     setIsEditing(true);
   }, []);
+
+  // Ouvre la fiche d'un dossier depuis son NUMÉRO (raccourci « Assistant de
+  // justice » : un clic sur un item du brief ou une carte du journal ouvre
+  // directement l'EnquêteDetail — où l'acte rédigé se retrouve dans la section
+  // « Actes rédigés », éditable/exportable). Cherche dans tous les contentieux,
+  // puis dans les instructions.
+  const handleOpenDossierByNumero = useCallback((numero: string) => {
+    const norm = (s?: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const nt = norm(numero);
+    if (!nt) return;
+    const matches = (candidate?: string) => {
+      const nc = norm(candidate);
+      return !!nc && (nc === nt || nc.includes(nt) || nt.includes(nc));
+    };
+    for (const [ctxId, list] of overboardData) {
+      const found = list.find(e => matches(e.numero));
+      if (found) {
+        if (ctxId !== activeContentieux) {
+          setActiveContentieux(ctxId);
+          setCurrentView(`enquetes_${ctxId}`);
+        }
+        setSelectedEnquete(found);
+        setIsEditing(false);
+        return;
+      }
+    }
+    const inst = instructions.find(d => matches(d.numeroInstruction) || matches((d as { numeroParquet?: string }).numeroParquet));
+    if (inst) {
+      setSelectedInstruction(inst);
+      setIsEditingInstruction(false);
+      return;
+    }
+    showToast(`Dossier « ${numero} » introuvable dans vos enquêtes`, 'info');
+  }, [overboardData, activeContentieux, instructions, showToast, setActiveContentieux, setCurrentView, setSelectedEnquete, setIsEditing, setSelectedInstruction, setIsEditingInstruction]);
   const handleToggleSuivi = useCallback((enqueteId: number, type: 'JIRS' | 'PG') => {
     const enquete = enquetesLookupRef.current.find(e => e.id === enqueteId);
     if (!enquete) return;
@@ -1366,6 +1403,7 @@ return (
           instructionCount={sidebarInstructionCount}
           crossSearchResults={crossSearchResults}
           pendingUsersCount={pendingUsersCount}
+          showAssistant={attacheAvailable && isAdmin()}
         />
       </div>
       {mobileNavOpen && (
@@ -1386,6 +1424,7 @@ return (
               instructionCount={sidebarInstructionCount}
               crossSearchResults={crossSearchResults}
               pendingUsersCount={pendingUsersCount}
+              showAssistant={attacheAvailable && isAdmin()}
             />
           </div>
         </div>
@@ -1488,6 +1527,11 @@ return (
               onOpenInstruction={(d) => { setSelectedInstruction(d); setIsEditingInstruction(false); }}
               isJLD={isJLDUser}
             />
+          )}
+
+          {/* Assistant de justice (attaché IA) — page dédiée, admin uniquement */}
+          {baseView === 'assistant' && isAdmin() && (
+            <AssistantJusticePage onOpenDossier={handleOpenDossierByNumero} />
           )}
 
           {baseView === 'enquetes' && (
