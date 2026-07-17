@@ -31,6 +31,30 @@ export function safeSkillName(nom) {
   return s
 }
 
+/**
+ * Préfixe de PROPRIÉTÉ de l'attaché : les skills « auto-* » sont celles
+ * qu'il crée lui-même (consolidation d'apprentissage) — les seules qu'il
+ * peut créer et réécrire de sa propre initiative. Les skills du magistrat
+ * (sans préfixe) ne se modifient QUE sur son instruction explicite, ou par
+ * proposition (proposer_skill, ✓/✗).
+ *
+ * PLAFOND anti-prolifération : la liste des skills (nom + description) est
+ * injectée dans CHAQUE prompt — chaque skill auto superflue se paie en
+ * jetons à chaque run. Au-delà du plafond, l'attaché doit FUSIONNER avant
+ * de créer (imposé dans le code, pas seulement dans le prompt).
+ */
+export const AUTO_SKILL_PREFIX = 'auto-'
+const boundedMax = (v) => {
+  const n = Math.floor(Number(v))
+  return Number.isFinite(n) && n >= 3 && n <= 50 ? n : 12
+}
+export const AUTO_SKILLS_MAX = boundedMax(process.env.SIRAL_ATTACHE_AUTO_SKILLS_MAX)
+
+/** Nombre de skills auto-* existantes (pour le plafond). */
+export function countAutoSkills(keys) {
+  return listSkills(keys).filter((s) => String(s.nom).startsWith(AUTO_SKILL_PREFIX)).length
+}
+
 export async function saveSkill(keys, { nom, description, contenu }) {
   const name = safeSkillName(nom)
   if (!String(contenu || '').trim()) throw new Error('Contenu de skill vide')

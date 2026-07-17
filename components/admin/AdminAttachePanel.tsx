@@ -11,7 +11,7 @@
  * - Journal d'audit : chaque action de l'attaché, déchiffrée ici.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Mail, Wifi, Gauge, Leaf } from 'lucide-react';
+import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Mail, Wifi, Gauge, Leaf, GraduationCap } from 'lucide-react';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, SUBMODEL_OPTIONS, PLAN_PRESETS, AttacheConfig, saveAttacheConfig, formatTokens, formatCostEur } from '../attache/modelOptions';
 import { fileToMarkdown, titreDepuisFichier, decodeText } from '@/lib/web/fileToMarkdown';
 import { skillFromArchive } from '@/lib/web/skillImport';
@@ -122,8 +122,68 @@ const USAGE_CATS: Record<string, { label: string; color: string }> = {
   brief: { label: 'Brief quotidien', color: '#6d28d9' },
   routines: { label: 'Routines', color: '#be185d' },
   classements: { label: 'Classements (trames, base)', color: '#4b5563' },
+  apprentissage: { label: 'Apprentissage (consolidations)', color: '#0f766e' },
   autres: { label: 'Autres', color: '#9ca3af' },
 };
+
+/** Fenêtre de progression mesurée (30 j) — agrégats de signaux, aucun LLM. */
+interface ApprFenetre {
+  validees: number; refusees: number; revisions: number; editionsMain: number;
+  portes: number; lecons: number; corrections: number; tauxAcceptation: number | null;
+}
+
+/** Statut de l'apprentissage progressif (GET /api/attache/apprentissage). */
+interface ApprStatus {
+  keyring?: boolean;
+  pending?: number | null;
+  parType?: Record<string, number>;
+  memoire?: { chars: number; budget: number; over: boolean } | null;
+  progression?: { j30: ApprFenetre; j30prec: ApprFenetre };
+  lastRunAt?: string | null;
+  lastRunOk?: boolean | null;
+  lastTrigger?: string | null;
+  seuilSignaux?: number;
+  cadenceJours?: number;
+  due?: string | null;
+  running?: boolean;
+  etude?: {
+    corpus: number; dossiers: number; nouveaux: number; seuil: number; cadenceJours: number;
+    lastRunAt?: string | null; lastRunOk?: boolean | null; running?: boolean;
+  };
+}
+
+/** Libellés lisibles des types de signaux d'apprentissage. */
+const SIGNAL_LABELS: Record<string, string> = {
+  proposition_refusee: 'propositions refusées ✗',
+  proposition_validee: 'propositions validées ✓',
+  acte_revise: 'actes révisés',
+  acte_edite_main: 'actes corrigés à la main',
+  lecon: 'leçons notées',
+  garde_qualite: 'portes de qualité déclenchées',
+  correction_conversation: 'corrections repérées en conversation',
+};
+
+/** Proposition d'amélioration d'une trame/skill du magistrat, en attente de ✓/✗. */
+interface MethodProp {
+  id: string; type: 'trame' | 'skill'; titre: string; source?: string; creeLe?: string;
+  payload: { nom: string; contenu: string; description?: string; motif?: string; existante?: boolean };
+}
+
+/** Une tuile de progression : valeur sur 30 j, flèche face aux 30 j précédents. */
+function ProgressionTile({ label, now, before, invert = false, unit = '' }: { label: string; now: number | null; before: number | null; invert?: boolean; unit?: string }) {
+  const delta = now != null && before != null ? now - before : null;
+  // invert : pour les compteurs d'erreurs, BAISSER est un progrès
+  const good = delta == null || delta === 0 ? null : (invert ? delta < 0 : delta > 0);
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
+      <div className="text-[10px] uppercase tracking-wide text-gray-400">{label}</div>
+      <div className="text-sm font-semibold text-gray-800">{now == null ? '—' : `${now}${unit}`}</div>
+      <div className="text-[10px]" style={{ color: good == null ? '#9ca3af' : good ? '#059669' : '#d97706' }}>
+        {delta == null ? '30 j précédents : n/a' : delta === 0 ? 'stable vs 30 j précédents' : `${delta > 0 ? '+' : ''}${delta}${unit} vs 30 j précédents`}
+      </div>
+    </div>
+  );
+}
 
 export function AdminAttachePanel() {
   const [status, setStatus] = useState<any>(null);
@@ -206,6 +266,42 @@ export function AdminAttachePanel() {
   }, []);
 
   useEffect(() => { loadUsage(); }, [loadUsage]);
+
+  // ── Apprentissage progressif : signaux captés, consolidation de la mémoire ──
+  const [appr, setAppr] = useState<ApprStatus | null>(null);
+  const [apprLoading, setApprLoading] = useState(false);
+  const [apprMsg, setApprMsg] = useState<string | null>(null);
+
+  const loadAppr = useCallback(async () => {
+    setApprLoading(true);
+    try {
+      const res = await fetch('/api/attache/apprentissage');
+      if (res.ok) setAppr((await res.json()).apprentissage || null);
+    } catch { /* silencieux : statut secondaire */ } finally {
+      setApprLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadAppr(); }, [loadAppr]);
+
+  const runAppr = useCallback(async (action: 'consolidation' | 'etude' = 'consolidation') => {
+    setApprMsg(null);
+    try {
+      const res = await fetch('/api/attache/apprentissage', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json().catch(() => ({} as { ok?: boolean; error?: string }));
+      setApprMsg(res.ok && data.ok
+        ? (action === 'etude'
+          ? 'Étude du corpus lancée — l\'attaché dépouille vos actes validés (sous-agents) ; les modèles extraits (trames « modele-… ») et le livrable arriveront dans le fil « pendant votre absence ».'
+          : 'Consolidation lancée (run court, modèle économe) — la carte « Apprentissage » arrivera dans le fil « pendant votre absence », et la mémoire distillée sera visible dans le panneau de l\'attaché.')
+        : `Lancement refusé : ${data.error || res.status}`);
+      setTimeout(loadAppr, 1500);
+    } catch (e) {
+      setApprMsg(`Lancement impossible : ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [loadAppr]);
 
   /** Applique un forfait de référence : remplit les plafonds repères. */
   const applyPlan = useCallback((plan: string) => {
@@ -302,7 +398,44 @@ export function AdminAttachePanel() {
     }
   }, [assoc, loadAssociations]);
 
-  useEffect(() => { refresh(); loadRoutines(); loadSkills(); loadTrames(); loadAssociations(); }, [refresh, loadRoutines, loadSkills, loadTrames, loadAssociations]);
+  // ── Propositions de méthode (trames & skills révisées par l'attaché, ✓/✗) ──
+  const [methodProps, setMethodProps] = useState<MethodProp[]>([]);
+  const [methodBusy, setMethodBusy] = useState<string | null>(null);
+
+  const loadMethodProps = useCallback(async () => {
+    try {
+      const res = await fetch('/api/attache/propositions');
+      if (!res.ok) return;
+      const { propositions } = await res.json();
+      setMethodProps(((propositions || []) as MethodProp[]).filter((p) => p.type === 'trame' || p.type === 'skill'));
+    } catch { /* silencieux */ }
+  }, []);
+
+  const decideMethodProp = useCallback(async (p: MethodProp, action: 'valider' | 'refuser') => {
+    setMethodBusy(p.id);
+    try {
+      const res = await fetch('/api/attache/propositions', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: p.id, action }),
+      });
+      const data = await res.json().catch(() => ({} as { ok?: boolean; error?: string }));
+      if (res.ok && data.ok) {
+        setNotice(action === 'valider'
+          ? `${p.type === 'trame' ? 'Trame' : 'Skill'} « ${p.payload.nom} » mise à jour (l'ancienne version reste archivée).`
+          : 'Proposition refusée — l\'attaché en tirera la leçon à la prochaine consolidation.');
+        if (action === 'valider') { loadTrames(); loadSkills(); }
+      } else {
+        setNotice(`Décision refusée : ${data.error || res.status}`);
+      }
+      loadMethodProps();
+    } catch (e) {
+      setNotice(`Décision impossible : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setMethodBusy(null);
+    }
+  }, [loadMethodProps, loadTrames, loadSkills]);
+
+  useEffect(() => { refresh(); loadRoutines(); loadSkills(); loadTrames(); loadAssociations(); loadMethodProps(); }, [refresh, loadRoutines, loadSkills, loadTrames, loadAssociations, loadMethodProps]);
 
   /** Conversion des fichiers choisis en trames — tout se passe dans CE navigateur (E2EE). */
   const stageFiles = useCallback(async (files: FileList | null) => {
@@ -1256,6 +1389,199 @@ export function AdminAttachePanel() {
           </label>
         </div>
       </div>
+
+      {/* Apprentissage progressif — signaux captés gratuitement, mémoire consolidée sous budget */}
+      <div className="rounded-xl border border-gray-200">
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <GraduationCap className="h-4 w-4 text-[#2B5746]" />
+          <span className="text-sm font-semibold text-gray-800">Apprentissage</span>
+          <span className="text-[11px] text-gray-400">il apprend de vos corrections — mémoire distillée sous budget</span>
+          <button
+            onClick={loadAppr}
+            disabled={apprLoading}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3 w-3 ${apprLoading ? 'animate-spin' : ''}`} /> Actualiser
+          </button>
+        </div>
+        <div className="space-y-3 p-3">
+          <p className="text-[12px] leading-relaxed text-gray-600">
+            <b>Entièrement automatique — vous n&apos;avez rien à faire.</b> Chaque correction de votre part est
+            captée au vol, <b>sans consommer un seul jeton</b> : proposition refusée ✗ ou validée ✓, acte que
+            l&apos;attaché a dû réviser, acte que vous corrigez à la main, reprise en conversation (« non, refais »,
+            « je t&apos;avais dit… » — repérée d&apos;elle-même). Périodiquement, un <b>run court sur le modèle
+            économe</b> distille ces signaux en règles générales, réécrit sa mémoire <b>sous un budget strict</b> et
+            fait évoluer ses skills — l&apos;attaché s&apos;améliore <b>en faisant baisser</b> la consommation
+            (moins d&apos;erreurs, moins de retouches), pas en l&apos;alourdissant.
+          </p>
+
+          {(() => {
+            const a = appr;
+            if (!a) {
+              return <p className="rounded-lg bg-gray-50 px-3 py-3 text-center text-[12px] text-gray-500">Statut indisponible — service attaché injoignable ?</p>;
+            }
+            const mem = a.memoire;
+            const memPct = mem && mem.budget > 0 ? Math.min(999, Math.round((mem.chars / mem.budget) * 100)) : 0;
+            const types = Object.entries(a.parType || {}).filter(([, n]) => n > 0);
+            return (
+              <>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-400">Signaux à distiller</div>
+                    <div className="text-lg font-bold text-gray-800">{a.keyring === false ? '—' : a.pending ?? 0}</div>
+                    <div className="text-[10px] text-gray-400">consolidation à {a.seuilSignaux ?? 12} signaux, ou tous les {a.cadenceJours ?? 7} j</div>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-400">Dernière consolidation</div>
+                    <div className="text-sm font-semibold text-gray-800">
+                      {a.running ? 'en cours…' : a.lastRunAt ? new Date(a.lastRunAt).toLocaleDateString('fr-FR') : 'jamais'}
+                    </div>
+                    <div className="text-[10px] text-gray-400">
+                      {a.running ? 'run économe lancé' : a.lastRunAt ? (a.lastRunOk === false ? 'échouée — retentera' : 'réussie') : 'rien encore à distiller'}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-400">Mémoire</div>
+                    <div className="text-sm font-semibold" style={{ color: mem?.over ? '#d97706' : '#1f2937' }}>
+                      {mem ? `${memPct} % du budget` : '—'}
+                    </div>
+                    <div className="text-[10px] text-gray-400">{mem ? `${mem.chars.toLocaleString('fr-FR')} / ${mem.budget.toLocaleString('fr-FR')} caractères` : 'trousseau non remis'}</div>
+                  </div>
+                </div>
+
+                {a.progression && (() => {
+                  const p = a.progression;
+                  const retouches = (f: ApprFenetre) => f.revisions + f.editionsMain;
+                  const aDesDonnees = p.j30.tauxAcceptation != null || retouches(p.j30) + p.j30.portes + p.j30.corrections > 0
+                    || p.j30prec.tauxAcceptation != null || retouches(p.j30prec) + p.j30prec.portes + p.j30prec.corrections > 0;
+                  if (!aDesDonnees) return null;
+                  return (
+                    <div className="space-y-1.5">
+                      <div className="text-[11px] font-semibold text-gray-500">Progression mesurée (30 jours)</div>
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        <ProgressionTile label="Propositions acceptées" now={p.j30.tauxAcceptation} before={p.j30prec.tauxAcceptation} unit=" %" />
+                        <ProgressionTile label="Actes retouchés" now={retouches(p.j30)} before={retouches(p.j30prec)} invert />
+                        <ProgressionTile label="Corrections & portes" now={p.j30.corrections + p.j30.portes} before={p.j30prec.corrections + p.j30prec.portes} invert />
+                      </div>
+                    </div>
+                  );
+                })()}
+                {types.length > 0 && (
+                  <div className="text-[11px] text-gray-500">
+                    En attente : {types.map(([t, n]) => `${n} ${SIGNAL_LABELS[t] || t}`).join(' · ')}
+                  </div>
+                )}
+                {a.due && !a.running && (
+                  <p className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-[11px] text-amber-700">
+                    Consolidation due ({a.due}) — elle partira automatiquement au prochain passage du service.
+                  </p>
+                )}
+              </>
+            );
+          })()}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => runAppr()}
+              disabled={appr?.running === true || appr?.keyring === false}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#234639] disabled:opacity-50"
+              title="Run court sur le modèle économe : distille les signaux et la mémoire, puis dépose une carte « Apprentissage » dans le fil."
+            >
+              {appr?.running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              Consolider maintenant
+            </button>
+            <span className="text-[10.5px] text-gray-400">
+              Optionnel : tout part tout seul (accumulation, budget dépassé, ou au plus tard sous {appr?.cadenceJours ?? 7} jours dès le
+              premier signal) — ce bouton sert seulement à ne pas attendre. La mémoire distillée reste lisible et corrigeable
+              (icône livre du panneau) ; le coût des consolidations apparaît dans « Consommation IA », poste « Apprentissage ».
+            </span>
+          </div>
+
+          {/* Étude du corpus : vos actes validés (zones Actes/DML) deviennent des modèles */}
+          <div className="rounded-lg border border-gray-100 bg-gray-50/40 p-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-semibold text-gray-600">Étude du corpus d&apos;actes validés</span>
+              <span className="text-[10.5px] text-gray-400">
+                {appr?.etude
+                  ? <>{appr.etude.corpus} acte{appr.etude.corpus > 1 ? 's' : ''} en zones Actes/DML ({appr.etude.dossiers} dossier{appr.etude.dossiers > 1 ? 's' : ''})
+                    {appr.etude.nouveaux > 0 ? <> · <b className="text-gray-600">{appr.etude.nouveaux} nouveau{appr.etude.nouveaux > 1 ? 'x' : ''}</b> depuis la dernière étude</> : null}
+                    {appr.etude.lastRunAt ? <> · dernière étude {new Date(appr.etude.lastRunAt).toLocaleDateString('fr-FR')}{appr.etude.lastRunOk === false ? ' (échouée)' : ''}</> : ' · jamais étudié'}</>
+                  : 'statut indisponible'}
+              </span>
+              <button
+                onClick={() => runAppr('etude')}
+                disabled={appr?.etude?.running === true || appr?.keyring === false}
+                className="ml-auto inline-flex items-center gap-1 rounded-lg border border-[#2B5746]/30 px-2.5 py-1 text-[11px] font-semibold text-[#2B5746] hover:bg-[#2B5746]/5 disabled:opacity-50"
+                title="Dépouille les actes signés et ordonnances JLD téléversés (sous-agents, copies markdown) et en extrait des modèles par type d'acte (trames « modele-… », versionnées)."
+              >
+                {appr?.etude?.running ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                Étudier mes actes maintenant
+              </button>
+            </div>
+            <p className="mt-1.5 text-[10.5px] leading-relaxed text-gray-400">
+              Vos actes téléversés en zones <b>Actes</b> et <b>DML</b> sont des versions <b>validées</b> — vos actes signés, et les
+              ordonnances des JLD qui reprennent ou reformulent vos requêtes. L&apos;attaché les étudie tout seul (à l&apos;arrivée de{' '}
+              {appr?.etude?.seuil ?? 5} nouveaux actes, ou tous les {appr?.etude?.cadenceJours ?? 30} jours s&apos;il y a du nouveau) et en extrait des{' '}
+              <b>modèles par type d&apos;acte</b> (trames « modele-… », anonymisées, versionnées — supprimables d&apos;un geste), plus les exigences de
+              motivation des juges (paires requête ↔ ordonnance). Vos propres trames ne sont jamais modifiées.
+            </p>
+          </div>
+          {appr?.keyring === false && (
+            <p className="text-[11px] text-amber-700">Remettez d&apos;abord les clés à l&apos;attaché (bouton « Remettre les clés » en haut) pour consulter les signaux et consolider.</p>
+          )}
+          {apprMsg && <p className="rounded-lg bg-gray-50 px-3 py-2 text-[11.5px] text-gray-600">{apprMsg}</p>}
+        </div>
+      </div>
+
+      {/* Propositions de méthode — trames/skills révisées par l'attaché, appliquées d'un ✓ */}
+      {methodProps.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/30">
+          <div className="flex items-center gap-2 border-b border-amber-100 px-3 py-2">
+            <Sparkles className="h-4 w-4 text-amber-600" />
+            <span className="text-sm font-semibold text-gray-800">Propositions de méthode</span>
+            <span className="text-[11px] text-gray-500">
+              {methodProps.length} amélioration{methodProps.length > 1 ? 's' : ''} de trame/skill en attente de votre décision — rien n&apos;est modifié sans votre ✓
+            </span>
+          </div>
+          <div className="space-y-2 p-3">
+            {methodProps.map((p) => (
+              <div key={p.id} className="rounded-lg border border-gray-200 bg-white p-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">{p.type}</span>
+                  <span className="text-xs font-semibold text-gray-800">{p.titre}</span>
+                  {p.creeLe && <span className="text-[10px] text-gray-400">{new Date(p.creeLe).toLocaleDateString('fr-FR')}</span>}
+                  <span className="ml-auto flex items-center gap-1.5">
+                    <button
+                      onClick={() => decideMethodProp(p, 'valider')}
+                      disabled={methodBusy === p.id}
+                      className="inline-flex items-center gap-1 rounded-lg bg-[#2B5746] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#234639] disabled:opacity-50"
+                      title="Applique le texte révisé (l'ancienne version reste archivée — réversible)."
+                    >
+                      {methodBusy === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />} Appliquer
+                    </button>
+                    <button
+                      onClick={() => decideMethodProp(p, 'refuser')}
+                      disabled={methodBusy === p.id}
+                      className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      <XCircle className="h-3 w-3" /> Refuser
+                    </button>
+                  </span>
+                </div>
+                {p.payload.motif && (
+                  <p className="mt-1.5 text-[11.5px] leading-relaxed text-gray-600"><b>Pourquoi :</b> {p.payload.motif}</p>
+                )}
+                {p.source && <p className="mt-0.5 text-[10.5px] text-gray-400">Source : {p.source}</p>}
+                <details className="mt-1.5">
+                  <summary className="cursor-pointer text-[11px] font-semibold text-[#2B5746]">Voir le texte proposé ({(p.payload.contenu || '').length.toLocaleString('fr-FR')} caractères)</summary>
+                  {p.payload.description && <p className="mt-1 text-[11px] text-gray-500">Description : {p.payload.description}</p>}
+                  <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-2.5 font-mono text-[11px] leading-relaxed text-gray-700">{p.payload.contenu}</pre>
+                </details>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Consignes permanentes — le « prompt » du magistrat, relu à chaque run */}
       <div className="rounded-xl border border-gray-200">

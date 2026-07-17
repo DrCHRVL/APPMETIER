@@ -31,6 +31,17 @@ const ALLOWED_TOOLS = 'mcp__siral__*'
 const DISALLOWED_TOOLS = 'Bash,Edit,Write,NotebookEdit,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite,KillShell,BashOutput'
 const WEB_TOOLS = ['WebSearch', 'WebFetch']
 
+// Modèle des travaux d'appoint (sous-agents, consolidation d'apprentissage) :
+// un modèle RAPIDE par défaut — jamais celui du run principal, qui peut être
+// Opus et rendrait ces lots lourds et gourmands.
+const DEFAULT_SUBMODEL_ENV = () => sanitizeModel(process.env.SIRAL_ATTACHE_SUBAGENT_MODEL) || 'claude-sonnet-5'
+const ECO_SUBMODEL = 'claude-haiku-4-5-20251001'
+
+/** Modèle économe effectif : choix du magistrat (« Sous-agents »), sinon rapide (Haiku en mode économe). */
+export function economicalModel(cfg = agentConfig()) {
+  return cfg.subModel || (cfg.econome ? ECO_SUBMODEL : DEFAULT_SUBMODEL_ENV())
+}
+
 function subagentSystemPrompt(contexte) {
   return [
     `Tu es un SOUS-AGENT de l'attaché de justice virtuel d'un magistrat du parquet (SIRAL, contentieux ${attacheContentieux()}).`,
@@ -111,9 +122,7 @@ export async function runSubagents({ taches, contexte, modele, effort }) {
   // la cause des analyses de trames qui s'éternisaient puis se faisaient tuer).
   // Le magistrat garde la main : sélecteur « Sous-agents » du panneau
   // (cfg.subModel) ou paramètre `modele` du lot pour forcer un autre modèle.
-  const DEFAULT_SUBMODEL = sanitizeModel(process.env.SIRAL_ATTACHE_SUBAGENT_MODEL) || 'claude-sonnet-5'
-  const ECO_SUBMODEL = 'claude-haiku-4-5-20251001'
-  const model = sanitizeModel(modele) || cfg.subModel || (cfg.econome ? ECO_SUBMODEL : DEFAULT_SUBMODEL)
+  const model = sanitizeModel(modele) || economicalModel(cfg)
   const useEffort = sanitizeEffort(effort) || (cfg.econome ? 'low' : cfg.effort)
   const subMaxTurns = cfg.econome ? Math.min(SUB_MAX_TURNS, 8) : SUB_MAX_TURNS
   const allowedTools = cfg.webAccess ? [ALLOWED_TOOLS, ...WEB_TOOLS].join(',') : ALLOWED_TOOLS

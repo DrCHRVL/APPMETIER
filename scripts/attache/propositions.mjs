@@ -16,14 +16,19 @@ import { attacheDir, ensureDir, atomicWrite, readJson, withFileLock } from './st
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { ajouterMec, enregistrerActe, classerNote, getMecNoms, normalizeNom, creerDossier, dossierExiste } from './dossier.mjs'
 import { appendLien, appendDossierExNihilo, dossierExNihiloExiste, appendMecExNihilo, mecExNihiloExiste } from './carto.mjs'
+import { saveTrame, readTrame, safeTrameName, MODELE_PREFIX } from './trames.mjs'
+import { saveSkill, readSkill, safeSkillName, AUTO_SKILL_PREFIX } from './skills.mjs'
 import { audit } from './journal.mjs'
+import { recordLearningSignal } from './apprentissage.mjs'
 
 const FILE = () => attacheDir('propositions.json')
-const TYPES = ['mec', 'acte', 'cr', 'lien', 'dossier', 'dossier_carto', 'mec_carto']
+const TYPES = ['mec', 'acte', 'cr', 'lien', 'dossier', 'dossier_carto', 'mec_carto', 'trame', 'skill']
 // Types rattachés à un dossier EXISTANT (numéro requis). « dossier » porte le
 // numéro du dossier à créer ; « dossier_carto », « mec_carto » et « lien »
 // sont globaux (carte — numéro facultatif pour un lien : simple contexte
-// d'affichage quand il est détecté dans un dossier précis).
+// d'affichage quand il est détecté dans un dossier précis). « trame » et
+// « skill » sont globaux : amélioration d'une méthode du magistrat, appliquée
+// d'un ✓ (écriture versionnée) depuis Paramètres → Attaché IA.
 const TYPES_DOSSIER = ['mec', 'acte', 'cr']
 
 function load(keys) {
@@ -102,6 +107,32 @@ export async function addProposition(keys, { numero, type, payload, source, titr
     numero = ''
   }
 
+  // Amélioration d'une trame ou d'une skill du MAGISTRAT : le contenu complet
+  // révisé attend son ✓ — jamais d'écriture directe sur ses méthodes.
+  if (type === 'trame' || type === 'skill') {
+    const propre = type === 'trame' ? safeTrameName(String(payload.nom || '')) : safeSkillName(String(payload.nom || ''))
+    const prefixe = type === 'trame' ? MODELE_PREFIX : AUTO_SKILL_PREFIX
+    if (propre.startsWith(prefixe)) {
+      throw new Error(`« ${propre} » t'appartient (préfixe ${prefixe}) : écris-la directement (${type === 'trame' ? 'trame_enregistrer' : 'skill_enregistrer'}), pas de proposition`)
+    }
+    if (!String(payload.contenu || '').trim() || String(payload.contenu).trim().length < 200) {
+      throw new Error('Contenu complet requis (≥ 200 caractères) : la proposition porte le texte INTÉGRAL révisé, pas un extrait')
+    }
+    if (!String(payload.motif || '').trim()) {
+      throw new Error('Motif requis : dis en une phrase POURQUOI (signaux, écart au corpus, fragilité de légalité) — le magistrat décide sur cette base')
+    }
+    const existante = type === 'trame' ? readTrame(keys, propre) : readSkill(keys, propre)
+    if (existante && String(existante.contenu || '').trim() === String(payload.contenu).trim()) {
+      return { doublon: true, message: `Le contenu proposé est identique à la ${type} actuelle — proposition NON déposée` }
+    }
+    const pendante = propositions.find((p) => p.statut === 'en_attente' && p.type === type
+      && String(p.payload?.nom || '') === propre)
+    if (pendante) return { doublon: true, message: `Une proposition sur cette ${type} est déjà en attente — le magistrat n'a pas encore tranché` }
+    payload.nom = propre
+    payload.existante = Boolean(existante)
+    numero = ''
+  }
+
   if (type === 'mec') {
     const nom = String(payload.nom || '').trim()
     if (!nom) throw new Error('Nom du mis en cause requis')
@@ -142,6 +173,8 @@ function defaultTitre(type, payload) {
     return `Dossier ex nihilo (carte) : ${payload.label || '?'}${n ? ` — ${n} personne(s)` : ''}`
   }
   if (type === 'mec_carto') return `Personne ex nihilo (carte) : ${payload.nom || '?'}${Array.isArray(payload.alias) && payload.alias.length ? ` (alias ${payload.alias.slice(0, 3).join(', ')})` : ''}`
+  if (type === 'trame') return payload.existante ? `Trame « ${payload.nom} » — amélioration proposée` : `Nouvelle trame proposée : ${payload.nom}`
+  if (type === 'skill') return payload.existante ? `Skill « ${payload.nom} » — amélioration proposée` : `Nouvelle skill proposée : ${payload.nom}`
   if (type === 'lien') return `Lien de renseignement : ${payload.sourceNom} ↔ ${payload.targetNom}${payload.label ? ` (${payload.label})` : ''}`
   if (type === 'mec') return `Nouveau mis en cause : ${payload.nom}${payload.role ? ` (${payload.role})` : ''}`
   if (type === 'acte') {
@@ -187,6 +220,22 @@ export async function decideProposition(keys, { id, action, par }) {
       applique = await appendDossierExNihilo(keys, prop.payload)
     } else if (prop.type === 'mec_carto') {
       applique = await appendMecExNihilo(keys, prop.payload)
+    } else if (prop.type === 'trame') {
+      // écriture versionnée : l'ancienne version reste récupérable ; la
+      // description existante est conservée si la proposition n'en porte pas
+      const courante = readTrame(keys, prop.payload.nom)
+      applique = await saveTrame(keys, {
+        nom: prop.payload.nom,
+        contenu: prop.payload.contenu,
+        description: prop.payload.description || courante?.description,
+      })
+    } else if (prop.type === 'skill') {
+      const courante = readSkill(keys, prop.payload.nom)
+      applique = await saveSkill(keys, {
+        nom: prop.payload.nom,
+        contenu: prop.payload.contenu,
+        description: prop.payload.description || courante?.description,
+      })
     }
   }
 
@@ -195,5 +244,13 @@ export async function decideProposition(keys, { id, action, par }) {
   prop.decidePar = auteur
   await save(keys, propositions)
   await audit(keys, 'proposition_' + prop.statut, { id, numero: prop.numero, type: prop.type, titre: prop.titre, par: auteur })
+  // Signal d'apprentissage (coût zéro) : un ✗ dit à l'attaché que sa détection
+  // manquait de pertinence, un ✓ conforte le réflexe — distillés plus tard.
+  await recordLearningSignal(keys, {
+    type: action === 'valider' ? 'proposition_validee' : 'proposition_refusee',
+    dossier: prop.numero || undefined,
+    detail: `${prop.type} — ${prop.titre}`,
+    source: prop.source || undefined,
+  })
   return { ok: true, statut: prop.statut, applique }
 }

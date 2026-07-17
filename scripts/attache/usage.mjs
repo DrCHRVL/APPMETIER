@@ -23,6 +23,7 @@ export function runCategory(run) {
   if (r === 'proactif') return 'mails'
   if (r === 'majordome') return 'brief'
   if (r === 'trames-analyse' || r === 'kb-analyse') return 'classements'
+  if (r === 'apprentissage' || r === 'etude') return 'apprentissage'
   if (r.startsWith('routine:')) return 'routines'
   if (r === 'chat' || r === 'chat-carto' || r === 'chat-dossier') return 'conversations'
   return 'autres'

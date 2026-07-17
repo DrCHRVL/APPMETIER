@@ -587,6 +587,10 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
             className="flex-1 resize-none p-4 font-mono text-[12px] leading-relaxed text-gray-800 outline-none"
             placeholder="(mémoire vide)"
           />
+          <div className="border-t border-gray-100 px-4 py-1.5 text-[10.5px] text-gray-400">
+            {memoryText.length.toLocaleString('fr-FR')} caractères — relus à chaque intervention. L'attaché la
+            consolide périodiquement (leçons de vos corrections distillées, budget strict) : Paramètres → Attaché IA → Apprentissage.
+          </div>
           <div className="flex justify-end gap-2 border-t border-gray-200 p-3">
             <button onClick={() => setShowMemory(false)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">Annuler</button>
             <button onClick={saveMemory} disabled={memorySaving} className="rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">

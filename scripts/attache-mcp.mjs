@@ -24,8 +24,8 @@ import {
 import { searchNatinf } from './attache/natinf.mjs'
 import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
-import { saveTrame, listTrames, readTrame, setTrameDescription } from './attache/trames.mjs'
-import { saveSkill, listSkills, readSkill, deleteSkill } from './attache/skills.mjs'
+import { saveTrame, listTrames, readTrame, setTrameDescription, safeTrameName, MODELE_PREFIX } from './attache/trames.mjs'
+import { saveSkill, listSkills, readSkill, deleteSkill, safeSkillName, AUTO_SKILL_PREFIX, AUTO_SKILLS_MAX, countAutoSkills } from './attache/skills.mjs'
 import { saveKbEntry, setKbMeta, setKbReflexe, listKb, readKbEntry, searchKb, KB_CATEGORIES, MAX_REFLEXE } from './attache/kb.mjs'
 import { runSubagents } from './attache/subagents.mjs'
 import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
@@ -34,7 +34,10 @@ import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
 import { analyserReseau, listerLiens, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
 import { saveProduction, listProductions, readProduction, deleteProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
-import { appendMemory } from './attache/memory.mjs'
+import { appendMemory, rewriteMemory, memoryStats, MEMORY_BUDGET } from './attache/memory.mjs'
+import { recordLearningSignal, pendingSignals, learningState, learningMetrics, metricsSummary } from './attache/apprentissage.mjs'
+import { readConversation } from './attache/agent.mjs'
+import { controlerProduction } from './attache/qualite.mjs'
 import { listAssociations, setAssociation, removeAssociation } from './attache/associations.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed } from './attache/mail.mjs'
 
@@ -49,6 +52,24 @@ const runContext = process.env.SIRAL_ATTACHE_RUN || 'chat'
  */
 export const HORS_DOSSIER = '_hors-dossier'
 
+/**
+ * Porte de qualité auto-appliquée : contrôles déterministes (zéro jeton) au
+ * moment de la remise. Violation → l'écriture N'A PAS LIEU, l'agent reçoit
+ * une erreur actionnable et corrige dans le même run. Chaque rejet est capté
+ * en signal d'apprentissage : une porte qui claque souvent devient un
+ * réflexe consolidé.
+ */
+async function porteQualiteOuSignal({ type, titre, contenu, numero }, mode) {
+  const violations = controlerProduction({ type, contenu, mode })
+  if (!violations.length) return
+  await recordLearningSignal(keys, {
+    type: 'garde_qualite',
+    dossier: numero,
+    detail: `${type || mode} — ${String(titre || '').slice(0, 80)} : ${violations.map((v) => v.code).join(', ')}`,
+  })
+  throw new Error(`PORTE DE QUALITÉ — production refusée, corrige puis re-soumets :\n- ${violations.map((v) => v.message).join('\n- ')}`)
+}
+
 /** Remise d'un livrable DANS SIRAL — corps commun de remettre_livrable et de son alias.
  *
  * Le livrable devient une PRODUCTION éditable (comme un acte) : le magistrat le
@@ -57,6 +78,7 @@ export const HORS_DOSSIER = '_hors-dossier'
  * La carte du fil ne porte plus qu'un extrait ; le texte vit dans la production
  * (source unique), qu'elle référence par son `prodId`. */
 async function publierLivrable(a) {
+  await porteQualiteOuSignal({ type: 'livrable', titre: a.sujet, contenu: a.corps, numero: a.numero }, 'livrable')
   const numero = a.numero ? String(a.numero).slice(0, 80) : HORS_DOSSIER
   const titre = String(a.sujet || 'Livrable').slice(0, 200)
   const { id } = await saveProduction(keys, {
@@ -78,6 +100,13 @@ async function publierLivrable(a) {
 // Mode sous-agent : lancé par l'outil sous_agents — LECTURE SEULE (aucun
 // outil d'écriture, pas de sous_agents imbriqué : pas de récursion possible).
 const IS_SUBAGENT = process.env.SIRAL_ATTACHE_SUBAGENT === '1'
+
+// Runs AUTONOMES d'auto-amélioration (consolidation d'apprentissage, étude du
+// corpus) : aucune instruction humaine ne les couvre. La PROPRIÉTÉ des
+// méthodes y est imposée DANS LE CODE, pas seulement dans le prompt :
+// l'attaché n'y écrit que SES trames (modele-*) et SES skills (auto-*) ;
+// toute méthode du magistrat passe par une proposition ✓/✗.
+const IS_RUN_AUTONOME = runContext === 'apprentissage' || runContext === 'etude'
 
 // ── Définition des outils ──
 const TOOLS = [
@@ -275,10 +304,64 @@ const TOOLS = [
   },
   {
     name: 'memoire_noter',
-    description: 'Consigne un enseignement durable dans la mémoire (préférence du magistrat, réflexe, consigne). section: "Préférences du magistrat" | "Réflexes appris" | "Consignes permanentes".',
+    description: 'Consigne un enseignement durable dans la mémoire, relue à chaque intervention. section: "Exigences du magistrat" | "Réflexes appris" | "Pièges à éviter". Note la RÈGLE GÉNÉRALE réutilisable (une ligne), pas l\'anecdote — et jamais un doublon d\'une ligne existante : la mémoire est consolidée périodiquement sous un budget strict.',
     inputSchema: { type: 'object', properties: { section: { type: 'string' }, note: { type: 'string' } }, required: ['section', 'note'] },
-    handler: async (a) => ({ ajoute: await appendMemory(keys, a.section, a.note, 'attache-ia') }),
+    handler: async (a) => {
+      const ajoute = await appendMemory(keys, a.section, a.note, 'attache-ia')
+      // La note vaut aussi signal d'apprentissage : la consolidation la verra
+      // (fusion des doublons, généralisation) sans relire toute la mémoire.
+      await recordLearningSignal(keys, { type: 'lecon', detail: `${String(a.section).slice(0, 60)} : ${String(a.note).slice(0, 300)}` })
+      return { ajoute }
+    },
     write: true,
+  },
+  {
+    name: 'memoire_reecrire',
+    description: `Réécrit la mémoire EN ENTIER (document markdown complet, ≤ ${MEMORY_BUDGET} caractères) — versionnée, le magistrat garde la main. Réservé à la CONSOLIDATION de l'apprentissage (run dédié) ou à une demande explicite du magistrat de réorganiser ta mémoire. Pour un simple ajout : memoire_noter.`,
+    inputSchema: { type: 'object', properties: { contenu: { type: 'string', description: 'Le document complet (remplace tout)' } }, required: ['contenu'] },
+    handler: async (a) => rewriteMemory(keys, a.contenu, 'attache-ia'),
+    write: true,
+  },
+  {
+    name: 'apprentissage_bilan',
+    description: 'Bilan des signaux d\'expérience captés depuis la dernière consolidation de la mémoire : corrections du magistrat (propositions refusées ✗, actes révisés ou corrigés à la main, reprises en conversation), validations ✓, leçons notées — avec la progression mesurée (taux d\'acceptation, retouches, 30 j vs 30 j précédents) et l\'état de la mémoire face à son budget. Sert au run de consolidation, et à répondre à « qu\'as-tu appris récemment ? ».',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => {
+      const signaux = pendingSignals(keys, 80)
+      return {
+        depuisConsolidation: learningState().lastRunAt || '(jamais consolidé)',
+        nombre: signaux.length,
+        memoire: memoryStats(keys),
+        progression: metricsSummary(learningMetrics(keys)),
+        signaux: signaux.map((s) => ({
+          quand: new Date(s.ts).toISOString().slice(0, 10),
+          type: s.type,
+          dossier: s.dossier,
+          detail: s.detail,
+          source: s.source,
+        })),
+      }
+    },
+  },
+  {
+    name: 'conversation_lire',
+    description: 'Relit le transcript d\'une conversation passée avec le magistrat (id donné par un signal correction_conversation, champ source). Sert à la CONSOLIDATION d\'apprentissage : retrouver la reprise exacte du magistrat pour en tirer la règle générale. Derniers échanges seulement, bornés.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, derniers: { type: 'number', description: 'Nombre de messages en partant de la fin (défaut 12, max 30)' } }, required: ['id'] },
+    handler: async (a) => {
+      const conv = readConversation(keys, String(a.id || ''))
+      if (!conv) return { erreur: `Conversation ${a.id} introuvable` }
+      const n = Math.max(2, Math.min(30, Number(a.derniers) || 12))
+      return {
+        id: conv.id,
+        titre: conv.titre || conv.title,
+        messages: (conv.messages || []).slice(-n).map((m) => ({
+          role: m.role,
+          quand: (m.at || '').slice(0, 16),
+          texte: String(m.text || '').slice(0, 2500),
+        })),
+      }
+    },
+    mainOnly: true, // échanges privés du magistrat : jamais exposés aux sous-agents
   },
   {
     name: 'associations_lister',
@@ -371,6 +454,9 @@ const TOOLS = [
       required: ['numero', 'type', 'titre', 'contenu'],
     },
     handler: async (a) => {
+      // Porte de qualité AVANT toute écriture : inachevé, auto-désignation,
+      // HTML, acte squelettique → refus actionnable, l'agent corrige et re-soumet.
+      await porteQualiteOuSignal({ type: a.type, titre: a.titre, contenu: a.contenu, numero: a.numero }, 'acte')
       const r = await saveProduction(keys, a)
       // Nouvel acte (pas une modification) : une carte reliée apparaît dans le
       // journal « pendant votre absence » — inutile de la signaler en plus.
@@ -381,6 +467,15 @@ const TOOLS = [
           resume: `Acte rédigé (${a.type}) — à relire, éditer et valider.`,
           numero: a.numero,
           prodId: r.id,
+        })
+      } else {
+        // Révision d'un acte existant : signal d'apprentissage (le premier jet
+        // n'a pas suffi — retour du magistrat ou complément attendu).
+        await recordLearningSignal(keys, {
+          type: 'acte_revise',
+          dossier: a.numero,
+          detail: `${a.type} — ${String(a.titre).slice(0, 150)}`,
+          source: a.source ? `trame ${a.source}` : undefined,
         })
       }
       return r
@@ -408,9 +503,58 @@ const TOOLS = [
   },
   {
     name: 'trame_enregistrer',
-    description: 'Enregistre ou met à jour une trame de rédaction du magistrat (plan-type de DML, réquisition, TSE, consignes de style). Versionnée à chaque réécriture. À utiliser quand le magistrat colle une trame ou dit « enregistre cette trame ».',
+    description: `Enregistre ou met à jour une trame de rédaction du magistrat (plan-type de DML, réquisition, TSE, consignes de style). Versionnée à chaque réécriture. À utiliser quand le magistrat colle une trame ou dit « enregistre cette trame » — et pour TES modèles « ${MODELE_PREFIX}* » extraits des actes validés (les seuls que tu écris de ta propre initiative).`,
     inputSchema: { type: 'object', properties: { nom: { type: 'string', description: 'ex: reponse-dml, requisition-tse' }, contenu: { type: 'string' }, description: { type: 'string' } }, required: ['nom', 'contenu'] },
-    handler: async (a) => saveTrame(keys, a),
+    handler: async (a) => {
+      // Gouvernance imposée dans le code : en run AUTONOME (consolidation,
+      // étude), seules les trames modele-* — jamais celles du magistrat.
+      if (IS_RUN_AUTONOME && !safeTrameName(a.nom).startsWith(MODELE_PREFIX)) {
+        throw new Error(`Run autonome : seules les trames « ${MODELE_PREFIX}* » t'appartiennent. Pour améliorer la trame du magistrat « ${safeTrameName(a.nom)} », dépose proposer_trame (contenu complet révisé + motif) — il appliquera d'un ✓.`)
+      }
+      return saveTrame(keys, a)
+    },
+    write: true,
+  },
+  {
+    name: 'proposer_trame',
+    description: 'Propose au magistrat une AMÉLIORATION d\'une de SES trames (ou une nouvelle trame) — le texte INTÉGRAL révisé attend son ✓ dans Paramètres → Attaché IA (application versionnée, réversible) ou son ✗. C\'est l\'UNIQUE voie pour faire évoluer une trame qui ne t\'appartient pas (tout sauf modele-*) de ta propre initiative : fragilité de légalité repérée, écart au corpus d\'actes validés, corrections récurrentes du magistrat sur ce type d\'acte. `motif` : POURQUOI, en 1-3 phrases, avec ta source (signaux, pièces, textes) — il décide sur cette base. Conserve tout ce qui n\'a pas besoin de changer : c\'est une révision, pas une réécriture de style.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nom: { type: 'string', description: 'Nom exact de la trame visée (trames_lister) — ou d\'une nouvelle' },
+        contenu: { type: 'string', description: 'Le texte COMPLET révisé (remplace tout à la validation)' },
+        description: { type: 'string', description: 'Nouvelle description (sinon l\'actuelle est conservée)' },
+        motif: { type: 'string', description: 'Pourquoi cette révision, avec la source (1-3 phrases)' },
+        source: { type: 'string', description: 'D\'où vient la détection (étude du corpus, analyse de légalité, signaux…)' },
+      },
+      required: ['nom', 'contenu', 'motif'],
+    },
+    handler: async (a) => addProposition(keys, {
+      type: 'trame',
+      payload: { nom: a.nom, contenu: a.contenu, description: a.description, motif: String(a.motif).slice(0, 600) },
+      source: a.source,
+    }),
+    write: true,
+  },
+  {
+    name: 'proposer_skill',
+    description: 'Propose au magistrat une AMÉLIORATION d\'une de SES skills (ou une nouvelle skill) — même mécanique ✓/✗ que proposer_trame, même exigence de motif. C\'est l\'UNIQUE voie pour faire évoluer une skill qui ne t\'appartient pas (tout sauf auto-*) de ta propre initiative ; sur instruction EXPLICITE du magistrat en conversation, skill_enregistrer reste la voie directe.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nom: { type: 'string', description: 'Nom exact de la skill visée (skills_lister) — ou d\'une nouvelle' },
+        contenu: { type: 'string', description: 'La méthode COMPLÈTE révisée (markdown)' },
+        description: { type: 'string', description: 'Nouvelle description — quand appliquer (sinon l\'actuelle est conservée)' },
+        motif: { type: 'string', description: 'Pourquoi cette révision, avec la source (1-3 phrases)' },
+        source: { type: 'string', description: 'D\'où vient la détection (signaux, corpus…)' },
+      },
+      required: ['nom', 'contenu', 'motif'],
+    },
+    handler: async (a) => addProposition(keys, {
+      type: 'skill',
+      payload: { nom: a.nom, contenu: a.contenu, description: a.description, motif: String(a.motif).slice(0, 600) },
+      source: a.source,
+    }),
     write: true,
   },
   {
@@ -532,7 +676,25 @@ const TOOLS = [
       },
       required: ['nom', 'contenu'],
     },
-    handler: async (a) => saveSkill(keys, a),
+    handler: async (a) => {
+      // Gouvernance imposée dans le code : en run AUTONOME (consolidation,
+      // étude), l'attaché n'écrit que SES skills (auto-*), avec description
+      // obligatoire (c'est elle qui déclenche la skill) et plafond
+      // anti-prolifération — la liste des skills se paie dans CHAQUE prompt.
+      if (IS_RUN_AUTONOME) {
+        const nom = safeSkillName(a.nom)
+        if (!nom.startsWith(AUTO_SKILL_PREFIX)) {
+          throw new Error(`Run autonome : seules les skills « ${AUTO_SKILL_PREFIX}* » t'appartiennent. Pour améliorer la skill du magistrat « ${nom} », dépose proposer_skill (contenu complet révisé + motif) — il appliquera d'un ✓.`)
+        }
+        if (!String(a.description || '').trim()) {
+          throw new Error('Description obligatoire pour une skill auto-* : une phrase qui dit QUAND l\'appliquer — sans elle, la skill ne se déclenchera jamais.')
+        }
+        if (!readSkill(keys, nom) && countAutoSkills(keys) >= AUTO_SKILLS_MAX) {
+          throw new Error(`Plafond de ${AUTO_SKILLS_MAX} skills auto-* atteint : chaque skill listée coûte des jetons à chaque run. FUSIONNE d'abord (skill_lire les auto-* proches, regroupe, skill_supprimer les doublons) avant d'en créer une nouvelle.`)
+        }
+      }
+      return saveSkill(keys, a)
+    },
     write: true,
   },
   {
@@ -901,8 +1063,9 @@ rl.on('line', async (line) => {
     if (method === 'notifications/initialized' || method === 'notifications/cancelled') return
     if (method === 'ping') return reply({})
     // En mode sous-agent, seuls les outils de lecture existent : les
-    // écritures et sous_agents (récursion) ne sont ni listés ni appelables.
-    const availableTools = IS_SUBAGENT ? TOOLS.filter((t) => !t.write && t.name !== 'sous_agents') : TOOLS
+    // écritures, sous_agents (récursion) et les outils réservés à l'agent
+    // principal (conversations privées) ne sont ni listés ni appelables.
+    const availableTools = IS_SUBAGENT ? TOOLS.filter((t) => !t.write && !t.mainOnly && t.name !== 'sous_agents') : TOOLS
     if (method === 'tools/list') {
       return reply({ tools: availableTools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) })
     }
