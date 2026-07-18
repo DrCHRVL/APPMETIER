@@ -217,8 +217,10 @@ export const calculateAudienceStats = (resultats: ResultatAudience[] | Record<st
         const dateDef = condamnation.dateDefere || resultat.dateAudience;
         if (dateDef) {
           const date = new Date(dateDef);
-          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-          deferementsParMois[monthKey] = (deferementsParMois[monthKey] || 0) + 1;
+          if (!isNaN(date.getTime())) {
+            const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            deferementsParMois[monthKey] = (deferementsParMois[monthKey] || 0) + 1;
+          }
         }
       }
 

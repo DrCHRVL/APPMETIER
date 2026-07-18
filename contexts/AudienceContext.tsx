@@ -22,6 +22,11 @@ export const AudienceProvider = ({ children }: { children: React.ReactNode }) =>
 
   useEffect(() => {
     initialize();
+    // `initialize` court-circuite au 2e appel (garde `_initialized`) et ne
+    // relance donc pas le timer de nettoyage. Comme le démontage l'a arrêté,
+    // on le redémarre explicitement ici — `startCleanup` est idempotent (il
+    // annule tout timer existant avant d'en créer un), donc pas de doublon.
+    useAudienceStore.getState().startCleanup();
     return () => {
       useAudienceStore.getState().stopCleanup();
     };
