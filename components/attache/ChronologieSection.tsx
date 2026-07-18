@@ -64,7 +64,7 @@ export function ChronologieSection({ numero }: { numero: string }) {
     setLoading(true);
     try {
       const res = await fetch('/api/attache/chronologie?numero=' + encodeURIComponent(numero));
-      if (!res.ok) { setAvailable(res.status === 404 ? false : false); return; }
+      if (!res.ok) { setAvailable(false); return; }
       setAvailable(true);
       setChrono(await res.json());
     } catch {
