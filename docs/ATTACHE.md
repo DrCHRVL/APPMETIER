@@ -162,10 +162,9 @@ l'usage).
       apparaît dans Paramètres → Attaché IA, encadré **« Propositions de
       méthode »** : motif, texte complet déroulable, **✓ Appliquer** (écriture
       versionnée — l'ancienne version reste archivée) ou **✗ Refuser** (et le
-      refus est lui-même un signal d'apprentissage). L'analyse de trames
-      (« Faire analyser ») dépose désormais ces propositions pour les défauts
-      qui exposent à la **nullité** ; l'étude du corpus en dépose quand vos
-      propres actes signés divergent de votre trame.
+      refus est lui-même un signal d'apprentissage). L'**étude du corpus** en
+      dépose quand vos propres actes signés divergent de votre trame ; une
+      analyse juridique de trame demandée en chat peut en déposer aussi.
     - **Ciblage par corrélation** : les signaux d'actes retouchés portent la
       trame suivie — une trame/skill dont l'usage produit des retouches
       répétées devient la priorité de la consolidation suivante.
@@ -337,18 +336,21 @@ l'usage).
   téléverse d'un coup dans
   Paramètres → Attaché IA → « Trames ». La conversion en **markdown se fait
   dans le navigateur** (le fichier ne quitte jamais le poste en clair), puis
-  chaque trame est chiffrée et versionnée comme les autres. Option « Faire
-  analyser » : l'attaché lit chaque trame **en profondeur** (délégation à des
-  sous-agents en parallèle au-delà de 2 trames), la **classe** (description
-  mise à jour via `trame_decrire` — le contenu n'est JAMAIS modifié) et remet
-  dans le fil « pendant votre absence » un **livrable détaillé** : contrôle de
-  légalité fondement par fondement (textes en vigueur, mentions obligatoires à
-  peine de nullité, régime dérogatoire 706-80), solidité procédurale, structure
-  et rédaction, puis une **synthèse transversale** (doublons, lacunes,
-  incohérences entre trames) — propositions **hiérarchisées par gravité**, le
-  magistrat décide. Bouton « Analyser toute la bibliothèque » pour relancer à la
-  demande ; le bouton indique clairement s'il faut d'abord remettre les clés et
-  affiche l'état du lancement sur place.
+  chaque trame est chiffrée et versionnée comme les autres. Bouton
+  **« Classer la bibliothèque »** (et option « Faire classer » au
+  téléversement) : une **passe de description rapide** — un seul appel modèle
+  par lot d'une vingtaine de trames, **sans sous-agent**, en lecture de
+  l'en-tête. Pour chaque trame, l'attaché écrit une **description d'une phrase**
+  (type d'acte, cadre juridique, articles visés, régime droit commun ou
+  dérogatoire 706-80) via `trame_decrire` — **le contenu n'est JAMAIS modifié** —
+  et signale les **doublons manifestes**. Quelques secondes, quelques milliers
+  de jetons (là où l'ancienne délégation d'une analyse approfondie à un
+  sous-agent par trame était lente, souvent interrompue avant de rendre quoi que
+  ce soit, et très gourmande). Pour une **analyse juridique en profondeur** d'une
+  trame (contrôle de légalité fondement par fondement, nullités, propositions de
+  réécriture) : la demander **dans le chat de l'attaché**, sur cette trame
+  précise — ciblée et bornée. Le bouton indique clairement s'il faut d'abord
+  remettre les clés et affiche l'état du lancement sur place.
 - **Base de connaissances — le cerveau documentaire** (pensez Obsidian
   branché sur l'IA) : le fond durable du cabinet — jurisprudences,
   conventions et circulaires, modes opératoires, fiches réflexes, contacts —
@@ -358,10 +360,12 @@ l'usage).
   conservé : place et tokens économisés) puis chiffré. Le panneau l'affiche
   **comme un explorateur Windows** : pochettes repliables, lecture d'une
   entrée au clic, édition, suppression par fichier ou par pochette.
-  L'attaché en est le **bibliothécaire** : « Faire analyser et classer »
-  (au téléversement ou sur toute la base) lui fait lire chaque document,
-  écrire sa description, corriger catégorie et rangement (`kb_decrire` —
-  le contenu n'est jamais modifié) et signaler doublons et textes périmés.
+  L'attaché en est le **bibliothécaire** : « Faire ranger toute la base »
+  (au téléversement ou sur toute la base) est la **même passe de description
+  rapide** que pour les trames — un appel modèle par lot, **sans sous-agent**,
+  en lecture de l'en-tête : pour chaque entrée, l'attaché écrit sa description,
+  fixe catégorie et rangement (`kb_decrire` — le contenu n'est jamais modifié)
+  et signale doublons et textes périmés.
   Pas d'index vectoriel : **recherche agentique** à la demande
   (`kb_chercher` insensible casse/accents, puis `kb_lire`) — le sommaire
   (arborescence + descriptions) figure dans le prompt de l'attaché, le
