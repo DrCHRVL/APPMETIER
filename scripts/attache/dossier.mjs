@@ -108,6 +108,14 @@ export function listEnquetes(keys, { includeArchived = false } = {}) {
         .filter(Number.isFinite)
         .sort((x, y) => y - x)[0]
       const joursSansCR = lastCr ? Math.floor((now - lastCr) / 86_400_000) : null
+      // « dormant » = aucune activité depuis le seuil. À DÉFAUT de CR, on mesure
+      // l'inactivité depuis la dernière mise à jour (ou la création) — surtout
+      // PAS depuis « jamais » : un dossier fraîchement créé, sans encore de CR,
+      // n'est pas dormant. Le marquer tel faussait la relance (mail d'étape sur
+      // un dossier neuf) et brouillait le diagnostic.
+      const lastActivite = lastCr
+        || Date.parse(e.dateMiseAJour || '') || Date.parse(e.dateCreation || '') || null
+      const joursSansActivite = lastActivite ? Math.floor((now - lastActivite) / 86_400_000) : null
       return {
         numero: e.numero,
         objet: stripHtml(e.description || '').slice(0, 180),
@@ -122,7 +130,7 @@ export function listEnquetes(keys, { includeArchived = false } = {}) {
         derniereMaj: e.dateMiseAJour,
         joursSansCR,
         seuilSansCR,
-        dormant: e.statut === 'en_cours' && (joursSansCR === null || joursSansCR >= seuilSansCR),
+        dormant: e.statut === 'en_cours' && joursSansActivite !== null && joursSansActivite >= seuilSansCR,
       }
     })
 }
@@ -491,6 +499,62 @@ export function verifierCompletude(keys, numero) {
 }
 
 /**
+ * Santé d'AFFICHAGE / de synchronisation d'un dossier : pourquoi un dossier
+ * pourtant présent dans le coffre peut NE PAS apparaître chez le magistrat.
+ * Le client fusionne les enquêtes PAR id numérique
+ * (DataMergeService.mergeEnquetes) — deux pièges le rendent invisible, quel que
+ * soit le rafraîchissement :
+ *   1. l'id figure dans deletedIds → le client le filtre comme une enquête
+ *      supprimée (résurrection refusée) ;
+ *   2. l'id est partagé par une autre enquête → les deux fusionnent en une,
+ *      un seul dossier survit.
+ * On contrôle aussi l'archivage, hiddenFromJA et l'intégrité de l'id.
+ * NB : il n'existe PAS de filtre « dormant » ni de tri qui masquerait un
+ * dossier à l'affichage — seul l'archivage le retire de « enquêtes en cours »,
+ * et le tri par défaut (date de début décroissante) place un dossier du jour
+ * EN TÊTE, pas en fin de liste.
+ */
+function checkAffichage(data, e) {
+  const enquetes = data.enquetes || []
+  const deletedIds = new Set((data.deletedIds || []).map(Number).filter(Number.isFinite))
+  const id = Number(e.id)
+  const memeId = enquetes.filter((x) => Number(x.id) === id)
+  const obstacles = []
+  if (!Number.isFinite(id)) {
+    obstacles.push({ gravite: 'bloquant', cause: `id non numérique (${JSON.stringify(e.id)}) — le client clef le merge et le rendu sur un id numérique.`, remede: 'Réattribuer un id numérique unique.' })
+  }
+  if (deletedIds.has(id)) {
+    obstacles.push({ gravite: 'bloquant', cause: `l'id ${id} figure dans les suppressions (deletedIds) : le client FILTRE ce dossier comme une enquête supprimée — invisible même après rafraîchissement ou recherche.`, remede: 'Recréer le dossier (la création choisit désormais un id neuf, hors tombstones), ou purger ce tombstone côté client.' })
+  }
+  if (memeId.length > 1) {
+    obstacles.push({ gravite: 'bloquant', cause: `l'id ${id} est partagé par ${memeId.length} enquêtes (${memeId.map((x) => x.numero).join(', ')}) : le client fusionne par id — un seul dossier survit.`, remede: 'Réattribuer un id unique à ce dossier.' })
+  }
+  if (e.statut === 'archive') {
+    obstacles.push({ gravite: 'attendu', cause: 'dossier archivé : présent dans la vue « Archives », absent de « enquêtes en cours ».', remede: 'Désarchiver si le dossier doit être actif.' })
+  }
+  if (e.hiddenFromJA) {
+    obstacles.push({ gravite: 'info', cause: 'dossier marqué hiddenFromJA : masqué aux utilisateurs JA (reste visible de l\'administrateur).', remede: '—' })
+  }
+  const visibleEnCours = Number.isFinite(id) && !deletedIds.has(id) && memeId.length === 1 && e.statut !== 'archive'
+  return {
+    id,
+    visibleDansEnquetesEnCours: visibleEnCours,
+    obstacles,
+    note: visibleEnCours
+      ? 'Aucun obstacle côté données : le dossier doit apparaître dans « enquêtes en cours » après synchronisation. S\'il manque encore : forcer une synchro (rechargement complet), retirer tout filtre/recherche, et vérifier que le contentieux sélectionné est le bon.'
+      : 'Obstacle(s) bloquant(s) détecté(s) ci-dessus — le dossier ne s\'affichera pas tant qu\'ils subsistent.',
+  }
+}
+
+/** Diagnostic d'affichage isolé (outil dédié) — voir checkAffichage. */
+export function diagnostiquerAffichage(keys, numero) {
+  const { data } = loadContentieux(keys)
+  const e = findEnquete(data, numero)
+  if (!e) return null
+  return { numero: e.numero, statut: e.statut, derniereMaj: e.dateMiseAJour, ...checkAffichage(data, e) }
+}
+
+/**
  * Diagnostic objectif d'un dossier — matière première pour l'aide au
  * contrôle et à la maîtrise (l'agent interprète ensuite). Mesure :
  *  - délais : ancienneté du dossier, durée cumulée de chaque acte
@@ -567,6 +631,9 @@ export function diagnostiquerDossier(keys, numero) {
     cadre: e.statut === 'instruction' ? 'instruction' : 'préliminaire',
     ageJours,
     misEnCause: nbMec,
+    // Santé d'affichage/synchronisation : signale d'emblée un dossier qui ne
+    // remontera pas chez le magistrat (id tombé, collision d'id, archivage).
+    synchronisation: checkAffichage(data, e),
     delais: {
       actes: actes.map(({ kind, label, statut, dureeCumuleeJours, nbProlongations, expire, attenteJldJours }) =>
         ({ kind, label, statut, dureeCumuleeJours, nbProlongations, joursAvantEcheance: expire == null ? null : -expire, attenteJldJours })),
@@ -857,7 +924,25 @@ export async function creerDossier(keys, { numero, dateDebut, services, descript
   const author = authorOf(keys)
   const now = new Date().toISOString()
   const today = now.slice(0, 10)
+
+  // Id à l'épreuve des collisions. Le client fusionne les enquêtes PAR id
+  // numérique (DataMergeService.mergeEnquetes) : réutiliser un id déjà présent
+  // fusionnerait deux dossiers distincts en un seul, et réutiliser un id À LA
+  // TOMBE (deletedIds) ferait FILTRER le nouveau dossier par le client comme
+  // une « résurrection » d'enquête supprimée — il n'apparaîtrait alors JAMAIS
+  // chez le magistrat, quel que soit le rafraîchissement. Un simple max+1 sur
+  // les seules enquêtes courantes tombait dans les deux pièges : id d'un
+  // dossier supprimé occupant le plus haut rang, ou id d'un dossier créé sur le
+  // client mais pas encore poussé au coffre. On part donc d'un horodatage —
+  // hors de portée des petits ids séquentiels du client — et on saute tout id
+  // déjà pris ou tombé, pour garantir l'unicité y compris en création rapprochée.
+  const usedIds = new Set([
+    ...payload.data.enquetes.map((e) => Number(e.id)).filter(Number.isFinite),
+    ...(payload.data.deletedIds || []).map(Number).filter(Number.isFinite),
+  ])
   const maxId = payload.data.enquetes.reduce((m, e) => Math.max(m, Number(e.id) || 0), 0)
+  let newId = Math.max(Date.now(), maxId + 1)
+  while (usedIds.has(newId)) newId++
 
   // Mis en cause : dédoublonnage interne (nom normalisé), ids numériques.
   const mecs = []
@@ -881,7 +966,7 @@ export async function creerDossier(keys, { numero, dateDebut, services, descript
   const desc = String(description || '').trim()
 
   const enquete = {
-    id: maxId + 1,
+    id: newId,
     numero: num,
     dateDebut: /^\d{4}-\d{2}-\d{2}/.test(String(dateDebut || '')) ? String(dateDebut).slice(0, 10) : today,
     services: svc,
