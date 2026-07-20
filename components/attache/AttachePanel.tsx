@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   X, Send, Plus, Scale, BookOpen, RefreshCw, Loader2, Inbox, Paperclip, FileText,
-  History, ChevronDown, ChevronUp, Wrench, AlertTriangle,
+  History, ChevronDown, ChevronUp, Wrench, AlertTriangle, Trash2, MessageSquare,
 } from 'lucide-react';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig } from './modelOptions';
 
@@ -40,10 +40,18 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
   const [convId, setConvId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConvMeta[]>([]);
   const [showConvList, setShowConvList] = useState(false);
+  // Titres/aperçus des conversations, déchiffrés côté client à l'ouverture de
+  // l'historique (le titre vit dans l'enveloppe chiffrée, invisible du disque).
+  const [convMeta, setConvMeta] = useState<Record<string, { title: string; count: number }>>({});
+  const [convMetaBusy, setConvMetaBusy] = useState(false);
+  const [confirmDeleteConv, setConfirmDeleteConv] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [feed, setFeed] = useState<Array<FeedCard & { ts: number }>>([]);
   const [feedOpen, setFeedOpen] = useState(true);
+  // Question « à trancher » actuellement sélectionnée dans l'excroissance
+  // (une seule affichée à la fois ; null ⇒ on retombe sur la première).
+  const [selectedTrancherQid, setSelectedTrancherQid] = useState<string | null>(null);
   const [status, setStatus] = useState<any>(null);
   const [cfg, setCfg] = useState<AttacheConfig>({});
   const [showMemory, setShowMemory] = useState(false);
@@ -54,6 +62,9 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
   const [propositionsReload, setPropositionsReload] = useState(0);
   const streamRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Cache des métadonnées déchiffrées, indexé par id+mtime : on ne redéchiffre
+  // que ce qui a changé quand on rouvre l'historique.
+  const convMetaCacheRef = useRef<Record<string, { title: string; count: number; mtime: string }>>({});
 
   const scrollDown = useCallback(() => {
     requestAnimationFrame(() => {
@@ -123,6 +134,59 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
     setMessages([]);
     setShowConvList(false);
   }, []);
+
+  // Déchiffre le titre + le nombre de messages de chaque conversation, pour
+  // l'historique. Ne retraite que ce qui a changé (cache indexé sur mtime).
+  const loadConversationMeta = useCallback(async (list: ConvMeta[]) => {
+    const todo = list.filter((c) => convMetaCacheRef.current[c.id]?.mtime !== c.mtime);
+    if (!todo.length) return;
+    setConvMetaBusy(true);
+    try {
+      for (const c of todo) {
+        try {
+          const res = await fetch('/api/attache/conversations/' + encodeURIComponent(c.id));
+          if (!res.ok) continue;
+          const { envelope } = await res.json();
+          const conv = await eapi().attache_decrypt(envelope);
+          if (!conv) continue;
+          const meta = {
+            title: String(conv.title || '').replace(/\s+/g, ' ').trim() || 'Conversation',
+            count: (conv.messages || []).length,
+            mtime: c.mtime,
+          };
+          convMetaCacheRef.current[c.id] = meta;
+          setConvMeta((prev) => ({ ...prev, [c.id]: { title: meta.title, count: meta.count } }));
+        } catch { /* enveloppe illisible : on garde l'id */ }
+      }
+    } finally {
+      setConvMetaBusy(false);
+    }
+  }, []);
+
+  // Suppression explicite d'une conversation (le fil chiffré est retiré du
+  // disque, version archivée côté service). Aucune suppression automatique :
+  // rien ne disparaît sans ce geste.
+  const deleteConversation = useCallback(async (id: string) => {
+    setConfirmDeleteConv(null);
+    try {
+      const res = await fetch('/api/attache/conversations/' + encodeURIComponent(id), { method: 'DELETE' });
+      if (!res.ok) return;
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      delete convMetaCacheRef.current[id];
+      setConvMeta((prev) => { const next = { ...prev }; delete next[id]; return next; });
+      if (convId === id) { setConvId(null); setMessages([]); }
+    } catch { /* silencieux */ }
+  }, [convId]);
+
+  // À l'ouverture de l'historique : rafraîchit la liste puis déchiffre les titres.
+  useEffect(() => {
+    if (!showConvList) return;
+    setConfirmDeleteConv(null);
+    loadConversations();
+  }, [showConvList, loadConversations]);
+  useEffect(() => {
+    if (showConvList && conversations.length) loadConversationMeta(conversations);
+  }, [showConvList, conversations, loadConversationMeta]);
 
   // ── Envoi + streaming SSE ──
   // `cid` force la conversation cible (réponse à une question de l'attaché :
@@ -325,8 +389,112 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
   const keyringOk = status?.keyring?.granted;
   const claudeOk = status?.claude?.ok;
 
+  // ── « À trancher » : une carte par question, mais UNE SEULE affichée à la
+  //    fois. Un sélecteur déroulant bascule d'une question à l'autre — chacune
+  //    reprend SA discussion avec l'attaché (pas de mélange) — sans empiler
+  //    cinquante cartes à l'écran. Résolue (répondre / terminé), elle quitte
+  //    la file et le sélecteur passe à la suivante ; file vide ⇒ plus rien.
+  //    Mutualisé : excroissance flottante à gauche (large) / repli dans le
+  //    volet (écran étroit, pas de place à gauche).
+  const activeTrancher = aTrancher.find((f) => f.qid === selectedTrancherQid) ?? aTrancher[0] ?? null;
+
+  // Basculer sur une question : elle devient active ET sa conversation d'origine
+  // est rechargée dans le volet, pour retrouver tout le contexte de l'échange.
+  const selectTrancher = (qid: string) => {
+    setSelectedTrancherQid(qid);
+    const f = aTrancher.find((x) => x.qid === qid);
+    if (f?.convId) openConversation(f.convId);
+  };
+
+  const trancherHeader = (
+    <button
+      onClick={() => setFeedOpen((v) => !v)}
+      className={`flex w-full items-center gap-2 px-4 py-2.5 text-left ${feedOpen ? 'border-b border-amber-200/70' : ''}`}
+    >
+      <AlertTriangle className="h-4 w-4 text-amber-600" />
+      <span className="flex-1 text-[13px] font-bold text-amber-900">
+        À trancher
+        <span className="ml-2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{aTrancher.length}</span>
+      </span>
+      {feedOpen ? <ChevronUp className="h-3.5 w-3.5 text-amber-500" /> : <ChevronDown className="h-3.5 w-3.5 text-amber-500" />}
+    </button>
+  );
+
+  const trancherBody = feedOpen && activeTrancher && (
+    <div className="max-h-[22rem] space-y-2 overflow-y-auto px-4 pb-3 pt-2.5 min-[860px]:max-h-[calc(100vh-7rem)]">
+      {/* Sélecteur — n'apparaît qu'à partir de deux questions en attente. */}
+      {aTrancher.length > 1 && (
+        <select
+          value={activeTrancher.qid!}
+          onChange={(e) => selectTrancher(e.target.value)}
+          title="Choisir la question à trancher — recharge sa discussion"
+          className="w-full cursor-pointer truncate rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-[12px] font-medium text-amber-900 outline-none focus:border-amber-500"
+        >
+          {aTrancher.map((f, i) => (
+            <option key={f.qid} value={f.qid!}>
+              {i + 1}. {(f.numero ? f.numero + ' · ' : '') + f.titre}
+            </option>
+          ))}
+        </select>
+      )}
+      <div className="rounded-xl border border-amber-300 bg-white p-3 shadow-sm ring-1 ring-amber-100">
+        <div className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-900">
+          <span>❓</span>
+          <span className="flex-1">{activeTrancher.titre}</span>
+          {activeTrancher.numero && <span className="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{activeTrancher.numero}</span>}
+        </div>
+        <div className="mt-1.5 text-[12.5px] leading-relaxed text-gray-700 whitespace-pre-wrap">{activeTrancher.resume}</div>
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <span className="text-[10px] text-gray-400">{activeTrancher.at ? new Date(activeTrancher.at).toLocaleString('fr-FR') : ''}</span>
+          {activeTrancher.convId && (
+            <button onClick={() => openConversation(activeTrancher.convId!)} className="flex-shrink-0 text-[10.5px] font-medium text-[#2B5746] hover:underline">
+              Voir la discussion →
+            </button>
+          )}
+        </div>
+        <div className="mt-2 space-y-1.5 border-t border-amber-100 pt-2">
+          <textarea
+            value={questionDraft[activeTrancher.qid!] || ''}
+            onChange={(e) => setQuestionDraft((prev) => ({ ...prev, [activeTrancher.qid!]: e.target.value }))}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); repondreQuestion(activeTrancher); } }}
+            rows={2}
+            placeholder="Votre réponse — elle reprend directement sa conversation, avec tout le contexte…"
+            className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-1.5 text-[12.5px] leading-relaxed outline-none focus:border-[#2B5746]/50"
+          />
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => setQuestionStatus(activeTrancher.qid!, 'ignore')}
+              title="Retirer cette question de la file, sans répondre"
+              className="rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-50"
+            >
+              Terminé
+            </button>
+            <button
+              onClick={() => repondreQuestion(activeTrancher)}
+              disabled={busy || !(questionDraft[activeTrancher.qid!] || '').trim()}
+              className="rounded-lg bg-[#2B5746] px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
+            >
+              Répondre
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-[440px] flex-col border-l border-gray-200 bg-white shadow-2xl">
+    <>
+      {/* « À trancher » en excroissance : accolée en haut à gauche du volet,
+          elle sort du chat sans le recouvrir. Disparaît dès que la file est
+          vide. Sur écran étroit (< 860px), elle se replie dans le volet. */}
+      {aTrancher.length > 0 && (
+        <div className="fixed right-[440px] top-0 z-[69] hidden w-[340px] flex-col overflow-hidden rounded-l-2xl border border-r-0 border-amber-200 bg-amber-50 shadow-2xl min-[860px]:flex">
+          {trancherHeader}
+          {trancherBody}
+        </div>
+      )}
+
+      <div className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-[440px] flex-col border-l border-gray-200 bg-white shadow-2xl">
       {/* En-tête */}
       <div className="flex items-center gap-2.5 border-b border-gray-200 px-4 py-3">
         <div className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[#2B5746] to-[#3c7a5f] text-white">
@@ -344,21 +512,9 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
         <button onClick={openMemory} title="Mémoire de l'attaché" className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50">
           <BookOpen className="h-4 w-4" />
         </button>
-        <div className="relative">
-          <button onClick={() => setShowConvList((v) => !v)} title="Conversations" className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50">
-            <History className="h-4 w-4" />
-          </button>
-          {showConvList && (
-            <div className="absolute right-0 top-9 z-10 max-h-72 w-64 overflow-y-auto rounded-xl border border-gray-200 bg-white py-1 shadow-xl">
-              {conversations.length === 0 && <div className="px-3 py-2 text-xs text-gray-500">Aucune conversation</div>}
-              {conversations.map((c) => (
-                <button key={c.id} onClick={() => openConversation(c.id)} className="block w-full truncate px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50">
-                  {c.id} <span className="text-gray-400">· {new Date(c.mtime).toLocaleDateString('fr-FR')}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <button onClick={() => setShowConvList(true)} title="Historique des conversations" className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50">
+          <History className="h-4 w-4" />
+        </button>
         <button onClick={newConversation} title="Nouvelle conversation" className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50">
           <Plus className="h-4 w-4" />
         </button>
@@ -378,60 +534,12 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
         </div>
       )}
 
-      {/* « À trancher » — les questions de l'attaché qui attendent votre décision */}
+      {/* « À trancher » — repli à l'intérieur du volet sur écran étroit ;
+          l'excroissance flottante prend le relais dès 860px. */}
       {aTrancher.length > 0 && (
-        <div className="border-b border-amber-200 bg-amber-50/70">
-          <button
-            onClick={() => setFeedOpen((v) => !v)}
-            className="flex w-full items-center gap-2 px-4 py-2.5 text-left"
-          >
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
-            <span className="flex-1 text-[13px] font-bold text-amber-900">
-              À trancher
-              <span className="ml-2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{aTrancher.length}</span>
-            </span>
-            {feedOpen ? <ChevronUp className="h-3.5 w-3.5 text-amber-500" /> : <ChevronDown className="h-3.5 w-3.5 text-amber-500" />}
-          </button>
-          {feedOpen && (
-            <div className="max-h-[22rem] space-y-2.5 overflow-y-auto px-4 pb-3">
-              {aTrancher.map((f, i) => (
-                <div key={i} className="rounded-xl border border-amber-300 bg-white p-3 shadow-sm ring-1 ring-amber-100">
-                  <div className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-900">
-                    <span>❓</span>
-                    <span className="flex-1">{f.titre}</span>
-                    {f.numero && <span className="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{f.numero}</span>}
-                  </div>
-                  <div className="mt-1.5 text-[12.5px] leading-relaxed text-gray-700 whitespace-pre-wrap">{f.resume}</div>
-                  <div className="mt-1 text-[10px] text-gray-400">{f.at ? new Date(f.at).toLocaleString('fr-FR') : ''}</div>
-                  <div className="mt-2 space-y-1.5 border-t border-amber-100 pt-2">
-                    <textarea
-                      value={questionDraft[f.qid!] || ''}
-                      onChange={(e) => setQuestionDraft((prev) => ({ ...prev, [f.qid!]: e.target.value }))}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); repondreQuestion(f); } }}
-                      rows={2}
-                      placeholder="Votre réponse — elle reprend directement sa conversation, avec tout le contexte…"
-                      className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-1.5 text-[12.5px] leading-relaxed outline-none focus:border-[#2B5746]/50"
-                    />
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => setQuestionStatus(f.qid!, 'ignore')}
-                        className="rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-50"
-                      >
-                        Ignorer
-                      </button>
-                      <button
-                        onClick={() => repondreQuestion(f)}
-                        disabled={busy || !(questionDraft[f.qid!] || '').trim()}
-                        className="rounded-lg bg-[#2B5746] px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
-                      >
-                        Répondre
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="border-b border-amber-200 bg-amber-50/70 min-[860px]:hidden">
+          {trancherHeader}
+          {trancherBody}
         </div>
       )}
 
@@ -568,6 +676,68 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
         </p>
       </div>
 
+      {/* Historique des conversations — plein panneau, façon Claude web :
+          titres lisibles, reprise d'un fil, suppression progressive (le
+          serveur est petit). Rien n'est supprimé sans un geste explicite. */}
+      {showConvList && (
+        <div className="absolute inset-0 z-20 flex flex-col bg-white">
+          <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3">
+            <History className="h-4 w-4 text-[#2B5746]" />
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-gray-900">Conversations</div>
+              <div className="text-[11px] text-gray-500">Reprenez un fil, ou supprimez ceux dont vous n'avez plus besoin</div>
+            </div>
+            <button onClick={newConversation} title="Nouvelle conversation" className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50">
+              <Plus className="h-4 w-4" />
+            </button>
+            <button onClick={() => setShowConvList(false)} className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2">
+            {conversations.length === 0 && (
+              <div className="mt-10 text-center text-xs text-gray-500">Aucune conversation pour l'instant.</div>
+            )}
+            {conversations.map((c) => {
+              const meta = convMeta[c.id];
+              const isOpen = convId === c.id;
+              return (
+                <div key={c.id} className={`mb-1 flex items-center gap-1.5 rounded-lg px-2 py-2 ${isOpen ? 'bg-[#2B5746]/10 ring-1 ring-[#2B5746]/20' : 'hover:bg-gray-50'}`}>
+                  <button onClick={() => openConversation(c.id)} className="flex min-w-0 flex-1 items-start gap-2 text-left">
+                    <MessageSquare className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 ${isOpen ? 'text-[#2B5746]' : 'text-gray-400'}`} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium text-gray-800">{meta?.title || 'Conversation'}</span>
+                      <span className="block text-[10.5px] text-gray-400">
+                        {new Date(c.mtime).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        {meta ? ` · ${meta.count} message${meta.count > 1 ? 's' : ''}` : ''}
+                        {isOpen ? ' · ouverte' : ''}
+                      </span>
+                    </span>
+                  </button>
+                  {confirmDeleteConv === c.id ? (
+                    <span className="flex flex-shrink-0 items-center gap-1">
+                      <button onClick={() => deleteConversation(c.id)} className="rounded-md bg-red-600 px-2 py-1 text-[10.5px] font-semibold text-white hover:bg-red-700">Supprimer</button>
+                      <button onClick={() => setConfirmDeleteConv(null)} className="rounded-md border border-gray-200 px-2 py-1 text-[10.5px] font-medium text-gray-500 hover:bg-gray-50">Annuler</button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDeleteConv(c.id)}
+                      title="Supprimer cette conversation"
+                      className="flex-shrink-0 rounded-md p-1.5 text-gray-300 hover:bg-red-50 hover:text-red-500"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-2 border-t border-gray-100 px-4 py-1.5 text-[10.5px] text-gray-400">
+            {convMetaBusy ? <><Loader2 className="h-3 w-3 animate-spin" /> Lecture des titres…</> : `${conversations.length} conversation${conversations.length > 1 ? 's' : ''} · conservées tant que vous ne les supprimez pas`}
+          </div>
+        </div>
+      )}
+
       {/* Modale mémoire */}
       {showMemory && (
         <div className="absolute inset-0 z-20 flex flex-col bg-white">
@@ -600,5 +770,6 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
         </div>
       )}
     </div>
+    </>
   );
 }
