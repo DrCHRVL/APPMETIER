@@ -142,7 +142,7 @@ const TOOLS = [
   },
   {
     name: 'lire_document',
-    description: 'Texte intégral d\'un document déposé sous un numéro de dossier — enquête OU instruction (PDF/TXT/MD/HTML). `chemin` = cheminRelatif exact (voir lire_dossier ou dossier_arborescence), y compris les pièces du « Dossier complet » versé (Dossier/…).',
+    description: 'Texte intégral d\'un document déposé sous un numéro de dossier — enquête OU instruction (PDF, ODT, DOCX, RTF, TXT/MD/HTML). `chemin` = cheminRelatif exact (voir lire_dossier ou dossier_arborescence), y compris les pièces du « Dossier complet » versé (Dossier/…).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' }, chemin: { type: 'string' } }, required: ['numero', 'chemin'] },
     handler: async (a) => readDocumentText(keys, a.numero, a.chemin),
   },

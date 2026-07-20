@@ -16,6 +16,7 @@
 import { attacheTj, listDocsMeta, readDocBlob, writeDocBlob, deleteDocBlob, docServerKey } from './store.mjs'
 import { encryptDocBlob, decryptDocBlob } from './crypto.mjs'
 import { extractPdfText } from './ocr.mjs'
+import { extractOfficeText, isOfficeExt } from './officeText.mjs'
 
 import { enqueteExiste } from './dossier.mjs'
 import { instructionExiste } from './instru.mjs'
@@ -65,6 +66,12 @@ export async function readDepotText(keys, rel) {
   }
   if (/\.(txt|html?|md|csv|json|eml)$/.test(lower)) {
     return { ok: true, texte: plain.toString('utf8').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 200_000) }
+  }
+  if (isOfficeExt(lower)) {
+    // ODT/DOCX/RTF (pièces jointes de mail, sans copie markdown navigateur).
+    const res = extractOfficeText(plain, lower)
+    if (res.ok) return { ok: true, texte: res.texte.slice(0, 200_000), source: res.source }
+    return { ok: false, error: res.error }
   }
   return { ok: false, error: `Type non textuel (${String(rel).split('.').pop()}) — ${plain.length} octets — range-la d'après son nom et la consigne` }
 }
