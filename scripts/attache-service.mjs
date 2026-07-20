@@ -27,7 +27,7 @@ import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
-import { classerTrames, classerKb } from './attache/classer.mjs'
+import { classerTrames, classerKb, suggererAssociations } from './attache/classer.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
 import { listEnvelopes, readEnvelope, writeEnvelope, deleteProduction, readProduction } from './attache/productions.mjs'
 import { recordLearningSignal, consolidationDue, consolidationPrompt, learningStatus, learningState, latestSignalTs } from './attache/apprentissage.mjs'
@@ -892,6 +892,22 @@ const server = http.createServer(async (req, res) => {
       // lancé en fond : la réponse ne bloque pas sur le run complet
       runKbAnalyse(ids).catch((e) => console.error('[attache] classement kb :', e))
       return json(res, 202, { ok: true, started: true })
+    }
+
+    if (route === 'POST /associations/suggest') {
+      // Propose des associations acte → trame + skill (un appel modèle, sans
+      // sous-agent) SANS RIEN ÉCRIRE : le panneau charge les suggestions en
+      // brouillon, le magistrat vérifie et enregistre. Action DIRECTE du
+      // magistrat (bouton) : synchrone, jamais différée par le gouverneur.
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      try {
+        const out = await suggererAssociations(keys)
+        await audit(keys, 'associations_suggerees', { nb: out.suggestions?.length || 0, ok: out.ok }).catch(() => {})
+        return json(res, out.ok ? 200 : 502, out)
+      } catch (e) {
+        return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 300) })
+      }
     }
 
     if (route === 'GET /chronologie') {

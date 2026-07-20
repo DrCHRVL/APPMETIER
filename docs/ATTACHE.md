@@ -391,6 +391,18 @@ l'usage).
   réécriture) : la demander **dans le chat de l'attaché**, sur cette trame
   précise — ciblée et bornée. Le bouton indique clairement s'il faut d'abord
   remettre les clés et affiche l'état du lancement sur place.
+- **Associations acte → trame + skill, suggérées en un clic** : la table que
+  l'attaché consulte avant de rédiger (« pour ce type d'acte, cette trame + cette
+  skill, d'office »). Elle se remplissait jusqu'ici uniquement en le disant en
+  chat, une par une — d'où une table souvent vide. Le bouton **« Suggérer »**
+  (Paramètres → Attaché IA → Associations) lance une passe rapide (un appel
+  modèle, sans sous-agent) qui lit les noms + descriptions des trames et des
+  skills et **propose** les liens. Les suggestions arrivent en **lignes de
+  brouillon** : vous vérifiez, ajustez, puis **« Enregistrer »** — **rien n'est
+  appliqué à une rédaction tant que vous n'avez pas validé** (les noms sont
+  vérifiés contre la bibliothèque réelle ; les types d'acte déjà présents ne sont
+  pas re-suggérés). Classez d'abord la bibliothèque (« Classer ») pour des
+  suggestions plus fines.
 - **Base de connaissances — le cerveau documentaire** (pensez Obsidian
   branché sur l'IA) : le fond durable du cabinet — jurisprudences,
   conventions et circulaires, modes opératoires, fiches réflexes, contacts —

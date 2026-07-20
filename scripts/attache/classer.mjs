@@ -25,6 +25,8 @@ import { spawn } from 'node:child_process'
 import { attacheDir, attacheContentieux, ensureDir } from './store.mjs'
 import { listTrames, readTrame, setTrameDescription } from './trames.mjs'
 import { listKb, readKbEntry, setKbMeta, KB_CATEGORIES } from './kb.mjs'
+import { listSkills } from './skills.mjs'
+import { listAssociations } from './associations.mjs'
 import { economicalModel } from './subagents.mjs'
 import { extractUsage, recordUsage } from './usage.mjs'
 
@@ -333,4 +335,91 @@ export async function classerKb(keys, ids) {
     doublons: [...new Set(doublons)].slice(0, 20), perimes: [...new Set(perimes)].slice(0, 20),
     model, error: ok ? undefined : (lastError || 'classement sans effet'),
   }
+}
+
+// ── Suggestion d'associations « type d'acte → trame(s) + skill(s) » ───────────
+// Le manque signalé par le magistrat : après avoir téléversé trames et skills,
+// rien ne PRÉ-REMPLIT la table des associations (elle ne se peuplait qu'en le
+// disant en chat, une par une). Ici, UNE passe rapide (un appel modèle, sans
+// outil ni sous-agent) lit les noms + descriptions des trames et des skills et
+// PROPOSE des associations. Elle N'ÉCRIT RIEN : les suggestions remontent au
+// panneau, qui les charge en lignes de brouillon ; le magistrat vérifie, ajuste
+// et ENREGISTRE — rien n'est appliqué à une rédaction tant qu'il n'a pas validé.
+
+function assocSystemPrompt() {
+  return [
+    `Tu es l'attaché d'un magistrat du parquet (contentieux ${attacheContentieux()} — criminalité organisée). Tu proposes une table d'ASSOCIATIONS « type d'acte → trame(s) + skill(s) » : pour chaque type d'acte récurrent, quelle TRAME sert de gabarit et quelle SKILL donne la méthode de rédaction.`,
+    'On te fournit la bibliothèque de TRAMES (plans-types d\'actes) et de SKILLS (méthodes), chacune avec son nom et sa description.',
+    'Pour CHAQUE trame qui correspond à un type d\'acte identifiable, propose UNE association :',
+    '- « acte » : un libellé LISIBLE du type d\'acte (ex. « Prolongation de géolocalisation (JLD) », « Soit-transmis de saisine — stupéfiants 706-80 », « Requête de saisie de compte bancaire ») ;',
+    '- « trames » : la ou les trames pertinentes — le plus souvent UNE SEULE (celle qui porte ce type d\'acte) ;',
+    '- « skills » : la ou les skills de méthode qui s\'appliquent à ce type d\'acte (0, 1 ou plusieurs — vide si aucune ne colle vraiment) ;',
+    '- « notes » : une courte justification facultative.',
+    'RÈGLES STRICTES : n\'invente AUCUN nom — recopie les noms de trames et de skills EXACTEMENT tels que fournis. Ne propose PAS d\'association sans trame. N\'associe une skill que si elle couvre réellement ce type d\'acte. Regroupe sous un seul libellé les trames quasi équivalentes si c\'est plus clair. Ne pose aucune question.',
+    'SORTIE — réponds EXCLUSIVEMENT par un objet JSON valide, sans texte autour, sans bloc de code markdown :',
+    '{ "associations": [ { "acte": string, "trames": [string], "skills": [string], "notes": string } ] }',
+  ].join('\n')
+}
+
+function assocUserPrompt(trames, skills) {
+  const line = (x) => `- ${x.nom}${x.description ? ` : ${String(x.description).slice(0, 200)}` : ''}`
+  return [
+    `TRAMES (${trames.length}) — nom : description :`,
+    ...trames.map(line),
+    '',
+    `SKILLS (${skills.length}) — nom : description :`,
+    ...skills.map(line),
+    '',
+    'Réponds par le JSON strict décrit dans les consignes système.',
+  ].join('\n')
+}
+
+/**
+ * Propose des associations acte → trame(s) + skill(s) à partir de la
+ * bibliothèque. NE PERSISTE RIEN — renvoie une liste de suggestions que le
+ * panneau charge en brouillon, à valider par « Enregistrer ». Chaque nom de
+ * trame/skill renvoyé est VÉRIFIÉ contre la bibliothèque réelle (rapprochement
+ * normalisé) : les noms inventés par le modèle sont écartés. Les types d'acte
+ * déjà présents dans la table ne sont pas re-suggérés.
+ * @returns {Promise<{ ok, suggestions:Array<{acte,trames,skills,notes?}>, model?, error? }>}
+ */
+export async function suggererAssociations(keys) {
+  const trames = listTrames(keys).map((t) => ({ nom: t.nom, description: t.description || '' }))
+  const skills = listSkills(keys).map((s) => ({ nom: s.nom, description: s.description || '' }))
+  if (!trames.length) return { ok: false, suggestions: [], error: 'Aucune trame en bibliothèque à associer.' }
+
+  const model = economicalModel()
+  const run = await runClaudeJson({
+    systemPrompt: assocSystemPrompt(),
+    userPrompt: assocUserPrompt(trames.slice(0, 150), skills.slice(0, 60)),
+    model,
+    runLabel: 'associations-suggest',
+  })
+  if (!run.ok) return { ok: false, suggestions: [], model, error: run.error || 'suggestion sans effet' }
+
+  // Rapprochement normalisé sur les noms RÉELS (on n'accepte aucun nom inventé).
+  const trByNorm = new Map(trames.map((t) => [normKey(t.nom), t.nom]))
+  const skByNorm = new Map(skills.map((s) => [normKey(s.nom), s.nom]))
+  const dejaVus = new Set(listAssociations(keys).map((a) => normKey(a.acte)))
+  const seen = new Set()
+  const suggestions = []
+  for (const a of Array.isArray(run.data.associations) ? run.data.associations : []) {
+    const acte = String(a?.acte || '').trim().slice(0, 120)
+    if (!acte) continue
+    const cle = normKey(acte)
+    if (!cle || dejaVus.has(cle) || seen.has(cle)) continue
+    const resolve = (list, map) => [...new Set(
+      (Array.isArray(list) ? list : []).map((x) => map.get(normKey(x))).filter(Boolean),
+    )]
+    const tr = resolve(a.trames, trByNorm)
+    if (!tr.length) continue // une association sans trame réelle n'a aucune valeur
+    seen.add(cle)
+    suggestions.push({
+      acte,
+      trames: tr,
+      skills: resolve(a.skills, skByNorm),
+      notes: a.notes ? String(a.notes).slice(0, 300) : undefined,
+    })
+  }
+  return { ok: true, suggestions: suggestions.slice(0, 100), model }
 }

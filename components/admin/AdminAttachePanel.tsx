@@ -225,6 +225,7 @@ export function AdminAttachePanel() {
   // ── Associations « type d'acte → trame(s) + skill(s) » (table durable, éditable) ──
   const [assoc, setAssoc] = useState<AssocRow[]>([]);
   const [assocSaving, setAssocSaving] = useState(false);
+  const [assocSuggesting, setAssocSuggesting] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -399,6 +400,43 @@ export function AdminAttachePanel() {
       setAssocSaving(false);
     }
   }, [assoc, loadAssociations]);
+
+  /**
+   * Suggère des associations acte → trame + skill à partir de la bibliothèque.
+   * L'attaché PROPOSE (une passe rapide, quelques secondes) : les suggestions
+   * sont chargées en lignes de BROUILLON — rien n'est appliqué tant que vous
+   * n'avez pas cliqué « Enregistrer ». On n'ajoute que les types d'acte absents.
+   */
+  const suggestAssociations = useCallback(async () => {
+    setAssocSuggesting(true);
+    try {
+      const res = await fetch('/api/attache/associations', { method: 'POST' });
+      const data = await res.json().catch(() => ({} as { ok?: boolean; error?: string; suggestions?: Array<{ acte: string; trames?: string[]; skills?: string[]; notes?: string }> }));
+      if (!res.ok || !data.ok) { setNotice(`Suggestion impossible : ${data.error || 'service injoignable'}`); return; }
+      const sugg = Array.isArray(data.suggestions) ? data.suggestions : [];
+      let ajoutes = 0;
+      setAssoc((rows) => {
+        const norm = (s: string) => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '');
+        const seen = new Set(rows.map((r) => norm(r.acte)));
+        const add: AssocRow[] = [];
+        for (const s of sugg) {
+          const key = norm(s.acte);
+          if (!s.acte || !key || seen.has(key)) continue;
+          seen.add(key);
+          add.push({ id: assocId(), acte: String(s.acte).slice(0, 120), tramesText: (s.trames || []).join(', '), skillsText: (s.skills || []).join(', '), notes: (s.notes || '').slice(0, 500) });
+        }
+        ajoutes = add.length;
+        return [...rows, ...add];
+      });
+      setNotice(ajoutes
+        ? `${ajoutes} association(s) suggérée(s) et ajoutée(s) en brouillon — vérifiez et ajustez, puis « Enregistrer ». Rien n'est appliqué tant que vous n'avez pas enregistré.`
+        : 'Aucune nouvelle association à suggérer (celles pertinentes existent déjà, ou la bibliothèque de trames est vide).');
+    } catch (e) {
+      setNotice(`Suggestion impossible : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setAssocSuggesting(false);
+    }
+  }, []);
 
   // ── Propositions de méthode (trames & skills révisées par l'attaché, ✓/✗) ──
   const [methodProps, setMethodProps] = useState<MethodProp[]>([]);
@@ -1947,6 +1985,14 @@ export function AdminAttachePanel() {
           <span className="hidden text-[11px] text-gray-400 sm:inline">la trame et la skill appliquées d&apos;office pour chaque type d&apos;acte</span>
           <div className="ml-auto flex items-center gap-2">
             <button
+              onClick={suggestAssociations}
+              disabled={assocSuggesting || trames.length === 0}
+              title="L'attaché parcourt vos trames et vos skills et propose les liens acte → trame + skill. Les suggestions arrivent en brouillon : vous vérifiez, ajustez, puis « Enregistrer ». Rien n'est appliqué sans votre validation. (Classez d'abord la bibliothèque pour de meilleures suggestions.)"
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            >
+              {assocSuggesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}Suggérer
+            </button>
+            <button
               onClick={() => setAssoc((rows) => [...rows, { id: assocId(), acte: '', tramesText: '', skillsText: '', notes: '' }])}
               className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
             >
@@ -1970,10 +2016,11 @@ export function AdminAttachePanel() {
           <p className="text-[11px] leading-relaxed text-gray-500">
             L&apos;attaché consulte cette table avant de rédiger : si le type d&apos;acte y figure, il applique directement la
             trame et la skill indiquées — il ne redemande plus. Plusieurs noms séparés par des virgules.
+            <b> « Suggérer »</b> pré-remplit la table à partir de votre bibliothèque — en brouillon, à vérifier puis enregistrer.
           </p>
           {assoc.length === 0 && (
             <p className="rounded-lg border border-dashed border-gray-200 px-3 py-4 text-center text-[11px] text-gray-400">
-              Aucune association. « Ajouter » pour lier un type d&apos;acte à sa trame et sa skill.
+              Aucune association. <b>« Suggérer »</b> pour que l&apos;attaché propose les liens acte → trame + skill, ou « Ajouter » pour en créer un à la main.
             </p>
           )}
           {assoc.map((r, i) => (

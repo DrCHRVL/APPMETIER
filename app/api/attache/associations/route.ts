@@ -5,7 +5,7 @@
  * Paramètres → Attaché IA ; l'attaché la consulte et l'enrichit lui aussi.
  */
 import { handle, jsonResponse } from '@/lib/server/auth'
-import { requireAttacheAdmin, readAssociationsEnvelope, writeAssociationsEnvelope, AttacheEnvelope } from '@/lib/server/attache'
+import { requireAttacheAdmin, attacheFetch, readAssociationsEnvelope, writeAssociationsEnvelope, AttacheEnvelope } from '@/lib/server/attache'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,5 +27,17 @@ export async function PUT(req: Request) {
     if (env.ct.length > 1024 * 1024) return jsonResponse({ error: 'Table trop volumineuse' }, { status: 413 })
     await writeAssociationsEnvelope({ v: 1, encrypted: true, iv: env.iv, ct: env.ct, savedAt: new Date().toISOString(), savedBy: session.u })
     return jsonResponse({ ok: true })
+  })
+}
+
+// POST : demande à l'attaché de SUGGÉRER des associations (acte → trame + skill)
+// à partir de la bibliothèque. Ne persiste rien : les suggestions reviennent en
+// clair (noms de trames/skills, pas de donnée d'enquête) pour être chargées en
+// brouillon dans le panneau, vérifiées puis enregistrées par le magistrat.
+export async function POST(req: Request) {
+  return handle(async () => {
+    requireAttacheAdmin(req)
+    const res = await attacheFetch('/associations/suggest', { method: 'POST', timeoutMs: 90_000 })
+    return new Response(await res.text(), { status: res.status, headers: { 'content-type': 'application/json' } })
   })
 }
