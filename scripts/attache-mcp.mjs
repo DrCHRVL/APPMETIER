@@ -33,7 +33,7 @@ import { listDepot, readDepotText, rangerDocument, ecarterDepot, ZONES } from '.
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
 import { analyserReseau, listerLiens, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
-import { saveProduction, listProductions, readProduction, deleteProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
+import { saveProduction, listProductions, readProduction, deleteProduction, diffProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
 import { appendMemory, rewriteMemory, memoryStats, MEMORY_BUDGET } from './attache/memory.mjs'
 import { recordLearningSignal, pendingSignals, learningState, learningMetrics, metricsSummary } from './attache/apprentissage.mjs'
 import { readConversation } from './attache/agent.mjs'
@@ -493,6 +493,20 @@ const TOOLS = [
     description: 'Lit le texte complet d\'un acte rédigé (pour le modifier ensuite avec produire_document en réutilisant son id).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' }, id: { type: 'string' } }, required: ['numero', 'id'] },
     handler: async (a) => readProduction(keys, a.numero, a.id) ?? { erreur: 'Acte introuvable' },
+  },
+  {
+    name: 'production_diff',
+    description: 'Montre CE QUE le magistrat a changé DE SA MAIN dans un acte : diff ligne à ligne entre TON jet (version archivée) et sa correction — « - » ce qu\'il a retiré, « + » ce qu\'il a ajouté. À utiliser lors de la consolidation d\'apprentissage sur un signal « acte_edite_main » : tu comprends précisément la correction et tu en tires une RÈGLE durable (mémoire, trame, skill) pour ne pas la refaire. Passe versionAt (l\'horodatage porté par le signal) pour cibler exactement cette correction ; sans versionAt, compare les deux dernières versions (dernier changement).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        id: { type: 'string' },
+        versionAt: { type: 'string', description: 'Horodatage/jeton de la version à comparer (celui du signal acte_edite_main). Optionnel.' },
+      },
+      required: ['numero', 'id'],
+    },
+    handler: async (a) => diffProduction(keys, a.numero, a.id, a.versionAt),
   },
   {
     name: 'production_supprimer',

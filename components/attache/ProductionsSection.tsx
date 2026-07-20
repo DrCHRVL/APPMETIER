@@ -120,7 +120,7 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
       const rec = { ...p, contenu, updatedAt: new Date().toISOString() };
       if (await persist(rec)) {
         setItems((prev) => prev.map((x) => (x.id === p.id ? rec : x)));
-        setNotice('Enregistré.');
+        setNotice('Enregistré — l\'attaché étudiera votre correction pour ne pas refaire l\'erreur.');
       } else {
         setNotice('Échec de l\'enregistrement.');
       }

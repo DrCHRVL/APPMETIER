@@ -18,6 +18,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { attacheDir, ensureDir, atomicWrite, readJson, docServerKey, withFileLock } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
+import { diffTexte } from './diff.mjs'
 
 export const PRODUCTION_TYPES = ['requisition', 'reponse_dml', 'prolongation_jld', 'saisine_jld', 'projet_reponse', 'soit_transmis', 'note', 'livrable', 'autre']
 
@@ -26,19 +27,107 @@ function fileFor(numero, id) {
   if (!/^[a-f0-9]{6,32}$/.test(id)) throw new Error('Identifiant de production invalide')
   return path.join(dirFor(numero), id + '.json')
 }
+function versionsDirFor(numero, id) {
+  if (!/^[a-f0-9]{6,32}$/.test(id)) throw new Error('Identifiant de production invalide')
+  return path.join(dirFor(numero), '.versions', id)
+}
+/** Jeton d'archive (nom de fichier) ↔ horodatage ISO (`:` remplacé par `_`). */
+function tokenToIso(token) { return String(token).replace(/T(\d\d)_(\d\d)_(\d\d)/, 'T$1:$2:$3') }
 
-/** Écrit une enveloppe déjà chiffrée (archive la version précédente). */
+/**
+ * Écrit une enveloppe déjà chiffrée (archive la version précédente).
+ * Rend { archivedAt } : le jeton de l'archive créée (l'état AVANT cette
+ * écriture), ou null si l'acte n'existait pas encore — sert de pointeur
+ * durable pour comparer plus tard le jet de l'attaché à la correction du
+ * magistrat (production_diff).
+ */
 export async function writeEnvelope(numero, id, envelope) {
   const p = fileFor(numero, id)
+  let archivedAt = null
   await withFileLock('prod:' + id, async () => {
     ensureDir(dirFor(numero))
     if (fs.existsSync(p)) {
-      const vdir = path.join(dirFor(numero), '.versions', id)
+      const vdir = versionsDirFor(numero, id)
       ensureDir(vdir)
-      fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '.json'))
+      const token = new Date().toISOString().replace(/:/g, '_')
+      fs.copyFileSync(p, path.join(vdir, token + '.json'))
+      archivedAt = token
     }
     atomicWrite(p, JSON.stringify(envelope, null, 2))
   })
+  return { archivedAt }
+}
+
+/**
+ * Versions archivées d'un acte, plus ANCIENNE d'abord. Chaque entrée =
+ * l'état de l'acte AVANT l'écriture nommée par ce jeton. Les jetons ISO à
+ * largeur fixe se trient chronologiquement par ordre lexicographique.
+ */
+export function listProductionVersions(numero, id) {
+  if (!/^[a-f0-9]{6,32}$/.test(id)) return []
+  const vdir = versionsDirFor(numero, id)
+  if (!fs.existsSync(vdir)) return []
+  return fs.readdirSync(vdir)
+    .filter((f) => f.endsWith('.json') && !f.startsWith('deleted-') && !f.startsWith('.'))
+    .map((f) => f.replace(/\.json$/, ''))
+    .sort()
+    .map((token) => ({ token, at: tokenToIso(token) }))
+}
+
+/** Déchiffre une version archivée précise (jeton = nom de fichier). */
+export function readProductionVersion(keys, numero, id, token) {
+  if (!/^[a-f0-9]{6,32}$/.test(id)) return null
+  const safe = String(token || '').replace(/[^0-9A-Za-z._-]/g, '')
+  if (!safe) return null
+  const env = readJson(path.join(versionsDirFor(numero, id), safe + '.json'), null)
+  if (!env) return null
+  try { return decryptJson(keys.global, env) } catch { return null }
+}
+
+/**
+ * Diff « avant → après » d'un acte : ce que le magistrat a changé de sa main.
+ * Sans `versionAt`, compare les deux dernières versions (dernier changement).
+ * Avec `versionAt` (jeton ou ISO, tel que porté par le signal acte_edite_main),
+ * cible précisément cette correction : « avant » = la version archivée à ce
+ * jeton (le jet de l'attaché), « après » = la version installée juste ensuite
+ * (l'archive suivante, ou l'état courant si aucune) — robuste aux retouches
+ * ultérieures.
+ */
+export function diffProduction(keys, numero, id, versionAt) {
+  const current = readProduction(keys, numero, id)
+  if (!current) return { ok: false, erreur: 'Acte introuvable' }
+  const versions = listProductionVersions(numero, id)
+  if (versions.length === 0) {
+    return { ok: false, erreur: 'Aucune version antérieure archivée : cet acte n\'a jamais été réécrit — rien à comparer.' }
+  }
+  let beforeIdx = versions.length - 1
+  if (versionAt) {
+    const wanted = String(versionAt)
+    const key19 = tokenToIso(wanted).slice(0, 19)
+    const found = versions.findIndex((v) => v.token === wanted || v.at === wanted || v.at.slice(0, 19) === key19)
+    if (found >= 0) beforeIdx = found
+  }
+  const beforeToken = versions[beforeIdx].token
+  const before = readProductionVersion(keys, numero, id, beforeToken)
+  if (!before) return { ok: false, erreur: 'Version antérieure illisible (clé différente ?)' }
+  const nextArchive = versions[beforeIdx + 1]
+  const after = nextArchive ? readProductionVersion(keys, numero, id, nextArchive.token) : current
+  const d = diffTexte(before?.contenu, after?.contenu)
+  return {
+    ok: true,
+    numero,
+    id,
+    titre: current.titre,
+    type: current.type,
+    source: current.source || null,
+    avantLe: versions[beforeIdx].at,
+    apresLe: nextArchive ? nextArchive.at : current.updatedAt,
+    identique: d.identique,
+    ajouts: d.ajouts,
+    retraits: d.retraits,
+    tronque: d.tronque,
+    diff: d.diff,
+  }
 }
 
 export function listEnvelopes(numero) {

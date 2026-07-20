@@ -16,7 +16,7 @@
  */
 import http from 'node:http'
 import crypto from 'node:crypto'
-import { loadMasterKey } from './attache/crypto.mjs'
+import { loadMasterKey, decryptJson } from './attache/crypto.mjs'
 import { loadKeyring, grantKeyring, revokeKeyring, keyringStatus, allowedScopes } from './attache/keyring.mjs'
 import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
@@ -28,7 +28,7 @@ import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
-import { listEnvelopes, readEnvelope, writeEnvelope, deleteProduction } from './attache/productions.mjs'
+import { listEnvelopes, readEnvelope, writeEnvelope, deleteProduction, readProduction } from './attache/productions.mjs'
 import { recordLearningSignal, consolidationDue, consolidationPrompt, learningStatus, learningState, latestSignalTs } from './attache/apprentissage.mjs'
 import { corpusActesValides, etudeDue, etudePrompt, etudeState, etudeStatus } from './attache/etude.mjs'
 import { MEMORY_BUDGET } from './attache/memory.mjs'
@@ -697,18 +697,40 @@ const server = http.createServer(async (req, res) => {
       if (!env || env.encrypted !== true || typeof env.iv !== 'string' || typeof env.ct !== 'string') {
         return json(res, 400, { error: 'Enveloppe chiffrée requise' })
       }
-      if (!/^[a-f0-9]{6,32}$/.test(String(body.id || ''))) return json(res, 400, { error: 'id invalide' })
-      await writeEnvelope(String(body.numero || ''), String(body.id), env)
-      await audit(keys, 'production_editee_main', { numero: body.numero, id: body.id })
-      // Signal d'apprentissage fort : le magistrat a dû corriger l'acte À LA
-      // MAIN — le premier jet ne répondait pas pleinement à ses exigences.
-      // (Le contenu reste E2EE : seul le fait de l'édition est capté.)
-      await recordLearningSignal(keys, {
-        type: 'acte_edite_main',
-        dossier: String(body.numero || ''),
-        detail: `acte ${String(body.id)} corrigé à la main par le magistrat (production_lire pour l'état actuel)`,
-      })
-      return json(res, 200, { ok: true })
+      const numero = String(body.numero || '')
+      const id = String(body.id || '')
+      if (!/^[a-f0-9]{6,32}$/.test(id)) return json(res, 400, { error: 'id invalide' })
+      // État AVANT (le jet de l'attaché) puis contenu APRÈS (la correction du
+      // magistrat) : le service détient la clé globale et compare dans SON
+      // enceinte, sans jamais exposer le texte à l'app. On ne capte un signal
+      // d'apprentissage QUE si le CONTENU a réellement changé — une simple
+      // validation (✓) ou une réouverture (qui ré-enregistrent aussi l'acte)
+      // ne sont pas des corrections et ne doivent rien « apprendre ».
+      const avant = readProduction(keys, numero, id)
+      let apres = null
+      try { apres = decryptJson(keys.global, env) } catch { /* enveloppe d'une autre clé : on stocke sans analyser */ }
+      const { archivedAt } = await writeEnvelope(numero, id, env)
+      await audit(keys, 'production_editee_main', { numero, id })
+      const contenuChange = !!(apres && avant && String(avant.contenu || '') !== String(apres.contenu || ''))
+      if (contenuChange) {
+        // Signal FORT : le magistrat a corrigé l'acte À LA MAIN — le premier
+        // jet ne répondait pas pleinement à ses exigences. Le texte reste
+        // chiffré : on capte le FAIT + un POINTEUR (versionAt) vers le diff
+        // exact, que la consolidation lira (production_diff) pour comprendre
+        // la correction et la mémoriser. On porte la trame suivie (source)
+        // pour relier une trame à des retouches répétées.
+        const source = apres.source || avant.source
+        const titre = String(apres.titre || avant.titre || '').slice(0, 80)
+        await recordLearningSignal(keys, {
+          type: 'acte_edite_main',
+          dossier: numero,
+          source: source ? `trame ${source}` : undefined,
+          detail: `acte ${id}${titre ? ` « ${titre} »` : ''} corrigé à la main — `
+            + `production_diff numero="${numero}" id="${id}"${archivedAt ? ` versionAt="${archivedAt}"` : ''} `
+            + 'montre exactement ce que le magistrat a retiré/ajouté ; distille-le en règle.',
+        })
+      }
+      return json(res, 200, { ok: true, contenuChange })
     }
 
     if (route === 'DELETE /production') {

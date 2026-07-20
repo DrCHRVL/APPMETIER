@@ -74,6 +74,18 @@ l'usage).
     leçon notée en conversation (`memoire_noter`) part en une ligne chiffrée
     dans `attache/apprentissage.jsonl`. Le prompt lui impose de tirer la
     **règle générale** de chaque correction — pas l'anecdote.
+  - **Une édition à la main est CAPTÉE avec ce qui a changé, pas seulement le
+    fait** : quand vous retouchez un acte dans « Actes rédigés » puis
+    **Enregistrez**, le service (seul détenteur de la clé) compare, dans son
+    enceinte, votre correction au jet de l'attaché. Le signal n'est déposé
+    **que si le contenu a réellement changé** (une simple validation ✓ ou
+    réouverture n'apprend rien) et il porte un **pointeur vers le diff exact**
+    (`versionAt`) ainsi que la **trame suivie**. À la consolidation, l'attaché
+    appelle **`production_diff`** : il voit **ligne à ligne** ce que vous avez
+    retiré (−) et ajouté (+) — la version d'avant est conservée dans
+    `.versions/` — et en tire une règle durable pour ne pas refaire l'erreur.
+    Le texte ne quitte jamais l'enceinte chiffrée : le journal ne stocke que
+    le pointeur.
   - **Les reprises en conversation sont repérées TOUTES SEULES** : quand le
     magistrat tape « non, refais », « pas comme ça », « je t'avais déjà
     dit… », une heuristique (regex, coût nul, volontairement étroite) le
@@ -121,11 +133,15 @@ l'usage).
     l'apprentissage fait **baisser** la consommation (moins d'erreurs →
     moins de retouches → moins de runs), au lieu de la faire enfler.
     Déclencheurs : accumulation de signaux
-    (`SIRAL_ATTACHE_APPRENTISSAGE_SEUIL`, défaut 12), mémoire au-dessus du
-    budget, ou cadence de fond (`SIRAL_ATTACHE_APPRENTISSAGE_JOURS`, défaut
-    7 j) — jamais deux tentatives à moins de 12 h. Chaque consolidation
-    laisse une carte « Apprentissage » dans le fil « pendant votre
-    absence » : on VOIT ce qu'il a retenu.
+    (`SIRAL_ATTACHE_APPRENTISSAGE_SEUIL`, défaut 12), **quelques corrections
+    directes du magistrat** — acte corrigé à la main, proposition refusée,
+    reprise en chat : signaux **forts** qui consolident sans attendre
+    (`SIRAL_ATTACHE_APPRENTISSAGE_SEUIL_FORTS`, défaut 3), pour ne pas
+    refaire l'erreur au prochain acte —, mémoire au-dessus du budget, ou
+    cadence de fond (`SIRAL_ATTACHE_APPRENTISSAGE_JOURS`, défaut 7 j) —
+    jamais deux tentatives à moins de 12 h. Chaque consolidation laisse une
+    carte « Apprentissage » dans le fil « pendant votre absence » : on VOIT
+    ce qu'il a retenu.
   - **Les MÉTHODES se bonifient aussi (workflows composés)** — avec une
     **gouvernance de propriété imposée dans le code**, pas seulement dans le
     prompt :
