@@ -29,7 +29,7 @@ import { saveSkill, listSkills, readSkill, deleteSkill, safeSkillName, AUTO_SKIL
 import { saveKbEntry, setKbMeta, setKbReflexe, listKb, readKbEntry, searchKb, KB_CATEGORIES, MAX_REFLEXE } from './attache/kb.mjs'
 import { runSubagents } from './attache/subagents.mjs'
 import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
-import { listDepot, readDepotText, rangerDocument, ecarterDepot, ZONES } from './attache/depot.mjs'
+import { listDepot, readDepotText, readMailPieceText, rangerDocument, rangerPieceDansKb, ecarterDepot, ZONES } from './attache/depot.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
 import { analyserReseau, listerLiens, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
@@ -250,6 +250,20 @@ const TOOLS = [
       if (!rec) return { erreur: 'Message introuvable' }
       return { ...rec, attachments: (rec.attachments || []).map(({ b64, ...meta }) => meta) }
     },
+  },
+  {
+    name: 'boite_lire_piece',
+    description: 'Lit le TEXTE d\'une pièce jointe d\'un mail transféré (PDF — OCR de secours si scan —, ODT/DOCX/RTF, texte/HTML) pour l\'IDENTIFIER ou la CLASSER avant de la ranger. Sortie bornée (défaut ~12 000 caractères : c\'est une aide à la lecture, pas le stockage). Un scan illisible ou un type non textuel est signalé — ne devine alors jamais le contenu. Pour ranger la pièce : au dossier → ranger_document (source mail) ; à la base de connaissances → kb_ranger_piece.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Identifiant du message (boite_lister)' },
+        piece: { type: 'string', description: 'Nom exact de la pièce jointe (boite_lire)' },
+        max: { type: 'number', description: 'Longueur maximale du texte retourné (défaut 12000)' },
+      },
+      required: ['id', 'piece'],
+    },
+    handler: async (a) => readMailPieceText(keys, { mailId: a.id, piece: a.piece, max: a.max }),
   },
   {
     name: 'boite_marquer_traite',
@@ -640,6 +654,27 @@ const TOOLS = [
       required: ['titre', 'categorie', 'contenu'],
     },
     handler: async (a) => saveKbEntry(keys, a),
+    write: true,
+  },
+  {
+    name: 'kb_ranger_piece',
+    description: `Intègre une PIÈCE CONFIÉE à la base de connaissances — pièce jointe d'un mail transféré (source "mail" : id + piece de boite_lire) ou pièce du dépôt (source "depot" : rel de depot_lister). Utilise-le quand le magistrat transmet un DOCUMENT DE RÉFÉRENCE DURABLE (« intègre ce memento / cette circulaire / cette documentation à ta base de connaissances et classe-la ») plutôt qu'une pièce de procédure (celle-là va au dossier via ranger_document). Le TEXTE est extrait côté serveur (PDF/ODT/DOCX/RTF/texte) et conservé chiffré — seul le texte, jamais l'octet du PDF. CLASSE dès réception : titre clair, categorie (${KB_CATEGORIES.join(', ')} — champ libre), chemin de pochette (ex: Circulaires/2026/memento-parquet.md), description d'une phrase (contenu + quand s'en servir). reflexe=true pour l'épingler comme référence de premier rang (Memento parquet…). Un scan illisible est REFUSÉ (rien enregistré) : demande une version texte. Une pièce du dépôt est retirée du dépôt après intégration.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        source: { type: 'string', enum: ['mail', 'depot'], description: '"mail" (id + piece) ou "depot" (rel)' },
+        id: { type: 'string', description: 'source=mail : identifiant du message (boite_lister)' },
+        piece: { type: 'string', description: 'source=mail : nom exact de la pièce jointe' },
+        rel: { type: 'string', description: 'source=depot : rel de la pièce (depot_lister)' },
+        titre: { type: 'string', description: 'Titre de l\'entrée (clair, daté si utile)' },
+        categorie: { type: 'string', description: `Catégorie (${KB_CATEGORIES.join(', ')} — champ libre)` },
+        chemin: { type: 'string', description: 'Pochette de rangement (arborescence, séparateur /)' },
+        description: { type: 'string', description: 'Une phrase : ce que contient l\'entrée et quand s\'en servir' },
+        reflexe: { type: 'boolean', description: 'true pour épingler comme document réflexe (référence de premier rang)' },
+      },
+      required: ['source', 'titre'],
+    },
+    handler: async (a) => rangerPieceDansKb(keys, { source: a.source, rel: a.rel, mailId: a.id, piece: a.piece, titre: a.titre, categorie: a.categorie, chemin: a.chemin, description: a.description, reflexe: a.reflexe }),
     write: true,
   },
   {
