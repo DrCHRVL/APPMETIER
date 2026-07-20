@@ -34,6 +34,7 @@ import { recordLearningSignal, consolidationDue, consolidationPrompt, learningSt
 import { corpusActesValides, etudeDue, etudePrompt, etudeState, etudeStatus } from './attache/etude.mjs'
 import { MEMORY_BUDGET } from './attache/memory.mjs'
 import { economicalModel } from './attache/subagents.mjs'
+import { consumptionGovernor } from './attache/budget.mjs'
 
 const PORT = Number(process.env.SIRAL_ATTACHE_PORT || 8787)
 const POLL_MINUTES = Math.max(1, Number(process.env.SIRAL_ATTACHE_POLL_MIN || 5))
@@ -158,10 +159,19 @@ const BRIEFING_HOUR = Math.min(23, Math.max(0, Number(process.env.SIRAL_ATTACHE_
 
 function briefingPrompt() {
   return [
-    'C\'est l\'heure du brief quotidien du magistrat. Balaye TOUS les dossiers en cours et prépare son tableau',
-    'de bord via majordome_publier. MÉTHODE : lister_dossiers, puis DÉLÈGUE le balayage à des sous-agents en',
-    'parallèle (sous_agents — un lot de tâches, une par dossier ou par petit groupe : chaque consigne donne le',
-    'numéro et demande verifier_completude + diagnostic_dossier + les points saillants, réponse télégraphique).',
+    'C\'est l\'heure du brief quotidien du magistrat. Prépare son tableau de bord via majordome_publier.',
+    'MÉTHODE ÉCONOME — ne re-balaie PAS tout chaque jour : le balayage en sous-agents est de LOIN ton premier',
+    'poste de dépense, et re-analyser un dossier qui n\'a pas bougé depuis hier ne sert à rien. Commence par',
+    'lister_dossiers (il donne, par dossier : derniereMaj, joursSansCR, dormant, nombres d\'actes/CR/documents).',
+    'SÉLECTIONNE les dossiers qui méritent un examen AUJOURD\'HUI — et eux seuls :',
+    '  • activité récente (derniereMaj ou dernier CR de ces derniers jours, un document/mail arrivé depuis le dernier brief) ;',
+    '  • une échéance qui approche (mesure expirant sous ~15 j, attente JLD qui traîne) ;',
+    '  • un dossier DORMANT (dormant:true) à relancer.',
+    'Pour CES dossiers-là seulement, DÉLÈGUE le balayage à des sous-agents en parallèle (sous_agents — un lot,',
+    'une tâche par dossier ou petit groupe : chaque consigne donne le numéro et demande verifier_completude +',
+    'diagnostic_dossier + les points saillants, réponse télégraphique). Un dossier SANS changement ni échéance',
+    'ne justifie pas un sous-agent — tu l\'as déjà examiné aux briefs précédents (ta mémoire et les briefs récents',
+    'te disent ce qui a déjà été publié) : ne le re-analyse pas. Vise un lot RESSERRÉ, pas la liste entière.',
     'Tu synthétises leurs analyses et c\'est TOI qui publies (eux ne peuvent pas écrire) :',
     '1. echeance — actes expirant sous 15 jours, attentes JLD qui traînent, CR anciens : dis QUOI préparer et POUR QUAND.',
     '2. projet_mail — pour chaque dossier qui le justifie, le mail prêt à coller au directeur d\'enquête',
@@ -232,6 +242,7 @@ async function maybeDueRoutines() {
   if (!keys) return
   const due = dueRoutines(keys)
   if (!due.length) return
+  if (await autonomousOnHold(keys, 'routines')) return
   routineRunning = true
   try {
     for (const r of due) {
@@ -249,6 +260,9 @@ async function maybeScheduledBriefing() {
   const today = now.toISOString().slice(0, 10)
   const state = readState()
   if ((state.lastBriefingAt || '').slice(0, 10) === today) return
+  // Forfait saturé : on DIFFÈRE (sans réserver la date, pour retenter au prochain
+  // tick une fois la fenêtre de 5 h redescendue).
+  if (await autonomousOnHold(loadKeyring(), 'brief planifié')) return
   // réserver la date AVANT le run (évite un double brief si le run est long)
   await writeState({ lastBriefingAt: now.toISOString(), lastBriefingOk: null })
   runBriefing('planifié').catch((e) => console.error('[attache] brief :', e))
@@ -310,6 +324,7 @@ async function maybeScheduledApprentissage() {
   if (!keys) return
   const raison = consolidationDue(keys)
   if (!raison) return
+  if (await autonomousOnHold(keys, 'consolidation')) return
   runApprentissage(`auto — ${raison}`).catch((e) => console.error('[attache] apprentissage :', e))
 }
 
@@ -368,6 +383,7 @@ async function maybeScheduledEtude() {
   if (!keys) return
   const raison = etudeDue()
   if (!raison) return
+  if (await autonomousOnHold(keys, 'étude du corpus')) return
   runEtude(`auto — ${raison}`).catch((e) => console.error('[attache] étude :', e))
 }
 
@@ -454,6 +470,41 @@ async function runKbAnalyse(ids) {
   }
 }
 
+// ── Gouverneur de consommation : mettre en PAUSE les runs de fond quand le
+// forfait sature ─────────────────────────────────────────────────────────────
+// Les runs AUTONOMES (brief quotidien, étude du corpus, consolidation, routines)
+// sont la première source de sous-agents en parallèle — le poste qui fait
+// exploser la fenêtre glissante de 5 h. Quand elle est pleine (config.cap5h),
+// on les DIFFÈRE : rien n'est perdu, ils repartiront tout seuls au prochain tick
+// une fois la fenêtre redescendue. On NE met JAMAIS en pause le chat du magistrat
+// ni le traitement des mails (sa demande directe) — ceux-là sont seulement
+// resserrés par le gouverneur des sous-agents. Sans plafond configuré, le
+// gouverneur est inerte (aucun run n'est différé).
+const DEFER_NOTE_COOLDOWN_MS = 60 * 60 * 1000
+let lastDeferNoteAt = 0
+async function autonomousOnHold(keys, quoi) {
+  const gov = consumptionGovernor(agentConfig())
+  if (gov.level !== 'stop') return false
+  console.log(`[attache] ${quoi} différé — forfait saturé (${gov.raison})`)
+  const now = Date.now()
+  // Une note au fil au plus une fois par heure. On avance le repère AVANT le
+  // moindre await : plusieurs runs de fond peuvent être gated dans le même tick
+  // (single-thread, pas d'await entre le test et l'affectation) → une seule note.
+  const shouldNote = Boolean(keys) && now - lastDeferNoteAt >= DEFER_NOTE_COOLDOWN_MS
+  if (shouldNote) lastDeferNoteAt = now
+  try {
+    await writeState({ autoDeferredAt: new Date().toISOString(), autoDeferReason: gov.raison || null })
+    if (shouldNote) {
+      await publishFeed(keys, {
+        type: 'note',
+        titre: 'Runs automatiques en pause — forfait saturé',
+        resume: `Le brief, l'étude et les routines de fond sont suspendus tant que la consommation reste élevée (${gov.raison}). Ils repartiront seuls dès que la fenêtre de 5 h sera redescendue. Vos conversations et le traitement des mails ne sont pas concernés.`,
+      })
+    }
+  } catch { /* la mise en pause ne doit jamais gêner le service */ }
+  return true
+}
+
 // ── Boucle de relève ──
 let polling = false
 async function pollOnce(trigger = 'planifié') {
@@ -512,6 +563,7 @@ const server = http.createServer(async (req, res) => {
         runsEnCours: running,
         state: readState(),
         config: agentConfig(),
+        governor: consumptionGovernor(agentConfig()),
       })
     }
 
@@ -521,8 +573,18 @@ const server = http.createServer(async (req, res) => {
 
     if (route === 'GET /usage') {
       // Bilan de consommation (jetons) — nombres et horodatages seulement,
-      // aucune donnée d'enquête : lisible même trousseau non remis.
-      return json(res, 200, { usage: usageSummary(), config: agentConfig() })
+      // aucune donnée d'enquête : lisible même trousseau non remis. On joint
+      // l'état du gouverneur (ok / serrer / stop) et la date du dernier report
+      // de run autonome, pour que le panneau montre le bridage en cours.
+      const cfg = agentConfig()
+      const st = readState()
+      return json(res, 200, {
+        usage: usageSummary(),
+        config: cfg,
+        governor: consumptionGovernor(cfg),
+        autoDeferredAt: st.autoDeferredAt || null,
+        autoDeferReason: st.autoDeferReason || null,
+      })
     }
 
     if (route === 'PUT /config') {

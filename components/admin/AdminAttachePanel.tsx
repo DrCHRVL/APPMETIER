@@ -197,6 +197,7 @@ export function AdminAttachePanel() {
   const [rForm, setRForm] = useState({ nom: '', prompt: '', heure: '07:00', mode: 'heure' as 'heure' | 'intervalle', intervalleHeures: 4 });
   const [config, setConfig] = useState<AttacheConfig>({});
   const [usage, setUsage] = useState<any>(null);
+  const [governor, setGovernor] = useState<any>(null);
   const [usageLoading, setUsageLoading] = useState(false);
   const [showMailDiag, setShowMailDiag] = useState(false);
   const [mailTest, setMailTest] = useState<any>(null);
@@ -259,6 +260,7 @@ export function AdminAttachePanel() {
       if (res.ok) {
         const data = await res.json();
         setUsage(data.usage || null);
+        setGovernor(data.governor ? { ...data.governor, autoDeferredAt: data.autoDeferredAt || null } : null);
       }
     } catch { /* silencieux : le bilan est secondaire */ } finally {
       setUsageLoading(false);
@@ -1291,6 +1293,22 @@ export function AdminAttachePanel() {
                   Sur 7 jours : <b>{formatTokens(total7)} jetons</b> (équivalent crédits API ≈ {formatCostEur(w7d.cost || 0)}).
                   {top ? <> Premier poste : <b style={{ color: top.color }}>{top.label.toLowerCase()}</b>.</> : null}
                 </p>
+
+                {/* Gouverneur de consommation : bridage automatique en cours */}
+                {governor && governor.level === 'stop' && (
+                  <p className="rounded-lg border border-red-200 bg-red-50/70 px-3 py-2 text-[11px] leading-relaxed text-red-700">
+                    <b>Runs automatiques en pause</b> — forfait saturé ({governor.raison}). Le brief, l'étude et les
+                    routines de fond sont suspendus et repartiront seuls dès que la fenêtre de 5 h sera redescendue.
+                    Vos conversations et le traitement des mails continuent (les sous-agents sont automatiquement bridés).
+                  </p>
+                )}
+                {governor && governor.level === 'serrer' && (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-[11px] leading-relaxed text-amber-700">
+                    <b>Bridage automatique actif</b> — vous approchez du plafond ({governor.raison}). Les sous-agents
+                    passent d'office en régime économe (modèle rapide, moins de tours, moins de parallélisme), sans
+                    toucher à vos conversations.
+                  </p>
+                )}
 
                 {/* Deux jauges : maintenant (5 h) et 7 jours */}
                 <div className="grid gap-2 sm:grid-cols-2">

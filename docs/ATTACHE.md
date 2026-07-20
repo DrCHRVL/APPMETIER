@@ -240,18 +240,43 @@ l'usage).
   (limites en messages/heures), donc les plafonds Pro / Max 5× / Max 20×
   sont des ordres de grandeur que le magistrat affine — les jetons mesurés,
   eux, sont exacts. Route interne `GET /usage`.
-- **Mode économe (levier anti-consommation)** : Paramètres → Attaché IA →
+- **Gouverneur de consommation (bridage automatique)** : le garde-fou qui
+  « jugule » le forfait tout seul, sans réglage. À chaque tick, le service
+  compare la consommation récente aux plafonds du forfait (`config.cap5h` /
+  `config.capHebdo`, renseignés par le choix de forfait) et agit à coût nul
+  (le journal `usage.jsonl` n'est que des nombres) :
+  - **≥ 75 % de la fenêtre de 5 h** → les **lots de sous-agents** passent
+    d'office en régime économe (modèle rapide, effort faible, ≤ 8 tours,
+    concurrence ramenée à 2), quel que soit l'appelant (brief, étude, mail,
+    chat) et **même si le mode économe est décoché** ;
+  - **≥ 100 %** → les **runs autonomes** (brief, étude, consolidation,
+    routines) sont **différés** — rien n'est perdu, ils repartent seuls au
+    prochain tick une fois la fenêtre redescendue ; les sous-agents encore
+    lancés sont bridés au maximum (≤ 6 tours). Le **chat** et le **traitement
+    des mails** (demande directe du magistrat) ne sont **jamais** mis en
+    pause, seulement resserrés. Une note « Runs automatiques en pause » paraît
+    au fil (au plus une fois par heure), et le panneau « Consommation IA »
+    affiche l'état du bridage. Sans plafond configuré, le gouverneur est
+    inerte. Seuils réglables : `SIRAL_ATTACHE_BUDGET_SERRER_5H` (0,75),
+    `SIRAL_ATTACHE_BUDGET_STOP_5H` (1,0), idem `…_7J`.
+- **Brief quotidien incrémental** : le brief ne re-balaye plus **tous** les
+  dossiers chaque jour (c'était la principale hémorragie de sous-agents). Il ne
+  délègue un sous-agent qu'aux dossiers qui ont **bougé** depuis le dernier
+  brief, à ceux dont une **échéance approche**, et aux **dormants** à relancer —
+  un lot resserré au lieu de la liste entière.
+- **Mode économe (levier manuel)** : Paramètres → Attaché IA →
   « Consommation IA » → **Mode économe**. Les **sous-agents** sont le premier
   poste de dépense (un run complet par PDF/dossier, en parallèle) : le mode
   les bascule sur un **modèle rapide** (Haiku) avec **moins de tours**
-  (8 au lieu de 15) et un **effort réduit**, et resserre le run principal
+  (8 au lieu de 10) et un **effort réduit**, et resserre le run principal
   (24 tours au lieu de 40). Les conversations gardent le modèle choisi.
-  À activer quand les jetons filent ; à couper pour un dépouillement lourd.
-  Autres leviers permanents : choisir un **modèle de sous-agents** plus léger
-  (« Cerveau »), baisser l'**effort**, borner la concurrence
-  (`SIRAL_ATTACHE_SUBAGENT_CONCURRENCY`) et les tours des sous-agents
-  (`SIRAL_ATTACHE_SUBAGENT_MAX_TURNS`), et laisser jouer le **cache de PDF**
-  (ci-dessus) qui évite de re-payer l'extraction à chaque relecture.
+  À activer pour forcer l'économie en permanence ; à couper pour un
+  dépouillement lourd. Autres leviers permanents : choisir un **modèle de
+  sous-agents** plus léger (« Cerveau »), baisser l'**effort**, borner la
+  concurrence (`SIRAL_ATTACHE_SUBAGENT_CONCURRENCY`) et les tours des
+  sous-agents (`SIRAL_ATTACHE_SUBAGENT_MAX_TURNS`, défaut 10), et laisser jouer
+  le **cache de PDF** (ci-dessus) qui évite de re-payer l'extraction à chaque
+  relecture.
 - **Suit vos consignes permanentes** : un « prompt » libre, rédigé par le
   magistrat (Paramètres → Attaché IA → « Consignes permanentes » — l'équivalent
   de vos instructions Claude web : style, méthode, réflexes), relu au début de
@@ -280,7 +305,8 @@ l'usage).
   fichiers restent interdits. Les requêtes de recherche partent alors vers
   l'extérieur : à activer en connaissance de cause, révocable d'un clic.
 - **Sert de majordome** : un **brief quotidien** (heure configurable,
-  `SIRAL_ATTACHE_BRIEFING_HOUR`, défaut 6 h) balaye tous les dossiers et
+  `SIRAL_ATTACHE_BRIEFING_HOUR`, défaut 6 h) balaye les dossiers qui ont bougé
+  ou dont une échéance approche (voir « brief incrémental » ci-dessus) et
   alimente un **widget du tableau de bord** visible du seul administrateur :
   - **échéances** à préparer (actes expirants, attentes JLD, CR anciens) ;
   - **projets de mail au directeur d'enquête** (demande de requête, point
