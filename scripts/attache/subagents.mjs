@@ -37,6 +37,13 @@ const ALLOWED_TOOLS = 'mcp__siral__*'
 const DISALLOWED_TOOLS = 'Bash,Edit,Write,NotebookEdit,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite,KillShell,BashOutput'
 const WEB_TOOLS = ['WebSearch', 'WebFetch']
 
+// Travail DIRECT du magistrat, JAMAIS bridé pour cause de forfait : le chat et
+// le traitement d'un mail (rédaction d'acte, sa priorité n°1) gardent toute la
+// qualité de leurs sous-agents. Seuls les runs de FOND (brief, étude,
+// consolidation, routines) subissent le gouverneur. On reconnaît le run parent
+// par SIRAL_ATTACHE_RUN, propagé au serveur MCP où tourne ce module.
+const DIRECT_RUNS = new Set(['chat', 'chat-dossier', 'chat-carto', 'proactif'])
+
 // Modèle des travaux d'appoint (sous-agents, consolidation d'apprentissage) :
 // un modèle RAPIDE par défaut — jamais celui du run principal, qui peut être
 // Opus et rendrait ces lots lourds et gourmands.
@@ -128,7 +135,8 @@ export async function runSubagents({ taches, contexte, modele, effort }) {
   // de parallélisme — sans jamais bloquer ni perdre de tâche (chat du magistrat
   // dégradé, jamais interrompu). C'est indépendant du mode économe : même
   // décoché, un forfait à saturation freine tout seul.
-  const gov = consumptionGovernor(cfg)
+  const direct = DIRECT_RUNS.has(String(process.env.SIRAL_ATTACHE_RUN || ''))
+  const gov = direct ? { level: 'ok' } : consumptionGovernor(cfg)
   const tighten = gov.level === 'serrer' || gov.level === 'stop'
   const hard = gov.level === 'stop'
   const eco = cfg.econome || tighten

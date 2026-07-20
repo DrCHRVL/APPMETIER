@@ -240,11 +240,21 @@ l'usage).
   (limites en messages/heures), donc les plafonds Pro / Max 5× / Max 20×
   sont des ordres de grandeur que le magistrat affine — les jetons mesurés,
   eux, sont exacts. Route interne `GET /usage`.
+- **Priorité au magistrat (demandes + mails), le fond la nuit** : répondre
+  aux demandes (chat) et traiter les mails transférés (rédaction d'actes) est
+  la priorité — ces runs ne sont **jamais** différés ni bridés, et leurs
+  sous-agents gardent toute leur qualité même forfait tendu. Les travaux de
+  **fond lourds** (étude du corpus d'actes, consolidation de l'apprentissage)
+  sont **réservés à une fenêtre de nuit** (`SIRAL_ATTACHE_NIGHT_START` /
+  `_END`, défaut 22 h → 7 h) : hors de la journée de travail, ils ne disputent
+  jamais le forfait aux actes. Les boutons du panneau (« Étudier mes actes
+  maintenant », « Consolider maintenant ») forcent l'exécution à tout moment.
 - **Gouverneur de consommation (bridage automatique)** : le garde-fou qui
   « jugule » le forfait tout seul, sans réglage. À chaque tick, le service
   compare la consommation récente aux plafonds du forfait (`config.cap5h` /
   `config.capHebdo`, renseignés par le choix de forfait) et agit à coût nul
-  (le journal `usage.jsonl` n'est que des nombres) :
+  (le journal `usage.jsonl` n'est que des nombres) — il ne bride QUE les
+  runs de fond, jamais le chat ni les mails :
   - **≥ 75 % de la fenêtre de 5 h** → les **lots de sous-agents** passent
     d'office en régime économe (modèle rapide, effort faible, ≤ 8 tours,
     concurrence ramenée à 2), quel que soit l'appelant (brief, étude, mail,
@@ -372,7 +382,11 @@ l'usage).
   et signale les **doublons manifestes**. Quelques secondes, quelques milliers
   de jetons (là où l'ancienne délégation d'une analyse approfondie à un
   sous-agent par trame était lente, souvent interrompue avant de rendre quoi que
-  ce soit, et très gourmande). Pour une **analyse juridique en profondeur** d'une
+  ce soit, et très gourmande). Le rapprochement entre la réponse du modèle et
+  chaque trame est **tolérant** (forme normalisée du nom : le modèle n'a pas à
+  recopier un slug de 60 caractères au caractère près), et toute trame qu'un lot
+  n'aurait pas décrite est **reprise une par une** — plus aucune trame ne reste
+  « pas encore classée » par un simple aléa de formatage. Pour une **analyse juridique en profondeur** d'une
   trame (contrôle de légalité fondement par fondement, nullités, propositions de
   réécriture) : la demander **dans le chat de l'attaché**, sur cette trame
   précise — ciblée et bornée. Le bouton indique clairement s'il faut d'abord

@@ -48,6 +48,17 @@ const head = (s, n) => {
   return t.length > n ? t.slice(0, n) + '\n[…]' : t
 }
 
+/**
+ * Clé de rapprochement TOLÉRANTE entre l'identifiant renvoyé par le modèle et
+ * l'identifiant réel. Le modèle recopie rarement un slug de 60 caractères
+ * (« ddejld-captation-de-donnees-keylogger ») au caractère près — un tiret ou
+ * une casse suffisait à ce que la description soit jetée et la trame reste
+ * « pas encore classée ». On compare une forme normalisée (minuscules, sans
+ * accents ni séparateurs). Sans risque de faux positif : on ne mappe QUE vers
+ * un identifiant effectivement demandé dans le lot.
+ */
+const normKey = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '')
+
 /** Isole et parse le premier objet JSON d'une chaîne (tolère les fences). */
 function parseJsonLoose(text) {
   if (!text || typeof text !== 'string') return null
@@ -177,17 +188,39 @@ export async function classerTrames(keys, noms) {
     anyRun = true
     if (!run.ok) { lastError = run.error; for (const it of safeLot) echecs.push(it.nom); continue }
     if (Array.isArray(run.data.doublons)) doublons.push(...run.data.doublons.map(String).filter(Boolean))
-    const byNom = new Map()
+    const byNorm = new Map()
     for (const t of Array.isArray(run.data.trames) ? run.data.trames : []) {
-      if (t && typeof t.nom === 'string' && typeof t.description === 'string') byNom.set(t.nom, t.description)
+      if (t && typeof t.nom === 'string' && typeof t.description === 'string' && t.description.trim()) {
+        byNorm.set(normKey(t.nom), t.description.trim())
+      }
     }
     for (const it of safeLot) {
-      const desc = byNom.get(it.nom)
-      if (!desc || !desc.trim()) { echecs.push(it.nom); continue }
-      try { await setTrameDescription(keys, it.nom, desc.trim()); classees++ }
+      const desc = byNorm.get(normKey(it.nom))
+      if (!desc) { echecs.push(it.nom); continue }
+      try { await setTrameDescription(keys, it.nom, desc); classees++ }
       catch { echecs.push(it.nom) }
     }
   }
+
+  // RATTRAPAGE — toute trame qu'un lot n'a pas décrite (nom non retrouvé dans le
+  // JSON groupé) est reprise UNE PAR UNE : appel minuscule, plus aucun
+  // appariement à faire (la réponse ne porte que cette trame). C'est ce qui
+  // garantit qu'une trame ne reste pas indéfiniment « pas encore classée ».
+  if (echecs.length) {
+    const rest = [...new Set(echecs)]
+    echecs.length = 0
+    for (const nom of rest) {
+      const it = items.find((x) => x.nom === nom)
+      if (!it) { echecs.push(nom); continue }
+      const run = await runClaudeJson({ systemPrompt, userPrompt: tramesUserPrompt([it]), model, runLabel: 'trames-analyse' })
+      const t0 = run.ok && Array.isArray(run.data.trames) ? run.data.trames[0] : null
+      const desc = t0 && typeof t0.description === 'string' ? t0.description.trim() : ''
+      if (!desc) { echecs.push(nom); if (run.error) lastError = run.error; continue }
+      try { await setTrameDescription(keys, nom, desc); classees++ }
+      catch { echecs.push(nom) }
+    }
+  }
+
   const ok = classees > 0 || (anyRun && !echecs.length)
   return { ok, total: items.length, classees, echecs, doublons: [...new Set(doublons)].slice(0, 20), model, error: ok ? undefined : (lastError || 'classement sans effet') }
 }
@@ -215,6 +248,20 @@ function kbUserPrompt(items) {
   }
   parts.push('', 'Réponds par le JSON strict décrit dans les consignes système.')
   return parts.join('\n')
+}
+
+/** Applique (déterministe) description/catégorie/chemin d'une entrée si le
+ *  modèle a rendu quelque chose d'exploitable. Renvoie true si écrit. */
+async function applyKbEntry(keys, it, e) {
+  if (!e || (!e.description && !e.categorie && !e.chemin)) return false
+  try {
+    await setKbMeta(keys, it.id, {
+      description: typeof e.description === 'string' ? e.description.trim() : undefined,
+      categorie: typeof e.categorie === 'string' && e.categorie.trim() ? e.categorie.trim() : undefined,
+      chemin: typeof e.chemin === 'string' && e.chemin.trim() ? e.chemin.trim() : undefined,
+    })
+    return true
+  } catch { return false }
 }
 
 /**
@@ -256,23 +303,30 @@ export async function classerKb(keys, ids) {
     if (!run.ok) { lastError = run.error; for (const it of safeLot) echecs.push(it.id); continue }
     if (Array.isArray(run.data.doublons)) doublons.push(...run.data.doublons.map(String).filter(Boolean))
     if (Array.isArray(run.data.perimes)) perimes.push(...run.data.perimes.map(String).filter(Boolean))
-    const byId = new Map()
+    const byNorm = new Map()
     for (const e of Array.isArray(run.data.entrees) ? run.data.entrees : []) {
-      if (e && typeof e.id === 'string') byId.set(e.id, e)
+      if (e && typeof e.id === 'string') byNorm.set(normKey(e.id), e)
     }
     for (const it of safeLot) {
-      const e = byId.get(it.id)
-      if (!e || (!e.description && !e.categorie && !e.chemin)) { echecs.push(it.id); continue }
-      try {
-        await setKbMeta(keys, it.id, {
-          description: typeof e.description === 'string' ? e.description.trim() : undefined,
-          categorie: typeof e.categorie === 'string' && e.categorie.trim() ? e.categorie.trim() : undefined,
-          chemin: typeof e.chemin === 'string' && e.chemin.trim() ? e.chemin.trim() : undefined,
-        })
-        classees++
-      } catch { echecs.push(it.id) }
+      if (await applyKbEntry(keys, it, byNorm.get(normKey(it.id)))) classees++
+      else echecs.push(it.id)
     }
   }
+
+  // RATTRAPAGE — une par une pour les entrées qu'un lot n'a pas rangées.
+  if (echecs.length) {
+    const rest = [...new Set(echecs)]
+    echecs.length = 0
+    for (const id of rest) {
+      const it = items.find((x) => x.id === id)
+      if (!it) { echecs.push(id); continue }
+      const run = await runClaudeJson({ systemPrompt, userPrompt: kbUserPrompt([it]), model, runLabel: 'kb-analyse' })
+      const e0 = run.ok && Array.isArray(run.data.entrees) ? run.data.entrees[0] : null
+      if (await applyKbEntry(keys, it, e0)) classees++
+      else { echecs.push(id); if (run.error) lastError = run.error }
+    }
+  }
+
   const ok = classees > 0 || (anyRun && !echecs.length)
   return {
     ok, total: items.length, classees, echecs,

@@ -320,6 +320,9 @@ async function runApprentissage(trigger = 'auto') {
 /** Consolide quand l'échéancier le justifie (vérifié à chaque tick de relève — comptage gratuit). */
 async function maybeScheduledApprentissage() {
   if (apprentissageRunning) return
+  // Travail de FOND : réservé à la nuit (la consolidation à la demande reste
+  // possible à tout moment depuis Paramètres → Attaché IA).
+  if (!inNightWindow()) return
   const keys = loadKeyring()
   if (!keys) return
   const raison = consolidationDue(keys)
@@ -379,6 +382,9 @@ async function runEtude(trigger = 'auto') {
 /** Étudie quand l'échéancier le justifie (comptage d'index en clair — gratuit). */
 async function maybeScheduledEtude() {
   if (etudeRunning) return
+  // Travail de FOND (dépouillement en sous-agents) : réservé à la nuit ;
+  // « Étudier mes actes maintenant » force l'étude à tout moment.
+  if (!inNightWindow()) return
   const keys = loadKeyring()
   if (!keys) return
   const raison = etudeDue()
@@ -480,6 +486,19 @@ async function runKbAnalyse(ids) {
 // ni le traitement des mails (sa demande directe) — ceux-là sont seulement
 // resserrés par le gouverneur des sous-agents. Sans plafond configuré, le
 // gouverneur est inerte (aucun run n'est différé).
+// Fenêtre de NUIT (heure serveur) réservée aux travaux de FOND lourds — étude
+// du corpus, consolidation de l'apprentissage. Hors de la journée de travail,
+// ils ne disputent jamais le forfait aux mails et au chat du magistrat (sa
+// priorité : répondre à ses demandes et rédiger les actes). Repli 22 h → 7 h ;
+// réglable, et désactivable (mettre début = fin) pour tout autoriser.
+const NIGHT_START = Math.min(23, Math.max(0, Number(process.env.SIRAL_ATTACHE_NIGHT_START ?? 22)))
+const NIGHT_END = Math.min(23, Math.max(0, Number(process.env.SIRAL_ATTACHE_NIGHT_END ?? 7)))
+function inNightWindow(now = new Date()) {
+  if (NIGHT_START === NIGHT_END) return true // fenêtre neutralisée : nuit = toujours
+  const h = now.getHours()
+  return NIGHT_START < NIGHT_END ? (h >= NIGHT_START && h < NIGHT_END) : (h >= NIGHT_START || h < NIGHT_END)
+}
+
 const DEFER_NOTE_COOLDOWN_MS = 60 * 60 * 1000
 let lastDeferNoteAt = 0
 async function autonomousOnHold(keys, quoi) {
