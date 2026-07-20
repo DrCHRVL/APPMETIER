@@ -19,7 +19,7 @@ export async function GET(req: Request) {
 export async function PUT(req: Request) {
   return handle(async () => {
     const session = requireAttacheAdmin(req)
-    const body = await req.json().catch(() => null) as { model?: string, effort?: string, webAccess?: boolean } | null
+    const body = await req.json().catch(() => null) as { model?: string, effort?: string, webAccess?: boolean, signatureCR?: string } | null
     if (!body || typeof body !== 'object') return jsonResponse({ error: 'Corps requis' }, { status: 400 })
     const res = await attacheFetch('/config', { method: 'PUT', body: { ...body, par: session.u } })
     return jsonResponse(await res.json().catch(() => ({ error: 'Réponse illisible' })), { status: res.status })

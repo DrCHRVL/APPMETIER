@@ -1224,6 +1224,20 @@ export function AdminAttachePanel() {
             Shell, fichiers et tout autre accès restent interdits.
           </p>
         )}
+        <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 px-3 py-2.5">
+          <label className="text-xs font-medium text-gray-600" htmlFor="attache-signature-cr">Signature des comptes rendus</label>
+          <input
+            id="attache-signature-cr"
+            type="text"
+            maxLength={60}
+            placeholder="ex. AUDRAN C — sinon votre nom"
+            value={config.signatureCR ?? ''}
+            onChange={(e) => setConfig((c) => ({ ...c, signatureCR: e.target.value }))}
+            onBlur={(e) => updateConfig({ signatureCR: e.target.value })}
+            className="min-w-[180px] flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-[#2B5746]/50"
+            title="Nom apposé sur les comptes rendus que l'attaché rédige (dans la chronologie et la liste des CR). Vide = nom de l'administrateur. Le mot « attaché » n'apparaît jamais."
+          />
+        </div>
       </div>
 
       {/* Consommation IA — traduire les jetons pour le magistrat (profane) */}

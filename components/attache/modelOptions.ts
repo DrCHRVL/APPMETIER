@@ -21,6 +21,8 @@ export interface AttacheConfig {
   cap5h?: number
   /** Plafond de jetons estimé sur 7 jours (0 = non défini). */
   capHebdo?: number
+  /** Signature apposée sur les comptes-rendus rédigés par l'attaché (ex. « AUDRAN C »). Vide = nom de l'administrateur. */
+  signatureCR?: string
 }
 
 /**

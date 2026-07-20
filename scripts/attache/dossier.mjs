@@ -14,7 +14,7 @@ import crypto from 'node:crypto'
 import {
   attacheTj, attacheContentieux, readVault, writeVault,
   listDocsMeta, readDocBlob, docServerKey,
-  attacheDir, readJson, atomicWrite,
+  attacheDir, readJson, atomicWrite, readState,
 } from './store.mjs'
 import { encryptJson, decryptJson, decryptDocBlob } from './crypto.mjs'
 import { natinfEntry, natinfLabel } from './natinf.mjs'
@@ -30,6 +30,19 @@ import { extractOfficeText, isOfficeExt } from './officeText.mjs'
  */
 function authorOf(keys) {
   return keys?.grantedBy || 'admin'
+}
+
+/**
+ * Signature apposée sur un compte-rendu rédigé par l'attaché. Le magistrat peut
+ * la fixer (ex. « AUDRAN C ») dans Paramètres → Attaché IA (config.signatureCR) ;
+ * à défaut, on retombe sur le nom de l'administrateur. Le mot « attaché »
+ * n'apparaît jamais (l'existence de l'assistant reste invisible des données
+ * partagées ; l'attribution réelle vit dans le journal d'audit chiffré).
+ */
+function crSignature(keys) {
+  const sig = String(readState()?.config?.signatureCR || '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60)
+  if (sig && !/attach[ée]/i.test(sig)) return sig
+  return authorOf(keys)
 }
 
 function ctxScope() { return `ctx-${attacheContentieux()}` }
@@ -757,7 +770,7 @@ export async function acterProlongation(keys, { numero, acteId, mode, duree, dur
  * partagées ; l'attribution réelle est dans l'audit chiffré).
  */
 export async function classerNote(keys, { numero, titre, contenu, date, enqueteur }) {
-  const author = enqueteur || authorOf(keys)
+  const author = enqueteur || crSignature(keys)
   return mutate(keys, numero, (e) => {
     e.comptesRendus = e.comptesRendus || []
     const id = Date.now()

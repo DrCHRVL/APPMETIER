@@ -21,7 +21,7 @@ import { loadKeyring, grantKeyring, revokeKeyring, keyringStatus, allowedScopes 
 import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride } from './attache/mail.mjs'
-import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap } from './attache/agent.mjs'
+import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
 import { usageSummary } from './attache/usage.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
@@ -537,6 +537,7 @@ const server = http.createServer(async (req, res) => {
         plan: 'plan' in body ? sanitizePlan(body.plan) : current.plan,
         cap5h: 'cap5h' in body ? sanitizeCap(body.cap5h) : current.cap5h,
         capHebdo: 'capHebdo' in body ? sanitizeCap(body.capHebdo) : current.capHebdo,
+        signatureCR: 'signatureCR' in body ? sanitizeSignature(body.signatureCR) : current.signatureCR,
       }
       await writeState({ config })
       const keys = loadKeyring()
