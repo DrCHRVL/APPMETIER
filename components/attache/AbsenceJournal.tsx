@@ -33,6 +33,23 @@ interface FeedCard {
 }
 type Card = FeedCard & { ts: number };
 
+/** Statut des actes d'un dossier (déchiffré côté navigateur) — sert à
+ * l'auto-nettoyage : une carte dont l'acte est validé ou supprimé disparaît. */
+interface DossierProdStatus {
+  /** ids de tous les actes présents sur disque (fiable sans déchiffrer). */
+  existing: Set<string>;
+  /** ids des actes VALIDÉS (traités) par le magistrat. */
+  treated: Set<string>;
+  /** Horodatage (ms) de la dernière validation quand TOUS les actes du dossier
+   * sont traités ; null tant qu'il reste un acte en attente. */
+  completedAt: number | null;
+}
+
+// Cartes « résumé » qui font double emploi avec les actes reliés (le même
+// travail annoncé une seconde fois) : une fois le dossier entièrement traité,
+// on efface aussi ces cartes-là pour éviter la surcharge d'information.
+const AUTO_HIDE_SUMMARY_TYPES = new Set(['acte', 'prolongation', 'note', 'synthese']);
+
 const FEED_ICONS: Record<string, string> = {
   mail_traite: '📨', synthese: '📋', acte: '⚖️', prolongation: '🕐',
   projet_reponse: '✉️', alerte: '⚠️', note: '📝', livrable: '📦',
@@ -60,6 +77,7 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
   const [seenTs, setSeenTs] = useState(0);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [prodStatus, setProdStatus] = useState<Record<string, DossierProdStatus>>({});
 
   const loadFeed = useCallback(async () => {
     setLoading(true);
@@ -90,6 +108,45 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
     } catch { /* silencieux */ }
   }, []);
 
+  // Statut des actes par dossier (validés / supprimés) — sert à effacer
+  // automatiquement du journal les cartes dont le travail est fait. Tout reste
+  // chiffré : le navigateur déchiffre pour lire le seul champ `traite`.
+  const loadProdStatus = useCallback(async (list: Card[]) => {
+    const dossiers = new Set<string>();
+    for (const c of list) {
+      if (c.type === 'question') continue;
+      dossiers.add(c.numero && c.numero !== '_hors-dossier' ? c.numero : '_hors-dossier');
+    }
+    if (dossiers.size === 0) { setProdStatus({}); return; }
+    const out: Record<string, DossierProdStatus> = {};
+    await Promise.all([...dossiers].map(async (numero) => {
+      try {
+        const res = await fetch('/api/attache/productions?numero=' + encodeURIComponent(numero));
+        if (!res.ok) return; // réponse non fiable → on ne masque rien pour ce dossier
+        const { productions } = await res.json();
+        const existing = new Set<string>();
+        const treated = new Set<string>();
+        let decryptFailed = false;
+        let completedAt = 0;
+        for (const p of (productions || []) as Array<{ id: string; envelope: unknown }>) {
+          existing.add(p.id); // présence disque : fiable même sans déchiffrer
+          const rec = await eapi().attache_decrypt(p.envelope) as
+            { traite?: boolean; traiteLe?: string; updatedAt?: string } | null;
+          if (!rec) { decryptFailed = true; continue; }
+          if (rec.traite) {
+            treated.add(p.id);
+            const t = Date.parse(rec.traiteLe || rec.updatedAt || '') || 0;
+            if (t > completedAt) completedAt = t;
+          }
+        }
+        // « Dossier clos » seulement si l'on a pu tout déchiffrer et que tout est traité.
+        const allTreated = existing.size > 0 && treated.size === existing.size && !decryptFailed;
+        out[numero] = { existing, treated, completedAt: allTreated ? (completedAt || Date.now()) : null };
+      } catch { /* dossier ignoré */ }
+    }));
+    setProdStatus(out);
+  }, []);
+
   useEffect(() => {
     loadFeed();
     loadStatuses();
@@ -99,6 +156,10 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
       if (raw) setDismissed(new Set(JSON.parse(raw) as string[]));
     } catch { /* */ }
   }, [loadFeed, loadStatuses]);
+
+  // Recalcule l'auto-nettoyage dès que le fil change (chargement, actualisation,
+  // validation d'un acte depuis le popup…) : les cartes traitées s'effacent seules.
+  useEffect(() => { if (available) loadProdStatus(cards); }, [available, cards, loadProdStatus]);
 
   // Ranger une carte (client-side) : elle disparaît du journal et ne reviendra
   // plus au rechargement sur ce navigateur.
@@ -123,9 +184,21 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
     try { window.dispatchEvent(new CustomEvent('siral:open-attache')); } catch { /* */ }
   }, []);
 
-  // Journal = tout sauf les questions (qui vivent dans « À trancher ») et les
-  // cartes rangées par le magistrat.
-  const journal = cards.filter((c) => c.type !== 'question' && !dismissed.has(cardKey(c)));
+  // Une carte est « faite » (auto-nettoyée) quand :
+  //  - son acte relié (prodId) a été validé par le magistrat, ou supprimé ;
+  //  - ou, pour une carte-résumé faisant doublon, quand TOUT le dossier est
+  //    traité — et seulement si elle est antérieure à cette clôture, pour ne
+  //    jamais masquer une nouveauté arrivée depuis.
+  const isCardDone = useCallback((c: Card) => {
+    const numero = c.numero && c.numero !== '_hors-dossier' ? c.numero : '_hors-dossier';
+    const st = prodStatus[numero];
+    if (c.prodId) return !!st && (st.treated.has(c.prodId) || !st.existing.has(c.prodId));
+    return !!st?.completedAt && c.ts <= st.completedAt + 1000 && AUTO_HIDE_SUMMARY_TYPES.has(c.type);
+  }, [prodStatus]);
+
+  // Journal = tout sauf les questions (qui vivent dans « À trancher »), les
+  // cartes rangées par le magistrat et celles auto-nettoyées (travail fait).
+  const journal = cards.filter((c) => c.type !== 'question' && !dismissed.has(cardKey(c)) && !isCardDone(c));
 
   const markSeen = useCallback(() => {
     if (journal.length) {
