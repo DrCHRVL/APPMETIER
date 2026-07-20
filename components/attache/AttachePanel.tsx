@@ -325,8 +325,77 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
   const keyringOk = status?.keyring?.granted;
   const claudeOk = status?.claude?.ok;
 
+  // Bloc « À trancher », mutualisé entre deux emplacements :
+  //  · en excroissance flottante, accolée en haut à gauche du volet (bureau large) ;
+  //  · en repli, empilé dans le volet (écran étroit, pas de place à gauche).
+  const trancherHeader = (
+    <button
+      onClick={() => setFeedOpen((v) => !v)}
+      className={`flex w-full items-center gap-2 px-4 py-2.5 text-left ${feedOpen ? 'border-b border-amber-200/70' : ''}`}
+    >
+      <AlertTriangle className="h-4 w-4 text-amber-600" />
+      <span className="flex-1 text-[13px] font-bold text-amber-900">
+        À trancher
+        <span className="ml-2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{aTrancher.length}</span>
+      </span>
+      {feedOpen ? <ChevronUp className="h-3.5 w-3.5 text-amber-500" /> : <ChevronDown className="h-3.5 w-3.5 text-amber-500" />}
+    </button>
+  );
+
+  const trancherList = feedOpen && (
+    <div className="max-h-[22rem] space-y-2.5 overflow-y-auto px-4 pb-3 pt-2.5 min-[860px]:max-h-[calc(100vh-7rem)]">
+      {aTrancher.map((f, i) => (
+        <div key={i} className="rounded-xl border border-amber-300 bg-white p-3 shadow-sm ring-1 ring-amber-100">
+          <div className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-900">
+            <span>❓</span>
+            <span className="flex-1">{f.titre}</span>
+            {f.numero && <span className="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{f.numero}</span>}
+          </div>
+          <div className="mt-1.5 text-[12.5px] leading-relaxed text-gray-700 whitespace-pre-wrap">{f.resume}</div>
+          <div className="mt-1 text-[10px] text-gray-400">{f.at ? new Date(f.at).toLocaleString('fr-FR') : ''}</div>
+          <div className="mt-2 space-y-1.5 border-t border-amber-100 pt-2">
+            <textarea
+              value={questionDraft[f.qid!] || ''}
+              onChange={(e) => setQuestionDraft((prev) => ({ ...prev, [f.qid!]: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); repondreQuestion(f); } }}
+              rows={2}
+              placeholder="Votre réponse — elle reprend directement sa conversation, avec tout le contexte…"
+              className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-1.5 text-[12.5px] leading-relaxed outline-none focus:border-[#2B5746]/50"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setQuestionStatus(f.qid!, 'ignore')}
+                className="rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-50"
+              >
+                Ignorer
+              </button>
+              <button
+                onClick={() => repondreQuestion(f)}
+                disabled={busy || !(questionDraft[f.qid!] || '').trim()}
+                className="rounded-lg bg-[#2B5746] px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
+              >
+                Répondre
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
-    <div className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-[440px] flex-col border-l border-gray-200 bg-white shadow-2xl">
+    <>
+      {/* « À trancher » en excroissance : accolée en haut à gauche du volet,
+          elle sort du chat sans le recouvrir. Disparaît dès que la file est
+          vide. Sur écran étroit (< 860px), elle se replie dans le volet. */}
+      {aTrancher.length > 0 && (
+        <div className="fixed right-[440px] top-0 z-[69] hidden w-[340px] flex-col overflow-hidden rounded-l-2xl border border-r-0 border-amber-200 bg-amber-50 shadow-2xl min-[860px]:flex">
+          {trancherHeader}
+          {trancherList}
+        </div>
+      )}
+
+      <div className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-[440px] flex-col border-l border-gray-200 bg-white shadow-2xl">
       {/* En-tête */}
       <div className="flex items-center gap-2.5 border-b border-gray-200 px-4 py-3">
         <div className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[#2B5746] to-[#3c7a5f] text-white">
@@ -378,60 +447,12 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
         </div>
       )}
 
-      {/* « À trancher » — les questions de l'attaché qui attendent votre décision */}
+      {/* « À trancher » — repli à l'intérieur du volet sur écran étroit ;
+          l'excroissance flottante prend le relais dès 860px. */}
       {aTrancher.length > 0 && (
-        <div className="border-b border-amber-200 bg-amber-50/70">
-          <button
-            onClick={() => setFeedOpen((v) => !v)}
-            className="flex w-full items-center gap-2 px-4 py-2.5 text-left"
-          >
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
-            <span className="flex-1 text-[13px] font-bold text-amber-900">
-              À trancher
-              <span className="ml-2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{aTrancher.length}</span>
-            </span>
-            {feedOpen ? <ChevronUp className="h-3.5 w-3.5 text-amber-500" /> : <ChevronDown className="h-3.5 w-3.5 text-amber-500" />}
-          </button>
-          {feedOpen && (
-            <div className="max-h-[22rem] space-y-2.5 overflow-y-auto px-4 pb-3">
-              {aTrancher.map((f, i) => (
-                <div key={i} className="rounded-xl border border-amber-300 bg-white p-3 shadow-sm ring-1 ring-amber-100">
-                  <div className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-900">
-                    <span>❓</span>
-                    <span className="flex-1">{f.titre}</span>
-                    {f.numero && <span className="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{f.numero}</span>}
-                  </div>
-                  <div className="mt-1.5 text-[12.5px] leading-relaxed text-gray-700 whitespace-pre-wrap">{f.resume}</div>
-                  <div className="mt-1 text-[10px] text-gray-400">{f.at ? new Date(f.at).toLocaleString('fr-FR') : ''}</div>
-                  <div className="mt-2 space-y-1.5 border-t border-amber-100 pt-2">
-                    <textarea
-                      value={questionDraft[f.qid!] || ''}
-                      onChange={(e) => setQuestionDraft((prev) => ({ ...prev, [f.qid!]: e.target.value }))}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); repondreQuestion(f); } }}
-                      rows={2}
-                      placeholder="Votre réponse — elle reprend directement sa conversation, avec tout le contexte…"
-                      className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-1.5 text-[12.5px] leading-relaxed outline-none focus:border-[#2B5746]/50"
-                    />
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => setQuestionStatus(f.qid!, 'ignore')}
-                        className="rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-50"
-                      >
-                        Ignorer
-                      </button>
-                      <button
-                        onClick={() => repondreQuestion(f)}
-                        disabled={busy || !(questionDraft[f.qid!] || '').trim()}
-                        className="rounded-lg bg-[#2B5746] px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
-                      >
-                        Répondre
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="border-b border-amber-200 bg-amber-50/70 min-[860px]:hidden">
+          {trancherHeader}
+          {trancherList}
         </div>
       )}
 
@@ -600,5 +621,6 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
         </div>
       )}
     </div>
+    </>
   );
 }
