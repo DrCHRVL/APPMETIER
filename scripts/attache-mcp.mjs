@@ -945,7 +945,7 @@ const TOOLS = [
   },
   {
     name: 'majordome_publier',
-    description: `Publie des items dans le brief du magistrat (widget du tableau de bord). Types : ${ITEM_TYPES.join(', ')}. Un projet_mail N'EST JAMAIS envoyé : le magistrat le copie et l'envoie lui-même — rédiger le corps prêt à coller (destinataire = ex. « Directeur d'enquête — GIR Amiens »). Une verification = ce que SEUL le magistrat peut faire (consulter NPP/Cassiopée…). Un appel = { qui, motif }.`,
+    description: `Publie des items dans le brief du magistrat (widget du tableau de bord). Types : ${ITEM_TYPES.join(', ')}. Un projet_mail N'EST JAMAIS envoyé : le magistrat le copie et l'envoie lui-même — rédiger le corps prêt à coller (destinataire = ex. « Directeur d'enquête — GIR Amiens »). Une verification = ce que SEUL le magistrat peut faire (consulter NPP/Cassiopée…). Un appel = { qui, motif }. echeance = UNIQUEMENT ce que le tableau de bord n'affiche pas déjà seul (jamais un acte/géoloc/écoute qui expire, une pose non confirmée ou une attente JLD classique : déjà rappelés ailleurs).`,
     inputSchema: {
       type: 'object',
       properties: {

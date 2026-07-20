@@ -90,6 +90,31 @@ function dedupeItems(items: Item[]): Item[] {
   return out;
 }
 
+/** Échéance strictement dépassée (hier ou avant) : l'item est périmé, plus la peine de l'afficher. */
+function isPastDeadline(s?: string): boolean {
+  if (!s) return false;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s.trim());
+  if (!m) return false;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return d.getTime() < today.getTime();
+}
+
+/** Regroupe une liste d'items par dossier (groupe « Autres dossiers » pour ceux sans tag), en conservant
+ * l'ordre de récence des items et en plaçant en tête le groupe dont l'item le plus récent est le plus récent. */
+function groupByDossier(items: Item[]): Array<{ dossier: string; items: Item[] }> {
+  const groups = new Map<string, Item[]>();
+  for (const it of items) {
+    const key = it.dossier || 'Autres dossiers';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(it);
+  }
+  return [...groups.entries()]
+    .map(([dossier, items]) => ({ dossier, items }))
+    .sort((a, b) => (b.items[0]?.ts || 0) - (a.items[0]?.ts || 0));
+}
+
 function CopyButton({ text, label = 'Copier' }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
   return (
@@ -126,9 +151,11 @@ export function MajordomeWidget({ onOpenDossier }: { onOpenDossier?: (numero: st
         const item = await eapi().attache_decrypt({ v: 1, encrypted: true, iv: e.iv, ct: e.ct });
         if (item) out.push({ ...(item as Item), ts: e.ts });
       }
-      // Plus récent d'abord, puis dédoublonnage (un objet = un seul item) :
-      // nettoie les répétitions accumulées sur plusieurs briefs.
-      setItems(dedupeItems(out.reverse()));
+      // Plus récent d'abord, puis dédoublonnage (un objet = un seul item), puis
+      // autonettoyage des items dont l'échéance est déjà dépassée (périmés, plus
+      // la peine de les faire relire — s'ils appellent encore un geste, l'attaché
+      // les republiera avec une date à jour au prochain brief).
+      setItems(dedupeItems(out.reverse()).filter((it) => !isPastDeadline(it.echeance)));
     } catch {
       setAvailable(false);
     } finally {
@@ -210,61 +237,73 @@ export function MajordomeWidget({ onOpenDossier }: { onOpenDossier?: (numero: st
                   <span className="ml-1 rounded-full bg-gray-100 px-1.5 text-[10px] font-bold text-gray-500">{list.length}</span>
                 </div>
                 <div className="divide-y divide-gray-50">
-                  {list.map((it) => (
-                    <div key={it.id} className="px-3 py-2.5">
-                      <div className="flex items-start gap-2">
-                        <div
-                          className={`min-w-0 flex-1 ${onOpenDossier && it.dossier ? 'cursor-pointer' : ''}`}
-                          onClick={onOpenDossier && it.dossier ? () => onOpenDossier(it.dossier!) : undefined}
-                          title={onOpenDossier && it.dossier ? 'Ouvrir la fiche du dossier (l\'acte rédigé est dans « Actes rédigés »)' : undefined}
-                        >
-                          <div className={`text-[12.5px] font-semibold leading-snug text-gray-800 ${onOpenDossier && it.dossier ? 'hover:text-[#2B5746]' : ''}`}>
-                            {it.titre}
-                            {it.dossier && <span className="ml-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">{it.dossier}</span>}
-                            {it.echeance && <span className="ml-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">→ {formatEcheance(it.echeance)}</span>}
-                          </div>
-                          {it.appel && (
-                            <div className="mt-0.5 text-[11.5px] text-gray-600"><b>{it.appel.qui}</b> — {it.appel.motif}</div>
-                          )}
-                          {it.mail && (
-                            <div className="mt-0.5 text-[11.5px] text-gray-500">À : {it.mail.destinataire} · <i>{it.mail.objet}</i></div>
-                          )}
-                          {it.detail && !it.mail && (
-                            <div className={`mt-0.5 whitespace-pre-wrap text-[11.5px] leading-relaxed text-gray-600 ${expanded === it.id ? '' : 'line-clamp-2'}`}>
-                              {it.detail}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex flex-shrink-0 items-center gap-1">
-                          {it.mail && <CopyButton text={`À : ${it.mail.destinataire}\nObjet : ${it.mail.objet}\n\n${it.mail.corps}`} />}
-                          {!it.mail && it.detail && it.type === 'projet_dml' && <CopyButton text={it.detail} />}
-                          <button onClick={() => mark(it.id, 'traite')} title="Traité" className="rounded-md p-1 text-gray-300 hover:bg-emerald-50 hover:text-emerald-600">
-                            <Check className="h-3.5 w-3.5" />
-                          </button>
-                          <button onClick={() => mark(it.id, 'ignore')} title="Ignorer" className="rounded-md p-1 text-gray-300 hover:bg-gray-100 hover:text-gray-500">
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
+                  {groupByDossier(list).map((group) => (
+                    <div key={group.dossier}>
+                      <div
+                        className={`flex items-center gap-1.5 bg-gray-50/70 px-3 py-1 text-[10px] font-bold text-gray-500 ${onOpenDossier && group.dossier !== 'Autres dossiers' ? 'cursor-pointer hover:text-[#2B5746]' : ''}`}
+                        onClick={onOpenDossier && group.dossier !== 'Autres dossiers' ? () => onOpenDossier(group.dossier) : undefined}
+                      >
+                        {group.dossier}
+                        <span className="rounded-full bg-white px-1.5 text-[9px] font-bold text-gray-400">{group.items.length}</span>
                       </div>
-                      {/* Dépliage : corps de mail à copier, OU tout détail long
-                          (échéance, vérification, appel, note…) que le clamp à
-                          2 lignes coupait — le texte doit être lisible en entier. */}
-                      {(it.mail || detailIsLong(it.detail)) && (
-                        <button
-                          onClick={() => setExpanded(expanded === it.id ? null : it.id)}
-                          className="mt-1 text-[10.5px] font-medium text-gray-400 hover:text-gray-600"
-                        >
-                          {expanded === it.id ? '▲ replier' : (it.mail ? '▼ relire le texte complet' : '▼ voir tout le détail')}
-                        </button>
-                      )}
-                      {/* Corps du mail : bloc dédié copiable. Le détail non-mail
-                          est déplié directement dans la ligne ci-dessus (plus de
-                          clamp), inutile de le répéter ici. */}
-                      {expanded === it.id && it.mail?.corps && (
-                        <pre className="mt-1.5 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-gray-100 bg-gray-50 p-2.5 font-sans text-[11.5px] leading-relaxed text-gray-700">
-                          {it.mail.corps}
-                        </pre>
-                      )}
+                      <div className="divide-y divide-gray-50">
+                        {group.items.map((it) => (
+                          <div key={it.id} className="px-3 py-2.5">
+                            <div className="flex items-start gap-2">
+                              <div
+                                className={`min-w-0 flex-1 ${onOpenDossier && it.dossier ? 'cursor-pointer' : ''}`}
+                                onClick={onOpenDossier && it.dossier ? () => onOpenDossier(it.dossier!) : undefined}
+                                title={onOpenDossier && it.dossier ? 'Ouvrir la fiche du dossier (l\'acte rédigé est dans « Actes rédigés »)' : undefined}
+                              >
+                                <div className={`text-[12.5px] font-semibold leading-snug text-gray-800 ${onOpenDossier && it.dossier ? 'hover:text-[#2B5746]' : ''}`}>
+                                  {it.titre}
+                                  {it.echeance && <span className="ml-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">→ {formatEcheance(it.echeance)}</span>}
+                                </div>
+                                {it.appel && (
+                                  <div className="mt-0.5 text-[11.5px] text-gray-600"><b>{it.appel.qui}</b> — {it.appel.motif}</div>
+                                )}
+                                {it.mail && (
+                                  <div className="mt-0.5 text-[11.5px] text-gray-500">À : {it.mail.destinataire} · <i>{it.mail.objet}</i></div>
+                                )}
+                                {it.detail && !it.mail && (
+                                  <div className={`mt-0.5 whitespace-pre-wrap text-[11.5px] leading-relaxed text-gray-600 ${expanded === it.id ? '' : 'line-clamp-2'}`}>
+                                    {it.detail}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex flex-shrink-0 items-center gap-1">
+                                {it.mail && <CopyButton text={`À : ${it.mail.destinataire}\nObjet : ${it.mail.objet}\n\n${it.mail.corps}`} />}
+                                {!it.mail && it.detail && it.type === 'projet_dml' && <CopyButton text={it.detail} />}
+                                <button onClick={() => mark(it.id, 'traite')} title="Traité" className="rounded-md p-1 text-gray-300 hover:bg-emerald-50 hover:text-emerald-600">
+                                  <Check className="h-3.5 w-3.5" />
+                                </button>
+                                <button onClick={() => mark(it.id, 'ignore')} title="Ignorer" className="rounded-md p-1 text-gray-300 hover:bg-gray-100 hover:text-gray-500">
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                            {/* Dépliage : corps de mail à copier, OU tout détail long
+                                (échéance, vérification, appel, note…) que le clamp à
+                                2 lignes coupait — le texte doit être lisible en entier. */}
+                            {(it.mail || detailIsLong(it.detail)) && (
+                              <button
+                                onClick={() => setExpanded(expanded === it.id ? null : it.id)}
+                                className="mt-1 text-[10.5px] font-medium text-gray-400 hover:text-gray-600"
+                              >
+                                {expanded === it.id ? '▲ replier' : (it.mail ? '▼ relire le texte complet' : '▼ voir tout le détail')}
+                              </button>
+                            )}
+                            {/* Corps du mail : bloc dédié copiable. Le détail non-mail
+                                est déplié directement dans la ligne ci-dessus (plus de
+                                clamp), inutile de le répéter ici. */}
+                            {expanded === it.id && it.mail?.corps && (
+                              <pre className="mt-1.5 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-gray-100 bg-gray-50 p-2.5 font-sans text-[11.5px] leading-relaxed text-gray-700">
+                                {it.mail.corps}
+                              </pre>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
