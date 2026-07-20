@@ -36,6 +36,7 @@ export const SIGNAL_TYPES = [
   'proposition_validee',      // ✓ du magistrat — signal faible (confirme un réflexe)
   'acte_revise',              // l'attaché a dû réviser un acte déjà produit
   'acte_edite_main',          // le magistrat a corrigé un acte À LA MAIN — signal fort
+  'acte_refuse',              // le magistrat a REFUSÉ un acte en expliquant pourquoi — signal fort
   'lecon',                    // leçon explicite notée en cours d'échange
   'garde_qualite',            // une porte de qualité a rejeté une production (inachevé, squelettique…)
   'correction_conversation',  // le magistrat a repris l'attaché en chat (repérage heuristique)
@@ -81,7 +82,7 @@ export const SEUIL_SIGNAUX = bounded(process.env.SIRAL_ATTACHE_APPRENTISSAGE_SEU
  * consolide dès qu'il y en a quelques-uns, sans attendre le seuil générique ni
  * la cadence, pour ne pas refaire l'erreur au prochain acte.
  */
-export const SIGNAUX_FORTS = ['acte_edite_main', 'proposition_refusee', 'correction_conversation']
+export const SIGNAUX_FORTS = ['acte_edite_main', 'acte_refuse', 'proposition_refusee', 'correction_conversation']
 export const SEUIL_SIGNAUX_FORTS = bounded(process.env.SIRAL_ATTACHE_APPRENTISSAGE_SEUIL_FORTS, 1, 50, 3)
 /** Cadence de fond (jours) — ne tourne que s'il y a des signaux à distiller. */
 export const CADENCE_JOURS = bounded(process.env.SIRAL_ATTACHE_APPRENTISSAGE_JOURS, 1, 90, 7)
@@ -170,7 +171,7 @@ export function latestSignalTs() {
  */
 export function learningMetrics(keys, now = Date.now()) {
   const J30 = 30 * 24 * 3600 * 1000
-  const fenetre = () => ({ validees: 0, refusees: 0, revisions: 0, editionsMain: 0, portes: 0, lecons: 0, corrections: 0 })
+  const fenetre = () => ({ validees: 0, refusees: 0, revisions: 0, editionsMain: 0, actesRefuses: 0, portes: 0, lecons: 0, corrections: 0 })
   const j30 = fenetre()
   const j30prec = fenetre()
   const lines = readEncryptedLines(FILE, MAX_LINES)
@@ -183,6 +184,7 @@ export function learningMetrics(keys, now = Date.now()) {
     else if (sig.type === 'proposition_refusee') b.refusees++
     else if (sig.type === 'acte_revise') b.revisions++
     else if (sig.type === 'acte_edite_main') b.editionsMain++
+    else if (sig.type === 'acte_refuse') b.actesRefuses++
     else if (sig.type === 'garde_qualite') b.portes++
     else if (sig.type === 'lecon') b.lecons++
     else if (sig.type === 'correction_conversation') b.corrections++
@@ -199,6 +201,7 @@ export function metricsSummary(m) {
   const t = (v) => (v == null ? 'n/a' : `${v} %`)
   return `propositions acceptées : ${t(m.j30.tauxAcceptation)} sur 30 j (${t(m.j30prec.tauxAcceptation)} les 30 j précédents) · `
     + `actes retouchés (révisions + éditions à la main) : ${m.j30.revisions + m.j30.editionsMain} (vs ${m.j30prec.revisions + m.j30prec.editionsMain}) · `
+    + `actes refusés par le magistrat : ${m.j30.actesRefuses} (vs ${m.j30prec.actesRefuses}) · `
     + `portes de qualité déclenchées : ${m.j30.portes} (vs ${m.j30prec.portes}) · `
     + `corrections en conversation : ${m.j30.corrections} (vs ${m.j30prec.corrections})`
 }
@@ -275,8 +278,9 @@ export function consolidationPrompt({ budget, trigger }) {
     '',
     'MÉTHODE, dans cet ordre :',
     '1. apprentissage_bilan — les signaux depuis la dernière consolidation : corrections du magistrat',
-    '   (propositions refusées ✗, actes retouchés après ta rédaction, actes corrigés à la main), validations ✓,',
-    '   leçons notées — et ta PROGRESSION mesurée (taux d\'acceptation, retouches, portes de qualité, 30 j vs',
+    '   (propositions refusées ✗, actes retouchés après ta rédaction, actes corrigés à la main, actes REFUSÉS',
+    '   avec motif), validations ✓, leçons notées — et ta PROGRESSION mesurée (taux d\'acceptation, retouches,',
+    '   actes refusés, portes de qualité, 30 j vs',
     '   30 j précédents) : si un indicateur RÉGRESSE, cherche la cause dans les signaux et traite-la en priorité.',
     '   Pour un signal acte_edite_main (le magistrat a corrigé un acte À LA MAIN), appelle production_diff avec',
     '   son numero, son id et le versionAt porté par le signal : tu vois EXACTEMENT ce qu\'il a retiré (−) et',
@@ -284,6 +288,8 @@ export function consolidationPrompt({ budget, trigger }) {
     '   à étoffer, visa manquant, structure, formule attendue, qualification) de la simple coquille : ne mémorise',
     '   que ce qui changera tes PROCHAINS actes. Pour un signal correction_conversation, LIS la conversation citée',
     '   (conversation_lire, id dans source) : la reprise du magistrat y est en clair — matière tout aussi précieuse.',
+    '   Pour un signal acte_refuse (le magistrat a REFUSÉ un acte), le motif du refus est en clair dans le detail :',
+    '   c\'est le rejet le plus net qui soit — comprends la cause et distille-la en règle pour ne pas la reproduire.',
     '   Si un autre signal manque de contexte, tu PEUX consulter le dossier cité — mais reste bref.',
     '2. RELIS ta mémoire actuelle (en fin de ton prompt système) et DISTILLE l\'ensemble mémoire + signaux :',
     '   - transforme les épisodes en RÈGLES GÉNÉRALES actionnables (ex. trois propositions de CR refusées sur des',
