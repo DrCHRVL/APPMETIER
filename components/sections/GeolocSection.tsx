@@ -514,7 +514,10 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
               {terminatedGeolocs.map((geoloc) => {
                 const hasHistoryEntries = geoloc.prolongationsHistory && geoloc.prolongationsHistory.length > 0;
                 const isHistoryExpanded = expandedHistoryIds.includes(geoloc.id);
-                
+                const nbProlongationsT = geoloc.prolongationsHistory?.length ?? 0;
+                const maxPT = geoloc.maxProlongations ?? 1;
+                const prolongLimitAtteinteT = maxPT >= 0 && nbProlongationsT >= maxPT;
+
                 return (
                 <div key={geoloc.id} className="bg-gray-50 p-3 rounded border border-gray-200">
                   <div className="flex justify-between items-center mb-2">
@@ -525,15 +528,18 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
                       )}
                     </div>
                     <div className="flex gap-2">
-                      {/* Bouton de prolongation même pour les terminées */}
-                      {geoloc.duree && onUpdate && geoloc.statut === 'en_cours' && (
-                        <Button 
-                          variant="ghost" 
+                      {/* Bouton de prolongation même pour les terminées : un acte échu garde le
+                          statut 'en_cours' tant qu'il n'a pas été normalisé, puis passe à 'termine'
+                          au chargement. Dans les deux cas il reste prolongeable (en antidatant la
+                          prolongation dans la fenêtre de validité). */}
+                      {geoloc.duree && onUpdate && (geoloc.statut === 'en_cours' || geoloc.statut === 'termine') && !prolongLimitAtteinteT && (
+                        <Button
+                          variant="ghost"
                           size="sm"
                           onClick={() => setProlongationGeolocId(geoloc.id)}
-                          title="Prolonger la géolocalisation"
+                          title="Prolonger la géolocalisation échue — antidatez la prolongation dans la fenêtre de validité"
                         >
-                          <Clock className="h-4 w-4" />
+                          <Clock className="h-4 w-4 text-gray-400" />
                         </Button>
                       )}
                       {geoloc.statut === 'prolongation_pending' && (
