@@ -163,7 +163,7 @@ function briefingPrompt() {
     'parallèle (sous_agents — un lot de tâches, une par dossier ou par petit groupe : chaque consigne donne le',
     'numéro et demande verifier_completude + diagnostic_dossier + les points saillants, réponse télégraphique).',
     'Tu synthétises leurs analyses et c\'est TOI qui publies (eux ne peuvent pas écrire) :',
-    '1. echeance — actes expirant sous 15 jours, attentes JLD qui traînent, CR anciens : dis QUOI préparer et POUR QUAND.',
+    '1. echeance — NE republie PAS les actes expirant, les poses non confirmées ni les attentes JLD : le tableau de bord les affiche déjà tout seul (widgets dédiés + notifications). Publie seulement les échéances qu\'il ne voit pas (module instruction, divergence de date que ton calcul détecte) et les CR anciens : dis QUOI préparer et POUR QUAND.',
     '2. projet_mail — pour chaque dossier qui le justifie, le mail prêt à coller au directeur d\'enquête',
     '   (demande de requête pour prolongation, point d\'étape, actualisation, envoi du dossier pour relecture).',
     '3. projet_dml — s\'il existe des DML archivées (lister_dml) et que le dossier a évolué depuis la dernière,',
