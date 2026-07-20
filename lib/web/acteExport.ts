@@ -279,12 +279,14 @@ export async function downloadActePdf(p: ActeExportable): Promise<void> {
 
 export async function downloadActeDocx(p: ActeExportable): Promise<void> {
   const logo = await loadLogo()
-  const htmlDocx = (await import('html-docx-js/dist/html-docx')).default as unknown as {
-    asBlob: (html: string, options?: { margins?: { top?: number; right?: number; bottom?: number; left?: number } }) => Blob
-  }
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${acteHtml(p, { logo })}</body></html>`
-  // Marges A4 « parquet » (en twips) : haut/bas/gauche 2 cm, droite 1,4 cm.
-  const blob = htmlDocx.asBlob(html, { margins: { top: 1134, right: 794, bottom: 1134, left: 1134 } })
+  const html = acteHtml(p, { logo })
+  const { buildDocxBlob } = await import('./htmlToDocx')
+  const blob = await buildDocxBlob(html, {
+    defaultFont: 'Times New Roman',
+    defaultSizeHalfPt: 24,
+    // Marges A4 « parquet » (en twips) : haut/bas/gauche 2 cm, droite 1,4 cm.
+    pageMargins: { top: 1134, right: 794, bottom: 1134, left: 1134 },
+  })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
