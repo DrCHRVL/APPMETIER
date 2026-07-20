@@ -27,6 +27,7 @@ import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
+import { classerTrames, classerKb } from './attache/classer.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
 import { listEnvelopes, readEnvelope, writeEnvelope, deleteProduction } from './attache/productions.mjs'
 import { recordLearningSignal, consolidationDue, consolidationPrompt, learningStatus, learningState, latestSignalTs } from './attache/apprentissage.mjs'
@@ -382,81 +383,45 @@ function batchTimeoutMs(count) {
   return minutes * 60 * 1000
 }
 
-// ── Analyse des trames téléversées : classement + propositions d'amélioration ──
+// ── Classement des trames de la bibliothèque (description par trame) ──
+// « Ranger / classer » est une passe de DESCRIPTION rapide (classer.mjs) : un
+// appel modèle par lot de ~20 trames, sans outil ni sous-agent. Auparavant, ce
+// bouton déléguait UNE analyse juridique approfondie à N sous-agents rassemblés
+// par un run principal qui ré-ingérait tout — lent, souvent tué avant de rendre
+// quoi que ce soit, et ruineux en jetons. L'analyse en profondeur d'UNE trame
+// reste possible à la demande, dans le chat de l'attaché.
 let trameAnalyseRunning = false
 async function runTrameAnalyse(noms) {
   const keys = loadKeyring()
   if (!keys) return { ok: false, error: 'trousseau non remis' }
   trameAnalyseRunning = true
   try {
-    console.log(`[attache] analyse de ${noms.length} trame(s) téléversée(s)`)
-    const prompt = [
-      `Le magistrat vient de téléverser ${noms.length} trame(s) dans sa bibliothèque : ${noms.join(', ')}.`,
-      'Tu es son CONSEIL JURIDIQUE. On te demande une analyse APPROFONDIE de chaque trame, pas un simple résumé :',
-      'contrôle de légalité fondement par fondement, repérage des nullités, et propositions de rédaction concrètes.',
-      '',
-      'MÉTHODE — DÉLÉGATION : si le lot dépasse 2 trames, DÉLÈGUE l\'analyse à des sous-agents en parallèle',
-      '(sous_agents — UNE tâche par trame). Consigne à donner à chaque sous-agent : « Lis intégralement la trame X',
-      'avec trame_lire, puis, en t\'appuyant sur la base de connaissances (kb_chercher / kb_lire : circulaires,',
-      'jurisprudence, modes opératoires) chaque fois qu\'elle éclaire un point, livre une fiche d\'analyse structurée :',
-      '  (a) CLASSIFICATION — type d\'acte, cadre juridique, articles du Code de procédure pénale (et autres codes) visés,',
-      '      régime applicable (droit commun ou dérogatoire criminalité organisée 706-73 s. / 706-80 s. / 706-88),',
-      '      autorité compétente et rôle attendu du magistrat, et en une phrase quand s\'en servir ;',
-      '  (b) CONTRÔLE DE LÉGALITÉ, fondement par fondement — pour CHAQUE article/texte cité : est-il toujours EN VIGUEUR,',
-      '      à la bonne numérotation (repère les articles abrogés, renumérotés ou modifiés) et réellement applicable à',
-      '      cet acte ? Les CONDITIONS DE FOND (seuils, gravité, subsidiarité, proportionnalité) sont-elles rappelées ?',
-      '  (c) MENTIONS OBLIGATOIRES & NULLITÉS — les mentions prescrites à peine de nullité sont-elles toutes prévues',
-      '      (visa des textes, motivation exigée, identité et qualité du signataire, date, durée/quantum et son plafond',
-      '      légal, notification/voies de recours, garanties de la personne concernée) ? Signale chaque OMISSION ou',
-      '      formulation FRAGILE comme un risque de nullité, en le qualifiant (substantielle / d\'ordre public / simple) ;',
-      '  (d) SOLIDITÉ PROCÉDURALE — points de fragilité : motivation insuffisante, délais non rappelés, articulation avec',
-      '      d\'autres actes, hypothèses non couvertes, risque au regard de la jurisprudence récente (Cass. crim., Conseil',
-      '      constitutionnel, CEDH) si la base de connaissances ou le web l\'éclairent ;',
-      '  (e) STRUCTURE & RÉDACTION — plan, clarté, champs à compléter [ ], variables ambiguës, incohérences internes,',
-      '      et PROPOSITIONS DE RÉFORMULATION concrètes (cite le passage fautif et propose le libellé corrigé) ;',
-      '  (f) DOUBLONS & COHÉRENCE — chevauche-t-elle une autre trame de la bibliothèque ? »',
-      'Si le lot est de 1 ou 2 trames, conduis toi-même cette même analyse, avec la même profondeur.',
-      '',
-      'RESTITUTION :',
-      '1. Pour CHAQUE trame, enregistre une classification précise avec trame_decrire (une phrase — type d\'acte, cadre',
-      '   juridique, articles visés, régime 706-80 ou droit commun, quand l\'utiliser). trame_decrire ne touche PAS au contenu.',
-      '2. Remets UN livrable complet avec remettre_livrable (sujet « Trames — analyse juridique approfondie ») : une section',
-      '   par trame reprenant (a)→(e) ci-dessus, avec des propositions HIÉRARCHISÉES par gravité — d\'ABORD ce qui expose',
-      '   l\'acte à la nullité, ENSUITE les faiblesses de solidité, ENFIN la structure et la clarté. Sois précis et cite les',
-      '   textes ; à la fin du livrable, une SYNTHÈSE TRANSVERSALE : doublons manifestes, lacunes de la bibliothèque (actes',
-      '   du même régime qui manquent) et incohérences entre trames.',
-      '3. Pour chaque trame dont un défaut expose l\'acte à la NULLITÉ (fondement abrogé, mention obligatoire absente,',
-      '   motivation exigée non prévue) : dépose proposer_trame — le texte INTÉGRAL corrigé (uniquement ce que le défaut',
-      '   impose, tout le reste conservé à l\'identique) + motif citant le texte/la jurisprudence. Le magistrat applique',
-      '   d\'un ✓ dans Paramètres → Attaché IA, ou refuse. Les améliorations de moindre gravité restent dans le livrable.',
-      '4. Termine par UN SEUL signaler (type note, titre « Trames : analyse juridique approfondie ») renvoyant au livrable,',
-      '   résumant en 2-3 phrases les points les plus urgents (nullités en priorité) et le nombre de propositions déposées.',
-      '',
-      'RÈGLE STRICTE : tu ne MODIFIES JAMAIS le contenu d\'une trame d\'office — tu PROPOSES (proposer_trame, ✓/✗ du',
-      'magistrat), et seule la description (classement) se met à jour via trame_decrire. Appuie chaque affirmation de',
-      'légalité sur un texte ou une entrée de la base de connaissances que tu cites ; si un point reste incertain faute',
-      'de source, dis-le explicitement plutôt que d\'affirmer.',
-    ].join('\n')
-    // Lot analysé en parallèle (sous_agents, vagues de ~3, ~8 min/trame) : le
-    // plafond de 20 min du run principal était TROP COURT et le SIGKILL
-    // remontait un cryptique « code null ». On l'élargit selon la taille du lot.
-    const timeoutMs = batchTimeoutMs(noms.length)
-    const result = await runAgent({ keys, prompt, runLabel: 'trames-analyse', title: `Analyse trames ${new Date().toISOString().slice(0, 10)}`, timeoutMs, mcpToolTimeoutMs: timeoutMs - 120_000 })
-    await audit(keys, 'trames_analysees', { nb: noms.length, noms: noms.join(', ').slice(0, 500), ok: result.ok, convId: result.convId, erreur: result.error })
-    if (!result.ok) {
+    console.log(`[attache] classement de ${noms.length} trame(s)`)
+    const result = await classerTrames(keys, noms)
+    await audit(keys, 'trames_classees', { nb: noms.length, noms: noms.join(', ').slice(0, 500), classees: result.classees, ok: result.ok, erreur: result.error })
+    if (result.ok) {
+      const doublons = result.doublons?.length ? ` Doublons manifestes repérés : ${result.doublons.join(', ')}.` : ''
+      await publishFeed(keys, {
+        type: 'note',
+        titre: 'Bibliothèque de trames : classement',
+        resume: `${result.classees} trame(s) classée(s) (description mise à jour).${result.echecs?.length ? ` ${result.echecs.length} non classée(s).` : ''}${doublons}`,
+      })
+    } else {
       await publishFeed(keys, {
         type: 'alerte',
-        titre: 'Analyse des trames interrompue',
-        resume: `L'analyse des trames téléversées (${noms.slice(0, 5).join(', ')}${noms.length > 5 ? '…' : ''}) a échoué (${result.error || 'erreur inconnue'}). Relancez-la depuis Paramètres → Attaché IA.`,
+        titre: 'Classement des trames interrompu',
+        resume: `Le classement des trames (${noms.slice(0, 5).join(', ')}${noms.length > 5 ? '…' : ''}) a échoué (${result.error || 'erreur inconnue'}). Relancez-le depuis Paramètres → Attaché IA.`,
       })
     }
-    return { ok: result.ok, convId: result.convId, error: result.error }
+    return { ok: result.ok, classees: result.classees, error: result.error }
   } finally {
     trameAnalyseRunning = false
   }
 }
 
-// ── Analyse/classement des entrées de la base de connaissances ──
+// ── Classement des entrées de la base de connaissances (description + rangement) ──
+// Même principe que les trames : une passe de description rapide (classer.mjs),
+// un appel modèle par lot, sans sous-agent. Le contenu n'est jamais touché.
 let kbAnalyseRunning = false
 async function runKbAnalyse(ids) {
   const keys = loadKeyring()
@@ -464,29 +429,26 @@ async function runKbAnalyse(ids) {
   kbAnalyseRunning = true
   try {
     console.log(`[attache] classement de ${ids.length} entrée(s) de la base de connaissances`)
-    const prompt = [
-      `Le magistrat vient de verser ${ids.length} document(s) dans sa base de connaissances : ${ids.join(', ')}.`,
-      'Tu es le BIBLIOTHÉCAIRE de ce fonds. MÉTHODE : si le lot dépasse 3 entrées, DÉLÈGUE la lecture à des',
-      'sous-agents en parallèle (sous_agents — une tâche par entrée : « lis l\'entrée X (kb_lire) et livre : (a) une',
-      'description d\'une phrase — ce que contient le document et quand s\'en servir ; (b) la catégorie la plus juste ;',
-      '(c) si le chemin actuel est incohérent avec le contenu, le chemin de pochette recommandé »). Sinon lis-les toi-même.',
-      'Puis, pour CHAQUE entrée : enregistre description/catégorie (et chemin si tu recommandes un rangement plus',
-      'cohérent) avec kb_decrire — le CONTENU n\'est JAMAIS modifié.',
-      'Signale aussi les doublons manifestes et les documents visiblement périmés (texte abrogé, version ancienne).',
-      'À LA FIN, un SEUL signaler (type note, titre « Base de connaissances : classement ») : le rangement effectué',
-      'en 2-5 phrases, et tes signalements (doublons, contenu périmé) s\'il y en a.',
-    ].join('\n')
-    const timeoutMs = batchTimeoutMs(ids.length)
-    const result = await runAgent({ keys, prompt, runLabel: 'kb-analyse', title: `Classement base ${new Date().toISOString().slice(0, 10)}`, timeoutMs, mcpToolTimeoutMs: timeoutMs - 120_000 })
-    await audit(keys, 'kb_analysee', { nb: ids.length, ids: ids.join(', ').slice(0, 500), ok: result.ok, convId: result.convId, erreur: result.error })
-    if (!result.ok) {
+    const result = await classerKb(keys, ids)
+    await audit(keys, 'kb_classee', { nb: ids.length, ids: ids.join(', ').slice(0, 500), classees: result.classees, ok: result.ok, erreur: result.error })
+    if (result.ok) {
+      const signalements = [
+        result.doublons?.length ? `Doublons : ${result.doublons.join(', ')}.` : '',
+        result.perimes?.length ? `Peut-être périmé(s) : ${result.perimes.join(', ')}.` : '',
+      ].filter(Boolean).join(' ')
+      await publishFeed(keys, {
+        type: 'note',
+        titre: 'Base de connaissances : classement',
+        resume: `${result.classees} entrée(s) classée(s) (description, catégorie, rangement).${result.echecs?.length ? ` ${result.echecs.length} non classée(s).` : ''}${signalements ? ' ' + signalements : ''}`,
+      })
+    } else {
       await publishFeed(keys, {
         type: 'alerte',
         titre: 'Classement de la base de connaissances interrompu',
         resume: `Le classement des entrées versées (${ids.slice(0, 5).join(', ')}${ids.length > 5 ? '…' : ''}) a échoué (${result.error || 'erreur inconnue'}). Relancez-le depuis Paramètres → Attaché IA.`,
       })
     }
-    return { ok: result.ok, convId: result.convId, error: result.error }
+    return { ok: result.ok, classees: result.classees, error: result.error }
   } finally {
     kbAnalyseRunning = false
   }

@@ -234,8 +234,8 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
         body: JSON.stringify({ analyse: savedIds }),
       }).catch(() => null);
       msg += res?.ok
-        ? ' Analyse lancée : l\'attaché lit chaque document, le décrit et le classe — résultat dans le fil « pendant votre absence ».'
-        : ' Analyse non lancée (service occupé ou injoignable) — relancez depuis ce panneau.';
+        ? ' Classement lancé : l\'attaché décrit et range chaque entrée — résultat dans le fil « pendant votre absence » (rapide).'
+        : ' Classement non lancé (service occupé ou injoignable) — relancez depuis ce panneau.';
     }
     onNotice(msg);
   }, [staged, analyseAfter, upsertLocal, onNotice]);

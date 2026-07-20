@@ -217,7 +217,7 @@ export function AdminAttachePanel() {
   const [converting, setConverting] = useState(false);
   const [analyseAfter, setAnalyseAfter] = useState(true);
   const [uploadBusy, setUploadBusy] = useState<string | null>(null); // « 3/12 » pendant l'enregistrement
-  const [trameAnalyseBusy, setTrameAnalyseBusy] = useState(false);    // « Analyser toute la bibliothèque » en cours
+  const [trameAnalyseBusy, setTrameAnalyseBusy] = useState(false);    // « Classer la bibliothèque » en cours
   const [trameAnalyseMsg, setTrameAnalyseMsg] = useState<string | null>(null); // retour affiché AU BOUTON (le toast est loin en haut)
   const trameFileInput = useRef<HTMLInputElement>(null);
   const skillFileInput = useRef<HTMLInputElement>(null);
@@ -497,8 +497,8 @@ export function AdminAttachePanel() {
       }).catch(() => null);
       setNotice(
         `${savedNoms.length} trame(s) enregistrée(s)${failed.length ? ` — échec : ${failed.join(', ')}` : ''}. ` +
-        (res?.ok ? 'Analyse lancée : classement et propositions d\'amélioration arriveront dans le fil « pendant votre absence ».'
-          : 'Analyse non lancée (service occupé ou injoignable) — relancez depuis ce panneau.')
+        (res?.ok ? 'Classement lancé : une description par trame arrivera dans le fil « pendant votre absence » (quelques secondes).'
+          : 'Classement non lancé (service occupé ou injoignable) — relancez depuis ce panneau.')
       );
     } else {
       setNotice(`${savedNoms.length} trame(s) enregistrée(s)${failed.length ? ` — échec : ${failed.join(', ')}` : ''}.`);
@@ -568,20 +568,20 @@ export function AdminAttachePanel() {
     setNotice(`${saved.length} skill(s) importée(s)${failed.length ? ` — échec : ${failed.join(', ')}` : ''}. L'attaché les applique dès le prochain échange.`);
   }, [skillStaged, loadSkills]);
 
-  /** Relance l'analyse IA approfondie (classement + contrôle de légalité + propositions) sur des trames en bibliothèque. */
+  /** Classe (décrit) les trames de la bibliothèque : une passe rapide, une description par trame. */
   const analyseTrames = useCallback(async (noms: string[]) => {
     if (!noms.length) return;
     // Sans trousseau, le service attaché ne peut pas déchiffrer les trames : on le
     // dit clairement AU LIEU d'un bouton mort qui ne réagit pas (feedback local + toast).
     if (!status?.keyring?.granted) {
-      const m = 'Remettez d\'abord les clés à l\'attaché (bouton « Remettre les clés » en haut) — sans elles, il ne peut pas lire les trames pour les analyser.';
+      const m = 'Remettez d\'abord les clés à l\'attaché (bouton « Remettre les clés » en haut) — sans elles, il ne peut pas lire les trames pour les classer.';
       setTrameAnalyseMsg(m);
       setNotice(m);
       return;
     }
     setTrameAnalyseBusy(true);
-    setTrameAnalyseMsg('Analyse approfondie en cours de lancement…');
-    setNotice('Analyse approfondie en cours de lancement…');
+    setTrameAnalyseMsg('Classement en cours de lancement…');
+    setNotice('Classement en cours de lancement…');
     const res = await fetch('/api/attache/trames', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -589,8 +589,8 @@ export function AdminAttachePanel() {
     }).catch(() => null);
     const data = res ? await res.json().catch(() => ({} as { error?: string })) : { error: 'service injoignable' };
     const msg = res?.ok
-      ? `Analyse approfondie de ${noms.length} trame(s) lancée — classement, contrôle de légalité et propositions hiérarchisées arriveront dans le fil « pendant votre absence » (livrable détaillé).`
-      : `Analyse impossible : ${data.error || 'erreur'}`;
+      ? `Classement de ${noms.length} trame(s) lancé — une description par trame ; le résultat arrive dans le fil « pendant votre absence » (quelques secondes).`
+      : `Classement impossible : ${data.error || 'erreur'}`;
     setTrameAnalyseMsg(msg);
     setNotice(msg);
     setTrameAnalyseBusy(false);
@@ -1822,7 +1822,7 @@ export function AdminAttachePanel() {
             <div className="flex flex-wrap items-center gap-2">
               <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-gray-600">
                 <input type="checkbox" checked={analyseAfter} onChange={(e) => setAnalyseAfter(e.target.checked)} />
-                Faire analyser par l'attaché : classement + propositions d'amélioration légale/structurelle (fil « pendant votre absence »)
+                Faire classer par l'attaché après l'enregistrement : une description par trame (rapide, fil « pendant votre absence »)
               </label>
               <button onClick={() => setStaged([])} disabled={uploadBusy !== null}
                 className="ml-auto rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">Annuler</button>
@@ -1859,7 +1859,7 @@ export function AdminAttachePanel() {
         {trames.length === 0 && !trameForm.open && staged.length === 0 ? (
           <p className="px-3 py-3 text-xs text-gray-400">
             Aucune trame. Téléversez votre stock (.odt, .docx, .pdf…) : conversion en markdown ici même, puis
-            classement et propositions d'amélioration par l'attaché. En chat, « enregistre cette trame » fonctionne aussi.
+            classement rapide (une description par trame) par l'attaché. En chat, « enregistre cette trame » fonctionne aussi.
           </p>
         ) : (
           <div className="divide-y divide-gray-50">
@@ -1889,11 +1889,11 @@ export function AdminAttachePanel() {
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => analyseTrames(trames.map((t) => t.nom))} disabled={trameAnalyseBusy}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-                title="L'attaché relit CHAQUE trame en profondeur : classement, contrôle de légalité (fondements en vigueur, mentions obligatoires, nullités, régime 706-80) et propositions hiérarchisées — livrable détaillé dans le fil « pendant votre absence ».">
+                title="L'attaché parcourt la bibliothèque et donne à chaque trame une description (type d'acte, cadre juridique, articles visés, régime 706-80). Passe rapide et économe — quelques secondes. Pour une analyse juridique en profondeur d'une trame (nullités, contrôle de légalité), demandez-la dans le chat de l'attaché.">
                 {trameAnalyseBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                Analyser toute la bibliothèque
+                Classer la bibliothèque
               </button>
-              <span className="text-[10.5px] text-gray-400">{trames.length} trame(s) · analyse juridique approfondie</span>
+              <span className="text-[10.5px] text-gray-400">{trames.length} trame(s) · description rapide de chaque trame</span>
             </div>
             {!kr?.granted && (
               <p className="text-[10.5px] text-amber-600">
