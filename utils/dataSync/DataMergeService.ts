@@ -21,12 +21,12 @@ export class DataMergeService {
   static intelligentMerge(localData: SyncData, serverData: SyncData): {
     merged: SyncData;
     conflicts: SyncConflict[];
-    stats: { newFromServer: number; newFromLocal: number; merged: number; newActesFromServer: number; acteChanges: Array<{ enqueteNumero: string; count: number }> };
+    stats: { newFromServer: number; newFromLocal: number; merged: number; newActesFromServer: number; newCRsFromServer: number; newMECsFromServer: number; acteChanges: Array<{ enqueteNumero: string; count: number }> };
     hasLocalChanges: boolean;   // local a des données plus récentes → push nécessaire
     hasServerChanges: boolean;  // serveur a des données plus récentes → saveLocal nécessaire
   } {
     const conflicts: SyncConflict[] = [];
-    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0, newActesFromServer: 0, acteChanges: [] as Array<{ enqueteNumero: string; count: number }> };
+    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0, newActesFromServer: 0, newCRsFromServer: 0, newMECsFromServer: 0, acteChanges: [] as Array<{ enqueteNumero: string; count: number }> };
 
     // Union des IDs supprimés
     const localDeletedIds = new Set<number>(localData.deletedIds || []);
@@ -68,6 +68,8 @@ export class DataMergeService {
     stats.newFromLocal += enqueteStats.newFromLocal;
     stats.merged += enqueteStats.merged;
     stats.newActesFromServer += enqueteStats.newActesFromServer;
+    stats.newCRsFromServer += enqueteStats.newCRsFromServer;
+    stats.newMECsFromServer += enqueteStats.newMECsFromServer;
     stats.acteChanges.push(...enqueteStats.acteChanges);
 
     // Détecter si des changements réels existent dans chaque direction
@@ -89,10 +91,21 @@ export class DataMergeService {
       enqueteStats.localHasNewer ||
       localDeletedHasNew;
 
+    // Un CR, un mis en cause ou un acte AJOUTÉ côté serveur (typiquement par
+    // l'attaché, qui écrit dans le coffre) doit toujours être rapatrié en local,
+    // même si l'enquête locale porte un `dateMiseAJour` égal ou plus récent
+    // (décalage d'horloge entre le conteneur attaché et le poste, ou édition
+    // locale concomitante). Sans ces deltas, le sous-élément survit dans `merged`
+    // (union par id) mais `saveLocalData` était sauté : il restait dans le coffre
+    // — visible en chronologie probatoire — sans jamais atteindre la liste des
+    // comptes rendus / des mis en cause. Les actes disposaient déjà de ce filet
+    // (newActesFromServer) ; on l'étend aux CR et aux mis en cause.
     const hasServerChanges =
       enqueteStats.newFromServer > 0 ||
       enqueteStats.serverHasNewer ||
-      enqueteStats.newActesFromServer > 0;
+      enqueteStats.newActesFromServer > 0 ||
+      enqueteStats.newCRsFromServer > 0 ||
+      enqueteStats.newMECsFromServer > 0;
 
     // 2. Fusionner les résultats d'audience (timestamp-based)
     const mergedAudience = this.mergeByTimestamp(
@@ -156,11 +169,11 @@ export class DataMergeService {
   ): {
     merged: Enquete[];
     conflicts: SyncConflict[];
-    stats: { newFromServer: number; newFromLocal: number; merged: number; newActesFromServer: number; acteChanges: Array<{ enqueteNumero: string; count: number }>; localHasNewer: boolean; serverHasNewer: boolean };
+    stats: { newFromServer: number; newFromLocal: number; merged: number; newActesFromServer: number; newCRsFromServer: number; newMECsFromServer: number; acteChanges: Array<{ enqueteNumero: string; count: number }>; localHasNewer: boolean; serverHasNewer: boolean };
   } {
     const conflicts: SyncConflict[] = [];
     const merged = new Map<number, Enquete>();
-    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0, newActesFromServer: 0, acteChanges: [] as Array<{ enqueteNumero: string; count: number }>, localHasNewer: false, serverHasNewer: false };
+    const stats = { newFromServer: 0, newFromLocal: 0, merged: 0, newActesFromServer: 0, newCRsFromServer: 0, newMECsFromServer: 0, acteChanges: [] as Array<{ enqueteNumero: string; count: number }>, localHasNewer: false, serverHasNewer: false };
 
     const localMap = new Map(localEnquetes.map(e => [e.id, e]));
     const serverMap = new Map(serverEnquetes.map(e => [e.id, e]));
@@ -189,6 +202,9 @@ export class DataMergeService {
       const serverTs = new Date(serverEnquete.dateMiseAJour).getTime();
       if (localTs  > serverTs) stats.localHasNewer  = true;
       if (serverTs > localTs)  stats.serverHasNewer = true;
+      // La fusion a fait avancer la description au-delà de la version locale
+      // (actualisation attaché adoptée sans divergence) → forcer l'écriture locale.
+      if (mergeResult.merged.description !== localEnquete.description) stats.serverHasNewer = true;
 
       // Compter les nouveaux actes récupérés
       const localActeCount = (localEnquete.actes?.length ?? 0) + (localEnquete.ecoutes?.length ?? 0) + (localEnquete.geolocalisations?.length ?? 0);
@@ -198,6 +214,18 @@ export class DataMergeService {
         stats.newActesFromServer += delta;
         stats.acteChanges.push({ enqueteNumero: serverEnquete.numero, count: delta });
       }
+
+      // Même filet pour les CR et les mis en cause : un ajout côté serveur
+      // (l'attaché signe au nom du magistrat) doit forcer l'écriture locale,
+      // sans quoi il reste invisible dans la liste des comptes rendus / MEC
+      // tant que le `dateMiseAJour` local n'est pas dépassé (cf. hasServerChanges).
+      const localCRCount = localEnquete.comptesRendus?.length ?? 0;
+      const mergedCRCount = mergeResult.merged.comptesRendus?.length ?? 0;
+      if (mergedCRCount > localCRCount) stats.newCRsFromServer += mergedCRCount - localCRCount;
+
+      const localMECCount = localEnquete.misEnCause?.length ?? 0;
+      const mergedMECCount = mergeResult.merged.misEnCause?.length ?? 0;
+      if (mergedMECCount > localMECCount) stats.newMECsFromServer += mergedMECCount - localMECCount;
     }
 
     // 2. Enquêtes locales uniquement
@@ -265,9 +293,31 @@ export class DataMergeService {
       mergedDateArchivage = server.dateArchivage;
     }
 
+    // Actualisation de la description par l'attaché (synthèse des faits qui
+    // s'enrichit à chaque élément nouveau). La description est un champ scalaire :
+    // le spread `...newer` la fige sur la version la plus récente par horodatage,
+    // si bien qu'une actualisation côté serveur était perdue dès que l'enquête
+    // locale portait un `dateMiseAJour` égal ou plus récent (décalage d'horloge,
+    // édition locale). `actualiser_description` archivant l'ancien texte dans
+    // `descriptionHistory`, on peut avancer SANS RISQUE sur la description du
+    // serveur uniquement quand le local affiche encore EXACTEMENT le texte que
+    // l'attaché a remplacé (dernière entrée d'historique) — preuve que le
+    // magistrat n'a pas fait d'édition manuelle divergente entre-temps.
+    type DescHist = Array<{ description?: string }>;
+    const localHist  = Array.isArray((local  as { descriptionHistory?: DescHist }).descriptionHistory)  ? (local  as { descriptionHistory?: DescHist }).descriptionHistory! : [];
+    const serverHist = Array.isArray((server as { descriptionHistory?: DescHist }).descriptionHistory) ? (server as { descriptionHistory?: DescHist }).descriptionHistory! : [];
+    let descOverride: { description: Enquete['description']; descriptionHistory: DescHist } | null = null;
+    if (serverHist.length > localHist.length) {
+      const dernierTexteRemplace = String(serverHist[serverHist.length - 1]?.description ?? '');
+      if (String(local.description ?? '') === dernierTexteRemplace) {
+        descOverride = { description: server.description, descriptionHistory: serverHist };
+      }
+    }
+
     return {
       merged: {
         ...newer,
+        ...(descOverride || {}),
         statut: mergedStatut,
         dateArchivage: mergedDateArchivage,
         // Union des sous-éléments par ID (on ne perd rien, les suppressions intentionnelles sont respectées)

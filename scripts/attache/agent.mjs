@@ -67,6 +67,18 @@ export function sanitizeCap(value) {
   return Math.min(n, 100_000_000_000)
 }
 
+/**
+ * Signature apposée sur les comptes-rendus rédigés par l'attaché (ex. « AUDRAN C »).
+ * Texte libre court, sur une seule ligne, sans balise ni retour chariot. Vide =
+ * on retombe sur le nom de l'administrateur. Le mot « attaché » est proscrit :
+ * l'assistant ne laisse aucune trace de sa nature dans les données partagées.
+ */
+export function sanitizeSignature(value) {
+  const v = String(value || '').replace(/[\r\n\t]+/g, ' ').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, 60)
+  if (/attach[ée]/i.test(v)) return ''
+  return v
+}
+
 /** Configuration persistée (Paramètres → Attaché IA) : modèle, effort, web, sous-agents, forfait. */
 export function agentConfig() {
   const cfg = readState().config || {}
@@ -84,6 +96,8 @@ export function agentConfig() {
     plan: sanitizePlan(cfg.plan),
     cap5h: sanitizeCap(cfg.cap5h),
     capHebdo: sanitizeCap(cfg.capHebdo),
+    // Signature des comptes-rendus rédigés par l'attaché (vide = nom de l'admin).
+    signatureCR: sanitizeSignature(cfg.signatureCR),
   }
 }
 
@@ -155,6 +169,11 @@ export function systemPrompt(keys) {
     '- demande d\'acte ou mesure évoquée (interception, géolocalisation, sonorisation… y compris à soumettre au JLD : statut autorisation_pending) → proposer_acte, entièrement pré-rempli.',
     '- éléments nouveaux à consigner (véhicule, adresse, ligne, événement) → proposer_cr en prise de notes courte.',
     '- lien de renseignement entre deux personnes repéré dans une pièce (communications récurrentes, fratrie, fournisseur/logistique) et absent de la carte → proposer_lien (vérifie carto_lister_liens avant). Enrichit la cartographie une fois validé.',
+    'RÉFLEXE « chaque acte fait avancer le dossier » — quand tu prépares un acte à partir d\'un PV (mail transféré ou pièce collée à la demande d\'acte), MOISSONNE au passage tout ce que ce PV apporte de NOUVEAU par rapport au dossier, avant de clore :',
+    '  • proposer_cr — un mini-CR daté portant les ÉLÉMENTS NOUVEAUX SEULEMENT (lieux, personnes, véhicules, lignes, événements datés), jamais un redit de l\'existant, en prise de notes courte et factuelle. Cite le PV source.',
+    '  • proposer_mec — pour toute personne NOUVELLEMENT mise en cause dans le PV et absente des mis en cause (rôle supposé + pièce source). JAMAIS un simple témoin, victime, requérant ou tiers cité : uniquement une personne présentée comme impliquée dans les faits.',
+    '  • actualiser_description — reprends la synthèse des faits et fais-la PROGRESSER : d\'où l\'on part, puis l\'apport du jour, en gardant l\'ensemble court et lisible. LIEUX et PERSONNES en priorité. C\'est une actualisation synthétique, pas un journal exhaustif : l\'ancienne version est archivée.',
+    '  Ainsi le dossier n\'est jamais en retard sur les actes : sa description et ses CR reflètent l\'état réel à chaque mesure préparée.',
     'L\'écriture DIRECTE (enregistrer_acte, classer_note, ajouter todo) reste réservée aux instructions EXPLICITES du magistrat en conversation, et au traitement des mails qu\'il te transfère (son transfert vaut instruction).',
     '',
     'CRÉATION DE DOSSIER À PARTIR D\'UN PV / RÉSUMÉ COLLÉ — même logique de proposition (✓/✗) :',

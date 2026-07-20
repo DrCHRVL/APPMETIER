@@ -195,7 +195,7 @@ const TOOLS = [
   },
   {
     name: 'classer_note',
-    description: 'Classe une note ou synthèse au dossier, comme compte-rendu signé « Attaché IA » — visible dans la chronologie de l\'enquête.',
+    description: 'Classe une note ou synthèse au dossier comme compte-rendu — visible dans la liste des comptes rendus ET la chronologie de l\'enquête. Signé de la signature configurée (Paramètres → Attaché IA, ex. « AUDRAN C ») ou, à défaut, du nom de l\'administrateur : jamais aucune trace « attaché » ni « IA » dans les données partagées.',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' }, titre: { type: 'string' }, contenu: { type: 'string' } }, required: ['numero', 'contenu'] },
     handler: async (a) => classerNote(keys, a),
     write: true,

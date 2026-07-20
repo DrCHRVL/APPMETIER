@@ -211,7 +211,10 @@ export async function decideProposition(keys, { id, action, par }) {
     } else if (prop.type === 'acte') {
       applique = await enregistrerActe(keys, { numero: prop.numero, ...prop.payload })
     } else if (prop.type === 'cr') {
-      applique = await classerNote(keys, { numero: prop.numero, ...prop.payload, enqueteur: auteur })
+      // Signature du CR résolue par classerNote (config.signatureCR — ex. « AUDRAN C » —
+      // sinon le nom de l'administrateur) : on force `enqueteur` à undefined pour que
+      // la signature configurée l'emporte. `auteur` reste tracé dans l'audit (decidePar).
+      applique = await classerNote(keys, { numero: prop.numero, ...prop.payload, enqueteur: undefined })
     } else if (prop.type === 'lien') {
       applique = await appendLien(keys, prop.payload)
     } else if (prop.type === 'dossier') {
