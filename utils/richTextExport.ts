@@ -139,28 +139,32 @@ const buildWordHtml = (bodyHtml: string, title: string): string => {
 };
 
 /**
- * Télécharge un vrai fichier .docx via html-docx-js (Word natif).
- * Préserve gras / italique / titres / listes / couleurs / liens.
- * Tombe en .doc si la lib n'est pas installée (cas dégradé).
+ * Télécharge un vrai fichier .docx (paragraphes/runs OOXML réels, générés via
+ * la lib `docx`), à partir d'un fragment HTML riche. Préserve gras / italique
+ * / titres / listes / couleurs / liens. Contrairement à l'ancienne astuce
+ * `html-docx-js` (HTML brut embarqué via `w:altChunk`, que seul Word sait
+ * réimporter), le texte produit ici est un vrai texte Word lisible par
+ * n'importe quel lecteur .docx (LibreOffice, outils de signature…).
+ * Tombe en .doc (HTML déguisé) si la conversion échoue (cas dégradé).
  */
 export const downloadAsDocx = async (
   bodyHtml: string,
   filename: string,
   title?: string,
 ): Promise<void> => {
-  const fullTitle = title || filename;
-  const html = buildWordHtml(bodyHtml, fullTitle);
   try {
     // Import dynamique pour ne pas charger la lib si l'utilisateur n'exporte pas.
-    const mod: any = await import('html-docx-js/dist/html-docx');
-    const htmlDocx = mod?.default || mod;
-    const blob: Blob = htmlDocx.asBlob(html);
+    const { buildDocxBlob } = await import('@/lib/web/htmlToDocx');
+    const blob = await buildDocxBlob(bodyHtml, {
+      defaultFont: 'Calibri',
+      defaultSizeHalfPt: 22,
+    });
     triggerDownload(
       blob,
       filename.endsWith('.docx') ? filename : `${filename}.docx`,
     );
   } catch (err) {
-    console.warn('html-docx-js indisponible, fallback .doc :', err);
+    console.warn('Conversion docx indisponible, fallback .doc :', err);
     downloadAsDoc(bodyHtml, filename, title);
   }
 };
