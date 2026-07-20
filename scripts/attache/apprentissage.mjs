@@ -75,6 +75,14 @@ const bounded = (v, min, max, dflt) => {
 }
 /** Nombre de signaux qui déclenche une consolidation sans attendre la cadence. */
 export const SEUIL_SIGNAUX = bounded(process.env.SIRAL_ATTACHE_APPRENTISSAGE_SEUIL, 3, 200, 12)
+/**
+ * Signaux FORTS : une CORRECTION directe du magistrat (acte corrigé à la main,
+ * proposition refusée, reprise en chat). Peu nombreux mais décisifs — on
+ * consolide dès qu'il y en a quelques-uns, sans attendre le seuil générique ni
+ * la cadence, pour ne pas refaire l'erreur au prochain acte.
+ */
+export const SIGNAUX_FORTS = ['acte_edite_main', 'proposition_refusee', 'correction_conversation']
+export const SEUIL_SIGNAUX_FORTS = bounded(process.env.SIRAL_ATTACHE_APPRENTISSAGE_SEUIL_FORTS, 1, 50, 3)
 /** Cadence de fond (jours) — ne tourne que s'il y a des signaux à distiller. */
 export const CADENCE_JOURS = bounded(process.env.SIRAL_ATTACHE_APPRENTISSAGE_JOURS, 1, 90, 7)
 /** Cadence de fond : UN signal suffit — l'apprentissage est entièrement
@@ -236,6 +244,13 @@ export function consolidationDue(keys) {
   if (Date.now() - lastAttempt < ATTEMPT_COOLDOWN_MS) return null
   const { count, firstTs } = pendingCount()
   if (count >= SEUIL_SIGNAUX) return `${count} signaux accumulés`
+  // Corrections directes du magistrat : on consolide sans attendre la cadence.
+  // Déchiffrement borné, et seulement dans la fenêtre utile (assez de signaux,
+  // seuil générique pas encore atteint) — le tick reste économe.
+  if (count >= SEUIL_SIGNAUX_FORTS) {
+    const forts = pendingSignals(keys, 120).filter((s) => SIGNAUX_FORTS.includes(s.type)).length
+    if (forts >= SEUIL_SIGNAUX_FORTS) return `${forts} corrections du magistrat à intégrer`
+  }
   const mem = memoryStats(keys)
   if (mem.over) return `mémoire au-dessus du budget (${mem.chars} > ${mem.budget} caractères)`
   if (count >= MIN_SIGNAUX_CADENCE) {
@@ -263,9 +278,13 @@ export function consolidationPrompt({ budget, trigger }) {
     '   (propositions refusées ✗, actes retouchés après ta rédaction, actes corrigés à la main), validations ✓,',
     '   leçons notées — et ta PROGRESSION mesurée (taux d\'acceptation, retouches, portes de qualité, 30 j vs',
     '   30 j précédents) : si un indicateur RÉGRESSE, cherche la cause dans les signaux et traite-la en priorité.',
-    '   Pour un signal correction_conversation, LIS la conversation citée (conversation_lire, id dans source) :',
-    '   la reprise du magistrat y est en clair — c\'est ta matière première la plus précieuse. Si un autre signal',
-    '   manque de contexte, tu PEUX consulter le dossier cité — mais reste bref.',
+    '   Pour un signal acte_edite_main (le magistrat a corrigé un acte À LA MAIN), appelle production_diff avec',
+    '   son numero, son id et le versionAt porté par le signal : tu vois EXACTEMENT ce qu\'il a retiré (−) et',
+    '   ajouté (+) à ton jet — la matière la plus directe qui soit. Distingue la correction de FOND (motivation',
+    '   à étoffer, visa manquant, structure, formule attendue, qualification) de la simple coquille : ne mémorise',
+    '   que ce qui changera tes PROCHAINS actes. Pour un signal correction_conversation, LIS la conversation citée',
+    '   (conversation_lire, id dans source) : la reprise du magistrat y est en clair — matière tout aussi précieuse.',
+    '   Si un autre signal manque de contexte, tu PEUX consulter le dossier cité — mais reste bref.',
     '2. RELIS ta mémoire actuelle (en fin de ton prompt système) et DISTILLE l\'ensemble mémoire + signaux :',
     '   - transforme les épisodes en RÈGLES GÉNÉRALES actionnables (ex. trois propositions de CR refusées sur des',
     '     pièces déjà exploitées → « Ne proposer un CR que s\'il apporte des éléments nouveaux non déjà consignés ») ;',
