@@ -607,15 +607,18 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
                       )}
                     </div>
                     <div className="flex gap-2">
-                      {/* Bouton de prolongation même pour les terminées */}
-                      {ecoute.duree && onUpdate && ecoute.statut === 'en_cours' && (
-                        <Button 
-                          variant="ghost" 
+                      {/* Bouton de prolongation même pour les terminées : un acte échu garde le
+                          statut 'en_cours' tant qu'il n'a pas été normalisé, puis passe à 'termine'
+                          au chargement. Dans les deux cas il reste prolongeable (en antidatant la
+                          prolongation dans la fenêtre de validité). */}
+                      {ecoute.duree && onUpdate && (ecoute.statut === 'en_cours' || ecoute.statut === 'termine') && !prolongLimitAtteinteT && (
+                        <Button
+                          variant="ghost"
                           size="sm"
                           onClick={() => handleProlongationWithCheck(ecoute.id)}
-                          title="Prolonger l'écoute"
+                          title="Prolonger l'écoute échue — antidatez la prolongation dans la fenêtre de validité"
                         >
-                          <Clock className="h-4 w-4" />
+                          <Clock className="h-4 w-4 text-gray-400" />
                         </Button>
                       )}
                       {ecoute.statut === 'prolongation_pending' && (
