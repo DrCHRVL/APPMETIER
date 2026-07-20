@@ -18,7 +18,7 @@ import { audit, publishFeed } from './attache/journal.mjs'
 import {
   listEnquetes, dossierMarkdown, readDocumentText, verifierCompletude,
   enregistrerActe, acterProlongation, classerNote, ajouterTodo, listerDml,
-  actualiserDescription, diagnostiquerDossier, arborescenceDocuments,
+  actualiserDescription, diagnostiquerDossier, diagnostiquerAffichage, arborescenceDocuments,
   ajouterNatinfs, creerDossier,
 } from './attache/dossier.mjs'
 import { searchNatinf } from './attache/natinf.mjs'
@@ -401,6 +401,12 @@ const TOOLS = [
     description: 'Diagnostic objectif d\'un dossier pour l\'aide au contrôle et à la maîtrise : délais (ancienneté, durée cumulée de chaque acte avec prolongations, jours avant échéance, ancienneté des attentes JLD), cohérence (actes expirés encore « en cours », demandes JLD qui traînent), éparpillement (diversité des cibles rapportée aux mis en cause), cadence des CR. `cadre` distingue préliminaire (délais TSE serrés — 2 mois typiques) et instruction. Interpréter ces chiffres à l\'aune du droit et de la direction d\'enquête.',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
     handler: async (a) => diagnostiquerDossier(keys, a.numero) ?? { erreur: 'Dossier introuvable' },
+  },
+  {
+    name: 'diagnostic_affichage',
+    description: 'POURQUOI un dossier présent dans le coffre n\'apparaît PAS chez le magistrat dans « enquêtes en cours ». Le client fusionne les enquêtes par id numérique : renvoie les obstacles BLOQUANTS (id tombé dans les suppressions → filtré comme supprimé ; id partagé par deux enquêtes → fusion ; archivage ; hiddenFromJA ; id non numérique) et confirme, à défaut, que le dossier doit s\'afficher après synchronisation. À utiliser dès que le magistrat dit « je ne vois pas ce dossier » — avant de conclure à un problème de tri ou de rafraîchissement (il n\'y a ni filtre « dormant » ni tri masquant à l\'affichage).',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
+    handler: async (a) => diagnostiquerAffichage(keys, a.numero) ?? { erreur: 'Dossier introuvable' },
   },
   {
     name: 'actualiser_description',
