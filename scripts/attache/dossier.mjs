@@ -19,6 +19,7 @@ import {
 import { encryptJson, decryptJson, decryptDocBlob } from './crypto.mjs'
 import { natinfEntry, natinfLabel } from './natinf.mjs'
 import { extractPdfText } from './ocr.mjs'
+import { extractOfficeText, isOfficeExt } from './officeText.mjs'
 
 /**
  * Signature des écritures VISIBLES des autres utilisateurs (CR, metadata de
@@ -431,6 +432,18 @@ export async function readDocumentText(keys, numero, cheminRelatif) {
   if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }
   if (/\.(txt|html?|md|csv|json|eml)$/.test(lower)) {
     return { ok: true, texte: stripHtml(plain.toString('utf8')).slice(0, 200_000) }
+  }
+  if (isOfficeExt(lower)) {
+    // ODT/DOCX/RTF versés par mail (pas de copie markdown MD/ du navigateur).
+    // Extrait une fois, mis en cache par hash — comme le PDF.
+    const blobHash = crypto.createHash('sha256').update(blob).digest('hex')
+    const cached = readDocCache(keys, key, cheminRelatif, blobHash)
+    if (cached) return { ok: true, texte: cached.texte, cache: true }
+    const res = extractOfficeText(plain, lower)
+    if (!res.ok) return { ok: false, error: res.error }
+    const texte = res.texte.slice(0, 200_000)
+    try { writeDocCache(keys, key, cheminRelatif, blobHash, texte) } catch { /* cache facultatif */ }
+    return { ok: true, texte, source: res.source }
   }
   return { ok: false, error: `Type non textuel (${cheminRelatif.split('.').pop()}) — ${plain.length} octets` }
 }
