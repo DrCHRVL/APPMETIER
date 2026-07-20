@@ -244,7 +244,7 @@ export function kbPromptSection(keys) {
     'Sommaire complet (★ = document réflexe) :',
     ...lines,
     'Avant une analyse juridique, une rédaction ou une question de procédure : kb_chercher (mots-clés) puis kb_lire sur les entrées pertinentes — cite l\'entrée utilisée. Ce fond fait FOI sur les pratiques du cabinet ; le droit y est daté : vérifie la date de mise à jour avant de t\'y fier aveuglément.',
-    'Quand le magistrat te transmet un contenu durable (« ajoute à la base de connaissances… »), range-le avec kb_enregistrer dans la bonne catégorie et la bonne pochette (chemin). S\'il te dit « mets tel document en réflexe / en tête / prioritaire » (ou de l\'en retirer) : kb_reflexe.',
+    'Quand le magistrat te transmet un contenu durable : un TEXTE collé/dicté → kb_enregistrer ; un FICHIER confié (pièce jointe d\'un mail → kb_ranger_piece source "mail" ; pièce du dépôt → source "depot") → kb_ranger_piece, qui EXTRAIT le texte de la pièce (PDF/ODT/DOCX/RTF) côté serveur et l\'intègre chiffré. Classe DÈS RÉCEPTION : bonne catégorie, bonne pochette (chemin), description d\'une phrase — et reflexe=true si c\'est une référence de premier rang (type Memento parquet). S\'il te dit « mets tel document en réflexe / en tête / prioritaire » (ou de l\'en retirer) : kb_reflexe.',
     'Tu es le BIBLIOTHÉCAIRE de cette base : une entrée sans description, mal classée ou mal rangée → kb_decrire (description, catégorie, chemin de pochette) — le contenu, lui, ne se modifie que par kb_enregistrer sur consigne.',
   ].join('\n')
 }

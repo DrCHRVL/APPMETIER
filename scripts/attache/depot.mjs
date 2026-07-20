@@ -2,21 +2,28 @@
  * SIRAL — Attaché de justice · dépôt majordome (réception + rangement).
  *
  * Le magistrat CONFIE une pièce (audition récupérée dans NPP, ordonnance,
- * retour d'expertise…) sans décider où elle va : trombone du panneau (la
- * pièce part chiffrée dans la zone de dépôt `_depot`) ou pièce jointe d'un
- * mail transféré. L'attaché l'identifie, la NOMME proprement et la RANGE
- * dans la bonne zone (Geoloc/Ecoutes/Actes/PV/DML) du bon dossier — puis
- * l'exploite (lecture, détection → propositions).
+ * retour d'expertise, memento, documentation ministère…) sans décider où elle
+ * va : trombone du panneau (la pièce part chiffrée dans la zone de dépôt
+ * `_depot`) ou pièce jointe d'un mail transféré. L'attaché l'identifie, la
+ * NOMME proprement et la RANGE — soit dans la bonne zone d'un DOSSIER
+ * (Geoloc/Ecoutes/Actes/PV/DML), soit dans la BASE DE CONNAISSANCES quand
+ * c'est un document de référence durable — puis l'exploite (lecture,
+ * détection → propositions).
  *
- * Le rangement écrit le même format que le client web (blob SIR1 + index) :
- * la pièce apparaît dans la section documents au prochain scan, signée du
- * nom de l'administrateur (l'attaché ne laisse aucune trace). Un dépôt
- * supprimé part en Corbeille/ du dépôt — rien n'est jamais détruit à sec.
+ * Le rangement au dossier écrit le même format que le client web (blob SIR1 +
+ * index) : la pièce apparaît dans la section documents au prochain scan,
+ * signée du nom de l'administrateur (l'attaché ne laisse aucune trace). Le
+ * rangement à la base de connaissances EXTRAIT le texte de la pièce côté
+ * serveur (comme le fait le navigateur au téléversement) et n'en conserve que
+ * le texte, chiffré — jamais l'octet du PDF ne transite par la conversation.
+ * Un dépôt supprimé part en Corbeille/ du dépôt — rien n'est jamais détruit à
+ * sec.
  */
 import { attacheTj, listDocsMeta, readDocBlob, writeDocBlob, deleteDocBlob, docServerKey } from './store.mjs'
 import { encryptDocBlob, decryptDocBlob } from './crypto.mjs'
 import { extractPdfText } from './ocr.mjs'
 import { extractOfficeText, isOfficeExt } from './officeText.mjs'
+import { saveKbEntry, setKbReflexe } from './kb.mjs'
 
 import { enqueteExiste } from './dossier.mjs'
 import { instructionExiste } from './instru.mjs'
@@ -49,6 +56,34 @@ export function listDepot() {
 }
 
 /**
+ * Extrait le TEXTE d'une pièce déchiffrée d'après son extension : PDF (couche
+ * texte native, OCR de secours si scan), texte/HTML bruts, bureautique
+ * (ODT/DOCX/RTF). Renvoie { ok, texte, source?, tronque? } ou
+ * { ok:false, error, scanned? }. `max` borne la longueur retournée.
+ */
+export async function extractTextByName(plain, name, { max = 200_000 } = {}) {
+  const lower = String(name || '').toLowerCase()
+  const bound = (t) => {
+    const s = String(t)
+    return { texte: s.slice(0, max), tronque: s.length > max }
+  }
+  if (lower.endsWith('.pdf')) {
+    const res = await extractPdfText(plain)
+    if (res.ok) return { ok: true, ...bound(res.texte), source: res.source }
+    return { ok: false, error: res.error, scanned: res.scanned }
+  }
+  if (/\.(txt|html?|md|markdown|csv|json|eml)$/.test(lower)) {
+    return { ok: true, ...bound(plain.toString('utf8').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')) }
+  }
+  if (isOfficeExt(lower)) {
+    const res = extractOfficeText(plain, lower)
+    if (res.ok) return { ok: true, ...bound(res.texte), source: res.source }
+    return { ok: false, error: res.error }
+  }
+  return { ok: false, error: `Type non textuel (${lower.split('.').pop()}) — ${plain.length} octets — range-la d'après son nom et la consigne` }
+}
+
+/**
  * Texte d'une pièce ENCORE au dépôt — pour l'identifier (dossier, nature)
  * avant de la ranger. PDF extrait à la volée ; texte/HTML bruts.
  */
@@ -57,23 +92,48 @@ export async function readDepotText(keys, rel) {
   if (!blob) return { ok: false, error: 'Pièce absente du dépôt — voir depot_lister' }
   const plain = decryptDocBlob(keys.global, blob)
   if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }
-  const lower = String(rel).toLowerCase()
-  if (lower.endsWith('.pdf')) {
-    // Couche texte native, avec OCR de secours si la pièce est un scan.
-    const res = await extractPdfText(plain)
-    if (res.ok) return { ok: true, texte: res.texte.slice(0, 200_000), source: res.source }
-    return { ok: false, error: res.error, scanned: res.scanned }
+  const res = await extractTextByName(plain, rel, { max: 200_000 })
+  if (res.ok) return { ok: true, texte: res.texte, source: res.source, tronque: res.tronque }
+  return { ok: false, error: res.error, scanned: res.scanned }
+}
+
+/**
+ * Texte d'une pièce JOINTE d'un mail transféré — pour l'identifier ou la
+ * classer AVANT de la ranger (au dossier ou à la base de connaissances). La
+ * longueur est bornée (`max`, défaut 12 000 caractères) : c'est une aide à
+ * l'identification, pas le stockage — le rangement conserve la pièce entière.
+ */
+export async function readMailPieceText(keys, { mailId, piece, max = 12_000 } = {}) {
+  const rec = readInboxMessage(keys, String(mailId || ''))
+  if (!rec) return { ok: false, error: 'Message introuvable dans la boîte — voir boite_lister' }
+  const att = (rec.attachments || []).find((a) => a.nom === piece)
+  if (!att) return { ok: false, error: `Pièce jointe « ${piece} » absente — pièces : ${(rec.attachments || []).map((a) => a.nom).join(', ') || '(aucune)'}` }
+  const plain = Buffer.from(att.b64, 'base64')
+  const bound = Math.min(200_000, Math.max(500, Number(max) || 12_000))
+  const res = await extractTextByName(plain, att.nom, { max: bound })
+  if (!res.ok) return res
+  return { ok: true, piece: att.nom, type: att.type, taille: att.taille, texte: res.texte, source: res.source, tronque: res.tronque }
+}
+
+/**
+ * Résout une pièce (mail transféré ou dépôt) en { blob (chiffré, prêt à
+ * writeDocBlob), plain (octets en clair, pour extraction), originalName,
+ * depotRel }. Source commune à rangerDocument et rangerPieceDansKb.
+ */
+async function resolvePiece(keys, { source, rel, mailId, piece }) {
+  if (source === 'mail') {
+    const rec = readInboxMessage(keys, String(mailId || ''))
+    if (!rec) throw new Error('Message introuvable dans la boîte')
+    const att = (rec.attachments || []).find((a) => a.nom === piece)
+    if (!att) throw new Error(`Pièce jointe « ${piece} » absente — pièces : ${(rec.attachments || []).map((a) => a.nom).join(', ') || '(aucune)'}`)
+    const plain = Buffer.from(att.b64, 'base64')
+    return { blob: encryptDocBlob(keys.global, plain), plain, originalName: att.nom, depotRel: null }
   }
-  if (/\.(txt|html?|md|csv|json|eml)$/.test(lower)) {
-    return { ok: true, texte: plain.toString('utf8').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 200_000) }
-  }
-  if (isOfficeExt(lower)) {
-    // ODT/DOCX/RTF (pièces jointes de mail, sans copie markdown navigateur).
-    const res = extractOfficeText(plain, lower)
-    if (res.ok) return { ok: true, texte: res.texte.slice(0, 200_000), source: res.source }
-    return { ok: false, error: res.error }
-  }
-  return { ok: false, error: `Type non textuel (${String(rel).split('.').pop()}) — ${plain.length} octets — range-la d'après son nom et la consigne` }
+  const depotRel = String(rel || '')
+  const blob = readDocBlob(attacheTj(), DEPOT_KEY, depotRel)
+  if (!blob) throw new Error(`Pièce « ${depotRel} » absente du dépôt — voir depot_lister`)
+  const meta = listDocsMeta(attacheTj(), DEPOT_KEY).find((d) => d.rel === depotRel)
+  return { blob, plain: decryptDocBlob(keys.global, blob), originalName: meta?.originalName || depotRel.split('/').pop(), depotRel }
 }
 
 /**
@@ -90,22 +150,7 @@ export async function rangerDocument(keys, { source, rel, mailId, piece, numero,
     throw new Error(`Dossier « ${numero} » introuvable (ni enquête, ni instruction) — vérifier lister_dossiers / instru_lister`)
   }
 
-  let blob
-  let originalName
-  if (source === 'mail') {
-    const rec = readInboxMessage(keys, String(mailId || ''))
-    if (!rec) throw new Error('Message introuvable dans la boîte')
-    const att = (rec.attachments || []).find((a) => a.nom === piece)
-    if (!att) throw new Error(`Pièce jointe « ${piece} » absente — pièces : ${(rec.attachments || []).map((a) => a.nom).join(', ') || '(aucune)'}`)
-    blob = encryptDocBlob(keys.global, Buffer.from(att.b64, 'base64'))
-    originalName = att.nom
-  } else {
-    const depotRel = String(rel || '')
-    blob = readDocBlob(attacheTj(), DEPOT_KEY, depotRel)
-    if (!blob) throw new Error(`Pièce « ${depotRel} » absente du dépôt — voir depot_lister`)
-    const meta = listDocsMeta(attacheTj(), DEPOT_KEY).find((d) => d.rel === depotRel)
-    originalName = meta?.originalName || depotRel.split('/').pop()
-  }
+  const { blob, originalName, depotRel } = await resolvePiece(keys, { source, rel, mailId, piece })
 
   // Nom final : celui proposé par l'attaché, extension d'origine préservée.
   const extMatch = /\.[a-zA-Z0-9]{1,8}$/.exec(originalName || '')
@@ -126,9 +171,64 @@ export async function rangerDocument(keys, { source, rel, mailId, piece, numero,
     category: prefix,
     originalName,
   })
-  if (source !== 'mail') deleteDocBlob(attacheTj(), DEPOT_KEY, String(rel))
+  if (source !== 'mail' && depotRel) deleteDocBlob(attacheTj(), DEPOT_KEY, depotRel)
 
   return { ok: true, dossier: numero, chemin: finalRel, note: 'Pièce rangée — lis-la (lire_document) et déclenche tes détections (proposer_mec / proposer_acte / proposer_cr) si elle apporte du neuf.' }
+}
+
+/**
+ * Intègre une pièce à la BASE DE CONNAISSANCES : depuis le dépôt (`rel`) ou
+ * une pièce jointe de la boîte dédiée (`mailId` + `piece`). Le TEXTE est
+ * extrait côté serveur (comme le navigateur au téléversement) — seul le texte
+ * est conservé, chiffré ; l'octet du PDF ne transite jamais par la
+ * conversation. L'attaché CLASSE dès réception : titre, catégorie, chemin de
+ * pochette, description ; `reflexe` épingle la pièce comme référence de
+ * premier rang (Memento, etc.). Une pièce du dépôt est CONSOMMÉE (retirée du
+ * dépôt) après intégration ; une pièce jointe de mail reste dans la boîte.
+ */
+export async function rangerPieceDansKb(keys, { source, rel, mailId, piece, titre, categorie, chemin, description, reflexe }) {
+  if (!String(titre || '').trim()) throw new Error('Titre requis pour l\'entrée de base de connaissances')
+
+  const { plain, originalName, depotRel } = await resolvePiece(keys, { source, rel, mailId, piece })
+  if (!plain) throw new Error('Déchiffrement impossible (format inattendu) — rien n\'a été enregistré')
+
+  const extrait = await extractTextByName(plain, originalName, { max: 400_000 })
+  if (!extrait.ok) {
+    if (extrait.scanned) {
+      throw new Error(`Pièce « ${originalName} » : PDF scanné sans couche texte (OCR de secours ${extrait.error ? '— ' + extrait.error : 'indisponible'}). Demande une version texte/lisible avant de l'ajouter à la base — RIEN n'a été enregistré.`)
+    }
+    throw new Error(`Pièce « ${originalName} » : ${extrait.error}. Impossible d'en extraire le texte pour la base de connaissances — RIEN n'a été enregistré.`)
+  }
+
+  const { id, categorie: cat } = await saveKbEntry(keys, {
+    titre,
+    categorie: categorie || 'autre',
+    chemin,
+    description,
+    contenu: extrait.texte,
+    source: `pièce confiée : ${originalName}`,
+  })
+
+  let reflexeOk = false
+  let reflexeNote
+  if (reflexe) {
+    try { reflexeOk = Boolean((await setKbReflexe(keys, id, true)).reflexe) }
+    catch (e) { reflexeNote = String(e?.message || e) }
+  }
+
+  if (source !== 'mail' && depotRel) deleteDocBlob(attacheTj(), DEPOT_KEY, depotRel)
+
+  return {
+    ok: true,
+    id,
+    categorie: cat,
+    chemin: chemin || undefined,
+    titre,
+    reflexe: reflexeOk,
+    ...(extrait.tronque ? { tronque: true } : {}),
+    ...(reflexeNote ? { reflexeNote } : {}),
+    note: 'Document intégré à la base de connaissances (texte extrait, chiffré). Complète son classement avec kb_decrire au besoin (description, catégorie, chemin) ; kb_lire pour t\'en resservir.',
+  }
 }
 
 /** Écarte une pièce du dépôt (spam, doublon) — déplacée en Corbeille/, jamais détruite. */

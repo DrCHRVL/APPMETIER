@@ -44,16 +44,30 @@ l'usage).
   pièce.
 - **Reçoit et range les pièces (majordome)** : le magistrat lui CONFIE un
   document sans décider où il va — trombone / glisser-déposer dans le
-  panneau, ou pièce jointe d'un mail transféré. L'attaché l'identifie
-  (lecture du contenu au dépôt si besoin), retrouve le **bon dossier**
-  (enquête ou instruction), choisit la **bonne zone** (audition → PV,
-  ordonnance → Actes, DML → DML, rapport géoloc → Geoloc, retranscription
-  → Ecoutes), le **nomme proprement** (daté, explicite) et le range — la
-  pièce apparaît dans la fiche du dossier, intacte et chiffrée, signée du
-  nom du magistrat. Puis il l'**exploite** : lecture, détections →
-  propositions, intégration au travail en cours (ex. l'audition attendue
-  pour une réponse DML). Doute → question dans SIRAL ; pièce non
-  pertinente → corbeille du dépôt (jamais détruite). Le brief quotidien
+  panneau, ou pièce jointe d'un mail transféré. L'attaché **lit le contenu**
+  de la pièce avant de la ranger (`depot_lire` au dépôt, `boite_lire_piece`
+  pour une pièce jointe de mail — PDF, ODT/DOCX/RTF, texte), puis
+  **l'aiguille selon sa nature** :
+  - **pièce de procédure** (PV, audition, ordonnance, réquisition, rapport,
+    retranscription, DML…) → il retrouve le **bon dossier** (enquête ou
+    instruction), choisit la **bonne zone** (audition → PV, ordonnance →
+    Actes, DML → DML, rapport géoloc → Geoloc, retranscription → Ecoutes), la
+    **nomme proprement** (daté, explicite) et la range (`ranger_document`) —
+    la pièce apparaît dans la fiche du dossier, intacte et chiffrée, signée du
+    nom du magistrat. Puis il l'**exploite** : lecture, détections →
+    propositions, intégration au travail en cours (ex. l'audition attendue
+    pour une réponse DML) ;
+  - **document de référence durable** (memento, documentation ou circulaire
+    du ministère, jurisprudence de fond, fiche réflexe, annuaire…) → il
+    l'**intègre à la base de connaissances** (`kb_ranger_piece`) : le TEXTE
+    est extrait côté serveur et conservé chiffré (jamais l'octet du PDF ne
+    transite par la conversation), et l'attaché le **classe dès réception**
+    (titre, catégorie, pochette, description d'une phrase — et **★ réflexe**
+    s'il s'agit d'une référence de premier rang type Memento parquet). Un
+    scan illisible est **refusé** (rien enregistré) : il demande une version
+    texte.
+  Doute sur l'aiguillage, le dossier ou la zone → question dans SIRAL ; pièce
+  non pertinente → corbeille du dépôt (jamais détruite). Le brief quotidien
   vérifie qu'aucune pièce ne dort au dépôt.
 - **Pose ses questions DANS SIRAL — jamais par mail** : quand une
   information lui manque (un acte récent dans NPP, une orientation à
@@ -378,10 +392,18 @@ l'usage).
   n'est injecté en clair dans le prompt : le coût en tokens reste celui d'un
   simple pointeur, la lecture se fait à la demande). Étoile dans le panneau ou,
   en chat, « mets tel document en réflexe / retire-le » (`kb_reflexe`).
-  En chat, « ajoute à la base de connaissances » fonctionne aussi
-  (`kb_enregistrer`). Chiffrée (clé globale), versionnée, réversible.
-  PDF scannés (image, sans texte) : détectés et signalés au téléversement —
-  passez-les par un OCR avant.
+  En chat, « ajoute à la base de connaissances » fonctionne aussi : un TEXTE
+  collé/dicté via `kb_enregistrer`, et surtout un **FICHIER confié** (pièce
+  jointe d'un mail transféré ou pièce du dépôt) via **`kb_ranger_piece`** —
+  « ci-joint ce memento / cette documentation du ministère, intègre-le à ta
+  base et classe-le dès réception ». L'attaché en **extrait le texte côté
+  serveur** (PDF/ODT/DOCX/RTF — comme le navigateur au téléversement), n'en
+  conserve que le texte chiffré, et le **classe à la réception** (catégorie,
+  pochette, description, ★ réflexe au besoin). Chiffrée (clé globale),
+  versionnée, réversible.
+  PDF scannés (image, sans texte) : détectés et signalés au téléversement
+  comme au rangement par mail (`kb_ranger_piece` **refuse** alors la pièce,
+  rien n'est enregistré) — passez-les par un OCR avant.
 - **Gère les DML de bout en bout (module instruction)** : l'attaché lit les
   dossiers d'instruction du magistrat (coffres `instructions-*`, clé
   globale — lecture seule) : saisine, mis en examen avec périodes de
