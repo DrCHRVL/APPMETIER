@@ -177,6 +177,12 @@ export async function saveProduction(keys, { numero, id, type, titre, contenu, s
     // redevient « en attente » : le nouveau contenu appelle une relecture.
     traite: existing?.traite && existing?.contenu === String(contenu) ? existing.traite : false,
     traiteLe: existing?.traite && existing?.contenu === String(contenu) ? existing.traiteLe : undefined,
+    // idem pour un acte REFUSÉ : dès que l'attaché le RECOMMENCE (nouveau
+    // contenu), le refus est levé et l'acte repart « en attente » d'une
+    // décision. Le contenu inchangé conserve l'état de refus et son motif.
+    refuse: existing?.refuse && existing?.contenu === String(contenu) ? existing.refuse : false,
+    refuseLe: existing?.refuse && existing?.contenu === String(contenu) ? existing.refuseLe : undefined,
+    refuseMotif: existing?.refuse && existing?.contenu === String(contenu) ? existing.refuseMotif : undefined,
   }
   await writeEnvelope(numero, rec.id, encryptJson(keys.global, rec, { savedAt: rec.updatedAt, savedBy: author }))
   return { id: rec.id, titre: rec.titre }

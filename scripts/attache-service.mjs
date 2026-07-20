@@ -674,6 +674,27 @@ const server = http.createServer(async (req, res) => {
       try { apres = decryptJson(keys.global, env) } catch { /* enveloppe d'une autre clé : on stocke sans analyser */ }
       const { archivedAt } = await writeEnvelope(numero, id, env)
       await audit(keys, 'production_editee_main', { numero, id })
+      // REFUS du magistrat : transition vers refuse=true (le contenu, lui, n'a
+      // pas changé). Signal FORT — le motif, saisi pour l'apprentissage, est en
+      // clair dans le detail (chiffré au repos comme tout signal) pour que la
+      // consolidation comprenne le rejet et n'y retombe pas. Une simple
+      // réouverture (refuse repassé à false) n'apprend rien.
+      const refusMaintenant = !!(apres && apres.refuse && !(avant && avant.refuse))
+      if (refusMaintenant) {
+        const source = apres.source
+        const titre = String(apres.titre || '').slice(0, 80)
+        const motif = String(apres.refuseMotif || '').replace(/\s+/g, ' ').trim().slice(0, 320)
+        await audit(keys, 'production_refusee', { numero, id })
+        await recordLearningSignal(keys, {
+          type: 'acte_refuse',
+          dossier: numero,
+          source: source ? `trame ${source}` : undefined,
+          // Motif en fin de chaîne : si le detail dépasse le plafond de capture,
+          // c'est sa queue qui est tronquée, jamais le fait ni le début du motif.
+          detail: `acte ${id}${titre ? ` « ${titre} »` : ''} REFUSÉ par le magistrat`
+            + `${motif ? ` — motif : ${motif}` : ' (sans motif précisé)'}`,
+        })
+      }
       const contenuChange = !!(apres && avant && String(avant.contenu || '') !== String(apres.contenu || ''))
       if (contenuChange) {
         // Signal FORT : le magistrat a corrigé l'acte À LA MAIN — le premier
