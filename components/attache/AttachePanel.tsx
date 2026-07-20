@@ -44,6 +44,9 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
   const [busy, setBusy] = useState(false);
   const [feed, setFeed] = useState<Array<FeedCard & { ts: number }>>([]);
   const [feedOpen, setFeedOpen] = useState(true);
+  // Question « à trancher » actuellement sélectionnée dans l'excroissance
+  // (une seule affichée à la fois ; null ⇒ on retombe sur la première).
+  const [selectedTrancherQid, setSelectedTrancherQid] = useState<string | null>(null);
   const [status, setStatus] = useState<any>(null);
   const [cfg, setCfg] = useState<AttacheConfig>({});
   const [showMemory, setShowMemory] = useState(false);
@@ -325,9 +328,23 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
   const keyringOk = status?.keyring?.granted;
   const claudeOk = status?.claude?.ok;
 
-  // Bloc « À trancher », mutualisé entre deux emplacements :
-  //  · en excroissance flottante, accolée en haut à gauche du volet (bureau large) ;
-  //  · en repli, empilé dans le volet (écran étroit, pas de place à gauche).
+  // ── « À trancher » : une carte par question, mais UNE SEULE affichée à la
+  //    fois. Un sélecteur déroulant bascule d'une question à l'autre — chacune
+  //    reprend SA discussion avec l'attaché (pas de mélange) — sans empiler
+  //    cinquante cartes à l'écran. Résolue (répondre / terminé), elle quitte
+  //    la file et le sélecteur passe à la suivante ; file vide ⇒ plus rien.
+  //    Mutualisé : excroissance flottante à gauche (large) / repli dans le
+  //    volet (écran étroit, pas de place à gauche).
+  const activeTrancher = aTrancher.find((f) => f.qid === selectedTrancherQid) ?? aTrancher[0] ?? null;
+
+  // Basculer sur une question : elle devient active ET sa conversation d'origine
+  // est rechargée dans le volet, pour retrouver tout le contexte de l'échange.
+  const selectTrancher = (qid: string) => {
+    setSelectedTrancherQid(qid);
+    const f = aTrancher.find((x) => x.qid === qid);
+    if (f?.convId) openConversation(f.convId);
+  };
+
   const trancherHeader = (
     <button
       onClick={() => setFeedOpen((v) => !v)}
@@ -342,44 +359,65 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
     </button>
   );
 
-  const trancherList = feedOpen && (
-    <div className="max-h-[22rem] space-y-2.5 overflow-y-auto px-4 pb-3 pt-2.5 min-[860px]:max-h-[calc(100vh-7rem)]">
-      {aTrancher.map((f, i) => (
-        <div key={i} className="rounded-xl border border-amber-300 bg-white p-3 shadow-sm ring-1 ring-amber-100">
-          <div className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-900">
-            <span>❓</span>
-            <span className="flex-1">{f.titre}</span>
-            {f.numero && <span className="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{f.numero}</span>}
-          </div>
-          <div className="mt-1.5 text-[12.5px] leading-relaxed text-gray-700 whitespace-pre-wrap">{f.resume}</div>
-          <div className="mt-1 text-[10px] text-gray-400">{f.at ? new Date(f.at).toLocaleString('fr-FR') : ''}</div>
-          <div className="mt-2 space-y-1.5 border-t border-amber-100 pt-2">
-            <textarea
-              value={questionDraft[f.qid!] || ''}
-              onChange={(e) => setQuestionDraft((prev) => ({ ...prev, [f.qid!]: e.target.value }))}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); repondreQuestion(f); } }}
-              rows={2}
-              placeholder="Votre réponse — elle reprend directement sa conversation, avec tout le contexte…"
-              className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-1.5 text-[12.5px] leading-relaxed outline-none focus:border-[#2B5746]/50"
-            />
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={() => setQuestionStatus(f.qid!, 'ignore')}
-                className="rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-50"
-              >
-                Ignorer
-              </button>
-              <button
-                onClick={() => repondreQuestion(f)}
-                disabled={busy || !(questionDraft[f.qid!] || '').trim()}
-                className="rounded-lg bg-[#2B5746] px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
-              >
-                Répondre
-              </button>
-            </div>
+  const trancherBody = feedOpen && activeTrancher && (
+    <div className="max-h-[22rem] space-y-2 overflow-y-auto px-4 pb-3 pt-2.5 min-[860px]:max-h-[calc(100vh-7rem)]">
+      {/* Sélecteur — n'apparaît qu'à partir de deux questions en attente. */}
+      {aTrancher.length > 1 && (
+        <select
+          value={activeTrancher.qid!}
+          onChange={(e) => selectTrancher(e.target.value)}
+          title="Choisir la question à trancher — recharge sa discussion"
+          className="w-full cursor-pointer truncate rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-[12px] font-medium text-amber-900 outline-none focus:border-amber-500"
+        >
+          {aTrancher.map((f, i) => (
+            <option key={f.qid} value={f.qid!}>
+              {i + 1}. {(f.numero ? f.numero + ' · ' : '') + f.titre}
+            </option>
+          ))}
+        </select>
+      )}
+      <div className="rounded-xl border border-amber-300 bg-white p-3 shadow-sm ring-1 ring-amber-100">
+        <div className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-900">
+          <span>❓</span>
+          <span className="flex-1">{activeTrancher.titre}</span>
+          {activeTrancher.numero && <span className="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{activeTrancher.numero}</span>}
+        </div>
+        <div className="mt-1.5 text-[12.5px] leading-relaxed text-gray-700 whitespace-pre-wrap">{activeTrancher.resume}</div>
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <span className="text-[10px] text-gray-400">{activeTrancher.at ? new Date(activeTrancher.at).toLocaleString('fr-FR') : ''}</span>
+          {activeTrancher.convId && (
+            <button onClick={() => openConversation(activeTrancher.convId!)} className="flex-shrink-0 text-[10.5px] font-medium text-[#2B5746] hover:underline">
+              Voir la discussion →
+            </button>
+          )}
+        </div>
+        <div className="mt-2 space-y-1.5 border-t border-amber-100 pt-2">
+          <textarea
+            value={questionDraft[activeTrancher.qid!] || ''}
+            onChange={(e) => setQuestionDraft((prev) => ({ ...prev, [activeTrancher.qid!]: e.target.value }))}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); repondreQuestion(activeTrancher); } }}
+            rows={2}
+            placeholder="Votre réponse — elle reprend directement sa conversation, avec tout le contexte…"
+            className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-1.5 text-[12.5px] leading-relaxed outline-none focus:border-[#2B5746]/50"
+          />
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => setQuestionStatus(activeTrancher.qid!, 'ignore')}
+              title="Retirer cette question de la file, sans répondre"
+              className="rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-50"
+            >
+              Terminé
+            </button>
+            <button
+              onClick={() => repondreQuestion(activeTrancher)}
+              disabled={busy || !(questionDraft[activeTrancher.qid!] || '').trim()}
+              className="rounded-lg bg-[#2B5746] px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
+            >
+              Répondre
+            </button>
           </div>
         </div>
-      ))}
+      </div>
     </div>
   );
 
@@ -391,7 +429,7 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
       {aTrancher.length > 0 && (
         <div className="fixed right-[440px] top-0 z-[69] hidden w-[340px] flex-col overflow-hidden rounded-l-2xl border border-r-0 border-amber-200 bg-amber-50 shadow-2xl min-[860px]:flex">
           {trancherHeader}
-          {trancherList}
+          {trancherBody}
         </div>
       )}
 
@@ -452,7 +490,7 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
       {aTrancher.length > 0 && (
         <div className="border-b border-amber-200 bg-amber-50/70 min-[860px]:hidden">
           {trancherHeader}
-          {trancherList}
+          {trancherBody}
         </div>
       )}
 
