@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   X, Send, Plus, Scale, BookOpen, RefreshCw, Loader2, Inbox, Paperclip, FileText,
-  History, ChevronDown, ChevronUp, Wrench, AlertTriangle,
+  History, ChevronDown, ChevronUp, Wrench, AlertTriangle, Trash2, MessageSquare,
 } from 'lucide-react';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig } from './modelOptions';
 
@@ -40,6 +40,11 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
   const [convId, setConvId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConvMeta[]>([]);
   const [showConvList, setShowConvList] = useState(false);
+  // Titres/aperçus des conversations, déchiffrés côté client à l'ouverture de
+  // l'historique (le titre vit dans l'enveloppe chiffrée, invisible du disque).
+  const [convMeta, setConvMeta] = useState<Record<string, { title: string; count: number }>>({});
+  const [convMetaBusy, setConvMetaBusy] = useState(false);
+  const [confirmDeleteConv, setConfirmDeleteConv] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [feed, setFeed] = useState<Array<FeedCard & { ts: number }>>([]);
@@ -57,6 +62,9 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
   const [propositionsReload, setPropositionsReload] = useState(0);
   const streamRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Cache des métadonnées déchiffrées, indexé par id+mtime : on ne redéchiffre
+  // que ce qui a changé quand on rouvre l'historique.
+  const convMetaCacheRef = useRef<Record<string, { title: string; count: number; mtime: string }>>({});
 
   const scrollDown = useCallback(() => {
     requestAnimationFrame(() => {
@@ -126,6 +134,59 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
     setMessages([]);
     setShowConvList(false);
   }, []);
+
+  // Déchiffre le titre + le nombre de messages de chaque conversation, pour
+  // l'historique. Ne retraite que ce qui a changé (cache indexé sur mtime).
+  const loadConversationMeta = useCallback(async (list: ConvMeta[]) => {
+    const todo = list.filter((c) => convMetaCacheRef.current[c.id]?.mtime !== c.mtime);
+    if (!todo.length) return;
+    setConvMetaBusy(true);
+    try {
+      for (const c of todo) {
+        try {
+          const res = await fetch('/api/attache/conversations/' + encodeURIComponent(c.id));
+          if (!res.ok) continue;
+          const { envelope } = await res.json();
+          const conv = await eapi().attache_decrypt(envelope);
+          if (!conv) continue;
+          const meta = {
+            title: String(conv.title || '').replace(/\s+/g, ' ').trim() || 'Conversation',
+            count: (conv.messages || []).length,
+            mtime: c.mtime,
+          };
+          convMetaCacheRef.current[c.id] = meta;
+          setConvMeta((prev) => ({ ...prev, [c.id]: { title: meta.title, count: meta.count } }));
+        } catch { /* enveloppe illisible : on garde l'id */ }
+      }
+    } finally {
+      setConvMetaBusy(false);
+    }
+  }, []);
+
+  // Suppression explicite d'une conversation (le fil chiffré est retiré du
+  // disque, version archivée côté service). Aucune suppression automatique :
+  // rien ne disparaît sans ce geste.
+  const deleteConversation = useCallback(async (id: string) => {
+    setConfirmDeleteConv(null);
+    try {
+      const res = await fetch('/api/attache/conversations/' + encodeURIComponent(id), { method: 'DELETE' });
+      if (!res.ok) return;
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      delete convMetaCacheRef.current[id];
+      setConvMeta((prev) => { const next = { ...prev }; delete next[id]; return next; });
+      if (convId === id) { setConvId(null); setMessages([]); }
+    } catch { /* silencieux */ }
+  }, [convId]);
+
+  // À l'ouverture de l'historique : rafraîchit la liste puis déchiffre les titres.
+  useEffect(() => {
+    if (!showConvList) return;
+    setConfirmDeleteConv(null);
+    loadConversations();
+  }, [showConvList, loadConversations]);
+  useEffect(() => {
+    if (showConvList && conversations.length) loadConversationMeta(conversations);
+  }, [showConvList, conversations, loadConversationMeta]);
 
   // ── Envoi + streaming SSE ──
   // `cid` force la conversation cible (réponse à une question de l'attaché :
@@ -451,21 +512,9 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
         <button onClick={openMemory} title="Mémoire de l'attaché" className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50">
           <BookOpen className="h-4 w-4" />
         </button>
-        <div className="relative">
-          <button onClick={() => setShowConvList((v) => !v)} title="Conversations" className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50">
-            <History className="h-4 w-4" />
-          </button>
-          {showConvList && (
-            <div className="absolute right-0 top-9 z-10 max-h-72 w-64 overflow-y-auto rounded-xl border border-gray-200 bg-white py-1 shadow-xl">
-              {conversations.length === 0 && <div className="px-3 py-2 text-xs text-gray-500">Aucune conversation</div>}
-              {conversations.map((c) => (
-                <button key={c.id} onClick={() => openConversation(c.id)} className="block w-full truncate px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50">
-                  {c.id} <span className="text-gray-400">· {new Date(c.mtime).toLocaleDateString('fr-FR')}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <button onClick={() => setShowConvList(true)} title="Historique des conversations" className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50">
+          <History className="h-4 w-4" />
+        </button>
         <button onClick={newConversation} title="Nouvelle conversation" className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50">
           <Plus className="h-4 w-4" />
         </button>
@@ -626,6 +675,68 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
           Il agit dans SIRAL (réversible, journalisé) · seule sortie : votre adresse mail
         </p>
       </div>
+
+      {/* Historique des conversations — plein panneau, façon Claude web :
+          titres lisibles, reprise d'un fil, suppression progressive (le
+          serveur est petit). Rien n'est supprimé sans un geste explicite. */}
+      {showConvList && (
+        <div className="absolute inset-0 z-20 flex flex-col bg-white">
+          <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3">
+            <History className="h-4 w-4 text-[#2B5746]" />
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-gray-900">Conversations</div>
+              <div className="text-[11px] text-gray-500">Reprenez un fil, ou supprimez ceux dont vous n'avez plus besoin</div>
+            </div>
+            <button onClick={newConversation} title="Nouvelle conversation" className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50">
+              <Plus className="h-4 w-4" />
+            </button>
+            <button onClick={() => setShowConvList(false)} className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2">
+            {conversations.length === 0 && (
+              <div className="mt-10 text-center text-xs text-gray-500">Aucune conversation pour l'instant.</div>
+            )}
+            {conversations.map((c) => {
+              const meta = convMeta[c.id];
+              const isOpen = convId === c.id;
+              return (
+                <div key={c.id} className={`mb-1 flex items-center gap-1.5 rounded-lg px-2 py-2 ${isOpen ? 'bg-[#2B5746]/10 ring-1 ring-[#2B5746]/20' : 'hover:bg-gray-50'}`}>
+                  <button onClick={() => openConversation(c.id)} className="flex min-w-0 flex-1 items-start gap-2 text-left">
+                    <MessageSquare className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 ${isOpen ? 'text-[#2B5746]' : 'text-gray-400'}`} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium text-gray-800">{meta?.title || 'Conversation'}</span>
+                      <span className="block text-[10.5px] text-gray-400">
+                        {new Date(c.mtime).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        {meta ? ` · ${meta.count} message${meta.count > 1 ? 's' : ''}` : ''}
+                        {isOpen ? ' · ouverte' : ''}
+                      </span>
+                    </span>
+                  </button>
+                  {confirmDeleteConv === c.id ? (
+                    <span className="flex flex-shrink-0 items-center gap-1">
+                      <button onClick={() => deleteConversation(c.id)} className="rounded-md bg-red-600 px-2 py-1 text-[10.5px] font-semibold text-white hover:bg-red-700">Supprimer</button>
+                      <button onClick={() => setConfirmDeleteConv(null)} className="rounded-md border border-gray-200 px-2 py-1 text-[10.5px] font-medium text-gray-500 hover:bg-gray-50">Annuler</button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDeleteConv(c.id)}
+                      title="Supprimer cette conversation"
+                      className="flex-shrink-0 rounded-md p-1.5 text-gray-300 hover:bg-red-50 hover:text-red-500"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-2 border-t border-gray-100 px-4 py-1.5 text-[10.5px] text-gray-400">
+            {convMetaBusy ? <><Loader2 className="h-3 w-3 animate-spin" /> Lecture des titres…</> : `${conversations.length} conversation${conversations.length > 1 ? 's' : ''} · conservées tant que vous ne les supprimez pas`}
+          </div>
+        </div>
+      )}
 
       {/* Modale mémoire */}
       {showMemory && (
