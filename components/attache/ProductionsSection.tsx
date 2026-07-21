@@ -27,6 +27,8 @@ import {
   FileDown, FileText, CheckCircle2, Undo2, Wand2, XCircle, RotateCcw, Mail,
 } from 'lucide-react';
 import { downloadActePdf, downloadActeDocx, acteFileBase } from '@/lib/web/acteExport';
+import { useToast } from '@/contexts/ToastContext';
+import { useActeRunsStore, runKey, acteDoneToastMessage } from '@/stores/useActeRunsStore';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
@@ -88,6 +90,23 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
   // Refus : acte dont la boîte « motif du refus » est ouverte + motif saisi.
   const [refusOpen, setRefusOpen] = useState<string | null>(null);
   const [refusMotif, setRefusMotif] = useState<Record<string, string>>({});
+  // Runs IA DURABLES (retouche / recommencer) — persistés hors composant, ils
+  // survivent à la fermeture de l'enquête et au rechargement. La notif
+  // « en cours » et le toast de fin s'appuient dessus.
+  const acteRuns = useActeRunsStore((s) => s.runs);
+  const startRun = useActeRunsStore((s) => s.startRun);
+  const finishRun = useActeRunsStore((s) => s.finishRun);
+  const { showToast } = useToast();
+  // Un acte est « en cours » s'il a un run persisté OU un flux ouvert ici.
+  const isRunning = useCallback(
+    (id: string) => Boolean(acteRuns[runKey(numero, id)]) || chatBusy?.id === id,
+    [acteRuns, numero, chatBusy],
+  );
+  // Nature du run en cours (retouche / redo-*), qu'il soit persisté ou en flux.
+  const runKindOf = useCallback(
+    (id: string) => acteRuns[runKey(numero, id)]?.kind ?? (chatBusy?.id === id ? chatBusy.kind : undefined),
+    [acteRuns, numero, chatBusy],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -257,6 +276,10 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
     setChatBusy({ id: p.id, kind });
     setAiTools([]);
     setNotice(null);
+    // Marque le run comme DURABLE : la notif « en cours » et le toast de fin
+    // survivront à la fermeture de l'enquête et au rechargement. On mémorise
+    // l'updatedAt AVANT le run — le watcher détecte la fin quand il change.
+    startRun({ numero: p.numero, prodId: p.id, titre: p.titre, kind, startedAt: Date.now(), prevUpdatedAt: p.updatedAt });
     const convKey = `attache_dossier_conv_${p.numero}`;
     let convId: string | null = null;
     try { convId = localStorage.getItem(convKey); } catch { /* */ }
@@ -268,6 +291,7 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
       });
       if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({ error: 'Service indisponible' }));
+        finishRun(p.numero, p.id);
         setNotice(`Demande à l'IA impossible : ${err.error || res.status}`);
         return false;
       }
@@ -296,19 +320,27 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
         }
       }
       if (finalConv) { try { localStorage.setItem(convKey, finalConv); } catch { /* */ } }
-      if (!ok) { setNotice(`Run interrompu : ${finalErr || 'run interrompu'}`); return false; }
+      if (!ok) { finishRun(p.numero, p.id); setNotice(`Run interrompu : ${finalErr || 'run interrompu'}`); return false; }
       // Oublier le brouillon local (obsolète), puis recharger la version à jour.
       setDraft((d) => { const n = { ...d }; delete n[p.id]; return n; });
       await load();
+      // Fin détectée ICI (le magistrat est resté) : on clôt le run et on émet
+      // le toast tout de suite. S'il était parti, le flux ne revient pas et
+      // c'est le watcher global qui détectera la fin et émettra le même toast.
+      finishRun(p.numero, p.id);
+      showToast(acteDoneToastMessage(p.numero, p.titre, kind), 'success');
       return true;
     } catch {
+      // Connexion interrompue CÔTÉ CLIENT (navigation, réseau) : le run peut
+      // très bien se terminer côté service. On NE clôt PAS le run — le watcher
+      // global prendra le relais et signalera la fin.
       setNotice('Demande à l\'IA impossible — connexion interrompue.');
       return false;
     } finally {
       setChatBusy(null);
       setAiTools([]);
     }
-  }, [load]);
+  }, [load, startRun, finishRun, showToast]);
 
   /**
    * Retouche l'acte par l'IA, en place : consigne libre du magistrat, l'attaché
@@ -323,8 +355,10 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
       '',
       `Demande du magistrat : ${instruction}`,
       '',
-      `Méthode : relis d'abord le texte EXACT de l'acte (production_lire numero="${p.numero}" id="${p.id}")` +
-        `${p.source ? `, relis la trame « ${p.source} » (trame_lire)` : ''}, et charge la skill de rédaction d'acte applicable (skill_lire) puis suis-la. ` +
+      `Méthode : relis d'abord le texte EXACT de l'acte (production_lire numero="${p.numero}" id="${p.id}"). ` +
+        `TRAME — si ma demande ci-dessus désigne une trame précise (« prends la trame X », « suis plutôt Y »), c'est CELLE-LÀ qui prime : retrouve-la (trames_lister pour son nom exact), lis-la (trame_lire), applique-la et renseigne « source » avec son nom.` +
+        `${p.source ? ` À défaut de trame demandée, conforme-toi à la trame déjà suivie « ${p.source} » (trame_lire).` : ''} ` +
+        `Charge aussi la skill de rédaction d'acte applicable (skill_lire) puis suis-la. ` +
         `Applique précisément la demande ci-dessus en conservant tout le reste de l'acte (structure, visas, motivation). ` +
         `Ré-enregistre ensuite l'acte avec produire_document en réutilisant le MÊME id ("${p.id}"). Termine par une phrase indiquant ce que tu as changé.`,
     ].join('\n');
@@ -366,8 +400,10 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
       );
     }
     lignes.push(
-      `Méthode de rédaction : relis le texte actuel (production_lire numero="${p.numero}" id="${p.id}")` +
-        `${p.source ? `, relis la trame « ${p.source} » (trame_lire)` : ''}, charge la skill de rédaction d'acte applicable (skill_lire) puis suis-la. ` +
+      `Méthode de rédaction : relis le texte actuel (production_lire numero="${p.numero}" id="${p.id}"). ` +
+        `TRAME — si ma consigne désigne une trame précise (« prends la trame X », « change de trame pour Y »), c'est CELLE-LÀ que tu appliques : retrouve-la (trames_lister), lis-la (trame_lire), renseigne « source » avec son nom exact ; ne conserve PAS l'ancienne trame contre ma demande.` +
+        `${p.source ? ` À défaut de trame demandée, conserve la trame « ${p.source} » (trame_lire).` : ''} ` +
+        `Charge la skill de rédaction d'acte applicable (skill_lire) puis suis-la. ` +
         `Rédige un acte NEUF, complet et densément motivé, sans reprendre les défauts du jet précédent. ` +
         `Ré-enregistre-le avec produire_document en réutilisant le MÊME id ("${p.id}"). Termine par une phrase indiquant ce qui a changé par rapport au jet précédent.`,
     );
@@ -422,6 +458,12 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
                       <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-gray-500">{TYPE_LABEL[p.type] || 'Acte'}</span>
                       {p.refuse && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-amber-700">Refusé</span>}
                       {p.traite && !p.refuse && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-[#2B5746]">Validé</span>}
+                      {/* Indicateur DURABLE « modification en cours » : reste visible même acte replié et après rechargement, jusqu'à ce que le watcher détecte la fin. */}
+                      {isRunning(p.id) && (
+                        <span className="inline-flex items-center gap-1 rounded bg-[#2B5746]/10 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-[#2B5746]" title="L'IA retouche cet acte — le travail continue en arrière-plan, vous serez prévenu à la fin.">
+                          <Loader2 className="h-2.5 w-2.5 animate-spin" />En cours
+                        </span>
+                      )}
                       <button onClick={() => setExpanded(isOpen ? null : p.id)} className="min-w-0 flex-1 truncate text-left text-[12.5px] font-semibold text-gray-800 hover:text-gray-900">
                         {p.titre}
                       </button>
@@ -528,18 +570,18 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
                               value={aiInput[p.id] ?? ''}
                               onChange={(e) => setAiInput((m) => ({ ...m, [p.id]: e.target.value }))}
                               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askAiRevise(p); } }}
-                              disabled={chatBusy?.id === p.id}
+                              disabled={isRunning(p.id)}
                               rows={1}
                               placeholder="Retoucher sur place : « motive davantage la nécessité », « ajoute le visa 706-96 », « allège le rappel des faits »…"
                               className="max-h-28 flex-1 resize-none rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[11.5px] leading-relaxed text-gray-800 outline-none focus:border-[#2B5746]/40 disabled:opacity-60"
                             />
                             <button
                               onClick={() => askAiRevise(p)}
-                              disabled={chatBusy?.id === p.id || !(aiInput[p.id] ?? '').trim()}
+                              disabled={isRunning(p.id) || !(aiInput[p.id] ?? '').trim()}
                               className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-[#2B5746] px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40"
                               title="L'attaché relit l'acte, applique votre demande en suivant la trame et la skill, puis réécrit l'acte — retouche ciblée, sans repartir de zéro"
                             >
-                              {chatBusy?.id === p.id && chatBusy?.kind === 'retouche' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}Demander à l'IA
+                              {runKindOf(p.id) === 'retouche' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}Demander à l'IA
                             </button>
                           </div>
                         </div>
@@ -552,11 +594,11 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
                           <div className="flex flex-wrap items-end gap-1.5">
                             <button
                               onClick={() => recommencer(p, 'mail')}
-                              disabled={chatBusy?.id === p.id}
+                              disabled={isRunning(p.id)}
                               className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-sky-800 hover:bg-sky-50 disabled:opacity-40"
                               title="L'attaché relit le mail (ou la consigne) d'origine et réécrit l'acte entièrement"
                             >
-                              {chatBusy?.id === p.id && chatBusy?.kind === 'redo-mail' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}En relisant le mail
+                              {runKindOf(p.id) === 'redo-mail' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}En relisant le mail
                             </button>
                           </div>
                           <div className="mt-1.5 flex items-end gap-1.5">
@@ -564,26 +606,26 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
                               value={redoInput[p.id] ?? ''}
                               onChange={(e) => setRedoInput((m) => ({ ...m, [p.id]: e.target.value }))}
                               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); recommencer(p, 'instruction'); } }}
-                              disabled={chatBusy?.id === p.id}
+                              disabled={isRunning(p.id)}
                               rows={1}
                               placeholder="…ou avec une nouvelle instruction : « pars plutôt sur le fondement 230-33 », « change de trame », « reprends tout, le plan ne va pas »…"
                               className="max-h-28 flex-1 resize-none rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[11.5px] leading-relaxed text-gray-800 outline-none focus:border-sky-400 disabled:opacity-60"
                             />
                             <button
                               onClick={() => recommencer(p, 'instruction')}
-                              disabled={chatBusy?.id === p.id || !(redoInput[p.id] ?? '').trim()}
+                              disabled={isRunning(p.id) || !(redoInput[p.id] ?? '').trim()}
                               className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-sky-700 px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40"
                               title="L'attaché repart de zéro en suivant votre nouvelle instruction"
                             >
-                              {chatBusy?.id === p.id && chatBusy?.kind === 'redo-instruction' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}Recommencer
+                              {runKindOf(p.id) === 'redo-instruction' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}Recommencer
                             </button>
                           </div>
                         </div>
 
-                        {chatBusy?.id === p.id && (
+                        {isRunning(p.id) && (
                           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px] text-[#2B5746]">
                             <Loader2 className="h-3 w-3 animate-spin" />
-                            <span>{chatBusy?.kind === 'retouche' ? 'Retouche' : 'Nouvelle rédaction'} en cours — l'acte se rechargera à la fin.</span>
+                            <span>{runKindOf(p.id) === 'retouche' ? 'Retouche' : 'Nouvelle rédaction'} en cours — le travail continue en arrière-plan même si vous quittez l'enquête ; vous serez prévenu à la fin.</span>
                             {aiTools.length > 0 && <span className="text-gray-400">{aiTools.join(' · ')}</span>}
                           </div>
                         )}
