@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CartographieConfigManager } from '@/utils/cartographieConfigManager';
 import {
   DEFAULT_CARTO_CONFIG,
+  type CartographieLayoutConfig,
   type CartographieModuleConfig,
   type CartographieScoreWeights,
 } from '@/types/cartographieTypes';
@@ -60,6 +61,13 @@ export const useCartographieConfig = () => {
     return CartographieConfigManager.setGroupByService(enabled);
   }, []);
 
+  const updateLayout = useCallback(
+    async (patch: Partial<CartographieLayoutConfig>) => {
+      return CartographieConfigManager.updateLayout(patch);
+    },
+    [],
+  );
+
   const reset = useCallback(async () => {
     return CartographieConfigManager.reset();
   }, []);
@@ -72,6 +80,7 @@ export const useCartographieConfig = () => {
     setCategoryWeight,
     setNatinfWeight,
     setGroupByService,
+    updateLayout,
     reset,
   };
 };

@@ -21,6 +21,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
+import type { CartographieLayoutConfig } from '@/types/cartographieTypes';
 import type { DossierNode, GraphEdge, GraphNode, MecNode } from '@/utils/mindmapGraph';
 import type { ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
 import { getCollisionRadius, getDossierBox, getNodeRadius, useForceLayout } from './useForceLayout';
@@ -60,6 +61,9 @@ interface MindmapCanvasProps {
   /** Ancrage zonal : regroupe les galaxies par service d'enquête dominant
    *  (puits de gravité doux au niveau macro). Effet au prochain recompactage. */
   groupByService?: boolean;
+  /** Paramètres avancés d'espacement (réglages du module Cartographie). Effet
+   *  au prochain recompactage. */
+  layout?: CartographieLayoutConfig;
   onNodeClick?: (node: GraphNode) => void;
   onNodeDoubleClick?: (node: GraphNode) => void;
 }
@@ -428,11 +432,12 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   egoDepth = 2,
   pinnedIds,
   groupByService = false,
+  layout,
   onNodeClick,
   onNodeDoubleClick,
 }) => {
   const pinnedSet = useMemo(() => new Set(pinnedIds || []), [pinnedIds]);
-  const positions = useForceLayout(nodes, edges, refreshKey, { groupByService });
+  const positions = useForceLayout(nodes, edges, refreshKey, { groupByService, layout });
   const { setCenter, fitView } = useReactFlow();
 
   useEffect(() => {

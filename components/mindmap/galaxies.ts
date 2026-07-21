@@ -58,6 +58,14 @@ export interface GalaxyPlacement {
   r: number;
 }
 
+/** Surcharges d'espacement inter-galactique (exposées à l'utilisateur via les
+ *  paramètres avancés du module). Si absentes, les constantes de repli
+ *  INTER_GALAXY_PADDING / INTER_GALAXY_PADDING_RENS s'appliquent. */
+export interface GalaxySpacing {
+  interGalaxyPadding: number;
+  interGalaxyPaddingRens: number;
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // PARAMÈTRES (calibrés pour des graphes typiques de 5 à 500 nœuds)
 // ──────────────────────────────────────────────────────────────────────
@@ -299,7 +307,10 @@ export function layoutGalaxyCenters(
   rensGalaxyPairs?: Array<{ aIdx: number; bIdx: number }>,
   serviceGravity?: ServiceGravityInput,
   applyBigGalaxyRepel?: boolean,
+  spacing?: GalaxySpacing,
 ): Map<number, GalaxyPlacement> {
+  const interGalaxyPadding = spacing?.interGalaxyPadding ?? INTER_GALAXY_PADDING;
+  const interGalaxyPaddingRens = spacing?.interGalaxyPaddingRens ?? INTER_GALAXY_PADDING_RENS;
   const result = new Map<number, GalaxyPlacement>();
   if (galaxies.length === 0) return result;
   if (galaxies.length === 1) {
@@ -414,7 +425,7 @@ export function layoutGalaxyCenters(
       // que les petites : un dossier indépendant ne vient plus se coller
       // au bord d'un gros amas, il reste à distance respectueuse.
       forceCollide<GalaxySimNode>()
-        .radius(d => d.r + INTER_GALAXY_PADDING + massHalo(d.r))
+        .radius(d => d.r + interGalaxyPadding + massHalo(d.r))
         .strength(1)
         .iterations(2),
     );
@@ -457,9 +468,9 @@ export function layoutGalaxyCenters(
             const a = l.source as GalaxySimNode;
             const b = l.target as GalaxySimNode;
             // Distance cible = somme des rayons + un padding réduit. La
-            // collision (rayon + INTER_GALAXY_PADDING) empêche d'aller plus
+            // collision (rayon + interGalaxyPadding) empêche d'aller plus
             // près : les galaxies se posent au minimum admissible.
-            return a.r + b.r + INTER_GALAXY_PADDING_RENS + (massHalo(a.r) + massHalo(b.r)) / 2;
+            return a.r + b.r + interGalaxyPaddingRens + (massHalo(a.r) + massHalo(b.r)) / 2;
           })
           .strength(0.18),
       );
@@ -637,7 +648,10 @@ export function hullSatRelax(
   positionsByNodeId: Map<string, { x: number; y: number }>,
   nodeRadiusById?: Map<string, number>,
   rensGalaxyPairs?: Array<{ aIdx: number; bIdx: number }>,
+  spacing?: GalaxySpacing,
 ): Map<number, { dx: number; dy: number }> {
+  const interGalaxyPadding = spacing?.interGalaxyPadding ?? INTER_GALAXY_PADDING;
+  const interGalaxyPaddingRens = spacing?.interGalaxyPaddingRens ?? INTER_GALAXY_PADDING_RENS;
   const deltas = new Map<number, { dx: number; dy: number }>();
   if (galaxies.length < 2) return deltas;
 
@@ -684,7 +698,7 @@ export function hullSatRelax(
     // padding + halo de masse. Hull-SAT applique désormais le MÊME budget
     // d'espace que la simulation macro — pas de marche d'escalier où le
     // post-pass relâche un contact que la simu avait soigneusement écarté.
-    return { idx: g.index, x: cx, y: cy, r: r + INTER_GALAXY_PADDING / 2 + massHalo(r) / 2 };
+    return { idx: g.index, x: cx, y: cy, r: r + interGalaxyPadding / 2 + massHalo(r) / 2 };
   });
 
   // Translations cumulées par galaxie.
@@ -717,7 +731,7 @@ export function hullSatRelax(
         // somme des rayons → toujours pas de chevauchement, juste un
         // espace inter-galactique plus court).
         const rensShrink = isRensPair(a.idx, b.idx)
-          ? (INTER_GALAXY_PADDING - INTER_GALAXY_PADDING_RENS)
+          ? (interGalaxyPadding - interGalaxyPaddingRens)
           : 0;
         const minDist = a.r + b.r - rensShrink;
         const penetration = minDist - d;

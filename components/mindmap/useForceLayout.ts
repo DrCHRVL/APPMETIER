@@ -42,6 +42,7 @@ import {
   type SimulationNodeDatum,
 } from 'd3-force';
 import type { GraphEdge, GraphNode } from '@/utils/mindmapGraph';
+import type { CartographieLayoutConfig } from '@/types/cartographieTypes';
 import { applyOrbitalLayout, detectGalaxies, hullSatRelax, layoutGalaxyCenters, nodeSatRelax } from './galaxies';
 
 export interface PositionedNode {
@@ -282,6 +283,10 @@ export interface ForceLayoutOptions {
    *  les ajouts en remous → un dossier ajouté vient s'organiser sans
    *  perturber la disposition globale. */
   groupByService?: boolean;
+  /** Paramètres avancés d'espacement (issus des réglages du module). Absents,
+   *  les valeurs de repli (LINK_DISTANCE, INTER_GALAXY_PADDING…) s'appliquent.
+   *  Un changement ne se voit qu'au prochain recompactage (layout mis en cache). */
+  layout?: CartographieLayoutConfig;
 }
 
 export function useForceLayout(
@@ -291,6 +296,11 @@ export function useForceLayout(
   options: ForceLayoutOptions = {},
 ): Map<string, PositionedNode> {
   const groupByService = options.groupByService ?? false;
+  // On dépend de valeurs primitives (pas de l'objet layout) pour que le memo
+  // ne se recalcule que si un réglage change réellement.
+  const linkDistance = options.layout?.linkDistance ?? LINK_DISTANCE;
+  const interGalaxyPadding = options.layout?.interGalaxyPadding;
+  const interGalaxyPaddingRens = options.layout?.interGalaxyPaddingRens;
   return useMemo(() => {
     if (nodes.length === 0) return new Map();
 
@@ -425,7 +435,13 @@ export function useForceLayout(
       }
     }
 
-    const galaxyCenters = layoutGalaxyCenters(galaxies, galaxyCenterCache, rensGalaxyPairs, serviceGravity, mode !== 'remous');
+    // Surcharges d'espacement inter-galactique (paramètres avancés). Absentes,
+    // galaxies.ts retombe sur ses constantes de repli.
+    const spacing = (interGalaxyPadding !== undefined && interGalaxyPaddingRens !== undefined)
+      ? { interGalaxyPadding, interGalaxyPaddingRens }
+      : undefined;
+
+    const galaxyCenters = layoutGalaxyCenters(galaxies, galaxyCenterCache, rensGalaxyPairs, serviceGravity, mode !== 'remous', spacing);
 
     // ─────────────────────────────────────────────────────────────
     // 5. Set libéré (mode remous uniquement)
@@ -502,7 +518,7 @@ export function useForceLayout(
         'link',
         forceLink<SimNode, SimulationLinkDatum<SimNode>>(simLinks)
           .id(d => d.id)
-          .distance(LINK_DISTANCE)
+          .distance(linkDistance)
           .strength(0.6),
       )
       .force(
@@ -586,7 +602,7 @@ export function useForceLayout(
     // ─────────────────────────────────────────────────────────────
     const nodeRadiusById = new Map<string, number>();
     for (const n of nodes) nodeRadiusById.set(n.id, getCollisionRadius(n));
-    const deltas = hullSatRelax(galaxies, positionsForOrbits, nodeRadiusById, rensGalaxyPairs);
+    const deltas = hullSatRelax(galaxies, positionsForOrbits, nodeRadiusById, rensGalaxyPairs, spacing);
 
     // ─────────────────────────────────────────────────────────────
     // 11. Passe finale node-SAT : garantit qu'AUCUNE paire de bulles
@@ -693,7 +709,7 @@ export function useForceLayout(
     persistGalaxyCenterCache();
     persistOrbitalAngleCache();
     return positions;
-  }, [nodes, edges, refreshKey, groupByService]);
+  }, [nodes, edges, refreshKey, groupByService, linkDistance, interGalaxyPadding, interGalaxyPaddingRens]);
 }
 
 export function getNodeRadius(node: GraphNode): number {
