@@ -1424,39 +1424,6 @@ export function AdminAttachePanel() {
                   </div>
                 )}
 
-                {/* « Lots parallèles, wtf ? » — d'OÙ viennent les sous-agents */}
-                {(() => {
-                  const src = w7d.sousAgentsBySource || {};
-                  const subTotal = w7d.byCategory?.['sous-agents']?.total || 0;
-                  const rows = Object.entries(src)
-                    .map(([k, v]: [string, any]) => ({ k, total: v.total || 0, runs: v.runs || 0 }))
-                    .filter((r) => r.total > 0)
-                    .sort((a, b) => b.total - a.total);
-                  if (!rows.length || subTotal <= 0) return null;
-                  const srcLabel = srcLabelOf;
-                  return (
-                    <div className="space-y-1 rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2">
-                      <div className="text-[11px] font-semibold text-amber-800">« Sous-agents (lots parallèles) », concrètement : des runs Claude lancés en parallèle pour lire vos dossiers — voici QUI les lance</div>
-                      {rows.map((r) => {
-                        const pct = Math.round((r.total / subTotal) * 100);
-                        return (
-                          <div key={r.k} className="flex items-center gap-2 text-[11px] text-amber-900">
-                            <span className="w-40 shrink-0 truncate" title={srcLabel(r.k)}>{srcLabel(r.k)}</span>
-                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-amber-100">
-                              <div className="h-full rounded-full bg-amber-500" style={{ width: `${pct}%` }} />
-                            </div>
-                            <span className="w-24 shrink-0 text-right text-[10.5px]">{formatTokens(r.total)} · {r.runs} run{r.runs > 1 ? 's' : ''}</span>
-                          </div>
-                        );
-                      })}
-                      <p className="pt-0.5 text-[10.5px] leading-relaxed text-amber-700">
-                        Le poste dominant vous dit quoi couper. Le <b>brief quotidien</b> (balayage matinal de tous les dossiers)
-                        se désactive plus bas ; le balayage à la demande, planifiez-le en <b>routine de nuit</b>.
-                      </p>
-                    </div>
-                  );
-                })()}
-
                 {/* Repli si l'attribution manque (anciens runs) : l'alerte simple */}
                 {subShare >= 40 && !Object.keys(w7d.sousAgentsBySource || {}).length && (
                   <p className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-[11px] leading-relaxed text-amber-700">
@@ -1557,11 +1524,8 @@ export function AdminAttachePanel() {
             />
             <span className="text-[11.5px] leading-relaxed text-gray-700">
               <span className="font-semibold text-gray-800">Brief quotidien automatique</span>
-              {' '}— chaque matin, l&apos;attaché balaye <b>tous vos dossiers</b> en lançant <b>un sous-agent par dossier</b>
-              {' '}(les fameux « lots parallèles »). C&apos;est de loin votre premier poste de jetons. <b>Désactivé par défaut :</b>
-              {' '}tant qu&apos;il l&apos;est, aucun balayage automatique ne part le matin. Pour faire remonter les incohérences
-              sans exploser votre fenêtre de 5 h, créez plutôt une <b>routine de nuit</b> (section Routines) ; le bouton
-              {' '}« Générer le brief » reste disponible à la demande.
+              {' '}— chaque matin, l&apos;attaché balaye <b>tous vos dossiers</b> en lançant <b>un sous-agent par dossier</b>.
+              {' '}<b>Désactivé par défaut.</b>
             </span>
           </label>
         </div>
