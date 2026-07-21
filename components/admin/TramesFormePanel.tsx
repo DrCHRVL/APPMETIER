@@ -1,14 +1,14 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { FileText, Upload, Trash2, FlaskConical, Loader2, Check, AlertCircle, Sparkles, Send } from 'lucide-react';
+import { FileText, Upload, Trash2, FlaskConical, Loader2, Check, AlertCircle, Sparkles, Send, PenLine } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
 import {
   loadTramesForme, saveTramesForme,
 } from '@/lib/web/tramesFormeStore';
 import { trameHasTokens, listTrameTokens, type TrameForme, type TrameFormeType } from '@/lib/web/trameFill';
 import { interpretTrameCommand } from '@/lib/web/trameChat';
-import { applyTrameOps } from '@/lib/web/trameOps';
+import { applyTrameOps, getTrameParagraphs, setTrameParagraphs } from '@/lib/web/trameOps';
 
 const TYPE_LABELS: Record<TrameFormeType, string> = {
   courrier: 'Courrier',
@@ -58,6 +58,9 @@ export const TramesFormePanel = () => {
   const [chatOpen, setChatOpen] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [chatLog, setChatLog] = useState<Record<string, { role: 'user' | 'bot'; text: string }[]>>({});
+  // Édition manuelle du texte : trame ouverte + lignes en cours d'édition
+  const [editOpen, setEditOpen] = useState<string | null>(null);
+  const [editLines, setEditLines] = useState<string[]>([]);
 
   useEffect(() => {
     loadTramesForme().then((l) => { setList(l); setLoaded(true); });
@@ -139,6 +142,27 @@ export const TramesFormePanel = () => {
       setBusy(false);
     }
   }, [showToast]);
+
+  const openEdit = useCallback((trame: TrameForme) => {
+    setEditLines(getTrameParagraphs(trame.docxBase64));
+    setEditOpen(trame.id);
+    setChatOpen(null);
+  }, []);
+
+  const saveEdit = useCallback(async (trame: TrameForme) => {
+    setBusy(true);
+    try {
+      const docxBase64 = setTrameParagraphs(trame.docxBase64, editLines);
+      const updated: TrameForme = { ...trame, docxBase64, updatedAt: new Date().toISOString() };
+      await persist(list.map((t) => (t.id === trame.id ? updated : t)));
+      setEditOpen(null);
+      showToast('Trame mise à jour.', 'success');
+    } catch {
+      showToast('Enregistrement impossible.', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }, [editLines, list, persist, showToast]);
 
   const appendLog = useCallback((id: string, entry: { role: 'user' | 'bot'; text: string }) => {
     setChatLog((prev) => ({ ...prev, [id]: [...(prev[id] || []), entry] }));
@@ -274,6 +298,11 @@ export const TramesFormePanel = () => {
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                <button type="button" onClick={() => (editOpen === t.id ? setEditOpen(null) : openEdit(t))}
+                  title="Éditer le texte de la trame"
+                  className={`p-2 rounded hover:bg-gray-100 ${editOpen === t.id ? 'text-blue-700 bg-blue-50' : 'text-gray-600'}`}>
+                  <PenLine className="w-4 h-4" />
+                </button>
                 <button type="button" onClick={() => setChatOpen(chatOpen === t.id ? null : t.id)}
                   title="Assistant : modifier la trame en langage naturel"
                   className={`p-2 rounded hover:bg-violet-50 ${chatOpen === t.id ? 'text-violet-700 bg-violet-50' : 'text-violet-600'}`}>
@@ -289,6 +318,33 @@ export const TramesFormePanel = () => {
                 </button>
               </div>
             </div>
+
+            {editOpen === t.id && (
+              <div className="border-t border-gray-100 p-3 space-y-2 bg-blue-50/40">
+                <div className="flex items-center gap-2 text-xs text-blue-700">
+                  <PenLine className="w-3.5 h-3.5" /> Modifiez chaque ligne de la trame. Les balises ({`{{CORPS}}`}, {`{{OBJET}}`}…) sont éditables comme du texte. La mise en forme (police, logo…) est conservée.
+                </div>
+                <div className="max-h-72 overflow-y-auto space-y-1 rounded border border-blue-100 bg-white p-2">
+                  {editLines.map((line, i) => (
+                    <input
+                      key={i}
+                      value={line}
+                      onChange={(e) => setEditLines((prev) => prev.map((l, j) => (j === i ? e.target.value : l)))}
+                      className="w-full rounded border border-gray-200 px-2 py-1 text-[13px] font-mono"
+                    />
+                  ))}
+                  {editLines.length === 0 && <div className="text-gray-500">Aucune ligne de texte détectée.</div>}
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => saveEdit(t)} disabled={busy}
+                    className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3 py-1.5 text-white hover:bg-green-700 disabled:opacity-50">
+                    {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Enregistrer le texte
+                  </button>
+                  <button type="button" onClick={() => setEditOpen(null)}
+                    className="rounded-lg border border-gray-300 px-3 py-1.5 hover:bg-gray-100">Annuler</button>
+                </div>
+              </div>
+            )}
 
             {chatOpen === t.id && (
               <div className="border-t border-gray-100 p-3 space-y-2 bg-violet-50/40">

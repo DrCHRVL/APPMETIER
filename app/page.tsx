@@ -152,7 +152,6 @@ const AdminAttachePanel = dynamic(() => import('@/components/admin/AdminAttacheP
 const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHistoryPanel').then(m => ({ default: m.AdminTagHistoryPanel })), { ssr: false });
 const AdminNatinfPanel = dynamic(() => import('@/components/admin/AdminNatinfPanel').then(m => ({ default: m.AdminNatinfPanel })), { ssr: false });
 const AdminUpdatePanel = dynamic(() => import('@/components/admin/AdminUpdatePanel').then(m => ({ default: m.AdminUpdatePanel })), { ssr: false });
-const TramesFormePanel = dynamic(() => import('@/components/admin/TramesFormePanel').then(m => ({ default: m.TramesFormePanel })), { ssr: false });
 const AboutContent = dynamic(() => import('@/components/AboutContent').then(m => ({ default: m.AboutContent })), { ssr: false });
 const AgendaPanel = dynamic(() => import('@/components/AgendaPanel').then(m => ({ default: m.AgendaPanel })), { ssr: false });
 const MyProfileContent = dynamic(() => import('@/components/MyProfileContent').then(m => ({ default: m.MyProfileContent })), { ssr: false });
@@ -2161,7 +2160,6 @@ return (
           setUpdateCommits(commits);
         }} />}
         adminAttacheContent={attacheAvailable ? <AdminAttachePanel /> : undefined}
-        adminTramesFormeContent={<TramesFormePanel />}
         aProposContent={<AboutContent />}
         monProfilContent={<MyProfileContent />}
         pendingUsersCount={pendingUsersCount}

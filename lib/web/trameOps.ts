@@ -39,6 +39,44 @@ function paraText(pXml: string): string {
   return (pXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || []).map((t) => t.replace(/<[^>]+>/g, '')).join('');
 }
 
+function escXml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Édition manuelle du TEXTE de la trame (lignes visibles) ──────────────────
+
+/** Lignes de texte éditables de la trame (un paragraphe non vide = une ligne, dans l'ordre). */
+export function getTrameParagraphs(docxBase64: string): string[] {
+  try {
+    const zip = new PizZip(docxBase64, { base64: true });
+    const xml = zip.file('word/document.xml')?.asText() || '';
+    return (xml.match(/<w:p\b[^>]*>.*?<\/w:p>/gs) || [])
+      .map(paraText).filter((t) => t.trim().length > 0);
+  } catch {
+    return [];
+  }
+}
+
+/** Réécrit le texte des paragraphes non vides (même ordre), en gardant la mise en forme. */
+export function setTrameParagraphs(docxBase64: string, texts: string[]): string {
+  const zip = new PizZip(docxBase64, { base64: true });
+  const xml = zip.file('word/document.xml')?.asText() || '';
+  let k = 0;
+  const out = xml.replace(/<w:p\b[^>]*>.*?<\/w:p>/gs, (p) => {
+    if (!paraText(p).trim()) return p;
+    if (k >= texts.length) { k += 1; return p; }
+    const newText = texts[k];
+    k += 1;
+    let first = true;
+    return p.replace(/<w:t\b[^>]*>[^<]*<\/w:t>/g, () => {
+      if (first) { first = false; return `<w:t xml:space="preserve">${escXml(newText)}</w:t>`; }
+      return '<w:t xml:space="preserve"></w:t>';
+    });
+  });
+  zip.file('word/document.xml', out);
+  return zip.generate({ type: 'base64' });
+}
+
 /** Applique `fn` au paragraphe dont le texte vaut exactement `{{NAME}}`. Retourne [xml, trouvé]. */
 function editTokenPara(xml: string, name: string, fn: (p: string) => string): [string, boolean] {
   let found = false;
