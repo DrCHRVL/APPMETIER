@@ -198,14 +198,19 @@ export async function fillTrameDocx(docxBase64: string, vars: TrameVars): Promis
   return new Blob([ab], { type: DOCX_MIME });
 }
 
-/** Vrai si le .docx (base64) contient au moins une balise reconnue. */
-export function trameHasTokens(docxBase64: string): boolean {
+/** Liste des balises reconnues présentes dans le .docx (base64). */
+export function listTrameTokens(docxBase64: string): string[] {
   try {
     const zip = new PizZip(docxBase64, { base64: true });
     const xml = zip.file('word/document.xml')?.asText() || '';
     const flat = repairRuns(xml);
-    return TRAME_TOKENS.some((tk) => flat.includes(`{{${tk}}}`));
+    return TRAME_TOKENS.filter((tk) => flat.includes(`{{${tk}}}`));
   } catch {
-    return false;
+    return [];
   }
+}
+
+/** Vrai si le .docx (base64) contient au moins une balise reconnue. */
+export function trameHasTokens(docxBase64: string): boolean {
+  return listTrameTokens(docxBase64).length > 0;
 }

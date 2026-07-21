@@ -1,12 +1,14 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { FileText, Upload, Trash2, FlaskConical, Loader2, Check, AlertCircle } from 'lucide-react';
+import { FileText, Upload, Trash2, FlaskConical, Loader2, Check, AlertCircle, Sparkles, Send } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
 import {
   loadTramesForme, saveTramesForme,
 } from '@/lib/web/tramesFormeStore';
-import { trameHasTokens, type TrameForme, type TrameFormeType } from '@/lib/web/trameFill';
+import { trameHasTokens, listTrameTokens, type TrameForme, type TrameFormeType } from '@/lib/web/trameFill';
+import { interpretTrameCommand } from '@/lib/web/trameChat';
+import { applyTrameOps } from '@/lib/web/trameOps';
 
 const TYPE_LABELS: Record<TrameFormeType, string> = {
   courrier: 'Courrier',
@@ -52,6 +54,10 @@ export const TramesFormePanel = () => {
   const fileRef = useRef<HTMLInputElement>(null);
   // Import en attente de nommage / typage
   const [pending, setPending] = useState<{ docxBase64: string; nom: string; type: TrameFormeType } | null>(null);
+  // Assistant : trame dont le chat est ouvert + saisie + journaux par trame
+  const [chatOpen, setChatOpen] = useState<string | null>(null);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLog, setChatLog] = useState<Record<string, { role: 'user' | 'bot'; text: string }[]>>({});
 
   useEffect(() => {
     loadTramesForme().then((l) => { setList(l); setLoaded(true); });
@@ -133,6 +139,39 @@ export const TramesFormePanel = () => {
       setBusy(false);
     }
   }, [showToast]);
+
+  const appendLog = useCallback((id: string, entry: { role: 'user' | 'bot'; text: string }) => {
+    setChatLog((prev) => ({ ...prev, [id]: [...(prev[id] || []), entry] }));
+  }, []);
+
+  const sendChat = useCallback(async (trame: TrameForme) => {
+    const text = chatInput.trim();
+    if (!text) return;
+    setChatInput('');
+    appendLog(trame.id, { role: 'user', text });
+    setBusy(true);
+    try {
+      const tokens = listTrameTokens(trame.docxBase64);
+      const { ops, reply } = interpretTrameCommand(text, tokens);
+      if (ops.length === 0) {
+        appendLog(trame.id, { role: 'bot', text: reply || "Je n'ai pas compris." });
+        return;
+      }
+      const res = applyTrameOps(trame.docxBase64, ops);
+      const updated: TrameForme = { ...trame, docxBase64: res.docxBase64, updatedAt: new Date().toISOString() };
+      await persist(list.map((t) => (t.id === trame.id ? updated : t)));
+      const parts = [
+        res.applied.length ? `✓ ${res.applied.join(' ; ')}` : '',
+        res.warnings.length ? `⚠️ ${res.warnings.join(' ; ')}` : '',
+        reply,
+      ].filter(Boolean);
+      appendLog(trame.id, { role: 'bot', text: parts.join('\n') || 'Fait.' });
+    } catch {
+      appendLog(trame.id, { role: 'bot', text: 'Modification impossible sur cette trame.' });
+    } finally {
+      setBusy(false);
+    }
+  }, [chatInput, appendLog, list, persist]);
 
   return (
     <div className="space-y-6 text-sm text-gray-800">
@@ -225,24 +264,63 @@ export const TramesFormePanel = () => {
           </div>
         )}
         {list.map((t) => (
-          <div key={t.id} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2">
-            <div className="min-w-0">
-              <div className="font-medium truncate">{t.nom}</div>
-              <div className="text-xs text-gray-500">
-                <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 mr-2">{TYPE_LABELS[t.type]}</span>
-                {new Date(t.updatedAt).toLocaleDateString('fr-FR')}
+          <div key={t.id} className="rounded-lg border border-gray-200 bg-white">
+            <div className="flex items-center justify-between px-3 py-2">
+              <div className="min-w-0">
+                <div className="font-medium truncate">{t.nom}</div>
+                <div className="text-xs text-gray-500">
+                  <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 mr-2">{TYPE_LABELS[t.type]}</span>
+                  {new Date(t.updatedAt).toLocaleDateString('fr-FR')}
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button type="button" onClick={() => setChatOpen(chatOpen === t.id ? null : t.id)}
+                  title="Assistant : modifier la trame en langage naturel"
+                  className={`p-2 rounded hover:bg-violet-50 ${chatOpen === t.id ? 'text-violet-700 bg-violet-50' : 'text-violet-600'}`}>
+                  <Sparkles className="w-4 h-4" />
+                </button>
+                <button type="button" onClick={() => test(t)} disabled={busy} title="Tester (télécharger un exemple rempli)"
+                  className="p-2 rounded hover:bg-gray-100 text-gray-600 disabled:opacity-50">
+                  <FlaskConical className="w-4 h-4" />
+                </button>
+                <button type="button" onClick={() => remove(t.id)} title="Supprimer"
+                  className="p-2 rounded hover:bg-red-50 text-red-600">
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <button type="button" onClick={() => test(t)} disabled={busy} title="Tester (télécharger un exemple rempli)"
-                className="p-2 rounded hover:bg-gray-100 text-gray-600 disabled:opacity-50">
-                <FlaskConical className="w-4 h-4" />
-              </button>
-              <button type="button" onClick={() => remove(t.id)} title="Supprimer"
-                className="p-2 rounded hover:bg-red-50 text-red-600">
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
+
+            {chatOpen === t.id && (
+              <div className="border-t border-gray-100 p-3 space-y-2 bg-violet-50/40">
+                <div className="flex items-center gap-2 text-xs text-violet-700">
+                  <Sparkles className="w-3.5 h-3.5" /> Assistant — dites ce que vous voulez changer (ex. « corps en Times 12 », « agrandis le logo », « pose les balises »).
+                </div>
+                {(chatLog[t.id] || []).length > 0 && (
+                  <div className="max-h-52 overflow-y-auto space-y-1.5 rounded border border-violet-100 bg-white p-2">
+                    {(chatLog[t.id] || []).map((m, i) => (
+                      <div key={i} className={m.role === 'user' ? 'text-right' : ''}>
+                        <span className={`inline-block whitespace-pre-line rounded px-2 py-1 ${m.role === 'user' ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                          {m.text}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    value={chatOpen === t.id ? chatInput : ''}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !busy) sendChat(t); }}
+                    placeholder="Modifier la trame…"
+                    className="flex-1 rounded border border-gray-300 px-2 py-1"
+                  />
+                  <button type="button" onClick={() => sendChat(t)} disabled={busy}
+                    className="inline-flex items-center gap-1 rounded bg-violet-600 px-3 py-1.5 text-white hover:bg-violet-700 disabled:opacity-50">
+                    {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>
