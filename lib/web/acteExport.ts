@@ -20,6 +20,9 @@
  * <trame>_<dossier>_<AAAA-MM-JJ>.
  */
 
+import { PAPETERIE } from './papeterie'
+import type { TrameFormeType, TrameVars } from './trameFill'
+
 export interface ActeExportable {
   titre: string
   contenu: string
@@ -157,11 +160,16 @@ function renderMasthead(header: string[], logo?: string): string {
     if (/^Section\b/i.test(h)) return `<div style="font-style:italic;font-variant:normal;">${txt}</div>`
     return `<div>${txt}</div>`
   }).join('')
+  // Largeurs explicites (px → twips ×15) : logo étroit, bandeau large. Total
+  // ≈ 9975 twips = largeur utile A4 aux marges « parquet ». Fige la mise en
+  // page côté Word (cf. tableBlock) → la ligne « Cour d'appel… » tient sur une
+  // ligne au lieu de se tasser en colonne étroite.
   const logoCell = logo
-    ? `<td style="border:0;width:104px;vertical-align:middle;padding:0 12pt 0 0;"><img src="${logo}" alt="Ministère de la Justice" style="width:96px;height:auto;" /></td>`
+    ? `<td style="border:0;width:130px;vertical-align:middle;padding:0 12pt 0 0;"><img src="${logo}" alt="Ministère de la Justice" style="width:96px;height:auto;" /></td>`
     : ''
+  const bandeauWidth = logo ? 535 : 665
   return `<table style="width:100%;border-collapse:collapse;margin:0 0 6pt 0;"><tr>${logoCell}`
-    + `<td style="border:0;vertical-align:middle;text-align:center;font-variant:small-caps;font-size:12pt;line-height:1.35;">${lignes}</td>`
+    + `<td style="border:0;width:${bandeauWidth}px;vertical-align:middle;text-align:center;font-variant:small-caps;font-size:12pt;line-height:1.35;">${lignes}</td>`
     + `</tr></table>`
 }
 
@@ -179,6 +187,122 @@ function renderTitleBox(titre: string, article: string | null): string {
 function renderSignature(signature: string[]): string {
   const lignes = signature.map((l) => `<div style="text-align:right;">${inlineMarkup(escapeHtml(l))}</div>`).join('')
   return `<div style="margin-top:20pt;">${lignes}</div>`
+}
+
+// ── Gabarit COURRIER (lettre) — 3ᵉ face de la papeterie ──────────────────────
+//
+// Distinct des actes (requête / soit-transmis) : en-tête à deux colonnes
+// (coordonnées du parquet à gauche, magistrat + destinataire + date à droite),
+// objet souligné, corps, formule de politesse, signature, et un PIED DE PAGE
+// coordonnées posé en pied de page Word réel (répété sur chaque page).
+
+const RE_OBJET = /^\s*Objet\s*:/i
+const RE_CLOSING = /^\s*(Je vous prie d['’]agr[ée]er|Veuillez agr[ée]er|Cordialement|Je vous prie de croire|Je vous prie d['’]agréer)/i
+const RE_SALUT = /^(Madame|Monsieur|Mesdames|Messieurs|Ma[iî]tre)\b/i
+
+/** Une production est un courrier si elle porte un « Objet : » et une formule de politesse. */
+function isLettre(contenu: string): boolean {
+  const lines = String(contenu || '').split(/\r?\n/).map((l) => l.trim())
+  return lines.some((l) => RE_OBJET.test(l)) && lines.some((l) => RE_CLOSING.test(l))
+}
+
+/** Date au format long français (« 21 juillet 2026 »). */
+function longDate(iso?: string): string {
+  try {
+    const d = iso ? new Date(iso) : new Date()
+    return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+  } catch { return (iso || '').slice(0, 10) }
+}
+
+interface LettreParts { addressee: string; objet: string; dateStr: string; corps: string }
+
+/**
+ * Isole du texte du courrier les éléments qui remontent dans l'en-tête (objet,
+ * destinataire, date) et laisse le reste comme corps. Les lignes d'identité
+ * institutionnelle sont retirées : elles sont réinjectées par la papeterie.
+ */
+function parseLettre(contenu: string): LettreParts {
+  const raw = String(contenu || '').replace(/\r\n?/g, '\n').split('\n')
+  let objet = ''
+  let dateStr = ''
+  let addressee = ''
+  const kept: string[] = []
+  for (const line of raw) {
+    const t = line.trim()
+    if (RE_OBJET.test(t)) { objet = t.replace(RE_OBJET, '').trim(); continue }
+    // Ligne de date isolée (« Amiens, le 21 juillet 2026 » / « Fait à …, le … ») :
+    // courte et suivie d'un vrai début de date (chiffre ou jour de semaine), pour
+    // ne pas happer une phrase du corps contenant « , le … ».
+    const dm = t.match(/,\s*le\s+((?:\d|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche).*)$/i)
+    if (dm && t.length <= 60) { dateStr = dm[1].trim(); continue }
+    if (!kept.some((k) => k.trim()) && RE_INSTIT.test(t)) continue // en-tête d'identité : remplacé par la papeterie
+    if (!addressee && RE_SALUT.test(t)) addressee = t.replace(/[,:]\s*$/, '')
+    kept.push(line)
+  }
+  return { addressee, objet, dateStr, corps: kept.join('\n').trim() }
+}
+
+/** En-tête à deux colonnes du courrier (coordonnées | magistrat + destinataire + date). */
+function renderLetterHeader(logo: string | undefined, addressee: string, dateStr: string): string {
+  const idLines = [PAPETERIE.juridiction, PAPETERIE.parquet, PAPETERIE.sectionDetail]
+    .map((l, i) => `<div style="font-variant:small-caps;font-size:${i === 0 ? '10.5pt' : '10pt'};${i === 0 ? 'font-weight:bold;' : ''}line-height:1.35;">${escapeHtml(l)}</div>`)
+    .join('')
+  const logoImg = logo ? `<div style="margin-bottom:6pt;"><img src="${logo}" alt="Ministère de la Justice" style="width:118px;height:auto;" /></div>` : ''
+  const left = `<td style="border:1px solid #000;vertical-align:top;padding:8pt 10pt;width:46%;">${logoImg}${idLines}</td>`
+  const m = PAPETERIE.magistrat
+  const right = '<td style="border:1px solid #000;vertical-align:top;padding:8pt 10pt;">'
+    + `<div style="font-weight:bold;">${escapeHtml(m.nomQualite)},</div>`
+    + `<div>${escapeHtml(m.qualite.charAt(0).toUpperCase() + m.qualite.slice(1))}</div>`
+    + `<div>Près le tribunal judiciaire d'Amiens</div>`
+    + '<div>&#160;</div>'
+    + '<div>À</div>'
+    + `<div>${escapeHtml(addressee || '…')}</div>`
+    + '<div>&#160;</div>'
+    + `<div>${escapeHtml(PAPETERIE.ville)}, le ${escapeHtml(dateStr || longDate())}</div>`
+    + '</td>'
+  return `<table style="width:100%;border-collapse:collapse;margin:0 0 14pt 0;font-size:11pt;"><tr>${left}${right}</tr></table>`
+}
+
+/** Ligne « Objet : … » (mot « Objet » en gras souligné). */
+function renderObjet(objet: string): string {
+  return `<p style="margin:0 0 12pt 0;"><span style="font-weight:bold;text-decoration:underline;">Objet</span> : ${inlineMarkup(escapeHtml(objet))}</p>`
+}
+
+/** Bloc signature du courrier, calé à droite (P/ Le Procureur / Nom / Qualité). */
+function renderLetterSignature(): string {
+  const [l0, l1, l2] = PAPETERIE.signature
+  return '<div style="margin-top:18pt;">'
+    + `<div style="text-align:right;">${escapeHtml(l0 || '')}</div>`
+    + `<div style="text-align:right;font-weight:bold;">${escapeHtml(l1 || '')}</div>`
+    + `<div style="text-align:right;font-style:italic;">${escapeHtml(l2 || '')}</div>`
+    + '</div>'
+}
+
+/** Pied de page coordonnées du parquet (posé en pied de page Word réel). */
+export function letterFooterHtml(): string {
+  const c = PAPETERIE.coordonnees
+  const line = (s: string) => `<div style="text-align:center;font-size:8pt;line-height:1.25;color:#333333;">${escapeHtml(s)}</div>`
+  return '<div>'
+    + '<hr>'
+    + line(c.adresse.join(' · '))
+    + line(`Mèl : ${c.mails.join(' / ')} — Standard : ${c.standard}`)
+    + line(c.thematiques)
+    + '</div>'
+}
+
+/** Gabarit courrier complet. `footerInline` : true pour le PDF (pas de vrai pied de page). */
+function letterHtml(p: ActeExportable, logo: string | undefined, footerInline: boolean): string {
+  const { addressee, objet, dateStr, corps } = parseLettre(p.contenu)
+  const parts = [
+    renderLetterHeader(logo, addressee, dateStr),
+    objet ? renderObjet(objet) : '',
+    `<div>${acteBodyHtml(corps)}</div>`,
+    renderLetterSignature(),
+  ]
+  if (footerInline) parts.push(letterFooterHtml())
+  return `<div style="font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.5;color:#000;">
+${parts.filter(Boolean).join('\n')}
+</div>`
 }
 
 /**
@@ -236,6 +360,10 @@ function acteBodyHtml(contenu: string): string {
  * reconnue, on rend simplement le corps — rien d'imposé.
  */
 export function acteHtml(p: ActeExportable, opts: { logo?: string } = {}): string {
+  // Courrier : gabarit dédié (en-tête 2 colonnes, objet, coordonnées). Pour le
+  // PDF, le pied de page est intégré en fin de contenu (html2pdf n'a pas de
+  // pied de page de section).
+  if (isLettre(p.contenu)) return letterHtml(p, opts.logo, true)
   const s = parseActe(p.contenu)
   const aStructure = s.header.length > 0 || Boolean(s.titre) || s.signature.length > 0
   const parts: string[] = []
@@ -246,6 +374,16 @@ export function acteHtml(p: ActeExportable, opts: { logo?: string } = {}): strin
   return `<div style="font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.5;color:#000;">
 ${parts.join('\n')}
 </div>`
+}
+
+/**
+ * Découpe l'export Word en corps + pied de page : pour un courrier, les
+ * coordonnées deviennent un VRAI pied de page de section (répété sur chaque
+ * page) au lieu d'un simple bloc en fin de contenu.
+ */
+export function acteDocxParts(p: ActeExportable, opts: { logo?: string } = {}): { html: string; footerHtml?: string } {
+  if (isLettre(p.contenu)) return { html: letterHtml(p, opts.logo, false), footerHtml: letterFooterHtml() }
+  return { html: acteHtml(p, opts) }
 }
 
 /** Logo du ministère (data-URI), chargé à la demande pour ne pas alourdir le bundle. */
@@ -277,20 +415,68 @@ export async function downloadActePdf(p: ActeExportable): Promise<void> {
   a.click()
 }
 
+/** Déclenche le téléchargement d'un Blob .docx. */
+function triggerDocxDownload(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 4000)
+}
+
+/** Type de papeterie déduit de l'acte, pour choisir la trame de forme. */
+export function detectTypeForme(p: ActeExportable): TrameFormeType {
+  if (isLettre(p.contenu)) return 'courrier'
+  const titre = (parseActe(p.contenu).titre || p.titre || '').toUpperCase()
+  if (/SOIT[-\s]?TRANSMIS/.test(titre)) return 'soit-transmis'
+  if (/REQU[ÊE]TE|R[ÉE]QUISITO/.test(titre)) return 'requete'
+  return 'defaut'
+}
+
+/** Variables extraites de l'acte pour remplir les balises d'une trame de forme. */
+function extractTrameVars(p: ActeExportable, type: TrameFormeType): TrameVars {
+  if (type === 'courrier') {
+    const { addressee, objet, dateStr, corps } = parseLettre(p.contenu)
+    return { destinataire: addressee, objet, date: dateStr || longDate(p.updatedAt), corps }
+  }
+  const s = parseActe(p.contenu)
+  return {
+    titre: s.titre || p.titre || '',
+    corps: s.corps,
+    signature: s.signature.join('\n'),
+    date: longDate(p.updatedAt),
+  }
+}
+
 export async function downloadActeDocx(p: ActeExportable): Promise<void> {
+  // 1) Trame de forme définie par l'utilisateur pour ce type d'acte : on part
+  //    de SON .docx et on remplit les balises. La forme est 100 % la sienne.
+  try {
+    const type = detectTypeForme(p)
+    const { loadTramesForme, pickTrameForme } = await import('./tramesFormeStore')
+    const trame = pickTrameForme(await loadTramesForme(), type)
+    if (trame?.docxBase64) {
+      const { fillTrameDocx } = await import('./trameFill')
+      const blob = await fillTrameDocx(trame.docxBase64, extractTrameVars(p, type))
+      triggerDocxDownload(blob, acteFileBase(p) + '.docx')
+      return
+    }
+  } catch (e) {
+    // Trame absente / invalide : on retombe proprement sur la génération intégrée.
+    console.warn('Trame de forme indisponible, génération intégrée :', e)
+  }
+
+  // 2) Repli : papeterie reconstruite (aucune trame de forme définie).
   const logo = await loadLogo()
-  const html = acteHtml(p, { logo })
+  const { html, footerHtml } = acteDocxParts(p, { logo })
   const { buildDocxBlob } = await import('./htmlToDocx')
   const blob = await buildDocxBlob(html, {
     defaultFont: 'Times New Roman',
     defaultSizeHalfPt: 24,
     // Marges A4 « parquet » (en twips) : haut/bas/gauche 2 cm, droite 1,4 cm.
     pageMargins: { top: 1134, right: 794, bottom: 1134, left: 1134 },
+    footerHtml,
   })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = acteFileBase(p) + '.docx'
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 4000)
+  triggerDocxDownload(blob, acteFileBase(p) + '.docx')
 }

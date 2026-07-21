@@ -17,6 +17,7 @@ import { fileToMarkdown, titreDepuisFichier, decodeText } from '@/lib/web/fileTo
 import { skillFromArchive } from '@/lib/web/skillImport';
 import { entrySlug } from '@/lib/web/slug';
 import { AttacheKbSection } from './AttacheKbSection';
+import { TramesFormePanel } from './TramesFormePanel';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { electronAPI?: Record<string, AnyFn> }).electronAPI;
@@ -2090,6 +2091,11 @@ export function AdminAttachePanel() {
             )}
           </div>
         )}
+      </div>
+
+      {/* Trames de forme — papeteries Word (.docx) de l'utilisateur, remplies à l'export */}
+      <div className="rounded-xl border border-gray-200 p-3">
+        <TramesFormePanel />
       </div>
 
       {/* Associations « type d'acte → trame + skill » — appliquées d'office par l'attaché */}
