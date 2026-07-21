@@ -226,9 +226,18 @@ async function runRoutine(routine, trigger = 'planifiée') {
     '',
     routine.prompt,
     '',
-    'Termine par signaler (le fil « pendant votre absence ») si ton travail appelle un geste du magistrat ;',
-    'si la consigne demande une remise (« envoie-moi », « prépare-moi »), utilise remettre_livrable — le livrable',
-    's\'affiche dans SIRAL, aucun mail ne part. Si rien de notable : ne publie rien.',
+    'OÙ REMETTRE TON TRAVAIL — tout apparaît sur la page « Assistant de justice » (visible du seul magistrat) :',
+    '- Si la routine SURVEILLE les dossiers (échéances qui approchent, actes qui expirent, incohérences, attentes',
+    '  JLD qui traînent, dossiers dormants à relancer), publie chaque point au BRIEF DU TABLEAU DE BORD avec',
+    '  majordome_publier — c\'est le bloc « Brief du majordome » en HAUT de la page, là où le magistrat attend ce',
+    '  type de résultat : type echeance (avec sa date) pour une échéance, verification pour une incohérence ou un',
+    '  point à contrôler, projet_mail (prêt à coller) pour une relance au directeur d\'enquête, appel si besoin.',
+    '  Sois SÉLECTIF : un objet = un seul item, jamais un doublon de ce qui figure déjà au brief.',
+    '- Si la consigne demande une remise (« envoie-moi », « prépare-moi », une synthèse, un projet) :',
+    '  remettre_livrable (ou produire_document pour un acte à signer) — le livrable s\'affiche dans SIRAL.',
+    '- Termine par signaler (le fil « pendant votre absence », juste sous le brief) avec un résumé d\'1-2 phrases',
+    '  de ce que tu as publié. Si rien de notable : ne publie rien.',
+    'Aucun mail ne part jamais.',
   ].join('\n')
   const result = await runAgent({ keys, prompt, runLabel: `routine:${routine.nom}`, title: `Routine ${routine.nom} ${new Date().toISOString().slice(0, 10)}` })
   await markRun(keys, routine.id, result.ok)
