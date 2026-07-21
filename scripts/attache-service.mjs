@@ -255,6 +255,11 @@ async function maybeDueRoutines() {
 
 /** Déclenche le brief quotidien à l'heure dite (vérifié à chaque tick de relève). */
 async function maybeScheduledBriefing() {
+  // Brief automatique DÉSACTIVÉ par défaut : c'est le balayage matinal de tous
+  // les dossiers (un sous-agent par dossier) qui faisait exploser la fenêtre de
+  // 5 h. Le magistrat le rallume dans Paramètres → Attaché IA, ou planifie le
+  // balayage en routine de nuit. Le bouton « Générer le brief » reste dispo.
+  if (!agentConfig().briefAuto) return
   const now = new Date()
   if (now.getHours() < BRIEFING_HOUR) return
   const today = now.toISOString().slice(0, 10)
@@ -646,6 +651,7 @@ const server = http.createServer(async (req, res) => {
         webAccess: 'webAccess' in body ? body.webAccess === true : current.webAccess,
         subModel: 'subModel' in body ? sanitizeModel(body.subModel) : current.subModel,
         econome: 'econome' in body ? body.econome === true : current.econome,
+        briefAuto: 'briefAuto' in body ? body.briefAuto === true : current.briefAuto,
         plan: 'plan' in body ? sanitizePlan(body.plan) : current.plan,
         cap5h: 'cap5h' in body ? sanitizeCap(body.cap5h) : current.cap5h,
         capHebdo: 'capHebdo' in body ? sanitizeCap(body.capHebdo) : current.capHebdo,

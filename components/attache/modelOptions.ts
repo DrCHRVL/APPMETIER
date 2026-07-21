@@ -15,6 +15,8 @@ export interface AttacheConfig {
   subModel?: string
   /** Mode économe : bride les sous-agents (modèle rapide + moins de tours). */
   econome?: boolean
+  /** Brief quotidien automatique (balaye les dossiers chaque matin). Défaut : désactivé. */
+  briefAuto?: boolean
   /** Forfait de référence (pour traduire la consommation en %). */
   plan?: string
   /** Plafond de jetons estimé sur la fenêtre glissante de 5 h (0 = non défini). */

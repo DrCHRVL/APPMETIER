@@ -66,7 +66,7 @@ function subagentSystemPrompt(contexte) {
 }
 
 /** Exécute UNE sous-tâche (un run headless, résultat = texte final). */
-function runOne({ consigne, mcpConfig, systemPrompt, allowedTools, disallowedTools, model, effort, maxTurns }) {
+function runOne({ consigne, mcpConfig, systemPrompt, allowedTools, disallowedTools, model, effort, maxTurns, parent }) {
   const args = [
     '-p', String(consigne),
     '--output-format', 'json',
@@ -102,7 +102,7 @@ function runOne({ consigne, mcpConfig, systemPrompt, allowedTools, disallowedToo
       // Chaque sous-agent est un process CLI distinct : son bilan de jetons
       // s'ajoute à celui de l'agent principal (pas de double comptage).
       const usage = extractUsage(parsed)
-      if (usage) recordUsage({ run: 'sous-agent', model, usage })
+      if (usage) recordUsage({ run: 'sous-agent', model, usage, parent })
       if (parsed && parsed.subtype === 'success' && typeof parsed.result === 'string') {
         return finish(true, parsed.result.slice(0, 60_000))
       }
@@ -135,7 +135,8 @@ export async function runSubagents({ taches, contexte, modele, effort }) {
   // de parallélisme — sans jamais bloquer ni perdre de tâche (chat du magistrat
   // dégradé, jamais interrompu). C'est indépendant du mode économe : même
   // décoché, un forfait à saturation freine tout seul.
-  const direct = DIRECT_RUNS.has(String(process.env.SIRAL_ATTACHE_RUN || ''))
+  const parentRun = String(process.env.SIRAL_ATTACHE_RUN || '')
+  const direct = DIRECT_RUNS.has(parentRun)
   const gov = direct ? { level: 'ok' } : consumptionGovernor(cfg)
   const tighten = gov.level === 'serrer' || gov.level === 'stop'
   const hard = gov.level === 'stop'
@@ -169,7 +170,7 @@ export async function runSubagents({ taches, contexte, modele, effort }) {
     while (next < list.length) {
       const i = next++
       const t = list[i]
-      const r = await runOne({ consigne: t.consigne, mcpConfig, systemPrompt, allowedTools, disallowedTools, model, effort: useEffort, maxTurns: subMaxTurns })
+      const r = await runOne({ consigne: t.consigne, mcpConfig, systemPrompt, allowedTools, disallowedTools, model, effort: useEffort, maxTurns: subMaxTurns, parent: parentRun })
       results[i] = { titre: t.titre, ...r }
     }
   }

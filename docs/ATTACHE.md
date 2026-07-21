@@ -243,12 +243,20 @@ l'usage).
 - **Priorité au magistrat (demandes + mails), le fond la nuit** : répondre
   aux demandes (chat) et traiter les mails transférés (rédaction d'actes) est
   la priorité — ces runs ne sont **jamais** différés ni bridés, et leurs
-  sous-agents gardent toute leur qualité même forfait tendu. Les travaux de
-  **fond lourds** (étude du corpus d'actes, consolidation de l'apprentissage)
+  sous-agents gardent toute leur qualité même forfait tendu. Le **brief
+  quotidien** (premier poste de dépense) est **coupé par défaut** ; les travaux
+  de **fond lourds** (étude du corpus d'actes, consolidation de l'apprentissage)
   sont **réservés à une fenêtre de nuit** (`SIRAL_ATTACHE_NIGHT_START` /
   `_END`, défaut 22 h → 7 h) : hors de la journée de travail, ils ne disputent
-  jamais le forfait aux actes. Les boutons du panneau (« Étudier mes actes
-  maintenant », « Consolider maintenant ») forcent l'exécution à tout moment.
+  jamais le forfait aux actes. Les boutons du panneau (« Générer le brief »,
+  « Étudier mes actes maintenant », « Consolider maintenant ») forcent
+  l'exécution à tout moment. Pour un balayage régulier sans exploser la fenêtre
+  de 5 h : le planifier en **routine de nuit**.
+- **« Où passent vos jetons », lisible** : le panneau Consommation IA
+  **attribue chaque sous-agent au run qui l'a lancé** (brief, mails, étude…) —
+  fini le sac fourre-tout « lots parallèles » : on voit que ~90 % venaient du
+  brief. Un volet **« Derniers runs »** liste, horodatés, les runs récents et
+  leurs jetons, pour repérer d'un coup d'œil ce qui a consommé et quand.
 - **Gouverneur de consommation (bridage automatique)** : le garde-fou qui
   « jugule » le forfait tout seul, sans réglage. À chaque tick, le service
   compare la consommation récente aux plafonds du forfait (`config.cap5h` /
@@ -318,9 +326,16 @@ l'usage).
   web, utile pour jurisprudence et textes — et RIEN d'autre : shell et
   fichiers restent interdits. Les requêtes de recherche partent alors vers
   l'extérieur : à activer en connaissance de cause, révocable d'un clic.
-- **Sert de majordome** : un **brief quotidien** (heure configurable,
-  `SIRAL_ATTACHE_BRIEFING_HOUR`, défaut 6 h) balaye les dossiers qui ont bougé
-  ou dont une échéance approche (voir « brief incrémental » ci-dessus) et
+- **Sert de majordome** : un **brief quotidien** **DÉSACTIVÉ par défaut**
+  (case « Brief quotidien automatique » dans Paramètres → Attaché IA →
+  Consommation IA). Le balayage matinal lançait **un sous-agent par dossier**
+  sur *tous* les dossiers — de loin le premier poste de jetons, capable de
+  vider la fenêtre de 5 h avant même que le magistrat ne travaille. Rallumé, il
+  ne balaye plus que les dossiers **qui ont bougé** ou dont une échéance
+  approche (voir « brief incrémental » ci-dessus), à l'heure configurée
+  (`SIRAL_ATTACHE_BRIEFING_HOUR`, défaut 6 h). **Recommandation** : le laisser
+  coupé et planifier le balayage en **routine de nuit**, hors de la fenêtre de
+  5 h. Le bouton **« Générer le brief »** reste disponible à la demande. Il
   alimente un **widget du tableau de bord** visible du seul administrateur :
   - **échéances** à préparer (actes expirants, attentes JLD, CR anciens) ;
   - **projets de mail au directeur d'enquête** (demande de requête, point

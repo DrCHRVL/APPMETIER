@@ -126,6 +126,12 @@ const USAGE_CATS: Record<string, { label: string; color: string }> = {
   autres: { label: 'Autres', color: '#9ca3af' },
 };
 
+/** Libellé de la SOURCE d'un sous-agent (le run parent qui l'a lancé). */
+function srcLabelOf(k?: string): string {
+  const key = !k || k === 'autre' ? 'autres' : k;
+  return (USAGE_CATS[key] || USAGE_CATS.autres).label;
+}
+
 /** Fenêtre de progression mesurée (30 j) — agrégats de signaux, aucun LLM. */
 interface ApprFenetre {
   validees: number; refusees: number; revisions: number; editionsMain: number;
@@ -1418,13 +1424,66 @@ export function AdminAttachePanel() {
                   </div>
                 )}
 
-                {/* Alerte sous-agents : le poste que le magistrat a signalé */}
-                {subShare >= 40 && (
+                {/* « Lots parallèles, wtf ? » — d'OÙ viennent les sous-agents */}
+                {(() => {
+                  const src = w7d.sousAgentsBySource || {};
+                  const subTotal = w7d.byCategory?.['sous-agents']?.total || 0;
+                  const rows = Object.entries(src)
+                    .map(([k, v]: [string, any]) => ({ k, total: v.total || 0, runs: v.runs || 0 }))
+                    .filter((r) => r.total > 0)
+                    .sort((a, b) => b.total - a.total);
+                  if (!rows.length || subTotal <= 0) return null;
+                  const srcLabel = srcLabelOf;
+                  return (
+                    <div className="space-y-1 rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2">
+                      <div className="text-[11px] font-semibold text-amber-800">« Sous-agents (lots parallèles) », concrètement : des runs Claude lancés en parallèle pour lire vos dossiers — voici QUI les lance</div>
+                      {rows.map((r) => {
+                        const pct = Math.round((r.total / subTotal) * 100);
+                        return (
+                          <div key={r.k} className="flex items-center gap-2 text-[11px] text-amber-900">
+                            <span className="w-40 shrink-0 truncate" title={srcLabel(r.k)}>{srcLabel(r.k)}</span>
+                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-amber-100">
+                              <div className="h-full rounded-full bg-amber-500" style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="w-24 shrink-0 text-right text-[10.5px]">{formatTokens(r.total)} · {r.runs} run{r.runs > 1 ? 's' : ''}</span>
+                          </div>
+                        );
+                      })}
+                      <p className="pt-0.5 text-[10.5px] leading-relaxed text-amber-700">
+                        Le poste dominant vous dit quoi couper. Le <b>brief quotidien</b> (balayage matinal de tous les dossiers)
+                        se désactive plus bas ; le balayage à la demande, planifiez-le en <b>routine de nuit</b>.
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                {/* Repli si l'attribution manque (anciens runs) : l'alerte simple */}
+                {subShare >= 40 && !Object.keys(w7d.sousAgentsBySource || {}).length && (
                   <p className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-[11px] leading-relaxed text-amber-700">
-                    Les <b>sous-agents</b> représentent {subShare} % de votre consommation sur 7 jours. Ils travaillent en
-                    parallèle (un run par PDF, par dossier…) : rapides, mais gourmands. Le <b>mode économe</b> ci-dessous les
-                    bride nettement (modèle rapide + moins de tours) sans toucher à vos conversations.
+                    Les <b>sous-agents</b> représentent {subShare} % de votre consommation sur 7 jours : des runs lancés en
+                    parallèle (un par dossier / PDF). Le <b>brief quotidien</b> ci-dessous en est la première source — coupez-le
+                    et planifiez le balayage en routine de nuit.
                   </p>
+                )}
+
+                {/* Derniers runs — VOIR ce qui a consommé, et quand */}
+                {Array.isArray(u.recent) && u.recent.length > 0 && (
+                  <details className="rounded-lg border border-gray-100 bg-gray-50/40 px-3 py-2">
+                    <summary className="cursor-pointer text-[11px] font-semibold text-gray-600">Derniers runs — voir ce qui a consommé, et quand</summary>
+                    <div className="mt-1.5 max-h-56 space-y-0.5 overflow-y-auto">
+                      {u.recent.map((r: any, i: number) => (
+                        <div key={i} className="flex items-center gap-2 text-[10.5px] text-gray-500">
+                          <span className="w-24 shrink-0 tabular-nums text-gray-400">{new Date(r.ts).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                          <span className="flex-1 truncate">
+                            {r.cat === 'sous-agents'
+                              ? `sous-agent · ${srcLabelOf(r.src).toLowerCase()}`
+                              : (USAGE_CATS[r.cat] || USAGE_CATS.autres).label.toLowerCase()}
+                          </span>
+                          <span className="w-16 shrink-0 text-right tabular-nums">{formatTokens(r.total)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 )}
               </>
             );
@@ -1485,6 +1544,24 @@ export function AdminAttachePanel() {
               {' '}— pour freiner la consommation, surtout des sous-agents : ils basculent sur un modèle rapide
               (Haiku), avec moins de tours et un effort réduit ; le run principal est aussi resserré. Vos conversations
               gardent le modèle choisi. À activer quand les jetons filent vite ; à couper pour les dépouillements lourds.
+            </span>
+          </label>
+
+          {/* Brief quotidien automatique — le PREMIER poste de dépense, coupé par défaut */}
+          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 bg-gray-50/40 px-3 py-2">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={config.briefAuto === true}
+              onChange={(e) => updateConfig({ briefAuto: e.target.checked })}
+            />
+            <span className="text-[11.5px] leading-relaxed text-gray-700">
+              <span className="font-semibold text-gray-800">Brief quotidien automatique</span>
+              {' '}— chaque matin, l&apos;attaché balaye <b>tous vos dossiers</b> en lançant <b>un sous-agent par dossier</b>
+              {' '}(les fameux « lots parallèles »). C&apos;est de loin votre premier poste de jetons. <b>Désactivé par défaut :</b>
+              {' '}tant qu&apos;il l&apos;est, aucun balayage automatique ne part le matin. Pour faire remonter les incohérences
+              sans exploser votre fenêtre de 5 h, créez plutôt une <b>routine de nuit</b> (section Routines) ; le bouton
+              {' '}« Générer le brief » reste disponible à la demande.
             </span>
           </label>
         </div>
