@@ -67,9 +67,15 @@ export const PLANET_ORBIT_RADIUS = 110;
 /** Rayon nominal d'un système (étoile + 1 anneau de planètes). */
 const SYSTEM_RADIUS = 160;
 /** Marge ajoutée entre deux galaxies pour le placement inter-galactique
- *  (≈ un système complet de respiration). Au-dessous, hull-SAT garantit le
- *  décollage en tenant compte de l'extension visuelle réelle des nœuds. */
-const INTER_GALAXY_PADDING = 140;
+ *  (≈ deux systèmes complets de respiration). C'est LE levier de l'air entre
+ *  dossiers *sans lien* : les groupes reliés restent serrés (layout
+ *  intra-galactique inchangé), mais deux réseaux indépendants ne se frôlent
+ *  plus — la carte respire. Les paires reliées par un lien renseignement
+ *  gardent leur propre marge réduite (INTER_GALAXY_PADDING_RENS), donc rester
+ *  généreux ici n'éloigne pas les galaxies qu'on veut proches. Au-dessous,
+ *  hull-SAT garantit le décollage en tenant compte de l'extension visuelle
+ *  réelle des nœuds. */
+const INTER_GALAXY_PADDING = 300;
 /** Marge réduite entre deux galaxies reliées par un lien renseignement :
  *  on veut qu'elles soient *proches* (lecture du lien immédiate) sans pour
  *  autant fusionner ni se superposer. Hull-SAT garantit le non-recouvrement. */
