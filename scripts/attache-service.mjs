@@ -1110,9 +1110,12 @@ const server = http.createServer(async (req, res) => {
         ].join('\n')
       } else if (body.dossier && !body.convId) {
         const cadre = body.cadre === 'instruction' ? 'à l\'instruction' : 'en enquête préliminaire'
+        const numero = String(body.dossier).slice(0, 120)
         const memoire = readDossierMemory(keys, String(body.dossier))
         prompt = [
-          `CONTEXTE : le magistrat te consulte sur le dossier « ${String(body.dossier).slice(0, 80)} » (${cadre}), depuis le chat flottant ouvert sur ce dossier.`,
+          `CONTEXTE : le magistrat te consulte depuis le chat flottant ouvert sur un dossier (${cadre}). Ce dossier est enregistré dans SIRAL sous le numéro EXACT suivant (objet éventuel COMPRIS) :`,
+          `    ${numero}`,
+          'IMPORTANT — c\'est l\'IDENTIFIANT EXACT du dossier : passe-le TEL QUEL, caractère pour caractère (sans le reformater, le tronquer, ni en retirer l\'objet même s\'il ressemble à un simple libellé), comme paramètre `numero` de lire_dossier et de tout autre outil portant sur ce dossier. Si un outil te répond quand même « introuvable », appelle lister_dossiers et reprends le numéro qui correspond — ne redemande JAMAIS son numéro au magistrat : le dossier est celui d\'où il t\'écrit.',
           'Sauf mention contraire, TOUTES ses questions portent sur ce dossier. Commence par lire_dossier (aperçu compact : objet, parties, actes + échéances, index des CR). Pour une donnée PRÉCISE (un propriétaire, une date, une échéance, une ligne), NE relis pas tout : cible-la — lire_dossier section:"fiche" cible:"<nom/ligne>", section:"cr" offset/limit pour un CR entier, ou lire_document sur une pièce. diagnostic_dossier, chronologie_lire, verifier_completude selon le besoin.',
           'RÔLE — aide au contrôle et à la maîtrise : surveiller la direction d\'enquête (éparpillement des enquêteurs : partent-ils dans tous les sens ?), la cohérence entre actes demandés et réalisés, et LES DÉLAIS (en préliminaire, les TSE sont enserrés dans des délais courts — 2 mois typiquement — qui contraignent l\'action ; signale tout risque de dépassement et son incidence).',
           'Réponses concises, factuelles, chiffrées, orientées décision. Tu peux déposer des propositions (proposer_mec/acte/cr) mais tu n\'écris jamais directement au dossier sans instruction explicite.',

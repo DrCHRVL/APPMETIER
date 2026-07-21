@@ -86,12 +86,40 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+/**
+ * Retrouve une enquête par son numéro. TOLÉRANT à l'écart courant entre le
+ * numéro DE PROCÉDURE seul (« 348/822/2026 ») et le numéro tel qu'il est
+ * ENREGISTRÉ dans SIRAL, objet compris (« 348/822/2026 - Faux coursiers ») :
+ * le chat flottant, comme un mail transféré, fournit souvent l'un pour l'autre
+ * (l'agent voit « 348/822/2026 - Faux coursiers » et cherche « 348/822/2026 »).
+ * Sans cette tolérance, lire_dossier / enregistrer_acte répondaient
+ * « introuvable » alors même que le dossier existait — d'où le détour obligé
+ * par lister_dossiers, et parfois une question inutile posée au magistrat.
+ */
 function findEnquete(data, numero) {
   const wanted = String(numero).trim()
+  if (!wanted) return null
   const list = data.enquetes || []
-  return list.find((e) => String(e.numero).trim() === wanted)
-    || list.find((e) => String(e.numero).replace(/\s+/g, '') === wanted.replace(/\s+/g, ''))
-    || null
+  const squash = (s) => String(s).replace(/\s+/g, '')
+  // 1. Correspondance exacte (trim), puis insensible aux espaces.
+  const exact = list.find((e) => String(e.numero).trim() === wanted)
+  if (exact) return exact
+  const wantedSquash = squash(wanted)
+  const ws = list.find((e) => squash(e.numero) === wantedSquash)
+  if (ws) return ws
+  // 2. Rapprochement sur la PARTIE NUMÉRO — le texte avant le premier
+  //    séparateur ENTOURÉ D'ESPACES (« - », « – », « — », « : ») : on ne coupe
+  //    jamais sur un tiret ou un slash INTERNE au numéro (« 2026-00348 »,
+  //    « 348/822/2026 » restent entiers). Réduit des deux côtés, donc
+  //    symétrique (numéro seul ↔ numéro + objet). Uniquement si UNIQUE — sinon
+  //    on ne devine pas (l'appelant retombe proprement sur lister_dossiers).
+  const numPart = (s) => squash(String(s).split(/\s+[-–—:]\s+/)[0])
+  const wantedNum = numPart(wanted)
+  if (wantedNum) {
+    const matches = list.filter((e) => numPart(e.numero) === wantedNum)
+    if (matches.length === 1) return matches[0]
+  }
+  return null
 }
 
 /** Le numéro correspond-il à une enquête du contentieux confié ? */
