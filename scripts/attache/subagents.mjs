@@ -19,17 +19,30 @@ import os from 'node:os'
 import { attacheContentieux } from './store.mjs'
 import { writeMcpConfig, agentConfig, sanitizeModel, sanitizeEffort } from './agent.mjs'
 import { extractUsage, recordUsage } from './usage.mjs'
+import { consumptionGovernor } from './budget.mjs'
 
 const CLAUDE_BIN = process.env.SIRAL_ATTACHE_CLAUDE_BIN || 'claude'
 const MAX_TACHES = 24
 const CONCURRENCY = Math.max(1, Math.min(6,
   Number(process.env.SIRAL_ATTACHE_SUBAGENT_CONCURRENCY || 0) || Math.min(3, Math.max(1, os.cpus().length - 1))))
-const SUB_MAX_TURNS = Number(process.env.SIRAL_ATTACHE_SUBAGENT_MAX_TURNS || 15)
+// Les sous-agents sont en LECTURE SEULE (extraction / balayage) : une poignée
+// de tours suffit presque toujours. Le plafond ne sert qu'à couvrir la queue
+// (dossier à plusieurs pièces) — on l'a resserré de 15 à 10 : le coût d'un run
+// grimpe à chaque tour (contexte renvoyé), et la valeur marginale des derniers
+// tours est quasi nulle.
+const SUB_MAX_TURNS = Number(process.env.SIRAL_ATTACHE_SUBAGENT_MAX_TURNS || 10)
 const SUB_TIMEOUT_MS = Number(process.env.SIRAL_ATTACHE_SUBAGENT_TIMEOUT_MIN || 8) * 60 * 1000
 
 const ALLOWED_TOOLS = 'mcp__siral__*'
 const DISALLOWED_TOOLS = 'Bash,Edit,Write,NotebookEdit,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite,KillShell,BashOutput'
 const WEB_TOOLS = ['WebSearch', 'WebFetch']
+
+// Travail DIRECT du magistrat, JAMAIS bridé pour cause de forfait : le chat et
+// le traitement d'un mail (rédaction d'acte, sa priorité n°1) gardent toute la
+// qualité de leurs sous-agents. Seuls les runs de FOND (brief, étude,
+// consolidation, routines) subissent le gouverneur. On reconnaît le run parent
+// par SIRAL_ATTACHE_RUN, propagé au serveur MCP où tourne ce module.
+const DIRECT_RUNS = new Set(['chat', 'chat-dossier', 'chat-carto', 'proactif'])
 
 // Modèle des travaux d'appoint (sous-agents, consolidation d'apprentissage) :
 // un modèle RAPIDE par défaut — jamais celui du run principal, qui peut être
@@ -53,7 +66,7 @@ function subagentSystemPrompt(contexte) {
 }
 
 /** Exécute UNE sous-tâche (un run headless, résultat = texte final). */
-function runOne({ consigne, mcpConfig, systemPrompt, allowedTools, disallowedTools, model, effort, maxTurns }) {
+function runOne({ consigne, mcpConfig, systemPrompt, allowedTools, disallowedTools, model, effort, maxTurns, parent }) {
   const args = [
     '-p', String(consigne),
     '--output-format', 'json',
@@ -89,7 +102,7 @@ function runOne({ consigne, mcpConfig, systemPrompt, allowedTools, disallowedToo
       // Chaque sous-agent est un process CLI distinct : son bilan de jetons
       // s'ajoute à celui de l'agent principal (pas de double comptage).
       const usage = extractUsage(parsed)
-      if (usage) recordUsage({ run: 'sous-agent', model, usage })
+      if (usage) recordUsage({ run: 'sous-agent', model, usage, parent })
       if (parsed && parsed.subtype === 'success' && typeof parsed.result === 'string') {
         return finish(true, parsed.result.slice(0, 60_000))
       }
@@ -114,6 +127,20 @@ export async function runSubagents({ taches, contexte, modele, effort }) {
   if (!list.length) throw new Error('Aucune tâche valide (titre + consigne requis, 24 max)')
 
   const cfg = agentConfig()
+  // GOUVERNEUR DE CONSOMMATION — le garde-fou qui manquait : les sous-agents en
+  // parallèle sont le PREMIER poste de dépense (≈ 77 %), et rien ne les bridait
+  // quand la fenêtre de 5 h du forfait était déjà pleine. Quel que soit
+  // l'appelant (brief, étude, mail, chat), si le forfait chauffe on resserre
+  // AUTOMATIQUEMENT le lot — modèle rapide, effort faible, moins de tours, moins
+  // de parallélisme — sans jamais bloquer ni perdre de tâche (chat du magistrat
+  // dégradé, jamais interrompu). C'est indépendant du mode économe : même
+  // décoché, un forfait à saturation freine tout seul.
+  const parentRun = String(process.env.SIRAL_ATTACHE_RUN || '')
+  const direct = DIRECT_RUNS.has(parentRun)
+  const gov = direct ? { level: 'ok' } : consumptionGovernor(cfg)
+  const tighten = gov.level === 'serrer' || gov.level === 'stop'
+  const hard = gov.level === 'stop'
+  const eco = cfg.econome || tighten
   // Les sous-agents sont des OUVRIERS DE LECTURE (extraction, audit, balayage
   // de PDF ou de trames) exécutés EN PARALLÈLE : le premier poste de dépense.
   // Par défaut on les met sur un modèle RAPIDE (Sonnet ; Haiku en mode économe)
@@ -121,10 +148,15 @@ export async function runSubagents({ taches, contexte, modele, effort }) {
   // rendrait N runs lourds simultanés, lents et gourmands en mémoire (c'était
   // la cause des analyses de trames qui s'éternisaient puis se faisaient tuer).
   // Le magistrat garde la main : sélecteur « Sous-agents » du panneau
-  // (cfg.subModel) ou paramètre `modele` du lot pour forcer un autre modèle.
-  const model = sanitizeModel(modele) || economicalModel(cfg)
-  const useEffort = sanitizeEffort(effort) || (cfg.econome ? 'low' : cfg.effort)
-  const subMaxTurns = cfg.econome ? Math.min(SUB_MAX_TURNS, 8) : SUB_MAX_TURNS
+  // (cfg.subModel) ou paramètre `modele` du lot pour forcer un autre modèle —
+  // mais fenêtre saturée, on force le modèle rapide faute de choix explicite.
+  const model = sanitizeModel(modele)
+    || (tighten ? (cfg.subModel || ECO_SUBMODEL) : economicalModel(cfg))
+  const useEffort = sanitizeEffort(effort) || (eco ? 'low' : cfg.effort)
+  const subMaxTurns = hard ? Math.min(SUB_MAX_TURNS, 6) : eco ? Math.min(SUB_MAX_TURNS, 8) : SUB_MAX_TURNS
+  // Moins de fronts simultanés quand la fenêtre chauffe : on étale le lot au
+  // lieu de le déverser d'un coup dans un forfait déjà tendu.
+  const concurrency = tighten ? Math.min(CONCURRENCY, 2) : CONCURRENCY
   const allowedTools = cfg.webAccess ? [ALLOWED_TOOLS, ...WEB_TOOLS].join(',') : ALLOWED_TOOLS
   const disallowedTools = cfg.webAccess
     ? DISALLOWED_TOOLS.split(',').filter((t) => !WEB_TOOLS.includes(t)).join(',')
@@ -138,10 +170,10 @@ export async function runSubagents({ taches, contexte, modele, effort }) {
     while (next < list.length) {
       const i = next++
       const t = list[i]
-      const r = await runOne({ consigne: t.consigne, mcpConfig, systemPrompt, allowedTools, disallowedTools, model, effort: useEffort, maxTurns: subMaxTurns })
+      const r = await runOne({ consigne: t.consigne, mcpConfig, systemPrompt, allowedTools, disallowedTools, model, effort: useEffort, maxTurns: subMaxTurns, parent: parentRun })
       results[i] = { titre: t.titre, ...r }
     }
   }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, list.length) }, worker))
+  await Promise.all(Array.from({ length: Math.min(concurrency, list.length) }, worker))
   return results
 }

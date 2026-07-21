@@ -90,6 +90,11 @@ export function agentConfig() {
     // Mode économe : bride les sous-agents (modèle rapide + moins de tours) et
     // resserre le run principal — la consommation, surtout en parallèle, chute.
     econome: cfg.econome === true,
+    // Brief quotidien automatique : le balayage matinal de TOUS les dossiers en
+    // sous-agents parallèles est de loin le premier poste de dépense. DÉSACTIVÉ
+    // par défaut — le magistrat le rallume s'il le veut, ou (mieux) planifie le
+    // balayage en ROUTINE de nuit, hors de sa fenêtre de 5 h.
+    briefAuto: cfg.briefAuto === true,
     // Repère du forfait (pour traduire la consommation en %) : plafonds de
     // jetons estimés, ajustables. Purement indicatifs (l'abonnement ne publie
     // pas ses seuils en jetons).

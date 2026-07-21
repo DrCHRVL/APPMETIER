@@ -201,7 +201,7 @@ export function MajordomeWidget({ onOpenDossier }: { onOpenDossier?: (numero: st
         <div className="flex-1">
           <div className="text-[13.5px] font-bold text-gray-900">Votre attaché a préparé</div>
           <div className="text-[11px] text-gray-500">
-            {items.length ? `${items.length} point(s) appellent un geste de votre part` : 'Rien en attente — le brief tourne chaque matin'}
+            {items.length ? `${items.length} point(s) appellent un geste de votre part` : 'Rien en attente — alimenté par vos routines de nuit et le bouton « Générer le brief »'}
           </div>
         </div>
         <button

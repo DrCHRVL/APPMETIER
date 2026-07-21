@@ -126,6 +126,12 @@ const USAGE_CATS: Record<string, { label: string; color: string }> = {
   autres: { label: 'Autres', color: '#9ca3af' },
 };
 
+/** Libellé de la SOURCE d'un sous-agent (le run parent qui l'a lancé). */
+function srcLabelOf(k?: string): string {
+  const key = !k || k === 'autre' ? 'autres' : k;
+  return (USAGE_CATS[key] || USAGE_CATS.autres).label;
+}
+
 /** Fenêtre de progression mesurée (30 j) — agrégats de signaux, aucun LLM. */
 interface ApprFenetre {
   validees: number; refusees: number; revisions: number; editionsMain: number;
@@ -197,6 +203,7 @@ export function AdminAttachePanel() {
   const [rForm, setRForm] = useState({ nom: '', prompt: '', heure: '07:00', mode: 'heure' as 'heure' | 'intervalle', intervalleHeures: 4 });
   const [config, setConfig] = useState<AttacheConfig>({});
   const [usage, setUsage] = useState<any>(null);
+  const [governor, setGovernor] = useState<any>(null);
   const [usageLoading, setUsageLoading] = useState(false);
   const [showMailDiag, setShowMailDiag] = useState(false);
   const [mailTest, setMailTest] = useState<any>(null);
@@ -210,6 +217,7 @@ export function AdminAttachePanel() {
   const [skillForm, setSkillForm] = useState<{ open: boolean; original?: string; nom: string; description: string; contenu: string }>({ open: false, nom: '', description: '', contenu: '' });
   const [skillSaving, setSkillSaving] = useState(false);
   const [skillStaged, setSkillStaged] = useState<StagedSkill[]>([]);
+  const [skillAnalyseBusy, setSkillAnalyseBusy] = useState(false);   // « Classer les skills » en cours
   // ── Bibliothèque de trames (téléversement en masse) ──
   const [trames, setTrames] = useState<Trame[]>([]);
   const [trameForm, setTrameForm] = useState<{ open: boolean; original?: string; nom: string; description: string; contenu: string }>({ open: false, nom: '', description: '', contenu: '' });
@@ -224,6 +232,7 @@ export function AdminAttachePanel() {
   // ── Associations « type d'acte → trame(s) + skill(s) » (table durable, éditable) ──
   const [assoc, setAssoc] = useState<AssocRow[]>([]);
   const [assocSaving, setAssocSaving] = useState(false);
+  const [assocSuggesting, setAssocSuggesting] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -259,6 +268,7 @@ export function AdminAttachePanel() {
       if (res.ok) {
         const data = await res.json();
         setUsage(data.usage || null);
+        setGovernor(data.governor ? { ...data.governor, autoDeferredAt: data.autoDeferredAt || null } : null);
       }
     } catch { /* silencieux : le bilan est secondaire */ } finally {
       setUsageLoading(false);
@@ -397,6 +407,43 @@ export function AdminAttachePanel() {
       setAssocSaving(false);
     }
   }, [assoc, loadAssociations]);
+
+  /**
+   * Suggère des associations acte → trame + skill à partir de la bibliothèque.
+   * L'attaché PROPOSE (une passe rapide, quelques secondes) : les suggestions
+   * sont chargées en lignes de BROUILLON — rien n'est appliqué tant que vous
+   * n'avez pas cliqué « Enregistrer ». On n'ajoute que les types d'acte absents.
+   */
+  const suggestAssociations = useCallback(async () => {
+    setAssocSuggesting(true);
+    try {
+      const res = await fetch('/api/attache/associations', { method: 'POST' });
+      const data = await res.json().catch(() => ({} as { ok?: boolean; error?: string; suggestions?: Array<{ acte: string; trames?: string[]; skills?: string[]; notes?: string }> }));
+      if (!res.ok || !data.ok) { setNotice(`Suggestion impossible : ${data.error || 'service injoignable'}`); return; }
+      const sugg = Array.isArray(data.suggestions) ? data.suggestions : [];
+      let ajoutes = 0;
+      setAssoc((rows) => {
+        const norm = (s: string) => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '');
+        const seen = new Set(rows.map((r) => norm(r.acte)));
+        const add: AssocRow[] = [];
+        for (const s of sugg) {
+          const key = norm(s.acte);
+          if (!s.acte || !key || seen.has(key)) continue;
+          seen.add(key);
+          add.push({ id: assocId(), acte: String(s.acte).slice(0, 120), tramesText: (s.trames || []).join(', '), skillsText: (s.skills || []).join(', '), notes: (s.notes || '').slice(0, 500) });
+        }
+        ajoutes = add.length;
+        return [...rows, ...add];
+      });
+      setNotice(ajoutes
+        ? `${ajoutes} association(s) suggérée(s) et ajoutée(s) en brouillon — vérifiez et ajustez, puis « Enregistrer ». Rien n'est appliqué tant que vous n'avez pas enregistré.`
+        : 'Aucune nouvelle association à suggérer (celles pertinentes existent déjà, ou la bibliothèque de trames est vide).');
+    } catch (e) {
+      setNotice(`Suggestion impossible : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setAssocSuggesting(false);
+    }
+  }, []);
 
   // ── Propositions de méthode (trames & skills révisées par l'attaché, ✓/✗) ──
   const [methodProps, setMethodProps] = useState<MethodProp[]>([]);
@@ -565,8 +612,37 @@ export function AdminAttachePanel() {
     setUploadBusy(null);
     setSkillStaged([]);
     loadSkills();
-    setNotice(`${saved.length} skill(s) importée(s)${failed.length ? ` — échec : ${failed.join(', ')}` : ''}. L'attaché les applique dès le prochain échange.`);
+    // Classement incrémental : ne décrit QUE les skills fraîchement importées et
+    // sans description (le service ignore celles déjà décrites — front-matter
+    // .skill intact). Pas de sous-agent : une passe rapide, comme les trames.
+    if (saved.length) {
+      fetch('/api/attache/skills', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ analyse: saved }),
+      }).catch(() => null);
+    }
+    setNotice(`${saved.length} skill(s) importée(s)${failed.length ? ` — échec : ${failed.join(', ')}` : ''}. L'attaché les applique dès le prochain échange${saved.length ? ' ; description auto pour celles qui n\'en avaient pas' : ''}.`);
   }, [skillStaged, loadSkills]);
+
+  /** Classe (décrit) les skills sans description — passe rapide, une par skill, sans sous-agent. */
+  const analyseSkills = useCallback(async (noms: string[]) => {
+    if (!noms.length) return;
+    if (!status?.keyring?.granted) {
+      setNotice('Remettez d\'abord les clés à l\'attaché (bouton « Remettre les clés » en haut) — sans elles, il ne peut pas lire les skills pour les décrire.');
+      return;
+    }
+    setSkillAnalyseBusy(true);
+    setNotice('Classement des skills en cours de lancement…');
+    const res = await fetch('/api/attache/skills', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ analyse: noms }),
+    }).catch(() => null);
+    const data = res ? await res.json().catch(() => ({} as { error?: string })) : { error: 'service injoignable' };
+    setNotice(res?.ok
+      ? 'Classement des skills lancé — seules celles sans description sont décrites (le résultat arrive dans le fil « pendant votre absence »).'
+      : `Classement impossible : ${data.error || 'erreur'}`);
+    setSkillAnalyseBusy(false);
+  }, [status]);
 
   /** Classe (décrit) les trames de la bibliothèque : une passe rapide, une description par trame. */
   const analyseTrames = useCallback(async (noms: string[]) => {
@@ -1292,6 +1368,22 @@ export function AdminAttachePanel() {
                   {top ? <> Premier poste : <b style={{ color: top.color }}>{top.label.toLowerCase()}</b>.</> : null}
                 </p>
 
+                {/* Gouverneur de consommation : bridage automatique en cours */}
+                {governor && governor.level === 'stop' && (
+                  <p className="rounded-lg border border-red-200 bg-red-50/70 px-3 py-2 text-[11px] leading-relaxed text-red-700">
+                    <b>Runs automatiques en pause</b> — forfait saturé ({governor.raison}). Le brief, l'étude et les
+                    routines de fond sont suspendus et repartiront seuls dès que la fenêtre de 5 h sera redescendue.
+                    Vos conversations et le traitement des mails continuent (les sous-agents sont automatiquement bridés).
+                  </p>
+                )}
+                {governor && governor.level === 'serrer' && (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-[11px] leading-relaxed text-amber-700">
+                    <b>Bridage automatique actif</b> — vous approchez du plafond ({governor.raison}). Les sous-agents
+                    passent d'office en régime économe (modèle rapide, moins de tours, moins de parallélisme), sans
+                    toucher à vos conversations.
+                  </p>
+                )}
+
                 {/* Deux jauges : maintenant (5 h) et 7 jours */}
                 <div className="grid gap-2 sm:grid-cols-2">
                   <UsageGauge label="Maintenant · 5 h" hint="fenêtre glissante du forfait" total={w5h.total || 0} cap={cap5h} />
@@ -1332,13 +1424,66 @@ export function AdminAttachePanel() {
                   </div>
                 )}
 
-                {/* Alerte sous-agents : le poste que le magistrat a signalé */}
-                {subShare >= 40 && (
+                {/* « Lots parallèles, wtf ? » — d'OÙ viennent les sous-agents */}
+                {(() => {
+                  const src = w7d.sousAgentsBySource || {};
+                  const subTotal = w7d.byCategory?.['sous-agents']?.total || 0;
+                  const rows = Object.entries(src)
+                    .map(([k, v]: [string, any]) => ({ k, total: v.total || 0, runs: v.runs || 0 }))
+                    .filter((r) => r.total > 0)
+                    .sort((a, b) => b.total - a.total);
+                  if (!rows.length || subTotal <= 0) return null;
+                  const srcLabel = srcLabelOf;
+                  return (
+                    <div className="space-y-1 rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2">
+                      <div className="text-[11px] font-semibold text-amber-800">« Sous-agents (lots parallèles) », concrètement : des runs Claude lancés en parallèle pour lire vos dossiers — voici QUI les lance</div>
+                      {rows.map((r) => {
+                        const pct = Math.round((r.total / subTotal) * 100);
+                        return (
+                          <div key={r.k} className="flex items-center gap-2 text-[11px] text-amber-900">
+                            <span className="w-40 shrink-0 truncate" title={srcLabel(r.k)}>{srcLabel(r.k)}</span>
+                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-amber-100">
+                              <div className="h-full rounded-full bg-amber-500" style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="w-24 shrink-0 text-right text-[10.5px]">{formatTokens(r.total)} · {r.runs} run{r.runs > 1 ? 's' : ''}</span>
+                          </div>
+                        );
+                      })}
+                      <p className="pt-0.5 text-[10.5px] leading-relaxed text-amber-700">
+                        Le poste dominant vous dit quoi couper. Le <b>brief quotidien</b> (balayage matinal de tous les dossiers)
+                        se désactive plus bas ; le balayage à la demande, planifiez-le en <b>routine de nuit</b>.
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                {/* Repli si l'attribution manque (anciens runs) : l'alerte simple */}
+                {subShare >= 40 && !Object.keys(w7d.sousAgentsBySource || {}).length && (
                   <p className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-[11px] leading-relaxed text-amber-700">
-                    Les <b>sous-agents</b> représentent {subShare} % de votre consommation sur 7 jours. Ils travaillent en
-                    parallèle (un run par PDF, par dossier…) : rapides, mais gourmands. Le <b>mode économe</b> ci-dessous les
-                    bride nettement (modèle rapide + moins de tours) sans toucher à vos conversations.
+                    Les <b>sous-agents</b> représentent {subShare} % de votre consommation sur 7 jours : des runs lancés en
+                    parallèle (un par dossier / PDF). Le <b>brief quotidien</b> ci-dessous en est la première source — coupez-le
+                    et planifiez le balayage en routine de nuit.
                   </p>
+                )}
+
+                {/* Derniers runs — VOIR ce qui a consommé, et quand */}
+                {Array.isArray(u.recent) && u.recent.length > 0 && (
+                  <details className="rounded-lg border border-gray-100 bg-gray-50/40 px-3 py-2">
+                    <summary className="cursor-pointer text-[11px] font-semibold text-gray-600">Derniers runs — voir ce qui a consommé, et quand</summary>
+                    <div className="mt-1.5 max-h-56 space-y-0.5 overflow-y-auto">
+                      {u.recent.map((r: any, i: number) => (
+                        <div key={i} className="flex items-center gap-2 text-[10.5px] text-gray-500">
+                          <span className="w-24 shrink-0 tabular-nums text-gray-400">{new Date(r.ts).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                          <span className="flex-1 truncate">
+                            {r.cat === 'sous-agents'
+                              ? `sous-agent · ${srcLabelOf(r.src).toLowerCase()}`
+                              : (USAGE_CATS[r.cat] || USAGE_CATS.autres).label.toLowerCase()}
+                          </span>
+                          <span className="w-16 shrink-0 text-right tabular-nums">{formatTokens(r.total)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 )}
               </>
             );
@@ -1399,6 +1544,24 @@ export function AdminAttachePanel() {
               {' '}— pour freiner la consommation, surtout des sous-agents : ils basculent sur un modèle rapide
               (Haiku), avec moins de tours et un effort réduit ; le run principal est aussi resserré. Vos conversations
               gardent le modèle choisi. À activer quand les jetons filent vite ; à couper pour les dépouillements lourds.
+            </span>
+          </label>
+
+          {/* Brief quotidien automatique — le PREMIER poste de dépense, coupé par défaut */}
+          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 bg-gray-50/40 px-3 py-2">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={config.briefAuto === true}
+              onChange={(e) => updateConfig({ briefAuto: e.target.checked })}
+            />
+            <span className="text-[11.5px] leading-relaxed text-gray-700">
+              <span className="font-semibold text-gray-800">Brief quotidien automatique</span>
+              {' '}— chaque matin, l&apos;attaché balaye <b>tous vos dossiers</b> en lançant <b>un sous-agent par dossier</b>
+              {' '}(les fameux « lots parallèles »). C&apos;est de loin votre premier poste de jetons. <b>Désactivé par défaut :</b>
+              {' '}tant qu&apos;il l&apos;est, aucun balayage automatique ne part le matin. Pour faire remonter les incohérences
+              sans exploser votre fenêtre de 5 h, créez plutôt une <b>routine de nuit</b> (section Routines) ; le bouton
+              {' '}« Générer le brief » reste disponible à la demande.
             </span>
           </label>
         </div>
@@ -1644,9 +1807,17 @@ export function AdminAttachePanel() {
           <input ref={skillFileInput} type="file" multiple accept={SKILL_ACCEPT} className="hidden"
             onChange={(e) => { stageSkillFiles(e.target.files); e.currentTarget.value = ''; }} />
           <button
+            onClick={() => analyseSkills(skills.map((s) => s.nom))}
+            disabled={skillAnalyseBusy || skills.length === 0}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            title="Décrit les skills qui n'ont pas encore de description — passe rapide (un appel modèle, sans sous-agent). Les skills déjà décrites (front-matter .skill) sont laissées intactes."
+          >
+            {skillAnalyseBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}Classer
+          </button>
+          <button
             onClick={() => skillFileInput.current?.click()}
             disabled={converting || uploadBusy !== null}
-            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
             title="Téléverser vos fichiers .skill exportés de Claude web (ou des .md)"
           >
             <UploadCloud className="h-3 w-3" />Téléverser
@@ -1929,6 +2100,14 @@ export function AdminAttachePanel() {
           <span className="hidden text-[11px] text-gray-400 sm:inline">la trame et la skill appliquées d&apos;office pour chaque type d&apos;acte</span>
           <div className="ml-auto flex items-center gap-2">
             <button
+              onClick={suggestAssociations}
+              disabled={assocSuggesting || trames.length === 0}
+              title="L'attaché parcourt vos trames et vos skills et propose les liens acte → trame + skill. Les suggestions arrivent en brouillon : vous vérifiez, ajustez, puis « Enregistrer ». Rien n'est appliqué sans votre validation. (Classez d'abord la bibliothèque pour de meilleures suggestions.)"
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            >
+              {assocSuggesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}Suggérer
+            </button>
+            <button
               onClick={() => setAssoc((rows) => [...rows, { id: assocId(), acte: '', tramesText: '', skillsText: '', notes: '' }])}
               className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
             >
@@ -1952,10 +2131,11 @@ export function AdminAttachePanel() {
           <p className="text-[11px] leading-relaxed text-gray-500">
             L&apos;attaché consulte cette table avant de rédiger : si le type d&apos;acte y figure, il applique directement la
             trame et la skill indiquées — il ne redemande plus. Plusieurs noms séparés par des virgules.
+            <b> « Suggérer »</b> pré-remplit la table à partir de votre bibliothèque — en brouillon, à vérifier puis enregistrer.
           </p>
           {assoc.length === 0 && (
             <p className="rounded-lg border border-dashed border-gray-200 px-3 py-4 text-center text-[11px] text-gray-400">
-              Aucune association. « Ajouter » pour lier un type d&apos;acte à sa trame et sa skill.
+              Aucune association. <b>« Suggérer »</b> pour que l&apos;attaché propose les liens acte → trame + skill, ou « Ajouter » pour en créer un à la main.
             </p>
           )}
           {assoc.map((r, i) => (

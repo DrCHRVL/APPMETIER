@@ -254,18 +254,61 @@ l'usage).
   (limites en messages/heures), donc les plafonds Pro / Max 5× / Max 20×
   sont des ordres de grandeur que le magistrat affine — les jetons mesurés,
   eux, sont exacts. Route interne `GET /usage`.
-- **Mode économe (levier anti-consommation)** : Paramètres → Attaché IA →
+- **Priorité au magistrat (demandes + mails), le fond la nuit** : répondre
+  aux demandes (chat) et traiter les mails transférés (rédaction d'actes) est
+  la priorité — ces runs ne sont **jamais** différés ni bridés, et leurs
+  sous-agents gardent toute leur qualité même forfait tendu. Le **brief
+  quotidien** (premier poste de dépense) est **coupé par défaut** ; les travaux
+  de **fond lourds** (étude du corpus d'actes, consolidation de l'apprentissage)
+  sont **réservés à une fenêtre de nuit** (`SIRAL_ATTACHE_NIGHT_START` /
+  `_END`, défaut 22 h → 7 h) : hors de la journée de travail, ils ne disputent
+  jamais le forfait aux actes. Les boutons du panneau (« Générer le brief »,
+  « Étudier mes actes maintenant », « Consolider maintenant ») forcent
+  l'exécution à tout moment. Pour un balayage régulier sans exploser la fenêtre
+  de 5 h : le planifier en **routine de nuit**.
+- **« Où passent vos jetons », lisible** : le panneau Consommation IA
+  **attribue chaque sous-agent au run qui l'a lancé** (brief, mails, étude…) —
+  fini le sac fourre-tout « lots parallèles » : on voit que ~90 % venaient du
+  brief. Un volet **« Derniers runs »** liste, horodatés, les runs récents et
+  leurs jetons, pour repérer d'un coup d'œil ce qui a consommé et quand.
+- **Gouverneur de consommation (bridage automatique)** : le garde-fou qui
+  « jugule » le forfait tout seul, sans réglage. À chaque tick, le service
+  compare la consommation récente aux plafonds du forfait (`config.cap5h` /
+  `config.capHebdo`, renseignés par le choix de forfait) et agit à coût nul
+  (le journal `usage.jsonl` n'est que des nombres) — il ne bride QUE les
+  runs de fond, jamais le chat ni les mails :
+  - **≥ 75 % de la fenêtre de 5 h** → les **lots de sous-agents** passent
+    d'office en régime économe (modèle rapide, effort faible, ≤ 8 tours,
+    concurrence ramenée à 2), quel que soit l'appelant (brief, étude, mail,
+    chat) et **même si le mode économe est décoché** ;
+  - **≥ 100 %** → les **runs autonomes** (brief, étude, consolidation,
+    routines) sont **différés** — rien n'est perdu, ils repartent seuls au
+    prochain tick une fois la fenêtre redescendue ; les sous-agents encore
+    lancés sont bridés au maximum (≤ 6 tours). Le **chat** et le **traitement
+    des mails** (demande directe du magistrat) ne sont **jamais** mis en
+    pause, seulement resserrés. Une note « Runs automatiques en pause » paraît
+    au fil (au plus une fois par heure), et le panneau « Consommation IA »
+    affiche l'état du bridage. Sans plafond configuré, le gouverneur est
+    inerte. Seuils réglables : `SIRAL_ATTACHE_BUDGET_SERRER_5H` (0,75),
+    `SIRAL_ATTACHE_BUDGET_STOP_5H` (1,0), idem `…_7J`.
+- **Brief quotidien incrémental** : le brief ne re-balaye plus **tous** les
+  dossiers chaque jour (c'était la principale hémorragie de sous-agents). Il ne
+  délègue un sous-agent qu'aux dossiers qui ont **bougé** depuis le dernier
+  brief, à ceux dont une **échéance approche**, et aux **dormants** à relancer —
+  un lot resserré au lieu de la liste entière.
+- **Mode économe (levier manuel)** : Paramètres → Attaché IA →
   « Consommation IA » → **Mode économe**. Les **sous-agents** sont le premier
   poste de dépense (un run complet par PDF/dossier, en parallèle) : le mode
   les bascule sur un **modèle rapide** (Haiku) avec **moins de tours**
-  (8 au lieu de 15) et un **effort réduit**, et resserre le run principal
+  (8 au lieu de 10) et un **effort réduit**, et resserre le run principal
   (24 tours au lieu de 40). Les conversations gardent le modèle choisi.
-  À activer quand les jetons filent ; à couper pour un dépouillement lourd.
-  Autres leviers permanents : choisir un **modèle de sous-agents** plus léger
-  (« Cerveau »), baisser l'**effort**, borner la concurrence
-  (`SIRAL_ATTACHE_SUBAGENT_CONCURRENCY`) et les tours des sous-agents
-  (`SIRAL_ATTACHE_SUBAGENT_MAX_TURNS`), et laisser jouer le **cache de PDF**
-  (ci-dessus) qui évite de re-payer l'extraction à chaque relecture.
+  À activer pour forcer l'économie en permanence ; à couper pour un
+  dépouillement lourd. Autres leviers permanents : choisir un **modèle de
+  sous-agents** plus léger (« Cerveau »), baisser l'**effort**, borner la
+  concurrence (`SIRAL_ATTACHE_SUBAGENT_CONCURRENCY`) et les tours des
+  sous-agents (`SIRAL_ATTACHE_SUBAGENT_MAX_TURNS`, défaut 10), et laisser jouer
+  le **cache de PDF** (ci-dessus) qui évite de re-payer l'extraction à chaque
+  relecture.
 - **Suit vos consignes permanentes** : un « prompt » libre, rédigé par le
   magistrat (Paramètres → Attaché IA → « Consignes permanentes » — l'équivalent
   de vos instructions Claude web : style, méthode, réflexes), relu au début de
@@ -285,7 +328,11 @@ l'usage).
   relit, applique le changement et la ré-enregistre sous le même nom
   (versionné, rien n'est perdu) ; « supprime-la » (`skill_supprimer`,
   réversible). « Enregistre cette skill » (dictée/collée) fonctionne toujours.
-  Chiffrées (clé globale), versionnées à chaque
+  Bouton **« Classer »** (et classement incrémental au téléversement) : la
+  **même passe rapide** que pour les trames/base — un appel modèle par lot,
+  **sans sous-agent** — mais elle ne remplit que les descriptions **manquantes**
+  (une skill collée en markdown nu) : le front-matter `description` d'un `.skill`
+  n'est **jamais écrasé**. Chiffrées (clé globale), versionnées à chaque
   réécriture, suppression réversible. Différence avec les trames : la trame
   est un plan-type de document, la skill une méthode générale.
 - **Recherche web en option** : décochée par défaut. Si le magistrat l'active
@@ -293,8 +340,16 @@ l'usage).
   web, utile pour jurisprudence et textes — et RIEN d'autre : shell et
   fichiers restent interdits. Les requêtes de recherche partent alors vers
   l'extérieur : à activer en connaissance de cause, révocable d'un clic.
-- **Sert de majordome** : un **brief quotidien** (heure configurable,
-  `SIRAL_ATTACHE_BRIEFING_HOUR`, défaut 6 h) balaye tous les dossiers et
+- **Sert de majordome** : un **brief quotidien** **DÉSACTIVÉ par défaut**
+  (case « Brief quotidien automatique » dans Paramètres → Attaché IA →
+  Consommation IA). Le balayage matinal lançait **un sous-agent par dossier**
+  sur *tous* les dossiers — de loin le premier poste de jetons, capable de
+  vider la fenêtre de 5 h avant même que le magistrat ne travaille. Rallumé, il
+  ne balaye plus que les dossiers **qui ont bougé** ou dont une échéance
+  approche (voir « brief incrémental » ci-dessus), à l'heure configurée
+  (`SIRAL_ATTACHE_BRIEFING_HOUR`, défaut 6 h). **Recommandation** : le laisser
+  coupé et planifier le balayage en **routine de nuit**, hors de la fenêtre de
+  5 h. Le bouton **« Générer le brief »** reste disponible à la demande. Il
   alimente un **widget du tableau de bord** visible du seul administrateur :
   - **échéances** à préparer (actes expirants, attentes JLD, CR anciens) ;
   - **projets de mail au directeur d'enquête** (demande de requête, point
@@ -360,11 +415,27 @@ l'usage).
   et signale les **doublons manifestes**. Quelques secondes, quelques milliers
   de jetons (là où l'ancienne délégation d'une analyse approfondie à un
   sous-agent par trame était lente, souvent interrompue avant de rendre quoi que
-  ce soit, et très gourmande). Pour une **analyse juridique en profondeur** d'une
+  ce soit, et très gourmande). Le rapprochement entre la réponse du modèle et
+  chaque trame est **tolérant** (forme normalisée du nom : le modèle n'a pas à
+  recopier un slug de 60 caractères au caractère près), et toute trame qu'un lot
+  n'aurait pas décrite est **reprise une par une** — plus aucune trame ne reste
+  « pas encore classée » par un simple aléa de formatage. Pour une **analyse juridique en profondeur** d'une
   trame (contrôle de légalité fondement par fondement, nullités, propositions de
   réécriture) : la demander **dans le chat de l'attaché**, sur cette trame
   précise — ciblée et bornée. Le bouton indique clairement s'il faut d'abord
   remettre les clés et affiche l'état du lancement sur place.
+- **Associations acte → trame + skill, suggérées en un clic** : la table que
+  l'attaché consulte avant de rédiger (« pour ce type d'acte, cette trame + cette
+  skill, d'office »). Elle se remplissait jusqu'ici uniquement en le disant en
+  chat, une par une — d'où une table souvent vide. Le bouton **« Suggérer »**
+  (Paramètres → Attaché IA → Associations) lance une passe rapide (un appel
+  modèle, sans sous-agent) qui lit les noms + descriptions des trames et des
+  skills et **propose** les liens. Les suggestions arrivent en **lignes de
+  brouillon** : vous vérifiez, ajustez, puis **« Enregistrer »** — **rien n'est
+  appliqué à une rédaction tant que vous n'avez pas validé** (les noms sont
+  vérifiés contre la bibliothèque réelle ; les types d'acte déjà présents ne sont
+  pas re-suggérés). Classez d'abord la bibliothèque (« Classer ») pour des
+  suggestions plus fines.
 - **Base de connaissances — le cerveau documentaire** (pensez Obsidian
   branché sur l'IA) : le fond durable du cabinet — jurisprudences,
   conventions et circulaires, modes opératoires, fiches réflexes, contacts —

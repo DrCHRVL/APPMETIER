@@ -6,7 +6,7 @@
  * Le service attaché lit les mêmes fichiers : la skill vaut dès le run suivant.
  */
 import { handle, jsonResponse } from '@/lib/server/auth'
-import { requireAttacheAdmin, listSkillEnvelopes, writeSkillEnvelope, deleteSkillEnvelope, AttacheEnvelope } from '@/lib/server/attache'
+import { requireAttacheAdmin, attacheFetch, listSkillEnvelopes, writeSkillEnvelope, deleteSkillEnvelope, AttacheEnvelope } from '@/lib/server/attache'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,5 +46,19 @@ export async function DELETE(req: Request) {
     } catch (e) {
       return jsonResponse({ error: e instanceof Error ? e.message : 'Suppression refusée' }, { status: 400 })
     }
+  })
+}
+
+// POST : classe (décrit) les skills passées — relayé au service attaché, en
+// arrière-plan. Ne remplit que les descriptions manquantes (le front-matter des
+// .skill n'est jamais écrasé). Corps : { analyse: string[] } (noms de skills).
+export async function POST(req: Request) {
+  return handle(async () => {
+    requireAttacheAdmin(req)
+    const body = await req.json().catch(() => null) as { analyse?: string[] } | null
+    const noms = (Array.isArray(body?.analyse) ? body!.analyse : []).map(String).filter(Boolean).slice(0, 100)
+    if (!noms.length) return jsonResponse({ error: 'Aucune skill à classer' }, { status: 400 })
+    const res = await attacheFetch('/skills/analyse', { method: 'POST', body: { noms } })
+    return new Response(await res.text(), { status: res.status, headers: { 'content-type': 'application/json' } })
   })
 }

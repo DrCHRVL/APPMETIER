@@ -22,7 +22,7 @@ export function runCategory(run) {
   if (r === 'sous-agent') return 'sous-agents'
   if (r === 'proactif') return 'mails'
   if (r === 'majordome') return 'brief'
-  if (r === 'trames-analyse' || r === 'kb-analyse') return 'classements'
+  if (r === 'trames-analyse' || r === 'kb-analyse' || r === 'skills-analyse' || r === 'associations-suggest') return 'classements'
   if (r === 'apprentissage' || r === 'etude') return 'apprentissage'
   if (r.startsWith('routine:')) return 'routines'
   if (r === 'chat' || r === 'chat-carto' || r === 'chat-dossier') return 'conversations'
@@ -55,9 +55,12 @@ export function extractUsage(resultEvent) {
 
 /**
  * Consigne un run. Best-effort : ne bloque JAMAIS un run si l'écriture échoue.
- * @param {object} opts { run, model, usage:{in,out,cacheW,cacheR,cost,turns,ms} }
+ * @param {object} opts { run, model, usage:{in,out,cacheW,cacheR,cost,turns,ms}, parent }
+ *   - parent : pour un sous-agent, le libellé du run qui l'a lancé (brief,
+ *     mail, étude…) — c'est ce qui permet d'expliquer « d'où viennent les lots
+ *     parallèles » au lieu de tout mettre dans un même sac « sous-agents ».
  */
-export async function recordUsage({ run, model, usage }) {
+export async function recordUsage({ run, model, usage, parent }) {
   try {
     if (!usage) return
     const line = {
@@ -71,16 +74,24 @@ export async function recordUsage({ run, model, usage }) {
       cost: Number(usage.cost) || 0,
       turns: usage.turns | 0,
       ms: usage.ms | 0,
+      ...(parent ? { parent: String(parent).slice(0, 60) } : {}),
     }
     await appendEncryptedLine(USAGE_FILE, line)
   } catch { /* le comptage ne doit jamais gêner l'attaché */ }
+}
+
+/** Poste « source » d'un sous-agent, d'après le run parent qui l'a lancé. */
+export function sousAgentSource(parent) {
+  const cat = runCategory(parent)
+  return cat === 'sous-agents' || cat === 'autres' ? 'autre' : cat
 }
 
 const HOUR = 3600 * 1000
 const DAY = 24 * HOUR
 
 function emptyBucket() {
-  return { in: 0, out: 0, cacheW: 0, cacheR: 0, total: 0, cost: 0, runs: 0, byCategory: {} }
+  // sousAgentsBySource : d'OÙ viennent les lots parallèles (brief, mails, étude…)
+  return { in: 0, out: 0, cacheW: 0, cacheR: 0, total: 0, cost: 0, runs: 0, byCategory: {}, sousAgentsBySource: {} }
 }
 
 function addLine(bucket, l) {
@@ -97,6 +108,14 @@ function addLine(bucket, l) {
   c.total += total
   c.cost += Number(l.cost) || 0
   c.runs += 1
+  // Détail des sous-agents PAR SOURCE (le run qui les a lancés) : c'est ce qui
+  // explique « lots parallèles » — brief quotidien, mails, étude…
+  if (cat === 'sous-agents') {
+    const src = sousAgentSource(l.parent)
+    const s = bucket.sousAgentsBySource[src] || (bucket.sousAgentsBySource[src] = { total: 0, runs: 0 })
+    s.total += total
+    s.runs += 1
+  }
 }
 
 /**
@@ -120,6 +139,20 @@ export function usageSummary(now = Date.now()) {
       if (l.ts >= windows[k].since) addLine(windows[k].bucket, l)
     }
   }
+  // Derniers runs, les plus récents d'abord — pour VOIR ce qui a consommé et
+  // quand (le brief du matin apparaît comme une rafale de « sous-agents »). Que
+  // des nombres et des libellés : lisible sans trousseau.
+  const recent = lines.slice(-80).reverse().map((l) => {
+    const cat = runCategory(l.run)
+    return {
+      ts: l.ts,
+      run: String(l.run || 'chat').slice(0, 60),
+      cat,
+      src: cat === 'sous-agents' ? sousAgentSource(l.parent) : undefined,
+      total: (l.in | 0) + (l.out | 0) + (l.cacheW | 0) + (l.cacheR | 0),
+      model: String(l.model || '').slice(0, 40),
+    }
+  })
   return {
     generatedAt: now,
     firstAt: first,
@@ -128,5 +161,6 @@ export function usageSummary(now = Date.now()) {
     today: windows.today.bucket,
     w7d: windows.w7d.bucket,
     w30d: windows.w30d.bucket,
+    recent,
   }
 }

@@ -69,6 +69,17 @@ export async function saveSkill(keys, { nom, description, contenu }) {
   return { nom: name }
 }
 
+/**
+ * Met à jour la SEULE description d'une skill (classement rapide après
+ * téléversement) — le contenu (la méthode) n'est jamais touché. Miroir de
+ * setTrameDescription.
+ */
+export async function setSkillDescription(keys, nom, description) {
+  const existing = readSkill(keys, nom)
+  if (!existing) throw new Error('Skill inconnue — voir skills_lister')
+  return saveSkill(keys, { ...existing, description: String(description || '').slice(0, 300) })
+}
+
 export function listSkills(keys) {
   const dir = attacheDir('skills')
   if (!fs.existsSync(dir)) return []
