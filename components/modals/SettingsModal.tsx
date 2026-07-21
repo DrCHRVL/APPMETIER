@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark, Scale, WifiOff } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark, Scale, WifiOff, FileText } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId, ModuleId } from '@/types/userTypes';
 
@@ -12,7 +12,7 @@ import { ContentieuxId, ModuleId } from '@/types/userTypes';
 type SettingsTab =
   | 'alertes' | 'tags' | 'sauvegardes' | 'mode_hors_ligne' | 'mon_profil' | 'agenda' | 'a_propos'
   | 'module_instruction' | 'module_cartographie' | 'module_air'
-  | 'admin_users' | 'admin_tjs' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_natinf' | 'admin_update' | 'admin_attache';
+  | 'admin_users' | 'admin_tjs' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_natinf' | 'admin_update' | 'admin_attache' | 'admin_trames_forme';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -40,6 +40,8 @@ interface SettingsModalProps {
   adminUpdateContent?: React.ReactNode;
   /** Panneau de l'attaché de justice IA (admin uniquement — masqué si non fourni) */
   adminAttacheContent?: React.ReactNode;
+  /** Panneau « Trames de forme » : papeteries Word (.docx à balises) de l'utilisateur */
+  adminTramesFormeContent?: React.ReactNode;
   agendaContent?: React.ReactNode;
   aProposContent?: React.ReactNode;
   /** Currently active contentieux (used as default) */
@@ -92,6 +94,7 @@ const TABS: TabDef[] = [
   { id: 'admin_natinf',      label: 'Référentiel NATINF', icon: Gavel,       section: 'admin', isAdmin: true },
   { id: 'admin_update',      label: 'Mise à jour',      icon: Upload,        section: 'admin', isAdmin: true },
   { id: 'admin_attache',     label: 'Attaché IA',       icon: Scale,         section: 'admin', isAdmin: true },
+  { id: 'admin_trames_forme', label: 'Trames de forme', icon: FileText,      section: 'admin', isAdmin: true },
 ];
 
 const SECTION_LABELS: Record<TabSection, string> = {
@@ -132,6 +135,7 @@ export const SettingsModal = ({
   adminNatinfContent,
   adminUpdateContent,
   adminAttacheContent,
+  adminTramesFormeContent,
   aProposContent,
   activeContentieuxId,
   onContentieuxChange,
@@ -183,6 +187,7 @@ export const SettingsModal = ({
       case 'admin_natinf':       return adminNatinfContent;
       case 'admin_update':       return adminUpdateContent;
       case 'admin_attache':      return adminAttacheContent;
+      case 'admin_trames_forme': return adminTramesFormeContent;
       default:                   return null;
     }
   };

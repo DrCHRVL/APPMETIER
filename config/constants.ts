@@ -56,7 +56,8 @@ export const APP_CONFIG = {
     ALERTS: 'alerts',
     ALERT_VALIDATIONS: 'alert_validations',
     VISUAL_ALERT_RULES: 'visualAlertRules',
-    CLOTURE_TEMPLATE: 'clotureTemplate'
+    CLOTURE_TEMPLATE: 'clotureTemplate',
+    TRAMES_FORME: 'tramesForme' // Papeteries Word (.docx à balises) définies par l'utilisateur
   },
 
   // 🆕 CONFIGURATION DES SAUVEGARDES

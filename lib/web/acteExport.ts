@@ -21,6 +21,7 @@
  */
 
 import { PAPETERIE } from './papeterie'
+import type { TrameFormeType, TrameVars } from './trameFill'
 
 export interface ActeExportable {
   titre: string
@@ -414,7 +415,59 @@ export async function downloadActePdf(p: ActeExportable): Promise<void> {
   a.click()
 }
 
+/** Déclenche le téléchargement d'un Blob .docx. */
+function triggerDocxDownload(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 4000)
+}
+
+/** Type de papeterie déduit de l'acte, pour choisir la trame de forme. */
+export function detectTypeForme(p: ActeExportable): TrameFormeType {
+  if (isLettre(p.contenu)) return 'courrier'
+  const titre = (parseActe(p.contenu).titre || p.titre || '').toUpperCase()
+  if (/SOIT[-\s]?TRANSMIS/.test(titre)) return 'soit-transmis'
+  if (/REQU[ÊE]TE|R[ÉE]QUISITO/.test(titre)) return 'requete'
+  return 'defaut'
+}
+
+/** Variables extraites de l'acte pour remplir les balises d'une trame de forme. */
+function extractTrameVars(p: ActeExportable, type: TrameFormeType): TrameVars {
+  if (type === 'courrier') {
+    const { addressee, objet, dateStr, corps } = parseLettre(p.contenu)
+    return { destinataire: addressee, objet, date: dateStr || longDate(p.updatedAt), corps }
+  }
+  const s = parseActe(p.contenu)
+  return {
+    titre: s.titre || p.titre || '',
+    corps: s.corps,
+    signature: s.signature.join('\n'),
+    date: longDate(p.updatedAt),
+  }
+}
+
 export async function downloadActeDocx(p: ActeExportable): Promise<void> {
+  // 1) Trame de forme définie par l'utilisateur pour ce type d'acte : on part
+  //    de SON .docx et on remplit les balises. La forme est 100 % la sienne.
+  try {
+    const type = detectTypeForme(p)
+    const { loadTramesForme, pickTrameForme } = await import('./tramesFormeStore')
+    const trame = pickTrameForme(await loadTramesForme(), type)
+    if (trame?.docxBase64) {
+      const { fillTrameDocx } = await import('./trameFill')
+      const blob = await fillTrameDocx(trame.docxBase64, extractTrameVars(p, type))
+      triggerDocxDownload(blob, acteFileBase(p) + '.docx')
+      return
+    }
+  } catch (e) {
+    // Trame absente / invalide : on retombe proprement sur la génération intégrée.
+    console.warn('Trame de forme indisponible, génération intégrée :', e)
+  }
+
+  // 2) Repli : papeterie reconstruite (aucune trame de forme définie).
   const logo = await loadLogo()
   const { html, footerHtml } = acteDocxParts(p, { logo })
   const { buildDocxBlob } = await import('./htmlToDocx')
@@ -425,10 +478,5 @@ export async function downloadActeDocx(p: ActeExportable): Promise<void> {
     pageMargins: { top: 1134, right: 794, bottom: 1134, left: 1134 },
     footerHtml,
   })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = acteFileBase(p) + '.docx'
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 4000)
+  triggerDocxDownload(blob, acteFileBase(p) + '.docx')
 }
