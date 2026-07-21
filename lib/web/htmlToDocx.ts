@@ -24,7 +24,10 @@ import {
   BorderStyle,
   Document,
   ExternalHyperlink,
+  Footer,
+  Header,
   ImageRun,
+  LineRuleType,
   Packer,
   Paragraph,
   ShadingType,
@@ -34,6 +37,9 @@ import {
   TextRun,
   WidthType,
 } from 'docx';
+
+/** Interligne 1,5 (240 = simple) appliqué au corps justifié des actes. */
+const LINE_15 = { line: 360, lineRule: LineRuleType.AUTO } as const;
 
 type Align = (typeof AlignmentType)[keyof typeof AlignmentType];
 type Block = Paragraph | Table;
@@ -61,6 +67,7 @@ interface RunCtx {
   color?: string;
   shadingFill?: string;
   size?: number;
+  smallCaps?: boolean;
   superScript?: boolean;
   subScript?: boolean;
   font?: string;
@@ -72,6 +79,9 @@ interface ParaStyle {
   italics?: boolean;
   bold?: boolean;
   color?: string;
+  size?: number;
+  smallCaps?: boolean;
+  underline?: boolean;
 }
 
 const BLOCK_TAGS = new Set([
@@ -151,6 +161,33 @@ function mapAlign(v: string | undefined): Align | undefined {
   }
 }
 
+/**
+ * Traduit le style CSS d'un élément de BLOC (`p`, `div`, cellule…) en réglages
+ * de paragraphe/run. Ne renseigne QUE les clés réellement présentes : une clé
+ * absente n'est pas posée à `undefined`, ce qui préserve l'héritage lors du
+ * `withPara({ ...this.para, ...patch })` (ex. le `font-variant:small-caps` de la
+ * cellule d'en-tête doit rester actif dans les `div` internes qui ne le
+ * redéfinissent pas). Comble le trou historique : jusqu'ici, gras/italique/
+ * taille/petites-capitales posés sur un `<p>` ou un `<div>` étaient ignorés à
+ * l'export Word (seul le PDF, rendu par un navigateur, les honorait).
+ */
+function paraPatchFromStyle(style: Record<string, string>): Partial<ParaStyle> {
+  const patch: Partial<ParaStyle> = {};
+  const align = mapAlign(style['text-align']);
+  if (align) patch.alignment = align;
+  const color = normalizeColor(style.color);
+  if (color) patch.color = color;
+  if (/bold|[6-9]00/.test(style['font-weight'] || '')) patch.bold = true;
+  if (style['font-style'] === 'italic') patch.italics = true;
+  const size = parseHalfPt(style['font-size']);
+  if (size) patch.size = size;
+  const variant = `${style['font-variant'] || ''} ${style['font-variant-caps'] || ''}`;
+  if (/small-caps/.test(variant)) patch.smallCaps = true;
+  const td = style['text-decoration'] || style['text-decoration-line'] || '';
+  if (/underline/.test(td)) patch.underline = true;
+  return patch;
+}
+
 function base64ToUint8Array(b64: string): Uint8Array {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
@@ -202,6 +239,7 @@ function makeTextRun(text: string, ctx: RunCtx): TextRun {
     strike: ctx.strike,
     color: ctx.color,
     size: ctx.size,
+    smallCaps: ctx.smallCaps,
     font: ctx.font,
     superScript: ctx.superScript,
     subScript: ctx.subScript,
@@ -281,14 +319,25 @@ interface ParaExtra {
 }
 
 function paragraphFromInline(nodes: ChildNode[], ctx: Ctx2, extra: ParaExtra = {}): Paragraph | null {
-  const runCtx: RunCtx = { ...ctx.run, bold: ctx.run.bold || ctx.para.bold, italics: ctx.run.italics || ctx.para.italics, color: ctx.run.color || ctx.para.color };
+  const runCtx: RunCtx = {
+    ...ctx.run,
+    bold: ctx.run.bold || ctx.para.bold,
+    italics: ctx.run.italics || ctx.para.italics,
+    underline: ctx.run.underline || ctx.para.underline,
+    smallCaps: ctx.run.smallCaps || ctx.para.smallCaps,
+    color: ctx.run.color || ctx.para.color,
+    size: ctx.para.size ?? ctx.run.size,
+  };
   const runs = nodes.flatMap((n) => collectRuns(n, runCtx, ctx.imageSizes));
   if (runs.length === 0) return null;
+  // Interligne 1,5 sur le corps justifié (visas, motifs) ; l'en-tête, le titre
+  // et la signature (centrés/à droite) restent en interligne simple, plus serré.
+  const justified = ctx.para.alignment === AlignmentType.JUSTIFIED;
   return new Paragraph({
     children: runs,
     alignment: ctx.para.alignment,
     indent: ctx.para.indentLeft ? { left: ctx.para.indentLeft } : undefined,
-    spacing: { after: 120 },
+    spacing: { after: 120, ...(justified ? LINE_15 : {}) },
     ...extra,
   });
 }
@@ -348,9 +397,7 @@ function tableBlock(tableEl: Element, ctx: Ctx2): Table {
       if (tag !== 'td' && tag !== 'th') continue;
       const cellStyle = parseStyle(cellEl.getAttribute('style'));
       const cellHasBorder = tableHasBorder || /1px\s+solid/i.test(cellStyle.border || '');
-      let cellCtx = ctx;
-      const align = mapAlign(cellStyle['text-align']);
-      if (align) cellCtx = cellCtx.withPara({ alignment: align });
+      let cellCtx = ctx.withPara(paraPatchFromStyle(cellStyle));
       if (tag === 'th') cellCtx = cellCtx.withPara({ bold: true });
       const widthPx = parsePx(cellStyle, 'width');
       const span = Number(cellEl.getAttribute('colspan'));
@@ -426,12 +473,7 @@ function handleBlockEl(el: Element, tag: string, ctx: Ctx2, out: Block[]): void 
     return;
   }
   if (tag === 'div') {
-    const nextCtx = ctx.withPara({
-      alignment: align || ctx.para.alignment,
-      color: color || ctx.para.color,
-      bold: /bold|[6-9]00/.test(style['font-weight'] || '') || ctx.para.bold,
-      italics: style['font-style'] === 'italic' || ctx.para.italics,
-    });
+    const nextCtx = ctx.withPara(paraPatchFromStyle(style));
     if (hasBlockChild(el)) {
       walkChildren(el, nextCtx, out);
     } else {
@@ -441,7 +483,7 @@ function handleBlockEl(el: Element, tag: string, ctx: Ctx2, out: Block[]): void 
     return;
   }
   // 'p' et défaut
-  const nextCtx = ctx.withPara({ alignment: align || ctx.para.alignment, color: color || ctx.para.color });
+  const nextCtx = ctx.withPara(paraPatchFromStyle(style));
   const p = paragraphFromInline(Array.from(el.childNodes), nextCtx);
   if (p) out.push(p);
 }
@@ -511,6 +553,10 @@ export async function collectImageSizes(html: string): Promise<Map<string, Image
 
 export interface BuildDocxOptions extends HtmlToDocxOptions {
   pageMargins?: { top?: number; right?: number; bottom?: number; left?: number };
+  /** Fragment HTML posé en en-tête de page Word (répété sur chaque page). */
+  headerHtml?: string;
+  /** Fragment HTML posé en pied de page Word (coordonnées du parquet…). */
+  footerHtml?: string;
 }
 
 /**
@@ -522,15 +568,32 @@ export interface BuildDocxOptions extends HtmlToDocxOptions {
  * XML généré.
  */
 export async function buildDocxBlob(html: string, opts: BuildDocxOptions = {}): Promise<Blob> {
-  const imageSizes = opts.imageSizes || await collectImageSizes(html);
-  const children = htmlToDocxBlocks(html, {
-    defaultFont: opts.defaultFont,
-    defaultSizeHalfPt: opts.defaultSizeHalfPt,
-    imageSizes,
-  });
+  // Les images éventuelles de l'en-tête/pied doivent aussi être pré-mesurées :
+  // on résout les tailles sur l'ensemble (corps + chrome).
+  const imageSizes = opts.imageSizes
+    || await collectImageSizes([html, opts.headerHtml, opts.footerHtml].filter(Boolean).join('\n'));
+  const conv = { defaultFont: opts.defaultFont, defaultSizeHalfPt: opts.defaultSizeHalfPt, imageSizes };
+  const children = htmlToDocxBlocks(html, conv);
+  const headerBlocks = opts.headerHtml ? htmlToDocxBlocks(opts.headerHtml, conv) : null;
+  const footerBlocks = opts.footerHtml ? htmlToDocxBlocks(opts.footerHtml, conv) : null;
   const doc = new Document({
+    // Réglages par défaut du document (docDefaults) : la police et la taille
+    // demandées deviennent le socle hérité par TOUS les runs/paragraphes, y
+    // compris ceux des cellules et des listes, sans avoir à les repositionner
+    // partout. L'interligne fin (240) reste la base ; le corps justifié le
+    // passe à 1,5 au niveau du paragraphe (cf. paragraphFromInline).
+    styles: {
+      default: {
+        document: {
+          run: { font: opts.defaultFont, size: opts.defaultSizeHalfPt },
+          paragraph: { spacing: { after: 120, line: 240, lineRule: LineRuleType.AUTO } },
+        },
+      },
+    },
     sections: [{
       properties: opts.pageMargins ? { page: { margin: opts.pageMargins } } : undefined,
+      headers: headerBlocks ? { default: new Header({ children: headerBlocks }) } : undefined,
+      footers: footerBlocks ? { default: new Footer({ children: footerBlocks }) } : undefined,
       children,
     }],
   });
