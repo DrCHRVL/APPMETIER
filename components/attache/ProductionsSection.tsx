@@ -467,6 +467,15 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
                       <button onClick={() => setExpanded(isOpen ? null : p.id)} className="min-w-0 flex-1 truncate text-left text-[12.5px] font-semibold text-gray-800 hover:text-gray-900">
                         {p.titre}
                       </button>
+                      {/* Indicateur DISCRET de la trame suivie, visible d'un coup d'œil même acte replié (le détail complet reste en bas quand l'acte est déplié). */}
+                      {p.source && (
+                        <span
+                          className="hidden max-w-[11rem] flex-none truncate text-[10px] text-gray-400 md:inline"
+                          title={`Trame utilisée pour rédiger cet acte : ${p.source}`}
+                        >
+                          trame {p.source}
+                        </span>
+                      )}
                       <span className="hidden text-[10px] text-gray-400 sm:inline">{p.updatedAt ? new Date(p.updatedAt).toLocaleDateString('fr-FR') : ''}</span>
                       {(p.traite || p.refuse) ? (
                         <button
