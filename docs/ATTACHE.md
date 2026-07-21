@@ -306,7 +306,11 @@ l'usage).
   relit, applique le changement et la ré-enregistre sous le même nom
   (versionné, rien n'est perdu) ; « supprime-la » (`skill_supprimer`,
   réversible). « Enregistre cette skill » (dictée/collée) fonctionne toujours.
-  Chiffrées (clé globale), versionnées à chaque
+  Bouton **« Classer »** (et classement incrémental au téléversement) : la
+  **même passe rapide** que pour les trames/base — un appel modèle par lot,
+  **sans sous-agent** — mais elle ne remplit que les descriptions **manquantes**
+  (une skill collée en markdown nu) : le front-matter `description` d'un `.skill`
+  n'est **jamais écrasé**. Chiffrées (clé globale), versionnées à chaque
   réécriture, suppression réversible. Différence avec les trames : la trame
   est un plan-type de document, la skill une méthode générale.
 - **Recherche web en option** : décochée par défaut. Si le magistrat l'active

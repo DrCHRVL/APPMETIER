@@ -27,7 +27,7 @@ import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
-import { classerTrames, classerKb, suggererAssociations } from './attache/classer.mjs'
+import { classerTrames, classerKb, classerSkills, suggererAssociations } from './attache/classer.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
 import { listEnvelopes, readEnvelope, writeEnvelope, deleteProduction, readProduction } from './attache/productions.mjs'
 import { recordLearningSignal, consolidationDue, consolidationPrompt, learningStatus, learningState, latestSignalTs } from './attache/apprentissage.mjs'
@@ -476,6 +476,37 @@ async function runKbAnalyse(ids) {
   }
 }
 
+// ── Classement des skills (description quand elle manque) ──
+// Même passe rapide (un appel modèle par lot, sans sous-agent) : ne remplit que
+// les descriptions MANQUANTES — le front-matter des .skill n'est jamais écrasé.
+let skillAnalyseRunning = false
+async function runSkillAnalyse(noms) {
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  skillAnalyseRunning = true
+  try {
+    console.log(`[attache] classement de ${noms.length} skill(s)`)
+    const result = await classerSkills(keys, noms)
+    await audit(keys, 'skills_classees', { nb: noms.length, classees: result.classees, ignorees: result.ignorees, ok: result.ok, erreur: result.error })
+    if (result.ok && (result.classees || result.total)) {
+      await publishFeed(keys, {
+        type: 'note',
+        titre: 'Skills : classement',
+        resume: `${result.classees} skill(s) décrite(s)${result.ignorees ? ` — ${result.ignorees} déjà décrite(s), laissée(s) intacte(s)` : ''}${result.echecs?.length ? ` — ${result.echecs.length} non décrite(s)` : ''}.`,
+      })
+    } else if (!result.ok) {
+      await publishFeed(keys, {
+        type: 'alerte',
+        titre: 'Classement des skills interrompu',
+        resume: `Le classement des skills a échoué (${result.error || 'erreur inconnue'}). Relancez-le depuis Paramètres → Attaché IA.`,
+      })
+    }
+    return { ok: result.ok, classees: result.classees, ignorees: result.ignorees, error: result.error }
+  } finally {
+    skillAnalyseRunning = false
+  }
+}
+
 // ── Gouverneur de consommation : mettre en PAUSE les runs de fond quand le
 // forfait sature ─────────────────────────────────────────────────────────────
 // Les runs AUTONOMES (brief quotidien, étude du corpus, consolidation, routines)
@@ -891,6 +922,18 @@ const server = http.createServer(async (req, res) => {
       if (!ids.length) return json(res, 400, { ok: false, error: 'Aucune entrée à analyser' })
       // lancé en fond : la réponse ne bloque pas sur le run complet
       runKbAnalyse(ids).catch((e) => console.error('[attache] classement kb :', e))
+      return json(res, 202, { ok: true, started: true })
+    }
+
+    if (route === 'POST /skills/analyse') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      if (skillAnalyseRunning) return json(res, 409, { ok: false, error: 'Classement déjà en cours' })
+      const body = await readBody(req)
+      const noms = (Array.isArray(body.noms) ? body.noms : [])
+        .map((n) => String(n).slice(0, 80)).filter(Boolean).slice(0, 100)
+      if (!noms.length) return json(res, 400, { ok: false, error: 'Aucune skill à classer' })
+      runSkillAnalyse(noms).catch((e) => console.error('[attache] classement skills :', e))
       return json(res, 202, { ok: true, started: true })
     }
 

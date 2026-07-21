@@ -211,6 +211,7 @@ export function AdminAttachePanel() {
   const [skillForm, setSkillForm] = useState<{ open: boolean; original?: string; nom: string; description: string; contenu: string }>({ open: false, nom: '', description: '', contenu: '' });
   const [skillSaving, setSkillSaving] = useState(false);
   const [skillStaged, setSkillStaged] = useState<StagedSkill[]>([]);
+  const [skillAnalyseBusy, setSkillAnalyseBusy] = useState(false);   // « Classer les skills » en cours
   // ── Bibliothèque de trames (téléversement en masse) ──
   const [trames, setTrames] = useState<Trame[]>([]);
   const [trameForm, setTrameForm] = useState<{ open: boolean; original?: string; nom: string; description: string; contenu: string }>({ open: false, nom: '', description: '', contenu: '' });
@@ -605,8 +606,37 @@ export function AdminAttachePanel() {
     setUploadBusy(null);
     setSkillStaged([]);
     loadSkills();
-    setNotice(`${saved.length} skill(s) importée(s)${failed.length ? ` — échec : ${failed.join(', ')}` : ''}. L'attaché les applique dès le prochain échange.`);
+    // Classement incrémental : ne décrit QUE les skills fraîchement importées et
+    // sans description (le service ignore celles déjà décrites — front-matter
+    // .skill intact). Pas de sous-agent : une passe rapide, comme les trames.
+    if (saved.length) {
+      fetch('/api/attache/skills', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ analyse: saved }),
+      }).catch(() => null);
+    }
+    setNotice(`${saved.length} skill(s) importée(s)${failed.length ? ` — échec : ${failed.join(', ')}` : ''}. L'attaché les applique dès le prochain échange${saved.length ? ' ; description auto pour celles qui n\'en avaient pas' : ''}.`);
   }, [skillStaged, loadSkills]);
+
+  /** Classe (décrit) les skills sans description — passe rapide, une par skill, sans sous-agent. */
+  const analyseSkills = useCallback(async (noms: string[]) => {
+    if (!noms.length) return;
+    if (!status?.keyring?.granted) {
+      setNotice('Remettez d\'abord les clés à l\'attaché (bouton « Remettre les clés » en haut) — sans elles, il ne peut pas lire les skills pour les décrire.');
+      return;
+    }
+    setSkillAnalyseBusy(true);
+    setNotice('Classement des skills en cours de lancement…');
+    const res = await fetch('/api/attache/skills', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ analyse: noms }),
+    }).catch(() => null);
+    const data = res ? await res.json().catch(() => ({} as { error?: string })) : { error: 'service injoignable' };
+    setNotice(res?.ok
+      ? 'Classement des skills lancé — seules celles sans description sont décrites (le résultat arrive dans le fil « pendant votre absence »).'
+      : `Classement impossible : ${data.error || 'erreur'}`);
+    setSkillAnalyseBusy(false);
+  }, [status]);
 
   /** Classe (décrit) les trames de la bibliothèque : une passe rapide, une description par trame. */
   const analyseTrames = useCallback(async (noms: string[]) => {
@@ -1700,9 +1730,17 @@ export function AdminAttachePanel() {
           <input ref={skillFileInput} type="file" multiple accept={SKILL_ACCEPT} className="hidden"
             onChange={(e) => { stageSkillFiles(e.target.files); e.currentTarget.value = ''; }} />
           <button
+            onClick={() => analyseSkills(skills.map((s) => s.nom))}
+            disabled={skillAnalyseBusy || skills.length === 0}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            title="Décrit les skills qui n'ont pas encore de description — passe rapide (un appel modèle, sans sous-agent). Les skills déjà décrites (front-matter .skill) sont laissées intactes."
+          >
+            {skillAnalyseBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}Classer
+          </button>
+          <button
             onClick={() => skillFileInput.current?.click()}
             disabled={converting || uploadBusy !== null}
-            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
             title="Téléverser vos fichiers .skill exportés de Claude web (ou des .md)"
           >
             <UploadCloud className="h-3 w-3" />Téléverser

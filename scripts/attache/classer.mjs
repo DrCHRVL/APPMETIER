@@ -25,7 +25,7 @@ import { spawn } from 'node:child_process'
 import { attacheDir, attacheContentieux, ensureDir } from './store.mjs'
 import { listTrames, readTrame, setTrameDescription } from './trames.mjs'
 import { listKb, readKbEntry, setKbMeta, KB_CATEGORIES } from './kb.mjs'
-import { listSkills } from './skills.mjs'
+import { listSkills, readSkill, setSkillDescription } from './skills.mjs'
 import { listAssociations } from './associations.mjs'
 import { economicalModel } from './subagents.mjs'
 import { extractUsage, recordUsage } from './usage.mjs'
@@ -335,6 +335,106 @@ export async function classerKb(keys, ids) {
     doublons: [...new Set(doublons)].slice(0, 20), perimes: [...new Set(perimes)].slice(0, 20),
     model, error: ok ? undefined : (lastError || 'classement sans effet'),
   }
+}
+
+// ── Skills ───────────────────────────────────────────────────────────────────
+// Même passe rapide que les trames (un appel modèle par lot, SANS sous-agent),
+// mais les skills arrivent le plus souvent AVEC une description (le front-matter
+// des fichiers .skill exportés de Claude web) : on ne la CLOBBER jamais. Cette
+// passe ne remplit que les descriptions MANQUANTES (skill collée en markdown nu).
+
+const HEAD_SKILL = 2500
+
+function skillsSystemPrompt() {
+  return [
+    `Tu es l'attaché d'un magistrat du parquet (contentieux ${attacheContentieux()} — criminalité organisée). Tu classes des SKILLS (méthodes réutilisables de rédaction / d'analyse).`,
+    'Tu ne réécris RIEN : tu DÉCRIS. Ne pose aucune question.',
+    'Pour CHAQUE skill fournie, rends une description d\'UNE phrase (280 caractères max) qui dit SURTOUT QUAND l\'appliquer — c\'est elle qui déclenche la skill plus tard : le type de tâche ou d\'acte concerné, et en quelques mots la méthode.',
+    'SORTIE — réponds EXCLUSIVEMENT par un objet JSON valide, sans texte autour, sans bloc de code markdown :',
+    '{ "skills": [ { "nom": string /* recopié à l\'identique */, "description": string } ] }',
+  ].join('\n')
+}
+
+function skillsUserPrompt(items) {
+  const parts = [`SKILLS À DÉCRIRE (${items.length}) — nom + en-tête du contenu :`]
+  for (const it of items) {
+    parts.push('', '===== SKILL =====', `nom: ${it.nom}`, '--- début du contenu ---', it.tete, '--- fin ---')
+  }
+  parts.push('', 'Réponds par le JSON strict décrit dans les consignes système.')
+  return parts.join('\n')
+}
+
+/**
+ * Décrit les skills dont la description MANQUE (jamais celles déjà décrites — on
+ * ne touche pas au front-matter d'un .skill). Un appel modèle par lot, sans
+ * sous-agent ; rapprochement normalisé + rattrapage une par une.
+ * @returns {Promise<{ ok, total, classees, echecs, ignorees, model, error? }>}
+ */
+export async function classerSkills(keys, noms) {
+  const demandes = new Set((Array.isArray(noms) ? noms : []).map((n) => String(n)))
+  const dispo = new Map(listSkills(keys).map((s) => [s.nom, s]))
+  const items = []
+  let ignorees = 0
+  for (const nom of demandes) {
+    const meta = dispo.get(nom)
+    if (!meta) continue
+    if (String(meta.description || '').trim()) { ignorees++; continue } // déjà décrite : intacte
+    const rec = readSkill(keys, nom)
+    if (!rec || !String(rec.contenu || '').trim()) continue
+    items.push({ nom, tete: head(rec.contenu, HEAD_SKILL) })
+  }
+  if (!items.length) return { ok: true, total: 0, classees: 0, echecs: [], ignorees }
+
+  const model = economicalModel()
+  const systemPrompt = skillsSystemPrompt()
+  let classees = 0
+  const echecs = []
+  let anyRun = false
+  let lastError = null
+
+  for (const lot of chunk(items, BATCH)) {
+    const safeLot = []
+    let total = 0
+    for (const it of lot) {
+      if (total + it.tete.length > MAX_TOTAL_CHARS && safeLot.length) break
+      total += it.tete.length
+      safeLot.push(it)
+    }
+    const run = await runClaudeJson({ systemPrompt, userPrompt: skillsUserPrompt(safeLot), model, runLabel: 'skills-analyse' })
+    anyRun = true
+    if (!run.ok) { lastError = run.error; for (const it of safeLot) echecs.push(it.nom); continue }
+    const byNorm = new Map()
+    for (const s of Array.isArray(run.data.skills) ? run.data.skills : []) {
+      if (s && typeof s.nom === 'string' && typeof s.description === 'string' && s.description.trim()) {
+        byNorm.set(normKey(s.nom), s.description.trim())
+      }
+    }
+    for (const it of safeLot) {
+      const desc = byNorm.get(normKey(it.nom))
+      if (!desc) { echecs.push(it.nom); continue }
+      try { await setSkillDescription(keys, it.nom, desc); classees++ }
+      catch { echecs.push(it.nom) }
+    }
+  }
+
+  // RATTRAPAGE — une par une pour les skills qu'un lot n'a pas décrites.
+  if (echecs.length) {
+    const rest = [...new Set(echecs)]
+    echecs.length = 0
+    for (const nom of rest) {
+      const it = items.find((x) => x.nom === nom)
+      if (!it) { echecs.push(nom); continue }
+      const run = await runClaudeJson({ systemPrompt, userPrompt: skillsUserPrompt([it]), model, runLabel: 'skills-analyse' })
+      const s0 = run.ok && Array.isArray(run.data.skills) ? run.data.skills[0] : null
+      const desc = s0 && typeof s0.description === 'string' ? s0.description.trim() : ''
+      if (!desc) { echecs.push(nom); if (run.error) lastError = run.error; continue }
+      try { await setSkillDescription(keys, nom, desc); classees++ }
+      catch { echecs.push(nom) }
+    }
+  }
+
+  const ok = classees > 0 || (anyRun && !echecs.length)
+  return { ok, total: items.length, classees, echecs, ignorees, model, error: ok ? undefined : (lastError || 'classement sans effet') }
 }
 
 // ── Suggestion d'associations « type d'acte → trame(s) + skill(s) » ───────────
