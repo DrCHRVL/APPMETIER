@@ -33,6 +33,7 @@ import {
   ShadingType,
   Table,
   TableCell,
+  TableLayoutType,
   TableRow,
   TextRun,
   WidthType,
@@ -411,9 +412,24 @@ function tableBlock(tableEl: Element, ctx: Ctx2): Table {
     }
     if (cells.length) rows.push(new TableRow({ children: cells }));
   }
+  // Largeurs de colonnes : si CHAQUE cellule de la 1ʳᵉ ligne porte une largeur
+  // (px), on fige la mise en page (layout FIXED + grille en twips). Sinon Word
+  // recalcule les colonnes en « autofit » et déséquilibre tout — c'est ce qui
+  // tassait l'en-tête (logo trop large, texte du parquet en colonne étroite).
+  const firstRow = trEls.find((tr) => Array.from(tr.children).some((c) => /^t[dh]$/i.test(c.tagName)));
+  const firstCells = firstRow ? Array.from(firstRow.children).filter((c) => /^t[dh]$/i.test(c.tagName)) : [];
+  const colWidths = firstCells.map((c) => {
+    const w = parsePx(parseStyle(c.getAttribute('style')), 'width');
+    return w ? Math.round(w * 15) : 0;
+  });
+  const fixed = colWidths.length > 0 && colWidths.every((w) => w > 0);
   return new Table({
     rows,
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    width: fixed
+      ? { size: colWidths.reduce((a, b) => a + b, 0), type: WidthType.DXA }
+      : { size: 100, type: WidthType.PERCENTAGE },
+    columnWidths: fixed ? colWidths : undefined,
+    layout: fixed ? TableLayoutType.FIXED : undefined,
     borders: tableHasBorder ? SOLID_CELL_BORDERS : NO_CELL_BORDERS,
   });
 }

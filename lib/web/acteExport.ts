@@ -159,11 +159,16 @@ function renderMasthead(header: string[], logo?: string): string {
     if (/^Section\b/i.test(h)) return `<div style="font-style:italic;font-variant:normal;">${txt}</div>`
     return `<div>${txt}</div>`
   }).join('')
+  // Largeurs explicites (px → twips ×15) : logo étroit, bandeau large. Total
+  // ≈ 9975 twips = largeur utile A4 aux marges « parquet ». Fige la mise en
+  // page côté Word (cf. tableBlock) → la ligne « Cour d'appel… » tient sur une
+  // ligne au lieu de se tasser en colonne étroite.
   const logoCell = logo
-    ? `<td style="border:0;width:104px;vertical-align:middle;padding:0 12pt 0 0;"><img src="${logo}" alt="Ministère de la Justice" style="width:96px;height:auto;" /></td>`
+    ? `<td style="border:0;width:130px;vertical-align:middle;padding:0 12pt 0 0;"><img src="${logo}" alt="Ministère de la Justice" style="width:96px;height:auto;" /></td>`
     : ''
+  const bandeauWidth = logo ? 535 : 665
   return `<table style="width:100%;border-collapse:collapse;margin:0 0 6pt 0;"><tr>${logoCell}`
-    + `<td style="border:0;vertical-align:middle;text-align:center;font-variant:small-caps;font-size:12pt;line-height:1.35;">${lignes}</td>`
+    + `<td style="border:0;width:${bandeauWidth}px;vertical-align:middle;text-align:center;font-variant:small-caps;font-size:12pt;line-height:1.35;">${lignes}</td>`
     + `</tr></table>`
 }
 
