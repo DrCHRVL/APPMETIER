@@ -24,6 +24,7 @@ import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInb
 import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
 import { usageSummary } from './attache/usage.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
+import { dossierSyntheseSignals } from './attache/dossier.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
@@ -407,6 +408,144 @@ async function maybeScheduledEtude() {
   runEtude(`auto — ${raison}`).catch((e) => console.error('[attache] étude :', e))
 }
 
+// ── Actualisation automatique de la description (« l'objet ») des dossiers ──
+// L'attaché tient la description à jour AU FIL DE L'EAU : à chaque CR rédigé ou
+// acte/document téléversé, un run COURT et ÉCONOME reprend la synthèse et la
+// fait progresser, en deux parties (SYNTHÈSE globale + MIS EN CAUSE et charges),
+// en prise de notes. Déclenché en arrière-plan par la détection de changement
+// (maybeScheduledDescriptions, un seul dossier par tick — « lentement ») ou à la
+// demande (icône « Actualiser » à côté du titre Description, dans le dossier).
+// Période de calme avant de tirer : on attend qu'un dossier ne bouge plus
+// (rafale d'ajouts fusionnée en une seule actualisation).
+const DESC_QUIET_MS = Math.max(60_000, Number(process.env.SIRAL_ATTACHE_DESC_QUIET_MIN || 3) * 60 * 1000)
+// Anti-rafale : jamais deux actualisations du MÊME dossier trop rapprochées.
+const DESC_MIN_INTERVAL_MS = Math.max(0, Number(process.env.SIRAL_ATTACHE_DESC_MIN_INTERVAL_MIN || 20) * 60 * 1000)
+
+function descriptionState() {
+  const st = readState()
+  return st.descriptions && typeof st.descriptions === 'object' ? st.descriptions : {}
+}
+
+function descriptionPrompt(numero) {
+  return [
+    `ACTUALISATION DE LA DESCRIPTION du dossier « ${numero} » — tâche de fond, silencieuse et économe en jetons.`,
+    'But : tenir « l\'objet » du dossier à jour au fil des CR et des actes/documents téléversés.',
+    'MÉTHODE (2-3 lectures au plus, puis UNE écriture — va au neuf, ne relis pas tout) :',
+    `1. lire_dossier numero:"${numero}" — aperçu compact : faits, mis en cause ENREGISTRÉS, actes, index des CR, documents.`,
+    '2. Si des CR ou des actes/documents récents ne sont pas encore reflétés dans la description, lis SEULEMENT les plus',
+    `   récents utiles (section:"cr" pour le texte des derniers CR ; pour un acte téléversé, dossier_arborescence puis`,
+    '   lire_document, qui sert d\'office la copie markdown — jamais de ré-extraction).',
+    '3. actualiser_description — reprends la description existante et fais-la PROGRESSER (elle s\'enrichit et se reformule',
+    '   au fil du temps), au FORMAT IMPOSÉ en DEUX PARTIES titrées EN MAJUSCULES, en PRISE DE NOTES (~80 %, mots',
+    '   inutiles/verbes de liaison retirés, mais clair) :',
+    '     SYNTHÈSE — vision globale des faits (qualification, mode opératoire, LIEUX, période, mesures, échéances) ;',
+    '     MIS EN CAUSE — un par un les mis en cause enregistrés du dossier, chacun suivi des ÉLÉMENTS À CHARGE relevés.',
+    'Si RIEN de neuf n\'est à intégrer, n\'écris pas : termine sans appeler actualiser_description.',
+    'Ne signale rien, ne publie rien, ne pose aucune question : cette tâche ne doit laisser aucune carte au magistrat.',
+  ].join('\n')
+}
+
+let descriptionRunning = false
+async function runActualiserDescription(numero, trigger = 'auto') {
+  const num = String(numero || '').trim()
+  if (!num) return { ok: false, error: 'numéro requis' }
+  // Un seul run de description à la fois (les écritures visent le MÊME coffre) —
+  // évite qu'un run n'écrase la description d'un dossier voisin (read-modify-write).
+  if (descriptionRunning) return { ok: false, running: true, error: 'actualisation déjà en cours' }
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  descriptionRunning = true
+  try {
+    console.log(`[attache] actualisation description « ${num} » (${trigger})`)
+    const result = await runAgent({
+      keys,
+      prompt: descriptionPrompt(num),
+      runLabel: 'description',
+      title: `Description ${num} ${new Date().toISOString().slice(0, 10)}`,
+      // Travail de fond léger : modèle économe, effort faible, peu de tours —
+      // « minimum de jetons ».
+      model: economicalModel(agentConfig()),
+      effort: 'low',
+      maxTurns: 8,
+      timeoutMs: 8 * 60 * 1000,
+    })
+    await audit(keys, 'description_actualisee', { numero: num, trigger, ok: result.ok, convId: result.convId, erreur: result.error })
+    // Recale le point de référence sur l'état COURANT (la signature exclut la
+    // description, donc l'écriture ne l'a pas fait bouger) : l'auto ne se
+    // redéclenche pas immédiatement, l'anti-rafale part de maintenant.
+    try {
+      const sig = dossierSyntheseSignals(keys).find((d) => d.numero === num)?.signature
+      const descs = descriptionState()
+      descs[num] = { sig: sig ?? descs[num]?.sig ?? '', lastRefreshedAt: new Date().toISOString(), pendingSig: null, pendingSince: null }
+      await writeState({ descriptions: descs })
+    } catch { /* recalage best-effort */ }
+    return { ok: result.ok, convId: result.convId, error: result.error }
+  } finally {
+    descriptionRunning = false
+  }
+}
+
+/**
+ * Actualise en fond la description des dossiers qui ont bougé (nouveau CR, acte
+ * ou document téléversé). Comptage déterministe à chaque tick (aucun jeton hors
+ * du run lui-même) : on repère les dossiers dont la signature a changé, on
+ * attend une courte période de calme (fusion des rafales), puis on n'en tire
+ * qu'UN seul par tick — la mise à jour se fait donc lentement, en arrière-plan.
+ */
+async function maybeScheduledDescriptions() {
+  if (descriptionRunning) return
+  const keys = loadKeyring()
+  if (!keys) return
+  let signals
+  try { signals = dossierSyntheseSignals(keys) } catch { return }
+  const descs = descriptionState()
+  const now = Date.now()
+  const present = new Set()
+  let patched = false
+  let due = null // { numero, pendingSince }
+  for (const { numero, signature } of signals) {
+    present.add(numero)
+    const prev = descs[numero]
+    if (!prev) {
+      // Baseline SILENCIEUSE au premier passage : on n'actualise pas d'un coup
+      // tout le stock existant — on ne réagit qu'aux changements ULTÉRIEURS.
+      descs[numero] = { sig: signature, lastRefreshedAt: null, pendingSig: null, pendingSince: null }
+      patched = true
+      continue
+    }
+    if (signature === prev.sig) {
+      // stable : purge d'un « en attente » devenu obsolète
+      if (prev.pendingSig) { prev.pendingSig = null; prev.pendingSince = null; patched = true }
+      continue
+    }
+    // le dossier a bougé depuis la dernière référence
+    if (prev.pendingSig !== signature) {
+      // nouveau changement (ou changement qui a encore évolué) : (re)démarre le calme
+      prev.pendingSig = signature
+      prev.pendingSince = now
+      patched = true
+      continue
+    }
+    // même changement en attente : période de calme écoulée + anti-rafale ?
+    const quietOk = now - (prev.pendingSince || now) >= DESC_QUIET_MS
+    const intervalOk = !prev.lastRefreshedAt || now - Date.parse(prev.lastRefreshedAt) >= DESC_MIN_INTERVAL_MS
+    if (quietOk && intervalOk && (!due || (prev.pendingSince || 0) < due.pendingSince)) {
+      due = { numero, pendingSince: prev.pendingSince || 0 }
+    }
+  }
+  // Purge des dossiers disparus (archivés / supprimés) pour ne pas gonfler l'état.
+  for (const numero of Object.keys(descs)) {
+    if (!present.has(numero)) { delete descs[numero]; patched = true }
+  }
+  if (patched) await writeState({ descriptions: descs })
+  if (!due) return
+  // Forfait saturé : on diffère (rien n'est perdu — le dossier reste « en
+  // attente », on relira au prochain tick une fois la fenêtre redescendue).
+  if (await autonomousOnHold(keys, 'actualisation des descriptions')) return
+  // Un seul dossier par tick → « en arrière-plan, lentement ».
+  runActualiserDescription(due.numero, 'auto').catch((e) => console.error('[attache] description :', e))
+}
+
 // Plafond de durée d'une analyse de LOT (trames, base de connaissances) : ces
 // runs délèguent à des sous-agents en parallèle (vagues bornées par la
 // concurrence, ~8 min/tâche) et dépassent facilement les 20 min d'un run de
@@ -740,6 +879,19 @@ const server = http.createServer(async (req, res) => {
       if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
       runBriefing('manuel').catch((e) => console.error('[attache] brief :', e))
       return json(res, 202, { ok: true, started: true })
+    }
+
+    if (route === 'POST /actualiser-description') {
+      // Actualisation À LA DEMANDE (icône « Actualiser » du dossier) : run court,
+      // AWAITÉ ici pour que le navigateur enchaîne sur syncAndRefresh et voie la
+      // nouvelle description tout de suite. Un seul à la fois (voir le lock).
+      const body = await readBody(req)
+      const numero = String(body.numero || '').trim()
+      if (!numero) return json(res, 400, { ok: false, error: 'Numéro requis' })
+      if (!loadKeyring()) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      const out = await runActualiserDescription(numero, 'manuel')
+      if (out.running) return json(res, 202, { ok: true, running: true })
+      return json(res, out.ok ? 200 : 502, out)
     }
 
     if (route === 'GET /apprentissage') {
@@ -1185,6 +1337,7 @@ setInterval(() => {
   maybeDueRoutines().catch((e) => console.error('[attache] routines :', e))
   maybeScheduledApprentissage().catch((e) => console.error('[attache] apprentissage planifié :', e))
   maybeScheduledEtude().catch((e) => console.error('[attache] étude planifiée :', e))
+  maybeScheduledDescriptions().catch((e) => console.error('[attache] descriptions :', e))
 }, POLL_MINUTES * 60 * 1000)
 // première relève 20 s après le démarrage (laisse le réseau docker s'établir)
 setTimeout(() => { pollOnce('démarrage').catch(() => {}) }, 20_000)

@@ -1800,6 +1800,7 @@ return (
           onTransferEnquete={handleTransferEnquete}
           isSharedEnquete={isSharedEnquete(selectedEnquete.id)}
           attacheOpen={showAttache}
+          attacheAvailable={attacheAvailable && isAdmin()}
         />
       )}
 
