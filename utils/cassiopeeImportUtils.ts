@@ -162,28 +162,58 @@ const detectRole = (cells: string[]): { role: CassiopeeRole; label: string } => 
   return { role: 'autre', label: '' };
 };
 
-/** Repère une catégorie pénale courte (DP / CJ / ARSE) dans les cellules. */
+/**
+ * Repère une catégorie pénale courte dans les cellules et la normalise vers les
+ * trois natures de mesure du modèle (DP / CJ / ARSE). Cassiopée écrit parfois
+ * « DET » (détenu) ou « DPAC » (détention + AC) : on les rabat sur « DP » ;
+ * « CJPM » (contrôle judiciaire mineur) sur « CJ ».
+ */
 const detectCategoriePenale = (cells: string[]): string | undefined => {
   for (const cell of cells) {
     const c = cell.trim().toUpperCase();
-    if (c === 'DP' || c === 'CJ' || c === 'ARSE') return c;
+    if (c === 'DP' || c === 'DET' || c === 'DPAC') return 'DP';
+    if (c === 'CJ' || c === 'CJPM') return 'CJ';
+    if (c === 'ARSE') return 'ARSE';
   }
   return undefined;
 };
+
+/**
+ * Détecte, par correspondance EXACTE de cellule, la présence d'une catégorie
+ * pénale coercitive (DP/DET/DPAC/CJ/CJPM/ARSE). Sert de repli pour importer une
+ * ligne de personne dont le rôle n'est pas reconnu (dossier jugé : « Jugé »,
+ * « Prévenu », « Condamné »…) : en instruction, une personne sous mesure de
+ * sûreté est nécessairement mise en examen. La correspondance exacte (et non par
+ * mot-clé) évite les faux positifs sur les lignes d'événements (« détention
+ * provisoire » en toutes lettres ne déclenche rien).
+ */
+const PENAL_CAT_TOKENS = new Set(['DP', 'DET', 'DPAC', 'CJ', 'CJPM', 'ARSE']);
+const hasPenalStateCell = (cells: string[]): boolean =>
+  cells.some(c => PENAL_CAT_TOKENS.has(c.trim().toUpperCase()));
 
 export const parsePersonnesTable = (text: string): ParsedPersonne[] => {
   const out: ParsedPersonne[] = [];
   for (const cells of toRows(text)) {
     if (isHeaderRow(cells) || isNoiseRow(cells)) continue;
 
-    const { role, label } = detectRole(cells);
-    if (role === 'autre') continue; // ligne sans rôle exploitable
+    let { role, label } = detectRole(cells);
+    if (role === 'autre') {
+      // Repli : rôle non reconnu mais catégorie pénale coercitive présente
+      // (dossier jugé, personne détenue/CJ/ARSE) → mis en examen.
+      if (hasPenalStateCell(cells)) {
+        role = 'mis_en_examen';
+        label = 'Mis en examen';
+      } else {
+        continue; // ligne sans rôle exploitable
+      }
+    }
 
     // Rang = 1re cellule si purement numérique.
     const rang = /^\d+$/.test(cells[0]) ? cells[0] : undefined;
 
     // Nom = 1re cellule alphabétique qui n'est ni le rôle, ni une date,
-    // ni une catégorie pénale, ni « Mention » (colonne B1).
+    // ni une catégorie pénale, ni « Mention » (colonne B1), ni le placeholder
+    // « X » (personne non dénommée / « contre X »).
     let nom = '';
     for (let i = rang ? 1 : 0; i < cells.length; i++) {
       const c = cells[i];
@@ -191,7 +221,8 @@ export const parsePersonnesTable = (text: string): ParsedPersonne[] => {
       const n = normalizeText(c);
       if (DATE_CELL_RE.test(c)) continue;
       if (n === 'mention' || n === 'min' || n === 'non' || n === 'oui') continue;
-      if (['dp', 'cj', 'arse'].includes(n)) continue;
+      if (n === 'x' || n === '...' || n === '-') continue;
+      if (['dp', 'det', 'dpac', 'cj', 'cjpm', 'arse'].includes(n)) continue;
       if (n === label.toLowerCase() || detectRole([c]).role !== 'autre') continue;
       if (/[a-zàâäéèêëïîôöùûüç]/i.test(c)) {
         nom = c.replace(/\s+/g, ' ').trim();
@@ -266,6 +297,127 @@ export const parseInfractionsTable = (text: string): ParsedInfraction[] => {
     }
   }
   return Array.from(byCode.values());
+};
+
+// ──────────────────────────────────────────────
+// LISTE « NATINF en cours/amnistiées » (bloc Résumé Dossier)
+//
+// Format alternatif, NON tabulé : un code puis son libellé séparés par des
+// espaces, un par ligne (ex : « 7990     TRANSPORT NON AUTORISE DE
+// STUPEFIANTS »). Le tableau « Infractions » (parseInfractionsTable), lui,
+// est tabulé — ces deux sources sont complémentaires. On ignore volontairement
+// les codes NATAFF (alphabétiques, ex : « G16 »), qui ne correspondent pas au
+// référentiel NATINF numérique de la saisine.
+// ──────────────────────────────────────────────
+
+/** Préfixe de libellé (« NATINF en cours/amnistiées : ») à retirer. */
+const NATINF_LABEL_RE = /^[^0-9]*natinf[^:]*:\s*/i;
+
+export const parseNatinfList = (text: string): ParsedInfraction[] => {
+  const byCode = new Map<string, ParsedInfraction>();
+  for (const rawLine of (text || '').split(/\r?\n/)) {
+    // Tabulations → espaces, puis on retire un éventuel libellé de tête.
+    const line = rawLine.replace(/\t/g, ' ').replace(NATINF_LABEL_RE, '').trim();
+    if (!line) continue;
+    // « <code numérique 3–6 chiffres> <libellé> ». Le code doit être en tête de
+    // ligne et suivi d'un espace : exclut les dates (JJ/MM/AAAA) et les rangs.
+    const m = line.match(/^(\d{3,6})\s+(.+)$/);
+    if (!m) continue;
+    const code = m[1];
+    const libelle = m[2].replace(/\s+/g, ' ').trim();
+    if (!byCode.has(code)) byCode.set(code, { natinfCode: code, libelle });
+    else if (libelle && !byCode.get(code)!.libelle) byCode.get(code)!.libelle = libelle;
+  }
+  return Array.from(byCode.values());
+};
+
+/**
+ * Fusionne les infractions du tableau tabulé et de la liste « NATINF » du bloc
+ * Résumé, dédupliquées par code. Utile quand l'utilisateur colle tout le contenu
+ * Cassiopée d'un bloc : les deux formats coexistent alors dans le même texte.
+ */
+export const parseAllInfractions = (text: string): ParsedInfraction[] => {
+  const byCode = new Map<string, ParsedInfraction>();
+  for (const inf of [...parseInfractionsTable(text), ...parseNatinfList(text)]) {
+    if (!byCode.has(inf.natinfCode)) byCode.set(inf.natinfCode, inf);
+    else if (inf.libelle && !byCode.get(inf.natinfCode)!.libelle) {
+      byCode.get(inf.natinfCode)!.libelle = inf.libelle;
+    }
+  }
+  return Array.from(byCode.values());
+};
+
+// ──────────────────────────────────────────────
+// EN-TÊTE « Résumé Dossier »
+// N° Parquet, N° dans cabinet (→ n° d'instruction), Identifiant Justice.
+// ──────────────────────────────────────────────
+
+export interface ParsedResumeHeader {
+  /** N° de parquet (ex : « 23082000064 »). */
+  numeroParquet?: string;
+  /** N° dans le cabinet → sert de n° d'instruction (ex : « JI CABJI2 23000009 »). */
+  numeroInstruction?: string;
+  /** Identifiant Justice unique du dossier (ex : « 2301062620X »). */
+  identifiantJustice?: string;
+}
+
+/**
+ * Cherche la valeur associée à un libellé dans le bloc Résumé. Chaque ligne est
+ * découpée en cellules (tabulations) : la valeur est la 1re cellule non vide
+ * APRÈS celle qui porte le libellé (ou le texte après « : » dans la même
+ * cellule). `exclude` écarte les faux libellés voisins (ex : « Parquet Général »
+ * pour « N° Parquet »).
+ */
+const findHeaderValue = (
+  lines: string[],
+  match: (normalizedCell: string) => boolean,
+): string | undefined => {
+  for (const line of lines) {
+    const cells = line.split('\t').map(c => c.trim());
+    for (let i = 0; i < cells.length; i++) {
+      if (!match(normalizeText(cells[i]))) continue;
+      for (let j = i + 1; j < cells.length; j++) {
+        if (cells[j]) return cells[j].replace(/\s+/g, ' ').trim();
+      }
+      // Valeur éventuellement collée après « : » dans la même cellule.
+      const after = cells[i].split(':').slice(1).join(':').replace(/\s+/g, ' ').trim();
+      if (after) return after;
+    }
+  }
+  return undefined;
+};
+
+export const parseResumeHeader = (text: string): ParsedResumeHeader => {
+  const lines = (text || '').split(/\r?\n/);
+  const numeroParquet = findHeaderValue(
+    lines,
+    n => n.includes('parquet') && !n.includes('general') && !n.includes('affaire'),
+  );
+  const numeroInstruction = findHeaderValue(lines, n => n.includes('dans cabinet'));
+  const identifiantJustice = findHeaderValue(lines, n => n.includes('identifiant justice'));
+  const out: ParsedResumeHeader = {};
+  if (numeroParquet) out.numeroParquet = numeroParquet;
+  if (numeroInstruction) out.numeroInstruction = numeroInstruction;
+  if (identifiantJustice) out.identifiantJustice = identifiantJustice;
+  return out;
+};
+
+/**
+ * Déduit la date du réquisitoire introductif (= ouverture de l'information) à
+ * partir des événements collés : événement de code « RI » ou dont le libellé
+ * contient « réquisitoire introductif ». Renvoie la plus ancienne (ISO).
+ */
+export const findRIDateFromEvenements = (events: ParsedEvenement[]): string | undefined => {
+  const dates = events
+    .filter(
+      e =>
+        e.date &&
+        (normalizeText(e.code) === 'ri' ||
+          normalizeText(e.eventLabel).includes('requisitoire introductif')),
+    )
+    .map(e => e.date)
+    .sort();
+  return dates[0];
 };
 
 // ──────────────────────────────────────────────

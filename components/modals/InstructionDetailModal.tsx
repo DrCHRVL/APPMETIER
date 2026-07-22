@@ -125,13 +125,34 @@ export const InstructionDetailModal = ({
   const [showCassiopeeImport, setShowCassiopeeImport] = useState(false);
 
   const handleCassiopeeImport = (r: CassiopeeImportResult) => {
-    onUpdate(dossier.id, {
+    const updates: Partial<DossierInstruction> = {
       misEnExamen: [...dossier.misEnExamen, ...r.misEnExamen],
       suspects: [...(dossier.suspects ?? []), ...r.suspects],
       victimes: [...(dossier.victimes ?? []), ...r.victimes],
       saisine: [...(dossier.saisine ?? []), ...r.saisine],
       evenements: [...(dossier.evenements ?? []), ...r.evenements],
-    });
+    };
+    // En-tête (n° parquet / instruction / date RI) : appliqué seulement si
+    // l'utilisateur l'a coché dans la modale. On répercute aussi dans le
+    // formulaire d'édition (editData) pour que « Enregistrer » ne réécrase pas
+    // ces valeurs avec l'ancien état.
+    if (r.header) {
+      const h = r.header;
+      if (h.numeroParquet) updates.numeroParquet = h.numeroParquet;
+      if (h.numeroInstruction) updates.numeroInstruction = h.numeroInstruction;
+      if (h.dateRI) {
+        updates.dateRI = h.dateRI;
+        if (!dossier.dateOuverture) updates.dateOuverture = h.dateRI;
+      }
+      setEditData(prev => ({
+        ...prev,
+        ...(h.numeroParquet ? { numeroParquet: h.numeroParquet } : {}),
+        ...(h.numeroInstruction ? { numeroInstruction: h.numeroInstruction } : {}),
+        ...(h.dateRI ? { dateRI: h.dateRI } : {}),
+        ...(h.dateRI && !dossier.dateOuverture ? { dateOuverture: h.dateRI } : {}),
+      }));
+    }
+    onUpdate(dossier.id, updates);
   };
 
   // Échap ferme la modale en consultation. En édition, on n'écoute pas pour ne

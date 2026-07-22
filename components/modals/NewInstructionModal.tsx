@@ -1,16 +1,22 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
-import { X } from 'lucide-react';
+import { X, ClipboardPaste, Users, Scale, ListChecks, Trash2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
+import { CassiopeeImportModal, type CassiopeeImportResult } from './CassiopeeImportModal';
 import type {
   NewDossierInstructionData,
   OrigineDossier,
+  MisEnExamen,
+  Suspect,
+  Victime,
+  SaisineItem,
+  EvenementInstruction,
 } from '@/types/instructionTypes';
 import type { ContentieuxDefinition } from '@/types/userTypes';
 
@@ -43,6 +49,49 @@ export const NewInstructionModal = ({
   const [description, setDescription] = useState('');
   const [contentieuxId, setContentieuxId] = useState<string>(defaultContentieuxId || '');
 
+  // Import Cassiopée (copier-coller) : les personnes / chefs de saisine /
+  // événements collés sont mis en attente ici puis inclus dans le dossier créé.
+  const [showCassiopeeImport, setShowCassiopeeImport] = useState(false);
+  const [importedMex, setImportedMex] = useState<MisEnExamen[]>([]);
+  const [importedSuspects, setImportedSuspects] = useState<Suspect[]>([]);
+  const [importedVictimes, setImportedVictimes] = useState<Victime[]>([]);
+  const [importedSaisine, setImportedSaisine] = useState<SaisineItem[]>([]);
+  const [importedEvenements, setImportedEvenements] = useState<EvenementInstruction[]>([]);
+
+  const hasImported = useMemo(
+    () =>
+      importedMex.length +
+        importedSuspects.length +
+        importedVictimes.length +
+        importedSaisine.length +
+        importedEvenements.length >
+      0,
+    [importedMex, importedSuspects, importedVictimes, importedSaisine, importedEvenements],
+  );
+
+  const handleCassiopeeImport = (r: CassiopeeImportResult) => {
+    // En-tête : renseigne les champs du formulaire (modifiables ensuite).
+    if (r.header) {
+      if (r.header.numeroInstruction) setNumeroInstruction(r.header.numeroInstruction);
+      if (r.header.numeroParquet) setNumeroParquet(r.header.numeroParquet);
+      if (r.header.dateRI) setDateRI(r.header.dateRI);
+    }
+    // Personnes / saisine / événements : mis en attente pour la création.
+    setImportedMex(prev => [...prev, ...r.misEnExamen]);
+    setImportedSuspects(prev => [...prev, ...r.suspects]);
+    setImportedVictimes(prev => [...prev, ...r.victimes]);
+    setImportedSaisine(prev => [...prev, ...r.saisine]);
+    setImportedEvenements(prev => [...prev, ...r.evenements]);
+  };
+
+  const clearImported = () => {
+    setImportedMex([]);
+    setImportedSuspects([]);
+    setImportedVictimes([]);
+    setImportedSaisine([]);
+    setImportedEvenements([]);
+  };
+
   // Si la prop `defaultContentieuxId` change pendant que la modal est ouverte
   // (rare, mais possible si le contentieux actif change), on re-synchronise.
   useEffect(() => {
@@ -74,6 +123,7 @@ export const NewInstructionModal = ({
     setOrigine('preliminaire');
     setDescription('');
     setContentieuxId(defaultContentieuxId || '');
+    clearImported();
   };
 
   const handleClose = () => {
@@ -82,7 +132,9 @@ export const NewInstructionModal = ({
   };
 
   // Échap ferme la modale (comportement standard, aligné sur les autres modales).
-  useEscapeKey(handleClose, isOpen);
+  // Désactivé quand la modale d'import Cassiopée est ouverte par-dessus, pour ne
+  // pas fermer le formulaire par mégarde.
+  useEscapeKey(handleClose, isOpen && !showCassiopeeImport);
 
   const handleSubmit = () => {
     if (!numeroInstruction.trim()) {
@@ -112,19 +164,26 @@ export const NewInstructionModal = ({
       dateRI,
       origine,
       description: description.trim() || undefined,
-      misEnExamen: [],
-      victimes: [],
+      misEnExamen: importedMex,
+      suspects: importedSuspects.length ? importedSuspects : undefined,
+      victimes: importedVictimes,
+      saisine: importedSaisine.length ? importedSaisine : undefined,
       ops: [],
       debatsJLD: [],
       notesPerso: [],
       verifications: [],
-      evenements: [],
+      evenements: importedEvenements,
       etatReglement: 'en_cours',
       tags: [],
     };
 
     onSubmit(data);
-    showToast('Dossier d\'instruction créé', 'success');
+    showToast(
+      hasImported
+        ? `Dossier créé avec ${importedMex.length} MEX, ${importedSaisine.length} chef(s) de saisine, ${importedEvenements.length} événement(s)`
+        : 'Dossier d\'instruction créé',
+      'success',
+    );
     handleClose();
   };
 
@@ -135,12 +194,59 @@ export const NewInstructionModal = ({
       <div className="bg-white rounded-xl shadow-2xl w-[90vw] max-w-[640px] max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
           <h2 className="text-base font-semibold text-gray-800">Nouveau dossier d'instruction</h2>
-          <button onClick={handleClose} className="p-1.5 rounded-lg hover:bg-gray-100">
-            <X className="h-5 w-5 text-gray-500" />
-          </button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowCassiopeeImport(true)}
+              title="Pré-remplir depuis Cassiopée (copier-coller)"
+              className="gap-1.5"
+            >
+              <ClipboardPaste className="h-4 w-4" />
+              Importer Cassiopée
+            </Button>
+            <button onClick={handleClose} className="p-1.5 rounded-lg hover:bg-gray-100">
+              <X className="h-5 w-5 text-gray-500" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Récapitulatif de ce qui a été pré-rempli depuis Cassiopée. */}
+          {hasImported && (
+            <div className="rounded-lg border border-[#2B5746]/30 bg-[#2B5746]/5 px-3 py-2 text-xs text-gray-700">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-[#2B5746] flex items-center gap-1.5">
+                  <ClipboardPaste className="h-3.5 w-3.5" />
+                  Importé de Cassiopée — sera ajouté à la création
+                </span>
+                <button
+                  type="button"
+                  onClick={clearImported}
+                  className="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-red-600"
+                >
+                  <Trash2 className="h-3 w-3" /> Vider
+                </button>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-600">
+                {importedMex.length > 0 && (
+                  <span className="inline-flex items-center gap-1"><Users className="h-3 w-3" />{importedMex.length} mis en examen</span>
+                )}
+                {importedSuspects.length > 0 && (
+                  <span className="inline-flex items-center gap-1"><Users className="h-3 w-3" />{importedSuspects.length} suspect(s)</span>
+                )}
+                {importedVictimes.length > 0 && (
+                  <span className="inline-flex items-center gap-1"><Users className="h-3 w-3" />{importedVictimes.length} victime(s)</span>
+                )}
+                {importedSaisine.length > 0 && (
+                  <span className="inline-flex items-center gap-1"><Scale className="h-3 w-3" />{importedSaisine.length} chef(s) de saisine</span>
+                )}
+                {importedEvenements.length > 0 && (
+                  <span className="inline-flex items-center gap-1"><ListChecks className="h-3 w-3" />{importedEvenements.length} événement(s)</span>
+                )}
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor="numeroInstruction">N° instruction *</Label>
@@ -256,8 +362,9 @@ export const NewInstructionModal = ({
           </div>
 
           <div className="text-xs text-gray-500 italic">
-            Les mis en examen, mesures de sûreté, OP, débats JLD, notes et vérifications se gèrent
-            depuis la fiche du dossier après création.
+            Astuce : le bouton « Importer Cassiopée » pré-remplit l'en-tête, les mis en examen et
+            les chefs de saisine. Les mesures de sûreté, OP, débats JLD, notes et vérifications se
+            gèrent depuis la fiche du dossier après création.
           </div>
         </div>
 
@@ -272,6 +379,20 @@ export const NewInstructionModal = ({
           </Button>
         </div>
       </div>
+
+      {/* Import Cassiopée : réutilise la modale de collage. Les données déjà
+          mises en attente servent d'« existant » pour la déduplication. À la
+          création, on applique l'en-tête par défaut. */}
+      <CassiopeeImportModal
+        isOpen={showCassiopeeImport}
+        onClose={() => setShowCassiopeeImport(false)}
+        onImport={handleCassiopeeImport}
+        existingMisEnExamen={importedMex}
+        existingSuspects={importedSuspects}
+        existingVictimes={importedVictimes}
+        existingSaisine={importedSaisine}
+        applyHeaderDefault
+      />
     </div>
   );
 };
