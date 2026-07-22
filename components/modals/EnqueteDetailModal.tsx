@@ -64,6 +64,9 @@ interface EnqueteDetailModalProps {
   /** Si true, le panneau « Attaché de justice » (chat) est ouvert à droite :
    *  on décale le modal vers la zone libre à gauche pour éviter la superposition. */
   attacheOpen?: boolean;
+  /** Attaché IA disponible (sidecar configuré) : conditionne l'icône
+   *  « Actualiser » de la description (admin uniquement). */
+  attacheAvailable?: boolean;
 }
 
 const EnqueteDetailModalImpl = ({
@@ -87,8 +90,10 @@ const EnqueteDetailModalImpl = ({
   onTransferEnquete,
   isSharedEnquete = false,
   attacheOpen = false,
+  attacheAvailable = false,
 }: EnqueteDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [descriptionRefreshing, setDescriptionRefreshing] = useState(false);
   const [showClotureSummary, setShowClotureSummary] = useState(false);
   const [showSuiviAlert, setShowSuiviAlert] = useState(false);
   const [suiviAlertContext, setSuiviAlertContext] = useState<'dateOP' | 'archive' | 'audience'>('dateOP');
@@ -130,6 +135,36 @@ const EnqueteDetailModalImpl = ({
       setShowSuiviAlert(true);
     }
   }, [onUpdate, showToast]);
+
+  // Actualisation « à la demande » de la description par l'attaché IA (icône à
+  // côté du titre Description). Le run est court et awaité côté service ; au
+  // retour, on tire le coffre serveur (syncAndRefresh) pour afficher la nouvelle
+  // synthèse tout de suite. Elle se rafraîchit aussi TOUTE SEULE en arrière-plan
+  // à chaque CR/acte téléversé — ce bouton ne fait qu'accélérer.
+  const handleRefreshDescription = useCallback(async () => {
+    if (descriptionRefreshing) return;
+    setDescriptionRefreshing(true);
+    try {
+      const res = await fetch('/api/attache/actualiser-description', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ numero: enquete.numero }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 202 || data.running) {
+        showToast('Une actualisation est déjà en cours — réessayez dans un instant.', 'info');
+      } else if (res.ok && data.ok) {
+        await useEnquetesStore.getState().syncAndRefresh().catch(() => {});
+        showToast('Description actualisée', 'success');
+      } else {
+        showToast(data.error || 'Actualisation impossible pour le moment', 'error');
+      }
+    } catch {
+      showToast('Service de l\'attaché indisponible', 'error');
+    } finally {
+      setDescriptionRefreshing(false);
+    }
+  }, [descriptionRefreshing, enquete.numero, showToast]);
 
   // Met à jour les phases d'OP (et synchronise `dateOP` legacy avec la 1re phase
   // pour que les consommateurs non encore migrés continuent de fonctionner).
@@ -313,6 +348,8 @@ const EnqueteDetailModalImpl = ({
               isEditing={isEditing}
               onUpdate={isEditing ? (updates) => debouncedOnUpdate(enquete.id, updates) : undefined}
               onUpdateImmediate={isEditing ? (updates) => handleUpdateImmediate(enquete.id, updates) : undefined}
+              onRefreshDescription={attacheAvailable && isAdmin() && !isEditing ? handleRefreshDescription : undefined}
+              descriptionRefreshing={descriptionRefreshing}
             />
 
             {/* Propositions de l'attaché en attente (✓/✗) + chronologie
@@ -570,6 +607,7 @@ export const EnqueteDetailModal = React.memo(EnqueteDetailModalImpl, (a, b) =>
   a.readOnly === b.readOnly &&
   a.isSharedEnquete === b.isSharedEnquete &&
   a.attacheOpen === b.attacheOpen &&
+  a.attacheAvailable === b.attacheAvailable &&
   a.allKnownMec === b.allKnownMec &&
   a.onClose === b.onClose &&
   a.onEdit === b.onEdit &&

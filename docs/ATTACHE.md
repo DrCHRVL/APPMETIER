@@ -363,10 +363,29 @@ l'usage).
   - **qui appeler**, quand un mail ne suffit plus.
   Chaque item se règle d'un geste : Copier · Traité · Ignorer. Bouton
   « Générer le brief » pour relancer à la demande.
-- **Tient la description à jour** : quand un dossier évolue, l'attaché
-  réécrit son « objet » pour donner la vision à l'instant T — l'ancienne
-  description est archivée dans le dossier (`descriptionHistory`), rien
-  n'est jamais perdu (en plus du versionnage du coffre).
+- **Tient la description à jour, TOUT SEUL** : la description (« l'objet »)
+  d'un dossier se met à jour **progressivement, en arrière-plan**, au fil de
+  ce qui l'alimente — **à chaque acte/document téléversé** (l'attaché lit la
+  copie markdown générée au passage) **ou à chaque CR rédigé**. Le service
+  compare, à chaque relève, une signature déterministe par dossier (nombre et
+  date des CR, des documents, des actes — coût nul, aucun jeton) ; dès qu'un
+  dossier a bougé, il attend une courte période de calme (les ajouts en rafale
+  sont fusionnés) puis lance **un run COURT et ÉCONOME** (modèle rapide, effort
+  faible, ≤ 8 tours) — **un seul dossier par relève**, lentement, pour un
+  minimum de jetons. Il est **différé** si le forfait sature (gouverneur), et
+  la consommation apparaît sous le poste **« Descriptions »** de « Consommation
+  IA ». La description suit un **format en deux parties, en prise de notes**
+  (rédigé à ~80 %, mots inutiles et verbes de liaison retirés, mais clair) :
+  - **SYNTHÈSE** — la vision globale des faits, qui **s'enrichit et se
+    reformule** à chaque passage (qualification, mode opératoire, lieux,
+    période, mesures en cours, échéances) ;
+  - **MIS EN CAUSE** — un par un les mis en cause **enregistrés** du dossier
+    (jamais inventés), chacun suivi des **éléments à charge** relevés contre
+    lui (ce que les CR, actes et pièces établissent).
+  Une **icône « Actualiser »** à côté du titre *Description* (détail du
+  dossier, admin seul) force la mise à jour **de suite** — en plus de
+  l'automatique. L'ancienne description est archivée (`descriptionHistory`),
+  rien n'est jamais perdu (en plus du versionnage du coffre).
 - **Relance les dossiers dormants** : tout dossier sans mouvement depuis
   plus de 2 mois reçoit au brief un projet de mail de relance au directeur
   d'enquête, prêt à coller.

@@ -24,6 +24,7 @@ export function runCategory(run) {
   if (r === 'majordome') return 'brief'
   if (r === 'trames-analyse' || r === 'kb-analyse' || r === 'skills-analyse' || r === 'associations-suggest') return 'classements'
   if (r === 'apprentissage' || r === 'etude') return 'apprentissage'
+  if (r === 'description') return 'descriptions'
   if (r.startsWith('routine:')) return 'routines'
   if (r === 'chat' || r === 'chat-carto' || r === 'chat-dossier') return 'conversations'
   return 'autres'

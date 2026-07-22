@@ -4,7 +4,7 @@ import { Input } from '../ui/input';
 import { Select } from '../ui/select';
 import { MultiSelect } from '../ui/multi-select';
 import { Badge } from '../ui/badge';
-import { Flag } from 'lucide-react';
+import { Flag, RefreshCw } from 'lucide-react';
 import { useTags } from '@/hooks/useTags';
 import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { NatinfBadge } from '../natinf/NatinfBadge';
@@ -25,6 +25,10 @@ interface EnqueteHeaderProps {
   onUpdate?: (updates: Partial<any>) => void;
   /** Callback immédiat pour les actions discrètes (date, select) — sans debounce */
   onUpdateImmediate?: (updates: Partial<any>) => void;
+  /** Admin (attaché) : demande une actualisation immédiate de la description. */
+  onRefreshDescription?: () => void;
+  /** Actualisation de la description en cours (spinner de l'icône). */
+  descriptionRefreshing?: boolean;
 }
 
 export const EnqueteHeader = React.memo(({
@@ -39,7 +43,9 @@ export const EnqueteHeader = React.memo(({
   numeroIDJ,
   isEditing = false,
   onUpdate,
-  onUpdateImmediate
+  onUpdateImmediate,
+  onRefreshDescription,
+  descriptionRefreshing = false
 }: EnqueteHeaderProps) => {
   // Pour les actions discrètes (date, select), utiliser le callback immédiat si disponible
   const discreteUpdate = onUpdateImmediate || onUpdate;
@@ -308,7 +314,21 @@ export const EnqueteHeader = React.memo(({
       </div>
 
       <div className="mt-2">
-        <h3 className="text-xs font-medium text-gray-500">Description</h3>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-xs font-medium text-gray-500">Description</h3>
+          {onRefreshDescription && (
+            <button
+              type="button"
+              onClick={onRefreshDescription}
+              disabled={descriptionRefreshing}
+              title="Actualiser la synthèse — l'assistant reprend les CR et les actes téléversés (se fait aussi tout seul en arrière-plan)"
+              aria-label="Actualiser la description"
+              className="text-gray-400 transition-colors hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${descriptionRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+          )}
+        </div>
         {isEditing ? (
           <textarea
             value={localDescription}

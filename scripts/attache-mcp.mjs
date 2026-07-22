@@ -424,7 +424,10 @@ const TOOLS = [
   },
   {
     name: 'actualiser_description',
-    description: 'Réécrit la description (« objet ») du dossier : vision factuelle à l\'instant T, derniers CR et documents intégrés. RÉSUMÉ LISIBLE en TEXTE BRUT (jamais d\'HTML ni de <br>), phrases claires en quelques courts paragraphes : d\'abord les faits (qualification, mode opératoire, lieux, période), puis les principaux mis en cause et leur rôle, puis l\'état des mesures et les échéances qui pressent. NI fiche à rubriques, NI style télégraphique, NI abréviations obscures — un collègue doit comprendre à la lecture. L\'ancienne description est ARCHIVÉE (jamais perdue).',
+    description: 'Réécrit la description (« l\'objet ») du dossier, tenue à jour au fil des CR et des actes/documents téléversés. FORMAT IMPOSÉ, en TEXTE BRUT (jamais d\'HTML ni de <br>), en DEUX PARTIES, chacune introduite par son titre en MAJUSCULES sur sa propre ligne :\n'
+      + 'SYNTHÈSE — vision GLOBALE des faits à l\'instant T, qui S\'ENRICHIT et se REFORMULE à chaque actualisation (on repart de l\'existant, on ne le jette pas) : qualification, mode opératoire, LIEUX et PÉRIODE, état des mesures en cours et échéances qui pressent.\n'
+      + 'MIS EN CAUSE — un par un, les mis en cause ENREGISTRÉS du dossier (ceux saisis à la main, section « Mis en cause » de lire_dossier — n\'en invente aucun), chacun suivi des ÉLÉMENTS À CHARGE relevés contre lui (ce que les CR, actes et pièces établissent : rôle, faits, liens, saisies).\n'
+      + 'STYLE « PRISE DE NOTES » : rédigé à ~80 %, mots inutiles et verbes de liaison retirés, phrases nominales courtes — mais compréhensible d\'un collègue qui découvre le dossier. Pas d\'autres rubriques que ces deux parties, pas de jargon obscur. L\'ancienne description est ARCHIVÉE (jamais perdue).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' }, description: { type: 'string' } }, required: ['numero', 'description'] },
     handler: async (a) => actualiserDescription(keys, a),
     write: true,

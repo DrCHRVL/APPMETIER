@@ -124,6 +124,7 @@ const USAGE_CATS: Record<string, { label: string; color: string }> = {
   routines: { label: 'Routines', color: '#be185d' },
   classements: { label: 'Classements (trames, base)', color: '#4b5563' },
   apprentissage: { label: 'Apprentissage (consolidations)', color: '#0f766e' },
+  descriptions: { label: 'Descriptions (mises à jour)', color: '#0369a1' },
   autres: { label: 'Autres', color: '#9ca3af' },
 };
 

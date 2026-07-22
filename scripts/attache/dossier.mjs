@@ -934,9 +934,48 @@ export async function actualiserDescription(keys, { numero, description }) {
     // « whitespace-pre-wrap » et le module instruction via renderFormattedText
     // — les deux rendent le texte plat proprement. Surtout PAS d'HTML ni de
     // <br> ici : ils s'affichaient littéralement dans la fiche préliminaire.
+    // Format attendu (imposé par le prompt / la description de l'outil) : deux
+    // parties en prise de notes — « SYNTHÈSE » (vision globale qui s'enrichit)
+    // puis « MIS EN CAUSE » (les MEC enregistrés + éléments à charge).
     e.description = texte
     return { versionsConservees: (e.descriptionHistory || []).length }
   })
+}
+
+/**
+ * Signaux de changement par dossier, base de l'actualisation AUTOMATIQUE de la
+ * description en arrière-plan (le service compare cette signature d'un tick à
+ * l'autre). Elle ne bouge QUE lorsqu'un CR est ajouté ou qu'un acte / document
+ * est téléversé — jamais sur une simple édition de la description elle-même,
+ * qui en est volontairement EXCLUE : l'actualisation ne se redéclenche donc
+ * pas sur son propre effet. Coût nul (coffre déjà déchiffré + index de
+ * documents en clair). Les dossiers archivés sont ignorés.
+ */
+export function dossierSyntheseSignals(keys) {
+  const { data } = loadContentieux(keys)
+  const tj = attacheTj()
+  const maxDate = (arr, pick) => arr.map(pick).map((v) => Date.parse(v)).filter(Number.isFinite).sort((a, b) => b - a)[0] || 0
+  return (data.enquetes || [])
+    .filter((e) => e.statut !== 'archive')
+    .map((e) => {
+      const crs = e.comptesRendus || []
+      const vdocs = e.documents || []
+      let sdocsCount = 0
+      let lastSdoc = 0
+      try {
+        const metas = listDocsMeta(tj, docServerKey(e.numero)).filter((d) => !String(d.rel).startsWith('MD/'))
+        sdocsCount = metas.length
+        lastSdoc = maxDate(metas, (d) => d.savedAt)
+      } catch { /* index de documents absent : dossier sans pièce serveur */ }
+      const actes = (e.actes || []).length + (e.ecoutes || []).length + (e.geolocalisations || []).length
+      const signature = [
+        crs.length, maxDate(crs, (c) => c.date),
+        vdocs.length, maxDate(vdocs, (d) => d.dateAjout),
+        sdocsCount, lastSdoc,
+        actes,
+      ].join('|')
+      return { numero: String(e.numero), signature }
+    })
 }
 
 /** Vrai si un dossier de ce numéro existe déjà dans le contentieux. */
