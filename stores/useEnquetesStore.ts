@@ -103,6 +103,13 @@ interface EnquetesState {
   loadEnquetes: () => Promise<void>;
   loadSharedEnquetes: () => Promise<void>;
   flushPendingSave: () => Promise<void>;
+  /**
+   * Tire immédiatement le coffre serveur (sans attendre le cycle de sync de
+   * 2 min) puis rafraîchit la grille ET le dossier ouvert. Utilisé après une
+   * écriture de l'attaché IA (acte, CR, MEC, description) pour la rendre
+   * visible tout de suite.
+   */
+  syncAndRefresh: () => Promise<void>;
 
   // ── UI ──
   setSelectedEnquete: (enquete: Enquete | null) => void;
@@ -298,6 +305,29 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       set({ _isDataDirty: false });
     } catch (error) {
       console.error(`❌ EnquetesStore: erreur flush`, error);
+    }
+  },
+
+  syncAndRefresh: async () => {
+    const { contentieuxId } = get();
+    // 1) Tirer le coffre serveur maintenant (l'attaché IA écrit côté serveur ;
+    //    le cache local n'est mis à jour que par la sync). En cas de conflit /
+    //    hors-ligne, triggerSync n'écrit rien : on recharge quand même, sans
+    //    casser l'affichage — le cycle périodique reprendra la main.
+    try {
+      await MultiSyncManager.getInstance().triggerSync(contentieuxId);
+    } catch (error) {
+      console.warn('EnquetesStore.syncAndRefresh: sync ignorée', error);
+    }
+    // 2) Recharger la grille depuis le cache local fraîchement mis à jour.
+    await get().loadEnquetes();
+    await get().loadSharedEnquetes();
+    // 3) Rafraîchir le dossier ouvert (sauf pendant une édition manuelle, pour
+    //    ne pas écraser une saisie en cours), en reprenant la version fraîche.
+    const { selectedEnquete, isEditing, enquetes } = get();
+    if (selectedEnquete && !isEditing) {
+      const fresh = enquetes.find((e) => e.id === selectedEnquete.id);
+      if (fresh && fresh !== selectedEnquete) set({ selectedEnquete: fresh });
     }
   },
 

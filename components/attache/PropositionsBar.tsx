@@ -8,11 +8,12 @@
  * construite par l'attaché (nouveau MEC, acte, CR en prise de notes) :
  *   ✓ = appliquée au dossier, signée du nom de l'administrateur
  *   ✗ = refusée, sans trace.
- * Après décision, recharger la page du dossier reflète l'écriture (la
- * synchro du client web récupère la nouvelle version du coffre).
+ * Après validation, on tire le coffre serveur et on rafraîchit le dossier
+ * immédiatement (syncAndRefresh) : l'ajout apparaît sans attendre le cycle.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Check, X, UserPlus, Gavel, FileText, Loader2, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import { useEnquetesStore } from '@/stores/useEnquetesStore';
 
 interface Proposition {
   id: string;
@@ -65,7 +66,11 @@ export function PropositionsBar({ numero }: { numero: string }) {
       const data = await res.json().catch(() => ({}));
       if (data.ok) {
         setProps((prev) => prev.filter((p) => p.id !== id));
-        if (action === 'valider') setNotice('Appliqué au dossier — la synchronisation reflétera l\'ajout dans quelques secondes.');
+        if (action === 'valider') {
+          // Tirer le coffre serveur et rafraîchir le dossier ouvert maintenant.
+          await useEnquetesStore.getState().syncAndRefresh().catch(() => {});
+          setNotice('Appliqué au dossier et affiché.');
+        }
       } else {
         setNotice(data.error || 'Décision refusée par le serveur');
       }
