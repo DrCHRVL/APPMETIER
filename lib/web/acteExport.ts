@@ -17,8 +17,10 @@
  * imposé : on retombe sur le rendu neutre. Aucun drapeau, aucune juridiction
  * n'est ajoutée d'office — c'est la trame, via le texte, qui commande. Le nom
  * du fichier est LISIBLE et suit la convention du magistrat :
- * « <type d'acte> - <service d'enquête> - <nom du dossier> » (les segments
- * absents sont simplement omis).
+ * « <nom de la trame> - <service d'enquête> - <nom du dossier> [- <objet>] ».
+ * Le 1ᵉʳ segment est le nom EXACT de la trame suivie (`source`) ; l'objet
+ * (n° de ligne interceptée, objet géolocalisé…) ne s'ajoute que s'il est
+ * renseigné. Les segments absents sont simplement omis.
  */
 
 import { PAPETERIE } from './papeterie'
@@ -28,12 +30,14 @@ export interface ActeExportable {
   titre: string
   contenu: string
   numero?: string
-  /** Nom (slug) de la trame suivie — sert de repli au type d'acte. */
+  /** Nom EXACT de la trame suivie (« enq-art-76 »…) — 1ᵉʳ segment du nom de fichier. */
   source?: string
-  /** Type de production (requisition, soit_transmis, prolongation_jld…) — repli lisible. */
+  /** Type de production (requisition, soit_transmis, prolongation_jld…) — repli quand la trame manque. */
   type?: string
   /** Service d'enquête du dossier (« SR Amiens »…) — 2ᵉ segment du nom de fichier. */
   service?: string
+  /** Objet de l'acte (n° de ligne interceptée, objet géolocalisé…) — dernier segment, si présent. */
+  objet?: string
   updatedAt?: string
 }
 
@@ -80,29 +84,31 @@ const TYPE_LABEL: Record<string, string> = {
 }
 
 /**
- * Type d'acte « conforme à la trame en réalité » : le TITRE réel de l'acte
- * (celui que la trame produit) prime ; à défaut, le libellé du type de
- * production ; à défaut, le slug de trame dé-slugifié ; en dernier « Acte ».
+ * 1ᵉʳ segment : le NOM DE LA TRAME suivie, tel qu'enregistré (`source`,
+ * ex. « enq-art-76 », « ddejld-geolocalisation-tel-prolong ») — c'est le
+ * « type d'acte conforme à la trame ». À défaut de trame : le libellé du type
+ * de production, puis le titre de l'acte, en dernier « Acte ».
  */
-function typeActeLabel(p: ActeExportable): string {
-  const titre = readableSegment(p.titre || '')
-  if (titre && titre.toLowerCase() !== 'acte') return titre
+function trameLabel(p: ActeExportable): string {
+  const source = readableSegment(p.source || '')
+  if (source) return source
   if (p.type && TYPE_LABEL[p.type]) return TYPE_LABEL[p.type]
-  const slug = readableSegment((p.source || '').replace(/[-_]+/g, ' '))
-  return slug || 'Acte'
+  return readableSegment(p.titre || '') || 'Acte'
 }
 
 /**
  * Nom de fichier d'un export, LISIBLE et à la convention du magistrat :
- * « <type d'acte> - <service d'enquête> - <nom du dossier> ». Le type d'acte
- * reflète la trame réellement suivie (titre de l'acte) ; les segments absents
- * (service inconnu, dossier hors numéro) sont simplement omis.
+ * « <nom de la trame> - <service d'enquête> - <nom du dossier> [- <objet>] ».
+ * Le 1ᵉʳ segment reprend le nom EXACT de la trame suivie ; l'objet (n° de
+ * ligne interceptée, objet géolocalisé…) ne s'ajoute que s'il est renseigné.
+ * Les segments absents (service inconnu, dossier hors numéro…) sont omis.
  */
 export function acteFileBase(p: ActeExportable): string {
-  const typeActe = typeActeLabel(p)
+  const trame = trameLabel(p)
   const service = readableSegment(p.service || '')
   const dossier = readableSegment(p.numero || '')
-  return [typeActe, service, dossier].filter(Boolean).join(' - ') || 'Acte'
+  const objet = readableSegment(p.objet || '')
+  return [trame, service, dossier, objet].filter(Boolean).join(' - ') || 'Acte'
 }
 
 // ── Reconnaissance de la structure d'un acte (à partir de son propre texte) ──
