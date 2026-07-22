@@ -19,7 +19,9 @@ import { getCurrentUserInfo } from './dataSync/globalSyncCommon';
 import { APP_CONFIG } from '@/config/constants';
 import {
   DEFAULT_CARTO_CONFIG,
+  DEFAULT_CARTO_LAYOUT,
   DEFAULT_CARTO_WEIGHTS,
+  type CartographieLayoutConfig,
   type CartographieModuleConfig,
   type CartographieScoreWeights,
 } from '@/types/cartographieTypes';
@@ -41,12 +43,17 @@ function normalize(stored: Partial<CartographieModuleConfig> | null): Cartograph
     ...DEFAULT_CARTO_WEIGHTS,
     ...(stored?.weights || {}),
   };
+  const layout: CartographieLayoutConfig = {
+    ...DEFAULT_CARTO_LAYOUT,
+    ...(stored?.layout || {}),
+  };
   return {
     weights,
     tagInfractionWeights: { ...(stored?.tagInfractionWeights || {}) },
     categoryWeights: { ...(stored?.categoryWeights || {}) },
     natinfWeights: { ...(stored?.natinfWeights || {}) },
     groupByService: stored?.groupByService ?? DEFAULT_CARTO_CONFIG.groupByService,
+    layout,
     version: stored?.version ?? DEFAULT_CARTO_CONFIG.version,
     updatedAt: stored?.updatedAt || new Date().toISOString(),
     updatedBy: stored?.updatedBy,
@@ -234,6 +241,15 @@ class CartographieConfigManagerService {
   async setGroupByService(enabled: boolean): Promise<boolean> {
     const current = await this.loadForWrite();
     return this.save({ ...current, groupByService: enabled });
+  }
+
+  /** Mise à jour partielle des paramètres d'espacement (avancés). */
+  async updateLayout(patch: Partial<CartographieLayoutConfig>): Promise<boolean> {
+    const current = await this.loadForWrite();
+    return this.save({
+      ...current,
+      layout: { ...current.layout, ...patch },
+    });
   }
 
   /** Reset complet aux valeurs par défaut. */

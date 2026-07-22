@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { RotateCcw, Info } from 'lucide-react';
+import { RotateCcw, Info, ChevronRight } from 'lucide-react';
 import { useCartographieConfig } from '@/hooks/useCartographieConfig';
 import { useTags } from '@/hooks/useTags';
 import { useNatinf } from '@/hooks/useNatinf';
@@ -9,7 +9,7 @@ import { NatinfBadge } from '../natinf/NatinfBadge';
 import type { NatinfEntry } from '@/types/natinf';
 import { GRAND_TITRES, STAT_CATEGORIES, categoryForEntry } from '@/lib/natinf/nataff';
 import { useToast } from '@/contexts/ToastContext';
-import type { CartographieScoreWeights } from '@/types/cartographieTypes';
+import { DEFAULT_CARTO_LAYOUT, type CartographieLayoutConfig, type CartographieScoreWeights } from '@/types/cartographieTypes';
 
 // ──────────────────────────────────────────────
 // PANEL : pondérations du score MEC + tags d'infraction
@@ -26,6 +26,44 @@ interface WeightFieldDef {
   step?: number;
   min?: number;
 }
+
+interface LayoutFieldDef {
+  key: keyof CartographieLayoutConfig;
+  label: string;
+  helper: string;
+  step: number;
+  min: number;
+  max?: number;
+}
+
+// Paramètres avancés d'espacement de la carte (purement visuels). L'ordre
+// place en premier le levier le plus utile (air entre réseaux indépendants).
+const LAYOUT_FIELDS: LayoutFieldDef[] = [
+  {
+    key: 'interGalaxyPadding',
+    label: 'Espace entre réseaux sans lien',
+    helper: 'Distance entre deux groupes de dossiers qui n\'ont aucun lien entre eux. Augmenter pour aérer la carte. Défaut : 300.',
+    step: 20,
+    min: 60,
+    max: 1200,
+  },
+  {
+    key: 'interGalaxyPaddingRens',
+    label: 'Espace entre réseaux reliés',
+    helper: 'Distance entre deux réseaux reliés par un lien de renseignement. Petit = ils restent proches (trait court). Défaut : 60.',
+    step: 10,
+    min: 0,
+    max: 600,
+  },
+  {
+    key: 'linkDistance',
+    label: 'Distance des dossiers liés',
+    helper: 'Longueur cible d\'un lien à l\'intérieur d\'un même réseau. Plus petit = dossiers liés plus collés. Défaut : 180.',
+    step: 10,
+    min: 60,
+    max: 600,
+  },
+];
 
 const WEIGHT_FIELDS: WeightFieldDef[] = [
   {
@@ -76,7 +114,7 @@ const WEIGHT_FIELDS: WeightFieldDef[] = [
 ];
 
 export const AdminCartographyPanel: React.FC = () => {
-  const { config, isLoading, updateWeights, setCategoryWeight, setNatinfWeight, setGroupByService, reset } = useCartographieConfig();
+  const { config, isLoading, updateWeights, setCategoryWeight, setNatinfWeight, setGroupByService, updateLayout, reset } = useCartographieConfig();
   const { getTagsByCategory, isLoading: tagsLoading } = useTags();
   const { getByCode } = useNatinf();
   const { showToast } = useToast();
@@ -143,6 +181,20 @@ export const AdminCartographyPanel: React.FC = () => {
   const handleNatinfWeightChange = async (code: string, value: string) => {
     const n = parseFloat(value);
     await guardSave(() => setNatinfWeight(code, Number.isFinite(n) ? n : 0));
+  };
+
+  const handleLayoutChange = async (key: keyof CartographieLayoutConfig, value: string) => {
+    const n = parseFloat(value);
+    if (!Number.isFinite(n)) return;
+    // On borne pour éviter une carte injouable (chevauchement ou dispersion
+    // extrême) même si l'utilisateur saisit une valeur aberrante.
+    const clamped = Math.max(0, Math.min(4000, n));
+    await guardSave(() => updateLayout({ [key]: clamped } as Partial<CartographieLayoutConfig>));
+  };
+
+  const handleLayoutReset = async () => {
+    await guardSave(() => updateLayout({ ...DEFAULT_CARTO_LAYOUT }));
+    showToast('Espacement réinitialisé', 'success');
   };
 
   const handleReset = async () => {
@@ -231,6 +283,50 @@ export const AdminCartographyPanel: React.FC = () => {
             </span>
           </span>
         </label>
+
+        {/* Paramètres avancés d'espacement (repliés par défaut) */}
+        <details className="group mt-4 border-t border-slate-100 pt-3">
+          <summary className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-semibold text-slate-600 hover:text-slate-900">
+            <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+            Paramètres avancés — espacement
+          </summary>
+
+          <p className="text-xs text-gray-500 mt-2">
+            Réglages purement visuels : ils modifient uniquement les distances à l&apos;écran,
+            pas les scores ni les liens. Prennent effet au prochain «&nbsp;Recompacter la
+            carte&nbsp;».
+          </p>
+
+          <div className="space-y-3 mt-3">
+            {LAYOUT_FIELDS.map(f => (
+              <div key={f.key} className="grid grid-cols-[1fr_120px] items-start gap-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-800">{f.label}</label>
+                  <p className="text-xs text-gray-500 mt-0.5">{f.helper}</p>
+                </div>
+                <input
+                  type="number"
+                  step={f.step}
+                  min={f.min}
+                  max={f.max}
+                  value={draft[`l:${f.key}`] ?? String(config.layout[f.key])}
+                  onChange={(e) => setDraft(d => ({ ...d, [`l:${f.key}`]: e.target.value }))}
+                  onBlur={(e) => handleLayoutChange(f.key, e.target.value)}
+                  className="border border-slate-300 rounded-md px-3 py-1.5 text-sm text-right tabular-nums"
+                />
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={handleLayoutReset}
+            className="mt-3 flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800"
+            title="Restaurer les valeurs par défaut de l'espacement"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Réinitialiser l&apos;espacement
+          </button>
+        </details>
       </section>
 
       {/* Pondération de base par catégorie d'infraction (Mémento parquet) */}

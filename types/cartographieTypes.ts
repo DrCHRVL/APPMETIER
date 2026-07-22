@@ -50,6 +50,29 @@ export interface CartographieScoreWeights {
  */
 export type CartographieInfractionWeights = Record<string, number>;
 
+/**
+ * Paramètres avancés de disposition (espacement) de la carte. Purement
+ * visuels : ils ne changent NI les scores, NI les liens, NI le regroupement —
+ * seulement les distances à l'écran. Prennent effet au prochain
+ * «&nbsp;Recompacter la carte&nbsp;» (le layout est mis en cache entre-temps).
+ *
+ * Rappel du modèle : un «&nbsp;réseau&nbsp;» (galaxie) = un groupe de dossiers
+ * reliés entre eux. Les dossiers d'un même réseau restent serrés ; ces
+ * réglages agissent surtout sur l'air ENTRE réseaux indépendants.
+ */
+export interface CartographieLayoutConfig {
+  /** Espace (px) entre deux réseaux qui n'ont AUCUN lien entre eux. C'est le
+   *  principal levier d'aération : plus il est grand, plus les dossiers
+   *  indépendants s'écartent. */
+  interGalaxyPadding: number;
+  /** Espace (px) entre deux réseaux reliés par un lien de renseignement. Gardé
+   *  petit pour qu'ils restent visiblement proches (le trait reste court). */
+  interGalaxyPaddingRens: number;
+  /** Distance cible (px) d'un lien À L'INTÉRIEUR d'un même réseau (entre
+   *  dossiers liés). Plus petit = dossiers liés plus collés. */
+  linkDistance: number;
+}
+
 export interface CartographieModuleConfig {
   weights: CartographieScoreWeights;
   /** Pondérations par tag d'infraction (clé = Tag.id). LEGACY : conservé pour
@@ -71,11 +94,22 @@ export interface CartographieModuleConfig {
    *  recompactage. Purement additif : n'altère ni les liens, ni le layout
    *  intra-galactique. Prend effet au prochain recompactage de la carte. */
   groupByService: boolean;
+  /** Paramètres avancés d'espacement de la carte (purement visuels). */
+  layout: CartographieLayoutConfig;
   /** Version du schéma — incrémenté en cas de migration. */
   version: number;
   updatedAt: string;
   updatedBy?: string;
 }
+
+/** Valeurs par défaut des paramètres d'espacement. Doivent rester alignées
+ *  sur les constantes de repli de components/mindmap (INTER_GALAXY_PADDING,
+ *  INTER_GALAXY_PADDING_RENS, LINK_DISTANCE). */
+export const DEFAULT_CARTO_LAYOUT: CartographieLayoutConfig = {
+  interGalaxyPadding: 300,
+  interGalaxyPaddingRens: 60,
+  linkDistance: 180,
+};
 
 /** Valeurs par défaut, alignées sur la formule MVP historique. */
 export const DEFAULT_CARTO_WEIGHTS: CartographieScoreWeights = {
@@ -94,6 +128,7 @@ export const DEFAULT_CARTO_CONFIG: CartographieModuleConfig = {
   categoryWeights: {},
   natinfWeights: {},
   groupByService: false,
+  layout: { ...DEFAULT_CARTO_LAYOUT },
   version: 1,
   updatedAt: new Date(0).toISOString(),
 };
