@@ -1,14 +1,16 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, ClipboardPaste, Users, Scale, ListChecks, AlertTriangle, Download, Lock } from 'lucide-react';
+import { X, ClipboardPaste, Users, Scale, ListChecks, AlertTriangle, Download, Lock, FileText } from 'lucide-react';
 import { Button } from '../ui/button';
 import { useToast } from '@/contexts/ToastContext';
 import { useNatinf } from '@/hooks/useNatinf';
 import {
   parsePersonnesTable,
-  parseInfractionsTable,
+  parseAllInfractions,
   parseEvenementsTable,
+  parseResumeHeader,
+  findRIDateFromEvenements,
   buildMisEnExamen,
   buildSuspect,
   buildVictime,
@@ -32,12 +34,23 @@ import type {
   EvenementInstruction,
 } from '@/types/instructionTypes';
 
+/** En-tête déduit du bloc « Résumé Dossier » (à appliquer à la fiche). */
+export interface CassiopeeImportHeader {
+  numeroParquet?: string;
+  numeroInstruction?: string;
+  identifiantJustice?: string;
+  /** Date du réquisitoire introductif déduite des événements (ISO). */
+  dateRI?: string;
+}
+
 export interface CassiopeeImportResult {
   misEnExamen: MisEnExamen[];
   suspects: Suspect[];
   victimes: Victime[];
   saisine: SaisineItem[];
   evenements: EvenementInstruction[];
+  /** En-tête à appliquer (présent seulement si détecté ET coché par l'utilisateur). */
+  header?: CassiopeeImportHeader;
 }
 
 interface Props {
@@ -49,6 +62,8 @@ interface Props {
   existingSuspects: Suspect[];
   existingVictimes: Victime[];
   existingSaisine: SaisineItem[];
+  /** Coche « appliquer l'en-tête » par défaut (vrai à la création d'un dossier). */
+  applyHeaderDefault?: boolean;
 }
 
 type PersonneTarget = 'mex' | 'suspect' | 'victime' | 'ignore';
@@ -110,6 +125,13 @@ const SectionHeader = ({
   </div>
 );
 
+/** Formate une date ISO en JJ/MM/AAAA sans dépendre du fuseau. */
+const isoToFr = (iso?: string): string => {
+  if (!iso) return '';
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+};
+
 export const CassiopeeImportModal = ({
   isOpen,
   onClose,
@@ -118,21 +140,37 @@ export const CassiopeeImportModal = ({
   existingSuspects,
   existingVictimes,
   existingSaisine,
+  applyHeaderDefault = false,
 }: Props) => {
   const { showToast } = useToast();
   const { getByCode } = useNatinf();
 
-  const [personnesText, setPersonnesText] = useState('');
-  const [infractionsText, setInfractionsText] = useState('');
-  const [evenementsText, setEvenementsText] = useState('');
+  // Une seule zone de collage : l'utilisateur y colle tout le contenu Cassiopée
+  // (résumé, personnes, NATINF, événements), dans n'importe quel ordre. Chaque
+  // parseur ne retient que les lignes qui le concernent (une ligne d'événement
+  // n'est jamais lue comme une personne, etc.), ce qui rend le collage global
+  // fiable sans découpage manuel.
+  const [rawText, setRawText] = useState('');
 
   // Clés désélectionnées (préfixées par catégorie).
   const [deselected, setDeselected] = useState<Set<string>>(new Set());
+  // Appliquer l'en-tête détecté (n° parquet / instruction / date RI) à la fiche.
+  const [applyHeader, setApplyHeader] = useState(applyHeaderDefault);
 
   // ── Parsing (mémoïsé) ────────────────────────────────────────────
-  const personnes = useMemo(() => parsePersonnesTable(personnesText), [personnesText]);
-  const infractions = useMemo(() => parseInfractionsTable(infractionsText), [infractionsText]);
-  const evenements = useMemo(() => parseEvenementsTable(evenementsText), [evenementsText]);
+  const personnes = useMemo(() => parsePersonnesTable(rawText), [rawText]);
+  const infractions = useMemo(() => parseAllInfractions(rawText), [rawText]);
+  const evenements = useMemo(() => parseEvenementsTable(rawText), [rawText]);
+  const resume = useMemo(() => parseResumeHeader(rawText), [rawText]);
+  const dateRI = useMemo(() => findRIDateFromEvenements(evenements), [evenements]);
+
+  const header: CassiopeeImportHeader = useMemo(
+    () => ({ ...resume, dateRI }),
+    [resume, dateRI],
+  );
+  const hasHeader = Boolean(
+    header.numeroParquet || header.numeroInstruction || header.identifiantJustice || header.dateRI,
+  );
 
   const existingPersons = useMemo(
     () => [...existingMisEnExamen, ...existingSuspects, ...existingVictimes],
@@ -192,6 +230,12 @@ export const CassiopeeImportModal = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personnes, infractions, evenements]);
 
+  // Ré-aligne la case « appliquer l'en-tête » sur le contexte (create/edit) à
+  // chaque ouverture.
+  useEffect(() => {
+    if (isOpen) setApplyHeader(applyHeaderDefault);
+  }, [isOpen, applyHeaderDefault]);
+
   const isSel = (key: string) => !deselected.has(key);
   const toggle = (key: string) =>
     setDeselected(prev => {
@@ -228,6 +272,7 @@ export const CassiopeeImportModal = ({
   }, [personnes, infractions, evenements, deselected]);
 
   const totalToImport = counts.mex + counts.suspect + counts.victime + counts.saisine + counts.evt;
+  const headerToApply = applyHeader && hasHeader;
 
   const handleImport = () => {
     const newId = makeIdGen();
@@ -273,20 +318,26 @@ export const CassiopeeImportModal = ({
       .filter((_, i) => isSel(`e:${i}`))
       .map(ev => buildEvenement(ev, ctx, { mexByName, victimeByName }));
 
-    if (misEnExamen.length + suspects.length + victimes.length + saisine.length + evts.length === 0) {
-      showToast('Rien à importer : collez au moins un tableau Cassiopée', 'error');
+    if (totalToImport === 0 && !headerToApply) {
+      showToast('Rien à importer : collez le contenu Cassiopée', 'error');
       return;
     }
 
-    onImport({ misEnExamen, suspects, victimes, saisine, evenements: evts });
+    onImport({
+      misEnExamen,
+      suspects,
+      victimes,
+      saisine,
+      evenements: evts,
+      header: headerToApply ? header : undefined,
+    });
+    const headerNote = headerToApply ? ', en-tête appliqué' : '';
     showToast(
-      `Import Cassiopée : ${misEnExamen.length} MEX, ${suspects.length} suspect(s), ${victimes.length} victime(s), ${saisine.length} chef(s) de saisine, ${evts.length} événement(s)`,
+      `Import Cassiopée : ${misEnExamen.length} MEX, ${suspects.length} suspect(s), ${victimes.length} victime(s), ${saisine.length} chef(s) de saisine, ${evts.length} événement(s)${headerNote}`,
       'success',
     );
     // Réinitialise pour un éventuel second import.
-    setPersonnesText('');
-    setInfractionsText('');
-    setEvenementsText('');
+    setRawText('');
     onClose();
   };
 
@@ -295,6 +346,7 @@ export const CassiopeeImportModal = ({
   const personneKeys = personnes.map((_, i) => `p:${i}`);
   const infractionKeys = infractions.map(inf => `i:${inf.natinfCode}`);
   const evtKeys = evenements.map((_, i) => `e:${i}`);
+  const nothingParsed = personnes.length + infractions.length + evenements.length === 0 && !hasHeader;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
@@ -307,8 +359,9 @@ export const CassiopeeImportModal = ({
               Importer depuis Cassiopée
             </h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              Dans Cassiopée, sélectionnez un tableau (Personnes, Infractions, Événements),
-              copiez-le (Ctrl+C) et collez-le ci-dessous. Vérifiez l'aperçu puis importez.
+              Dans Cassiopée, sélectionnez le contenu (Résumé, Personnes, NATINF, Événements),
+              copiez-le (Ctrl+C) et collez-le ci-dessous — en une ou plusieurs fois.
+              Vérifiez l'aperçu puis importez.
             </p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100">
@@ -317,38 +370,96 @@ export const CassiopeeImportModal = ({
         </div>
 
         {/* Corps */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* ZONE DE COLLAGE UNIQUE */}
+          <textarea
+            value={rawText}
+            onChange={e => setRawText(e.target.value)}
+            rows={6}
+            autoFocus
+            placeholder={
+              'Collez ici tout le contenu copié depuis Cassiopée :\n' +
+              '• Résumé Dossier (N° parquet, N° dans cabinet, NATINF…)\n' +
+              '• Tableau des personnes (Rang / Identité / Rôle / Catégorie pénale…)\n' +
+              '• Tableau des événements (Date / Émetteur / Événement / …)\n' +
+              'Vous pouvez coller les tableaux les uns à la suite des autres.'
+            }
+            className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded resize-y font-mono"
+          />
+
+          {nothingParsed && rawText.trim().length > 0 && (
+            <div className="flex items-start gap-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span>
+                Aucune donnée reconnue. Vérifiez que vous avez bien copié le contenu depuis
+                Cassiopée (le collage doit conserver les tabulations entre colonnes).
+              </span>
+            </div>
+          )}
+
+          {/* EN-TÊTE / RÉSUMÉ DOSSIER */}
+          {hasHeader && (
+            <div className="rounded-lg border border-[#2B5746]/30 bg-[#2B5746]/5 p-3 space-y-2">
+              <SectionHeader icon={FileText} title="En-tête du dossier" count={0} />
+              <label className="flex items-start gap-2 text-xs text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={applyHeader}
+                  onChange={() => setApplyHeader(v => !v)}
+                  className="mt-0.5 shrink-0"
+                />
+                <span>
+                  Appliquer ces valeurs à la fiche
+                  <span className="text-gray-400"> (elles restent modifiables ensuite)</span>
+                  <span className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px]">
+                    {header.numeroInstruction && (
+                      <span>
+                        <b className="text-gray-500">N° instruction :</b> {header.numeroInstruction}
+                      </span>
+                    )}
+                    {header.numeroParquet && (
+                      <span>
+                        <b className="text-gray-500">N° parquet :</b> {header.numeroParquet}
+                      </span>
+                    )}
+                    {header.dateRI && (
+                      <span>
+                        <b className="text-gray-500">Date du RI :</b> {isoToFr(header.dateRI)}
+                      </span>
+                    )}
+                    {header.identifiantJustice && (
+                      <span>
+                        <b className="text-gray-500">Identifiant Justice :</b> {header.identifiantJustice}
+                      </span>
+                    )}
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
+
           {/* PERSONNES */}
-          <div className="space-y-2">
-            <SectionHeader icon={Users} title="Personnes → mis en examen / suspects / victimes" count={personnes.length}>
-              {personnes.length > 0 && (
+          {personnes.length > 0 && (
+            <div className="space-y-2">
+              <SectionHeader icon={Users} title="Personnes → mis en examen / suspects / victimes" count={personnes.length}>
                 <div className="flex gap-1">
                   <button className="text-[11px] text-gray-500 hover:text-gray-800" onClick={() => setSectionAll(personneKeys, true)}>Tout cocher</button>
                   <span className="text-gray-300">·</span>
                   <button className="text-[11px] text-gray-500 hover:text-gray-800" onClick={() => setSectionAll(personneKeys, false)}>Tout décocher</button>
                 </div>
+              </SectionHeader>
+              {dpSuggestion && personnes.some(p => p.categoriePenale === 'DP') && (
+                <div className="flex items-start gap-1.5 rounded border border-red-200 bg-red-50/60 px-2 py-1.5 text-[11px] text-red-800">
+                  <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    <b>Régime de DP déduit de la saisine in rem :</b>{' '}
+                    {dpSuggestion.regime === 'criminel' ? 'criminel' : 'correctionnel'}
+                    {dpSuggestion.cas ? ` — ${dpSuggestion.cas.label}` : ' — cas à préciser'}.
+                    <span className="text-red-600"> {dpSuggestion.reason}</span>
+                    {' '}Les périodes de DP sont reconstituées avec ces durées (à vérifier).
+                  </span>
+                </div>
               )}
-            </SectionHeader>
-            <textarea
-              value={personnesText}
-              onChange={e => setPersonnesText(e.target.value)}
-              rows={3}
-              placeholder="Collez ici le tableau « Personnes » (Rang / Identité / Rôle / …)"
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded resize-y font-mono"
-            />
-            {dpSuggestion && personnes.some(p => p.categoriePenale === 'DP') && (
-              <div className="flex items-start gap-1.5 rounded border border-red-200 bg-red-50/60 px-2 py-1.5 text-[11px] text-red-800">
-                <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                <span>
-                  <b>Régime de DP déduit de la saisine in rem :</b>{' '}
-                  {dpSuggestion.regime === 'criminel' ? 'criminel' : 'correctionnel'}
-                  {dpSuggestion.cas ? ` — ${dpSuggestion.cas.label}` : ' — cas à préciser'}.
-                  <span className="text-red-600"> {dpSuggestion.reason}</span>
-                  {' '}Les périodes de DP sont reconstituées avec ces durées (à vérifier).
-                </span>
-              </div>
-            )}
-            {personnes.length > 0 && (
               <div className="max-h-48 overflow-y-auto border border-gray-100 rounded divide-y divide-gray-50">
                 {personnes.map((p, i) => {
                   const target = targetForRole(p.role);
@@ -385,28 +496,19 @@ export const CassiopeeImportModal = ({
                   );
                 })}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* INFRACTIONS */}
-          <div className="space-y-2">
-            <SectionHeader icon={Scale} title="Infractions → saisine in rem" count={infractions.length}>
-              {infractions.length > 0 && (
+          {infractions.length > 0 && (
+            <div className="space-y-2">
+              <SectionHeader icon={Scale} title="Infractions / NATINF → saisine in rem" count={infractions.length}>
                 <div className="flex gap-1">
                   <button className="text-[11px] text-gray-500 hover:text-gray-800" onClick={() => setSectionAll(infractionKeys, true)}>Tout cocher</button>
                   <span className="text-gray-300">·</span>
                   <button className="text-[11px] text-gray-500 hover:text-gray-800" onClick={() => setSectionAll(infractionKeys, false)}>Tout décocher</button>
                 </div>
-              )}
-            </SectionHeader>
-            <textarea
-              value={infractionsText}
-              onChange={e => setInfractionsText(e.target.value)}
-              rows={3}
-              placeholder="Collez ici le tableau « Infractions » (Rang / NATINF / QS / …)"
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded resize-y font-mono"
-            />
-            {infractions.length > 0 && (
+              </SectionHeader>
               <div className="max-h-40 overflow-y-auto border border-gray-100 rounded divide-y divide-gray-50">
                 {infractions.map(inf => {
                   const entry = getByCode(inf.natinfCode);
@@ -426,28 +528,19 @@ export const CassiopeeImportModal = ({
                   );
                 })}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* ÉVÉNEMENTS */}
-          <div className="space-y-2">
-            <SectionHeader icon={ListChecks} title="Événements → timeline" count={evenements.length}>
-              {evenements.length > 0 && (
+          {evenements.length > 0 && (
+            <div className="space-y-2">
+              <SectionHeader icon={ListChecks} title="Événements → timeline" count={evenements.length}>
                 <div className="flex gap-1">
                   <button className="text-[11px] text-gray-500 hover:text-gray-800" onClick={() => setSectionAll(evtKeys, true)}>Tout cocher</button>
                   <span className="text-gray-300">·</span>
                   <button className="text-[11px] text-gray-500 hover:text-gray-800" onClick={() => setSectionAll(evtKeys, false)}>Tout décocher</button>
                 </div>
-              )}
-            </SectionHeader>
-            <textarea
-              value={evenementsText}
-              onChange={e => setEvenementsText(e.target.value)}
-              rows={3}
-              placeholder="Collez ici le tableau « Événements » (Date / Emetteur / Événement / …). Plusieurs pages acceptées."
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded resize-y font-mono"
-            />
-            {evenements.length > 0 && (
+              </SectionHeader>
               <div className="max-h-56 overflow-y-auto border border-gray-100 rounded divide-y divide-gray-50">
                 {evenements.map((ev, i) => (
                   <label key={i} className="flex items-center gap-2 px-2 py-1 text-xs hover:bg-gray-50 cursor-pointer">
@@ -460,21 +553,22 @@ export const CassiopeeImportModal = ({
                   </label>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Pied */}
         <div className="flex items-center justify-between px-5 py-3 border-t border-gray-200 bg-gray-50 rounded-b-xl">
           <div className="text-xs text-gray-600">
             À importer : <b>{counts.mex}</b> MEX · <b>{counts.suspect}</b> suspect(s) · <b>{counts.victime}</b> victime(s) · <b>{counts.saisine}</b> chef(s) de saisine · <b>{counts.evt}</b> événement(s)
+            {headerToApply && <span className="text-[#2B5746]"> · en-tête</span>}
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
             <Button
               size="sm"
               onClick={handleImport}
-              disabled={totalToImport === 0}
+              disabled={totalToImport === 0 && !headerToApply}
               className="bg-[#2B5746] hover:bg-[#1f3d2f] gap-1.5"
             >
               <Download className="h-4 w-4" />
