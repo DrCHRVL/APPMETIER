@@ -96,7 +96,7 @@ export const ActeModal = ({
     setErrors({});
     if (!acte && key) {
       const cfg = AUTRE_ACTE_TYPES[key as AutreActeTypeKey];
-      setNeedsJLDAuth(cfg?.autorisation === 'JLD' && cfg?.hasDuree === true);
+      setNeedsJLDAuth(cfg?.autorisation === 'JLD');
     } else {
       setNeedsJLDAuth(false);
     }
@@ -108,7 +108,7 @@ export const ActeModal = ({
     if (typeConfig?.hasDuree && typeConfig.duree === undefined && !customDuree) {
       newErrors.duree = 'La durée est requise';
     }
-    if (typeConfig?.hasDuree && !needsJLDAuth && !dateDebut) {
+    if (typeConfig && !needsJLDAuth && !dateDebut) {
       newErrors.dateDebut = 'La date de début est requise';
     }
     setErrors(newErrors);
@@ -123,11 +123,11 @@ export const ActeModal = ({
     const dureeVal = effectiveDuree;
 
     let updatedStatut: ActeStatus | undefined;
-    if (!typeConfig.hasDuree) {
-      // Art. 76, pas de durée → directement en cours
-      updatedStatut = 'en_cours';
-    } else if (needsJLDAuth && typeConfig.autorisation === 'JLD') {
+    if (needsJLDAuth && typeConfig.autorisation === 'JLD') {
       updatedStatut = 'autorisation_pending';
+    } else if (!typeConfig.hasDuree) {
+      // Art. 76 (ou type similaire sans durée propre), déjà autorisé → directement en cours, pas de pose.
+      updatedStatut = 'en_cours';
     } else if (!datePose) {
       updatedStatut = 'pose_pending';
     }
@@ -139,7 +139,7 @@ export const ActeModal = ({
       : undefined;
 
     const dates: DateManagerData = {
-      dateDebut: needsJLDAuth ? '' : (typeConfig.hasDuree ? dateDebut : ''),
+      dateDebut: needsJLDAuth ? '' : dateDebut,
       duree: dureeVal,
       dureeUnit: effectiveDureeUnit as 'jours' | 'mois',
       maxProlongations: typeConfig.maxProlongations,
@@ -243,8 +243,8 @@ export const ActeModal = ({
             />
           </div>
 
-          {/* ── Switch JLD — uniquement pour types JLD + hasDuree en mode ajout ── */}
-          {typeConfig?.autorisation === 'JLD' && typeConfig?.hasDuree && !acte && (
+          {/* ── Switch JLD — pour tout type nécessitant une autorisation JLD, avec ou sans durée propre (ex. art. 76) ── */}
+          {typeConfig?.autorisation === 'JLD' && !acte && (
             <div className="flex items-center space-x-2">
               <Switch
                 id="needsJLDAuth"
@@ -256,7 +256,7 @@ export const ActeModal = ({
           )}
 
           {/* ── Message en attente d'autorisation ── */}
-          {needsJLDAuth && typeConfig?.autorisation === 'JLD' && typeConfig?.hasDuree && (
+          {needsJLDAuth && typeConfig?.autorisation === 'JLD' && (
             <div className="bg-purple-50 p-3 rounded-md text-sm text-purple-800 border border-purple-200">
               L'acte sera créé en attente d'autorisation JLD.
               Vous pourrez valider l'autorisation ultérieurement à partir de la fiche d'enquête.
@@ -329,11 +329,24 @@ export const ActeModal = ({
             </>
           )}
 
-          {/* ── Message art. 76 — pas de durée ── */}
-          {typeConfig && !typeConfig.hasDuree && (
-            <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-700">
-              Cet acte n'a pas de durée propre — il sera enregistré directement en cours.
-            </div>
+          {/* ── Art. 76 (et types similaires sans durée propre) : pas de pose, juste la date d'autorisation si elle est déjà acquise ── */}
+          {typeConfig && !typeConfig.hasDuree && !needsJLDAuth && (
+            <>
+              <div>
+                <Label htmlFor="dateDebut">Date de début (autorisation) *</Label>
+                <Input
+                  id="dateDebut"
+                  type="date"
+                  value={dateDebut}
+                  onChange={(e) => setDateDebut(e.target.value)}
+                  className={errors.dateDebut ? 'border-red-500' : ''}
+                />
+                {errors.dateDebut && <p className="text-xs text-red-500 mt-1">{errors.dateDebut}</p>}
+              </div>
+              <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-700">
+                Cet acte n'a pas de durée propre — il sera enregistré directement en cours, sans étape de pose.
+              </div>
+            </>
           )}
 
           <DialogFooter className={acte && onDelete ? 'flex justify-between sm:justify-between' : ''}>
