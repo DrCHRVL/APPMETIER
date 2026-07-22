@@ -22,6 +22,33 @@ import { diffTexte } from './diff.mjs'
 
 export const PRODUCTION_TYPES = ['requisition', 'reponse_dml', 'prolongation_jld', 'saisine_jld', 'projet_reponse', 'soit_transmis', 'note', 'livrable', 'autre']
 
+/**
+ * Nettoie/valide les métadonnées d'acte fournies par l'agent. Renvoie un objet
+ * borné (champs connus uniquement) ou null si rien d'exploitable. Ces
+ * métadonnées servent, à la validation par le magistrat, à créer un acte
+ * identique à une saisie manuelle (rubrique + catégorie + dates + statut).
+ */
+function sanitizeActeMeta(m) {
+  if (!m || typeof m !== 'object') return null
+  const kind = ['ecoute', 'geolocalisation', 'autre'].includes(m.kind) ? m.kind : undefined
+  const dureeUnit = m.dureeUnit === 'mois' ? 'mois' : (m.dureeUnit === 'jours' ? 'jours' : undefined)
+  const str = (v, n) => (v == null ? undefined : String(v).slice(0, n))
+  const dureeNum = Number(m.duree)
+  const out = {
+    kind,
+    categorie: str(m.categorie, 120),
+    dateDebut: /^\d{4}-\d{2}-\d{2}$/.test(String(m.dateDebut || '')) ? String(m.dateDebut) : undefined,
+    duree: Number.isFinite(dureeNum) && dureeNum > 0 ? dureeNum : undefined,
+    dureeUnit,
+    cible: str(m.cible, 200),
+    objet: str(m.objet, 200),
+    pendingJld: m.pendingJld === true ? true : undefined,
+  }
+  // Retire les champs vides ; null si l'objet ne porte plus rien d'utile.
+  const clean = Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined))
+  return Object.keys(clean).length ? clean : null
+}
+
 function dirFor(numero) { return attacheDir('productions', docServerKey(numero)) }
 function fileFor(numero, id) {
   if (!/^[a-f0-9]{6,32}$/.test(id)) throw new Error('Identifiant de production invalide')
@@ -158,7 +185,7 @@ export async function deleteProduction(numero, id) {
 // ── Côté attaché (chiffre lui-même avec la clé globale) ──
 
 /** Crée ou met à jour une production. id absent = nouvelle. Signée du nom admin. */
-export async function saveProduction(keys, { numero, id, type, titre, contenu, source, objet }) {
+export async function saveProduction(keys, { numero, id, type, titre, contenu, source, objet, acteMeta }) {
   if (!String(numero || '').trim()) throw new Error('Numéro de dossier requis')
   if (!String(contenu || '').trim()) throw new Error('Contenu requis')
   const author = keys?.grantedBy || 'admin'
@@ -173,6 +200,10 @@ export async function saveProduction(keys, { numero, id, type, titre, contenu, s
     // Objet de l'acte (n° de ligne interceptée, objet géolocalisé…) : dernier
     // segment du nom de fichier à l'export. Conservé s'il n'est pas re-fourni.
     objet: objet != null ? String(objet).slice(0, 120) : existing?.objet,
+    // Métadonnées structurées de l'acte (rubrique, catégorie, dates, durée,
+    // cible/objet) : à la validation par le magistrat, l'app crée un acte
+    // identique à une saisie manuelle. Conservées si non fournies à la mise à jour.
+    acteMeta: sanitizeActeMeta(acteMeta) || existing?.acteMeta,
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     updatedBy: author,

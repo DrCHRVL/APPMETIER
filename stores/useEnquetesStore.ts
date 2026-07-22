@@ -9,7 +9,8 @@
  */
 
 import { create } from '@/lib/zustand';
-import { Enquete, CompteRendu, NewEnqueteData } from '@/types/interfaces';
+import { Enquete, CompteRendu, NewEnqueteData, ActeMeta } from '@/types/interfaces';
+import { buildProductionActe } from '@/utils/productionActe';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { ContentieuxId } from '@/types/userTypes';
 import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
@@ -123,6 +124,25 @@ interface EnquetesState {
   archiveEnquete: (id: number) => void;
   unarchiveEnquete: (id: number) => void;
   startEnquete: (id: number, date: string) => void;
+
+  /**
+   * Répercute la validation (ou la réouverture) d'un acte rédigé par l'attaché
+   * de justice sur les actes de l'enquête, retrouvée par son `numero`.
+   *  - `validated = true` : crée un acte IDENTIQUE à une saisie manuelle
+   *    (rubrique écoute / géoloc / autre + catégorie légale + statut dérivé),
+   *    à partir des métadonnées `prod.meta` de la production, lié par `prodId`.
+   *    Idempotent : ne recrée rien si l'acte existe déjà. Certaines productions
+   *    (note, livrable) ne créent aucun acte.
+   *  - `validated = false` : retire l'acte auto-créé s'il est resté à son état
+   *    initial (le magistrat ne l'a pas repris en main : pas de pose, pas de
+   *    prolongation). Sinon on le préserve.
+   * No-op si aucune enquête propre ne porte ce `numero`.
+   */
+  syncProductionActe: (
+    numero: string,
+    prod: { id: string; type: string; titre: string; meta?: ActeMeta },
+    validated: boolean,
+  ) => void;
 
   // ── CRUD Comptes-Rendus ──
   ajoutCR: (enqueteId: number, cr: CompteRendu | Omit<CompteRendu, 'id'>) => void;
@@ -389,6 +409,39 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       return changes;
     });
     _saveThrottled();
+  },
+
+  syncProductionActe: (numero, prod, validated) => {
+    const enquete = get().ownEnquetes.find(e => e.numero === numero);
+    if (!enquete) return; // enquête non trouvée / partagée : on ne fait rien.
+
+    // Recherche de l'acte déjà lié à cette production, quelle que soit la rubrique.
+    const collections = ['actes', 'geolocalisations', 'ecoutes'] as const;
+    let hit: { collection: typeof collections[number]; acte: { id: number; prodId?: string; statut: string; datePose?: string; prolongationsHistory?: unknown[] } } | null = null;
+    for (const c of collections) {
+      const found = (enquete[c] || []).find(a => a.prodId === prod.id);
+      if (found) { hit = { collection: c, acte: found }; break; }
+    }
+
+    if (validated) {
+      if (hit) return; // déjà créé : idempotent.
+      const built = buildProductionActe({ prodId: prod.id, type: prod.type, titre: prod.titre, meta: prod.meta });
+      if (!built) return; // production sans acte associé (note, livrable).
+      const current = enquete[built.collection] || [];
+      get().updateEnquete(enquete.id, { [built.collection]: [...current, built.acte] });
+    } else {
+      // Réouverture : ne retirer l'acte que s'il est resté à son état initial
+      // (le magistrat ne l'a pas repris en main : pas de pose, pas de
+      // prolongation, statut de création). Sinon on préserve son travail.
+      if (!hit) return;
+      const a = hit.acte;
+      const initialStatut = a.statut === 'autorisation_pending' || a.statut === 'pose_pending' || a.statut === 'en_cours';
+      const untouched = initialStatut && !a.datePose && !(a.prolongationsHistory && a.prolongationsHistory.length);
+      if (untouched) {
+        const current = enquete[hit.collection] || [];
+        get().updateEnquete(enquete.id, { [hit.collection]: current.filter(x => x.id !== a.id) });
+      }
+    }
   },
 
   deleteEnquete: (id: number) => {

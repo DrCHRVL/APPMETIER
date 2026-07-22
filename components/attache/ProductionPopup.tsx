@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { downloadActePdf, downloadActeDocx, acteFileBase } from '@/lib/web/acteExport';
 import { AttacheConfig, loadAttacheConfig } from './modelOptions';
+import { useEnquetesStore } from '@/stores/useEnquetesStore';
+import type { ActeMeta } from '@/types/interfaces';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
@@ -40,6 +42,7 @@ interface Production {
   updatedBy?: string;
   traite?: boolean;
   traiteLe?: string;
+  acteMeta?: ActeMeta;
 }
 
 interface ChatMsg { role: 'user' | 'assistant'; text: string; streaming?: boolean; tools?: string[] }
@@ -80,6 +83,8 @@ export function ProductionPopup({ numero, prodId, service, onClose, onChanged }:
   const [cfg, setCfg] = useState<AttacheConfig>({});
   const chatRef = useRef<HTMLDivElement>(null);
   const convKey = `attache_dossier_conv_${numero}`;
+  // Répercute la validation d'un acte rédigé sur les actes de l'enquête.
+  const syncProductionActe = useEnquetesStore((s) => s.syncProductionActe);
 
   const dirty = prod !== null && draft !== prod.contenu;
 
@@ -145,11 +150,13 @@ export function ProductionPopup({ numero, prodId, service, onClose, onChanged }:
       const rec = { ...prod, contenu: draft, traite: !prod.traite, traiteLe: prod.traite ? undefined : now, updatedAt: now };
       if (await persist(rec)) {
         setProd(rec);
-        setNotice(rec.traite ? 'Validé — marqué traité.' : 'Remis en attente.');
+        // Crée (validation) ou retire (réouverture) l'acte lié dans l'enquête.
+        syncProductionActe(rec.numero, { id: rec.id, type: rec.type, titre: rec.titre, meta: rec.acteMeta }, !!rec.traite);
+        setNotice(rec.traite ? 'Validé — acte créé dans l\'enquête.' : 'Remis en attente.');
         onChanged?.();
       } else setNotice('Action impossible (service injoignable ?).');
     } finally { setBusy(null); }
-  }, [prod, draft, persist, onChanged]);
+  }, [prod, draft, persist, onChanged, syncProductionActe]);
 
   const dl = useCallback(async (fmt: 'pdf' | 'docx') => {
     if (!prod) return;
