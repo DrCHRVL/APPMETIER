@@ -17,6 +17,8 @@ import {
   History, ChevronDown, ChevronUp, Wrench, AlertTriangle, Trash2, MessageSquare,
 } from 'lucide-react';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig } from './modelOptions';
+import { useEnquetesStore } from '@/stores/useEnquetesStore';
+import { toolTouchesDossierData } from '@/lib/web/attacheWriteTools';
 
 import { NouveauxDossiersPropositions } from './NouveauxDossiersPropositions';
 
@@ -199,6 +201,8 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    // Suit si l'IA a écrit dans un dossier pendant ce run → synchro immédiate.
+    let touchedData = false;
     try {
       const res = await fetch('/api/attache/chat', {
         method: 'POST',
@@ -244,6 +248,7 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
             });
             scrollDown();
           } else if (ev.type === 'tool' && ev.name) {
+            if (toolTouchesDossierData(ev.name)) touchedData = true;
             setMessages((prev) => {
               const next = [...prev];
               const last = next[next.length - 1];
@@ -280,6 +285,9 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
       loadFeed();
       setPropositionsReload((n) => n + 1);
       scrollDown();
+      // Écriture de l'attaché dans un dossier → synchro + rafraîchissement
+      // immédiats de la grille et du dossier ouvert (pas d'attente du cycle).
+      if (touchedData) { useEnquetesStore.getState().syncAndRefresh().catch(() => {}); }
     }
   }, [busy, convId, cfg, scrollDown, loadConversations, loadFeed]);
 

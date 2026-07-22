@@ -17,6 +17,7 @@ import {
   attacheDir, readJson, atomicWrite, readState,
 } from './store.mjs'
 import { encryptJson, decryptJson, decryptDocBlob } from './crypto.mjs'
+import { AUTRE_ACTE_TYPES, resolveAutreActeTypeKey, deriveAutreActeFields } from './acteTypes.mjs'
 import { natinfEntry, natinfLabel } from './natinf.mjs'
 import { extractPdfText } from './ocr.mjs'
 import { extractOfficeText, isOfficeExt } from './officeText.mjs'
@@ -711,6 +712,31 @@ export async function enregistrerActe(keys, { numero, kind, dateDebut, duree, du
       e.geolocalisations.push({ ...base, objet: String(objet || cible || 'objet à préciser'), description: description ? String(description) : undefined })
     } else {
       e.actes = e.actes || []
+      // « Autre acte » : si le `type` correspond à l'une des catégories
+      // prédéfinies (art. 76, sonorisation, IMSI-catcher, captation…), on
+      // stocke la CLÉ de catégorie et on pré-remplit la fiche légale (durée,
+      // date de fin, statut, plafond de prolongations) EXACTEMENT comme la
+      // fenêtre « Ajouter un acte » de l'app. Sinon, acte libre (hors
+      // catégorie : ex. comparution art. 78) — comportement historique.
+      const typeKey = resolveAutreActeTypeKey(type)
+      if (typeKey) {
+        const cfg = AUTRE_ACTE_TYPES[typeKey]
+        const f = deriveAutreActeFields(cfg, { dateDebut: debut, duree, pendingJld: statut === 'autorisation_pending' })
+        e.actes.push({
+          id,
+          type: typeKey,
+          description: String(description || ''),
+          dateDebut: f.dateDebut,
+          dateFin: f.dateFin,
+          duree: f.duree,
+          dureeUnit: f.dureeUnit,
+          maxProlongations: f.maxProlongations,
+          statut: f.statut,
+          ...(f.statut === 'autorisation_pending' ? { autorisationRequestedAt: new Date().toISOString() } : {}),
+          ...(f.datePose ? { datePose: f.datePose } : {}),
+        })
+        return { id, dateFin: f.dateFin, type: typeKey, statut: f.statut }
+      }
       e.actes.push({ ...base, type: String(type || 'Acte'), description: String(description || '') })
     }
     return { id, dateFin }

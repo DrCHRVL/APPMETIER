@@ -15,6 +15,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Scale, X, Send, Loader2, Minus, Stethoscope, GripHorizontal, Wrench, BookOpen, History } from 'lucide-react';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig, loadAttacheConfig } from './modelOptions';
+import { useEnquetesStore } from '@/stores/useEnquetesStore';
+import { toolTouchesDossierData } from '@/lib/web/attacheWriteTools';
 
 interface Msg { role: 'user' | 'assistant'; text: string; streaming?: boolean; tools?: string[] }
 
@@ -168,6 +170,9 @@ export function FloatingDossierChat({
     setBusy(true);
     setMsgs((p) => [...p, { role: 'user', text }, { role: 'assistant', text: '', streaming: true, tools: [] }]);
     scrollDown();
+    // Suit si l'IA a écrit dans les données du dossier pendant ce run, pour
+    // déclencher une synchro immédiate à la fin (au lieu d'attendre le cycle).
+    let touchedData = false;
     try {
       const res = await fetch('/api/attache/chat', {
         method: 'POST',
@@ -203,6 +208,7 @@ export function FloatingDossierChat({
             setMsgs((p) => { const n = [...p]; const l = n[n.length - 1]; n[n.length - 1] = { ...l, text: (l.text || '') + ev.text }; return n; });
             scrollDown();
           } else if (ev.type === 'tool' && ev.name) {
+            if (toolTouchesDossierData(ev.name)) touchedData = true;
             setMsgs((p) => { const n = [...p]; const l = n[n.length - 1]; n[n.length - 1] = { ...l, tools: [...(l.tools || []), String(ev.name).replace(/^mcp__siral__/, '')] }; return n; });
           } else if (ev.type === 'final') {
             if (ev.convId) { setConvId(ev.convId); try { localStorage.setItem(convKey, ev.convId); } catch { /* */ } }
@@ -214,6 +220,9 @@ export function FloatingDossierChat({
       setMsgs((p) => { const n = [...p]; const l = n[n.length - 1]; if (l?.streaming) n[n.length - 1] = { ...l, streaming: false, text: l.text || '⚠️ Connexion interrompue' }; return n; });
     } finally {
       setBusy(false); scrollDown();
+      // L'attaché a modifié le dossier → tirer le coffre serveur et rafraîchir
+      // tout de suite, pour que l'acte / CR / MEC apparaisse sans délai.
+      if (touchedData) { useEnquetesStore.getState().syncAndRefresh().catch(() => {}); }
     }
   }, [busy, convId, numero, cadre, carto, cfg, convKey, scrollDown]);
 
