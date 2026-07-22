@@ -40,6 +40,8 @@ interface Production {
   titre: string;
   contenu: string;
   source?: string;
+  /** Objet de l'acte (n° de ligne interceptée, objet géolocalisé…) — dernier segment du nom de fichier. */
+  objet?: string;
   createdAt?: string;
   updatedAt?: string;
   updatedBy?: string;

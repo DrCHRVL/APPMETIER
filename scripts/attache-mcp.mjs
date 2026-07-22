@@ -458,7 +458,7 @@ const TOOLS = [
   {
     name: 'produire_document',
     description: `Rédige un ACTE et le range dans « Actes rédigés » du dossier (le magistrat le visionne, l'édite, l'exporte en PDF/Word officiel, puis le VALIDE). Type : ${PRODUCTION_TYPES.join(', ')}. Suis la trame correspondante (trames_lister/trame_lire) et le dossier (lire_dossier, chronologie_lire). COHÉRENCE NATINF OBLIGATOIRE : vise les qualifications enregistrées du dossier (section « Infractions (NATINF) » de lire_dossier) — si elles manquent, ajoute-les d'abord (natinf_chercher + ajouter_natinfs). Rédaction complète, prête à signer, texte brut (paragraphes séparés par des lignes vides). ` +
-      'Renseigne `source` avec le nom EXACT de la trame suivie : il impose le formalisme du nom de fichier à l\'export. Pour MODIFIER un acte existant, passe son id. ' +
+      'Renseigne `source` avec le nom EXACT de la trame suivie : il forme le 1ᵉʳ segment du nom de fichier à l\'export. Pour un acte d\'INTERCEPTION, d\'ÉCOUTE ou de GÉOLOCALISATION, renseigne aussi `objet` avec le n° de ligne interceptée ou l\'objet géolocalisé (ex. « 07 64 45 45 16 ») : il s\'ajoute en fin de nom de fichier. Pour MODIFIER un acte existant, passe son id. ' +
       `DEMANDE SANS DOSSIER : si l'acte demandé (mail transféré) ne correspond à AUCUN dossier en cours et que la consigne ne dit pas de créer la procédure, range-le sous numero "${HORS_DOSSIER}" — il apparaît dans « Actes rédigés — hors dossier » du tableau de bord. ` +
       'Un NOUVEL acte fait automatiquement apparaître une carte reliée (éditable) dans le journal « pendant votre absence » : ne la signale (signaler) pas en double.',
     inputSchema: {
@@ -470,6 +470,7 @@ const TOOLS = [
         titre: { type: 'string' },
         contenu: { type: 'string', description: 'Le texte complet de l\'acte' },
         source: { type: 'string', description: 'Trame suivie (ex: requisition-tse)' },
+        objet: { type: 'string', description: 'Objet de l\'acte pour le nom de fichier : n° de ligne interceptée / objet géolocalisé (écoutes, géoloc, interceptions). Omettre pour un acte sans objet (perquisition, saisine…).' },
       },
       required: ['numero', 'type', 'titre', 'contenu'],
     },

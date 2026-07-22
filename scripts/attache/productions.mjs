@@ -158,7 +158,7 @@ export async function deleteProduction(numero, id) {
 // ── Côté attaché (chiffre lui-même avec la clé globale) ──
 
 /** Crée ou met à jour une production. id absent = nouvelle. Signée du nom admin. */
-export async function saveProduction(keys, { numero, id, type, titre, contenu, source }) {
+export async function saveProduction(keys, { numero, id, type, titre, contenu, source, objet }) {
   if (!String(numero || '').trim()) throw new Error('Numéro de dossier requis')
   if (!String(contenu || '').trim()) throw new Error('Contenu requis')
   const author = keys?.grantedBy || 'admin'
@@ -170,6 +170,9 @@ export async function saveProduction(keys, { numero, id, type, titre, contenu, s
     titre: String(titre || existing?.titre || 'Acte').slice(0, 200),
     contenu: String(contenu).slice(0, 400_000),
     source: source ? String(source).slice(0, 120) : existing?.source,
+    // Objet de l'acte (n° de ligne interceptée, objet géolocalisé…) : dernier
+    // segment du nom de fichier à l'export. Conservé s'il n'est pas re-fourni.
+    objet: objet != null ? String(objet).slice(0, 120) : existing?.objet,
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     updatedBy: author,
