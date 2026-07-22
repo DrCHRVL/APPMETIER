@@ -127,11 +127,16 @@ export const JLDActePreviewModal = ({ acteRef, onClose }: JLDActePreviewModalPro
                 </div>
               </div>
 
-              <ProgressBar
-                dateDebut={acte.dateDebut}
-                dateFin={acte.dateFin}
-                datePose={acte.datePose}
-              />
+              {/* Comme dans ActeSection : un acte sans durée (art. 76) ou en
+                  attente (autorisation/pose) n'a pas de date de fin exploitable
+                  — ne pas afficher une barre qui signalerait « Date invalide ». */}
+              {acte.dateDebut && acte.dateFin && (
+                <ProgressBar
+                  dateDebut={acte.dateDebut}
+                  dateFin={acte.dateFin}
+                  datePose={acte.datePose}
+                />
+              )}
 
               <div className="mt-1 text-xs text-gray-600">
                 {acte.statut === 'autorisation_pending' && (

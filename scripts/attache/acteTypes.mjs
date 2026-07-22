@@ -170,8 +170,11 @@ function addDuree(debut, n, unit) {
 /**
  * Calcule les champs d'un acte à partir de sa catégorie, en reproduisant la
  * logique de components/modals/ActeModal.tsx :
- *  - art. 76 (sans durée)          → statut « en_cours », pas de date de fin.
- *  - mesure JLD en attente          → statut « autorisation_pending ».
+ *  - mesure JLD en attente          → statut « autorisation_pending » (y compris
+ *                                     art. 76, sans durée : lui aussi soumis à
+ *                                     autorisation JLD).
+ *  - art. 76 (sans durée), autorisé → statut « en_cours » directement, pas
+ *                                     d'étape de pose (elle n'a pas de sens ici).
  *  - mesure à durée, autorisée      → statut « pose_pending », date de fin
  *                                     calculée depuis la date de début.
  *
@@ -188,13 +191,15 @@ export function deriveAutreActeFields(cfg, opts = {}) {
   const effectiveDuree = cfg.duree !== undefined ? String(cfg.duree) : String(opts.duree ?? '')
   const maxProlongations = cfg.maxProlongations
 
-  if (!cfg.hasDuree) {
-    return { statut: 'en_cours', dateDebut: '', dateFin: '', duree: '', dureeUnit, maxProlongations, datePose: '' }
-  }
-
   const pendingJld = opts.pendingJld === true && cfg.autorisation === 'JLD'
   if (pendingJld) {
     return { statut: 'autorisation_pending', dateDebut: '', dateFin: '', duree: effectiveDuree || '0', dureeUnit, maxProlongations, datePose: '' }
+  }
+
+  if (!cfg.hasDuree) {
+    // Art. 76 déjà autorisé : pas de durée propre ni de pose, directement en cours.
+    const dateDebut = opts.dateDebut || new Date().toISOString().slice(0, 10)
+    return { statut: 'en_cours', dateDebut, dateFin: '', duree: '', dureeUnit, maxProlongations, datePose: '' }
   }
 
   const dateDebut = opts.dateDebut || new Date().toISOString().slice(0, 10)

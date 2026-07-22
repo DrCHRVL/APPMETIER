@@ -242,10 +242,14 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
 
     const updatedActes = enquete.actes.map(acte => {
       if (acte.id === autorisationActeId) {
+        const cfg = AUTRE_ACTE_TYPES[acte.type as AutreActeTypeKey];
+        // Les actes sans durée propre (art. 76) n'ont pas d'étape de pose :
+        // l'autorisation JLD les fait passer directement « en cours ».
+        const statut = cfg?.hasDuree === false ? 'en_cours' as const : 'pose_pending' as const;
         return {
           ...acte,
           dateDebut: date,
-          statut: 'pose_pending' as const
+          statut
         };
       }
       return acte;
