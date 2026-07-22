@@ -487,11 +487,17 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
                 )}
               </div>
             </div>
-            <ProgressBar 
-              dateDebut={acte.dateDebut}
-              dateFin={acte.dateFin}
-              datePose={acte.datePose}
-            />
+            {/* Barre de progression seulement si l'acte a des bornes de dates
+                exploitables. Un acte sans durée (art. 76) ou en attente
+                (autorisation/pose) n'a pas de date de fin : on n'affiche pas
+                une barre qui signalerait « Date invalide ». */}
+            {acte.dateDebut && acte.dateFin && (
+              <ProgressBar
+                dateDebut={acte.dateDebut}
+                dateFin={acte.dateFin}
+                datePose={acte.datePose}
+              />
+            )}
             <div className="mt-1 text-xs text-gray-600">
               {acte.statut === 'autorisation_pending' && (
                 <p>En attente d'autorisation JLD • Durée prévue: {acte.duree || 0} jours</p>
@@ -638,11 +644,13 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
                       )}
                     </div>
                   </div>
-                  <ProgressBar 
-                    dateDebut={acte.dateDebut}
-                    dateFin={acte.dateFin}
-                    datePose={acte.datePose}
-                  />
+                  {acte.dateDebut && acte.dateFin && (
+                    <ProgressBar
+                      dateDebut={acte.dateDebut}
+                      dateFin={acte.dateFin}
+                      datePose={acte.datePose}
+                    />
+                  )}
                   {hasHistoryEntries && (
                     <div className="mt-2">
                       <div 

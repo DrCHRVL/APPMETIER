@@ -1,6 +1,12 @@
 /**
  * Configuration des types d'actes pour les Techniques Spéciales d'Enquête (TSE)
  * Chaque type définit les délais légaux, l'autorisation requise et les avertissements.
+ *
+ * ⚠ MIROIR : le service Attaché (conteneur séparé, ne voit que `scripts/`) tient
+ * le squelette légal de ces catégories dans `scripts/attache/acteTypes.mjs` afin
+ * d'enregistrer les actes de l'IA AVEC leur clé de catégorie et leurs champs
+ * pré-remplis. Toute modification des CLÉS, durées ou autorisations ci-dessous
+ * doit y être répercutée (et réciproquement).
  */
 
 export type AutreActeTypeKey =
