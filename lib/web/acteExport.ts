@@ -16,8 +16,9 @@
  * Si l'acte ne porte pas cet habillage (note libre, brouillon), rien n'est
  * imposé : on retombe sur le rendu neutre. Aucun drapeau, aucune juridiction
  * n'est ajoutée d'office — c'est la trame, via le texte, qui commande. Le nom
- * du fichier respecte le formalisme de la trame suivie :
- * <trame>_<dossier>_<AAAA-MM-JJ>.
+ * du fichier est LISIBLE et suit la convention du magistrat :
+ * « <type d'acte> - <service d'enquête> - <nom du dossier> » (les segments
+ * absents sont simplement omis).
  */
 
 import { PAPETERIE } from './papeterie'
@@ -27,8 +28,12 @@ export interface ActeExportable {
   titre: string
   contenu: string
   numero?: string
-  /** Nom (slug) de la trame suivie — impose le formalisme du nom de fichier. */
+  /** Nom (slug) de la trame suivie — sert de repli au type d'acte. */
   source?: string
+  /** Type de production (requisition, soit_transmis, prolongation_jld…) — repli lisible. */
+  type?: string
+  /** Service d'enquête du dossier (« SR Amiens »…) — 2ᵉ segment du nom de fichier. */
+  service?: string
   updatedAt?: string
 }
 
@@ -43,21 +48,61 @@ function inlineMarkup(s: string): string {
     .replace(/__(.+?)__/g, '<u>$1</u>')
 }
 
-function safeFileSegment(s: string): string {
-  return (s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
+/**
+ * Nettoie un segment pour un nom de fichier LISIBLE : lettres (accents
+ * compris), chiffres, espaces et ponctuation douce sont conservés ; seuls les
+ * caractères interdits par les systèmes de fichiers (\ / : * ? " < > |) et les
+ * caractères de contrôle sont retirés. Espaces compactés, bords nettoyés
+ * (espaces, points, tirets), longueur bornée. On préserve la casse et les
+ * accents : le nom reste lisible tel que le magistrat l'écrirait.
+ */
+function readableSegment(s: string): string {
+  return (s || '')
+    .replace(/[\\/:*?"<>|]/g, ' ')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s.\-]+|[\s.\-]+$/g, '')
+    .slice(0, 80)
+    .trim()
+}
+
+/** Libellés lisibles des types de production (repli quand le titre manque). */
+const TYPE_LABEL: Record<string, string> = {
+  requisition: 'Réquisition',
+  reponse_dml: 'Réponse DML',
+  prolongation_jld: 'Prolongation JLD',
+  saisine_jld: 'Saisine JLD',
+  projet_reponse: 'Projet de réponse',
+  soit_transmis: 'Soit-transmis',
+  note: 'Note',
+  livrable: 'Livrable',
+  autre: 'Acte',
 }
 
 /**
- * Nom de fichier d'un export : le formalisme du nom de la trame suivie
- * (« requete-prolongation-geoloc-jld »), complété du dossier et de la date —
- * à défaut de trame, le titre de l'acte.
+ * Type d'acte « conforme à la trame en réalité » : le TITRE réel de l'acte
+ * (celui que la trame produit) prime ; à défaut, le libellé du type de
+ * production ; à défaut, le slug de trame dé-slugifié ; en dernier « Acte ».
+ */
+function typeActeLabel(p: ActeExportable): string {
+  const titre = readableSegment(p.titre || '')
+  if (titre && titre.toLowerCase() !== 'acte') return titre
+  if (p.type && TYPE_LABEL[p.type]) return TYPE_LABEL[p.type]
+  const slug = readableSegment((p.source || '').replace(/[-_]+/g, ' '))
+  return slug || 'Acte'
+}
+
+/**
+ * Nom de fichier d'un export, LISIBLE et à la convention du magistrat :
+ * « <type d'acte> - <service d'enquête> - <nom du dossier> ». Le type d'acte
+ * reflète la trame réellement suivie (titre de l'acte) ; les segments absents
+ * (service inconnu, dossier hors numéro) sont simplement omis.
  */
 export function acteFileBase(p: ActeExportable): string {
-  const trame = safeFileSegment(p.source || '') || safeFileSegment(p.titre) || 'acte'
-  const dossier = safeFileSegment(p.numero || '')
-  const date = (p.updatedAt || new Date().toISOString()).slice(0, 10)
-  return [trame, dossier, date].filter(Boolean).join('_')
+  const typeActe = typeActeLabel(p)
+  const service = readableSegment(p.service || '')
+  const dossier = readableSegment(p.numero || '')
+  return [typeActe, service, dossier].filter(Boolean).join(' - ') || 'Acte'
 }
 
 // ── Reconnaissance de la structure d'un acte (à partir de son propre texte) ──
