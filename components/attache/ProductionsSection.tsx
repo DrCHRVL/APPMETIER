@@ -29,6 +29,8 @@ import {
 import { downloadActePdf, downloadActeDocx, acteFileBase } from '@/lib/web/acteExport';
 import { useToast } from '@/contexts/ToastContext';
 import { useActeRunsStore, runKey, acteDoneToastMessage } from '@/stores/useActeRunsStore';
+import { useEnquetesStore } from '@/stores/useEnquetesStore';
+import type { ActeMeta } from '@/types/interfaces';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
@@ -52,6 +54,9 @@ interface Production {
   refuse?: boolean;
   refuseLe?: string;
   refuseMotif?: string;
+  /** Métadonnées structurées de l'acte (attachées par l'attaché à la rédaction) :
+   *  permettent, à la validation, de créer un acte identique à une saisie manuelle. */
+  acteMeta?: ActeMeta;
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -101,6 +106,8 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide }: {
   const startRun = useActeRunsStore((s) => s.startRun);
   const finishRun = useActeRunsStore((s) => s.finishRun);
   const { showToast } = useToast();
+  // Répercute la validation d'un acte rédigé sur les actes de l'enquête.
+  const syncProductionActe = useEnquetesStore((s) => s.syncProductionActe);
   // Un acte est « en cours » s'il a un run persisté OU un flux ouvert ici.
   const isRunning = useCallback(
     (id: string) => Boolean(acteRuns[runKey(numero, id)]) || chatBusy?.id === id,
@@ -174,14 +181,17 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide }: {
       if (await persist(rec)) {
         setItems((prev) => prev.map((x) => (x.id === p.id ? rec : x)));
         setExpanded(null);
-        setNotice(`« ${p.titre} » validé — retrouvez-le via « voir les actes traités ».`);
+        // Crée l'acte correspondant dans l'enquête, identique à une saisie
+        // manuelle. Idempotent : ne recrée rien si l'acte existe déjà.
+        syncProductionActe(p.numero, { id: p.id, type: p.type, titre: p.titre, meta: p.acteMeta }, true);
+        setNotice(`« ${p.titre} » validé — acte créé dans l'enquête.`);
       } else {
         setNotice('Validation impossible (service injoignable ?).');
       }
     } finally {
       setBusy(null);
     }
-  }, [draft, persist]);
+  }, [draft, persist, syncProductionActe]);
 
   /**
    * Refuse l'acte : le magistrat dit POURQUOI (motif obligatoire). L'acte
@@ -225,12 +235,14 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide }: {
       const rec = { ...p, traite: false, traiteLe: undefined, refuse: false, refuseLe: undefined, refuseMotif: undefined, updatedAt: new Date().toISOString() };
       if (await persist(rec)) {
         setItems((prev) => prev.map((x) => (x.id === p.id ? rec : x)));
+        // Retire l'acte auto-créé dans l'enquête s'il est resté intact.
+        syncProductionActe(p.numero, { id: p.id, type: p.type, titre: p.titre, meta: p.acteMeta }, false);
         setNotice(`« ${p.titre} » remis dans les actes en attente.`);
       }
     } finally {
       setBusy(null);
     }
-  }, [persist]);
+  }, [persist, syncProductionActe]);
 
   const remove = useCallback(async (p: Production) => {
     if (!window.confirm(`Supprimer « ${p.titre} » ? (réversible)`)) return;

@@ -63,6 +63,35 @@ interface BaseActe {
    */
   autorisationRequestedAt?: string;
   prolongationsHistory?: ProlongationHistoryEntry[];
+  /**
+   * Lien vers la production (acte rédigé par l'attaché de justice) dont la
+   * validation a créé cet acte. Sert à l'idempotence (ne pas recréer l'acte à
+   * chaque validation) et à la réversibilité (retirer l'acte auto-créé si la
+   * production est « rouverte », tant que le magistrat ne l'a pas repris en main).
+   */
+  prodId?: string;
+}
+
+/**
+ * Métadonnées structurées d'un acte, attachées par l'attaché de justice à une
+ * production (acte rédigé) au moment de la rédaction. Elles permettent, à la
+ * validation par le magistrat, de créer un acte IDENTIQUE à une saisie manuelle
+ * (« Ajouter un acte ») : bonne rubrique (écoute / géoloc / autre), bonne
+ * catégorie légale, et statut dérivé exactement comme la fenêtre de l'app.
+ */
+export interface ActeMeta {
+  /** Rubrique de l'acte. Défaut 'autre'. */
+  kind?: 'ecoute' | 'geolocalisation' | 'autre';
+  /** Pour un « autre » acte : clé de catégorie (art76, activation_mobile…) ou
+   *  libellé libre si aucune catégorie ne convient (ex. comparution art. 78). */
+  categorie?: string;
+  dateDebut?: string;      // AAAA-MM-JJ
+  duree?: number | string;
+  dureeUnit?: 'jours' | 'mois';
+  cible?: string;          // écoute : ligne / personne visée
+  objet?: string;          // géoloc : objet suivi
+  /** Mesure soumise au JLD et encore en attente d'autorisation. */
+  pendingJld?: boolean;
 }
 
 // Interface pour les données de géolocalisation
