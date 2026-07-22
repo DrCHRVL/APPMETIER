@@ -101,8 +101,12 @@ function isPastDeadline(s?: string): boolean {
   return d.getTime() < today.getTime();
 }
 
-/** Regroupe une liste d'items par dossier (groupe « Autres dossiers » pour ceux sans tag), en conservant
- * l'ordre de récence des items et en plaçant en tête le groupe dont l'item le plus récent est le plus récent. */
+/** Regroupe une liste d'items par dossier (groupe « Autres dossiers » pour ceux sans tag).
+ * Ordre STABLE par numéro de dossier — et NON par récence : ranger une carte ne doit
+ * jamais faire « sauter » les dossiers de place. Un tri par récence renumérotait la
+ * liste dès qu'on rangeait la carte la plus récente d'un dossier, et le magistrat
+ * perdait son repère à chaque geste. Chaque dossier garde donc une place fixe ;
+ * « Autres dossiers » reste en dernier. */
 function groupByDossier(items: Item[]): Array<{ dossier: string; items: Item[] }> {
   const groups = new Map<string, Item[]>();
   for (const it of items) {
@@ -112,7 +116,12 @@ function groupByDossier(items: Item[]): Array<{ dossier: string; items: Item[] }
   }
   return [...groups.entries()]
     .map(([dossier, items]) => ({ dossier, items }))
-    .sort((a, b) => (b.items[0]?.ts || 0) - (a.items[0]?.ts || 0));
+    .sort((a, b) => {
+      if (a.dossier === b.dossier) return 0;
+      if (a.dossier === 'Autres dossiers') return 1;
+      if (b.dossier === 'Autres dossiers') return -1;
+      return a.dossier.localeCompare(b.dossier, 'fr', { numeric: true });
+    });
 }
 
 function CopyButton({ text, label = 'Copier' }: { text: string; label?: string }) {
@@ -147,15 +156,25 @@ export function MajordomeWidget({ onOpenDossier }: { onOpenDossier?: (numero: st
       const { entries, statuses } = await res.json();
       const out: Item[] = [];
       for (const e of entries as Array<{ ts: number; id?: string; iv: string; ct: string }>) {
-        if (e.id && statuses?.[e.id]) continue; // traité ou ignoré : rangé
         const item = await eapi().attache_decrypt({ v: 1, encrypted: true, iv: e.iv, ct: e.ct });
-        if (item) out.push({ ...(item as Item), ts: e.ts });
+        if (item) out.push({ ...(item as Item), id: (item as Item).id ?? e.id, ts: e.ts });
       }
+      // Ranger un item (« Traité » / « Ignorer ») le range DÉFINITIVEMENT : on
+      // classe sa SIGNATURE (type + dossier + identifiants), pas seulement son id.
+      // Le brief de nuit republie le même objet avec un id neuf à chaque passage ;
+      // sans ce rapprochement par signature, le statut posé sur l'ancien id ne
+      // suivait pas et l'item « rangé » revenait au brief suivant. Désormais tous
+      // les doublons d'un objet rangé — passés comme republiés — restent rangés.
+      const dismissedSigs = new Set<string>();
+      for (const it of out) {
+        if (it.id && statuses?.[it.id]) dismissedSigs.add(itemSignature(it));
+      }
+      const visible = out.filter((it) => !dismissedSigs.has(itemSignature(it)));
       // Plus récent d'abord, puis dédoublonnage (un objet = un seul item), puis
       // autonettoyage des items dont l'échéance est déjà dépassée (périmés, plus
       // la peine de les faire relire — s'ils appellent encore un geste, l'attaché
       // les republiera avec une date à jour au prochain brief).
-      setItems(dedupeItems(out.reverse()).filter((it) => !isPastDeadline(it.echeance)));
+      setItems(dedupeItems(visible.reverse()).filter((it) => !isPastDeadline(it.echeance)));
     } catch {
       setAvailable(false);
     } finally {
@@ -165,12 +184,18 @@ export function MajordomeWidget({ onOpenDossier }: { onOpenDossier?: (numero: st
 
   useEffect(() => { load(); }, [load]);
 
-  const mark = useCallback(async (id: string, status: 'traite' | 'ignore') => {
-    setItems((prev) => prev.filter((i) => i.id !== id));
+  const mark = useCallback(async (item: Item, status: 'traite' | 'ignore') => {
+    // Retrait immédiat de l'item ET de ses éventuels doublons (même signature) :
+    // le geste range l'objet, pas une simple ligne. Le statut posé sur son id
+    // suffit à le tenir rangé au rechargement (rapprochement par signature côté
+    // load), y compris quand le brief le republiera sous un id différent.
+    const sig = itemSignature(item);
+    setItems((prev) => prev.filter((i) => itemSignature(i) !== sig));
+    if (!item.id) return;
     await fetch('/api/attache/majordome', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id, status }),
+      body: JSON.stringify({ id: item.id, status }),
     }).catch(() => {});
   }, []);
 
@@ -274,10 +299,10 @@ export function MajordomeWidget({ onOpenDossier }: { onOpenDossier?: (numero: st
                               <div className="flex flex-shrink-0 items-center gap-1">
                                 {it.mail && <CopyButton text={`À : ${it.mail.destinataire}\nObjet : ${it.mail.objet}\n\n${it.mail.corps}`} />}
                                 {!it.mail && it.detail && it.type === 'projet_dml' && <CopyButton text={it.detail} />}
-                                <button onClick={() => mark(it.id, 'traite')} title="Traité" className="rounded-md p-1 text-gray-300 hover:bg-emerald-50 hover:text-emerald-600">
+                                <button onClick={() => mark(it, 'traite')} title="Traité" className="rounded-md p-1 text-gray-300 hover:bg-emerald-50 hover:text-emerald-600">
                                   <Check className="h-3.5 w-3.5" />
                                 </button>
-                                <button onClick={() => mark(it.id, 'ignore')} title="Ignorer" className="rounded-md p-1 text-gray-300 hover:bg-gray-100 hover:text-gray-500">
+                                <button onClick={() => mark(it, 'ignore')} title="Ignorer" className="rounded-md p-1 text-gray-300 hover:bg-gray-100 hover:text-gray-500">
                                   <X className="h-3.5 w-3.5" />
                                 </button>
                               </div>

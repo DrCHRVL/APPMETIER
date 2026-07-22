@@ -209,14 +209,23 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
   if (!available) return null;
   if (journal.length === 0 && decisions === 0) return null;
 
-  // Groupement par dossier, dossiers triés par activité la plus récente.
+  // Groupement par dossier. Ordre STABLE par numéro de dossier — et NON par
+  // activité la plus récente : ranger une carte ne doit pas réordonner les
+  // dossiers. Le tri par récence faisait « sauter » un dossier dès qu'on rangeait
+  // sa carte la plus récente, obligeant à rechercher les autres à chaque geste.
+  // Chaque dossier garde une place fixe ; « Sans dossier » reste en dernier.
   const groups = new Map<string, Card[]>();
   for (const c of journal) {
     const key = c.numero || '__sans__';
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(c);
   }
-  const orderedGroups = [...groups.entries()].sort((a, b) => b[1][0].ts - a[1][0].ts);
+  const orderedGroups = [...groups.entries()].sort((a, b) => {
+    if (a[0] === b[0]) return 0;
+    if (a[0] === '__sans__') return 1;
+    if (b[0] === '__sans__') return -1;
+    return a[0].localeCompare(b[0], 'fr', { numeric: true });
+  });
   const nouveaux = journal.filter((c) => c.ts > seenTs).length;
 
   return (
