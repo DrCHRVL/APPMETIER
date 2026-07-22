@@ -318,7 +318,13 @@ const EnqueteDetailModalImpl = ({
             {/* Propositions de l'attaché en attente (✓/✗) + chronologie
                 probatoire — admin uniquement, auto-masquées sinon. */}
             {isAdmin() && <PropositionsBar numero={enquete.numero} />}
-            {isAdmin() && <ProductionsSection numero={enquete.numero} />}
+            {isAdmin() && (
+              <ProductionsSection
+                numero={enquete.numero}
+                service={enquete.tags?.find((t) => t.category === 'services')?.value
+                  || enquete.services?.find((s) => s && s.trim())}
+              />
+            )}
             {isAdmin() && <ChronologieSection numero={enquete.numero} />}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">

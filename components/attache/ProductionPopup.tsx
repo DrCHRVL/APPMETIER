@@ -54,9 +54,11 @@ const TYPE_LABEL: Record<string, string> = {
   autre: 'Acte',
 };
 
-export function ProductionPopup({ numero, prodId, onClose, onChanged }: {
+export function ProductionPopup({ numero, prodId, service, onClose, onChanged }: {
   numero: string;
   prodId: string;
+  /** Service d'enquête du dossier — 2ᵉ segment du nom de fichier exporté. */
+  service?: string;
   onClose: () => void;
   /** Appelé après tout changement persisté (édition, retouche, validation). */
   onChanged?: () => void;
@@ -151,11 +153,11 @@ export function ProductionPopup({ numero, prodId, onClose, onChanged }: {
     if (!prod) return;
     setBusy(fmt);
     try {
-      const p = { ...prod, contenu: draft };
+      const p = { ...prod, service, contenu: draft };
       if (fmt === 'pdf') await downloadActePdf(p); else await downloadActeDocx(p);
     } catch { setNotice(`Génération ${fmt.toUpperCase()} impossible.`); }
     finally { setBusy(null); }
-  }, [prod, draft]);
+  }, [prod, draft, service]);
 
   // ── Mini-chat de retouche : même conversation que le chat du dossier ──
   const ask = useCallback(async (text: string) => {
@@ -266,7 +268,7 @@ export function ProductionPopup({ numero, prodId, onClose, onChanged }: {
                 >
                   {busy === 'save' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}Enregistrer
                 </button>
-                <button onClick={() => dl('pdf')} disabled={busy === 'pdf'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title={prod ? `Télécharge « ${acteFileBase(prod)}.pdf »` : ''}>
+                <button onClick={() => dl('pdf')} disabled={busy === 'pdf'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title={prod ? `Télécharge « ${acteFileBase({ ...prod, service })}.pdf »` : ''}>
                   {busy === 'pdf' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}PDF
                 </button>
                 <button onClick={() => dl('docx')} disabled={busy === 'docx'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50">

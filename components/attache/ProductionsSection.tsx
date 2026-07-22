@@ -64,10 +64,12 @@ const TYPE_LABEL: Record<string, string> = {
   autre: 'Acte',
 };
 
-export function ProductionsSection({ numero, titre, masquerSiVide }: {
+export function ProductionsSection({ numero, titre, service, masquerSiVide }: {
   numero: string;
   /** Titre de la section (défaut : « Actes rédigés »). */
   titre?: string;
+  /** Service d'enquête du dossier — 2ᵉ segment du nom de fichier exporté. */
+  service?: string;
   /** Ne rien afficher tant qu'aucun acte n'existe (usage tableau de bord). */
   masquerSiVide?: boolean;
 }) {
@@ -246,20 +248,20 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
   const downloadPdf = useCallback(async (p: Production) => {
     setBusy(p.id + ':pdf');
     try {
-      await downloadActePdf({ ...p, contenu: draft[p.id] ?? p.contenu });
+      await downloadActePdf({ ...p, service, contenu: draft[p.id] ?? p.contenu });
     } catch {
       setNotice('Génération PDF impossible.');
     } finally { setBusy(null); }
-  }, [draft]);
+  }, [draft, service]);
 
   const downloadDocx = useCallback(async (p: Production) => {
     setBusy(p.id + ':docx');
     try {
-      await downloadActeDocx({ ...p, contenu: draft[p.id] ?? p.contenu });
+      await downloadActeDocx({ ...p, service, contenu: draft[p.id] ?? p.contenu });
     } catch {
       setNotice('Génération Word impossible.');
     } finally { setBusy(null); }
-  }, [draft]);
+  }, [draft, service]);
 
   /**
    * Relaie un message à l'attaché sur le CANAL du chat du dossier (même
@@ -534,10 +536,10 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
                           >
                             {busy === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}Enregistrer
                           </button>
-                          <button onClick={() => downloadPdf(p)} disabled={busy === p.id + ':pdf'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title={`Télécharge « ${acteFileBase(p)}.pdf » — mise en forme de la trame suivie`}>
+                          <button onClick={() => downloadPdf(p)} disabled={busy === p.id + ':pdf'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title={`Télécharge « ${acteFileBase({ ...p, service })}.pdf » — mise en forme de la trame suivie`}>
                             {busy === p.id + ':pdf' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}PDF
                           </button>
-                          <button onClick={() => downloadDocx(p)} disabled={busy === p.id + ':docx'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title={`Télécharge « ${acteFileBase(p)}.docx » — mise en forme de la trame suivie`}>
+                          <button onClick={() => downloadDocx(p)} disabled={busy === p.id + ':docx'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title={`Télécharge « ${acteFileBase({ ...p, service })}.docx » — mise en forme de la trame suivie`}>
                             {busy === p.id + ':docx' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}Word
                           </button>
                           <button onClick={() => remove(p)} className="ml-auto rounded-md p-1 text-gray-300 hover:bg-red-50 hover:text-red-500" title="Supprimer">
@@ -639,7 +641,7 @@ export function ProductionsSection({ numero, titre, masquerSiVide }: {
                           </div>
                         )}
 
-                        {p.source && <div className="mt-1 text-[10px] text-gray-400">Trame : {p.source} — fichier : {acteFileBase(p)}.pdf</div>}
+                        {p.source && <div className="mt-1 text-[10px] text-gray-400">Trame : {p.source} — fichier : {acteFileBase({ ...p, service })}.pdf</div>}
                       </div>
                     )}
                   </div>
