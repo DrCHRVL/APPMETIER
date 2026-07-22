@@ -246,9 +246,11 @@ export function MajordomeWidget({ onOpenDossier }: { onOpenDossier?: (numero: st
         </button>
       </div>
 
-      {/* Sections par type */}
+      {/* Sections par type — UNE seule colonne (et non deux) : ranger un item fait
+          juste remonter le suivant à sa place, sans réorganisation en travers entre
+          colonnes qui obligeait à retrouver les autres à chaque geste. */}
       {!collapsed && items.length > 0 && (
-        <div className="grid gap-3 px-5 pb-4 lg:grid-cols-2">
+        <div className="grid gap-3 px-5 pb-4">
           {TYPE_ORDER.map((type) => {
             const list = byType.get(type) || [];
             if (!list.length) return null;

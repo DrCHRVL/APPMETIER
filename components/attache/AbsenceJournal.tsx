@@ -269,9 +269,11 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
         </div>
       </div>
 
-      {/* Journal groupé par dossier */}
+      {/* Journal groupé par dossier — UNE seule colonne (et non deux) : ranger une
+          carte fait juste remonter la suivante à sa place, sans réorganisation en
+          travers entre colonnes. On garde ainsi ses repères d'un geste à l'autre. */}
       {!collapsed && journal.length > 0 && (
-        <div className="grid gap-3 px-5 pb-4 lg:grid-cols-2">
+        <div className="grid gap-3 px-5 pb-4">
           {orderedGroups.map(([key, list]) => (
             <div key={key} className="rounded-xl border border-gray-200 bg-white">
               <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
