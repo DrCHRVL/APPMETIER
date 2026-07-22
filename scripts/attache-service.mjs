@@ -419,6 +419,19 @@ function batchTimeoutMs(count) {
   return minutes * 60 * 1000
 }
 
+// Analyse transversale de renseignement lancée depuis le CHAT carto : comme
+// l'étude du corpus, elle délègue à des sous-agents (un par dossier) et dépasse
+// très largement les 20 min d'un run de chat ordinaire — c'est ce qui la
+// faisait TUER avant d'avoir déposé la moindre proposition (« jamais de
+// résultat »). On accorde donc aux runs carto le même ordre de grandeur qu'un
+// run de lot, plafonné et ajustable par env. Ce plafond n'est qu'un garde-fou
+// de durée : une question carto brève finit en quelques secondes (le minuteur
+// est alors annulé), il ne ralentit rien. Le run se poursuit côté serveur même
+// si le flux SSE se coupe : les propositions se déposent quand même et
+// apparaissent dans le module de revue de la carte.
+const CARTO_CHAT_TIMEOUT_MIN = Number(process.env.SIRAL_ATTACHE_CARTO_TIMEOUT_MIN || 90)
+const CARTO_CHAT_TIMEOUT_MS = Math.max(20, CARTO_CHAT_TIMEOUT_MIN) * 60 * 1000
+
 // ── Classement des trames de la bibliothèque (description par trame) ──
 // « Ranger / classer » est une passe de DESCRIPTION rapide (classer.mjs) : un
 // appel modèle par lot de ~20 trames, sans outil ni sous-agent. Auparavant, ce
@@ -1142,6 +1155,10 @@ const server = http.createServer(async (req, res) => {
         onEvent: send,
         model: body.model,
         effort: body.effort,
+        // Le chat carto peut déclencher une analyse transversale (sous-agents
+        // sur des dizaines de dossiers) : plafond de durée élargi, sinon le run
+        // est tué à 20 min avant de déposer ses propositions.
+        ...(body.carto ? { timeoutMs: CARTO_CHAT_TIMEOUT_MS, mcpToolTimeoutMs: CARTO_CHAT_TIMEOUT_MS - 120_000 } : {}),
       })
       clearInterval(heartbeat)
       send({ type: 'final', convId: result.convId, ok: result.ok, error: result.error })

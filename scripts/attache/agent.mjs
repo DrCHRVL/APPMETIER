@@ -343,6 +343,27 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
   // connaître LA conversation du run pour que la réponse du magistrat,
   // donnée sur la carte dans SIRAL, reprenne exactement ce fil.
   const mcpConfig = writeMcpConfig({ SIRAL_ATTACHE_CONV_ID: id }, `mcp-config-${id}.json`)
+
+  // Reprise de session — CORRECTIF « Session ID … already in use ».
+  // Une conversation n'existe QUE si un run précédent a déjà lancé le CLI avec
+  // --session-id : côté CLI la session est donc DÉJÀ créée, même si ce run a
+  // ÉCHOUÉ (timeout, mémoire, max-turns — cas courant d'une analyse
+  // transversale lourde). La relancer avec --session-id sur le MÊME identifiant
+  // échoue alors sur « Session ID … already in use » (le symptôme rapporté), et
+  // la conversation reste coincée à chaque message suivant. Règle : une
+  // conversation existante se REPREND (--resume) ; on ne (re)claime un
+  // --session-id que pour une conversation NEUVE, ou quand la session a disparu
+  // (needsFreshSession, armé plus bas après un --resume introuvable) — avec un
+  // identifiant NEUF pour ne pas retomber sur la collision.
+  const reclaim = isNew || conv.needsFreshSession === true
+  if (conv.needsFreshSession) {
+    conv.claudeSessionId = crypto.randomUUID()
+    conv.needsFreshSession = false
+  }
+  const sessionArgs = reclaim
+    ? ['--session-id', conv.claudeSessionId]
+    : ['--resume', conv.claudeSessionId]
+
   const args = [
     '-p', String(prompt),
     '--output-format', 'stream-json',
@@ -355,7 +376,7 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
     '--max-turns', String(maxTurns),
     ...(useModel ? ['--model', useModel] : []),
     ...(useEffort ? ['--effort', useEffort] : []),
-    ...(isNew || !conv.resumable ? ['--session-id', conv.claudeSessionId] : ['--resume', conv.claudeSessionId]),
+    ...sessionArgs,
   ]
 
   const cwd = attacheDir('workdir')
@@ -413,6 +434,16 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
       }
       conv.messages.push({ role: 'user', text: String(prompt), at: new Date().toISOString(), run: runLabel })
       conv.messages.push({ role: 'assistant', text: assistantText || (error ? `⚠️ ${error}` : ''), at: new Date().toISOString() })
+      // Auto-guérison de la session CLI : si l'on a tenté un --resume et que le
+      // CLI ne RETROUVE PAS la session (jamais créée à cause d'un échec très
+      // précoce, ou transcript illisible), on repart d'un identifiant neuf au
+      // prochain message (--session-id) — la conversation ne reste jamais
+      // coincée. Une collision « already in use » n'a, elle, pas besoin de
+      // traitement : la session existe et le prochain message la reprend
+      // (--resume, comportement par défaut ci-dessus).
+      if (!ok && !reclaim && /no conversation found|no session found|session .*not found|could not resume|failed to resume/i.test(`${error || ''} ${stderrTail}`)) {
+        conv.needsFreshSession = true
+      }
       conv.resumable = ok || conv.resumable // une session entamée reste reprenable
       conv.updatedAt = new Date().toISOString()
       try { await saveConversation(keys, conv) } catch {}
