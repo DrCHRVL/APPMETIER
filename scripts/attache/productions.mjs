@@ -18,6 +18,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { attacheDir, ensureDir, atomicWrite, readJson, docServerKey, withFileLock } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
+import { normNumero, numerosProches } from './numero.mjs'
+import { resolveEnquete } from './dossier.mjs'
 import { diffTexte } from './diff.mjs'
 
 export const PRODUCTION_TYPES = ['requisition', 'reponse_dml', 'prolongation_jld', 'saisine_jld', 'projet_reponse', 'soit_transmis', 'note', 'livrable', 'autre']
@@ -49,14 +51,49 @@ function sanitizeActeMeta(m) {
   return Object.keys(clean).length ? clean : null
 }
 
-function dirFor(numero) { return attacheDir('productions', docServerKey(numero)) }
-function fileFor(numero, id) {
+function productionsRoot() { return attacheDir('productions') }
+function assertId(id) {
   if (!/^[a-f0-9]{6,32}$/.test(id)) throw new Error('Identifiant de production invalide')
-  return path.join(dirFor(numero), id + '.json')
 }
-function versionsDirFor(numero, id) {
-  if (!/^[a-f0-9]{6,32}$/.test(id)) throw new Error('Identifiant de production invalide')
-  return path.join(dirFor(numero), '.versions', id)
+function fileIn(dirKey, id) { return path.join(productionsRoot(), dirKey, id + '.json') }
+function versionsDirIn(dirKey, id) { return path.join(productionsRoot(), dirKey, '.versions', id) }
+
+/** Pseudo-dossiers (« _hors-dossier ») : jamais de rapprochement de variantes. */
+function isSpecial(numero) { return String(numero || '').startsWith('_') }
+
+/**
+ * Répertoires de productions EXISTANTS dont la clé désigne vraisemblablement le
+ * même dossier que `numero` — les VARIANTES d'écriture (« 85103/843/2026 »
+ * quand l'enquête s'appelle « 85103/843/2026 - GRIVESNES 2 »), répertoire
+ * exact exclu. Sans ce rapprochement, un acte rangé sous l'écriture courte
+ * restait invisible dans « Actes rédigés » de l'enquête.
+ */
+function variantDirKeys(numero) {
+  if (isSpecial(numero)) return []
+  const root = productionsRoot()
+  if (!fs.existsSync(root)) return []
+  const own = docServerKey(numero)
+  return fs.readdirSync(root).filter((d) => {
+    // e_… = numéros commençant par un caractère spécial (pseudo-dossiers) : exclus.
+    if (d === own || d.startsWith('.') || d.startsWith('e_')) return false
+    try { if (!fs.statSync(path.join(root, d)).isDirectory()) return false } catch { return false }
+    return numerosProches(d, numero)
+  })
+}
+
+/**
+ * Répertoire où VIT réellement une production : celui du numéro demandé,
+ * sinon un répertoire variant qui contient ce fichier (acte rangé sous une
+ * autre écriture du même numéro). null si introuvable.
+ */
+function locateDirKey(numero, id) {
+  assertId(id)
+  const own = docServerKey(numero)
+  if (fs.existsSync(fileIn(own, id))) return own
+  for (const d of variantDirKeys(numero)) {
+    if (fs.existsSync(fileIn(d, id))) return d
+  }
+  return null
 }
 /** Jeton d'archive (nom de fichier) ↔ horodatage ISO (`:` remplacé par `_`). */
 function tokenToIso(token) { return String(token).replace(/T(\d\d)_(\d\d)_(\d\d)/, 'T$1:$2:$3') }
@@ -69,12 +106,16 @@ function tokenToIso(token) { return String(token).replace(/T(\d\d)_(\d\d)_(\d\d)
  * magistrat (production_diff).
  */
 export async function writeEnvelope(numero, id, envelope) {
-  const p = fileFor(numero, id)
+  assertId(id)
+  // Mise à jour d'un acte rangé sous une VARIANTE du numéro : on écrit là où
+  // il vit déjà — jamais de seconde copie dans le répertoire du numéro demandé.
+  const dirKey = locateDirKey(numero, id) || docServerKey(numero)
+  const p = fileIn(dirKey, id)
   let archivedAt = null
   await withFileLock('prod:' + id, async () => {
-    ensureDir(dirFor(numero))
+    ensureDir(path.join(productionsRoot(), dirKey))
     if (fs.existsSync(p)) {
-      const vdir = versionsDirFor(numero, id)
+      const vdir = versionsDirIn(dirKey, id)
       ensureDir(vdir)
       const token = new Date().toISOString().replace(/:/g, '_')
       fs.copyFileSync(p, path.join(vdir, token + '.json'))
@@ -92,7 +133,7 @@ export async function writeEnvelope(numero, id, envelope) {
  */
 export function listProductionVersions(numero, id) {
   if (!/^[a-f0-9]{6,32}$/.test(id)) return []
-  const vdir = versionsDirFor(numero, id)
+  const vdir = versionsDirIn(locateDirKey(numero, id) || docServerKey(numero), id)
   if (!fs.existsSync(vdir)) return []
   return fs.readdirSync(vdir)
     .filter((f) => f.endsWith('.json') && !f.startsWith('deleted-') && !f.startsWith('.'))
@@ -106,7 +147,8 @@ export function readProductionVersion(keys, numero, id, token) {
   if (!/^[a-f0-9]{6,32}$/.test(id)) return null
   const safe = String(token || '').replace(/[^0-9A-Za-z._-]/g, '')
   if (!safe) return null
-  const env = readJson(path.join(versionsDirFor(numero, id), safe + '.json'), null)
+  const vdir = versionsDirIn(locateDirKey(numero, id) || docServerKey(numero), id)
+  const env = readJson(path.join(vdir, safe + '.json'), null)
   if (!env) return null
   try { return decryptJson(keys.global, env) } catch { return null }
 }
@@ -157,8 +199,8 @@ export function diffProduction(keys, numero, id, versionAt) {
   }
 }
 
-export function listEnvelopes(numero) {
-  const dir = dirFor(numero)
+function listEnvelopesIn(dirKey) {
+  const dir = path.join(productionsRoot(), dirKey)
   if (!fs.existsSync(dir)) return []
   return fs.readdirSync(dir)
     .filter((f) => f.endsWith('.json') && !f.startsWith('.'))
@@ -166,15 +208,60 @@ export function listEnvelopes(numero) {
     .filter((e) => e.envelope)
 }
 
+export function listEnvelopes(numero) {
+  return listEnvelopesIn(docServerKey(numero))
+}
+
+/**
+ * Enveloppes d'un dossier, écritures VARIANTES du numéro comprises : celles du
+ * répertoire exact, plus celles des répertoires rangés sous une autre écriture
+ * du même numéro (« 85103/843/2026 » quand l'enquête s'appelle
+ * « 85103/843/2026 - GRIVESNES 2 »). Un répertoire variant dont la clé ne se
+ * réduit pas au même numéro n'est retenu que si son contenu se rapporte bien à
+ * la MÊME enquête (numéro d'un échantillon déchiffré → résolution tolérante) :
+ * deux dossiers voisins (« …GRIVESNES » / « …GRIVESNES 2 ») ne se mélangent
+ * jamais. Sans trousseau, seule l'égalité normalisée des clés est admise.
+ */
+export function listEnvelopesDossier(keys, numero) {
+  const out = listEnvelopes(numero)
+  if (isSpecial(numero)) return out
+  const variants = variantDirKeys(numero)
+  if (!variants.length) return out
+  const seen = new Set(out.map((e) => e.id))
+  const nt = normNumero(numero)
+  const target = keys ? resolveEnquete(keys, numero) : null
+  for (const dirKey of variants) {
+    const envs = listEnvelopesIn(dirKey)
+    if (!envs.length) continue
+    let memeDossier = normNumero(dirKey) === nt
+    if (!memeDossier && keys && target) {
+      try {
+        const sample = decryptJson(keys.global, envs[0].envelope)
+        const resolved = sample?.numero != null ? resolveEnquete(keys, sample.numero) : null
+        memeDossier = Boolean(resolved && String(resolved.id) === String(target.id))
+      } catch { memeDossier = false }
+    }
+    if (!memeDossier) continue
+    for (const e of envs) {
+      if (!seen.has(e.id)) { seen.add(e.id); out.push(e) }
+    }
+  }
+  return out
+}
+
 export function readEnvelope(numero, id) {
-  return readJson(fileFor(numero, id), null)
+  assertId(id)
+  const dirKey = locateDirKey(numero, id)
+  return dirKey ? readJson(fileIn(dirKey, id), null) : null
 }
 
 export async function deleteProduction(numero, id) {
-  const p = fileFor(numero, id)
-  if (!fs.existsSync(p)) return false
+  assertId(id)
+  const dirKey = locateDirKey(numero, id)
+  if (!dirKey) return false
+  const p = fileIn(dirKey, id)
   await withFileLock('prod:' + id, async () => {
-    const vdir = path.join(dirFor(numero), '.versions', id)
+    const vdir = versionsDirIn(dirKey, id)
     ensureDir(vdir)
     fs.copyFileSync(p, path.join(vdir, 'deleted-' + new Date().toISOString().replace(/:/g, '_') + '.json'))
     fs.unlinkSync(p)
@@ -190,9 +277,21 @@ export async function saveProduction(keys, { numero, id, type, titre, contenu, s
   if (!String(contenu || '').trim()) throw new Error('Contenu requis')
   const author = keys?.grantedBy || 'admin'
   const existing = id ? readProduction(keys, numero, id) : null
+  // Numéro CANONIQUE : un acte NEUF rangé sous une écriture abrégée
+  // (« 85103/843/2026 ») est rattaché à l'enquête telle qu'elle existe dans
+  // SIRAL (« 85103/843/2026 - GRIVESNES 2 ») — sinon il resterait invisible
+  // dans « Actes rédigés » du dossier. Un acte EXISTANT garde son numéro
+  // (cohérent avec son rangement, que writeEnvelope retrouve de toute façon).
+  let numeroFinal = String(numero)
+  if (existing?.numero) {
+    numeroFinal = String(existing.numero)
+  } else if (!isSpecial(numero)) {
+    const enq = resolveEnquete(keys, numero)
+    if (enq?.numero) numeroFinal = String(enq.numero)
+  }
   const rec = {
     id: existing?.id || (id && /^[a-f0-9]{6,32}$/.test(id) ? id : crypto.randomBytes(6).toString('hex')),
-    numero: String(numero),
+    numero: numeroFinal,
     type: PRODUCTION_TYPES.includes(type) ? type : (existing?.type || 'autre'),
     titre: String(titre || existing?.titre || 'Acte').slice(0, 200),
     contenu: String(contenu).slice(0, 400_000),
@@ -218,8 +317,8 @@ export async function saveProduction(keys, { numero, id, type, titre, contenu, s
     refuseLe: existing?.refuse && existing?.contenu === String(contenu) ? existing.refuseLe : undefined,
     refuseMotif: existing?.refuse && existing?.contenu === String(contenu) ? existing.refuseMotif : undefined,
   }
-  await writeEnvelope(numero, rec.id, encryptJson(keys.global, rec, { savedAt: rec.updatedAt, savedBy: author }))
-  return { id: rec.id, titre: rec.titre }
+  await writeEnvelope(numeroFinal, rec.id, encryptJson(keys.global, rec, { savedAt: rec.updatedAt, savedBy: author }))
+  return { id: rec.id, titre: rec.titre, numero: rec.numero }
 }
 
 export function readProduction(keys, numero, id) {
@@ -229,7 +328,7 @@ export function readProduction(keys, numero, id) {
 }
 
 export function listProductions(keys, numero) {
-  return listEnvelopes(numero)
+  return listEnvelopesDossier(keys, numero)
     .map(({ envelope }) => { try { return decryptJson(keys.global, envelope) } catch { return null } })
     .filter(Boolean)
     .map(({ contenu, ...meta }) => ({ ...meta, taille: (contenu || '').length }))

@@ -42,6 +42,7 @@ import { PermanencePage } from '@/components/pages/PermanencePage';
 import { ArchivePage } from '@/components/pages/ArchivePage';
 import type { EnqueteWithContext } from '@/utils/mindmapGraph';
 import { sameMecPerson } from '@/utils/mindmapGraph';
+import { normNumero, numerosProches, findEnqueteParNumero } from '@/utils/numeroDossier';
 import { useTags } from '@/hooks/useTags';
 import { useSections } from '@/hooks/useSections';
 import { useUserServiceOrganization } from '@/hooks/useUserServiceOrganization';
@@ -165,13 +166,8 @@ import { AuditLogger } from '@/utils/auditLogger';
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
 
 // Rapprochement souple d'un numéro de dossier (raccourci « Assistant de
-// justice ») : partagé entre le clic et la sélection différée après bascule.
-const normNumero = (s?: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-const numeroMatches = (candidate: string | undefined, normTarget: string) => {
-  const nc = normNumero(candidate);
-  return !!nc && (nc === normTarget || nc.includes(normTarget) || normTarget.includes(nc));
-};
-
+// justice ») : règle PARTAGÉE avec le service et syncProductionActe —
+// voir utils/numeroDossier.ts (normNumero, numerosProches, findEnqueteParNumero).
 
 function AppContent() {
   const [isClient, setIsClient] = useState(false);
@@ -1217,12 +1213,12 @@ function AppContent() {
   // train de basculer de contentieux, on attend qu'il ait chargé (sélectionner
   // tout de suite serait de toute façon annulé : setContentieux remet
   // selectedEnquete à null). Garde-fou : au-delà de 5 s, on ouvre le snapshot.
-  const openLiveEnqueteWhenReady = useCallback((ctxId: ContentieuxId, normTarget: string, fallback: Enquete) => {
+  const openLiveEnqueteWhenReady = useCallback((ctxId: ContentieuxId, numero: string, fallback: Enquete) => {
     const tryOpen = (): boolean => {
       const s = useEnquetesStore.getState();
       if (s.contentieuxId !== ctxId || s.isLoading) return false;
-      const live = s.enquetes.find(e => e.id === fallback.id && numeroMatches(e.numero, normTarget))
-        || s.enquetes.find(e => numeroMatches(e.numero, normTarget));
+      const live = s.enquetes.find(e => e.id === fallback.id && numerosProches(e.numero, numero))
+        || findEnqueteParNumero(s.enquetes, numero);
       s.setSelectedEnquete(live || fallback);
       s.setIsEditing(false);
       return true;
@@ -1248,20 +1244,22 @@ function AppContent() {
   // « Actes rédigés », éditable/exportable). Cherche dans tous les contentieux,
   // puis dans les instructions.
   const handleOpenDossierByNumero = useCallback((numero: string) => {
-    const nt = normNumero(numero);
-    if (!nt) return;
+    if (!normNumero(numero)) return;
     for (const [ctxId, list] of overboardData) {
-      const found = list.find(e => numeroMatches(e.numero, nt));
+      // Même règle de rapprochement que le service et que syncProductionActe :
+      // parmi plusieurs candidates (« …GRIVESNES » / « …GRIVESNES 2 »), la
+      // plus vraisemblable — et non la première venue.
+      const found = findEnqueteParNumero(list, numero);
       if (found) {
         if (ctxId !== activeContentieux) {
           setActiveContentieux(ctxId);
           setCurrentView(`enquetes_${ctxId}`);
         }
-        openLiveEnqueteWhenReady(ctxId, nt, found);
+        openLiveEnqueteWhenReady(ctxId, numero, found);
         return;
       }
     }
-    const inst = instructions.find(d => numeroMatches(d.numeroInstruction, nt) || numeroMatches((d as { numeroParquet?: string }).numeroParquet, nt));
+    const inst = instructions.find(d => numerosProches(d.numeroInstruction, numero) || numerosProches((d as { numeroParquet?: string }).numeroParquet, numero));
     if (inst) {
       setSelectedInstruction(inst);
       setIsEditingInstruction(false);

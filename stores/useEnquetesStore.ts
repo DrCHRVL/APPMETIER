@@ -11,6 +11,7 @@
 import { create } from '@/lib/zustand';
 import { Enquete, CompteRendu, NewEnqueteData, ActeMeta } from '@/types/interfaces';
 import { buildProductionActe } from '@/utils/productionActe';
+import { findEnqueteParNumero } from '@/utils/numeroDossier';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { ContentieuxId } from '@/types/userTypes';
 import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
@@ -412,7 +413,11 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
   },
 
   syncProductionActe: (numero, prod, validated) => {
-    const enquete = get().ownEnquetes.find(e => e.numero === numero);
+    // Rapprochement TOLÉRANT : l'acte rédigé peut porter une écriture courte
+    // du numéro (« 85103/843/2026 ») quand l'enquête s'appelle
+    // « 85103/843/2026 - GRIVESNES 2 » — même règle que l'ouverture d'un
+    // dossier depuis le journal de l'attaché.
+    const enquete = findEnqueteParNumero(get().ownEnquetes, numero);
     if (!enquete) return; // enquête non trouvée / partagée : on ne fait rien.
 
     // Recherche de l'acte déjà lié à cette production, quelle que soit la rubrique.

@@ -9,15 +9,21 @@
  */
 import { attacheDir, ensureDir, atomicWrite, readJson, docServerKey, withFileLock } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
+import { numeroCanonique } from './dossier.mjs'
 
 const MAX_CHARS = 4000 // plafond dur : au-delà, on élague les plus anciennes lignes
 
-function memPath(numero) {
-  return attacheDir('dossier-memoire', docServerKey(numero) + '.json')
+// Numéro CANONISÉ : la mémoire notée sous « 85103/843/2026 » doit être relue
+// par le chat ouvert sur « 85103/843/2026 - GRIVESNES 2 » (même dossier).
+function memPath(keys, numero) {
+  return attacheDir('dossier-memoire', docServerKey(numeroCanonique(keys, numero)) + '.json')
 }
 
 export function readDossierMemory(keys, numero) {
-  const env = readJson(memPath(numero), null)
+  // Repli héritage : mémoire écrite avant la canonisation, restée sous
+  // l'écriture brute du numéro — relue ici, elle migre au prochain ajout.
+  const env = readJson(memPath(keys, numero), null)
+    || readJson(attacheDir('dossier-memoire', docServerKey(numero) + '.json'), null)
   if (!env) return ''
   try {
     const { content } = decryptJson(keys.global, env)
@@ -28,8 +34,8 @@ export function readDossierMemory(keys, numero) {
 }
 
 async function write(keys, numero, content) {
-  const p = memPath(numero)
-  await withFileLock('dossmem:' + numero, async () => {
+  const p = memPath(keys, numero)
+  await withFileLock('dossmem:' + numeroCanonique(keys, numero), async () => {
     ensureDir(attacheDir('dossier-memoire'))
     if (readJson(p, null)) {
       // conserve une version précédente (une seule, pour rester léger)

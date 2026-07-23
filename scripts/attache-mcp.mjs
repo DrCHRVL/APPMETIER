@@ -81,7 +81,7 @@ async function publierLivrable(a) {
   await porteQualiteOuSignal({ type: 'livrable', titre: a.sujet, contenu: a.corps, numero: a.numero }, 'livrable')
   const numero = a.numero ? String(a.numero).slice(0, 80) : HORS_DOSSIER
   const titre = String(a.sujet || 'Livrable').slice(0, 200)
-  const { id } = await saveProduction(keys, {
+  const { id, numero: numeroCanonique } = await saveProduction(keys, {
     numero,
     type: 'livrable',
     titre,
@@ -92,7 +92,9 @@ async function publierLivrable(a) {
     type: 'livrable',
     titre,
     resume: String(a.corps || '').slice(0, 2000),
-    numero: a.numero ? String(a.numero).slice(0, 80) : undefined,
+    // Numéro canonique (celui de l'enquête dans SIRAL) : « Ouvrir » depuis le
+    // journal et « Actes rédigés » du dossier désignent le même rangement.
+    numero: a.numero ? (numeroCanonique || numero) : undefined,
     prodId: id,
   })
   return { ok: true, note: 'Livrable remis dans SIRAL (fil « pendant votre absence ») — éditable/exportable, rien n\'est parti par mail.' }
@@ -150,7 +152,7 @@ const TOOLS = [
     name: 'dossier_arborescence',
     description: 'Table des matières de TOUTES les pièces déposées sous un numéro (enquête ou instruction) : zones Geoloc/Ecoutes/Actes/PV/DML et « Dossier complet » versé (Dossier/… — les sous-pochettes reflètent l\'organisation du dossier réel, en texte). Chemins exacts pour lire_document. Point de départ de tout dépouillement.',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
-    handler: async (a) => arborescenceDocuments(a.numero),
+    handler: async (a) => arborescenceDocuments(keys, a.numero),
   },
   {
     name: 'verifier_completude',
@@ -498,12 +500,15 @@ const TOOLS = [
       const r = await saveProduction(keys, a)
       // Nouvel acte (pas une modification) : une carte reliée apparaît dans le
       // journal « pendant votre absence » — inutile de la signaler en plus.
+      // La carte porte le numéro CANONIQUE rendu par saveProduction (celui de
+      // l'enquête telle qu'elle existe dans SIRAL), pour que « Ouvrir » et
+      // « Actes rédigés » du dossier désignent le même rangement.
       if (!a.id) {
         await publishFeed(keys, {
           type: 'acte',
           titre: r.titre,
           resume: `Acte rédigé (${a.type}) — à relire, éditer et valider.`,
-          numero: a.numero,
+          numero: r.numero || a.numero,
           prodId: r.id,
         })
       } else {
