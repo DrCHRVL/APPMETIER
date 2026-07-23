@@ -151,7 +151,7 @@ export function ProductionPopup({ numero, prodId, service, onClose, onChanged }:
       if (await persist(rec)) {
         setProd(rec);
         // Crée (validation) ou retire (réouverture) l'acte lié dans l'enquête.
-        syncProductionActe(rec.numero, { id: rec.id, type: rec.type, titre: rec.titre, meta: rec.acteMeta }, !!rec.traite);
+        syncProductionActe(rec.numero, { id: rec.id, type: rec.type, titre: rec.titre, meta: rec.acteMeta, objet: rec.objet }, !!rec.traite);
         setNotice(rec.traite ? 'Validé — acte créé dans l\'enquête.' : 'Remis en attente.');
         onChanged?.();
       } else setNotice('Action impossible (service injoignable ?).');

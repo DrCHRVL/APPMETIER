@@ -18,6 +18,7 @@ const StatsPage = dynamic(() => import('@/components/pages/StatsPage').then(m =>
 const DashboardPage = dynamic(() => import('@/components/pages/DashboardPage').then(m => ({ default: m.DashboardPage })), { ssr: false });
 const AssistantJusticePage = dynamic(() => import('@/components/pages/AssistantJusticePage').then(m => ({ default: m.AssistantJusticePage })), { ssr: false });
 import { useContentieuxEnquetesStore as useContentieuxEnquetes } from '@/hooks/useContentieuxEnquetesStore';
+import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
 import { useInfractionFilter } from '@/hooks/useInfractionFilter';
 import { useDocumentSearch } from '@/hooks/useDocumentSearch';
@@ -164,6 +165,9 @@ import { AuditLogger } from '@/utils/auditLogger';
 
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
 
+// Rapprochement souple d'un numéro de dossier (raccourci « Assistant de
+// justice ») : règle PARTAGÉE avec le service et syncProductionActe —
+// voir utils/numeroDossier.ts (normNumero, numerosProches, findEnqueteParNumero).
 
 function AppContent() {
   const [isClient, setIsClient] = useState(false);
@@ -1200,6 +1204,40 @@ function AppContent() {
     setIsEditing(true);
   }, []);
 
+  // Sélectionne la version VIVANTE du dossier depuis le store des enquêtes —
+  // la même que celle ouverte depuis la liste. Le snapshot Overboard ne sert
+  // qu'à LOCALISER le dossier : il date du chargement de la page, donc les
+  // écritures survenues depuis (description actualisée par l'attaché, CR,
+  // actes tirés par la sync) en sont absentes ; ouvrir cet objet-là affichait
+  // une fiche différente de celle de la page « Enquêtes ». Si le store est en
+  // train de basculer de contentieux, on attend qu'il ait chargé (sélectionner
+  // tout de suite serait de toute façon annulé : setContentieux remet
+  // selectedEnquete à null). Garde-fou : au-delà de 5 s, on ouvre le snapshot.
+  const openLiveEnqueteWhenReady = useCallback((ctxId: ContentieuxId, numero: string, fallback: Enquete) => {
+    const tryOpen = (): boolean => {
+      const s = useEnquetesStore.getState();
+      if (s.contentieuxId !== ctxId || s.isLoading) return false;
+      const live = s.enquetes.find(e => e.id === fallback.id && numerosProches(e.numero, numero))
+        || findEnqueteParNumero(s.enquetes, numero);
+      s.setSelectedEnquete(live || fallback);
+      s.setIsEditing(false);
+      return true;
+    };
+    if (tryOpen()) return;
+    let done = false;
+    let unsub: (() => void) | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const finish = () => { done = true; unsub?.(); if (timer) clearTimeout(timer); };
+    unsub = useEnquetesStore.subscribe(() => { if (!done && tryOpen()) finish(); });
+    timer = setTimeout(() => {
+      if (done) return;
+      finish();
+      const s = useEnquetesStore.getState();
+      s.setSelectedEnquete(fallback);
+      s.setIsEditing(false);
+    }, 5000);
+  }, []);
+
   // Ouvre la fiche d'un dossier depuis son NUMÉRO (raccourci « Assistant de
   // justice » : un clic sur un item du brief ou une carte du journal ouvre
   // directement l'EnquêteDetail — où l'acte rédigé se retrouve dans la section
@@ -1217,8 +1255,7 @@ function AppContent() {
           setActiveContentieux(ctxId);
           setCurrentView(`enquetes_${ctxId}`);
         }
-        setSelectedEnquete(found);
-        setIsEditing(false);
+        openLiveEnqueteWhenReady(ctxId, numero, found);
         return;
       }
     }
@@ -1229,7 +1266,7 @@ function AppContent() {
       return;
     }
     showToast(`Dossier « ${numero} » introuvable dans vos enquêtes`, 'info');
-  }, [overboardData, activeContentieux, instructions, showToast, setActiveContentieux, setCurrentView, setSelectedEnquete, setIsEditing, setSelectedInstruction, setIsEditingInstruction]);
+  }, [overboardData, activeContentieux, instructions, showToast, setActiveContentieux, setCurrentView, openLiveEnqueteWhenReady, setSelectedInstruction, setIsEditingInstruction]);
   const handleToggleSuivi = useCallback((enqueteId: number, type: 'JIRS' | 'PG') => {
     const enquete = enquetesLookupRef.current.find(e => e.id === enqueteId);
     if (!enquete) return;

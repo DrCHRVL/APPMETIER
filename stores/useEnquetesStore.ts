@@ -141,7 +141,7 @@ interface EnquetesState {
    */
   syncProductionActe: (
     numero: string,
-    prod: { id: string; type: string; titre: string; meta?: ActeMeta },
+    prod: { id: string; type: string; titre: string; meta?: ActeMeta; objet?: string },
     validated: boolean,
   ) => void;
 
@@ -430,7 +430,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
 
     if (validated) {
       if (hit) return; // déjà créé : idempotent.
-      const built = buildProductionActe({ prodId: prod.id, type: prod.type, titre: prod.titre, meta: prod.meta });
+      const built = buildProductionActe({ prodId: prod.id, type: prod.type, titre: prod.titre, meta: prod.meta, objet: prod.objet });
       if (!built) return; // production sans acte associé (note, livrable).
       const current = enquete[built.collection] || [];
       get().updateEnquete(enquete.id, { [built.collection]: [...current, built.acte] });

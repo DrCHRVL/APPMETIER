@@ -183,7 +183,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide }: {
         setExpanded(null);
         // Crée l'acte correspondant dans l'enquête, identique à une saisie
         // manuelle. Idempotent : ne recrée rien si l'acte existe déjà.
-        syncProductionActe(p.numero, { id: p.id, type: p.type, titre: p.titre, meta: p.acteMeta }, true);
+        syncProductionActe(p.numero, { id: p.id, type: p.type, titre: p.titre, meta: p.acteMeta, objet: p.objet }, true);
         setNotice(`« ${p.titre} » validé — acte créé dans l'enquête.`);
       } else {
         setNotice('Validation impossible (service injoignable ?).');
@@ -236,7 +236,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide }: {
       if (await persist(rec)) {
         setItems((prev) => prev.map((x) => (x.id === p.id ? rec : x)));
         // Retire l'acte auto-créé dans l'enquête s'il est resté intact.
-        syncProductionActe(p.numero, { id: p.id, type: p.type, titre: p.titre, meta: p.acteMeta }, false);
+        syncProductionActe(p.numero, { id: p.id, type: p.type, titre: p.titre, meta: p.acteMeta, objet: p.objet }, false);
         setNotice(`« ${p.titre} » remis dans les actes en attente.`);
       }
     } finally {
