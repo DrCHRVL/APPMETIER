@@ -8,6 +8,10 @@
 //   - Un nœud "Dossier" représente une enquête (en cours, archivée ou
 //     instruction).
 //   - Une arête relie un MEC à chaque dossier où il est cité.
+//   - Les personnes condamnées au résultat d'audience d'un dossier sont
+//     projetées comme des personnes du dossier (arête 'condamne'), avec
+//     anti-doublon : si le nom correspond à un mis en cause déjà présent
+//     dans le dossier, aucun nœud ni arête supplémentaires ne sont créés.
 //
 // Le score d'un MEC (taille du nœud) est paramétrable depuis l'écran
 // Paramètres > Module Cartographie. Formule de base :
@@ -78,6 +82,12 @@ export interface MecNode {
   isSuspect?: boolean;
   /** Rôle présumé dans l'affaire (issu de la fiche suspect) */
   suspectRole?: string;
+  /** Vrai si ce nœud n'est présent que comme condamné (résultat d'audience).
+   *  Toute contribution mis en cause / suspect / victime du même nom canonique
+   *  repasse ce drapeau à faux — la personne vit alors sur la carte par ses
+   *  dossiers, l'étiquette « Condamné » restant réservée aux personnes issues
+   *  uniquement d'un résultat d'audience. */
+  isCondamne?: boolean;
   /** Notes manuelles (issues d'une fiche ex nihilo) */
   manualNotes?: string;
   /** Alias manuels — fusionnés avec les variants */
@@ -103,6 +113,9 @@ export interface DossierNode {
   dateCreation: string;
   /** Nombre de MEC dans ce dossier (taille du nœud dossier) */
   nbMec: number;
+  /** N° de parquet du dossier source (sert à la recherche). Absent pour les
+   *  dossiers ex nihilo et les contributions distantes. */
+  numeroParquet?: string;
   /** True pour un dossier créé manuellement par l'utilisateur */
   isExNihilo?: boolean;
   /** Notes manuelles */
@@ -122,8 +135,9 @@ export interface GraphEdge {
   source: string;
   target: string;
   /** 'data' = arête déduite des dossiers ; 'renseignement' = lien manuel ;
-   *  'suspect' = lien suspect → dossier d'instruction. */
-  kind: 'data' | 'renseignement' | 'suspect';
+   *  'suspect' = lien suspect → dossier d'instruction ;
+   *  'condamne' = lien condamné → dossier (résultat d'audience). */
+  kind: 'data' | 'renseignement' | 'suspect' | 'condamne';
   /** Libellé optionnel (utile pour les liens renseignement) */
   label?: string;
   /** Notes manuelles (liens renseignement) */
@@ -180,6 +194,10 @@ export interface EnqueteWithContext {
   enquete: Enquete;
   contentieuxId: ContentieuxId;
   misEnExamen?: MisEnExamen[];
+  /** Personnes condamnées au résultat d'audience du dossier (préliminaire ou
+   *  instruction). Projetées sur la carte comme des personnes du dossier, en
+   *  évitant le doublon avec les mis en cause déjà présents. */
+  condamnes?: Array<{ nom: string }>;
 }
 
 // ──────────────────────────────────────────────
@@ -423,8 +441,10 @@ export function buildMindmapGraph(
   const variantCounts = new Map<string, Map<string, number>>(); // canonicalId → variant → count
   const now = Date.now();
 
-  for (const { enquete, contentieuxId, misEnExamen } of sources) {
-    if (!enquete.misEnCause || enquete.misEnCause.length === 0) continue;
+  for (const { enquete, contentieuxId, misEnExamen, condamnes } of sources) {
+    const misEnCauseList = enquete.misEnCause || [];
+    const condamnesList = (condamnes || []).filter(c => c.nom && c.nom.trim());
+    if (misEnCauseList.length === 0 && condamnesList.length === 0) continue;
 
     const dossierId = `${contentieuxId}_${enquete.id}`;
     const dossierDate = new Date(enquete.dateMiseAJour || enquete.dateCreation).getTime();
@@ -492,7 +512,8 @@ export function buildMindmapGraph(
       numero: enquete.numero,
       statut: enquete.statut,
       dateCreation: enquete.dateCreation,
-      nbMec: enquete.misEnCause.length,
+      nbMec: misEnCauseList.length,
+      numeroParquet: enquete.numeroParquet,
       services: enquete.services,
     };
     dossierById.set(dossierId, dossierNode);
@@ -504,7 +525,7 @@ export function buildMindmapGraph(
     }
 
     // Parcours des MEC du dossier
-    for (const mec of enquete.misEnCause) {
+    for (const mec of misEnCauseList) {
       const canonical = resolveCanonical(mec.nom);
       if (!canonical) continue;
 
@@ -546,6 +567,10 @@ export function buildMindmapGraph(
       if (!mec.isVictime) mecNode.isVictime = false;
       // Un vrai MEX ou MEC prime sur le statut suspect.
       if (!(mec as { isSuspect?: boolean }).isSuspect) mecNode.isSuspect = false;
+      // Toute contribution issue des dossiers (MEC, suspect, victime) prime
+      // sur l'étiquette « Condamné » — réservée aux personnes uniquement
+      // présentes via un résultat d'audience.
+      mecNode.isCondamne = false;
 
       if (!mecNode.dossierIds.includes(dossierId)) {
         mecNode.dossierIds.push(dossierId);
@@ -571,6 +596,69 @@ export function buildMindmapGraph(
         edgeKeys.add(edgeKey);
         const isSuspectMec = !!(mec as { isSuspect?: boolean }).isSuspect;
         edges.push({ id: edgeKey, source: canonical, target: dossierId, kind: isSuspectMec ? 'suspect' : 'data' });
+      }
+    }
+
+    // ── Condamnés (résultat d'audience) ───────
+    // Projetés comme des personnes du dossier. Anti-doublon : si le nom
+    // correspond à un protagoniste déjà présent dans CE dossier (tolérance
+    // ordre des mots, coquille, nom partiel non ambigu), on ne crée ni nœud
+    // ni arête — la personne est déjà sur la carte via son statut de mis en
+    // cause. La fusion cross-dossiers par nom canonique s'applique ensuite
+    // comme pour n'importe quel MEC.
+    if (condamnesList.length > 0) {
+      const nomsPresents = misEnCauseList.map(m => m.nom);
+      for (const c of condamnesList) {
+        const nom = c.nom.trim();
+        const matches = nomsPresents.filter(existant => sameMecPerson(existant, nom, { allowSubset: true }));
+        // Même règle d'ambiguïté que la fusion préliminaire → instruction :
+        // candidat unique (ou match strict) = même personne → on ne remet pas.
+        if (matches.length === 1 || matches.some(existant => sameMecPerson(existant, nom))) continue;
+        nomsPresents.push(nom); // dédup entre condamnés homonymes du même dossier
+
+        const canonical = resolveCanonical(nom);
+        if (!canonical) continue;
+
+        let variantsForId = variantCounts.get(canonical);
+        if (!variantsForId) {
+          variantsForId = new Map();
+          variantCounts.set(canonical, variantsForId);
+        }
+        variantsForId.set(nom, (variantsForId.get(nom) || 0) + 1);
+
+        let mecNode = mecById.get(canonical);
+        if (!mecNode) {
+          mecNode = {
+            type: 'mec',
+            id: canonical,
+            displayName: nom,
+            variants: [],
+            dossierIds: [],
+            contentieuxIds: [],
+            nbMisEnExamen: 0,
+            nbChefs: 0,
+            nbLiensRenseignement: 0,
+            infractionWeight: 0,
+            recent: false,
+            score: 0,
+            rawScore: 0,
+            manualBonus: 0,
+            statuts: [],
+            isCondamne: true,
+          };
+          mecById.set(canonical, mecNode);
+        }
+        if (!mecNode.dossierIds.includes(dossierId)) mecNode.dossierIds.push(dossierId);
+        if (!mecNode.contentieuxIds.includes(contentieuxId)) mecNode.contentieuxIds.push(contentieuxId);
+        if (!mecNode.statuts.includes('condamné')) mecNode.statuts.push('condamné');
+        if (isRecent) mecNode.recent = true;
+
+        const edgeKey = `${canonical}__${dossierId}`;
+        if (!edgeKeys.has(edgeKey)) {
+          edgeKeys.add(edgeKey);
+          edges.push({ id: edgeKey, source: canonical, target: dossierId, kind: 'condamne' });
+          dossierNode.nbMec += 1;
+        }
       }
     }
   }
