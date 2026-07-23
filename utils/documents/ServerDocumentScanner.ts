@@ -88,6 +88,15 @@ export interface AlerteDocumentManquant {
   severite: 'warning' | 'error';
 }
 
+/** Incohérence relevée par l'analyse IA entre un document et l'enquête. */
+export interface IncoherenceIA {
+  type: 'numero_procedure' | 'natinf_absent' | 'date';
+  fileName: string;
+  detail: string;
+  severite: 'warning' | 'error';
+  natinfCode?: string | null;
+}
+
 export interface AnalysisResult {
   /** Actes détectés prêts à être validés */
   actesDetectes: ParsedActe[];
@@ -101,6 +110,10 @@ export interface AnalysisResult {
   analyzedBy?: 'ia' | 'regex';
   /** Synthèse libre du modèle (analyse IA uniquement) */
   iaResume?: string;
+  /** Incohérences document ↔ enquête relevées par l'IA (n° de procédure divergent, NATINF absents, dates) */
+  iaIncoherences?: IncoherenceIA[];
+  /** CR de réception suggéré par l'IA (prise de notes courte), prêt à classer */
+  iaCrSuggere?: string;
   /** Erreurs globales */
   errors: string[];
   /** Statistiques */
@@ -270,6 +283,15 @@ export class ServerDocumentScanner {
           textContent: d.textContent,
         })),
         actesExistants,
+        // Contexte de cohérence : le modèle confronte chaque document aux
+        // numéros et aux NATINF de l'enquête (document téléversé dans le
+        // mauvais dossier, qualification absente de la fiche…).
+        enquete: {
+          numero: enquete.numero,
+          numeroParquet: enquete.numeroParquet || undefined,
+          numeroIDJ: enquete.numeroIDJ || undefined,
+          natinfs: enquete.infractionNatinfCodes || [],
+        },
       }),
     });
 
@@ -279,6 +301,7 @@ export class ServerDocumentScanner {
     }
     const data = await res.json().catch(() => null) as {
       ok?: boolean; actes?: unknown[]; chaineLegale?: unknown[]; resume?: string; error?: string;
+      incoherences?: unknown[]; crSuggere?: string | null;
     } | null;
     if (!data || data.ok === false) {
       throw new Error(data?.error || 'Analyse IA échouée');
@@ -291,6 +314,12 @@ export class ServerDocumentScanner {
       alertes: [],
       analyzedBy: 'ia',
       iaResume: typeof data.resume === 'string' ? data.resume : undefined,
+      iaIncoherences: (Array.isArray(data.incoherences) ? data.incoherences : [])
+        .filter((i): i is IncoherenceIA =>
+          Boolean(i && typeof i === 'object'
+            && ['numero_procedure', 'natinf_absent', 'date'].includes((i as IncoherenceIA).type)
+            && (i as IncoherenceIA).detail)),
+      iaCrSuggere: typeof data.crSuggere === 'string' && data.crSuggere.trim() ? data.crSuggere.trim() : undefined,
       errors: [],
       stats: {
         totalDocumentsScanned: scannedDocuments.length,

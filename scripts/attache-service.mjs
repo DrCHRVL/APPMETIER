@@ -88,8 +88,15 @@ async function readBody(req, maxBytes = 2 * 1024 * 1024) {
 // bornée est sûre. Défaut 2 (mémoire du serveur oblige) ; 1 = retour à
 // l'ancien comportement strictement séquentiel.
 const PROACTIVE_CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.SIRAL_ATTACHE_PROACTIVE_CONCURRENCY || 2)))
+// Reprises d'un mail en échec : jusqu'à MAX_ATTEMPTS tentatives au total,
+// espacées d'un délai croissant — puis ABANDON EXPLICITE (carte au fil).
+// L'ancien mécanisme (`recentlyQueued`, jamais purgé) s'arrêtait en silence
+// après ~2 essais alors que le widget affichait « sera retenté ».
+const PROACTIVE_MAX_ATTEMPTS = Math.max(1, Math.min(6, Number(process.env.SIRAL_ATTACHE_MAIL_MAX_ATTEMPTS || 3)))
+const PROACTIVE_RETRY_BASE_MS = Math.max(60_000, Number(process.env.SIRAL_ATTACHE_MAIL_RETRY_MIN || 10) * 60 * 1000)
 const proactiveQueue = []
 const proactiveQueued = new Set() // mails en file ou en cours — jamais deux fois
+const proactiveAttempts = new Map() // mailId → { count, nextRetryAt, abandoned }
 let proactiveWorkers = 0
 let running = 0
 
@@ -114,41 +121,88 @@ function pumpProactive() {
   }
 }
 
+/** Comptabilise une tentative ; à l'échec, programme la reprise ou ABANDONNE avec une carte. */
+async function noteProactiveFailure(keys, mailId, erreur) {
+  const st = proactiveAttempts.get(mailId) || { count: 0 }
+  if (st.count >= PROACTIVE_MAX_ATTEMPTS) {
+    if (!st.abandoned) {
+      st.abandoned = true
+      proactiveAttempts.set(mailId, st)
+      await publishFeed(keys, {
+        type: 'alerte',
+        titre: 'Mail non traité — reprises épuisées',
+        resume: `Le mail ${mailId} a échoué ${st.count} fois (dernière erreur : ${String(erreur || 'inconnue').slice(0, 300)}). Il ne sera PLUS retenté automatiquement : relancez la relève depuis le panneau, ou re-transférez le message (éventuellement scindé si le dossier est volumineux).`,
+      }).catch(() => {})
+      await markInboxStatus(keys, mailId, 'erreur').catch(() => {})
+    }
+    return
+  }
+  // reprise programmée, à délai croissant (10 min, 20 min, 40 min…)
+  st.nextRetryAt = Date.now() + PROACTIVE_RETRY_BASE_MS * Math.pow(2, Math.max(0, st.count - 1))
+  proactiveAttempts.set(mailId, st)
+}
+
 async function processProactiveRun(keys, mailId) {
   running++
+  const st = proactiveAttempts.get(mailId) || { count: 0 }
+  st.count++
+  proactiveAttempts.set(mailId, st)
   try {
     // statut visible dans le widget BAL : reçu → EN COURS → traité
     await markInboxStatus(keys, mailId, 'en_cours').catch(() => {})
     const prompt = [
       `Un nouveau message vient d'arriver dans la boîte dédiée (id : ${mailId}).`,
-      'Traite-le entièrement selon ta méthode : boite_lire pour prendre connaissance de la consigne et de la pièce,',
-      'qualification, rapprochement avec le dossier SIRAL concerné, actions dans SIRAL si elles s\'imposent,',
+      'Traite-le ENTIÈREMENT selon ta méthode : boite_lire pour prendre connaissance de la consigne et des pièces jointes,',
+      'qualification, rapprochement RIGOUREUX avec le dossier SIRAL concerné, actions dans SIRAL si elles s\'imposent,',
       'préparation des synthèses/projets — remis DANS SIRAL (remettre_livrable, signaler, produire_document) :',
       'aucun mail sortant n\'existe plus.',
+      'PLUSIEURS ACTES : un même mail peut réclamer PLUSIEURS actes (« une prolongation de la ligne X ET une géoloc',
+      'du véhicule Y ») — commence par LISTER tous les actes demandés, traite-les UN PAR UN (une production par acte,',
+      'chacune avec son acteMeta), et VÉRIFIE avant de clore que chaque acte de ta liste a bien sa production.',
+      'COHÉRENCE : compare le numéro de procédure porté par la pièce jointe au dossier que tu as retenu — s\'ils',
+      'divergent, tranche par les mis en cause et les faits, et SIGNALE la divergence (elle peut révéler une erreur',
+      'de transfert). De même, ajoute les NATINF cités par la pièce et absents du dossier (ajouter_natinfs).',
       'SI AUCUN dossier en cours ne correspond : (a) la consigne du transfert dit « créer procédure » (ou équivalent',
-      'sans ambiguïté) → crée le dossier (creer_dossier, tout renseigné depuis la pièce), puis traite-y la demande ;',
+      'sans ambiguïté) → crée le dossier (creer_dossier, tout renseigné depuis la pièce : directeur d\'enquête, service,',
+      'mis en cause recoupés, NATINF), puis traite-y la demande ;',
       '(b) la consigne dit seulement de traiter → rédige l\'acte demandé sous le pseudo-dossier "_hors-dossier"',
       '(produire_document) : il apparaîtra dans « Actes rédigés — hors dossier » du tableau de bord.',
-      'Termine par boite_marquer_traite (résumé d\'une phrase) et signaler.',
+      'Termine par boite_marquer_traite — le résumé ÉNUMÈRE ce qui a été fait (ex. « 2 actes rédigés : prolongation',
+      'ligne X, géoloc Y — CR proposé ») — puis signaler.',
       'Si le message est hors sujet (spam, notification technique), marque-le traité avec un résumé d\'un mot et ne signale rien.',
     ].join('\n')
     const result = await runAgent({ keys, prompt, runLabel: 'proactif', title: `Mail ${mailId}` })
-    await audit(keys, 'run_proactif', { mailId, ok: result.ok, convId: result.convId, erreur: result.error })
+    await audit(keys, 'run_proactif', { mailId, tentative: st.count, ok: result.ok, convId: result.convId, erreur: result.error })
     if (!result.ok) {
       await publishFeed(keys, {
         type: 'alerte',
         titre: 'Traitement automatique interrompu',
-        resume: `Le mail ${mailId} n'a pas pu être traité (${result.error || 'erreur inconnue'}). Il reste dans la boîte, non marqué traité.`,
+        resume: `Le mail ${mailId} n'a pas pu être traité (tentative ${st.count}/${PROACTIVE_MAX_ATTEMPTS} — ${result.error || 'erreur inconnue'}). Il reste dans la boîte, non marqué traité.`,
       })
     }
     // si l'agent n'a pas marqué traité (erreur, oubli), le statut redevient « reçu »
     const rec = readInboxMessage(keys, mailId)
-    if (rec && !rec.traite) await markInboxStatus(keys, mailId, result.ok ? 'recu' : 'erreur').catch(() => {})
+    if (rec && !rec.traite) {
+      await markInboxStatus(keys, mailId, result.ok ? 'recu' : 'erreur').catch(() => {})
+      if (!result.ok) await noteProactiveFailure(keys, mailId, result.error)
+    } else if (result.ok) {
+      proactiveAttempts.delete(mailId) // traité : plus rien à suivre
+    }
   } catch (e) {
     console.error('[attache] run proactif :', e)
     try {
       const rec = readInboxMessage(keys, mailId)
-      if (rec && !rec.traite) await markInboxStatus(keys, mailId, 'erreur')
+      if (rec && !rec.traite) {
+        await markInboxStatus(keys, mailId, 'erreur')
+        // Même visibilité qu'un échec « propre » : sans cette carte, une
+        // exception laissait le magistrat sans aucune explication au fil.
+        await publishFeed(keys, {
+          type: 'alerte',
+          titre: 'Traitement automatique interrompu',
+          resume: `Le mail ${mailId} n'a pas pu être traité (tentative ${st.count}/${PROACTIVE_MAX_ATTEMPTS} — ${String(e?.message || e).slice(0, 300)}). Il reste dans la boîte, non marqué traité.`,
+        }).catch(() => {})
+        await noteProactiveFailure(keys, mailId, e?.message || e)
+      }
     } catch { /* statut best-effort */ }
   } finally {
     running--
@@ -208,6 +262,15 @@ async function runBriefing(trigger = 'planifié') {
     const result = await runAgent({ keys, prompt: briefingPrompt(), runLabel: 'majordome', title: `Brief ${new Date().toISOString().slice(0, 10)}` })
     await audit(keys, 'brief_majordome', { trigger, ok: result.ok, convId: result.convId, erreur: result.error })
     await writeState({ lastBriefingAt: new Date().toISOString(), lastBriefingOk: result.ok })
+    if (!result.ok) {
+      // Même transparence que la voie mail : un brief qui casse laisse une
+      // carte — pas seulement un badge d'état que personne ne regarde.
+      await publishFeed(keys, {
+        type: 'alerte',
+        titre: 'Brief du majordome interrompu',
+        resume: `Le brief (${trigger}) a échoué : ${String(result.error || 'erreur inconnue').slice(0, 300)}. Relancez-le avec « Générer le brief », ou réduisez le lot (mode économe).`,
+      }).catch(() => {})
+    }
     return { ok: result.ok, convId: result.convId, error: result.error }
   } finally {
     briefingRunning = false
@@ -243,6 +306,16 @@ async function runRoutine(routine, trigger = 'planifiée') {
   const result = await runAgent({ keys, prompt, runLabel: `routine:${routine.nom}`, title: `Routine ${routine.nom} ${new Date().toISOString().slice(0, 10)}` })
   await markRun(keys, routine.id, result.ok)
   await audit(keys, 'routine_executee', { routine: routine.nom, trigger, ok: result.ok, convId: result.convId, erreur: result.error })
+  if (!result.ok) {
+    // Une routine en échec ne re-tentera pas avant sa prochaine échéance : le
+    // magistrat doit le voir au fil (le signaler final de l'agent n'a jamais
+    // été émis si le run est mort avant).
+    await publishFeed(keys, {
+      type: 'alerte',
+      titre: `Routine « ${routine.nom} » interrompue`,
+      resume: `L'exécution (${trigger}) a échoué : ${String(result.error || 'erreur inconnue').slice(0, 300)}. Prochaine tentative à la prochaine échéance — ou « Exécuter maintenant » depuis Paramètres → Attaché IA.`,
+    }).catch(() => {})
+  }
   return { ok: result.ok, convId: result.convId, error: result.error }
 }
 
@@ -734,21 +807,34 @@ async function pollOnce(trigger = 'planifié') {
       console.log(`[attache] ${res.ingested.length} message(s) ingéré(s) (${trigger})`)
       for (const id of res.ingested) queueProactiveRun(keys, id)
     }
-    // rattrapage : messages ingérés mais jamais traités (crash, redémarrage)
+    // Rattrapage : messages ingérés mais jamais traités (crash, redémarrage,
+    // run en échec). Reprise pilotée par proactiveAttempts : jusqu'à
+    // PROACTIVE_MAX_ATTEMPTS tentatives espacées d'un délai croissant, puis
+    // abandon EXPLICITE (carte au fil) — plus d'arrêt silencieux.
+    const now = Date.now()
     const pending = listInbox(keys).filter((m) => !m.traite)
     const known = new Set(res.ingested)
     for (const m of pending) {
-      if (!known.has(m.id) && !recentlyQueued.has(m.id)) {
-        recentlyQueued.add(m.id)
-        queueProactiveRun(keys, m.id)
-      }
+      if (known.has(m.id)) continue
+      const st = proactiveAttempts.get(m.id)
+      // Relève MANUELLE (bouton du panneau) : le magistrat demande une reprise —
+      // on remet le compteur à zéro, y compris pour un mail abandonné.
+      if (trigger === 'manuel' && st) { proactiveAttempts.delete(m.id); queueProactiveRun(keys, m.id); continue }
+      if (st?.abandoned) continue
+      if (st && st.count >= PROACTIVE_MAX_ATTEMPTS) { await noteProactiveFailure(keys, m.id, 'reprises épuisées'); continue }
+      if (st?.nextRetryAt && now < st.nextRetryAt) continue // backoff en cours
+      queueProactiveRun(keys, m.id)
+    }
+    // Purge douce de l'état des mails traités/disparus (le service peut tourner des mois).
+    if (proactiveAttempts.size > 200) {
+      const alive = new Set(pending.map((m) => m.id))
+      for (const id of proactiveAttempts.keys()) if (!alive.has(id)) proactiveAttempts.delete(id)
     }
     return res
   } finally {
     polling = false
   }
 }
-const recentlyQueued = new Set()
 
 // ── API HTTP interne ──
 const server = http.createServer(async (req, res) => {
@@ -1047,7 +1133,7 @@ const server = http.createServer(async (req, res) => {
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
       const body = await readBody(req)
       try {
-        const out = await decideProposition(keys, { id: String(body.id || ''), action: String(body.action || ''), par: String(body.par || '') })
+        const out = await decideProposition(keys, { id: String(body.id || ''), action: String(body.action || ''), par: String(body.par || ''), motif: body.motif ? String(body.motif) : '' })
         return json(res, 200, out)
       } catch (e) {
         return json(res, 400, { ok: false, error: String(e?.message || e) })
@@ -1062,7 +1148,7 @@ const server = http.createServer(async (req, res) => {
       const docs = Array.isArray(body.docs) ? body.docs : []
       if (!docs.length) return json(res, 400, { ok: false, error: 'Aucun document fourni' })
       try {
-        const out = await analyseDocuments({ docs, actesExistants: body.actesExistants || [] })
+        const out = await analyseDocuments({ docs, actesExistants: body.actesExistants || [], enquete: body.enquete || null })
         return json(res, out.ok ? 200 : 502, out)
       } catch (e) {
         return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 400) })

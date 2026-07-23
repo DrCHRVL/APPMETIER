@@ -17,7 +17,7 @@ import { simpleParser } from 'mailparser'
 import nodemailer from 'nodemailer'
 import { attacheDir, ensureDir, atomicWrite, readJson, readState, writeState, listFiles } from './store.mjs'
 import { encryptJson, decryptJson, loadMasterKey, wrapWithMaster, unwrapWithMaster } from './crypto.mjs'
-import { audit } from './journal.mjs'
+import { audit, publishFeed } from './journal.mjs'
 
 // ── Réglages IMAP/SMTP saisis DANS L'APP (Paramètres → Attaché IA) ──
 // Facultatifs : ils PRÉVALENT sur les variables d'environnement quand ils
@@ -68,6 +68,25 @@ export function clearMailOverride() {
 
 const MAX_ATTACHMENT = 15 * 1024 * 1024   // 15 Mo par pièce
 const MAX_TOTAL = 40 * 1024 * 1024        // 40 Mo par message
+
+/**
+ * Expéditeurs AUTORISÉS à donner des consignes à l'attaché. Le transfert d'un
+ * mail « vaut instruction » : sans ce filtre, quiconque découvre l'adresse de
+ * la boîte dédiée pouvait commander l'attaché (rédiger, créer un dossier…).
+ * Liste = SIRAL_ATTACHE_OWNER_EMAIL + SIRAL_ATTACHE_ALLOWED_SENDERS
+ * (adresses séparées par des virgules). Liste VIDE = filtre inactif
+ * (comportement historique, à réserver aux boîtes réellement privées).
+ */
+export function allowedSenders(env = process.env) {
+  const out = new Set()
+  const owner = String(env.SIRAL_ATTACHE_OWNER_EMAIL || '').trim().toLowerCase()
+  if (owner) out.add(owner)
+  for (const part of String(env.SIRAL_ATTACHE_ALLOWED_SENDERS || '').split(/[\s,;]+/)) {
+    const a = part.trim().toLowerCase()
+    if (a && a.includes('@')) out.add(a)
+  }
+  return out
+}
 
 export function mailConfig(env = process.env) {
   // Réglages in-app prioritaires sur l'environnement (champ par champ).
@@ -194,20 +213,55 @@ export async function fetchInbox(keys) {
       // les traitent comme des UID. Dès que séquence ≠ UID (boîte avec de
       // l'historique), fetchOne ne trouve rien → aucun message ingéré, sans
       // erreur (« rien de nouveau ») bien que la boîte contienne des non-lus.
+      const senders = allowedSenders()
       const uids = await client.search({ seen: false }, { uid: true })
       for (const uid of uids || []) {
         const msg = await client.fetchOne(uid, { source: true }, { uid: true })
         if (!msg?.source) continue
         if (msg.source.length > MAX_TOTAL) {
           await audit(keys, 'mail_ignore', { raison: 'message trop volumineux', taille: msg.source.length, uid })
+          // Le message est marqué lu et ne sera JAMAIS relevé : le magistrat
+          // doit le savoir, sinon il croit son transfert pris en charge.
+          await publishFeed(keys, {
+            type: 'alerte',
+            titre: 'Mail trop volumineux — non traité',
+            resume: `Un message de ${Math.round(msg.source.length / 1024 / 1024)} Mo dépasse la limite de ${Math.round(MAX_TOTAL / 1024 / 1024)} Mo : il n'a PAS été relevé et ne sera pas retenté. Re-transférez-le allégé (pièces jointes compressées ou déposées via le trombone du panneau).`,
+          }).catch(() => {})
           await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true })
           continue
         }
         const parsed = await simpleParser(msg.source)
+        // FILTRE D'EXPÉDITEUR : le corps d'un transfert vaut consigne — seule
+        // l'adresse du magistrat (et la liste autorisée) peut commander
+        // l'attaché. Un expéditeur inconnu est ignoré (marqué lu, audité,
+        // signalé au fil), jamais lu par l'agent : ses instructions n'entrent
+        // pas dans un run.
+        const fromAddr = String(parsed.from?.value?.[0]?.address || '').trim().toLowerCase()
+        if (senders.size && !senders.has(fromAddr)) {
+          await audit(keys, 'mail_refuse', { raison: 'expéditeur non autorisé', de: parsed.from?.text || fromAddr || '(inconnu)', sujet: parsed.subject || '', uid })
+          await publishFeed(keys, {
+            type: 'alerte',
+            titre: 'Mail d\'un expéditeur non autorisé — ignoré',
+            resume: `« ${String(parsed.subject || '(sans objet)').slice(0, 120)} » reçu de ${String(parsed.from?.text || fromAddr || 'inconnu').slice(0, 120)} : seule votre adresse (SIRAL_ATTACHE_OWNER_EMAIL, complétée par SIRAL_ATTACHE_ALLOWED_SENDERS) peut donner des consignes à l'attaché. Le message n'a pas été traité. Si cette adresse est légitime, ajoutez-la à la liste autorisée.`,
+          }).catch(() => {})
+          await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true })
+          continue
+        }
         const id = new Date().toISOString().replace(/[:.]/g, '-') + '-' + crypto.randomBytes(3).toString('hex')
         const attachments = []
         for (const att of parsed.attachments || []) {
-          if (!att.content || att.content.length > MAX_ATTACHMENT) continue
+          if (!att.content) continue
+          if (att.content.length > MAX_ATTACHMENT) {
+            // Pièce trop lourde : on garde sa FICHE (sans contenu) pour que
+            // l'agent SACHE qu'une pièce manque au lieu de l'ignorer sans trace.
+            attachments.push({
+              nom: att.filename || 'piece-jointe',
+              type: att.contentType || 'application/octet-stream',
+              taille: att.content.length,
+              omise: true,
+            })
+            continue
+          }
           attachments.push({
             nom: att.filename || 'piece-jointe',
             type: att.contentType || 'application/octet-stream',

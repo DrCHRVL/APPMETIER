@@ -37,6 +37,10 @@ export function PropositionsBar({ numero }: { numero: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Refus en deux temps : le ✗ ouvre un champ « motif » facultatif — capté
+  // comme signal d'apprentissage (l'attaché comprend POURQUOI c'est refusé).
+  const [refusing, setRefusing] = useState<string | null>(null);
+  const [motif, setMotif] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -54,18 +58,20 @@ export function PropositionsBar({ numero }: { numero: string }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const decide = useCallback(async (id: string, action: 'valider' | 'refuser') => {
+  const decide = useCallback(async (id: string, action: 'valider' | 'refuser', motifRefus?: string) => {
     setBusy(id);
     setNotice(null);
     try {
       const res = await fetch('/api/attache/propositions', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id, action }),
+        body: JSON.stringify({ id, action, ...(motifRefus ? { motif: motifRefus } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (data.ok) {
         setProps((prev) => prev.filter((p) => p.id !== id));
+        setRefusing(null);
+        setMotif('');
         if (action === 'valider') {
           // Tirer le coffre serveur et rafraîchir le dossier ouvert maintenant.
           await useEnquetesStore.getState().syncAndRefresh().catch(() => {});
@@ -121,7 +127,7 @@ export function PropositionsBar({ numero }: { numero: string }) {
                       <Check className="h-4 w-4" />
                     </button>
                     <button
-                      onClick={() => decide(p.id, 'refuser')}
+                      onClick={() => { setRefusing(refusing === p.id ? null : p.id); setMotif(''); }}
                       title="Refuser"
                       className="grid h-6 w-6 place-items-center rounded-md text-gray-300 hover:bg-gray-100 hover:text-gray-500"
                     >
@@ -130,6 +136,31 @@ export function PropositionsBar({ numero }: { numero: string }) {
                   </>
                 )}
               </div>
+              {refusing === p.id && busy !== p.id && (
+                <div className="mt-1.5 flex items-center gap-1.5 pl-1">
+                  <input
+                    autoFocus
+                    value={motif}
+                    onChange={(e) => setMotif(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') decide(p.id, 'refuser', motif.trim()); if (e.key === 'Escape') setRefusing(null); }}
+                    placeholder="Motif du refus (facultatif — l'attaché en tire une règle)"
+                    className="min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11.5px] text-gray-700 placeholder:text-gray-400 focus:border-amber-300 focus:outline-none"
+                    maxLength={320}
+                  />
+                  <button
+                    onClick={() => decide(p.id, 'refuser', motif.trim())}
+                    className="rounded-md bg-gray-100 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-200"
+                  >
+                    Refuser
+                  </button>
+                  <button
+                    onClick={() => setRefusing(null)}
+                    className="rounded-md px-1.5 py-1 text-[11px] text-gray-400 hover:text-gray-600"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              )}
               {p.source && <div className="mt-0.5 pl-1 text-[10.5px] text-gray-400">Source : {p.source}</div>}
               {isOpen && (
                 <pre className="mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border border-amber-100 bg-white p-2 font-sans text-[11.5px] leading-relaxed text-gray-700">

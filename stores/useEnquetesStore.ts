@@ -418,7 +418,48 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     // « 85103/843/2026 - GRIVESNES 2 » — même règle que l'ouverture d'un
     // dossier depuis le journal de l'attaché.
     const enquete = findEnqueteParNumero(get().ownEnquetes, numero);
-    if (!enquete) return; // enquête non trouvée / partagée : on ne fait rien.
+    if (!enquete) {
+      // Enquête PARTAGÉE (co-saisine) : l'acte doit naître dans le contentieux
+      // d'ORIGINE — même mécanique qu'ajoutCR. Sans cela, la validation
+      // marquait l'acte « traité » sans jamais créer l'acte de suivi.
+      const shared = findEnqueteParNumero(get().sharedEnquetes, numero);
+      if (!shared?.contentieuxOrigine) return; // introuvable partout : on ne fait rien.
+      const built = validated
+        ? buildProductionActe({ prodId: prod.id, type: prod.type, titre: prod.titre, meta: prod.meta, objet: prod.objet })
+        : null;
+      const manager = ContentieuxManager.getInstance();
+      const originEnquetes = manager.getEnquetes(shared.contentieuxOrigine);
+      const sharedCollections = ['actes', 'geolocalisations', 'ecoutes'] as const;
+      let changed = false;
+      const updated = originEnquetes.map(e => {
+        if (e.id !== shared.id) return e;
+        if (validated) {
+          if (!built) return e;
+          if (sharedCollections.some(c => (e[c] || []).find(a => a.prodId === prod.id))) return e; // idempotent
+          changed = true;
+          const next: Enquete = { ...e, [built.collection]: [...(e[built.collection] || []), built.acte], dateMiseAJour: new Date().toISOString() };
+          return appendModifications(next, [{ type: 'general_info_updated', label: `Acte créé depuis un acte rédigé validé : ${prod.titre}` }]);
+        }
+        // Réouverture : retirer l'acte resté à son état initial (même règle que ci-dessous).
+        for (const c of sharedCollections) {
+          const a = (e[c] || []).find(x => x.prodId === prod.id);
+          if (!a) continue;
+          const initialStatut = a.statut === 'autorisation_pending' || a.statut === 'pose_pending' || a.statut === 'en_cours';
+          const untouched = initialStatut && !a.datePose && !(a.prolongationsHistory && a.prolongationsHistory.length);
+          if (untouched) {
+            changed = true;
+            return { ...e, [c]: (e[c] || []).filter(x => x.id !== a.id), dateMiseAJour: new Date().toISOString() };
+          }
+        }
+        return e;
+      });
+      if (changed) {
+        manager.setEnquetes(shared.contentieuxOrigine, updated);
+        persistOriginContentieux(shared.contentieuxOrigine, updated);
+        get().loadSharedEnquetes();
+      }
+      return;
+    }
 
     // Recherche de l'acte déjà lié à cette production, quelle que soit la rubrique.
     const collections = ['actes', 'geolocalisations', 'ecoutes'] as const;

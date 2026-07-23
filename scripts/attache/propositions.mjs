@@ -196,13 +196,14 @@ export function listPropositions(keys, { numero, enAttente = true } = {}) {
  * Décision de l'administrateur. action: valider | refuser.
  * À la validation, l'écriture réelle est faite ICI, signée de son nom.
  */
-export async function decideProposition(keys, { id, action, par }) {
+export async function decideProposition(keys, { id, action, par, motif }) {
   if (action !== 'valider' && action !== 'refuser') throw new Error('Action attendue : valider | refuser')
   const propositions = load(keys)
   const prop = propositions.find((p) => p.id === id)
   if (!prop) throw new Error('Proposition inconnue')
   if (prop.statut !== 'en_attente') throw new Error('Proposition déjà traitée')
   const auteur = String(par || keys.grantedBy || 'admin')
+  const motifRefus = action === 'refuser' ? String(motif || '').replace(/\s+/g, ' ').trim().slice(0, 320) : ''
 
   let applique = null
   if (action === 'valider') {
@@ -245,14 +246,18 @@ export async function decideProposition(keys, { id, action, par }) {
   prop.statut = action === 'valider' ? 'validee' : 'refusee'
   prop.decideLe = new Date().toISOString()
   prop.decidePar = auteur
+  if (motifRefus) prop.refuseMotif = motifRefus
   await save(keys, propositions)
-  await audit(keys, 'proposition_' + prop.statut, { id, numero: prop.numero, type: prop.type, titre: prop.titre, par: auteur })
+  await audit(keys, 'proposition_' + prop.statut, { id, numero: prop.numero, type: prop.type, titre: prop.titre, par: auteur, ...(motifRefus ? { motif: motifRefus } : {}) })
   // Signal d'apprentissage (coût zéro) : un ✗ dit à l'attaché que sa détection
   // manquait de pertinence, un ✓ conforte le réflexe — distillés plus tard.
+  // Le MOTIF saisi par le magistrat (facultatif) voyage dans le detail : la
+  // consolidation comprend POURQUOI la détection a été rejetée — même richesse
+  // que le refus d'un acte rédigé (acte_refuse).
   await recordLearningSignal(keys, {
     type: action === 'valider' ? 'proposition_validee' : 'proposition_refusee',
     dossier: prop.numero || undefined,
-    detail: `${prop.type} — ${prop.titre}`,
+    detail: `${prop.type} — ${prop.titre}${motifRefus ? ` — motif du refus : ${motifRefus}` : ''}`,
     source: prop.source || undefined,
   })
   return { ok: true, statut: prop.statut, applique }

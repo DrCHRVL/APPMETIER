@@ -20,13 +20,14 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   return handle(async () => {
     const session = requireAttacheAdmin(req)
-    const body = await req.json().catch(() => null) as { id?: string, action?: string } | null
+    const body = await req.json().catch(() => null) as { id?: string, action?: string, motif?: string } | null
     if (!body?.id || (body.action !== 'valider' && body.action !== 'refuser')) {
       return jsonResponse({ error: 'id et action (valider|refuser) requis' }, { status: 400 })
     }
     const res = await attacheFetch('/propositions/decide', {
       method: 'POST',
-      body: { id: body.id, action: body.action, par: session.u },
+      // motif (facultatif, refus seulement) : capté comme signal d'apprentissage
+      body: { id: body.id, action: body.action, par: session.u, motif: typeof body.motif === 'string' ? body.motif.slice(0, 320) : undefined },
       timeoutMs: 60_000,
     })
     return jsonResponse(await res.json().catch(() => ({ ok: false })), { status: res.status })

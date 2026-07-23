@@ -20,6 +20,8 @@ interface AnalyseDocumentsModalProps {
   /** Analyse immédiate de documents déjà extraits (texte des PDF tout juste
    *  téléversés) — court-circuite le scan du dossier externe. */
   precomputedDocs?: ScannedDocument[];
+  /** Classe le CR de réception suggéré par l'IA au dossier (analyse IA seulement). */
+  onAddCR?: (contenu: string) => void;
 }
 
 type Phase = 'idle' | 'scanning' | 'analyzing' | 'results';
@@ -29,7 +31,8 @@ export const AnalyseDocumentsModal = ({
   onClose,
   enquete,
   onApplyActes,
-  precomputedDocs
+  precomputedDocs,
+  onAddCR
 }: AnalyseDocumentsModalProps) => {
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState('');
@@ -121,8 +124,8 @@ export const AnalyseDocumentsModal = ({
     if ((window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true) {
       setScanError(
         'Le scan d\'un dossier réseau n\'existe pas sur la version web : '
-        + 'téléversez les PDF à analyser via la section Documents de l\'enquête, '
-        + 'l\'analyse se lancera automatiquement.'
+        + 'téléversez les PDF à analyser via la section Documents de l\'enquête — '
+        + 'une bannière « Analyser (IA) » apparaît alors au-dessus des zones pour lancer l\'analyse en un clic.'
       );
       return;
     }
@@ -511,6 +514,63 @@ export const AnalyseDocumentsModal = ({
               <div className="flex items-start gap-2 rounded-lg border border-violet-200 bg-violet-50/60 p-3">
                 <Sparkles className="h-4 w-4 text-violet-600 mt-0.5 flex-shrink-0" />
                 <p className="text-xs text-violet-900 leading-relaxed">{result.iaResume}</p>
+              </div>
+            )}
+
+            {/* Incohérences document ↔ enquête (analyse IA) */}
+            {result.analyzedBy === 'ia' && (result.iaIncoherences?.length || 0) > 0 && (
+              <div className="rounded-lg border border-red-200 bg-red-50/60 p-3 space-y-1.5">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-red-800">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Incohérences relevées entre les documents et l&apos;enquête
+                </p>
+                <ul className="ml-5 space-y-1">
+                  {result.iaIncoherences!.map((inc, i) => (
+                    <li key={i} className={`text-xs flex items-start gap-1.5 ${inc.severite === 'error' ? 'text-red-700' : 'text-orange-700'}`}>
+                      {inc.severite === 'error'
+                        ? <XCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                        : <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />}
+                      <span>
+                        <span className="font-medium">
+                          {inc.type === 'numero_procedure' ? 'Numéro de procédure' : inc.type === 'natinf_absent' ? 'NATINF absent de l\'enquête' : 'Dates'}
+                          {inc.fileName ? ` — ${inc.fileName}` : ''} :
+                        </span>{' '}
+                        {inc.detail}
+                        {inc.type === 'numero_procedure' && (
+                          <span className="block text-[10.5px] text-red-500 mt-0.5">
+                            Vérifiez que ce document a été téléversé dans le bon dossier avant de créer les actes.
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* CR de réception suggéré (analyse IA) */}
+            {result.analyzedBy === 'ia' && result.iaCrSuggere && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 space-y-2">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-blue-800">
+                  <FileText className="h-3.5 w-3.5" />
+                  CR de réception suggéré (prise de notes)
+                </p>
+                <pre className="whitespace-pre-wrap rounded border border-blue-100 bg-white p-2 font-sans text-xs leading-relaxed text-gray-700">{result.iaCrSuggere}</pre>
+                {onAddCR && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs gap-1 border-blue-300 text-blue-700 hover:bg-blue-100"
+                    onClick={() => {
+                      onAddCR(result.iaCrSuggere!);
+                      showToast('CR classé au dossier', 'success');
+                      setResult({ ...result, iaCrSuggere: undefined });
+                    }}
+                  >
+                    <CheckCircle className="h-3 w-3" />
+                    Classer ce CR au dossier
+                  </Button>
+                )}
               </div>
             )}
 

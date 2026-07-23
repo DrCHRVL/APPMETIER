@@ -108,6 +108,7 @@ export async function readMailPieceText(keys, { mailId, piece, max = 12_000 } = 
   if (!rec) return { ok: false, error: 'Message introuvable dans la boîte — voir boite_lister' }
   const att = (rec.attachments || []).find((a) => a.nom === piece)
   if (!att) return { ok: false, error: `Pièce jointe « ${piece} » absente — pièces : ${(rec.attachments || []).map((a) => a.nom).join(', ') || '(aucune)'}` }
+  if (att.omise || !att.b64) return { ok: false, error: `Pièce « ${att.nom} » NON conservée (trop volumineuse : ${Math.round((att.taille || 0) / 1024 / 1024)} Mo, limite 15 Mo). Demande au magistrat de la déposer via le trombone du panneau ou de la re-transférer allégée — ne devine jamais son contenu.` }
   const plain = Buffer.from(att.b64, 'base64')
   const bound = Math.min(200_000, Math.max(500, Number(max) || 12_000))
   const res = await extractTextByName(plain, att.nom, { max: bound })
@@ -126,6 +127,7 @@ async function resolvePiece(keys, { source, rel, mailId, piece }) {
     if (!rec) throw new Error('Message introuvable dans la boîte')
     const att = (rec.attachments || []).find((a) => a.nom === piece)
     if (!att) throw new Error(`Pièce jointe « ${piece} » absente — pièces : ${(rec.attachments || []).map((a) => a.nom).join(', ') || '(aucune)'}`)
+    if (att.omise || !att.b64) throw new Error(`Pièce « ${att.nom} » NON conservée (trop volumineuse, limite 15 Mo) : impossible de la ranger — demander une version allégée ou un dépôt via le trombone`)
     const plain = Buffer.from(att.b64, 'base64')
     return { blob: encryptDocBlob(keys.global, plain), plain, originalName: att.nom, depotRel: null }
   }

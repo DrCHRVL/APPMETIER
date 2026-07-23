@@ -40,7 +40,9 @@ const STATUT_UI: Record<string, { label: string; cls: string; Icon: typeof MailO
   recu: { label: 'Reçu', cls: 'bg-blue-50 text-blue-700 border-blue-200', Icon: MailOpen },
   en_cours: { label: 'En cours de traitement', cls: 'bg-amber-50 text-amber-700 border-amber-200', Icon: Clock3 },
   traite: { label: 'Traité', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', Icon: CheckCircle2 },
-  erreur: { label: 'Erreur — sera retenté', cls: 'bg-red-50 text-red-600 border-red-200', Icon: AlertTriangle },
+  // Reprises automatiques à délai croissant ; épuisées → carte d'alerte au fil
+  // (« reprises épuisées ») et relance possible depuis la relève manuelle.
+  erreur: { label: 'Erreur — reprises automatiques en cours', cls: 'bg-red-50 text-red-600 border-red-200', Icon: AlertTriangle },
 };
 
 export function InboxWidget() {

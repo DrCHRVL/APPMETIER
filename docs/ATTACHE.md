@@ -15,12 +15,55 @@ l'usage).
   la complétude (actes expirant, attentes JLD, CR anciens, pièces manquantes).
   Chaque écriture est **versionnée** (archivage avant écrasement — annulable),
   et **journalisée** dans un audit chiffré visible du seul administrateur.
+- **A les capacités d'un utilisateur réel, sur instruction explicite** : tout
+  ce que le magistrat saisit à la main, l'attaché sait le faire quand on le
+  lui demande (en chat ou par mail transféré) — et il **récapitule toujours**
+  ce qu'il a touché :
+  - **créer un dossier complet** (`creer_dossier`) avec les MÊMES champs que
+    le formulaire « Nouvelle enquête » : numéro, date, **unité/service**,
+    **directeur d'enquête**, n° parquet, n° IDJ, **NATINF** (vérifiés au
+    référentiel), description, mis en cause recoupés — « crée un dossier X
+    avec tel enquêteur en directeur d'enquête et telle unité » suffit ;
+  - **modifier les métadonnées** d'un dossier (`modifier_dossier` : directeur
+    d'enquête, services, date de début, n° parquet/IDJ — chaque changement
+    laisse une entrée visible dans les modifications récentes), **archiver /
+    désarchiver** (`archiver_dossier`) ;
+  - **tenir l'échéancier des actes** (`modifier_acte`) : « le JLD a signé »
+    → autorisation accordée (date posée, la mesure passe « pose en attente »,
+    l'art. 76 passe « en cours ») ; « la balise est posée » → date de pose +
+    date de fin recalculée ; refus JLD, pose avortée, fin de mesure,
+    correction de cible/objet/durée — les MÊMES transitions que les boutons
+    du détail d'enquête ;
+  - **gérer les mis en cause** sur demande (`ajouter_mec`, `modifier_mec` —
+    rôle, statut, victime ; statut par défaut « actif », comme la saisie
+    manuelle) — un nom simplement *détecté* reste une proposition ✓/✗ ;
+  - **cocher les à-faire** (`terminer_todo`) quand une tâche est faite — y
+    compris quand son propre travail vient de l'accomplir ;
+  - les **suppressions** (dossier, acte, CR, mis en cause) restent
+    volontairement **manuelles** : elles posent des marqueurs côté client que
+    le service ne sait pas poser — l'attaché explique et propose l'équivalent
+    réversible (archiver, terminer, corriger).
 - **Anticipe** : la boîte mail dédiée est relevée toutes les 5 min ; chaque
   message transféré par le magistrat (le corps du transfert vaut consigne)
   déclenche un traitement autonome — qualification (DML, demande d'actes TSE,
   réponse JLD, notification d'instruction…), rapprochement avec le dossier,
   actions, synthèses, projets — dont le résultat s'affiche dans le fil
   « Pendant votre absence » du panneau.
+  - **Seul le magistrat commande** : la relève n'accepte que les mails de
+    `SIRAL_ATTACHE_OWNER_EMAIL` (complétée par
+    `SIRAL_ATTACHE_ALLOWED_SENDERS`) — un expéditeur inconnu est ignoré,
+    audité et signalé au fil, ses « consignes » ne déclenchent jamais un run.
+  - **Plusieurs actes dans un même mail** : l'attaché commence par LISTER
+    tous les actes demandés, les traite un par un (une production par acte),
+    vérifie avant de clore que chacun a la sienne, et le résumé du widget
+    boîte les énumère.
+  - **Rien ne se perd en silence** : un traitement qui échoue est retenté
+    (jusqu'à `SIRAL_ATTACHE_MAIL_MAX_ATTEMPTS`, délai croissant), puis
+    l'abandon est EXPLICITE — carte d'alerte au fil, relance possible depuis
+    le panneau. Un mail trop volumineux (> 40 Mo) ou une pièce jointe trop
+    lourde (> 15 Mo, conservée en fiche « omise ») sont signalés au lieu
+    d'être avalés. Un brief ou une routine qui casse laisse aussi sa carte
+    d'alerte.
 - **Ne sort JAMAIS du système** : plus aucun mail sortant (les réponses vers
   les boîtes professionnelles étaient rejetées — réputation de domaine). Les
   **livrables** se remettent DANS SIRAL : carte « Livrable 📦 » du fil
@@ -526,6 +569,21 @@ l'usage).
   validation habituels. Bascule IA ⟷ Classique dans la fenêtre, repli
   automatique sur le moteur classique si le service est indisponible. Modèle
   configurable via `SIRAL_ATTACHE_ANALYSE_MODEL` (défaut : sonnet).
+  - **Contrôles de cohérence intégrés** : l'analyse confronte chaque document
+    au dossier — **numéro de procédure divergent** (pièce téléversée dans le
+    mauvais dossier ?), **NATINF visés absents** de la fiche, **dates
+    incohérentes** — et l'affiche en tête des résultats. Elle **suggère un CR
+    de réception** (prise de notes courte : ce que les pièces apportent),
+    classé au dossier d'un clic, signé de votre nom.
+  - **Accessible sur le web** : au téléversement d'une pièce dans une zone
+    d'actes (Actes, Geoloc, Écoutes, DML), une bannière « Analyser (IA) »
+    apparaît au-dessus des zones (admin + attaché actif) — le texte a déjà
+    été converti dans le navigateur, l'analyse part en un clic. Rien ne se
+    lance tout seul.
+  - Les mêmes contrôles (numéro de procédure, NATINF, CR de réception) font
+    partie des **réflexes de l'attaché** pour toute pièce reçue par mail ou
+    par le dépôt : rien n'entre dans un dossier sans avoir été confronté à ce
+    que SIRAL sait déjà.
 - **Propose au lieu d'écrire quand il DÉTECTE** : à la lecture d'une pièce
   (document, PV, mail), un nom nouveau → proposition de **mis en cause**
   (dédoublonnage automatique, casse/accents compris) ; une mesure évoquée →
@@ -533,7 +591,11 @@ l'usage).
   **CR en prise de notes**. Les propositions apparaissent en bandeau dans le
   détail du dossier, pour le seul administrateur, avec **✓** (appliquer) et
   **✗** (refuser) discrets. Rien n'est écrit avant le ✓. L'écriture directe
-  reste réservée aux instructions explicites du magistrat.
+  reste réservée aux instructions explicites du magistrat. Le **✗ ouvre un
+  champ « motif » facultatif** : dites en un mot POURQUOI (hors sujet,
+  doublon, mauvaise qualification…) — le motif part en signal
+  d'apprentissage, la consolidation en tire la règle, comme pour un acte
+  refusé.
 - **Ne laisse AUCUNE trace dans les données partagées** : les CR et
   écritures sont signés **du nom de l'administrateur** (jamais « Attaché
   IA »), y compris le `modifiedBy` de la synchronisation. L'attribution
@@ -542,7 +604,13 @@ l'usage).
   fonctionnalité est indistinguable d'une route inexistante.
 - **Routines** : consignes récurrentes définies par le magistrat
   (quotidiennes à HH:MM ou toutes les N heures), gérées dans Paramètres →
-  Attaché IA — créer, suspendre, exécuter immédiatement, supprimer.
+  Attaché IA — créer, suspendre, exécuter immédiatement, supprimer. **Et
+  gérées en conversation** : « chaque matin vérifie les échéances », « toutes
+  les semaines cherche les liens cachés » → l'attaché enregistre la routine
+  lui-même (`routine_enregistrer`, prompt autonome, heure de nuit pour les
+  balayages lourds), la suspend, la réactive ou la supprime sur demande
+  (`routine_suspendre` / `routine_supprimer`) — et confirme toujours nom +
+  cadence. Une routine qui échoue laisse une carte d'alerte au fil.
 - **Chat flottant par dossier** : depuis le détail d'une enquête ou d'un
   dossier d'instruction, une bulle déplaçable (admin only), toujours
   accessible même pendant la rédaction d'un CR. Une conversation par
@@ -636,6 +704,9 @@ l'usage).
    SIRAL_ATTACHE_URL=http://attache:8787
    SIRAL_ATTACHE_MASTER_KEY=$(openssl rand -hex 32)   # ≠ SIRAL_SECRET
    SIRAL_ATTACHE_OWNER_EMAIL=votre-adresse-pro@justice.fr
+   # facultatif : autres expéditeurs autorisés à donner des consignes
+   # (secrétariat…) — tout expéditeur hors liste est ignoré et signalé
+   SIRAL_ATTACHE_ALLOWED_SENDERS=
    SIRAL_ATTACHE_IMAP_HOST=ssl0.ovh.net
    SIRAL_ATTACHE_IMAP_USER=ia@votre-domaine
    SIRAL_ATTACHE_IMAP_PASSWORD=…
