@@ -18,6 +18,7 @@ const StatsPage = dynamic(() => import('@/components/pages/StatsPage').then(m =>
 const DashboardPage = dynamic(() => import('@/components/pages/DashboardPage').then(m => ({ default: m.DashboardPage })), { ssr: false });
 const AssistantJusticePage = dynamic(() => import('@/components/pages/AssistantJusticePage').then(m => ({ default: m.AssistantJusticePage })), { ssr: false });
 import { useContentieuxEnquetesStore as useContentieuxEnquetes } from '@/hooks/useContentieuxEnquetesStore';
+import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
 import { useInfractionFilter } from '@/hooks/useInfractionFilter';
 import { useDocumentSearch } from '@/hooks/useDocumentSearch';
@@ -162,6 +163,14 @@ import { NetworkStatusManager } from '@/utils/networkStatusManager';
 import { AuditLogger } from '@/utils/auditLogger';
 
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
+
+// Rapprochement souple d'un numéro de dossier (raccourci « Assistant de
+// justice ») : partagé entre le clic et la sélection différée après bascule.
+const normNumero = (s?: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const numeroMatches = (candidate: string | undefined, normTarget: string) => {
+  const nc = normNumero(candidate);
+  return !!nc && (nc === normTarget || nc.includes(normTarget) || normTarget.includes(nc));
+};
 
 
 function AppContent() {
@@ -1199,39 +1208,67 @@ function AppContent() {
     setIsEditing(true);
   }, []);
 
+  // Sélectionne la version VIVANTE du dossier depuis le store des enquêtes —
+  // la même que celle ouverte depuis la liste. Le snapshot Overboard ne sert
+  // qu'à LOCALISER le dossier : il date du chargement de la page, donc les
+  // écritures survenues depuis (description actualisée par l'attaché, CR,
+  // actes tirés par la sync) en sont absentes ; ouvrir cet objet-là affichait
+  // une fiche différente de celle de la page « Enquêtes ». Si le store est en
+  // train de basculer de contentieux, on attend qu'il ait chargé (sélectionner
+  // tout de suite serait de toute façon annulé : setContentieux remet
+  // selectedEnquete à null). Garde-fou : au-delà de 5 s, on ouvre le snapshot.
+  const openLiveEnqueteWhenReady = useCallback((ctxId: ContentieuxId, normTarget: string, fallback: Enquete) => {
+    const tryOpen = (): boolean => {
+      const s = useEnquetesStore.getState();
+      if (s.contentieuxId !== ctxId || s.isLoading) return false;
+      const live = s.enquetes.find(e => e.id === fallback.id && numeroMatches(e.numero, normTarget))
+        || s.enquetes.find(e => numeroMatches(e.numero, normTarget));
+      s.setSelectedEnquete(live || fallback);
+      s.setIsEditing(false);
+      return true;
+    };
+    if (tryOpen()) return;
+    let done = false;
+    let unsub: (() => void) | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const finish = () => { done = true; unsub?.(); if (timer) clearTimeout(timer); };
+    unsub = useEnquetesStore.subscribe(() => { if (!done && tryOpen()) finish(); });
+    timer = setTimeout(() => {
+      if (done) return;
+      finish();
+      const s = useEnquetesStore.getState();
+      s.setSelectedEnquete(fallback);
+      s.setIsEditing(false);
+    }, 5000);
+  }, []);
+
   // Ouvre la fiche d'un dossier depuis son NUMÉRO (raccourci « Assistant de
   // justice » : un clic sur un item du brief ou une carte du journal ouvre
   // directement l'EnquêteDetail — où l'acte rédigé se retrouve dans la section
   // « Actes rédigés », éditable/exportable). Cherche dans tous les contentieux,
   // puis dans les instructions.
   const handleOpenDossierByNumero = useCallback((numero: string) => {
-    const norm = (s?: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    const nt = norm(numero);
+    const nt = normNumero(numero);
     if (!nt) return;
-    const matches = (candidate?: string) => {
-      const nc = norm(candidate);
-      return !!nc && (nc === nt || nc.includes(nt) || nt.includes(nc));
-    };
     for (const [ctxId, list] of overboardData) {
-      const found = list.find(e => matches(e.numero));
+      const found = list.find(e => numeroMatches(e.numero, nt));
       if (found) {
         if (ctxId !== activeContentieux) {
           setActiveContentieux(ctxId);
           setCurrentView(`enquetes_${ctxId}`);
         }
-        setSelectedEnquete(found);
-        setIsEditing(false);
+        openLiveEnqueteWhenReady(ctxId, nt, found);
         return;
       }
     }
-    const inst = instructions.find(d => matches(d.numeroInstruction) || matches((d as { numeroParquet?: string }).numeroParquet));
+    const inst = instructions.find(d => numeroMatches(d.numeroInstruction, nt) || numeroMatches((d as { numeroParquet?: string }).numeroParquet, nt));
     if (inst) {
       setSelectedInstruction(inst);
       setIsEditingInstruction(false);
       return;
     }
     showToast(`Dossier « ${numero} » introuvable dans vos enquêtes`, 'info');
-  }, [overboardData, activeContentieux, instructions, showToast, setActiveContentieux, setCurrentView, setSelectedEnquete, setIsEditing, setSelectedInstruction, setIsEditingInstruction]);
+  }, [overboardData, activeContentieux, instructions, showToast, setActiveContentieux, setCurrentView, openLiveEnqueteWhenReady, setSelectedInstruction, setIsEditingInstruction]);
   const handleToggleSuivi = useCallback((enqueteId: number, type: 'JIRS' | 'PG') => {
     const enquete = enquetesLookupRef.current.find(e => e.id === enqueteId);
     if (!enquete) return;
