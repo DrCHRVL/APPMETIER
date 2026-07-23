@@ -25,7 +25,7 @@ import { extractPdfText } from './ocr.mjs'
 import { extractOfficeText, isOfficeExt } from './officeText.mjs'
 import { saveKbEntry, setKbReflexe } from './kb.mjs'
 
-import { enqueteExiste } from './dossier.mjs'
+import { enqueteExiste, numeroCanonique } from './dossier.mjs'
 import { instructionExiste } from './instru.mjs'
 import { readInboxMessage } from './mail.mjs'
 
@@ -149,6 +149,10 @@ export async function rangerDocument(keys, { source, rel, mailId, piece, numero,
   if (!enqueteExiste(keys, numero) && !instructionExiste(keys, numero)) {
     throw new Error(`Dossier « ${numero} » introuvable (ni enquête, ni instruction) — vérifier lister_dossiers / instru_lister`)
   }
+  // Écriture CANONIQUE du numéro : une pièce rangée sous « 85103/843/2026 »
+  // doit se retrouver dans les documents de l'enquête « 85103/843/2026 -
+  // GRIVESNES 2 » — le rangement suit la clé de l'enquête, pas la variante.
+  if (enqueteExiste(keys, numero)) numero = numeroCanonique(keys, numero)
 
   const { blob, originalName, depotRel } = await resolvePiece(keys, { source, rel, mailId, piece })
 

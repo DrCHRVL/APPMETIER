@@ -41,6 +41,7 @@ import { PermanencePage } from '@/components/pages/PermanencePage';
 import { ArchivePage } from '@/components/pages/ArchivePage';
 import type { EnqueteWithContext } from '@/utils/mindmapGraph';
 import { sameMecPerson } from '@/utils/mindmapGraph';
+import { normNumero, numerosProches, findEnqueteParNumero } from '@/utils/numeroDossier';
 import { useTags } from '@/hooks/useTags';
 import { useSections } from '@/hooks/useSections';
 import { useUserServiceOrganization } from '@/hooks/useUserServiceOrganization';
@@ -1205,15 +1206,12 @@ function AppContent() {
   // « Actes rédigés », éditable/exportable). Cherche dans tous les contentieux,
   // puis dans les instructions.
   const handleOpenDossierByNumero = useCallback((numero: string) => {
-    const norm = (s?: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    const nt = norm(numero);
-    if (!nt) return;
-    const matches = (candidate?: string) => {
-      const nc = norm(candidate);
-      return !!nc && (nc === nt || nc.includes(nt) || nt.includes(nc));
-    };
+    if (!normNumero(numero)) return;
     for (const [ctxId, list] of overboardData) {
-      const found = list.find(e => matches(e.numero));
+      // Même règle de rapprochement que le service et que syncProductionActe :
+      // parmi plusieurs candidates (« …GRIVESNES » / « …GRIVESNES 2 »), la
+      // plus vraisemblable — et non la première venue.
+      const found = findEnqueteParNumero(list, numero);
       if (found) {
         if (ctxId !== activeContentieux) {
           setActiveContentieux(ctxId);
@@ -1224,7 +1222,7 @@ function AppContent() {
         return;
       }
     }
-    const inst = instructions.find(d => matches(d.numeroInstruction) || matches((d as { numeroParquet?: string }).numeroParquet));
+    const inst = instructions.find(d => numerosProches(d.numeroInstruction, numero) || numerosProches((d as { numeroParquet?: string }).numeroParquet, numero));
     if (inst) {
       setSelectedInstruction(inst);
       setIsEditingInstruction(false);

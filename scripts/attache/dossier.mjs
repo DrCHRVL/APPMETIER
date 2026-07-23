@@ -17,6 +17,7 @@ import {
   attacheDir, readJson, atomicWrite, readState,
 } from './store.mjs'
 import { encryptJson, decryptJson, decryptDocBlob } from './crypto.mjs'
+import { normNumero, numerosProches } from './numero.mjs'
 import { AUTRE_ACTE_TYPES, resolveAutreActeTypeKey, deriveAutreActeFields } from './acteTypes.mjs'
 import { natinfEntry, natinfLabel } from './natinf.mjs'
 import { extractPdfText } from './ocr.mjs'
@@ -87,12 +88,63 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-function findEnquete(data, numero) {
+/** Correspondance STRICTE (à l'espace près) — seule règle admise pour les
+ *  gardes d'unicité : créer « …GRIVESNES 2 » à côté de « …GRIVESNES » doit rester possible. */
+function findEnqueteStrict(data, numero) {
   const wanted = String(numero).trim()
   const list = data.enquetes || []
   return list.find((e) => String(e.numero).trim() === wanted)
     || list.find((e) => String(e.numero).replace(/\s+/g, '') === wanted.replace(/\s+/g, ''))
     || null
+}
+
+/**
+ * Retrouve une enquête par son numéro, écritures VARIANTES comprises — même
+ * tolérance que l'ouverture d'un dossier dans l'app (app/page.tsx) :
+ * « 85103/843/2026 » retrouve « 85103/843/2026 - GRIVESNES 2 ». Sans elle,
+ * un acte rédigé sous l'écriture courte restait invisible dans l'enquête et
+ * lire_dossier répondait « introuvable ». Plusieurs candidates (« …GRIVESNES »
+ * et « …GRIVESNES 2 ») : la plus vraisemblable — égalité normalisée d'abord,
+ * dossier non archivé ensuite, puis activité la plus récente.
+ */
+function findEnquete(data, numero) {
+  const strict = findEnqueteStrict(data, numero)
+  if (strict) return strict
+  const list = data.enquetes || []
+  const candidates = list.filter((e) => numerosProches(e.numero, numero))
+  if (candidates.length === 0) return null
+  const nt = normNumero(numero)
+  candidates.sort((a, b) =>
+    (Number(normNumero(b.numero) === nt) - Number(normNumero(a.numero) === nt))
+    || (Number(a.statut === 'archive') - Number(b.statut === 'archive'))
+    || String(b.dateMiseAJour || '').localeCompare(String(a.dateMiseAJour || '')))
+  return candidates[0]
+}
+
+/**
+ * Enquête désignée par un numéro (écriture exacte ou variante) — null si
+ * aucune, ou si le trousseau ne couvre pas le contentieux. Sert notamment à
+ * CANONISER un numéro avant de s'en servir comme clé de stockage (productions,
+ * documents) : voir numeroCanonique.
+ */
+export function resolveEnquete(keys, numero) {
+  try {
+    const { data } = loadContentieux(keys)
+    return findEnquete(data, numero)
+  } catch { return null }
+}
+
+/**
+ * Écriture CANONIQUE d'un numéro de dossier : celle de l'enquête telle
+ * qu'elle existe dans SIRAL. Tout ce qui se range sous une clé dérivée du
+ * numéro (docServerKey) doit passer par ici — sinon l'écriture courte et
+ * l'écriture longue créent deux rangements que l'app ne recoupe jamais.
+ * Numéro inconnu (ou pseudo-dossier « _hors-dossier ») : rendu tel quel.
+ */
+export function numeroCanonique(keys, numero) {
+  if (String(numero || '').startsWith('_')) return String(numero)
+  const e = resolveEnquete(keys, numero)
+  return e?.numero ? String(e.numero) : String(numero)
 }
 
 /** Le numéro correspond-il à une enquête du contentieux confié ? */
@@ -419,7 +471,7 @@ function tidyPdfText(text) {
  * (voir ci-dessus) — l'original PDF reste intact sur le serveur.
  */
 export async function readDocumentText(keys, numero, cheminRelatif) {
-  const key = docServerKey(numero)
+  const key = docServerKey(numeroCanonique(keys, numero))
   // Copie markdown déposée AU TÉLÉVERSEMENT (MD/<chemin>.md) : servie en
   // priorité pour les formats non textuels — zéro extraction, texte fidèle
   // (conversion navigateur), tokens et CPU économisés.
@@ -894,8 +946,8 @@ export async function ajouterNatinfs(keys, { numero, codes, source }) {
  * sous-pochettes = organisation du dossier). Chemins exacts pour
  * lire_document. Plafonnée — le tri par chemin rend l'arborescence lisible.
  */
-export function arborescenceDocuments(numero) {
-  const metas = listDocsMeta(attacheTj(), docServerKey(numero))
+export function arborescenceDocuments(keys, numero) {
+  const metas = listDocsMeta(attacheTj(), docServerKey(numeroCanonique(keys, numero)))
   const pieces = metas
     // MD/ = copies markdown des originaux : lire_document les sert déjà de
     // lui-même quand on demande l'original — les lister doublerait tout.
@@ -906,7 +958,7 @@ export function arborescenceDocuments(numero) {
 }
 
 export function listerDml(keys, numero) {
-  const docs = listDocsMeta(attacheTj(), docServerKey(numero))
+  const docs = listDocsMeta(attacheTj(), docServerKey(numeroCanonique(keys, numero)))
   return docs
     .filter((d) => d.rel.startsWith('DML/') || String(d.category || '').toUpperCase() === 'DML')
     .map((d) => ({ chemin: d.rel, nomOriginal: d.originalName, taille: d.size, deposeLe: d.savedAt }))
@@ -978,10 +1030,12 @@ export function dossierSyntheseSignals(keys) {
     })
 }
 
-/** Vrai si un dossier de ce numéro existe déjà dans le contentieux. */
+/** Vrai si un dossier de ce numéro existe déjà dans le contentieux.
+ *  STRICT à dessein (garde d'unicité avant création) : « …GRIVESNES 2 »
+ *  n'est pas un doublon de « …GRIVESNES ». */
 export function dossierExiste(keys, numero) {
   const { data } = loadContentieux(keys)
-  return Boolean(findEnquete(data, numero))
+  return Boolean(findEnqueteStrict(data, numero))
 }
 
 /**
@@ -997,7 +1051,7 @@ export async function creerDossier(keys, { numero, dateDebut, services, descript
   if (!num) throw new Error('Numéro (nom) du dossier requis')
   const payload = loadContentieux(keys)
   payload.data.enquetes = payload.data.enquetes || []
-  if (findEnquete(payload.data, num)) throw new Error(`Un dossier « ${num} » existe déjà`)
+  if (findEnqueteStrict(payload.data, num)) throw new Error(`Un dossier « ${num} » existe déjà`)
 
   const author = authorOf(keys)
   const now = new Date().toISOString()

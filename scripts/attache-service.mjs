@@ -30,7 +30,7 @@ import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
 import { classerTrames, classerKb, classerSkills, suggererAssociations } from './attache/classer.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
-import { listEnvelopes, readEnvelope, writeEnvelope, deleteProduction, readProduction } from './attache/productions.mjs'
+import { listEnvelopesDossier, writeEnvelope, deleteProduction, readProduction } from './attache/productions.mjs'
 import { recordLearningSignal, consolidationDue, consolidationPrompt, learningStatus, learningState, latestSignalTs } from './attache/apprentissage.mjs'
 import { corpusActesValides, etudeDue, etudePrompt, etudeState, etudeStatus } from './attache/etude.mjs'
 import { MEMORY_BUDGET } from './attache/memory.mjs'
@@ -941,7 +941,10 @@ const server = http.createServer(async (req, res) => {
     if (route === 'GET /productions') {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      return json(res, 200, { productions: listEnvelopes(url.searchParams.get('numero') || '') })
+      // Variantes d'écriture du numéro comprises : l'atelier « Actes rédigés »
+      // de l'enquête « 85103/843/2026 - GRIVESNES 2 » voit aussi les actes
+      // rangés sous « 85103/843/2026 » (même dossier, écriture courte).
+      return json(res, 200, { productions: listEnvelopesDossier(keys, url.searchParams.get('numero') || '') })
     }
 
     if (route === 'PUT /production') {
