@@ -10,10 +10,12 @@
  *   - scripts/attache/acteTypes.mjs → deriveAutreActeFields / resolveAutreActeTypeKey.
  *
  * La nature exacte de l'acte (rubrique, catégorie, dates, durée, cible/objet)
- * ne peut PAS être devinée de façon fiable depuis le texte libre : elle est
- * portée par les métadonnées `ActeMeta` que l'attaché attache à la rédaction
- * (cf. produire_document). À défaut de métadonnées (productions anciennes), on
- * tente une résolution de catégorie depuis le titre, sinon acte libre.
+ * est portée par les métadonnées `ActeMeta` que l'attaché attache à la
+ * rédaction (cf. produire_document). À défaut de métadonnées (productions
+ * anciennes, oubli de l'agent), la RUBRIQUE est inférée du titre — une
+ * « Requête d'interception de correspondances téléphoniques » est une écoute
+ * (rubrique Écoutes), pas un acte libre dans « Autres actes » — puis on tente
+ * une résolution de catégorie, sinon acte libre.
  */
 
 import { AUTRE_ACTE_TYPES, AutreActeTypeKey } from '@/config/acteTypes';
@@ -68,6 +70,42 @@ export function resolveAutreActeTypeKey(input?: string): AutreActeTypeKey | null
   }
   if (has('procedure preliminaire') || (hasTok('76') && !has('706') && !hasTok('706'))) return 'art76';
   return null;
+}
+
+/**
+ * Infère la RUBRIQUE (écoutes / géolocalisations) d'un acte depuis son titre
+ * libre, quand l'attaché n'a pas fourni de métadonnées. Conservateur : ne
+ * renvoie une rubrique que sur correspondance fiable, sinon null.
+ *  - IMSI-catcher (« interceptions » 706-95-4) reste hors rubrique : c'est une
+ *    catégorie d'« autre » acte, pas une écoute ;
+ *  - une prolongation ne crée jamais de rubrique : l'écoute/géoloc prolongée
+ *    existe déjà dans l'enquête, il ne faut pas la dupliquer.
+ */
+export function inferActeKind(titre?: string): 'ecoute' | 'geolocalisation' | null {
+  const t = norm(titre || '');
+  if (!t) return null;
+  if (t.includes('prolongation')) return null;
+  if (t.includes('imsi') || t.includes('706 95 4')) return null;
+  if (t.includes('ecoute') || t.includes('706 95') ||
+      (t.includes('interception') &&
+        ['telephon', 'correspondance', 'communication', 'ligne'].some((w) => t.includes(w)))) {
+    return 'ecoute';
+  }
+  if (t.includes('geolocalisation') || t.includes('geoloc') || t.includes('balise') ||
+      t.includes('230 32') || t.includes('230 33')) {
+    return 'geolocalisation';
+  }
+  return null;
+}
+
+/**
+ * Un titre en « Requête… / Demande… / Saisine… » désigne une mesure encore
+ * soumise à l'autorisation du juge : validée, la production reste une demande —
+ * l'acte doit naître « en attente JLD » (pour les mesures effectivement
+ * soumises au JLD), pas « en cours » daté du jour.
+ */
+function isRequeteTitle(titre?: string): boolean {
+  return /^(requete|demande|saisine)\b/.test(norm(titre || ''));
 }
 
 interface DerivedFields {
@@ -140,53 +178,71 @@ export function buildProductionActe(params: {
   type: string;
   titre: string;
   meta?: ActeMeta;
+  /** Objet porté par la production elle-même (n° de ligne interceptée, objet
+   *  géolocalisé — cf. produire_document) : secours quand ActeMeta est absent. */
+  objet?: string;
 }): BuiltActe | null {
   if (NON_ACTE_PRODUCTION_TYPES.has(params.type)) return null;
 
   const meta = params.meta || {};
-  const kind = meta.kind || 'autre';
+  // Rubrique : celle des métadonnées quand l'attaché l'a fournie ; sinon,
+  // inférée du titre — sauf si une catégorie d'« autre » acte est indiquée.
+  const kind = meta.kind || (!meta.categorie ? inferActeKind(params.titre) : null) || 'autre';
   const id = Date.now();
   const description = params.titre;
-  const dureeUnit: 'jours' | 'mois' = meta.dureeUnit === 'mois' ? 'mois' : 'jours';
   const debut = meta.dateDebut || new Date().toISOString().slice(0, 10);
-  const dureeNum = Number(meta.duree);
-  const hasDuree = Number.isFinite(dureeNum) && dureeNum > 0;
-  const pendingJld = meta.pendingJld === true;
-
-  // Socle commun aux rubriques écoute / géoloc / acte libre — mêmes règles de
-  // statut que la saisie manuelle (en attente JLD / en attente de pose / en cours).
-  const statut: ActeStatus = pendingJld ? 'autorisation_pending' : (hasDuree ? 'pose_pending' : 'en_cours');
-  const base = {
-    id,
-    prodId: params.prodId,
-    dateDebut: pendingJld ? '' : debut,
-    dateFin: (!pendingJld && hasDuree) ? DateUtils.calculateEndDateWithUnit(debut, String(meta.duree), dureeUnit) : '',
-    duree: meta.duree != null ? String(meta.duree) : '0',
-    dureeUnit,
-    statut,
-    ...(pendingJld ? { autorisationRequestedAt: new Date().toISOString() } : {}),
-  };
+  // Mesure encore devant le JLD : métadonnée explicite, sinon inférée — une
+  // production « saisine JLD » ou titrée « Requête / Demande / Saisine … »
+  // est une demande, pas l'autorisation elle-même.
+  const requete = params.type === 'saisine_jld' || isRequeteTitle(params.titre);
+  const pendingJld = meta.pendingJld ?? requete;
 
   if (kind === 'ecoute') {
+    // Schéma de la saisie manuelle (EcouteModal / EcouteSection) : durée
+    // légale FIXE d'1 mois + 1 prolongation max, autorisation JLD par défaut ;
+    // la date de fin n'est calculée qu'à la pose.
+    const pending = meta.pendingJld ?? (requete || !meta.dateDebut);
     const acte: EcouteData = {
-      ...base,
-      numero: String(meta.cible || meta.objet || 'ligne à préciser'),
+      id,
+      prodId: params.prodId,
+      numero: String(meta.cible || meta.objet || params.objet || 'ligne à préciser'),
       cible: meta.cible ? String(meta.cible) : undefined,
       description,
+      dateDebut: pending ? '' : debut,
+      dateFin: '',
+      duree: '1',
+      dureeUnit: 'mois',
+      maxProlongations: 1,
+      statut: pending ? 'autorisation_pending' : 'pose_pending',
+      ...(pending ? { autorisationRequestedAt: new Date().toISOString() } : {}),
+      prolongationsHistory: [],
     };
     return { collection: 'ecoutes', acte };
   }
 
   if (kind === 'geolocalisation') {
+    // Schéma de la saisie manuelle (GeolocModal / GeolocSection) : 15 jours
+    // par défaut, pas de plafond de prolongations, date de fin à la pose.
+    const geoDuree = Number(meta.duree);
     const acte: GeolocData = {
-      ...base,
-      objet: String(meta.objet || meta.cible || 'objet à préciser'),
+      id,
+      prodId: params.prodId,
+      objet: String(meta.objet || meta.cible || params.objet || 'objet à préciser'),
       description,
+      dateDebut: pendingJld ? '' : debut,
+      dateFin: '',
+      duree: Number.isFinite(geoDuree) && geoDuree > 0 ? String(meta.duree) : '15',
+      dureeUnit: meta.dureeUnit === 'mois' ? 'mois' : 'jours',
+      statut: pendingJld ? 'autorisation_pending' : 'pose_pending',
+      ...(pendingJld ? { autorisationRequestedAt: new Date().toISOString() } : {}),
+      prolongationsHistory: [],
     };
     return { collection: 'geolocalisations', acte };
   }
 
   // « Autre » acte : catégorie légale (pré-remplie comme « Ajouter un acte »)…
+  // deriveAutreActeFields n'applique l'attente JLD qu'aux catégories
+  // effectivement soumises au JLD (autorisation procureur : flag ignoré).
   const key = resolveAutreActeTypeKey(meta.categorie || params.titre);
   if (key) {
     const f = deriveAutreActeFields(key, { dateDebut: debut, duree: meta.duree, pendingJld });
@@ -208,12 +264,26 @@ export function buildProductionActe(params: {
   }
 
   // …ou acte libre hors catégorie (ex. comparution forcée art. 78 CPP).
+  // Sans catégorie, on ne sait pas si la mesure est soumise au JLD : l'attente
+  // n'est retenue que sur indication explicite (métadonnée, ou saisine JLD).
+  const dureeUnit: 'jours' | 'mois' = meta.dureeUnit === 'mois' ? 'mois' : 'jours';
+  const dureeNum = Number(meta.duree);
+  const hasDuree = Number.isFinite(dureeNum) && dureeNum > 0;
+  const pending = meta.pendingJld ?? params.type === 'saisine_jld';
+  const statut: ActeStatus = pending ? 'autorisation_pending' : (hasDuree ? 'pose_pending' : 'en_cours');
   const acte: AutreActe = {
-    ...base,
+    id,
+    prodId: params.prodId,
     type: (meta.categorie && String(meta.categorie).trim())
       || PRODUCTION_TYPE_LABEL[params.type]
       || 'Acte',
     description,
+    dateDebut: pending ? '' : debut,
+    dateFin: (!pending && hasDuree) ? DateUtils.calculateEndDateWithUnit(debut, String(meta.duree), dureeUnit) : '',
+    duree: meta.duree != null ? String(meta.duree) : '0',
+    dureeUnit,
+    statut,
+    ...(pending ? { autorisationRequestedAt: new Date().toISOString() } : {}),
   };
   return { collection: 'actes', acte };
 }
