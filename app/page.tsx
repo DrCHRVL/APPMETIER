@@ -29,6 +29,8 @@ import { ToastProvider, useToast } from '@/contexts/ToastContext';
 import { AudienceProvider, useAudience } from '@/contexts/AudienceContext';
 import { buildResultatKey } from '@/stores/useAudienceStore';
 import { InstructionResultatsProvider } from '@/contexts/InstructionResultatsContext';
+import { useInstructionResultatsStore, buildInstructionResultatKey } from '@/stores/useInstructionResultatsStore';
+import type { ResultatAudience } from '@/types/audienceTypes';
 import { ActeRunsWatcher } from '@/components/attache/ActeRunsWatcher';
 import type { EnquetePreliminaireOption } from '@/components/instruction/LierEnquetePreliminaireModal';
 import { UserProvider, useUser } from '@/contexts/UserContext';
@@ -380,6 +382,11 @@ function AppContent() {
   // Résultats d'audience (dont le marqueur OI) — sert à proposer, dans le module
   // instruction, les seules enquêtes préliminaires éligibles au rattachement.
   const { audienceState } = useAudience();
+
+  // Résultats d'audience des dossiers d'instruction (store user-scoped,
+  // initialisé par InstructionResultatsProvider) — sert à projeter les
+  // condamnés des dossiers d'instruction sur la cartographie.
+  const instructionResultats = useInstructionResultatsStore(s => s.resultats);
 
   // Wrapper qui met à jour l'enquête dans le store scopé ET dans le snapshot
   // Overboard, pour que le tableau de bord (qui lit le snapshot) reflète
@@ -977,10 +984,26 @@ function AppContent() {
       if (!ctx) continue;
       suppressedPrelimKeys.add(`${ctx}_${inst.enquetePreliminaireId}`);
     }
+    // Condamnés d'un résultat d'audience : projetés sur la cartographie comme
+    // les autres protagonistes du dossier. Le moteur de graphe évite le doublon
+    // quand la personne figure déjà parmi les mis en cause du dossier. On
+    // ignore les brouillons pré-archivage et les condamnations en attente
+    // d'audience (pas encore jugées).
+    const condamnesOf = (res?: ResultatAudience | null): Array<{ nom: string }> | undefined => {
+      if (!res || res.isPreArchiveSaisies) return undefined;
+      const noms: Array<{ nom: string }> = [];
+      for (const c of res.condamnations || []) {
+        const nom = (c.nom || '').trim();
+        if (!nom || c.isPending) continue;
+        noms.push({ nom });
+      }
+      return noms.length > 0 ? noms : undefined;
+    };
     for (const [ctxId, list] of overboardData) {
       for (const e of list) {
         if (suppressedPrelimKeys.has(`${ctxId}_${e.id}`)) continue;
-        out.push({ enquete: e, contentieuxId: ctxId });
+        const condamnes = condamnesOf(audienceState.resultats[buildResultatKey(ctxId, e.id)]);
+        out.push({ enquete: e, contentieuxId: ctxId, condamnes });
       }
     }
     for (const inst of instructions) {
@@ -1042,6 +1065,7 @@ function AppContent() {
       const pseudoEnquete = {
         id: inst.id,
         numero: inst.numeroInstruction,
+        numeroParquet: inst.numeroParquet,
         statut: 'instruction' as const,
         dateCreation: inst.dateCreation,
         dateMiseAJour: inst.dateMiseAJour,
@@ -1058,10 +1082,16 @@ function AppContent() {
         enquete: pseudoEnquete,
         contentieuxId: inst.contentieuxId,
         misEnExamen: inst.misEnExamen,
+        // Résultat d'audience du dossier d'instruction : clé sur son contentieux,
+        // avec repli sur la clé générique des fiches sans contentieux à la saisie.
+        condamnes: condamnesOf(
+          instructionResultats[buildInstructionResultatKey(inst.contentieuxId, inst.id)]
+          || instructionResultats[buildInstructionResultatKey('instructions', inst.id)],
+        ),
       });
     }
     return out;
-  }, [overboardData, instructions]);
+  }, [overboardData, instructions, audienceState.resultats, instructionResultats]);
 
   // Les dossiers d'instruction sans contentieux ne sont pas projetés sur la
   // mindmap, donc on n'a plus besoin du pseudo-contentieux "instructions" :

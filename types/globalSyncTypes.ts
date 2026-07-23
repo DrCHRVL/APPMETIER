@@ -146,6 +146,11 @@ export interface CartoContributionMisEnExamen {
   infractions?: CartoContributionInfraction[];
 }
 
+/** Personne condamnée au résultat d'audience du dossier (projection carto). */
+export interface CartoContributionCondamne {
+  nom: string;
+}
+
 export interface CartoContributionSource {
   contentieuxId: string;
   /** Id numérique du dossier source (clé de dédup : `${contentieuxId}_${id}`). */
@@ -160,6 +165,9 @@ export interface CartoContributionSource {
   misEnCause: CartoContributionMec[];
   /** Présent uniquement pour les dossiers d'instruction (chefs + NATINF). */
   misEnExamen?: CartoContributionMisEnExamen[];
+  /** Condamnés du résultat d'audience (déduplication faite par le moteur de
+   *  graphe côté lecteur, contre les mis en cause du dossier). */
+  condamnes?: CartoContributionCondamne[];
 }
 
 /**
