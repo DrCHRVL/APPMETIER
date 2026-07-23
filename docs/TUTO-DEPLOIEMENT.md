@@ -102,24 +102,14 @@ Ouvrez **https://votre-domaine** : l'écran de connexion SIRAL apparaît.
 
 ## 4. Premier démarrage (~10 min)
 
-> **Pour récupérer vos données existantes**, deux chemins (§ 4.1) :
-> l'**import dans l'app** (recommandé : aucune ligne de commande, après votre
-> première connexion) ou le **script en SSH** (avancé : à faire AVANT votre
-> première connexion, l'écran de migration s'occupe alors de tout d'un coup).
-
 1. **Enrôlement** : « Premier accès ? Enrôler une passkey » → identifiant
-   (utilisez **le même identifiant que dans l'app Electron** — celui de
-   `users.json`, ex. votre login Windows), nom affiché, tribunal, code
+   (ex. votre login Windows), nom affiché, tribunal, code
    d'enrôlement → Windows Hello / Face ID crée la passkey. *Le premier compte
    créé est administrateur du serveur.*
 2. **Votre trousseau personnel** (cloisonnement par clé individuelle) :
    - *Serveur vierge* : écran « Initialisation du chiffrement » — choisissez
      votre **phrase personnelle** (longue — quatre mots aléatoires). Des clés
      neuves sont générées et scellées dans votre trousseau.
-   - *Serveur avec données importées (§ 4.1)* : écran « Passage aux clés
-     individuelles » — saisissez la **phrase utilisée à l'import** une
-     dernière fois, puis votre **phrase personnelle**. Les clés des
-     contentieux sont régénérées et votre trousseau créé.
    - Votre phrase personnelle est **irrécupérable** : imprimez-la, enveloppe
      scellée. En cas d'oubli, un collègue admin peut vous ré-inviter.
 3. **Inviter les collègues** : Paramètres → **Utilisateurs & accès** →
@@ -130,67 +120,6 @@ Ouvrez **https://votre-domaine** : l'écran de connexion SIRAL apparaît.
    Le collègue s'enrôle (passkey + code d'enrôlement), saisit son code
    d'invitation et choisit SA phrase personnelle. Révoquer un membre se fait
    au même endroit.
-
-### 4.1 Importer les données existantes
-
-#### Option A — dans l'app (recommandée, ~5 min, aucune ligne de commande)
-
-À faire **depuis le poste qui voit le partage du service** (lecteur `P:`),
-après votre première connexion (enrôlement + trousseau, étapes 1 et 2
-ci-dessus) :
-
-1. Ouvrez **Paramètres → Sauvegardes → « Import depuis l'app bureau »**.
-2. **Dossier du service** : sélectionnez le dossier de données partagé
-   (ex. `P:\TGI\Parquet\...\10_App METIER`).
-3. **Dossier des pièces** (facultatif) : sélectionnez `documentenquete`
-   (ex. `C:\...\app\data\documentenquete`).
-4. Vérifiez le récapitulatif (contentieux, enquêtes, tags, instructions…)
-   puis lancez : tout est **chiffré dans votre navigateur** avec votre
-   trousseau avant l'envoi — pas de phrase de transit, aucune copie en clair
-   ne touche le serveur.
-5. Un **rapport de complétude** s'affiche ; en cas d'erreur, l'import est
-   rejouable sans risque (les coffres sont versionnés). Rechargez l'app :
-   vos données sont là.
-
-> Si un contentieux apparaît « bloqué », c'est que sa clé n'est pas dans
-> votre trousseau — sur un serveur vierge dont vous êtes le premier compte,
-> vous avez toutes les clés, ce cas ne se présente pas.
-
-#### Option B — script en SSH (avancé, AVANT la première connexion)
-
-Sur le serveur, déposez une copie de vos données (depuis votre poste,
-PowerShell) :
-
-```powershell
-scp -r "P:\TGI\Parquet\...\10_App METIER" ubuntu@VOTRE_IP:~/import-source
-scp -r "C:\...\app\data\documentenquete" ubuntu@VOTRE_IP:~/import-docs
-```
-
-Puis sur le serveur :
-
-```bash
-cd ~/siral
-docker compose stop siral
-node scripts/siral-import.js \
-  --source ~/import-source \
-  --docs ~/import-docs \
-  --out /var/lib/docker/volumes/siral_siral-data/_data \
-  --passphrase "VOTRE PHRASE SECRÈTE"
-docker compose start siral
-# nettoyage : les copies en clair n'ont plus rien à faire sur le serveur
-shred -ru ~/import-source ~/import-docs 2>/dev/null || rm -rf ~/import-source ~/import-docs
-```
-
-La phrase passée à `--passphrase` est une **phrase de transit** : choisissez-en
-une longue, vous la saisirez une seule fois à l'écran « Passage aux clés
-individuelles », puis elle n'aura plus d'usage (les clés sont régénérées).
-
-Le script affiche un **rapport de complétude** (comptages par type) et refuse
-de conclure si quelque chose manque. Rechargez l'app : vos données sont là.
-
-> ⚠️ Quelle que soit l'option : tant que la migration n'est pas validée,
-> l'app Electron du service reste l'outil de référence. Rien n'est supprimé
-> côté Electron.
 
 ---
 

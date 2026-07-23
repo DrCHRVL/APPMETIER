@@ -32,7 +32,6 @@ interface MultiSideBarProps {
   /** Résultats de recherche dans les autres contentieux (pastilles) */
   crossSearchResults?: CrossSearchResult[];
   /** Nombre d'utilisateurs en attente d'approbation (badge sur Paramètres) */
-  pendingUsersCount?: number;
   /** Affiche l'entrée « Assistant de justice » (attaché IA activé + admin). */
   showAssistant?: boolean;
 }
@@ -153,7 +152,6 @@ export const MultiSideBar = ({
   enqueteCounts = {},
   instructionCount = 0,
   crossSearchResults = [],
-  pendingUsersCount = 0,
   showAssistant = false,
 }: MultiSideBarProps) => {
   const { accessibleContentieux, canDo, isAdmin, isJLD, hasOverboard, hasModule, permissions, user } = useUser();
@@ -518,11 +516,6 @@ export const MultiSideBar = ({
         >
           <Settings className={`h-4 w-4 flex-shrink-0 ${currentView === 'settings' ? 'text-white' : 'text-white/60'}`} />
           {isOpen && <span className="truncate">Paramètres</span>}
-          {pendingUsersCount > 0 && (
-            <span className="absolute top-1 right-1 flex items-center justify-center min-w-[16px] h-[16px] px-0.5 bg-red-500 text-white text-[9px] font-bold rounded-full shadow-sm">
-              {pendingUsersCount}
-            </span>
-          )}
         </button>
       </div>
       )}

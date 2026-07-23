@@ -47,6 +47,15 @@ export const AdminTagHistoryPanel = () => {
   const handleReview = async (id: string, status: 'approved' | 'rejected') => {
     const req = requests.find(r => r.id === id);
 
+    // Demande héritée « infraction » (données anciennes) : plus de tag à créer,
+    // les infractions relèvent du référentiel NATINF — on classe simplement.
+    if (status === 'approved' && req?.category === 'infractions') {
+      await tagRequestManager.reviewRequest(id, status, user?.windowsUsername || 'admin');
+      showToast('Demande classée — les types d\'infraction se choisissent désormais via le NATINF', 'info');
+      loadRequests();
+      return;
+    }
+
     if (status === 'approved' && req) {
       // Dédup : ne crée le tag que s'il n'existe pas déjà (même valeur + catégorie).
       const alreadyExists = !!getTagByValue(req.tagValue, req.category as TagCategory);

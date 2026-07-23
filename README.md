@@ -9,11 +9,11 @@ ENVIRO).
 
 > ⚠️ Application à usage interne. Ne pas diffuser.
 
-## Édition web (édition de référence)
+## Édition web
 
 Application web hébergée — chiffrement de bout en bout côté client,
 authentification WebAuthn/passkeys, multi-tribunaux, PWA installable
-(desktop + iPhone). C'est la **seule édition activement maintenue**.
+(desktop + iPhone).
 
 ```bash
 npm install
@@ -29,8 +29,7 @@ cp .env.exemple .env   # puis remplir les valeurs
 docker compose up -d --build
 ```
 
-L'architecture et la migration sont décrites dans
-**[docs/PLAN-MIGRATION-WEB.md](docs/PLAN-MIGRATION-WEB.md)** et le déploiement dans
+Le déploiement est décrit dans
 **[docs/TUTO-DEPLOIEMENT.md](docs/TUTO-DEPLOIEMENT.md)**.
 
 ### Attaché de justice (IA) — optionnel
@@ -42,14 +41,6 @@ mémoire corrigeable avec apprentissage progressif (il apprend de chaque
 correction, à coût de jetons nul, et consolide périodiquement). Propulsé
 par Claude Code via l'abonnement Claude (pas d'API).
 Voir **[docs/ATTACHE.md](docs/ATTACHE.md)**.
-
-## Édition Electron desktop — archivée
-
-L'ancienne édition Electron portable (Windows, données dans `data/` synchronisées
-sur le partage réseau du service) **n'est plus maintenue**. Ses fichiers ont été
-déplacés dans **[`archive/electron-desktop/`](archive/electron-desktop/)** et sont
-exclus des builds. Voir le README de ce dossier pour le détail et la procédure de
-restauration éventuelle.
 
 ---
 

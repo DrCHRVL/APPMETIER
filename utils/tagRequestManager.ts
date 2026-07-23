@@ -1,4 +1,7 @@
-// utils/tagRequestManager.ts — Gestion des demandes de création de tags service
+// utils/tagRequestManager.ts — Gestion des demandes de création de tags service.
+// Seuls les tags « services » se demandent : les types d'infraction relèvent du
+// référentiel NATINF (le type stocké garde 'infractions' pour lire les demandes
+// anciennes encore présentes en données).
 import { ElectronBridge } from './electronBridge';
 import { tagSyncService, DELETED_TAG_REQUEST_IDS_KEY } from './dataSync/TagSyncService';
 import type { TagTombstone } from '@/types/globalSyncTypes';
@@ -8,6 +11,7 @@ const TAG_REQUESTS_KEY = 'tag_requests';
 export interface TagRequest {
   id: string;
   tagValue: string;
+  /** 'infractions' = demandes héritées (lecture seule des données anciennes). */
   category: 'services' | 'infractions';
   contentieuxId: string;
   requestedBy: string;
@@ -27,7 +31,7 @@ export const tagRequestManager = {
     return all.filter(r => r.status === 'pending');
   },
 
-  async addRequest(request: Omit<TagRequest, 'id' | 'status' | 'requestedAt'>): Promise<TagRequest> {
+  async addRequest(request: Omit<TagRequest, 'id' | 'status' | 'requestedAt' | 'category'> & { category: 'services' }): Promise<TagRequest> {
     const all = await this.getRequests();
     const newRequest: TagRequest = {
       ...request,

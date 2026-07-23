@@ -24,11 +24,11 @@ export const metadata: Metadata = {
 const IS_CONSULTATION = process.env.NEXT_PUBLIC_CONSULTATION === '1'
 
 /**
- * Stub précoce : en mode navigateur (pas d'Electron), installe une surface
- * window.electronAPI dont chaque fonction attend que le pont web soit prêt
- * (après connexion + déverrouillage E2EE) puis lui délègue l'appel.
- * Doit s'exécuter AVANT les bundles (ElectronBridge capture la disponibilité
- * de window.electronAPI au chargement de module).
+ * Stub précoce : installe la surface window.electronAPI (pont de données —
+ * nom hérité de l'ancienne édition bureau) dont chaque fonction attend que
+ * le pont web soit prêt (après connexion + déverrouillage E2EE) puis lui
+ * délègue l'appel. Doit s'exécuter AVANT les bundles (ElectronBridge capture
+ * la disponibilité de window.electronAPI au chargement de module).
  */
 const EARLY_STUB = `(function(){
   if (window.electronAPI) return;

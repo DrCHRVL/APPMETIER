@@ -199,19 +199,6 @@ class CartographieConfigManagerService {
     });
   }
 
-  /** Définit le poids associé à un tag d'infraction (clé = Tag.id).
-   *  Passer 0 supprime l'entrée pour rester clean. */
-  async setTagInfractionWeight(tagId: string, weight: number): Promise<boolean> {
-    const current = await this.loadForWrite();
-    const next = { ...current.tagInfractionWeights };
-    if (!weight) {
-      delete next[tagId];
-    } else {
-      next[tagId] = weight;
-    }
-    return this.save({ ...current, tagInfractionWeights: next });
-  }
-
   /** Définit le poids de BASE associé à une catégorie d'infraction (clé = code
    *  StatCategory). Passer 0 supprime l'entrée pour rester clean. */
   async setCategoryWeight(categoryCode: string, weight: number): Promise<boolean> {

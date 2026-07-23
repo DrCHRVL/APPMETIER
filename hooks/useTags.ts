@@ -447,6 +447,9 @@ export const useTags = (): UseTagsReturn => {
         for (const enquete of enquetes) {
           if (!Array.isArray(enquete.tags)) continue;
           for (const tag of enquete.tags as any[]) {
+            // Les tags d'infraction résiduels (legacy) sont résolus via le
+            // NATINF, pas via la gestion centrale : ne pas les compter orphelins.
+            if (typeof tag !== 'string' && tag.category === 'infractions') continue;
             const tagValue = typeof tag === 'string' ? tag : tag.value;
             if (tagValue) usedTags.add(tagValue);
           }
@@ -503,15 +506,10 @@ export const useTags = (): UseTagsReturn => {
       let createdCount = 0;
       
       for (const tagValue of orphanTagsToRecreate) {
-        // Essayer de deviner la catégorie
+        // Essayer de deviner la catégorie (les infractions ne se recréent
+        // plus en tag : elles relèvent du référentiel NATINF)
         let category: TagCategory = 'services';
-        const upperValue = tagValue.toUpperCase();
-        
-        if (['SR', 'PJ', 'BAC', 'BRIGADE', 'SLPJ', 'GENDARMERIE', 'SRPJ', 'BRI', 'CSP'].some(s => upperValue.includes(s))) {
-          category = 'services';
-        } else if (['STUP', 'VOL', 'ESCROQUERIE', 'VIOLENCE', 'HOMICIDE', 'TRAFIC', 'BLANCHIMENT'].some(s => upperValue.includes(s))) {
-          category = 'infractions';
-        } else if (tagValue.includes('enquête') || tagValue.includes('jours')) {
+        if (tagValue.includes('enquête') || tagValue.includes('jours')) {
           category = 'duree';
         } else if (tagValue.toLowerCase().includes('jirs') || tagValue.toLowerCase().includes('parquet général')) {
           category = 'suivi';

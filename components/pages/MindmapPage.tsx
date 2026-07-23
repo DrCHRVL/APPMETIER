@@ -213,9 +213,9 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     mecScoreBoosts,
   }), [mecsExNihilo, dossiersExNihilo, liensRenseignement, mecScoreBoosts]);
 
-  // Configuration de scoring (pondérations éditables + poids par tag d'infraction).
-  // Reconstruite quand la config carto change ou que la liste des tags
-  // d'infraction évolue (utile pour le matching qualifications ↔ valeur de tag).
+  // Configuration de scoring (pondérations éditables NATINF/catégories, plus
+  // le poids des anciens tags d'infraction — HÉRITAGE : ne sert qu'aux
+  // dossiers ex nihilo créés avant la bascule NATINF encore présents en data).
   const { config: cartoConfig } = useCartographieConfig();
   const { getTagsByCategory } = useTags();
   // Résolveur code NATINF → code de catégorie d'infraction (Mémento parquet),

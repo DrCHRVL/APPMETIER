@@ -33,8 +33,6 @@ import { useToast } from '@/contexts/ToastContext';
 import { collectDropEntries, incomingFromFileList, cleanRelPath, type Incoming } from '@/lib/web/folderUpload';
 import { fileToMarkdown } from '@/lib/web/fileToMarkdown';
 import { DocumentPathModal } from '../modals/DocumentPathModal';
-import { AnalyseDocumentsModal } from '../modals/AnalyseDocumentsModal';
-import type { ScannedDocument } from '@/utils/documents/ServerDocumentScanner';
 import { DocHoverPreview } from '@/components/DocHoverPreview';
 import { DocumentSyncManager, SyncResult } from '@/utils/documents/DocumentSyncManager';
 import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipProvider } from '../ui/tooltip';
@@ -136,19 +134,17 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   const [dragOverZone, setDragOverZone] = useState<DocumentCategory | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showPathModal, setShowPathModal] = useState(false);
-  const [showAnalyseModal, setShowAnalyseModal] = useState(false);
-  const [autoAnalyseDocs, setAutoAnalyseDocs] = useState<ScannedDocument[] | null>(null);
   const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null);
   const [pendingCommun, setPendingCommun] = useState(0);
 
-  // compteur de copies « dossier commun » en attente pour cette enquête (édition web)
+  // compteur de copies « dossier commun » en attente pour cette enquête
   const refreshPendingCommun = useCallback(async () => {
     try {
-      if (typeof window === 'undefined' || !(window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__) return;
+      if (typeof window === 'undefined') return;
       const fsa = await import('@/lib/web/folderAccess');
       const all = await fsa.pendingCopies();
       setPendingCommun(all.filter(j => j.enquete === String(enquete.numero)).length);
-    } catch { /* hors web ou IndexedDB indisponible */ }
+    } catch { /* IndexedDB indisponible */ }
   }, [enquete.numero]);
   useEffect(() => { refreshPendingCommun(); }, [refreshPendingCommun, copyStatus]);
 
@@ -201,9 +197,6 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   });
 
   const { showToast } = useToast();
-
-  // Mode web (navigateur) : certaines actions n'ont aucun sens hors application bureau.
-  const isWeb = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
 
   // Documents par catégorie — mémoïsés pour éviter les recalculs inutiles
   const documentsByCategory = useMemo(() => {
@@ -363,12 +356,10 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
 
   // ── Synchro automatique (web uniquement) ──
   // Tant que l'app est ouverte sur un poste qui voit le dossier commun (P:\) connecté
-  // au navigateur, on réconcilie P:\ ↔ serveur en silence, en boucle. Conditions :
-  //   - mode web,
-  //   - le chemin est bien une poignée de dossier choisie dans le navigateur (fsa://).
+  // au navigateur, on réconcilie P:\ ↔ serveur en silence, en boucle — à condition
+  // que le chemin soit une poignée de dossier choisie dans le navigateur (fsa://).
   // Un ancien chemin Windows brut (P:\…) n'est pas exploitable : on n'essaie pas.
   useEffect(() => {
-    if (!isWeb) return;
     const p = enquete.cheminExterne || '';
     if (!p.startsWith('fsa://')) return;
     let cancelled = false;
@@ -377,7 +368,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     const loop = setInterval(run, 5 * 60 * 1000);    // puis toutes les 5 minutes
     return () => { cancelled = true; clearTimeout(first); clearInterval(loop); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isWeb, enquete.cheminExterne, enquete.id]);
+  }, [enquete.cheminExterne, enquete.id]);
 
   // ── Icône selon type de fichier ──
   const getFileIcon = (type: string, size = 'h-4 w-4') => {
@@ -466,9 +457,9 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           if (rel) await deposerCopieMarkdown(filesToUpload[i].file, rel);
         }
 
-        // Synchro automatique au téléversement (web) : réconcilie aussi P:\ → serveur
+        // Synchro automatique au téléversement : réconcilie aussi P:\ → serveur
         // si des fichiers y ont été déposés à la main. Silencieux, dédupliqué.
-        if (isWeb && enquete.cheminExterne?.startsWith('fsa://')) {
+        if (enquete.cheminExterne?.startsWith('fsa://')) {
           setTimeout(() => syncRef.current(true), 1500);
         }
 
@@ -696,21 +687,6 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     } catch { showToast('Erreur lors de la suppression du document', 'error'); }
   };
 
-  const handleOpenExternalFolder = async () => {
-    if (!enquete.cheminExterne) { showToast('Aucun chemin externe configuré', 'warning'); return; }
-    if ((window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true) {
-      showToast('Le navigateur ne peut pas ouvrir l\'Explorateur Windows — ouvrez le dossier commun directement depuis le poste de travail', 'info');
-      return;
-    }
-    if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
-    try {
-      const ok = await window.electronAPI.openExternalFolder(
-        enquete.cheminExterne, enquete.numero, enquete.useSubfolderForExternal ?? true
-      );
-      if (!ok) showToast("Impossible d'ouvrir le dossier externe", 'error');
-    } catch { showToast("Erreur lors de l'ouverture du dossier externe", 'error'); }
-  };
-
   const handleSaveExternalPath = (newPath: string, useSubfolder: boolean) => {
     const oldPath = enquete.cheminExterne;
     const oldSub = enquete.useSubfolderForExternal ?? true;
@@ -777,20 +753,6 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
             </CardTitle>
 
             <div className="flex flex-wrap items-center gap-2">
-              {/* « Actualiser » scanne le dossier interne — sans objet en web (serveur = source). */}
-              {!isWeb && (
-                <Button
-                  variant="outline" size="sm"
-                  onClick={() => scanForNewDocuments()}
-                  disabled={isScanning}
-                  className="flex items-center gap-2"
-                  title="Rechercher les nouveaux documents ajoutés manuellement"
-                >
-                  {isScanning ? <Loader className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                  {isScanning ? 'Recherche...' : 'Actualiser'}
-                </Button>
-              )}
-
               {enquete.cheminExterne && (
                 <Button
                   variant="outline" size="sm"
@@ -801,34 +763,6 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                 >
                   {isSyncing ? <Loader className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   {isSyncing ? 'Synchro...' : 'Synchroniser'}
-                </Button>
-              )}
-
-              {/* « Analyser actes » au clic scanne un dossier réseau — indisponible en web.
-                  (L'analyse automatique des PDF au téléversement est désactivée ;
-                  cette analyse-ci reste disponible à la demande.) */}
-              {enquete.cheminExterne && !isWeb && (
-                <Button
-                  variant="outline" size="sm"
-                  onClick={() => setShowAnalyseModal(true)}
-                  className="flex items-center gap-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
-                  title="Analyser les PDF du serveur pour détecter et créer automatiquement les actes"
-                >
-                  <Search className="h-4 w-4" />
-                  Analyser actes
-                </Button>
-              )}
-
-              {/* Un navigateur ne peut pas ouvrir l'Explorateur Windows : bouton masqué en web. */}
-              {enquete.cheminExterne && !isWeb && (
-                <Button
-                  variant="outline" size="sm"
-                  onClick={handleOpenExternalFolder}
-                  className="flex items-center gap-2"
-                  title="Ouvrir le dossier externe"
-                >
-                  <FolderOpen className="h-4 w-4" />
-                  Ouvrir dossier
                 </Button>
               )}
 
@@ -1090,20 +1024,20 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                 <div className="flex-1">
                   <p className="text-sm font-medium text-green-800">Dossier commun configuré</p>
                   <p className="text-xs text-green-700 break-all">
-                    {isWeb ? enquete.cheminExterne.replace(/^fsa:\/\//, '') : enquete.cheminExterne}
+                    {enquete.cheminExterne.replace(/^fsa:\/\//, '')}
                     {enquete.useSubfolderForExternal !== false && ` / ${enquete.numero}`}
                   </p>
                   <p className="text-xs text-green-600 mt-1">
                     Mode : {enquete.useSubfolderForExternal !== false ? 'Sous-dossier enquête' : 'Dossier direct'}
                   </p>
-                  {/* En web : signaler la synchro automatique, ou inviter à reconnecter
+                  {/* Signaler la synchro automatique, ou inviter à reconnecter
                       un ancien chemin bureau (P:\) non exploitable par le navigateur. */}
-                  {isWeb && enquete.cheminExterne.startsWith('fsa://') && (
+                  {enquete.cheminExterne.startsWith('fsa://') && (
                     <p className="text-xs text-green-600 mt-1">
                       ↻ Synchronisation automatique active (toutes les 5 min, tant que cet onglet est ouvert)
                     </p>
                   )}
-                  {isWeb && !enquete.cheminExterne.startsWith('fsa://') && (
+                  {!enquete.cheminExterne.startsWith('fsa://') && (
                     <p className="text-xs text-amber-700 mt-1">
                       ⚠️ Ce dossier vient de la version bureau et n'est pas reconnu par le navigateur.
                       Cliquez sur « Modifier chemin » puis « Choisir le dossier » pour activer la synchronisation.
@@ -1162,13 +1096,6 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         enqueteNumero={enquete.numero}
       />
 
-      <AnalyseDocumentsModal
-        precomputedDocs={autoAnalyseDocs ?? undefined}
-        isOpen={showAnalyseModal}
-        onClose={() => { setShowAnalyseModal(false); setAutoAnalyseDocs(null); }}
-        enquete={enquete}
-        onApplyActes={(updates) => onUpdate(enquete.id, updates)}
-      />
     </>
   );
 });

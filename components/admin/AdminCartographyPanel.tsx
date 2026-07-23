@@ -3,8 +3,9 @@
 import React from 'react';
 import { RotateCcw, Info, ChevronRight } from 'lucide-react';
 import { useCartographieConfig } from '@/hooks/useCartographieConfig';
-import { useTags } from '@/hooks/useTags';
 import { useNatinf } from '@/hooks/useNatinf';
+import { ContentieuxManager } from '@/utils/contentieuxManager';
+import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { NatinfBadge } from '../natinf/NatinfBadge';
 import type { NatinfEntry } from '@/types/natinf';
 import { GRAND_TITRES, STAT_CATEGORIES, categoryForEntry } from '@/lib/natinf/nataff';
@@ -12,7 +13,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { DEFAULT_CARTO_LAYOUT, type CartographieLayoutConfig, type CartographieScoreWeights } from '@/types/cartographieTypes';
 
 // ──────────────────────────────────────────────
-// PANEL : pondérations du score MEC + tags d'infraction
+// PANEL : pondérations du score MEC (catégories d'infraction + NATINF)
 // ──────────────────────────────────────────────
 //
 // Tous les paramètres affectent UNIQUEMENT le module Cartographie (score
@@ -115,9 +116,9 @@ const WEIGHT_FIELDS: WeightFieldDef[] = [
 
 export const AdminCartographyPanel: React.FC = () => {
   const { config, isLoading, updateWeights, setCategoryWeight, setNatinfWeight, setGroupByService, updateLayout, reset } = useCartographieConfig();
-  const { getTagsByCategory, isLoading: tagsLoading } = useTags();
   const { getByCode } = useNatinf();
   const { showToast } = useToast();
+  const ownEnquetes = useEnquetesStore(state => state.ownEnquetes);
 
   // Catégories d'infraction (Mémento parquet) regroupées par grand titre, pour
   // la pondération de BASE. Chaque NATINF hérite du poids de sa catégorie.
@@ -130,21 +131,24 @@ export const AdminCartographyPanel: React.FC = () => {
       }));
   }, []);
 
-  const infractionTags = React.useMemo(
-    () => getTagsByCategory('infractions'),
-    [getTagsByCategory],
-  );
-
-  // NATINF effectivement utilisés = ceux rattachés à vos tags d'infraction.
+  // NATINF effectivement utilisés = ceux portés par les dossiers des
+  // contentieux chargés (infractionNatinfCodes) + ceux ayant déjà un poids
+  // (pour que les réglages existants restent visibles et modifiables).
   const usedNatinfs = React.useMemo(() => {
-    const codes = new Set<string>();
-    for (const t of infractionTags) (t.natinfCodes || []).forEach(c => codes.add(c));
+    const codes = new Set<string>(Object.keys(config.natinfWeights || {}));
+    const manager = ContentieuxManager.getInstance();
+    const activeId = useEnquetesStore.getState().contentieuxId;
+    for (const contentieuxId of manager.getLoadedContentieuxIds()) {
+      const enquetes = contentieuxId === activeId ? ownEnquetes : manager.getEnquetes(contentieuxId);
+      for (const e of enquetes) {
+        for (const c of (e.infractionNatinfCodes || [])) codes.add(c);
+      }
+    }
     return [...codes]
       .map(c => getByCode(c))
       .filter((e): e is NatinfEntry => Boolean(e))
       .sort((a, b) => parseInt(a.code, 10) - parseInt(b.code, 10));
-  }, [infractionTags, getByCode]);
-  const unlinkedCount = infractionTags.filter(t => !t.natinfCodes?.length).length;
+  }, [config.natinfWeights, ownEnquetes, getByCode]);
 
   // Tampon d'édition local : permet la saisie libre tout en gardant les
   // champs synchronisés sur la config persistée. On le vide à chaque
@@ -203,7 +207,7 @@ export const AdminCartographyPanel: React.FC = () => {
     if (ok) showToast('Pondérations réinitialisées', 'success');
   };
 
-  if (isLoading || tagsLoading) {
+  if (isLoading) {
     return <div className="text-sm text-gray-500">Chargement…</div>;
   }
 
@@ -374,20 +378,13 @@ export const AdminCartographyPanel: React.FC = () => {
         <p className="text-xs text-gray-500 mb-3">
           De <strong>luxe</strong> : un poids posé ici <strong>prime</strong> sur le poids de la
           catégorie pour ce NATINF précis, quand vous avez besoin de descendre dans le détail.
-          Seuls les NATINF rattachés à vos infractions sont listés. Laisser à 0 = utiliser le
+          Seuls les NATINF portés par vos dossiers sont listés. Laisser à 0 = utiliser le
           poids de la catégorie.
         </p>
 
-        {unlinkedCount > 0 && (
-          <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mb-2">
-            {unlinkedCount} type(s) d&apos;infraction non rattaché(s) au NATINF — utilisez
-            «&nbsp;Rattacher au NATINF&nbsp;» (Paramètres &gt; Tags) pour les inclure ici.
-          </p>
-        )}
-
         {usedNatinfs.length === 0 ? (
           <div className="text-xs text-gray-500 italic py-4 text-center border border-dashed border-slate-200 rounded-md">
-            Aucune infraction rattachée au NATINF.
+            Aucun NATINF porté par les dossiers chargés.
           </div>
         ) : (
           <div className="divide-y divide-slate-100 border border-slate-200 rounded-md">

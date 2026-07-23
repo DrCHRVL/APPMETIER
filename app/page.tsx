@@ -188,7 +188,6 @@ function AppContent() {
   const [activeContentieux, setActiveContentieux] = useState<ContentieuxId | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsContentieuxId, setSettingsContentieuxId] = useState<ContentieuxId | null>(null);
-  const [pendingUsersCount, setPendingUsersCount] = useState(0);
   // Attaché de justice IA (admin uniquement, activé côté serveur)
   const [attacheAvailable, setAttacheAvailable] = useState(false);
   const [showAttache, setShowAttache] = useState(false);
@@ -276,7 +275,7 @@ function AppContent() {
     contentieuxColor?: string;
     enquetes: any[];
   }>>([]);
-  const { subscribedContentieux: weeklySubscribedIds, crDelayHighlight, instructionWeeklyRecapSubscribed, instructionNetworkPath } = useUserPreferences();
+  const { subscribedContentieux: weeklySubscribedIds, crDelayHighlight, instructionWeeklyRecapSubscribed } = useUserPreferences();
 
   // Construit les buckets pour le récap hebdo : intersection des contentieux
   // abonnés et des contentieux actuellement accessibles à l'utilisateur, en
@@ -330,13 +329,10 @@ function AppContent() {
     }
   }, [showConflictModal, multiConflict]);
 
-  // Mise à jour de l'application
+  // Mise à jour de l'application (vérifiée et appliquée via AdminUpdatePanel)
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updateCommits, setUpdateCommits] = useState(0);
   const [isUpdating, setIsUpdating] = useState(false);
-  const [updateLocalSha, setUpdateLocalSha] = useState<string | null>(null);
-  const [updateRemoteSha, setUpdateRemoteSha] = useState<string | null>(null);
-  const [updateApprovedSha, setUpdateApprovedSha] = useState<string | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   // Hook pour les enquêtes — scopé au contentieux actif (défaut : crimorg)
@@ -466,25 +462,18 @@ function AppContent() {
     };
   }, []);
 
-  // Sauvegarde réseau privée du module instruction : active uniquement si le
-  // module est activé pour l'utilisateur ET qu'un dossier réseau est configuré.
+  // Sauvegarde privée du module instruction : active si le module est activé
+  // pour l'utilisateur (coffre serveur chiffré `instructions-<user>`).
   useEffect(() => {
     const enabled = hasModule('instructions');
-    instructionSyncService.configure(
-      enabled ? (user?.windowsUsername || null) : null,
-      enabled ? instructionNetworkPath : null,
-    );
-  }, [hasModule, user?.windowsUsername, instructionNetworkPath]);
+    instructionSyncService.configure(enabled ? (user?.windowsUsername || null) : null);
+  }, [hasModule, user?.windowsUsername]);
 
-  // Sauvegarde réseau privée du module AIR (mesures AIR), avec partage
-  // réciproque optionnel. En mode web, le coffre serveur chiffré `air-<user>`
-  // sert de magasin — aucun dossier réseau à configurer.
+  // Sauvegarde privée du module AIR (mesures AIR), avec partage réciproque
+  // optionnel — coffre serveur chiffré `air-<user>`.
   useEffect(() => {
     const enabled = hasModule('air');
-    airSyncService.configure(
-      enabled ? (user?.windowsUsername || null) : null,
-      null,
-    );
+    airSyncService.configure(enabled ? (user?.windowsUsername || null) : null);
   }, [hasModule, user?.windowsUsername]);
 
   useEffect(() => {
@@ -525,13 +514,6 @@ function AppContent() {
       setGlobalTodos(todos || []);
     });
   }, []);
-
-  // Compter les utilisateurs en attente d'approbation (admin uniquement)
-  useEffect(() => {
-    if (!isAdmin()) { setPendingUsersCount(0); return; }
-    const count = UserManager.getInstance().getPendingUsersCount();
-    setPendingUsersCount(count);
-  }, [isAdmin, showSettingsModal]);
 
   // Attaché de justice IA : disponible seulement si le serveur l'active pour
   // CE TJ et CE compte (la route répond 404 à tout non-admin — invisible).
@@ -657,33 +639,9 @@ function AppContent() {
     checkWeeklyPopup();
   }, [accessibleContentieux, weeklySubscribedIds, buildWeeklyBuckets]);
 
-  // Vérification des mises à jour au démarrage (puis toutes les 30 min) — Electron uniquement.
-  // Sur le serveur web, la vérification et l'application sont gérées dans AdminUpdatePanel (admin seulement).
-  useEffect(() => {
-    if ((window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true) return;
-    const checkUpdate = async () => {
-      try {
-        const result = await window.electronAPI.checkAppUpdate?.();
-        if (result) {
-          setUpdateAvailable(result.hasUpdate || false);
-          setUpdateCommits(result.commits || 0);
-          setUpdateLocalSha(result.localSha || null);
-          setUpdateRemoteSha(result.remoteSha || null);
-          setUpdateApprovedSha(result.approvedSha || null);
-        }
-      } catch {
-        // Silencieux si pas de connexion
-      }
-    };
-    checkUpdate();
-    const interval = setInterval(checkUpdate, 30 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
-
   const handleApplyUpdate = async () => {
-    // Sur le serveur web, la mise à jour est réservée aux administrateurs et
-    // passe par AdminUpdatePanel → ne rien faire ici pour les non-admins.
-    if ((window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true && !isAdmin()) return;
+    // La mise à jour est réservée aux administrateurs (AdminUpdatePanel).
+    if (!isAdmin()) return;
     setIsUpdating(true);
     try {
       const result = await window.electronAPI.applyAppUpdate?.();
@@ -691,7 +649,7 @@ function AppContent() {
         showToast(`Erreur de mise à jour : ${result.error}`, 'error');
         setIsUpdating(false);
       }
-      // En Electron, l'app redémarre d'elle-même → pas besoin de reset l'état
+      // Le serveur se reconstruit puis la page se recharge d'elle-même.
     } catch {
       showToast('Impossible de mettre à jour l\'application', 'error');
       setIsUpdating(false);
@@ -1367,36 +1325,7 @@ function AppContent() {
     );
   }
 
-  // Utilisateur non approuvé par l'administrateur
-  if (isAuthenticated && user && user.approved !== true && user.globalRole !== 'admin') {
-    return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center space-y-5 max-w-lg p-8 bg-white rounded-2xl shadow-lg border border-gray-200">
-          <div className="mx-auto w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center">
-            <svg className="w-8 h-8 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m0 0v2m0-2h2m-2 0H10m2-6V4m0 0a2 2 0 00-2 2v2a2 2 0 002 2 2 2 0 002-2V6a2 2 0 00-2-2z" />
-            </svg>
-          </div>
-          <h1 className="text-xl font-bold text-gray-800">
-            Demande d'accès en attente
-          </h1>
-          <p className="text-gray-600">
-            Bonjour <span className="font-semibold">{user.displayName || user.windowsUsername}</span>, votre demande d'utilisation a bien été enregistrée.
-          </p>
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-            <p className="text-sm text-amber-800 font-medium">
-              L'administrateur doit valider votre accès avant que vous puissiez utiliser l'application.
-            </p>
-          </div>
-          <p className="text-xs text-gray-400">
-            Relancez l'application une fois votre accès validé par l'administrateur.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Utilisateur approuvé mais sans contentieux attribué
+  // Utilisateur sans contentieux attribué
   if (isAuthenticated && accessibleContentieux.length === 0) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-50">
@@ -1438,7 +1367,6 @@ return (
           enqueteCounts={sidebarEnqueteCounts}
           instructionCount={sidebarInstructionCount}
           crossSearchResults={crossSearchResults}
-          pendingUsersCount={pendingUsersCount}
           showAssistant={attacheAvailable && isAdmin()}
         />
       </div>
@@ -1459,8 +1387,7 @@ return (
               enqueteCounts={sidebarEnqueteCounts}
               instructionCount={sidebarInstructionCount}
               crossSearchResults={crossSearchResults}
-              pendingUsersCount={pendingUsersCount}
-              showAssistant={attacheAvailable && isAdmin()}
+                  showAssistant={attacheAvailable && isAdmin()}
             />
           </div>
         </div>
@@ -1494,8 +1421,6 @@ return (
             updateCommits={updateCommits}
             onShowUpdate={() => setShowUpdateModal(true)}
             isUpdating={isUpdating}
-            remoteSha={updateRemoteSha}
-            approvedSha={updateApprovedSha}
             minimal={isJLDUser}
             onShowAttache={attacheAvailable && isAdmin() ? () => setShowAttache(true) : undefined}
           />
@@ -2119,8 +2044,6 @@ return (
       <UpdateChangelogModal
         isOpen={showUpdateModal}
         onClose={() => setShowUpdateModal(false)}
-        localSha={updateLocalSha}
-        remoteSha={updateRemoteSha}
         commitsCount={updateCommits}
         onApply={handleApplyUpdate}
         isApplying={isUpdating}
@@ -2172,7 +2095,6 @@ return (
           <SavePage
             lastSaveDate={StorageManager.getLastSave() ?? undefined}
             contentieuxLabel={currentContentieuxId}
-            onRepairServer={() => MultiSyncManager.getInstance().repairWithLocalData(currentContentieuxId)}
             onRestoreFromServerBackup={(filename) => MultiSyncManager.getInstance().restoreFromBackup(currentContentieuxId, filename)}
             onListServerBackups={() => MultiSyncManager.getInstance().listBackups(currentContentieuxId)}
             isSyncing={isSyncing}
@@ -2198,7 +2120,6 @@ return (
         adminAttacheContent={attacheAvailable ? <AdminAttachePanel /> : undefined}
         aProposContent={<AboutContent />}
         monProfilContent={<MyProfileContent />}
-        pendingUsersCount={pendingUsersCount}
       />
     </div>
   );
