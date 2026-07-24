@@ -55,15 +55,29 @@ export async function trackDeletedMECId(id: number): Promise<void> {
 }
 
 /**
- * Normalise le statut des actes/écoutes/géolocs d'une enquête : un acte « en
- * cours » dont la `dateFin` est dépassée est en réalité terminé. Comme le statut
- * n'est jamais repassé automatiquement à « terminé » lors de la pose/prolongation,
- * on le corrige au chargement pour que la donnée persistée reflète l'état réel
- * (et non plus seulement l'affichage qui recalculait l'expiration à la volée).
+ * Statuts d'un acte pas encore posé (en attente d'autorisation JLD ou de pose).
+ * Le délai d'une mesure ne court qu'à compter de sa pose effective (géoloc,
+ * écoute, captation…) : un acte dans l'un de ces statuts n'a donc AUCUNE date
+ * de fin exploitable — ni échéance à afficher, ni expiration à alerter.
+ */
+export function isActeEnAttenteDePose(statut: ActeStatus): boolean {
+  return statut === 'pose_pending' || statut === 'autorisation_pending';
+}
+
+/**
+ * Normalise le statut des actes/écoutes/géolocs d'une enquête au chargement :
+ *  - un acte « en cours » dont la `dateFin` est dépassée est en réalité terminé.
+ *    Comme le statut n'est jamais repassé automatiquement à « terminé » lors de
+ *    la pose/prolongation, on le corrige pour que la donnée persistée reflète
+ *    l'état réel (et non plus seulement l'affichage qui recalculait l'expiration
+ *    à la volée) ;
+ *  - un acte en attente de pose/autorisation qui conserve une `dateFin`
+ *    résiduelle (date de pose supprimée pour repasser « en attente de pose »)
+ *    voit cette `dateFin` effacée : le délai ne court qu'à compter de la pose,
+ *    un acte non posé ne peut donc ni expirer ni déclencher d'alerte d'échéance.
  *
- * On ne touche QUE les actes posés et en cours (`en_cours`) : les statuts en
- * attente (autorisation/pose/prolongation) ne sont pas affectés, car un acte non
- * encore posé n'a pas de fin effective.
+ * Les statuts posés en attente (prolongation) ne sont pas affectés : leur fin
+ * courante reste une échéance réelle.
  *
  * @returns l'enquête (nouvelle référence si modifiée) et un flag `changed`.
  */
@@ -80,6 +94,10 @@ export function normalizeExpiredActeStatuses(
       if (a.statut === 'en_cours' && a.dateFin && new Date(a.dateFin) < now) {
         listChanged = true;
         return { ...a, statut: 'termine' as ActeStatus };
+      }
+      if (isActeEnAttenteDePose(a.statut) && a.dateFin) {
+        listChanged = true;
+        return { ...a, dateFin: '' };
       }
       return a;
     });

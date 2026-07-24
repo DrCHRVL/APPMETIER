@@ -7,7 +7,7 @@ import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
 import { AutorisationValidationModal } from '../modals/AutorisationValidationModal';
-import { ActeUtils, getStatutBadgeProps, trackDeletedActeId } from '@/utils/acteUtils';
+import { ActeUtils, getStatutBadgeProps, trackDeletedActeId, isActeEnAttenteDePose } from '@/utils/acteUtils';
 import { DateUtils } from '@/utils/dateUtils';
 import { Badge } from '@/components/ui/badge';
 import { ActeModal } from '../modals/ActeModal';
@@ -122,6 +122,7 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
 
       const newDateDebut = dates.dateDebut || acte.dateDebut;
       const newDatePose = dates.datePose;
+      const newStatut = dates.updatedStatut || acte.statut;
 
       const hasProlongations = acte.prolongationsHistory && acte.prolongationsHistory.length > 0;
 
@@ -143,6 +144,13 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
         newDuree = dates.duree || acte.duree;
       }
 
+      // Date de pose supprimée → retour « en attente de pose » : la dateFin
+      // calculée depuis l'ancienne pose n'a plus de sens (le délai ne court
+      // qu'à compter de la pose) et déclencherait à tort les alertes d'échéance.
+      if (isActeEnAttenteDePose(newStatut)) {
+        newDateFin = '';
+      }
+
       return {
         ...acte,
         dateDebut: newDateDebut,
@@ -151,7 +159,7 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
         duree: newDuree,
         type: acteData.type || acte.type,
         description: acteData.description !== undefined ? acteData.description : acte.description,
-        statut: dates.updatedStatut || acte.statut
+        statut: newStatut
       };
     });
 
@@ -323,12 +331,16 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
 
   const now = new Date();
   
+  // Un acte non posé ne peut pas être « terminé » : sa dateFin résiduelle
+  // éventuelle (pose supprimée) ne doit pas l'envoyer dans les mesures terminées.
   const activeActes = enquete.actes?.filter(a => {
+    if (isActeEnAttenteDePose(a.statut)) return true;
     if (!a.dateFin) return true;
     return new Date(a.dateFin) >= now;
   }) || [];
-  
+
   const terminatedActes = enquete.actes?.filter(a => {
+    if (isActeEnAttenteDePose(a.statut)) return false;
     if (!a.dateFin) return false;
     return new Date(a.dateFin) < now;
   }).sort((a, b) => new Date(b.dateFin).getTime() - new Date(a.dateFin).getTime()) || [];

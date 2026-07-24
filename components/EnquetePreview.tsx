@@ -24,7 +24,7 @@ import { NatinfBadge } from './natinf/NatinfBadge';
 import { CopyButton } from './ui/CopyButton';
 import { useUser } from '@/contexts/UserContext';
 import { getLastCR } from '@/utils/compteRenduUtils';
-import { getProlongationRequestDate, getAutorisationRequestDate } from '@/utils/acteUtils';
+import { getProlongationRequestDate, getAutorisationRequestDate, isActeEnAttenteDePose } from '@/utils/acteUtils';
 import { OverboardPin } from '@/types/userTypes';
 
 interface EnquetePreviewProps {
@@ -192,7 +192,10 @@ export const EnquetePreview = React.memo(({
             return daysToOP !== null && daysToOP >= 0 && daysToOP <= rule.seuil;
           case 'acte_critique':
             return activeActes.some(acte => {
-              if (!acte.dateFin) return false;
+              // Un acte non posé n'a pas d'échéance : le délai ne court qu'à
+              // compter de la pose. Une dateFin résiduelle (pose supprimée)
+              // ne doit pas déclencher l'alerte « acte expire ».
+              if (isActeEnAttenteDePose(acte.statut) || !acte.dateFin) return false;
               const daysLeft = Math.ceil((new Date(acte.dateFin).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
               return daysLeft <= rule.seuil && daysLeft >= 0;
             });
@@ -601,7 +604,9 @@ return (
     <div className="border-t-2 border-gray-200 pt-1.5" onClick={(e) => e.stopPropagation()}>
       <div className="flex flex-wrap gap-1">
         {activeActes.map((acte) => {
-          const daysLeft = acte.dateFin 
+          // Décompte uniquement pour les actes posés : sans pose, pas de délai
+          // qui court, donc ni « (Xj) » ni masquage pour expiration.
+          const daysLeft = acte.dateFin && !isActeEnAttenteDePose(acte.statut)
             ? Math.ceil((new Date(acte.dateFin).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
             : null;
           const isPending = acte.statut === 'prolongation_pending';

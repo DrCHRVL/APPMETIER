@@ -1293,13 +1293,14 @@ export async function modifierActe(keys, { numero, acteId, operation, date, cibl
         a.duree = String(duree)
         if (dureeUnit) a.dureeUnit = dureeUnit === 'mois' ? 'mois' : 'jours'
       }
-      // dateFin recalculée depuis la référence (pose sinon début), comme l'app —
+      // dateFin recalculée depuis la pose uniquement, comme l'app : le délai ne
+      // court qu'à compter de la pose, un acte non posé n'a pas d'échéance —
       // seulement hors prolongations (leur chaîne se rejoue côté app).
-      const ref = a.datePose || a.dateDebut
-      if ((duree !== undefined || dateDebut !== undefined) && ref && !(a.prolongationsHistory?.length)) {
-        const fin = addDuree(ref, a.duree, a.dureeUnit || 'jours')
+      if ((duree !== undefined || dateDebut !== undefined) && a.datePose && !(a.prolongationsHistory?.length)) {
+        const fin = addDuree(a.datePose, a.duree, a.dureeUnit || 'jours')
         if (fin) a.dateFin = fin
       }
+      if (a.statut === 'pose_pending' || a.statut === 'autorisation_pending') a.dateFin = ''
     }
     return { id: a.id, rubrique: found.name, avant, apres: { statut: a.statut, dateDebut: a.dateDebut, dateFin: a.dateFin, datePose: a.datePose } }
   })
