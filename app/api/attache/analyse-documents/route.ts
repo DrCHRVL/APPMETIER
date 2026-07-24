@@ -27,15 +27,17 @@ export async function POST(req: Request) {
   return handle(async () => {
     requireAttacheAdmin(req)
     const body = await req.json().catch(() => null) as
-      | { docs?: unknown; actesExistants?: unknown }
+      | { docs?: unknown; actesExistants?: unknown; enquete?: unknown }
       | null
     if (!body || !Array.isArray(body.docs) || body.docs.length === 0) {
       return jsonResponse({ ok: false, error: 'Aucun document à analyser' }, { status: 400 })
     }
     // Un run peut durer jusqu'à quelques minutes (lecture de plusieurs actes).
+    // `enquete` (numéros + NATINF enregistrés) alimente les contrôles de
+    // cohérence : numéro de procédure divergent, NATINF absents, dates.
     const res = await attacheFetch('/analyse-documents', {
       method: 'POST',
-      body: { docs: body.docs, actesExistants: body.actesExistants ?? [] },
+      body: { docs: body.docs, actesExistants: body.actesExistants ?? [], enquete: body.enquete ?? null },
       timeoutMs: 280_000,
     })
     const data = await res.json().catch(() => ({ ok: false, error: 'Réponse du service illisible' }))

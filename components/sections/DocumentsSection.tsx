@@ -33,6 +33,10 @@ import { useToast } from '@/contexts/ToastContext';
 import { collectDropEntries, incomingFromFileList, cleanRelPath, type Incoming } from '@/lib/web/folderUpload';
 import { fileToMarkdown } from '@/lib/web/fileToMarkdown';
 import { DocumentPathModal } from '../modals/DocumentPathModal';
+import { AnalyseDocumentsModal } from '../modals/AnalyseDocumentsModal';
+import { ServerDocumentScanner, type ScannedDocument } from '@/utils/documents/ServerDocumentScanner';
+import { useEnquetesStore } from '@/stores/useEnquetesStore';
+import { useUserStore } from '@/stores/useUserStore';
 import { DocHoverPreview } from '@/components/DocHoverPreview';
 import { DocumentSyncManager, SyncResult } from '@/utils/documents/DocumentSyncManager';
 import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipProvider } from '../ui/tooltip';
@@ -136,6 +140,15 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   const [showPathModal, setShowPathModal] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null);
   const [pendingCommun, setPendingCommun] = useState(0);
+  // Analyse IA des pièces téléversées (admin + attaché actif) : après un
+  // dépôt dans une zone d'actes, une bannière PROPOSE l'analyse — détection
+  // d'actes, incohérences (n° de procédure, NATINF), CR de réception. Le
+  // texte des pièces est celui converti au téléversement (copies markdown) :
+  // aucun scan de dossier réseau (l'édition bureau a disparu).
+  const [showAnalyseModal, setShowAnalyseModal] = useState(false);
+  const [autoAnalyseDocs, setAutoAnalyseDocs] = useState<ScannedDocument[] | null>(null);
+  const [analyseSuggestion, setAnalyseSuggestion] = useState<ScannedDocument[] | null>(null);
+  const aiOkRef = useRef<boolean | null>(null);
 
   // compteur de copies « dossier commun » en attente pour cette enquête
   const refreshPendingCommun = useCallback(async () => {
@@ -451,10 +464,21 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           'success'
         );
 
-        // Copie markdown « pour l'IA » de chaque document (best-effort, silencieux)
+        // Copie markdown « pour l'IA » de chaque document (best-effort, silencieux).
+        // Le texte converti sert AUSSI à la proposition d'analyse ci-dessous.
+        const convertis: ScannedDocument[] = [];
         for (let i = 0; i < filesToUpload.length; i++) {
           const rel = String(annotated[i]?.cheminRelatif || '');
-          if (rel) await deposerCopieMarkdown(filesToUpload[i].file, rel);
+          if (!rel) continue;
+          const markdown = await deposerCopieMarkdown(filesToUpload[i].file, rel);
+          if (markdown && markdown.trim().length >= 40) {
+            convertis.push({
+              filePath: rel,
+              fileName: filesToUpload[i].renamedTo || filesToUpload[i].file.name,
+              sourceFolder: electronCategory,
+              textContent: markdown,
+            });
+          }
         }
 
         // Synchro automatique au téléversement : réconcilie aussi P:\ → serveur
@@ -463,10 +487,11 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           setTimeout(() => syncRef.current(true), 1500);
         }
 
-        // Analyse automatique des PDF au téléversement : DÉSACTIVÉE pour l'instant.
-        // La détection d'actes n'est pas assez fiable à ce stade et gênait plus
-        // qu'elle n'aidait — elle sera reprise plus tard. L'analyse reste
-        // disponible À LA DEMANDE via le bouton « Analyser actes ».
+        // L'analyse au téléversement ne se LANCE pas toute seule (trop
+        // intrusif) : quand l'analyse IA de l'attaché est disponible (admin),
+        // une bannière PROPOSE d'analyser les pièces déposées — détection
+        // d'actes, incohérences, CR de réception. Un clic, rien d'automatique.
+        await suggererAnalyse(convertis, category);
       } else {
         showToast('Erreur lors de la sauvegarde des documents', 'error');
       }
@@ -484,11 +509,11 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
    * lue en priorité par l'attaché (zéro ré-extraction, tokens économisés).
    * Best-effort : un échec de conversion n'empêche jamais le dépôt du fichier.
    */
-  const deposerCopieMarkdown = async (file: File, relOriginal: string) => {
-    if (/\.(jpg|jpeg|png|gif|bmp|webp|msg)$/i.test(file.name)) return;
+  const deposerCopieMarkdown = async (file: File, relOriginal: string): Promise<string | null> => {
+    if (/\.(jpg|jpeg|png|gif|bmp|webp|msg)$/i.test(file.name)) return null;
     try {
       const { markdown } = await fileToMarkdown(file);
-      if (!markdown.trim()) return;
+      if (!markdown.trim()) return null;
       const mdRel = 'MD/' + relOriginal.replace(/\.[^./]+$/, '') + '.md';
       const bytes = new TextEncoder().encode(markdown);
       await window.electronAPI.depositDocument(
@@ -496,7 +521,28 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
         'MD', file.name
       );
-    } catch { /* conversion impossible (scan, format exotique) : l'original suffit */ }
+      return markdown;
+    } catch { return null; /* conversion impossible (scan, format exotique) : l'original suffit */ }
+  };
+
+  /**
+   * Après un téléversement dans une zone d'ACTES (Actes, Geoloc, Écoutes, DML) :
+   * propose l'analyse IA des pièces déposées — détection d'actes, chaîne
+   * légale, incohérences (n° de procédure ≠ enquête, NATINF absents) et CR de
+   * réception. NON intrusif : une bannière propose, le magistrat décide.
+   * Réservé à l'administrateur quand l'attaché est actif (sonde en cache).
+   */
+  const ANALYSE_CATEGORIES: DocumentCategory[] = ['actes', 'geoloc', 'ecoutes', 'dml'];
+  const suggererAnalyse = async (docs: ScannedDocument[], category: DocumentCategory) => {
+    if (!docs.length || !ANALYSE_CATEGORIES.includes(category)) return;
+    if (aiOkRef.current === null) {
+      aiOkRef.current = await ServerDocumentScanner.isAIAvailable().catch(() => false);
+    }
+    if (!aiOkRef.current) return;
+    setAnalyseSuggestion(prev => {
+      const seen = new Set((prev || []).map(d => d.fileName));
+      return [...(prev || []), ...docs.filter(d => !seen.has(d.fileName))].slice(0, 40);
+    });
   };
 
   /**
@@ -532,6 +578,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         return { file, rel };
       });
       const added: DocumentEnquete[] = [];
+      const convertis: ScannedDocument[] = [];
       let errors = 0;
       const LOT = 4;
       for (let i = 0; i < plan.length; i += LOT) {
@@ -556,12 +603,16 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                 : /\.msg$/i.test(file.name) ? 'msg'
                 : /\.txt$/i.test(file.name) ? 'txt' : 'autre') as DocumentEnquete['type'],
             });
-            await deposerCopieMarkdown(file, String(cleanRel));
+            const markdown = await deposerCopieMarkdown(file, String(cleanRel));
+            if (markdown && markdown.trim().length >= 40) {
+              convertis.push({ filePath: String(cleanRel), fileName: file.name, sourceFolder: zone, textContent: markdown });
+            }
           } catch {
             errors++;
           }
         }));
       }
+      await suggererAnalyse(convertis, category);
       if (added.length) {
         onUpdate(enquete.id, { documents: [...(enquete.documents || []), ...added] });
       }
@@ -780,6 +831,34 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         </CardHeader>
 
         <CardContent className="space-y-6">
+          {/* Proposition d'analyse IA des pièces qui viennent d'être téléversées
+              (admin + attaché actif) : détection d'actes, incohérences de numéro
+              de procédure / NATINF, CR de réception. Un clic — jamais automatique. */}
+          {analyseSuggestion && analyseSuggestion.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-violet-200 bg-violet-50/60 px-3 py-2">
+              <Search className="h-4 w-4 text-violet-600 flex-shrink-0" />
+              <p className="min-w-0 flex-1 text-xs text-violet-900">
+                <span className="font-semibold">{analyseSuggestion.length} pièce(s) téléversée(s)</span>{' '}
+                prête(s) pour l&apos;analyse IA : détection des actes, contrôle du numéro de procédure et des NATINF, CR de réception.
+              </p>
+              <Button
+                size="sm"
+                className="h-7 gap-1 bg-violet-600 text-white hover:bg-violet-700"
+                onClick={() => { setAutoAnalyseDocs(analyseSuggestion); setAnalyseSuggestion(null); setShowAnalyseModal(true); }}
+              >
+                <Search className="h-3 w-3" />
+                Analyser (IA)
+              </Button>
+              <Button
+                size="sm" variant="ghost"
+                className="h-7 text-xs text-violet-500 hover:text-violet-700"
+                onClick={() => setAnalyseSuggestion(null)}
+              >
+                Ignorer
+              </Button>
+            </div>
+          )}
+
           {/* Résultat de la dernière synchronisation */}
           {lastSyncResult && (
             <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
@@ -1094,6 +1173,29 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         currentUseSubfolder={enquete.useSubfolderForExternal ?? true}
         onSave={handleSaveExternalPath}
         enqueteNumero={enquete.numero}
+      />
+
+      <AnalyseDocumentsModal
+        precomputedDocs={autoAnalyseDocs ?? undefined}
+        isOpen={showAnalyseModal}
+        onClose={() => { setShowAnalyseModal(false); setAutoAnalyseDocs(null); }}
+        enquete={enquete}
+        onApplyActes={(updates) => onUpdate(enquete.id, updates)}
+        onAddCR={(contenu) => {
+          // CR de réception suggéré par l'IA : classé par la MÊME voie que la
+          // saisie manuelle (ajoutCR — co-saisine et attribution comprises),
+          // signé du nom de l'utilisateur connecté.
+          const auteur = useUserStore.getState().user?.displayName || 'Parquet';
+          const html = contenu
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/\n/g, '<br>');
+          useEnquetesStore.getState().ajoutCR(enquete.id, {
+            date: new Date().toISOString().slice(0, 10),
+            enqueteur: auteur,
+            description: html,
+            createdBy: auteur,
+          });
+        }}
       />
 
     </>

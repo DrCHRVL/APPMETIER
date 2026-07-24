@@ -11,10 +11,16 @@
 export const ATTACHE_DOSSIER_WRITE_TOOLS: ReadonlySet<string> = new Set([
   'enregistrer_acte',
   'acter_prolongation',
+  'modifier_acte',
   'classer_note',
   'ajouter_todo',
+  'terminer_todo',
   'ajouter_natinfs',
   'creer_dossier',
+  'modifier_dossier',
+  'archiver_dossier',
+  'ajouter_mec',
+  'modifier_mec',
   'actualiser_description',
   'cotes_enregistrer',
 ]);

@@ -275,7 +275,8 @@ function blocActes(e, max = Infinity) {
 function blocAFaire(e) {
   if (!e.toDos?.length) return []
   const parts = ['\n## À faire']
-  for (const t of e.toDos) parts.push(`- [${t.status === 'completed' ? 'x' : ' '}] ${t.text}`)
+  // L'id figure sur chaque ligne : c'est lui que terminer_todo attend.
+  for (const t of e.toDos) parts.push(`- [${t.status === 'completed' ? 'x' : ' '}] ${t.text} (id ${t.id})`)
   return parts
 }
 
@@ -860,6 +861,9 @@ export async function classerNote(keys, { numero, titre, contenu, date, enqueteu
       enqueteur: author,
       description: html,
       createdBy: author,
+      // Même attribution qu'un CR saisi dans l'app (useEnquetesStore.ajoutCR) :
+      // en co-saisine, le contentieux d'origine du CR reste identifiable.
+      contentieuxSource: attacheContentieux(),
     })
     return { id }
   })
@@ -877,8 +881,11 @@ export function getMecNoms(keys, numero) {
   return (e?.misEnCause || []).map((m) => m.nom)
 }
 
-/** Ajoute un mis en cause — REFUSE tout doublon (nom normalisé identique). */
-export async function ajouterMec(keys, { numero, nom, role, statut }) {
+/** Ajoute un mis en cause — REFUSE tout doublon (nom normalisé identique).
+ *  Statut par défaut « actif » : la MÊME valeur que la saisie manuelle
+ *  (MisEnCauseSection.handleAddMec) — l'ancien défaut « mis en cause »
+ *  créait deux populations selon l'origine de la saisie. */
+export async function ajouterMec(keys, { numero, nom, role, statut, isVictime }) {
   const cleanNom = String(nom || '').trim()
   if (!cleanNom) throw new Error('Nom requis')
   return mutate(keys, numero, (e) => {
@@ -887,8 +894,40 @@ export async function ajouterMec(keys, { numero, nom, role, statut }) {
     const doublon = e.misEnCause.find((m) => normalizeNom(m.nom) === norm)
     if (doublon) throw new Error(`Doublon : « ${doublon.nom} » figure déjà aux mis en cause`)
     const id = Date.now()
-    e.misEnCause.push({ id, nom: cleanNom, role: role ? String(role).slice(0, 120) : undefined, statut: String(statut || 'mis en cause').slice(0, 60) })
+    e.misEnCause.push({
+      id,
+      nom: cleanNom,
+      role: role ? String(role).slice(0, 120) : undefined,
+      statut: String(statut || 'actif').slice(0, 60),
+      ...(isVictime === true ? { isVictime: true } : {}),
+    })
     return { id }
+  })
+}
+
+/**
+ * Modifie un mis en cause EXISTANT (rôle / statut / victime) — même périmètre
+ * que l'édition manuelle (MisEnCauseSection.handleUpdateMec). Ciblage par nom
+ * (rapprochement normalisé) ou par id. Réservé aux instructions explicites du
+ * magistrat ; jamais de suppression ici (elle reste manuelle : la suppression
+ * pose un tombstone client que le service ne sait pas poser).
+ */
+export async function modifierMec(keys, { numero, nom, id, role, statut, isVictime }) {
+  const cible = String(nom || '').trim()
+  if (!cible && !id) throw new Error('Nom (ou id) du mis en cause requis')
+  return mutate(keys, numero, (e) => {
+    const norm = normalizeNom(cible)
+    const mec = (e.misEnCause || []).find((m) =>
+      (id && Number(m.id) === Number(id)) || (norm && normalizeNom(m.nom) === norm))
+    if (!mec) throw new Error(`Mis en cause introuvable : ${cible || id} — voir lire_dossier (section mec)`)
+    const avant = { role: mec.role, statut: mec.statut, isVictime: mec.isVictime }
+    if (role !== undefined) mec.role = role ? String(role).slice(0, 120) : undefined
+    if (statut !== undefined && String(statut).trim()) mec.statut = String(statut).slice(0, 60)
+    if (isVictime !== undefined) {
+      if (isVictime === true) mec.isVictime = true
+      else delete mec.isVictime
+    }
+    return { id: mec.id, nom: mec.nom, avant, apres: { role: mec.role, statut: mec.statut, isVictime: mec.isVictime } }
   })
 }
 
@@ -1046,7 +1085,7 @@ export function dossierExiste(keys, numero) {
  * « enquete_created » signée du nom de l'administrateur. Les mis en cause
  * sont dédoublonnés entre eux (nom normalisé). REFUSE un numéro déjà pris.
  */
-export async function creerDossier(keys, { numero, dateDebut, services, description, misEnCause }) {
+export async function creerDossier(keys, { numero, dateDebut, services, description, misEnCause, directeurEnquete, numeroParquet, numeroIDJ, natinfCodes }) {
   const num = String(numero || '').trim()
   if (!num) throw new Error('Numéro (nom) du dossier requis')
   const payload = loadContentieux(keys)
@@ -1089,7 +1128,8 @@ export async function creerDossier(keys, { numero, dateDebut, services, descript
       id: Date.now() + mecs.length,
       nom,
       role: (typeof m === 'object' && m?.role) ? String(m.role).slice(0, 120) : undefined,
-      statut: String((typeof m === 'object' && m?.statut) || 'mis en cause').slice(0, 60),
+      // Même défaut que la saisie manuelle (MisEnCauseSection : « actif »).
+      statut: String((typeof m === 'object' && m?.statut) || 'actif').slice(0, 60),
     })
   }
 
@@ -1097,11 +1137,25 @@ export async function creerDossier(keys, { numero, dateDebut, services, descript
     : services ? [String(services)] : []
   const desc = String(description || '').trim()
 
+  // NATINF à la création (comme le sélecteur du formulaire « Nouvelle
+  // enquête ») : seuls les codes CONNUS du référentiel sont retenus.
+  const wantedNatinfs = (Array.isArray(natinfCodes) ? natinfCodes : natinfCodes ? [natinfCodes] : [])
+    .map((c) => String(c ?? '').trim()).filter(Boolean)
+  const natinfsValides = [...new Set(wantedNatinfs.filter((c) => natinfEntry(c)))]
+  const natinfsInconnus = wantedNatinfs.filter((c) => !natinfEntry(c))
+
   const enquete = {
     id: newId,
     numero: num,
     dateDebut: /^\d{4}-\d{2}-\d{2}/.test(String(dateDebut || '')) ? String(dateDebut).slice(0, 10) : today,
     services: svc,
+    // Champs du formulaire « Nouvelle enquête » (NewEnqueteModal) : directeur
+    // d'enquête, n° parquet, n° IDJ — pour une création IA au niveau d'une
+    // création manuelle (« créer le dossier X avec tel directeur d'enquête »).
+    ...(directeurEnquete ? { directeurEnquete: String(directeurEnquete).slice(0, 120) } : {}),
+    ...(numeroParquet ? { numeroParquet: String(numeroParquet).slice(0, 60) } : {}),
+    ...(numeroIDJ ? { numeroIDJ: String(numeroIDJ).slice(0, 60) } : {}),
+    ...(natinfsValides.length ? { infractionNatinfCodes: natinfsValides } : {}),
     description: desc, // texte brut (voir actualiserDescription) — jamais d'HTML
     misEnCause: mecs,
     geolocalisations: [],
@@ -1125,7 +1179,13 @@ export async function creerDossier(keys, { numero, dateDebut, services, descript
   }
   payload.data.enquetes.push(enquete)
   await saveContentieux(keys, payload)
-  return { numero: num, id: enquete.id, misEnCause: mecs.length }
+  return {
+    numero: num,
+    id: enquete.id,
+    misEnCause: mecs.length,
+    ...(natinfsValides.length ? { natinfs: natinfsValides } : {}),
+    ...(natinfsInconnus.length ? { natinfsRefuses: natinfsInconnus, note: 'Codes inconnus du référentiel NON enregistrés — vérifie avec natinf_chercher puis ajouter_natinfs' } : {}),
+  }
 }
 
 export async function ajouterTodo(keys, { numero, texte }) {
@@ -1134,5 +1194,189 @@ export async function ajouterTodo(keys, { numero, texte }) {
     const id = Date.now()
     e.toDos.push({ id, text: String(texte).slice(0, 500), status: 'active', dateCreation: new Date().toISOString() })
     return { id }
+  })
+}
+
+/**
+ * Marque un « à faire » FAIT (ou le rouvre) — même effet que la case à cocher
+ * de la section À faire (ToDoSection.handleToggleTodo : status + dateCompletion).
+ * Ciblage par id (affiché dans l'aperçu du dossier) ou par texte exact/inclus.
+ */
+export async function terminerTodo(keys, { numero, todoId, texte, rouvrir }) {
+  if (!todoId && !String(texte || '').trim()) throw new Error('todoId ou texte requis')
+  const needle = String(texte || '').trim().toLowerCase()
+  return mutate(keys, numero, (e) => {
+    const todos = e.toDos || []
+    let todo = todoId ? todos.find((t) => Number(t.id) === Number(todoId)) : null
+    if (!todo && needle) {
+      const matches = todos.filter((t) => String(t.text || '').toLowerCase().includes(needle))
+      if (matches.length > 1) throw new Error(`Texte ambigu (${matches.length} à-faire correspondent) — cible par id (visible dans lire_dossier)`)
+      todo = matches[0]
+    }
+    if (!todo) throw new Error('À-faire introuvable — voir la section « À faire » de lire_dossier')
+    if (rouvrir === true) {
+      todo.status = 'active'
+      delete todo.dateCompletion
+      return { id: todo.id, texte: todo.text, statut: 'active' }
+    }
+    todo.status = 'completed'
+    todo.dateCompletion = new Date().toISOString()
+    return { id: todo.id, texte: todo.text, statut: 'completed' }
+  })
+}
+
+/**
+ * Fait AVANCER un acte existant dans son cycle de vie, ou corrige ses champs —
+ * les MÊMES transitions que les boutons du détail d'enquête :
+ *  - autorisation_accordee : autorisation JLD obtenue → dateDebut posée ;
+ *    art. 76 (sans durée) passe « en_cours », les autres passent « pose_pending »
+ *    (ActeSection.handleValidateAutorisation) ;
+ *  - refus_jld       : statut « refuse » (handleRefuseJLD) ;
+ *  - pose            : datePose + dateFin recalculée depuis la pose + « en_cours »
+ *    (ActeUtils.setPose) ;
+ *  - pose_avortee    : statut « pose_avortee » (handleAvorterPose) ;
+ *  - terminer        : statut « termine » (fin de mesure) ;
+ *  - champs          : édition de cible/objet/description/type/dates/durée
+ *    (ActeModal en mode édition) — dateFin recalculée si durée ou dates changent.
+ */
+export async function modifierActe(keys, { numero, acteId, operation, date, cible, objet, description, type, dateDebut, duree, dureeUnit }) {
+  const ops = ['autorisation_accordee', 'refus_jld', 'pose', 'pose_avortee', 'terminer', 'champs']
+  if (!ops.includes(operation)) throw new Error(`operation attendue : ${ops.join(' | ')}`)
+  const jour = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : new Date().toISOString().slice(0, 10))
+  const addDuree = (debut, n, unit) => {
+    const d = Number(n)
+    if (!Number.isFinite(d) || d <= 0 || !debut) return ''
+    const end = new Date(debut + 'T00:00:00')
+    if (unit === 'mois') end.setMonth(end.getMonth() + d)
+    else end.setDate(end.getDate() + d)
+    return end.toISOString().slice(0, 10)
+  }
+  return mutate(keys, numero, (e) => {
+    const found = collectionOf(e, acteId)
+    if (!found) throw new Error(`Acte ${acteId} introuvable dans ${numero}`)
+    const a = found.acte
+    const avant = { statut: a.statut, dateDebut: a.dateDebut, dateFin: a.dateFin, datePose: a.datePose }
+
+    if (operation === 'autorisation_accordee') {
+      if (a.statut !== 'autorisation_pending') throw new Error(`L'acte n'est pas en attente d'autorisation (statut actuel : ${a.statut})`)
+      a.dateDebut = jour(date)
+      const cfg = found.name === 'actes' ? AUTRE_ACTE_TYPES[a.type] : null
+      a.statut = cfg && cfg.hasDuree === false ? 'en_cours' : 'pose_pending'
+    } else if (operation === 'refus_jld') {
+      a.statut = 'refuse'
+    } else if (operation === 'pose') {
+      const pose = jour(date)
+      if (a.dateDebut && pose < a.dateDebut) throw new Error(`Date de pose (${pose}) antérieure à la date de début (${a.dateDebut})`)
+      const fin = addDuree(pose, a.duree, a.dureeUnit || 'jours')
+      if (!fin) throw new Error('Durée de l\'acte absente ou invalide : impossible de calculer la date de fin depuis la pose')
+      a.datePose = pose
+      a.dateFin = fin
+      a.statut = 'en_cours'
+    } else if (operation === 'pose_avortee') {
+      a.statut = 'pose_avortee'
+    } else if (operation === 'terminer') {
+      a.statut = 'termine'
+    } else {
+      // champs : édition ciblée, sans toucher au reste
+      if (found.name === 'ecoutes') {
+        if (cible !== undefined) { a.numero = String(cible || a.numero); a.cible = cible ? String(cible) : a.cible }
+        if (objet !== undefined && !cible) a.numero = String(objet || a.numero)
+      } else if (found.name === 'geolocalisations') {
+        if (objet !== undefined) a.objet = String(objet || a.objet)
+        if (cible !== undefined && !objet) a.objet = String(cible || a.objet)
+      } else if (type !== undefined) {
+        a.type = resolveAutreActeTypeKey(type) || String(type)
+      }
+      if (description !== undefined) a.description = String(description)
+      if (dateDebut !== undefined) a.dateDebut = jour(dateDebut)
+      if (duree !== undefined) {
+        a.duree = String(duree)
+        if (dureeUnit) a.dureeUnit = dureeUnit === 'mois' ? 'mois' : 'jours'
+      }
+      // dateFin recalculée depuis la référence (pose sinon début), comme l'app —
+      // seulement hors prolongations (leur chaîne se rejoue côté app).
+      const ref = a.datePose || a.dateDebut
+      if ((duree !== undefined || dateDebut !== undefined) && ref && !(a.prolongationsHistory?.length)) {
+        const fin = addDuree(ref, a.duree, a.dureeUnit || 'jours')
+        if (fin) a.dateFin = fin
+      }
+    }
+    return { id: a.id, rubrique: found.name, avant, apres: { statut: a.statut, dateDebut: a.dateDebut, dateFin: a.dateFin, datePose: a.datePose } }
+  })
+}
+
+/**
+ * Modifie les MÉTADONNÉES du dossier — les mêmes champs que l'en-tête du
+ * détail d'enquête (EnqueteHeader) : directeur d'enquête, services (unités),
+ * date de début, numéro de parquet, numéro IDJ. Chaque changement laisse une
+ * entrée « modifications » signée du nom de l'administrateur (visible dans la
+ * fiche), comme une édition manuelle. Réservé aux instructions explicites.
+ */
+export async function modifierDossier(keys, { numero, directeurEnquete, services, dateDebut, numeroParquet, numeroIDJ }) {
+  const author = authorOf(keys)
+  return mutate(keys, numero, (e) => {
+    const changes = []
+    if (directeurEnquete !== undefined) {
+      e.directeurEnquete = String(directeurEnquete || '').slice(0, 120) || undefined
+      changes.push(`directeur d'enquête : ${e.directeurEnquete || '(effacé)'}`)
+    }
+    if (services !== undefined) {
+      e.services = (Array.isArray(services) ? services : [services]).filter(Boolean).map((s) => String(s).slice(0, 120))
+      changes.push(`service(s) : ${e.services.join(', ') || '(aucun)'}`)
+    }
+    if (dateDebut !== undefined && /^\d{4}-\d{2}-\d{2}/.test(String(dateDebut))) {
+      e.dateDebut = String(dateDebut).slice(0, 10)
+      changes.push(`date de début : ${e.dateDebut}`)
+    }
+    if (numeroParquet !== undefined) {
+      e.numeroParquet = String(numeroParquet || '').slice(0, 60) || undefined
+      changes.push(`n° parquet : ${e.numeroParquet || '(effacé)'}`)
+    }
+    if (numeroIDJ !== undefined) {
+      e.numeroIDJ = String(numeroIDJ || '').slice(0, 60) || undefined
+      changes.push(`n° IDJ : ${e.numeroIDJ || '(effacé)'}`)
+    }
+    if (!changes.length) throw new Error('Aucun champ à modifier — fournis directeurEnquete, services, dateDebut, numeroParquet ou numeroIDJ')
+    e.modifications = e.modifications || []
+    e.modifications.push({
+      id: `${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+      type: 'general_info_updated',
+      label: `Informations mises à jour — ${changes.join(' · ')}`,
+      user: { username: author, displayName: author },
+      timestamp: new Date().toISOString(),
+    })
+    return { numero: e.numero, modifie: changes }
+  })
+}
+
+/**
+ * Archive ou désarchive un dossier — même effet que archiveEnquete /
+ * unarchiveEnquete du client : statut, dateArchivage (EFFACÉE au
+ * désarchivage, sinon la résolution de conflit de synchro ré-impose
+ * « archive »), entrée de modification. Réservé aux instructions explicites.
+ */
+export async function archiverDossier(keys, { numero, mode }) {
+  if (mode !== 'archiver' && mode !== 'desarchiver') throw new Error('mode attendu : archiver | desarchiver')
+  const author = authorOf(keys)
+  return mutate(keys, numero, (e) => {
+    const now = new Date().toISOString()
+    if (mode === 'archiver') {
+      if (e.statut === 'archive') return { numero: e.numero, statut: e.statut, note: 'déjà archivé' }
+      e.statut = 'archive'
+      e.dateArchivage = now
+    } else {
+      if (e.statut !== 'archive') return { numero: e.numero, statut: e.statut, note: 'pas archivé' }
+      e.statut = 'en_cours'
+      delete e.dateArchivage
+    }
+    e.modifications = e.modifications || []
+    e.modifications.push({
+      id: `${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+      type: mode === 'archiver' ? 'enquete_archived' : 'enquete_unarchived',
+      label: mode === 'archiver' ? 'Enquête archivée' : 'Enquête désarchivée',
+      user: { username: author, displayName: author },
+      timestamp: now,
+    })
+    return { numero: e.numero, statut: e.statut }
   })
 }

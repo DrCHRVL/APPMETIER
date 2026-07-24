@@ -17,10 +17,11 @@ import { attacheContentieux } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
 import {
   listEnquetes, dossierMarkdown, readDocumentText, verifierCompletude,
-  enregistrerActe, acterProlongation, classerNote, ajouterTodo, listerDml,
+  enregistrerActe, acterProlongation, classerNote, ajouterTodo, terminerTodo, listerDml,
   actualiserDescription, diagnostiquerDossier, diagnostiquerAffichage, arborescenceDocuments,
-  ajouterNatinfs, creerDossier,
+  ajouterNatinfs, creerDossier, ajouterMec, modifierMec, modifierActe, modifierDossier, archiverDossier,
 } from './attache/dossier.mjs'
+import { listRoutines, upsertRoutine, deleteRoutine } from './attache/routines.mjs'
 import { searchNatinf } from './attache/natinf.mjs'
 import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
@@ -110,6 +111,18 @@ const IS_SUBAGENT = process.env.SIRAL_ATTACHE_SUBAGENT === '1'
 // toute méthode du magistrat passe par une proposition ✓/✗.
 const IS_RUN_AUTONOME = runContext === 'apprentissage' || runContext === 'etude'
 
+// Même gouvernance pour les DONNÉES D'ENQUÊTE et les ROUTINES : un run
+// autonome n'écrit JAMAIS au dossier ni ne touche aux tâches planifiées —
+// il propose (proposer_*), signale, et n'agit directement que sur SES
+// méthodes. Garde-fou logiciel, pas seulement une consigne.
+const OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME = new Set([
+  'enregistrer_acte', 'acter_prolongation', 'modifier_acte', 'classer_note',
+  'ajouter_todo', 'terminer_todo', 'ajouter_natinfs', 'creer_dossier',
+  'modifier_dossier', 'archiver_dossier', 'ajouter_mec', 'modifier_mec',
+  'actualiser_description', 'ranger_document', 'depot_ecarter',
+  'routine_enregistrer', 'routine_suspendre', 'routine_supprimer',
+])
+
 // ── Définition des outils ──
 const TOOLS = [
   {
@@ -181,6 +194,29 @@ const TOOLS = [
     write: true,
   },
   {
+    name: 'modifier_acte',
+    description: 'Fait AVANCER un acte existant dans son cycle de vie, ou corrige ses champs — mêmes transitions que les boutons du détail d\'enquête. operation : autorisation_accordee (le JLD a signé → date d\'autorisation posée en dateDebut ; art. 76 passe « en cours », les mesures à durée passent « pose en attente ») · refus_jld (le JLD refuse) · pose (la mesure est posée : date de pose + date de fin recalculée + « en cours ») · pose_avortee · terminer (fin de mesure) · champs (corriger cible/objet/description/type/dateDebut/duree — dateFin recalculée). Typique : mail « le JLD a autorisé l\'écoute » → modifier_acte operation:autorisation_accordee, puis à la pose → operation:pose. RÉSERVÉ aux instructions explicites du magistrat et au traitement des mails transférés. La SUPPRESSION d\'un acte reste manuelle.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        acteId: { type: 'number', description: 'id de l\'acte (visible dans lire_dossier)' },
+        operation: { type: 'string', enum: ['autorisation_accordee', 'refus_jld', 'pose', 'pose_avortee', 'terminer', 'champs'] },
+        date: { type: 'string', description: 'AAAA-MM-JJ — date d\'autorisation (autorisation_accordee) ou de pose (pose). Défaut : aujourd\'hui.' },
+        cible: { type: 'string', description: 'champs : nouvelle ligne/cible (écoute)' },
+        objet: { type: 'string', description: 'champs : nouvel objet (géoloc)' },
+        description: { type: 'string', description: 'champs : nouvelle description' },
+        type: { type: 'string', description: 'champs : nouvelle catégorie (autres actes)' },
+        dateDebut: { type: 'string', description: 'champs : nouvelle date de début (AAAA-MM-JJ)' },
+        duree: { type: 'number', description: 'champs : nouvelle durée' },
+        dureeUnit: { type: 'string', enum: ['jours', 'mois'] },
+      },
+      required: ['numero', 'acteId', 'operation'],
+    },
+    handler: async (a) => modifierActe(keys, a),
+    write: true,
+  },
+  {
     name: 'acter_prolongation',
     description: 'Prolongation d\'un acte (id visible dans lire_dossier). mode "demande" = soumise au JLD (statut en attente) ; mode "validee" = accordée (étend la date de fin, historisée).',
     inputSchema: {
@@ -204,9 +240,25 @@ const TOOLS = [
   },
   {
     name: 'ajouter_todo',
-    description: 'Ajoute une tâche « à faire » au dossier (rappel visible du magistrat).',
+    description: 'Ajoute une tâche « à faire » au dossier (rappel visible du magistrat). Reste SOBRE : quelques à-faire utiles, jamais une liste-fleuve — chaque item doit appeler un geste précis.',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' }, texte: { type: 'string' } }, required: ['numero', 'texte'] },
     handler: async (a) => ajouterTodo(keys, a),
+    write: true,
+  },
+  {
+    name: 'terminer_todo',
+    description: 'Marque un « à faire » FAIT (ou le rouvre avec rouvrir:true) — même effet que la case à cocher de l\'app. Cible par id (affiché dans la section « À faire » de lire_dossier) ou par texte. À utiliser quand le magistrat dit qu\'une tâche est faite, ou quand TON travail vient précisément de l\'accomplir (l\'acte demandé par l\'à-faire est rédigé) — dans ce cas dis-le dans ta réponse ou ton signaler.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        todoId: { type: 'number', description: 'id de l\'à-faire (voir lire_dossier)' },
+        texte: { type: 'string', description: 'Ou un fragment de son texte (doit être non ambigu)' },
+        rouvrir: { type: 'boolean', description: 'true pour repasser la tâche « à faire »' },
+      },
+      required: ['numero'],
+    },
+    handler: async (a) => terminerTodo(keys, a),
     write: true,
   },
   {
@@ -299,23 +351,94 @@ const TOOLS = [
   },
   {
     name: 'creer_dossier',
-    description: 'Crée DIRECTEMENT un nouveau dossier (enquête) dans le contentieux — SANS validation préalable. Réservé à une instruction EXPLICITE du magistrat : mail transféré contenant « créer procédure » (ou équivalent sans ambiguïté), ou demande explicite en chat. Dans tous les autres cas de détection, utilise proposer_dossier (✓/✗). Renseigne tout depuis la pièce : numero, dateDebut, services, description (prise de notes), misEnCause (recoupe d\'abord avec recouper_personnes). Refus si le numéro existe déjà. Ensuite : ajoute les NATINF (ajouter_natinfs), range les pièces (ranger_document) et rédige les actes demandés (produire_document) dans CE dossier.',
+    description: 'Crée DIRECTEMENT un nouveau dossier (enquête) dans le contentieux — SANS validation préalable. Réservé à une instruction EXPLICITE du magistrat : mail transféré contenant « créer procédure » (ou équivalent sans ambiguïté), ou demande explicite en chat (« crée un dossier X avec tel enquêteur en directeur d\'enquête et telle unité »). Dans tous les autres cas de détection, utilise proposer_dossier (✓/✗). Renseigne tout depuis la pièce ou la demande — les MÊMES champs que le formulaire « Nouvelle enquête » : numero, dateDebut, services (unités), directeurEnquete, numeroParquet, numeroIDJ, natinfCodes, description (prise de notes), misEnCause (recoupe d\'abord avec recouper_personnes). Refus si le numéro existe déjà. Ensuite : range les pièces (ranger_document) et rédige les actes demandés (produire_document) dans CE dossier. Récapitule au magistrat ce qui a été créé.',
     inputSchema: {
       type: 'object',
       properties: {
         numero: { type: 'string', description: 'Nom/numéro du dossier (ex: « 2026/000123 » ou « Réseau ZOUAOUI »)' },
         dateDebut: { type: 'string', description: 'AAAA-MM-JJ (défaut : aujourd\'hui)' },
-        services: { type: 'array', items: { type: 'string' } },
+        services: { type: 'array', items: { type: 'string' }, description: 'Unité(s)/service(s) d\'enquête (ex: « GIR Amiens »)' },
+        directeurEnquete: { type: 'string', description: 'Directeur d\'enquête (enquêteur qui dirige) — même champ que le formulaire' },
+        numeroParquet: { type: 'string', description: 'Numéro de parquet si connu' },
+        numeroIDJ: { type: 'string', description: 'Numéro IDJ (Identifiant Justice) si connu' },
+        natinfCodes: { type: 'array', items: { type: 'string' }, description: 'Codes NATINF des infractions (vérifiés au référentiel — natinf_chercher d\'abord)' },
         description: { type: 'string', description: 'Objet — faits, qualification, résumé télégraphique' },
         misEnCause: {
           type: 'array',
           items: { type: 'object', properties: { nom: { type: 'string' }, role: { type: 'string' }, statut: { type: 'string' } }, required: ['nom'] },
         },
-        source: { type: 'string', description: 'D\'où vient l\'instruction (ex: mail transféré du 15/07 « créer procédure »)' },
+        source: { type: 'string', description: 'D\'où vient l\'instruction (ex: mail transféré du 15/07 « créer procédure », demande en chat)' },
       },
       required: ['numero', 'source'],
     },
     handler: async (a) => creerDossier(keys, a),
+    write: true,
+  },
+  {
+    name: 'modifier_dossier',
+    description: 'Modifie les MÉTADONNÉES d\'un dossier existant — les mêmes champs que l\'en-tête du détail d\'enquête : directeurEnquete, services (unités), dateDebut, numeroParquet, numeroIDJ. Seuls les champs fournis changent ; chaque changement laisse une entrée visible dans les modifications récentes du dossier. RÉSERVÉ à une instruction EXPLICITE du magistrat (« change le directeur d\'enquête », « ajoute l\'unité X ») — jamais de ta propre initiative. Pour la description/l\'objet : actualiser_description. Pour les NATINF : ajouter_natinfs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        directeurEnquete: { type: 'string', description: 'Nouveau directeur d\'enquête (chaîne vide pour effacer)' },
+        services: { type: 'array', items: { type: 'string' }, description: 'Liste COMPLÈTE des services (remplace l\'existante)' },
+        dateDebut: { type: 'string', description: 'AAAA-MM-JJ' },
+        numeroParquet: { type: 'string' },
+        numeroIDJ: { type: 'string' },
+      },
+      required: ['numero'],
+    },
+    handler: async (a) => modifierDossier(keys, a),
+    write: true,
+  },
+  {
+    name: 'archiver_dossier',
+    description: 'Archive (mode "archiver") ou désarchive (mode "desarchiver") un dossier — même effet que le bouton de l\'app (statut, date d\'archivage, entrée de modification). RÉSERVÉ à une instruction EXPLICITE du magistrat. Réversible.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        mode: { type: 'string', enum: ['archiver', 'desarchiver'] },
+      },
+      required: ['numero', 'mode'],
+    },
+    handler: async (a) => archiverDossier(keys, a),
+    write: true,
+  },
+  {
+    name: 'ajouter_mec',
+    description: 'Ajoute DIRECTEMENT un mis en cause au dossier — même effet que la saisie manuelle (statut « actif » par défaut). RÉSERVÉ à une instruction EXPLICITE du magistrat (« ajoute X aux mis en cause ») ou au traitement d\'un mail transféré qui le demande ; pour un nom DÉTECTÉ dans une pièce, c\'est proposer_mec (✓/✗). Refuse les doublons (nom normalisé).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        nom: { type: 'string' },
+        role: { type: 'string', description: 'Rôle (fournisseur, logisticien, tête de réseau…)' },
+        statut: { type: 'string', description: 'Défaut : actif (même valeur que la saisie manuelle)' },
+        isVictime: { type: 'boolean', description: 'true si la personne est une victime (projetée comme telle sur la cartographie)' },
+      },
+      required: ['numero', 'nom'],
+    },
+    handler: async (a) => ajouterMec(keys, a),
+    write: true,
+  },
+  {
+    name: 'modifier_mec',
+    description: 'Modifie un mis en cause EXISTANT (role, statut, isVictime) — cible par nom (rapprochement tolérant) ou par id. RÉSERVÉ à une instruction EXPLICITE du magistrat (« passe X en tête de réseau », « marque Y victime »). La suppression d\'un mis en cause reste manuelle (elle pose un marqueur de suppression côté client).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        nom: { type: 'string', description: 'Nom du mis en cause à modifier' },
+        id: { type: 'number', description: 'Ou son id exact' },
+        role: { type: 'string' },
+        statut: { type: 'string' },
+        isVictime: { type: 'boolean' },
+      },
+      required: ['numero'],
+    },
+    handler: async (a) => modifierMec(keys, a),
     write: true,
   },
   {
@@ -790,7 +913,7 @@ const TOOLS = [
       properties: {
         numero: { type: 'string' }, nom: { type: 'string' },
         role: { type: 'string', description: 'Rôle supposé (fournisseur, logisticien…)' },
-        statut: { type: 'string', description: 'Défaut : mis en cause' },
+        statut: { type: 'string', description: 'Défaut : actif (même valeur que la saisie manuelle)' },
         source: { type: 'string', description: 'Pièce d\'où vient la détection (ex: PV D8092, mail du 12/07)' },
       },
       required: ['numero', 'nom', 'source'],
@@ -858,13 +981,17 @@ const TOOLS = [
   },
   {
     name: 'proposer_dossier',
-    description: 'Propose la CRÉATION d\'un nouveau dossier réel, extrait d\'un PV/résumé collé — n\'écrit PAS directement : la proposition apparaît avec ✓/✗ (le dossier n\'est créé qu\'à la validation, signé du nom du magistrat). Renseigne toi-même : numero (nom/numéro du dossier), dateDebut, services (service d\'enquête), description (objet, format prise de notes), misEnCause. RECOUPE d\'abord les noms (recouper_personnes) pour ne pas dupliquer une personne déjà connue. Refus automatique si le numéro existe déjà. Toujours citer la source.',
+    description: 'Propose la CRÉATION d\'un nouveau dossier réel, extrait d\'un PV/résumé collé — n\'écrit PAS directement : la proposition apparaît avec ✓/✗ (le dossier n\'est créé qu\'à la validation, signé du nom du magistrat). Renseigne toi-même les MÊMES champs que le formulaire « Nouvelle enquête » : numero, dateDebut, services (unité d\'enquête), directeurEnquete, numeroParquet, numeroIDJ, natinfCodes, description (objet, format prise de notes), misEnCause. RECOUPE d\'abord les noms (recouper_personnes) pour ne pas dupliquer une personne déjà connue. Refus automatique si le numéro existe déjà. Toujours citer la source.',
     inputSchema: {
       type: 'object',
       properties: {
         numero: { type: 'string', description: 'Nom/numéro du dossier (identifiant, ex: « 2024-0142 » ou « Réseau ZOUAOUI »)' },
         dateDebut: { type: 'string', description: 'Date de début AAAA-MM-JJ (défaut : aujourd\'hui)' },
-        services: { type: 'array', items: { type: 'string' }, description: 'Service(s) d\'enquête (ex: « GIR Amiens »)' },
+        services: { type: 'array', items: { type: 'string' }, description: 'Service(s)/unité(s) d\'enquête (ex: « GIR Amiens »)' },
+        directeurEnquete: { type: 'string', description: 'Directeur d\'enquête si la pièce le nomme' },
+        numeroParquet: { type: 'string' },
+        numeroIDJ: { type: 'string' },
+        natinfCodes: { type: 'array', items: { type: 'string' }, description: 'Codes NATINF (natinf_chercher pour vérifier)' },
         description: { type: 'string', description: 'Objet du dossier — faits, qualification, résumé télégraphique' },
         misEnCause: {
           type: 'array',
@@ -877,7 +1004,10 @@ const TOOLS = [
     },
     handler: async (a) => addProposition(keys, {
       numero: a.numero, type: 'dossier', source: a.source,
-      payload: { numero: a.numero, dateDebut: a.dateDebut, services: a.services, description: a.description, misEnCause: a.misEnCause },
+      payload: {
+        numero: a.numero, dateDebut: a.dateDebut, services: a.services, description: a.description, misEnCause: a.misEnCause,
+        directeurEnquete: a.directeurEnquete, numeroParquet: a.numeroParquet, numeroIDJ: a.numeroIDJ, natinfCodes: a.natinfCodes,
+      },
     }),
     write: true,
   },
@@ -1075,6 +1205,62 @@ const TOOLS = [
     write: true,
   },
   {
+    name: 'routine_lister',
+    description: 'Liste les routines enregistrées (consignes récurrentes exécutées automatiquement) : id, nom, cadence (heure quotidienne ou intervalle en heures), actif, dernière exécution. À consulter avant d\'en créer une (pas de doublon) et pour répondre à « quelles sont mes routines ? ».',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => ({
+      routines: listRoutines(keys).map((r) => ({
+        id: r.id, nom: r.nom, heure: r.heure, intervalleHeures: r.intervalleHeures,
+        actif: r.actif, lastRunAt: r.lastRunAt, lastRunOk: r.lastRunOk,
+        prompt: String(r.prompt || '').slice(0, 400),
+      })),
+    }),
+  },
+  {
+    name: 'routine_enregistrer',
+    description: 'Crée ou met à jour une ROUTINE — quand le magistrat te confie une tâche RÉCURRENTE en conversation (« chaque matin vérifie… », « toutes les semaines fais le point… », « chaque nuit analyse… ») : c\'est TOI qui l\'enregistres, au lieu de lui demander d\'ouvrir Paramètres. Rédige le prompt de la routine comme une consigne AUTONOME et précise (le run ne verra pas cette conversation) : quoi faire, sur quels dossiers, où publier (brief via majordome_publier / livrable / signaler). heure « HH:MM » pour une quotidienne, OU intervalleHeures. Pour une tâche lourde (balayage de tous les dossiers), préfère une heure de NUIT. id pour modifier une routine existante (routine_lister). Confirme au magistrat ce que tu as enregistré (nom + cadence).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'id d\'une routine existante à modifier (sinon création)' },
+        nom: { type: 'string', description: 'Nom court (ex: « Point hebdo échéances »)' },
+        prompt: { type: 'string', description: 'La consigne complète et autonome exécutée à chaque échéance' },
+        heure: { type: 'string', description: 'HH:MM pour une routine quotidienne (ex: 22:30 pour la nuit)' },
+        intervalleHeures: { type: 'number', description: 'OU toutes les N heures (1-168)' },
+        actif: { type: 'boolean', description: 'Défaut true' },
+      },
+      required: ['nom', 'prompt'],
+    },
+    handler: async (a) => upsertRoutine(keys, { ...a, actif: a.actif !== false }),
+    write: true,
+  },
+  {
+    name: 'routine_suspendre',
+    description: 'Suspend (actif:false) ou réactive (actif:true) une routine existante, sans la supprimer — quand le magistrat dit « mets en pause la routine X » / « relance-la ».',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'id de la routine (routine_lister)' },
+        actif: { type: 'boolean', description: 'false = suspendre, true = réactiver' },
+      },
+      required: ['id', 'actif'],
+    },
+    handler: async (a) => {
+      const r = listRoutines(keys).find((x) => x.id === a.id)
+      if (!r) throw new Error('Routine inconnue — voir routine_lister')
+      await upsertRoutine(keys, { ...r, actif: a.actif === true })
+      return { id: r.id, nom: r.nom, actif: a.actif === true }
+    },
+    write: true,
+  },
+  {
+    name: 'routine_supprimer',
+    description: 'Supprime une routine — UNIQUEMENT sur demande explicite du magistrat (« supprime la routine X »). Pour arrêter temporairement : routine_suspendre.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    handler: async (a) => deleteRoutine(keys, a.id),
+    write: true,
+  },
+  {
     name: 'poser_question',
     description: 'Pose une question au magistrat DANS SIRAL : une carte « Question » apparaît dans son panneau avec une zone de réponse — sa réponse revient directement dans CETTE conversation (tu garderas tout ton contexte). C\'est l\'UNIQUE canal pour lui demander une information (jamais par mail). Pose une question PRÉCISE et autoporteuse (rappelle le dossier, ce que tu sais déjà, ce qui te manque). Ne bloque pas ton travail en attendant : termine ce qui peut l\'être, marque [À CONFIRMER] ce qui dépend de la réponse.',
     inputSchema: {
@@ -1154,6 +1340,12 @@ rl.on('line', async (line) => {
       if (!tool) return fail(-32602, `Outil inconnu : ${params?.name}`)
       if (!keys) {
         return reply({ content: [{ type: 'text', text: JSON.stringify({ erreur: 'Trousseau non remis ou révoqué : demander à l\'administrateur de remettre les clés.' }) }], isError: true })
+      }
+      if (IS_RUN_AUTONOME && OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME.has(tool.name)) {
+        return reply({
+          content: [{ type: 'text', text: JSON.stringify({ erreur: `Run autonome : ${tool.name} est réservé aux instructions du magistrat (chat, mail transféré). Dépose une proposition (proposer_*) ou signale (signaler) — jamais d'écriture d'office au dossier ni aux routines.` }) }],
+          isError: true,
+        })
       }
       const args = params?.arguments || {}
       try {

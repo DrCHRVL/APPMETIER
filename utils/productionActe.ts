@@ -135,12 +135,20 @@ function deriveAutreActeFields(
   const effectiveDuree = cfg.duree !== undefined ? String(cfg.duree) : String(opts.duree ?? '');
   const maxProlongations = cfg.maxProlongations;
 
-  if (!cfg.hasDuree) {
-    return { statut: 'en_cours', dateDebut: '', dateFin: '', duree: '', dureeUnit, maxProlongations, datePose: '' };
-  }
+  // L'attente JLD se teste EN PREMIER : un art. 76 (sans durée propre) demandé
+  // au JLD naît « autorisation_pending » comme dans la fenêtre « Ajouter un
+  // acte » et dans le miroir serveur (scripts/attache/acteTypes.mjs). L'ancien
+  // ordre courtcircuitait le JLD pour toute catégorie sans durée : une requête
+  // art. 76 validée devenait « en_cours »… sans date de début.
   const pendingJld = opts.pendingJld === true && cfg.autorisation === 'JLD';
   if (pendingJld) {
     return { statut: 'autorisation_pending', dateDebut: '', dateFin: '', duree: effectiveDuree || '0', dureeUnit, maxProlongations, datePose: '' };
+  }
+  if (!cfg.hasDuree) {
+    // Art. 76 déjà autorisé : pas de durée propre ni de pose — directement en
+    // cours, daté (même comportement que la saisie manuelle et le serveur).
+    const dateDebut = opts.dateDebut || new Date().toISOString().slice(0, 10);
+    return { statut: 'en_cours', dateDebut, dateFin: '', duree: '', dureeUnit, maxProlongations, datePose: '' };
   }
   const dateDebut = opts.dateDebut || new Date().toISOString().slice(0, 10);
   const dateFin = effectiveDuree && dateDebut
@@ -190,6 +198,13 @@ export function buildProductionActe(params: {
   const kind = meta.kind || (!meta.categorie ? inferActeKind(params.titre) : null) || 'autre';
   const id = Date.now();
   const description = params.titre;
+  // Cible/objet d'un acte de rubrique « autre » : le schéma AutreActe n'a pas
+  // de champ dédié — on les conserve dans la description (sinon l'information
+  // structurée fournie par l'attaché était silencieusement perdue).
+  const cibleObjet = String(meta.cible || meta.objet || '').trim();
+  const descriptionAutre = cibleObjet && !description.toLowerCase().includes(cibleObjet.toLowerCase())
+    ? `${description} — ${meta.cible ? 'cible' : 'objet'} : ${cibleObjet}`
+    : description;
   const debut = meta.dateDebut || new Date().toISOString().slice(0, 10);
   // Mesure encore devant le JLD : métadonnée explicite, sinon inférée — une
   // production « saisine JLD » ou titrée « Requête / Demande / Saisine … »
@@ -250,7 +265,7 @@ export function buildProductionActe(params: {
       id,
       prodId: params.prodId,
       type: key,
-      description,
+      description: descriptionAutre,
       dateDebut: f.dateDebut,
       dateFin: f.dateFin,
       duree: f.duree,
@@ -277,7 +292,7 @@ export function buildProductionActe(params: {
     type: (meta.categorie && String(meta.categorie).trim())
       || PRODUCTION_TYPE_LABEL[params.type]
       || 'Acte',
-    description,
+    description: descriptionAutre,
     dateDebut: pending ? '' : debut,
     dateFin: (!pending && hasDuree) ? DateUtils.calculateEndDateWithUnit(debut, String(meta.duree), dureeUnit) : '',
     duree: meta.duree != null ? String(meta.duree) : '0',

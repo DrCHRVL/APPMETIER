@@ -72,6 +72,14 @@ function systemPrompt() {
     '- Géolocalisation : autorisation initiale du procureur (« error »), et pour chaque prolongation : requête JLD (« warning ») + autorisation JLD (« error »).',
     'Rapproche par le fond (même numéro/plaque, dates cohérentes) et non par le nom de fichier. N\'invente jamais un manque : si le document correspondant est présent dans le scan, ne le signale pas.',
     '',
+    'CONTRÔLES DE COHÉRENCE — confronte chaque document au CONTEXTE DE L\'ENQUÊTE fourni (numéro d\'enquête, n° parquet, n° IDJ, NATINF enregistrés) et signale dans `incoherences` :',
+    '- type "numero_procedure" (severite "error") : le document porte un numéro de procédure / de parquet / de PV qui ne correspond à AUCUN des numéros de l\'enquête (tolère les variantes d\'écriture, les préfixes/suffixes et les différences de séparateurs — ne signale que les divergences FRANCHES). Ce document a pu être téléversé dans le MAUVAIS dossier : dis quel numéro il porte.',
+    '- type "natinf_absent" (severite "warning") : le document vise des qualifications/NATINF (codes explicites, ou infractions nommées sans ambiguïté) ABSENTS de la liste des NATINF enregistrés de l\'enquête. Donne le code si le document le cite, sinon la qualification textuelle.',
+    '- type "date" (severite "warning") : une incohérence de dates flagrante à l\'intérieur du lot ou avec les actes existants (autorisation antérieure à la requête, prolongation avant l\'autorisation initiale…).',
+    'N\'invente RIEN : pas d\'incohérence = liste vide. Chaque incohérence porte fileName + detail (1 phrase précise).',
+    '',
+    'CR DE RÉCEPTION (crSuggere) : si le lot contient au moins un acte ou événement qui FAIT AVANCER le dossier (autorisation signée, prolongation accordée, rapport marquant), rédige `crSuggere` : un compte-rendu COURT en prise de notes (2-6 lignes, style télégraphique : ce que les pièces apportent, dates, références, cibles), prêt à classer au dossier. Sinon crSuggere: null.',
+    '',
     'SORTIE — réponds EXCLUSIVEMENT par un objet JSON valide, sans texte autour, sans bloc de code markdown. Schéma :',
     '{',
     '  "actes": [{',
@@ -93,15 +101,33 @@ function systemPrompt() {
     '    "documentManquant": string,       // ex. "Autorisation JLD initiale"',
     '    "severite": "warning" | "error"',
     '  }],',
+    '  "incoherences": [{',
+    '    "type": "numero_procedure" | "natinf_absent" | "date",',
+    '    "fileName": string,               // document concerné',
+    '    "detail": string,                 // 1 phrase précise (numéro porté vs attendu, code/qualification…)',
+    '    "severite": "warning" | "error",',
+    '    "natinfCode": string | null       // pour natinf_absent : le code si le document le cite',
+    '  }],',
+    '  "crSuggere": string | null,         // CR court en prise de notes, ou null',
     '  "resume": string                    // 1–2 phrases : ce que contient le lot, points d\'attention',
     '}',
-    'Si aucun acte : "actes": []. Si la chaîne est complète (ou aucun acte existant) : "chaineLegale": [].',
+    'Si aucun acte : "actes": []. Si la chaîne est complète (ou aucun acte existant) : "chaineLegale": []. Sans incohérence : "incoherences": [].',
   ].join('\n')
 }
 
 /** Construit la charge utile texte remise au modèle. */
-function buildUserPrompt({ docs, actesExistants }) {
+function buildUserPrompt({ docs, actesExistants, enquete }) {
   const parts = []
+  if (enquete && typeof enquete === 'object') {
+    parts.push('CONTEXTE DE L\'ENQUÊTE (pour les contrôles de cohérence) :')
+    parts.push(JSON.stringify({
+      numero: String(enquete.numero || '').slice(0, 120),
+      numeroParquet: String(enquete.numeroParquet || '').slice(0, 60) || undefined,
+      numeroIDJ: String(enquete.numeroIDJ || '').slice(0, 60) || undefined,
+      natinfsEnregistres: (Array.isArray(enquete.natinfs) ? enquete.natinfs : []).slice(0, 40),
+    }, null, 1))
+    parts.push('')
+  }
   parts.push('ACTES DÉJÀ ENREGISTRÉS DANS L\'ENQUÊTE (pour la chaîne légale — index à reprendre tel quel) :')
   if (Array.isArray(actesExistants) && actesExistants.length) {
     parts.push(JSON.stringify(actesExistants, null, 2))
@@ -216,22 +242,35 @@ function runClaudeJson(userPrompt) {
  *   - actesExistants : résumé des actes de l'enquête (avec index) pour la chaîne légale
  * @returns {Promise<{ ok, actes, chaineLegale, resume, model, error? }>}
  */
-export async function analyseDocuments({ docs, actesExistants } = {}) {
+export async function analyseDocuments({ docs, actesExistants, enquete } = {}) {
   const clean = sanitizeDocs(docs)
   if (!clean.length) {
-    return { ok: true, actes: [], chaineLegale: [], resume: 'Aucun texte exploitable dans les documents fournis.', model: ANALYSE_MODEL }
+    return { ok: true, actes: [], chaineLegale: [], incoherences: [], crSuggere: null, resume: 'Aucun texte exploitable dans les documents fournis.', model: ANALYSE_MODEL }
   }
-  const userPrompt = buildUserPrompt({ docs: clean, actesExistants: actesExistants || [] })
+  const userPrompt = buildUserPrompt({ docs: clean, actesExistants: actesExistants || [], enquete })
   const run = await runClaudeJson(userPrompt)
   if (!run.ok) return { ok: false, error: run.error, model: ANALYSE_MODEL }
 
   const data = run.data
   const actes = Array.isArray(data.actes) ? data.actes.filter((a) => a && typeof a === 'object') : []
   const chaineLegale = Array.isArray(data.chaineLegale) ? data.chaineLegale.filter((a) => a && typeof a === 'object') : []
+  const INCOHERENCE_TYPES = new Set(['numero_procedure', 'natinf_absent', 'date'])
+  const incoherences = (Array.isArray(data.incoherences) ? data.incoherences : [])
+    .filter((i) => i && typeof i === 'object' && INCOHERENCE_TYPES.has(i.type) && String(i.detail || '').trim())
+    .slice(0, 30)
+    .map((i) => ({
+      type: i.type,
+      fileName: String(i.fileName || '').slice(0, 300),
+      detail: String(i.detail).slice(0, 500),
+      severite: i.severite === 'error' ? 'error' : 'warning',
+      natinfCode: i.natinfCode ? String(i.natinfCode).slice(0, 20) : null,
+    }))
   return {
     ok: true,
     actes,
     chaineLegale,
+    incoherences,
+    crSuggere: typeof data.crSuggere === 'string' && data.crSuggere.trim() ? data.crSuggere.trim().slice(0, 4000) : null,
     resume: typeof data.resume === 'string' ? data.resume.slice(0, 800) : '',
     model: ANALYSE_MODEL,
   }
