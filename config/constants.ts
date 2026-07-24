@@ -57,6 +57,7 @@ export const APP_CONFIG = {
     ALERT_VALIDATIONS: 'alert_validations',
     VISUAL_ALERT_RULES: 'visualAlertRules',
     CLOTURE_TEMPLATE: 'clotureTemplate',
+    SAS_TEMPLATE: 'sasTemplate', // Trame du SAS art. 80-5 CPP (autorisation de poursuite d'actes)
     TRAMES_FORME: 'tramesForme' // Papeteries Word (.docx à balises) définies par l'utilisateur
   },
 
