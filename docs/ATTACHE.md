@@ -672,7 +672,17 @@ l'usage).
   d'un dossier (admin only). L'attaché y range les actes qu'il rédige
   (réquisition, demande de prolongation JLD, saisine, projet de réponse —
   suivant les trames, via l'outil `produire_document`, en reprenant les
-  **NATINF enregistrés du dossier**). Le magistrat les visionne, demande à
+  **NATINF enregistrés du dossier**). **La destination désignée par le
+  magistrat prime toujours** : « rédige la synthèse du dossier X et verse-la
+  dans les actes rédigés de l'enquête Y », « fais cet acte du dossier A mais
+  range-le hors dossier » — l'attaché exécute ce rangement-là, tel quel, même
+  s'il paraît incohérent avec le contenu (c'est un choix d'organisation du
+  magistrat, pas une erreur à corriger) : ni refus, ni question de
+  confirmation, au plus une phrase de récapitulatif. Les contrôles de
+  cohérence et l'identification rigoureuse du dossier ne jouent que lorsque
+  l'attaché doit trouver la destination lui-même. Seul filet (non bloquant) :
+  un numéro qui ne correspond à aucune enquête déclenche un avertissement à
+  l'agent — l'acte est enregistré mais n'apparaîtrait dans aucun dossier. Le magistrat les visionne, demande à
   l'IA de les retoucher (chat du dossier), les **édite légèrement à la
   main** (puis Enregistrer — le navigateur rechiffre, l'app ne voit jamais
   le clair), les **exporte en PDF / Word au gabarit officiel** (en-tête
@@ -698,7 +708,10 @@ l'usage).
   rangées) puis y traite la demande ; « **traiter** » seul → l'acte est
   rédigé sous le pseudo-dossier `_hors-dossier` et apparaît dans la section
   « **Actes rédigés — hors dossier** » du tableau de bord (admin seul,
-  masquée quand vide) — mêmes exports officiels, même validation ✓.
+  masquée quand vide) — mêmes exports officiels, même validation ✓. Le
+  rangement hors dossier vaut aussi **sur simple demande** : « fais cet acte
+  et range-le hors dossier » suffit, même quand une procédure correspondante
+  existe — la consigne de rangement du magistrat prime.
 - **Documents d'enquête par dossiers entiers** : chaque zone de la section
   documents (Geoloc, Écoutes, Actes, PV, DML) accepte désormais un **dossier
   complet, sous-pochettes comprises** (bouton « Dossier » ou glisser-déposer
