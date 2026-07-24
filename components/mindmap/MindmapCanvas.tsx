@@ -130,7 +130,7 @@ const CENTERED_HANDLE_STYLE: React.CSSProperties = {
 };
 
 const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
-  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus, isPinned, isVictime, isSuspect, suspectRole } = data as MecNodeData & { isSuspect?: boolean; suspectRole?: string };
+  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus, isPinned, isVictime, isSuspect, suspectRole, isCondamne } = data as MecNodeData & { isSuspect?: boolean; suspectRole?: string; isCondamne?: boolean };
   const size = radius * 2;
   // MEC "pont" : présent sur ≥ 2 contentieux distincts → halo violet pour
   // matérialiser la transversalité (signal du score, mais visuel).
@@ -144,16 +144,20 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
       ? 'ring-4 ring-yellow-300 shadow-lg scale-105'
       : isSuspect
         ? 'ring-2 ring-orange-400 shadow-md hover:scale-105'
-        : isBoosted
-          ? 'ring-2 ring-amber-400 shadow-md hover:scale-105'
-          : isBridge
-            ? 'ring-2 ring-violet-400/70 shadow-md hover:scale-105'
-            : 'shadow-md hover:scale-105';
+        : isCondamne
+          ? 'ring-2 ring-emerald-500 shadow-md hover:scale-105'
+          : isBoosted
+            ? 'ring-2 ring-amber-400 shadow-md hover:scale-105'
+            : isBridge
+              ? 'ring-2 ring-violet-400/70 shadow-md hover:scale-105'
+              : 'shadow-md hover:scale-105';
   const titleExtra = isSuspect
     ? ` • Suspect${suspectRole ? ` (${suspectRole})` : ''}`
-    : isBridge
-      ? ` • ${contentieuxIds.length} contentieux`
-      : '';
+    : isCondamne
+      ? ' • Condamné (résultat d\'audience)'
+      : isBridge
+        ? ` • ${contentieuxIds.length} contentieux`
+        : '';
   return (
     <div
       title={`${displayName} — ${dossierIds.length} dossier(s)${titleExtra}${isBoosted ? ' • importance manuelle' : ''}${isPinned ? ' • marqué' : ''}`}
@@ -171,9 +175,11 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
         style={{
           background: isSuspect
             ? 'linear-gradient(135deg, #7c2d12 0%, #9a3412 100%)'
-            : recent
-              ? 'linear-gradient(135deg, #1f2937 0%, #374151 100%)'
-              : 'linear-gradient(135deg, #475569 0%, #64748b 100%)',
+            : isCondamne
+              ? 'linear-gradient(135deg, #064e3b 0%, #047857 100%)'
+              : recent
+                ? 'linear-gradient(135deg, #1f2937 0%, #374151 100%)'
+                : 'linear-gradient(135deg, #475569 0%, #64748b 100%)',
         }}
       />
       <span
@@ -189,6 +195,11 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
         {isSuspect && (
           <span className="opacity-80 italic" style={{ fontSize: Math.max(8, Math.min(11, radius / 4.5)) }}>
             {suspectRole ? `(${suspectRole})` : '(Suspect)'}
+          </span>
+        )}
+        {isCondamne && (
+          <span className="opacity-80 italic" style={{ fontSize: Math.max(8, Math.min(11, radius / 4.5)) }}>
+            (Condamné)
           </span>
         )}
       </span>
@@ -704,11 +715,12 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       const highlighted = focusedId && (e.source === focusedId || e.target === focusedId);
       const isRens = e.kind === 'renseignement';
       const isSuspectEdge = e.kind === 'suspect';
+      const isCondamneEdge = e.kind === 'condamne';
       // Bezier doux dès qu'un des deux endpoints est connecté à plus d'un autre
       // nœud — sinon trait droit (cas dyade isolée, plus net).
-      // Les liens "renseignement" et "suspect" utilisent toujours une courbe.
+      // Les liens "renseignement", "suspect" et "condamné" utilisent toujours une courbe.
       const dMax = Math.max(nodeDegree.get(e.source) || 0, nodeDegree.get(e.target) || 0);
-      const useCurve = isRens || isSuspectEdge || dMax > 1;
+      const useCurve = isRens || isSuspectEdge || isCondamneEdge || dMax > 1;
       return {
         id: e.id,
         source: e.source,
@@ -734,12 +746,20 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
                 strokeOpacity: highlighted ? 1 : 0.75,
                 strokeLinecap: 'round',
               }
-            : {
-                stroke: highlighted ? '#f59e0b' : '#64748b',
-                strokeWidth: highlighted ? 4 : 2.5,
-                strokeOpacity: highlighted ? 1 : 0.85,
-                strokeLinecap: 'round',
-              },
+            : isCondamneEdge
+              ? {
+                  stroke: highlighted ? '#047857' : '#10b981',
+                  strokeWidth: highlighted ? 3 : 2,
+                  strokeDasharray: '5 4',
+                  strokeOpacity: highlighted ? 1 : 0.75,
+                  strokeLinecap: 'round',
+                }
+              : {
+                  stroke: highlighted ? '#f59e0b' : '#64748b',
+                  strokeWidth: highlighted ? 4 : 2.5,
+                  strokeOpacity: highlighted ? 1 : 0.85,
+                  strokeLinecap: 'round',
+                },
       };
     });
   }, [edges, focusedId, nodeDegree]);

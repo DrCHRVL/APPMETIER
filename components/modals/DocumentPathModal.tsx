@@ -37,16 +37,15 @@ export const DocumentPathModal = ({
   const [errorMessage, setErrorMessage] = useState('');
   const { showToast } = useToast();
 
-  // En web, un « chemin » est une poignée de dossier choisie via le navigateur
-  // (jeton fsa://…). Taper un chemin Windows au clavier n'a aucun effet : on masque
-  // donc le champ texte et on ne propose que le bouton de sélection.
-  const isWeb = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
+  // Un « chemin » est une poignée de dossier choisie via le navigateur
+  // (jeton fsa://…). Taper un chemin Windows au clavier n'a aucun effet : seul
+  // le bouton de sélection est proposé.
   const isFsaToken = (p: string) => p.startsWith('fsa://');
   // Nom lisible du dossier : on retire le préfixe technique fsa://
   const friendlyFolder = (p: string) => (p.startsWith('fsa://') ? p.slice('fsa://'.length) : p);
-  // En web, un ancien chemin Windows (P:\…) posé depuis la version bureau n'est pas
-  // exploitable : il faut re-sélectionner le dossier dans le navigateur.
-  const needsReselect = isWeb && !!selectedPath.trim() && !isFsaToken(selectedPath);
+  // Un ancien chemin Windows (P:\…) posé depuis l'ancienne version bureau n'est
+  // pas exploitable : il faut re-sélectionner le dossier dans le navigateur.
+  const needsReselect = !!selectedPath.trim() && !isFsaToken(selectedPath);
 
   useEffect(() => {
     setSelectedPath(currentPath);
@@ -160,10 +159,8 @@ export const DocumentPathModal = ({
             </p>
           </div>
 
-          {/* Sélection du chemin */}
-          {isWeb ? (
-            // ── Version web : un seul bouton, pas de champ texte (un chemin tapé
-            //    au clavier n'est pas exploitable par le navigateur). ──
+          {/* Sélection du chemin — un seul bouton, pas de champ texte (un chemin
+              tapé au clavier n'est pas exploitable par le navigateur). */}
             <div className="space-y-2">
               <label className="text-sm font-medium">Dossier commun (sur votre poste)</label>
               <p className="text-xs text-gray-600">
@@ -208,54 +205,6 @@ export const DocumentPathModal = ({
                 </button>
               )}
             </div>
-          ) : (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Chemin de sauvegarde externe</label>
-              <div className="flex gap-2">
-                <Input
-                  type="text"
-                  placeholder="Sélectionnez un dossier ou laissez vide pour désactiver"
-                  value={selectedPath}
-                  onChange={(e) => {
-                    setSelectedPath(e.target.value);
-                    validatePath(e.target.value);
-                  }}
-                  className={`flex-1 ${
-                    pathStatus === 'valid' ? 'border-green-500' :
-                    pathStatus === 'invalid' ? 'border-red-500' : ''
-                  }`}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleBrowseFolder}
-                  className="flex items-center gap-2"
-                >
-                  <FolderOpen className="h-4 w-4" />
-                  Parcourir
-                </Button>
-              </div>
-
-              {/* Indicateur de validation */}
-              {isValidating && (
-                <p className="text-xs text-gray-600">Validation du chemin...</p>
-              )}
-
-              {pathStatus === 'valid' && (
-                <div className="flex items-center gap-2 text-green-700">
-                  <CheckCircle className="h-4 w-4" />
-                  <span className="text-xs">Chemin valide et accessible en écriture</span>
-                </div>
-              )}
-
-              {pathStatus === 'invalid' && (
-                <div className="flex items-center gap-2 text-red-700">
-                  <AlertTriangle className="h-4 w-4" />
-                  <span className="text-xs">{errorMessage}</span>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Option d'organisation */}
           {selectedPath.trim() && (
@@ -373,8 +322,7 @@ export const DocumentPathModal = ({
             <ul className="text-xs text-blue-800 space-y-1">
               <li>• Documents sauvegardés en double : serveur (chiffré) + dossier choisi (en clair)</li>
               <li>• Organisation automatique par catégorie dans des sous-dossiers</li>
-              {!isWeb && <li>• Bouton pour ouvrir directement le dossier externe depuis l'application</li>}
-              {isWeb && <li>• Bouton « Synchroniser » pour réconcilier serveur et dossier dans les deux sens</li>}
+              <li>• Bouton « Synchroniser » pour réconcilier serveur et dossier dans les deux sens</li>
               <li>• Suppression synchronisée (interne et externe)</li>
               <li>• Indicateur visuel en cas d'échec de copie externe</li>
             </ul>

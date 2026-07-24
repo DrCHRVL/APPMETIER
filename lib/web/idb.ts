@@ -1,6 +1,5 @@
 /**
- * SIRAL — stockage local navigateur (IndexedDB).
- * Joue le rôle du data.json local de l'app Electron : cache de travail
+ * SIRAL — stockage local navigateur (IndexedDB) : cache de travail
  * hors-ligne. Trois magasins : kv (données), files (fichiers texte locaux),
  * backups (sauvegardes locales du kv complet).
  */

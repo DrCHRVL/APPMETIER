@@ -94,139 +94,37 @@ export const AnalyseDocumentsModal = ({
     return ServerDocumentScanner.analyzeExternalDocuments(enquete, docs);
   }, [enquete, showToast]);
 
-  // Lancer l'analyse
+  // Lancer l'analyse — version web : uniquement sur les pièces déjà
+  // téléversées (leur texte est converti dans le navigateur au passage et
+  // fourni via `precomputedDocs` par la bannière « Analyser (IA) » de la
+  // section Documents). L'ancien scan d'un dossier réseau (Electron) a été
+  // retiré avec l'édition bureau.
   const startAnalysis = useCallback(async () => {
-    if (precomputedDocs && precomputedDocs.length > 0) {
-      // analyse directe des PDF qui viennent d'être téléversés
-      setPhase('analyzing');
-      setProgress(`Analyse de ${precomputedDocs.length} PDF en cours...`);
-      setScanError(null);
-      try {
-        const analysisResult = await analyzeDocs(precomputedDocs);
-        const preSelected = new Set<number>();
-        analysisResult.actesDetectes.forEach((acte, index) => {
-          if (acte.confidence >= 0.6 && acte.errors.length === 0 && !acte.correctionPossible) preSelected.add(index);
-        });
-        setSelectedActes(preSelected);
-        setResult(analysisResult);
-        setPhase('results');
-      } catch (error) {
-        setScanError(`Erreur d'analyse : ${error instanceof Error ? error.message : 'inconnue'}`);
-        setPhase('idle');
-      }
-      return;
-    }
-    if (!enquete.cheminExterne) {
-      setScanError('Aucun chemin externe configuré. Configurez le chemin dans la section Documents.');
-      return;
-    }
-
-    if ((window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true) {
+    if (!precomputedDocs || precomputedDocs.length === 0) {
       setScanError(
-        'Le scan d\'un dossier réseau n\'existe pas sur la version web : '
-        + 'téléversez les PDF à analyser via la section Documents de l\'enquête — '
-        + 'une bannière « Analyser (IA) » apparaît alors au-dessus des zones pour lancer l\'analyse en un clic.'
+        'Aucune pièce à analyser ici : téléversez les PDF dans une zone de la section '
+        + 'Documents de l\'enquête, puis cliquez « Analyser (IA) » dans la bannière qui apparaît.'
       );
       return;
     }
-
-    if (!window.electronAPI?.scanExternalPDFs) {
-      setScanError('API non disponible. Fonctionnalité requiert Electron.');
-      return;
-    }
-
-    setPhase('scanning');
-    setProgress('Scan des dossiers en cours...');
+    // analyse directe des PDF qui viennent d'être téléversés
+    setPhase('analyzing');
+    setProgress(`Analyse de ${precomputedDocs.length} PDF en cours...`);
     setScanError(null);
-
     try {
-      // 1. Scanner les PDF du chemin externe
-      const scanResult = await window.electronAPI.scanExternalPDFs(
-        enquete.cheminExterne,
-        enquete.numero,
-        enquete.useSubfolderForExternal !== false
-      );
-
-      if (scanResult.errors.length > 0) {
-        console.warn('Erreurs de scan:', scanResult.errors);
-        // Afficher les erreurs de scan non-bloquantes en toast
-        if (scanResult.documents.length > 0) {
-          showToast(
-            `${scanResult.errors.length} erreur(s) lors du scan, mais ${scanResult.documents.length} PDF ont pu être lus`,
-            'warning'
-          );
-        }
-      }
-
-      if (scanResult.documents.length === 0) {
-        const foldersList = scanResult.foldersScanned.join(', ') || 'aucun dossier trouvé';
-        let errorMsg = `Aucun PDF exploitable trouvé.\n\nDossiers scannés : ${foldersList}`;
-
-        if (scanResult.foldersScanned.length === 0) {
-          errorMsg += '\n\nLe chemin externe ne contient aucun sous-dossier. Vérifiez que le chemin pointe vers le bon dossier d\'enquête.';
-        }
-
-        if (scanResult.errors.length > 0) {
-          errorMsg += `\n\nErreurs rencontrées :\n• ${scanResult.errors.join('\n• ')}`;
-        }
-
-        setScanError(errorMsg);
-        setPhase('idle');
-        return;
-      }
-
-      setPhase('analyzing');
-      setProgress(`Analyse de ${scanResult.documents.length} PDF en cours...`);
-
-      // 2. Analyser les documents (IA si disponible, sinon moteur classique)
-      const scannedDocs: ScannedDocument[] = scanResult.documents;
-      const analysisResult = await analyzeDocs(scannedDocs);
-
-      // Ajouter les infos de dossiers scannés
-      analysisResult.stats.foldersScanned = scanResult.foldersScanned;
-
-      // Pré-sélectionner les actes avec haute confiance, sans erreurs, et qui ne sont pas des corrections
+      const analysisResult = await analyzeDocs(precomputedDocs);
       const preSelected = new Set<number>();
       analysisResult.actesDetectes.forEach((acte, index) => {
-        if (acte.confidence >= 0.6 && acte.errors.length === 0 && !acte.correctionPossible) {
-          preSelected.add(index);
-        }
+        if (acte.confidence >= 0.6 && acte.errors.length === 0 && !acte.correctionPossible) preSelected.add(index);
       });
       setSelectedActes(preSelected);
-
       setResult(analysisResult);
       setPhase('results');
-
-      // Toast récapitulatif
-      if (analysisResult.actesDetectes.length > 0) {
-        showToast(
-          `${analysisResult.actesDetectes.length} acte(s) détecté(s) sur ${scanResult.documents.length} PDF. ` +
-          `${preSelected.size} pré-sélectionné(s). Vérifiez et validez.`,
-          'success'
-        );
-      } else if (analysisResult.stats.totalDoublons > 0) {
-        showToast(
-          `Tous les actes détectés sont des doublons (${analysisResult.stats.totalDoublons}). Aucun nouvel acte à créer.`,
-          'info'
-        );
-      } else {
-        showToast(
-          `Aucun acte reconnu dans les ${scanResult.documents.length} PDF analysés.`,
-          'info'
-        );
-      }
-
     } catch (error) {
-      console.error('Erreur analyse:', error);
-      const msg = error instanceof Error ? error.message : 'Erreur inconnue';
-      setScanError(
-        `Erreur lors de l'analyse :\n${msg}\n\n` +
-        `Si le problème persiste, vérifiez que le chemin externe est accessible et que les PDF ne sont pas corrompus.`
-      );
-      showToast('Erreur lors de l\'analyse des documents', 'error');
+      setScanError(`Erreur d'analyse : ${error instanceof Error ? error.message : 'inconnue'}`);
       setPhase('idle');
     }
-  }, [precomputedDocs, enquete, analyzeDocs, showToast]);
+  }, [precomputedDocs, analyzeDocs]);
 
   // Appliquer les actes sélectionnés
   const handleApply = useCallback(() => {
@@ -416,11 +314,12 @@ export const AnalyseDocumentsModal = ({
               <div className="flex items-start gap-3">
                 <Info className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
                 <div className="text-sm text-blue-800 space-y-2">
-                  <p className="font-medium">Cette fonctionnalité analyse les PDF du dossier serveur pour :</p>
+                  <p className="font-medium">Cette fonctionnalité analyse les PDF téléversés pour :</p>
                   <ul className="list-disc ml-4 space-y-1 text-xs">
                     <li>Détecter les autorisations initiales et prolongations (écoutes, géolocalisations)</li>
                     <li>Extraire les données clés : cibles, durées, dates, tribunal</li>
                     <li>Vérifier les doublons avec les actes existants</li>
+                    <li>Signaler les incohérences (numéro de procédure divergent, NATINF absents) et suggérer un CR de réception</li>
                     <li>Proposer la création automatique des actes (après votre validation)</li>
                     {aiAvailable && engine === 'ia' && (
                       <li className="text-violet-700">
@@ -430,7 +329,9 @@ export const AnalyseDocumentsModal = ({
                     )}
                   </ul>
                   <p className="text-xs mt-2">
-                    Tous les sous-dossiers seront scannés (y compris les dossiers en double comme "Geoloc" et "Géoloc").
+                    {precomputedDocs && precomputedDocs.length > 0
+                      ? `${precomputedDocs.length} pièce(s) prête(s) à analyser (converties au téléversement).`
+                      : 'Téléversez d\'abord les PDF dans une zone de la section Documents — la bannière « Analyser (IA) » lance alors l\'analyse.'}
                   </p>
                 </div>
               </div>
@@ -442,22 +343,6 @@ export const AnalyseDocumentsModal = ({
                   <XCircle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
                   <p className="text-sm text-red-700 whitespace-pre-line">{scanError}</p>
                 </div>
-              </div>
-            )}
-
-            {enquete.cheminExterne ? (
-              <div className="text-sm text-gray-600">
-                <span className="font-medium">Chemin externe :</span>{' '}
-                <span className="text-xs bg-gray-100 px-2 py-1 rounded font-mono">
-                  {enquete.cheminExterne}
-                  {enquete.useSubfolderForExternal !== false && `/${enquete.numero}`}
-                </span>
-              </div>
-            ) : (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                <p className="text-sm text-yellow-800">
-                  Configurez d&apos;abord un chemin externe dans la section Documents.
-                </p>
               </div>
             )}
           </div>
@@ -937,7 +822,7 @@ export const AnalyseDocumentsModal = ({
               <Button variant="outline" onClick={onClose}>Fermer</Button>
               <Button
                 onClick={startAnalysis}
-                disabled={!enquete.cheminExterne}
+                disabled={!precomputedDocs || precomputedDocs.length === 0}
                 className="flex items-center gap-2"
               >
                 <Search className="h-4 w-4" />

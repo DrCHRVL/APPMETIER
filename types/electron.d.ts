@@ -1,4 +1,5 @@
-// types/electron.d.ts
+// types/electron.d.ts — contrat du pont de données window.electronAPI
+// (nom hérité de l'ancienne édition bureau ; implémenté par lib/web/bridge.ts).
 import { DocumentEnquete } from './interfaces';
 
 // Interface pour les résultats de synchronisation
@@ -223,16 +224,6 @@ interface ElectronAPI {
     error?: string;
     commits: Array<{ sha: string; message: string; author: string; date: string | null; url: string | null }>;
   }>;
-  approveAppUpdate?: (sha: string, approvedBy: string) => Promise<{
-    success: boolean;
-    error?: string;
-    approvedSha?: string;
-    approvedBy?: string;
-    approvedAt?: string;
-  }>;
-  unapproveAppUpdate?: () => Promise<{ success: boolean; error?: string }>;
-  getApprovedAppUpdate?: () => Promise<{ approvedSha: string | null; approvedBy: string | null; approvedAt: string | null }>;
-
   // NOUVELLES API POUR SYNCHRONISATION
   syncDocuments: (
     enqueteNumero: string,

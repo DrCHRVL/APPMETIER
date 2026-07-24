@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Edit2, X, Check, Power, PowerOff, AlertTriangle, Trash2, Bell, RotateCcw, Network, FolderOpen, Loader2, AlertCircle, RefreshCw, Users, UserPlus, Share2, Mail } from 'lucide-react';
+import { Plus, Edit2, X, Check, Power, PowerOff, AlertTriangle, Trash2, Bell, RotateCcw, Network, Loader2, RefreshCw, Users, UserPlus, Share2, Mail } from 'lucide-react';
 import type { InstructionShareState } from '@/utils/dataSync/InstructionSyncService';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -452,25 +452,10 @@ export const AdminInstructionPanel = () => {
 // SECTION SAUVEGARDE RÉSEAU (privée par utilisateur)
 // ──────────────────────────────────────────────
 
-const isWebApp = () =>
-  typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
-
 const NetworkBackupSection = () => {
-  const { instructionNetworkPath, setInstructionNetworkPath } = useUserPreferences();
-  const { showToast } = useToast();
-  const isWeb = isWebApp();
-
-  const [pathInput, setPathInput] = useState('');
-  const [validating, setValidating] = useState(false);
-  const [valid, setValid] = useState<boolean | null>(null);
-  const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
-
-  // Synchronise le champ avec la valeur persistée (et au pull réseau des prefs)
-  useEffect(() => {
-    setPathInput(instructionNetworkPath || '');
-  }, [instructionNetworkPath]);
+  const { showToast } = useToast();
 
   // Rafraîchit le statut (dernière synchro) périodiquement tant que la section est ouverte
   useEffect(() => {
@@ -479,42 +464,6 @@ const NetworkBackupSection = () => {
     const id = setInterval(tick, 3000);
     return () => clearInterval(id);
   }, []);
-
-  const validatePath = useCallback(async (value: string) => {
-    if (!value.trim()) { setValid(null); return; }
-    setValidating(true);
-    try {
-      const ok = await (window as any).electronAPI?.validatePath?.(value.trim());
-      setValid(!!ok);
-    } catch {
-      setValid(false);
-    }
-    setValidating(false);
-  }, []);
-
-  const handleSelectFolder = async () => {
-    const selected = await (window as any).electronAPI?.selectFolder?.();
-    if (selected) {
-      setPathInput(selected);
-      validatePath(selected);
-    }
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await setInstructionNetworkPath(pathInput.trim());
-      showToast(
-        pathInput.trim()
-          ? 'Dossier réseau enregistré. Vos dossiers d\'instruction y seront sauvegardés.'
-          : 'Sauvegarde réseau désactivée (sauvegarde locale uniquement).',
-        'success',
-      );
-    } catch {
-      showToast('Erreur lors de l\'enregistrement', 'error');
-    }
-    setSaving(false);
-  };
 
   const handleSyncNow = async () => {
     setSyncing(true);
@@ -531,125 +480,41 @@ const NetworkBackupSection = () => {
     }
   };
 
-  const dirty = (instructionNetworkPath || '') !== pathInput.trim();
-
-  // Mode web : le serveur SIRAL chiffré est le magasin de référence. Aucun dossier
-  // réseau Windows à configurer — la synchro est automatique et permanente.
-  if (isWeb) {
-    return (
-      <section className="space-y-3">
-        <div>
-          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-1.5">
-            <Network className="h-4 w-4 text-gray-500" />
-            Sauvegarde de vos dossiers
-          </h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Vos dossiers d'instruction sont enregistrés automatiquement sur le{' '}
-            <strong>serveur chiffré</strong> et synchronisés entre tous vos appareils.
-            Ils restent <strong>privés</strong> : ils ne sont jamais visibles par les
-            autres utilisateurs, sauf partage explicite ci-dessous.
-          </p>
-        </div>
-
-        <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
-          <div className="flex items-center gap-2 text-sm text-emerald-800">
-            <Check className="h-4 w-4 text-emerald-600" />
-            <span>
-              Synchronisé avec le serveur.
-              {lastSync && (
-                <span className="text-emerald-700/80">
-                  {' '}Dernière synchro : {new Date(lastSync).toLocaleString('fr-FR')}
-                </span>
-              )}
-            </span>
-          </div>
-          <button
-            onClick={handleSyncNow}
-            disabled={syncing}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-100 rounded-lg transition-colors disabled:opacity-50"
-          >
-            {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            Synchroniser
-          </button>
-        </div>
-      </section>
-    );
-  }
-
   return (
     <section className="space-y-3">
       <div>
         <h3 className="text-base font-semibold text-gray-800 flex items-center gap-1.5">
           <Network className="h-4 w-4 text-gray-500" />
-          Sauvegarde réseau de vos dossiers
+          Sauvegarde de vos dossiers
         </h3>
         <p className="text-xs text-gray-500 mt-0.5">
-          Choisissez un dossier réseau où sauvegarder vos dossiers d'instruction. Ils y
-          seront enregistrés automatiquement et synchronisés entre vos différents postes.
-          Vos dossiers restent <strong>privés</strong> : ils ne sont jamais partagés avec
-          les autres utilisateurs. Laissez vide pour une sauvegarde locale uniquement.
+          Vos dossiers d'instruction sont enregistrés automatiquement sur le{' '}
+          <strong>serveur chiffré</strong> et synchronisés entre tous vos appareils.
+          Ils restent <strong>privés</strong> : ils ne sont jamais visibles par les
+          autres utilisateurs, sauf partage explicite ci-dessous.
         </p>
       </div>
 
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium text-gray-700">Dossier réseau</label>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <input
-              type="text"
-              value={pathInput}
-              onChange={(e) => { setPathInput(e.target.value); setValid(null); }}
-              onBlur={() => validatePath(pathInput)}
-              placeholder="Ex: P:\TGI\Parquet\...\Mes instructions"
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent pr-8"
-            />
-            <div className="absolute right-2 top-1/2 -translate-y-1/2">
-              {validating && <Loader2 className="h-4 w-4 text-gray-400 animate-spin" />}
-              {!validating && valid === true && <Check className="h-4 w-4 text-green-500" />}
-              {!validating && valid === false && <AlertCircle className="h-4 w-4 text-red-500" />}
-            </div>
-          </div>
-          <button
-            onClick={handleSelectFolder}
-            className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-            title="Parcourir"
-          >
-            <FolderOpen className="h-4 w-4 text-gray-600" />
-          </button>
+      <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+        <div className="flex items-center gap-2 text-sm text-emerald-800">
+          <Check className="h-4 w-4 text-emerald-600" />
+          <span>
+            Synchronisé avec le serveur.
+            {lastSync && (
+              <span className="text-emerald-700/80">
+                {' '}Dernière synchro : {new Date(lastSync).toLocaleString('fr-FR')}
+              </span>
+            )}
+          </span>
         </div>
-        {valid === false && (
-          <p className="text-xs text-red-500">Chemin inaccessible ou non inscriptible</p>
-        )}
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div className="text-xs text-gray-500">
-          {instructionNetworkPath
-            ? (lastSync
-                ? `Dernière synchro : ${new Date(lastSync).toLocaleString('fr-FR')}`
-                : 'Sauvegarde réseau active — synchro en attente.')
-            : 'Sauvegarde locale uniquement.'}
-        </div>
-        <div className="flex items-center gap-2">
-          {instructionNetworkPath && !dirty && (
-            <button
-              onClick={handleSyncNow}
-              disabled={syncing}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
-            >
-              {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              Synchroniser
-            </button>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={saving || !dirty}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-            Enregistrer
-          </button>
-        </div>
+        <button
+          onClick={handleSyncNow}
+          disabled={syncing}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-100 rounded-lg transition-colors disabled:opacity-50"
+        >
+          {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          Synchroniser
+        </button>
       </div>
     </section>
   );
@@ -660,7 +525,6 @@ const NetworkBackupSection = () => {
 // ──────────────────────────────────────────────
 
 const PartageSection = () => {
-  const { instructionNetworkPath } = useUserPreferences();
   const { showToast } = useToast();
   const [state, setState] = useState<InstructionShareState>(() => instructionSyncService.getShareState());
   const [draft, setDraft] = useState('');
@@ -732,9 +596,7 @@ const PartageSection = () => {
     void run(() => instructionSyncService.addPartner(u), 'Invitation de partage envoyée');
   };
 
-  // En mode web, le serveur tient lieu de dossier commun : le partage est toujours
-  // disponible. En desktop, il faut au préalable un dossier réseau partagé.
-  const networkReady = isWebApp() || !!(instructionNetworkPath || '').trim();
+
 
   return (
     <section className="space-y-3">
@@ -752,13 +614,6 @@ const PartageSection = () => {
           invitation reçue peut aussi être refusée.
         </p>
       </div>
-
-      {!networkReady && (
-        <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2.5 py-2">
-          Configurez d'abord un <strong>dossier réseau</strong> ci-dessus : le partage
-          s'appuie sur ce dossier commun.
-        </div>
-      )}
 
       {/* Invitations entrantes */}
       {state.incoming.length > 0 && (
@@ -835,7 +690,7 @@ const PartageSection = () => {
             onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
             onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
             placeholder="Nom d'utilisateur du partenaire (dès 3 caractères)"
-            disabled={!networkReady || busy}
+            disabled={busy}
             className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg disabled:bg-gray-50 disabled:opacity-60"
           />
           {showSuggestions && (
@@ -858,7 +713,7 @@ const PartageSection = () => {
         </div>
         <button
           onClick={handleAdd}
-          disabled={!networkReady || busy || !draft.trim()}
+          disabled={busy || !draft.trim()}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}

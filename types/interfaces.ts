@@ -2,6 +2,8 @@
 export interface Tag {
   id: string;
   value: string;
+  /** 'infractions' = héritage : tags d'infraction résiduels d'anciens dossiers,
+   *  résolus vers le NATINF à l'affichage (plus jamais créés par l'app). */
   category: 'services' | 'infractions' | 'suivi' | 'duree' | 'statut' | 'juge';
 }
 

@@ -46,7 +46,7 @@ function isAvailable(): boolean {
 
 /** Projette une source locale vers la forme minimale publiée sur le serveur. */
 export function projectContributionSource(src: EnqueteWithContext): CartoContributionSource {
-  const { enquete, contentieuxId, misEnExamen } = src;
+  const { enquete, contentieuxId, misEnExamen, condamnes } = src;
   return {
     contentieuxId,
     enqueteId: enquete.id,
@@ -76,6 +76,7 @@ export function projectContributionSource(src: EnqueteWithContext): CartoContrib
         qualification: i.qualification,
       })),
     })),
+    condamnes: condamnes?.map(c => ({ nom: c.nom })),
   };
 }
 
@@ -108,6 +109,7 @@ function contributionToSource(c: CartoContributionSource): EnqueteWithContext {
     enquete: pseudoEnquete,
     contentieuxId: c.contentieuxId as ContentieuxId,
     misEnExamen: c.misEnExamen as unknown as MisEnExamen[] | undefined,
+    condamnes: c.condamnes,
   };
 }
 

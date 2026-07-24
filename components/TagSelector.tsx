@@ -11,9 +11,8 @@ interface TagSelectorProps {
   onTagSelect: (tag: Tag) => void;
   onTagRemove: (tagId: string) => void;
   allowedCategories?: TagCategory[];
-  /** Remplace le référentiel pour la catégorie « infractions » : liste
-   *  évolutive des infractions réellement portées par les dossiers (NATINF ou
-   *  tags legacy encore utilisés), au lieu de tous les tags historiques. */
+  /** Filtres « Type d'infractions » : liste évolutive des infractions (NATINF)
+   *  réellement portées par les dossiers affichés. */
   infractionTags?: Tag[];
 }
 
@@ -26,7 +25,7 @@ export const TagSelector = ({
 }: TagSelectorProps) => {
   const { getTagsByCategory, isLoading } = useTags();
 
-  const availableCategories = allowedCategories || ['infractions', 'services', 'duree', 'suivi', 'statut', 'juge'];
+  const availableCategories: TagCategory[] = allowedCategories || ['infractions', 'services', 'duree', 'suivi', 'statut', 'juge'];
 
   if (isLoading) {
     return <div className="text-sm text-gray-500">Chargement des tags...</div>;
@@ -35,16 +34,18 @@ export const TagSelector = ({
   return (
     <div className="space-y-4">
       {availableCategories.map(category => {
-        const categoryTags = category === 'infractions' && infractionTags !== undefined
-          ? infractionTags
+        // « infractions » n'est plus un référentiel de tags : seules les puces
+        // NATINF dérivées des dossiers (prop infractionTags) sont proposées.
+        const categoryTags = category === 'infractions'
+          ? (infractionTags ?? [])
           : getTagsByCategory(category);
-        
+
         if (categoryTags.length === 0) return null;
-        
+
         return (
           <div key={category} className="space-y-1">
             <h3 className="text-sm font-medium text-gray-700">
-              {TAG_CATEGORIES[category] || category}
+              {category === 'infractions' ? 'Type d\'infractions' : (TAG_CATEGORIES[category as keyof typeof TAG_CATEGORIES] || category)}
             </h3>
             <div className="flex flex-wrap gap-2">
               {categoryTags.map((tag) => {

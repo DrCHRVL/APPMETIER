@@ -1,14 +1,14 @@
 /**
- * SIRAL — pont web : implémente la surface complète de window.electronAPI
- * dans le navigateur, branchée sur l'API serveur SIRAL.
+ * SIRAL — pont de données : implémente la surface de window.electronAPI
+ * (nom hérité de l'ancienne édition bureau) dans le navigateur, branchée
+ * sur l'API serveur SIRAL.
  *
- * Principe (identique à l'app Electron) :
- *  - « local » (data.json)   → IndexedDB (cache de travail, hors-ligne complet)
- *  - « serveur » (partage P:) → API /api/vaults (coffres chiffrés E2EE versionnés)
+ * Principe :
+ *  - « local »   → IndexedDB (cache de travail, hors-ligne complet)
+ *  - « serveur » → API /api/vaults (coffres chiffrés E2EE versionnés)
  *
  * Tout payload envoyé au serveur est chiffré ICI (AES-GCM) : le serveur ne
- * stocke que des enveloppes opaques. Les formes de retour reproduisent
- * fidèlement les contrats des handlers ipcMain de main.js.
+ * stocke que des enveloppes opaques.
  */
 import { encryptJson, decryptJson, encryptBytes, decryptBytes, b64, CipherEnvelope } from './crypto'
 import { idb, exportKv, importKv, getAllEntries } from './idb'
@@ -20,11 +20,6 @@ interface BuildOptions { keys: ScopedKeys, me: BridgeIdentity }
 
 // Magie binaire des documents chiffrés : 'SIR1' + iv(12) + ciphertext
 const DOC_MAGIC = [0x53, 0x49, 0x52, 0x31]
-
-// Coffres acceptés par l'import depuis l'app bureau (mêmes cibles que
-// scripts/siral-import.js) : l'import ne peut pas toucher aux coffres
-// d'accès (keyring-*, grant-*) ni à des noms arbitraires.
-const DESKTOP_IMPORT_VAULT_RE = /^(users-config|tags|audience|alerts|deleted-ids|cartographie|cartographie-config|cartographie-contributions|app-data|legacy-app-data|ctx-alerts-[a-zA-Z0-9._-]{1,64}|ctx-[a-zA-Z0-9._-]{1,64}|instructions-[a-zA-Z0-9._-]{1,64}|user-prefs-[a-zA-Z0-9._-]{1,64})$/
 
 type AnyFn = (...args: unknown[]) => unknown
 
@@ -309,8 +304,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
   type NetState = 'healthy' | 'slow' | 'unreachable'
   type NetStatus = { state: NetState, latency: number | null, lastProbeAt: string | null }
   let netStatus: NetStatus = { state: 'healthy', latency: null, lastProbeAt: null }
-  // Les callbacks reçoivent l'OBJET d'état complet (contrat identique à l'app
-  // Electron : main.js envoie `_networkStatus`, et NetworkStatusManager fait
+  // Les callbacks reçoivent l'OBJET d'état complet (NetworkStatusManager fait
   // `this.realStatus = next`). Passer une simple chaîne corromprait realStatus
   // en string → la déstructuration `{ state, latency }` côté UI donnerait
   // `undefined` → l'indicateur resterait bloqué en rouge « Réseau injoignable ».
@@ -1064,19 +1058,6 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
         return { success: false, error: e instanceof Error ? e.message : 'Serveur injoignable', commits: [] }
       }
     },
-    // Publication : sans objet sur la version serveur — mettre à jour le serveur
-    // publie de fait la nouvelle version pour tous les utilisateurs, immédiatement.
-    approveAppUpdate: async () => ({ success: false, error: 'Sans objet en mode serveur : la mise à jour s\'applique immédiatement à tous les utilisateurs' }),
-    unapproveAppUpdate: async () => ({ success: false, error: 'Sans objet en mode serveur' }),
-    getApprovedAppUpdate: async () => ({ approvedSha: null, approvedBy: null, approvedAt: null }),
-
-    // ── Mode consultation (spécifique Electron/partage réseau) ──
-    consultation_getStatus: async () => ({ enabled: false, deployPath: '', targetUsername: '', activatedAt: '', lastRefreshedAt: '', lastError: '', shellAvailable: false }),
-    consultation_pickFolder: async () => null,
-    consultation_activate: async () => ({ success: false, error: 'Indisponible en mode web — utilisez un compte en lecture seule' }),
-    consultation_deactivate: async () => ({ success: false, error: 'Indisponible en mode web' }),
-    consultation_refreshNow: async () => ({ success: false, error: 'Indisponible en mode web' }),
-
     // ── Cloisonnement par clé individuelle (trousseaux) ──
     e2ee_myScopes: async () => Array.from(keys.byScope.keys()),
     e2ee_listAccounts: async () => {
@@ -1118,25 +1099,6 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       const r1 = await api(`/api/vaults/keyring-${encodeURIComponent(user)}`, { method: 'DELETE' })
       const r2 = await api(`/api/vaults/grant-${encodeURIComponent(user)}`, { method: 'DELETE' })
       if (!r1.ok && !r2.ok) throw new Error('Révocation refusée (' + r1.status + ')')
-      return true
-    },
-
-    // ── Import depuis l'app bureau (Paramètres → Sauvegardes) ──
-    /** Chiffre puis pousse un coffre de données — uniquement les cibles connues de l'import. */
-    desktopImport_pushVault: async (name: unknown, payload: unknown, meta?: unknown) => {
-      const n = String(name)
-      if (!DESKTOP_IMPORT_VAULT_RE.test(n)) throw new Error(`Coffre non autorisé à l'import : ${n}`)
-      await vaultPush(n, payload, metaOf(meta))
-      return true
-    },
-    /** Dépose un document d'enquête en conservant son chemin relatif d'origine
-     *  (saveDocuments renomme — ici les liens des enquêtes doivent rester valides). */
-    desktopImport_uploadDocument: async (enquete: unknown, rel: unknown, buffer: unknown, category?: unknown, originalName?: unknown) => {
-      await docUpload(
-        String(enquete), String(rel), new Uint8Array(buffer as ArrayBuffer),
-        category === undefined ? undefined : String(category),
-        originalName === undefined ? undefined : String(originalName),
-      )
       return true
     },
   }

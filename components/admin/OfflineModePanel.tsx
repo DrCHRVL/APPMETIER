@@ -13,15 +13,13 @@ import { useToast } from '@/contexts/ToastContext';
 // poste, chiffrée sous un code de déverrouillage. Au retour sans réseau,
 // WebGate propose l'entrée hors-ligne avec ce code. La resynchronisation passe
 // par le bouton « Synchroniser » (moteur de sync + arbitrage des conflits
-// existants). Fonctionnalité propre à l'édition web.
+// existants).
 
 const fmt = (iso?: string) =>
   iso ? new Date(iso).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 
 export const OfflineModePanel: React.FC<{ onSync?: () => void | Promise<void> }> = ({ onSync }) => {
   const { showToast } = useToast();
-  const isWeb = typeof window !== 'undefined'
-    && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
 
   const [status, setStatus] = React.useState(() => offlineMode.getOfflineStatus());
   const [code, setCode] = React.useState('');
@@ -85,19 +83,6 @@ export const OfflineModePanel: React.FC<{ onSync?: () => void | Promise<void> }>
       setSyncing(false);
     }
   };
-
-  if (!isWeb) {
-    return (
-      <div className="space-y-4 max-w-2xl">
-        <h2 className="text-lg font-semibold text-gray-900">Mode hors-ligne</h2>
-        <div className="flex items-start gap-2 text-sm text-gray-600 bg-slate-50 border border-slate-200 rounded-md p-3">
-          <Info className="h-4 w-4 mt-0.5 shrink-0 text-slate-400" />
-          <p>Cette préparation est propre à l’édition web (PWA). L’édition bureau travaille déjà en local sur le
-            partage réseau du service.</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6 max-w-2xl">

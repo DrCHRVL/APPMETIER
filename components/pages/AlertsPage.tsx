@@ -6,7 +6,7 @@ import { Switch } from '../ui/switch';
 import { WeeklyPopupConfig, VisualAlertRule, VisualAlertTrigger, VisualAlertMode, VisualAlertColorKey } from '@/types/interfaces';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Select } from '../ui/select';
-import { Edit2, Save, X, Plus, Copy, Clock, RefreshCw, Eye, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
+import { Edit2, Save, X, Plus, Clock, RefreshCw, Eye, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { VISUAL_ALERT_COLOR_PALETTE, VISUAL_ALERT_COLOR_KEYS, VISUAL_ALERT_TRIGGER_LABELS } from '@/config/constants';
 import { useUser } from '@/contexts/UserContext';
@@ -422,8 +422,7 @@ interface AlertsPageProps {
 }
 
 export const AlertsPage = ({ onShowWeeklyPopup, visualAlertRules = [], onUpdateVisualAlertRule, onDeleteVisualAlertRule, onReorderVisualAlertRules }: AlertsPageProps) => {
-  // Rappels d'échéances par notification (iPhone PWA / PC) — édition web
-  const isWebApp = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
+  // Rappels d'échéances par notification (iPhone PWA / PC)
   const [pushOn, setPushOn] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushError, setPushError] = useState('');
@@ -494,8 +493,7 @@ export const AlertsPage = ({ onShowWeeklyPopup, visualAlertRules = [], onUpdateV
         <h2 className="text-2xl font-bold">Gestion des Alertes</h2>
       </div>
 
-      {/* Rappels d'échéances sur iPhone / PC (édition web) */}
-      {isWebApp && (
+      {/* Rappels d'échéances sur iPhone / PC */}
         <Card className="mb-6 border-emerald-200 bg-emerald-50">
           <CardHeader className="flex flex-row items-start justify-between gap-3 py-4">
             <div className="flex-1 min-w-0">
@@ -514,7 +512,6 @@ export const AlertsPage = ({ onShowWeeklyPopup, visualAlertRules = [], onUpdateV
             <Switch checked={pushOn} disabled={pushBusy || !isPushSupported()} onCheckedChange={togglePush} className="flex-shrink-0 mt-1" />
           </CardHeader>
         </Card>
-      )}
 
       {/* Récapitulatif hebdomadaire */}
       <Card className="mb-6 border-blue-200 bg-blue-50">

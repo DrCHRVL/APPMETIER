@@ -193,25 +193,13 @@ export class AIRSyncService {
   }
 
   /**
-   * Mode web (SIRAL serveur) : le serveur chiffré est le magasin de référence.
-   * Aucun dossier réseau Windows n'est requis — le pont web ignore le `basePath`
-   * et route les coffres `air-<user>` directement vers /api/vaults.
-   */
-  private isWeb(): boolean {
-    return typeof window !== 'undefined'
-      && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
-  }
-
-  /**
    * Configure le service (utilisateur + dossier réseau). En mode web, le serveur
    * SIRAL fait office de dossier réseau : un chemin sentinelle est forcé dès
    * qu'un utilisateur est connecté, pour que la synchro et le partage s'activent
    * sans configuration.
    */
-  configure(username: string | null, networkPath: string | null | undefined): void {
-    const path = this.isWeb()
-      ? (username ? 'siral://serveur' : null)
-      : ((networkPath || '').trim() || null);
+  configure(username: string | null): void {
+    const path = username ? 'siral://serveur' : null;
     const changed = this.username !== username || this.networkPath !== path;
     this.username = username || null;
     this.networkPath = path;

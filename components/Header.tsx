@@ -30,8 +30,6 @@ interface HeaderProps {
   updateCommits?: number;
   onShowUpdate?: () => void;
   isUpdating?: boolean;
-  remoteSha?: string | null;
-  approvedSha?: string | null;
   /** Mode épuré (profil JLD) : masque la recherche et les actions (sauvegarde, sync, alertes). */
   minimal?: boolean;
   /** Attaché de justice IA — fourni UNIQUEMENT en session admin quand la fonctionnalité est active. */
@@ -56,18 +54,12 @@ export const Header = ({
   updateCommits = 0,
   onShowUpdate,
   isUpdating = false,
-  remoteSha = null,
-  approvedSha = null,
   minimal = false,
   onShowAttache,
 }: HeaderProps) => {
-  // L'icône est visible :
-  //  - pour l'admin : dès qu'une MAJ existe
-  //  - pour les autres : seulement si l'admin a publié exactement cette version (remoteSha === approvedSha)
-  const showUpdateIcon =
-    (updateAvailable || isUpdating) && (
-      isAdmin || (remoteSha != null && approvedSha != null && remoteSha === approvedSha)
-    );
+  // L'icône de mise à jour est réservée à l'admin : la mise à jour du serveur
+  // s'applique d'elle-même à tous les utilisateurs.
+  const showUpdateIcon = (updateAvailable || isUpdating) && isAdmin;
   const activeAlerts = useMemo(() =>
     alerts.filter(alert => alert.status === 'active'),
     [alerts]

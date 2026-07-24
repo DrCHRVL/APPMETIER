@@ -1,8 +1,7 @@
 # SIRAL — Pistes d'amélioration
 
 > Document de travail — produit projeté (édition web). Rédigé le 12 juin 2026.
-> Complète `docs/PLAN-MIGRATION-WEB.md` (architecture & migration) : ici, on parle
-> **produit** — ce qui rendra SIRAL plus utile, plus sûr, plus diffusable.
+> Ici, on parle **produit** — ce qui rendra SIRAL plus utile, plus sûr, plus diffusable.
 
 Les pistes sont classées en trois horizons : **quick wins** (jours), **moyen terme**
 (semaines, après le déploiement web), **horizon** (à instruire avant d'engager).

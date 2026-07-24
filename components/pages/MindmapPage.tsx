@@ -13,6 +13,7 @@ import type { Enquete } from '@/types/interfaces';
 import {
   buildMindmapGraph,
   getTopMec,
+  normalizeMecName,
   type DossierNode,
   type EnqueteWithContext,
   type GraphNode,
@@ -213,9 +214,9 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     mecScoreBoosts,
   }), [mecsExNihilo, dossiersExNihilo, liensRenseignement, mecScoreBoosts]);
 
-  // Configuration de scoring (pondérations éditables + poids par tag d'infraction).
-  // Reconstruite quand la config carto change ou que la liste des tags
-  // d'infraction évolue (utile pour le matching qualifications ↔ valeur de tag).
+  // Configuration de scoring (pondérations éditables NATINF/catégories, plus
+  // le poids des anciens tags d'infraction — HÉRITAGE : ne sert qu'aux
+  // dossiers ex nihilo créés avant la bascule NATINF encore présents en data).
   const { config: cartoConfig } = useCartographieConfig();
   const { getTagsByCategory } = useTags();
   // Résolveur code NATINF → code de catégorie d'infraction (Mémento parquet),
@@ -331,19 +332,28 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   );
   const top10 = useMemo(() => getTopMec(graph, 10), [graph]);
 
+  // Recherche tolérante : insensible aux accents, à la casse et à l'ordre des
+  // mots — un nœud matche si CHAQUE mot de la requête apparaît dans son texte
+  // normalisé. Les dossiers sont cherchés sur leur numéro/nom ET leur n° de
+  // parquet : on retrouve donc un dossier en tapant son nom, pas uniquement
+  // les mis en cause.
   const searchResults = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (q.length < 2) return [] as GraphNode[];
+    if (search.trim().length < 2) return [] as GraphNode[];
+    const tokens = normalizeMecName(search).split(' ').filter(Boolean);
+    if (tokens.length === 0) return [] as GraphNode[];
+    const matchesTokens = (haystack: string) =>
+      haystack !== '' && tokens.every(t => haystack.includes(t));
     const out: GraphNode[] = [];
     for (const m of graph.mecById.values()) {
-      if (m.displayName.toLowerCase().includes(q) ||
-          m.variants.some(v => v.toLowerCase().includes(q))) {
+      if (matchesTokens(normalizeMecName([m.displayName, ...m.variants].join(' ')))) {
         out.push(m);
       }
       if (out.length >= 20) break;
     }
     for (const d of graph.dossierById.values()) {
-      if (d.numero.toLowerCase().includes(q)) out.push(d);
+      if (matchesTokens(normalizeMecName(`${d.numero} ${d.numeroParquet || ''}`))) {
+        out.push(d);
+      }
       if (out.length >= 30) break;
     }
     return out;
@@ -383,8 +393,9 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
 
   // Exporter la liste des noms au format txt brut (un nom par ligne, trié par
   // score décroissant, dédupliqué). On part des nœuds MEC de la carte — qui
-  // regroupent déjà mis en cause, mis en examen, suspects et « mis en cause »
-  // ajoutés à la main — en excluant les victimes projetées (drapeau isVictime).
+  // regroupent déjà mis en cause, mis en examen, suspects, condamnés et
+  // « mis en cause » ajoutés à la main — en excluant les victimes projetées
+  // (drapeau isVictime).
   // On exporte ce qui est réellement affiché : le filtre contentieux actif est
   // donc respecté.
   const handleExportNames = async () => {
@@ -677,11 +688,11 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           Recompacter
         </button>
 
-        {/* Exporter : liste des noms (mis en cause, mis en examen, suspects et
-            ajouts manuels — hors victimes) en .txt brut, un nom par ligne. */}
+        {/* Exporter : liste des noms (mis en cause, mis en examen, suspects,
+            condamnés et ajouts manuels — hors victimes) en .txt brut, un nom par ligne. */}
         <button
           onClick={handleExportNames}
-          title="Exporter la liste des noms (mis en cause, mis en examen, suspects… hors victimes) au format texte"
+          title="Exporter la liste des noms (mis en cause, mis en examen, suspects, condamnés… hors victimes) au format texte"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 transition-colors"
         >
           <FileDown className="h-3.5 w-3.5" />

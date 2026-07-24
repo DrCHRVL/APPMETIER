@@ -191,7 +191,7 @@ export const InstructionPreview = React.memo(({
             Parquet : {parquetLabel || dossier.numeroParquet || 'Non défini'}
           </div>
 
-          {/* Tags d'infraction */}
+          {/* Tags d'infraction hérités (anciens dossiers non migrés) — résolus NATINF */}
           {dossier.tags && dossier.tags.filter(t => t.category === 'infractions').length > 0 && (
             <div className="flex flex-wrap gap-1 mb-1.5">
               {dossier.tags

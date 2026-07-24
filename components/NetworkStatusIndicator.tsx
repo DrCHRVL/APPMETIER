@@ -6,10 +6,7 @@ import { NetworkStatusManager } from '@/utils/networkStatusManager';
 import { Switch } from './ui/switch';
 
 /**
- * Petite icône Wi-Fi qui reflète l'état de la cible de synchronisation :
- *  - bureau (Electron) : le partage réseau P:\
- *  - web               : le serveur SIRAL (sonde /api/health)
- *
+ * Petite icône Wi-Fi qui reflète l'état du serveur SIRAL (sonde /api/health) :
  *  - vert  : latence saine, sync temps réel
  *  - jaune : réseau lent, sync différée
  *  - rouge : injoignable, modifications locales uniquement
@@ -20,9 +17,7 @@ import { Switch } from './ui/switch';
  */
 export const NetworkStatusIndicator = () => {
   const { state, latency } = useNetworkStatus();
-  // En web, l'indicateur concerne le serveur SIRAL ; en bureau, le partage P:\.
-  const isWeb = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
-  const targetLabel = isWeb ? 'serveur SIRAL' : 'partage réseau (P:\\)';
+  const targetLabel = 'serveur SIRAL';
   const [forcedOffline, setForcedOffline] = useState(() =>
     NetworkStatusManager.isForcedOffline()
   );
