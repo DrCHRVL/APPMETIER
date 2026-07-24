@@ -7,7 +7,7 @@ import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
 import { AutorisationValidationModal } from '../modals/AutorisationValidationModal';
-import { ActeUtils, getStatutBadgeProps, trackDeletedActeId } from '@/utils/acteUtils';
+import { ActeUtils, getStatutBadgeProps, trackDeletedActeId, isActeEnAttenteDePose } from '@/utils/acteUtils';
 import { useToast } from '@/contexts/ToastContext';
 import { DateUtils } from '@/utils/dateUtils';
 import { Badge } from '@/components/ui/badge';
@@ -118,6 +118,13 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
         updated.duree = dates.duree || ecoute.duree;
         updated.dureeUnit = dates.dureeUnit || ecoute.dureeUnit;
         updated.dateFin = dates.dateFin || ecoute.dateFin;
+      }
+
+      // Date de pose supprimée → retour « en attente de pose » : la dateFin
+      // calculée depuis l'ancienne pose n'a plus de sens (le délai ne court
+      // qu'à compter de la pose) et déclencherait à tort les alertes d'échéance.
+      if (isActeEnAttenteDePose(updated.statut)) {
+        updated.dateFin = '';
       }
 
       return updated;
@@ -336,12 +343,16 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
 
   const now = new Date();
   
+  // Un acte non posé ne peut pas être « terminé » : sa dateFin résiduelle
+  // éventuelle (pose supprimée) ne doit pas l'envoyer dans les mesures terminées.
   const activeEcoutes = enquete.ecoutes?.filter(e => {
+    if (isActeEnAttenteDePose(e.statut)) return true;
     if (!e.dateFin) return true;
     return new Date(e.dateFin) >= now;
   }) || [];
-  
+
   const terminatedEcoutes = enquete.ecoutes?.filter(e => {
+    if (isActeEnAttenteDePose(e.statut)) return false;
     if (!e.dateFin) return false;
     return new Date(e.dateFin) < now;
   }).sort((a, b) => new Date(b.dateFin).getTime() - new Date(a.dateFin).getTime()) || [];

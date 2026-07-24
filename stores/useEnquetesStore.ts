@@ -255,8 +255,10 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     try {
       const key = storageKey(contentieuxId);
       const data = await ElectronBridge.getData<Enquete[]>(key, []);
-      // Normalise au passage le statut des actes expirés (en_cours → termine) :
-      // si au moins une enquête est corrigée, on persiste pour figer la donnée.
+      // Normalise au passage les actes : statut des actes expirés (en_cours →
+      // termine) et dateFin résiduelle des actes non posés (en attente de
+      // pose/autorisation, le délai ne courant qu'à compter de la pose).
+      // Si au moins une enquête est corrigée, on persiste pour figer la donnée.
       let actesNormalized = false;
       const validData = Array.isArray(data)
         ? data

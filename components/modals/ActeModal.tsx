@@ -132,10 +132,12 @@ export const ActeModal = ({
       updatedStatut = 'pose_pending';
     }
 
-    // Calculer dateFin depuis la référence disponible (datePose prioritaire, sinon dateDebut)
-    const dateRef = datePose || dateDebut;
-    const dateFin = (typeConfig.hasDuree && dureeVal && dateRef)
-      ? DateUtils.calculateEndDateWithUnit(dateRef, dureeVal, effectiveDureeUnit as 'jours' | 'mois')
+    // dateFin uniquement si l'acte est posé : le délai ne court qu'à compter
+    // de la pose. Sans pose (statut « pose en attente »), aucune échéance —
+    // une dateFin basée sur la date d'autorisation déclencherait à tort les
+    // alertes d'expiration.
+    const dateFin = (typeConfig.hasDuree && dureeVal && datePose)
+      ? DateUtils.calculateEndDateWithUnit(datePose, dureeVal, effectiveDureeUnit as 'jours' | 'mois')
       : undefined;
 
     const dates: DateManagerData = {

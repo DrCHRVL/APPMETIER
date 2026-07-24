@@ -7,7 +7,7 @@ import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
 import { AutorisationValidationModal } from '../modals/AutorisationValidationModal';
-import { ActeUtils, getStatutBadgeProps, trackDeletedActeId } from '@/utils/acteUtils';
+import { ActeUtils, getStatutBadgeProps, trackDeletedActeId, isActeEnAttenteDePose } from '@/utils/acteUtils';
 import { useToast } from '@/contexts/ToastContext';
 import { DateUtils } from '@/utils/dateUtils';
 import { Badge } from '@/components/ui/badge';
@@ -110,6 +110,13 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
         updated.duree = dates.duree || geoloc.duree;
         updated.dureeUnit = dates.dureeUnit || geoloc.dureeUnit;
         updated.dateFin = dates.dateFin || geoloc.dateFin;
+      }
+
+      // Date de pose supprimée → retour « en attente de pose » : la dateFin
+      // calculée depuis l'ancienne pose n'a plus de sens (le délai ne court
+      // qu'à compter de la pose) et déclencherait à tort les alertes d'échéance.
+      if (isActeEnAttenteDePose(updated.statut)) {
+        updated.dateFin = '';
       }
 
       return updated;
@@ -279,12 +286,16 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
   const terminationCutoff = new Date(now);
   terminationCutoff.setDate(terminationCutoff.getDate() - 1);
 
+  // Un acte non posé ne peut pas être « terminé » : sa dateFin résiduelle
+  // éventuelle (pose supprimée) ne doit pas l'envoyer dans les mesures terminées.
   const activeGeolocs = enquete.geolocalisations?.filter(g => {
+    if (isActeEnAttenteDePose(g.statut)) return true;
     if (!g.dateFin) return true;
     return new Date(g.dateFin) >= terminationCutoff;
   }) || [];
 
   const terminatedGeolocs = enquete.geolocalisations?.filter(g => {
+    if (isActeEnAttenteDePose(g.statut)) return false;
     if (!g.dateFin) return false;
     return new Date(g.dateFin) < terminationCutoff;
   }).sort((a, b) => new Date(b.dateFin).getTime() - new Date(a.dateFin).getTime()) || [];
