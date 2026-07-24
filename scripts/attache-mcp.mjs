@@ -20,6 +20,7 @@ import {
   enregistrerActe, acterProlongation, classerNote, ajouterTodo, terminerTodo, listerDml,
   actualiserDescription, diagnostiquerDossier, diagnostiquerAffichage, arborescenceDocuments,
   ajouterNatinfs, creerDossier, ajouterMec, modifierMec, modifierActe, modifierDossier, archiverDossier,
+  enqueteExiste,
 } from './attache/dossier.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine } from './attache/routines.mjs'
 import { searchNatinf } from './attache/natinf.mjs'
@@ -48,10 +49,12 @@ const keys = loadKeyring()
 const runContext = process.env.SIRAL_ATTACHE_RUN || 'chat'
 
 /**
- * Pseudo-dossier des actes SANS procédure : une demande d'acte arrive (mail
- * transféré) mais ne correspond à aucun dossier en cours — l'acte rédigé est
- * rangé ici et apparaît dans la section « Actes rédigés — hors dossier » du
- * tableau de bord, en attendant que le magistrat décide de la suite.
+ * Pseudo-dossier « hors dossier » — deux voies d'entrée : une demande d'acte
+ * (mail transféré) qui ne correspond à aucun dossier en cours, OU une consigne
+ * explicite du magistrat de ranger ici (valable même quand un dossier
+ * correspondant existe — sa destination désignée prime). L'acte rédigé
+ * apparaît dans la section « Actes rédigés — hors dossier » du tableau de
+ * bord, en attendant que le magistrat décide de la suite.
  */
 export const HORS_DOSSIER = '_hors-dossier'
 
@@ -624,12 +627,12 @@ const TOOLS = [
     name: 'produire_document',
     description: `Rédige un ACTE et le range dans « Actes rédigés » du dossier (le magistrat le visionne, l'édite, l'exporte en PDF/Word officiel, puis le VALIDE). Type : ${PRODUCTION_TYPES.join(', ')}. Suis la trame correspondante (trames_lister/trame_lire) et le dossier (lire_dossier, chronologie_lire). COHÉRENCE NATINF OBLIGATOIRE : vise les qualifications enregistrées du dossier (section « Infractions (NATINF) » de lire_dossier) — si elles manquent, ajoute-les d'abord (natinf_chercher + ajouter_natinfs). Rédaction complète, prête à signer, texte brut (paragraphes séparés par des lignes vides). ` +
       'Renseigne `source` avec le nom EXACT de la trame suivie : il forme le 1ᵉʳ segment du nom de fichier à l\'export. Pour un acte d\'INTERCEPTION, d\'ÉCOUTE ou de GÉOLOCALISATION, renseigne aussi `objet` avec le n° de ligne interceptée ou l\'objet géolocalisé (ex. « 07 64 45 45 16 ») : il s\'ajoute en fin de nom de fichier. Pour MODIFIER un acte existant, passe son id. ' +
-      `DEMANDE SANS DOSSIER : si l'acte demandé (mail transféré) ne correspond à AUCUN dossier en cours et que la consigne ne dit pas de créer la procédure, range-le sous numero "${HORS_DOSSIER}" — il apparaît dans « Actes rédigés — hors dossier » du tableau de bord. ` +
+      `RANGEMENT : numero désigne le dossier dans lequel l'acte apparaît — par défaut celui que le contenu concerne, MAIS une destination explicitement DÉSIGNÉE par le magistrat PRIME toujours, même incohérente avec le contenu (synthèse du dossier X à verser dans l'enquête Y ; acte du dossier A à ranger hors dossier) : exécute-la sans discuter ni la « corriger ». "${HORS_DOSSIER}" vaut sur simple demande du magistrat, et aussi quand l'acte demandé (mail transféré) ne correspond à AUCUN dossier en cours sans consigne de créer la procédure — il apparaît dans « Actes rédigés — hors dossier » du tableau de bord. ` +
       'Un NOUVEL acte fait automatiquement apparaître une carte reliée (éditable) dans le journal « pendant votre absence » : ne la signale (signaler) pas en double.',
     inputSchema: {
       type: 'object',
       properties: {
-        numero: { type: 'string' },
+        numero: { type: 'string', description: 'Dossier de RANGEMENT (l\'acte apparaît dans ses « Actes rédigés »), ou "_hors-dossier". Une destination désignée par le magistrat prime, même si elle diverge du dossier que le contenu concerne.' },
         id: { type: 'string', description: 'id d\'une production à mettre à jour (sinon nouvelle)' },
         type: { type: 'string', enum: PRODUCTION_TYPES },
         titre: { type: 'string' },
@@ -658,6 +661,19 @@ const TOOLS = [
       // HTML, acte squelettique → refus actionnable, l'agent corrige et re-soumet.
       await porteQualiteOuSignal({ type: a.type, titre: a.titre, contenu: a.contenu, numero: a.numero }, 'acte')
       const r = await saveProduction(keys, a)
+      // Numéro qui ne correspond à AUCUNE enquête (ni pseudo-dossier « _… ») :
+      // on écrit quand même — la destination désignée par le magistrat prime,
+      // jamais de blocage — mais on le DIT à l'agent : l'acte ne paraîtra dans
+      // aucune section « Actes rédigés » tant qu'aucune enquête ne porte ce
+      // numéro (il reste accessible par sa carte du fil). À lui de vérifier le
+      // numéro exact ou d'assumer le rangement si c'est bien la consigne.
+      if (!a.id && !String(a.numero || '').startsWith('_')) {
+        let existe = true
+        try { existe = enqueteExiste(keys, a.numero) } catch { /* trousseau incomplet : pas d'avertissement */ }
+        if (!existe) {
+          r.avertissement = `Aucune enquête ne porte le numéro « ${a.numero} » : l'acte est bien enregistré (rien n'est perdu, sa carte du fil y donne accès) mais il n'apparaîtra dans les « Actes rédigés » d'aucun dossier. Si le magistrat a désigné un dossier existant, vérifie l'écriture exacte du numéro (lister_dossiers) puis re-range avec le même id ; pour un rangement volontairement hors de tout dossier, utilise "${HORS_DOSSIER}".`
+        }
+      }
       // Nouvel acte (pas une modification) : une carte reliée apparaît dans le
       // journal « pendant votre absence » — inutile de la signaler en plus.
       // La carte porte le numéro CANONIQUE rendu par saveProduction (celui de
