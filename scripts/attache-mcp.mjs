@@ -41,6 +41,8 @@ import { readConversation } from './attache/agent.mjs'
 import { controlerProduction } from './attache/qualite.mjs'
 import { listAssociations, setAssociation, removeAssociation } from './attache/associations.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed } from './attache/mail.mjs'
+import { bilanStatistiques } from './attache/statistiques.mjs'
+import { genererGraphique, GRAPHIQUES } from './attache/statsGraphiques.mjs'
 
 const keys = loadKeyring()
 const runContext = process.env.SIRAL_ATTACHE_RUN || 'chat'
@@ -582,6 +584,41 @@ const TOOLS = [
     description: 'Chronologie probatoire fusionnée du dossier : actes SIRAL (débuts, fins, prolongations, poses, attentes JLD), CR, modifications (apparition de MEC), DML archivées et cotes NPP datées — triée par date. Base de tout réquisitoire, rapport ou préparation d\'audience.',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
     handler: async (a) => buildChronologie(keys, a.numero) ?? { erreur: 'Dossier introuvable' },
+  },
+  {
+    name: 'stats_synthese',
+    description: 'Le BILAN CHIFFRÉ COMPLET du contentieux sur une période libre (défaut : du 1ᵉʳ janvier de l\'année en cours à aujourd\'hui) — les MÊMES règles de calcul que la page Statistiques et le rapport PDF de SIRAL. Retourne : procédures terminées (total hors classements/OI, par mois, et la LISTE des dossiers avec orientation, services, catégories d\'infraction, durée), défèrements (total, par mois, liste datée), ouvertures et stock en cours, orientations (CRPC/CI/COPJ/OI/CDD/classements), peines (ferme/probation/sursis, moyennes, amendes, interdictions), saisies et confiscations (véhicules, immeubles, avoirs, crypto), actes TSE, répartition par service et par catégorie d\'infraction (tendance mensuelle comprise), suivi JIRS/PG, photographie du module instruction, et COMPARATIF avec la même période un an plus tôt. Point de départ obligé de tout bilan d\'activité, rapport semestriel ou point statistique — chaque chiffre d\'un rapport doit venir d\'ici, jamais d\'une estimation. Les listes de dossiers permettent ensuite de plonger dans chaque affaire (lire_dossier).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        du: { type: 'string', description: 'Début de période AAAA-MM-JJ (défaut : 1ᵉʳ janvier de l\'année en cours)' },
+        au: { type: 'string', description: 'Fin de période AAAA-MM-JJ incluse (défaut : aujourd\'hui)' },
+      },
+    },
+    handler: async (a) => bilanStatistiques(keys, { du: a.du, au: a.au }),
+  },
+  {
+    name: 'stats_graphique',
+    description: `VOIR un graphique statistique : rend l'IMAGE (PNG, mêmes couleurs et mêmes règles que la page Statistiques de SIRAL) accompagnée de ses données chiffrées exactes. Regarde l'image pour décrire les dynamiques (pics, creux, bascules de tendance) et appuie chaque nombre sur les données jointes. Graphiques disponibles : ${Object.entries(GRAPHIQUES).map(([k, v]) => `${k} (${v.split(' — ')[0]})`).join(' · ')}. Même période libre que stats_synthese.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        graphique: { type: 'string', enum: Object.keys(GRAPHIQUES), description: 'Le graphique à produire' },
+        du: { type: 'string', description: 'Début de période AAAA-MM-JJ (défaut : 1ᵉʳ janvier de l\'année en cours)' },
+        au: { type: 'string', description: 'Fin de période AAAA-MM-JJ incluse (défaut : aujourd\'hui)' },
+      },
+      required: ['graphique'],
+    },
+    handler: async (a) => {
+      const { titre, note, donnees, png } = genererGraphique(keys, { graphique: a.graphique, du: a.du, au: a.au })
+      return {
+        __mcp: 'contenu',
+        content: [
+          { type: 'text', text: JSON.stringify({ titre, note, donnees }, null, 1) },
+          { type: 'image', data: png.toString('base64'), mimeType: 'image/png' },
+        ],
+      }
+    },
   },
   {
     name: 'produire_document',
@@ -1352,6 +1389,12 @@ rl.on('line', async (line) => {
         const result = await tool.handler(args)
         if (tool.write) {
           await audit(keys, 'outil', { outil: tool.name, contexte: runContext, args: JSON.stringify(args).slice(0, 2000) })
+        }
+        // Résultat multi-blocs (texte + image) : les graphiques statistiques
+        // rendent l'image PNG telle quelle — le CLI la transmet au modèle,
+        // qui VOIT le graphique (couleurs comprises) en plus des chiffres.
+        if (result && result.__mcp === 'contenu' && Array.isArray(result.content)) {
+          return reply({ content: result.content })
         }
         const text = typeof result === 'string' ? result : JSON.stringify(result, null, 1)
         return reply({ content: [{ type: 'text', text: text.slice(0, 400_000) }] })

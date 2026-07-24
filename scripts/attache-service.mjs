@@ -24,6 +24,7 @@ import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInb
 import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
 import { usageSummary } from './attache/usage.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
+import { genererGraphique } from './attache/statsGraphiques.mjs'
 import { dossierSyntheseSignals } from './attache/dossier.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
@@ -1249,6 +1250,24 @@ const server = http.createServer(async (req, res) => {
       const numero = url.searchParams.get('numero') || ''
       const chrono = buildChronologie(keys, numero)
       return chrono ? json(res, 200, chrono) : json(res, 404, { error: 'Dossier introuvable' })
+    }
+
+    if (route === 'GET /stats-graphique') {
+      // Un graphique statistique (PNG + données), régénéré à la demande avec
+      // les MÊMES règles et couleurs que la page Statistiques — sert à
+      // remplacer les marqueurs [GRAPHIQUE : …] des bilans à l'export PDF/Word.
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      try {
+        const { titre, note, donnees, png } = genererGraphique(keys, {
+          graphique: url.searchParams.get('graphique') || '',
+          du: url.searchParams.get('du') || undefined,
+          au: url.searchParams.get('au') || undefined,
+        })
+        return json(res, 200, { titre, note, donnees, png: png.toString('base64') })
+      } catch (e) {
+        return json(res, 400, { error: String(e?.message || e) })
+      }
     }
 
     if (route === 'POST /cotes') {

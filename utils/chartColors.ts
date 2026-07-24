@@ -1,29 +1,23 @@
-// Couleurs des graphiques de la page Statistiques — source unique partagée
-// entre les composants écran (Chart.js) et l'export PDF, pour que le rapport
-// reproduise fidèlement le rendu de l'app.
+// Couleurs des graphiques de la page Statistiques — la SOURCE UNIQUE vit dans
+// le module partagé lib/stats/chartCouleurs.mjs (également consommé par le
+// service attaché, pour que ses graphiques PNG portent exactement les couleurs
+// de l'app). Ce fichier n'apporte que le typage.
 
-export const CHART_COLORS = [
-  '#34495e', '#3498db', '#2ecc71', '#16a085', '#e74c3c', '#c0392b',
-  '#f1c40f', '#f39c12', '#9b59b6', '#8e44ad', '#1abc9c', '#7f8c8d',
-  '#d35400', '#27ae60', '#2980b9', '#95a5a6'
-];
+import {
+  CHART_COLORS as CHART_COLORS_CORE,
+  getServiceColor as getServiceColorCore,
+  ORIENTATION_DATASETS as ORIENTATION_DATASETS_CORE,
+} from '@/lib/stats/chartCouleurs.mjs';
+
+export const CHART_COLORS: string[] = CHART_COLORS_CORE;
 
 // Couleur stable par service (basée sur le hash du nom, pas sur l'index)
-export const getServiceColor = (service: string, _index?: number) => {
-  let hash = 0;
-  for (let i = 0; i < service.length; i++) {
-    hash = service.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const colorIndex = Math.abs(hash) % CHART_COLORS.length;
-  return CHART_COLORS[colorIndex];
-};
+export const getServiceColor = (service: string, _index?: number): string =>
+  getServiceColorCore(service, _index);
 
 // Constantes de couleurs orientations
-export const ORIENTATION_DATASETS = [
-  { key: 'nombreCRPC', label: 'CRPC', color: '#34495e' },
-  { key: 'nombreCI', label: 'CI', color: '#3498db' },
-  { key: 'nombreCOPJ', label: 'COPJ', color: '#2ecc71' },
-  { key: 'nombreOI', label: 'OI', color: '#95a5a6' },
-  { key: 'nombreCDD', label: 'CDD', color: '#E8D0A9' },
-  { key: 'nombreClassements', label: 'Classement', color: '#e74c3c' },
-] as const;
+export const ORIENTATION_DATASETS = ORIENTATION_DATASETS_CORE as ReadonlyArray<{
+  key: 'nombreCRPC' | 'nombreCI' | 'nombreCOPJ' | 'nombreOI' | 'nombreCDD' | 'nombreClassements';
+  label: string;
+  color: string;
+}>;

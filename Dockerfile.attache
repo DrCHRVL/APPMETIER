@@ -24,6 +24,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 COPY scripts ./scripts
+# Modules de calcul PARTAGÉS avec l'app web (source unique des règles de
+# statistiques : lib/stats/*, lib/natinf/nataffRegles.mjs) — le service les
+# importe en relatif depuis scripts/attache/.
+COPY lib ./lib
 # Référentiel NATINF embarqué (repli si aucun référentiel publié dans /data)
 COPY data/natinf ./data/natinf
 

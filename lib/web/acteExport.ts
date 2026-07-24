@@ -25,6 +25,38 @@
 
 import { PAPETERIE } from './papeterie'
 import type { TrameFormeType, TrameVars } from './trameFill'
+import { parseMarqueur, formatMarqueur } from '@/lib/stats/graphiqueMarqueur.mjs'
+import type { GraphiqueResolu } from './graphiquesActe'
+
+/** Marqueurs [GRAPHIQUE : …] résolus en images (clé = marqueur canonique). */
+export type GraphiquesActe = Map<string, GraphiqueResolu>
+
+/**
+ * Résout les marqueurs [GRAPHIQUE : …] de l'acte en images PNG (service
+ * attaché, mêmes règles et couleurs que la page Statistiques). Best-effort :
+ * aucun marqueur → aucune requête ; échec (service coupé, non-admin) →
+ * undefined, l'export rend alors les lignes de repli lisibles.
+ */
+async function chargerGraphiquesSiBesoin(contenu: string): Promise<GraphiquesActe | undefined> {
+  try {
+    const { contientMarqueurs, chargerGraphiquesActe } = await import('./graphiquesActe')
+    if (!contientMarqueurs(contenu)) return undefined
+    return await chargerGraphiquesActe(contenu)
+  } catch {
+    return undefined
+  }
+}
+
+/** Remplace chaque marqueur par une ligne lisible (chemins sans image : trame
+ *  de forme Word de l'utilisateur, où l'on ne peut pas injecter de PNG). */
+function remplacerMarqueursParTexte(contenu: string, graphiques?: GraphiquesActe): string {
+  return String(contenu || '').split(/\r?\n/).map((ligne) => {
+    const m = parseMarqueur(ligne)
+    if (!m) return ligne
+    const r = graphiques?.get(formatMarqueur(m))
+    return `(graphique : ${r?.titre || m.graphique} — voir l'export PDF)`
+  }).join('\n')
+}
 
 export interface ActeExportable {
   titre: string
@@ -342,12 +374,12 @@ export function letterFooterHtml(): string {
 }
 
 /** Gabarit courrier complet. `footerInline` : true pour le PDF (pas de vrai pied de page). */
-function letterHtml(p: ActeExportable, logo: string | undefined, footerInline: boolean): string {
+function letterHtml(p: ActeExportable, logo: string | undefined, footerInline: boolean, graphiques?: GraphiquesActe): string {
   const { addressee, objet, dateStr, corps } = parseLettre(p.contenu)
   const parts = [
     renderLetterHeader(logo, addressee, dateStr),
     objet ? renderObjet(objet) : '',
-    `<div>${acteBodyHtml(corps)}</div>`,
+    `<div>${acteBodyHtml(corps, graphiques)}</div>`,
     renderLetterSignature(),
   ]
   if (footerInline) parts.push(letterFooterHtml())
@@ -363,7 +395,7 @@ ${parts.filter(Boolean).join('\n')}
  * reprennent leur italique. Le titre principal est traité à part (cadre) : il
  * n'apparaît donc plus ici.
  */
-function acteBodyHtml(contenu: string): string {
+function acteBodyHtml(contenu: string, graphiques?: GraphiquesActe): string {
   const lines = String(contenu || '').replace(/\r\n?/g, '\n').split('\n')
   const out: string[] = []
   let para: string[] = []
@@ -385,6 +417,20 @@ function acteBodyHtml(contenu: string): string {
   for (const raw of lines) {
     const t = raw.trim()
     if (!t) { flushPara(); flushBullets(); continue }
+    // Marqueur [GRAPHIQUE : …] seul sur sa ligne → l'image régénérée par le
+    // service attaché (le titre est DANS l'image) ; sans résolution, ligne de
+    // repli lisible — l'export n'échoue jamais pour un graphique manquant.
+    const marqueur = parseMarqueur(t)
+    if (marqueur) {
+      flushPara(); flushBullets()
+      const resolu = graphiques?.get(formatMarqueur(marqueur))
+      if (resolu) {
+        out.push(`<div style="text-align:center;margin:6pt 0 10pt 0;"><img src="${resolu.dataUri}" alt="${escapeHtml(resolu.titre)}" style="width:${resolu.largeurPx || 640}px;max-width:100%;height:auto;" /></div>`)
+      } else {
+        out.push(`<p style="text-align:center;font-style:italic;color:#555555;margin:0 0 10pt 0;">[Graphique non disponible : ${escapeHtml(marqueur.graphique)}]</p>`)
+      }
+      continue
+    }
     const h = t.match(/^(#{1,3})\s+(.+)$/)
     if (h) {
       flushPara(); flushBullets()
@@ -410,17 +456,17 @@ function acteBodyHtml(contenu: string): string {
  * partir du texte de l'acte, en Times New Roman. Si aucune structure n'est
  * reconnue, on rend simplement le corps — rien d'imposé.
  */
-export function acteHtml(p: ActeExportable, opts: { logo?: string } = {}): string {
+export function acteHtml(p: ActeExportable, opts: { logo?: string, graphiques?: GraphiquesActe } = {}): string {
   // Courrier : gabarit dédié (en-tête 2 colonnes, objet, coordonnées). Pour le
   // PDF, le pied de page est intégré en fin de contenu (html2pdf n'a pas de
   // pied de page de section).
-  if (isLettre(p.contenu)) return letterHtml(p, opts.logo, true)
+  if (isLettre(p.contenu)) return letterHtml(p, opts.logo, true, opts.graphiques)
   const s = parseActe(p.contenu)
   const aStructure = s.header.length > 0 || Boolean(s.titre) || s.signature.length > 0
   const parts: string[] = []
   if (s.header.length) parts.push(renderMasthead(s.header, opts.logo))
   if (s.titre) parts.push(renderTitleBox(s.titre, s.article))
-  parts.push(`<div>${acteBodyHtml(aStructure ? s.corps : p.contenu)}</div>`)
+  parts.push(`<div>${acteBodyHtml(aStructure ? s.corps : p.contenu, opts.graphiques)}</div>`)
   if (s.signature.length) parts.push(renderSignature(s.signature))
   return `<div style="font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.5;color:#000;">
 ${parts.join('\n')}
@@ -432,8 +478,8 @@ ${parts.join('\n')}
  * coordonnées deviennent un VRAI pied de page de section (répété sur chaque
  * page) au lieu d'un simple bloc en fin de contenu.
  */
-export function acteDocxParts(p: ActeExportable, opts: { logo?: string } = {}): { html: string; footerHtml?: string } {
-  if (isLettre(p.contenu)) return { html: letterHtml(p, opts.logo, false), footerHtml: letterFooterHtml() }
+export function acteDocxParts(p: ActeExportable, opts: { logo?: string, graphiques?: GraphiquesActe } = {}): { html: string; footerHtml?: string } {
+  if (isLettre(p.contenu)) return { html: letterHtml(p, opts.logo, false, opts.graphiques), footerHtml: letterFooterHtml() }
   return { html: acteHtml(p, opts) }
 }
 
@@ -444,12 +490,12 @@ async function loadLogo(): Promise<string | undefined> {
 
 /** PDF (data-URI) au gabarit officiel — html2pdf chargé à la demande. */
 export async function actePdfDataUri(p: ActeExportable): Promise<string> {
-  const logo = await loadLogo()
+  const [logo, graphiques] = await Promise.all([loadLogo(), chargerGraphiquesSiBesoin(p.contenu)])
   const html2pdf = (await import('html2pdf.js')).default as unknown as (
   ) => { set: (o: object) => { from: (el: HTMLElement) => { outputPdf: (t: string) => Promise<string> } } }
   const el = document.createElement('div')
   el.style.padding = '20mm 14mm 20mm 20mm'
-  el.innerHTML = acteHtml(p, { logo })
+  el.innerHTML = acteHtml(p, { logo, graphiques })
   return await html2pdf().set({
     margin: 0,
     filename: acteFileBase(p) + '.pdf',
@@ -501,15 +547,21 @@ function extractTrameVars(p: ActeExportable, type: TrameFormeType): TrameVars {
 }
 
 export async function downloadActeDocx(p: ActeExportable): Promise<void> {
+  const graphiques = await chargerGraphiquesSiBesoin(p.contenu)
+
   // 1) Trame de forme définie par l'utilisateur pour ce type d'acte : on part
   //    de SON .docx et on remplit les balises. La forme est 100 % la sienne.
+  //    Impossible d'y injecter une image : les marqueurs [GRAPHIQUE : …]
+  //    deviennent une ligne lisible qui renvoie à l'export PDF.
   try {
     const type = detectTypeForme(p)
     const { loadTramesForme, pickTrameForme } = await import('./tramesFormeStore')
     const trame = pickTrameForme(await loadTramesForme(), type)
     if (trame?.docxBase64) {
       const { fillTrameDocx } = await import('./trameFill')
-      const blob = await fillTrameDocx(trame.docxBase64, extractTrameVars(p, type))
+      const vars = extractTrameVars(p, type)
+      if (vars.corps) vars.corps = remplacerMarqueursParTexte(vars.corps, graphiques)
+      const blob = await fillTrameDocx(trame.docxBase64, vars)
       triggerDocxDownload(blob, acteFileBase(p) + '.docx')
       return
     }
@@ -518,9 +570,10 @@ export async function downloadActeDocx(p: ActeExportable): Promise<void> {
     console.warn('Trame de forme indisponible, génération intégrée :', e)
   }
 
-  // 2) Repli : papeterie reconstruite (aucune trame de forme définie).
+  // 2) Repli : papeterie reconstruite (aucune trame de forme définie). Les
+  //    marqueurs [GRAPHIQUE : …] deviennent de vraies images dans le document.
   const logo = await loadLogo()
-  const { html, footerHtml } = acteDocxParts(p, { logo })
+  const { html, footerHtml } = acteDocxParts(p, { logo, graphiques })
   const { buildDocxBlob } = await import('./htmlToDocx')
   const blob = await buildDocxBlob(html, {
     defaultFont: 'Times New Roman',
