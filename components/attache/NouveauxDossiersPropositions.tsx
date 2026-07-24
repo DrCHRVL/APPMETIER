@@ -18,6 +18,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Check, X, FolderPlus, Network, UserPlus, GitBranch, Loader2, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import { useEnquetesStore } from '@/stores/useEnquetesStore';
 
 type Kind = 'dossier' | 'dossier_carto' | 'mec_carto' | 'lien';
 
@@ -112,9 +113,14 @@ export function NouveauxDossiersPropositions({
         setProps((prev) => prev.filter((x) => x.id !== id));
         if (action === 'valider') {
           const onCarte = p && CARTO_KINDS.includes(p.type);
-          setNotice(onCarte
-            ? 'Enregistré sur la carte — la synchronisation l\'affichera dans quelques secondes.'
-            : 'Dossier créé — la synchronisation le fera apparaître dans quelques secondes.');
+          if (onCarte) {
+            setNotice('Enregistré sur la carte — la synchronisation l\'affichera dans quelques secondes.');
+          } else {
+            // Dossier RÉEL créé côté serveur : tirer le coffre tout de suite
+            // pour qu'il apparaisse dans la grille sans attendre le cycle (2 min).
+            await useEnquetesStore.getState().syncAndRefresh().catch(() => {});
+            setNotice('Dossier créé et affiché dans les enquêtes en cours.');
+          }
         }
       } else {
         setNotice(data.error || 'Décision refusée par le serveur');

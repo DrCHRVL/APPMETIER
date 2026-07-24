@@ -1265,7 +1265,23 @@ function AppContent() {
       setIsEditingInstruction(false);
       return;
     }
-    showToast(`Dossier « ${numero} » introuvable dans vos enquêtes`, 'info');
+    // Introuvable dans les listes chargées : le dossier vient peut-être d'être
+    // CRÉÉ par l'attaché côté serveur (mail « créer procédure », chat) et la
+    // synchro périodique (2 min) n'est pas encore passée. On tire le coffre du
+    // contentieux actif MAINTENANT et on retente une fois avant de renoncer.
+    showToast('Synchronisation en cours…', 'info');
+    useEnquetesStore.getState().syncAndRefresh()
+      .then(() => {
+        const s = useEnquetesStore.getState();
+        const frais = findEnqueteParNumero(s.enquetes, numero);
+        if (frais) {
+          s.setSelectedEnquete(frais);
+          s.setIsEditing(false);
+        } else {
+          showToast(`Dossier « ${numero} » introuvable dans vos enquêtes`, 'info');
+        }
+      })
+      .catch(() => showToast(`Dossier « ${numero} » introuvable dans vos enquêtes`, 'info'));
   }, [overboardData, activeContentieux, instructions, showToast, setActiveContentieux, setCurrentView, openLiveEnqueteWhenReady, setSelectedInstruction, setIsEditingInstruction]);
   const handleToggleSuivi = useCallback((enqueteId: number, type: 'JIRS' | 'PG') => {
     const enquete = enquetesLookupRef.current.find(e => e.id === enqueteId);

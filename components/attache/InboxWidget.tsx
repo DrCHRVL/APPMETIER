@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Inbox, RefreshCw, Loader2, CheckCircle2, Clock3, MailOpen, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { useToastStore } from '@/stores/useToastStore';
+import { useEnquetesStore } from '@/stores/useEnquetesStore';
 
 interface InboxMessage {
   id: string;
@@ -70,6 +71,7 @@ export function InboxWidget() {
       const list = (data.messages || []).sort((a: InboxMessage, b: InboxMessage) => String(b.recuLe).localeCompare(String(a.recuLe)));
       // toasts sur transitions (jamais au premier chargement : pas de rafale)
       if (lastStatuts.current) {
+        let vientDEtreTraite = false;
         for (const m of list) {
           const prev = lastStatuts.current.get(m.id);
           const cur = statutOf(m);
@@ -77,8 +79,14 @@ export function InboxWidget() {
           const sujet = m.sujet.length > 60 ? m.sujet.slice(0, 60) + '…' : m.sujet;
           if (prev === undefined) showToast(`📩 Bien reçu : « ${sujet} »`, 'info');
           else if (cur === 'en_cours') showToast(`⏳ En cours de traitement : « ${sujet} »`, 'info');
-          else if (cur === 'traite') showToast(`✓ Traité : « ${sujet} »`, 'success');
+          else if (cur === 'traite') { showToast(`✓ Traité : « ${sujet} »`, 'success'); vientDEtreTraite = true; }
           else if (cur === 'erreur') showToast(`⚠ Traitement en échec : « ${sujet} »`, 'warning');
+        }
+        // Un run de mail vient de finir : il a pu créer dossier, actes, CR,
+        // NATINF… — tirer le coffre TOUT DE SUITE pour que ces créations
+        // soient visibles dès maintenant, sans attendre le cycle de 2 min.
+        if (vientDEtreTraite) {
+          useEnquetesStore.getState().syncAndRefresh().catch(() => {});
         }
       }
       lastStatuts.current = new Map(list.map((m: InboxMessage) => [m.id, statutOf(m)]));
