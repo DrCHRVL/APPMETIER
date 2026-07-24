@@ -450,7 +450,7 @@ return (
       </CardTitle>
     </div>
 
-            {/* Tags d'infraction (repliés au-delà du seuil) */}
+            {/* Infractions NATINF (repliées au-delà du seuil) */}
             <div className="flex flex-wrap gap-1 mb-1.5">
               {visibleInfractions.map((inf, i) => (
                 <Badge

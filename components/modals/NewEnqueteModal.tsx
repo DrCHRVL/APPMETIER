@@ -127,7 +127,8 @@ export const NewEnqueteModal = ({
       return;
     }
 
-    // Créer tous les tags (services + infractions + enquête à venir)
+    // Créer tous les tags (services + enquête à venir) — les infractions
+    // partent en codes NATINF (infractionNatinfCodes), pas en tags
     const dureeTags = getTagsByCategory('duree');
     const aVenirTag = dureeTags.find(t => t.value === 'enquête à venir');
     const allTags = [

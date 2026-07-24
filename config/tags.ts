@@ -1,4 +1,15 @@
+/**
+ * Catégories de tags. La catégorie « infractions » est HÉRITÉE : les types
+ * d'infraction sont désormais portés par le référentiel NATINF
+ * (Enquete.infractionNatinfCodes). La valeur reste dans le type uniquement
+ * pour lire les données anciennes (tags d'infraction résiduels sur d'anciens
+ * dossiers, résolus à la volée vers le NATINF) — plus aucune UI ne permet
+ * d'en créer ni d'en gérer.
+ */
 export type TagCategory = 'services' | 'infractions' | 'duree' | 'suivi' | 'statut' | 'juge';
+
+/** Catégories gérables dans l'interface (hors legacy « infractions »). */
+export type ManagedTagCategory = Exclude<TagCategory, 'infractions'>;
 
 export interface TagOrganization {
   section: string;
@@ -14,9 +25,9 @@ export interface TagDefinition {
   order?: number;     // Ordre dans la famille
   organization?: TagOrganization;
   /**
-   * Codes NATINF rattachés (catégorie « infractions » uniquement). Permet de
-   * relier la folksonomie des tags au référentiel officiel : un tag peut
-   * couvrir un ou plusieurs codes NATINF. Optionnel.
+   * Codes NATINF rattachés (anciens tags « infractions » uniquement — legacy).
+   * Sert exclusivement à résoudre vers le NATINF les tags d'infraction
+   * résiduels des données anciennes (dossiers jamais migrés). Optionnel.
    */
   natinfCodes?: string[];
 }
@@ -27,9 +38,8 @@ export interface ServiceFamily {
   order: number;
 }
 
-export const TAG_CATEGORIES: Record<TagCategory, string> = {
+export const TAG_CATEGORIES: Record<ManagedTagCategory, string> = {
   services: 'Services',
-  infractions: 'Type d\'infractions',
   duree: 'Durée',
   suivi: 'Suivi',
   statut: 'Statut',

@@ -8,7 +8,7 @@ COPY package.json package-lock.json ./
 # le .npmrc du dépôt pointe vers le proxy du ministère : on l'ignore dans l'image
 RUN npm ci --no-audit --no-fund
 COPY . .
-RUN rm -f .npmrc && node scripts/check-bridge-surface.js && npm run build
+RUN rm -f .npmrc && npm run build
 
 # ── Étape 2 : image d'exécution minimale ──
 FROM node:20-bookworm-slim AS runner

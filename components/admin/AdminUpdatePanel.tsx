@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, Check, AlertTriangle, Loader2, XCircle, Globe, Download, Send, Users, Ban } from 'lucide-react';
+import { RefreshCw, Check, AlertTriangle, Loader2, XCircle, Globe, Download } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 
 interface AdminUpdatePanelProps {
@@ -9,11 +9,7 @@ interface AdminUpdatePanelProps {
 }
 
 export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps) => {
-  const { isAdmin: checkIsAdmin, user } = useUser();
-
-  // Version serveur (V2) : la mise à jour reconstruit le serveur pour tout le
-  // monde — pas de cycle « tester puis publier » poste par poste comme en Electron.
-  const isWeb = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
+  const { isAdmin: checkIsAdmin } = useUser();
 
   const [githubUpdateAvailable, setGithubUpdateAvailable] = useState(false);
   const [githubCommits, setGithubCommits] = useState(0);
@@ -25,12 +21,6 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
   const [logTail, setLogTail] = useState<string>('');
   const [showLog, setShowLog] = useState(false);
 
-  const [approvedSha, setApprovedSha] = useState<string | null>(null);
-  const [approvedBy, setApprovedBy] = useState<string | null>(null);
-  const [approvedAt, setApprovedAt] = useState<string | null>(null);
-  const [publishing, setPublishing] = useState(false);
-  const [publishError, setPublishError] = useState<string | null>(null);
-
   // Référence pour annuler le polling en cas de démontage du composant
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
@@ -39,47 +29,30 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
     setGithubChecking(true);
     setGithubError(null);
     try {
-      if (isWeb) {
-        // Version serveur : appel de l'API web (admin uniquement côté serveur)
-        const res = await fetch(`/api/update${force ? '?force=1' : ''}`);
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({})) as { error?: string };
-          throw new Error(data.error || `Erreur ${res.status}`);
-        }
-        const data = await res.json() as {
-          commits?: number; localSha?: string | null; remoteSha?: string | null; fetchOk?: boolean;
-          logTail?: string;
-        };
-        const hasUpdate = (data.commits || 0) > 0;
-        setGithubUpdateAvailable(hasUpdate);
-        setGithubCommits(data.commits || 0);
-        setGithubLocalSha(data.localSha || null);
-        setGithubRemoteSha(data.remoteSha || null);
-        if (typeof data.logTail === 'string') setLogTail(data.logTail);
-        onGithubUpdateChange?.(hasUpdate, data.commits || 0);
-      } else {
-        // Version Electron
-        const result = await (window as any).electronAPI?.checkAppUpdate?.(force);
-        const hasUpdate = result?.hasUpdate || false;
-        const commits = result?.commits || 0;
-        setGithubUpdateAvailable(hasUpdate);
-        setGithubCommits(commits);
-        setGithubLocalSha(result?.localSha || null);
-        setGithubRemoteSha(result?.remoteSha || null);
-        setApprovedSha(result?.approvedSha || null);
-        setApprovedBy(result?.approvedBy || null);
-        setApprovedAt(result?.approvedAt || null);
-        if (result?.error) setGithubError(result.error);
-        onGithubUpdateChange?.(hasUpdate, commits);
+      const res = await fetch(`/api/update${force ? '?force=1' : ''}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(data.error || `Erreur ${res.status}`);
       }
+      const data = await res.json() as {
+        commits?: number; localSha?: string | null; remoteSha?: string | null; fetchOk?: boolean;
+        logTail?: string;
+      };
+      const hasUpdate = (data.commits || 0) > 0;
+      setGithubUpdateAvailable(hasUpdate);
+      setGithubCommits(data.commits || 0);
+      setGithubLocalSha(data.localSha || null);
+      setGithubRemoteSha(data.remoteSha || null);
+      if (typeof data.logTail === 'string') setLogTail(data.logTail);
+      onGithubUpdateChange?.(hasUpdate, data.commits || 0);
     } catch (e: any) {
       setGithubError(e.message || 'Impossible de vérifier les mises à jour GitHub');
     }
     setGithubChecking(false);
-  }, [onGithubUpdateChange, isWeb]);
+  }, [onGithubUpdateChange]);
 
-  // Version serveur : déclenche un job (pull+rebuild ou simple reconstruction) via
-  // l'API, puis interroge le statut jusqu'à 'done' (rechargement) ou 'error'.
+  // Déclenche un job (pull+rebuild ou simple reconstruction) via l'API, puis
+  // interroge le statut jusqu'à 'done' (rechargement) ou 'error'.
   const runServerJob = (action: 'apply' | 'rebuild') => {
     setGithubUpdating(true);
     setGithubError(null);
@@ -119,67 +92,6 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
     })();
   };
 
-  const applyGithubUpdate = async () => {
-    setGithubUpdating(true);
-    setGithubError(null);
-    try {
-      if (isWeb) {
-        runServerJob('apply');
-      } else {
-        // Version Electron
-        const result = await (window as any).electronAPI?.applyAppUpdate?.();
-        if (result && !result.success) {
-          setGithubError(`Erreur : ${result.error}`);
-          setGithubUpdating(false);
-        }
-        // en Electron, l'app redémarre d'elle-même — rien à faire ici
-      }
-    } catch (e: any) {
-      setGithubError(`Erreur : ${e.message}`);
-      setGithubUpdating(false);
-    }
-  };
-
-  const publishToUsers = async () => {
-    if (!githubLocalSha) return;
-    setPublishing(true);
-    setPublishError(null);
-    try {
-      const result = await (window as any).electronAPI?.approveAppUpdate?.(
-        githubLocalSha,
-        user?.displayName || user?.windowsUsername || 'admin'
-      );
-      if (result?.success) {
-        setApprovedSha(result.approvedSha);
-        setApprovedBy(result.approvedBy);
-        setApprovedAt(result.approvedAt);
-      } else {
-        setPublishError(result?.error || 'Échec de la publication');
-      }
-    } catch (e: any) {
-      setPublishError(e?.message || 'Erreur publication');
-    }
-    setPublishing(false);
-  };
-
-  const unpublish = async () => {
-    setPublishing(true);
-    setPublishError(null);
-    try {
-      const result = await (window as any).electronAPI?.unapproveAppUpdate?.();
-      if (result?.success) {
-        setApprovedSha(null);
-        setApprovedBy(null);
-        setApprovedAt(null);
-      } else {
-        setPublishError(result?.error || 'Échec du retrait');
-      }
-    } catch (e: any) {
-      setPublishError(e?.message || 'Erreur');
-    }
-    setPublishing(false);
-  };
-
   useEffect(() => {
     checkGithubUpdate();
   }, [checkGithubUpdate]);
@@ -188,17 +100,14 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
     return <div className="text-gray-500">Accès réservé à l'administrateur.</div>;
   }
 
-  const currentPublished = approvedSha && githubLocalSha && approvedSha === githubLocalSha;
-  const canPublishCurrent = !!githubLocalSha && !currentPublished;
-
   return (
     <div className="space-y-5">
       <div>
         <h3 className="text-base font-semibold text-gray-800">Mise à jour de l'application</h3>
         <p className="text-sm text-gray-500 mt-0.5">
-          {isWeb
-            ? 'Récupère la dernière version du code source depuis GitHub, reconstruit le serveur et le redémarre (2 à 5 minutes). La mise à jour s\'applique à tous les utilisateurs.'
-            : 'Récupère la dernière version du code source depuis GitHub. L\'application redémarrera automatiquement après la mise à jour.'}
+          Récupère la dernière version du code source depuis GitHub, reconstruit le serveur et le
+          redémarre (2 à 5 minutes). Dès la mise à jour appliquée, tous les utilisateurs reçoivent
+          la nouvelle version au prochain chargement de la page.
         </p>
       </div>
 
@@ -218,7 +127,7 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
             Vérifier GitHub
           </button>
 
-          {isWeb && !githubUpdateAvailable && (
+          {!githubUpdateAvailable && (
             <button
               onClick={() => runServerJob('rebuild')}
               disabled={githubChecking || githubUpdating}
@@ -232,7 +141,7 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
 
           {githubUpdateAvailable && (
             <button
-              onClick={applyGithubUpdate}
+              onClick={() => runServerJob('apply')}
               disabled={githubUpdating}
               className="flex items-center gap-2 px-4 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
             >
@@ -283,15 +192,14 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
           <div className="px-3 py-2 bg-violet-100 border border-violet-200 rounded-lg flex items-center gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-600" />
             <span className="text-xs text-violet-700">
-              {isWeb
-                ? 'Reconstruction du serveur en cours (2 à 5 minutes)... La page se rechargera automatiquement. De brèves coupures sont normales pendant le redémarrage.'
-                : 'Téléchargement et installation en cours... L\'application va redémarrer.'}
+              Reconstruction du serveur en cours (2 à 5 minutes)... La page se rechargera
+              automatiquement. De brèves coupures sont normales pendant le redémarrage.
             </span>
           </div>
         )}
 
         {/* Journal technique (update.log) — diagnostic d'un échec de mise à jour côté serveur */}
-        {isWeb && logTail && (
+        {logTail && (
           <div className="pt-1">
             <button
               onClick={() => setShowLog((v) => !v)}
@@ -307,95 +215,6 @@ export const AdminUpdatePanel = ({ onGithubUpdateChange }: AdminUpdatePanelProps
           </div>
         )}
       </div>
-
-      {/* Version serveur : pas de cycle « publication » — la MAJ vaut pour tous */}
-      {isWeb && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-2">
-          <h4 className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            Publication aux utilisateurs
-          </h4>
-          <p className="text-xs text-emerald-700">
-            Sans objet sur la version serveur : dès que la mise à jour est appliquée,
-            <strong> tous les utilisateurs</strong> reçoivent la nouvelle version au prochain
-            chargement de la page — il n'y a rien à publier séparément.
-          </p>
-        </div>
-      )}
-
-      {/* Publication aux utilisateurs (Electron : écrit update-approved.json sur le serveur commun) */}
-      {!isWeb && (
-      <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-3">
-        <h4 className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
-          <Users className="h-4 w-4" />
-          Publication aux utilisateurs
-        </h4>
-        <p className="text-xs text-emerald-700">
-          Tant que vous n'avez pas validé, les autres utilisateurs <strong>ne voient pas</strong> la notification de MAJ.
-          Testez la version sur votre poste avant de la publier.
-        </p>
-
-        <div className="text-xs bg-white border border-emerald-200 rounded-lg p-2 space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="text-gray-500 w-24">Publiée :</span>
-            <span className={approvedSha ? 'text-gray-800 font-mono' : 'text-gray-400 italic'}>
-              {approvedSha ? approvedSha.substring(0, 12) : 'aucune'}
-            </span>
-          </div>
-          {approvedSha && (
-            <>
-              <div className="flex items-center gap-2">
-                <span className="text-gray-500 w-24">Par :</span>
-                <span className="text-gray-700">{approvedBy || '—'}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-gray-500 w-24">Date :</span>
-                <span className="text-gray-700">
-                  {approvedAt ? new Date(approvedAt).toLocaleString('fr-FR') : '—'}
-                </span>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={publishToUsers}
-            disabled={publishing || !canPublishCurrent}
-            className="flex items-center gap-2 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            title={currentPublished ? 'Cette version est déjà publiée' : 'Publier la version installée localement'}
-          >
-            {publishing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-            {currentPublished ? 'Version publiée' : 'Publier cette version aux utilisateurs'}
-          </button>
-
-          {approvedSha && (
-            <button
-              onClick={unpublish}
-              disabled={publishing}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors disabled:opacity-50"
-            >
-              <Ban className="h-3.5 w-3.5" />
-              Retirer la publication
-            </button>
-          )}
-        </div>
-
-        {publishError && (
-          <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-2 rounded-lg border border-red-200">
-            <XCircle className="h-4 w-4 shrink-0" />
-            <span>{publishError}</span>
-          </div>
-        )}
-
-        {currentPublished && (
-          <div className="text-xs text-emerald-700 flex items-center gap-1">
-            <Check className="h-3.5 w-3.5" />
-            Les utilisateurs voient désormais la notification de mise à jour.
-          </div>
-        )}
-      </div>
-      )}
 
       <p className="text-xs text-gray-400">
         Les données (enquêtes, documents, résultats) ne sont <strong>jamais</strong> affectées par les mises à jour.

@@ -47,7 +47,6 @@ declare global {
   interface Window {
     __SIRAL_WEB__?: boolean
     __SIRAL_BRIDGE_SET__?: (bridge: Record<string, unknown>) => void
-    __APP_READONLY__?: boolean
     /** TJ actif + TJ accessibles du compte (lu par la sidebar pour le sélecteur). */
     __SIRAL_TJ__?: { active: TjInfo, tjs: TjInfo[] }
   }
@@ -94,7 +93,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   // trousseau prêt mais porte retenue le temps d'imprimer le kit de récupération
   const pendingEntryRef = useRef<{ keys: ScopedKeys, identity: BridgeIdentity, scopes: string[] } | null>(null)
 
-  const isWeb = mounted && window.__SIRAL_WEB__ === true && window.__APP_READONLY__ !== true
+  const isWeb = mounted && window.__SIRAL_WEB__ === true
 
   const installBridge = useCallback((keys: ScopedKeys, identity: BridgeIdentity) => {
     if (installedRef.current) return

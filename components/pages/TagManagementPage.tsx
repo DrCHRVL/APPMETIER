@@ -5,16 +5,11 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Edit2, Save, X, Plus, Check, Trash2, AlertTriangle, Send, Layers, GitMerge, Link2, Database } from 'lucide-react';
-import { TAG_CATEGORIES, TagCategory } from '@/config/tags';
+import { Edit2, Save, X, Plus, Check, Trash2, AlertTriangle, Send, Layers, GitMerge } from 'lucide-react';
+import { TAG_CATEGORIES, TagCategory, ManagedTagCategory } from '@/config/tags';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { ServiceOrganizer } from '../ServiceOrganizer';
-import { NatinfPicker } from '../natinf/NatinfPicker';
-import { NatinfBadge } from '../natinf/NatinfBadge';
-import { NatinfReconcileDialog } from '../natinf/NatinfReconcileDialog';
-import { NatinfMigrateDialog } from '../natinf/NatinfMigrateDialog';
-import { useNatinf } from '@/hooks/useNatinf';
 import { useTags, DuplicateTagGroup } from '@/hooks/useTags';
 import { useToast } from '@/contexts/ToastContext';
 import { useUser } from '@/contexts/UserContext';
@@ -22,7 +17,7 @@ import { tagRequestManager } from '@/utils/tagRequestManager';
 
 interface EditingTag {
   id: string;
-  category: TagCategory;
+  category: ManagedTagCategory;
   originalValue: string;
   newValue: string;
 }
@@ -37,9 +32,6 @@ export const TagManagementPage = () => {
   const handleRequestTag = async () => {
     if (!requestTagValue.trim() || !user) return;
     try {
-      // Seuls les tags « services » se demandent désormais : les infractions
-      // proviennent du référentiel NATINF (choix direct dans les dossiers),
-      // il n'y a donc plus de demande de tag « infraction » à valider.
       await tagRequestManager.addRequest({
         tagValue: requestTagValue.trim(),
         category: 'services',
@@ -69,15 +61,8 @@ export const TagManagementPage = () => {
     mergeDuplicateTags
   } = useTags();
 
-  const { getByCode } = useNatinf();
-
-  const [editingCategory, setEditingCategory] = useState<TagCategory | null>(null);
+  const [editingCategory, setEditingCategory] = useState<ManagedTagCategory | null>(null);
   const [editingTag, setEditingTag] = useState<EditingTag | null>(null);
-  // Dialogue de rattachement d'un tag « infractions » à des codes NATINF
-  const [natinfLinkTag, setNatinfLinkTag] = useState<{ id: string; value: string; codes: string[] } | null>(null);
-  const [isSavingNatinf, setIsSavingNatinf] = useState(false);
-  const [reconcileOpen, setReconcileOpen] = useState(false);
-  const [migrateOpen, setMigrateOpen] = useState(false);
   const [newTagDialog, setNewTagDialog] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [newDuration, setNewDuration] = useState('');
@@ -91,7 +76,7 @@ export const TagManagementPage = () => {
   const [mergeDialog, setMergeDialog] = useState<{
     sourceId: string;
     sourceValue: string;
-    category: TagCategory;
+    category: ManagedTagCategory;
     targetId: string;
     usageCount: number | null;
   } | null>(null);
@@ -107,12 +92,10 @@ export const TagManagementPage = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingTag?.id]);
 
-  const getPlaceholder = (category: TagCategory) => {
+  const getPlaceholder = (category: ManagedTagCategory) => {
     switch (category) {
       case 'services':
         return 'Nom du nouveau service d\'enquête';
-      case 'infractions':
-        return 'Nouveau type d\'infraction';
       case 'duree':
         return 'Nouvelle durée';
       default:
@@ -185,16 +168,16 @@ export const TagManagementPage = () => {
     }
   };
 
-  const handleStartEdit = (category: TagCategory) => {
+  const handleStartEdit = (category: ManagedTagCategory) => {
     setEditingCategory(category);
   };
 
-  const handleSaveEdit = (category: TagCategory) => {
+  const handleSaveEdit = (category: ManagedTagCategory) => {
     setEditingCategory(null);
     showToast('Modifications enregistrées', 'success');
   };
 
-  const handleStartTagEdit = (tag: any, category: TagCategory) => {
+  const handleStartTagEdit = (tag: any, category: ManagedTagCategory) => {
     setEditingTag({
       id: tag.id,
       category,
@@ -245,7 +228,7 @@ export const TagManagementPage = () => {
     }
   };
 
-  const handleAddTag = async (category: TagCategory, customTagValue?: string) => {
+  const handleAddTag = async (category: ManagedTagCategory, customTagValue?: string) => {
     const tagToAdd = customTagValue || newTag.trim();
     if (!tagToAdd) return;
 
@@ -296,7 +279,7 @@ export const TagManagementPage = () => {
     }
   };
 
-  const handleStartMergeTag = async (tag: any, category: TagCategory) => {
+  const handleStartMergeTag = async (tag: any, category: ManagedTagCategory) => {
     const usageCount = await getTagUsageCount(tag.value, category);
     setMergeDialog({
       sourceId: tag.id,
@@ -347,26 +330,7 @@ export const TagManagementPage = () => {
     }
   };
 
-  const handleSaveNatinfLinks = async () => {
-    if (!natinfLinkTag) return;
-    try {
-      setIsSavingNatinf(true);
-      const success = await updateTag(natinfLinkTag.id, { natinfCodes: natinfLinkTag.codes });
-      if (success) {
-        showToast('Liens NATINF enregistrés', 'success');
-        setNatinfLinkTag(null);
-      } else {
-        showToast('Erreur lors de l\'enregistrement des liens NATINF', 'error');
-      }
-    } catch (error) {
-      console.error('Erreur lors de l\'enregistrement des liens NATINF:', error);
-      showToast('Erreur lors de l\'enregistrement des liens NATINF', 'error');
-    } finally {
-      setIsSavingNatinf(false);
-    }
-  };
-
-  const renderTag = (tag: any, category: TagCategory) => {
+  const renderTag = (tag: any, category: ManagedTagCategory) => {
     const isCurrentlyEditing = editingTag?.id === tag.id;
 
     if (isCurrentlyEditing) {
@@ -412,15 +376,6 @@ export const TagManagementPage = () => {
           onDoubleClick={() => editingCategory === category && handleStartTagEdit(tag, category)}
         >
           {tag.value}
-          {category === 'infractions' && tag.natinfCodes?.length > 0 && (
-            <span
-              className="inline-flex items-center gap-0.5 text-[10px] text-emerald-700"
-              title={`${tag.natinfCodes.length} NATINF lié(s)`}
-            >
-              <Link2 className="h-2.5 w-2.5" />
-              {tag.natinfCodes.length}
-            </span>
-          )}
           {editingCategory === category && (
             <>
               <Button
@@ -435,20 +390,6 @@ export const TagManagementPage = () => {
               >
                 <Edit2 className="h-3 w-3 text-blue-600" />
               </Button>
-              {category === 'infractions' && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-4 w-4 p-0 opacity-0 group-hover:opacity-100 hover:bg-transparent"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setNatinfLinkTag({ id: tag.id, value: tag.value, codes: tag.natinfCodes || [] });
-                  }}
-                  title="Lier ce tag à des codes NATINF"
-                >
-                  <Link2 className="h-3 w-3 text-emerald-600" />
-                </Button>
-              )}
               {userIsAdmin && getTagsByCategory(category).length > 1 && (
                 <Button
                   variant="ghost"
@@ -498,22 +439,6 @@ export const TagManagementPage = () => {
         {userIsAdmin ? (
           <div className="flex items-center gap-2">
             <Button
-              onClick={() => setReconcileOpen(true)}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <Link2 className="h-4 w-4 text-emerald-600" />
-              Rattacher au NATINF
-            </Button>
-            <Button
-              onClick={() => setMigrateOpen(true)}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <Database className="h-4 w-4 text-emerald-600" />
-              Migrer les dossiers
-            </Button>
-            <Button
               onClick={handleScanDuplicates}
               disabled={isMergingDuplicates}
               variant="outline"
@@ -554,7 +479,7 @@ export const TagManagementPage = () => {
         </TabsList>
 
         <TabsContent value="categories" className="space-y-4">
-          {(Object.keys(TAG_CATEGORIES) as TagCategory[]).filter(category => category !== 'suivi').map(category => {
+          {(Object.keys(TAG_CATEGORIES) as ManagedTagCategory[]).filter(category => category !== 'suivi').map(category => {
             const categoryTags = getTagsByCategory(category);
 
             return (
@@ -773,7 +698,7 @@ export const TagManagementPage = () => {
                   <li key={i} className="flex items-center justify-between gap-2">
                     <span className="truncate">
                       <Badge variant="outline" className="mr-2">
-                        {TAG_CATEGORIES[g.category] || g.category}
+                        {(TAG_CATEGORIES as Record<string, string>)[g.category] || g.category}
                       </Badge>
                       <span className="font-medium">{g.value}</span>
                     </span>
@@ -824,14 +749,6 @@ export const TagManagementPage = () => {
             <p className="text-sm text-gray-600">
               Votre demande sera envoyée à l'administrateur pour validation.
             </p>
-            <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-2.5 text-xs text-emerald-800">
-              <Database className="h-4 w-4 shrink-0 mt-0.5 text-emerald-600" />
-              <span>
-                Les types d'infractions ne se demandent plus : ils proviennent du
-                référentiel <strong>NATINF</strong> et se choisissent directement
-                dans les dossiers.
-              </span>
-            </div>
             <Input
               value={requestTagValue}
               onChange={(e) => setRequestTagValue(e.target.value)}
@@ -941,74 +858,6 @@ export const TagManagementPage = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog de rattachement d'un tag « infractions » au référentiel NATINF */}
-      <Dialog open={!!natinfLinkTag} onOpenChange={() => !isSavingNatinf && setNatinfLinkTag(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Link2 className="h-5 w-5 text-emerald-600" />
-              Lier « {natinfLinkTag?.value} » au NATINF
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-sm text-gray-600">
-              Rattachez ce tag d'infraction à un ou plusieurs codes NATINF. Quand un
-              tag est lié à un seul code, celui-ci est automatiquement rattaché aux
-              chefs de mise en examen qui l'emploient.
-            </p>
-            <NatinfPicker
-              onSelect={(entry) =>
-                setNatinfLinkTag(t =>
-                  !t ? t : t.codes.includes(entry.code) ? t : { ...t, codes: [...t.codes, entry.code] },
-                )
-              }
-              placeholder="Ajouter un NATINF (n° ou libellé)…"
-            />
-            <div className="space-y-1.5 max-h-60 overflow-y-auto">
-              {natinfLinkTag && natinfLinkTag.codes.length === 0 && (
-                <div className="text-xs text-gray-400 italic">Aucun code lié.</div>
-              )}
-              {natinfLinkTag?.codes.map(code => {
-                const entry = getByCode(code);
-                return (
-                  <div key={code} className="flex items-center gap-2 border border-gray-200 rounded px-2 py-1">
-                    <span className="font-mono text-xs text-gray-500 w-12 shrink-0">{code}</span>
-                    <span className="flex-1 min-w-0 truncate text-sm text-gray-800" title={entry?.libelle}>
-                      {entry?.libelle || <span className="text-amber-600">Code hors référentiel</span>}
-                    </span>
-                    {entry && (
-                      <NatinfBadge nature={entry.nature} quantumLabel={entry.quantumLabel} className="shrink-0" />
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      onClick={() =>
-                        setNatinfLinkTag(t => (t ? { ...t, codes: t.codes.filter(c => c !== code) } : t))
-                      }
-                      title="Retirer"
-                    >
-                      <X className="h-3 w-3 text-red-600" />
-                    </Button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNatinfLinkTag(null)} disabled={isSavingNatinf}>
-              Annuler
-            </Button>
-            <Button onClick={handleSaveNatinfLinks} disabled={isSavingNatinf}>
-              {isSavingNatinf ? 'Enregistrement...' : 'Enregistrer'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Assistant de rattachement en masse des tags d'infraction au NATINF */}
-      <NatinfReconcileDialog open={reconcileOpen} onClose={() => setReconcileOpen(false)} />
-      <NatinfMigrateDialog open={migrateOpen} onClose={() => setMigrateOpen(false)} />
     </div>
   );
 };

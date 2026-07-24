@@ -156,11 +156,6 @@ export class UserManager {
     return this.config?.users || [];
   }
 
-  /** Nombre d'utilisateurs en attente d'approbation */
-  public getPendingUsersCount(): number {
-    return (this.config?.users || []).filter(u => u.approved !== true && u.globalRole !== 'admin').length;
-  }
-
   // ──────────────────────────────────────────────
   // CRUD UTILISATEURS (admin only)
   // ──────────────────────────────────────────────
@@ -392,7 +387,7 @@ export class UserManager {
       globalRole: null,
       contentieux: [],
       modules: [],
-      approved: false,
+      approved: true, // l'enrôlement serveur fait foi : pas de double validation
       createdAt: now,
       updatedAt: now,
     };

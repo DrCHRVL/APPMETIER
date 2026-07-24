@@ -2,11 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
-import { Download, Upload, Save, RotateCcw, Clock, Shield, AlertTriangle, CheckCircle, FileText, Wrench, HardDriveDownload, Lock } from 'lucide-react';
+import { Download, Upload, Save, RotateCcw, Shield, AlertTriangle, CheckCircle, FileText, Wrench, HardDriveDownload, Lock } from 'lucide-react';
 import { backupManager } from '@/utils/backupManager';
 import { useToast } from '@/contexts/ToastContext';
 import { ConfirmationDialog } from '../ui/confirmation-dialog';
-import { DesktopImportPanel } from '../DesktopImportPanel';
 
 interface BackupStats {
   totalBackups: number;
@@ -28,14 +27,13 @@ interface SavePageProps {
   lastSaveDate?: string;
   /** Contentieux actuellement actif : les outils de récupération agissent dessus. */
   contentieuxLabel?: string;
-  onRepairServer?: () => Promise<boolean>;
   onRestoreFromServerBackup?: (filename: string) => Promise<boolean>;
   onListServerBackups?: () => Promise<string[]>;
   isSyncing?: boolean;
   syncStatus?: { isOnline: boolean } | null;
 }
 
-export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRestoreFromServerBackup, onListServerBackups, isSyncing, syncStatus }: SavePageProps) => {
+export const SavePage = ({ lastSaveDate, contentieuxLabel, onRestoreFromServerBackup, onListServerBackups, isSyncing, syncStatus }: SavePageProps) => {
   const [backups, setBackups] = useState<string[]>([]);
   const [backupStats, setBackupStats] = useState<BackupStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -44,11 +42,9 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
     exporting: false,
     checking: false,
     restoring: false,
-    copyingDataJson: false,
     restoringServerBackup: false
   });
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [showRepairConfirm, setShowRepairConfirm] = useState(false);
   const [showServerRestoreConfirm, setShowServerRestoreConfirm] = useState(false);
   // Outils techniques de récupération : repliés dans « Paramètres avancés ».
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -82,9 +78,6 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
   const [pendingSnapshotRestore, setPendingSnapshotRestore] = useState<{ filename: string | null; label: string } | null>(null);
   const [isRestoringSnapshot, setIsRestoringSnapshot] = useState(false);
   const { showToast } = useToast();
-
-  // Édition web : E2EE actif, data.json ≙ cache navigateur, import bureau disponible
-  const isWeb = typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true;
 
   // Charger les informations au démarrage
   useEffect(() => {
@@ -130,25 +123,6 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
     }
   };
 
-  // 🆕 COPIE DIRECTE DE DATA.JSON
-  const handleCopyDataJson = async () => {
-    setOperations(prev => ({ ...prev, copyingDataJson: true }));
-    try {
-      const success = await backupManager.copyDataJsonToBackups();
-      
-      if (success) {
-        await loadBackupInfo(); // Rafraîchir les infos
-        showToast('✅ Copie directe de data.json réussie', 'success');
-      } else {
-        showToast('❌ Échec de la copie de data.json', 'error');
-      }
-    } catch (error) {
-      console.error('❌ Error copying data.json:', error);
-      showToast('Erreur lors de la copie de data.json', 'error');
-    } finally {
-      setOperations(prev => ({ ...prev, copyingDataJson: false }));
-    }
-  };
   const handleSecurityExport = async () => {
     setOperations(prev => ({ ...prev, exporting: true }));
     try {
@@ -401,21 +375,6 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
     }
   };
 
-  const handleRepairServer = async () => {
-    setShowRepairConfirm(false);
-    if (!onRepairServer) return;
-    try {
-      const success = await onRepairServer();
-      if (success) {
-        showToast('✅ Serveur réparé avec vos données locales', 'success');
-      } else {
-        showToast('❌ Échec de la réparation — vérifiez l\'accès au serveur', 'error');
-      }
-    } catch (error) {
-      showToast('❌ Erreur lors de la réparation du serveur', 'error');
-    }
-  };
-
   const formatDateTime = (dateTimeStr: string) => {
     try {
       let date: Date;
@@ -493,12 +452,12 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
                 </div>
               </div>
               
-              {/* 🆕 COMPARAISON DATA.JSON */}
+              {/* 🆕 COMPARAISON AVEC LES DONNÉES LOCALES */}
               {backupStats.dataJsonInfo && (
                 <div className="border-t pt-4">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                     <div>
-                      <p className="font-medium text-gray-700">{isWeb ? 'Données locales (navigateur)' : 'data.json'}</p>
+                      <p className="font-medium text-gray-700">Données locales (navigateur)</p>
                       <p className="text-lg font-bold text-green-600">
                         {backupStats.dataJsonInfo.exists ? backupStats.dataJsonInfo.size : 'Non trouvé'}
                       </p>
@@ -528,7 +487,7 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
                   </div>
                   {backupStats.comparison && backupStats.comparison.percentage > 10 && (
                     <div className="mt-2 p-2 bg-blue-50 rounded text-sm text-blue-700">
-                      ℹ️ data.json contient également des données système (UI, paramètres Electron) non incluses dans la sauvegarde sélective — c'est normal.
+                      ℹ️ Les données locales contiennent également des données système (préférences d'interface) non incluses dans la sauvegarde sélective — c'est normal.
                     </div>
                   )}
                 </div>
@@ -546,7 +505,7 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
           <CardTitle>Actions de sauvegarde</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className={`grid grid-cols-1 ${isWeb ? 'md:grid-cols-3' : 'md:grid-cols-4'} gap-4`}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Button
               onClick={handleCreateBackupNow}
               disabled={operations.creating}
@@ -556,19 +515,6 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
               {operations.creating ? 'Création...' : 'Créer sauvegarde'}
               <span className="text-xs opacity-75">Sélective</span>
             </Button>
-
-            {/* « Copier data.json » : version bureau uniquement (sans objet en web). */}
-            {!isWeb && (
-            <Button
-              onClick={handleCopyDataJson}
-              disabled={operations.copyingDataJson}
-              className="h-20 flex flex-col bg-green-600 hover:bg-green-700"
-            >
-              <FileText className="h-6 w-6 mb-2" />
-              {operations.copyingDataJson ? 'Copie...' : 'Copier data.json'}
-              <span className="text-xs opacity-75">Complète</span>
-            </Button>
-            )}
 
             <Button
               onClick={handleSecurityExport} 
@@ -594,9 +540,6 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
           </div>
         </CardContent>
       </Card>
-
-      {/* 🖥️→☁️ IMPORT DEPUIS L'APP BUREAU (édition web uniquement) */}
-      {isWeb && <DesktopImportPanel />}
 
       {/* 📂 SAUVEGARDES DISPONIBLES */}
       <Card>
@@ -648,8 +591,7 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
         </CardContent>
       </Card>
 
-      {/* ☁️ SAUVEGARDE COMPLÈTE SUR LE SERVEUR (web) */}
-      {isWeb && (
+      {/* ☁️ SAUVEGARDE COMPLÈTE SUR LE SERVEUR */}
         <Card className="border-emerald-200">
           <CardHeader>
             <CardTitle className="flex items-center text-emerald-700">
@@ -736,7 +678,6 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
             )}
           </CardContent>
         </Card>
-      )}
 
       {/* ── PARAMÈTRES AVANCÉS (outils techniques de récupération) ── */}
       <button
@@ -902,43 +843,6 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
         </CardContent>
       </Card>
 
-      {/* 🔧 RÉPARATION DU SERVEUR — sans objet en web (le serveur versionne
-          automatiquement chaque coffre : la restauration suffit) */}
-      {onRepairServer && !isWeb && (
-        <Card className="border-orange-200">
-          <CardHeader>
-            <CardTitle className="flex items-center text-orange-700">
-              <Wrench className="h-5 w-5 mr-2" />
-              Réparation du fichier serveur{contentieuxLabel ? ` — ${contentieuxLabel}` : ''}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="p-3 bg-orange-50 rounded text-sm text-orange-800">
-              <p className="font-semibold mb-1">⚠️ Réservé à la machine qui possède la version correcte</p>
-              <p>
-                Si le fichier serveur est corrompu et que <strong>vos données locales sont la bonne version</strong>,
-                ce bouton écrase le fichier serveur avec vos données — même si la lecture du serveur échoue.
-              </p>
-              <p className="mt-1">
-                Si c'est votre <strong>collègue</strong> qui a la bonne version, demandez-lui de cliquer ce bouton
-                sur <strong>sa machine</strong>.
-              </p>
-            </div>
-            <Button
-              onClick={() => setShowRepairConfirm(true)}
-              disabled={isSyncing || !syncStatus?.isOnline}
-              className="w-full bg-orange-600 hover:bg-orange-700 text-white"
-            >
-              <Wrench className="h-4 w-4 mr-2" />
-              {isSyncing ? 'Réparation en cours...' : 'Réparer le serveur avec mes données locales'}
-            </Button>
-            {!syncStatus?.isOnline && (
-              <p className="text-xs text-gray-500 text-center">Serveur inaccessible — connexion requise</p>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
       {/* 📥 IMPORT / EXPORT */}
       <Card>
         <CardHeader>
@@ -964,8 +868,7 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
       </div>
       )}
 
-      {/* 🔐 CHIFFREMENT (édition web : E2EE) */}
-      {isWeb && (
+      {/* 🔐 CHIFFREMENT (E2EE) */}
         <Card className="border-slate-300 bg-slate-50">
           <CardHeader>
             <CardTitle className="flex items-center text-slate-800">
@@ -1001,7 +904,6 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
             </ul>
           </CardContent>
         </Card>
-      )}
 
       {/* 📥 DIALOGUE DE CONFIRMATION IMPORT FICHIER */}
       <ConfirmationDialog
@@ -1049,17 +951,6 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRepairServer, onRes
           ? `⚠️ Cette action va écraser le fichier serveur correspondant avec le contenu de ce backup :\n\n${selectedAdminBackup.filename}\n\nL'état actuel sera lui-même sauvegardé dans admin/backups/ avant écrasement.`
           : ''}
         confirmLabel={isRestoringAdmin ? 'Restauration…' : 'Restaurer ce backup'}
-        cancelLabel="Annuler"
-      />
-
-      {/* 🔧 DIALOGUE DE CONFIRMATION RÉPARATION SERVEUR */}
-      <ConfirmationDialog
-        isOpen={showRepairConfirm}
-        onClose={() => setShowRepairConfirm(false)}
-        onConfirm={handleRepairServer}
-        title="Réparer le fichier serveur"
-        message={`⚠️ Cette action va écraser le fichier serveur avec VOS données locales.\n\nÀ n'effectuer QUE si vos données locales sont la version correcte.\n\nSi la bonne version est sur la machine d'un collègue, demandez-lui de faire la réparation depuis sa machine.`}
-        confirmLabel="Écraser le serveur avec mes données"
         cancelLabel="Annuler"
       />
 

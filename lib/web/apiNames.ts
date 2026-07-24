@@ -1,7 +1,7 @@
 /**
- * Liste exhaustive des fonctions exposées par preload.js (contrat electronAPI).
- * Utilisée par le stub précoce (layout) et par le pont web pour garantir
- * que la surface est complète.
+ * Surface du pont de données de l'édition web (window.electronAPI, nom
+ * hérité de l'ancienne édition bureau). Utilisée par le stub précoce
+ * (layout) qui met en attente les appels tant que le pont n'est pas prêt.
  */
 export const ELECTRON_API_NAMES = [
   'getData', 'setData', 'clearData', 'getAllKeys',
@@ -44,12 +44,8 @@ export const ELECTRON_API_NAMES = [
   'startNetworkMonitor', 'stopNetworkMonitor', 'probeNetwork', 'getNetworkStatus', 'onNetworkStatus',
   'appendAuditLog', 'readAuditLog',
   'checkAppUpdate', 'applyAppUpdate', 'getUpdateChangelog',
-  'approveAppUpdate', 'unapproveAppUpdate', 'getApprovedAppUpdate',
-  'consultation_getStatus', 'consultation_pickFolder', 'consultation_activate',
-  'consultation_deactivate', 'consultation_refreshNow',
   'e2ee_myScopes', 'e2ee_listAccounts', 'e2ee_invite', 'e2ee_revoke',
   'attache_decrypt', 'attache_encrypt', 'attache_exportKeys',
-  'desktopImport_pushVault', 'desktopImport_uploadDocument',
   'readDocumentText', 'readDocumentData',
   'fullSnapshot_push', 'fullSnapshot_info', 'fullSnapshot_listVersions',
   'fullSnapshot_readCurrent', 'fullSnapshot_readVersion',

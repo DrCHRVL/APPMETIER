@@ -18,8 +18,6 @@ interface ChangelogCommit {
 interface UpdateChangelogModalProps {
   isOpen: boolean;
   onClose: () => void;
-  localSha: string | null;
-  remoteSha: string | null;
   commitsCount: number;
   onApply: () => void;
   isApplying: boolean;
@@ -28,8 +26,6 @@ interface UpdateChangelogModalProps {
 export const UpdateChangelogModal = ({
   isOpen,
   onClose,
-  localSha,
-  remoteSha,
   commitsCount,
   onApply,
   isApplying,
@@ -39,13 +35,13 @@ export const UpdateChangelogModal = ({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isOpen || !localSha || !remoteSha) return;
+    if (!isOpen) return;
     let cancelled = false;
     const load = async () => {
       setLoading(true);
       setError(null);
       try {
-        const result = await (window as any).electronAPI?.getUpdateChangelog?.(localSha, remoteSha);
+        const result = await (window as any).electronAPI?.getUpdateChangelog?.();
         if (cancelled) return;
         if (result?.success) {
           setCommits(result.commits || []);
@@ -60,7 +56,7 @@ export const UpdateChangelogModal = ({
     };
     load();
     return () => { cancelled = true; };
-  }, [isOpen, localSha, remoteSha]);
+  }, [isOpen]);
 
   const formatCommitMessage = (message: string) => {
     const firstLine = message.split('\n')[0];
@@ -94,19 +90,11 @@ export const UpdateChangelogModal = ({
             <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
             <div className="text-xs text-amber-800 space-y-1">
               <p className="font-medium">Redémarrage requis</p>
-              {typeof window !== 'undefined' && (window as { __SIRAL_WEB__?: boolean }).__SIRAL_WEB__ === true ? (
-                <p>
-                  Le serveur va être <strong>reconstruit et redémarré</strong> automatiquement
-                  (2 à 5 minutes) ; la page se rechargera ensuite. Tous les utilisateurs recevront
-                  la nouvelle version. Vos données ne sont jamais affectées.
-                </p>
-              ) : (
-                <p>
-                  L'application va se fermer et redémarrer automatiquement.
-                  Si la mise à jour modifie le code de l'interface, un <strong>rebuild</strong> sera lancé
-                  au prochain démarrage (1 à 3 minutes). Vos données ne sont jamais affectées.
-                </p>
-              )}
+              <p>
+                Le serveur va être <strong>reconstruit et redémarré</strong> automatiquement
+                (2 à 5 minutes) ; la page se rechargera ensuite. Tous les utilisateurs recevront
+                la nouvelle version. Vos données ne sont jamais affectées.
+              </p>
             </div>
           </div>
 

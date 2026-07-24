@@ -1,9 +1,6 @@
 node_modules
 .next
-.next-publish
 out
-out-consultation
-consultation-shell
 data/*
 # data/natinf contient le référentiel NATINF importé au build (route.ts + AdminNatinfPanel) :
 # on le garde dans le contexte de build, le reste de data/ (casiers, backups…) reste exclu.
@@ -11,8 +8,5 @@ data/*
 srv-data
 .git
 docs
-*.bat
 tessdata
-# Édition Electron desktop archivée — jamais incluse dans l'image serveur
-archive
 .npmrc
