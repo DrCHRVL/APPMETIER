@@ -237,6 +237,17 @@ attendu('période par défaut ok', !def.result.isError && JSON.parse(def.result.
 const err = await rpc('tools/call', { name: 'stats_graphique', arguments: { graphique: 'nimporte' } })
 attendu('graphique inconnu → erreur propre', err.result.isError === true && err.result.content[0].text.includes('Graphique inconnu'))
 
+// ── Marqueurs [GRAPHIQUE : …] (syntaxe partagée app ↔ attaché) ──
+const { parseMarqueur, formatMarqueur, trouverMarqueurs } = await import(`${REPO}/lib/stats/graphiqueMarqueur.mjs`)
+const marqueur = formatMarqueur({ graphique: 'deferements_par_mois', du: '2026-01-01', au: '2026-06-30' })
+attendu('marqueur : format canonique', marqueur === '[GRAPHIQUE : deferements_par_mois | du=2026-01-01 | au=2026-06-30]', marqueur)
+const parsed = parseMarqueur('  [graphique : Deferements_Par_Mois | du=2026-01-01 | au=2026-06-30]  ')
+attendu('marqueur : analyse tolérante (casse, espaces)', parsed?.graphique === 'deferements_par_mois' && parsed?.du === '2026-01-01' && parsed?.au === '2026-06-30')
+attendu('marqueur : sans période', parseMarqueur('[GRAPHIQUE : orientation]')?.graphique === 'orientation')
+attendu('marqueur : une phrase normale n\'en est pas un', parseMarqueur('Le graphique montre une hausse.') === null && parseMarqueur('[À CONFIRMER]') === null)
+const doc = `Bilan.\n\n${marqueur}\n\nTexte.\n[GRAPHIQUE : orientation | du=2026-01-01 | au=2026-06-30]\n${marqueur}\n`
+attendu('marqueurs : trouvés et dédoublonnés dans un document', trouverMarqueurs(doc).length === 2)
+
 child.kill()
 console.log(echecs.length ? `\n❌ ${echecs.length} échec(s) : ${echecs.join(' · ')}` : '\n✅ TOUS LES TESTS PASSENT')
 process.exit(echecs.length ? 1 : 0)

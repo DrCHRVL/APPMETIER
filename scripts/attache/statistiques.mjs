@@ -13,7 +13,15 @@
  * même SyncData que poussent les clients web) et le module instruction.
  * LECTURE SEULE, aucun jeton : tout est déterministe.
  *
- * Conventions reprises de l'app (à conserver en miroir) :
+ * LES RÈGLES DE CALCUL NE SONT PAS DUPLIQUÉES : ce module consomme les MÊMES
+ * fonctions que l'écran et l'export PDF —
+ *   lib/stats/audienceCore.mjs  (peines, orientations, saisies, durées),
+ *   lib/stats/actesCore.mjs     (actes TSE et prolongations datées),
+ *   lib/natinf/nataffRegles.mjs (catégories d'infraction, via nataff.mjs).
+ * Il n'apporte que la fenêtre de PÉRIODE, les LISTES de dossiers et la mise
+ * en forme du bilan.
+ *
+ * Conventions reprises de l'app :
  * - « Procédures terminées » = enquêtes archivées jugées dans la période
  *   (par leur date d'audience) + procédures directes (permanence), HORS
  *   classements sans suite et ouvertures d'information pour le chiffre-phare.
@@ -27,6 +35,8 @@ import { attacheContentieux } from './store.mjs'
 import { natinfEntry } from './natinf.mjs'
 import { labelCategorie } from './nataff.mjs'
 import { listInstructionDossiers } from './instru.mjs'
+import { calculateAudienceStats } from '../../lib/stats/audienceCore.mjs'
+import { computeActeStatsCore } from '../../lib/stats/actesCore.mjs'
 
 // ── Dates ──
 
@@ -106,36 +116,6 @@ function donnees(keys) {
 
 const resultatDe = (resultats, enqueteId) => resultats.find((r) => r.enqueteId === enqueteId && !r.isDirectResult)
 
-// ── Confiscations / saisies (port de migrateConfiscations + accumulation) ──
-
-function migrateConf(raw) {
-  if (!raw) return { vehicules: [], immeubles: [], numeraire: 0, saisiesBancaires: [], cryptomonnaies: [], objetsMobiliers: [] }
-  if (Array.isArray(raw.vehicules)) return raw
-  return {
-    vehicules: Array.from({ length: raw.vehicules || 0 }, () => ({})),
-    immeubles: Array.from({ length: raw.immeubles || 0 }, () => ({})),
-    numeraire: raw.argentTotal || 0,
-    saisiesBancaires: [], cryptomonnaies: [], objetsMobiliers: [],
-  }
-}
-
-function accumulerAvoirs(cible, raw) {
-  if (!raw) return
-  const c = migrateConf(raw)
-  cible.vehicules += c.vehicules.length
-  cible.immeubles += c.immeubles.length
-  cible.numeraire += c.numeraire || 0
-  const bancaire = (c.saisiesBancaires || []).reduce((s, b) => s + (b.montant || 0), 0)
-  cible.bancaire += bancaire
-  const crypto = (c.cryptomonnaies || []).reduce((s, x) => s + (x.montantEur || 0), 0)
-  cible.crypto += crypto
-  cible.total += (c.numeraire || 0) + bancaire + crypto
-  cible.objets += (c.objetsMobiliers || []).reduce((s, o) => s + (o.quantite || 1), 0)
-  if (c.stupefiants?.types?.length) cible.stupefiants += 1
-}
-
-const avoirsVides = () => ({ vehicules: 0, immeubles: 0, numeraire: 0, bancaire: 0, crypto: 0, total: 0, objets: 0, stupefiants: 0 })
-
 // ── Infractions d'une enquête → catégories (miroir useInfractionNatinf + nataff) ──
 
 function categoriesEnquete(e, customTags) {
@@ -177,62 +157,16 @@ function deferementsDuResultat(r, du, au) {
   return out.filter((d) => d.nombre > 0)
 }
 
-// ── Actes TSE sur période (miroir computeActeStats, prédicat par plage) ──
+// ── Agrégats d'audience sur période — le CŒUR PARTAGÉ fait le calcul ──
 
-const MAX_DUREE_ESTIMABLE_JOURS = 760
-
-function datesProlongations(acte, initialPeriodDays, fallback) {
-  const base = isoDay(acte.dateDebut) || fallback
-  const historique = acte.prolongationsHistory
-  if (historique && historique.length > 0) return historique.map((h) => isoDay(h.date) || base)
-  if (initialPeriodDays !== undefined && acte.dateDebut && acte.dateFin) {
-    const debut = new Date(isoDay(acte.dateDebut))
-    const fin = new Date(isoDay(acte.dateFin))
-    if (Number.isFinite(debut.getTime()) && Number.isFinite(fin.getTime())) {
-      const dureeJours = Math.floor((fin.getTime() - debut.getTime()) / 86_400_000)
-      if (dureeJours > initialPeriodDays && dureeJours <= MAX_DUREE_ESTIMABLE_JOURS) {
-        const count = Math.floor((dureeJours - initialPeriodDays) / 30)
-        if (count > 0) {
-          return Array.from({ length: count }, (_, k) =>
-            new Date(debut.getTime() + (initialPeriodDays + k * 30) * 86_400_000).toISOString().slice(0, 10))
-        }
-      }
-    }
-  }
-  if (acte.prolongationData || acte.prolongationDate) {
-    return [isoDay(acte.prolongationDate) || isoDay(acte.prolongationData?.dateDebut) || base]
-  }
-  return []
-}
-
-function actesTse(enquetes, du, au) {
-  const stats = { ecoutes: 0, geolocalisations: 0, autresActes: 0, prolongationsEcoutes: 0, prolongationsGeo: 0, prolongationsAutres: 0 }
-  const dans = (d) => Boolean(d && d >= du && d <= au)
-  for (const e of enquetes) {
-    const fallback = isoDay(e.dateCreation)
-    for (const a of e.ecoutes || []) {
-      if (dans(isoDay(a.dateDebut) || fallback)) stats.ecoutes++
-      stats.prolongationsEcoutes += datesProlongations(a, 30, fallback).filter(dans).length
-    }
-    for (const a of e.geolocalisations || []) {
-      if (dans(isoDay(a.dateDebut) || fallback)) stats.geolocalisations++
-      stats.prolongationsGeo += datesProlongations(a, 15, fallback).filter(dans).length
-    }
-    for (const a of e.actes || []) {
-      if (dans(isoDay(a.dateDebut) || fallback)) stats.autresActes++
-      stats.prolongationsAutres += datesProlongations(a, undefined, fallback).filter(dans).length
-    }
-  }
-  const totalActes = stats.ecoutes + stats.geolocalisations + stats.autresActes
-  const totalProlongations = stats.prolongationsEcoutes + stats.prolongationsGeo + stats.prolongationsAutres
-  return { ...stats, totalActes, totalProlongations, totalAvecProlongations: totalActes + totalProlongations }
-}
-
-// ── Agrégats d'audience sur période (port de calculateAudienceStats) ──
-
+/**
+ * Applique calculateAudienceStats (lib/stats/audienceCore.mjs — le même code
+ * que la page Statistiques) aux résultats de la période, puis remet le
+ * résultat en forme pour le bilan. Même périmètre que getYearlyStats :
+ * résultats datés dans la fenêtre ; les résultats standards exigent une
+ * enquête ARCHIVÉE.
+ */
 function statsAudience(resultats, enquetes, du, au) {
-  // Même périmètre que getYearlyStats : résultats datés dans la période ;
-  // les résultats standards exigent une enquête ARCHIVÉE.
   const valides = resultats.filter((r) => {
     if (!r.dateAudience || !inPeriod(r.dateAudience, du, au)) return false
     if (r.isDirectResult || r.isClassement || r.isOI) return true
@@ -240,116 +174,67 @@ function statsAudience(resultats, enquetes, du, au) {
     return Boolean(e && e.statut === 'archive')
   })
 
-  const oi = valides.filter((r) => r.isOI === true)
-  const classements = valides.filter((r) => r.isClassement === true)
-  const pendings = valides.filter((r) => r.isAudiencePending === true)
-  const normaux = valides.filter((r) => r.isOI !== true && r.isAudiencePending !== true && r.isClassement !== true)
+  const core = calculateAudienceStats(valides, enquetes)
 
-  const s = {
-    nombreCondamnations: 0, nombreAudiences: 0,
-    nombreCRPC: 0, nombreCI: 0, nombreCOPJ: 0, nombreOI: oi.length, nombreCDD: 0, nombreClassements: classements.length,
-    nombreDeferementsALAudience: 0,
-    peines: { fermes: 0, probation: 0, simple: 0, mixtesProbation: 0, mixtesSimple: 0 },
-    totalMoisFermes: 0, totalMoisProbation: 0, totalMoisSimple: 0, totalMoisMixtesFermes: 0, totalMoisMixtesProbation: 0, totalMoisMixtesSimpleFermes: 0, totalMoisMixtesSimple: 0,
-    totalPeinePrison: 0, montantTotalAmendes: 0,
-    interdictionsParaitre: 0, interdictionsGerer: 0,
-    dureeTotale: 0, dureeCount: 0,
-    confiscations: avoirsVides(), saisies: avoirsVides(),
-    peinesParInfraction: {},
-  }
-  const audiencesUniques = new Set()
-
-  const duree = (r) => {
-    if (r.isDirectResult || r.isAudiencePending) return
-    const e = enquetes.find((x) => x.id === r.enqueteId)
-    if (!e?.dateDebut || !r.dateAudience) return
-    const j = joursEntre(e.dateDebut, r.dateAudience)
-    if (j != null) { s.dureeTotale += j; s.dureeCount++ }
-  }
-
-  for (const r of [...oi, ...classements, ...pendings]) {
-    duree(r)
-    accumulerAvoirs(s.saisies, r.saisies)
-  }
-
-  for (const r of normaux) {
-    duree(r)
-    audiencesUniques.add(r.numeroAudience || `${r.enqueteId}-${r.dateAudience}`)
-    const types = new Set((r.condamnations || []).map((c) => c?.typeAudience))
-    if (types.has('CI')) s.nombreCI++
-    if (types.has('COPJ')) s.nombreCOPJ++
-    if (types.has('OI')) s.nombreOI++
-    if (types.has('CDD')) s.nombreCDD++
-
-    let deferesDuResultat = 0
-    for (const c of r.condamnations || []) {
-      if (!c) continue
-      if (c.typeAudience === 'CRPC-Def') s.nombreCRPC++
-      if (c.defere) { s.nombreDeferementsALAudience++; deferesDuResultat++ }
-
-      const prison = Number(c.peinePrison) || 0
-      const probation = Number(c.sursisProbatoire) || 0
-      const simple = Number(c.sursisSimple) || 0
-      const amende = Number(c.peineAmende) || 0
-
-      const infrKey = r.infractionNatinfCodes?.[0] ?? r.typeInfraction
-      if (infrKey && !s.peinesParInfraction[infrKey]) {
-        const entry = /^\d+$/.test(String(infrKey)) ? natinfEntry(infrKey) : null
-        s.peinesParInfraction[infrKey] = {
-          libelle: entry?.libelle || String(infrKey),
-          categorie: labelCategorie(entry || { code: '', libelle: String(infrKey), theme: undefined }),
-          condamnations: 0, moisFermes: 0, moisProbation: 0, moisSimple: 0,
-        }
-      }
-      const pi = infrKey ? s.peinesParInfraction[infrKey] : null
-      if (pi) pi.condamnations++
-
-      if (prison > 0 && probation === 0 && simple === 0) { s.peines.fermes++; s.totalMoisFermes += prison; if (pi) pi.moisFermes += prison }
-      else if (prison === 0 && probation > 0 && simple === 0) { s.peines.probation++; s.totalMoisProbation += probation; if (pi) pi.moisProbation += probation }
-      else if (prison === 0 && probation === 0 && simple > 0) { s.peines.simple++; s.totalMoisSimple += simple; if (pi) pi.moisSimple += simple }
-      else if (prison > 0 && probation > 0) { s.peines.mixtesProbation++; s.totalMoisMixtesFermes += prison; s.totalMoisMixtesProbation += probation; if (pi) pi.moisFermes += prison }
-      else if (prison > 0 && simple > 0) { s.peines.mixtesSimple++; s.totalMoisMixtesSimpleFermes += prison; s.totalMoisMixtesSimple += simple; if (pi) pi.moisFermes += prison }
-
-      s.montantTotalAmendes += amende
-      s.nombreCondamnations++
-      if (c.interdictionParaitre) s.interdictionsParaitre++
-      if (c.interdictionGerer) s.interdictionsGerer++
+  const peinesParInfraction = {}
+  for (const [infrKey, p] of Object.entries(core?.peinesParInfraction || {})) {
+    const entry = /^\d+$/.test(String(infrKey)) ? natinfEntry(infrKey) : null
+    peinesParInfraction[infrKey] = {
+      libelle: entry?.libelle || String(infrKey),
+      categorie: labelCategorie(entry || { code: '', libelle: String(infrKey), theme: undefined }),
+      ...p,
     }
-
-    // Défèrements saisis au niveau du résultat (surplus, comme calculateAudienceStats)
-    const nb = Number(r.nombreDeferes) || 0
-    if (nb > deferesDuResultat) s.nombreDeferementsALAudience += nb - deferesDuResultat
-
-    accumulerAvoirs(s.confiscations, r.confiscations)
-    accumulerAvoirs(s.saisies, r.saisies)
   }
 
-  s.totalPeinePrison = s.totalMoisFermes + s.totalMoisMixtesFermes + s.totalMoisMixtesSimpleFermes
-  s.nombreAudiences = audiencesUniques.size
-  const arrondi = (v) => Math.round(v * 10) / 10
   return {
-    nombreAudiences: s.nombreAudiences,
-    nombreCondamnations: s.nombreCondamnations,
+    nombreAudiences: core?.nombreAudiences || 0,
+    nombreCondamnations: core?.nombreCondamnations || 0,
     orientations: {
-      crpc: s.nombreCRPC, ci: s.nombreCI, copj: s.nombreCOPJ, oi: s.nombreOI, cdd: s.nombreCDD, classements: s.nombreClassements,
+      crpc: core?.nombreCRPC || 0,
+      ci: core?.nombreCI || 0,
+      copj: core?.nombreCOPJ || 0,
+      oi: core?.nombreOI || 0,
+      cdd: core?.nombreCDD || 0,
+      classements: core?.nombreClassements || 0,
       note: '1 par dossier (CI, OI, CDD, classement) ; 1 par prévenu pour les CRPC — comme la page Statistiques.',
     },
-    deferementsDossiersJuges: s.nombreDeferementsALAudience,
+    deferementsDossiersJuges: core?.nombreDeferements || 0,
     peines: {
-      fermes: { nombre: s.peines.fermes, moyenneMois: s.peines.fermes ? arrondi(s.totalMoisFermes / s.peines.fermes) : 0 },
-      probation: { nombre: s.peines.probation, moyenneMois: s.peines.probation ? arrondi(s.totalMoisProbation / s.peines.probation) : 0 },
-      sursisSimple: { nombre: s.peines.simple, moyenneMois: s.peines.simple ? arrondi(s.totalMoisSimple / s.peines.simple) : 0 },
-      mixtesFermeProbation: { nombre: s.peines.mixtesProbation },
-      mixtesFermeSimple: { nombre: s.peines.mixtesSimple },
-      totalPrisonFermeMois: s.totalPeinePrison,
-      montantTotalAmendes: s.montantTotalAmendes,
-      interdictionsParaitre: s.interdictionsParaitre,
-      interdictionsGerer: s.interdictionsGerer,
+      fermes: { nombre: core?.nombrePeinesFermes || 0, moyenneMois: core?.moyennePrison || 0 },
+      probation: { nombre: core?.nombrePeinesProbation || 0, moyenneMois: core?.moyenneProbation || 0 },
+      sursisSimple: { nombre: core?.nombrePeinesSimple || 0, moyenneMois: core?.moyenneSimple || 0 },
+      mixtesFermeProbation: { nombre: core?.nombrePeinesMixtesProbation || 0, moyenneMois: core?.moyenneMixtesProbation || '' },
+      mixtesFermeSimple: { nombre: core?.nombrePeinesMixtesSimple || 0, moyenneMois: core?.moyenneMixtesSimple || '' },
+      totalPrisonFermeMois: core?.totalPeinePrison || 0,
+      montantTotalAmendes: core?.montantTotalAmendes || 0,
+      interdictionsParaitre: core?.totalInterdictionsParaitre || 0,
+      interdictionsGerer: core?.totalInterdictionsGerer || 0,
     },
-    peinesParInfraction: s.peinesParInfraction,
-    saisiesEnquete: s.saisies,
-    confiscationsAudience: s.confiscations,
-    dureeMoyenneEnqueteJours: s.dureeCount ? Math.round(s.dureeTotale / s.dureeCount) : 0,
+    peinesParInfraction,
+    saisiesEnquete: {
+      vehicules: core?.totalSaisiesVehicules || 0,
+      immeubles: core?.totalSaisiesImmeubles || 0,
+      numeraire: core?.totalSaisiesNumeraire || 0,
+      bancaire: core?.totalSaisiesBancaire || 0,
+      crypto: core?.totalSaisiesCrypto || 0,
+      objets: core?.totalSaisiesObjets || 0,
+      total: core?.totalSaisiesArgent || 0,
+    },
+    confiscationsAudience: {
+      vehicules: core?.totalVehicules || 0,
+      immeubles: core?.totalImmeubles || 0,
+      numeraire: core?.totalNumeraire || 0,
+      bancaire: core?.totalBancaire || 0,
+      crypto: core?.totalCrypto || 0,
+      objets: core?.totalObjets || 0,
+      stupefiants: core?.totalStupefiants || 0,
+      total: core?.totalArgent || 0,
+    },
+    remisesVentesAvantJugement: {
+      remises: core?.nombreRemisesAvantJugement || 0,
+      ventes: core?.nombreVentesAvantJugement || 0,
+    },
+    dureeMoyenneEnqueteJours: core?.dureeMoyenneEnquete || 0,
   }
 }
 
@@ -570,8 +455,8 @@ export function bilanStatistiques(keys, { du: duBrut, au: auBrut } = {}) {
     audience,
     audienceParMois,
     actesTse: {
-      ...actesTse(enquetes, du, au),
-      note: 'Techniques spéciales d\'enquête (écoutes, géolocalisations, autres actes) rattachées à leur date réelle de début / de prolongation.',
+      ...computeActeStatsCore(enquetes, { du, au }),
+      note: 'Techniques spéciales d\'enquête (écoutes, géolocalisations, autres actes) rattachées à leur date réelle de début / de prolongation — mêmes règles que le tableau de bord (lib/stats/actesCore).',
     },
     repartitionServices: Object.entries(parService).sort((a, b) => b[1] - a[1]).map(([service, count]) => ({ service, count })),
     infractions: {

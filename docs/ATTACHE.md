@@ -477,15 +477,28 @@ l'usage).
     services et de catégories d'infraction, orientation par mois, et
     **tendance des catégories mois par mois** (la bascule « atteintes aux
     biens en début d'année → stupéfiants ensuite » se VOIT). Mêmes couleurs
-    que l'app (charte `chartColors`), données chiffrées exactes jointes à
-    chaque image : l'attaché décrit les dynamiques en regardant le graphe et
-    cite les nombres sans jamais les estimer. De quoi produire un **bilan
-    semestriel** ou un rapport de politique pénale complet — chiffres,
-    visuels commentés, dossiers marquants anonymisés, contexte tiré de la
-    base de connaissances — remis dans SIRAL (`remettre_livrable` /
-    `produire_document`), exportable en PDF/Word. Vérifié de bout en bout
-    par `scripts/attache-stats.test.mjs` (coffre chiffré réel + serveur MCP
-    en stdio).
+    que l'app (source unique `lib/stats/chartCouleurs`), données chiffrées
+    exactes jointes à chaque image : l'attaché décrit les dynamiques en
+    regardant le graphe et cite les nombres sans jamais les estimer. De quoi
+    produire un **bilan semestriel** ou un rapport de politique pénale
+    complet — chiffres, visuels commentés, dossiers marquants anonymisés,
+    contexte tiré de la base de connaissances — remis dans SIRAL
+    (`remettre_livrable` / `produire_document`).
+  - **Les graphiques s'insèrent TOUT SEULS dans le document final** : le
+    bilan place chaque graphique par un marqueur texte
+    `[GRAPHIQUE : nom | du=… | au=…]` (le document reste éditable en texte
+    brut dans « Actes rédigés ») ; à l'**export PDF/Word**, chaque marqueur
+    est remplacé automatiquement par l'image PNG régénérée par le service
+    (route `/stats-graphique`, périmètre admin) — rien à copier-coller. Si le
+    service est indisponible, une ligne de repli lisible remplace l'image,
+    l'export n'échoue jamais.
+  - **Les règles de calcul ne sont écrites qu'UNE fois** : l'écran, l'export
+    PDF et l'attaché consomment les mêmes modules partagés
+    (`lib/stats/audienceCore.mjs`, `lib/stats/actesCore.mjs`,
+    `lib/natinf/nataffRegles.mjs`, `lib/stats/chartCouleurs.mjs`) — pas de
+    triple implémentation à maintenir. Vérifié de bout en bout par
+    `scripts/attache-stats.test.mjs` (coffre chiffré réel + serveur MCP en
+    stdio, 30+ assertions).
 - **Chronologie probatoire** : dans le détail d'une enquête (section
   visible du seul administrateur), la frise fusionnée de tout ce qui est
   daté — actes, prolongations, attentes JLD, CR, apparition de mis en

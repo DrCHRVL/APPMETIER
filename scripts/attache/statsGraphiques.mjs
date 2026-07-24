@@ -7,35 +7,24 @@
  * chiffrées qui l'accompagnent — l'attaché VOIT la courbe et dispose des
  * nombres exacts, il n'a jamais à les estimer depuis l'image.
  *
- * Couleurs : la charte de l'app (utils/chartColors.ts) reproduite à
- * l'identique — mêmes couleurs d'orientation, même couleur stable par
- * service (hash du nom), même palette de catégories.
+ * Couleurs : la charte de l'app consommée DIRECTEMENT depuis la source
+ * unique lib/stats/chartCouleurs.mjs (celle de utils/chartColors.ts) — mêmes
+ * couleurs d'orientation, même couleur stable par service (hash du nom),
+ * même palette de catégories.
  */
 import { bilanStatistiques, labelMois } from './statistiques.mjs'
 import { graphiqueCourbe, graphiqueColonnes, graphiqueColonnesEmpilees, graphiqueDonut } from './pngChart.mjs'
+import { CHART_COLORS, getServiceColor, ORIENTATION_DATASETS } from '../../lib/stats/chartCouleurs.mjs'
 
-// Miroir de utils/chartColors.ts — à conserver en phase.
-export const CHART_COLORS = [
-  '#34495e', '#3498db', '#2ecc71', '#16a085', '#e74c3c', '#c0392b',
-  '#f1c40f', '#f39c12', '#9b59b6', '#8e44ad', '#1abc9c', '#7f8c8d',
-  '#d35400', '#27ae60', '#2980b9', '#95a5a6',
-]
+export { CHART_COLORS }
+export const couleurService = getServiceColor
 
-export function couleurService(service) {
-  let hash = 0
-  const s = String(service)
-  for (let i = 0; i < s.length; i++) hash = s.charCodeAt(i) + ((hash << 5) - hash)
-  return CHART_COLORS[Math.abs(hash) % CHART_COLORS.length]
+// Clés du bilan (orientations.crpc…) ↔ clés d'AudienceStats (nombreCRPC…).
+const ORIENTATION_KEY = {
+  nombreCRPC: 'crpc', nombreCI: 'ci', nombreCOPJ: 'copj',
+  nombreOI: 'oi', nombreCDD: 'cdd', nombreClassements: 'classements',
 }
-
-const ORIENTATIONS = [
-  { key: 'crpc', label: 'CRPC', color: '#34495e' },
-  { key: 'ci', label: 'CI', color: '#3498db' },
-  { key: 'copj', label: 'COPJ', color: '#2ecc71' },
-  { key: 'oi', label: 'OI', color: '#95a5a6' },
-  { key: 'cdd', label: 'CDD', color: '#E8D0A9' },
-  { key: 'classements', label: 'Classement', color: '#e74c3c' },
-]
+const ORIENTATIONS = ORIENTATION_DATASETS.map((d) => ({ key: ORIENTATION_KEY[d.key], label: d.label, color: d.color }))
 
 /** Catalogue des graphiques disponibles (nom → description pour l'outil MCP). */
 export const GRAPHIQUES = {

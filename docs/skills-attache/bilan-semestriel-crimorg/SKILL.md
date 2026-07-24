@@ -153,10 +153,14 @@ Règles d'écriture :
   se réservent aux encadrés et aux tableaux de chiffres ;
 - chiffres exacts, conversions parlantes (mois → années ; cumuls) ;
   évolutions en valeur ET en pourcentage quand les deux éclairent ;
-- signaler l'emplacement des graphiques par une ligne
-  `[GRAPHIQUE : nom_du_graphique — titre]` à l'endroit voulu : le magistrat
-  insérera les images correspondantes (page Statistiques / export PDF de
-  SIRAL, mêmes graphes) dans la mise en page finale ;
+- insérer chaque graphique par un MARQUEUR seul sur sa ligne, à l'endroit
+  exact où il illustre le propos :
+  `[GRAPHIQUE : nom_du_graphique | du=AAAA-MM-JJ | au=AAAA-MM-JJ]`
+  (mêmes noms que `stats_graphique` ; TOUJOURS préciser la période pour figer
+  le document). À l'export PDF/Word, SIRAL remplace automatiquement chaque
+  marqueur par l'image — celle regardée à l'étape 2, mêmes couleurs. Le texte
+  doit néanmoins décrire la dynamique : le document reste lisible sans les
+  images ;
 - aucune mention de l'assistant (règle de dissimulation absolue).
 
 ## Étape 6 — Contrôles avant remise
@@ -185,9 +189,10 @@ Relire intégralement en vérifiant, ligne à ligne :
   pseudo-dossier `_hors-dossier` (sauf consigne contraire). Le magistrat le
   retrouve dans « Actes rédigés — hors dossier », le retouche, l'exporte en
   PDF/Word et le valide.
-- Récapituler en réponse : la période, les totaux clés, les graphiques à
-  insérer (liste des `[GRAPHIQUE : …]`), les affaires retenues en encadré,
-  et ce qui manquerait (données incomplètes signalées à l'étape 1).
+- Récapituler en réponse : la période, les totaux clés, les graphiques
+  insérés (leurs marqueurs seront remplacés par les images à l'export
+  PDF/Word), les affaires retenues en encadré, et ce qui manquerait
+  (données incomplètes signalées à l'étape 1).
 - Proposer les déclinaisons utiles sans les imposer : version courte (une
   page) pour diffusion large, trame de diaporama, article pour la dépêche
   du parquet.

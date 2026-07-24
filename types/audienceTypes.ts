@@ -92,47 +92,28 @@ export interface Confiscations {
   stupefiants?: StupefiantSaisi;
 }
 
+// Les helpers de confiscations vivent dans le module PARTAGÉ
+// lib/stats/audienceCore.mjs (source unique, aussi utilisée par le service
+// attaché) — re-exportés ici avec leur typage historique.
+import {
+  emptyConfiscations as emptyConfiscationsCore,
+  hasAnySaisies as hasAnySaisiesCore,
+  migrateConfiscations as migrateConfiscationsCore,
+} from '@/lib/stats/audienceCore.mjs';
+
 /** Crée un objet Confiscations vide */
 export function emptyConfiscations(): Confiscations {
-  return {
-    vehicules: [],
-    immeubles: [],
-    numeraire: 0,
-    saisiesBancaires: [],
-    cryptomonnaies: [],
-    objetsMobiliers: [],
-  };
+  return emptyConfiscationsCore() as Confiscations;
 }
 
 /** Vrai si au moins une saisie est renseignée (toutes catégories confondues). */
 export function hasAnySaisies(s: Confiscations | undefined | null): boolean {
-  if (!s) return false;
-  return (
-    s.vehicules.length > 0 ||
-    s.immeubles.length > 0 ||
-    (s.numeraire || 0) > 0 ||
-    s.saisiesBancaires.length > 0 ||
-    s.cryptomonnaies.length > 0 ||
-    s.objetsMobiliers.length > 0 ||
-    (s.stupefiants?.types?.length ?? 0) > 0
-  );
+  return hasAnySaisiesCore(s);
 }
 
 /** Migre l'ancien format (compteurs simples) vers le nouveau format détaillé */
 export function migrateConfiscations(raw: any): Confiscations {
-  if (!raw) return emptyConfiscations();
-  // Déjà au nouveau format (vehicules est un tableau)
-  if (Array.isArray(raw.vehicules)) return raw as Confiscations;
-  // Ancien format : vehicules: number, immeubles: number, argentTotal: number
-  const legacy = raw as { vehicules?: number; immeubles?: number; argentTotal?: number };
-  return {
-    vehicules: Array.from({ length: legacy.vehicules || 0 }, () => ({ type: 'voiture' as TypeVehicule })),
-    immeubles: Array.from({ length: legacy.immeubles || 0 }, () => ({ type: 'autre' as TypeImmeuble })),
-    numeraire: legacy.argentTotal || 0,
-    saisiesBancaires: [],
-    cryptomonnaies: [],
-    objetsMobiliers: [],
-  };
+  return migrateConfiscationsCore(raw) as Confiscations;
 }
 
 
