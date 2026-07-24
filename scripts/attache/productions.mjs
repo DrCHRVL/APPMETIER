@@ -22,7 +22,7 @@ import { normNumero, numerosProches } from './numero.mjs'
 import { resolveEnquete } from './dossier.mjs'
 import { diffTexte } from './diff.mjs'
 
-export const PRODUCTION_TYPES = ['requisition', 'reponse_dml', 'prolongation_jld', 'saisine_jld', 'projet_reponse', 'soit_transmis', 'note', 'livrable', 'autre']
+export const PRODUCTION_TYPES = ['requisition', 'reponse_dml', 'prolongation_jld', 'saisine_jld', 'projet_reponse', 'soit_transmis', 'note', 'livrable', 'presentation', 'autre']
 
 /**
  * Nettoie/valide les métadonnées d'acte fournies par l'agent. Renvoie un objet

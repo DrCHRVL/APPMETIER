@@ -19,8 +19,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   X, Save, FileDown, FileText, CheckCircle2, Loader2, Scale, Send, RefreshCw, Wrench, Undo2,
+  Presentation, FileSpreadsheet,
 } from 'lucide-react';
 import { downloadActePdf, downloadActeDocx, acteFileBase } from '@/lib/web/acteExport';
+import { downloadActePptx, estPresentable } from '@/lib/web/pptxExport';
+import { downloadActeXlsx, contientTableaux } from '@/lib/web/xlsxExport';
 import { AttacheConfig, loadAttacheConfig } from './modelOptions';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import type { ActeMeta } from '@/types/interfaces';
@@ -56,6 +59,7 @@ const TYPE_LABEL: Record<string, string> = {
   soit_transmis: 'Soit-transmis',
   note: 'Note',
   livrable: 'Livrable',
+  presentation: 'Présentation',
   autre: 'Acte',
 };
 
@@ -158,12 +162,15 @@ export function ProductionPopup({ numero, prodId, service, onClose, onChanged }:
     } finally { setBusy(null); }
   }, [prod, draft, persist, onChanged, syncProductionActe]);
 
-  const dl = useCallback(async (fmt: 'pdf' | 'docx') => {
+  const dl = useCallback(async (fmt: 'pdf' | 'docx' | 'pptx' | 'xlsx') => {
     if (!prod) return;
     setBusy(fmt);
     try {
       const p = { ...prod, service, contenu: draft };
-      if (fmt === 'pdf') await downloadActePdf(p); else await downloadActeDocx(p);
+      if (fmt === 'pdf') await downloadActePdf(p);
+      else if (fmt === 'docx') await downloadActeDocx(p);
+      else if (fmt === 'pptx') await downloadActePptx(p);
+      else await downloadActeXlsx(p);
     } catch { setNotice(`Génération ${fmt.toUpperCase()} impossible.`); }
     finally { setBusy(null); }
   }, [prod, draft, service]);
@@ -283,6 +290,16 @@ export function ProductionPopup({ numero, prodId, service, onClose, onChanged }:
                 <button onClick={() => dl('docx')} disabled={busy === 'docx'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50">
                   {busy === 'docx' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}Word
                 </button>
+                {prod && estPresentable({ type: prod.type, contenu: draft }) && (
+                  <button onClick={() => dl('pptx')} disabled={busy === 'pptx'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title="Exporter en présentation PowerPoint (.pptx)">
+                    {busy === 'pptx' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Presentation className="h-3.5 w-3.5" />}PowerPoint
+                  </button>
+                )}
+                {contientTableaux(draft) && (
+                  <button onClick={() => dl('xlsx')} disabled={busy === 'xlsx'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title="Exporter les tableaux en classeur Excel (.xlsx)">
+                    {busy === 'xlsx' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5" />}Tableur
+                  </button>
+                )}
                 <button
                   onClick={valider}
                   disabled={busy === 'val'}

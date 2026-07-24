@@ -172,7 +172,7 @@ export function DossierCompletSection({ numero }: { numero: string }) {
         {progress ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
         {progress
           ? `Conversion et versement… ${progress.done}/${progress.total}`
-          : 'Glissez un dossier entier (ou cliquez pour le choisir) — PDF, ODT, DOCX, TXT… convertis en markdown, arborescence préservée'}
+          : 'Glissez un dossier entier (ou cliquez pour le choisir) — PDF, ODT, DOCX, Excel (XLSX/XLS/ODS), TXT… convertis en markdown, arborescence préservée'}
         <input type="file" multiple className="hidden" {...({ webkitdirectory: '' } as Record<string, string>)}
           onChange={(e) => { onPickFolder(e.target.files); e.currentTarget.value = ''; }} />
       </label>

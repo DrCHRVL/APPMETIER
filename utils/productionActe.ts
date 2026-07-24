@@ -169,7 +169,7 @@ const PRODUCTION_TYPE_LABEL: Record<string, string> = {
 };
 
 /** Types de production qui ne correspondent à AUCUN acte de procédure. */
-const NON_ACTE_PRODUCTION_TYPES = new Set(['note', 'livrable']);
+const NON_ACTE_PRODUCTION_TYPES = new Set(['note', 'livrable', 'presentation']);
 
 export interface BuiltActe {
   /** Collection de l'enquête à mettre à jour. */

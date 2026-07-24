@@ -74,7 +74,7 @@ interface StagedSkill {
 // Nom de fichier d'une skill/trame — miroir serveur partagé (lib/web/slug).
 const skillSlug = entrySlug;
 
-const UPLOAD_ACCEPT = '.pdf,.odt,.ott,.docx,.doc,.txt,.md,.markdown,.csv,.html,.htm,.eml,.rtf,.log';
+const UPLOAD_ACCEPT = '.pdf,.odt,.ott,.docx,.doc,.xlsx,.xlsm,.xls,.ods,.txt,.md,.markdown,.csv,.tsv,.html,.htm,.eml,.rtf,.log';
 const SKILL_ACCEPT = '.skill,.zip,.md,.markdown';
 
 function Dot({ ok, label }: { ok: boolean | undefined; label: string }) {

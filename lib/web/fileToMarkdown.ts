@@ -12,7 +12,9 @@
  *  - ODT   : zip (DecompressionStream natif) + content.xml via DOMParser
  *  - DOCX  : zip + word/document.xml via DOMParser
  *  - DOC   : ancien Word binaire (CFB + piece table), parseur maison ci-dessous
- *  - TXT / MD / CSV / EML / LOG : décodage direct (UTF-8, repli windows-1252)
+ *  - XLSX / XLSM / XLS / ODS : SheetJS (déjà présent — imports AIR/greffe),
+ *    chaque feuille devient un tableau markdown (lib/tableur/classeurMarkdown)
+ *  - TXT / MD / CSV / TSV / EML / LOG : décodage direct (UTF-8, repli windows-1252)
  *  - HTML  : texte extrait via DOMParser
  */
 
@@ -518,6 +520,21 @@ async function pdfToMarkdown(bytes: Uint8Array): Promise<ConversionResult> {
   return { markdown }
 }
 
+// ── Tableurs (XLSX/XLSM/XLS/ODS) : une section markdown par feuille ──
+// SheetJS est déjà dans le bundle (imports AIR/greffe) mais chargé À LA
+// DEMANDE ici pour ne pas alourdir les téléversements sans classeur. Les
+// valeurs sont lues telles qu'AFFICHÉES (dates, %, monnaies) : c'est ce que
+// voit l'utilisateur du fichier, donc ce que l'attaché doit interpréter.
+
+async function tableurToMarkdown(bytes: Uint8Array): Promise<ConversionResult> {
+  const XLSX = await import('xlsx')
+  const { classeurEnMarkdown } = await import('@/lib/tableur/classeurMarkdown.mjs')
+  const wb = XLSX.read(bytes, { type: 'array' })
+  const res = classeurEnMarkdown(XLSX, wb) as { ok: boolean; markdown?: string; error?: string }
+  if (!res.ok || !res.markdown) throw new Error(res.error || 'classeur illisible')
+  return { markdown: res.markdown }
+}
+
 // ── HTML : texte du body via DOMParser ──
 
 function htmlToMarkdown(text: string): string {
@@ -568,10 +585,14 @@ export async function fileToMarkdown(file: File): Promise<ConversionResult> {
   if (name.endsWith('.doc')) {
     return { markdown: tidy(docToMarkdown(bytes)) }
   }
+  if (/\.(xlsx|xlsm|xltx|xls|ods)$/.test(name)) {
+    const res = await tableurToMarkdown(bytes)
+    return { ...res, markdown: tidy(res.markdown) }
+  }
   if (name.endsWith('.html') || name.endsWith('.htm')) {
     return { markdown: tidy(htmlToMarkdown(decodeText(bytes))) }
   }
-  if (/\.(txt|md|markdown|csv|eml|log|rtf)$/.test(name)) {
+  if (/\.(txt|md|markdown|csv|tsv|eml|log|rtf)$/.test(name)) {
     if (name.endsWith('.rtf')) {
       // RTF : on retire les commandes de mise en forme, on garde le texte
       const raw = decodeText(bytes)
@@ -583,5 +604,5 @@ export async function fileToMarkdown(file: File): Promise<ConversionResult> {
     }
     return { markdown: tidy(decodeText(bytes)) }
   }
-  throw new Error(`type de fichier non pris en charge (${file.name.split('.').pop()}) — formats acceptés : PDF, ODT, DOCX, TXT, MD, HTML, CSV, EML`)
+  throw new Error(`type de fichier non pris en charge (${file.name.split('.').pop()}) — formats acceptés : PDF, ODT, DOCX, XLSX/XLS/ODS, TXT, MD, HTML, CSV, EML`)
 }
