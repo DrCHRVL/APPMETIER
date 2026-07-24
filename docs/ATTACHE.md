@@ -359,7 +359,11 @@ l'usage).
   complète la persona et les règles de gouvernance, il ne les remplace pas.
 - **Skills, comme Claude web** : des méthodes réutilisables (nom +
   description + contenu markdown), gérées dans Paramètres → Attaché IA →
-  « Skills ». **Téléversez directement vos fichiers `.skill` exportés de
+  « Skills ». Le dépôt fournit des **skills prêtes à téléverser** dans
+  [docs/skills-attache/](skills-attache/README.md) — dont
+  `bilan-semestriel-crimorg.skill` (bilan périodique d'activité complet :
+  chiffres, graphiques commentés, tendances, affaires marquantes).
+  **Téléversez directement vos fichiers `.skill` exportés de
   Claude web** (archives ZIP : SKILL.md + références — déballées dans le
   navigateur, front-matter name/description repris, références concaténées),
   ou collez le markdown. Même divulgation progressive que Claude web :
@@ -450,6 +454,38 @@ l'usage).
   revue** flottant (bas-gauche de la cartographie, et fil du panneau) :
   ✓ trace sur la carte (signé de son nom), ✗ refuse. Idéal en routine
   hebdomadaire.
+- **Statistiques et bilans d'activité — il VOIT les courbes** : deux outils
+  donnent à l'attaché le même regard que le magistrat sur la page
+  Statistiques, sur une **période libre** (semestre, trimestre, année) :
+  - **`stats_synthese`** — le bilan chiffré complet du contentieux, avec les
+    MÊMES règles de calcul que la page Statistiques et le rapport PDF :
+    procédures **terminées** depuis une date (chiffre-phare hors classements
+    et OI, par mois, et la **liste des dossiers** — orientation, services,
+    catégories d'infraction, durées), **défèrements** à leur date réelle
+    (par mois + liste datée), ouvertures et stock, orientations
+    (CRPC/CI/COPJ/OI/CDD/classements), peines (moyennes, prison ferme
+    totale, amendes, interdictions), **saisies et confiscations** (véhicules,
+    immeubles, avoirs, crypto), actes TSE, répartition par service et par
+    catégorie (tendance mensuelle comprise), suivi **JIRS/PG**, photographie
+    du module instruction, et **comparatif automatique avec la même période
+    un an plus tôt**. Les listes permettent d'enchaîner sur `lire_dossier`
+    (ou un lot de `sous_agents`) pour les dossiers marquants.
+  - **`stats_graphique`** — les graphiques eux-mêmes, rendus en **PNG côté
+    service** (aucune dépendance, aucun navigateur) et transmis à l'agent en
+    **image** : courbes des procédures terminées et des défèrements,
+    histogrammes des ouvertures/condamnations, donuts d'orientation, de
+    services et de catégories d'infraction, orientation par mois, et
+    **tendance des catégories mois par mois** (la bascule « atteintes aux
+    biens en début d'année → stupéfiants ensuite » se VOIT). Mêmes couleurs
+    que l'app (charte `chartColors`), données chiffrées exactes jointes à
+    chaque image : l'attaché décrit les dynamiques en regardant le graphe et
+    cite les nombres sans jamais les estimer. De quoi produire un **bilan
+    semestriel** ou un rapport de politique pénale complet — chiffres,
+    visuels commentés, dossiers marquants anonymisés, contexte tiré de la
+    base de connaissances — remis dans SIRAL (`remettre_livrable` /
+    `produire_document`), exportable en PDF/Word. Vérifié de bout en bout
+    par `scripts/attache-stats.test.mjs` (coffre chiffré réel + serveur MCP
+    en stdio).
 - **Chronologie probatoire** : dans le détail d'une enquête (section
   visible du seul administrateur), la frise fusionnée de tout ce qui est
   daté — actes, prolongations, attentes JLD, CR, apparition de mis en
