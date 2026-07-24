@@ -111,7 +111,7 @@ export const ToDoSection = React.memo(({ enquete, onUpdate, isEditing }: ToDoSec
       </div>
 
       {/* Liste des tâches actives */}
-      <div className="grid grid-cols-5 gap-2 mb-4">
+      <div className="flex flex-col gap-2 mb-4">
         {activeTodos.map(todo => (
           <div key={todo.id} className="flex items-start gap-2 p-2 bg-gray-50 rounded group">
             <Checkbox
@@ -154,8 +154,8 @@ export const ToDoSection = React.memo(({ enquete, onUpdate, isEditing }: ToDoSec
               </div>
             ) : (
               <>
-                <span 
-                  className="flex-1 text-sm cursor-pointer hover:bg-gray-100 p-1 rounded"
+                <span
+                  className="flex-1 min-w-0 break-words text-sm cursor-pointer hover:bg-gray-100 p-1 rounded"
                   onClick={() => isEditing && startEditing(todo)}
                   title={isEditing ? "Cliquer pour modifier" : ""}
                 >
@@ -191,7 +191,7 @@ export const ToDoSection = React.memo(({ enquete, onUpdate, isEditing }: ToDoSec
 
         {/* Ajout d'une nouvelle tâche - TOUJOURS VISIBLE */}
         {onUpdate && (
-          <div className="col-span-5 flex items-center gap-2 p-2 border-2 border-dashed border-gray-300 rounded">
+          <div className="flex items-center gap-2 p-2 border-2 border-dashed border-gray-300 rounded">
             <Plus className="h-4 w-4 text-gray-400 flex-shrink-0" />
             <Input
               placeholder="Nouvelle tâche..."
@@ -218,7 +218,7 @@ export const ToDoSection = React.memo(({ enquete, onUpdate, isEditing }: ToDoSec
         )}
 
         {activeTodos.length === 0 && !isEditing && (
-          <div className="col-span-5 text-center py-4 text-gray-500 text-sm">
+          <div className="text-center py-4 text-gray-500 text-sm">
             Aucune tâche en cours
           </div>
         )}
