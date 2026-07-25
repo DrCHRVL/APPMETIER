@@ -12,6 +12,13 @@
  *
  * Admin only : la route /status renvoie 404 aux autres comptes → le widget se
  * masque de lui-même. Tout est chiffré : le navigateur déchiffre pour afficher.
+ *
+ * L'état de LECTURE (cartes rangées, repère « vu ») est partagé entre tous les
+ * appareils via /api/attache/journal — sous forme d'empreintes opaques, jamais
+ * de contenu. Ranger ou consulter sur l'ordinateur vaut donc sur le téléphone,
+ * et inversement ; le localStorage n'est plus qu'un cache de secours. Le
+ * journal se nettoie aussi TOUT SEUL : actes validés/supprimés, dossiers
+ * entièrement traités, et cartes d'information déjà vues depuis plus de 48 h.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Sparkles, RefreshCw, ChevronDown, ChevronUp, FileText, ArrowRight, X } from 'lucide-react';
@@ -31,7 +38,8 @@ interface FeedCard {
   /** Carte reliée à un document rédigé (production) : ouvre le popup. */
   prodId?: string;
 }
-type Card = FeedCard & { ts: number };
+/** `hid` : empreinte opaque de la carte (voir hashKey) — id de synchronisation. */
+type Card = FeedCard & { ts: number; hid: string };
 
 /** Statut des actes d'un dossier (déchiffré côté navigateur) — sert à
  * l'auto-nettoyage : une carte dont l'acte est validé ou supprimé disparaît. */
@@ -45,24 +53,45 @@ interface DossierProdStatus {
   completedAt: number | null;
 }
 
-// Cartes « résumé » qui font double emploi avec les actes reliés (le même
-// travail annoncé une seconde fois) : une fois le dossier entièrement traité,
-// on efface aussi ces cartes-là pour éviter la surcharge d'information.
-const AUTO_HIDE_SUMMARY_TYPES = new Set(['acte', 'prolongation', 'note', 'synthese']);
+// Cartes d'INFORMATION qui n'appellent plus rien une fois le travail du dossier
+// terminé (tous ses actes validés) : résumés, annonces d'actes, mails traités,
+// livrables, projets de réponse… — à la clôture, elles s'effacent toutes.
+// Seules les alertes restent jusqu'à rangement manuel ou expiration après
+// lecture (voir AUTO_EXPIRE_SEEN_MS).
+const AUTO_HIDE_SUMMARY_TYPES = new Set(['acte', 'prolongation', 'note', 'synthese', 'mail_traite', 'livrable', 'projet_reponse']);
 
 const FEED_ICONS: Record<string, string> = {
   mail_traite: '📨', synthese: '📋', acte: '⚖️', prolongation: '🕐',
   projet_reponse: '✉️', alerte: '⚠️', note: '📝', livrable: '📦',
 };
 
+// État de lecture — la référence est le SERVEUR (/api/attache/journal), partagé
+// entre appareils ; le localStorage n'est qu'un cache (affichage immédiat,
+// repli hors-ligne, re-synchronisé à la visite suivante).
 const JOURNAL_SEEN_KEY = 'attache_journal_seen_ts';
-// Cartes masquées par le magistrat (« supprimer » côté client, pour éviter que
-// le journal s'entasse) : le fil serveur est en lecture seule et append-only,
-// on retient donc localement les cartes rangées — persistant sur ce navigateur.
-const JOURNAL_DISMISSED_KEY = 'attache_journal_dismissed';
+/** Ancien format local (clés en clair `ts|titre`) : migré en empreintes vers le
+ * serveur à la première visite, puis retiré. */
+const JOURNAL_DISMISSED_LEGACY_KEY = 'attache_journal_dismissed';
+/** Empreintes (hex) des cartes rangées — miroir local de l'état serveur. */
+const JOURNAL_DISMISSED_KEY = 'attache_journal_dismissed_v2';
+/** Nettoyage par ancienneté : une carte d'INFORMATION déjà couverte par le
+ * repère « vu » d'une visite PRÉCÉDENTE s'efface seule au bout de 48 h. Ne
+ * concerne jamais une carte reliée à un acte encore en attente (travail à
+ * faire) ni une carte jamais vue. Le journal est un fil de reprise, pas une
+ * archive — l'historique complet reste dans les dossiers (« Actes rédigés »)
+ * et le journal d'audit. */
+const AUTO_EXPIRE_SEEN_MS = 48 * 3600_000;
 
 /** Clé stable d'une carte (le fil n'a pas d'id) : horodatage + titre. */
 const cardKey = (c: { ts: number; titre?: string }) => `${c.ts}|${c.titre || ''}`;
+
+/** Empreinte opaque (SHA-256 tronqué, hex) d'une clé de carte. Seule cette
+ * empreinte — jamais le titre — est envoyée au serveur : le fichier de statuts
+ * partagé est en clair sur disque et ne doit rien apprendre du contenu. */
+async function hashKey(raw: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+  return [...new Uint8Array(digest).slice(0, 8)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 /** Résumé assez long pour être coupé par le clamp (2 lignes) → dépliable. */
 const resumeIsLong = (s?: string) => !!s && (s.length > 110 || s.includes('\n'));
@@ -75,6 +104,10 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
   const [collapsed, setCollapsed] = useState(false);
   const [popup, setPopup] = useState<{ numero: string; prodId: string } | null>(null);
   const [seenTs, setSeenTs] = useState(0);
+  /** Repère « vu » TEL QU'AU CHARGEMENT (visites précédentes) : sert au
+   * nettoyage par ancienneté — figé pour ne pas faire disparaître des cartes
+   * sous les yeux du magistrat pendant qu'il les lit. */
+  const [seenAtLoad, setSeenAtLoad] = useState(0);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [prodStatus, setProdStatus] = useState<Record<string, DossierProdStatus>>({});
@@ -86,19 +119,81 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
       if (!res.ok) { setAvailable(false); return; }
       setAvailable(true);
       const { entries } = await res.json();
-      const out: Card[] = [];
+      const out: Array<FeedCard & { ts: number }> = [];
       for (const e of entries as Array<{ ts: number; iv: string; ct: string }>) {
         const card = await eapi().attache_decrypt({ v: 1, encrypted: true, iv: e.iv, ct: e.ct });
         if (card) out.push({ ...(card as FeedCard), ts: e.ts });
       }
       out.reverse(); // plus récent d'abord
-      setCards(out);
+      setCards(await Promise.all(out.map(async (c): Promise<Card> => ({ ...c, hid: await hashKey(cardKey(c)) }))));
     } catch {
       setAvailable(false);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const postJournal = useCallback(async (body: { dismiss?: string[]; seenTs?: number }) => {
+    const res = await fetch('/api/attache/journal', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error('synchronisation refusée');
+  }, []);
+
+  // État de lecture : serveur d'abord (il fait foi entre appareils), fusionné
+  // avec le cache local — qui reprend seul la main hors-ligne. Les rangements
+  // que le serveur ne connaît pas encore (hors-ligne passé, ancien format en
+  // clair) lui sont poussés ici, en une fois.
+  const loadJournalState = useCallback(async () => {
+    let localSeen = 0;
+    let localIds: string[] = [];
+    let legacyIds: string[] = [];
+    try { localSeen = Number(localStorage.getItem(JOURNAL_SEEN_KEY) || 0); } catch { /* */ }
+    try {
+      const raw = JSON.parse(localStorage.getItem(JOURNAL_DISMISSED_KEY) || '[]') as unknown[];
+      localIds = raw.filter((s): s is string => typeof s === 'string');
+    } catch { /* */ }
+    try {
+      const legacy = JSON.parse(localStorage.getItem(JOURNAL_DISMISSED_LEGACY_KEY) || '[]') as unknown[];
+      legacyIds = await Promise.all(legacy.filter((s): s is string => typeof s === 'string').map(hashKey));
+    } catch { /* */ }
+    let serverIds: string[] = [];
+    let serverSeen = 0;
+    let serverOk = false;
+    try {
+      const res = await fetch('/api/attache/journal');
+      if (res.ok) {
+        const d = await res.json() as { dismissed?: unknown; seenTs?: unknown };
+        serverIds = Array.isArray(d.dismissed) ? d.dismissed.map(String) : [];
+        serverSeen = Number(d.seenTs) || 0;
+        serverOk = true;
+      }
+    } catch { /* hors-ligne : le cache local suffit */ }
+    const union = new Set([...serverIds, ...localIds, ...legacyIds]);
+    // Fusions MONOTONES : ne jamais écraser un rangement ou un « vu » survenu
+    // pendant le chargement.
+    setDismissed((prev) => {
+      const merged = new Set([...prev, ...union]);
+      try { localStorage.setItem(JOURNAL_DISMISSED_KEY, JSON.stringify([...merged])); } catch { /* */ }
+      return merged;
+    });
+    const seen = Math.max(serverSeen, localSeen);
+    setSeenTs((v) => Math.max(v, seen));
+    setSeenAtLoad((v) => Math.max(v, seen));
+    try {
+      if (seen > (Number(localStorage.getItem(JOURNAL_SEEN_KEY)) || 0)) localStorage.setItem(JOURNAL_SEEN_KEY, String(seen));
+    } catch { /* */ }
+    if (serverOk) {
+      try {
+        const known = new Set(serverIds);
+        const missing = [...union].filter((id) => !known.has(id));
+        if (missing.length) await postJournal({ dismiss: missing });
+        if (localSeen > serverSeen) await postJournal({ seenTs: localSeen });
+        // migration terminée : l'ancien format (clés en clair) ne sert plus
+        localStorage.removeItem(JOURNAL_DISMISSED_LEGACY_KEY);
+      } catch { /* re-tentera à la prochaine visite */ }
+    }
+  }, [postJournal]);
 
   // Statuts des questions (répondu / ignoré) — pour compter les décisions restantes.
   const loadStatuses = useCallback(async () => {
@@ -150,27 +245,26 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
   useEffect(() => {
     loadFeed();
     loadStatuses();
-    try { setSeenTs(Number(localStorage.getItem(JOURNAL_SEEN_KEY) || 0)); } catch { /* */ }
-    try {
-      const raw = localStorage.getItem(JOURNAL_DISMISSED_KEY);
-      if (raw) setDismissed(new Set(JSON.parse(raw) as string[]));
-    } catch { /* */ }
-  }, [loadFeed, loadStatuses]);
+    loadJournalState();
+  }, [loadFeed, loadStatuses, loadJournalState]);
 
   // Recalcule l'auto-nettoyage dès que le fil change (chargement, actualisation,
   // validation d'un acte depuis le popup…) : les cartes traitées s'effacent seules.
   useEffect(() => { if (available) loadProdStatus(cards); }, [available, cards, loadProdStatus]);
 
-  // Ranger une carte (client-side) : elle disparaît du journal et ne reviendra
-  // plus au rechargement sur ce navigateur.
+  // Ranger une carte : elle disparaît du journal ICI ET SUR LES AUTRES
+  // APPAREILS (empreinte poussée au serveur). L'affichage réagit tout de
+  // suite ; si le réseau manque, le cache local garde le rangement et la
+  // synchronisation se rejouera à la prochaine visite.
   const dismiss = useCallback((c: Card) => {
     setDismissed((prev) => {
       const next = new Set(prev);
-      next.add(cardKey(c));
+      next.add(c.hid);
       try { localStorage.setItem(JOURNAL_DISMISSED_KEY, JSON.stringify([...next])); } catch { /* */ }
       return next;
     });
-  }, []);
+    postJournal({ dismiss: [c.hid] }).catch(() => { /* re-poussé à la prochaine visite */ });
+  }, [postJournal]);
 
   const reload = useCallback(() => { loadFeed(); loadStatuses(); }, [loadFeed, loadStatuses]);
 
@@ -186,9 +280,9 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
 
   // Une carte est « faite » (auto-nettoyée) quand :
   //  - son acte relié (prodId) a été validé par le magistrat, ou supprimé ;
-  //  - ou, pour une carte-résumé faisant doublon, quand TOUT le dossier est
-  //    traité — et seulement si elle est antérieure à cette clôture, pour ne
-  //    jamais masquer une nouveauté arrivée depuis.
+  //  - ou, pour une carte d'information faisant doublon, quand TOUT le dossier
+  //    est traité — et seulement si elle est antérieure à cette clôture, pour
+  //    ne jamais masquer une nouveauté arrivée depuis.
   const isCardDone = useCallback((c: Card) => {
     const numero = c.numero && c.numero !== '_hors-dossier' ? c.numero : '_hors-dossier';
     const st = prodStatus[numero];
@@ -196,15 +290,56 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
     return !!st?.completedAt && c.ts <= st.completedAt + 1000 && AUTO_HIDE_SUMMARY_TYPES.has(c.type);
   }, [prodStatus]);
 
+  // Nettoyage par ancienneté : déjà vue lors d'une visite précédente ET vieille
+  // de plus de 48 h → la carte s'efface seule, sans rangement manuel. Deux
+  // garde-fous : une carte jamais vue n'expire JAMAIS (retour de longue
+  // absence : tout attend), et une carte reliée à un acte (prodId) n'expire
+  // pas non plus — tant que l'acte attend sa validation, c'est du travail à
+  // faire ; elle disparaîtra par isCardDone (validation ou suppression).
+  const isExpired = useCallback(
+    (c: Card) => !c.prodId && seenAtLoad > 0 && c.ts <= seenAtLoad && Date.now() - c.ts > AUTO_EXPIRE_SEEN_MS,
+    [seenAtLoad],
+  );
+
   // Journal = tout sauf les questions (qui vivent dans « À trancher »), les
-  // cartes rangées par le magistrat et celles auto-nettoyées (travail fait).
-  const journal = cards.filter((c) => c.type !== 'question' && !dismissed.has(cardKey(c)) && !isCardDone(c));
+  // cartes rangées par le magistrat (ici ou sur un autre appareil) et celles
+  // auto-nettoyées (travail fait, ou information vue depuis plus de 48 h).
+  const journal = cards.filter((c) => c.type !== 'question' && !dismissed.has(c.hid) && !isCardDone(c) && !isExpired(c));
+
+  // Horodatage le plus récent du fil (hors questions) : c'est le repère « vu »
+  // à pousser — calculé sur TOUT le fil, pas seulement les cartes visibles,
+  // pour ne jamais reculer quand la carte la plus récente vient d'être rangée.
+  const newestTs = useMemo(
+    () => cards.reduce((m, c) => (c.type !== 'question' && c.ts > m ? c.ts : m), 0),
+    [cards],
+  );
+
+  // Avance le repère « vu » (serveur + cache local), sans toucher aux pastilles
+  // de la session en cours.
+  const pushSeen = useCallback((ts: number) => {
+    if (!ts) return;
+    try {
+      if (ts > (Number(localStorage.getItem(JOURNAL_SEEN_KEY)) || 0)) localStorage.setItem(JOURNAL_SEEN_KEY, String(ts));
+    } catch { /* */ }
+    postJournal({ seenTs: ts }).catch(() => { /* re-poussé à la prochaine visite */ });
+  }, [postJournal]);
 
   const markSeen = useCallback(() => {
-    if (journal.length) {
-      try { localStorage.setItem(JOURNAL_SEEN_KEY, String(journal[0].ts)); setSeenTs(journal[0].ts); } catch { /* */ }
-    }
-  }, [journal]);
+    if (!newestTs) return;
+    pushSeen(newestTs);
+    setSeenTs((v) => Math.max(v, newestTs));
+  }, [newestTs, pushSeen]);
+
+  // « Vu » automatique : quelques secondes d'affichage du journal suffisent —
+  // plus besoin de replier le bandeau pour que la consultation compte. Les
+  // pastilles « nouveau » de CETTE session restent affichées ; mais le
+  // téléphone ne recomptera plus en « nouvelles » ce qui a déjà été consulté
+  // sur l'ordinateur (et inversement), et l'expiration à 48 h courra.
+  useEffect(() => {
+    if (!available || collapsed || !newestTs) return;
+    const t = setTimeout(() => { if (!document.hidden) pushSeen(newestTs); }, 5000);
+    return () => clearTimeout(t);
+  }, [available, collapsed, newestTs, pushSeen]);
 
   if (!available) return null;
   if (journal.length === 0 && decisions === 0) return null;
