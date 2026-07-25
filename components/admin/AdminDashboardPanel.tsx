@@ -147,7 +147,7 @@ export const AdminDashboardPanel = () => {
               Aucun heartbeat détecté
             </div>
           )}
-          {onlineUsers
+          {[...onlineUsers]
             .sort((a, b) => (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0))
             .map((user, i) => (
             <div

@@ -120,8 +120,9 @@ const VisualAlertsSection = ({
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
     [newRules[idx], newRules[swapIdx]] = [newRules[swapIdx], newRules[idx]];
     // Reflète l'ordre (et les priorités) localement avant l'aller-retour de sync.
-    setLocalRules(newRules.map((r, i) => ({ ...r, priority: i + 1 })));
-    onReorderRules?.(newRules);
+    const renumbered = newRules.map((r, i) => ({ ...r, priority: i + 1 }));
+    setLocalRules(renumbered);
+    onReorderRules?.(renumbered);
   };
 
   const handleCreateRule = () => {

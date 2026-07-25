@@ -110,7 +110,7 @@ export const DebatsJLDSection = ({ debats, misEnExamen, onChange, readOnly }: Pr
           const date = new Date(debat.date);
           const dayOnly = new Date(date);
           dayOnly.setHours(0, 0, 0, 0);
-          const joursDiff = Math.ceil((dayOnly.getTime() - today.getTime()) / 86400000);
+          const joursDiff = Math.round((dayOnly.getTime() - today.getTime()) / 86400000);
           const passed = joursDiff < 0;
           const proche = !passed && joursDiff <= 14;
           const mexName = mexNameOf(debat.misEnExamenId);

@@ -19,7 +19,7 @@ export class ElectronStorageService {
   // READ
   public async read<T>(key: string, defaultValue?: T): Promise<T | null> {
     try {
-      return await ElectronBridge.getData(key, defaultValue || null);
+      return await ElectronBridge.getData(key, defaultValue ?? null);
     } catch (error) {
       console.error(`Error reading data for key ${key}:`, error);
       return null;
