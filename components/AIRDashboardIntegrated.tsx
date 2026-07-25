@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CopyButton } from '@/components/ui/copy-button';
+import { CopyButton } from '@/components/ui/CopyButton';
 import { useAIRConvocationConfig } from '@/hooks/useAIRConvocationConfig';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -1075,6 +1075,7 @@ const stats = useMemo(() => {
                 label="Copier la liste"
                 title="Copier la liste pour la coller dans un e-mail"
                 className="text-xs text-orange-700 hover:text-orange-900 px-2 py-1"
+                successMessage="Copié dans le presse-papiers"
                 getText={() => formatMesuresPourCopie(
                   `Mesures en cours depuis plus de ${convocConfig.ancienneteMois} mois`,
                   statsWithHistory.mesuresAnciennes.map(m => ({
@@ -1139,6 +1140,7 @@ const stats = useMemo(() => {
                       <CopyButton
                         title="Copier la liste pour la coller dans un e-mail"
                         className="shrink-0 text-gray-500 hover:text-gray-800 hover:bg-white/70 p-1"
+                        successMessage="Copié dans le presse-papiers"
                         getText={() => formatMesuresPourCopie(alerte.message, alerte.details)}
                       />
                     )}
@@ -1608,6 +1610,7 @@ const stats = useMemo(() => {
                         label="Copier"
                         title={`Copier les propositions de ${referent}`}
                         className="text-xs text-gray-500 hover:text-gray-800 hover:bg-white px-2 py-1"
+                        successMessage="Copié dans le presse-papiers"
                         getText={() =>
                           `Propositions de convocations — ${referent} (${propositions.length})\n\n` +
                           propositions
@@ -1789,6 +1792,7 @@ const stats = useMemo(() => {
                   label="Copier la liste"
                   title="Copier la liste pour la coller dans un e-mail"
                   className="text-xs text-blue-700 hover:text-blue-900 hover:bg-blue-50 px-2 py-1"
+                  successMessage="Copié dans le presse-papiers"
                   getText={() =>
                     `Mesures en cours — ${selectedReferent} (${selectedReferentListe.length})\n\n` +
                     selectedReferentListe

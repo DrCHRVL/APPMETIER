@@ -69,9 +69,6 @@ export const MisEnExamenCard = ({
   const [editing, setEditing] = useState(false);
   const [draftIdentite, setDraftIdentite] = useState({
     nom: mex.nom,
-    dateNaissance: mex.dateNaissance || '',
-    lieuNaissance: mex.lieuNaissance || '',
-    nationalite: mex.nationalite || '',
     dateMiseEnExamen: mex.dateMiseEnExamen,
   });
 
@@ -107,9 +104,6 @@ export const MisEnExamenCard = ({
     onChange({
       ...mex,
       nom: draftIdentite.nom.trim() || mex.nom,
-      dateNaissance: draftIdentite.dateNaissance || undefined,
-      lieuNaissance: draftIdentite.lieuNaissance.trim() || undefined,
-      nationalite: draftIdentite.nationalite.trim() || undefined,
       dateMiseEnExamen: draftIdentite.dateMiseEnExamen,
     });
     setEditing(false);
@@ -198,11 +192,6 @@ export const MisEnExamenCard = ({
                   title="Date à laquelle la durée légale max sera atteinte"
                 >
                   Fin maximal&nbsp;: {new Date(dateFinMaxDP).toLocaleDateString()}
-                </span>
-              )}
-              {dmlEnAttenteCount > 0 && (
-                <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200">
-                  {dmlEnAttenteCount} DML en cours
                 </span>
               )}
             </div>
