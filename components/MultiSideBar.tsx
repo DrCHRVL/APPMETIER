@@ -5,7 +5,6 @@ import {
   FileText, CheckCircle2, BarChart, Settings, Target,
   Plus, Scale, Activity, Eye, PieChart, Network, LayoutDashboard, Landmark, ChevronDown
 } from 'lucide-react';
-import { AlertBadge } from './AlertBadge';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId } from '@/types/userTypes';
 import { CrossSearchResult } from '@/hooks/useCrossSearch';

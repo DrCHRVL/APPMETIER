@@ -288,7 +288,6 @@ export const AudienceResultModal = ({
         dateDefere: undefined
       };
       
-      console.log('Calling onSave with resultat:', resultat);
       await onSave(resultat);
       showToast('Résultats d\'audience enregistrés', 'success');
       if (isOverboardPinned) {

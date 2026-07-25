@@ -53,6 +53,7 @@ export const SaisineManager = ({ value, onChange, readOnly }: Props) => {
     if (readOnly) return;
     const existing = new Set(value.map(v => v.natinfCode).filter(Boolean));
     const toAdd: SaisineItem[] = [];
+    const baseId = newId();
     let seq = 0;
     for (const code of codes) {
       if (existing.has(code)) continue;
@@ -60,7 +61,7 @@ export const SaisineManager = ({ value, onChange, readOnly }: Props) => {
       if (!entry) continue;
       existing.add(code);
       toAdd.push({
-        id: newId() + seq++,
+        id: baseId + seq++,
         qualification: entry.libelle,
         natinfCode: entry.code,
         natinfRef: toRef(entry),

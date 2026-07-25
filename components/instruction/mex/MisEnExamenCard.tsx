@@ -12,7 +12,6 @@ import { VerificationLegaleDP } from './VerificationLegaleDP';
 import { RichTextEditor } from '../RichTextEditor';
 import { renderFormattedText } from '@/lib/formatCR';
 import {
-  getJoursRestantsAvantFinDP,
   getDateFinDPCourante,
   getDateFinDPCouranteEstimee,
   getDateFinMaxLegale,
@@ -81,7 +80,6 @@ export const MisEnExamenCard = ({
   const dateFinDP = getDateFinDPCourante(mex);
   const dateFinDPEstimee = getDateFinDPCouranteEstimee(mex);
   const dateFinActuelle = dateFinDP || dateFinDPEstimee;
-  const joursRestantsDP = getJoursRestantsAvantFinDP(mex);
   const joursRestantsActuels = (() => {
     if (!dateFinActuelle) return null;
     const fin = new Date(dateFinActuelle);
@@ -103,7 +101,7 @@ export const MisEnExamenCard = ({
   // Les DML n'ont de sens que pour un MEX détenu (Demande de Mise en Liberté).
   // On masque la section et le compteur pour les autres statuts.
   const showDMLs = mex.mesureSurete.type === 'detenu';
-  const dmlEnAttenteCount = showDMLs ? mex.dmls.filter(d => d.statut === 'en_attente').length : 0;
+  const dmlEnAttenteCount = showDMLs ? (mex.dmls ?? []).filter(d => d.statut === 'en_attente').length : 0;
 
   const handleSaveIdentite = () => {
     onChange({
@@ -319,8 +317,8 @@ export const MisEnExamenCard = ({
 
           {/* DMLs : uniquement pour les MEX détenus */}
           {showDMLs && (
-            <Section title={`Demandes de mise en liberté (${mex.dmls.length})`}>
-              <DMLsManager value={mex.dmls} onChange={handleChangeDMLs} readOnly={readOnly} />
+            <Section title={`Demandes de mise en liberté (${(mex.dmls ?? []).length})`}>
+              <DMLsManager value={mex.dmls ?? []} onChange={handleChangeDMLs} readOnly={readOnly} />
             </Section>
           )}
 

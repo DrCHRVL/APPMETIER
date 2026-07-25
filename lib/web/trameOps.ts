@@ -165,8 +165,8 @@ function opMarges(zip: PizZip, op: { cm?: number; haut?: number; bas?: number; g
     let out = m;
     if (top != null) out = out.replace(/w:top="[-\d]+"/, `w:top="${top}"`);
     if (bot != null) out = out.replace(/w:bottom="[-\d]+"/, `w:bottom="${bot}"`);
-    if (left != null) out = out.replace(/w:left="\d+"/, `w:left="${left}"`);
-    if (right != null) out = out.replace(/w:right="\d+"/, `w:right="${right}"`);
+    if (left != null) out = out.replace(/w:left="[-\d]+"/, `w:left="${left}"`);
+    if (right != null) out = out.replace(/w:right="[-\d]+"/, `w:right="${right}"`);
     return out;
   });
   if (n) { zip.file('word/document.xml', xml); res.applied.push('marges ajustées'); }

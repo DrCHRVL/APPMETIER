@@ -516,7 +516,7 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
             )}
             <div className="mt-1 text-xs text-gray-600">
               {acte.statut === 'autorisation_pending' && (
-                <p>En attente d'autorisation JLD • Durée prévue: {acte.duree || 0} jours</p>
+                <p>En attente d'autorisation JLD • Durée prévue: {acte.duree || 0} {acte.dureeUnit === 'mois' ? 'mois' : 'jours'}</p>
               )}
             </div>
             {hasHistoryEntries && (
@@ -547,7 +547,7 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
                           <span className="mx-1">•</span> 
                           <span>{entry.dureeAjoutee} {entry.dureeUnit === 'mois' ? 'mois' : 'jours'}</span>
                           <span className="mx-1">•</span>
-                          <span>Durée précédente: {entry.dureeInitiale} jours</span>
+                          <span>Durée précédente: {entry.dureeInitiale} {entry.dureeInitialeUnit === 'mois' ? 'mois' : 'jours'}</span>
                         </div>
                         {isEditing && (
                           <Button

@@ -68,7 +68,7 @@ export const RequisitionsHebdoWidget = ({
           if (dml.statut !== 'en_attente') continue;
           const date = new Date(dml.dateEcheance);
           date.setHours(0, 0, 0, 0);
-          const daysLeft = Math.ceil((date.getTime() - today.getTime()) / 86400000);
+          const daysLeft = Math.round((date.getTime() - today.getTime()) / 86400000);
           // Inclure les retards + les imminents dans la fenêtre
           if (daysLeft >= -30 && date <= limit) {
             out.push({
@@ -91,7 +91,7 @@ export const RequisitionsHebdoWidget = ({
       for (const debat of dossier.debatsJLD) {
         const date = new Date(debat.date);
         const dayOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-        const daysLeft = Math.ceil((dayOnly.getTime() - today.getTime()) / 86400000);
+        const daysLeft = Math.round((dayOnly.getTime() - today.getTime()) / 86400000);
         if (daysLeft >= 0 && dayOnly <= limit) {
           out.push({
             key: `jld-${dossier.id}-${debat.id}`,
@@ -111,7 +111,7 @@ export const RequisitionsHebdoWidget = ({
       for (const op of dossier.ops) {
         const date = new Date(op.date);
         date.setHours(0, 0, 0, 0);
-        const daysLeft = Math.ceil((date.getTime() - today.getTime()) / 86400000);
+        const daysLeft = Math.round((date.getTime() - today.getTime()) / 86400000);
         if (daysLeft >= 0 && date <= limit) {
           out.push({
             key: `op-${dossier.id}-${op.id}`,

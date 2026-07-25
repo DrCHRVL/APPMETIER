@@ -122,7 +122,7 @@ export function DossierCompletSection({ numero }: { numero: string }) {
             <span className="truncate text-xs font-medium text-gray-700">{name}</span>
             <span className="text-[10px] text-gray-400">({count})</span>
           </button>
-          <button onClick={() => supprimer(collectRels(child, ROOT + key.slice(0)), `la pochette « ${name} »`)}
+          <button onClick={() => supprimer(collectRels(child), `la pochette « ${name} »`)}
             title="Supprimer la pochette" className="rounded p-0.5 text-gray-300 hover:bg-red-50 hover:text-red-500">
             <Trash2 className="h-3 w-3" />
           </button>
@@ -222,8 +222,8 @@ function countFiles(node: TreeNode): number {
   return n;
 }
 
-function collectRels(node: TreeNode, _prefix: string): string[] {
+function collectRels(node: TreeNode): string[] {
   const rels = node.files.map((f) => f.rel);
-  for (const child of node.folders.values()) rels.push(...collectRels(child, _prefix));
+  for (const child of node.folders.values()) rels.push(...collectRels(child));
   return rels;
 }

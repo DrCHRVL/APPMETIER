@@ -695,7 +695,10 @@ class BackupManager {
   private extractDateFromKey(key: string): Date | null {
     try {
       const dateStr = key.replace('backup_', '');
-      return new Date(dateStr);
+      // Même format que les fichiers : l'heure porte des tirets à restaurer en ':'.
+      const formattedDate = dateStr.replace(/T(\d{2})-(\d{2})-(\d{2})/, 'T$1:$2:$3');
+      const date = new Date(formattedDate);
+      return isNaN(date.getTime()) ? null : date;
     } catch (error) {
       return null;
     }

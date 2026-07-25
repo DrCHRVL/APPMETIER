@@ -168,8 +168,6 @@ export const ArchiveEnqueteModal = ({
 
   const handleSaveResults = async (resultat: any) => {
     try {
-      console.log('Sauvegarde des résultats:', resultat);
-
       // Vérification des données
       if (!resultat.dateAudience) {
         throw new Error('Date d\'audience manquante');

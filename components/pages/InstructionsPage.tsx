@@ -111,7 +111,7 @@ export const InstructionsPage = ({
   const totalDP = useMemo(
     () =>
       dossiers.reduce(
-        (sum, d) => sum + d.misEnExamen.filter(m => m.mesureSurete.type === 'detenu').length,
+        (sum, d) => sum + d.misEnExamen.filter(m => m.mesureSurete?.type === 'detenu').length,
         0,
       ),
     [dossiers],

@@ -229,7 +229,7 @@ export const AdminContentieuxPanel = () => {
 
       {/* Contentieux list */}
       <div className="space-y-2">
-        {contentieuxList
+        {[...contentieuxList]
           .sort((a, b) => a.order - b.order)
           .map(def => {
             const isEnabled = def.enabled !== false;

@@ -519,7 +519,7 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
             />
             <div className="mt-1 text-xs text-gray-600">
               {ecoute.statut === 'autorisation_pending' && (
-                <p>En attente d'autorisation JLD • Durée prévue: {ecoute.duree || 0} jours</p>
+                <p>En attente d'autorisation JLD • Durée prévue: {ecoute.duree || 0} {ecoute.dureeUnit === 'mois' ? 'mois' : 'jours'}</p>
               )}
             </div>
             {prolongLimitAtteinte && (
@@ -551,9 +551,9 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
                           <span className="font-medium">Prolongation {index + 1}: </span>
                           <span>{DateUtils.formatDate(entry.date)}</span>
                           <span className="mx-1">•</span> 
-                          <span>{entry.dureeAjoutee} jours</span>
+                          <span>{entry.dureeAjoutee} {entry.dureeUnit === 'mois' ? 'mois' : 'jours'}</span>
                           <span className="mx-1">•</span>
-                          <span>Durée précédente: {entry.dureeInitiale} jours</span>
+                          <span>Durée précédente: {entry.dureeInitiale} {entry.dureeInitialeUnit === 'mois' ? 'mois' : 'jours'}</span>
                         </div>
                         {isEditing && (
                           <Button

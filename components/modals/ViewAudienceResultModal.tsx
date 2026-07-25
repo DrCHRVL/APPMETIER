@@ -73,6 +73,7 @@ export const ViewAudienceResultModal = ({
         contentieuxId,
         confiscations: migrateConfiscations(updatedResult.confiscations),
         condamnations: updatedResult.condamnations.map(condamnation => ({
+          ...condamnation,
           nom: condamnation.nom || '',
           peinePrison: condamnation.peinePrison || 0,
           sursisProbatoire: condamnation.sursisProbatoire || 0,

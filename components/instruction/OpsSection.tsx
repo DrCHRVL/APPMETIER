@@ -66,7 +66,7 @@ export const OpsSection = ({ ops, onChange, readOnly }: Props) => {
         {sorted.map(op => {
           const date = new Date(op.date);
           date.setHours(0, 0, 0, 0);
-          const joursDiff = Math.ceil((date.getTime() - today.getTime()) / 86400000);
+          const joursDiff = Math.round((date.getTime() - today.getTime()) / 86400000);
           const passed = joursDiff < 0;
           const proche = !passed && joursDiff <= 7;
           return (
