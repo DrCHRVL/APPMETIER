@@ -159,7 +159,7 @@ const TOOLS = [
   },
   {
     name: 'lire_document',
-    description: 'Texte intégral d\'un document déposé sous un numéro de dossier — enquête OU instruction (PDF, ODT, DOCX, RTF, TXT/MD/HTML). `chemin` = cheminRelatif exact (voir lire_dossier ou dossier_arborescence), y compris les pièces du « Dossier complet » versé (Dossier/…).',
+    description: 'Texte intégral d\'un document déposé sous un numéro de dossier — enquête OU instruction (PDF, ODT, DOCX, RTF, TXT/MD/HTML, et classeurs Excel XLSX/XLS/ODS servis en tableaux markdown, une section par feuille). `chemin` = cheminRelatif exact (voir lire_dossier ou dossier_arborescence), y compris les pièces du « Dossier complet » versé (Dossier/…).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' }, chemin: { type: 'string' } }, required: ['numero', 'chemin'] },
     handler: async (a) => readDocumentText(keys, a.numero, a.chemin),
   },
@@ -309,7 +309,7 @@ const TOOLS = [
   },
   {
     name: 'boite_lire_piece',
-    description: 'Lit le TEXTE d\'une pièce jointe d\'un mail transféré (PDF — OCR de secours si scan —, ODT/DOCX/RTF, texte/HTML) pour l\'IDENTIFIER ou la CLASSER avant de la ranger. Sortie bornée (défaut ~12 000 caractères : c\'est une aide à la lecture, pas le stockage). Un scan illisible ou un type non textuel est signalé — ne devine alors jamais le contenu. Pour ranger la pièce : au dossier → ranger_document (source mail) ; à la base de connaissances → kb_ranger_piece.',
+    description: 'Lit le TEXTE d\'une pièce jointe d\'un mail transféré (PDF — OCR de secours si scan —, ODT/DOCX/RTF, texte/HTML, classeurs Excel XLSX/XLS/ODS rendus en tableaux markdown feuille par feuille) pour l\'IDENTIFIER ou la CLASSER avant de la ranger. Sortie bornée (défaut ~12 000 caractères : c\'est une aide à la lecture, pas le stockage). Un scan illisible ou un type non textuel est signalé — ne devine alors jamais le contenu. Pour ranger la pièce : au dossier → ranger_document (source mail) ; à la base de connaissances → kb_ranger_piece.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -623,6 +623,7 @@ const TOOLS = [
   {
     name: 'produire_document',
     description: `Rédige un ACTE et le range dans « Actes rédigés » du dossier (le magistrat le visionne, l'édite, l'exporte en PDF/Word officiel, puis le VALIDE). Type : ${PRODUCTION_TYPES.join(', ')}. Suis la trame correspondante (trames_lister/trame_lire) et le dossier (lire_dossier, chronologie_lire). COHÉRENCE NATINF OBLIGATOIRE : vise les qualifications enregistrées du dossier (section « Infractions (NATINF) » de lire_dossier) — si elles manquent, ajoute-les d'abord (natinf_chercher + ajouter_natinfs). Rédaction complète, prête à signer, texte brut (paragraphes séparés par des lignes vides). ` +
+      'Type "presentation" = un DIAPORAMA (le magistrat l\'exporte en PowerPoint) : texte structuré « # » page de garde / « ## » une diapositive / puces / tableaux markdown / [GRAPHIQUE : …] et [DIAGRAMME : …] — voir la section BUREAUTIQUE de tes consignes. ' +
       'Renseigne `source` avec le nom EXACT de la trame suivie : il forme le 1ᵉʳ segment du nom de fichier à l\'export. Pour un acte d\'INTERCEPTION, d\'ÉCOUTE ou de GÉOLOCALISATION, renseigne aussi `objet` avec le n° de ligne interceptée ou l\'objet géolocalisé (ex. « 07 64 45 45 16 ») : il s\'ajoute en fin de nom de fichier. Pour MODIFIER un acte existant, passe son id. ' +
       `DEMANDE SANS DOSSIER : si l'acte demandé (mail transféré) ne correspond à AUCUN dossier en cours et que la consigne ne dit pas de créer la procédure, range-le sous numero "${HORS_DOSSIER}" — il apparaît dans « Actes rédigés — hors dossier » du tableau de bord. ` +
       'Un NOUVEL acte fait automatiquement apparaître une carte reliée (éditable) dans le journal « pendant votre absence » : ne la signale (signaler) pas en double.',
@@ -1211,7 +1212,7 @@ const TOOLS = [
   },
   {
     name: 'depot_lire',
-    description: 'Texte d\'une pièce ENCORE au dépôt (avant rangement) — pour identifier le dossier et la nature quand la consigne ne les dit pas : numéro cité, noms des mis en cause, type d\'acte.',
+    description: 'Texte d\'une pièce ENCORE au dépôt (avant rangement) — pour identifier le dossier et la nature quand la consigne ne les dit pas : numéro cité, noms des mis en cause, type d\'acte. Les classeurs Excel (XLSX/XLS/ODS) arrivent en tableaux markdown, une section par feuille : exploitables comme des données.',
     inputSchema: { type: 'object', properties: { rel: { type: 'string' } }, required: ['rel'] },
     handler: async (a) => readDepotText(keys, a.rel),
   },

@@ -157,8 +157,11 @@ Règles d'écriture :
   exact où il illustre le propos :
   `[GRAPHIQUE : nom_du_graphique | du=AAAA-MM-JJ | au=AAAA-MM-JJ]`
   (mêmes noms que `stats_graphique` ; TOUJOURS préciser la période pour figer
-  le document). À l'export PDF/Word, SIRAL remplace automatiquement chaque
-  marqueur par l'image — celle regardée à l'étape 2, mêmes couleurs. Le texte
+  le document). Aux exports PDF, Word et PowerPoint, SIRAL remplace
+  automatiquement chaque marqueur par l'image — celle regardée à l'étape 2,
+  mêmes couleurs. Pour un chiffre ventilé par l'analyse elle-même (décompte
+  hors catalogue), utiliser le marqueur libre
+  `[DIAGRAMME : colonnes | titre=… | Étiquette: valeur ; …]`. Le texte
   doit néanmoins décrire la dynamique : le document reste lisible sans les
   images ;
 - aucune mention de l'assistant (règle de dissimulation absolue).
@@ -194,5 +197,8 @@ Relire intégralement en vérifiant, ligne à ligne :
   PDF/Word), les affaires retenues en encadré, et ce qui manquerait
   (données incomplètes signalées à l'étape 1).
 - Proposer les déclinaisons utiles sans les imposer : version courte (une
-  page) pour diffusion large, trame de diaporama, article pour la dépêche
-  du parquet.
+  page) pour diffusion large, article pour la dépêche du parquet, et
+  **version diaporama** — une seconde production `type: "presentation"`
+  (syntaxe : `#` page de garde, `##` une diapositive par section du bilan,
+  puces courtes, mêmes marqueurs de graphiques) que le magistrat exporte
+  d'un clic en PowerPoint pour la présenter en réunion.

@@ -62,6 +62,7 @@ export function formatCostEur(usd: number): string {
 export const MODEL_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '', label: 'Modèle : abonnement' },
   { value: 'claude-fable-5', label: 'Fable 5' },
+  { value: 'claude-opus-5', label: 'Opus 5' },
   { value: 'claude-opus-4-8', label: 'Opus 4.8' },
   { value: 'claude-sonnet-5', label: 'Sonnet 5' },
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },

@@ -26,35 +26,55 @@
 import { PAPETERIE } from './papeterie'
 import type { TrameFormeType, TrameVars } from './trameFill'
 import { parseMarqueur, formatMarqueur } from '@/lib/stats/graphiqueMarqueur.mjs'
+import { parseDiagramme, formatDiagramme } from '@/lib/stats/diagrammeMarqueur.mjs'
 import type { GraphiqueResolu } from './graphiquesActe'
 
-/** Marqueurs [GRAPHIQUE : …] résolus en images (clé = marqueur canonique). */
+/** Marqueurs [GRAPHIQUE : …] et [DIAGRAMME : …] résolus en images
+ *  (clé = marqueur canonique — les deux familles partagent la même table). */
 export type GraphiquesActe = Map<string, GraphiqueResolu>
 
+/** Si la LIGNE est un marqueur d'image (graphique statistique ou diagramme
+ *  libre), rend sa clé canonique + un nom de repli lisible. Sinon null. */
+export function marqueurImageLigne(ligne: string): { cle: string; nom: string } | null {
+  const m = parseMarqueur(ligne)
+  if (m) return { cle: formatMarqueur(m), nom: m.graphique }
+  const d = parseDiagramme(ligne)
+  if (d) return { cle: formatDiagramme(d), nom: d.titre || `diagramme ${d.type}` }
+  return null
+}
+
 /**
- * Résout les marqueurs [GRAPHIQUE : …] de l'acte en images PNG (service
- * attaché, mêmes règles et couleurs que la page Statistiques). Best-effort :
- * aucun marqueur → aucune requête ; échec (service coupé, non-admin) →
- * undefined, l'export rend alors les lignes de repli lisibles.
+ * Résout les marqueurs d'images de l'acte en PNG : [GRAPHIQUE : …] via le
+ * service attaché (mêmes règles et couleurs que la page Statistiques),
+ * [DIAGRAMME : …] rendu ICI (Chart.js, données dans le marqueur). Best-effort :
+ * aucun marqueur → aucune requête ni chargement ; échec (service coupé,
+ * non-admin, marqueur illisible) → l'export rend des lignes de repli lisibles.
  */
-async function chargerGraphiquesSiBesoin(contenu: string): Promise<GraphiquesActe | undefined> {
+export async function chargerImagesActe(contenu: string): Promise<GraphiquesActe | undefined> {
+  const out: GraphiquesActe = new Map()
   try {
     const { contientMarqueurs, chargerGraphiquesActe } = await import('./graphiquesActe')
-    if (!contientMarqueurs(contenu)) return undefined
-    return await chargerGraphiquesActe(contenu)
-  } catch {
-    return undefined
-  }
+    if (contientMarqueurs(contenu)) {
+      for (const [k, v] of await chargerGraphiquesActe(contenu)) out.set(k, v)
+    }
+  } catch { /* best-effort */ }
+  try {
+    const { contientDiagrammes, chargerDiagrammesActe } = await import('./diagrammeActe')
+    if (contientDiagrammes(contenu)) {
+      for (const [k, v] of await chargerDiagrammesActe(contenu)) out.set(k, v)
+    }
+  } catch { /* best-effort */ }
+  return out.size ? out : undefined
 }
 
 /** Remplace chaque marqueur par une ligne lisible (chemins sans image : trame
  *  de forme Word de l'utilisateur, où l'on ne peut pas injecter de PNG). */
 function remplacerMarqueursParTexte(contenu: string, graphiques?: GraphiquesActe): string {
   return String(contenu || '').split(/\r?\n/).map((ligne) => {
-    const m = parseMarqueur(ligne)
+    const m = marqueurImageLigne(ligne)
     if (!m) return ligne
-    const r = graphiques?.get(formatMarqueur(m))
-    return `(graphique : ${r?.titre || m.graphique} — voir l'export PDF)`
+    const r = graphiques?.get(m.cle)
+    return `(graphique : ${r?.titre || m.nom} — voir l'export PDF)`
   }).join('\n')
 }
 
@@ -112,6 +132,7 @@ const TYPE_LABEL: Record<string, string> = {
   soit_transmis: 'Soit-transmis',
   note: 'Note',
   livrable: 'Livrable',
+  presentation: 'Présentation',
   autre: 'Acte',
 }
 
@@ -417,17 +438,17 @@ function acteBodyHtml(contenu: string, graphiques?: GraphiquesActe): string {
   for (const raw of lines) {
     const t = raw.trim()
     if (!t) { flushPara(); flushBullets(); continue }
-    // Marqueur [GRAPHIQUE : …] seul sur sa ligne → l'image régénérée par le
-    // service attaché (le titre est DANS l'image) ; sans résolution, ligne de
-    // repli lisible — l'export n'échoue jamais pour un graphique manquant.
-    const marqueur = parseMarqueur(t)
+    // Marqueur [GRAPHIQUE : …] ou [DIAGRAMME : …] seul sur sa ligne → l'image
+    // (régénérée par le service, ou rendue localement pour un diagramme libre) ;
+    // sans résolution, ligne de repli lisible — l'export n'échoue jamais.
+    const marqueur = marqueurImageLigne(t)
     if (marqueur) {
       flushPara(); flushBullets()
-      const resolu = graphiques?.get(formatMarqueur(marqueur))
+      const resolu = graphiques?.get(marqueur.cle)
       if (resolu) {
         out.push(`<div style="text-align:center;margin:6pt 0 10pt 0;"><img src="${resolu.dataUri}" alt="${escapeHtml(resolu.titre)}" style="width:${resolu.largeurPx || 640}px;max-width:100%;height:auto;" /></div>`)
       } else {
-        out.push(`<p style="text-align:center;font-style:italic;color:#555555;margin:0 0 10pt 0;">[Graphique non disponible : ${escapeHtml(marqueur.graphique)}]</p>`)
+        out.push(`<p style="text-align:center;font-style:italic;color:#555555;margin:0 0 10pt 0;">[Graphique non disponible : ${escapeHtml(marqueur.nom)}]</p>`)
       }
       continue
     }
@@ -490,7 +511,7 @@ async function loadLogo(): Promise<string | undefined> {
 
 /** PDF (data-URI) au gabarit officiel — html2pdf chargé à la demande. */
 export async function actePdfDataUri(p: ActeExportable): Promise<string> {
-  const [logo, graphiques] = await Promise.all([loadLogo(), chargerGraphiquesSiBesoin(p.contenu)])
+  const [logo, graphiques] = await Promise.all([loadLogo(), chargerImagesActe(p.contenu)])
   const html2pdf = (await import('html2pdf.js')).default as unknown as (
   ) => { set: (o: object) => { from: (el: HTMLElement) => { outputPdf: (t: string) => Promise<string> } } }
   const el = document.createElement('div')
@@ -547,7 +568,7 @@ function extractTrameVars(p: ActeExportable, type: TrameFormeType): TrameVars {
 }
 
 export async function downloadActeDocx(p: ActeExportable): Promise<void> {
-  const graphiques = await chargerGraphiquesSiBesoin(p.contenu)
+  const graphiques = await chargerImagesActe(p.contenu)
 
   // 1) Trame de forme définie par l'utilisateur pour ce type d'acte : on part
   //    de SON .docx et on remplit les balises. La forme est 100 % la sienne.

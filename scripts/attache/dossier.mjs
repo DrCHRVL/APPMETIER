@@ -21,7 +21,7 @@ import { normNumero, numerosProches } from './numero.mjs'
 import { AUTRE_ACTE_TYPES, resolveAutreActeTypeKey, deriveAutreActeFields } from './acteTypes.mjs'
 import { natinfEntry, natinfLabel } from './natinf.mjs'
 import { extractPdfText } from './ocr.mjs'
-import { extractOfficeText, isOfficeExt } from './officeText.mjs'
+import { extractOfficeText, isOfficeExt, extractSpreadsheetText, isSpreadsheetExt } from './officeText.mjs'
 
 /**
  * Signature des écritures VISIBLES des autres utilisateurs (CR, metadata de
@@ -508,13 +508,15 @@ export async function readDocumentText(keys, numero, cheminRelatif) {
   if (/\.(txt|html?|md|csv|json|eml)$/.test(lower)) {
     return { ok: true, texte: stripHtml(plain.toString('utf8')).slice(0, 200_000) }
   }
-  if (isOfficeExt(lower)) {
-    // ODT/DOCX/RTF versés par mail (pas de copie markdown MD/ du navigateur).
-    // Extrait une fois, mis en cache par hash — comme le PDF.
+  if (isOfficeExt(lower) || isSpreadsheetExt(lower)) {
+    // ODT/DOCX/RTF et classeurs Excel/ODS versés par mail (pas de copie
+    // markdown MD/ du navigateur). Extrait une fois, mis en cache par hash —
+    // comme le PDF. Un classeur arrive en tableaux markdown (une feuille = une
+    // section), prêt à être exploité comme des données.
     const blobHash = crypto.createHash('sha256').update(blob).digest('hex')
     const cached = readDocCache(keys, key, cheminRelatif, blobHash)
     if (cached) return { ok: true, texte: cached.texte, cache: true }
-    const res = extractOfficeText(plain, lower)
+    const res = isSpreadsheetExt(lower) ? await extractSpreadsheetText(plain, lower) : extractOfficeText(plain, lower)
     if (!res.ok) return { ok: false, error: res.error }
     const texte = res.texte.slice(0, 200_000)
     try { writeDocCache(keys, key, cheminRelatif, blobHash, texte) } catch { /* cache facultatif */ }

@@ -407,7 +407,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   };
 
   const isValidFileType = (file: File): boolean => {
-    const valid = ['.pdf','.doc','.docx','.odt','.txt','.jpg','.jpeg','.png','.gif','.bmp','.webp','.html','.htm','.msg'];
+    const valid = ['.pdf','.doc','.docx','.odt','.txt','.xlsx','.xlsm','.xls','.ods','.csv','.jpg','.jpeg','.png','.gif','.bmp','.webp','.html','.htm','.msg'];
     return valid.some(ext => file.name.toLowerCase().endsWith(ext));
   };
 
@@ -978,7 +978,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                     <input
                       ref={(el) => { fileInputRefs.current[zone.category] = el; }}
                       type="file" multiple
-                      accept=".pdf,.doc,.docx,.odt,.txt,.jpg,.jpeg,.png,.gif,.bmp,.webp,.html,.htm,.msg"
+                      accept=".pdf,.doc,.docx,.odt,.txt,.xlsx,.xlsm,.xls,.ods,.csv,.jpg,.jpeg,.png,.gif,.bmp,.webp,.html,.htm,.msg"
                       onChange={(e) => handleFileSelect(e, zone.category)}
                       className="hidden"
                     />

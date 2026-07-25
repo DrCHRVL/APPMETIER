@@ -22,7 +22,7 @@
 import { attacheTj, listDocsMeta, readDocBlob, writeDocBlob, deleteDocBlob, docServerKey } from './store.mjs'
 import { encryptDocBlob, decryptDocBlob } from './crypto.mjs'
 import { extractPdfText } from './ocr.mjs'
-import { extractOfficeText, isOfficeExt } from './officeText.mjs'
+import { extractOfficeText, isOfficeExt, extractSpreadsheetText, isSpreadsheetExt } from './officeText.mjs'
 import { saveKbEntry, setKbReflexe } from './kb.mjs'
 
 import { enqueteExiste, numeroCanonique } from './dossier.mjs'
@@ -77,6 +77,13 @@ export async function extractTextByName(plain, name, { max = 200_000 } = {}) {
   }
   if (isOfficeExt(lower)) {
     const res = extractOfficeText(plain, lower)
+    if (res.ok) return { ok: true, ...bound(res.texte), source: res.source }
+    return { ok: false, error: res.error }
+  }
+  if (isSpreadsheetExt(lower)) {
+    // Classeur Excel/ODS : chaque feuille arrive en tableau markdown — les
+    // données se lisent et s'exploitent comme n'importe quelle pièce texte.
+    const res = await extractSpreadsheetText(plain, lower)
     if (res.ok) return { ok: true, ...bound(res.texte), source: res.source }
     return { ok: false, error: res.error }
   }

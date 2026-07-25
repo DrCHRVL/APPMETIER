@@ -257,8 +257,8 @@ l'usage).
   des propositions est vérifié au dépôt ET à l'application — la concurrence
   ne crée pas de doublons. À régler selon la mémoire du serveur et le
   rythme du forfait.
-- **Se règle comme Claude web** : choix du **modèle** (Fable 5, Opus 4.8,
-  Sonnet 5, Haiku 4.5 — ou le défaut de l'abonnement) et du **niveau
+- **Se règle comme Claude web** : choix du **modèle** (Fable 5, **Opus 5**,
+  Opus 4.8, Sonnet 5, Haiku 4.5 — ou le défaut de l'abonnement) et du **niveau
   d'effort** de raisonnement (faible → maximal), depuis le composer du chat
   ou Paramètres → Attaché IA (section « Cerveau »). Le réglage est persisté
   et vaut pour TOUS les runs : chat, mails transférés, brief, routines.
@@ -499,6 +499,41 @@ l'usage).
     triple implémentation à maintenir. Vérifié de bout en bout par
     `scripts/attache-stats.test.mjs` (coffre chiffré réel + serveur MCP en
     stdio, 30+ assertions).
+- **Bureautique complète — présentations, diagrammes, Excel (parité Claude
+  web, sans que rien ne sorte de SIRAL)** :
+  - **Présentations PowerPoint** : « prépare-moi une présentation du bilan
+    pour le procureur général » → l'attaché rédige un diaporama (type
+    `presentation`) en texte structuré (`#` page de garde, `##` une
+    diapositive, puces, tableaux, marqueurs de graphiques), rangé dans
+    « Actes rédigés » comme les autres productions : relecture, retouche par
+    le chat, édition à la main… puis bouton **« PowerPoint »** — un vrai
+    fichier `.pptx` (généré dans le navigateur, aucune dépendance nouvelle),
+    gabarit sobre 16:9 aux couleurs de l'app (page de garde, filets, tableaux
+    zébrés, images des graphiques insérées, numérotation), lisible par
+    PowerPoint, LibreOffice et Keynote.
+  - **Diagrammes sur données libres** : en plus des `[GRAPHIQUE : …]` du
+    catalogue statistique, l'attaché insère dans n'importe quel document un
+    marqueur `[DIAGRAMME : colonnes | titre=… | Étiquette: valeur ; …]`
+    (colonnes, barres, courbe, secteurs — données qu'il a lui-même
+    dénombrées : dossier, tableur reçu, ventilation calculée). Aux exports
+    **PDF, Word et PowerPoint**, le marqueur devient l'image du graphique
+    (rendue localement — Chart.js, couleurs de l'app, aucun aller-retour
+    serveur) ; à l'écran le document reste du texte brut éditable.
+  - **Fichiers Excel lus partout** : les classeurs `.xlsx`/`.xls`/`.ods`
+    téléversés (zones documents, base de connaissances, trames, dossier
+    complet d'instruction) ou confiés (trombone du dépôt, pièce jointe d'un
+    mail transféré) sont convertis en **tableaux markdown feuille par
+    feuille** (navigateur au téléversement, serveur pour les mails/le dépôt —
+    même conversion partagée `lib/tableur/classeurMarkdown.mjs`, SheetJS déjà
+    en dépendance) : l'attaché lit un listing téléphonique, un état de
+    saisies ou un tableau de gestion comme n'importe quelle pièce, recoupe,
+    totalise et cite feuille et ligne. Classeurs volumineux tronqués avec
+    mention explicite, jamais en silence.
+  - **Export tableur** : tout tableau markdown d'une production s'exporte en
+    classeur **Excel réel** (bouton « Tableur » — une feuille par tableau,
+    nombres français reconnus donc triables et sommables, largeurs
+    ajustées) : les décomptes et échéanciers remis par l'attaché deviennent
+    des données exploitables, pas des copies d'écran.
 - **Chronologie probatoire** : dans le détail d'une enquête (section
   visible du seul administrateur), la frise fusionnée de tout ce qui est
   daté — actes, prolongations, attentes JLD, CR, apparition de mis en

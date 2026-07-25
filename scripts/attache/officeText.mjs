@@ -11,6 +11,9 @@
  *  - ODT / OTT : zip (zlib inflateRaw) + content.xml
  *  - DOCX      : zip + word/document.xml
  *  - RTF       : dé-balisage des commandes de mise en forme
+ *  - XLSX / XLSM / XLS / ODS : SheetJS (dépendance existante du dépôt),
+ *    chaque feuille rendue en tableau markdown — même conversion que le
+ *    navigateur (source unique lib/tableur/classeurMarkdown.mjs)
  *
  * Tout est borné et gardé : la moindre anomalie retombe sur { ok:false, error }
  * — jamais une exception qui casserait la lecture de la boîte ou du dépôt.
@@ -18,6 +21,7 @@
  * version .docx / PDF (message explicite plutôt qu'illisible silencieux).
  */
 import zlib from 'node:zlib'
+import { estTableur, classeurEnMarkdown } from '../../lib/tableur/classeurMarkdown.mjs'
 
 const MAX_CHARS = 200_000
 
@@ -369,6 +373,42 @@ function tidy(text) {
 /** Vrai si l'extension relève d'un format bureautique traité ici. */
 export function isOfficeExt(nameOrExt) {
   return /\.(odt|ott|docx|rtf)$/i.test(String(nameOrExt || ''))
+}
+
+// ── Tableurs (XLSX/XLSM/XLS/ODS) : chaque feuille en tableau markdown ──
+// SheetJS est une dépendance EXISTANTE (package.json de l'app, installée dans
+// l'image du service) ; import dynamique pour ne payer son chargement qu'à la
+// première pièce tableur rencontrée. Conversion partagée avec le navigateur.
+
+export { estTableur as isSpreadsheetExt }
+
+let _xlsxModule = null
+async function loadXlsx() {
+  if (!_xlsxModule) {
+    const mod = await import('xlsx')
+    _xlsxModule = mod?.read ? mod : mod.default
+  }
+  return _xlsxModule
+}
+
+/**
+ * Extrait le contenu d'un CLASSEUR déchiffré (Excel/ODS) en markdown — une
+ * section par feuille, valeurs telles qu'affichées, troncatures explicites.
+ * Ne lève jamais : { ok, texte, source } ou { ok:false, error }.
+ */
+export async function extractSpreadsheetText(plain, nameOrExt) {
+  const buf = Buffer.isBuffer(plain) ? plain : Buffer.from(plain)
+  const lower = String(nameOrExt || '').toLowerCase()
+  if (!buf.length) return { ok: false, error: 'Pièce vide.' }
+  try {
+    const XLSX = await loadXlsx()
+    const wb = XLSX.read(buf, { type: 'buffer' })
+    const res = classeurEnMarkdown(XLSX, wb)
+    if (!res.ok) return { ok: false, error: res.error }
+    return { ok: true, texte: tidy(res.markdown), source: 'tableur' }
+  } catch (e) {
+    return { ok: false, error: `Classeur illisible (${lower.split('.').pop()}) : ${e?.message || 'format inattendu'} — demander un export CSV ou PDF.` }
+  }
 }
 
 /**

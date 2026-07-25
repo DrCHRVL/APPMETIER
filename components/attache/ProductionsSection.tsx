@@ -25,8 +25,11 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   FileSignature, ChevronDown, ChevronUp, RefreshCw, Loader2, Save, Trash2,
   FileDown, FileText, CheckCircle2, Undo2, Wand2, XCircle, RotateCcw, Mail,
+  Presentation, FileSpreadsheet,
 } from 'lucide-react';
 import { downloadActePdf, downloadActeDocx, acteFileBase } from '@/lib/web/acteExport';
+import { downloadActePptx, estPresentable } from '@/lib/web/pptxExport';
+import { downloadActeXlsx, contientTableaux } from '@/lib/web/xlsxExport';
 import { useToast } from '@/contexts/ToastContext';
 import { useActeRunsStore, runKey, acteDoneToastMessage } from '@/stores/useActeRunsStore';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
@@ -68,6 +71,7 @@ const TYPE_LABEL: Record<string, string> = {
   soit_transmis: 'Soit-transmis',
   note: 'Note',
   livrable: 'Livrable',
+  presentation: 'Présentation',
   autre: 'Acte',
 };
 
@@ -274,6 +278,24 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide }: {
       await downloadActeDocx({ ...p, service, contenu: draft[p.id] ?? p.contenu });
     } catch {
       setNotice('Génération Word impossible.');
+    } finally { setBusy(null); }
+  }, [draft, service]);
+
+  const downloadPptx = useCallback(async (p: Production) => {
+    setBusy(p.id + ':pptx');
+    try {
+      await downloadActePptx({ ...p, service, contenu: draft[p.id] ?? p.contenu });
+    } catch {
+      setNotice('Génération PowerPoint impossible.');
+    } finally { setBusy(null); }
+  }, [draft, service]);
+
+  const downloadXlsx = useCallback(async (p: Production) => {
+    setBusy(p.id + ':xlsx');
+    try {
+      await downloadActeXlsx({ ...p, service, contenu: draft[p.id] ?? p.contenu });
+    } catch {
+      setNotice('Génération du tableur impossible.');
     } finally { setBusy(null); }
   }, [draft, service]);
 
@@ -556,6 +578,16 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide }: {
                           <button onClick={() => downloadDocx(p)} disabled={busy === p.id + ':docx'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title={`Télécharge « ${acteFileBase({ ...p, service })}.docx » — mise en forme de la trame suivie`}>
                             {busy === p.id + ':docx' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}Word
                           </button>
+                          {estPresentable({ type: p.type, contenu: draft[p.id] ?? p.contenu }) && (
+                            <button onClick={() => downloadPptx(p)} disabled={busy === p.id + ':pptx'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title={`Télécharge « ${acteFileBase({ ...p, service })}.pptx » — présentation PowerPoint au gabarit sobre`}>
+                              {busy === p.id + ':pptx' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Presentation className="h-3.5 w-3.5" />}PowerPoint
+                            </button>
+                          )}
+                          {contientTableaux(draft[p.id] ?? p.contenu) && (
+                            <button onClick={() => downloadXlsx(p)} disabled={busy === p.id + ':xlsx'} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50" title={`Télécharge « ${acteFileBase({ ...p, service })}.xlsx » — les tableaux du document en classeur Excel`}>
+                              {busy === p.id + ':xlsx' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5" />}Tableur
+                            </button>
+                          )}
                           <button onClick={() => remove(p)} className="ml-auto rounded-md p-1 text-gray-300 hover:bg-red-50 hover:text-red-500" title="Supprimer">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
