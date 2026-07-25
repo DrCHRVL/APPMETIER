@@ -284,7 +284,7 @@ export const InstructionDetailModal = ({
               <h2 className="text-lg font-semibold text-gray-900 truncate inline-flex items-center gap-1.5">
                 {dossier.numeroInstruction}
                 {dossier.numeroInstruction && (
-                  <CopyButton value={dossier.numeroInstruction} title="Copier le n° d'instruction" />
+                  <CopyButton value={dossier.numeroInstruction} title="Copier le n° d'instruction" iconClassName="h-3 w-3" className="text-gray-400 hover:text-gray-700" />
                 )}
               </h2>
               <Badge
@@ -323,7 +323,7 @@ export const InstructionDetailModal = ({
                 dossier.numeroParquet
               )}
               {dossier.numeroParquet && (
-                <CopyButton value={dossier.numeroParquet} title="Copier le n° de parquet" className="ml-1 align-middle" />
+                <CopyButton value={dossier.numeroParquet} title="Copier le n° de parquet" iconClassName="h-3 w-3" className="ml-1 align-middle text-gray-400 hover:text-gray-700" />
               )}
               {dossier.magistratInstructeur && <> · {dossier.magistratInstructeur}</>}
               {' · '}

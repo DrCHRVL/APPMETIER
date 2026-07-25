@@ -763,8 +763,8 @@ const EvenementEditor: React.FC<{
   const showMex =
     type === 'ipc' ||
     type === 'interrogatoire_fond' ||
-    (type === 'expertise' && !EXPERTISE_PEUT_VISER_VICTIME(categorieExpertise)) ||
-    (type === 'expertise' && categorieExpertise && (categorieExpertise === 'psychologique' || categorieExpertise === 'psychiatrique'));
+    // Toute expertise vise un MEX, sauf médico-légale (qui ne concerne qu'une victime).
+    (type === 'expertise' && categorieExpertise !== 'medico_legale');
   const showVictime =
     type === 'apc' ||
     (type === 'expertise' && EXPERTISE_PEUT_VISER_VICTIME(categorieExpertise));

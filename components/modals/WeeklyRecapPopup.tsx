@@ -51,7 +51,9 @@ interface RelanceItem {
 }
 
 export const WeeklyRecapPopup = ({ isOpen, onClose, buckets, alertRules, instructionDossiers }: WeeklyRecapPopupProps) => {
-  const today = new Date();
+  // Stable pour toute la durée d'ouverture : évite de recréer une Date à chaque
+  // rendu (ce qui invalidait inutilement les useMemo qui en dépendent).
+  const today = React.useMemo(() => new Date(), [isOpen]);
 
   const crRule = alertRules.find(r => r.type === 'cr_delay' && r.enabled);
   const acteRule = alertRules.find(r => r.type === 'acte_expiration' && r.enabled);

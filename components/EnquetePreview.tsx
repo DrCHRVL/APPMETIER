@@ -326,7 +326,7 @@ return (
           {enquete.numero}
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          <CopyButton value={enquete.numero} title="Copier le numéro d'enquête" className="opacity-0 group-hover:opacity-100 transition-opacity" />
+          <CopyButton value={enquete.numero} title="Copier le numéro d'enquête" iconClassName="h-3 w-3" className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-700" />
           {/* Modifications non vues (par d'autres utilisateurs) */}
           {unseenCount > 0 && (
             <div
