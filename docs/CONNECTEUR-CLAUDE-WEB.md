@@ -77,6 +77,12 @@ conversation). Les suppressions restent, comme pour l'attaché, manuelles.
    (menu recherche/outils) et parlez normalement : « liste mes dossiers en
    cours », « prépare le bilan semestriel »… Sur l'app mobile Claude, le
    connecteur suit automatiquement.
+5. **Recommandé** : téléversez dans claude.ai la skill
+   [`mobilisation-siral.skill`](skills-claude-web/) (Paramètres → Capacités
+   → Skills) — elle apprend à Claude web la MÉTHODE : identifier le bon
+   dossier, lire en économe (aperçus, sections paginées), recouper une
+   pièce versée (PV → NATINF, mis en cause, échéances), suivre vos trames
+   et remettre les actes dans SIRAL avec les bonnes métadonnées.
 
 ## Révocation & réversibilité
 
