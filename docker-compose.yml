@@ -20,6 +20,10 @@ services:
       # Attaché de justice IA (laisser vide pour désactiver totalement)
       - SIRAL_ATTACHE_URL=${SIRAL_ATTACHE_URL:-}
       - SIRAL_ATTACHE_TJ=${SIRAL_ATTACHE_TJ:-default}
+      # Connecteur Claude web (voir docs/CONNECTEUR-CLAUDE-WEB.md) — hôtes de
+      # redirection OAuth SUPPLÉMENTAIRES (client MCP de test) ; vide = domaines
+      # Claude uniquement. L'activation se fait dans l'app (Paramètres → Attaché IA).
+      - SIRAL_MCP_REDIRECT_HOSTS=${SIRAL_MCP_REDIRECT_HOSTS:-}
     volumes:
       - siral-data:/data
       - updater-state:/updater

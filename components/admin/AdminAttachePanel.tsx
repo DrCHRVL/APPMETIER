@@ -11,7 +11,7 @@
  * - Journal d'audit : chaque action de l'attaché, déchiffrée ici.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Mail, Wifi, Gauge, Leaf, GraduationCap } from 'lucide-react';
+import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Mail, Wifi, Gauge, Leaf, GraduationCap, Link2, Copy } from 'lucide-react';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, SUBMODEL_OPTIONS, PLAN_PRESETS, AttacheConfig, saveAttacheConfig, formatTokens, formatCostEur } from '../attache/modelOptions';
 import { fileToMarkdown, titreDepuisFichier, decodeText } from '@/lib/web/fileToMarkdown';
 import { skillFromArchive } from '@/lib/web/skillImport';
@@ -235,6 +235,16 @@ export function AdminAttachePanel() {
   const [assoc, setAssoc] = useState<AssocRow[]>([]);
   const [assocSaving, setAssocSaving] = useState(false);
   const [assocSuggesting, setAssocSuggesting] = useState(false);
+  // ── Connecteur Claude web (serveur MCP distant, OAuth réservé à l'admin) ──
+  const [conn, setConn] = useState<{
+    enabled: boolean; url?: string;
+    clients: Array<{ id: string; name: string; createdAt?: string; lastUsedAt?: string; accessActifs: number; refreshActifs: number }>;
+    journal?: Array<{ at: string; type: string; who?: string; client?: string }>;
+  } | null>(null);
+  const [connBusy, setConnBusy] = useState(false);
+  const [connMsg, setConnMsg] = useState<string | null>(null);
+  const [connCopied, setConnCopied] = useState(false);
+  const [showConnJournal, setShowConnJournal] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -253,6 +263,58 @@ export function AdminAttachePanel() {
       setLoading(false);
     }
   }, []);
+
+  /** État du connecteur Claude web (activé, connexions, URL à coller dans claude.ai). */
+  const loadConn = useCallback(async () => {
+    try {
+      const res = await fetch('/api/attache/connecteur');
+      if (res.ok) setConn(await res.json());
+    } catch { /* silencieux : section secondaire */ }
+  }, []);
+  useEffect(() => { loadConn(); }, [loadConn]);
+
+  const toggleConn = useCallback(async () => {
+    if (!conn) return;
+    const target = !conn.enabled;
+    if (!target && !window.confirm('Désactiver le connecteur Claude web ?\nToutes les connexions et tous les jetons seront révoqués immédiatement.')) return;
+    setConnBusy(true); setConnMsg(null);
+    try {
+      const res = await fetch('/api/attache/connecteur', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled: target }),
+      });
+      const data = await res.json().catch(() => ({} as { error?: string }));
+      if (res.ok) {
+        setConnMsg(target
+          ? 'Connecteur activé. Dans claude.ai : Paramètres → Connecteurs → « Ajouter un connecteur personnalisé », collez l\'URL ci-dessous puis « Se connecter » — la fenêtre SIRAL vous demandera d\'autoriser.'
+          : 'Connecteur désactivé — toutes les connexions sont révoquées.');
+      } else {
+        setConnMsg(`Refusé : ${(data as { error?: string }).error || res.status}`);
+      }
+    } catch (e) {
+      setConnMsg(`Impossible : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setConnBusy(false);
+      loadConn();
+    }
+  }, [conn, loadConn]);
+
+  const revokeConnClient = useCallback(async (id: string, name: string) => {
+    if (!window.confirm(`Révoquer la connexion « ${name} » ?\nClaude web perdra cet accès immédiatement.`)) return;
+    setConnBusy(true);
+    try { await fetch('/api/attache/connecteur?client=' + encodeURIComponent(id), { method: 'DELETE' }); }
+    catch { /* l'état rechargé fera foi */ }
+    finally { setConnBusy(false); loadConn(); }
+  }, [loadConn]);
+
+  const copyConnUrl = useCallback(async () => {
+    if (!conn?.url) return;
+    try {
+      await navigator.clipboard.writeText(conn.url);
+      setConnCopied(true);
+      setTimeout(() => setConnCopied(false), 1600);
+    } catch { setConnMsg('Copie refusée par le navigateur — sélectionnez l\'URL à la main.'); }
+  }, [conn]);
 
   /** Modèle / effort / web : appliqué à TOUS les runs (chat, mails, brief, routines). */
   const updateConfig = useCallback(async (patch: AttacheConfig) => {
@@ -1252,6 +1314,116 @@ export function AdminAttachePanel() {
           </p>
         </div>
       </div>
+
+      {/* Connecteur Claude web — serveur MCP distant, OAuth réservé à l'admin */}
+      {conn && (
+        <div className="rounded-xl border border-gray-200">
+          <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+            <Link2 className="h-4 w-4 text-[#2B5746]" />
+            <span className="text-sm font-semibold text-gray-800">Connecteur Claude web</span>
+            <span className="text-[11px] text-gray-400">piloter SIRAL depuis claude.ai — vous seul</span>
+            <button
+              onClick={toggleConn}
+              disabled={connBusy}
+              className={conn.enabled
+                ? 'ml-auto inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50'
+                : 'ml-auto inline-flex items-center gap-1.5 rounded-lg bg-[#2B5746] px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50'}
+            >
+              {connBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+              {conn.enabled ? 'Désactiver' : 'Activer'}
+            </button>
+          </div>
+
+          <div className="space-y-2 px-3 py-2.5">
+            <p className="text-[11px] leading-relaxed text-gray-500">
+              Branche <b>claude.ai</b> (connecteur personnalisé) sur SIRAL : Claude web obtient les <b>mêmes outils que
+              l'attaché</b> — lecture des dossiers et pièces, statistiques, écritures réversibles — sans avoir à passer par
+              le panneau intégré. Réservé à <b>votre compte administrateur</b> : l'autorisation exige votre session SIRAL
+              (passkey) et votre consentement ; chaque écriture reste versionnée et <b>journalisée dans l'audit</b>
+              (contexte « connecteur »). Les autres utilisateurs ne voient rien.
+            </p>
+
+            {connMsg && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-800">{connMsg}</div>}
+
+            {conn.enabled && (
+              <>
+                <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50/60 px-2.5 py-1.5">
+                  <span className="text-[11px] text-gray-400">URL du serveur MCP :</span>
+                  <code className="flex-1 truncate text-[11px] text-gray-700">{conn.url}</code>
+                  <button
+                    onClick={copyConnUrl}
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+                    title="Copier l'URL à coller dans claude.ai → Paramètres → Connecteurs → Ajouter un connecteur personnalisé"
+                  >
+                    {connCopied ? <CheckCircle2 className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+                    {connCopied ? 'Copiée' : 'Copier'}
+                  </button>
+                </div>
+
+                {conn.clients.length ? (
+                  <div className="space-y-1">
+                    {conn.clients.map((c) => (
+                      <div key={c.id} className="flex items-center gap-2 rounded-lg border border-gray-100 px-2.5 py-1.5">
+                        <span className="truncate text-[11.5px] font-medium text-gray-700">{c.name}</span>
+                        <span className="text-[10.5px] text-gray-400">
+                          {c.lastUsedAt ? `utilisé ${new Date(c.lastUsedAt).toLocaleString('fr-FR')}` : (c.createdAt ? `créé ${new Date(c.createdAt).toLocaleDateString('fr-FR')}` : '')}
+                          {c.accessActifs + c.refreshActifs > 0 ? ` · ${c.accessActifs + c.refreshActifs} jeton(s)` : ' · aucun jeton actif'}
+                        </span>
+                        <button
+                          onClick={() => revokeConnClient(c.id, c.name)}
+                          disabled={connBusy}
+                          className="ml-auto rounded-md p-1 text-gray-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
+                          title="Révoquer cette connexion (effet immédiat)"
+                        >
+                          <ShieldOff className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10.5px] text-gray-400">
+                    Aucune connexion pour l'instant. Dans claude.ai : Paramètres → Connecteurs →
+                    « Ajouter un connecteur personnalisé » → collez l'URL ci-dessus → Se connecter → <b>Autoriser</b> dans la fenêtre SIRAL.
+                  </p>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowConnJournal((v) => !v)} className="text-[10.5px] text-gray-400 underline hover:text-gray-600">
+                    {showConnJournal ? 'Masquer le journal' : 'Journal du connecteur'}
+                  </button>
+                  <span className="text-[10.5px] text-gray-300">·</span>
+                  <span className="text-[10.5px] text-gray-400">révocable ici à tout moment — l'audit des écritures reste dans le Journal d'audit ci-dessus</span>
+                </div>
+                {showConnJournal && (
+                  <div className="max-h-40 space-y-0.5 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-1.5">
+                    {(conn.journal || []).length ? (conn.journal || []).map((j, i) => (
+                      <div key={i} className="text-[10.5px] text-gray-500">
+                        <span className="text-gray-400">{new Date(j.at).toLocaleString('fr-FR')}</span>
+                        {' — '}
+                        {j.type === 'activation' ? 'activation' :
+                          j.type === 'desactivation' ? 'désactivation' :
+                          j.type === 'client_enregistre' ? 'client enregistré' :
+                          j.type === 'autorisation' ? 'autorisation accordée' :
+                          j.type === 'revocation_client' ? 'connexion révoquée' :
+                          j.type === 'revocation_totale' ? 'révocation totale' : j.type}
+                        {j.client ? ` · ${j.client}` : ''}{j.who ? ` · par ${j.who}` : ''}
+                      </div>
+                    )) : <div className="text-[10.5px] text-gray-400">Rien pour l'instant.</div>}
+                  </div>
+                )}
+              </>
+            )}
+
+            {!conn.enabled && (
+              <p className="text-[10.5px] leading-relaxed text-gray-400">
+                Désactivé (défaut) : aucune route n'existe côté Internet. À l'activation, SIRAL expose un serveur MCP
+                (OAuth) que vous ajoutez dans claude.ai ; la connexion n'aboutit qu'avec votre session administrateur
+                et votre consentement explicite. Guide : <code>docs/CONNECTEUR-CLAUDE-WEB.md</code>
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Cerveau — modèle, effort, accès web : mêmes réglages que Claude web */}
       <div className="rounded-xl border border-gray-200">
