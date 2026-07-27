@@ -138,6 +138,35 @@ export async function setQuestionStatus(id: string, status: QuestionStatus, by: 
   }
 }
 
+// ── État du journal « pendant votre absence » (cartes rangées, repère « vu ») ──
+// Même modèle que les statuts du majordome : fichier en clair MAIS indexé par
+// des EMPREINTES opaques (le navigateur hache `ts|titre` avant d'envoyer —
+// aucun contenu n'y transite). Partagé entre tous les appareils : ranger une
+// carte ou consulter le journal sur l'ordinateur vaut aussi sur le téléphone,
+// et inversement — le localStorage n'est plus qu'un cache de secours.
+
+export function readJournalStatuses(): Record<string, { status: string, at: string, by: string }> {
+  return readJson(attacheDir('journal-status.json'), {})
+}
+
+/** Repère « vu » d'un utilisateur : id opaque dérivé du nom (jamais le nom en clair). */
+export function journalSeenId(user: string): string {
+  return crypto.createHash('sha256').update('journal-vu:' + user).digest('hex').slice(0, 16)
+}
+
+export async function setJournalStatus(id: string, status: string, by: string): Promise<void> {
+  if (!/^[a-f0-9]{6,32}$/.test(id)) throw new Error('Identifiant invalide')
+  try {
+    await withFileLock('attache-journal-status', async () => {
+      const all = readJournalStatuses()
+      all[id] = { status, at: new Date().toISOString(), by }
+      atomicWrite(attacheDir('journal-status.json'), JSON.stringify(all, null, 2))
+    })
+  } catch (e) {
+    await relayStatusMap('journal-status', id, status, by, e)
+  }
+}
+
 /** Repli commun des cartes de statut : écriture relayée au service attaché. */
 async function relayStatusMap(file: string, id: string, status: string, by: string, cause: unknown): Promise<void> {
   const relayed = await attacheFetch('/status-map', { method: 'PUT', body: { file, id, status, by } })

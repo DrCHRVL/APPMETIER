@@ -64,6 +64,24 @@ l'usage).
     lourde (> 15 Mo, conservée en fiche « omise ») sont signalés au lieu
     d'être avalés. Un brief ou une routine qui casse laisse aussi sa carte
     d'alerte.
+- **Le fil « Pendant votre absence » se range TOUT SEUL — et pareil sur tous
+  les appareils** : une carte disparaît quand son acte relié est validé ou
+  supprimé ; les cartes d'information d'un dossier entièrement traité
+  (résumés, annonces d'actes, mails traités, livrables, projets de réponse)
+  s'effacent à la clôture ; et toute carte d'information **déjà vue lors d'une
+  visite précédente** expire seule au bout de **48 h** — une carte jamais vue
+  n'expire jamais (retour de longue absence : tout attend), et une carte
+  reliée à un acte **encore en attente de validation** non plus (c'est du
+  travail à faire : elle ne part que par validation ou suppression de
+  l'acte). L'état de lecture
+  (cartes rangées ✕, repère « vu ») est **partagé entre appareils** via
+  `/api/attache/journal` — fichier de statuts indexé par **empreintes
+  opaques** (hash de carte), jamais de contenu, comme les statuts du
+  majordome : ranger ou consulter sur l'ordinateur vaut sur le téléphone, et
+  inversement ; le localStorage n'est plus qu'un cache de secours (hors-ligne),
+  re-synchronisé et migré à la visite suivante. Le journal est un fil de
+  reprise, pas une archive : l'historique complet demeure dans les dossiers
+  (« Actes rédigés ») et le journal d'audit.
 - **Ne sort JAMAIS du système** : plus aucun mail sortant (les réponses vers
   les boîtes professionnelles étaient rejetées — réputation de domaine). Les
   **livrables** se remettent DANS SIRAL : carte « Livrable 📦 » du fil

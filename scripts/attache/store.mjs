@@ -93,11 +93,11 @@ export async function writeCollectionEnvelopeRaw(collection, id, envelope) {
 }
 
 // Fichiers-enveloppes uniques (mémoire, consignes) et cartes de statut en
-// clair (majordome-status, questions-status) : mêmes relais que les
-// collections — l'app web délègue quand son accès disque est refusé.
+// clair (majordome-status, questions-status, journal-status) : mêmes relais
+// que les collections — l'app web délègue quand son accès disque est refusé.
 
 const SINGLE_ENVELOPE_RE = /^(memory|instructions|associations)$/
-const STATUS_MAP_RE = /^(majordome-status|questions-status)$/
+const STATUS_MAP_RE = /^(majordome-status|questions-status|journal-status)$/
 
 export async function writeSingleEnvelopeRaw(name, envelope) {
   if (!SINGLE_ENVELOPE_RE.test(name)) throw new Error('Fichier inconnu')
