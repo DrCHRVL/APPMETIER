@@ -2,16 +2,23 @@
 /**
  * SIRAL — Attaché de justice · serveur MCP (le « bras »).
  *
- * Lancé par le CLI Claude Code (stdio, JSON-RPC ligne à ligne). Expose à
- * l'agent les SEULES actions autorisées sur SIRAL : lecture des dossiers du
- * contentieux confié, écritures réversibles (acte, prolongation, note, todo),
- * boîte mail dédiée, mémoire, fil proactif, et l'unique sortie possible —
- * un mail à l'adresse du magistrat. Chaque appel est journalisé (audit).
+ * Deux modes, MÊMES outils :
+ *  - exécuté directement : lancé par le CLI Claude Code (stdio, JSON-RPC
+ *    ligne à ligne) pour les runs de l'attaché ;
+ *  - importé par le service attaché : `handleConnectorMessage` répond au
+ *    connecteur Claude web (POST /mcp — le magistrat pilote SIRAL depuis
+ *    claude.ai, après OAuth admin côté app).
+ *
+ * Expose à l'agent les SEULES actions autorisées sur SIRAL : lecture des
+ * dossiers du contentieux confié, écritures réversibles (acte, prolongation,
+ * note, todo), boîte mail dédiée, mémoire, fil proactif. Chaque écriture est
+ * journalisée (audit).
  *
  * Aucune autre capacité : pas de shell, pas de fichiers, pas de réseau.
  */
 import readline from 'node:readline'
 import crypto from 'node:crypto'
+import { pathToFileURL } from 'node:url'
 import { loadKeyring } from './attache/keyring.mjs'
 import { attacheContentieux } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
@@ -44,7 +51,10 @@ import { listInbox, readInboxMessage, markInboxProcessed } from './attache/mail.
 import { bilanStatistiques } from './attache/statistiques.mjs'
 import { genererGraphique, GRAPHIQUES } from './attache/statsGraphiques.mjs'
 
-const keys = loadKeyring()
+// `let` : le connecteur (service, longue durée de vie) recharge le trousseau
+// à chaque message — une révocation vaut immédiatement, comme pour les runs
+// stdio qui le chargent à leur lancement.
+let keys = loadKeyring()
 const runContext = process.env.SIRAL_ATTACHE_RUN || 'chat'
 
 /**
@@ -1342,34 +1352,43 @@ const TOOLS = [
   },
 ]
 
-// ── Boucle JSON-RPC stdio (une ligne = un message) ──
-const rl = readline.createInterface({ input: process.stdin, terminal: false })
+// ── Répartition JSON-RPC partagée (boucle stdio · connecteur Claude web) ──
 
-function send(msg) {
-  process.stdout.write(JSON.stringify(msg) + '\n')
-}
-
-rl.on('line', async (line) => {
-  let req
-  try { req = JSON.parse(line) } catch { return }
-  const { id, method, params } = req
-  const reply = (result) => id !== undefined && send({ jsonrpc: '2.0', id, result })
-  const fail = (code, message) => id !== undefined && send({ jsonrpc: '2.0', id, error: { code, message } })
+/**
+ * Traite UN message JSON-RPC MCP et retourne l'objet réponse — ou null pour
+ * une notification (rien à répondre). Corps commun de la boucle stdio (runs
+ * du CLI Claude Code) et du connecteur Claude web (POST /mcp du service).
+ */
+export async function dispatchMcp(req, options = {}) {
+  const {
+    isSubagent = IS_SUBAGENT,
+    contexte = runContext,
+    exclure = null,
+    serverName = 'siral-attache',
+    instructions = null,
+  } = options
+  const { id, method, params } = req || {}
+  const reply = (result) => (id !== undefined ? { jsonrpc: '2.0', id, result } : null)
+  const fail = (code, message) => (id !== undefined ? { jsonrpc: '2.0', id, error: { code, message } } : null)
 
   try {
     if (method === 'initialize') {
       return reply({
         protocolVersion: params?.protocolVersion || '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'siral-attache', version: '1.0.0' },
+        serverInfo: { name: serverName, version: '1.0.0' },
+        ...(instructions ? { instructions } : {}),
       })
     }
-    if (method === 'notifications/initialized' || method === 'notifications/cancelled') return
+    if (typeof method === 'string' && method.startsWith('notifications/')) return null
     if (method === 'ping') return reply({})
     // En mode sous-agent, seuls les outils de lecture existent : les
     // écritures, sous_agents (récursion) et les outils réservés à l'agent
     // principal (conversations privées) ne sont ni listés ni appelables.
-    const availableTools = IS_SUBAGENT ? TOOLS.filter((t) => !t.write && !t.mainOnly && t.name !== 'sous_agents') : TOOLS
+    let availableTools = IS_SUBAGENT || isSubagent
+      ? TOOLS.filter((t) => !t.write && !t.mainOnly && t.name !== 'sous_agents')
+      : TOOLS
+    if (exclure) availableTools = availableTools.filter((t) => !exclure.has(t.name))
     if (method === 'tools/list') {
       return reply({ tools: availableTools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) })
     }
@@ -1379,7 +1398,7 @@ rl.on('line', async (line) => {
       if (!keys) {
         return reply({ content: [{ type: 'text', text: JSON.stringify({ erreur: 'Trousseau non remis ou révoqué : demander à l\'administrateur de remettre les clés.' }) }], isError: true })
       }
-      if (IS_RUN_AUTONOME && OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME.has(tool.name)) {
+      if ((IS_RUN_AUTONOME || contexte === 'apprentissage' || contexte === 'etude') && OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME.has(tool.name)) {
         return reply({
           content: [{ type: 'text', text: JSON.stringify({ erreur: `Run autonome : ${tool.name} est réservé aux instructions du magistrat (chat, mail transféré). Dépose une proposition (proposer_*) ou signale (signaler) — jamais d'écriture d'office au dossier ni aux routines.` }) }],
           isError: true,
@@ -1389,7 +1408,7 @@ rl.on('line', async (line) => {
       try {
         const result = await tool.handler(args)
         if (tool.write) {
-          await audit(keys, 'outil', { outil: tool.name, contexte: runContext, args: JSON.stringify(args).slice(0, 2000) })
+          await audit(keys, 'outil', { outil: tool.name, contexte, args: JSON.stringify(args).slice(0, 2000) })
         }
         // Résultat multi-blocs (texte + image) : les graphiques statistiques
         // rendent l'image PNG telle quelle — le CLI la transmet au modèle,
@@ -1401,7 +1420,7 @@ rl.on('line', async (line) => {
         return reply({ content: [{ type: 'text', text: text.slice(0, 400_000) }] })
       } catch (e) {
         if (tool.write) {
-          await audit(keys, 'outil_erreur', { outil: tool.name, contexte: runContext, erreur: String(e?.message || e) }).catch(() => {})
+          await audit(keys, 'outil_erreur', { outil: tool.name, contexte, erreur: String(e?.message || e) }).catch(() => {})
         }
         return reply({ content: [{ type: 'text', text: JSON.stringify({ erreur: String(e?.message || e) }) }], isError: true })
       }
@@ -1411,6 +1430,57 @@ rl.on('line', async (line) => {
   } catch (e) {
     return fail(-32603, String(e?.message || e))
   }
-})
+}
 
-rl.on('close', () => process.exit(0))
+// ── Connecteur Claude web (importé par le service attaché — POST /mcp) ──
+// Même périmètre que le chat de l'attaché, MOINS :
+//  - sous_agents : lancerait des runs CLI parallèles sur l'abonnement depuis
+//    Claude web (piège de coût — Claude web orchestre déjà ses lectures) ;
+//  - poser_question : le magistrat est DÉJÀ dans la conversation Claude web,
+//    la carte Question du panneau n'aurait ni contexte ni retour possible.
+const OUTILS_HORS_CONNECTEUR = new Set(['sous_agents', 'poser_question'])
+
+const INSTRUCTIONS_CONNECTEUR = [
+  `SIRAL — application métier du parquet (contentieux ${attacheContentieux()}). Tu agis pour le compte du magistrat administrateur, authentifié via OAuth.`,
+  'Points d\'entrée : lister_dossiers (enquêtes) · instru_lister (module instruction) · lire_dossier (détail, sections paginées) · dossier_arborescence puis lire_document (pièces) · stats_synthese / stats_graphique (bilans chiffrés).',
+  'Écritures (actes, CR, à-faire, NATINF, dossiers…) : réservées aux instructions explicites du magistrat — en cas de doute, demande-lui dans la conversation avant d\'écrire. Chaque écriture est versionnée (réversible) et journalisée dans son audit ; les données partagées sont signées de son nom, jamais « IA ».',
+  'Livrables et actes rédigés se remettent DANS SIRAL : produire_document (atelier « Actes rédigés ») ou remettre_livrable (fil « pendant votre absence »).',
+].join('\n')
+
+/**
+ * Point d'entrée du connecteur : un message (ou un lot) JSON-RPC venu de
+ * Claude web via l'app puis le service. Recharge le trousseau à CHAQUE
+ * message — une révocation (panneau ou clé-maître changée) vaut sur-le-champ.
+ */
+export async function handleConnectorMessage(message) {
+  keys = loadKeyring()
+  const options = {
+    isSubagent: false,
+    contexte: 'connecteur',
+    exclure: OUTILS_HORS_CONNECTEUR,
+    serverName: 'siral',
+    instructions: INSTRUCTIONS_CONNECTEUR,
+  }
+  if (Array.isArray(message)) {
+    const out = []
+    for (const m of message) {
+      const r = await dispatchMcp(m, options)
+      if (r) out.push(r)
+    }
+    return out.length ? out : null
+  }
+  return dispatchMcp(message, options)
+}
+
+// ── Boucle stdio (une ligne = un message) — exécution directe par le CLI ──
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+if (isMain) {
+  const rl = readline.createInterface({ input: process.stdin, terminal: false })
+  rl.on('line', async (line) => {
+    let req
+    try { req = JSON.parse(line) } catch { return }
+    const res = await dispatchMcp(req)
+    if (res) process.stdout.write(JSON.stringify(res) + '\n')
+  })
+  rl.on('close', () => process.exit(0))
+}

@@ -852,6 +852,17 @@ l'usage).
    uniquement). Transférer un mail à `ia@…` avec une consigne dans le corps —
    ou parler directement dans le panneau.
 
+## Connecteur Claude web (optionnel)
+
+Les MÊMES outils que l'attaché, pilotés **depuis claude.ai** (connecteur MCP
+personnalisé) : lecture des dossiers, statistiques, écritures réversibles et
+auditées — sans attendre que le panneau intégré rattrape chaque nouveauté de
+Claude web. OAuth réservé à l'administrateur (session passkey +
+consentement), désactivé par défaut, activation dans Paramètres → Attaché IA
+→ **Connecteur Claude web**, révocation un clic. Deux outils sont exclus du
+connecteur : `sous_agents` et `poser_question`. Guide complet :
+**[CONNECTEUR-CLAUDE-WEB.md](CONNECTEUR-CLAUDE-WEB.md)**.
+
 ## Révocation & réversibilité
 
 | Geste | Effet |

@@ -42,6 +42,15 @@ correction, à coût de jetons nul, et consolide périodiquement). Propulsé
 par Claude Code via l'abonnement Claude (pas d'API).
 Voir **[docs/ATTACHE.md](docs/ATTACHE.md)**.
 
+### Connecteur Claude web — optionnel
+
+Piloter SIRAL **depuis claude.ai** (connecteur MCP personnalisé) : Claude
+web obtient les mêmes outils que l'attaché — lecture des dossiers,
+statistiques, écritures réversibles et auditées. OAuth réservé à
+l'administrateur (session passkey + consentement), désactivé par défaut,
+révocable en un clic.
+Voir **[docs/CONNECTEUR-CLAUDE-WEB.md](docs/CONNECTEUR-CLAUDE-WEB.md)**.
+
 ---
 
 Conçu par A. Chevalier — Parquet d'Amiens.

@@ -18,6 +18,7 @@ import http from 'node:http'
 import crypto from 'node:crypto'
 import { loadMasterKey, decryptJson } from './attache/crypto.mjs'
 import { loadKeyring, grantKeyring, revokeKeyring, keyringStatus, allowedScopes } from './attache/keyring.mjs'
+import { handleConnectorMessage } from './attache-mcp.mjs'
 import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride } from './attache/mail.mjs'
@@ -872,6 +873,18 @@ const server = http.createServer(async (req, res) => {
 
     if (route === 'GET /config') {
       return json(res, 200, { config: agentConfig() })
+    }
+
+    if (route === 'POST /mcp') {
+      // Connecteur Claude web : l'app (seule à connaître le secret de pont)
+      // relaie ici les messages JSON-RPC MCP d'un magistrat authentifié par
+      // OAuth. Mêmes outils que le chat de l'attaché (moins sous_agents et
+      // poser_question), trousseau rechargé à chaque message, écritures
+      // auditées sous le contexte « connecteur ».
+      const message = await readBody(req, 16 * 1024 * 1024)
+      const out = await handleConnectorMessage(message)
+      if (out === null) { res.writeHead(202); return res.end() }
+      return json(res, 200, out)
     }
 
     if (route === 'GET /usage') {

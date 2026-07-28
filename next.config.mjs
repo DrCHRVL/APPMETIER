@@ -37,6 +37,20 @@ const nextConfig = {
     },
   },
 
+  // Découverte OAuth du connecteur Claude web : les chemins /.well-known/*
+  // (RFC 8414 / RFC 9728) ne peuvent pas vivre dans app/ (dossiers « .» non
+  // routés) — on les réécrit vers les routes API. Le suffixe :path* couvre la
+  // variante « par ressource » (/.well-known/…/api/mcp) que certains clients
+  // MCP construisent d'eux-mêmes.
+  async rewrites() {
+    return [
+      { source: '/.well-known/oauth-authorization-server', destination: '/api/mcp/oauth/authorization-server' },
+      { source: '/.well-known/oauth-authorization-server/:path*', destination: '/api/mcp/oauth/authorization-server' },
+      { source: '/.well-known/oauth-protected-resource', destination: '/api/mcp/oauth/protected-resource' },
+      { source: '/.well-known/oauth-protected-resource/:path*', destination: '/api/mcp/oauth/protected-resource' },
+    ]
+  },
+
   // Ignorer les erreurs TypeScript et ESLint pendant le build
   typescript: {
     ignoreBuildErrors: true,
