@@ -16,7 +16,7 @@ du front-matter qui sert de déclencheur).
 
 | Fichier | Usage |
 |---|---|
-| `mobilisation-siral.skill` | Méthode complète de mobilisation du connecteur SIRAL : identifier le bon dossier (numéros, mis en cause, lignes), lire les données en économe (aperçus, sections paginées, pièces, actes déjà rédigés), recouper une pièce versée en conversation (PV, ordonnance), rédiger selon les trames du magistrat et remettre l'acte dans SIRAL (`produire_document` + `acteMeta`), avec la discipline d'écriture (instruction explicite, `[À CONFIRMER]`, récapitulatif). |
+| `mobilisation-siral.skill` | Méthode complète de mobilisation du connecteur SIRAL : identifier le bon dossier (numéros, mis en cause, lignes), lire les données en économe (aperçus, sections paginées, pièces, actes déjà rédigés), recouper une pièce versée en conversation (PV, ordonnance), rédiger selon les trames du magistrat et remettre l'acte dans SIRAL (`produire_document` + `acteMeta`), avec la discipline d'écriture (instruction explicite, `[À CONFIRMER]`, récapitulatif). Couvre aussi les **régimes d'écriture** (propositions ✓/✗ par défaut, écritures directes sur consigne permanente bornée) et les **travaux au long cours** : balayages par lots avec état de reprise déposé dans SIRAL (« Actes rédigés — hors dossier »), et délégation du massif récurrent à une routine de nuit de l'attaché. |
 
 ## Modifier / reconstruire
 

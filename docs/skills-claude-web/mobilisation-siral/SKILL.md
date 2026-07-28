@@ -1,10 +1,11 @@
 ---
 name: mobilisation-siral
 description: >
-  Mobiliser le connecteur SIRAL (parquet) : retrouver le bon dossier, lire
-  les données et pièces utiles, recouper une pièce versée (PV, ordonnance),
-  rédiger et remettre les actes via produire_document. Déclencher dès que
-  SIRAL, une enquête du parquet, un PV versé ou un acte à rédiger est en jeu.
+  Mobiliser le connecteur SIRAL (parquet) : trouver le bon dossier, lire
+  données et pièces, recouper une pièce versée (PV), rédiger et remettre
+  les actes (produire_document). Consignes permanentes (écritures directes)
+  et balayages par lots. Déclencher dès que SIRAL, une enquête ou un acte
+  est en jeu.
 ---
 
 # Mobiliser SIRAL depuis Claude web
@@ -15,8 +16,9 @@ te donne les outils de l'attaché de justice, au nom du magistrat
 administrateur. Chaque écriture est **versionnée, réversible et
 journalisée** dans son audit ; les données partagées sont signées de **son
 nom** — jamais « IA », jamais « attaché ». Tu écris **uniquement sur
-instruction explicite** ; en cas de doute (dossier ambigu, portée d'une
-modification), tu poses la question **dans la conversation** avant d'écrire.
+instruction du magistrat** — ponctuelle, ou permanente (voir « Régimes
+d'écriture ») ; en cas de doute (dossier ambigu, portée d'une consigne),
+tu poses la question **dans la conversation** avant d'écrire.
 
 ## Étape 1 — Identifier le dossier (toujours en premier)
 
@@ -50,7 +52,7 @@ autorisés, qualifications (NATINF). Puis **confronter au dossier** :
   mauvais dossier ?) avant toute exploitation ;
 - **noms nouveaux** → `recouper_personnes` (homonymes, alias inter-dossiers)
   puis `proposer_mec` (bandeau ✓/✗) — `ajouter_mec` seulement sur
-  instruction explicite ;
+  instruction, ponctuelle ou permanente (voir « Régimes d'écriture ») ;
 - **NATINF visés absents de la fiche** → `natinf_chercher` pour valider les
   codes puis `ajouter_natinfs` (écriture autonome permise, citer la pièce
   source) ;
@@ -110,6 +112,83 @@ de la pièce) — visible dans les comptes-rendus et la chronologie.
 5. Synthèse, note, projet de mail au directeur d'enquête → `remettre_livrable`
    (fil « pendant votre absence », bouton Copier). `terminer_todo` si le
    travail accompli règle un à-faire du dossier.
+
+## Régimes d'écriture — proposition (défaut) ou direct (consigne permanente)
+
+Par défaut, une **détection** (nom nouveau, élément absent de la fiche,
+mesure évoquée dans une pièce) devient une **proposition** ✓/✗
+(`proposer_mec`, `proposer_cr`, `proposer_acte`) : rien n'entre au dossier
+sans validation du magistrat.
+
+Le magistrat peut basculer en **régime direct** par une consigne
+permanente — donnée dans la conversation ou dans les instructions d'un
+projet Claude web dédié. Reconnais-la aux formules : « consigne
+permanente », « sans me demander », « directement », « systématiquement »,
+« à chaque fois ». Le régime direct s'applique alors, dans le périmètre
+exact de la consigne :
+
+- CR de réception ou de synthèse → `classer_note` directement (titre daté,
+  prise de notes dense) ;
+- mis en cause identifiés → `recouper_personnes` PUIS `ajouter_mec`
+  (l'outil refuse les doublons ; statut par défaut « actif ») ;
+- NATINF fondés par une pièce → `ajouter_natinfs` (autonome de toute façon) ;
+- échéancier → `enregistrer_acte` / `modifier_acte` seulement si la
+  consigne couvre EXPLICITEMENT ce type de transition (« quand une
+  ordonnance montre que le JLD a signé, acte-le »).
+
+Bornes du régime direct, non négociables :
+
+- la consigne vaut ce qu'elle dit — n'étends JAMAIS son périmètre par
+  analogie ; tout ce qui déborde retourne au régime des propositions ;
+- `creer_dossier` et `archiver_dossier` restent au cas par cas (demande
+  expresse visant CE dossier) ;
+- doute sur la portée de la consigne → question AVANT d'écrire ;
+- chaque réponse **récapitule** tout ce qui a été écrit en direct (dossier,
+  outil, contenu en une ligne) : le magistrat doit pouvoir tout survoler —
+  et tout annuler (chaque écriture est versionnée, l'audit trace tout).
+
+## Travaux au long cours — balayages par lots
+
+Pour une tâche de masse (« mets à jour la description de chaque enquête »,
+« contrôle la complétude de tout le stock », « sonde les liens sur tous les
+dossiers ») : la fenêtre de contexte est finie — travaille **en lots**,
+avec un **état de reprise**.
+
+1. **Le plan d'abord** : `lister_dossiers` (+ `archives:true` si la demande
+   les couvre) → affiche la liste numérotée dans la conversation (c'est le
+   plan de travail) et annonce la taille des lots : 5 à 10 dossiers.
+2. **Un lot à la fois** : pour chaque dossier, lectures MINIMALES
+   nécessaires (aperçu, sections ciblées — jamais « complet ») →
+   l'écriture demandée (ex. `actualiser_description` au format SYNTHÈSE /
+   MIS EN CAUSE) → dossier suivant. Fin de lot : point d'étape court
+   (traités / restants) et proposer de continuer. N'entame pas un lot que
+   tu ne peux pas finir proprement.
+3. **État de reprise** : la conversation peut s'arrêter à tout moment. En
+   fin de session (ou tous les 2-3 lots), dépose l'état par
+   `remettre_livrable` SANS `numero` — sujet « État du balayage <tâche> »,
+   corps : dossiers traités, restants, consignes particulières données en
+   route. Il se range dans « Actes rédigés — hors dossier ». À la reprise
+   dans une NOUVELLE conversation : `productions_lister` sur
+   `_hors-dossier` puis `production_lire` → reprendre exactement où on en
+   était ; mettre l'état à jour (même `id`) au fil du balayage, et le
+   supprimer (`production_supprimer`, réversible) une fois le balayage
+   terminé. Si l'état manque, demande au magistrat de coller le dernier
+   point d'étape.
+4. **Jamais de qualité dégradée pour finir** : mieux vaut un lot de moins
+   que des écritures bâclées. Conversation devenue lourde → clore le lot en
+   cours, déposer l'état, inviter à rouvrir une conversation.
+5. **Le vraiment massif ou récurrent se délègue** : pour un balayage
+   exhaustif ou régulier (cartographie du corpus entier, revue
+   hebdomadaire), propose d'enregistrer une **routine de nuit de
+   l'attaché** (`routine_enregistrer` : prompt autonome et précis, heure de
+   nuit type 22:30) — elle tournera côté serveur, sans limite de fenêtre de
+   conversation. Le connecteur garde le pilotage et les sondages ciblés.
+
+Cartographie par lots : traite les dossiers par groupes, croise avec
+`recouper_personnes` et `carto_rapprochements`, et dépose les propositions
+(`proposer_lien`, `proposer_mec_carto`, `proposer_dossier_carto`) **au fil
+de l'eau** — elles survivent à la conversation dans le module de revue de
+la cartographie, où le magistrat valide ✓/✗ à son rythme.
 
 ## Discipline permanente
 
