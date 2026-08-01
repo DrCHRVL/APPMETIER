@@ -285,7 +285,9 @@ export class AlertManager {
       if (mesure.dateDebut.includes('/')) {
         const [day, month, year] = mesure.dateDebut.split('/');
         const fullYear = year.length === 2 ? `20${year}` : year;
-        dateDebut = new Date(`${fullYear}-${month}-${day}`);
+        // Zéro-padding indispensable : « 2024-6-5 » est Invalid Date sur
+        // JavaScriptCore (Safari / PWA iPhone), seul « 2024-06-05 » est ISO.
+        dateDebut = new Date(`${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
       } else {
         // Si format YYYY-MM-DD
         dateDebut = new Date(mesure.dateDebut);

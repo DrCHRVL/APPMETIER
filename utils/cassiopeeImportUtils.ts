@@ -80,7 +80,12 @@ export const parseFrDate = (raw: string | undefined | null): string => {
   const month = mm.padStart(2, '0');
   if (Number(month) < 1 || Number(month) > 12) return '';
   if (Number(day) < 1 || Number(day) > 31) return '';
-  return `${year}-${month}-${day}`;
+  // Rejeter les dates impossibles (31/02, 30/02…) : sans ce contrôle, le
+  // <input type="date"> reste vide et new Date(iso) donne Invalid Date → NaN.
+  const iso = `${year}-${month}-${day}`;
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime()) || d.getDate() !== Number(day)) return '';
+  return iso;
 };
 
 const DATE_CELL_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;

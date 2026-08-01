@@ -22,7 +22,11 @@ export async function POST(req: Request) {
   return handle(async () => {
     const session = requireSession(req)
     ensurePushLoop()
-    const { subscription } = await req.json()
+    const body = await req.json().catch(() => null)
+    const subscription = body?.subscription
+    if (!subscription || typeof subscription !== 'object') {
+      return jsonResponse({ error: 'subscription requise' }, { status: 400 })
+    }
     await saveSubscription(session.u, subscription)
     return jsonResponse({ ok: true })
   })

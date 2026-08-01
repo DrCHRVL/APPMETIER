@@ -35,7 +35,9 @@ function ToastDisplay() {
   const clearToast = useToastStore(s => s.clearToast);
 
   if (!toast) return null;
-  return <Toast message={toast.message} type={toast.type} onClose={clearToast} />;
+  // key dérivée du contenu : garantit le remontage (et donc le redémarrage du
+  // minuteur d'auto-fermeture) quand un toast en remplace un autre déjà affiché.
+  return <Toast key={`${toast.type}:${toast.message}`} message={toast.message} type={toast.type} onClose={clearToast} />;
 }
 
 /**

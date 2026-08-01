@@ -88,12 +88,6 @@ export const useInstructions = () => {
     }
   }, []);
 
-  // Recharge dès que le username change (clé de stockage différente)
-  useEffect(() => {
-    storageKeyRef.current = buildStorageKey(username);
-    void reload();
-  }, [username, reload]);
-
   // Re-hydrate quand la synchro réseau (privée par utilisateur) rapatrie des
   // dossiers modifiés sur un autre poste du même magistrat.
   useEffect(() => {
@@ -130,6 +124,17 @@ export const useInstructions = () => {
     }, SAVE_DEBOUNCE),
     [],
   );
+
+  // Recharge dès que le username change (clé de stockage différente).
+  // Défini APRÈS `persist` pour pouvoir vider l'écriture throttlée en attente,
+  // qui vise encore la clé de l'utilisateur PRÉCÉDENT : sans ce flush, un
+  // changement de profil dans la fenêtre de throttle écrirait les dossiers de A
+  // sous la clé de B.
+  useEffect(() => {
+    persist.flush();
+    storageKeyRef.current = buildStorageKey(username);
+    void reload();
+  }, [username, reload, persist]);
 
   // ──────────────────────────────────────────────
   // Mutateur central
