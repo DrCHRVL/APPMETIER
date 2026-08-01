@@ -1574,7 +1574,11 @@ export class ServerDocumentScanner {
       const date = new Date(year, month - 1, day);
 
       if (unit === 'mois') {
+        // Ajout calendaire avec clamp de fin de mois (31 janv. + 1 mois = 28 févr.,
+        // pas le 3 mars) — cohérent avec DateUtils.addCalendarMonths (date-fns).
+        const targetDay = date.getDate();
         date.setMonth(date.getMonth() + parseInt(duree));
+        if (date.getDate() !== targetDay) date.setDate(0);
       } else {
         date.setDate(date.getDate() + parseInt(duree));
       }

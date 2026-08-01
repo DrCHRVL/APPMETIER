@@ -104,9 +104,9 @@ export const useFilterSort = (
           return new Date(getLastCR(b.comptesRendus)?.date || 0).getTime() -
                  new Date(getLastCR(a.comptesRendus)?.date || 0).getTime();
         case 'update-asc':
-          return new Date(a.dateMiseAJour).getTime() - new Date(b.dateMiseAJour).getTime();
+          return new Date(a.dateMiseAJour || 0).getTime() - new Date(b.dateMiseAJour || 0).getTime();
         case 'update-desc':
-          return new Date(b.dateMiseAJour).getTime() - new Date(a.dateMiseAJour).getTime();
+          return new Date(b.dateMiseAJour || 0).getTime() - new Date(a.dateMiseAJour || 0).getTime();
         default:
           return 0;
       }
