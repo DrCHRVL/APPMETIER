@@ -5,6 +5,7 @@ import { electronStorage } from '@/services/storage/electronStorage';
 import { ElectronBridge } from '@/utils/electronBridge';
 import { Enquete } from '@/types/interfaces';
 import { audienceSyncService } from '@/utils/dataSync/AudienceSyncService';
+import { UserManager } from '@/utils/userManager';
 import {
   LEGACY_CONTENTIEUX_ID,
   buildResultatKey,
@@ -34,7 +35,13 @@ const readFreshFromStorage = async (): Promise<Record<string, ResultatAudience>>
 // Lecture des paires (contentieuxId, enqueteId) existantes pour le cleanup.
 const readEnquetePairsForCleanup = async (): Promise<Set<string>> => {
   try {
-    const contentieuxIds = ['crimorg', 'ecofi', 'enviro'];
+    // Liste dynamique : un contentieux ajouté par l'admin (au-delà des trois
+    // historiques) doit être pris en compte, sinon ses brouillons de saisies
+    // pré-archivage seraient purgés à tort par le cleanup (30 s). On unionne
+    // avec les trois de base par sécurité — getAllContentieux() retombe déjà
+    // sur DEFAULT_CONTENTIEUX (ces trois-là) si la config n'est pas chargée.
+    const configuredIds = UserManager.getInstance().getAllContentieux().map(c => c.id);
+    const contentieuxIds = Array.from(new Set([...configuredIds, 'crimorg', 'ecofi', 'enviro']));
     const pairs = new Set<string>();
     for (const cId of contentieuxIds) {
       const data = await ElectronBridge.getData<Enquete[]>(`ctx_${cId}_enquetes`, []);
