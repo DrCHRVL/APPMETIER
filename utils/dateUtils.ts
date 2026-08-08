@@ -103,34 +103,6 @@ export const DateUtils = {
     }
   },
 
-  calculateInitialEndDate: (poseDate: string, duration: string): string => {
-    try {
-      const days = parseInt(duration);
-      if (isNaN(days) || days <= 0) return '';
-      const pose = parseISO(poseDate);
-      if (isNaN(pose.getTime())) return '';
-      const endDate = addDays(pose, days);
-      return format(endDate, 'yyyy-MM-dd');
-    } catch (error) {
-      console.error('Error calculating initial end date:', error);
-      return '';
-    }
-  },
-
-  calculateProlongationEndDate: (initialEndDate: string, prolongationDuration: string): string => {
-    try {
-      const days = parseInt(prolongationDuration);
-      if (isNaN(days) || days <= 0) return '';
-      const end = parseISO(initialEndDate);
-      if (isNaN(end.getTime())) return '';
-      const newEndDate = addDays(end, days);
-      return format(newEndDate, 'yyyy-MM-dd');
-    } catch (error) {
-      console.error('Error calculating prolongation end date:', error);
-      return '';
-    }
-  },
-
   isValidDate: (date: string | null): boolean => {
     if (!date) return false;
     try {

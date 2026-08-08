@@ -2,6 +2,7 @@
 import { ElectronBridge } from './electronBridge';
 import { APP_CONFIG } from '../config/constants';
 import { StorageValidator } from './storage/validator';
+import { UserManager } from './userManager';
 
 class BackupManager {
   // Configuration des sauvegardes
@@ -45,6 +46,21 @@ class BackupManager {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Clés `ctx_<id>_<suffixe>` de TOUS les contentieux configurés (pas seulement
+   * les trois historiques) : un contentieux ajouté par l'admin doit être inclus
+   * dans les sauvegardes sélectives, sinon ses enquêtes / alertes / résultats
+   * d'audience en seraient absents. La liste vient de la config (fonctionne en
+   * mode web comme electron) et retombe sur DEFAULT_CONTENTIEUX si non chargée.
+   */
+  private static getContentieuxDataKeys(): string[] {
+    const ids = UserManager.getInstance().getAllContentieux().map(c => c.id);
+    const allIds = Array.from(new Set([...ids, ...BackupManager.CONTENTIEUX_IDS]));
+    return allIds.flatMap(ctx =>
+      BackupManager.CONTENTIEUX_SUFFIXES.map(suffix => `ctx_${ctx}_${suffix}`)
+    );
   }
 
   private backupTimerId: NodeJS.Timeout | null = null;
@@ -313,7 +329,11 @@ class BackupManager {
       // et leurs tombstones instructions_deleted__<user>), découvertes
       // dynamiquement car le nom dépend de l'utilisateur Windows.
       const dynamicKeys = await BackupManager.getInstructionKeys();
-      const allKeys = [...BackupManager.MAIN_DATA_KEYS, ...dynamicKeys];
+      const allKeys = Array.from(new Set([
+        ...BackupManager.MAIN_DATA_KEYS,
+        ...BackupManager.getContentieuxDataKeys(),
+        ...dynamicKeys,
+      ]));
 
       for (const key of allKeys) {
         const data = await ElectronBridge.getData(key, null);

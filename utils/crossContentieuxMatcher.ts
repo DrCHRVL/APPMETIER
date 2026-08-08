@@ -274,10 +274,16 @@ export function findCrossMatches(
     }
   }
 
-  // Dédupliquer (même paire d'enquêtes, même type, même valeur)
+  // Dédupliquer (même paire d'enquêtes, même type, même valeur).
+  // La clé doit inclure le contentieux de chaque côté : les IDs d'enquête
+  // repartent de 1 par contentieux (cf. useEnquetesStore), donc un ID seul
+  // entre en collision entre contentieux et masquerait de vrais rapprochements.
   const seen = new Set<string>();
   const unique = matches.filter(m => {
-    const ids = [m.enqueteA.id, m.enqueteB.id].sort().join('-');
+    const ids = [
+      `${m.enqueteA.contentieuxId}#${m.enqueteA.id}`,
+      `${m.enqueteB.contentieuxId}#${m.enqueteB.id}`,
+    ].sort().join('-');
     const key = `${m.type}:${ids}:${m.normalizedValue}`;
     if (seen.has(key)) return false;
     seen.add(key);
