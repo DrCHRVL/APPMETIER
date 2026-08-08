@@ -17,6 +17,7 @@
 
 import { Enquete } from '@/types/interfaces';
 import { formatDateLong } from '@/utils/clotureDocument';
+import { escapeHtml, toHtmlLines } from '@/utils/documents/htmlEscape';
 
 /**
  * Trame de rédaction éditable du SAS. Les libellés statiques (en-tête, objet,
@@ -204,15 +205,7 @@ export const buildSasText = (
   ].join('\n');
 };
 
-const escapeHtml = (s: string): string =>
-  s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-/** Convertit les retours à la ligne d'un champ en sauts HTML. */
-const toHtmlLines = (s: string): string =>
-  escapeHtml(s).replace(/\n/g, '<br />');
+// escapeHtml / toHtmlLines : voir utils/documents/htmlEscape.ts (mutualisé).
 
 /**
  * Version HTML mise en forme du SAS, destinée à `downloadAsDocx`.

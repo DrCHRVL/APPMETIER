@@ -8,6 +8,7 @@
 // Tout est généré côté client : aucune donnée ne sort de l'application.
 
 import { Enquete } from '@/types/interfaces';
+import { escapeHtml, toHtmlLines } from '@/utils/documents/htmlEscape';
 
 /**
  * Trame de rédaction éditable du soit-transmis JLD. Les libellés statiques
@@ -138,15 +139,7 @@ export const buildClotureText = (
   ].join('\n');
 };
 
-const escapeHtml = (s: string): string =>
-  s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-/** Convertit les retours à la ligne d'un champ en paragraphes/sauts HTML. */
-const toHtmlLines = (s: string): string =>
-  escapeHtml(s).replace(/\n/g, '<br />');
+// escapeHtml / toHtmlLines : voir utils/documents/htmlEscape.ts (mutualisé).
 
 /**
  * Version HTML mise en forme du soit-transmis, destinée à `downloadAsDocx`.

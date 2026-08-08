@@ -180,7 +180,12 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
         if (parts.length === 3) {
           const [day, month, year] = parts;
           const fullYear = year.length === 2 ? `20${year}` : year;
-          return new Date(`${fullYear}-${month}-${day}`);
+          // Zéro-padding indispensable : « 2024-6-5 » est Invalid Date sur
+          // JavaScriptCore (Safari / PWA iPhone), seul « 2024-06-05 » est ISO
+          // (même correctif que alertManager.ts). Sans lui, la mesure est
+          // rejetée par `if (!dateDebut)` et l'alerte de délai AIR ne se
+          // déclenche jamais sur iOS.
+          return new Date(`${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
         }
         return null;
       }
