@@ -83,7 +83,8 @@ function parseDelimited(text: string, delimiter: string): string[][] {
 
 function readCsv(text: string): string[][] {
   text = text.replace(/^﻿/, '');
-  const firstLine = text.slice(0, text.indexOf('\n'));
+  const nl = text.indexOf('\n');
+  const firstLine = nl < 0 ? text : text.slice(0, nl);
   const delimiter = firstLine.split(';').length > firstLine.split(',').length ? ';' : ',';
   return parseDelimited(text, delimiter);
 }

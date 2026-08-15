@@ -24,7 +24,9 @@ export async function POST(req: Request, { params }: { params: { enquete: string
     if (typeof rel !== 'string' || typeof b64 !== 'string') {
       return jsonResponse({ error: 'rel et b64 requis' }, { status: 400 })
     }
-    if (b64.length > 70 * 1024 * 1024) return jsonResponse({ error: 'Document trop volumineux (50 Mo max)' }, { status: 413 })
+    // Borne sur la taille réelle du document (le base64 pèse ~+33 %) pour que
+    // la limite corresponde au message affiché.
+    if (Buffer.byteLength(b64, 'base64') > 50 * 1024 * 1024) return jsonResponse({ error: 'Document trop volumineux (50 Mo max)' }, { status: 413 })
     const content = Buffer.from(b64, 'base64')
     const meta = await saveDoc(session.tj, params.enquete, rel, content, { savedBy: session.u, category, originalName })
     await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: session.u, action: 'doc.save', details: { tj: session.tj, enquete: params.enquete, rel } })

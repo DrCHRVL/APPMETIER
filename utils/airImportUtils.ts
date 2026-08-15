@@ -116,12 +116,12 @@ export interface MappingResult {
 }
 
 // 🎯 FONCTION DE FORMATAGE DES DATES SIMPLIFIÉE
-export const formatDateIfNeeded = (value: any): string => {
+export const formatDateIfNeeded = (value: any, pivotBirthYear = false): string => {
   if (!value) return '';
-  
+
   const str = String(value).trim();
   if (!str || str === 'null' || str === 'undefined') return '';
-  
+
 // 🔧 AJOUT : Ignorer les transferts
 if (str.toUpperCase().includes('TRANSFERE')) {
   return '';
@@ -129,7 +129,11 @@ if (str.toUpperCase().includes('TRANSFERE')) {
   // 🎯 CAS PRINCIPAL : Format DD/MM/YY (format Excel standard)
   if (/^\d{1,2}\/\d{1,2}\/\d{2}$/.test(str)) {
     const [day, month, year] = str.split('/');
-    return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/20${year}`;
+    // Pour une date de naissance, un « 65 » désigne 1965 et non 2065 : on
+    // pivote sur l'année en cours. Les autres dates (réception, convocation…)
+    // restent en 20YY comme avant.
+    const century = pivotBirthYear && Number(year) > (new Date().getFullYear() % 100) ? '19' : '20';
+    return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${century}${year}`;
   }
   
   // 🎯 CAS SECONDAIRE : Déjà au bon format DD/MM/YYYY
@@ -421,8 +425,8 @@ export const parseAIRDataRowWithMapping = (
         String(row[mapping.adresse] || '').trim() : undefined,
       telephone: mapping.telephone !== undefined ? 
         String(row[mapping.telephone] || '').trim() : undefined,
-      dateNaissance: mapping.dateNaissance !== undefined ? 
-        formatDateIfNeeded(row[mapping.dateNaissance]) : undefined,
+      dateNaissance: mapping.dateNaissance !== undefined ?
+        formatDateIfNeeded(row[mapping.dateNaissance], true) : undefined,
       lieuNaissance: mapping.lieuNaissance !== undefined ? 
         String(row[mapping.lieuNaissance] || '').trim() : undefined,
       secteurGeographique: mapping.secteurGeographique !== undefined ? 
@@ -583,43 +587,12 @@ export const fusionnerFaits = (faits1?: string, faits2?: string): string => {
 export const parseNumber = (value: any): number => {
   if (typeof value === 'number') return value;
   if (!value) return 0;
-  
-  const cleaned = String(value).replace(/[^\d]/g, '');
-  const parsed = parseInt(cleaned, 10);
-  
+
+  // Conserver le séparateur décimal (virgule FR ou point) et le signe : sans
+  // cela, « 1,5 » devenait 15 et « -3 » devenait 3 (chiffres agglutinés).
+  const cleaned = String(value).replace(',', '.').replace(/[^\d.-]/g, '');
+  const parsed = parseFloat(cleaned);
+
   return isNaN(parsed) ? 0 : parsed;
 };
 
-// 🔄 FONCTIONS DE COMPATIBILITÉ (pour maintenir l'ancien code)
-
-/**
- * @deprecated Utilisez getBestMapping() à la place
- * Fonction de compatibilité pour l'ancien code
- */
-export const findHeaderRowIndex = (data: any[][]): number => {
-  const validation = validateFileStructure(data);
-  return validation.headerRowIndex ?? AIR_IMPORT_CONFIG.HEADER_ROW_INDEX;
-};
-
-/**
- * @deprecated Utilisez parseAIRExcelDataImproved() à la place
- * Fonction de compatibilité pour l'ancien code
- */
-export const parseAIRDataRow = (row: any[], rowIndex: number): AIRImportData | null => {
-  return parseAIRDataRowWithMapping(row, rowIndex, FIXED_AIR_COLUMN_MAPPINGS);
-};
-
-/**
- * @deprecated Utilisez parseAIRExcelDataImproved() à la place
- * Fonction de compatibilité pour l'ancien code
- */
-export const parseAIRExcelData = (
-  jsonData: any[][],
-  sheetName: string = ''
-): { data: AIRImportData[], errors: string[] } => {
-  const result = parseAIRExcelDataImproved(jsonData, sheetName);
-  return {
-    data: result.data,
-    errors: result.errors
-  };
-};

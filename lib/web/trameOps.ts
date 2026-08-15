@@ -205,10 +205,13 @@ function opBaliserAuto(zip: PizZip, res: TrameOpResult): void {
   let xml = f.asText();
   const before = xml;
   // OBJET : ajoute {{OBJET}} dans le paragraphe qui commence par « Objet »
+  let objetInjected = false;
   if (!xml.includes('{{OBJET}}')) {
-    xml = xml.replace(/(<w:p\b(?:(?!<\/w:p>).)*?Objet(?:(?!<\/w:p>).)*?)(<\/w:p>)/s, (m, a, b) => (
-      /Objet/.test(paraText(m)) ? `${a}<w:r><w:t xml:space="preserve"> {{OBJET}}</w:t></w:r>${b}` : m
-    ));
+    xml = xml.replace(/(<w:p\b(?:(?!<\/w:p>).)*?Objet(?:(?!<\/w:p>).)*?)(<\/w:p>)/s, (m, a, b) => {
+      if (!/Objet/.test(paraText(m))) return m;
+      objetInjected = true;
+      return `${a}<w:r><w:t xml:space="preserve"> {{OBJET}}</w:t></w:r>${b}`;
+    });
   }
   // CORPS : premier paragraphe « vide » (texte réduit à un point ou rien) après l'objet
   if (!xml.includes('{{CORPS}}')) {
@@ -228,7 +231,7 @@ function opBaliserAuto(zip: PizZip, res: TrameOpResult): void {
     if (injected) res.applied.push('{{CORPS}} posée');
     else res.warnings.push('emplacement du corps non trouvé — placez {{CORPS}} à la main');
   }
-  if (xml !== before) { zip.file('word/document.xml', xml); if (xml.includes('{{OBJET}}')) res.applied.push('{{OBJET}} posée'); }
+  if (xml !== before) { zip.file('word/document.xml', xml); if (objetInjected) res.applied.push('{{OBJET}} posée'); }
   else res.warnings.push('balisage auto : rien à ajouter');
 }
 

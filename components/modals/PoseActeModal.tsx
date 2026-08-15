@@ -108,8 +108,7 @@ export const PoseActeModal = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Submit with date:", date);
-    
+
     if (!date) {
       setError('Veuillez sélectionner une date');
       return;
@@ -117,7 +116,6 @@ export const PoseActeModal = ({
 
     try {
       if (validatePoseDate(date)) {
-        console.log("Date validated, calling onConfirm with:", date);
         onConfirm(date);
         showToast('Date de pose enregistrée', 'success');
         setTimeout(() => {

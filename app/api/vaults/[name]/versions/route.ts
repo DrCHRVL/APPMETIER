@@ -7,7 +7,8 @@ export async function GET(req: Request, { params }: { params: { name: string } }
   return handle(async () => {
     const session = requireTjSession(req)
     if (!isSafeName(params.name)) return jsonResponse({ error: 'Nom invalide' }, { status: 400 })
-    // Historique d'un trousseau personnel : réservé au titulaire (ou admin).
+    // Historique d'un trousseau personnel : réservé au seul titulaire (les
+    // administrateurs en sont volontairement exclus).
     const keyring = /^keyring-(.+)$/.exec(params.name)
     if (keyring && keyring[1] !== session.u) {
       return jsonResponse({ error: 'Lecture non autorisée sur ce trousseau' }, { status: 403 })
