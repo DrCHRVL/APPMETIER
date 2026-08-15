@@ -25,6 +25,7 @@
 
 import { PAPETERIE } from './papeterie'
 import type { TrameFormeType, TrameVars } from './trameFill'
+import { escapeHtml } from '@/utils/documents/htmlEscape'
 import { parseMarqueur, formatMarqueur } from '@/lib/stats/graphiqueMarqueur.mjs'
 import { parseDiagramme, formatDiagramme } from '@/lib/stats/diagrammeMarqueur.mjs'
 import type { GraphiqueResolu } from './graphiquesActe'
@@ -91,10 +92,6 @@ export interface ActeExportable {
   /** Objet de l'acte (n° de ligne interceptée, objet géolocalisé…) — dernier segment, si présent. */
   objet?: string
   updatedAt?: string
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 /** Mise en forme légère héritée des trames (déjà échappée en amont). */

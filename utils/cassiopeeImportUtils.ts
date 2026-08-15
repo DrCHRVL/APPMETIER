@@ -69,13 +69,16 @@ export const normalizeNom = (nom: string | undefined | null): string =>
  * tête comme « 3/02/2026 ») vers l'ISO AAAA-MM-JJ utilisé par les `<input
  * type="date">` et le modèle. Renvoie '' si non reconnue.
  */
-export const parseFrDate = (raw: string | undefined | null): string => {
+export const parseFrDate = (raw: string | undefined | null, pivotBirthYear = false): string => {
   if (!raw) return '';
   const str = String(raw).trim().replace(/^le\s+/i, '');
   const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
   if (!m) return '';
   const [, dd, mm, yyRaw] = m;
-  const year = yyRaw.length === 2 ? `20${yyRaw}` : yyRaw;
+  // Une année sur 2 chiffres pour une date de naissance (« 65 ») désigne 1965,
+  // pas 2065 : on pivote sur l'année en cours. Les autres dates restent en 20YY.
+  const century = pivotBirthYear && Number(yyRaw) > (new Date().getFullYear() % 100) ? '19' : '20';
+  const year = yyRaw.length === 2 ? `${century}${yyRaw}` : yyRaw;
   const day = dd.padStart(2, '0');
   const month = mm.padStart(2, '0');
   if (Number(month) < 1 || Number(month) > 12) return '';
@@ -237,7 +240,7 @@ export const parsePersonnesTable = (text: string): ParsedPersonne[] => {
     if (!nom) continue;
 
     const dateCell = cells.find(c => DATE_CELL_RE.test(c));
-    const dateNaissance = dateCell ? parseFrDate(dateCell) : undefined;
+    const dateNaissance = dateCell ? parseFrDate(dateCell, true) : undefined;
     const mineur = cells.some(c => normalizeText(c) === 'min');
 
     // Avocat = cellule contenant un « ; » (liste d'avocats).

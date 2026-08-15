@@ -3,8 +3,15 @@ import { readDoc, deleteDoc, appendLog, isSafeName, isSafeRelPath } from '@/lib/
 
 export const dynamic = 'force-dynamic'
 
+function safeDecode(s: string): string {
+  // Un pourcentage isolé (« % zz ») fait lever URIError à decodeURIComponent :
+  // on renvoie alors le segment brut, qu'isSafeRelPath rejettera en 400 plutôt
+  // que de laisser l'exception remonter en 500.
+  try { return decodeURIComponent(s) } catch { return s }
+}
+
 function relOf(parts: string[]): string {
-  return parts.map(decodeURIComponent).join('/')
+  return parts.map(safeDecode).join('/')
 }
 
 export async function GET(req: Request, { params }: { params: { enquete: string, path: string[] } }) {
