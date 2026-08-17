@@ -11,6 +11,8 @@ import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
 import { Enquete, AlertRule, Alert, AlertValidation, VisualAlertRule } from '@/types/interfaces';
 import { ResultatAudience } from '@/types/audienceTypes';
 import { TagDefinition } from '@/config/tags';
+import { repairArchiveState } from '@/utils/archiveState';
+import { buildResultatLookup } from '@/utils/archiveStateIO';
 
 // ──────────────────────────────────────────────
 // TYPES INTERNES
@@ -304,7 +306,35 @@ export class ContentieuxManager {
         ElectronBridge.getData(storageKey(contentieuxId, 'audienceResultats'), {} as Record<string, ResultatAudience>),
       ]);
 
-    return { enquetes, customTags, alertRules, alerts, alertValidations, visualAlertRules, audienceResultats };
+    // Remise en cohérence de l'état d'archivage avant toute exposition des
+    // données : une enquête archivée par un collègue pouvait revenir « en
+    // cours » sur ce poste (ancienne fusion arbitrée sur dateMiseAJour) tout en
+    // gardant son résultat d'audience — elle apparaissait alors sur la grille
+    // et dans les audiences en attente, mais jamais dans les enquêtes
+    // terminées. La correction est persistée pour que tous les lecteurs
+    // (grille, Overboard, stats) voient le même état.
+    const resultatOf = await buildResultatLookup(contentieuxId);
+    const { enquetes: repairedEnquetes, repaired } = repairArchiveState(
+      Array.isArray(enquetes) ? enquetes : [],
+      resultatOf,
+    );
+    if (repaired.length > 0) {
+      console.warn(
+        `🗄️ ContentieuxManager[${contentieuxId}]: état d'archivage rétabli sur ${repaired.length} enquête(s)`,
+        repaired.map(e => `${e.numero} → ${e.statut}`),
+      );
+      await this.saveContentieuxKey(contentieuxId, 'enquetes', repairedEnquetes).catch(() => {});
+    }
+
+    return {
+      enquetes: repairedEnquetes,
+      customTags,
+      alertRules,
+      alerts,
+      alertValidations,
+      visualAlertRules,
+      audienceResultats,
+    };
   }
 
   private async saveContentieuxKey<T>(contentieuxId: ContentieuxId, key: string, value: T): Promise<void> {

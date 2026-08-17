@@ -5,6 +5,7 @@ import { ResultatAudience } from '@/types/audienceTypes';
 import { SyncData, SyncConflict } from '@/types/dataSyncTypes';
 import { TagRequest } from '@/utils/tagRequestManager';
 import { mergeModifications, mergeLastViewedBy } from '@/utils/modificationLogger';
+import { resolveArchiveState } from '@/utils/archiveState';
 
 /**
  * Service de fusion des données pour la synchronisation
@@ -206,6 +207,12 @@ export class DataMergeService {
       // (actualisation attaché adoptée sans divergence) → forcer l'écriture locale.
       if (mergeResult.merged.description !== localEnquete.description) stats.serverHasNewer = true;
 
+      // L'état d'archivage résolu diverge d'un côté ou de l'autre : il faut
+      // écrire (et pousser) même si les `dateMiseAJour` sont identiques, sinon
+      // un archivage rétabli resterait invisible d'un côté de la synchro.
+      if (mergeResult.merged.statut !== localEnquete.statut)  stats.serverHasNewer = true;
+      if (mergeResult.merged.statut !== serverEnquete.statut) stats.localHasNewer  = true;
+
       // Compter les nouveaux actes récupérés
       const localActeCount = (localEnquete.actes?.length ?? 0) + (localEnquete.ecoutes?.length ?? 0) + (localEnquete.geolocalisations?.length ?? 0);
       const mergedActeCount = (mergeResult.merged.actes?.length ?? 0) + (mergeResult.merged.ecoutes?.length ?? 0) + (mergeResult.merged.geolocalisations?.length ?? 0);
@@ -275,23 +282,24 @@ export class DataMergeService {
     const newer = localIsNewer ? local : server;
     const older = localIsNewer ? server : local;
 
-    // Résolution du conflit d'archivage :
-    // Si dateArchivage d'un côté est plus récente que le dateMiseAJour de l'autre côté (qui était en_cours),
-    // l'archivage gagne. Cela évite qu'une mise à jour anodine (CR, MEC…) sur une machine non synchronisée
-    // n'écrase un archivage effectué sur une autre machine.
-    const localArchiveTs  = local.dateArchivage  ? new Date(local.dateArchivage).getTime()  : 0;
-    const serverArchiveTs = server.dateArchivage ? new Date(server.dateArchivage).getTime() : 0;
-    let mergedStatut: Enquete['statut'] = newer.statut;
-    let mergedDateArchivage: string | undefined = newer.dateArchivage;
-    if (localArchiveTs > 0 && localArchiveTs >= serverTs) {
-      // L'archivage local est postérieur à la dernière modif serveur → archive l'emporte
-      mergedStatut = 'archive';
-      mergedDateArchivage = local.dateArchivage;
-    } else if (serverArchiveTs > 0 && serverArchiveTs >= localTs) {
-      // L'archivage serveur est postérieur à la dernière modif locale → archive l'emporte
-      mergedStatut = 'archive';
-      mergedDateArchivage = server.dateArchivage;
-    }
+    // Résolution de l'état d'archivage.
+    // Elle ne repose PLUS sur `dateMiseAJour` : ce timestamp bouge à chaque
+    // édition (CR, MEC, acte…), si bien qu'une modification anodine effectuée
+    // sur une copie non synchronisée annulait l'archivage fait par un collègue
+    // — l'enquête revenait dans les enquêtes en cours en gardant son résultat
+    // d'audience, invisible dans les enquêtes terminées. On tranche désormais
+    // sur les marqueurs propres à l'archivage (dateArchivage /
+    // dateDesarchivage) et sur les évènements du journal fusionné, qui portent
+    // l'historique des DEUX copies (cf. utils/archiveState.ts).
+    const mergedModifications = mergeModifications(local.modifications, server.modifications);
+    const archiveState = newer.statut === 'instruction'
+      ? null // dossier passé à l'instruction : cycle de vie propre, on n'y touche pas
+      : resolveArchiveState(local, server, mergedModifications);
+    const mergedStatut: Enquete['statut'] = archiveState?.statut ?? newer.statut;
+    const mergedDateArchivage = archiveState ? archiveState.dateArchivage : newer.dateArchivage;
+    const mergedDateDesarchivage = archiveState
+      ? archiveState.dateDesarchivage
+      : (newer.dateDesarchivage || older.dateDesarchivage);
 
     // Actualisation de la description par l'attaché (synthèse des faits qui
     // s'enrichit à chaque élément nouveau). La description est un champ scalaire :
@@ -320,6 +328,7 @@ export class DataMergeService {
         ...(descOverride || {}),
         statut: mergedStatut,
         dateArchivage: mergedDateArchivage,
+        dateDesarchivage: mergedDateDesarchivage,
         // Union des sous-éléments par ID (on ne perd rien, les suppressions intentionnelles sont respectées)
         comptesRendus: this.unionById(
           local.comptesRendus.filter(cr => !deletedCRs.has(cr.id)),
@@ -355,7 +364,7 @@ export class DataMergeService {
         toDos: newer.toDos || older.toDos,
         // Suivi des modifications inter-utilisateurs : union par id (pas de perte
         // sur écritures concurrentes), max-par-utilisateur pour `lastViewedBy`.
-        modifications: mergeModifications(local.modifications, server.modifications),
+        modifications: mergedModifications,
         lastViewedBy: mergeLastViewedBy(local.lastViewedBy, server.lastViewedBy),
         // Timestamp : garder le réel (ne pas gonfler)
         dateMiseAJour: newer.dateMiseAJour

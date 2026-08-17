@@ -392,7 +392,15 @@ return (
       e.stopPropagation();
       setShowAudienceResultModal(true);
     }}
-    title="Voir les résultats d'audience"
+    // Une enquête EN COURS qui porte un résultat d'audience a forcément été
+    // désarchivée volontairement (sinon la remise en cohérence du chargement
+    // l'aurait rebasculée dans les enquêtes terminées) : on le dit, pour ne
+    // pas laisser croire à une incohérence entre la grille et les archives.
+    title={
+      enquete.statut === 'archive'
+        ? "Voir les résultats d'audience"
+        : "Voir les résultats d'audience (enquête désarchivée : les résultats ont été conservés)"
+    }
   >
     <Gavel className="h-3 w-3" />
   </Button>

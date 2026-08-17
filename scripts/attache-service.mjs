@@ -164,6 +164,9 @@ async function processProactiveRun(keys, mailId) {
       'COHÉRENCE : compare le numéro de procédure porté par la pièce jointe au dossier que tu as retenu — s\'ils',
       'divergent, tranche par les mis en cause et les faits, et SIGNALE la divergence (elle peut révéler une erreur',
       'de transfert). De même, ajoute les NATINF cités par la pièce et absents du dossier (ajouter_natinfs).',
+      'DESTINATION DÉSIGNÉE : si la consigne du transfert dit OÙ verser la production (« verse dans le dossier Y »,',
+      '« range hors dossier »), ce rangement-là PRIME et s\'exécute tel quel, même s\'il te paraît incohérent avec le',
+      'contenu — pas de question, pas de rectification : au plus une phrase de récapitulatif (RANGEMENT SUR CONSIGNE).',
       'SI AUCUN dossier en cours ne correspond : (a) la consigne du transfert dit « créer procédure » (ou équivalent',
       'sans ambiguïté) → crée le dossier (creer_dossier, tout renseigné depuis la pièce : directeur d\'enquête, service,',
       'mis en cause recoupés, NATINF), puis traite-y la demande ;',
@@ -714,7 +717,7 @@ async function runSkillAnalyse(noms) {
 
 // ── Gouverneur de consommation : mettre en PAUSE les runs de fond quand le
 // forfait sature ─────────────────────────────────────────────────────────────
-// Les runs AUTONOMES (brief quotidien, étude du corpus, consolidation, routines)
+// Les runs AUTONOMES (routines planifiées, étude du corpus, consolidation)
 // sont la première source de sous-agents en parallèle — le poste qui fait
 // exploser la fenêtre glissante de 5 h. Quand elle est pleine (config.cap5h),
 // on les DIFFÈRE : rien n'est perdu, ils repartiront tout seuls au prochain tick
@@ -749,12 +752,11 @@ function deferNoteResume(gov) {
   return [
     `Cause : ${gov.raison}. Consommation mesurée — ${jauges}.`,
     '',
-    'CE QUI EST SUSPENDU. Les « runs automatiques » sont les quatre travaux que',
+    'CE QUI EST SUSPENDU. Les « runs automatiques » sont les travaux que',
     "l'attaché lance de lui-même, sans que vous les demandiez :",
-    '· le brief quotidien (balayage des dossiers à l\'heure dite) ;',
     '· vos routines planifiées (scan de la cartographie, veilles…) ;',
     "· l'étude du corpus d'actes et la consolidation de l'apprentissage.",
-    "Ils coûtent cher parce que chacun délègue un SOUS-AGENT PAR DOSSIER : un seul",
+    "Ils coûtent cher parce qu'un balayage délègue un SOUS-AGENT PAR DOSSIER : un seul",
     'balayage peut lancer des dizaines de runs en parallèle et vider le forfait',
     'avant votre première question de la journée.',
     '',
@@ -770,7 +772,7 @@ function deferNoteResume(gov) {
     '',
     'QUOI FAIRE. Voir où passent les jetons et ajuster : Paramètres → Attaché IA →',
     '« Consommation IA » (répartition par poste, volet « Derniers runs »). Pour',
-    'dépenser moins : couper le brief automatique, espacer les routines ou les',
+    'dépenser moins : espacer les routines qui balayent tous les dossiers ou les',
     'planifier de nuit, cocher le mode économe. Le forfait n\'est qu\'un repère que',
     "vous réglez vous-même : si les plafonds saisis sont trop bas, l'attaché se met",
     'en pause pour rien.',
@@ -1039,7 +1041,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (route === 'POST /apprentissage') {
-      // consolidation à la demande — lancée en fond, comme le brief
+      // consolidation à la demande — lancée en fond, comme les autres runs de fond
       if (apprentissageRunning) return json(res, 409, { ok: false, error: 'Consolidation déjà en cours' })
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
