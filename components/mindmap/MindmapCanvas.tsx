@@ -5,7 +5,7 @@
 
 'use client';
 
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Background,
   Controls,
@@ -451,10 +451,21 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   const positions = useForceLayout(nodes, edges, refreshKey, { groupByService, layout });
   const { setCenter, fitView } = useReactFlow();
 
+  // Recentrage : UNE SEULE fois par demande explicite (recherche, Top 10,
+  // panneau de gestion). `positions` est une Map reconstruite à chaque
+  // rebuild du graphe — or les sources distantes sont repullées en boucle
+  // par le service de contributions. Sans ce garde-fou sur `seq`, chaque
+  // sync refaisait tourner l'effet et ramenait la caméra sur le dernier
+  // nœud cherché : impossible de naviguer sans être tiré vers l'ancre.
+  const handledCenterSeqRef = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (!centerRequest) return;
+    if (handledCenterSeqRef.current === centerRequest.seq) return;
     const pos = positions.get(centerRequest.id);
+    // Layout pas encore stabilisé pour ce nœud : on ne consomme PAS la
+    // demande, un prochain calcul de positions la rejouera.
     if (!pos) return;
+    handledCenterSeqRef.current = centerRequest.seq;
     setCenter(pos.x, pos.y, { zoom: 1.2, duration: 600 });
   }, [centerRequest, positions, setCenter]);
 
