@@ -124,11 +124,15 @@ do_apply() {
 }
 
 # Périmètre d'une mise à jour : toujours l'app web ; le service attaché AUSSI
-# quand il tourne (il partage le dépôt : scripts/attache*, prompts, outils —
-# le laisser sur une vieille image désynchroniserait app et service). Les
-# déploiements sans attaché (conteneur jamais démarré) ne sont pas touchés.
+# dès qu'il EXISTE sur ce déploiement (il partage le dépôt : scripts/attache*,
+# prompts, outils — le laisser sur une vieille image désynchronise app et
+# service : le connecteur Claude web tombe alors sur « Route inconnue » au
+# POST /mcp). On inclut donc les conteneurs arrêtés ou en redémarrage en
+# boucle (-a) : c'est précisément quand l'attaché va mal qu'il faut le
+# reconstruire, pas quand il va bien. Les déploiements sans attaché
+# (conteneur jamais créé) ne sont pas touchés.
 services_to_update() {
-  if $COMPOSE ps --status running --services 2>/dev/null | grep -q '^attache$'; then
+  if $COMPOSE ps -a --services 2>/dev/null | grep -q '^attache$'; then
     echo "siral attache"
   else
     echo "siral"

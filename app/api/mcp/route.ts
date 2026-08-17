@@ -13,6 +13,10 @@
 import { handle, jsonResponse, rpFromRequest, rateLimit, clientIp } from '@/lib/server/auth'
 import { attacheFetch } from '@/lib/server/attache'
 import { connectorActive, validateAccessToken } from '@/lib/server/mcpConnector'
+import {
+  describeRelayFailure, expectsAnswer, isHandshake, messageId,
+  RELAY_TIMEOUT_HANDSHAKE_MS, RELAY_TIMEOUT_TOOL_MS,
+} from '@/lib/server/mcpRelay'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,15 +48,29 @@ export async function POST(req: Request) {
       return jsonResponse({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'JSON invalide' } }, { status: 400 })
     }
 
-    // Les outils peuvent être longs (lecture de pièces, graphiques PNG…).
-    const res = await attacheFetch('/mcp', { method: 'POST', body: message, timeoutMs: 180_000 })
+    // Les outils peuvent être longs (lecture de pièces, graphiques PNG…) ;
+    // la poignée de main, elle, doit échouer VITE et lisiblement — Claude
+    // abandonne bien avant 180 s et n'afficherait qu'« impossible de se
+    // connecter ».
+    const res = await attacheFetch('/mcp', {
+      method: 'POST',
+      body: message,
+      timeoutMs: isHandshake(message) ? RELAY_TIMEOUT_HANDSHAKE_MS : RELAY_TIMEOUT_TOOL_MS,
+    })
     if (res.status === 202) return new Response(null, { status: 202 })
     if (!res.ok) {
-      const id = Array.isArray(message) ? null : (message as { id?: unknown }).id ?? null
+      // Notification (pas d'id) : rien à répondre, même en échec.
+      if (!expectsAnswer(message)) return new Response(null, { status: 202 })
+      // 200 + erreur JSON-RPC, JAMAIS un 5xx : sur le transport « streamable
+      // HTTP », un 5xx fait conclure au client que l'URL n'est pas un serveur
+      // MCP valide — le vrai motif (attaché arrêté, image ancienne, secret de
+      // pont divergent) n'atteignait jamais le magistrat.
+      const motif = await describeRelayFailure(res)
+      console.error('[mcp] relais vers le service attaché en échec :', res.status, motif)
       return jsonResponse({
-        jsonrpc: '2.0', id,
-        error: { code: -32603, message: 'Service attaché indisponible — réessayez dans un instant' },
-      }, { status: 500 })
+        jsonrpc: '2.0', id: messageId(message),
+        error: { code: -32603, message: motif },
+      })
     }
     const out = await res.json().catch(() => null)
     if (out === null) return new Response(null, { status: 202 })
