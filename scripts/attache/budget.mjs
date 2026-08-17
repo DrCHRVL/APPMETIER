@@ -4,8 +4,8 @@
  * Le cerveau tourne sur l'ABONNEMENT Claude (Max) : pas de facture, mais un
  * FORFAIT à plafonds (fenêtre glissante de 5 h + plafond hebdomadaire). Le
  * poste qui fait exploser ces plafonds, ce sont les SOUS-AGENTS lancés en
- * parallèle par les runs AUTONOMES (brief quotidien, étude du corpus,
- * consolidation, routines) et par les mails traités. « Mode économe » réduit
+ * parallèle par les runs AUTONOMES (routines planifiées, étude du corpus,
+ * consolidation) et par les mails traités. « Mode économe » réduit
  * le COÛT D'UN run (Haiku, moins de tours) mais RIEN ne réduisait le VOLUME ni
  * la FRÉQUENCE : les runs de fond continuaient de partir même fenêtre déjà à
  * 169 % du forfait.
@@ -47,41 +47,45 @@ const pct = (used, cap) => (cap > 0 ? used / cap : 0)
 /**
  * État du gouverneur au regard des plafonds du forfait (config.cap5h /
  * config.capHebdo). Lecture seule, sans trousseau, sans appel modèle.
+ * `cause` dit LEQUEL des deux plafonds a déclenché le niveau ('5h' | '7j') :
+ * la fenêtre de 5 h redescend en quelques heures, le plafond hebdomadaire en
+ * plusieurs jours — on ne raconte pas la même chose au magistrat.
  * @param {{cap5h?:number, capHebdo?:number}} cfg
  * @param {number} [now]
- * @returns {{level:'ok'|'serrer'|'stop', pct5h:number, pct7d:number, used5h:number, used7d:number, cap5h:number, capHebdo:number, raison:string|null}}
+ * @returns {{level:'ok'|'serrer'|'stop', cause:'5h'|'7j'|null, pct5h:number, pct7d:number, used5h:number, used7d:number, cap5h:number, capHebdo:number, raison:string|null}}
  */
 export function consumptionGovernor(cfg = {}, now = Date.now()) {
   const cap5h = Number(cfg.cap5h) > 0 ? Number(cfg.cap5h) : 0
   const capHebdo = Number(cfg.capHebdo) > 0 ? Number(cfg.capHebdo) : 0
   // Aucun plafond posé : le gouverneur ne s'invente pas de limite.
   if (!cap5h && !capHebdo) {
-    return { level: 'ok', pct5h: 0, pct7d: 0, used5h: 0, used7d: 0, cap5h: 0, capHebdo: 0, raison: null }
+    return { level: 'ok', cause: null, pct5h: 0, pct7d: 0, used5h: 0, used7d: 0, cap5h: 0, capHebdo: 0, raison: null }
   }
   let s
-  try { s = usageSummary(now) } catch { return { level: 'ok', pct5h: 0, pct7d: 0, used5h: 0, used7d: 0, cap5h, capHebdo, raison: null } }
+  try { s = usageSummary(now) } catch { return { level: 'ok', cause: null, pct5h: 0, pct7d: 0, used5h: 0, used7d: 0, cap5h, capHebdo, raison: null } }
   const used5h = s.w5h?.total || 0
   const used7d = s.w7d?.total || 0
   const p5 = pct(used5h, cap5h)
   const p7 = pct(used7d, capHebdo)
 
   let level = 'ok'
-  let raison = null
+  let cause = null
   if ((cap5h && p5 >= STOP_5H) || (capHebdo && p7 >= STOP_7J)) {
     level = 'stop'
-    raison = cap5h && p5 >= STOP_5H
-      ? `fenêtre de 5 h à ${Math.round(p5 * 100)} % du forfait`
-      : `plafond hebdomadaire à ${Math.round(p7 * 100)} %`
+    cause = cap5h && p5 >= STOP_5H ? '5h' : '7j'
   } else if ((cap5h && p5 >= SERRER_5H) || (capHebdo && p7 >= SERRER_7J)) {
     level = 'serrer'
-    raison = cap5h && p5 >= SERRER_5H
-      ? `fenêtre de 5 h à ${Math.round(p5 * 100)} % du forfait`
-      : `plafond hebdomadaire à ${Math.round(p7 * 100)} %`
+    cause = cap5h && p5 >= SERRER_5H ? '5h' : '7j'
   }
-  return { level, pct5h: p5, pct7d: p7, used5h, used7d, cap5h, capHebdo, raison }
+  const raison = cause === '5h'
+    ? `fenêtre de 5 h à ${Math.round(p5 * 100)} % du forfait`
+    : cause === '7j'
+      ? `plafond hebdomadaire à ${Math.round(p7 * 100)} %`
+      : null
+  return { level, cause, pct5h: p5, pct7d: p7, used5h, used7d, cap5h, capHebdo, raison }
 }
 
-/** Le gouverneur autorise-t-il un run AUTONOME (brief, étude, consolidation, routine) ? */
+/** Le gouverneur autorise-t-il un run AUTONOME (routine, étude, consolidation) ? */
 export function autonomousAllowed(cfg, now = Date.now()) {
   return consumptionGovernor(cfg, now).level !== 'stop'
 }

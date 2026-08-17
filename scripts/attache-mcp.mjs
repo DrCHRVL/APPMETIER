@@ -31,7 +31,6 @@ import {
 } from './attache/dossier.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine } from './attache/routines.mjs'
 import { searchNatinf } from './attache/natinf.mjs'
-import { publishItems, ITEM_TYPES } from './attache/majordome.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { saveTrame, listTrames, readTrame, setTrameDescription, safeTrameName, MODELE_PREFIX } from './attache/trames.mjs'
 import { saveSkill, listSkills, readSkill, deleteSkill, safeSkillName, AUTO_SKILL_PREFIX, AUTO_SKILLS_MAX, countAutoSkills } from './attache/skills.mjs'
@@ -1163,42 +1162,8 @@ const TOOLS = [
     handler: async (a) => listerDml(keys, a.numero),
   },
   {
-    name: 'majordome_publier',
-    description: `Publie des items dans le brief du magistrat (widget du tableau de bord). Types : ${ITEM_TYPES.join(', ')}. Un projet_mail N'EST JAMAIS envoyé : le magistrat le copie et l'envoie lui-même — rédiger le corps prêt à coller (destinataire = ex. « Directeur d'enquête — GIR Amiens »). Une verification = ce que SEUL le magistrat peut faire (consulter NPP/Cassiopée…). Un appel = { qui, motif }. echeance = UNIQUEMENT ce que le tableau de bord n'affiche pas déjà seul (jamais un acte/géoloc/écoute qui expire, une pose non confirmée ou une attente JLD classique : déjà rappelés ailleurs).`,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        items: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              type: { type: 'string', enum: ITEM_TYPES },
-              titre: { type: 'string' },
-              detail: { type: 'string' },
-              dossier: { type: 'string', description: 'Numéro du dossier concerné' },
-              echeance: { type: 'string', description: 'AAAA-MM-JJ si une date butoir existe' },
-              mail: {
-                type: 'object',
-                properties: { destinataire: { type: 'string' }, objet: { type: 'string' }, corps: { type: 'string' } },
-              },
-              appel: {
-                type: 'object',
-                properties: { qui: { type: 'string' }, motif: { type: 'string' } },
-              },
-            },
-            required: ['type', 'titre'],
-          },
-        },
-      },
-      required: ['items'],
-    },
-    handler: async (a) => ({ publies: await publishItems(keys, a.items) }),
-    write: true,
-  },
-  {
     name: 'sous_agents',
-    description: 'Délègue un LOT de sous-tâches INDÉPENDANTES à des sous-agents Claude exécutés EN PARALLÈLE (24 max par lot). Chaque tâche = { titre, consigne } — la consigne doit être AUTONOME (numéro de dossier, chemin du document, attendu, format de réponse) : le sous-agent ne voit pas ta conversation. Ils ont les mêmes outils de LECTURE que toi mais AUCUNE écriture : leurs analyses te reviennent, c\'est toi qui agis. Idéal : analyser chaque PDF d\'un dossier, balayer chaque dossier du brief, évaluer chaque trame d\'un lot. Inutile pour une tâche unique ou des étapes dépendantes.',
+    description: 'Délègue un LOT de sous-tâches INDÉPENDANTES à des sous-agents Claude exécutés EN PARALLÈLE (24 max par lot). Chaque tâche = { titre, consigne } — la consigne doit être AUTONOME (numéro de dossier, chemin du document, attendu, format de réponse) : le sous-agent ne voit pas ta conversation. Ils ont les mêmes outils de LECTURE que toi mais AUCUNE écriture : leurs analyses te reviennent, c\'est toi qui agis. Idéal : analyser chaque PDF d\'un dossier, balayer chaque dossier d\'une routine, évaluer chaque trame d\'un lot. Inutile pour une tâche unique ou des étapes dépendantes.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1232,7 +1197,7 @@ const TOOLS = [
   },
   {
     name: 'depot_lister',
-    description: 'Pièces que le magistrat a CONFIÉES au dépôt (trombone du panneau) et qui attendent d\'être rangées : rel, nom d\'origine, taille, date. À vérifier quand il dit « je t\'ai déposé… » et au brief quotidien. Chaque pièce doit finir rangée (ranger_document) ou écartée (depot_ecarter).',
+    description: 'Pièces que le magistrat a CONFIÉES au dépôt (trombone du panneau) et qui attendent d\'être rangées : rel, nom d\'origine, taille, date. À vérifier quand il dit « je t\'ai déposé… ». Chaque pièce doit finir rangée (ranger_document) ou écartée (depot_ecarter).',
     inputSchema: { type: 'object', properties: {} },
     handler: async () => listDepot(),
   },
@@ -1282,7 +1247,7 @@ const TOOLS = [
   },
   {
     name: 'routine_enregistrer',
-    description: 'Crée ou met à jour une ROUTINE — quand le magistrat te confie une tâche RÉCURRENTE en conversation (« chaque matin vérifie… », « toutes les semaines fais le point… », « chaque nuit analyse… ») : c\'est TOI qui l\'enregistres, au lieu de lui demander d\'ouvrir Paramètres. Rédige le prompt de la routine comme une consigne AUTONOME et précise (le run ne verra pas cette conversation) : quoi faire, sur quels dossiers, où publier (brief via majordome_publier / livrable / signaler). heure « HH:MM » pour une quotidienne, OU intervalleHeures. Pour une tâche lourde (balayage de tous les dossiers), préfère une heure de NUIT. id pour modifier une routine existante (routine_lister). Confirme au magistrat ce que tu as enregistré (nom + cadence).',
+    description: 'Crée ou met à jour une ROUTINE — quand le magistrat te confie une tâche RÉCURRENTE en conversation (« chaque matin vérifie… », « toutes les semaines fais le point… », « chaque nuit analyse… ») : c\'est TOI qui l\'enregistres, au lieu de lui demander d\'ouvrir Paramètres. Rédige le prompt de la routine comme une consigne AUTONOME et précise (le run ne verra pas cette conversation) : quoi faire, sur quels dossiers, où remettre le travail (signaler pour une carte au fil « pendant votre absence », remettre_livrable pour une remise, proposer_* pour une écriture à valider). heure « HH:MM » pour une quotidienne, OU intervalleHeures. Pour une tâche lourde (balayage de tous les dossiers), préfère une heure de NUIT. id pour modifier une routine existante (routine_lister). Confirme au magistrat ce que tu as enregistré (nom + cadence).',
     inputSchema: {
       type: 'object',
       properties: {

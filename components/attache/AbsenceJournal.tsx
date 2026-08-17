@@ -3,7 +3,7 @@
 /**
  * SIRAL — Attaché de justice · journal « pendant votre absence » (tableau de bord).
  *
- * Pleine largeur, sous le brief du majordome. Il rassemble CE QUI A ÉTÉ FAIT en
+ * Pleine largeur, sur la page « Assistant de justice ». Il rassemble CE QUI A ÉTÉ FAIT en
  * l'absence du magistrat — hors décisions, qui restent dans le panneau
  * (« À trancher »). Les cartes sont groupées par dossier ; celles reliées à un
  * document rédigé (acte, livrable — champ `prodId`) s'ouvrent en grand pour
@@ -21,7 +21,7 @@
  * entièrement traités, et cartes d'information déjà vues depuis plus de 48 h.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Sparkles, RefreshCw, ChevronDown, ChevronUp, FileText, ArrowRight, X } from 'lucide-react';
+import { Sparkles, RefreshCw, ChevronDown, ChevronUp, FileText, ArrowRight, X, Undo2 } from 'lucide-react';
 import { ProductionPopup } from './ProductionPopup';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
@@ -85,6 +85,52 @@ const AUTO_EXPIRE_SEEN_MS = 48 * 3600_000;
 /** Clé stable d'une carte (le fil n'a pas d'id) : horodatage + titre. */
 const cardKey = (c: { ts: number; titre?: string }) => `${c.ts}|${c.titre || ''}`;
 
+/** Le serveur n'accepte qu'un lot borné d'empreintes par requête (MAX_BATCH) :
+ * un « tout ranger » sur des centaines de cartes est découpé. */
+const DISMISS_CHUNK = 300;
+
+/** Signature de CONTENU d'une carte — indépendante de son horodatage. Deux
+ * cartes qui disent exactement la même chose (le gouverneur de consommation
+ * republiait sa note de mise en pause toutes les heures : des CENTAINES de
+ * lignes identiques qui noyaient le vrai travail) sont repliées en UNE SEULE
+ * ligne portant le nombre de répétitions. */
+const contentKey = (c: FeedCard) =>
+  `${c.numero || ''}|${c.type}|${c.titre || ''}|${c.resume || ''}`;
+
+/** Un groupe de cartes identiques : la plus récente représente le lot. */
+interface CardGroup {
+  /** Carte représentative (la plus récente du lot). */
+  head: Card;
+  /** Toutes les cartes du lot, plus récente d'abord. */
+  all: Card[];
+  /** Horodatage de la plus ANCIENNE occurrence (affiché quand count > 1). */
+  firstTs: number;
+}
+
+/** Replie les cartes identiques (même dossier, type, titre et résumé). Les
+ * cartes reliées à un document (prodId) ne sont JAMAIS repliées : chacune
+ * ouvre un acte distinct. */
+function groupIdentical(list: Card[]): CardGroup[] {
+  const byContent = new Map<string, CardGroup>();
+  const out: CardGroup[] = [];
+  for (const c of list) {
+    if (c.prodId) { out.push({ head: c, all: [c], firstTs: c.ts }); continue; }
+    const k = contentKey(c);
+    const g = byContent.get(k);
+    if (!g) {
+      const fresh: CardGroup = { head: c, all: [c], firstTs: c.ts };
+      byContent.set(k, fresh);
+      out.push(fresh);
+      continue;
+    }
+    // `list` est déjà triée du plus récent au plus ancien : `head` reste la
+    // première rencontrée, et chaque nouvelle occurrence recule `firstTs`.
+    g.all.push(c);
+    g.firstTs = Math.min(g.firstTs, c.ts);
+  }
+  return out;
+}
+
 /** Empreinte opaque (SHA-256 tronqué, hex) d'une clé de carte. Seule cette
  * empreinte — jamais le titre — est envoyée au serveur : le fichier de statuts
  * partagé est en clair sur disque et ne doit rien apprendre du contenu. */
@@ -111,6 +157,12 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [prodStatus, setProdStatus] = useState<Record<string, DossierProdStatus>>({});
+  /** Dernier rangement en lot — permet de le DÉFAIRE (« Annuler »). Un « tout
+   * ranger » porte sur des centaines de cartes : il ne doit jamais être
+   * irréversible. */
+  const [lastBulk, setLastBulk] = useState<{ ids: string[]; label: string } | null>(null);
+  /** Confirmation en deux temps du « tout ranger » (pas de fenêtre modale). */
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const loadFeed = useCallback(async () => {
     setLoading(true);
@@ -133,12 +185,19 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
     }
   }, []);
 
-  const postJournal = useCallback(async (body: { dismiss?: string[]; seenTs?: number }) => {
+  const postJournal = useCallback(async (body: { dismiss?: string[]; restore?: string[]; seenTs?: number }) => {
     const res = await fetch('/api/attache/journal', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error('synchronisation refusée');
   }, []);
+
+  /** Pousse un lot d'empreintes au serveur en respectant sa borne par requête. */
+  const postIdsChunked = useCallback(async (field: 'dismiss' | 'restore', ids: string[]) => {
+    for (let i = 0; i < ids.length; i += DISMISS_CHUNK) {
+      await postJournal({ [field]: ids.slice(i, i + DISMISS_CHUNK) });
+    }
+  }, [postJournal]);
 
   // État de lecture : serveur d'abord (il fait foi entre appareils), fusionné
   // avec le cache local — qui reprend seul la main hors-ligne. Les rangements
@@ -252,19 +311,35 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
   // validation d'un acte depuis le popup…) : les cartes traitées s'effacent seules.
   useEffect(() => { if (available) loadProdStatus(cards); }, [available, cards, loadProdStatus]);
 
-  // Ranger une carte : elle disparaît du journal ICI ET SUR LES AUTRES
-  // APPAREILS (empreinte poussée au serveur). L'affichage réagit tout de
-  // suite ; si le réseau manque, le cache local garde le rangement et la
-  // synchronisation se rejouera à la prochaine visite.
-  const dismiss = useCallback((c: Card) => {
+  // Ranger une ou PLUSIEURS cartes d'un coup : elles disparaissent du journal
+  // ICI ET SUR LES AUTRES APPAREILS (empreintes poussées au serveur).
+  // L'affichage réagit tout de suite ; si le réseau manque, le cache local
+  // garde le rangement et la synchronisation se rejouera à la prochaine visite.
+  const dismissMany = useCallback((ids: string[]) => {
+    if (!ids.length) return;
     setDismissed((prev) => {
       const next = new Set(prev);
-      next.add(c.hid);
+      for (const id of ids) next.add(id);
       try { localStorage.setItem(JOURNAL_DISMISSED_KEY, JSON.stringify([...next])); } catch { /* */ }
       return next;
     });
-    postJournal({ dismiss: [c.hid] }).catch(() => { /* re-poussé à la prochaine visite */ });
-  }, [postJournal]);
+    postIdsChunked('dismiss', ids).catch(() => { /* re-poussé à la prochaine visite */ });
+  }, [postIdsChunked]);
+
+  // Défaire le dernier rangement en lot : les cartes reviennent au fil, ici et
+  // sur les autres appareils.
+  const undoBulk = useCallback(() => {
+    if (!lastBulk) return;
+    const { ids } = lastBulk;
+    setDismissed((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      try { localStorage.setItem(JOURNAL_DISMISSED_KEY, JSON.stringify([...next])); } catch { /* */ }
+      return next;
+    });
+    setLastBulk(null);
+    postIdsChunked('restore', ids).catch(() => { /* re-tenté à la prochaine visite */ });
+  }, [lastBulk, postIdsChunked]);
 
   const reload = useCallback(() => { loadFeed(); loadStatuses(); }, [loadFeed, loadStatuses]);
 
@@ -342,7 +417,7 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
   }, [available, collapsed, newestTs, pushSeen]);
 
   if (!available) return null;
-  if (journal.length === 0 && decisions === 0) return null;
+  if (journal.length === 0 && decisions === 0 && !lastBulk) return null;
 
   // Groupement par dossier. Ordre STABLE par numéro de dossier — et NON par
   // activité la plus récente : ranger une carte ne doit pas réordonner les
@@ -362,6 +437,18 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
     return a[0].localeCompare(b[0], 'fr', { numeric: true });
   });
   const nouveaux = journal.filter((c) => c.ts > seenTs).length;
+
+  // Ranger tout le fil d'un coup. Le fil se remplit de notes répétitives (le
+  // gouverneur de consommation en publiait une par heure, des jours durant) :
+  // sans geste de masse, il fallait fermer les cartes une par une.
+  const clearAll = () => {
+    // Dédoublonné : deux cartes de même horodatage ET même titre partagent leur
+    // empreinte — sans quoi le compte annoncé serait faux et le lot gonflé.
+    const ids = [...new Set(journal.map((c) => c.hid))];
+    dismissMany(ids);
+    setLastBulk({ ids, label: `${ids.length} carte${ids.length > 1 ? 's' : ''} rangée${ids.length > 1 ? 's' : ''}` });
+    setConfirmClear(false);
+  };
 
   return (
     <div className="rounded-2xl border border-[#2B5746]/20 bg-white shadow-[0_1px_2px_rgba(20,32,27,0.04)]">
@@ -392,6 +479,33 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
         )}
 
         <div className="ml-auto flex items-center gap-1">
+          {/* Tout ranger — confirmation en deux temps, puis annulable. */}
+          {journal.length > 0 && (
+            confirmClear ? (
+              <span className="flex items-center gap-1">
+                <button
+                  onClick={clearAll}
+                  className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-100"
+                >
+                  Ranger les {journal.length}
+                </button>
+                <button
+                  onClick={() => setConfirmClear(false)}
+                  className="rounded-lg px-1.5 py-1 text-[11px] text-gray-400 hover:text-gray-600"
+                >
+                  Annuler
+                </button>
+              </span>
+            ) : (
+              <button
+                onClick={() => setConfirmClear(true)}
+                title="Ranger toutes les cartes du fil (annulable)"
+                className="rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+              >
+                Tout ranger
+              </button>
+            )
+          )}
           <button onClick={reload} disabled={loading} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-50 hover:text-gray-600" title="Actualiser">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -403,6 +517,22 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
           </button>
         </div>
       </div>
+
+      {/* Rangement en lot : annulable tant que le bandeau est là. */}
+      {lastBulk && (
+        <div className="mx-5 mb-3 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[11.5px] text-gray-600">
+          <span>{lastBulk.label}.</span>
+          <button
+            onClick={undoBulk}
+            className="inline-flex items-center gap-1 font-semibold text-[#2B5746] hover:underline"
+          >
+            <Undo2 className="h-3.5 w-3.5" />Annuler
+          </button>
+          <button onClick={() => setLastBulk(null)} className="ml-auto rounded p-0.5 text-gray-300 hover:text-gray-500" title="Fermer">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Journal groupé par dossier — UNE seule colonne (et non deux) : ranger une
           carte fait juste remonter la suivante à sa place, sans réorganisation en
@@ -416,9 +546,23 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
                   {key === '__sans__' ? 'Sans dossier' : key}
                 </span>
                 <span className="ml-auto text-[10.5px] text-gray-400">{list.length} action{list.length > 1 ? 's' : ''}</span>
+                {/* Vider ce dossier seul — sans toucher au reste du fil. */}
+                <button
+                  onClick={() => {
+                    const ids = [...new Set(list.map((c) => c.hid))];
+                    dismissMany(ids);
+                    setLastBulk({ ids, label: `${ids.length} carte${ids.length > 1 ? 's' : ''} rangée${ids.length > 1 ? 's' : ''} (${key === '__sans__' ? 'sans dossier' : key})` });
+                  }}
+                  title="Ranger toutes les cartes de ce dossier (annulable)"
+                  className="rounded px-1.5 py-0.5 text-[10.5px] text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                >
+                  Tout ranger
+                </button>
               </div>
               <div className="divide-y divide-gray-50">
-                {list.map((c) => {
+                {groupIdentical(list).map((g) => {
+                  const c = g.head;
+                  const repeats = g.all.length;
                   const isDoc = !!c.prodId;
                   const isNew = c.ts > seenTs;
                   const k = cardKey(c);
@@ -441,6 +585,16 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 text-[12.5px] font-semibold text-gray-800">
                           <span className="truncate">{c.titre}</span>
+                          {/* Cartes identiques repliées : le compteur remplace
+                              les N lignes que le fil affichait auparavant. */}
+                          {repeats > 1 && (
+                            <span
+                              className="flex-shrink-0 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-gray-500"
+                              title={`${repeats} fois — la première le ${new Date(g.firstTs).toLocaleString('fr-FR')}`}
+                            >
+                              ×{repeats}
+                            </span>
+                          )}
                           {isNew && <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[#2B5746]" title="Nouveau" />}
                         </div>
                         {!isDoc && c.resume && (
@@ -456,17 +610,21 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
                             )}
                           </>
                         )}
-                        <div className="mt-0.5 text-[10px] text-gray-400">{c.at ? new Date(c.at).toLocaleString('fr-FR') : ''}</div>
+                        <div className="mt-0.5 text-[10px] text-gray-400">
+                          {c.at ? new Date(c.at).toLocaleString('fr-FR') : ''}
+                          {repeats > 1 && <span> · répétée {repeats} fois depuis le {new Date(g.firstTs).toLocaleString('fr-FR')}</span>}
+                        </div>
                       </div>
                       {onCardClick && (
                         <span className="mt-0.5 inline-flex flex-shrink-0 items-center gap-1 rounded-md border border-[#2B5746]/30 bg-emerald-50 px-2 py-1 text-[10.5px] font-semibold text-[#2B5746]">
                           <FileText className="h-3 w-3" />Ouvrir
                         </span>
                       )}
-                      {/* Ranger la carte pour éviter l'entassement (masquage local). */}
+                      {/* Ranger la carte — et, si elle est repliée, TOUTES ses
+                          répétitions d'un seul geste. */}
                       <button
-                        onClick={(e) => { e.stopPropagation(); dismiss(c); }}
-                        title="Ranger cette carte"
+                        onClick={(e) => { e.stopPropagation(); dismissMany(g.all.map((x) => x.hid)); }}
+                        title={repeats > 1 ? `Ranger ces ${repeats} cartes identiques` : 'Ranger cette carte'}
                         className="mt-0.5 flex-shrink-0 rounded p-1 text-gray-300 hover:bg-gray-100 hover:text-gray-500"
                       >
                         <X className="h-3.5 w-3.5" />

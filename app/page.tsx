@@ -1227,7 +1227,7 @@ function AppContent() {
   }, []);
 
   // Ouvre la fiche d'un dossier depuis son NUMÉRO (raccourci « Assistant de
-  // justice » : un clic sur un item du brief ou une carte du journal ouvre
+  // justice » : un clic sur une carte du journal ouvre
   // directement l'EnquêteDetail — où l'acte rédigé se retrouve dans la section
   // « Actes rédigés », éditable/exportable). Cherche dans tous les contentieux,
   // puis dans les instructions.

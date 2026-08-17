@@ -62,8 +62,9 @@ l'usage).
     l'abandon est EXPLICITE — carte d'alerte au fil, relance possible depuis
     le panneau. Un mail trop volumineux (> 40 Mo) ou une pièce jointe trop
     lourde (> 15 Mo, conservée en fiche « omise ») sont signalés au lieu
-    d'être avalés. Un brief ou une routine qui casse laisse aussi sa carte
-    d'alerte.
+    d'être avalés. Une routine qui casse laisse aussi sa carte d'alerte — en
+    disant COMBIEN de propositions avaient déjà été déposées avant
+    l'interruption, et OÙ les trancher (rien de déposé n'est jamais perdu).
 - **Le fil « Pendant votre absence » se range TOUT SEUL — et pareil sur tous
   les appareils** : une carte disparaît quand son acte relié est validé ou
   supprimé ; les cartes d'information d'un dossier entièrement traité
@@ -76,12 +77,22 @@ l'usage).
   l'acte). L'état de lecture
   (cartes rangées ✕, repère « vu ») est **partagé entre appareils** via
   `/api/attache/journal` — fichier de statuts indexé par **empreintes
-  opaques** (hash de carte), jamais de contenu, comme les statuts du
-  majordome : ranger ou consulter sur l'ordinateur vaut sur le téléphone, et
+  opaques** (hash de carte), jamais de contenu, comme les statuts des
+  questions : ranger ou consulter sur l'ordinateur vaut sur le téléphone, et
   inversement ; le localStorage n'est plus qu'un cache de secours (hors-ligne),
   re-synchronisé et migré à la visite suivante. Le journal est un fil de
   reprise, pas une archive : l'historique complet demeure dans les dossiers
   (« Actes rédigés ») et le journal d'audit.
+- **Et il se vide EN UN GESTE quand il a débordé** : bouton **« Tout ranger »**
+  du bandeau (confirmation en deux temps, puis **« Annuler »** — un geste qui
+  porte sur des centaines de cartes ne doit jamais être irréversible), et
+  « Tout ranger » par dossier dans l'en-tête de chaque groupe. Le rangement en
+  lot part au serveur par paquets et vaut, comme le reste, sur tous les
+  appareils. En prime, les cartes **strictement identiques** (même dossier,
+  même type, même titre, même résumé) sont **repliées en une seule ligne**
+  portant un compteur `×N` et la date de la première occurrence : 198 fois la
+  même note de mise en pause s'affichent désormais sur UNE ligne. Ranger cette
+  ligne les range toutes.
 - **Ne sort JAMAIS du système** : plus aucun mail sortant (les réponses vers
   les boîtes professionnelles étaient rejetées — réputation de domaine). Les
   **livrables** se remettent DANS SIRAL : carte « Livrable 📦 » du fil
@@ -128,8 +139,7 @@ l'usage).
     scan illisible est **refusé** (rien enregistré) : il demande une version
     texte.
   Doute sur l'aiguillage, le dossier ou la zone → question dans SIRAL ; pièce
-  non pertinente → corbeille du dépôt (jamais détruite). Le brief quotidien
-  vérifie qu'aucune pièce ne dort au dépôt.
+  non pertinente → corbeille du dépôt (jamais détruite).
 - **Pose ses questions DANS SIRAL — jamais par mail** : quand une
   information lui manque (un acte récent dans NPP, une orientation à
   trancher), l'attaché publie une carte **« Question ❓ »** dans le fil
@@ -266,7 +276,7 @@ l'usage).
   run — le magistrat ne voit jamais le travail non conforme. Chaque rejet
   est capté en signal d'apprentissage : une porte qui claque souvent
   devient un réflexe consolidé.
-- **Traite plusieurs choses à la fois** : conversations, brief, routines et
+- **Traite plusieurs choses à la fois** : conversations, routines et
   mails transférés cohabitent déjà ; les runs proactifs (un par mail) sont
   désormais exécutés par un **pool borné**
   (`SIRAL_ATTACHE_PROACTIVE_CONCURRENCY`, défaut 2, max 4 ; 1 = séquentiel
@@ -279,12 +289,12 @@ l'usage).
   Opus 4.8, Sonnet 5, Haiku 4.5 — ou le défaut de l'abonnement) et du **niveau
   d'effort** de raisonnement (faible → maximal), depuis le composer du chat
   ou Paramètres → Attaché IA (section « Cerveau »). Le réglage est persisté
-  et vaut pour TOUS les runs : chat, mails transférés, brief, routines.
+  et vaut pour TOUS les runs : chat, mails transférés, routines.
   S'y règle aussi le **modèle des sous-agents** (un modèle rapide — Sonnet,
   Haiku — suffit souvent pour les lots).
 - **Travaille en parallèle (sous-agents)** : pour un lot de sous-tâches
   indépendantes — analyser les 20 PDF d'un dossier, balayer chaque dossier
-  du brief quotidien, évaluer un lot de trames — l'attaché délègue à des
+  d'une routine, évaluer un lot de trames — l'attaché délègue à des
   **sous-agents Claude exécutés en parallèle** (outil `sous_agents`, 24
   tâches max, concurrence bornée, timeout par tâche : un document illisible
   ne bloque pas le lot). Garde-fous : les sous-agents sont en **lecture
@@ -309,7 +319,7 @@ l'usage).
   Paramètres → Attaché IA → **« Consommation IA »** les traduit pour un
   profane : deux jauges (fenêtre glissante de **5 h**, celle qui bride le
   plus vite, et **7 jours**) en **pourcentage du forfait**, la répartition
-  par poste (conversations, mails, brief, routines, classements,
+  par poste (conversations, mails, routines, classements,
   **sous-agents**), et l'équivalent crédits en euros. Le forfait sert de
   **repère ajustable** : l'abonnement ne publie pas ses plafonds en jetons
   (limites en messages/heures), donc les plafonds Pro / Max 5× / Max 20×
@@ -318,19 +328,17 @@ l'usage).
 - **Priorité au magistrat (demandes + mails), le fond la nuit** : répondre
   aux demandes (chat) et traiter les mails transférés (rédaction d'actes) est
   la priorité — ces runs ne sont **jamais** différés ni bridés, et leurs
-  sous-agents gardent toute leur qualité même forfait tendu. Le **brief
-  quotidien** (premier poste de dépense) est **coupé par défaut** ; les travaux
+  sous-agents gardent toute leur qualité même forfait tendu. Les travaux
   de **fond lourds** (étude du corpus d'actes, consolidation de l'apprentissage)
   sont **réservés à une fenêtre de nuit** (`SIRAL_ATTACHE_NIGHT_START` /
   `_END`, défaut 22 h → 7 h) : hors de la journée de travail, ils ne disputent
-  jamais le forfait aux actes. Les boutons du panneau (« Générer le brief »,
-  « Étudier mes actes maintenant », « Consolider maintenant ») forcent
+  jamais le forfait aux actes. Les boutons du panneau
+  (« Étudier mes actes maintenant », « Consolider maintenant ») forcent
   l'exécution à tout moment. Pour un balayage régulier sans exploser la fenêtre
   de 5 h : le planifier en **routine de nuit**.
 - **« Où passent vos jetons », lisible** : le panneau Consommation IA
-  **attribue chaque sous-agent au run qui l'a lancé** (brief, mails, étude…) —
-  fini le sac fourre-tout « lots parallèles » : on voit que ~90 % venaient du
-  brief. Un volet **« Derniers runs »** liste, horodatés, les runs récents et
+  **attribue chaque sous-agent au run qui l'a lancé** (routine, mails, étude…) —
+  fini le sac fourre-tout « lots parallèles » : on voit d'où vient la dépense. Un volet **« Derniers runs »** liste, horodatés, les runs récents et
   leurs jetons, pour repérer d'un coup d'œil ce qui a consommé et quand.
 - **Gouverneur de consommation (bridage automatique)** : le garde-fou qui
   « jugule » le forfait tout seul, sans réglage. À chaque tick, le service
@@ -340,23 +348,26 @@ l'usage).
   runs de fond, jamais le chat ni les mails :
   - **≥ 75 % de la fenêtre de 5 h** → les **lots de sous-agents** passent
     d'office en régime économe (modèle rapide, effort faible, ≤ 8 tours,
-    concurrence ramenée à 2), quel que soit l'appelant (brief, étude, mail,
+    concurrence ramenée à 2), quel que soit l'appelant (routine, étude, mail,
     chat) et **même si le mode économe est décoché** ;
-  - **≥ 100 %** → les **runs autonomes** (brief, étude, consolidation,
-    routines) sont **différés** — rien n'est perdu, ils repartent seuls au
+  - **≥ 100 %** → les **runs autonomes** (routines, étude, consolidation) sont
+    **différés** — rien n'est perdu, ils repartent seuls au
     prochain tick une fois la fenêtre redescendue ; les sous-agents encore
     lancés sont bridés au maximum (≤ 6 tours). Le **chat** et le **traitement
     des mails** (demande directe du magistrat) ne sont **jamais** mis en
     pause, seulement resserrés. Une note « Runs automatiques en pause » paraît
-    au fil (au plus une fois par heure), et le panneau « Consommation IA »
-    affiche l'état du bridage. Sans plafond configuré, le gouverneur est
+    au fil **UNE SEULE FOIS par mise en pause** — et non plus toutes les
+    heures : avec un plafond *hebdomadaire* saturé, la pause dure des jours et
+    la cadence horaire déposait des **centaines** de cartes identiques, qui
+    chassaient le vrai travail hors des 200 entrées du fil. Le repère est
+    persisté (un redémarrage du service ne relance pas de carte) et se referme
+    dès que la consommation redescend. La carte dit désormais CE QUI est
+    suspendu, POURQUOI ça coûte, QUAND ça repart (quelques heures pour la
+    fenêtre de 5 h, plusieurs jours pour le plafond hebdomadaire — l'ancien
+    texte annonçait toujours la fenêtre de 5 h, à tort) et QUOI faire. Le
+    panneau « Consommation IA » affiche l'état du bridage. Sans plafond configuré, le gouverneur est
     inerte. Seuils réglables : `SIRAL_ATTACHE_BUDGET_SERRER_5H` (0,75),
     `SIRAL_ATTACHE_BUDGET_STOP_5H` (1,0), idem `…_7J`.
-- **Brief quotidien incrémental** : le brief ne re-balaye plus **tous** les
-  dossiers chaque jour (c'était la principale hémorragie de sous-agents). Il ne
-  délègue un sous-agent qu'aux dossiers qui ont **bougé** depuis le dernier
-  brief, à ceux dont une **échéance approche**, et aux **dormants** à relancer —
-  un lot resserré au lieu de la liste entière.
 - **Mode économe (levier manuel)** : Paramètres → Attaché IA →
   « Consommation IA » → **Mode économe**. Les **sous-agents** sont le premier
   poste de dépense (un run complet par PDF/dossier, en parallèle) : le mode
@@ -405,29 +416,18 @@ l'usage).
   web, utile pour jurisprudence et textes — et RIEN d'autre : shell et
   fichiers restent interdits. Les requêtes de recherche partent alors vers
   l'extérieur : à activer en connaissance de cause, révocable d'un clic.
-- **Sert de majordome** : un **brief quotidien** **DÉSACTIVÉ par défaut**
-  (case « Brief quotidien automatique » dans Paramètres → Attaché IA →
-  Consommation IA). Le balayage matinal lançait **un sous-agent par dossier**
-  sur *tous* les dossiers — de loin le premier poste de jetons, capable de
-  vider la fenêtre de 5 h avant même que le magistrat ne travaille. Rallumé, il
-  ne balaye plus que les dossiers **qui ont bougé** ou dont une échéance
-  approche (voir « brief incrémental » ci-dessus), à l'heure configurée
-  (`SIRAL_ATTACHE_BRIEFING_HOUR`, défaut 6 h). **Recommandation** : le laisser
-  coupé et planifier le balayage en **routine de nuit**, hors de la fenêtre de
-  5 h. Le bouton **« Générer le brief »** reste disponible à la demande. Il
-  alimente un **widget du tableau de bord** visible du seul administrateur :
-  - **échéances** à préparer (actes expirants, attentes JLD, CR anciens) ;
-  - **projets de mail au directeur d'enquête** (demande de requête, point
-    d'étape, actualisation, envoi du dossier pour relecture) — RIEN ne part :
-    bouton **Copier**, c'est le magistrat qui colle et envoie ;
-  - **projets de DML actualisées**, générés à partir des anciennes DML
-    archivées dans la **zone DML** de la section documents (dossier `DML/`,
-    synchronisé avec le commun Windows comme les autres catégories) ;
-  - **vérifications que lui seul peut faire** (nouveaux actes dans NPP,
-    Cassiopée — l'attaché n'y a aucun accès et ne l'invente jamais) ;
-  - **qui appeler**, quand un mail ne suffit plus.
-  Chaque item se règle d'un geste : Copier · Traité · Ignorer. Bouton
-  « Générer le brief » pour relancer à la demande.
+- **Le « brief quotidien » a été RETIRÉ** (widget, outil `majordome_publier`,
+  balayage matinal, case « Brief quotidien automatique », route `/briefing` et
+  `SIRAL_ATTACHE_BRIEFING_HOUR`). Il lançait **un sous-agent par dossier** sur
+  *tous* les dossiers : de loin le premier poste de jetons, capable de vider la
+  fenêtre de 5 h avant même que le magistrat ne travaille — pour un rendu qui
+  doublonnait les widgets du tableau de bord (actes qui expirent, poses non
+  confirmées, attentes JLD, tous déjà affichés sans lui). Ce que l'attaché a à
+  dire arrive désormais **par le fil « pendant votre absence »** (une carte =
+  un geste), les remises par **livrable**, et les écritures par **proposition
+  ✓/✗**. Un balayage régulier se planifie en **routine** (Paramètres → Attaché
+  IA), de préférence de nuit. Les relevés de consommation antérieurs gardent
+  leur poste « Brief quotidien (retiré) » : l'historique reste lisible.
 - **Tient la description à jour, TOUT SEUL** : la description (« l'objet »)
   d'un dossier se met à jour **progressivement, en arrière-plan**, au fil de
   ce qui l'alimente — **à chaque acte/document téléversé** (l'attaché lit la
@@ -451,9 +451,9 @@ l'usage).
   dossier, admin seul) force la mise à jour **de suite** — en plus de
   l'automatique. L'ancienne description est archivée (`descriptionHistory`),
   rien n'est jamais perdu (en plus du versionnage du coffre).
-- **Relance les dossiers dormants** : tout dossier sans mouvement depuis
-  plus de 2 mois reçoit au brief un projet de mail de relance au directeur
-  d'enquête, prêt à coller.
+- **Relance les dossiers dormants** : `lister_dossiers` marque `dormant:true`
+  tout dossier sans mouvement depuis plus de 2 mois — une routine de veille en
+  tire un projet de mail de relance au directeur d'enquête, prêt à coller.
 - **Analyse transversale de renseignement (cartographie)** : sur demande
   (« analyse tous les dossiers et trouve les liens cachés ») ou en routine,
   l'attaché balaie le **corpus complet** — toutes les enquêtes (archivées
@@ -469,9 +469,13 @@ l'usage).
   ses alias), **dossiers ex nihilo** (`proposer_dossier_carto` — une grappe
   cachée, ex. « réseau autour d'un détenu de maison d'arrêt, pivot de 6
   affaires »). Le magistrat valide chaque proposition dans un **module de
-  revue** flottant (bas-gauche de la cartographie, et fil du panneau) :
-  ✓ trace sur la carte (signé de son nom), ✗ refuse. Idéal en routine
-  hebdomadaire.
+  revue** présent à TROIS endroits : flottant en bas-gauche de la
+  cartographie, dans le panneau de l'attaché, et **en tête de la page
+  « Assistant de justice »** (bloc « Proposition à valider ») — c'est là que
+  les cartes de l'attaché atterrissent, et l'on y trouve donc aussi de quoi
+  trancher ce qu'une analyse a déposé. ✓ trace sur la carte (signé de son
+  nom), ✗ refuse. Les propositions sont écrites **au fil de l'eau** : celles
+  déjà déposées survivent à un run interrompu. Idéal en routine hebdomadaire.
 - **Statistiques et bilans d'activité — il VOIT les courbes** : deux outils
   donnent à l'attaché le même regard que le magistrat sur la page
   Statistiques, sur une **période libre** (semestre, trimestre, année) :
@@ -656,7 +660,7 @@ l'usage).
   réponse du magistrat, révise l'acte dans la même conversation. Le magistrat retouche dans « Actes
   rédigés », l'exporte en PDF/Word officiel puis le **valide** une fois
   traité.
-  Le brief quotidien anticipe aussi les échéances instruction : DML en
+  Une routine de veille anticipe aussi les échéances instruction : DML en
   attente, débats JLD sans réquisitions, fins de détention proches.
 - **Analyse automatique des documents (IA)** : la fonctionnalité « Analyse
   automatique des documents » de SIRAL (détection d'actes à partir des PDF du
@@ -712,7 +716,18 @@ l'usage).
   lui-même (`routine_enregistrer`, prompt autonome, heure de nuit pour les
   balayages lourds), la suspend, la réactive ou la supprime sur demande
   (`routine_suspendre` / `routine_supprimer`) — et confirme toujours nom +
-  cadence. Une routine qui échoue laisse une carte d'alerte au fil.
+  cadence. Une routine qui échoue laisse une carte d'alerte au fil, qui dit
+  **combien de propositions avaient déjà été déposées** avant l'interruption et
+  **où les trancher** — un run tué à mi-course a presque toujours déjà écrit
+  quelque chose, et « interrompue » tout court laissait croire le contraire.
+  **Plafond de durée** : une routine n'est pas un run de chat — elle balaye et
+  délègue à des sous-agents, sans personne devant l'écran. Elle héritait
+  pourtant des 20 min d'un run de chat et se faisait tuer avant d'avoir déposé
+  son travail. Elle dispose désormais de `SIRAL_ATTACHE_ROUTINE_TIMEOUT_MIN`
+  (défaut **60 min**), et les routines qui balayent la **cartographie**
+  reçoivent d'office le plafond carto (`SIRAL_ATTACHE_CARTO_TIMEOUT_MIN`,
+  défaut **90 min**) — le même que le chat carto, qui l'avait déjà pour cette
+  raison exacte.
 - **Chat flottant par dossier** : depuis le détail d'une enquête ou d'un
   dossier d'instruction, une bulle déplaçable (admin only), toujours
   accessible même pendant la rédaction d'un CR. Une conversation par

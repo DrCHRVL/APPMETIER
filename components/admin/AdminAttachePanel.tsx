@@ -120,7 +120,7 @@ const USAGE_CATS: Record<string, { label: string; color: string }> = {
   conversations: { label: 'Vos conversations', color: '#2B5746' },
   'sous-agents': { label: 'Sous-agents (lots parallèles)', color: '#b45309' },
   mails: { label: 'Mails traités automatiquement', color: '#0e7490' },
-  brief: { label: 'Brief quotidien', color: '#6d28d9' },
+  brief: { label: 'Brief quotidien (retiré)', color: '#6d28d9' },
   routines: { label: 'Routines', color: '#be185d' },
   classements: { label: 'Classements (trames, base)', color: '#4b5563' },
   apprentissage: { label: 'Apprentissage (consolidations)', color: '#0f766e' },
@@ -316,7 +316,7 @@ export function AdminAttachePanel() {
     } catch { setConnMsg('Copie refusée par le navigateur — sélectionnez l\'URL à la main.'); }
   }, [conn]);
 
-  /** Modèle / effort / web : appliqué à TOUS les runs (chat, mails, brief, routines). */
+  /** Modèle / effort / web : appliqué à TOUS les runs (chat, mails, routines). */
   const updateConfig = useCallback(async (patch: AttacheConfig) => {
     const next = { ...config, ...patch };
     setConfig(next);
@@ -1430,7 +1430,7 @@ export function AdminAttachePanel() {
         <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
           <SlidersHorizontal className="h-4 w-4 text-[#2B5746]" />
           <span className="text-sm font-semibold text-gray-800">Cerveau</span>
-          <span className="text-[11px] text-gray-400">appliqué à tous les runs — chat, mails, brief, routines</span>
+          <span className="text-[11px] text-gray-400">appliqué à tous les runs — chat, mails, routines</span>
         </div>
         <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
           <select
@@ -1453,7 +1453,7 @@ export function AdminAttachePanel() {
             value={config.subModel || ''}
             onChange={(e) => updateConfig({ subModel: e.target.value })}
             className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-[#2B5746]/50"
-            title="Modèle des sous-agents (lots parallèles : analyse de PDF, balayage du brief, trames). Par défaut Sonnet (Haiku en mode économe) — jamais le modèle du run principal, pour ne pas lancer plusieurs runs lourds à la fois. Ne le montez que si l'analyse manque de finesse."
+            title="Modèle des sous-agents (lots parallèles : analyse de PDF, balayage d'une routine, trames). Par défaut Sonnet (Haiku en mode économe) — jamais le modèle du run principal, pour ne pas lancer plusieurs runs lourds à la fois. Ne le montez que si l'analyse manque de finesse."
           >
             {SUBMODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
@@ -1511,7 +1511,7 @@ export function AdminAttachePanel() {
             if (!u || !u.entries) {
               return (
                 <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-[12px] text-gray-500">
-                  Aucun run mesuré pour l'instant. Dès que l'attaché travaille (chat, mails, brief, sous-agents),
+                  Aucun run mesuré pour l'instant. Dès que l'attaché travaille (chat, mails, routines, sous-agents),
                   sa consommation de jetons s'affiche ici, traduite en pourcentage de votre forfait.
                 </p>
               );
@@ -1545,7 +1545,7 @@ export function AdminAttachePanel() {
                 {/* Gouverneur de consommation : bridage automatique en cours */}
                 {governor && governor.level === 'stop' && (
                   <p className="rounded-lg border border-red-200 bg-red-50/70 px-3 py-2 text-[11px] leading-relaxed text-red-700">
-                    <b>Runs automatiques en pause</b> — forfait saturé ({governor.raison}). Le brief, l'étude et les
+                    <b>Runs automatiques en pause</b> — forfait saturé ({governor.raison}). Vos routines, l'étude et les
                     routines de fond sont suspendus et repartiront seuls dès que la fenêtre de 5 h sera redescendue.
                     Vos conversations et le traitement des mails continuent (les sous-agents sont automatiquement bridés).
                   </p>
@@ -1624,8 +1624,8 @@ export function AdminAttachePanel() {
                         );
                       })}
                       <p className="pt-0.5 text-[10.5px] leading-relaxed text-amber-700">
-                        Le poste dominant vous dit quoi couper. Le <b>brief quotidien</b> (balayage matinal de tous les dossiers)
-                        se désactive plus bas ; le balayage à la demande, planifiez-le en <b>routine de nuit</b>.
+                        Le poste dominant vous dit quoi couper. Les <b>routines</b> (section Routines) sont le seul travail de
+                        fond planifié : espacez celles qui balayent tous les dossiers, ou passez-les en <b>heure de nuit</b>.
                       </p>
                     </div>
                   );
@@ -1635,8 +1635,8 @@ export function AdminAttachePanel() {
                 {subShare >= 40 && !Object.keys(w7d.sousAgentsBySource || {}).length && (
                   <p className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-[11px] leading-relaxed text-amber-700">
                     Les <b>sous-agents</b> représentent {subShare} % de votre consommation sur 7 jours : des runs lancés en
-                    parallèle (un par dossier / PDF). Le <b>brief quotidien</b> ci-dessous en est la première source — coupez-le
-                    et planifiez le balayage en routine de nuit.
+                    parallèle (un par dossier / PDF). Une <b>routine qui balaye tous les dossiers</b> en est la première source —
+                    espacez-la ou passez-la en heure de nuit.
                   </p>
                 )}
 
@@ -1721,23 +1721,6 @@ export function AdminAttachePanel() {
             </span>
           </label>
 
-          {/* Brief quotidien automatique — le PREMIER poste de dépense, coupé par défaut */}
-          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 bg-gray-50/40 px-3 py-2">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={config.briefAuto === true}
-              onChange={(e) => updateConfig({ briefAuto: e.target.checked })}
-            />
-            <span className="text-[11.5px] leading-relaxed text-gray-700">
-              <span className="font-semibold text-gray-800">Brief quotidien automatique</span>
-              {' '}— chaque matin, l&apos;attaché balaye <b>tous vos dossiers</b> en lançant <b>un sous-agent par dossier</b>
-              {' '}(les fameux « lots parallèles »). C&apos;est de loin votre premier poste de jetons. <b>Désactivé par défaut :</b>
-              {' '}tant qu&apos;il l&apos;est, aucun balayage automatique ne part le matin. Pour faire remonter les incohérences
-              sans exploser votre fenêtre de 5 h, créez plutôt une <b>routine de nuit</b> (section Routines) ; le bouton
-              {' '}« Générer le brief » reste disponible à la demande.
-            </span>
-          </label>
         </div>
       </div>
 
@@ -1967,7 +1950,7 @@ export function AdminAttachePanel() {
         ) : (
           <p className="px-3 py-3 text-xs text-gray-400">
             Vos consignes libres (l'équivalent de vos instructions Claude web) : style, méthode, réflexes.
-            L'attaché les relit avant chaque chat, mail traité, brief et routine.
+            L'attaché les relit avant chaque chat, mail traité et routine.
           </p>
         )}
       </div>
@@ -2423,7 +2406,7 @@ export function AdminAttachePanel() {
         )}
 
         {routines.length === 0 ? (
-          <p className="px-3 py-3 text-center text-xs text-gray-400">Aucune routine — le brief quotidien du majordome tourne déjà tout seul.</p>
+          <p className="px-3 py-3 text-center text-xs text-gray-400">Aucune routine — rien ne tourne en fond pour l'instant.</p>
         ) : (
           <div className="divide-y divide-gray-50">
             {routines.map((r) => (

@@ -3,7 +3,7 @@
  *
  * Un même dossier circule sous plusieurs écritures : « 85103/843/2026 »,
  * « 85103/843/2026 - GRIVESNES 2 », avec ou sans espaces… Les cartes de
- * l'attaché (journal « pendant votre absence », brief) peuvent porter
+ * l'attaché (journal « pendant votre absence », cartes signalées) peuvent porter
  * l'écriture courte : l'ouverture du dossier ET le raccrochage d'un acte
  * validé à son enquête doivent tous deux retrouver la même enquête.
  * Miroir service : scripts/attache/numero.mjs — garder les deux alignés.

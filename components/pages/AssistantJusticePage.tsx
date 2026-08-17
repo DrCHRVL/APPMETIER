@@ -4,20 +4,30 @@
  * SIRAL — Page « Assistant de justice » (attaché de justice IA).
  *
  * Regroupe, HORS du tableau de bord, tout ce que l'attaché IA prépare pour le
- * magistrat : le brief (« Votre attaché a préparé »), le journal (« Pendant
- * votre absence »), les actes rédigés hors dossier et la boîte dédiée. Le
- * tableau de bord retrouve ainsi sa lisibilité (indicateurs, OP, échéances,
- * agenda) ; l'assistant vit sur sa propre page.
+ * magistrat : les propositions à trancher, le journal (« Pendant votre
+ * absence »), les actes rédigés hors dossier et la boîte dédiée. Le tableau de
+ * bord retrouve ainsi sa lisibilité (indicateurs, OP, échéances, agenda) ;
+ * l'assistant vit sur sa propre page.
+ *
+ * Le « brief du majordome » (balayage matinal de tous les dossiers, un
+ * sous-agent par dossier) a été RETIRÉ : premier poste de dépense du forfait
+ * pour un rendu redondant avec les widgets du tableau de bord. Ce que l'attaché
+ * a à dire arrive désormais par le fil « pendant votre absence » ; un balayage
+ * régulier se planifie en routine (Paramètres → Attaché IA), de nuit.
  *
  * Visible du SEUL administrateur : l'entrée de menu est masquée pour les autres
  * comptes (voir MultiSideBar) et la vue est gardée dans app/page.tsx. Défense en
  * profondeur : chaque widget se masque déjà de lui-même si /api/attache/* ≠ 200.
  */
 import { Scale } from 'lucide-react';
-import { MajordomeWidget } from '@/components/attache/MajordomeWidget';
 import { AbsenceJournal } from '@/components/attache/AbsenceJournal';
 import { InboxWidget } from '@/components/attache/InboxWidget';
 import { ProductionsSection } from '@/components/attache/ProductionsSection';
+import { NouveauxDossiersPropositions } from '@/components/attache/NouveauxDossiersPropositions';
+
+/** Types de propositions tranchables ici (constante stable : évite un
+ * rechargement en boucle du bandeau, qui compare `kinds` par valeur). */
+const A_VALIDER_KINDS = ['dossier', 'dossier_carto', 'mec_carto', 'lien'] as const;
 
 export const AssistantJusticePage = ({ onOpenDossier }: { onOpenDossier?: (numero: string) => void }) => {
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -39,8 +49,14 @@ export const AssistantJusticePage = ({ onOpenDossier }: { onOpenDossier?: (numer
         </div>
       </div>
 
-      {/* Brief du majordome — « Votre attaché a préparé » */}
-      <MajordomeWidget onOpenDossier={onOpenDossier} />
+      {/* Propositions en attente de validation — liens de renseignement,
+          personnes et dossiers ex nihilo issus d'une analyse transversale, et
+          nouveaux dossiers extraits d'une pièce. Elles vivaient uniquement dans
+          le panneau Attaché et au bas de la Cartographie : quand une routine de
+          scan cassait, le magistrat lisait « interrompue » sans jamais trouver
+          où trancher ce qui avait malgré tout été déposé. Elles sont donc aussi
+          ici, sur la page où les cartes de l'attaché atterrissent. */}
+      <NouveauxDossiersPropositions kinds={A_VALIDER_KINDS} title="Proposition à valider" />
 
       {/* Journal « pendant votre absence » — actions préparées, documents rédigés */}
       <AbsenceJournal onOpenDossier={onOpenDossier} />

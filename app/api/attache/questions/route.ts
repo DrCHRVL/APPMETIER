@@ -1,7 +1,7 @@
 /**
  * Questions posées par l'attaché (cartes du fil avec zone de réponse).
  * Le contenu vit dans le feed chiffré ; ici, seulement les STATUTS
- * (répondu / ignoré), indexés par qid opaques — comme le majordome.
+ * (répondu / ignoré), indexés par qid opaques.
  * GET  : statuts courants.
  * POST : { id, status } — marquer répondu ou ignoré.
  */
