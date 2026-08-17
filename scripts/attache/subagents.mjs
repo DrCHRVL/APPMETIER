@@ -2,7 +2,7 @@
  * SIRAL — Attaché de justice · sous-agents (travail en parallèle).
  *
  * L'attaché peut déléguer des sous-tâches INDÉPENDANTES (analyser 20 PDF,
- * balayer les dossiers du brief, évaluer un lot de trames) à des instances
+ * balayer les dossiers d'une routine, évaluer un lot de trames) à des instances
  * Claude exécutées EN PARALLÈLE — même mécanique que les subagents de
  * Claude Code/Cowork, mais bornée à notre périmètre :
  *
@@ -39,7 +39,7 @@ const WEB_TOOLS = ['WebSearch', 'WebFetch']
 
 // Travail DIRECT du magistrat, JAMAIS bridé pour cause de forfait : le chat et
 // le traitement d'un mail (rédaction d'acte, sa priorité n°1) gardent toute la
-// qualité de leurs sous-agents. Seuls les runs de FOND (brief, étude,
+// qualité de leurs sous-agents. Seuls les runs de FOND (routines, étude,
 // consolidation, routines) subissent le gouverneur. On reconnaît le run parent
 // par SIRAL_ATTACHE_RUN, propagé au serveur MCP où tourne ce module.
 const DIRECT_RUNS = new Set(['chat', 'chat-dossier', 'chat-carto', 'proactif'])
@@ -130,7 +130,7 @@ export async function runSubagents({ taches, contexte, modele, effort }) {
   // GOUVERNEUR DE CONSOMMATION — le garde-fou qui manquait : les sous-agents en
   // parallèle sont le PREMIER poste de dépense (≈ 77 %), et rien ne les bridait
   // quand la fenêtre de 5 h du forfait était déjà pleine. Quel que soit
-  // l'appelant (brief, étude, mail, chat), si le forfait chauffe on resserre
+  // l'appelant (routine, étude, mail, chat), si le forfait chauffe on resserre
   // AUTOMATIQUEMENT le lot — modèle rapide, effort faible, moins de tours, moins
   // de parallélisme — sans jamais bloquer ni perdre de tâche (chat du magistrat
   // dégradé, jamais interrompu). C'est indépendant du mode économe : même

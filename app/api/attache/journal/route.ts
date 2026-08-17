@@ -5,7 +5,10 @@
  * rangées, et repère « vu » par utilisateur. Ranger ou consulter sur un
  * appareil (ordinateur) vaut ainsi sur tous les autres (téléphone…).
  * GET  : { dismissed: [ids…], seenTs }
- * POST : { dismiss?: [ids…], seenTs? } — le repère « vu » n'avance que vers l'avant.
+ * POST : { dismiss?: [ids…], restore?: [ids…], seenTs? } — le repère « vu »
+ *        n'avance que vers l'avant ; `restore` défait un rangement (annulation
+ *        d'un « tout ranger » : le geste porte sur des centaines de cartes,
+ *        il doit être révocable).
  */
 import { handle, jsonResponse } from '@/lib/server/auth'
 import { requireAttacheAdmin, readJournalStatuses, setJournalStatus, journalSeenId } from '@/lib/server/attache'
@@ -14,7 +17,8 @@ export const dynamic = 'force-dynamic'
 
 const ID_RE = /^[a-f0-9]{6,32}$/
 // Le feed n'expose que ses 200 dernières entrées : une rafale (migration du
-// localStorage) ne peut pas légitimement dépasser cet ordre de grandeur.
+// localStorage, « tout ranger ») ne peut pas légitimement dépasser cet ordre
+// de grandeur. Le navigateur découpe au-delà.
 const MAX_BATCH = 300
 
 export async function GET(req: Request) {
@@ -30,14 +34,19 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   return handle(async () => {
     const session = requireAttacheAdmin(req)
-    const body = await req.json().catch(() => null) as { dismiss?: unknown, seenTs?: unknown } | null
+    const body = await req.json().catch(() => null) as { dismiss?: unknown, restore?: unknown, seenTs?: unknown } | null
     if (!body) return jsonResponse({ error: 'Corps JSON requis' }, { status: 400 })
     const dismiss = Array.isArray(body.dismiss) ? body.dismiss.map(String) : []
-    if (dismiss.length > MAX_BATCH || dismiss.some((id) => !ID_RE.test(id))) {
+    const restore = Array.isArray(body.restore) ? body.restore.map(String) : []
+    const invalid = (ids: string[]) => ids.length > MAX_BATCH || ids.some((id) => !ID_RE.test(id))
+    if (invalid(dismiss) || invalid(restore)) {
       return jsonResponse({ error: 'Empreintes invalides' }, { status: 400 })
     }
     try {
       for (const id of dismiss) await setJournalStatus(id, 'range', session.u)
+      // Annulation d'un rangement : le statut redevient « actif » — la carte
+      // repasse au fil (GET ne retient que les empreintes en statut « range »).
+      for (const id of restore) await setJournalStatus(id, 'actif', session.u)
       if (body.seenTs !== undefined) {
         const ts = Math.floor(Number(body.seenTs))
         // borne haute laxiste (horloges de téléphone) : +24 h, pas plus

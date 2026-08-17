@@ -21,6 +21,8 @@ export function runCategory(run) {
   const r = String(run || '')
   if (r === 'sous-agent') return 'sous-agents'
   if (r === 'proactif') return 'mails'
+  // 'majordome' : ancien brief quotidien, retiré — conservé pour que les
+  // relevés d'usage antérieurs restent lisibles dans « Consommation IA ».
   if (r === 'majordome') return 'brief'
   if (r === 'trames-analyse' || r === 'kb-analyse' || r === 'skills-analyse' || r === 'associations-suggest') return 'classements'
   if (r === 'apprentissage' || r === 'etude') return 'apprentissage'

@@ -185,11 +185,10 @@ export const DashboardPage = ({
         </div>
       </div>
 
-      {/* Le brief de l'attaché IA (« Votre attaché a préparé »), le journal
-          « pendant votre absence », les actes rédigés hors dossier et la boîte
-          dédiée ont migré vers la page « Assistant de justice » (menu latéral,
-          administrateur uniquement) — le tableau de bord reste centré sur le
-          suivi des dossiers. */}
+      {/* Le journal « pendant votre absence », les propositions à valider, les
+          actes rédigés hors dossier et la boîte dédiée vivent sur la page
+          « Assistant de justice » (menu latéral, administrateur uniquement) —
+          le tableau de bord reste centré sur le suivi des dossiers. */}
 
       {/* Indicateurs clés du contentieux sélectionné.
           Le JLD ne voit pas les instructions : 3 indicateurs au lieu de 4. */}

@@ -1,6 +1,6 @@
 /**
  * Consignes permanentes de l'attaché — le « prompt » rédigé par le magistrat,
- * relu par l'agent au début de chaque intervention (chat, mails, brief,
+ * relu par l'agent au début de chaque intervention (chat, mails,
  * routines). Enveloppe chiffrée (clé globale) : GET pour lecture (déchiffrée
  * dans le navigateur admin), PUT pour réécriture complète (chiffrée dans le
  * navigateur ; version précédente archivée). Même modèle que la mémoire.

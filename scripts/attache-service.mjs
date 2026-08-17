@@ -211,80 +211,39 @@ async function processProactiveRun(keys, mailId) {
   }
 }
 
-// ── Brief du majordome : un run quotidien qui balaye tout ──
-const BRIEFING_HOUR = Math.min(23, Math.max(0, Number(process.env.SIRAL_ATTACHE_BRIEFING_HOUR || 6)))
-
-function briefingPrompt() {
-  return [
-    'C\'est l\'heure du brief quotidien du magistrat. Prépare son tableau de bord via majordome_publier.',
-    'MÉTHODE ÉCONOME — ne re-balaie PAS tout chaque jour : le balayage en sous-agents est de LOIN ton premier',
-    'poste de dépense, et re-analyser un dossier qui n\'a pas bougé depuis hier ne sert à rien. Commence par',
-    'lister_dossiers (il donne, par dossier : derniereMaj, joursSansCR, dormant, nombres d\'actes/CR/documents).',
-    'SÉLECTIONNE les dossiers qui méritent un examen AUJOURD\'HUI — et eux seuls :',
-    '  • activité récente (derniereMaj ou dernier CR de ces derniers jours, un document/mail arrivé depuis le dernier brief) ;',
-    '  • une échéance qui approche (mesure expirant sous ~15 j, attente JLD qui traîne) ;',
-    '  • un dossier DORMANT (dormant:true) à relancer.',
-    'Pour CES dossiers-là seulement, DÉLÈGUE le balayage à des sous-agents en parallèle (sous_agents — un lot,',
-    'une tâche par dossier ou petit groupe : chaque consigne donne le numéro et demande verifier_completude +',
-    'diagnostic_dossier + les points saillants, réponse télégraphique). Un dossier SANS changement ni échéance',
-    'ne justifie pas un sous-agent — tu l\'as déjà examiné aux briefs précédents (ta mémoire et les briefs récents',
-    'te disent ce qui a déjà été publié) : ne le re-analyse pas. Vise un lot RESSERRÉ, pas la liste entière.',
-    'Tu synthétises leurs analyses et c\'est TOI qui publies (eux ne peuvent pas écrire) :',
-    '1. echeance — NE republie PAS les actes expirant, les poses non confirmées ni les attentes JLD : le tableau de bord les affiche déjà tout seul (widgets dédiés + notifications). Publie seulement les échéances qu\'il ne voit pas (module instruction, divergence de date que ton calcul détecte) et les CR anciens : dis QUOI préparer et POUR QUAND.',
-    '2. projet_mail — pour chaque dossier qui le justifie, le mail prêt à coller au directeur d\'enquête',
-    '   (demande de requête pour prolongation, point d\'étape, actualisation, envoi du dossier pour relecture).',
-    '3. projet_dml — s\'il existe des DML archivées (lister_dml) et que le dossier a évolué depuis la dernière,',
-    '   prépare la version actualisée ; publie AUSSI une verification NPP pour les actes récents que tu ne vois pas.',
-    '4. appel — les relances où un mail ne suffit plus.',
-    '5. DOSSIERS DORMANTS (priorité haute) — ceux que lister_dossiers marque dormant:true (le seuil est CELUI de',
-    '   l\'alerte « dossier sans CR » configurée dans SIRAL, champ seuilSansCR — jamais un délai de ton choix) :',
-    '   publie le projet_mail de relance au directeur d\'enquête, prêt à coller (point d\'étape, actualisation, ou envoi',
-    '   du dossier complet pour relecture selon le cas).',
-    '6. DESCRIPTIONS PÉRIMÉES — si la description d\'un dossier ne reflète plus son état (nouveaux CR/actes/documents),',
-    '   actualise-la directement (actualiser_description) : c\'est réversible et archivé.',
-    '7. INSTRUCTION (instru_lister) — les échéances du module instruction : DML en attente (réquisitions à rendre',
-    '   avant l\'échéance +10 jours — publie une echeance, et prépare la réponse selon ta MÉTHODE DML si elle manque),',
-    '   débats JLD à venir sans réquisitions rédigées, fins de période de détention proches.',
-    '8. DÉPÔT (depot_lister) — des pièces confiées attendent encore d\'être rangées ? Range-les (MAJORDOME DES PIÈCES)',
-    '   ou pose la question qui te bloque.',
-    'Termine par signaler (type note) : un résumé du brief en 2 phrases. Sois sélectif : uniquement ce qui appelle',
-    'un geste du magistrat. Ne republie pas ce qui n\'a pas changé depuis le brief précédent (ta mémoire et les',
-    'conversations récentes t\'indiquent ce qui a déjà été publié).',
-  ].join('\n')
-}
-
-let briefingRunning = false
-async function runBriefing(trigger = 'planifié') {
-  if (briefingRunning) return { ok: false, error: 'brief déjà en cours' }
-  const keys = loadKeyring()
-  if (!keys) return { ok: false, error: 'trousseau non remis' }
-  briefingRunning = true
-  try {
-    console.log(`[attache] brief du majordome (${trigger})`)
-    const result = await runAgent({ keys, prompt: briefingPrompt(), runLabel: 'majordome', title: `Brief ${new Date().toISOString().slice(0, 10)}` })
-    await audit(keys, 'brief_majordome', { trigger, ok: result.ok, convId: result.convId, erreur: result.error })
-    await writeState({ lastBriefingAt: new Date().toISOString(), lastBriefingOk: result.ok })
-    if (!result.ok) {
-      // Même transparence que la voie mail : un brief qui casse laisse une
-      // carte — pas seulement un badge d'état que personne ne regarde.
-      await publishFeed(keys, {
-        type: 'alerte',
-        titre: 'Brief du majordome interrompu',
-        resume: `Le brief (${trigger}) a échoué : ${String(result.error || 'erreur inconnue').slice(0, 300)}. Relancez-le avec « Générer le brief », ou réduisez le lot (mode économe).`,
-      }).catch(() => {})
-    }
-    return { ok: result.ok, convId: result.convId, error: result.error }
-  } finally {
-    briefingRunning = false
-  }
-}
-
 // ── Routines du magistrat : exécutées à leur cadence, sérialisées ──
+
+// Une routine n'est PAS un run de chat : elle balaye, délègue à des sous-agents
+// (~8 min chacun) et n'a personne devant l'écran. Elle héritait pourtant du
+// plafond de 20 min d'un run de chat, ce qui la faisait tuer (« délai dépassé
+// (20 min) ») avant qu'elle n'ait déposé son travail. On lui accorde un plafond
+// propre, et le plafond CARTO à celles qui balayent la cartographie : l'analyse
+// transversale lance un sous-agent par dossier — le chat carto a déjà 90 min
+// pour cette raison exacte, une routine qui fait la même chose n'avait que 20.
+const ROUTINE_TIMEOUT_MIN = Number(process.env.SIRAL_ATTACHE_ROUTINE_TIMEOUT_MIN || 60)
+const ROUTINE_TIMEOUT_MS = Math.max(20, ROUTINE_TIMEOUT_MIN) * 60 * 1000
+/** La routine balaye-t-elle la cartographie (analyse transversale) ? */
+const CARTO_ROUTINE_RE = /cartograph|carto\b|transversal|liens? cach|recoupe|rapprochement|renseignement/i
+function routineTimeoutMs(routine) {
+  const texte = `${routine.nom || ''}\n${routine.prompt || ''}`
+  return CARTO_ROUTINE_RE.test(texte)
+    ? Math.max(ROUTINE_TIMEOUT_MS, CARTO_CHAT_TIMEOUT_MS)
+    : ROUTINE_TIMEOUT_MS
+}
+
+/** Propositions en attente de validation (✓/✗) — sert à dire au magistrat, quand
+ * un run casse, si du travail exploitable a MALGRÉ TOUT été déposé et où le
+ * trancher. Un run tué à mi-course laissait sinon croire que tout était perdu. */
+function propositionsEnAttente(keys) {
+  try { return listPropositions(keys, { enAttente: true }).length } catch { return 0 }
+}
+
 let routineRunning = false
 async function runRoutine(routine, trigger = 'planifiée') {
   const keys = loadKeyring()
   if (!keys) return { ok: false, error: 'trousseau non remis' }
   console.log(`[attache] routine « ${routine.nom} » (${trigger})`)
+  const avant = propositionsEnAttente(keys)
   // réserver l'exécution AVANT le run (évite un doublon si le run est long)
   await markRun(keys, routine.id, null)
   const prompt = [
@@ -294,28 +253,53 @@ async function runRoutine(routine, trigger = 'planifiée') {
     '',
     'OÙ REMETTRE TON TRAVAIL — tout apparaît sur la page « Assistant de justice » (visible du seul magistrat) :',
     '- Si la routine SURVEILLE les dossiers (échéances qui approchent, actes qui expirent, incohérences, attentes',
-    '  JLD qui traînent, dossiers dormants à relancer), publie chaque point au BRIEF DU TABLEAU DE BORD avec',
-    '  majordome_publier — c\'est le bloc « Brief du majordome » en HAUT de la page, là où le magistrat attend ce',
-    '  type de résultat : type echeance (avec sa date) pour une échéance, verification pour une incohérence ou un',
-    '  point à contrôler, projet_mail (prêt à coller) pour une relance au directeur d\'enquête, appel si besoin.',
-    '  Sois SÉLECTIF : un objet = un seul item, jamais un doublon de ce qui figure déjà au brief.',
+    '  JLD qui traînent, dossiers dormants à relancer) : signaler, UNE carte par point, dans le fil « pendant',
+    '  votre absence ». Dis QUOI préparer et POUR QUAND, et rattache la carte à son dossier (numero).',
+    '  Sois SÉLECTIF : un objet = une seule carte, jamais deux cartes pour la même mesure ou le même acte, et',
+    '  jamais un doublon de ce que tu as déjà signalé à l\'exécution précédente.',
+    '  N\'annonce PAS les actes qui expirent, les poses non confirmées ni les attentes JLD ordinaires : le tableau',
+    '  de bord les affiche déjà tout seul (widgets dédiés + notifications). Seulement ce qu\'il ne voit pas.',
     '- Si la consigne demande une remise (« envoie-moi », « prépare-moi », une synthèse, un projet) :',
     '  remettre_livrable (ou produire_document pour un acte à signer) — le livrable s\'affiche dans SIRAL.',
-    '- Termine par signaler (le fil « pendant votre absence », juste sous le brief) avec un résumé d\'1-2 phrases',
-    '  de ce que tu as publié. Si rien de notable : ne publie rien.',
+    '- Si tu détectes une écriture à faire (lien de renseignement, personne ou dossier ex nihilo, mis en cause,',
+    '  acte, CR), PROPOSE-la (proposer_lien, proposer_mec_carto, proposer_dossier_carto, ajouter_mec…) : le',
+    '  magistrat tranche ✓/✗ dans le panneau Attaché et sur la Cartographie. Une proposition déposée SURVIT même',
+    '  si le run est ensuite interrompu — dépose au fil de l\'eau, ne garde jamais tes trouvailles pour la fin.',
+    '- Termine par signaler : un résumé d\'1-2 phrases de ce que tu as fait. Si rien de notable : ne publie rien.',
     'Aucun mail ne part jamais.',
   ].join('\n')
-  const result = await runAgent({ keys, prompt, runLabel: `routine:${routine.nom}`, title: `Routine ${routine.nom} ${new Date().toISOString().slice(0, 10)}` })
+  const timeoutMs = routineTimeoutMs(routine)
+  const result = await runAgent({
+    keys,
+    prompt,
+    runLabel: `routine:${routine.nom}`,
+    title: `Routine ${routine.nom} ${new Date().toISOString().slice(0, 10)}`,
+    timeoutMs,
+    mcpToolTimeoutMs: timeoutMs - 120_000,
+  })
   await markRun(keys, routine.id, result.ok)
   await audit(keys, 'routine_executee', { routine: routine.nom, trigger, ok: result.ok, convId: result.convId, erreur: result.error })
   if (!result.ok) {
     // Une routine en échec ne re-tentera pas avant sa prochaine échéance : le
     // magistrat doit le voir au fil (le signaler final de l'agent n'a jamais
-    // été émis si le run est mort avant).
+    // été émis si le run est mort avant). On DIT AUSSI ce qui a survécu : un run
+    // tué à mi-course a souvent déjà déposé des propositions validables — sans
+    // cette phrase, le magistrat lisait « interrompue » et croyait tout perdu.
+    const deposees = Math.max(0, propositionsEnAttente(keys) - avant)
+    const suite = deposees > 0
+      ? `\n\nCE QUI A ÉTÉ DÉPOSÉ MALGRÉ TOUT : ${deposees} proposition${deposees > 1 ? 's' : ''} `
+        + `en attente de votre validation. Vous les tranchez ✓/✗ dans le bloc `
+        + `« Proposition à valider », en haut de cette même page « Assistant de justice » — `
+        + `également dans le panneau de l'attaché et en bas à gauche de la Cartographie. `
+        + `Rien n'est perdu : ce qui est déposé reste là.`
+      : "\n\nAucune proposition n'avait encore été déposée quand le run a été interrompu :"
+        + ' il n\'y a rien à valider pour cette exécution.'
     await publishFeed(keys, {
       type: 'alerte',
       titre: `Routine « ${routine.nom} » interrompue`,
-      resume: `L'exécution (${trigger}) a échoué : ${String(result.error || 'erreur inconnue').slice(0, 300)}. Prochaine tentative à la prochaine échéance — ou « Exécuter maintenant » depuis Paramètres → Attaché IA.`,
+      resume: `L'exécution (${trigger}) a échoué : ${String(result.error || 'erreur inconnue').slice(0, 300)}. `
+        + `Prochaine tentative à la prochaine échéance — ou « Exécuter maintenant » depuis Paramètres → Attaché IA.`
+        + suite,
     }).catch(() => {})
   }
   return { ok: result.ok, convId: result.convId, error: result.error }
@@ -336,26 +320,6 @@ async function maybeDueRoutines() {
   } finally {
     routineRunning = false
   }
-}
-
-/** Déclenche le brief quotidien à l'heure dite (vérifié à chaque tick de relève). */
-async function maybeScheduledBriefing() {
-  // Brief automatique DÉSACTIVÉ par défaut : c'est le balayage matinal de tous
-  // les dossiers (un sous-agent par dossier) qui faisait exploser la fenêtre de
-  // 5 h. Le magistrat le rallume dans Paramètres → Attaché IA, ou planifie le
-  // balayage en routine de nuit. Le bouton « Générer le brief » reste dispo.
-  if (!agentConfig().briefAuto) return
-  const now = new Date()
-  if (now.getHours() < BRIEFING_HOUR) return
-  const today = now.toISOString().slice(0, 10)
-  const state = readState()
-  if ((state.lastBriefingAt || '').slice(0, 10) === today) return
-  // Forfait saturé : on DIFFÈRE (sans réserver la date, pour retenter au prochain
-  // tick une fois la fenêtre de 5 h redescendue).
-  if (await autonomousOnHold(loadKeyring(), 'brief planifié')) return
-  // réserver la date AVANT le run (évite un double brief si le run est long)
-  await writeState({ lastBriefingAt: now.toISOString(), lastBriefingOk: null })
-  runBriefing('planifié').catch((e) => console.error('[attache] brief :', e))
 }
 
 // ── Apprentissage : consolidation périodique de la mémoire ──
@@ -771,25 +735,89 @@ function inNightWindow(now = new Date()) {
   return NIGHT_START < NIGHT_END ? (h >= NIGHT_START && h < NIGHT_END) : (h >= NIGHT_START || h < NIGHT_END)
 }
 
-const DEFER_NOTE_COOLDOWN_MS = 60 * 60 * 1000
-let lastDeferNoteAt = 0
+/** Détail de la carte de mise en pause — écrit pour être LU : ce que sont les
+ * « runs automatiques », pourquoi ils coûtent, quand ça repart, quoi faire.
+ * L'ancienne version tenait en une phrase et annonçait toujours un retour
+ * « dès que la fenêtre de 5 h sera redescendue », même quand c'était le
+ * plafond HEBDOMADAIRE qui était atteint (des jours d'attente, pas des heures). */
+function deferNoteResume(gov) {
+  const par7j = gov.cause === '7j'
+  const jauges = [
+    gov.cap5h ? `fenêtre de 5 h : ${Math.round(gov.pct5h * 100)} % du forfait` : null,
+    gov.capHebdo ? `7 jours : ${Math.round(gov.pct7d * 100)} %` : null,
+  ].filter(Boolean).join(' · ')
+  return [
+    `Cause : ${gov.raison}. Consommation mesurée — ${jauges}.`,
+    '',
+    'CE QUI EST SUSPENDU. Les « runs automatiques » sont les quatre travaux que',
+    "l'attaché lance de lui-même, sans que vous les demandiez :",
+    '· le brief quotidien (balayage des dossiers à l\'heure dite) ;',
+    '· vos routines planifiées (scan de la cartographie, veilles…) ;',
+    "· l'étude du corpus d'actes et la consolidation de l'apprentissage.",
+    "Ils coûtent cher parce que chacun délègue un SOUS-AGENT PAR DOSSIER : un seul",
+    'balayage peut lancer des dizaines de runs en parallèle et vider le forfait',
+    'avant votre première question de la journée.',
+    '',
+    "CE QUI CONTINUE : vos conversations et le traitement des mails que vous",
+    "transférez — la demande directe du magistrat n'est jamais mise en pause.",
+    '',
+    par7j
+      ? 'REPRISE : automatique, mais le plafond hebdomadaire ne se vide que sur 7 jours'
+        + ' glissants — comptez plusieurs jours, pas quelques heures. Rien n\'est perdu :'
+        + ' chaque travail différé repart seul dès que la consommation redescend.'
+      : 'REPRISE : automatique dès que la fenêtre de 5 h redescend — quelques heures.'
+        + " Rien n'est perdu : chaque travail différé repart seul.",
+    '',
+    'QUOI FAIRE. Voir où passent les jetons et ajuster : Paramètres → Attaché IA →',
+    '« Consommation IA » (répartition par poste, volet « Derniers runs »). Pour',
+    'dépenser moins : couper le brief automatique, espacer les routines ou les',
+    'planifier de nuit, cocher le mode économe. Le forfait n\'est qu\'un repère que',
+    "vous réglez vous-même : si les plafonds saisis sont trop bas, l'attaché se met",
+    'en pause pour rien.',
+    '',
+    'Cette carte ne paraît qu\'UNE FOIS par mise en pause : elle ne se répétera pas',
+    'tant que la consommation ne sera pas redescendue puis remontée.',
+  ].join('\n')
+}
+
+// Une SEULE carte par épisode de mise en pause — et non une par heure. Le
+// gouverneur reste « stop » tant que la consommation ne redescend pas : avec un
+// plafond HEBDOMADAIRE saturé, cela dure des jours, et l'ancienne cadence
+// horaire déposait des CENTAINES de cartes identiques au fil, chassant le vrai
+// travail hors des 200 entrées que le fil expose. Le repère est PERSISTÉ
+// (autoDeferNotedAt) : un redémarrage du service ne relance pas une carte.
+let deferEpisodeNoted = false
 async function autonomousOnHold(keys, quoi) {
   const gov = consumptionGovernor(agentConfig())
-  if (gov.level !== 'stop') return false
+  if (gov.level !== 'stop') {
+    // Sortie de pause : on referme l'épisode, pour que la PROCHAINE saturation
+    // se signale à nouveau (une fois).
+    deferEpisodeNoted = false
+    if (readState().autoDeferredAt) {
+      await writeState({ autoDeferredAt: null, autoDeferReason: null, autoDeferNotedAt: null })
+        .catch(() => {})
+    }
+    return false
+  }
   console.log(`[attache] ${quoi} différé — forfait saturé (${gov.raison})`)
-  const now = Date.now()
-  // Une note au fil au plus une fois par heure. On avance le repère AVANT le
-  // moindre await : plusieurs runs de fond peuvent être gated dans le même tick
-  // (single-thread, pas d'await entre le test et l'affectation) → une seule note.
-  const shouldNote = Boolean(keys) && now - lastDeferNoteAt >= DEFER_NOTE_COOLDOWN_MS
-  if (shouldNote) lastDeferNoteAt = now
+  const nowIso = new Date().toISOString()
+  const st = readState()
+  // readState() est SYNCHRONE : le test et l'affectation du repère mémoire
+  // n'encadrent aucun await — plusieurs runs de fond gated dans le même tick ne
+  // peuvent donc pas publier deux cartes.
+  const shouldNote = Boolean(keys) && !deferEpisodeNoted && !st.autoDeferNotedAt
+  if (shouldNote) deferEpisodeNoted = true
   try {
-    await writeState({ autoDeferredAt: new Date().toISOString(), autoDeferReason: gov.raison || null })
+    await writeState({
+      autoDeferredAt: st.autoDeferredAt || nowIso,
+      autoDeferReason: gov.raison || null,
+      ...(shouldNote ? { autoDeferNotedAt: nowIso } : {}),
+    })
     if (shouldNote) {
       await publishFeed(keys, {
         type: 'note',
         titre: 'Runs automatiques en pause — forfait saturé',
-        resume: `Le brief, l'étude et les routines de fond sont suspendus tant que la consommation reste élevée (${gov.raison}). Ils repartiront seuls dès que la fenêtre de 5 h sera redescendue. Vos conversations et le traitement des mails ne sont pas concernés.`,
+        resume: deferNoteResume(gov),
       })
     }
   } catch { /* la mise en pause ne doit jamais gêner le service */ }
@@ -912,7 +940,6 @@ const server = http.createServer(async (req, res) => {
         webAccess: 'webAccess' in body ? body.webAccess === true : current.webAccess,
         subModel: 'subModel' in body ? sanitizeModel(body.subModel) : current.subModel,
         econome: 'econome' in body ? body.econome === true : current.econome,
-        briefAuto: 'briefAuto' in body ? body.briefAuto === true : current.briefAuto,
         plan: 'plan' in body ? sanitizePlan(body.plan) : current.plan,
         cap5h: 'cap5h' in body ? sanitizeCap(body.cap5h) : current.cap5h,
         capHebdo: 'capHebdo' in body ? sanitizeCap(body.capHebdo) : current.capHebdo,
@@ -983,15 +1010,6 @@ const server = http.createServer(async (req, res) => {
       const keys = loadKeyring()
       if (keys) await audit(keys, 'mail_config_effacee', { removed })
       return json(res, 200, { ok: true, removed, mail: describeMailConfig() })
-    }
-
-    if (route === 'POST /briefing') {
-      // lancé en arrière-plan : la réponse ne bloque pas sur le run complet
-      if (briefingRunning) return json(res, 409, { ok: false, error: 'Brief déjà en cours' })
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
-      runBriefing('manuel').catch((e) => console.error('[attache] brief :', e))
-      return json(res, 202, { ok: true, started: true })
     }
 
     if (route === 'POST /actualiser-description') {
@@ -1343,7 +1361,7 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // …et pour les cartes de statut en clair (majordome / questions).
+    // …et pour les cartes de statut en clair (questions / journal).
     if (route === 'PUT /status-map') {
       const body = await readBody(req)
       try {
@@ -1471,7 +1489,6 @@ server.listen(PORT, () => {
 
 setInterval(() => {
   pollOnce().catch((e) => console.error('[attache] relève :', e))
-  maybeScheduledBriefing().catch((e) => console.error('[attache] brief planifié :', e))
   maybeDueRoutines().catch((e) => console.error('[attache] routines :', e))
   maybeScheduledApprentissage().catch((e) => console.error('[attache] apprentissage planifié :', e))
   maybeScheduledEtude().catch((e) => console.error('[attache] étude planifiée :', e))

@@ -6,7 +6,7 @@
  * sans lui. Deux cadences :
  *  - quotidienne à HH:MM (« chaque matin à 7h30, vérifie… »)
  *  - toutes les N heures.
- * Le brief du majordome reste câblé en dur ; les routines s'y AJOUTENT
+ * Les routines sont le SEUL travail de fond planifié de l'attaché
  * (préparation d'audience de la veille, point hebdo, surveillance d'un
  * dossier chaud…). Stockage chiffré (clé globale), exécutions auditées,
  * résultats déposés dans le fil et/ou envoyés au magistrat selon la

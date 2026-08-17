@@ -79,7 +79,7 @@ function attacheDir(...segments: string[]): string {
   return tjDataDir(attacheTjId(), 'attache', ...segments)
 }
 
-export function readEncryptedLog(file: 'feed.jsonl' | 'audit.jsonl' | 'outbox.jsonl' | 'majordome.jsonl', max = 500): Array<{ ts: number, id?: string, iv: string, ct: string }> {
+export function readEncryptedLog(file: 'feed.jsonl' | 'audit.jsonl' | 'outbox.jsonl', max = 500): Array<{ ts: number, id?: string, iv: string, ct: string }> {
   const p = attacheDir(file)
   if (!fs.existsSync(p)) return []
   const lines = fs.readFileSync(p, 'utf8').split('\n').filter(Boolean)
@@ -92,32 +92,9 @@ export function readEncryptedLog(file: 'feed.jsonl' | 'audit.jsonl' | 'outbox.js
 
 export interface AttacheEnvelope { v: number, encrypted: true, iv: string, ct: string, savedAt?: string, savedBy?: string }
 
-// ── Statuts des items du majordome (traité / ignoré) ──
-// Fichier en clair MAIS indexé par ids opaques (aléatoires) : aucun contenu
-// n'y transite — l'app peut donc les écrire sans détenir de clé.
-
-export type MajordomeStatus = 'traite' | 'ignore'
-
-export function readMajordomeStatuses(): Record<string, { status: MajordomeStatus, at: string, by: string }> {
-  return readJson(attacheDir('majordome-status.json'), {})
-}
-
-export async function setMajordomeStatus(id: string, status: MajordomeStatus, by: string): Promise<void> {
-  if (!/^[a-f0-9]{6,32}$/.test(id)) throw new Error('Identifiant invalide')
-  try {
-    await withFileLock('attache-majordome-status', async () => {
-      const all = readMajordomeStatuses()
-      all[id] = { status, at: new Date().toISOString(), by }
-      atomicWrite(attacheDir('majordome-status.json'), JSON.stringify(all, null, 2))
-    })
-  } catch (e) {
-    await relayStatusMap('majordome-status', id, status, by, e)
-  }
-}
-
 // ── Statuts des questions posées par l'attaché (répondu / ignoré) ──
-// Même modèle que les statuts du majordome : fichier en clair indexé par
-// ids opaques (qid aléatoires) — aucun contenu n'y transite.
+// Fichier en clair MAIS indexé par des ids opaques (qid aléatoires) : aucun
+// contenu n'y transite — l'app peut donc les écrire sans détenir de clé.
 
 export type QuestionStatus = 'repondu' | 'ignore'
 
@@ -139,7 +116,7 @@ export async function setQuestionStatus(id: string, status: QuestionStatus, by: 
 }
 
 // ── État du journal « pendant votre absence » (cartes rangées, repère « vu ») ──
-// Même modèle que les statuts du majordome : fichier en clair MAIS indexé par
+// Même modèle que les statuts des questions : fichier en clair MAIS indexé par
 // des EMPREINTES opaques (le navigateur hache `ts|titre` avant d'envoyer —
 // aucun contenu n'y transite). Partagé entre tous les appareils : ranger une
 // carte ou consulter le journal sur l'ordinateur vaut aussi sur le téléphone,

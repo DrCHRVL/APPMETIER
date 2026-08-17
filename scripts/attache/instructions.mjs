@@ -3,7 +3,7 @@
  *
  * Le « prompt » personnalisable de l'attaché : un texte libre, rédigé et
  * modifié par le magistrat depuis Paramètres → Attaché IA, relu par l'agent
- * au début de CHAQUE intervention (chat, mails transférés, brief, routines).
+ * au début de CHAQUE intervention (chat, mails transférés, routines).
  * Il s'ajoute à la persona et aux règles de gouvernance — il ne les remplace
  * pas. Chiffré au repos (clé globale), versionné à chaque écriture — même
  * modèle que la mémoire.
