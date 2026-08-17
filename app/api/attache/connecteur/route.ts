@@ -3,12 +3,14 @@
  * confié (mêmes gardes 404 que toutes les routes /api/attache/*).
  *
  *  GET    : état (activé, clients connectés, journal) + URL à coller dans claude.ai
+ *           · ?test=1 rejoue la poignée de main MCP vers le service attaché
  *  PUT    : { enabled } — activer/désactiver (désactiver révoque tous les jetons)
  *  DELETE : ?client=<id> révoque une connexion · ?all=1 révoque tout
  */
 import { handle, jsonResponse, rpFromRequest } from '@/lib/server/auth'
 import { requireAttacheAdmin } from '@/lib/server/attache'
 import { connectorSummary, setConnectorEnabled, revokeClient, revokeAll } from '@/lib/server/mcpConnector'
+import { probeConnectorRelay } from '@/lib/server/mcpRelay'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,7 +18,12 @@ export async function GET(req: Request) {
   return handle(async () => {
     requireAttacheAdmin(req)
     const { origin } = rpFromRequest(req)
-    return jsonResponse({ ...connectorSummary(), url: `${origin}/api/mcp` })
+    const url = new URL(req.url)
+    // Diagnostic à la demande : Claude ne dit jamais POURQUOI il n'arrive pas
+    // à se connecter (« vérifiez que l'URL pointe vers un serveur MCP
+    // valide »). Cette sonde refait le même trajet en lecture seule.
+    const test = url.searchParams.get('test') === '1' ? await probeConnectorRelay() : undefined
+    return jsonResponse({ ...connectorSummary(), url: `${origin}/api/mcp`, ...(test ? { test } : {}) })
   })
 }
 

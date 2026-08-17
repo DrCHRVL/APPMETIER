@@ -99,6 +99,10 @@ conversation). Les suppressions restent, comme pour l'attaché, manuelles.
 
 - Transport MCP : **streamable HTTP sans état** (`POST /api/mcp`, réponses
   JSON directes ; pas de flux SSE serveur→client — `GET` répond 405).
+- Panne du service attaché : l'app répond **200 + erreur JSON-RPC motivée**,
+  jamais un 5xx — sur ce transport, un 5xx fait conclure au client que l'URL
+  n'est pas un serveur MCP et masque le vrai motif. La poignée de main
+  (`initialize`, `ping`, `*/list`) coupe à 25 s, les outils à 180 s.
 - Découverte OAuth : `/.well-known/oauth-protected-resource` et
   `/.well-known/oauth-authorization-server` (réécritures Next vers
   `/api/mcp/oauth/*`).
@@ -117,6 +121,21 @@ conversation). Les suppressions restent, comme pour l'attaché, manuelles.
 
 ## Dépannage
 
+> **Premier réflexe** : Paramètres → Attaché IA → Connecteur Claude web →
+> **Tester**. Le bouton rejoue en lecture seule le trajet exact de Claude une
+> fois autorisé (`initialize` puis `tools/list` jusqu'au service attaché) et
+> nomme la panne. Claude, lui, ne sait dire que « Impossible de se connecter
+> au serveur » quelle qu'en soit la cause.
+
+- **« Votre compte a été autorisé, mais SIRAL a renvoyé une erreur lors de la
+  connexion » / « Vérifiez que l'URL pointe vers un serveur MCP valide »** :
+  l'OAuth a réussi (la connexion apparaît dans le panneau) — c'est l'appel MCP
+  qui échoue, en aval. Lancez **Tester** : le message précise lequel des trois
+  cas s'applique — conteneur `attache` arrêté ou en redémarrage en boucle
+  (clé-maître absente), image de l'attaché **plus ancienne** que celle de
+  l'app (le point d'entrée `/mcp` n'y existe pas encore → relancez Paramètres
+  → **Mise à jour**, qui reconstruit les deux), ou `SIRAL_SECRET` divergent
+  entre les deux conteneurs.
 - **« Introuvable » / 404 partout** : connecteur non activé dans le panneau,
   ou `SIRAL_ATTACHE_URL` absent côté app (le connecteur suppose l'attaché).
 - **La fenêtre d'autorisation dit « connexion requise » en boucle** :

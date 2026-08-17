@@ -245,6 +245,8 @@ export function AdminAttachePanel() {
   const [connMsg, setConnMsg] = useState<string | null>(null);
   const [connCopied, setConnCopied] = useState(false);
   const [showConnJournal, setShowConnJournal] = useState(false);
+  const [connTest, setConnTest] = useState<{ ok: boolean; detail: string } | null>(null);
+  const [connTesting, setConnTesting] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -306,6 +308,25 @@ export function AdminAttachePanel() {
     catch { /* l'état rechargé fera foi */ }
     finally { setConnBusy(false); loadConn(); }
   }, [loadConn]);
+
+  /**
+   * Rejoue la poignée de main MCP jusqu'au service attaché — même trajet que
+   * Claude web une fois autorisé. Distingue en une seconde « OAuth en cause »
+   * de « service attaché en cause », que Claude confond sous un unique
+   * « impossible de se connecter au serveur ».
+   */
+  const testConn = useCallback(async () => {
+    setConnTesting(true); setConnTest(null);
+    try {
+      const res = await fetch('/api/attache/connecteur?test=1');
+      const data = await res.json().catch(() => null) as { test?: { ok: boolean; detail: string }; error?: string } | null;
+      setConnTest(data?.test || { ok: false, detail: data?.error || `Réponse inattendue (${res.status}).` });
+    } catch (e) {
+      setConnTest({ ok: false, detail: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setConnTesting(false);
+    }
+  }, []);
 
   const copyConnUrl = useCallback(async () => {
     if (!conn?.url) return;
@@ -1358,7 +1379,28 @@ export function AdminAttachePanel() {
                     {connCopied ? <CheckCircle2 className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
                     {connCopied ? 'Copiée' : 'Copier'}
                   </button>
+                  <button
+                    onClick={testConn}
+                    disabled={connTesting}
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                    title="Rejouer la poignée de main MCP jusqu'au service attaché (lecture seule) — dit si le problème vient du serveur ou de claude.ai"
+                  >
+                    {connTesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wifi className="h-3 w-3" />}
+                    Tester
+                  </button>
                 </div>
+
+                {connTest && (
+                  <div className={connTest.ok
+                    ? 'flex items-start gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] leading-relaxed text-emerald-800'
+                    : 'flex items-start gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] leading-relaxed text-red-700'}
+                  >
+                    {connTest.ok
+                      ? <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      : <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+                    <span>{connTest.detail}</span>
+                  </div>
+                )}
 
                 {conn.clients.length ? (
                   <div className="space-y-1">
