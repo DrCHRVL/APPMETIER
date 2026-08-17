@@ -1354,9 +1354,10 @@ export async function modifierDossier(keys, { numero, directeurEnquete, services
 
 /**
  * Archive ou désarchive un dossier — même effet que archiveEnquete /
- * unarchiveEnquete du client : statut, dateArchivage (EFFACÉE au
- * désarchivage, sinon la résolution de conflit de synchro ré-impose
- * « archive »), entrée de modification. Réservé aux instructions explicites.
+ * unarchiveEnquete du client : statut, marqueur horodaté (dateArchivage ou
+ * dateDesarchivage — c'est le plus récent des deux qui tranche le statut lors
+ * de la fusion de synchro), entrée de modification. Réservé aux instructions
+ * explicites.
  */
 export async function archiverDossier(keys, { numero, mode }) {
   if (mode !== 'archiver' && mode !== 'desarchiver') throw new Error('mode attendu : archiver | desarchiver')
@@ -1370,7 +1371,7 @@ export async function archiverDossier(keys, { numero, mode }) {
     } else {
       if (e.statut !== 'archive') return { numero: e.numero, statut: e.statut, note: 'pas archivé' }
       e.statut = 'en_cours'
-      delete e.dateArchivage
+      e.dateDesarchivage = now
     }
     e.modifications = e.modifications || []
     e.modifications.push({

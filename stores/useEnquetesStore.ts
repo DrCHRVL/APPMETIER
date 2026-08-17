@@ -26,6 +26,8 @@ import {
   makeCRDeletedEntry,
 } from '@/utils/modificationLogger';
 import { useUserStore } from '@/stores/useUserStore';
+import { repairArchiveState } from '@/utils/archiveState';
+import { buildResultatLookup } from '@/utils/archiveStateIO';
 import throttle from 'lodash/throttle';
 
 const SAVE_THROTTLE = 8000;
@@ -270,15 +272,31 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
               return enquete;
             })
         : [];
-      _enquetesRef = validData;
+
+      // Remise en cohérence de l'état d'archivage : une enquête archivée par un
+      // collègue pouvait revenir « en cours » sur ce poste (fusion de sync
+      // arbitrée sur dateMiseAJour, corrigée depuis) tout en gardant son
+      // résultat d'audience — donc absente des enquêtes terminées. On la
+      // rebascule à partir du journal des modifications, des marqueurs
+      // d'archivage, et à défaut du résultat d'audience enregistré.
+      const resultatOf = await buildResultatLookup(contentieuxId);
+      const { enquetes: repairedData, repaired } = repairArchiveState(validData, resultatOf);
+      if (repaired.length > 0) {
+        console.warn(
+          `🗄️ EnquetesStore[${contentieuxId}]: état d'archivage rétabli sur ${repaired.length} enquête(s)`,
+          repaired.map(e => `${e.numero} → ${e.statut}`),
+        );
+      }
+
+      _enquetesRef = repairedData;
       _contentieuxRef = contentieuxId;
-      if (actesNormalized) {
+      if (actesNormalized || repaired.length > 0) {
         _isDirty = true;
         _saveThrottled();
       }
       set(state => ({
-        ownEnquetes: validData,
-        enquetes: [...validData, ...state.sharedEnquetes],
+        ownEnquetes: repairedData,
+        enquetes: [...repairedData, ...state.sharedEnquetes],
       }));
     } catch (error) {
       console.error(`❌ EnquetesStore[${contentieuxId}]: erreur chargement`, error);
@@ -509,6 +527,10 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       ...updateOwn(state, prev =>
         prev.map(e => {
           if (e.id !== id) return e;
+          // `dateArchivage` et `dateDesarchivage` sont les deux marqueurs
+          // monotones qui tranchent le statut lors des fusions de sync : on
+          // pose le nouveau sans effacer l'ancien, c'est le plus récent des
+          // deux qui fait foi (cf. utils/archiveState.ts).
           const archived: Enquete = { ...e, statut: 'archive', dateArchivage: now, dateMiseAJour: now };
           return appendModifications(archived, [
             { type: 'enquete_archived', label: 'Enquête archivée' },
@@ -526,10 +548,11 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       updateOwn(state, prev =>
         prev.map(e => {
           if (e.id !== id) return e;
-          // Effacer dateArchivage : sinon la résolution de conflit de sync
-          // (DataMergeService.mergeEnquete) ré-impose le statut « archive »
-          // (localArchiveTs >= serverTs) et le désarchivage ne se propage jamais.
-          const unarchived: Enquete = { ...e, statut: 'en_cours', dateArchivage: undefined, dateMiseAJour: now };
+          // On horodate le désarchivage au lieu d'effacer `dateArchivage` :
+          // la fusion compare les deux marqueurs et le plus récent l'emporte,
+          // donc le désarchivage se propage sans effacer la trace de
+          // l'archivage (qui servait à réparer les statuts perdus).
+          const unarchived: Enquete = { ...e, statut: 'en_cours', dateDesarchivage: now, dateMiseAJour: now };
           return appendModifications(unarchived, [
             { type: 'enquete_unarchived', label: 'Enquête désarchivée' },
           ]);
