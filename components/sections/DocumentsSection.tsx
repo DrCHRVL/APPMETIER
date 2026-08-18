@@ -246,6 +246,13 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
 
   const { showToast } = useToast();
 
+  // Les mentions de l'IA (copies texte pour l'attaché, extraction serveur) ne
+  // sont visibles QUE de l'administrateur : pour tout autre compte, les mêmes
+  // mécanismes sont décrits sans référence à l'IA — le fonctionnement, lui,
+  // est identique (les copies texte sont créées quel que soit le rôle).
+  const isAdmin = useUserStore(s => s.isAdmin);
+  const estAdmin = isAdmin();
+
   // Liste de documents TOUJOURS à jour (prop re-rendue) : les sauvegardes
   // intermédiaires d'un long versement partent de là, pour ne jamais écraser
   // ce que la synchro automatique aurait ajouté entre-temps.
@@ -773,7 +780,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         const mdRel = 'MD/' + rel.replace(/\.[^./]+$/, '') + '.md';
         if (serverIndex.has(mdRel)) { md++; return; }
         if (file.size > MAX_CONVERT_BYTES) {
-          avertissements.push(`${relCourt(rel)} — trop volumineux pour la conversion texte dans le navigateur (l'attaché fera l'extraction côté serveur, OCR si besoin)`);
+          avertissements.push(`${relCourt(rel)} — trop volumineux pour la conversion texte dans le navigateur${estAdmin ? " (l'attaché fera l'extraction côté serveur, OCR si besoin)" : ''}`);
           return;
         }
         const markdown = await deposerCopieMarkdown(file, rel);
@@ -783,7 +790,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
             convertis.push({ filePath: rel, fileName: file.name, sourceFolder: zone, textContent: markdown });
           }
         } else {
-          avertissements.push(`${relCourt(rel)} — conversion texte impossible (scan sans couche texte ? l'attaché fera l'extraction côté serveur, OCR si besoin)`);
+          avertissements.push(`${relCourt(rel)} — conversion texte impossible (scan sans couche texte ?)${estAdmin ? " — l'attaché fera l'extraction côté serveur, OCR si besoin" : ''}`);
         }
       };
 
@@ -1132,7 +1139,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                 />
               </div>
               <p className="text-[10.5px] text-blue-700/70">
-                Gardez cet onglet ouvert. Chaque pièce est convertie en texte pour l&apos;IA au passage.
+                Gardez cet onglet ouvert. Chaque pièce est convertie en texte au passage{estAdmin ? <> pour l&apos;IA</> : null}.
                 Un versement interrompu se reprend en re-déposant le même dossier — aucun doublon.
               </p>
             </div>
@@ -1146,7 +1153,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                 <p className="min-w-0 flex-1">
                   <span className="font-semibold">{uploadReport.zone}</span> : {uploadReport.ok} pièce(s) versée(s)
                   {uploadReport.dejaLa > 0 && <> · {uploadReport.dejaLa} déjà présente(s), sautée(s)</>}
-                  {uploadReport.md > 0 && <> · {uploadReport.md} copie(s) texte pour l&apos;IA</>}
+                  {uploadReport.md > 0 && <> · {uploadReport.md} copie(s) texte{estAdmin ? <> pour l&apos;IA</> : null}</>}
                   {uploadReport.nonPrisEnCharge > 0 && <> · {uploadReport.nonPrisEnCharge} format(s) non pris en charge</>}
                   {uploadReport.interrompu && (
                     <span className="font-medium text-amber-700"> · interrompu — re-déposez le même dossier pour terminer (reprise sans doublon)</span>
@@ -1310,7 +1317,12 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                       </div>
                       <div>
                         <h3 className="font-medium text-sm">{zone.title}</h3>
-                        <p className="text-xs text-gray-600 mb-2">{zone.description}</p>
+                        <p className="text-xs text-gray-600 mb-2">
+                          {/* la description DML évoque l'attaché IA : réservée à l'admin */}
+                          {zone.category === 'dml' && !estAdmin
+                            ? 'Demandes de mise en liberté et réponses archivées'
+                            : zone.description}
+                        </p>
                         <p className="text-xs text-gray-500">
                           {isUploading ? 'Upload...' : 'Cliquer ou glisser-déposer — dossiers entiers acceptés (sous-pochettes préservées)'}
                         </p>
@@ -1322,7 +1334,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                             type="button"
                             onClick={(e) => { e.stopPropagation(); folderInputRefs.current[zone.category]?.click(); }}
                             className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10.5px] font-medium text-gray-600 hover:bg-gray-100"
-                            title="Téléverser un DOSSIER entier — sous-pochettes comprises, organisation préservée, copies markdown pour l'IA"
+                            title={`Téléverser un DOSSIER entier — sous-pochettes comprises, organisation préservée${estAdmin ? ", copies markdown pour l'IA" : ''}`}
                           >
                             <FolderOpen className="h-3 w-3" />Dossier
                           </button>
@@ -1509,7 +1521,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           <div className="text-xs text-gray-500 space-y-1">
             <p><strong>Formats supportés :</strong> PDF, DOC, DOCX, ODT, TXT, Images, HTML, MSG</p>
             <p><strong>Organisation :</strong> Classement automatique dans des dossiers par catégorie</p>
-            <p><strong>Dossiers entiers :</strong> Déposez une ou plusieurs arborescences complètes (sous-pochettes préservées, texte converti pour l&apos;IA au passage). Limite : 50 Mo par pièce — au-delà, le texte intégral est versé à la place. Un versement interrompu se reprend en re-déposant le même dossier, sans doublon.</p>
+            <p><strong>Dossiers entiers :</strong> Déposez une ou plusieurs arborescences complètes (sous-pochettes préservées, texte converti au passage{estAdmin ? <> pour l&apos;IA</> : null}). Limite : 50 Mo par pièce — au-delà, le texte intégral est versé à la place. Un versement interrompu se reprend en re-déposant le même dossier, sans doublon.</p>
             {enquete.cheminExterne && (
               <p><strong>Sauvegarde double :</strong> Documents sauvegardés en interne + copie externe</p>
             )}
