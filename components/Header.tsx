@@ -11,6 +11,17 @@ import { useEffect, useMemo, useRef } from 'react';
 import { DataSyncIndicator } from './sync/DataSyncIndicator';
 import { NetworkStatusIndicator } from './NetworkStatusIndicator';
 import { SyncStatus } from '@/types/dataSyncTypes';
+import { GlobalSearchBox } from './search/GlobalSearchBox';
+import type { GlobalSearchApi } from '@/hooks/useGlobalSearch';
+import type { GlobalSearchDoc } from '@/utils/globalSearch';
+import type { ContentieuxDefinition } from '@/types/userTypes';
+
+/** Recherche globale (omnibox) : fournie par la page racine. */
+export interface HeaderGlobalSearch {
+  api: GlobalSearchApi;
+  contentieuxDefs: ContentieuxDefinition[];
+  onExecute: (doc: Pick<GlobalSearchDoc, 'kind' | 'data'>) => void;
+}
 
 interface HeaderProps {
   searchTerm: string;
@@ -34,6 +45,9 @@ interface HeaderProps {
   minimal?: boolean;
   /** Attaché de justice IA — fourni UNIQUEMENT en session admin quand la fonctionnalité est active. */
   onShowAttache?: () => void;
+  /** Recherche globale : si fournie, la barre devient une omnibox (résultats
+   *  de toute l'application). À défaut, simple filtre de la page courante. */
+  globalSearch?: HeaderGlobalSearch;
 }
 
 export const Header = ({
@@ -56,6 +70,7 @@ export const Header = ({
   isUpdating = false,
   minimal = false,
   onShowAttache,
+  globalSearch,
 }: HeaderProps) => {
   // L'icône de mise à jour est réservée à l'admin : la mise à jour du serveur
   // s'applique d'elle-même à tous les utilisateurs.
@@ -67,9 +82,10 @@ export const Header = ({
 
   // Raccourci clavier : Ctrl/Cmd+K (ou « / ») focalise la recherche. La recherche
   // est l'action la plus fréquente ; elle n'exige plus la souris.
+  // (Quand l'omnibox est active, c'est elle qui gère ses raccourcis.)
   const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (minimal) return;
+    if (minimal || globalSearch) return;
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const inField = !!target && (
@@ -88,7 +104,7 @@ export const Header = ({
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [minimal]);
+  }, [minimal, globalSearch]);
 
   const lastSaveText = useMemo(() => {
     if (!lastSaveDate) return "Aucune sauvegarde locale";
@@ -134,7 +150,17 @@ export const Header = ({
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-5 flex-1 min-w-0 sm:flex-none">
-          {/* Barre de recherche pill */}
+          {/* Barre de recherche pill — omnibox globale quand la page la fournit */}
+          {globalSearch ? (
+            <GlobalSearchBox
+              searchTerm={searchTerm}
+              onSearch={onSearch}
+              isSearchingDocs={isSearchingDocs}
+              api={globalSearch.api}
+              contentieuxDefs={globalSearch.contentieuxDefs}
+              onExecute={globalSearch.onExecute}
+            />
+          ) : (
           <div className="relative flex-1 min-w-0 sm:flex-none">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
             <input
@@ -161,6 +187,7 @@ export const Header = ({
               />
             )}
           </div>
+          )}
 
           {/* Titre */}
         </div>

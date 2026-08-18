@@ -140,6 +140,8 @@ const OverboardPage = dynamic(() => import('@/components/pages/OverboardPage').t
 const GlobalStatsPage = dynamic(() => import('@/components/pages/GlobalStatsPage').then(m => ({ default: m.GlobalStatsPage })), { ssr: false });
 import { ContentieuxId } from '@/types/userTypes';
 import { useCrossSearch } from '@/hooks/useCrossSearch';
+import { useGlobalSearch } from '@/hooks/useGlobalSearch';
+import type { GlobalSearchDoc } from '@/utils/globalSearch';
 const AdminUsersPanel = dynamic(() => import('@/components/AdminUsersPanel').then(m => ({ default: m.AdminUsersPanel })), { ssr: false });
 import { UserManager } from '@/utils/userManager';
 const AdminContentieuxPanel = dynamic(() => import('@/components/admin/AdminContentieuxPanel').then(m => ({ default: m.AdminContentieuxPanel })), { ssr: false });
@@ -1346,6 +1348,114 @@ function AppContent() {
     [instructions]
   );
 
+  // ── Recherche GLOBALE (omnibox du header) ──
+  // Index de ce qui est déjà en mémoire — aucune lecture supplémentaire :
+  // enquêtes de tous les contentieux accessibles (snapshot Overboard, remplacé
+  // par les données VIVES pour le contentieux actif), instructions, mesures
+  // AIR, personnes, pages et actions.
+  const enquetesForSearch = useMemo(() => {
+    const merged = new Map(overboardData);
+    if (currentContentieuxId && enquetes.length > 0) merged.set(currentContentieuxId, enquetes);
+    return merged;
+  }, [overboardData, enquetes, currentContentieuxId]);
+
+  const statsContentieuxIds = useMemo(
+    () => accessibleContentieux.filter(c => canDo(c.id, 'view_stats')).map(c => c.id),
+    [accessibleContentieux, canDo]
+  );
+  const createContentieuxIds = useMemo(
+    () => accessibleContentieux.filter(c => canDo(c.id, 'create')).map(c => c.id),
+    [accessibleContentieux, canDo]
+  );
+
+  const globalSearchApi = useGlobalSearch({
+    enquetesByContentieux: enquetesForSearch,
+    instructions,
+    mesuresAIR,
+    contentieux: accessibleContentieux,
+    statsContentieuxIds,
+    createContentieuxIds,
+    modules: {
+      instructions: hasModule('instructions'),
+      air: hasModule('air'),
+      mindmap: hasModule('mindmap'),
+    },
+    hasOverboard: hasOverboard(),
+    showAssistant: attacheAvailable && isAdmin(),
+  });
+
+  // Exécute un résultat de la recherche globale (clic ou Entrée) : ouverture de
+  // la fiche VIVE, navigation ou action — même règle de rattachement tolérant
+  // des numéros que l'assistant de justice.
+  const handleGlobalSearchExecute = async (doc: Pick<GlobalSearchDoc, 'kind' | 'data'>) => {
+    const data = doc.data as Record<string, unknown>;
+    switch (doc.kind) {
+      case 'enquete': {
+        const ctxId = String(data.ctxId || '') as ContentieuxId;
+        const numero = String(data.numero || '');
+        const wantedId = typeof data.id === 'number' ? data.id : Number(data.id);
+        const list = ctxId === currentContentieuxId
+          ? enquetesLookupRef.current
+          : (overboardData.get(ctxId) || []);
+        const found = list.find(e => e.id === wantedId && numerosProches(e.numero, numero))
+          || findEnqueteParNumero(list, numero);
+        if (!found) {
+          // Récent périmé ou snapshot pas encore à jour → chemin robuste
+          // (recherche tous contentieux + synchronisation de rattrapage).
+          handleOpenDossierByNumero(numero);
+          return;
+        }
+        const view = found.statut === 'archive' ? `archives_${ctxId}` : `enquetes_${ctxId}`;
+        await handleViewChange(view, ctxId);
+        openLiveEnqueteWhenReady(ctxId, found.numero, found);
+        return;
+      }
+      case 'instruction': {
+        const wantedId = typeof data.id === 'number' ? data.id : Number(data.id);
+        const inst = instructions.find(d => d.id === wantedId)
+          || instructions.find(d =>
+            numerosProches(d.numeroInstruction, String(data.numero || '')) ||
+            numerosProches(d.numeroParquet, String(data.numeroParquet || '')));
+        if (inst) {
+          setSelectedInstruction(inst);
+          setIsEditingInstruction(false);
+        } else {
+          showToast('Dossier d’instruction introuvable', 'info');
+        }
+        return;
+      }
+      case 'air': {
+        await handleViewChange('air');
+        handleSearchChange(String(data.nomPrenom || ''));
+        return;
+      }
+      case 'personne': {
+        await handleViewChange('mindmap');
+        handleSearchChange(String(data.nom || ''));
+        return;
+      }
+      case 'page': {
+        if (data.view) {
+          await handleViewChange(String(data.view), data.ctxId ? String(data.ctxId) as ContentieuxId : undefined);
+        }
+        return;
+      }
+      case 'action': {
+        if (data.action === 'new-enquete' && data.ctxId) {
+          const ctxId = String(data.ctxId) as ContentieuxId;
+          await handleViewChange(`enquetes_${ctxId}`, ctxId);
+          setShowNewEnqueteModal(true);
+        } else if (data.action === 'new-instruction') {
+          await handleViewChange('instructions');
+          setShowNewInstructionModal(true);
+        } else if (data.action === 'settings') {
+          setShowSettingsModal(true);
+        }
+        return;
+      }
+    }
+  };
+
   if (!isClient || tagsLoading || userLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-100">
@@ -1469,6 +1579,11 @@ return (
             isUpdating={isUpdating}
             minimal={isJLDUser}
             onShowAttache={attacheAvailable && isAdmin() ? () => setShowAttache(true) : undefined}
+            globalSearch={!isJLDUser ? {
+              api: globalSearchApi,
+              contentieuxDefs: accessibleContentieux,
+              onExecute: handleGlobalSearchExecute,
+            } : undefined}
           />
           </div>
         </div>
