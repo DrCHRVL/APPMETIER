@@ -442,18 +442,49 @@ function docCachePath(enqueteKey, cheminRelatif) {
   return attacheDir('doccache', h + '.json')
 }
 
+// v2 : le cache stocke le texte INTÉGRAL (borné à TEXTE_CACHE_MAX) et la
+// lecture pagine au service — un cache v1 (texte déjà tronqué à 200 k) est
+// ignoré et régénéré une fois, pour que la pagination atteigne toute la pièce.
+const DOC_CACHE_V = 2
+const TEXTE_CACHE_MAX = 2_000_000
+
 function readDocCache(keys, enqueteKey, cheminRelatif, blobHash) {
   const env = readJson(docCachePath(enqueteKey, cheminRelatif), null)
   if (!env) return null
   try {
     const c = decryptJson(keys.global, env)
-    return c.blobHash === blobHash ? c : null
+    return c.blobHash === blobHash && c.v === DOC_CACHE_V ? c : null
   } catch { return null }
 }
 
 function writeDocCache(keys, enqueteKey, cheminRelatif, blobHash, texte) {
-  const record = { chemin: cheminRelatif, blobHash, texte, extraitLe: new Date().toISOString() }
+  const record = { v: DOC_CACHE_V, chemin: cheminRelatif, blobHash, texte: String(texte).slice(0, TEXTE_CACHE_MAX), extraitLe: new Date().toISOString() }
   atomicWrite(docCachePath(enqueteKey, cheminRelatif), JSON.stringify(encryptJson(keys.global, record)))
+}
+
+// ── Pagination du texte servi ──
+// Une pièce d'enquête peut dépasser largement la page de 200 000 caractères
+// (PV de synthèse, procédure scannée entière) : plutôt que tronquer en
+// silence, chaque page indique ce qui reste et l'offset pour continuer.
+const TEXTE_PAGE_MAX = 200_000
+
+function pageTexte(texte, { offset, limite } = {}, extra = {}) {
+  const s = String(texte || '')
+  const start = Math.min(Math.max(0, Number(offset) || 0), s.length)
+  const lim = Math.max(1_000, Math.min(TEXTE_PAGE_MAX, Number(limite) || TEXTE_PAGE_MAX))
+  const page = s.slice(start, start + lim)
+  const reste = s.length - start - page.length
+  return {
+    ok: true,
+    texte: page,
+    longueurTotale: s.length,
+    ...(start ? { offset: start } : {}),
+    ...(reste > 0 ? {
+      offsetSuivant: start + page.length,
+      note: `Pièce longue : ${reste} caractère(s) restants — relis avec offset:${start + page.length} pour la suite`,
+    } : {}),
+    ...extra,
+  }
 }
 
 /** Nettoyage du texte extrait d'un PDF : dé-hyphénation, lignes vides en rafale. */
@@ -470,8 +501,10 @@ function tidyPdfText(text) {
  * Texte d'un document chiffré du dossier (PDF → texte, txt/html bruts).
  * L'extraction PDF n'a lieu qu'UNE fois : le résultat est mis en cache
  * (voir ci-dessus) — l'original PDF reste intact sur le serveur.
+ * PAGINÉ (`page` = { offset, limite }) : une pièce très longue se lit en
+ * plusieurs appels, offsetSuivant en main — jamais de troncature muette.
  */
-export async function readDocumentText(keys, numero, cheminRelatif) {
+export async function readDocumentText(keys, numero, cheminRelatif, page = {}) {
   const key = docServerKey(numeroCanonique(keys, numero))
   // Copie markdown déposée AU TÉLÉVERSEMENT (MD/<chemin>.md) : servie en
   // priorité pour les formats non textuels — zéro extraction, texte fidèle
@@ -481,7 +514,7 @@ export async function readDocumentText(keys, numero, cheminRelatif) {
     const mdBlob = readDocBlob(attacheTj(), key, mdRel)
     if (mdBlob) {
       const plain = decryptDocBlob(keys.global, mdBlob)
-      if (plain) return { ok: true, texte: plain.toString('utf8').slice(0, 200_000), source: 'copie markdown du téléversement' }
+      if (plain) return pageTexte(plain.toString('utf8'), page, { source: 'copie markdown du téléversement' })
     }
   }
   const blob = readDocBlob(attacheTj(), key, cheminRelatif)
@@ -493,20 +526,20 @@ export async function readDocumentText(keys, numero, cheminRelatif) {
   if (lower.endsWith('.pdf')) {
     const blobHash = crypto.createHash('sha256').update(blob).digest('hex')
     const cached = readDocCache(keys, key, cheminRelatif, blobHash)
-    if (cached) return { ok: true, texte: cached.texte, cache: true }
+    if (cached) return pageTexte(cached.texte, page, { cache: true })
     const plain = decryptDocBlob(keys.global, blob)
     if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }
     // Couche texte native, avec OCR de secours si la pièce est un scan image.
     const res = await extractPdfText(plain)
     if (!res.ok) return { ok: false, error: res.error, scanned: res.scanned }
-    const texte = tidyPdfText(res.texte).slice(0, 200_000)
+    const texte = tidyPdfText(res.texte)
     try { writeDocCache(keys, key, cheminRelatif, blobHash, texte) } catch { /* cache facultatif */ }
-    return { ok: true, texte, source: res.source }
+    return pageTexte(texte, page, { source: res.source })
   }
   const plain = decryptDocBlob(keys.global, blob)
   if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }
   if (/\.(txt|html?|md|csv|json|eml)$/.test(lower)) {
-    return { ok: true, texte: stripHtml(plain.toString('utf8')).slice(0, 200_000) }
+    return pageTexte(stripHtml(plain.toString('utf8')), page)
   }
   if (isOfficeExt(lower) || isSpreadsheetExt(lower)) {
     // ODT/DOCX/RTF et classeurs Excel/ODS versés par mail (pas de copie
@@ -515,12 +548,11 @@ export async function readDocumentText(keys, numero, cheminRelatif) {
     // section), prêt à être exploité comme des données.
     const blobHash = crypto.createHash('sha256').update(blob).digest('hex')
     const cached = readDocCache(keys, key, cheminRelatif, blobHash)
-    if (cached) return { ok: true, texte: cached.texte, cache: true }
+    if (cached) return pageTexte(cached.texte, page, { cache: true })
     const res = isSpreadsheetExt(lower) ? await extractSpreadsheetText(plain, lower) : extractOfficeText(plain, lower)
     if (!res.ok) return { ok: false, error: res.error }
-    const texte = res.texte.slice(0, 200_000)
-    try { writeDocCache(keys, key, cheminRelatif, blobHash, texte) } catch { /* cache facultatif */ }
-    return { ok: true, texte, source: res.source }
+    try { writeDocCache(keys, key, cheminRelatif, blobHash, res.texte) } catch { /* cache facultatif */ }
+    return pageTexte(res.texte, page, { source: res.source })
   }
   return { ok: false, error: `Type non textuel (${cheminRelatif.split('.').pop()}) — ${plain.length} octets` }
 }
@@ -985,17 +1017,50 @@ export async function ajouterNatinfs(keys, { numero, codes, source }) {
  * Table des matières de TOUTES les pièces déposées sous un numéro : zones
  * (Geoloc/Ecoutes/Actes/PV/DML) et « Dossier complet » versé (Dossier/…,
  * sous-pochettes = organisation du dossier). Chemins exacts pour
- * lire_document. Plafonnée — le tri par chemin rend l'arborescence lisible.
+ * lire_document. Le tri par chemin rend l'arborescence lisible.
+ *
+ * Pensée pour les dossiers TRÈS volumineux (plusieurs procédures versées en
+ * arborescence — des milliers de pièces) : toujours un PANORAMA des pochettes
+ * (nombre de pièces chacune), puis le détail PAGINÉ, filtrable par pochette.
+ * Sans argument, comportement compact : panorama + première page.
  */
-export function arborescenceDocuments(keys, numero) {
+export function arborescenceDocuments(keys, numero, { pochette, offset, limit } = {}) {
   const metas = listDocsMeta(attacheTj(), docServerKey(numeroCanonique(keys, numero)))
-  const pieces = metas
+  let pieces = metas
     // MD/ = copies markdown des originaux : lire_document les sert déjà de
     // lui-même quand on demande l'original — les lister doublerait tout.
     .filter((d) => !String(d.rel).startsWith('MD/'))
     .map((d) => ({ chemin: d.rel, taille: d.size, deposeLe: d.savedAt, nomOriginal: d.originalName }))
     .sort((a, b) => a.chemin.localeCompare(b.chemin))
-  return { total: pieces.length, pieces: pieces.slice(0, 2000) }
+  const totalDossier = pieces.length
+  // Panorama : zone seule pour les pièces à plat (PV/x.pdf), zone/pochette
+  // pour les arborescences versées (PV/GOSSE/…) — la carte avant le détail.
+  const parPochette = new Map()
+  for (const p of pieces) {
+    const segs = String(p.chemin).split('/')
+    const cle = segs.length > 2 ? segs[0] + '/' + segs[1] : segs[0]
+    parPochette.set(cle, (parPochette.get(cle) || 0) + 1)
+  }
+  const filtre = String(pochette || '').replace(/\/+$/, '')
+  if (filtre) pieces = pieces.filter((p) => p.chemin === filtre || String(p.chemin).startsWith(filtre + '/'))
+  const total = pieces.length
+  const start = Math.max(0, Number(offset) || 0)
+  const lim = Math.max(1, Math.min(2000, Number(limit) || 500))
+  const page = pieces.slice(start, start + lim)
+  const reste = total - start - page.length
+  return {
+    totalDossier,
+    ...(filtre ? { pochette: filtre, totalPochette: total } : {}),
+    pochettes: Object.fromEntries([...parPochette.entries()].sort((a, b) => a[0].localeCompare(b[0]))),
+    affichees: page.length,
+    offset: start,
+    ...(reste > 0 ? {
+      offsetSuivant: start + page.length,
+      note: `${reste} pièce(s) suivantes : rappelle avec offset:${start + page.length}` +
+        (filtre ? '' : ' — ou cible une pochette du panorama avec pochette:"PV/Nom"'),
+    } : {}),
+    pieces: page,
+  }
 }
 
 export function listerDml(keys, numero) {

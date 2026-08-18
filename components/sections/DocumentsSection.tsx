@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { Enquete, DocumentEnquete } from '@/types/interfaces';
 import { useToast } from '@/contexts/ToastContext';
-import { collectDropEntries, incomingFromFileList, cleanRelPath, type Incoming } from '@/lib/web/folderUpload';
+import { collectDropEntries, incomingFromFileList, serverRelPath, type Incoming } from '@/lib/web/folderUpload';
 import { fileToMarkdown } from '@/lib/web/fileToMarkdown';
 import { DocumentPathModal } from '../modals/DocumentPathModal';
 import { AnalyseDocumentsModal } from '../modals/AnalyseDocumentsModal';
@@ -121,6 +121,37 @@ const DOCUMENT_ZONES: DocumentZone[] = [
 const _scanTimers = new Map<number, ReturnType<typeof setTimeout>>();
 const _scanIntervals = new Map<number, ReturnType<typeof setInterval>>();
 
+// ─── Versement d'arborescences : bornes de sécurité ───
+// Limite serveur par pièce (au-delà : l'original est refusé — on verse alors
+// son TEXTE intégral à la place, pour que l'IA puisse quand même l'analyser).
+const MAX_DOC_BYTES = 50 * 1024 * 1024;
+// Au-delà, la conversion markdown dans le navigateur devient elle-même risquée
+// (mémoire pdf.js) : on laisse l'extraction au serveur (attaché, avec OCR).
+const MAX_CONVERT_BYTES = 80 * 1024 * 1024;
+// Un fichier « gros » est versé SEUL ; les petits partent par 3 en parallèle.
+// C'est ce qui borne la mémoire : chaque pièce vit en ~4 exemplaires le temps
+// de son dépôt (buffer, chiffré, base64, corps JSON).
+const SOLO_BYTES = 8 * 1024 * 1024;
+const PETIT_LOT = 3;
+// Sauvegarde intermédiaire de la liste des documents (chaque écriture crée une
+// version du coffre : on espace). La reprise répare de toute façon les trous.
+const FLUSH_EVERY = 100;
+
+/** Progression d'un versement en cours (arborescence ou lot de fichiers). */
+interface UploadProgress { done: number; total: number; errors: number; current?: string }
+
+/** Bilan de fin de versement d'arborescence — affiché sous forme dépliable. */
+interface UploadReport {
+  zone: string;
+  ok: number;          // pièces versées (originaux, ou texte seul pour les > 50 Mo)
+  dejaLa: number;      // sautées : déjà présentes à l'identique (reprise)
+  md: number;          // copies texte pour l'IA disponibles
+  nonPrisEnCharge: number;
+  interrompu: boolean; // arrêt manuel ou session expirée
+  avertissements: string[];
+  echecs: string[];
+}
+
 const resolveNameConflict = (fileName: string, existingNames: string[]): string => {
   const lastDot = fileName.lastIndexOf('.');
   const base = lastDot !== -1 ? fileName.slice(0, lastDot) : fileName;
@@ -137,6 +168,10 @@ const resolveNameConflict = (fileName: string, existingNames: string[]): string 
 export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: DocumentsSectionProps) => {
   const [dragOverZone, setDragOverZone] = useState<DocumentCategory | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  // Versements volumineux : progression visible, bilan détaillé, arrêt propre.
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
+  const [uploadReport, setUploadReport] = useState<UploadReport | null>(null);
+  const cancelUploadRef = useRef(false);
   const [showPathModal, setShowPathModal] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null);
   const [pendingCommun, setPendingCommun] = useState(0);
@@ -211,6 +246,12 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
 
   const { showToast } = useToast();
 
+  // Liste de documents TOUJOURS à jour (prop re-rendue) : les sauvegardes
+  // intermédiaires d'un long versement partent de là, pour ne jamais écraser
+  // ce que la synchro automatique aurait ajouté entre-temps.
+  const docsRef = useRef<DocumentEnquete[]>(enquete.documents || []);
+  docsRef.current = enquete.documents || [];
+
   // Documents par catégorie — mémoïsés pour éviter les recalculs inutiles
   const documentsByCategory = useMemo(() => {
     // 1 seule passe au lieu de 4 .filter() — plus rapide pour les grosses listes
@@ -255,6 +296,15 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
       if (i !== undefined) { clearInterval(i); _scanIntervals.delete(enquete.id); }
     };
   }, [enquete.id]);
+
+  // Fermer l'onglet pendant un versement = perdre le travail en cours :
+  // le navigateur demande confirmation tant qu'un téléversement tourne.
+  useEffect(() => {
+    if (!isUploading) return;
+    const garde = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', garde);
+    return () => window.removeEventListener('beforeunload', garde);
+  }, [isUploading]);
 
   // Passer au conflit suivant dans la file
   useEffect(() => {
@@ -426,17 +476,48 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     };
     const serverCategory = categoryMapping[category];
 
+    if (filesToUpload.length > 1) {
+      setUploadProgress({ done: 0, total: filesToUpload.length, errors: 0 });
+    }
     try {
-      const filesData = await Promise.all(
-        filesToUpload.map(async ({ file, renamedTo }) => ({
-          name: renamedTo || file.name,
-          arrayBuffer: await file.arrayBuffer()
-        }))
-      );
+      // Par petits lots : ne JAMAIS charger tous les fichiers en mémoire d'un
+      // coup (un dépôt de dizaines de PDF saturait l'onglet avant le premier octet envoyé).
+      // Un lot en échec n'efface pas les précédents : tout ce qui a été déposé
+      // est enregistré dans la liste — jamais de pièces orphelines sur le serveur.
+      const savedFiles: DocumentEnquete[] = [];
+      const savedSpecs: { file: File; renamedTo?: string }[] = [];
+      let chunkError: string | null = null;
+      const CHUNK = 4;
+      for (let i = 0; i < filesToUpload.length; i += CHUNK) {
+        const tranche = filesToUpload.slice(i, i + CHUNK);
+        try {
+          const filesData = await Promise.all(
+            tranche.map(async ({ file, renamedTo }) => ({
+              name: renamedTo || file.name,
+              arrayBuffer: await file.arrayBuffer()
+            }))
+          );
+          const saved = ((await window.siralBridge.saveDocuments(
+            enquete.numero, filesData, serverCategory
+          )) || []) as DocumentEnquete[];
+          savedFiles.push(...saved);
+          savedSpecs.push(...tranche.slice(0, saved.length));
+        } catch (err) {
+          chunkError = err instanceof Error ? err.message : String(err);
+          break;
+        }
+        setUploadProgress((p) => (p ? { ...p, done: Math.min(p.total, i + tranche.length) } : p));
+      }
 
-      const savedFiles = await window.siralBridge.saveDocuments(
-        enquete.numero, filesData, serverCategory
-      );
+      if (chunkError) {
+        console.error('Erreur upload:', chunkError);
+        showToast(
+          savedFiles.length > 0
+            ? `Dépôt interrompu après ${savedFiles.length} document(s) : ${chunkError}`
+            : `Erreur lors de l'upload : ${chunkError}`,
+          'error'
+        );
+      }
 
       if (savedFiles && savedFiles.length > 0) {
         // Copie vers le dossier commun d'abord, pour annoter chaque document
@@ -459,22 +540,29 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           ? savedFiles.map((f: DocumentEnquete) => ({ ...f, copieCommun }))
           : savedFiles;
         onUpdate(enquete.id, { documents: [...(enquete.documents || []), ...annotated] });
-        showToast(
-          `${savedFiles.length} document(s) ajoutés dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title}`,
-          'success'
-        );
+        if (!chunkError) {
+          showToast(
+            `${savedFiles.length} document(s) ajoutés dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title}`,
+            'success'
+          );
+        }
 
         // Copie markdown « pour l'IA » de chaque document (best-effort, silencieux).
-        // Le texte converti sert AUSSI à la proposition d'analyse ci-dessous.
+        // Le texte converti sert AUSSI à la proposition d'analyse ci-dessous —
+        // mais on ne le GARDE en mémoire que si la zone y est éligible, et
+        // borné (la proposition n'affiche que les 40 premières pièces).
         const convertis: ScannedDocument[] = [];
-        for (let i = 0; i < filesToUpload.length; i++) {
+        const suivrePourAnalyse = ANALYSE_CATEGORIES.includes(category);
+        for (let i = 0; i < annotated.length; i++) {
           const rel = String(annotated[i]?.cheminRelatif || '');
-          if (!rel) continue;
-          const markdown = await deposerCopieMarkdown(filesToUpload[i].file, rel);
-          if (markdown && markdown.trim().length >= 40) {
+          const spec = savedSpecs[i];
+          if (!rel || !spec) continue;
+          setUploadProgress((p) => (p ? { ...p, current: `Conversion texte : ${spec.file.name}` } : p));
+          const markdown = await deposerCopieMarkdown(spec.file, rel);
+          if (markdown && markdown.trim().length >= 40 && suivrePourAnalyse && convertis.length < 40) {
             convertis.push({
               filePath: rel,
-              fileName: filesToUpload[i].renamedTo || filesToUpload[i].file.name,
+              fileName: spec.renamedTo || spec.file.name,
               sourceFolder: serverCategory,
               textContent: markdown,
             });
@@ -492,14 +580,15 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         // une bannière PROPOSE d'analyser les pièces déposées — détection
         // d'actes, incohérences, CR de réception. Un clic, rien d'automatique.
         await suggererAnalyse(convertis, category);
-      } else {
+      } else if (!chunkError) {
         showToast('Erreur lors de la sauvegarde des documents', 'error');
       }
     } catch (err) {
       console.error('Erreur upload:', err);
-      showToast("Erreur lors de l'upload des documents", 'error');
+      showToast(err instanceof Error && err.message ? `Erreur lors de l'upload : ${err.message}` : "Erreur lors de l'upload des documents", 'error');
     } finally {
       setIsUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -548,6 +637,16 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   /**
    * Versement d'une ARBORESCENCE dans une zone : chaque fichier garde son
    * chemin relatif (sous-pochettes comprises) sous <Zone>/… + copie markdown.
+   *
+   * Conçu pour des dossiers d'enquête ENTIERS (milliers de pièces) :
+   *  - pas de plafond silencieux : tout est traité, dans l'ordre ;
+   *  - mémoire bornée — petits fichiers par 3, les gros (≥ 8 Mo) un par un ;
+   *  - progression visible, arrêt propre, bilan détaillé des échecs ;
+   *  - REPRISE : re-déposer le même dossier saute les pièces déjà versées
+   *    (comparaison chemin + taille avec l'index serveur) et complète le
+   *    reste — aucun doublon, même après un onglet fermé en cours de route ;
+   *  - pièce > 50 Mo (limite serveur) : son TEXTE intégral est versé à la
+   *    place, pour que l'IA puisse quand même l'analyser.
    */
   const uploadTree = async (incoming: Incoming[], category: DocumentCategory) => {
     if (!window.siralBridge) { showToast('Pont de données indisponible', 'error'); return; }
@@ -556,73 +655,219 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     };
     const zone = categoryMapping[category];
     const valid = incoming.filter(({ file }) => isValidFileType(file));
-    const skipped = incoming.length - valid.length;
+    const nonPrisEnCharge = incoming.length - valid.length;
     if (!valid.length) {
       showToast('Aucun fichier pris en charge dans ce dossier', 'warning');
       return;
     }
+
     setIsUploading(true);
+    cancelUploadRef.current = false;
+    setUploadReport(null);
+    setUploadProgress({ done: 0, total: valid.length, errors: 0 });
+
     try {
-      // chemins réservés AVANT dispatch (anti-collision), puis dépôts par
-      // lots de 4 en parallèle — 2 allers-retours HTTP par fichier sinon
-      const existingRels = new Set((enquete.documents || []).map(d => d.cheminRelatif));
-      const plan = valid.slice(0, 500).map(({ file, path }) => {
-        let rel = `${zone}/${cleanRelPath(path)}`;
+      // Index serveur : base de la déduplication ET de la reprise. Une pièce
+      // déjà déposée à l'identique (même chemin, même taille) est sautée.
+      let serverIndex = new Map<string, number>();
+      try {
+        const metas = await window.siralBridge.listServerDocuments(enquete.numero) as Array<{ rel: string; size: number }>;
+        serverIndex = new Map((metas || []).map((m) => [String(m.rel), Number(m.size) || 0]));
+      } catch { /* index injoignable : les dépôts échoueront de toute façon avec un motif clair */ }
+
+      // taille stockée = taille réelle + 32 octets (magic + IV + tag GCM)
+      const ENC_OVERHEAD = 32;
+      const stateDocs = enquete.documents || [];
+      const stateRels = new Set(stateDocs.map(d => d.cheminRelatif));
+      const plannedRels = new Set<string>([...stateRels, ...serverIndex.keys()]);
+
+      interface PlanItem { file: File; rel: string; dejaVerse: boolean }
+      const plan: PlanItem[] = [];
+      const echecs: string[] = [];
+      const avertissements: string[] = [];
+      for (const { file, path } of valid) {
+        const relIdeal = serverRelPath(zone, path);
+        if (!relIdeal) { echecs.push(`${path} — chemin invalide après nettoyage`); continue; }
+        const dotIdeal = relIdeal.lastIndexOf('.');
+        const hasExt = dotIdeal > relIdeal.lastIndexOf('/');
+        let rel = relIdeal;
         let counter = 1;
-        while (existingRels.has(rel)) {
-          const dot = rel.lastIndexOf('.');
-          rel = dot > rel.lastIndexOf('/') ? `${rel.slice(0, dot)}_${counter}${rel.slice(dot)}` : `${rel}_${counter}`;
+        let dejaVerse = false;
+        for (;;) {
+          // même chemin (suffixé ou non) + même taille sur le serveur = même
+          // pièce déjà versée lors d'un passage précédent : on la saute (reprise)
+          if (serverIndex.get(rel) === file.size + ENC_OVERHEAD) { dejaVerse = true; break; }
+          if (!plannedRels.has(rel)) break;
+          rel = hasExt ? `${relIdeal.slice(0, dotIdeal)}_${counter}${relIdeal.slice(dotIdeal)}` : `${relIdeal}_${counter}`;
           counter++;
         }
-        existingRels.add(rel);
-        return { file, rel };
-      });
+        if (!dejaVerse) plannedRels.add(rel);
+        plan.push({ file, rel, dejaVerse });
+      }
+      // total réel après planification (chemins dégénérés déjà en échec)
+      setUploadProgress({ done: 0, total: plan.length, errors: echecs.length });
+
+      // Groupes bornés en mémoire : gros fichiers seuls, petits par 3.
+      const groups: PlanItem[][] = [];
+      let lot: PlanItem[] = [];
+      for (const item of plan) {
+        if (item.file.size >= SOLO_BYTES) {
+          if (lot.length) { groups.push(lot); lot = []; }
+          groups.push([item]);
+        } else {
+          lot.push(item);
+          if (lot.length >= PETIT_LOT) { groups.push(lot); lot = []; }
+        }
+      }
+      if (lot.length) groups.push(lot);
+
+      // Sauvegarde de la liste au fil de l'eau (par paliers) : repart TOUJOURS
+      // de la liste courante (docsRef) et dédoublonne par chemin — ni écrasement
+      // de la synchro automatique, ni entrée en double d'un flush à l'autre.
       const added: DocumentEnquete[] = [];
+      let flushed = 0;
+      const flushState = () => {
+        if (added.length > flushed) {
+          const base = docsRef.current || [];
+          const seen = new Set(base.map(d => d.cheminRelatif));
+          const fresh = added.filter(d => !seen.has(d.cheminRelatif));
+          if (fresh.length) onUpdate(enquete.id, { documents: [...base, ...fresh] });
+          flushed = added.length;
+        }
+      };
+
       const convertis: ScannedDocument[] = [];
-      let errors = 0;
-      const LOT = 4;
-      for (let i = 0; i < plan.length; i += LOT) {
-        await Promise.all(plan.slice(i, i + LOT).map(async ({ file, rel }) => {
-          try {
-            const buf = await file.arrayBuffer();
-            const cleanRel = await window.siralBridge.depositDocument(enquete.numero, rel, buf, zone, file.name);
-            added.push({
-              id: Date.now() + added.length,
-              nom: String(cleanRel).split('/').pop() || file.name,
-              nomOriginal: file.name,
-              extension: '.' + (file.name.split('.').pop() || ''),
-              taille: file.size,
-              dateAjout: new Date().toISOString(),
-              cheminRelatif: String(cleanRel),
-              type: (file.name.toLowerCase().endsWith('.pdf') ? 'pdf'
-                : /\.docx$/i.test(file.name) ? 'docx'
-                : /\.doc$/i.test(file.name) ? 'doc'
-                : /\.odt$/i.test(file.name) ? 'odt'
-                : /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(file.name) ? 'image'
-                : /\.html?$/i.test(file.name) ? 'html'
-                : /\.msg$/i.test(file.name) ? 'msg'
-                : /\.txt$/i.test(file.name) ? 'txt' : 'autre') as DocumentEnquete['type'],
-            });
-            const markdown = await deposerCopieMarkdown(file, String(cleanRel));
-            if (markdown && markdown.trim().length >= 40) {
-              convertis.push({ filePath: String(cleanRel), fileName: file.name, sourceFolder: zone, textContent: markdown });
-            }
-          } catch {
-            errors++;
+      const suivrePourAnalyse = ANALYSE_CATEGORIES.includes(category);
+      let ok = 0, dejaLa = 0, md = 0;
+      let sessionPerdue = false;
+
+      const convertible = (f: File) => !/\.(jpg|jpeg|png|gif|bmp|webp|msg)$/i.test(f.name);
+      const relCourt = (rel: string) => rel.slice(zone.length + 1);
+      const buildMeta = (rel: string, nomOriginal: string, taille: number): DocumentEnquete => ({
+        id: Date.now() + added.length,
+        nom: rel.split('/').pop() || nomOriginal,
+        nomOriginal,
+        extension: '.' + (rel.split('.').pop() || ''),
+        taille,
+        dateAjout: new Date().toISOString(),
+        cheminRelatif: rel,
+        type: (rel.toLowerCase().endsWith('.pdf') ? 'pdf'
+          : /\.docx$/i.test(rel) ? 'docx'
+          : /\.doc$/i.test(rel) ? 'doc'
+          : /\.odt$/i.test(rel) ? 'odt'
+          : /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(rel) ? 'image'
+          : /\.html?$/i.test(rel) ? 'html'
+          : /\.msg$/i.test(rel) ? 'msg'
+          : /\.(txt|md)$/i.test(rel) ? 'txt' : 'autre') as DocumentEnquete['type'],
+      });
+
+      /** Copie markdown pour l'IA — sautée si déjà sur le serveur (reprise). */
+      const verserCopieTexte = async (file: File, rel: string) => {
+        if (!convertible(file)) return;
+        const mdRel = 'MD/' + rel.replace(/\.[^./]+$/, '') + '.md';
+        if (serverIndex.has(mdRel)) { md++; return; }
+        if (file.size > MAX_CONVERT_BYTES) {
+          avertissements.push(`${relCourt(rel)} — trop volumineux pour la conversion texte dans le navigateur (l'attaché fera l'extraction côté serveur, OCR si besoin)`);
+          return;
+        }
+        const markdown = await deposerCopieMarkdown(file, rel);
+        if (markdown) {
+          md++;
+          if (suivrePourAnalyse && markdown.trim().length >= 40 && convertis.length < 40) {
+            convertis.push({ filePath: rel, fileName: file.name, sourceFolder: zone, textContent: markdown });
           }
-        }));
+        } else {
+          avertissements.push(`${relCourt(rel)} — conversion texte impossible (scan sans couche texte ? l'attaché fera l'extraction côté serveur, OCR si besoin)`);
+        }
+      };
+
+      const traiterUn = async ({ file, rel, dejaVerse }: PlanItem) => {
+        setUploadProgress((p) => (p ? { ...p, current: file.name } : p));
+        try {
+          if (dejaVerse) {
+            dejaLa++;
+            // pièce déjà sur le serveur mais absente de la liste (versement
+            // interrompu avant sauvegarde) : on répare la liste sans re-téléverser
+            if (!stateRels.has(rel)) added.push(buildMeta(rel, file.name, file.size));
+            await verserCopieTexte(file, rel);
+          } else if (file.size > MAX_DOC_BYTES) {
+            // Original au-delà de la limite serveur (50 Mo/pièce) : versement
+            // du TEXTE intégral à la place — la pièce reste analysable par l'IA.
+            if (!convertible(file) || file.size > MAX_CONVERT_BYTES) {
+              throw new Error(`dépasse la limite de 50 Mo par pièce (${Math.round(file.size / 1024 / 1024)} Mo) — à scinder avant versement`);
+            }
+            const texteRel = rel.replace(/\.[^./]+$/, '') + '_TEXTE.md';
+            if (serverIndex.has(texteRel)) {
+              // texte déjà versé lors d'un passage précédent (reprise)
+              dejaLa++; md++;
+              if (!stateRels.has(texteRel)) added.push(buildMeta(texteRel, file.name, serverIndex.get(texteRel) || 0));
+              setUploadProgress((p) => (p ? { ...p, done: p.done + 1, errors: echecs.length } : p));
+              return;
+            }
+            // plafond de conversion relevé : ce texte devient LA pièce conservée
+            const { markdown } = await fileToMarkdown(file, { maxChars: 1_500_000 });
+            if (!markdown.trim()) throw new Error('dépasse 50 Mo et aucun texte extractible — à scinder avant versement');
+            const bytes = new TextEncoder().encode(markdown);
+            const cleanRel = String(await window.siralBridge.depositDocument(
+              enquete.numero, texteRel,
+              bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+              zone, file.name
+            ));
+            ok++; md++;
+            added.push(buildMeta(cleanRel, file.name, bytes.length));
+            avertissements.push(`${relCourt(rel)} — original de ${Math.round(file.size / 1024 / 1024)} Mo non conservé (limite : 50 Mo par pièce) ; son texte intégral a été versé à la place`);
+            if (suivrePourAnalyse && markdown.trim().length >= 40 && convertis.length < 40) {
+              convertis.push({ filePath: cleanRel, fileName: file.name, sourceFolder: zone, textContent: markdown });
+            }
+          } else {
+            const buf = await file.arrayBuffer();
+            let cleanRel: string;
+            try {
+              cleanRel = String(await window.siralBridge.depositDocument(enquete.numero, rel, buf, zone, file.name));
+            } catch (e1) {
+              // un seul rejeu, pour les aléas réseau — jamais sur une session expirée
+              if (e1 instanceof Error && /session expirée/i.test(e1.message)) throw e1;
+              await new Promise(r => setTimeout(r, 2000));
+              cleanRel = String(await window.siralBridge.depositDocument(enquete.numero, rel, buf, zone, file.name));
+            }
+            ok++;
+            added.push(buildMeta(cleanRel, file.name, file.size));
+            await verserCopieTexte(file, cleanRel);
+          }
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (/session expirée/i.test(msg)) sessionPerdue = true;
+          echecs.push(`${relCourt(rel)} — ${msg}`);
+        }
+        setUploadProgress((p) => (p ? { ...p, done: p.done + 1, errors: echecs.length } : p));
+      };
+
+      for (const group of groups) {
+        if (cancelUploadRef.current || sessionPerdue) break;
+        await Promise.all(group.map(traiterUn));
+        if (added.length - flushed >= FLUSH_EVERY) flushState();
       }
+      flushState();
+
+      const interrompu = cancelUploadRef.current || sessionPerdue;
       await suggererAnalyse(convertis, category);
-      if (added.length) {
-        onUpdate(enquete.id, { documents: [...(enquete.documents || []), ...added] });
-      }
+      setUploadReport({
+        zone: DOCUMENT_ZONES.find(z => z.category === category)?.title || zone,
+        ok, dejaLa, md, nonPrisEnCharge, interrompu,
+        avertissements, echecs,
+      });
       showToast(
-        `${added.length} document(s) versé(s) dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title} — sous-pochettes préservées, copies markdown créées pour l'IA` +
-        `${skipped ? ` · ${skipped} fichier(s) non pris en charge` : ''}${errors ? ` · ${errors} échec(s)` : ''}`,
-        errors ? 'warning' : 'success'
+        interrompu
+          ? `Versement ${sessionPerdue ? 'interrompu (session expirée — reconnectez-vous)' : 'arrêté'} : ${ok} pièce(s) versée(s). Re-déposez le même dossier pour terminer, rien ne sera dupliqué.`
+          : `${ok} pièce(s) versée(s) dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title}` +
+            `${dejaLa ? ` · ${dejaLa} déjà présente(s) (reprise)` : ''}` +
+            `${nonPrisEnCharge ? ` · ${nonPrisEnCharge} non pris en charge` : ''}` +
+            `${echecs.length ? ` · ${echecs.length} échec(s) — détail sous les zones` : ''}`,
+        interrompu || echecs.length ? 'warning' : 'success'
       );
     } finally {
       setIsUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -691,15 +936,26 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   const handleDrop = async (e: React.DragEvent, category: DocumentCategory) => {
     e.preventDefault();
     setDragOverZone(null);
+    if (isUploading) { showToast('Un versement est déjà en cours — attendez la fin ou arrêtez-le', 'warning'); return; }
     const items = e.dataTransfer.items;
     const flatFiles = e.dataTransfer.files;
-    // Parcours récursif : détecte les dossiers déposés et préserve l'arborescence
-    const incoming = items?.length ? await collectDropEntries(items) : [];
+    // Parcours récursif : détecte les dossiers déposés et préserve l'arborescence.
+    // Résilient : une entrée illisible (fichier verrouillé, partage réseau
+    // décroché) est comptée et signalée, jamais bloquante.
+    let illisibles = 0;
+    let incoming: Incoming[] = [];
+    try {
+      incoming = items?.length ? await collectDropEntries(items, () => { illisibles++; }) : [];
+    } catch { incoming = []; }
+    if (illisibles > 0) {
+      showToast(`${illisibles} élément(s) illisible(s) ignoré(s) (fichier verrouillé ou partage réseau décroché)`, 'warning');
+    }
     if (incoming.some((i) => i.path.includes('/'))) {
       await uploadTree(incoming, category);
       return;
     }
     if (flatFiles.length > 0) handleFiles(flatFiles, category);
+    else if (incoming.length > 0) handleFiles(incoming.map((i) => i.file), category);
   };
   const handleDragOver = (e: React.DragEvent, category: DocumentCategory) => {
     e.preventDefault();
@@ -831,6 +1087,93 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         </CardHeader>
 
         <CardContent className="space-y-6">
+          {/* Progression du versement en cours (arborescences et gros lots) :
+              compteur, pièce en cours, arrêt propre — et rappel que la reprise
+              est possible sans doublon si l'onglet se ferme. */}
+          {uploadProgress && (
+            <div className="space-y-1.5 rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Loader className="h-4 w-4 flex-shrink-0 animate-spin text-blue-600" />
+                <p className="min-w-0 flex-1 text-xs text-blue-900">
+                  <span className="font-semibold">
+                    Versement en cours — {uploadProgress.done}/{uploadProgress.total}
+                  </span>
+                  {uploadProgress.errors > 0 && (
+                    <span className="font-medium text-red-600"> · {uploadProgress.errors} échec(s)</span>
+                  )}
+                  {uploadProgress.current && (
+                    <span className="block truncate text-blue-700/80">{uploadProgress.current}</span>
+                  )}
+                </p>
+                <Button
+                  size="sm" variant="ghost"
+                  className="h-7 flex-shrink-0 text-xs text-blue-600 hover:text-blue-800"
+                  onClick={() => { cancelUploadRef.current = true; }}
+                  title="Arrêter après la pièce en cours — re-déposer le même dossier reprendra où le versement s'est arrêté"
+                >
+                  <X className="h-3 w-3" /> Arrêter
+                </Button>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-blue-100">
+                <div
+                  className="h-full rounded-full bg-blue-500 transition-all"
+                  style={{ width: `${Math.round((uploadProgress.done / Math.max(1, uploadProgress.total)) * 100)}%` }}
+                />
+              </div>
+              <p className="text-[10.5px] text-blue-700/70">
+                Gardez cet onglet ouvert. Chaque pièce est convertie en texte pour l&apos;IA au passage.
+                Un versement interrompu se reprend en re-déposant le même dossier — aucun doublon.
+              </p>
+            </div>
+          )}
+
+          {/* Bilan du dernier versement d'arborescence : chiffres + détail
+              dépliable des échecs et avertissements (pièce par pièce). */}
+          {uploadReport && !uploadProgress && (
+            <div className="space-y-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+              <div className="flex items-start justify-between gap-2">
+                <p className="min-w-0 flex-1">
+                  <span className="font-semibold">{uploadReport.zone}</span> : {uploadReport.ok} pièce(s) versée(s)
+                  {uploadReport.dejaLa > 0 && <> · {uploadReport.dejaLa} déjà présente(s), sautée(s)</>}
+                  {uploadReport.md > 0 && <> · {uploadReport.md} copie(s) texte pour l&apos;IA</>}
+                  {uploadReport.nonPrisEnCharge > 0 && <> · {uploadReport.nonPrisEnCharge} format(s) non pris en charge</>}
+                  {uploadReport.interrompu && (
+                    <span className="font-medium text-amber-700"> · interrompu — re-déposez le même dossier pour terminer (reprise sans doublon)</span>
+                  )}
+                </p>
+                <button
+                  onClick={() => setUploadReport(null)}
+                  className="flex-shrink-0 rounded p-0.5 text-gray-400 hover:bg-gray-200 hover:text-gray-600"
+                  title="Fermer ce bilan"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              {uploadReport.echecs.length > 0 && (
+                <details>
+                  <summary className="cursor-pointer font-medium text-red-600">
+                    {uploadReport.echecs.length} échec(s) — détail
+                  </summary>
+                  <ul className="mt-1 list-inside list-disc space-y-0.5 text-[11px] text-red-700/90">
+                    {uploadReport.echecs.slice(0, 50).map((s, i) => <li key={i} className="break-all">{s}</li>)}
+                    {uploadReport.echecs.length > 50 && <li>… et {uploadReport.echecs.length - 50} autre(s)</li>}
+                  </ul>
+                </details>
+              )}
+              {uploadReport.avertissements.length > 0 && (
+                <details>
+                  <summary className="cursor-pointer text-amber-600">
+                    {uploadReport.avertissements.length} avertissement(s)
+                  </summary>
+                  <ul className="mt-1 list-inside list-disc space-y-0.5 text-[11px] text-gray-500">
+                    {uploadReport.avertissements.slice(0, 50).map((s, i) => <li key={i} className="break-all">{s}</li>)}
+                    {uploadReport.avertissements.length > 50 && <li>… et {uploadReport.avertissements.length - 50} autre(s)</li>}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+
           {/* Proposition d'analyse IA des pièces qui viennent d'être téléversées
               (admin + attaché actif) : détection d'actes, incohérences de numéro
               de procédure / NATINF, CR de réception. Un clic — jamais automatique. */}
@@ -1155,6 +1498,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           <div className="text-xs text-gray-500 space-y-1">
             <p><strong>Formats supportés :</strong> PDF, DOC, DOCX, ODT, TXT, Images, HTML, MSG</p>
             <p><strong>Organisation :</strong> Classement automatique dans des dossiers par catégorie</p>
+            <p><strong>Dossiers entiers :</strong> Déposez une ou plusieurs arborescences complètes (sous-pochettes préservées, texte converti pour l&apos;IA au passage). Limite : 50 Mo par pièce — au-delà, le texte intégral est versé à la place. Un versement interrompu se reprend en re-déposant le même dossier, sans doublon.</p>
             {enquete.cheminExterne && (
               <p><strong>Sauvegarde double :</strong> Documents sauvegardés en interne + copie externe</p>
             )}
