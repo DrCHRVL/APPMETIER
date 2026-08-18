@@ -134,16 +134,19 @@ export function NouveauxDossiersPropositions({
 
   const allCarto = props.every((p) => CARTO_KINDS.includes(p.type));
 
+  // Fond OPAQUE : ce bandeau flotte au-dessus de la cartographie et de la
+  // barre latérale — le `bg-amber-50/40` d'origine laissait traverser les
+  // nœuds et les libellés du dessous, illisible.
   return (
-    <div className="rounded-xl border border-amber-200/70 bg-amber-50/40">
-      <div className="flex items-center gap-2 px-3 py-2">
+    <div className="overflow-hidden rounded-xl border border-amber-200 bg-white shadow-lg shadow-amber-950/10">
+      <div className="flex items-center gap-2 border-b border-amber-100 bg-amber-50 px-3 py-2">
         <Sparkles className="h-3.5 w-3.5 text-amber-600" />
         <span className="text-xs font-bold text-gray-800">
           {props.length} {title.toLowerCase()}{props.length > 1 ? 's' : ''} de l'attaché
         </span>
         <span className="text-[10.5px] text-gray-400">visibles de vous seul · ✓ {allCarto ? 'trace sur la carte' : 'crée (signé de votre nom)'} · ✗ refuse</span>
       </div>
-      <div className="divide-y divide-amber-100/70">
+      <div className="max-h-[60vh] divide-y divide-amber-100 overflow-y-auto">
         {props.map((p) => {
           const meta = TYPE_META[p.type];
           const Icon = meta.icon;
@@ -186,7 +189,7 @@ export function NouveauxDossiersPropositions({
               </div>
               {p.source && <div className="mt-0.5 pl-1 text-[10.5px] text-gray-400">Source : {p.source}</div>}
               {isOpen && (
-                <div className="mt-1.5 space-y-1 rounded-lg border border-amber-100 bg-white p-2 text-[11.5px] leading-relaxed text-gray-700">
+                <div className="mt-1.5 space-y-1 rounded-lg border border-amber-100 bg-amber-50/70 p-2 text-[11.5px] leading-relaxed text-gray-700">
                   {p.type === 'dossier' && (
                     <>
                       <Field label="Numéro" value={p.payload.numero} />
@@ -236,7 +239,7 @@ export function NouveauxDossiersPropositions({
           );
         })}
       </div>
-      {notice && <div className="border-t border-amber-100 px-3 py-1.5 text-[11px] text-gray-500">{notice}</div>}
+      {notice && <div className="border-t border-amber-100 bg-amber-50 px-3 py-1.5 text-[11px] text-gray-500">{notice}</div>}
     </div>
   );
 }
