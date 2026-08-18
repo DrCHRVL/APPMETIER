@@ -12,7 +12,7 @@ import { create } from '@/lib/zustand';
 import { Enquete, CompteRendu, NewEnqueteData, ActeMeta } from '@/types/interfaces';
 import { buildProductionActe } from '@/utils/productionActe';
 import { findEnqueteParNumero } from '@/utils/numeroDossier';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { ContentieuxId } from '@/types/userTypes';
 import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
 import { ContentieuxManager } from '@/utils/contentieuxManager';
@@ -54,7 +54,7 @@ let _isDirty = false;
 const _saveThrottled = throttle(async () => {
   if (!_isDirty || useEnquetesStore.getState().isLoading) return;
   try {
-    await ElectronBridge.setData(storageKey(_contentieuxRef), _enquetesRef);
+    await SiralBridge.setData(storageKey(_contentieuxRef), _enquetesRef);
     _isDirty = false;
     useEnquetesStore.setState({ _isDataDirty: false });
     MultiSyncManager.getInstance().triggerPostSaveSync(_contentieuxRef);
@@ -188,7 +188,7 @@ async function persistOriginContentieux(
   enquetes: Enquete[]
 ): Promise<void> {
   try {
-    await ElectronBridge.setData(storageKey(originId), enquetes);
+    await SiralBridge.setData(storageKey(originId), enquetes);
     MultiSyncManager.getInstance().triggerPostSaveSync(originId);
   } catch (error) {
     console.error(`❌ EnquetesStore[co-saisine→${originId}]: erreur persistance`, error);
@@ -229,7 +229,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     // Flush les données dirty du contentieux précédent (avant de muter _contentieuxRef)
     if (_isDirty) {
       try {
-        await ElectronBridge.setData(storageKey(state.contentieuxId), _enquetesRef);
+        await SiralBridge.setData(storageKey(state.contentieuxId), _enquetesRef);
         _isDirty = false;
       } catch (err) {
         console.error('EnquetesStore: erreur flush avant switch', err);
@@ -256,7 +256,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     set({ isLoading: true });
     try {
       const key = storageKey(contentieuxId);
-      const data = await ElectronBridge.getData<Enquete[]>(key, []);
+      const data = await SiralBridge.getData<Enquete[]>(key, []);
       // Normalise au passage les actes : statut des actes expirés (en_cours →
       // termine) et dateFin résiduelle des actes non posés (en attente de
       // pose/autorisation, le délai ne courant qu'à compter de la pose).
@@ -341,7 +341,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
   flushPendingSave: async () => {
     if (!_isDirty) return;
     try {
-      await ElectronBridge.setData(storageKey(_contentieuxRef), _enquetesRef);
+      await SiralBridge.setData(storageKey(_contentieuxRef), _enquetesRef);
       _isDirty = false;
       set({ _isDataDirty: false });
     } catch (error) {

@@ -20,7 +20,7 @@
 //   - tombstone => la mesure est supprimée, sauf si elle a été modifiée après
 //     la suppression (réapparition volontaire).
 
-import { ElectronBridge } from '../electronBridge';
+import { SiralBridge } from '../siralBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { getCurrentUserInfo } from './globalSyncCommon';
 import type { AIRImportData } from '@/types/interfaces';
@@ -188,8 +188,8 @@ export class AIRSyncService {
 
   private isAvailable(): boolean {
     return typeof window !== 'undefined'
-      && !!window.electronAPI?.airSync_pull
-      && !!window.electronAPI?.airSync_push;
+      && !!window.siralBridge?.airSync_pull
+      && !!window.siralBridge?.airSync_push;
   }
 
   /**
@@ -262,11 +262,11 @@ export class AIRSyncService {
   async recordDeletion(refAEM: string): Promise<void> {
     if (!this.username || !refAEM) return;
     const key = tombstonesKey(this.username);
-    const existing = await ElectronBridge.getData<AIRTombstone[]>(key, []);
+    const existing = await SiralBridge.getData<AIRTombstone[]>(key, []);
     const arr = Array.isArray(existing) ? existing : [];
     if (!arr.some(t => t.refAEM === refAEM)) {
       arr.push({ refAEM, deletedAt: new Date().toISOString() });
-      await ElectronBridge.setData(key, arr);
+      await SiralBridge.setData(key, arr);
     }
   }
 
@@ -313,11 +313,11 @@ export class AIRSyncService {
 
   private async checkAccess(): Promise<boolean> {
     try {
-      if (!window.electronAPI?.airSync_check || !this.networkPath) {
+      if (!window.siralBridge?.airSync_check || !this.networkPath) {
         this.isOnline = false;
         return false;
       }
-      this.isOnline = await window.electronAPI.airSync_check(this.networkPath);
+      this.isOnline = await window.siralBridge.airSync_check(this.networkPath);
       return this.isOnline;
     } catch {
       this.isOnline = false;
@@ -328,14 +328,14 @@ export class AIRSyncService {
   private async performSync(): Promise<{ pushed: number; pulled: number }> {
     const username = this.username!;
     const networkPath = this.networkPath!;
-    const api = window.electronAPI!;
+    const api = window.siralBridge!;
     const mySan = sanitizeUser(username);
 
     this.isSync = true;
     try {
       const [localMesures, localTombstones, personalServer] = await Promise.all([
-        ElectronBridge.getData<AIRImportData[]>(mesuresKey(username), []),
-        ElectronBridge.getData<AIRTombstone[]>(tombstonesKey(username), []),
+        SiralBridge.getData<AIRImportData[]>(mesuresKey(username), []),
+        SiralBridge.getData<AIRTombstone[]>(tombstonesKey(username), []),
         api.airSync_pull!(networkPath, username),
       ]);
 
@@ -414,11 +414,11 @@ export class AIRSyncService {
 
       // Écrire en local si la fusion a apporté des nouveautés
       if (localChanged) {
-        await ElectronBridge.setData(mesuresKey(username), mesures);
-        await ElectronBridge.setData(tombstonesKey(username), tombstones);
+        await SiralBridge.setData(mesuresKey(username), mesures);
+        await SiralBridge.setData(tombstonesKey(username), tombstones);
         this.emitLocalChanged();
       } else if (tombstones.length !== localTomb.length) {
-        await ElectronBridge.setData(tombstonesKey(username), tombstones);
+        await SiralBridge.setData(tombstonesKey(username), tombstones);
       }
 
       // Pousser : coffre personnel (porte mon `shareWith` = handshake) + éventuel
@@ -458,11 +458,11 @@ export class AIRSyncService {
 
   /** Liste les backups réseau de l'utilisateur (du plus récent au plus ancien). */
   async listBackups(): Promise<string[]> {
-    if (!this.username || !this.networkPath || !window.electronAPI?.airSync_listBackups) {
+    if (!this.username || !this.networkPath || !window.siralBridge?.airSync_listBackups) {
       return [];
     }
     try {
-      return await window.electronAPI.airSync_listBackups(this.networkPath, this.username);
+      return await window.siralBridge.airSync_listBackups(this.networkPath, this.username);
     } catch {
       return [];
     }
@@ -470,17 +470,17 @@ export class AIRSyncService {
 
   /** Restaure les mesures depuis un backup réseau (écrase local + serveur). */
   async restoreFromBackup(filename: string): Promise<boolean> {
-    if (!this.username || !this.networkPath || !window.electronAPI?.airSync_readBackup) {
+    if (!this.username || !this.networkPath || !window.siralBridge?.airSync_readBackup) {
       return false;
     }
     try {
-      const backup = await window.electronAPI.airSync_readBackup(
+      const backup = await window.siralBridge.airSync_readBackup(
         this.networkPath, this.username, filename,
       );
       if (!backup) return false;
       const mesures = Array.isArray(backup.mesures) ? backup.mesures : [];
-      await ElectronBridge.setData(mesuresKey(this.username), mesures);
-      await ElectronBridge.setData(tombstonesKey(this.username), backup.deletedRefs || []);
+      await SiralBridge.setData(mesuresKey(this.username), mesures);
+      await SiralBridge.setData(tombstonesKey(this.username), backup.deletedRefs || []);
       this.emitLocalChanged();
       this.dirty = true;
       await this.sync();
@@ -508,7 +508,7 @@ export class AIRSyncService {
   private async loadShareConfig(): Promise<void> {
     if (!this.username) { this.shareConfig = { partners: [], declined: [] }; return; }
     try {
-      const raw = await ElectronBridge.getData<AIRShareConfig>(
+      const raw = await SiralBridge.getData<AIRShareConfig>(
         shareConfigKey(this.username),
         { partners: [], declined: [] },
       );
@@ -524,7 +524,7 @@ export class AIRSyncService {
 
   private async saveShareConfig(): Promise<void> {
     if (!this.username) return;
-    await ElectronBridge.setData(shareConfigKey(this.username), this.shareConfig);
+    await SiralBridge.setData(shareConfigKey(this.username), this.shareConfig);
     this.emitShareChanged();
   }
 

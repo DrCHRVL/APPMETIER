@@ -44,7 +44,7 @@ export class AuditLogger {
     };
 
     try {
-      await window.electronAPI?.appendAuditLog?.(entry, MAX_ENTRIES);
+      await window.siralBridge?.appendAuditLog?.(entry, MAX_ENTRIES);
     } catch {
       // Silencieux si serveur inaccessible
     }
@@ -53,7 +53,7 @@ export class AuditLogger {
   /** Lit le journal d'audit complet */
   static async getLog(): Promise<AuditLogEntry[]> {
     try {
-      return await window.electronAPI?.readAuditLog?.() || [];
+      return await window.siralBridge?.readAuditLog?.() || [];
     } catch {
       return [];
     }

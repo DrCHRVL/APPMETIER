@@ -423,10 +423,10 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     const filename = `mis-en-cause_${new Date().toISOString().split('T')[0]}.txt`;
     const content = sorted.join('\n') + '\n';
     try {
-      if (window.electronAPI?.saveFileDialog) {
-        await window.electronAPI.saveFileDialog(filename, content);
+      if (window.siralBridge?.saveFileDialog) {
+        await window.siralBridge.saveFileDialog(filename, content);
       } else {
-        // Filet de sécurité hors contexte Electron/bridge : download direct.
+        // Filet de sécurité hors contexte du pont : download direct.
         const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);

@@ -2,7 +2,7 @@
 // d'archivage (cf. utils/archiveState.ts, qui reste une logique pure).
 
 import { ResultatAudience } from '@/types/audienceTypes';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { buildResultatKey, migrateLegacyResultats } from '@/utils/audienceLegacy';
 
 // Clé globale des résultats d'audience (partagée par tous les contentieux,
@@ -19,7 +19,7 @@ export async function buildResultatLookup(
 ): Promise<(enqueteId: number) => ResultatAudience | undefined> {
   let index: Record<string, ResultatAudience> = {};
   try {
-    const raw = await ElectronBridge.getData<Record<string, ResultatAudience>>(AUDIENCE_RESULTATS_KEY, {});
+    const raw = await SiralBridge.getData<Record<string, ResultatAudience>>(AUDIENCE_RESULTATS_KEY, {});
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
       index = migrateLegacyResultats(raw).migrated;
     }

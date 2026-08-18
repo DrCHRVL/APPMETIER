@@ -722,7 +722,7 @@ Catégories de handlers IPC :
 <h3>Pont de pré-chargement (<code>preload.js</code>)</h3>
 <p>
 Isolation de contexte stricte : aucune API Node n'est exposée à la page rendue.
-Seules les méthodes énumérées sur <code>window.electronAPI</code> sont disponibles.
+Seules les méthodes énumérées sur <code>window.siralBridge</code> sont disponibles.
 </p>
 
 <h3>Renderer Next.js</h3>
@@ -744,7 +744,7 @@ Composant React  ──►  Hook (useContentieuxEnquetes, useInstructions, …)
    │                  Store Zustand  ──►  re-render filtré (useMemo)
    │
    ▼
-StorageManager  ──►  electronAPI.dataSync_push()
+StorageManager  ──►  siralBridge.dataSync_push()
                         │
                         ▼
                  main.js / MultiSyncManager

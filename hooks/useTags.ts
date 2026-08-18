@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { TagDefinition, TagCategory, TagOrganization, getTagsByCategory } from '@/config/tags';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { Tag, Enquete } from '@/types/interfaces';
 import { tagSyncService, DELETED_TAG_IDS_KEY } from '@/utils/dataSync/TagSyncService';
@@ -261,7 +261,7 @@ export const useTags = (): UseTagsReturn => {
 
         // Migration one-shot depuis l'ancienne clé 'tags' (jamais synchronisée)
         // Faite AVANT la sync serveur pour que le push remonte aussi ces tags-là.
-        const firstRead = await ElectronBridge.getData<TagDefinition[] | { data?: TagDefinition[] }>(
+        const firstRead = await SiralBridge.getData<TagDefinition[] | { data?: TagDefinition[] }>(
           APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS,
           [],
         );
@@ -269,12 +269,12 @@ export const useTags = (): UseTagsReturn => {
           (Array.isArray(firstRead) && firstRead.length > 0) ||
           (!Array.isArray(firstRead) && Array.isArray(firstRead?.data) && firstRead!.data!.length > 0);
         if (!hasCustomTags) {
-          const legacyData = await ElectronBridge.getData<TagDefinition[] | { data?: TagDefinition[] }>('tags', []);
+          const legacyData = await SiralBridge.getData<TagDefinition[] | { data?: TagDefinition[] }>('tags', []);
           const legacyArr: TagDefinition[] = Array.isArray(legacyData)
             ? legacyData
             : (legacyData?.data || []);
           if (legacyArr.length > 0) {
-            await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, legacyArr);
+            await SiralBridge.setData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, legacyArr);
             console.log(`✅ Migration tags → customTags : ${legacyArr.length} tag(s) migré(s)`);
           }
         }
@@ -284,7 +284,7 @@ export const useTags = (): UseTagsReturn => {
         // puis on hydrate à nouveau au retour de la sync.
         await tagSyncService.sync();
 
-        const tagsData = await ElectronBridge.getData<TagDefinition[] | { data?: TagDefinition[] }>(
+        const tagsData = await SiralBridge.getData<TagDefinition[] | { data?: TagDefinition[] }>(
           APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS,
           [],
         );
@@ -307,7 +307,7 @@ export const useTags = (): UseTagsReturn => {
     const handleExternalSync = (event: Event) => {
       const custom = event as CustomEvent<{ scope?: string }>;
       if (custom.detail?.scope && custom.detail.scope !== 'tags') return;
-      ElectronBridge.getData<TagDefinition[] | { data?: TagDefinition[] }>(
+      SiralBridge.getData<TagDefinition[] | { data?: TagDefinition[] }>(
         APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS,
         [],
       ).then(data => {
@@ -333,7 +333,7 @@ export const useTags = (): UseTagsReturn => {
 
     saveTimeoutRef.current = setTimeout(async () => {
       try {
-        await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, tagsToSave);
+        await SiralBridge.setData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, tagsToSave);
         lastPersistedRef.current = serialized;
         // Notifier les autres instances useTags (ex. NewEnqueteModal toujours monté)
         emitSyncCompleted('tags');
@@ -647,12 +647,12 @@ export const useTags = (): UseTagsReturn => {
     });
 
     // Tombstones (anti-résurrection au merge inter-postes) + retrait central.
-    const existing = await ElectronBridge.getData<TagTombstone[]>(DELETED_TAG_IDS_KEY, []);
+    const existing = await SiralBridge.getData<TagTombstone[]>(DELETED_TAG_IDS_KEY, []);
     const tombstones: TagTombstone[] = Array.isArray(existing) ? existing : [];
     for (const id of loserIds) {
       if (!tombstones.some(t => t.id === id)) tombstones.push({ id, deletedAt: new Date().toISOString() });
     }
-    await ElectronBridge.setData(DELETED_TAG_IDS_KEY, tombstones);
+    await SiralBridge.setData(DELETED_TAG_IDS_KEY, tombstones);
 
     setTags(prev => prev
       .filter(t => !loserIds.has(t.id))
@@ -711,11 +711,11 @@ export const useTags = (): UseTagsReturn => {
       // Tombstone : empêche la résurrection du tag lors du prochain merge serveur.
       // Le TagSyncService filtre les tags dont l'id apparaît ici et nettoie les
       // tombstones vieux de plus de 7 jours.
-      const existing = await ElectronBridge.getData<TagTombstone[]>(DELETED_TAG_IDS_KEY, []);
+      const existing = await SiralBridge.getData<TagTombstone[]>(DELETED_TAG_IDS_KEY, []);
       const tombstones: TagTombstone[] = Array.isArray(existing) ? existing : [];
       if (!tombstones.some(t => t.id === id)) {
         tombstones.push({ id, deletedAt: new Date().toISOString() });
-        await ElectronBridge.setData(DELETED_TAG_IDS_KEY, tombstones);
+        await SiralBridge.setData(DELETED_TAG_IDS_KEY, tombstones);
       }
 
       setTags(prev => prev.filter(tag => tag.id !== id));
@@ -757,11 +757,11 @@ export const useTags = (): UseTagsReturn => {
       );
 
       // Supprimer le tag source de la gestion centrale + tombstone
-      const existing = await ElectronBridge.getData<TagTombstone[]>(DELETED_TAG_IDS_KEY, []);
+      const existing = await SiralBridge.getData<TagTombstone[]>(DELETED_TAG_IDS_KEY, []);
       const tombstones: TagTombstone[] = Array.isArray(existing) ? existing : [];
       if (!tombstones.some(t => t.id === sourceId)) {
         tombstones.push({ id: sourceId, deletedAt: new Date().toISOString() });
-        await ElectronBridge.setData(DELETED_TAG_IDS_KEY, tombstones);
+        await SiralBridge.setData(DELETED_TAG_IDS_KEY, tombstones);
       }
       setTags(prev => prev.filter(tag => tag.id !== sourceId));
       tagSyncService.schedulePush();

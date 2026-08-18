@@ -78,7 +78,7 @@ async function main() {
     console.log('✅ Mobile : app chargée après déverrouillage')
 
     const pulled = await page.evaluate(async () => {
-      const r = await window.electronAPI.dataSync_pullContentieux('crimorg')
+      const r = await window.siralBridge.dataSync_pullContentieux('crimorg')
       return r && r.data && r.data.enquetes && r.data.enquetes[0].numero
     })
     console.log(pulled === '26/999' ? '✅ Mobile : données du service déchiffrées sur iPhone' : '❌ Mobile : pull KO ' + pulled)

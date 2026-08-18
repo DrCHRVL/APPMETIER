@@ -5,7 +5,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Enquete } from '@/types/interfaces';
 import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 
 export interface CrossSearchResult {
   contentieuxId: ContentieuxId;
@@ -87,7 +87,7 @@ export const useCrossSearch = (
       await Promise.all(
         otherContentieuxIds.map(async (cId) => {
           try {
-            const enquetes = await ElectronBridge.getData<Enquete[]>(`ctx_${cId}_enquetes`, []);
+            const enquetes = await SiralBridge.getData<Enquete[]>(`ctx_${cId}_enquetes`, []);
             if (!Array.isArray(enquetes)) return;
 
             // Ne compter que les enquêtes en cours (pas les archives)

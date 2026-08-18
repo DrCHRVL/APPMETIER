@@ -23,7 +23,7 @@ interface Msg { role: 'user' | 'assistant'; text: string; streaming?: boolean; t
 // Déchiffrement des enveloppes de l'attaché (conversations, mémoire…) : la clé
 // globale vit dans le navigateur admin — comme dans AttachePanel, on déchiffre ICI.
 type AnyFn = (...args: unknown[]) => Promise<any>;
-const eapi = () => (window as unknown as { electronAPI?: Record<string, AnyFn> }).electronAPI;
+const eapi = () => (window as unknown as { siralBridge?: Record<string, AnyFn> }).siralBridge;
 
 export function FloatingDossierChat({
   numero,

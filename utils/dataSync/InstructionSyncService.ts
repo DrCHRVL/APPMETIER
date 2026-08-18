@@ -18,7 +18,7 @@
 //   - tombstone => le dossier est supprimé, sauf s'il a été modifié après
 //     la suppression (réapparition volontaire).
 
-import { ElectronBridge } from '../electronBridge';
+import { SiralBridge } from '../siralBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { getCurrentUserInfo } from './globalSyncCommon';
 import type { DossierInstruction } from '@/types/instructionTypes';
@@ -209,8 +209,8 @@ export class InstructionSyncService {
 
   private isAvailable(): boolean {
     return typeof window !== 'undefined'
-      && !!window.electronAPI?.instructionSync_pull
-      && !!window.electronAPI?.instructionSync_push;
+      && !!window.siralBridge?.instructionSync_pull
+      && !!window.siralBridge?.instructionSync_push;
   }
 
   /**
@@ -286,11 +286,11 @@ export class InstructionSyncService {
   async recordDeletion(id: number): Promise<void> {
     if (!this.username) return;
     const key = tombstonesKey(this.username);
-    const existing = await ElectronBridge.getData<InstructionTombstone[]>(key, []);
+    const existing = await SiralBridge.getData<InstructionTombstone[]>(key, []);
     const arr = Array.isArray(existing) ? existing : [];
     if (!arr.some(t => t.id === id)) {
       arr.push({ id, deletedAt: new Date().toISOString() });
-      await ElectronBridge.setData(key, arr);
+      await SiralBridge.setData(key, arr);
     }
   }
 
@@ -338,11 +338,11 @@ export class InstructionSyncService {
 
   private async checkAccess(): Promise<boolean> {
     try {
-      if (!window.electronAPI?.instructionSync_check || !this.networkPath) {
+      if (!window.siralBridge?.instructionSync_check || !this.networkPath) {
         this.isOnline = false;
         return false;
       }
-      this.isOnline = await window.electronAPI.instructionSync_check(this.networkPath);
+      this.isOnline = await window.siralBridge.instructionSync_check(this.networkPath);
       return this.isOnline;
     } catch {
       this.isOnline = false;
@@ -353,14 +353,14 @@ export class InstructionSyncService {
   private async performSync(): Promise<{ pushed: number; pulled: number }> {
     const username = this.username!;
     const networkPath = this.networkPath!;
-    const api = window.electronAPI!;
+    const api = window.siralBridge!;
     const mySan = sanitizeUser(username);
 
     this.isSync = true;
     try {
       const [localDossiers, localTombstones, personalServer] = await Promise.all([
-        ElectronBridge.getData<DossierInstruction[]>(dossiersKey(username), []),
-        ElectronBridge.getData<InstructionTombstone[]>(tombstonesKey(username), []),
+        SiralBridge.getData<DossierInstruction[]>(dossiersKey(username), []),
+        SiralBridge.getData<InstructionTombstone[]>(tombstonesKey(username), []),
         api.instructionSync_pull!(networkPath, username),
       ]);
 
@@ -439,11 +439,11 @@ export class InstructionSyncService {
 
       // Écrire en local si la fusion a apporté des nouveautés
       if (localChanged) {
-        await ElectronBridge.setData(dossiersKey(username), dossiers);
-        await ElectronBridge.setData(tombstonesKey(username), tombstones);
+        await SiralBridge.setData(dossiersKey(username), dossiers);
+        await SiralBridge.setData(tombstonesKey(username), tombstones);
         this.emitLocalChanged();
       } else if (tombstones.length !== localTomb.length) {
-        await ElectronBridge.setData(tombstonesKey(username), tombstones);
+        await SiralBridge.setData(tombstonesKey(username), tombstones);
       }
 
       // Pousser : fichier personnel (porte mon `shareWith` = handshake) + éventuel
@@ -483,11 +483,11 @@ export class InstructionSyncService {
 
   /** Liste les backups réseau de l'utilisateur (du plus récent au plus ancien). */
   async listBackups(): Promise<string[]> {
-    if (!this.username || !this.networkPath || !window.electronAPI?.instructionSync_listBackups) {
+    if (!this.username || !this.networkPath || !window.siralBridge?.instructionSync_listBackups) {
       return [];
     }
     try {
-      return await window.electronAPI.instructionSync_listBackups(this.networkPath, this.username);
+      return await window.siralBridge.instructionSync_listBackups(this.networkPath, this.username);
     } catch {
       return [];
     }
@@ -495,17 +495,17 @@ export class InstructionSyncService {
 
   /** Restaure les dossiers depuis un backup réseau (écrase local + serveur). */
   async restoreFromBackup(filename: string): Promise<boolean> {
-    if (!this.username || !this.networkPath || !window.electronAPI?.instructionSync_readBackup) {
+    if (!this.username || !this.networkPath || !window.siralBridge?.instructionSync_readBackup) {
       return false;
     }
     try {
-      const backup = await window.electronAPI.instructionSync_readBackup(
+      const backup = await window.siralBridge.instructionSync_readBackup(
         this.networkPath, this.username, filename,
       );
       if (!backup) return false;
       const dossiers = Array.isArray(backup.dossiers) ? backup.dossiers : [];
-      await ElectronBridge.setData(dossiersKey(this.username), dossiers);
-      await ElectronBridge.setData(tombstonesKey(this.username), backup.deletedIds || []);
+      await SiralBridge.setData(dossiersKey(this.username), dossiers);
+      await SiralBridge.setData(tombstonesKey(this.username), backup.deletedIds || []);
       this.emitLocalChanged();
       this.dirty = true;
       await this.sync();
@@ -533,7 +533,7 @@ export class InstructionSyncService {
   private async loadShareConfig(): Promise<void> {
     if (!this.username) { this.shareConfig = { partners: [], declined: [] }; return; }
     try {
-      const raw = await ElectronBridge.getData<InstructionShareConfig>(
+      const raw = await SiralBridge.getData<InstructionShareConfig>(
         shareConfigKey(this.username),
         { partners: [], declined: [] },
       );
@@ -549,7 +549,7 @@ export class InstructionSyncService {
 
   private async saveShareConfig(): Promise<void> {
     if (!this.username) return;
-    await ElectronBridge.setData(shareConfigKey(this.username), this.shareConfig);
+    await SiralBridge.setData(shareConfigKey(this.username), this.shareConfig);
     this.emitShareChanged();
   }
 

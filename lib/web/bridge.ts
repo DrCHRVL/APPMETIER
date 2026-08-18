@@ -1,7 +1,6 @@
 /**
- * SIRAL — pont de données : implémente la surface de window.electronAPI
- * (nom hérité de l'ancienne édition bureau) dans le navigateur, branchée
- * sur l'API serveur SIRAL.
+ * SIRAL — pont de données : implémente la surface de window.siralBridge
+ * dans le navigateur, branchée sur l'API serveur SIRAL.
  *
  * Principe :
  *  - « local »   → IndexedDB (cache de travail, hors-ligne complet)
@@ -353,7 +352,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // LA SURFACE electronAPI
+  // LA SURFACE siralBridge
   // ════════════════════════════════════════════════════════════════════
   const bridge: Record<string, AnyFn> = {
     // ── Stockage local (IndexedDB ≙ data.json) ──
@@ -364,7 +363,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     setData: async (key1: unknown, value: unknown) => {
       const k = String(key1)
       const existing = await idb.get('kv', k)
-      // ElectronBridge enveloppe en { version, data } : la garde doit comparer
+      // SiralBridge enveloppe en { version, data } : la garde doit comparer
       // le CONTENU, sinon l'enveloppe n'est jamais « vide » et la garde dort.
       const unwrap = (v: unknown) => {
         const o = v as { version?: unknown, data?: unknown } | null
@@ -561,7 +560,6 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       // taille chiffrée = taille réelle + 32 octets d'en-tête (4 magic + 12 IV + 16 tag GCM)
       return d ? Math.max(0, d.size - 32) : 0
     },
-    extractPDFText: async (buffer: unknown) => extractPdfText(buffer as ArrayBuffer),
     readDocumentData: async (enqueteNumero: unknown, cheminRelatif: unknown) => {
       const bytes = await docDownload(String(enqueteNumero), String(cheminRelatif))
       return bytes ? b64.encode(bytes) : null
@@ -713,7 +711,6 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       return result
     },
     scanForNewDocuments: async () => ({ newDocuments: [], errors: [] }), // sans objet : le serveur est la source interne
-    scanExternalPDFs: async () => ({ documents: [], errors: ['Scan externe non disponible en mode web'], foldersScanned: [] }),
 
     // ── Configuration serveur (gérée par SIRAL côté web) ──
     serverConfig_get: async () => ({ isConfigured: true, serverRootPath: 'SIRAL — serveur chiffré', configPath: '' }),

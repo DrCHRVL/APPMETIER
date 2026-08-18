@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertRule } from '@/types/interfaces';
 import { APP_CONFIG } from '@/config/constants';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { ContentieuxId } from '@/types/userTypes';
 import { contentieuxAlertsSyncService } from '@/utils/dataSync/ContentieuxAlertsSyncService';
 
@@ -30,11 +30,11 @@ export function useContentieuxAlertRules(contentieuxId: ContentieuxId) {
 
         if (current.length === 0 && !seedTriedRef.current) {
           seedTriedRef.current = true;
-          const legacyCtx = await ElectronBridge.getData<AlertRule[]>(
+          const legacyCtx = await SiralBridge.getData<AlertRule[]>(
             `ctx_${contentieuxId}_alertRules`,
             [],
           );
-          const legacyGlobal = await ElectronBridge.getData<AlertRule[]>(
+          const legacyGlobal = await SiralBridge.getData<AlertRule[]>(
             APP_CONFIG.STORAGE_KEYS.ALERT_RULES,
             [],
           );

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AIRImportData, AIRStatus } from '@/types/interfaces';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { useToast } from '@/contexts/ToastContext';
 import { useUser } from '@/contexts/UserContext';
 import { determineAIRStatus, formatDateIfNeeded } from '@/utils/airImportUtils';
@@ -50,21 +50,21 @@ export const useAIR = () => {
     }
     try {
       setIsLoading(true);
-      let data = await ElectronBridge.getData<AIRImportData[]>(key, []);
+      let data = await SiralBridge.getData<AIRImportData[]>(key, []);
       let list = Array.isArray(data) ? data : [];
 
       // Migration unique : si la clé par utilisateur est vide et que l'ancienne
       // clé globale contient des données, on les adopte (puis on pose la
       // sentinelle pour ne plus jamais re-migrer, même après suppression totale).
       if (list.length === 0 && username) {
-        const alreadyMigrated = await ElectronBridge.getData<boolean>(migrationKey(username), false);
+        const alreadyMigrated = await SiralBridge.getData<boolean>(migrationKey(username), false);
         if (!alreadyMigrated) {
-          const legacy = await ElectronBridge.getData<AIRImportData[]>(LEGACY_STORAGE_KEY, []);
+          const legacy = await SiralBridge.getData<AIRImportData[]>(LEGACY_STORAGE_KEY, []);
           if (Array.isArray(legacy) && legacy.length > 0) {
             list = legacy.map(m => ({ ...m, dateMiseAJour: m.dateMiseAJour || nowIso() }));
-            await ElectronBridge.setData(key, list);
+            await SiralBridge.setData(key, list);
           }
-          await ElectronBridge.setData(migrationKey(username), true);
+          await SiralBridge.setData(migrationKey(username), true);
         }
       }
 
@@ -107,7 +107,7 @@ export const useAIR = () => {
 
     saveTimeoutRef.current = setTimeout(async () => {
       try {
-        await ElectronBridge.setData(key, mesures);
+        await SiralBridge.setData(key, mesures);
         if (pushDirtyRef.current) {
           pushDirtyRef.current = false;
           airSyncService.schedulePush();

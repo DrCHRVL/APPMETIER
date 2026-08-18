@@ -4,7 +4,7 @@
 // Fichier serveur : P:\...\10_App METIER\alerts-data.json
 // Backups        : P:\...\10_App METIER\admin\backups\alerts-data-*.json
 
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { AlertRule, AlertValidations, AlertValidation } from '@/types/interfaces';
 import { AlertSyncFile } from '@/types/globalSyncTypes';
@@ -15,8 +15,8 @@ const PERIODIC_SYNC_MS = 30_000;
 
 function isAlertSyncAvailable(): boolean {
   return typeof window !== 'undefined'
-    && !!window.electronAPI?.globalSync_pullAlerts
-    && !!window.electronAPI?.globalSync_pushAlerts;
+    && !!window.siralBridge?.globalSync_pullAlerts
+    && !!window.siralBridge?.globalSync_pushAlerts;
 }
 
 // ─── Fusion des règles : union par ID, local prioritaire ─────────────────────
@@ -48,37 +48,37 @@ function mergeValidations(local: AlertValidations, server: AlertValidations): Al
 }
 
 async function readLocalRules(): Promise<AlertRule[]> {
-  const raw = await ElectronBridge.getData<any>(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, []);
+  const raw = await SiralBridge.getData<any>(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, []);
   return Array.isArray(raw) ? raw : [];
 }
 
 async function readLocalValidations(): Promise<AlertValidations> {
-  const raw = await ElectronBridge.getData<any>(APP_CONFIG.STORAGE_KEYS.ALERT_VALIDATIONS, {});
+  const raw = await SiralBridge.getData<any>(APP_CONFIG.STORAGE_KEYS.ALERT_VALIDATIONS, {});
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
 }
 
 async function writeLocalRules(rules: AlertRule[]): Promise<void> {
-  await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, rules);
+  await SiralBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_RULES, rules);
 }
 
 async function writeLocalValidations(validations: AlertValidations): Promise<void> {
-  await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_VALIDATIONS, validations);
+  await SiralBridge.setData(APP_CONFIG.STORAGE_KEYS.ALERT_VALIDATIONS, validations);
 }
 
 async function pullServer(): Promise<AlertSyncFile | null> {
-  if (!window.electronAPI?.globalSync_pullAlerts) return null;
-  return (await window.electronAPI.globalSync_pullAlerts()) || null;
+  if (!window.siralBridge?.globalSync_pullAlerts) return null;
+  return (await window.siralBridge.globalSync_pullAlerts()) || null;
 }
 
 async function pushServer(payload: AlertSyncFile): Promise<boolean> {
-  if (!window.electronAPI?.globalSync_pushAlerts) return false;
-  return await window.electronAPI.globalSync_pushAlerts(payload);
+  if (!window.siralBridge?.globalSync_pushAlerts) return false;
+  return await window.siralBridge.globalSync_pushAlerts(payload);
 }
 
 async function pullLegacyAlerts(): Promise<{ rules: AlertRule[]; validations: AlertValidations }> {
   try {
-    if (!window.electronAPI?.globalSync_readLegacyAppData) return { rules: [], validations: {} };
-    const legacy = await window.electronAPI.globalSync_readLegacyAppData();
+    if (!window.siralBridge?.globalSync_readLegacyAppData) return { rules: [], validations: {} };
+    const legacy = await window.siralBridge.globalSync_readLegacyAppData();
     if (!legacy) return { rules: [], validations: {} };
     return {
       rules: Array.isArray(legacy.alertRules) ? legacy.alertRules : [],

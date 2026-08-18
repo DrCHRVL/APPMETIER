@@ -4,7 +4,7 @@
 // Fichier serveur : P:\...\10_App METIER\audience-data.json
 // Backups        : P:\...\10_App METIER\admin\backups\audience-data-*.json
 
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { ResultatAudience } from '@/types/audienceTypes';
 import { AudienceSyncFile } from '@/types/globalSyncTypes';
@@ -30,8 +30,8 @@ const LEGACY_MIGRATION_DONE_KEY = 'audience_legacyMigrationDone';
 
 function isAudienceSyncAvailable(): boolean {
   return typeof window !== 'undefined'
-    && !!window.electronAPI?.globalSync_pullAudience
-    && !!window.electronAPI?.globalSync_pushAudience;
+    && !!window.siralBridge?.globalSync_pullAudience
+    && !!window.siralBridge?.globalSync_pushAudience;
 }
 
 // ─── Fusion par timestamp : le plus récent gagne par enqueteId ───────────────
@@ -58,28 +58,28 @@ function mergeByModifiedAt(
 }
 
 async function readLocal(): Promise<Record<string, ResultatAudience>> {
-  const raw = await ElectronBridge.getData<any>(APP_CONFIG.STORAGE_KEYS.AUDIENCE_RESULTATS, {});
+  const raw = await SiralBridge.getData<any>(APP_CONFIG.STORAGE_KEYS.AUDIENCE_RESULTATS, {});
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
 }
 
 async function writeLocal(data: Record<string, ResultatAudience>): Promise<void> {
-  await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.AUDIENCE_RESULTATS, data);
+  await SiralBridge.setData(APP_CONFIG.STORAGE_KEYS.AUDIENCE_RESULTATS, data);
 }
 
 async function pullServer(): Promise<AudienceSyncFile | null> {
-  if (!window.electronAPI?.globalSync_pullAudience) return null;
-  return (await window.electronAPI.globalSync_pullAudience()) || null;
+  if (!window.siralBridge?.globalSync_pullAudience) return null;
+  return (await window.siralBridge.globalSync_pullAudience()) || null;
 }
 
 async function pushServer(payload: AudienceSyncFile): Promise<boolean> {
-  if (!window.electronAPI?.globalSync_pushAudience) return false;
-  return await window.electronAPI.globalSync_pushAudience(payload);
+  if (!window.siralBridge?.globalSync_pushAudience) return false;
+  return await window.siralBridge.globalSync_pushAudience(payload);
 }
 
 async function pullLegacyAudience(): Promise<Record<string, ResultatAudience>> {
   try {
-    if (!window.electronAPI?.globalSync_readLegacyAppData) return {};
-    const legacy = await window.electronAPI.globalSync_readLegacyAppData();
+    if (!window.siralBridge?.globalSync_readLegacyAppData) return {};
+    const legacy = await window.siralBridge.globalSync_readLegacyAppData();
     if (!legacy || typeof legacy !== 'object') return {};
     const raw = legacy.audienceResultats;
     return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -90,7 +90,7 @@ async function pullLegacyAudience(): Promise<Record<string, ResultatAudience>> {
 
 async function isLegacyMigrationDone(): Promise<boolean> {
   try {
-    return await ElectronBridge.getData<boolean>(LEGACY_MIGRATION_DONE_KEY, false);
+    return await SiralBridge.getData<boolean>(LEGACY_MIGRATION_DONE_KEY, false);
   } catch {
     return false;
   }
@@ -98,7 +98,7 @@ async function isLegacyMigrationDone(): Promise<boolean> {
 
 async function markLegacyMigrationDone(): Promise<void> {
   try {
-    await ElectronBridge.setData(LEGACY_MIGRATION_DONE_KEY, true);
+    await SiralBridge.setData(LEGACY_MIGRATION_DONE_KEY, true);
   } catch {
     // Sans ce flag, le poste relira app-data.json à chaque sync — gênant mais
     // pas bloquant : la déduplication via migrateLegacyResultats absorbe

@@ -90,7 +90,7 @@ export const AdminUsersPanel = () => {
   const [accountStates, setAccountStates] = useState<Record<string, AccountState>>({});
 
   const loadAccountStates = useCallback(async () => {
-    const api = (typeof window !== 'undefined' ? (window as any).electronAPI : null);
+    const api = (typeof window !== 'undefined' ? (window as any).siralBridge : null);
     if (!api?.e2ee_listAccounts) return;
     try {
       const list: Array<{ username: string; displayName: string; role: 'admin' | 'member'; hasKeyring: boolean; hasGrant: boolean }> = await api.e2ee_listAccounts();
@@ -120,7 +120,7 @@ export const AdminUsersPanel = () => {
     const username = user.windowsUsername;
     setKeyBusy(username); setInvite(null);
     try {
-      const api = (window as any).electronAPI as { e2ee_invite: (u: string, s: string[]) => Promise<{ code: string; scopes: string[] }> };
+      const api = (window as any).siralBridge as { e2ee_invite: (u: string, s: string[]) => Promise<{ code: string; scopes: string[] }> };
       const res = await api.e2ee_invite(username, scopesForUser(user));
       setInvite({ username, code: res.code, scopes: res.scopes });
       await loadAccountStates();
@@ -132,7 +132,7 @@ export const AdminUsersPanel = () => {
   const handleRevoke = useCallback(async (username: string) => {
     setKeyBusy(username);
     try {
-      const api = (window as any).electronAPI as { e2ee_revoke: (u: string) => Promise<boolean> };
+      const api = (window as any).siralBridge as { e2ee_revoke: (u: string) => Promise<boolean> };
       await api.e2ee_revoke(username);
       setConfirmRevoke(null);
       if (invite?.username.toLowerCase() === username.toLowerCase()) setInvite(null);

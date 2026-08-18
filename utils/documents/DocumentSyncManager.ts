@@ -28,12 +28,12 @@ export class DocumentSyncManager {
    * Vérifie si le chemin externe est accessible
    */
   static async isExternalPathAccessible(externalPath: string | null): Promise<boolean> {
-    if (!window.electronAPI || !externalPath) {
+    if (!window.siralBridge || !externalPath) {
       return false;
     }
     
     try {
-      return await window.electronAPI.validatePath(externalPath);
+      return await window.siralBridge.validatePath(externalPath);
     } catch (error) {
       console.error('Erreur lors de la vérification du chemin externe:', error);
       return false;
@@ -48,13 +48,13 @@ export class DocumentSyncManager {
     externalPath: string | null,
     useSubfolder: boolean = true
   ): Promise<SyncResult> {
-    if (!window.electronAPI) {
+    if (!window.siralBridge) {
       return {
         totalInternal: 0,
         totalExternal: 0,
         addedToInternal: [],
         addedToExternal: [],
-        errors: ['API Electron non disponible'],
+        errors: ['Pont de données indisponible'],
         externalAccessible: false
       };
     }
@@ -94,8 +94,8 @@ export class DocumentSyncManager {
         externalAccessible: true
       };
 
-      // Appeler l'API Electron pour synchroniser les documents
-      const syncResult = await window.electronAPI.syncDocuments(
+      // Synchroniser les documents via le pont de données
+      const syncResult = await window.siralBridge.syncDocuments(
         enqueteNumero,
         externalPath,
         useSubfolder
@@ -129,12 +129,12 @@ export class DocumentSyncManager {
     enqueteNumero: string,
     existingDocuments: DocumentEnquete[]
   ): Promise<ScanResult> {
-    if (!window.electronAPI) {
-      return { newDocuments: [], errors: ['API Electron non disponible'] };
+    if (!window.siralBridge) {
+      return { newDocuments: [], errors: ['Pont de données indisponible'] };
     }
 
     try {
-      const result = await window.electronAPI.scanForNewDocuments(
+      const result = await window.siralBridge.scanForNewDocuments(
         enqueteNumero,
         existingDocuments.map(doc => doc.cheminRelatif)
       );

@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Enquete } from '@/types/interfaces';
 import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 
 function storageKey(contentieuxId: ContentieuxId): string {
   return `ctx_${contentieuxId}_enquetes`;
@@ -28,7 +28,7 @@ export const useOverboardData = (contentieuxDefs: ContentieuxDefinition[]) => {
     await Promise.all(
       contentieuxDefs.map(async (def) => {
         try {
-          const data = await ElectronBridge.getData<Enquete[]>(storageKey(def.id), []);
+          const data = await SiralBridge.getData<Enquete[]>(storageKey(def.id), []);
           result.set(def.id, Array.isArray(data) ? data : []);
         } catch {
           result.set(def.id, []);

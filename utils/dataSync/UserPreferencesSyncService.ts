@@ -8,7 +8,7 @@
 // indépendante. Pas de tombstone : on ne "supprime" pas une préférence, on
 // l'écrase avec une nouvelle valeur (last-write-wins via version+updatedAt).
 
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { UserPreferencesFile } from '@/types/globalSyncTypes';
 import { AlertValidations, AlertValidation, VisualAlertRule, AlerteInstruction } from '@/types/interfaces';
 import { ContentieuxId } from '@/types/userTypes';
@@ -32,27 +32,27 @@ const localKey = (username: string) => `${LOCAL_KEY_PREFIX}${username}`;
 
 function isAvailable(): boolean {
   return typeof window !== 'undefined'
-    && !!window.electronAPI?.globalSync_pullUserPreferences
-    && !!window.electronAPI?.globalSync_pushUserPreferences;
+    && !!window.siralBridge?.globalSync_pullUserPreferences
+    && !!window.siralBridge?.globalSync_pushUserPreferences;
 }
 
 async function pullServer(username: string): Promise<UserPreferencesFile | null> {
-  if (!window.electronAPI?.globalSync_pullUserPreferences) return null;
-  return (await window.electronAPI.globalSync_pullUserPreferences(username)) || null;
+  if (!window.siralBridge?.globalSync_pullUserPreferences) return null;
+  return (await window.siralBridge.globalSync_pullUserPreferences(username)) || null;
 }
 
 async function pushServer(username: string, payload: UserPreferencesFile): Promise<boolean> {
-  if (!window.electronAPI?.globalSync_pushUserPreferences) return false;
-  return await window.electronAPI.globalSync_pushUserPreferences(username, payload);
+  if (!window.siralBridge?.globalSync_pushUserPreferences) return false;
+  return await window.siralBridge.globalSync_pushUserPreferences(username, payload);
 }
 
 async function readLocal(username: string): Promise<UserPreferencesFile | null> {
-  const raw = await ElectronBridge.getData<UserPreferencesFile | null>(localKey(username), null);
+  const raw = await SiralBridge.getData<UserPreferencesFile | null>(localKey(username), null);
   return raw || null;
 }
 
 async function writeLocal(username: string, data: UserPreferencesFile): Promise<void> {
-  await ElectronBridge.setData(localKey(username), data);
+  await SiralBridge.setData(localKey(username), data);
 }
 
 function empty(username: string): UserPreferencesFile {

@@ -1,7 +1,7 @@
 // utils/sharedEventManager.ts — Système d'événements partagés via fichiers
 //
 // Écriture d'événements légers dans events/ sur le serveur partagé.
-// File watcher côté Electron (main process) surveille ce dossier et notifie le renderer.
+// En mode web, le pont relaie ces événements via le serveur (flux /api/events).
 
 import { SharedEvent, ContentieuxId } from '@/types/userTypes';
 
@@ -27,7 +27,7 @@ export class SharedEventManager {
 
     // Écouter les événements envoyés depuis le main process (file watcher)
     if (typeof window !== 'undefined') {
-      window.electronAPI?.onSharedEvent?.((event: SharedEvent) => {
+      window.siralBridge?.onSharedEvent?.((event: SharedEvent) => {
         this.dispatchInternal(event);
       });
     }
@@ -69,7 +69,7 @@ export class SharedEventManager {
     };
 
     try {
-      await window.electronAPI?.writeSharedEvent?.(event);
+      await window.siralBridge?.writeSharedEvent?.(event);
     } catch {
       // Silencieux si serveur inaccessible
     }
@@ -78,7 +78,7 @@ export class SharedEventManager {
   /** Nettoie les événements expirés (appelé périodiquement par le main process) */
   static async cleanup(): Promise<void> {
     try {
-      await window.electronAPI?.cleanupSharedEvents?.(EVENT_TTL);
+      await window.siralBridge?.cleanupSharedEvents?.(EVENT_TTL);
     } catch {
       // Silencieux
     }

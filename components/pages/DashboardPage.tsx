@@ -15,7 +15,7 @@ import { TodoReminderBar } from '@/components/TodoReminderBar';
 import { PendingActsJLD } from '@/components/PendingActsJLD';
 import { PendingPose } from '@/components/PendingPose';
 import { UpcomingActeDeadlines } from '@/components/UpcomingActeDeadlines';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { AgendaCalendar } from '@/components/AgendaCalendar';
 import { fetchAgendaMulti, AgendaEvent, AgendaSource, AgendaUrls } from '@/lib/web/agenda';
 import { useUserPreferences } from '@/hooks/useUserPreferences';

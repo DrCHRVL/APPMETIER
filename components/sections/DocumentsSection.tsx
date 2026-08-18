@@ -163,7 +163,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
 
   const retryPendingCommun = async () => {
     if (!enquete.cheminExterne) return;
-    const ok = await window.electronAPI.validatePath(enquete.cheminExterne); // déclenche le rejeu de la file
+    const ok = await window.siralBridge.validatePath(enquete.cheminExterne); // déclenche le rejeu de la file
     await refreshPendingCommun();
     if (ok) {
       const fsa = await import('@/lib/web/folderAccess');
@@ -270,8 +270,8 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
 
   // ── Scan des nouveaux documents ──
   const scanForNewDocuments = async (silent = false) => {
-    if (!window.electronAPI) {
-      if (!silent) showToast('API Electron non disponible', 'error');
+    if (!window.siralBridge) {
+      if (!silent) showToast('Pont de données indisponible', 'error');
       return;
     }
     if (isScanningRef.current) return;
@@ -310,7 +310,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   // ── Synchronisation externe ──
   // `silent` : pas de toast ni d'indicateur (utilisé par la synchro automatique).
   const synchronizeDocuments = async (silent = false) => {
-    if (!window.electronAPI) { if (!silent) showToast('API Electron non disponible', 'error'); return; }
+    if (!window.siralBridge) { if (!silent) showToast('Pont de données indisponible', 'error'); return; }
     if (!enquete.cheminExterne) { if (!silent) showToast('Aucun chemin externe configuré', 'warning'); return; }
 
     if (!silent) setIsSyncing(true);
@@ -416,7 +416,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     filesToUpload: { file: File; renamedTo?: string }[],
     category: DocumentCategory
   ) => {
-    if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
+    if (!window.siralBridge) { showToast('Pont de données indisponible', 'error'); return; }
 
     setIsUploading(true);
     setCopyStatus(null);
@@ -424,7 +424,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     const categoryMapping: Record<DocumentCategory, string> = {
       geoloc: 'Geoloc', ecoutes: 'Ecoutes', actes: 'Actes', pv: 'PV', dml: 'DML'
     };
-    const electronCategory = categoryMapping[category];
+    const serverCategory = categoryMapping[category];
 
     try {
       const filesData = await Promise.all(
@@ -434,8 +434,8 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         }))
       );
 
-      const savedFiles = await window.electronAPI.saveDocuments(
-        enquete.numero, filesData, electronCategory
+      const savedFiles = await window.siralBridge.saveDocuments(
+        enquete.numero, filesData, serverCategory
       );
 
       if (savedFiles && savedFiles.length > 0) {
@@ -444,9 +444,9 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         let copieCommun: 'ok' | 'attente' | undefined;
         if (enquete.cheminExterne) {
           try {
-            const ok = await window.electronAPI.copyToExternalPath(
+            const ok = await window.siralBridge.copyToExternalPath(
               enquete.numero, enquete.cheminExterne, savedFiles,
-              electronCategory, enquete.useSubfolderForExternal ?? true
+              serverCategory, enquete.useSubfolderForExternal ?? true
             );
             copieCommun = ok ? 'ok' : 'attente';
             setCopyStatus(ok ? 'success' : 'error');
@@ -475,7 +475,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
             convertis.push({
               filePath: rel,
               fileName: filesToUpload[i].renamedTo || filesToUpload[i].file.name,
-              sourceFolder: electronCategory,
+              sourceFolder: serverCategory,
               textContent: markdown,
             });
           }
@@ -516,7 +516,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
       if (!markdown.trim()) return null;
       const mdRel = 'MD/' + relOriginal.replace(/\.[^./]+$/, '') + '.md';
       const bytes = new TextEncoder().encode(markdown);
-      await window.electronAPI.depositDocument(
+      await window.siralBridge.depositDocument(
         enquete.numero, mdRel,
         bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
         'MD', file.name
@@ -550,7 +550,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
    * chemin relatif (sous-pochettes comprises) sous <Zone>/… + copie markdown.
    */
   const uploadTree = async (incoming: Incoming[], category: DocumentCategory) => {
-    if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
+    if (!window.siralBridge) { showToast('Pont de données indisponible', 'error'); return; }
     const categoryMapping: Record<DocumentCategory, string> = {
       geoloc: 'Geoloc', ecoutes: 'Ecoutes', actes: 'Actes', pv: 'PV', dml: 'DML'
     };
@@ -585,7 +585,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         await Promise.all(plan.slice(i, i + LOT).map(async ({ file, rel }) => {
           try {
             const buf = await file.arrayBuffer();
-            const cleanRel = await window.electronAPI.depositDocument(enquete.numero, rel, buf, zone, file.name);
+            const cleanRel = await window.siralBridge.depositDocument(enquete.numero, rel, buf, zone, file.name);
             added.push({
               id: Date.now() + added.length,
               nom: String(cleanRel).split('/').pop() || file.name,
@@ -628,7 +628,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
 
   // ── Traitement des fichiers (validation + détection conflits) ──
   const handleFiles = async (files: FileList | File[], category: DocumentCategory) => {
-    if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
+    if (!window.siralBridge) { showToast('Pont de données indisponible', 'error'); return; }
 
     const validFiles: File[] = [];
     const invalidFiles: string[] = [];
@@ -658,7 +658,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     const { file, category, existingDoc } = currentConflict;
     setCurrentConflict(null);
     try {
-      const deleted = await window.electronAPI?.deleteDocument(
+      const deleted = await window.siralBridge?.deleteDocument(
         enquete.numero, existingDoc.cheminRelatif,
         enquete.cheminExterne, enquete.useSubfolderForExternal ?? true
       );
@@ -714,18 +714,18 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
 
   // ── Ouvrir / supprimer un document ──
   const handleOpenDocument = async (doc: DocumentEnquete) => {
-    if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
+    if (!window.siralBridge) { showToast('Pont de données indisponible', 'error'); return; }
     try {
-      const ok = await window.electronAPI.openDocument(enquete.numero, doc.cheminRelatif);
+      const ok = await window.siralBridge.openDocument(enquete.numero, doc.cheminRelatif);
       if (!ok) showToast(`Impossible d'ouvrir "${doc.nomOriginal}"`, 'error');
     } catch { showToast("Erreur lors de l'ouverture du document", 'error'); }
   };
 
   const handleDeleteDocument = async (doc: DocumentEnquete) => {
-    if (!window.electronAPI) { showToast('API Electron non disponible', 'error'); return; }
+    if (!window.siralBridge) { showToast('Pont de données indisponible', 'error'); return; }
     if (!confirm(`Êtes-vous sûr de vouloir supprimer "${doc.nomOriginal}" ?`)) return;
     try {
-      const ok = await window.electronAPI.deleteDocument(
+      const ok = await window.siralBridge.deleteDocument(
         enquete.numero, doc.cheminRelatif,
         enquete.cheminExterne, enquete.useSubfolderForExternal ?? true
       );
@@ -1141,11 +1141,11 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
               </div>
             )}
 
-            {!window.electronAPI && (
+            {!window.siralBridge && (
               <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
                 <XCircle className="h-4 w-4 text-red-600" />
                 <p className="text-sm text-red-800">
-                  Fonctionnalité documents non disponible (API Electron requise)
+                  Fonctionnalité documents non disponible (pont de données requis)
                 </p>
               </div>
             )}

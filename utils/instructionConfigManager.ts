@@ -1,9 +1,9 @@
 // utils/instructionConfigManager.ts
 //
 // Gestion de la configuration du module Instruction (cabinets configurables).
-// Stockage via ElectronBridge sous la clé `instructionConfig`.
+// Stockage via SiralBridge sous la clé `instructionConfig`.
 
-import { ElectronBridge } from './electronBridge';
+import { SiralBridge } from './siralBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { DEFAULT_CABINETS } from '@/config/instructionConfig';
 import type {
@@ -38,7 +38,7 @@ class InstructionConfigManagerService {
   async load(): Promise<InstructionModuleConfig> {
     if (this.cache) return this.cache;
 
-    const stored = await ElectronBridge.getData<InstructionModuleConfig | null>(
+    const stored = await SiralBridge.getData<InstructionModuleConfig | null>(
       CONFIG_KEY,
       null,
     );
@@ -60,7 +60,7 @@ class InstructionConfigManagerService {
       ...config,
       updatedAt: new Date().toISOString(),
     };
-    const ok = await ElectronBridge.setData(CONFIG_KEY, next);
+    const ok = await SiralBridge.setData(CONFIG_KEY, next);
     if (ok) this.cache = next;
     return ok;
   }

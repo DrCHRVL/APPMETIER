@@ -18,7 +18,7 @@ import { fileToMarkdown } from '@/lib/web/fileToMarkdown';
 import { collectDropEntries, incomingFromFileList, type Incoming } from '@/lib/web/folderUpload';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
-const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
+const eapi = () => (window as unknown as { siralBridge: Record<string, AnyFn> }).siralBridge;
 
 const ROOT = 'Dossier/';
 const MAX_FILES = 500;

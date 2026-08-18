@@ -1,23 +1,23 @@
 // hooks/useDocumentSearch.ts
 //
 // Recherche dans le CONTENU des documents des enquêtes affichées (la liste de
-// la page courante) : les enquêtes dont un document contient le terme sont
-// ajoutées aux résultats. Fonctionne sur les DEUX éditions — le web télécharge,
-// déchiffre et convertit dans le navigateur (utils/documents/documentTextSearch),
-// avec cache persistant : chaque document n'est extrait qu'une seule fois.
+// la page courante) : les enquêtes dont un document DÉJÀ ANALYSÉ contient le
+// terme sont ajoutées aux résultats. L'analyse d'un document (téléchargement +
+// déchiffrement + conversion dans le navigateur) ne part jamais en silence :
+// elle se lance depuis le bouton « Analyser » de la recherche globale, et son
+// résultat est mémorisé (utils/documents/documentTextSearch) — chaque document
+// n'est extrait qu'une seule fois.
 
 import { useState, useEffect, useRef } from 'react';
 import { Enquete } from '@/types/interfaces';
 import { normalizeText } from '@/utils/globalSearch';
 import {
-  getDocumentSearchText,
   getCachedDocumentSearchText,
   isExtractableDocument,
-  isWebDocumentBridge,
 } from '@/utils/documents/documentTextSearch';
 
 /**
- * Recherche asynchrone dans le contenu des documents.
+ * Recherche asynchrone dans le contenu des documents analysés.
  * - Résultat immédiat : set vide (les filtres métadonnées répondent déjà)
  * - Résultat complété progressivement en arrière-plan
  * - Cache persistant (IndexedDB) + session pour éviter de ré-extraire
@@ -55,13 +55,7 @@ export function useDocumentSearch(
         for (const doc of searchableDocs) {
           if (currentId !== searchIdRef.current) break;
 
-          // Édition web : cache uniquement — l'extraction (téléchargement +
-          // déchiffrement) ne se lance que par le bouton « Analyser » de la
-          // recherche globale, jamais en silence pendant la frappe. Édition
-          // bureau : lecture locale bon marché, comportement historique.
-          const text = isWebDocumentBridge()
-            ? await getCachedDocumentSearchText(enquete.numero, doc)
-            : await getDocumentSearchText(enquete.numero, doc);
+          const text = await getCachedDocumentSearchText(enquete.numero, doc);
 
           if (text && text.norm.includes(term)) {
             matchIds.add(enquete.id);

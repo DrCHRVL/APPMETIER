@@ -22,7 +22,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { useActeRunsStore, RUN_MAX_AGE_MS, acteDoneToastMessage, type ActeRun } from '@/stores/useActeRunsStore';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
-const eapi = () => (window as unknown as { electronAPI?: Record<string, AnyFn> }).electronAPI;
+const eapi = () => (window as unknown as { siralBridge?: Record<string, AnyFn> }).siralBridge;
 
 /** Cadence de sondage tant qu'au moins un run est en cours. */
 const POLL_MS = 6000;

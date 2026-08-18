@@ -1,14 +1,13 @@
 // utils/documents/documentTextSearch.ts
 //
-// Texte des documents d'enquête pour la RECHERCHE — édition web comprise.
+// Texte des documents d'enquête pour la RECHERCHE.
 //
-// L'édition web télécharge le document via le pont (déchiffrement local) puis
-// le convertit DANS le navigateur avec lib/web/fileToMarkdown (PDF, DOCX, DOC,
-// ODT, tableurs, TXT/HTML/RTF/EML — aucune dépendance nouvelle). Les anciennes
-// API de l'édition bureau (extractPdfText par chemin, readFile) restent en
-// repli. Côté serveur rien ne change : les documents restent chiffrés de bout
-// en bout, l'extraction et le cache vivent sur le poste — au même titre que
-// les données métier déjà présentes dans IndexedDB.
+// Le document est téléchargé via le pont (déchiffrement local) puis converti
+// DANS le navigateur avec lib/web/fileToMarkdown (PDF, DOCX, DOC, ODT,
+// tableurs, TXT/HTML/RTF/EML — aucune dépendance nouvelle). Côté serveur rien
+// ne change : les documents restent chiffrés de bout en bout, l'extraction et
+// le cache vivent sur le poste — au même titre que les données métier déjà
+// présentes dans IndexedDB.
 //
 // Chaque document n'est extrait qu'UNE fois : cache persistant IndexedDB
 // (clé numéro + chemin + taille, invalidée par re-téléversement), doublé d'un
@@ -136,54 +135,36 @@ function cacheKey(enqueteNumero: string, doc: Pick<DocumentEnquete, 'cheminRelat
   return `${enqueteNumero}||${doc.cheminRelatif}||${doc.taille || 0}`;
 }
 
-type ElectronDocApi = {
-  readDocumentData?: (e: string, r: string) => Promise<string | null>;
-  readDocumentText?: (e: string, r: string) => Promise<string>;
-  extractPdfText?: (rel: string) => Promise<string | null>;
-  readFile?: (folder: string, filename: string) => Promise<string | null>;
-};
-
 /** Extraction brute (sans cache) — renvoie null si illisible/indisponible. */
 async function extractText(
   enqueteNumero: string,
   doc: Pick<DocumentEnquete, 'cheminRelatif' | 'nom' | 'nomOriginal' | 'taille' | 'type'>
 ): Promise<string | null> {
-  const api = (typeof window !== 'undefined' ? window.electronAPI : undefined) as ElectronDocApi | undefined;
+  const api = typeof window !== 'undefined' ? window.siralBridge : undefined;
   if (!api) return null;
   const rel = doc.cheminRelatif;
   if (!rel || !isExtractableDocument(doc)) return null;
   if ((doc.taille || 0) > MAX_DOC_BYTES) return null;
 
-  // 1) Édition web : octets déchiffrés + conversion navigateur (tous formats).
-  if (typeof api.readDocumentData === 'function') {
-    try {
-      const b64 = await api.readDocumentData(enqueteNumero, rel);
-      if (b64) {
-        const bin = atob(b64);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        const { fileToMarkdown } = await import('@/lib/web/fileToMarkdown');
-        const file = new File([bytes as unknown as BlobPart], doc.nomOriginal || doc.nom || rel.split('/').pop() || 'document');
-        const { markdown } = await fileToMarkdown(file);
-        return markdown || null;
-      }
-    } catch { /* on tente les replis */ }
-  }
-
-  // 2) Repli : texte PDF extrait côté pont (web `readDocumentText`, bureau `extractPdfText`).
-  const lower = rel.toLowerCase();
+  // 1) Octets déchiffrés + conversion navigateur (tous formats).
   try {
-    if (lower.endsWith('.pdf')) {
-      if (typeof api.readDocumentText === 'function') {
-        const t = await api.readDocumentText(enqueteNumero, rel);
-        if (t) return t;
-      }
-      if (typeof api.extractPdfText === 'function') {
-        return (await api.extractPdfText(rel)) || null;
-      }
-    } else if (/\.(txt|html?)$/.test(lower) && typeof api.readFile === 'function') {
-      // Ancienne édition bureau : fichiers texte lus par le dossier d'enquête.
-      return (await api.readFile(enqueteNumero, rel)) || null;
+    const b64 = await api.readDocumentData(enqueteNumero, rel);
+    if (b64) {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const { fileToMarkdown } = await import('@/lib/web/fileToMarkdown');
+      const file = new File([bytes as unknown as BlobPart], doc.nomOriginal || doc.nom || rel.split('/').pop() || 'document');
+      const { markdown } = await fileToMarkdown(file);
+      return markdown || null;
+    }
+  } catch { /* on tente le repli PDF */ }
+
+  // 2) Repli PDF : texte extrait côté pont.
+  try {
+    if (rel.toLowerCase().endsWith('.pdf')) {
+      const t = await api.readDocumentText(enqueteNumero, rel);
+      if (t) return t;
     }
   } catch { /* document illisible */ }
   return null;
@@ -192,13 +173,6 @@ async function extractText(
 // Caches de session : extraction en vol (dédoublonnage) + forme normalisée.
 const inFlight = new Map<string, Promise<DocumentText | null>>();
 const sessionCache = new Map<string, DocumentText | null>();
-
-/** L'édition WEB expose readDocumentData : chaque extraction est un
- *  téléchargement + déchiffrement — on ne la déclenche jamais en silence. */
-export function isWebDocumentBridge(): boolean {
-  const api = (typeof window !== 'undefined' ? window.electronAPI : undefined) as ElectronDocApi | undefined;
-  return typeof api?.readDocumentData === 'function';
-}
 
 // Mémoire de session des clés ABSENTES d'IndexedDB : évite de refaire un
 // aller-retour IDB par document jamais analysé à chaque frappe. Une extraction

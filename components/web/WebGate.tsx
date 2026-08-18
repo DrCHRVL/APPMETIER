@@ -2,10 +2,10 @@
 
 /**
  * SIRAL — porte d'entrée web.
- * Affichée uniquement en mode navigateur (jamais dans Electron ni en mode
+ * Affichée uniquement en mode navigateur (jamais en mode
  * consultation). Enchaîne : connexion par mot de passe → déverrouillage du
  * trousseau individuel (cloisonnement par clé) → installation du pont
- * electronAPI → rendu de l'application.
+ * siralBridge → rendu de l'application.
  *
  * Parcours possibles après authentification :
  *  - unlock        : mon trousseau existe → phrase personnelle

@@ -38,8 +38,8 @@ const CONTRIB_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
 function isAvailable(): boolean {
   return typeof window !== 'undefined'
-    && !!window.electronAPI?.globalSync_pullCartographieContributions
-    && !!window.electronAPI?.globalSync_pushCartographieContributions;
+    && !!window.siralBridge?.globalSync_pullCartographieContributions
+    && !!window.siralBridge?.globalSync_pushCartographieContributions;
 }
 
 // ─── Projection (local → wire) ───────────────────────────────────────────────
@@ -282,13 +282,13 @@ export class CartographieContributionsSyncService {
   }
 
   private async pullServer(): Promise<CartographieContributionsSyncFile | null> {
-    if (!window.electronAPI?.globalSync_pullCartographieContributions) return null;
-    return (await window.electronAPI.globalSync_pullCartographieContributions()) || null;
+    if (!window.siralBridge?.globalSync_pullCartographieContributions) return null;
+    return (await window.siralBridge.globalSync_pullCartographieContributions()) || null;
   }
 
   private async pushServer(payload: CartographieContributionsSyncFile): Promise<boolean> {
-    if (!window.electronAPI?.globalSync_pushCartographieContributions) return false;
-    return await window.electronAPI.globalSync_pushCartographieContributions(payload);
+    if (!window.siralBridge?.globalSync_pushCartographieContributions) return false;
+    return await window.siralBridge.globalSync_pushCartographieContributions(payload);
   }
 }
 

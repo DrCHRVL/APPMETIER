@@ -244,7 +244,7 @@ export const CompteRenduSection = memo(({
       const { filename, content, pdfCount, pdfFailed } = await exportDossierMarkdown(
         enquete as Enquete, (msg) => setExportingMd(msg),
       );
-      await window.electronAPI.saveFileDialog(filename, content);
+      await window.siralBridge.saveFileDialog(filename, content);
       const skipped = pdfFailed.length ? ` — ${pdfFailed.length} PDF illisible(s) ignoré(s)` : '';
       showToast(`Dossier exporté (${pdfCount} PDF inclus)${skipped}`, 'success');
     } catch (e) {

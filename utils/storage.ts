@@ -1,6 +1,6 @@
 // utils/storage.ts
 import { backupManager } from './backupManager';
-import { ElectronBridge } from './electronBridge';
+import { SiralBridge } from './siralBridge';
 import { APP_CONFIG } from '../config/constants';
 
 interface SaveHistoryEntry {
@@ -12,17 +12,17 @@ class StorageManagerService {
   private readonly MAX_HISTORY_SIZE = APP_CONFIG.MAX_SAVE_HISTORY;
 
   /**
-   * Récupère des données depuis le stockage (via ElectronBridge — cache + versioning)
+   * Récupère des données depuis le stockage (via SiralBridge — cache + versioning)
    */
   async get<T>(key: string, defaultValue: T): Promise<T> {
-    return ElectronBridge.getData<T>(key, defaultValue);
+    return SiralBridge.getData<T>(key, defaultValue);
   }
 
   /**
-   * Sauvegarde des données dans le stockage (via ElectronBridge — debounce + versioning)
+   * Sauvegarde des données dans le stockage (via SiralBridge — debounce + versioning)
    */
   async set<T>(key: string, value: T): Promise<boolean> {
-    const result = await ElectronBridge.setData(key, value);
+    const result = await SiralBridge.setData(key, value);
 
     if (this.isImportantData(key)) {
       this.debouncedCreateBackup();
@@ -54,7 +54,7 @@ class StorageManagerService {
       const updatedHistory = this.addToHistory(history, { date: now, type: 'manual' });
 
       await this.set(APP_CONFIG.STORAGE_KEYS.SAVE_HISTORY, updatedHistory);
-      await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.LAST_SAVE, now);
+      await SiralBridge.setData(APP_CONFIG.STORAGE_KEYS.LAST_SAVE, now);
       localStorage.setItem(APP_CONFIG.STORAGE_KEYS.LAST_SAVE, now);
 
       await backupManager.createBackup();

@@ -41,7 +41,7 @@ export const UpdateChangelogModal = ({
       setLoading(true);
       setError(null);
       try {
-        const result = await (window as any).electronAPI?.getUpdateChangelog?.();
+        const result = await (window as any).siralBridge?.getUpdateChangelog?.();
         if (cancelled) return;
         if (result?.success) {
           setCommits(result.commits || []);

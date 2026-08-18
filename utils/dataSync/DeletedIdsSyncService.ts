@@ -9,7 +9,7 @@
 // vers le serveur. Sans ces tombstones partagés, l'élément reparaît au
 // prochain merge (bug historique du MultiSyncManager).
 
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { DeletedIdsSyncFile, DeletedTombstone } from '@/types/globalSyncTypes';
 import { getCurrentUserInfo, buildMetadata, emitSyncCompleted } from './globalSyncCommon';
 
@@ -23,8 +23,8 @@ const PERIODIC_SYNC_MS = 30_000;
 
 function isDeletedIdsSyncAvailable(): boolean {
   return typeof window !== 'undefined'
-    && !!window.electronAPI?.globalSync_pullDeletedIds
-    && !!window.electronAPI?.globalSync_pushDeletedIds;
+    && !!window.siralBridge?.globalSync_pullDeletedIds
+    && !!window.siralBridge?.globalSync_pushDeletedIds;
 }
 
 // ─── Fusion : union par ID, on garde la date la plus récente ─────────────────
@@ -41,22 +41,22 @@ function mergeTombstones(a: DeletedTombstone[], b: DeletedTombstone[]): DeletedT
 }
 
 async function readLocal(key: string): Promise<DeletedTombstone[]> {
-  const raw = await ElectronBridge.getData<DeletedTombstone[]>(key, []);
+  const raw = await SiralBridge.getData<DeletedTombstone[]>(key, []);
   return Array.isArray(raw) ? raw : [];
 }
 
 async function writeLocal(key: string, data: DeletedTombstone[]): Promise<void> {
-  await ElectronBridge.setData(key, data);
+  await SiralBridge.setData(key, data);
 }
 
 async function pullServer(): Promise<DeletedIdsSyncFile | null> {
-  if (!window.electronAPI?.globalSync_pullDeletedIds) return null;
-  return (await window.electronAPI.globalSync_pullDeletedIds()) || null;
+  if (!window.siralBridge?.globalSync_pullDeletedIds) return null;
+  return (await window.siralBridge.globalSync_pullDeletedIds()) || null;
 }
 
 async function pushServer(payload: DeletedIdsSyncFile): Promise<boolean> {
-  if (!window.electronAPI?.globalSync_pushDeletedIds) return false;
-  return await window.electronAPI.globalSync_pushDeletedIds(payload);
+  if (!window.siralBridge?.globalSync_pushDeletedIds) return false;
+  return await window.siralBridge.globalSync_pushDeletedIds(payload);
 }
 
 /** Migration one-shot : récupère les tombstones de l'ancien app-data.json
@@ -70,8 +70,8 @@ async function pullLegacyTombstones(): Promise<{
 }> {
   const empty = { enqueteIds: [], acteIds: [], crIds: [], mecIds: [] };
   try {
-    if (!window.electronAPI?.globalSync_readLegacyAppData) return empty;
-    const legacy = await window.electronAPI.globalSync_readLegacyAppData();
+    if (!window.siralBridge?.globalSync_readLegacyAppData) return empty;
+    const legacy = await window.siralBridge.globalSync_readLegacyAppData();
     if (!legacy) return empty;
     const toTombstones = (arr: unknown): DeletedTombstone[] => {
       if (!Array.isArray(arr)) return [];

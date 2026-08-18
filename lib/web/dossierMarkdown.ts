@@ -64,7 +64,7 @@ export function buildDossierMarkdown(enquete: Enquete, docTexts?: Array<{ name: 
 /**
  * Markdown COMPLET du dossier pour une IA externe (Claude web…) : structure
  * de l'enquête + texte intégral des PDF téléversés (autorisations, PV, actes).
- * L'extraction des PDF se fait localement (navigateur ou poste Electron).
+ * L'extraction des PDF se fait localement, dans le navigateur.
  */
 export async function exportDossierMarkdown(
   enquete: Enquete,
@@ -73,7 +73,7 @@ export async function exportDossierMarkdown(
   const docs = (enquete.documents || []).filter((d) => d.cheminRelatif.toLowerCase().endsWith('.pdf'))
   const docTexts: Array<{ name: string, text: string }> = []
   const pdfFailed: string[] = []
-  const api = window.electronAPI as unknown as { readDocumentText?: (e: string, r: string) => Promise<string> }
+  const api = window.siralBridge as unknown as { readDocumentText?: (e: string, r: string) => Promise<string> }
   for (let i = 0; i < docs.length; i++) {
     onProgress?.(`Extraction du texte des PDF… (${i + 1}/${docs.length})`)
     try {

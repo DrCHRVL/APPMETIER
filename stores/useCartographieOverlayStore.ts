@@ -3,7 +3,7 @@
 // cartographie : MEC ex nihilo, dossiers ex nihilo, liens "renseignement"
 // manuels, et MEC épinglés au Top 10.
 //
-// Persistance locale via ElectronBridge (clé `cartographie_overlays`).
+// Persistance locale via SiralBridge (clé `cartographie_overlays`).
 // Persistance partagée via CartographieOverlaySyncService (fichier
 // cartographie-overlays.json sur le serveur commun) : les ajouts sont
 // fusionnés entre collègues par timestamp `updatedAt`, les suppressions
@@ -15,7 +15,7 @@
 // la cartographie est trop lourde pour supporter une écriture par modification.
 
 import { create } from '@/lib/zustand';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { normalizeMecName } from '@/utils/mindmapGraph';
 
 const STORAGE_KEY = 'cartographie_overlays';
@@ -287,7 +287,7 @@ async function _flush(force = false): Promise<void> {
       deletedTagZones: s.deletedTagZones,
       deletedPinnedMecIds: s.deletedPinnedMecIds,
     };
-    await ElectronBridge.setData(STORAGE_KEY, payload);
+    await SiralBridge.setData(STORAGE_KEY, payload);
     _isDirty = false;
   } catch (error) {
     console.error('❌ CartographieOverlayStore: erreur sauvegarde', error);
@@ -308,7 +308,7 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
   load: async () => {
     if (get().isLoaded) return;
     try {
-      const data = await ElectronBridge.getData<PersistedOverlay>(STORAGE_KEY, EMPTY);
+      const data = await SiralBridge.getData<PersistedOverlay>(STORAGE_KEY, EMPTY);
       set({
         pinnedMecIds: data.pinnedMecIds || [],
         mecsExNihilo: data.mecsExNihilo || [],

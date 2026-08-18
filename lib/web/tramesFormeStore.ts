@@ -2,13 +2,13 @@
  * SIRAL — stockage des « trames de forme » (papeteries Word de l'utilisateur).
  *
  * Persistées via le même canal que les autres réglages éditables (la trame
- * JLD, les tags…) : `ElectronBridge.getData/setData` sous une clé dédiée. Une
+ * JLD, les tags…) : `SiralBridge.getData/setData` sous une clé dédiée. Une
  * seule liste ; chaque trame est associée à un type de document. La sélection
  * à l'export se fait par type, avec repli sur une trame « défaut » si elle
  * existe, sinon aucune (l'appelant retombe alors sur la génération intégrée).
  */
 
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { APP_CONFIG } from '@/config/constants';
 import type { TrameForme, TrameFormeType } from './trameFill';
 
@@ -16,7 +16,7 @@ const KEY = APP_CONFIG.STORAGE_KEYS.TRAMES_FORME;
 
 export async function loadTramesForme(): Promise<TrameForme[]> {
   try {
-    const list = await ElectronBridge.getData<TrameForme[]>(KEY, []);
+    const list = await SiralBridge.getData<TrameForme[]>(KEY, []);
     return Array.isArray(list) ? list : [];
   } catch {
     return [];
@@ -28,10 +28,10 @@ export async function saveTramesForme(list: TrameForme[]): Promise<void> {
   // tableau [] en est une). Supprimer la DERNIÈRE trame passe donc par clearData,
   // sinon la suppression ne serait pas persistée.
   if (list.length === 0) {
-    await ElectronBridge.clearData(KEY);
+    await SiralBridge.clearData(KEY);
     return;
   }
-  await ElectronBridge.setData(KEY, list);
+  await SiralBridge.setData(KEY, list);
 }
 
 /** Trame applicable pour un type donné : la trame du type, à défaut la trame « défaut ». */

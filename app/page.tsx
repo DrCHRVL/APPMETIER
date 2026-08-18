@@ -117,7 +117,7 @@ import { contentieuxAlertsSyncService } from '@/utils/dataSync/ContentieuxAlerts
 import { backupManager } from '@/utils/backupManager';
 const WeeklyRecapPopup = dynamic(() => import('@/components/modals/WeeklyRecapPopup').then(m => ({ default: m.WeeklyRecapPopup })), { ssr: false });
 import { WeeklyPopupConfig } from '@/types/interfaces';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { OPTimeline } from '@/components/OPTimeline';
 import { TodoReminderBar } from '@/components/TodoReminderBar';
 import { PendingActsJLD } from '@/components/PendingActsJLD';
@@ -290,7 +290,7 @@ function AppContent() {
     const effective = weeklySubscribedIds.filter(id => allowedIds.has(id));
     const results = await Promise.all(effective.map(async (id) => {
       const def = accessibleContentieux.find(c => c.id === id);
-      const enq = await ElectronBridge.getData<any[]>(`ctx_${id}_enquetes`, []);
+      const enq = await SiralBridge.getData<any[]>(`ctx_${id}_enquetes`, []);
       return {
         contentieuxId: id,
         contentieuxLabel: def?.label || id,
@@ -519,7 +519,7 @@ function AppContent() {
 
   // Chargement des todos généraux au démarrage
   useEffect(() => {
-    ElectronBridge.getData<ToDoItem[]>('global_todos', []).then(todos => {
+    SiralBridge.getData<ToDoItem[]>('global_todos', []).then(todos => {
       setGlobalTodos(todos || []);
     });
   }, []);
@@ -552,7 +552,7 @@ function AppContent() {
         showToast('Réseau injoignable — modifications enregistrées localement', 'warning');
       } else {
         try {
-          const api = (window as any).electronAPI;
+          const api = (window as any).siralBridge;
           const result = await api?.readRecentSharedEvents?.(24 * 60 * 60 * 1000);
           if (result?.events?.length) {
             // Rejouer les événements via SharedEventManager (déclenche les listeners
@@ -578,7 +578,7 @@ function AppContent() {
     const sem = SharedEventManager.getInstance();
     sem.start(user.windowsUsername);
     // Démarrer le file watcher côté main process
-    (window as any).electronAPI?.startEventsWatcher?.();
+    (window as any).siralBridge?.startEventsWatcher?.();
 
     // Journal d'audit
     const audit = AuditLogger.getInstance();
@@ -606,7 +606,7 @@ function AppContent() {
 
   const handleGlobalTodosChange = useCallback((todos: ToDoItem[]) => {
     setGlobalTodos(todos);
-    ElectronBridge.setData('global_todos', todos);
+    SiralBridge.setData('global_todos', todos);
   }, []);
 
   // Popup récapitulatif hebdomadaire : vérifié au démarrage, une fois que
@@ -624,7 +624,7 @@ function AppContent() {
 
     const checkWeeklyPopup = async () => {
       try {
-        const cfg = await ElectronBridge.getData<WeeklyPopupConfig>('weekly_popup_config', {
+        const cfg = await SiralBridge.getData<WeeklyPopupConfig>('weekly_popup_config', {
           enabled: false, dayOfWeek: 1, hour: 9
         });
         if (!cfg.enabled) return;
@@ -636,7 +636,7 @@ function AppContent() {
 
         const isRightDay = cfg.dayOfWeek === 7 || now.getDay() === cfg.dayOfWeek;
         if (isRightDay && now.getHours() >= cfg.hour) {
-          await ElectronBridge.setData('weekly_popup_config', { ...cfg, lastShownDate: todayStr });
+          await SiralBridge.setData('weekly_popup_config', { ...cfg, lastShownDate: todayStr });
           await buildWeeklyBuckets();
           setShowWeeklyPopup(true);
           weeklyCheckDoneRef.current = true;
@@ -653,7 +653,7 @@ function AppContent() {
     if (!isAdmin()) return;
     setIsUpdating(true);
     try {
-      const result = await window.electronAPI.applyAppUpdate?.();
+      const result = await window.siralBridge.applyAppUpdate?.();
       if (result && !result.success) {
         showToast(`Erreur de mise à jour : ${result.error}`, 'error');
         setIsUpdating(false);
@@ -1312,7 +1312,7 @@ function AppContent() {
   const handleCreateGlobalTodo = useCallback((todo: ToDoItem) => {
     setGlobalTodos(prev => {
       const updated = [...prev, todo];
-      ElectronBridge.setData('global_todos', updated);
+      SiralBridge.setData('global_todos', updated);
       return updated;
     });
   }, []);
@@ -2302,7 +2302,7 @@ function InitialSetupScreen({ onSetupComplete }: { onSetupComplete: () => void }
   const [isValid, setIsValid] = useState<boolean | null>(null);
 
   const handleBrowse = async () => {
-    const selected = await (window as any).electronAPI?.selectFolder?.();
+    const selected = await (window as any).siralBridge?.selectFolder?.();
     if (selected) {
       setServerPath(selected);
       setError('');
@@ -2310,7 +2310,7 @@ function InitialSetupScreen({ onSetupComplete }: { onSetupComplete: () => void }
       // Valider automatiquement
       setValidating(true);
       try {
-        const result = await (window as any).electronAPI?.validatePath?.(selected);
+        const result = await (window as any).siralBridge?.validatePath?.(selected);
         setIsValid(!!result);
       } catch { setIsValid(false); }
       setValidating(false);
@@ -2325,7 +2325,7 @@ function InitialSetupScreen({ onSetupComplete }: { onSetupComplete: () => void }
     setSaving(true);
     setError('');
     try {
-      const result = await (window as any).electronAPI?.serverConfig_setup?.(serverPath.trim());
+      const result = await (window as any).siralBridge?.serverConfig_setup?.(serverPath.trim());
       if (result?.success) {
         onSetupComplete();
       } else {
@@ -2423,16 +2423,16 @@ export default function App() {
   useEffect(() => {
     const checkSetup = async () => {
       try {
-        const config = await (window as any).electronAPI?.serverConfig_get?.();
+        const config = await (window as any).siralBridge?.serverConfig_get?.();
         if (config?.isConfigured) {
           // Déjà configuré
           setNeedsSetup(false);
         } else {
           // Pas configuré — vérifier si le chemin legacy est accessible (installation existante)
-          const legacyAccessible = await (window as any).electronAPI?.validatePath?.(config?.serverRootPath);
+          const legacyAccessible = await (window as any).siralBridge?.validatePath?.(config?.serverRootPath);
           if (legacyAccessible) {
             // Le chemin legacy marche → sauvegarder en tant que config officielle et continuer
-            await (window as any).electronAPI?.serverConfig_setup?.(config?.serverRootPath);
+            await (window as any).siralBridge?.serverConfig_setup?.(config?.serverRootPath);
             setNeedsSetup(false);
           } else {
             // Aucun chemin accessible → afficher l'écran de setup
@@ -2440,7 +2440,7 @@ export default function App() {
           }
         }
       } catch {
-        // Si electronAPI n'est pas dispo (mode dev Next.js pur), skip
+        // Si siralBridge n'est pas dispo (mode dev Next.js pur), skip
         setNeedsSetup(false);
       }
       setSetupChecked(true);

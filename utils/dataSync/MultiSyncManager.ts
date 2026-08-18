@@ -6,7 +6,7 @@
 // Les instances read_only ne pushent jamais vers le serveur.
 
 import { DataMergeService } from './DataMergeService';
-import { ElectronBridge } from '../electronBridge';
+import { SiralBridge } from '../siralBridge';
 import { ContentieuxManager } from '../contentieuxManager';
 import { tagSyncService } from './TagSyncService';
 import { audienceSyncService } from './AudienceSyncService';
@@ -80,7 +80,7 @@ class ContentieuxSyncInstance {
   // ──────────── LIFECYCLE ────────────
 
   public async initialize(): Promise<void> {
-    if (!ElectronBridge.isAvailable()) return;
+    if (!SiralBridge.isAvailable()) return;
 
     try {
       await this.identifyUser();
@@ -297,15 +297,15 @@ class ContentieuxSyncInstance {
       deletedCR,
       deletedMEC,
     ] = await Promise.all([
-      ElectronBridge.getData(this.prefix('enquetes'), []),
-      ElectronBridge.getData(this.prefix('audienceResultats'), {}),
-      ElectronBridge.getData(this.prefix('customTags'), []),
-      ElectronBridge.getData(this.prefix('alertRules'), []),
-      ElectronBridge.getData(this.prefix('alertValidations'), {}),
-      ElectronBridge.getData<Array<{ id: number }>>('deleted_ids', []),
-      ElectronBridge.getData<Array<{ id: number }>>('deleted_acte_ids', []),
-      ElectronBridge.getData<Array<{ id: number }>>('deleted_cr_ids', []),
-      ElectronBridge.getData<Array<{ id: number }>>('deleted_mec_ids', []),
+      SiralBridge.getData(this.prefix('enquetes'), []),
+      SiralBridge.getData(this.prefix('audienceResultats'), {}),
+      SiralBridge.getData(this.prefix('customTags'), []),
+      SiralBridge.getData(this.prefix('alertRules'), []),
+      SiralBridge.getData(this.prefix('alertValidations'), {}),
+      SiralBridge.getData<Array<{ id: number }>>('deleted_ids', []),
+      SiralBridge.getData<Array<{ id: number }>>('deleted_acte_ids', []),
+      SiralBridge.getData<Array<{ id: number }>>('deleted_cr_ids', []),
+      SiralBridge.getData<Array<{ id: number }>>('deleted_mec_ids', []),
     ]);
 
     const toIds = (entries: unknown): number[] =>
@@ -329,15 +329,15 @@ class ContentieuxSyncInstance {
 
   private async saveLocalData(data: SyncData): Promise<void> {
     const saveOps = [
-      ElectronBridge.setData(this.prefix('enquetes'), data.enquetes),
-      ElectronBridge.setData(this.prefix('audienceResultats'), data.audienceResultats),
-      ElectronBridge.setData(this.prefix('customTags'), data.customTags),
-      ElectronBridge.setData(this.prefix('alertRules'), data.alertRules),
+      SiralBridge.setData(this.prefix('enquetes'), data.enquetes),
+      SiralBridge.setData(this.prefix('audienceResultats'), data.audienceResultats),
+      SiralBridge.setData(this.prefix('customTags'), data.customTags),
+      SiralBridge.setData(this.prefix('alertRules'), data.alertRules),
     ];
 
     if (data.alertValidations) {
-      const local = await ElectronBridge.getData(this.prefix('alertValidations'), {});
-      saveOps.push(ElectronBridge.setData(this.prefix('alertValidations'), { ...local, ...data.alertValidations }));
+      const local = await SiralBridge.getData(this.prefix('alertValidations'), {});
+      saveOps.push(SiralBridge.setData(this.prefix('alertValidations'), { ...local, ...data.alertValidations }));
     }
 
     await Promise.all(saveOps);
@@ -364,7 +364,7 @@ class ContentieuxSyncInstance {
    *  récente. L'appel est non bloquant si `ids` est vide/undefined. */
   private async mergeTombstonesToLocal(key: string, ids: number[] | undefined): Promise<void> {
     if (!ids || ids.length === 0) return;
-    const existing = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(key, []);
+    const existing = await SiralBridge.getData<Array<{ id: number; deletedAt: string }>>(key, []);
     const arr = Array.isArray(existing) ? existing : [];
     const byId = new Map<number, { id: number; deletedAt: string }>();
     for (const t of arr) if (t && typeof t.id === 'number') byId.set(t.id, t);
@@ -373,16 +373,16 @@ class ContentieuxSyncInstance {
       if (!byId.has(id)) byId.set(id, { id, deletedAt: now });
     }
     if (byId.size !== arr.length) {
-      await ElectronBridge.setData(key, Array.from(byId.values()));
+      await SiralBridge.setData(key, Array.from(byId.values()));
     }
   }
 
   private async getServerData(): Promise<{ data: SyncData; metadata: SyncMetadata } | null> {
-    if (!(window as any).electronAPI?.dataSync_pullContentieux) {
+    if (!(window as any).siralBridge?.dataSync_pullContentieux) {
       throw new Error('API dataSync_pullContentieux non disponible');
     }
     try {
-      return await (window as any).electronAPI.dataSync_pullContentieux(this.contentieuxId);
+      return await (window as any).siralBridge.dataSync_pullContentieux(this.contentieuxId);
     } catch (error) {
       if (error instanceof Error && (
         error.message.includes('Unexpected end of JSON') ||
@@ -397,7 +397,7 @@ class ContentieuxSyncInstance {
   }
 
   private async pushToServer(data: SyncData): Promise<void> {
-    if (!(window as any).electronAPI?.dataSync_pushContentieux) {
+    if (!(window as any).siralBridge?.dataSync_pushContentieux) {
       throw new Error('API dataSync_pushContentieux non disponible');
     }
 
@@ -405,7 +405,7 @@ class ContentieuxSyncInstance {
     try {
       const timestamp = new Date().toISOString().replace(/:/g, '-');
       const backupFilename = `${this.contentieuxId}-backup-${timestamp}.json`;
-      await (window as any).electronAPI?.dataSync_backupContentieux?.(this.contentieuxId, backupFilename);
+      await (window as any).siralBridge?.dataSync_backupContentieux?.(this.contentieuxId, backupFilename);
     } catch {
       // Non-bloquant
     }
@@ -420,18 +420,18 @@ class ContentieuxSyncInstance {
     // Poser la sentinelle AVANT d'écrire, et la PERSISTER immédiatement (flush) :
     // sinon la sauvegarde temporisée (throttle) n'atteint pas le disque avant un
     // push rapide, et un crash pendant l'écriture passerait inaperçu.
-    await ElectronBridge.setData(this.sentinelKey(), {
+    await SiralBridge.setData(this.sentinelKey(), {
       timestamp: new Date().toISOString(),
       user: this.currentUser,
     });
-    await ElectronBridge.flush(this.sentinelKey());
+    await SiralBridge.flush(this.sentinelKey());
 
-    const success = await (window as any).electronAPI.dataSync_pushContentieux(this.contentieuxId, data, metadata);
+    const success = await (window as any).siralBridge.dataSync_pushContentieux(this.contentieuxId, data, metadata);
     if (!success) throw new Error('Échec envoi vers serveur');
 
     // Écriture réussie : lever la sentinelle. clearData (et non setData(null),
     // refusé par la garde anti-érosion) supprime réellement la clé.
-    await ElectronBridge.clearData(this.sentinelKey());
+    await SiralBridge.clearData(this.sentinelKey());
     this.selfCausedCorruption = false;
   }
 
@@ -441,7 +441,7 @@ class ContentieuxSyncInstance {
 
   private async checkWriteSentinel(): Promise<void> {
     try {
-      const sentinel = await ElectronBridge.getData<{ timestamp: string; user: string } | null>(
+      const sentinel = await SiralBridge.getData<{ timestamp: string; user: string } | null>(
         this.sentinelKey(),
         null
       );
@@ -456,7 +456,7 @@ class ContentieuxSyncInstance {
         // vraiment la clé — setData(null) était refusé par la garde anti-érosion,
         // laissant la sentinelle en place et l'alerte se répéter à chaque
         // démarrage.
-        await ElectronBridge.clearData(this.sentinelKey());
+        await SiralBridge.clearData(this.sentinelKey());
       }
     } catch {
       // Non bloquant
@@ -504,7 +504,7 @@ class ContentieuxSyncInstance {
 
   /** Liste les fichiers backup de ce contentieux (<contentieux>/backups/). */
   public async listBackups(): Promise<string[]> {
-    const api = (window as any).electronAPI;
+    const api = (window as any).siralBridge;
     if (!api?.dataSync_listContentieuxBackups) return [];
     try {
       return await api.dataSync_listContentieuxBackups(this.contentieuxId);
@@ -518,7 +518,7 @@ class ContentieuxSyncInstance {
     if (this.isSync) return false;
     const online = await this.checkServerAccess();
     if (!online) return false;
-    const api = (window as any).electronAPI;
+    const api = (window as any).siralBridge;
     if (!api?.dataSync_readContentieuxBackup) return false;
 
     this.isSync = true;
@@ -574,8 +574,8 @@ class ContentieuxSyncInstance {
 
   private async identifyUser(): Promise<void> {
     try {
-      if ((window as any).electronAPI?.getCurrentUser) {
-        const info = await (window as any).electronAPI.getCurrentUser();
+      if ((window as any).siralBridge?.getCurrentUser) {
+        const info = await (window as any).siralBridge.getCurrentUser();
         this.currentUser = info.displayName;
         this.computerName = info.computerName;
       }
@@ -584,11 +584,11 @@ class ContentieuxSyncInstance {
 
   private async checkServerAccess(): Promise<boolean> {
     try {
-      if (!(window as any).electronAPI?.dataSync_checkContentieuxAccess) {
+      if (!(window as any).siralBridge?.dataSync_checkContentieuxAccess) {
         this.isOnline = false;
         return false;
       }
-      this.isOnline = await (window as any).electronAPI.dataSync_checkContentieuxAccess(this.contentieuxId);
+      this.isOnline = await (window as any).siralBridge.dataSync_checkContentieuxAccess(this.contentieuxId);
       this.notifyStatus();
       return this.isOnline;
     } catch {

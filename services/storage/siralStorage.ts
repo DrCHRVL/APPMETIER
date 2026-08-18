@@ -1,6 +1,6 @@
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 
-export class ElectronStorageService {
+export class SiralStorageService {
   // CREATE
   public async create<T>(key: string, data: T): Promise<boolean> {
     try {
@@ -9,7 +9,7 @@ export class ElectronStorageService {
       if (existing !== null) {
         throw new Error(`Data already exists for key: ${key}`);
       }
-      return await ElectronBridge.setData(key, data);
+      return await SiralBridge.setData(key, data);
     } catch (error) {
       console.error(`Error creating data for key ${key}:`, error);
       return false;
@@ -19,7 +19,7 @@ export class ElectronStorageService {
   // READ
   public async read<T>(key: string, defaultValue?: T): Promise<T | null> {
     try {
-      return await ElectronBridge.getData(key, defaultValue ?? null);
+      return await SiralBridge.getData(key, defaultValue ?? null);
     } catch (error) {
       console.error(`Error reading data for key ${key}:`, error);
       return null;
@@ -34,7 +34,7 @@ export class ElectronStorageService {
       if (existing === null) {
         throw new Error(`No data exists for key: ${key}`);
       }
-      return await ElectronBridge.setData(key, data);
+      return await SiralBridge.setData(key, data);
     } catch (error) {
       console.error(`Error updating data for key ${key}:`, error);
       return false;
@@ -44,7 +44,7 @@ export class ElectronStorageService {
   // DELETE
   public async delete(key: string): Promise<boolean> {
     try {
-      return await ElectronBridge.clearData(key);
+      return await SiralBridge.clearData(key);
     } catch (error) {
       console.error(`Error deleting data for key ${key}:`, error);
       return false;
@@ -58,13 +58,13 @@ export class ElectronStorageService {
   }
 
   public async getAll(): Promise<string[]> {
-    return await ElectronBridge.getAllKeys();
+    return await SiralBridge.getAllKeys();
   }
 
   // Méthode de sauvegarde avec fusion
   public async createOrUpdate<T>(key: string, data: T): Promise<boolean> {
     try {
-      return await ElectronBridge.setData(key, data);
+      return await SiralBridge.setData(key, data);
     } catch (error) {
       console.error(`Error saving data for key ${key}:`, error);
       return false;
@@ -88,4 +88,4 @@ export class ElectronStorageService {
 }
 
 // Export d'une instance unique
-export const electronStorage = new ElectronStorageService();
+export const siralStorage = new SiralStorageService();

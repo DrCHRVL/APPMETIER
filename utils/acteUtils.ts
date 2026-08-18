@@ -1,6 +1,6 @@
 import { GeolocData, EcouteData, AutreActe, ActeStatus, Enquete, ModificationEntry } from '@/types/interfaces';
 import { DateUtils } from './dateUtils';
-import { ElectronBridge } from './electronBridge';
+import { SiralBridge } from './siralBridge';
 import { deletedIdsSyncService } from './dataSync/DeletedIdsSyncService';
 
 const DELETED_ENQUETE_IDS_KEY = 'deleted_ids';
@@ -9,9 +9,9 @@ const DELETED_CR_IDS_KEY      = 'deleted_cr_ids';
 const DELETED_MEC_IDS_KEY     = 'deleted_mec_ids';
 
 async function appendTombstone(key: string, id: number): Promise<void> {
-  const existing = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(key, []);
+  const existing = await SiralBridge.getData<Array<{ id: number; deletedAt: string }>>(key, []);
   const normalized = (Array.isArray(existing) ? existing : []).filter(e => e.id !== id);
-  await ElectronBridge.setData(key, [...normalized, { id, deletedAt: new Date().toISOString() }]);
+  await SiralBridge.setData(key, [...normalized, { id, deletedAt: new Date().toISOString() }]);
 }
 
 /** Mémorise l'ID d'une enquête supprimée pour empêcher sa résurrection via sync. */
