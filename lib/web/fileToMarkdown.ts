@@ -547,13 +547,16 @@ function htmlToMarkdown(text: string): string {
 
 // ── Nettoyage final commun ──
 
-function tidy(markdown: string): string {
-  return markdown
+function tidy(markdown: string, maxChars = MAX_CHARS): string {
+  const s = markdown
     .replace(/\r\n?/g, '\n')
     .replace(/[ \t]+$/gm, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
-    .slice(0, MAX_CHARS)
+  if (s.length <= maxChars) return s
+  // Troncature JAMAIS silencieuse : le lecteur (l'IA surtout) doit savoir
+  // que le document continue au-delà de cette conversion.
+  return s.slice(0, maxChars) + '\n\n…[conversion tronquée : le document continue au-delà — consulter la pièce originale]'
 }
 
 /** Titre proposé à partir du nom de fichier (« ddeJLD_Sonorisation_.odt » → « ddeJLD Sonorisation »). */
@@ -566,31 +569,34 @@ export function titreDepuisFichier(filename: string): string {
     .slice(0, 120)
 }
 
-/** Convertit un fichier téléversé en markdown — tout se passe dans le navigateur. */
-export async function fileToMarkdown(file: File): Promise<ConversionResult> {
+/** Convertit un fichier téléversé en markdown — tout se passe dans le navigateur.
+ *  `maxChars` relève le plafond (défaut 400 000) quand le texte devient LA
+ *  pièce conservée (original > 50 Mo non stocké : rien d'autre à consulter). */
+export async function fileToMarkdown(file: File, opts?: { maxChars?: number }): Promise<ConversionResult> {
   const name = file.name.toLowerCase()
+  const cap = opts?.maxChars ?? MAX_CHARS
   const bytes = new Uint8Array(await file.arrayBuffer())
   if (!bytes.length) throw new Error('fichier vide')
 
   if (name.endsWith('.pdf')) {
     const res = await pdfToMarkdown(bytes)
-    return { ...res, markdown: tidy(res.markdown) }
+    return { ...res, markdown: tidy(res.markdown, cap) }
   }
   if (name.endsWith('.odt') || name.endsWith('.ott')) {
-    return { markdown: tidy(await odtToMarkdown(bytes)) }
+    return { markdown: tidy(await odtToMarkdown(bytes), cap) }
   }
   if (name.endsWith('.docx')) {
-    return { markdown: tidy(await docxToMarkdown(bytes)) }
+    return { markdown: tidy(await docxToMarkdown(bytes), cap) }
   }
   if (name.endsWith('.doc')) {
-    return { markdown: tidy(docToMarkdown(bytes)) }
+    return { markdown: tidy(docToMarkdown(bytes), cap) }
   }
   if (/\.(xlsx|xlsm|xltx|xls|ods)$/.test(name)) {
     const res = await tableurToMarkdown(bytes)
-    return { ...res, markdown: tidy(res.markdown) }
+    return { ...res, markdown: tidy(res.markdown, cap) }
   }
   if (name.endsWith('.html') || name.endsWith('.htm')) {
-    return { markdown: tidy(htmlToMarkdown(decodeText(bytes))) }
+    return { markdown: tidy(htmlToMarkdown(decodeText(bytes)), cap) }
   }
   if (/\.(txt|md|markdown|csv|tsv|eml|log|rtf)$/.test(name)) {
     if (name.endsWith('.rtf')) {
@@ -600,9 +606,9 @@ export async function fileToMarkdown(file: File): Promise<ConversionResult> {
         .replace(/\\par[d]?/g, '\n')
         .replace(/\\[a-z]+-?\d* ?/g, '')
         .replace(/[{}]/g, '')
-      return { markdown: tidy(raw) }
+      return { markdown: tidy(raw, cap) }
     }
-    return { markdown: tidy(decodeText(bytes)) }
+    return { markdown: tidy(decodeText(bytes), cap) }
   }
   throw new Error(`type de fichier non pris en charge (${file.name.split('.').pop()}) — formats acceptés : PDF, ODT, DOCX, XLSX/XLS/ODS, TXT, MD, HTML, CSV, EML`)
 }

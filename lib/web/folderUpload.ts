@@ -12,18 +12,37 @@
 /** Fichier + chemin relatif, quel que soit le mode d'entrée (input ou drop). */
 export interface Incoming { file: File; path: string }
 
-/** Parcourt récursivement les items d'un drop (fichiers ET dossiers). */
-export async function collectDropEntries(items: DataTransferItemList): Promise<Incoming[]> {
+/**
+ * Parcourt récursivement les items d'un drop (fichiers ET dossiers).
+ * Résilient : une entrée illisible (fichier verrouillé, dossier réseau
+ * décroché, permission refusée) est signalée via `onSkip` et n'interrompt
+ * JAMAIS la collecte — indispensable pour verser des dossiers d'enquête
+ * entiers depuis un partage Windows.
+ */
+export async function collectDropEntries(
+  items: DataTransferItemList,
+  onSkip?: (path: string) => void,
+): Promise<Incoming[]> {
   const out: Incoming[] = []
   const walk = async (entry: any, prefix: string): Promise<void> => {
     if (!entry) return
     if (entry.isFile) {
-      const file: File = await new Promise((res, rej) => entry.file(res, rej))
-      out.push({ file, path: prefix + file.name })
+      try {
+        const file: File = await new Promise((res, rej) => entry.file(res, rej))
+        out.push({ file, path: prefix + file.name })
+      } catch {
+        onSkip?.(prefix + String(entry.name || '?'))
+      }
     } else if (entry.isDirectory) {
       const reader = entry.createReader()
       for (;;) {
-        const batch: any[] = await new Promise((res, rej) => reader.readEntries(res, rej))
+        let batch: any[]
+        try {
+          batch = await new Promise((res, rej) => reader.readEntries(res, rej))
+        } catch {
+          onSkip?.(prefix + entry.name + '/')
+          break
+        }
         if (!batch.length) break
         for (const child of batch) await walk(child, prefix + entry.name + '/')
       }
@@ -50,4 +69,37 @@ export function cleanRelPath(path: string): string {
     .map((seg) => seg.trim().replace(/[<>:"|?*\x00-\x1f]/g, '_').replace(/^\.+/, ''))
     .filter(Boolean)
     .join('/')
+}
+
+/**
+ * Normalisation d'UN segment de chemin, IDENTIQUE à celle du pont de données
+ * (bridge → depositDocument) : accents décomposés retirés, caractères hors
+ * [a-zA-Z0-9._ -] remplacés, espaces soudés, 120 caractères max.
+ * Unique source de vérité — le pont l'importe d'ici.
+ */
+export function encodeDocSegment(s: string): string {
+  return s.normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._ -]/g, '_').replace(/ +/g, '_').slice(0, 120)
+}
+
+/**
+ * Chemin serveur EXACT que produira depositDocument pour <zone>/<path>.
+ * Prévoir ce chemin AVANT le dépôt permet de dédupliquer contre l'index
+ * serveur et de REPRENDRE un versement interrompu sans créer de doublons.
+ * Les chemins trop profonds (limite serveur ~580 caractères) sont raccourcis
+ * en repliant les pochettes intermédiaires — le fichier est versé quand même.
+ */
+export function serverRelPath(zone: string, path: string): string {
+  const segs = cleanRelPath(path)
+    .split('/')
+    .map((seg) => encodeDocSegment(seg))
+    .filter((seg) => seg && !seg.startsWith('.'))
+  if (!segs.length) return ''
+  let rel = zone + '/' + segs.join('/')
+  // marge sous la limite (580) pour laisser la place aux suffixes anti-collision (_1, _2…)
+  while (rel.length > 560 && segs.length > 2) {
+    segs.splice(1, 1) // replie la pochette la plus haute ; pochette terminale et nom conservés
+    rel = zone + '/' + segs.join('/')
+  }
+  if (rel.length > 560) rel = zone + '/' + segs[segs.length - 1].slice(0, 560 - zone.length - 1)
+  return rel
 }

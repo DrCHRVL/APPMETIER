@@ -73,7 +73,13 @@ de la pièce) — visible dans les comptes-rendus et la chronologie.
 - `chronologie_lire` : la trame factuelle datée (actes, prolongations,
   attentes JLD, CR, DML, cotes NPP) — socle de toute motivation.
 - `dossier_arborescence` puis `lire_document` : les pièces déjà téléversées
-  (chemins exacts ; les copies markdown `MD/…` se lisent vite).
+  (chemins exacts ; les copies markdown `MD/…` se lisent vite). Dossier
+  volumineux (plusieurs procédures versées en arborescence, milliers de
+  pièces) : partir du panorama `pochettes` de la réponse, dépouiller pochette
+  par pochette (`pochette:"PV/Nom"`, puis `offset`/`offsetSuivant` pour
+  paginer). Une pièce longue se lit de même en plusieurs pages : tant que
+  `lire_document` renvoie `offsetSuivant`, la suite existe — la relire avec
+  `offset` avant de conclure quoi que ce soit sur son contenu.
 - `productions_lister` / `production_lire` : les actes déjà rédigés —
   cohérence des motivations, reprise des formules validées, pas de doublon.
 - `verifier_completude` / `diagnostic_dossier` : échéances, actes expirants,

@@ -253,6 +253,13 @@ interface SiralBridgeApi {
   documentExists: (enqueteNumero: string, cheminRelatif: string) => Promise<boolean>;
   getDocumentSize: (enqueteNumero: string, cheminRelatif: string) => Promise<number>;
 
+  /** Index serveur des documents d'un dossier (chemins + tailles chiffrées) —
+   *  base de la déduplication/reprise des versements d'arborescences et de la
+   *  zone DML du module instruction. */
+  listServerDocuments: (enqueteNumero: string) => Promise<Array<{
+    rel: string; size: number; savedAt: string; category?: string; originalName?: string;
+  }>>;
+
   // Documents : octets déchiffrés (base64) et texte extrait d'un PDF —
   // utilisés par la recherche dans les documents et les aperçus.
   readDocumentData: (enqueteNumero: string, cheminRelatif: string) => Promise<string | null>;

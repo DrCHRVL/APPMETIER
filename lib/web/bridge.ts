@@ -12,6 +12,7 @@
 import { encryptJson, decryptJson, encryptBytes, decryptBytes, b64, CipherEnvelope } from './crypto'
 import { idb, exportKv, importKv, getAllEntries } from './idb'
 import { ScopedKeys, scopeOfVault, SCOPE_GLOBAL, generateInvitationCode, deriveRawKey, importAesKey, newKdfParams } from './keyring'
+import { encodeDocSegment } from './folderUpload'
 
 export interface BridgeIdentity { username: string, displayName: string, role: string }
 
@@ -162,9 +163,10 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
   }
 
   // ── Documents chiffrés ──
-  function encodeDocName(s: string): string {
-    return s.normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._ -]/g, '_').replace(/ +/g, '_').slice(0, 120)
-  }
+  // Normalisation d'un segment de chemin : partagée avec la planification des
+  // versements d'arborescences (folderUpload.serverRelPath) — même fonction,
+  // pour que le chemin prévu côté client soit EXACTEMENT le chemin serveur.
+  const encodeDocName = encodeDocSegment
 
   // Clé serveur d'une enquête : le numéro métier (ex « 2025/112 », « 23 70/2025 »)
   // contient des « / » et espaces, refusés par le serveur (NAME_RE) et impossibles
@@ -198,7 +200,16 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       body: JSON.stringify({ rel, b64: b64.encode(blob), category, originalName }),
       timeoutMs: 120000,
     })
-    if (!res.ok) throw new NetworkError('Dépôt du document refusé')
+    if (!res.ok) {
+      // Motif exact du refus (ex. « Document trop volumineux (50 Mo max) ») :
+      // indispensable au rapport de versement des grosses arborescences.
+      let msg = 'Dépôt du document refusé (' + res.status + ')'
+      try {
+        const d = await res.json() as { error?: string }
+        if (d?.error) msg = d.error
+      } catch { /* réponse sans corps JSON */ }
+      throw new NetworkError(msg)
+    }
   }
 
   async function docDownload(enquete: string, rel: string): Promise<Uint8Array | null> {

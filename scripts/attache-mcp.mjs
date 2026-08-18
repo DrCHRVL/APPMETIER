@@ -171,15 +171,33 @@ const TOOLS = [
   },
   {
     name: 'lire_document',
-    description: 'Texte intégral d\'un document déposé sous un numéro de dossier — enquête OU instruction (PDF, ODT, DOCX, RTF, TXT/MD/HTML, et classeurs Excel XLSX/XLS/ODS servis en tableaux markdown, une section par feuille). `chemin` = cheminRelatif exact (voir lire_dossier ou dossier_arborescence), y compris les pièces du « Dossier complet » versé (Dossier/…).',
-    inputSchema: { type: 'object', properties: { numero: { type: 'string' }, chemin: { type: 'string' } }, required: ['numero', 'chemin'] },
-    handler: async (a) => readDocumentText(keys, a.numero, a.chemin),
+    description: 'Texte intégral d\'un document déposé sous un numéro de dossier — enquête OU instruction (PDF, ODT, DOCX, RTF, TXT/MD/HTML, et classeurs Excel XLSX/XLS/ODS servis en tableaux markdown, une section par feuille). `chemin` = cheminRelatif exact (voir lire_dossier ou dossier_arborescence), y compris les pièces du « Dossier complet » versé (Dossier/…). PAGINÉ pour les pièces longues : servi par pages de 200 000 caractères max — si `offsetSuivant` figure dans la réponse, la pièce continue : rappelle avec offset pour lire la suite (rien n\'est tronqué en silence).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        chemin: { type: 'string' },
+        offset: { type: 'number', description: 'Caractère de départ (défaut 0). Utiliser offsetSuivant de la page précédente.' },
+        limite: { type: 'number', description: 'Caractères par page (défaut et max 200 000).' },
+      },
+      required: ['numero', 'chemin'],
+    },
+    handler: async (a) => readDocumentText(keys, a.numero, a.chemin, { offset: a.offset, limite: a.limite }),
   },
   {
     name: 'dossier_arborescence',
-    description: 'Table des matières de TOUTES les pièces déposées sous un numéro (enquête ou instruction) : zones Geoloc/Ecoutes/Actes/PV/DML et « Dossier complet » versé (Dossier/… — les sous-pochettes reflètent l\'organisation du dossier réel, en texte). Chemins exacts pour lire_document. Point de départ de tout dépouillement.',
-    inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
-    handler: async (a) => arborescenceDocuments(keys, a.numero),
+    description: 'Table des matières de TOUTES les pièces déposées sous un numéro (enquête ou instruction) : zones Geoloc/Ecoutes/Actes/PV/DML et « Dossier complet » versé (Dossier/… — les sous-pochettes reflètent l\'organisation du dossier réel, en texte). Chemins exacts pour lire_document. Point de départ de tout dépouillement. Rend TOUJOURS le panorama `pochettes` (nombre de pièces par pochette) puis le détail paginé — sur un dossier volumineux (plusieurs procédures versées, milliers de pièces), dépouille pochette par pochette : pochette:"PV/Nom" pour cibler, offset pour la suite (offsetSuivant est fourni tant qu\'il reste des pièces).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        pochette: { type: 'string', description: 'Filtre sur une pochette du panorama (ex. "PV/GOSSE", "Dossier/D2"). Vide = tout le dossier.' },
+        offset: { type: 'number', description: 'Index de la 1re pièce à afficher (défaut 0). Utiliser offsetSuivant de la réponse précédente.' },
+        limit: { type: 'number', description: 'Pièces par page (défaut 500, max 2000).' },
+      },
+      required: ['numero'],
+    },
+    handler: async (a) => arborescenceDocuments(keys, a.numero, { pochette: a.pochette, offset: a.offset, limit: a.limit }),
   },
   {
     name: 'verifier_completude',
