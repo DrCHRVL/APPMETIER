@@ -11,10 +11,10 @@
 // du module + sync périodique). Objet unique → fusion last-write-wins par
 // `updatedAt` (le plus récent gagne en entier, pas de merge par champ).
 //
-// Persistance locale via ElectronBridge sous la clé `cartographieConfig`
+// Persistance locale via SiralBridge sous la clé `cartographieConfig`
 // (cache hors-ligne + base de comparaison pour le merge).
 
-import { ElectronBridge } from './electronBridge';
+import { SiralBridge } from './siralBridge';
 import { getCurrentUserInfo } from './dataSync/globalSyncCommon';
 import { APP_CONFIG } from '@/config/constants';
 import {
@@ -32,8 +32,8 @@ const PERIODIC_SYNC_MS = 60_000;
 /** `true` si l'API serveur de la config carto partagée est disponible. */
 function isShareAvailable(): boolean {
   return typeof window !== 'undefined'
-    && !!window.electronAPI?.globalSync_pullCartographieConfig
-    && !!window.electronAPI?.globalSync_pushCartographieConfig;
+    && !!window.siralBridge?.globalSync_pullCartographieConfig
+    && !!window.siralBridge?.globalSync_pushCartographieConfig;
 }
 
 /** Reconstruit une config valide à partir d'un blob potentiellement partiel
@@ -76,14 +76,14 @@ function pickNewest(
 }
 
 async function pullServerConfig(): Promise<CartographieModuleConfig | null> {
-  if (!window.electronAPI?.globalSync_pullCartographieConfig) return null;
-  const raw = await window.electronAPI.globalSync_pullCartographieConfig();
+  if (!window.siralBridge?.globalSync_pullCartographieConfig) return null;
+  const raw = await window.siralBridge.globalSync_pullCartographieConfig();
   return raw ? normalize(raw) : null;
 }
 
 async function pushServerConfig(config: CartographieModuleConfig): Promise<boolean> {
-  if (!window.electronAPI?.globalSync_pushCartographieConfig) return false;
-  return await window.electronAPI.globalSync_pushCartographieConfig(config);
+  if (!window.siralBridge?.globalSync_pushCartographieConfig) return false;
+  return await window.siralBridge.globalSync_pushCartographieConfig(config);
 }
 
 class CartographieConfigManagerService {
@@ -97,7 +97,7 @@ class CartographieConfigManagerService {
 
   /** Lit la config locale brute (sans toucher au cache ni au serveur). */
   private async loadLocalOnly(): Promise<CartographieModuleConfig | null> {
-    const stored = await ElectronBridge.getData<CartographieModuleConfig | null>(
+    const stored = await SiralBridge.getData<CartographieModuleConfig | null>(
       CONFIG_KEY,
       null,
     );
@@ -107,7 +107,7 @@ class CartographieConfigManagerService {
 
   async load(): Promise<CartographieModuleConfig> {
     if (this.cache) return this.cache;
-    const stored = await ElectronBridge.getData<CartographieModuleConfig | null>(
+    const stored = await SiralBridge.getData<CartographieModuleConfig | null>(
       CONFIG_KEY,
       null,
     );
@@ -115,7 +115,7 @@ class CartographieConfigManagerService {
     // ÉPHÉMÈRES pour l'affichage mais on NE les met PAS en cache, afin qu'un
     // appel ultérieur réessaie et qu'aucune sauvegarde ne parte d'une base
     // erronée (cf. loadForWrite).
-    if (stored === null && ElectronBridge.didReadFail(CONFIG_KEY)) {
+    if (stored === null && SiralBridge.didReadFail(CONFIG_KEY)) {
       return normalize(null);
     }
     const localConfig = stored ? normalize(stored) : null;
@@ -133,7 +133,7 @@ class CartographieConfigManagerService {
     // Le serveur a une version plus récente (ou la 1re config connue) → on la
     // persiste localement pour le hors-ligne et la prochaine comparaison.
     if (serverConfig && ts(serverConfig) > ts(localConfig)) {
-      await ElectronBridge.setData(CONFIG_KEY, winner);
+      await SiralBridge.setData(CONFIG_KEY, winner);
     }
     // Config présente en local mais pas (ou plus à jour) sur le serveur → on
     // marque dirty pour qu'elle remonte au partage à la prochaine sync.
@@ -150,11 +150,11 @@ class CartographieConfigManagerService {
    *  la vraie configuration (cause historique de la perte des pondérations). */
   private async loadForWrite(): Promise<CartographieModuleConfig> {
     if (this.cache) return this.cache;
-    const stored = await ElectronBridge.getData<CartographieModuleConfig | null>(
+    const stored = await SiralBridge.getData<CartographieModuleConfig | null>(
       CONFIG_KEY,
       null,
     );
-    if (stored === null && ElectronBridge.didReadFail(CONFIG_KEY)) {
+    if (stored === null && SiralBridge.didReadFail(CONFIG_KEY)) {
       throw new Error(
         'Configuration cartographie illisible : sauvegarde annulée pour ne pas écraser les réglages existants. Réessayez après rechargement de l’application.',
       );
@@ -171,7 +171,7 @@ class CartographieConfigManagerService {
       updatedAt: new Date().toISOString(),
       updatedBy: user?.displayName || config.updatedBy,
     };
-    await ElectronBridge.setData(CONFIG_KEY, next);
+    await SiralBridge.setData(CONFIG_KEY, next);
     this.cache = next;
     this.dirty = true;
     this.emit(next);
@@ -182,7 +182,7 @@ class CartographieConfigManagerService {
       .catch(() => {});
     // Écriture disque immédiate : ces réglages sont souvent modifiés puis on
     // quitte/recharge l'app aussitôt, avant l'expiration du délai temporisé.
-    return ElectronBridge.flush(CONFIG_KEY);
+    return SiralBridge.flush(CONFIG_KEY);
   }
 
   async refresh(): Promise<CartographieModuleConfig> {
@@ -305,7 +305,7 @@ class CartographieConfigManagerService {
       // Le serveur gagne → appliquer localement + notifier les abonnés (l'écran
       // Paramètres se met à jour en direct sans recharger l'app).
       if (serverConfig && ts(serverConfig) > ts(local)) {
-        await ElectronBridge.setData(CONFIG_KEY, serverConfig);
+        await SiralBridge.setData(CONFIG_KEY, serverConfig);
         this.cache = serverConfig;
         this.emit(serverConfig);
         this.dirty = false;

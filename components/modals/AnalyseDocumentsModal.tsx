@@ -97,7 +97,7 @@ export const AnalyseDocumentsModal = ({
   // Lancer l'analyse — version web : uniquement sur les pièces déjà
   // téléversées (leur texte est converti dans le navigateur au passage et
   // fourni via `precomputedDocs` par la bannière « Analyser (IA) » de la
-  // section Documents). L'ancien scan d'un dossier réseau (Electron) a été
+  // section Documents). L'ancien scan d'un dossier réseau (édition bureau) a été
   // retiré avec l'édition bureau.
   const startAnalysis = useCallback(async () => {
     if (!precomputedDocs || precomputedDocs.length === 0) {

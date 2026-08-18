@@ -4,7 +4,7 @@
 // identifie l'utilisateur courant par son Windows username,
 // et fournit les méthodes CRUD pour l'admin.
 
-import { ElectronBridge } from './electronBridge';
+import { SiralBridge } from './siralBridge';
 import {
   UsersConfig,
   UserProfile,
@@ -399,8 +399,8 @@ export class UserManager {
 
   private async getWindowsUser(): Promise<{ displayName: string; computerName: string } | null> {
     try {
-      if (typeof window !== 'undefined' && (window as any).electronAPI?.getCurrentUser) {
-        return await (window as any).electronAPI.getCurrentUser();
+      if (typeof window !== 'undefined' && (window as any).siralBridge?.getCurrentUser) {
+        return await (window as any).siralBridge.getCurrentUser();
       }
       return null;
     } catch {
@@ -424,19 +424,19 @@ export class UserManager {
     let serverStatus: 'ok' | 'missing' | 'unreachable' = 'unreachable';
 
     // 1. Essayer de lire depuis le serveur partagé
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.dataSync_pullUsersConfig) {
+    if (typeof window !== 'undefined' && (window as any).siralBridge?.dataSync_pullUsersConfig) {
       try {
-        const result = await (window as any).electronAPI.dataSync_pullUsersConfig();
+        const result = await (window as any).siralBridge.dataSync_pullUsersConfig();
 
         // Compat : ancien format (config | null) toléré au cas où
         if (result && typeof result === 'object' && 'status' in result) {
           serverStatus = result.status;
           if (result.status === 'ok' && result.config) {
-            await ElectronBridge.setData('users_config', result.config);
+            await SiralBridge.setData('users_config', result.config);
             return { status: 'ok', config: result.config };
           }
         } else if (result) {
-          await ElectronBridge.setData('users_config', result);
+          await SiralBridge.setData('users_config', result);
           return { status: 'ok', config: result };
         } else {
           // null/undefined ancien format : on ne peut pas distinguer missing/unreachable.
@@ -451,7 +451,7 @@ export class UserManager {
 
     // 2. Fallback : lire depuis le cache local
     try {
-      const localConfig = await ElectronBridge.getData<UsersConfig>('users_config', null as any);
+      const localConfig = await SiralBridge.getData<UsersConfig>('users_config', null as any);
       if (localConfig) {
         console.log('UserManager: config chargée depuis le cache local (mode offline)');
         return { status: 'ok', config: localConfig };
@@ -476,7 +476,7 @@ export class UserManager {
 
     // Toujours sauvegarder en local d'abord (ne doit jamais échouer)
     try {
-      await ElectronBridge.setData('users_config', this.config);
+      await SiralBridge.setData('users_config', this.config);
     } catch (error) {
       console.error('UserManager: erreur sauvegarde locale', error);
       return false;
@@ -484,8 +484,8 @@ export class UserManager {
 
     // Puis tenter la sauvegarde serveur (peut échouer en offline)
     try {
-      if (typeof window !== 'undefined' && (window as any).electronAPI?.dataSync_pushUsersConfig) {
-        await (window as any).electronAPI.dataSync_pushUsersConfig(this.config);
+      if (typeof window !== 'undefined' && (window as any).siralBridge?.dataSync_pushUsersConfig) {
+        await (window as any).siralBridge.dataSync_pushUsersConfig(this.config);
       }
     } catch (error) {
       console.warn('UserManager: sauvegarde serveur échouée (mode offline)', error);

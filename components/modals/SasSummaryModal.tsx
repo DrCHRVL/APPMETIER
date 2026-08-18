@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Enquete } from '@/types/interfaces';
 import { Copy, Check, Pencil, RotateCcw, FileDown } from 'lucide-react';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { copyPlainToClipboard, downloadAsDocx } from '@/utils/richTextExport';
 import { APP_CONFIG } from '@/config/constants';
 import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
@@ -95,7 +95,7 @@ export const SasSummaryModal = ({ isOpen, onClose, enquete }: SasSummaryModalPro
   // Charger la trame sauvegardée à l'ouverture du modal (fusion rétro-compatible)
   useEffect(() => {
     if (isOpen) {
-      ElectronBridge.getData<Partial<SasTemplate>>(
+      SiralBridge.getData<Partial<SasTemplate>>(
         APP_CONFIG.STORAGE_KEYS.SAS_TEMPLATE,
         DEFAULT_SAS_TEMPLATE,
       ).then((saved) => {
@@ -174,7 +174,7 @@ export const SasSummaryModal = ({ isOpen, onClose, enquete }: SasSummaryModalPro
 
   const handleSaveTemplate = useCallback(async () => {
     if (!editingTemplate) return;
-    await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.SAS_TEMPLATE, editingTemplate);
+    await SiralBridge.setData(APP_CONFIG.STORAGE_KEYS.SAS_TEMPLATE, editingTemplate);
     setTemplate(editingTemplate);
     setEditingTemplate(null);
     setEditingSnapshot(null);

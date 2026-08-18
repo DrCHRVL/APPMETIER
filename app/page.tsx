@@ -117,7 +117,7 @@ import { contentieuxAlertsSyncService } from '@/utils/dataSync/ContentieuxAlerts
 import { backupManager } from '@/utils/backupManager';
 const WeeklyRecapPopup = dynamic(() => import('@/components/modals/WeeklyRecapPopup').then(m => ({ default: m.WeeklyRecapPopup })), { ssr: false });
 import { WeeklyPopupConfig } from '@/types/interfaces';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { OPTimeline } from '@/components/OPTimeline';
 import { TodoReminderBar } from '@/components/TodoReminderBar';
 import { PendingActsJLD } from '@/components/PendingActsJLD';
@@ -140,6 +140,8 @@ const OverboardPage = dynamic(() => import('@/components/pages/OverboardPage').t
 const GlobalStatsPage = dynamic(() => import('@/components/pages/GlobalStatsPage').then(m => ({ default: m.GlobalStatsPage })), { ssr: false });
 import { ContentieuxId } from '@/types/userTypes';
 import { useCrossSearch } from '@/hooks/useCrossSearch';
+import { useGlobalSearch } from '@/hooks/useGlobalSearch';
+import type { GlobalSearchDoc } from '@/utils/globalSearch';
 const AdminUsersPanel = dynamic(() => import('@/components/AdminUsersPanel').then(m => ({ default: m.AdminUsersPanel })), { ssr: false });
 import { UserManager } from '@/utils/userManager';
 const AdminContentieuxPanel = dynamic(() => import('@/components/admin/AdminContentieuxPanel').then(m => ({ default: m.AdminContentieuxPanel })), { ssr: false });
@@ -288,7 +290,7 @@ function AppContent() {
     const effective = weeklySubscribedIds.filter(id => allowedIds.has(id));
     const results = await Promise.all(effective.map(async (id) => {
       const def = accessibleContentieux.find(c => c.id === id);
-      const enq = await ElectronBridge.getData<any[]>(`ctx_${id}_enquetes`, []);
+      const enq = await SiralBridge.getData<any[]>(`ctx_${id}_enquetes`, []);
       return {
         contentieuxId: id,
         contentieuxLabel: def?.label || id,
@@ -517,7 +519,7 @@ function AppContent() {
 
   // Chargement des todos généraux au démarrage
   useEffect(() => {
-    ElectronBridge.getData<ToDoItem[]>('global_todos', []).then(todos => {
+    SiralBridge.getData<ToDoItem[]>('global_todos', []).then(todos => {
       setGlobalTodos(todos || []);
     });
   }, []);
@@ -550,7 +552,7 @@ function AppContent() {
         showToast('Réseau injoignable — modifications enregistrées localement', 'warning');
       } else {
         try {
-          const api = (window as any).electronAPI;
+          const api = (window as any).siralBridge;
           const result = await api?.readRecentSharedEvents?.(24 * 60 * 60 * 1000);
           if (result?.events?.length) {
             // Rejouer les événements via SharedEventManager (déclenche les listeners
@@ -576,7 +578,7 @@ function AppContent() {
     const sem = SharedEventManager.getInstance();
     sem.start(user.windowsUsername);
     // Démarrer le file watcher côté main process
-    (window as any).electronAPI?.startEventsWatcher?.();
+    (window as any).siralBridge?.startEventsWatcher?.();
 
     // Journal d'audit
     const audit = AuditLogger.getInstance();
@@ -604,7 +606,7 @@ function AppContent() {
 
   const handleGlobalTodosChange = useCallback((todos: ToDoItem[]) => {
     setGlobalTodos(todos);
-    ElectronBridge.setData('global_todos', todos);
+    SiralBridge.setData('global_todos', todos);
   }, []);
 
   // Popup récapitulatif hebdomadaire : vérifié au démarrage, une fois que
@@ -622,7 +624,7 @@ function AppContent() {
 
     const checkWeeklyPopup = async () => {
       try {
-        const cfg = await ElectronBridge.getData<WeeklyPopupConfig>('weekly_popup_config', {
+        const cfg = await SiralBridge.getData<WeeklyPopupConfig>('weekly_popup_config', {
           enabled: false, dayOfWeek: 1, hour: 9
         });
         if (!cfg.enabled) return;
@@ -634,7 +636,7 @@ function AppContent() {
 
         const isRightDay = cfg.dayOfWeek === 7 || now.getDay() === cfg.dayOfWeek;
         if (isRightDay && now.getHours() >= cfg.hour) {
-          await ElectronBridge.setData('weekly_popup_config', { ...cfg, lastShownDate: todayStr });
+          await SiralBridge.setData('weekly_popup_config', { ...cfg, lastShownDate: todayStr });
           await buildWeeklyBuckets();
           setShowWeeklyPopup(true);
           weeklyCheckDoneRef.current = true;
@@ -651,7 +653,7 @@ function AppContent() {
     if (!isAdmin()) return;
     setIsUpdating(true);
     try {
-      const result = await window.electronAPI.applyAppUpdate?.();
+      const result = await window.siralBridge.applyAppUpdate?.();
       if (result && !result.success) {
         showToast(`Erreur de mise à jour : ${result.error}`, 'error');
         setIsUpdating(false);
@@ -1310,7 +1312,7 @@ function AppContent() {
   const handleCreateGlobalTodo = useCallback((todo: ToDoItem) => {
     setGlobalTodos(prev => {
       const updated = [...prev, todo];
-      ElectronBridge.setData('global_todos', updated);
+      SiralBridge.setData('global_todos', updated);
       return updated;
     });
   }, []);
@@ -1345,6 +1347,117 @@ function AppContent() {
     () => instructions.filter(d => !d.archived).length,
     [instructions]
   );
+
+  // ── Recherche GLOBALE (omnibox du header) ──
+  // Index de ce qui est déjà en mémoire — aucune lecture supplémentaire :
+  // enquêtes de tous les contentieux accessibles (snapshot Overboard, remplacé
+  // par les données VIVES pour le contentieux actif), instructions, mesures
+  // AIR, personnes, pages et actions.
+  const enquetesForSearch = useMemo(() => {
+    const merged = new Map(overboardData);
+    if (currentContentieuxId && enquetes.length > 0) merged.set(currentContentieuxId, enquetes);
+    return merged;
+  }, [overboardData, enquetes, currentContentieuxId]);
+
+  const statsContentieuxIds = useMemo(
+    () => accessibleContentieux.filter(c => canDo(c.id, 'view_stats')).map(c => c.id),
+    [accessibleContentieux, canDo]
+  );
+  const createContentieuxIds = useMemo(
+    () => accessibleContentieux.filter(c => canDo(c.id, 'create')).map(c => c.id),
+    [accessibleContentieux, canDo]
+  );
+
+  const globalSearchApi = useGlobalSearch({
+    enquetesByContentieux: enquetesForSearch,
+    instructions,
+    mesuresAIR,
+    contentieux: accessibleContentieux,
+    statsContentieuxIds,
+    createContentieuxIds,
+    modules: {
+      instructions: hasModule('instructions'),
+      air: hasModule('air'),
+      mindmap: hasModule('mindmap'),
+    },
+    hasOverboard: hasOverboard(),
+    showAssistant: attacheAvailable && isAdmin(),
+  });
+
+  // Exécute un résultat de la recherche globale (clic ou Entrée) : ouverture de
+  // la fiche VIVE, navigation ou action — même règle de rattachement tolérant
+  // des numéros que l'assistant de justice.
+  const handleGlobalSearchExecute = async (doc: Pick<GlobalSearchDoc, 'kind' | 'data'>) => {
+    const data = doc.data as Record<string, unknown>;
+    switch (doc.kind) {
+      // Un résultat « contenu de document » ouvre l'enquête qui porte le
+      // document — même chemin que les enquêtes.
+      case 'document':
+      case 'enquete': {
+        const ctxId = String(data.ctxId || '') as ContentieuxId;
+        const numero = String(data.numero || '');
+        const wantedId = typeof data.id === 'number' ? data.id : Number(data.id);
+        const list = ctxId === currentContentieuxId
+          ? enquetesLookupRef.current
+          : (overboardData.get(ctxId) || []);
+        const found = list.find(e => e.id === wantedId && numerosProches(e.numero, numero))
+          || findEnqueteParNumero(list, numero);
+        if (!found) {
+          // Récent périmé ou snapshot pas encore à jour → chemin robuste
+          // (recherche tous contentieux + synchronisation de rattrapage).
+          handleOpenDossierByNumero(numero);
+          return;
+        }
+        const view = found.statut === 'archive' ? `archives_${ctxId}` : `enquetes_${ctxId}`;
+        await handleViewChange(view, ctxId);
+        openLiveEnqueteWhenReady(ctxId, found.numero, found);
+        return;
+      }
+      case 'instruction': {
+        const wantedId = typeof data.id === 'number' ? data.id : Number(data.id);
+        const inst = instructions.find(d => d.id === wantedId)
+          || instructions.find(d =>
+            numerosProches(d.numeroInstruction, String(data.numero || '')) ||
+            numerosProches(d.numeroParquet, String(data.numeroParquet || '')));
+        if (inst) {
+          setSelectedInstruction(inst);
+          setIsEditingInstruction(false);
+        } else {
+          showToast('Dossier d’instruction introuvable', 'info');
+        }
+        return;
+      }
+      case 'air': {
+        await handleViewChange('air');
+        handleSearchChange(String(data.nomPrenom || ''));
+        return;
+      }
+      case 'personne': {
+        await handleViewChange('mindmap');
+        handleSearchChange(String(data.nom || ''));
+        return;
+      }
+      case 'page': {
+        if (data.view) {
+          await handleViewChange(String(data.view), data.ctxId ? String(data.ctxId) as ContentieuxId : undefined);
+        }
+        return;
+      }
+      case 'action': {
+        if (data.action === 'new-enquete' && data.ctxId) {
+          const ctxId = String(data.ctxId) as ContentieuxId;
+          await handleViewChange(`enquetes_${ctxId}`, ctxId);
+          setShowNewEnqueteModal(true);
+        } else if (data.action === 'new-instruction') {
+          await handleViewChange('instructions');
+          setShowNewInstructionModal(true);
+        } else if (data.action === 'settings') {
+          setShowSettingsModal(true);
+        }
+        return;
+      }
+    }
+  };
 
   if (!isClient || tagsLoading || userLoading) {
     return (
@@ -1469,6 +1582,12 @@ return (
             isUpdating={isUpdating}
             minimal={isJLDUser}
             onShowAttache={attacheAvailable && isAdmin() ? () => setShowAttache(true) : undefined}
+            globalSearch={!isJLDUser ? {
+              api: globalSearchApi,
+              contentieuxDefs: accessibleContentieux,
+              onExecute: handleGlobalSearchExecute,
+              docSources: enquetesForSearch,
+            } : undefined}
           />
           </div>
         </div>
@@ -2183,7 +2302,7 @@ function InitialSetupScreen({ onSetupComplete }: { onSetupComplete: () => void }
   const [isValid, setIsValid] = useState<boolean | null>(null);
 
   const handleBrowse = async () => {
-    const selected = await (window as any).electronAPI?.selectFolder?.();
+    const selected = await (window as any).siralBridge?.selectFolder?.();
     if (selected) {
       setServerPath(selected);
       setError('');
@@ -2191,7 +2310,7 @@ function InitialSetupScreen({ onSetupComplete }: { onSetupComplete: () => void }
       // Valider automatiquement
       setValidating(true);
       try {
-        const result = await (window as any).electronAPI?.validatePath?.(selected);
+        const result = await (window as any).siralBridge?.validatePath?.(selected);
         setIsValid(!!result);
       } catch { setIsValid(false); }
       setValidating(false);
@@ -2206,7 +2325,7 @@ function InitialSetupScreen({ onSetupComplete }: { onSetupComplete: () => void }
     setSaving(true);
     setError('');
     try {
-      const result = await (window as any).electronAPI?.serverConfig_setup?.(serverPath.trim());
+      const result = await (window as any).siralBridge?.serverConfig_setup?.(serverPath.trim());
       if (result?.success) {
         onSetupComplete();
       } else {
@@ -2304,16 +2423,16 @@ export default function App() {
   useEffect(() => {
     const checkSetup = async () => {
       try {
-        const config = await (window as any).electronAPI?.serverConfig_get?.();
+        const config = await (window as any).siralBridge?.serverConfig_get?.();
         if (config?.isConfigured) {
           // Déjà configuré
           setNeedsSetup(false);
         } else {
           // Pas configuré — vérifier si le chemin legacy est accessible (installation existante)
-          const legacyAccessible = await (window as any).electronAPI?.validatePath?.(config?.serverRootPath);
+          const legacyAccessible = await (window as any).siralBridge?.validatePath?.(config?.serverRootPath);
           if (legacyAccessible) {
             // Le chemin legacy marche → sauvegarder en tant que config officielle et continuer
-            await (window as any).electronAPI?.serverConfig_setup?.(config?.serverRootPath);
+            await (window as any).siralBridge?.serverConfig_setup?.(config?.serverRootPath);
             setNeedsSetup(false);
           } else {
             // Aucun chemin accessible → afficher l'écran de setup
@@ -2321,7 +2440,7 @@ export default function App() {
           }
         }
       } catch {
-        // Si electronAPI n'est pas dispo (mode dev Next.js pur), skip
+        // Si siralBridge n'est pas dispo (mode dev Next.js pur), skip
         setNeedsSetup(false);
       }
       setSetupChecked(true);

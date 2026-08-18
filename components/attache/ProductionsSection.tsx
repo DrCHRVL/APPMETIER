@@ -36,7 +36,7 @@ import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import type { ActeMeta } from '@/types/interfaces';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
-const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
+const eapi = () => (window as unknown as { siralBridge: Record<string, AnyFn> }).siralBridge;
 
 interface Production {
   id: string;

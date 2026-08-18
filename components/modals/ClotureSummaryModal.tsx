@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Enquete } from '@/types/interfaces';
 import { Copy, Check, Pencil, RotateCcw, FileDown } from 'lucide-react';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { copyPlainToClipboard, downloadAsDocx } from '@/utils/richTextExport';
 import { APP_CONFIG } from '@/config/constants';
 import {
@@ -79,7 +79,7 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
   // Charger la trame sauvegardée à l'ouverture du modal (fusion rétro-compatible)
   useEffect(() => {
     if (isOpen) {
-      ElectronBridge.getData<Partial<ClotureTemplate>>(
+      SiralBridge.getData<Partial<ClotureTemplate>>(
         APP_CONFIG.STORAGE_KEYS.CLOTURE_TEMPLATE,
         DEFAULT_CLOTURE_TEMPLATE,
       ).then((saved) => {
@@ -138,7 +138,7 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
 
   const handleSaveTemplate = useCallback(async () => {
     if (!editingTemplate) return;
-    await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.CLOTURE_TEMPLATE, editingTemplate);
+    await SiralBridge.setData(APP_CONFIG.STORAGE_KEYS.CLOTURE_TEMPLATE, editingTemplate);
     setTemplate(editingTemplate);
     setEditingTemplate(null);
     setEditingSnapshot(null);

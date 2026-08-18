@@ -20,9 +20,9 @@ import { AttacheKbSection } from './AttacheKbSection';
 import { TramesFormePanel } from './TramesFormePanel';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
-const eapi = () => (window as unknown as { electronAPI?: Record<string, AnyFn> }).electronAPI;
+const eapi = () => (window as unknown as { siralBridge?: Record<string, AnyFn> }).siralBridge;
 
-/** Fonction du pont web/Electron — erreur claire si le bundle est périmé. */
+/** Fonction du pont de données — erreur claire si le bundle est périmé. */
 function bridgeFn(name: string): AnyFn {
   const api = eapi();
   const fn = api?.[name];

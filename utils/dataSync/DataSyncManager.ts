@@ -1,6 +1,6 @@
 // utils/dataSync/DataSyncManager.ts
 
-import { ElectronBridge } from '../electronBridge';
+import { SiralBridge } from '../siralBridge';
 import { DataMergeService } from './DataMergeService';
 import {
   SyncData,
@@ -131,8 +131,8 @@ export class DataSyncManager {
    * Initialise le service de synchronisation
    */
   public async initialize(): Promise<void> {
-    if (!ElectronBridge.isAvailable()) {
-      console.warn('⚠️ DataSync: Electron API non disponible');
+    if (!SiralBridge.isAvailable()) {
+      console.warn('⚠️ DataSync : pont de données indisponible');
       return;
     }
 
@@ -174,8 +174,8 @@ export class DataSyncManager {
 
   private async identifyUser(): Promise<void> {
     try {
-      if (window.electronAPI?.getCurrentUser) {
-        const userInfo = await window.electronAPI.getCurrentUser();
+      if (window.siralBridge?.getCurrentUser) {
+        const userInfo = await window.siralBridge.getCurrentUser();
         this.currentUser = userInfo.displayName;
         this.computerName = userInfo.computerName;
         console.log(`🔐 DataSync: Utilisateur identifié: ${this.currentUser} (${this.computerName})`);
@@ -191,7 +191,7 @@ export class DataSyncManager {
    */
   private async checkWriteSentinel(): Promise<void> {
     try {
-      const sentinel = await ElectronBridge.getData<{ timestamp: string; user: string } | null>(
+      const sentinel = await SiralBridge.getData<{ timestamp: string; user: string } | null>(
         DataSyncManager.SENTINEL_KEY,
         null
       );
@@ -209,7 +209,7 @@ export class DataSyncManager {
         // Marquer pour que performSync puisse décider d'écraser le serveur en cas de corruption
         this.selfCausedCorruption = true;
         // Nettoyer la sentinelle maintenant (elle sera réécrite si on re-push)
-        await ElectronBridge.setData(DataSyncManager.SENTINEL_KEY, null);
+        await SiralBridge.setData(DataSyncManager.SENTINEL_KEY, null);
       }
     } catch {
       // Pas bloquant
@@ -218,13 +218,13 @@ export class DataSyncManager {
 
   public async checkServerAccess(): Promise<boolean> {
     try {
-      if (!window.electronAPI?.dataSync_checkAccess) {
+      if (!window.siralBridge?.dataSync_checkAccess) {
         this.isOnline = false;
         return false;
       }
 
       const wasOnline = this.isOnline;
-      this.isOnline = await window.electronAPI.dataSync_checkAccess();
+      this.isOnline = await window.siralBridge.dataSync_checkAccess();
       if (this.isOnline !== wasOnline) {
         console.warn(this.isOnline ? '🌐 DataSync: Serveur accessible' : '🚫 DataSync: Serveur inaccessible');
       }
@@ -566,7 +566,7 @@ export class DataSyncManager {
 
   /** Lit les entrées supprimées depuis le stockage local (format {id, deletedAt}). */
   private async loadDeletedEntries(): Promise<Array<{ id: number; deletedAt: string }>> {
-    const raw = await ElectronBridge.getData<Array<{ id: number; deletedAt: string } | number>>(
+    const raw = await SiralBridge.getData<Array<{ id: number; deletedAt: string } | number>>(
       'deleted_enquete_ids',
       []
     );
@@ -586,12 +586,12 @@ export class DataSyncManager {
       .map(id => ({ id, deletedAt: existingMap.get(id) ?? now }))
       .filter(e => new Date(e.deletedAt).getTime() > pruneThreshold);
 
-    await ElectronBridge.setData('deleted_enquete_ids', entries);
+    await SiralBridge.setData('deleted_enquete_ids', entries);
   }
 
   /** Lecture/écriture générique d'une liste d'IDs supprimés avec purge des anciennes entrées. */
   private async loadDeletedIdEntries(key: string): Promise<Array<{ id: number; deletedAt: string }>> {
-    const raw = await ElectronBridge.getData<Array<{ id: number; deletedAt: string }>>(key, []);
+    const raw = await SiralBridge.getData<Array<{ id: number; deletedAt: string }>>(key, []);
     return Array.isArray(raw) ? raw : [];
   }
 
@@ -603,7 +603,7 @@ export class DataSyncManager {
     const entries = ids
       .map(id => ({ id, deletedAt: existingMap.get(id) ?? now }))
       .filter(e => new Date(e.deletedAt).getTime() > pruneThreshold);
-    await ElectronBridge.setData(key, entries);
+    await SiralBridge.setData(key, entries);
   }
 
   private async loadDeletedActeEntries()     { return this.loadDeletedIdEntries('deleted_acte_ids'); }
@@ -614,7 +614,7 @@ export class DataSyncManager {
   private async saveDeletedMECEntries(ids: number[])  { return this.saveDeletedIdEntries('deleted_mec_ids', ids); }
 
   private async getLocalData(): Promise<SyncData> {
-    const enquetes = await ElectronBridge.getData('enquetes', []);
+    const enquetes = await SiralBridge.getData('enquetes', []);
 
     // NOTE : chaque famille de données globales a son propre pipeline dédié :
     //   - customTags / tagRequests        → TagSyncService      (tag-data.json)
@@ -640,7 +640,7 @@ export class DataSyncManager {
   }
 
   private async saveLocalData(data: SyncData): Promise<void> {
-    await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.ENQUETES, data.enquetes);
+    await SiralBridge.setData(APP_CONFIG.STORAGE_KEYS.ENQUETES, data.enquetes);
     // NOTE : toutes les données globales (customTags, audienceResultats,
     // tagRequests, alertRules, alertValidations, tombstones) sont gérées par
     // leurs services dédiés. On ne les touche plus depuis ici.
@@ -653,12 +653,12 @@ export class DataSyncManager {
   }
 
   private async getServerData(): Promise<{ data: SyncData; metadata: SyncMetadata } | null> {
-    if (!window.electronAPI?.dataSync_pull) {
+    if (!window.siralBridge?.dataSync_pull) {
       throw new Error('API dataSync_pull non disponible');
     }
 
     try {
-      return await window.electronAPI.dataSync_pull();
+      return await window.siralBridge.dataSync_pull();
     } catch (error) {
       // Fichier serveur corrompu ou vide (JSON tronqué suite à une écriture interrompue)
       // On relance une erreur identifiable pour que performSync() l'intercepte
@@ -713,7 +713,7 @@ export class DataSyncManager {
       const toDelete = sorted.slice(DataSyncManager.MAX_SERVER_BACKUPS);
       for (const filename of toDelete) {
         if (filename === newestPreviousDay) continue; // protégé
-        await window.electronAPI?.dataSync_deleteServerBackup?.(filename);
+        await window.siralBridge?.dataSync_deleteServerBackup?.(filename);
         console.log(`🗑️ DataSync: Backup serveur supprimé (rotation) : ${filename}`);
       }
     } catch (error) {
@@ -723,7 +723,7 @@ export class DataSyncManager {
   }
 
   private async pushToServer(data: SyncData): Promise<void> {
-    if (!window.electronAPI?.dataSync_push) {
+    if (!window.siralBridge?.dataSync_push) {
       throw new Error('API dataSync_push non disponible');
     }
 
@@ -731,7 +731,7 @@ export class DataSyncManager {
     try {
       const timestamp = new Date().toISOString().replace(/:/g, '-');
       const backupFilename = `app-data-backup-${timestamp}.json`;
-      await window.electronAPI?.dataSync_backupServer?.(backupFilename);
+      await window.siralBridge?.dataSync_backupServer?.(backupFilename);
       await this.rotateServerBackups();
     } catch {
       // Non-bloquant : le backup est une sécurité, pas une condition à l'écriture
@@ -739,7 +739,7 @@ export class DataSyncManager {
 
     // Poser la sentinelle AVANT d'écrire : si l'app plante pendant l'écriture,
     // on le saura au prochain démarrage
-    await ElectronBridge.setData(DataSyncManager.SENTINEL_KEY, {
+    await SiralBridge.setData(DataSyncManager.SENTINEL_KEY, {
       timestamp: new Date().toISOString(),
       user: this.currentUser
     });
@@ -752,14 +752,14 @@ export class DataSyncManager {
         version: data.version
       };
 
-      const success = await window.electronAPI.dataSync_push(data, metadata);
+      const success = await window.siralBridge.dataSync_push(data, metadata);
 
       if (!success) {
         throw new Error('Échec envoi vers serveur');
       }
 
       // Écriture réussie : lever la sentinelle
-      await ElectronBridge.setData(DataSyncManager.SENTINEL_KEY, null);
+      await SiralBridge.setData(DataSyncManager.SENTINEL_KEY, null);
       this.selfCausedCorruption = false;
     } catch (error) {
       // La sentinelle reste en place : elle sera détectée au prochain démarrage
@@ -785,7 +785,7 @@ export class DataSyncManager {
       return false;
     }
 
-    if (!window.electronAPI?.dataSync_readServerBackup) {
+    if (!window.siralBridge?.dataSync_readServerBackup) {
       console.error('❌ DataSync: API dataSync_readServerBackup non disponible');
       return false;
     }
@@ -796,7 +796,7 @@ export class DataSyncManager {
     try {
       console.warn(`🔄 DataSync: Restauration depuis le backup serveur "${backupFilename}"...`);
 
-      const backupContent = await window.electronAPI.dataSync_readServerBackup(backupFilename);
+      const backupContent = await window.siralBridge.dataSync_readServerBackup(backupFilename);
       if (!backupContent) {
         console.error('❌ DataSync: Fichier backup introuvable ou vide');
         this.showToast('Fichier backup introuvable sur le serveur', 'error');
@@ -830,11 +830,11 @@ export class DataSyncManager {
    * Liste les fichiers backup disponibles sur le serveur.
    */
   public async listServerBackups(): Promise<string[]> {
-    if (!window.electronAPI?.dataSync_listServerBackups) {
+    if (!window.siralBridge?.dataSync_listServerBackups) {
       return [];
     }
     try {
-      return await window.electronAPI.dataSync_listServerBackups();
+      return await window.siralBridge.dataSync_listServerBackups();
     } catch {
       return [];
     }

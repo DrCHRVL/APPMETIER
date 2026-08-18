@@ -2,7 +2,7 @@
 // Seuls les tags « services » se demandent : les types d'infraction relèvent du
 // référentiel NATINF (le type stocké garde 'infractions' pour lire les demandes
 // anciennes encore présentes en données).
-import { ElectronBridge } from './electronBridge';
+import { SiralBridge } from './siralBridge';
 import { tagSyncService, DELETED_TAG_REQUEST_IDS_KEY } from './dataSync/TagSyncService';
 import type { TagTombstone } from '@/types/globalSyncTypes';
 
@@ -23,7 +23,7 @@ export interface TagRequest {
 
 export const tagRequestManager = {
   async getRequests(): Promise<TagRequest[]> {
-    return await ElectronBridge.getData<TagRequest[]>(TAG_REQUESTS_KEY, []) || [];
+    return await SiralBridge.getData<TagRequest[]>(TAG_REQUESTS_KEY, []) || [];
   },
 
   async getPendingRequests(): Promise<TagRequest[]> {
@@ -40,7 +40,7 @@ export const tagRequestManager = {
       requestedAt: new Date().toISOString(),
     };
     all.push(newRequest);
-    await ElectronBridge.setData(TAG_REQUESTS_KEY, all);
+    await SiralBridge.setData(TAG_REQUESTS_KEY, all);
     tagSyncService.schedulePush();
     return newRequest;
   },
@@ -52,7 +52,7 @@ export const tagRequestManager = {
       all[idx].status = status;
       all[idx].reviewedBy = reviewedBy;
       all[idx].reviewedAt = new Date().toISOString();
-      await ElectronBridge.setData(TAG_REQUESTS_KEY, all);
+      await SiralBridge.setData(TAG_REQUESTS_KEY, all);
       tagSyncService.schedulePush();
     }
   },
@@ -65,7 +65,7 @@ export const tagRequestManager = {
     // Tombstones pour les demandes nettoyées : empêche leur résurrection lors
     // du prochain merge serveur (TagSyncService applique un TTL de 7 jours).
     if (removed.length > 0) {
-      const existing = await ElectronBridge.getData<TagTombstone[]>(DELETED_TAG_REQUEST_IDS_KEY, []);
+      const existing = await SiralBridge.getData<TagTombstone[]>(DELETED_TAG_REQUEST_IDS_KEY, []);
       const tombstones: TagTombstone[] = Array.isArray(existing) ? existing : [];
       const now = new Date().toISOString();
       const known = new Set(tombstones.map(t => t.id));
@@ -75,10 +75,10 @@ export const tagRequestManager = {
           known.add(r.id);
         }
       }
-      await ElectronBridge.setData(DELETED_TAG_REQUEST_IDS_KEY, tombstones);
+      await SiralBridge.setData(DELETED_TAG_REQUEST_IDS_KEY, tombstones);
     }
 
-    await ElectronBridge.setData(TAG_REQUESTS_KEY, pending);
+    await SiralBridge.setData(TAG_REQUESTS_KEY, pending);
     tagSyncService.schedulePush();
   }
 };

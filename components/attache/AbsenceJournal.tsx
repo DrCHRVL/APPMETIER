@@ -25,7 +25,7 @@ import { Sparkles, RefreshCw, ChevronDown, ChevronUp, FileText, ArrowRight, X, U
 import { ProductionPopup } from './ProductionPopup';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
-const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
+const eapi = () => (window as unknown as { siralBridge: Record<string, AnyFn> }).siralBridge;
 
 interface FeedCard {
   type: string;

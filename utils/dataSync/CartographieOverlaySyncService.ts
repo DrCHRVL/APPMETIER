@@ -48,8 +48,8 @@ interface WithIdAndUpdated { id: string; updatedAt?: number; createdAt?: number 
 
 function isCartographieSyncAvailable(): boolean {
   return typeof window !== 'undefined'
-    && !!window.electronAPI?.globalSync_pullCartographie
-    && !!window.electronAPI?.globalSync_pushCartographie;
+    && !!window.siralBridge?.globalSync_pullCartographie
+    && !!window.siralBridge?.globalSync_pushCartographie;
 }
 
 // ─── Helpers de merge ────────────────────────────────────────────────────────
@@ -378,13 +378,13 @@ export class CartographieOverlaySyncService {
   }
 
   private async pullServer(): Promise<CartographieOverlaySyncFile | null> {
-    if (!window.electronAPI?.globalSync_pullCartographie) return null;
-    return (await window.electronAPI.globalSync_pullCartographie()) || null;
+    if (!window.siralBridge?.globalSync_pullCartographie) return null;
+    return (await window.siralBridge.globalSync_pullCartographie()) || null;
   }
 
   private async pushServer(payload: CartographieOverlaySyncFile): Promise<boolean> {
-    if (!window.electronAPI?.globalSync_pushCartographie) return false;
-    return await window.electronAPI.globalSync_pushCartographie(payload);
+    if (!window.siralBridge?.globalSync_pushCartographie) return false;
+    return await window.siralBridge.globalSync_pushCartographie(payload);
   }
 }
 

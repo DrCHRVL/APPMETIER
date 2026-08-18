@@ -1,5 +1,5 @@
-// types/electron.d.ts — contrat du pont de données window.electronAPI
-// (nom hérité de l'ancienne édition bureau ; implémenté par lib/web/bridge.ts).
+// types/siralBridge.d.ts — contrat du pont de données window.siralBridge
+// (implémenté par lib/web/bridge.ts, installé en avance par le stub du layout).
 import { DocumentEnquete } from './interfaces';
 
 // Interface pour les résultats de synchronisation
@@ -18,24 +18,24 @@ export interface ScanResult {
   errors: string[];
 }
 
-interface ElectronAPI {
+interface SiralBridgeApi {
   // API de base pour le stockage de données
   getData: <T>(key: string, defaultValue?: T) => Promise<T>;
   setData: <T>(key: string, value: T) => Promise<boolean>;
   clearData: (key: string) => Promise<boolean>;
   getAllKeys: () => Promise<string[]>;
-  
+
   openFileDialog: (options: any) => Promise<string | null>;
   openExternalFile: (filePath: string) => Promise<boolean>;
   openExternalUrl: (url: string) => Promise<boolean>;
-  
+
   // API pour la gestion des fichiers de sauvegarde
   saveFile: (folder: string, filename: string, content: string) => Promise<boolean>;
   readFile: (folder: string, filename: string) => Promise<string | null>;
   listFiles: (folder: string) => Promise<string[]>;
   deleteFile: (folder: string, filename: string) => Promise<boolean>;
   saveFileDialog: (defaultName: string, content: string) => Promise<boolean>;
-  
+
   // APIS POUR DATA.JSON
   copyDataJson: (backupFileName: string) => Promise<boolean>;
   restoreDataJson: (backupFileName: string) => Promise<boolean>;
@@ -66,7 +66,7 @@ interface ElectronAPI {
     removed?: number;
     error?: string;
   }>;
-  
+
   // API POUR DOCUMENTS AVEC CATÉGORIES
   saveDocuments: (
     enqueteNumero: string,
@@ -83,7 +83,7 @@ interface ElectronAPI {
     category?: string,
     originalName?: string
   ) => Promise<string>;
-  
+
   // API POUR GESTION EXTERNE AVEC SUPPORT USESUBFOLDER
   copyToExternalPath: (
     enqueteNumero: string,
@@ -92,19 +92,18 @@ interface ElectronAPI {
     category: string,
     useSubfolder?: boolean
   ) => Promise<boolean>;
-  
+
   validatePath: (pathToValidate: string) => Promise<boolean>;
   selectFolder: () => Promise<string | null>;
-  
+
   openExternalFolder: (
     externalPath: string,
     enqueteNumero: string,
     useSubfolder?: boolean
   ) => Promise<boolean>;
-  
+
   // API POUR SYNCHRONISATION DES DONNÉES (DataSyncManager)
-  // Note : ces méthodes ne sont pas exposées par toutes les versions du preload.
-  // Elles sont toujours appelées avec optional chaining (?.).
+  // Note : toujours appelées avec optional chaining (?.).
   dataSync_checkAccess?: () => Promise<boolean>;
   dataSync_pull?: () => Promise<{ data: import('./dataSyncTypes').SyncData; metadata: import('./dataSyncTypes').SyncMetadata } | null>;
   dataSync_push?: (data: import('./dataSyncTypes').SyncData, metadata: import('./dataSyncTypes').SyncMetadata) => Promise<boolean>;
@@ -178,7 +177,7 @@ interface ElectronAPI {
   instructionSync_listUsers?: (basePath: string) => Promise<string[]>;
 
   // Synchronisation module AIR (sauvegarde réseau privée par utilisateur, partage réciproque).
-  // basePath = dossier réseau (mode desktop) ; ignoré en mode web (coffre serveur `air-<user>`).
+  // basePath = dossier réseau historique ; ignoré en mode web (coffre serveur `air-<user>`).
   /** Vérifie que le dossier réseau / serveur AIR est accessible. */
   airSync_check?: (basePath: string) => Promise<boolean>;
   /** Lit le fichier <user>-air.json du dossier réseau (ou le coffre `air-<user>`). */
@@ -230,56 +229,39 @@ interface ElectronAPI {
     externalPath: string,
     useSubfolder?: boolean
   ) => Promise<SyncResult>;
-  
+
   scanForNewDocuments: (
     enqueteNumero: string,
     existingDocumentPaths: string[]
   ) => Promise<ScanResult>;
-  
+
   // API DOCUMENTS EXISTANTES
   deleteFromExternalPath: (
     externalPath: string,
     enqueteNumero: string,
     cheminRelatif: string
   ) => Promise<boolean>;
-  
+
   deleteDocument: (
     enqueteNumero: string,
     cheminRelatif: string,
     externalPath?: string | null,
     useSubfolder?: boolean
   ) => Promise<boolean>;
-  
+
   openDocument: (enqueteNumero: string, cheminRelatif: string) => Promise<boolean>;
   documentExists: (enqueteNumero: string, cheminRelatif: string) => Promise<boolean>;
   getDocumentSize: (enqueteNumero: string, cheminRelatif: string) => Promise<number>;
-  
-  // API pour l'extraction de texte PDF - CORRIGÉE
-  extractPDFText: (buffer: Uint8Array) => Promise<string>;
 
-  // Extraction de texte PDF par chemin relatif (utilisé pour la recherche dans les documents)
-  extractPdfText?: (cheminRelatif: string) => Promise<string | null>;
-
-  // API pour le scan et analyse des PDFs du chemin externe
-  scanExternalPDFs?: (
-    externalPath: string,
-    enqueteNumero: string,
-    useSubfolder?: boolean
-  ) => Promise<{
-    documents: Array<{
-      filePath: string;
-      fileName: string;
-      sourceFolder: string;
-      textContent: string;
-    }>;
-    errors: string[];
-    foldersScanned: string[];
-  }>;
+  // Documents : octets déchiffrés (base64) et texte extrait d'un PDF —
+  // utilisés par la recherche dans les documents et les aperçus.
+  readDocumentData: (enqueteNumero: string, cheminRelatif: string) => Promise<string | null>;
+  readDocumentText: (enqueteNumero: string, cheminRelatif: string) => Promise<string>;
 }
 
 declare global {
   interface Window {
-    electronAPI: ElectronAPI;
+    siralBridge: SiralBridgeApi;
   }
 }
 

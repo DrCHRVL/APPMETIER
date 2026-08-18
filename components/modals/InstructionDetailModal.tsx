@@ -202,7 +202,7 @@ export const InstructionDetailModal = ({
 
   const openLienNpp = () => {
     if (!dossier.lienNpp) return;
-    const api = (typeof window !== 'undefined' ? window.electronAPI : undefined) as
+    const api = (typeof window !== 'undefined' ? window.siralBridge : undefined) as
       | { openExternalUrl?: (url: string) => Promise<boolean> }
       | undefined;
     if (api?.openExternalUrl) {

@@ -5,7 +5,7 @@
 // Ce manager gère le chargement, la sauvegarde et l'accès aux données
 // en fonction des contentieux autorisés pour l'utilisateur.
 
-import { ElectronBridge } from './electronBridge';
+import { SiralBridge } from './siralBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
 import { Enquete, AlertRule, Alert, AlertValidation, VisualAlertRule } from '@/types/interfaces';
@@ -297,13 +297,13 @@ export class ContentieuxManager {
   private async loadContentieuxData(contentieuxId: ContentieuxId): Promise<ContentieuxData> {
     const [enquetes, customTags, alertRules, alerts, alertValidations, visualAlertRules, audienceResultats] =
       await Promise.all([
-        ElectronBridge.getData(storageKey(contentieuxId, 'enquetes'), [] as Enquete[]),
-        ElectronBridge.getData(storageKey(contentieuxId, 'customTags'), [] as TagDefinition[]),
-        ElectronBridge.getData(storageKey(contentieuxId, 'alertRules'), APP_CONFIG.DEFAULT_ALERT_RULES),
-        ElectronBridge.getData(storageKey(contentieuxId, 'alerts'), [] as Alert[]),
-        ElectronBridge.getData(storageKey(contentieuxId, 'alertValidations'), {} as Record<string, AlertValidation>),
-        ElectronBridge.getData(storageKey(contentieuxId, 'visualAlertRules'), [] as VisualAlertRule[]),
-        ElectronBridge.getData(storageKey(contentieuxId, 'audienceResultats'), {} as Record<string, ResultatAudience>),
+        SiralBridge.getData(storageKey(contentieuxId, 'enquetes'), [] as Enquete[]),
+        SiralBridge.getData(storageKey(contentieuxId, 'customTags'), [] as TagDefinition[]),
+        SiralBridge.getData(storageKey(contentieuxId, 'alertRules'), APP_CONFIG.DEFAULT_ALERT_RULES),
+        SiralBridge.getData(storageKey(contentieuxId, 'alerts'), [] as Alert[]),
+        SiralBridge.getData(storageKey(contentieuxId, 'alertValidations'), {} as Record<string, AlertValidation>),
+        SiralBridge.getData(storageKey(contentieuxId, 'visualAlertRules'), [] as VisualAlertRule[]),
+        SiralBridge.getData(storageKey(contentieuxId, 'audienceResultats'), {} as Record<string, ResultatAudience>),
       ]);
 
     // Remise en cohérence de l'état d'archivage avant toute exposition des
@@ -338,6 +338,6 @@ export class ContentieuxManager {
   }
 
   private async saveContentieuxKey<T>(contentieuxId: ContentieuxId, key: string, value: T): Promise<void> {
-    await ElectronBridge.setData(storageKey(contentieuxId, key), value);
+    await SiralBridge.setData(storageKey(contentieuxId, key), value);
   }
 }

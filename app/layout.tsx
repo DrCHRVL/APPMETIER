@@ -2,7 +2,7 @@ import './globals.css'
 import './print.css'
 import type { Metadata } from 'next'
 import { WebGate } from '@/components/web/WebGate'
-import { ELECTRON_API_NAMES } from '@/lib/web/apiNames'
+import { SIRAL_BRIDGE_API_NAMES } from '@/lib/web/apiNames'
 
 export const metadata: Metadata = {
   title: 'SIRAL',
@@ -24,19 +24,18 @@ export const metadata: Metadata = {
 const IS_CONSULTATION = process.env.NEXT_PUBLIC_CONSULTATION === '1'
 
 /**
- * Stub précoce : installe la surface window.electronAPI (pont de données —
- * nom hérité de l'ancienne édition bureau) dont chaque fonction attend que
- * le pont web soit prêt (après connexion + déverrouillage E2EE) puis lui
- * délègue l'appel. Doit s'exécuter AVANT les bundles (ElectronBridge capture
- * la disponibilité de window.electronAPI au chargement de module).
+ * Stub précoce : installe la surface window.siralBridge (pont de données)
+ * dont chaque fonction attend que le pont web soit prêt (après connexion + déverrouillage E2EE) puis lui
+ * délègue l'appel. Doit s'exécuter AVANT les bundles (SiralBridge capture
+ * la disponibilité de window.siralBridge au chargement de module).
  */
 const EARLY_STUB = `(function(){
-  if (window.electronAPI) return;
+  if (window.siralBridge) return;
   window.__SIRAL_WEB__ = true;
   var resolveBridge;
   var ready = new Promise(function(res){ resolveBridge = res; });
   window.__SIRAL_BRIDGE_SET__ = function(bridge){ window.__SIRAL_BRIDGE__ = bridge; resolveBridge(bridge); };
-  var names = ${JSON.stringify(ELECTRON_API_NAMES)};
+  var names = ${JSON.stringify(SIRAL_BRIDGE_API_NAMES)};
   var api = {};
   names.forEach(function(name){
     api[name] = function(){
@@ -45,7 +44,7 @@ const EARLY_STUB = `(function(){
       return ready.then(function(bridge){ return bridge[name].apply(null, args); });
     };
   });
-  window.electronAPI = api;
+  window.siralBridge = api;
 })();`
 
 /**
@@ -118,6 +117,11 @@ export default function RootLayout({
             <script src="./data-snapshot.js" />
             {/* eslint-disable-next-line @next/next/no-sync-scripts */}
             <script src="./shim.js" />
+            {/* Les exports de consultation générés avant le renommage du pont
+                installent encore window.electronAPI : on fait suivre l'ancien
+                nom vers window.siralBridge, que l'application consomme. */}
+            <script dangerouslySetInnerHTML={{ __html:
+              'window.siralBridge = window.siralBridge || window.electronAPI;' }} />
             {children}
           </>
         ) : (

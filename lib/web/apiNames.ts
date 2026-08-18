@@ -1,9 +1,9 @@
 /**
- * Surface du pont de données de l'édition web (window.electronAPI, nom
- * hérité de l'ancienne édition bureau). Utilisée par le stub précoce
- * (layout) qui met en attente les appels tant que le pont n'est pas prêt.
+ * Surface du pont de données de l'édition web (window.siralBridge).
+ * Utilisée par le stub précoce (layout) qui met en attente les appels
+ * tant que le pont n'est pas prêt.
  */
-export const ELECTRON_API_NAMES = [
+export const SIRAL_BRIDGE_API_NAMES = [
   'getData', 'setData', 'clearData', 'getAllKeys',
   'openFileDialog', 'saveCasierFile', 'deleteCasierFile', 'openExternalFile', 'openExternalUrl',
   'saveFile', 'readFile', 'listFiles', 'deleteFile', 'saveFileDialog',
@@ -13,7 +13,6 @@ export const ELECTRON_API_NAMES = [
   'serverConfig_get', 'serverConfig_setup', 'serverConfig_reset',
   'openExternalFolder', 'deleteFromExternalPath', 'syncDocuments', 'scanForNewDocuments',
   'deleteDocument', 'openDocument', 'documentExists', 'getDocumentSize',
-  'extractPDFText', 'scanExternalPDFs',
   'dataSync_checkAccess', 'dataSync_pull', 'dataSync_push', 'dataSync_backupServer',
   'dataSync_deleteServerBackup', 'dataSync_listServerBackups', 'dataSync_readServerBackup',
   'getCurrentUser',

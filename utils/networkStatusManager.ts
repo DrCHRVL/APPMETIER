@@ -43,7 +43,7 @@ class NetworkStatusManagerImpl {
   async start(): Promise<NetworkStatus> {
     if (this.started) return this.effective();
     this.started = true;
-    const api = (window as unknown as { electronAPI?: any }).electronAPI;
+    const api = (window as unknown as { siralBridge?: any }).siralBridge;
     if (!api?.startNetworkMonitor) return this.effective();
 
     api.onNetworkStatus?.((next: NetworkStatus) => {
@@ -88,7 +88,7 @@ class NetworkStatusManagerImpl {
 
   /** Sonde unique à la demande (utilisée au lancement). */
   async probeOnce(): Promise<NetworkStatus> {
-    const api = (window as unknown as { electronAPI?: any }).electronAPI;
+    const api = (window as unknown as { siralBridge?: any }).siralBridge;
     if (!api?.probeNetwork) return this.effective();
     const next = await api.probeNetwork();
     if (next) {

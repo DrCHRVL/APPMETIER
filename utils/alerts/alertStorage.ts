@@ -1,5 +1,5 @@
 import { Alert, AlertValidation, AlertValidations } from '@/types/interfaces';
-import { ElectronBridge } from '../electronBridge';
+import { SiralBridge } from '../siralBridge';
 import { userPreferencesSyncService } from '../dataSync/UserPreferencesSyncService';
 
 const ALERTS_KEY = 'alerts';
@@ -21,12 +21,12 @@ export const AlertStorage = {
     const alertsToSave = alerts.filter(
       alert => alert.status === 'active' || alert.status === 'snoozed'
     );
-    await ElectronBridge.setData(ALERTS_KEY, alertsToSave);
+    await SiralBridge.setData(ALERTS_KEY, alertsToSave);
   },
 
   async getAlerts(): Promise<Alert[]> {
     try {
-      const alerts = await ElectronBridge.getData<Alert[]>(ALERTS_KEY, []);
+      const alerts = await SiralBridge.getData<Alert[]>(ALERTS_KEY, []);
       return Array.isArray(alerts) ? alerts : [];
     } catch (error) {
       console.error('Error getting alerts:', error);

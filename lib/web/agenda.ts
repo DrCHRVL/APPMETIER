@@ -7,7 +7,7 @@
  * On peut connecter PLUSIEURS agendas en même temps (un par fournisseur) : leurs
  * événements sont fusionnés dans un même calendrier sur le tableau de bord.
  */
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 
 /** Ancienne clé — un seul agenda. Conservée pour la migration / compatibilité. */
 export const AGENDA_ICAL_KEY = 'agenda_ical_url';
@@ -50,13 +50,13 @@ export interface AgendaDisplaySettings {
 export const DEFAULT_DISPLAY: AgendaDisplaySettings = { eventSize: 'small', colors: {} };
 
 export async function loadAgendaDisplay(): Promise<AgendaDisplaySettings> {
-  const s = await ElectronBridge.getData<AgendaDisplaySettings | null>(AGENDA_DISPLAY_KEY, null);
+  const s = await SiralBridge.getData<AgendaDisplaySettings | null>(AGENDA_DISPLAY_KEY, null);
   if (!s) return DEFAULT_DISPLAY;
   return { ...DEFAULT_DISPLAY, ...s, colors: { ...DEFAULT_DISPLAY.colors, ...(s.colors ?? {}) } };
 }
 
 export async function saveAgendaDisplay(settings: AgendaDisplaySettings): Promise<void> {
-  await ElectronBridge.setData(AGENDA_DISPLAY_KEY, settings);
+  await SiralBridge.setData(AGENDA_DISPLAY_KEY, settings);
 }
 
 /** Déduit le fournisseur à partir de l'hôte de l'URL iCal. */
@@ -106,13 +106,13 @@ export async function fetchAgendaMulti(urls: AgendaUrls): Promise<AgendaEvent[]>
  * clé « un seul agenda » vers la nouvelle structure (en déduisant le fournisseur).
  */
 export async function loadAgendaUrls(): Promise<AgendaUrls> {
-  const stored = await ElectronBridge.getData<AgendaUrls | null>(AGENDA_ICAL_URLS_KEY, null);
+  const stored = await SiralBridge.getData<AgendaUrls | null>(AGENDA_ICAL_URLS_KEY, null);
   if (stored && typeof stored === 'object') {
     const { google, outlook, icloud } = stored;
     if (google || outlook || icloud) return { google, outlook, icloud };
   }
   // Migration depuis l'ancienne clé unique.
-  const legacy = String(await ElectronBridge.getData(AGENDA_ICAL_KEY, '') || '');
+  const legacy = String(await SiralBridge.getData(AGENDA_ICAL_KEY, '') || '');
   if (legacy) {
     const src = sourceFromUrl(legacy);
     const migrated: AgendaUrls = src === 'outlook' ? { outlook: legacy }
@@ -129,7 +129,7 @@ export async function saveAgendaUrls(urls: AgendaUrls): Promise<void> {
   if (urls.google?.trim()) clean.google = urls.google.trim();
   if (urls.outlook?.trim()) clean.outlook = urls.outlook.trim();
   if (urls.icloud?.trim()) clean.icloud = urls.icloud.trim();
-  await ElectronBridge.setData(AGENDA_ICAL_URLS_KEY, clean);
+  await SiralBridge.setData(AGENDA_ICAL_URLS_KEY, clean);
   // L'ancienne clé n'a plus de rôle dès qu'on utilise la nouvelle structure.
-  await ElectronBridge.setData(AGENDA_ICAL_KEY, '');
+  await SiralBridge.setData(AGENDA_ICAL_KEY, '');
 }

@@ -11,7 +11,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { updatePushSchedule } from '@/lib/web/pushReminders';
 import { Alert, AlertRule, Enquete, AIRMesure, AlertValidations } from '@/types/interfaces';
 import { APP_CONFIG } from '@/config/constants';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { AlertManager } from '@/utils/alerts/alertManager';
 import { contentieuxAlertsSyncService } from '@/utils/dataSync/ContentieuxAlertsSyncService';
 import { useUserPreferences } from './useUserPreferences';
@@ -63,7 +63,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     validationsSeedTriedRef.current = true;
     (async () => {
       try {
-        const legacy = await ElectronBridge.getData<AlertValidations>(
+        const legacy = await SiralBridge.getData<AlertValidations>(
           APP_CONFIG.STORAGE_KEYS.ALERT_VALIDATIONS,
           {},
         );
@@ -104,11 +104,11 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
           // Seed lazy : reprendre les clés legacy si elles existent, sinon
           // défauts système. N'écrit côté serveur que si le fichier est
           // absent (seedFromLegacy est idempotent).
-          const legacyCtx = await ElectronBridge.getData<AlertRule[]>(
+          const legacyCtx = await SiralBridge.getData<AlertRule[]>(
             `ctx_${contentieuxId}_alertRules`,
             [],
           );
-          const legacyGlobal = await ElectronBridge.getData<AlertRule[]>(
+          const legacyGlobal = await SiralBridge.getData<AlertRule[]>(
             APP_CONFIG.STORAGE_KEYS.ALERT_RULES,
             [],
           );
@@ -154,7 +154,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     const loadAlerts = async () => {
       try {
         setAlertsLoading(true);
-        const existingAlerts = await ElectronBridge.getData(alertsKey, []);
+        const existingAlerts = await SiralBridge.getData(alertsKey, []);
         setAlerts(Array.isArray(existingAlerts) ? existingAlerts : []);
       } catch (error) {
         console.error('Erreur lors du chargement des alertes:', error);
@@ -216,12 +216,12 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
 
         // Non abonné → vider la cloche et nettoyer le cache persistant.
         if (!isSubscribed) {
-          await ElectronBridge.setData(currentAlertsKey, []);
+          await SiralBridge.setData(currentAlertsKey, []);
           setAlerts([]);
           return;
         }
 
-        const existingAlerts = await ElectronBridge.getData<Alert[]>(currentAlertsKey, []);
+        const existingAlerts = await SiralBridge.getData<Alert[]>(currentAlertsKey, []);
         const newAlerts: Alert[] = [];
 
         for (const enquete of enquetesRef.current) {
@@ -312,7 +312,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
         const freshActives = newAlerts.filter(a => !snoozedBaseIds.has(alertBaseId(a)));
         const allAlerts = [...freshActives, ...liveSnoozes];
 
-        await ElectronBridge.setData(currentAlertsKey, allAlerts);
+        await SiralBridge.setData(currentAlertsKey, allAlerts);
         setAlerts(allAlerts);
 
         // Badge « nouveautés » : compte les alertes actives dont l'identité
@@ -321,13 +321,13 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
         const activeIdentities = allAlerts
           .filter(a => a.status === 'active')
           .map(alertIdentity);
-        const seenRaw = await ElectronBridge.getData<string[]>(`${currentAlertsKey}_seen`, []);
+        const seenRaw = await SiralBridge.getData<string[]>(`${currentAlertsKey}_seen`, []);
         const seenSet = new Set(Array.isArray(seenRaw) ? seenRaw : []);
         setUnseenCount(activeIdentities.filter(id => !seenSet.has(id)).length);
         // Élaguer le journal « vu » aux seules identités encore actives.
         const prunedSeen = activeIdentities.filter(id => seenSet.has(id));
         if (prunedSeen.length !== seenSet.size) {
-          await ElectronBridge.setData(`${currentAlertsKey}_seen`, prunedSeen);
+          await SiralBridge.setData(`${currentAlertsKey}_seen`, prunedSeen);
         }
 
         // rappels push (horodatages seuls — voir lib/web/pushReminders)
@@ -378,7 +378,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     async (alertId: number, daysOrDate: number | string): Promise<boolean> => {
       try {
         const currentAlertsKey = alertsKeyRef.current;
-        const allAlerts = await ElectronBridge.getData<Alert[]>(currentAlertsKey, []);
+        const allAlerts = await SiralBridge.getData<Alert[]>(currentAlertsKey, []);
 
         let snoozeUntil: Date;
         if (typeof daysOrDate === 'string' && daysOrDate.includes('T')) {
@@ -400,7 +400,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
             : alert
         );
 
-        await ElectronBridge.setData(currentAlertsKey, updatedAlerts);
+        await SiralBridge.setData(currentAlertsKey, updatedAlerts);
         setAlerts(updatedAlerts);
         return true;
       } catch (error) {
@@ -415,7 +415,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     async (alertId: number | number[]): Promise<boolean> => {
       try {
         const currentAlertsKey = alertsKeyRef.current;
-        const allAlerts = await ElectronBridge.getData<Alert[]>(currentAlertsKey, []);
+        const allAlerts = await SiralBridge.getData<Alert[]>(currentAlertsKey, []);
 
         const alertsToValidate = Array.isArray(alertId)
           ? allAlerts.filter(a => alertId.includes(a.id))
@@ -429,7 +429,7 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
           return !(Array.isArray(alertId) ? alertId.includes(alert.id) : alert.id === alertId);
         });
 
-        await ElectronBridge.setData(currentAlertsKey, updatedAlerts);
+        await SiralBridge.setData(currentAlertsKey, updatedAlerts);
         setAlerts(updatedAlerts);
         return true;
       } catch (error) {
@@ -463,11 +463,11 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
   // badge nouveautés à zéro). Appelé à l'ouverture de la cloche.
   const markAllSeen = useCallback(async () => {
     const currentAlertsKey = alertsKeyRef.current;
-    const current = await ElectronBridge.getData<Alert[]>(currentAlertsKey, []);
+    const current = await SiralBridge.getData<Alert[]>(currentAlertsKey, []);
     const ids = (Array.isArray(current) ? current : [])
       .filter(a => a.status === 'active')
       .map(alertIdentity);
-    await ElectronBridge.setData(`${currentAlertsKey}_seen`, ids);
+    await SiralBridge.setData(`${currentAlertsKey}_seen`, ids);
     setUnseenCount(0);
   }, []);
 

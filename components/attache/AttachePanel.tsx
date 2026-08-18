@@ -27,7 +27,7 @@ const DOSSIER_KINDS = ['dossier'] as const;
 const CARTO_KINDS = ['dossier_carto', 'mec_carto', 'lien'] as const;
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
-const eapi = () => (window as unknown as { electronAPI: Record<string, AnyFn> }).electronAPI;
+const eapi = () => (window as unknown as { siralBridge: Record<string, AnyFn> }).siralBridge;
 
 interface ChatMessage { role: 'user' | 'assistant'; text: string; at?: string; run?: string; streaming?: boolean; tools?: string[] }
 interface FeedCard {

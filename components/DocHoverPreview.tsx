@@ -14,7 +14,7 @@ const MAX_CACHE = 30;
 async function renderFirstPage(enquete: string, rel: string): Promise<string | null> {
   const key = `${enquete}/${rel}`;
   if (cache.has(key)) return cache.get(key)!;
-  const api = window.electronAPI as unknown as { readDocumentData?: (e: string, r: string) => Promise<string | null> };
+  const api = window.siralBridge as unknown as { readDocumentData?: (e: string, r: string) => Promise<string | null> };
   const b64 = await api.readDocumentData?.(enquete, rel);
   if (!b64) return null;
   const bin = atob(b64);

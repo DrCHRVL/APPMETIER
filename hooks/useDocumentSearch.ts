@@ -1,60 +1,26 @@
 // hooks/useDocumentSearch.ts
+//
+// Recherche dans le CONTENU des documents des enquêtes affichées (la liste de
+// la page courante) : les enquêtes dont un document DÉJÀ ANALYSÉ contient le
+// terme sont ajoutées aux résultats. L'analyse d'un document (téléchargement +
+// déchiffrement + conversion dans le navigateur) ne part jamais en silence :
+// elle se lance depuis le bouton « Analyser » de la recherche globale, et son
+// résultat est mémorisé (utils/documents/documentTextSearch) — chaque document
+// n'est extrait qu'une seule fois.
+
 import { useState, useEffect, useRef } from 'react';
 import { Enquete } from '@/types/interfaces';
-
-// Types de documents dont on peut extraire le texte
-const SEARCHABLE_TYPES = new Set<string>(['pdf', 'txt', 'html']);
-
-// Cache global de session : clé = "enqueteNumero||cheminRelatif"
-// null = déjà tenté mais échec ; string = texte extrait (lowercase)
-const docTextCache = new Map<string, string | null>();
-
-function cacheKey(enqueteNumero: string, cheminRelatif: string) {
-  return `${enqueteNumero}||${cheminRelatif}`;
-}
-
-async function fetchDocumentText(
-  enqueteNumero: string,
-  cheminRelatif: string,
-  type: string
-): Promise<string | null> {
-  const key = cacheKey(enqueteNumero, cheminRelatif);
-
-  if (docTextCache.has(key)) {
-    return docTextCache.get(key)!;
-  }
-
-  try {
-    let text: string | null = null;
-    const api = (window as any).electronAPI;
-
-    if (!api) {
-      docTextCache.set(key, null);
-      return null;
-    }
-
-    if (type === 'pdf') {
-      // API electron utilisée dans DocumentAnalyzer.ts
-      text = await api.extractPdfText?.(cheminRelatif) ?? null;
-    } else if (type === 'txt' || type === 'html') {
-      // readFile(folder, filename) – le dossier = numéro d'enquête
-      text = await api.readFile?.(enqueteNumero, cheminRelatif) ?? null;
-    }
-
-    const result = text ? text.toLowerCase() : null;
-    docTextCache.set(key, result);
-    return result;
-  } catch {
-    docTextCache.set(key, null);
-    return null;
-  }
-}
+import { normalizeText } from '@/utils/globalSearch';
+import {
+  getCachedDocumentSearchText,
+  isExtractableDocument,
+} from '@/utils/documents/documentTextSearch';
 
 /**
- * Recherche asynchrone dans le contenu des documents.
+ * Recherche asynchrone dans le contenu des documents analysés.
  * - Résultat immédiat : set vide (les filtres métadonnées répondent déjà)
  * - Résultat complété progressivement en arrière-plan
- * - Cache session pour éviter de ré-extraire les mêmes fichiers
+ * - Cache persistant (IndexedDB) + session pour éviter de ré-extraire
  */
 export function useDocumentSearch(
   enquetes: Enquete[],
@@ -65,7 +31,7 @@ export function useDocumentSearch(
   const searchIdRef = useRef(0);
 
   useEffect(() => {
-    const term = searchTerm.trim().toLowerCase();
+    const term = normalizeText(searchTerm.trim());
 
     // Pas de recherche si terme trop court
     if (term.length < 3) {
@@ -84,20 +50,14 @@ export function useDocumentSearch(
       for (const enquete of enquetes) {
         if (currentId !== searchIdRef.current) break;
 
-        const searchableDocs = enquete.documents?.filter(d =>
-          SEARCHABLE_TYPES.has(d.type)
-        ) ?? [];
+        const searchableDocs = enquete.documents?.filter(isExtractableDocument) ?? [];
 
         for (const doc of searchableDocs) {
           if (currentId !== searchIdRef.current) break;
 
-          const text = await fetchDocumentText(
-            enquete.numero,
-            doc.cheminRelatif,
-            doc.type
-          );
+          const text = await getCachedDocumentSearchText(enquete.numero, doc);
 
-          if (text && text.includes(term)) {
+          if (text && text.norm.includes(term)) {
             matchIds.add(enquete.id);
             break; // On passe à l'enquête suivante
           }

@@ -14,8 +14,8 @@ export interface SyncUserInfo {
 
 export async function getCurrentUserInfo(): Promise<SyncUserInfo> {
   try {
-    if (window.electronAPI?.getCurrentUser) {
-      const info = await window.electronAPI.getCurrentUser();
+    if (window.siralBridge?.getCurrentUser) {
+      const info = await window.siralBridge.getCurrentUser();
       return {
         displayName: info.displayName || 'inconnu',
         computerName: info.computerName || 'inconnu',
@@ -40,13 +40,13 @@ export function buildMetadata(
 }
 
 /**
- * Retourne `true` si l'API Electron globalSync_* est disponible.
- * Les sessions navigateur (dev Next.js sans Electron) tombent en no-op.
+ * Retourne `true` si l'API globalSync_* du pont est disponible.
+ * Les sessions sans pont (dev Next.js pur) tombent en no-op.
  */
 export function isGlobalSyncAvailable(): boolean {
   return typeof window !== 'undefined'
-    && !!window.electronAPI?.globalSync_pullTags
-    && !!window.electronAPI?.globalSync_pushTags;
+    && !!window.siralBridge?.globalSync_pullTags
+    && !!window.siralBridge?.globalSync_pushTags;
 }
 
 export type GlobalSyncScope =

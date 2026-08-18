@@ -118,21 +118,21 @@ async function main() {
     await page.screenshot({ path: SHOTS + '/04-app.png', fullPage: false })
 
     const bodyText = await page.evaluate(() => document.body.innerText.slice(0, 3000))
-    check('Surface electronAPI complète exposée', await page.evaluate(() => {
-      const api = window.electronAPI
+    check('Surface siralBridge complète exposée', await page.evaluate(() => {
+      const api = window.siralBridge
       return api && Object.keys(api).length >= 95
-    }), 'window.electronAPI')
+    }), 'window.siralBridge')
     check('Pont web actif (bridge installé)', await page.evaluate(() => !!window.__SIRAL_BRIDGE__))
     console.log('--- contenu page (extrait) ---\n' + bodyText.split('\n').slice(0, 15).join('\n') + '\n---')
 
     // ── 4. Écriture de données via le pont (comme l'app le ferait) ──
     const writeOk = await page.evaluate(async () => {
-      await window.electronAPI.setData('e2e_test_key', { version: 1, data: { hello: 'monde', dossier: 'OP TEST 26/999' } })
-      const back = await window.electronAPI.getData('e2e_test_key', null)
-      const pushed = await window.electronAPI.dataSync_pushContentieux('crimorg',
+      await window.siralBridge.setData('e2e_test_key', { version: 1, data: { hello: 'monde', dossier: 'OP TEST 26/999' } })
+      const back = await window.siralBridge.getData('e2e_test_key', null)
+      const pushed = await window.siralBridge.dataSync_pushContentieux('crimorg',
         { enquetes: [{ id: 1, numero: '26/999', nom: 'OP TEST' }] },
         { savedAt: new Date().toISOString(), savedBy: 'a.chevalier', version: 1 })
-      const pulled = await window.electronAPI.dataSync_pullContentieux('crimorg')
+      const pulled = await window.siralBridge.dataSync_pullContentieux('crimorg')
       return {
         local: back && back.data && back.data.hello === 'monde',
         push: pushed === true,
@@ -152,20 +152,20 @@ async function main() {
       'aucune donnée en clair dans ' + vaultPath)
     const versionsDir = path.join(DATA_DIR, 'vaults', '.versions', 'ctx-crimorg')
     const hadVersioning = await page.evaluate(async () => {
-      await window.electronAPI.dataSync_pushContentieux('crimorg',
+      await window.siralBridge.dataSync_pushContentieux('crimorg',
         { enquetes: [{ id: 1, numero: '26/999', nom: 'OP TEST', maj: 2 }] },
         { savedAt: new Date().toISOString(), savedBy: 'a.chevalier', version: 2 })
       return true
     }) && fs.existsSync(versionsDir) && fs.readdirSync(versionsDir).length >= 1
     check('Versionnage immuable : ancienne version archivée au 2e push', hadVersioning)
-    const backups = await page.evaluate(() => window.electronAPI.dataSync_listContentieuxBackups('crimorg'))
+    const backups = await page.evaluate(() => window.siralBridge.dataSync_listContentieuxBackups('crimorg'))
     check('Liste des sauvegardes serveur visible depuis l\'app', Array.isArray(backups) && backups.length >= 1, backups[0])
 
     // ── 6. Documents chiffrés ──
     const docOk = await page.evaluate(async () => {
       const bytes = new TextEncoder().encode('CONTENU PDF FICTIF — réquisitoire OP TEST')
-      const saved = await window.electronAPI.saveDocuments('26-999', [{ name: 'requisitoire.pdf', arrayBuffer: bytes.buffer }], 'Actes')
-      const exists = await window.electronAPI.documentExists('26-999', saved[0].cheminRelatif)
+      const saved = await window.siralBridge.saveDocuments('26-999', [{ name: 'requisitoire.pdf', arrayBuffer: bytes.buffer }], 'Actes')
+      const exists = await window.siralBridge.documentExists('26-999', saved[0].cheminRelatif)
       return { saved: saved.length === 1 && saved[0].nomOriginal === 'requisitoire.pdf', exists }
     })
     check('Document : dépôt chiffré', docOk.saved)
@@ -176,13 +176,13 @@ async function main() {
 
     // ── 7. Présence, événements, audit ──
     const misc = await page.evaluate(async () => {
-      const hb = await window.electronAPI.writeHeartbeat('a.chevalier', { contentieux: 'crimorg', at: Date.now() })
-      const all = await window.electronAPI.readAllHeartbeats()
-      const ev = await window.electronAPI.writeSharedEvent({ type: 'enquete.update', numero: '26/999' })
-      const recent = await window.electronAPI.readRecentSharedEvents(3600000)
-      const audit = await window.electronAPI.appendAuditLog({ action: 'test', user: 'a.chevalier' }, 100)
-      const auditRead = await window.electronAPI.readAuditLog()
-      const net = await window.electronAPI.probeNetwork()
+      const hb = await window.siralBridge.writeHeartbeat('a.chevalier', { contentieux: 'crimorg', at: Date.now() })
+      const all = await window.siralBridge.readAllHeartbeats()
+      const ev = await window.siralBridge.writeSharedEvent({ type: 'enquete.update', numero: '26/999' })
+      const recent = await window.siralBridge.readRecentSharedEvents(3600000)
+      const audit = await window.siralBridge.appendAuditLog({ action: 'test', user: 'a.chevalier' }, 100)
+      const auditRead = await window.siralBridge.readAuditLog()
+      const net = await window.siralBridge.probeNetwork()
       return {
         hb: hb && all.length === 1 && all[0].username === 'a.chevalier' && all[0].contentieux === 'crimorg',
         ev: ev && recent.events.some((e) => e.numero === '26/999'),
@@ -199,7 +199,7 @@ async function main() {
     await page.reload()
     await page.waitForFunction(() => !!window.__SIRAL_BRIDGE__, null, { timeout: 30000 })
     const persisted = await page.evaluate(async () => {
-      const back = await window.electronAPI.getData('e2e_test_key', null)
+      const back = await window.siralBridge.getData('e2e_test_key', null)
       return back && back.data && back.data.hello === 'monde'
     })
     check('Rechargement : déverrouillage automatique (clé mémorisée) + données locales intactes', persisted)
@@ -230,8 +230,8 @@ async function main() {
 
     // ── 8c. Invitation d'un collègue (périmètre restreint à CRIM ORG) ──
     const inviteRes = await page.evaluate(async () => {
-      const accounts = await window.electronAPI.e2ee_listAccounts()
-      const inv = await window.electronAPI.e2ee_invite('j.martin', ['ctx-crimorg'])
+      const accounts = await window.siralBridge.e2ee_listAccounts()
+      const inv = await window.siralBridge.e2ee_invite('j.martin', ['ctx-crimorg'])
       return { accounts, code: inv.code, scopes: inv.scopes }
     })
     check('Admin : liste des comptes avec état des trousseaux',
@@ -274,7 +274,7 @@ async function main() {
     await page2.click('text=Continuer vers l\'application')
     await page2.waitForSelector('.siral-card', { state: 'detached', timeout: 30000 })
     const sharedRead = await page2.evaluate(async () => {
-      const pulled = await window.electronAPI.dataSync_pullContentieux('crimorg')
+      const pulled = await window.siralBridge.dataSync_pullContentieux('crimorg')
       return pulled && pulled.data && pulled.data.enquetes[0].numero === '26/999'
     })
     check('Second utilisateur : accès aux données partagées via son trousseau', sharedRead)
@@ -282,7 +282,7 @@ async function main() {
     // ── 9b. Cloisonnement : périmètre non accordé refusé ──
     const cloisonne = await page2.evaluate(async () => {
       try {
-        await window.electronAPI.dataSync_pushContentieux('ecofi',
+        await window.siralBridge.dataSync_pushContentieux('ecofi',
           { enquetes: [] }, { savedAt: new Date().toISOString(), savedBy: 'j.martin' })
         return false
       } catch (e) {

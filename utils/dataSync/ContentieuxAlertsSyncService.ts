@@ -7,7 +7,7 @@
 // affecté au contentieux ou un admin devrait les éditer (garde UI).
 // Chaque utilisateur s'abonne via `UserPreferencesFile.subscribedContentieuxAlerts`.
 
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { AlertRule } from '@/types/interfaces';
 import { ContentieuxAlertsSyncFile } from '@/types/globalSyncTypes';
 import { ContentieuxId } from '@/types/userTypes';
@@ -22,8 +22,8 @@ function localCacheKey(contentieuxId: ContentieuxId): string {
 
 function isServiceAvailable(): boolean {
   return typeof window !== 'undefined'
-    && !!window.electronAPI?.globalSync_pullContentieuxAlerts
-    && !!window.electronAPI?.globalSync_pushContentieuxAlerts;
+    && !!window.siralBridge?.globalSync_pullContentieuxAlerts
+    && !!window.siralBridge?.globalSync_pushContentieuxAlerts;
 }
 
 function rulesDiffer(a: AlertRule[], b: AlertRule[]): boolean {
@@ -36,22 +36,22 @@ function rulesDiffer(a: AlertRule[], b: AlertRule[]): boolean {
 }
 
 async function readLocal(contentieuxId: ContentieuxId): Promise<AlertRule[]> {
-  const raw = await ElectronBridge.getData<AlertRule[]>(localCacheKey(contentieuxId), []);
+  const raw = await SiralBridge.getData<AlertRule[]>(localCacheKey(contentieuxId), []);
   return Array.isArray(raw) ? raw : [];
 }
 
 async function writeLocal(contentieuxId: ContentieuxId, rules: AlertRule[]): Promise<void> {
-  await ElectronBridge.setData(localCacheKey(contentieuxId), rules);
+  await SiralBridge.setData(localCacheKey(contentieuxId), rules);
 }
 
 async function pullServer(contentieuxId: ContentieuxId): Promise<ContentieuxAlertsSyncFile | null> {
-  if (!window.electronAPI?.globalSync_pullContentieuxAlerts) return null;
-  return (await window.electronAPI.globalSync_pullContentieuxAlerts(contentieuxId)) || null;
+  if (!window.siralBridge?.globalSync_pullContentieuxAlerts) return null;
+  return (await window.siralBridge.globalSync_pullContentieuxAlerts(contentieuxId)) || null;
 }
 
 async function pushServer(contentieuxId: ContentieuxId, payload: ContentieuxAlertsSyncFile): Promise<boolean> {
-  if (!window.electronAPI?.globalSync_pushContentieuxAlerts) return false;
-  return await window.electronAPI.globalSync_pushContentieuxAlerts(contentieuxId, payload);
+  if (!window.siralBridge?.globalSync_pushContentieuxAlerts) return false;
+  return await window.siralBridge.globalSync_pushContentieuxAlerts(contentieuxId, payload);
 }
 
 /** Entrée par contentieux — un état indépendant par id. */

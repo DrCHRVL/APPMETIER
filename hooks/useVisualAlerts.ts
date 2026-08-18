@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { VisualAlertRule } from '@/types/interfaces';
 import { APP_CONFIG, DEFAULT_VISUAL_ALERT_RULES } from '@/config/constants';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { useUserPreferences } from './useUserPreferences';
 
 const LEGACY_STORAGE_KEY = APP_CONFIG.STORAGE_KEYS.VISUAL_ALERT_RULES;
@@ -30,7 +30,7 @@ export const useVisualAlerts = () => {
     seedAttemptedRef.current = true;
     (async () => {
       try {
-        const legacy = await ElectronBridge.getData<VisualAlertRule[]>(
+        const legacy = await SiralBridge.getData<VisualAlertRule[]>(
           LEGACY_STORAGE_KEY,
           DEFAULT_VISUAL_ALERT_RULES,
         );

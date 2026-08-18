@@ -23,7 +23,7 @@ import { collectDropEntries, incomingFromFileList, cleanRelPath, type Incoming }
 import { entrySlug as slug, hash8 } from '@/lib/web/slug';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
-const eapi = () => (window as unknown as { electronAPI?: Record<string, AnyFn> }).electronAPI;
+const eapi = () => (window as unknown as { siralBridge?: Record<string, AnyFn> }).siralBridge;
 
 function bridgeFn(name: string): AnyFn {
   const fn = eapi()?.[name];

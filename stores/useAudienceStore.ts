@@ -1,8 +1,8 @@
 import { create } from '@/lib/zustand';
 import { ResultatAudience } from '@/types/audienceTypes';
 import { cleanupAudienceResults } from '@/utils/audienceStats';
-import { electronStorage } from '@/services/storage/electronStorage';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { siralStorage } from '@/services/storage/siralStorage';
+import { SiralBridge } from '@/utils/siralBridge';
 import { Enquete } from '@/types/interfaces';
 import { audienceSyncService } from '@/utils/dataSync/AudienceSyncService';
 import { UserManager } from '@/utils/userManager';
@@ -24,7 +24,7 @@ const CLEANUP_INTERVAL = 30000;
 // au moment de `initialize` (un seul écrit suffit).
 const readFreshFromStorage = async (): Promise<Record<string, ResultatAudience>> => {
   try {
-    const data = await electronStorage.read<Record<string, ResultatAudience>>(AUDIENCE_STORAGE_KEY);
+    const data = await siralStorage.read<Record<string, ResultatAudience>>(AUDIENCE_STORAGE_KEY);
     if (!data) return {};
     return migrateLegacyResultats(data).migrated;
   } catch {
@@ -44,7 +44,7 @@ const readEnquetePairsForCleanup = async (): Promise<Set<string>> => {
     const contentieuxIds = Array.from(new Set([...configuredIds, 'crimorg', 'ecofi', 'enviro']));
     const pairs = new Set<string>();
     for (const cId of contentieuxIds) {
-      const data = await ElectronBridge.getData<Enquete[]>(`ctx_${cId}_enquetes`, []);
+      const data = await SiralBridge.getData<Enquete[]>(`ctx_${cId}_enquetes`, []);
       if (Array.isArray(data)) {
         for (const e of data) pairs.add(buildResultatKey(cId, e.id));
       }
@@ -89,11 +89,11 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
       // de lire le local, pour que les nouveaux postes voient tout de suite les
       // résultats OI/CSS/CRPC de leurs collègues.
       await audienceSyncService.sync();
-      const raw = await electronStorage.read<Record<string, ResultatAudience>>(AUDIENCE_STORAGE_KEY);
+      const raw = await siralStorage.read<Record<string, ResultatAudience>>(AUDIENCE_STORAGE_KEY);
       const { migrated, changed } = migrateLegacyResultats(raw || {});
       // Persiste la migration une seule fois si nécessaire (clé legacy → composite).
       if (changed) {
-        await electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, migrated);
+        await siralStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, migrated);
         audienceSyncService.schedulePush();
       }
       set({ resultats: migrated });
@@ -136,7 +136,7 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
     // explicitement pour que `Object.values()` ne la voie plus comme pending.
     delete newResultats[String(resultat.enqueteId)];
 
-    const success = await electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, newResultats);
+    const success = await siralStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, newResultats);
     if (success) {
       set({ resultats: newResultats });
       // Passer la clé touchée → priorité locale dans le prochain merge,
@@ -157,7 +157,7 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
     // résultat « supprimé » réapparaît 1 s plus tard via la sync.
     delete newResultats[String(enqueteId)];
 
-    const success = await electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, newResultats);
+    const success = await siralStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, newResultats);
     if (success) {
       set({ resultats: newResultats });
       // Suppression : la clé reste marquée autorité locale → le merge
@@ -189,7 +189,7 @@ export const useAudienceStore = create<AudienceState>((set, get) => ({
       // renvoie sinon un nouvel objet identique à chaque tick (toutes les 30 s).
       if (Object.keys(cleanedResultats).length !== Object.keys(freshResultats).length) {
         set({ resultats: cleanedResultats });
-        electronStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, cleanedResultats);
+        siralStorage.createOrUpdate(AUDIENCE_STORAGE_KEY, cleanedResultats);
         // Propager le nettoyage (résultats orphelins) vers le serveur commun
         audienceSyncService.schedulePush();
       }

@@ -2,14 +2,14 @@
 //
 // Hook de gestion des dossiers d'instruction.
 //
-// Stockage : `instructions__<windowsUsername>` via ElectronBridge.
+// Stockage : `instructions__<windowsUsername>` via SiralBridge.
 // Les dossiers d'instruction sont **par utilisateur** : chaque magistrat
 // (ou utilisateur Windows) a sa propre liste, isolée des autres. Les
 // cabinets (config) restent en revanche partagés via instructionConfig.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import throttle from 'lodash/throttle';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { useUser } from '@/contexts/UserContext';
 import { instructionSyncService } from '@/utils/dataSync/InstructionSyncService';
@@ -75,7 +75,7 @@ export const useInstructions = () => {
     }
     try {
       setIsLoading(true);
-      const stored = await ElectronBridge.getData<unknown>(key, []);
+      const stored = await SiralBridge.getData<unknown>(key, []);
       const list = Array.isArray(stored) ? stored.filter(isNewModelDossier) : [];
       setDossiers(list);
       dossiersRef.current = list;
@@ -112,7 +112,7 @@ export const useInstructions = () => {
       const key = storageKeyRef.current;
       if (!key) return; // pas d'utilisateur connecté → on n'écrit nulle part
       try {
-        const ok = await ElectronBridge.setData(key, dossiersRef.current);
+        const ok = await SiralBridge.setData(key, dossiersRef.current);
         if (ok) {
           isDirtyRef.current = false;
           // Sauvegarde réseau privée (no-op si aucun dossier réseau configuré)
@@ -203,7 +203,7 @@ export const useInstructions = () => {
       const key = storageKeyRef.current;
       if (key && isDirtyRef.current && !isLoadingRef.current) {
         // sauvegarde synchrone-ish (best-effort)
-        ElectronBridge.setData(key, dossiersRef.current)
+        SiralBridge.setData(key, dossiersRef.current)
           .then(() => instructionSyncService.schedulePush())
           .catch(e =>
             console.error('useInstructions: sauvegarde finale échouée', e),

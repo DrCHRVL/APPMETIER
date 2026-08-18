@@ -9,12 +9,12 @@
 // changement se propage aux autres postes (pull au montage du module + sync
 // périodique). Objet unique → fusion last-write-wins par `updatedAt`.
 //
-// Persistance locale via ElectronBridge sous la clé `airConvocationConfig`
+// Persistance locale via SiralBridge sous la clé `airConvocationConfig`
 // (cache hors-ligne + base de comparaison pour le merge). Si l'API de partage
-// serveur est indisponible (ancien poste Electron), on retombe proprement sur
+// serveur est indisponible, on retombe proprement sur
 // une configuration locale.
 
-import { ElectronBridge } from './electronBridge';
+import { SiralBridge } from './siralBridge';
 import { getCurrentUserInfo } from './dataSync/globalSyncCommon';
 import {
   DEFAULT_AIR_CONVOCATION_CONFIG,
@@ -27,8 +27,8 @@ const PERIODIC_SYNC_MS = 60_000;
 /** `true` si l'API serveur de la config AIR partagée est disponible. */
 function isShareAvailable(): boolean {
   return typeof window !== 'undefined'
-    && !!window.electronAPI?.globalSync_pullAIRConfig
-    && !!window.electronAPI?.globalSync_pushAIRConfig;
+    && !!window.siralBridge?.globalSync_pullAIRConfig
+    && !!window.siralBridge?.globalSync_pushAIRConfig;
 }
 
 /** Reconstruit une config valide à partir d'un blob potentiellement partiel
@@ -53,14 +53,14 @@ function pickNewest(
 }
 
 async function pullServerConfig(): Promise<AIRConvocationConfig | null> {
-  if (!window.electronAPI?.globalSync_pullAIRConfig) return null;
-  const raw = await window.electronAPI.globalSync_pullAIRConfig();
+  if (!window.siralBridge?.globalSync_pullAIRConfig) return null;
+  const raw = await window.siralBridge.globalSync_pullAIRConfig();
   return raw ? normalize(raw) : null;
 }
 
 async function pushServerConfig(config: AIRConvocationConfig): Promise<boolean> {
-  if (!window.electronAPI?.globalSync_pushAIRConfig) return false;
-  return await window.electronAPI.globalSync_pushAIRConfig(config);
+  if (!window.siralBridge?.globalSync_pushAIRConfig) return false;
+  return await window.siralBridge.globalSync_pushAIRConfig(config);
 }
 
 class AIRConfigManagerService {
@@ -77,13 +77,13 @@ class AIRConfigManagerService {
 
   async load(): Promise<AIRConvocationConfig> {
     if (this.cache) return this.cache;
-    const stored = await ElectronBridge.getData<Partial<AIRConvocationConfig> | null>(
+    const stored = await SiralBridge.getData<Partial<AIRConvocationConfig> | null>(
       CONFIG_KEY,
       null,
     );
     // Lecture illisible (≠ config réellement absente) : défauts ÉPHÉMÈRES pour
     // l'affichage, sans mise en cache, pour qu'un appel ultérieur réessaie.
-    if (stored === null && ElectronBridge.didReadFail(CONFIG_KEY)) {
+    if (stored === null && SiralBridge.didReadFail(CONFIG_KEY)) {
       return normalize(null);
     }
     const localConfig = stored ? normalize(stored) : null;
@@ -101,7 +101,7 @@ class AIRConfigManagerService {
     // Le serveur a une version plus récente (ou la 1re connue) → la persister
     // localement pour le hors-ligne et la prochaine comparaison.
     if (serverConfig && ts(serverConfig) > ts(localConfig)) {
-      await ElectronBridge.setData(CONFIG_KEY, winner);
+      await SiralBridge.setData(CONFIG_KEY, winner);
     }
     // Config présente localement mais pas (ou plus à jour) sur le serveur → à
     // remonter au partage à la prochaine sync.
@@ -126,7 +126,7 @@ class AIRConfigManagerService {
     };
     this.cache = next;
     this.dirty = true;
-    await ElectronBridge.setData(CONFIG_KEY, next);
+    await SiralBridge.setData(CONFIG_KEY, next);
     this.emit(next);
     // Push immédiat vers le serveur commun (best-effort : si injoignable,
     // `dirty` reste à true et la sync périodique retentera).
@@ -135,7 +135,7 @@ class AIRConfigManagerService {
       .catch(() => {});
     // Écriture disque immédiate : ces réglages sont souvent modifiés puis on
     // quitte/recharge l'app aussitôt.
-    return ElectronBridge.flush(CONFIG_KEY);
+    return SiralBridge.flush(CONFIG_KEY);
   }
 
   /** Reset complet aux valeurs par défaut. */
@@ -192,7 +192,7 @@ class AIRConfigManagerService {
       // Le serveur gagne → appliquer localement + notifier les abonnés (écran
       // Paramètres et dashboard se mettent à jour sans recharger l'app).
       if (serverConfig && ts(serverConfig) > ts(local)) {
-        await ElectronBridge.setData(CONFIG_KEY, serverConfig);
+        await SiralBridge.setData(CONFIG_KEY, serverConfig);
         this.cache = serverConfig;
         this.emit(serverConfig);
         this.dirty = false;

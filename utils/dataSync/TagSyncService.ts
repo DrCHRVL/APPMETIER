@@ -4,7 +4,7 @@
 // Fichier serveur : P:\...\10_App METIER\tag-data.json
 // Backups        : P:\...\10_App METIER\admin\backups\tag-data-*.json
 
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { TagDefinition } from '@/config/tags';
 import type { TagRequest } from '@/utils/tagRequestManager';
@@ -137,32 +137,32 @@ function flattenLegacyCustomTags(legacy: unknown): TagDefinition[] {
 }
 
 async function readLocalTags(): Promise<TagDefinition[]> {
-  const raw = await ElectronBridge.getData<any>(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, []);
+  const raw = await SiralBridge.getData<any>(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, []);
   if (Array.isArray(raw)) return raw;
   // Compat : si le local a encore le format legacy objet, on aplatit
   return flattenLegacyCustomTags(raw);
 }
 
 async function readLocalTagRequests(): Promise<TagRequest[]> {
-  const raw = await ElectronBridge.getData<any>(TAG_REQUESTS_KEY, []);
+  const raw = await SiralBridge.getData<any>(TAG_REQUESTS_KEY, []);
   return Array.isArray(raw) ? raw : [];
 }
 
 async function writeLocalTags(tags: TagDefinition[]): Promise<void> {
-  await ElectronBridge.setData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, tags);
+  await SiralBridge.setData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, tags);
 }
 
 async function writeLocalTagRequests(requests: TagRequest[]): Promise<void> {
-  await ElectronBridge.setData(TAG_REQUESTS_KEY, requests);
+  await SiralBridge.setData(TAG_REQUESTS_KEY, requests);
 }
 
 async function readLocalTombstones(key: string): Promise<TagTombstone[]> {
-  const raw = await ElectronBridge.getData<TagTombstone[]>(key, []);
+  const raw = await SiralBridge.getData<TagTombstone[]>(key, []);
   return Array.isArray(raw) ? raw : [];
 }
 
 async function writeLocalTombstones(key: string, data: TagTombstone[]): Promise<void> {
-  await ElectronBridge.setData(key, data);
+  await SiralBridge.setData(key, data);
 }
 
 // ─── Fusion des tombstones : union par ID, deletedAt le plus récent gagne ───
@@ -194,13 +194,13 @@ function tombstonesDiffer(a: TagTombstone[], b: TagTombstone[]): boolean {
 }
 
 async function pullServer(): Promise<TagSyncFile | null> {
-  if (!window.electronAPI?.globalSync_pullTags) return null;
-  return (await window.electronAPI.globalSync_pullTags()) || null;
+  if (!window.siralBridge?.globalSync_pullTags) return null;
+  return (await window.siralBridge.globalSync_pullTags()) || null;
 }
 
 async function pushServer(payload: TagSyncFile): Promise<boolean> {
-  if (!window.electronAPI?.globalSync_pushTags) return false;
-  return await window.electronAPI.globalSync_pushTags(payload);
+  if (!window.siralBridge?.globalSync_pushTags) return false;
+  return await window.siralBridge.globalSync_pushTags(payload);
 }
 
 /**
@@ -209,10 +209,10 @@ async function pushServer(payload: TagSyncFile): Promise<boolean> {
  */
 async function pullLegacyTags(): Promise<{ tags: TagDefinition[]; tagRequests: TagRequest[] }> {
   try {
-    if (!window.electronAPI?.globalSync_readLegacyAppData) {
+    if (!window.siralBridge?.globalSync_readLegacyAppData) {
       return { tags: [], tagRequests: [] };
     }
-    const legacy = await window.electronAPI.globalSync_readLegacyAppData();
+    const legacy = await window.siralBridge.globalSync_readLegacyAppData();
     if (!legacy) return { tags: [], tagRequests: [] };
     return {
       tags: flattenLegacyCustomTags(legacy.customTags),

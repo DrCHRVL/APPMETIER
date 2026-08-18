@@ -1,5 +1,5 @@
 // utils/backupManager.ts
-import { ElectronBridge } from './electronBridge';
+import { SiralBridge } from './siralBridge';
 import { APP_CONFIG } from '../config/constants';
 import { StorageValidator } from './storage/validator';
 import { UserManager } from './userManager';
@@ -40,7 +40,7 @@ class BackupManager {
    */
   private static async getInstructionKeys(): Promise<string[]> {
     try {
-      const all = (await window.electronAPI?.getAllKeys?.()) || [];
+      const all = (await window.siralBridge?.getAllKeys?.()) || [];
       const base = APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS;
       return all.filter(k => k.startsWith(`${base}__`) || k.startsWith(`${base}_deleted__`));
     } catch {
@@ -53,7 +53,7 @@ class BackupManager {
    * les trois historiques) : un contentieux ajouté par l'admin doit être inclus
    * dans les sauvegardes sélectives, sinon ses enquêtes / alertes / résultats
    * d'audience en seraient absents. La liste vient de la config (fonctionne en
-   * mode web comme electron) et retombe sur DEFAULT_CONTENTIEUX si non chargée.
+   * toutes éditions) et retombe sur DEFAULT_CONTENTIEUX si non chargée.
    */
   private static getContentieuxDataKeys(): string[] {
     const ids = UserManager.getInstance().getAllContentieux().map(c => c.id);
@@ -147,9 +147,9 @@ class BackupManager {
 
   private async catchUpDataJsonCopy(): Promise<void> {
     try {
-      // le type déclaré (string[]) est inexact : Electron et le pont web
+      // le type déclaré (string[]) est inexact : le pont de données
       // renvoient tous deux des objets { name, size, created, modified }
-      const backups = (await window.electronAPI.listDataJsonBackups()) as unknown as Array<{ created?: string | Date }>;
+      const backups = (await window.siralBridge.listDataJsonBackups()) as unknown as Array<{ created?: string | Date }>;
       const newest = backups
         .map(b => new Date(b?.created as string).getTime())
         .filter(t => Number.isFinite(t))
@@ -216,7 +216,7 @@ class BackupManager {
     try {
       console.log('📁 Starting direct copy of data.json...');
       
-      if (!window.electronAPI || !window.electronAPI.copyDataJson) {
+      if (!window.siralBridge || !window.siralBridge.copyDataJson) {
         console.error('❌ Data.json copy API not available');
         this.isDataJsonCopyInProgress = false;
         return false;
@@ -225,7 +225,7 @@ class BackupManager {
       const timestamp = new Date().toISOString().replace(/:/g, '-');
       const backupFileName = `data_backup_${timestamp}.json`;
       
-      const success = await window.electronAPI.copyDataJson(backupFileName);
+      const success = await window.siralBridge.copyDataJson(backupFileName);
       
       if (success) {
         console.log(`✅ Data.json copied successfully: ${backupFileName}`);
@@ -259,9 +259,9 @@ class BackupManager {
       let dataJsonExists = false;
       
       // Tenter de lire les infos de data.json
-      if (window.electronAPI && window.electronAPI.getDataJsonInfo) {
+      if (window.siralBridge && window.siralBridge.getDataJsonInfo) {
         try {
-          const fileInfo = await window.electronAPI.getDataJsonInfo();
+          const fileInfo = await window.siralBridge.getDataJsonInfo();
           if (fileInfo) {
             dataJsonSize = fileInfo.size || 0;
             dataJsonExists = true;
@@ -274,7 +274,7 @@ class BackupManager {
       // Calculer la taille des données exportées
       let exportSize = 0;
       for (const key of BackupManager.MAIN_DATA_KEYS) {
-        const data = await ElectronBridge.getData(key, null);
+        const data = await SiralBridge.getData(key, null);
         if (data) {
           exportSize += JSON.stringify(data).length;
         }
@@ -336,7 +336,7 @@ class BackupManager {
       ]));
 
       for (const key of allKeys) {
-        const data = await ElectronBridge.getData(key, null);
+        const data = await SiralBridge.getData(key, null);
         if (data) {
           backupData[key] = data;
           totalDataSize += JSON.stringify(data).length;
@@ -355,8 +355,8 @@ class BackupManager {
       const backupName = `backup_${timestamp}.json`;
       let success = false;
       
-      if (window.electronAPI && window.electronAPI.saveFile) {
-        success = await window.electronAPI.saveFile(
+      if (window.siralBridge && window.siralBridge.saveFile) {
+        success = await window.siralBridge.saveFile(
           'backups',
           backupName,
           JSON.stringify(backupData, null, 2)
@@ -372,7 +372,7 @@ class BackupManager {
       // Fallback: stockage interne
       if (!success) {
         const backupKey = `${BackupManager.BACKUP_KEY_PREFIX}${timestamp}`;
-        success = await ElectronBridge.setData(backupKey, backupData);
+        success = await SiralBridge.setData(backupKey, backupData);
         
         if (success) {
           await this.rotateInternalBackups();
@@ -393,8 +393,8 @@ class BackupManager {
   // 🆕 ROTATION DES COPIES DE DATA.JSON
   private async rotateDataJsonBackups(): Promise<void> {
     try {
-      if (window.electronAPI && window.electronAPI.listFiles && window.electronAPI.deleteFile) {
-        const backupFiles = await window.electronAPI.listFiles('backups');
+      if (window.siralBridge && window.siralBridge.listFiles && window.siralBridge.deleteFile) {
+        const backupFiles = await window.siralBridge.listFiles('backups');
         const dataBackups = backupFiles
           .filter(file => file.startsWith('data_backup_') && file.endsWith('.json'))
           .sort()
@@ -405,7 +405,7 @@ class BackupManager {
           console.log(`🔄 Rotating data.json backups: removing ${filesToRemove.length} old copies`);
           
           for (const file of filesToRemove) {
-            await window.electronAPI.deleteFile('backups', file);
+            await window.siralBridge.deleteFile('backups', file);
           }
         }
       }
@@ -417,8 +417,8 @@ class BackupManager {
   // 🆕 LISTER LES COPIES DE DATA.JSON
   public async listDataJsonBackups(): Promise<string[]> {
     try {
-      if (window.electronAPI && window.electronAPI.listFiles) {
-        const backupFiles = await window.electronAPI.listFiles('backups');
+      if (window.siralBridge && window.siralBridge.listFiles) {
+        const backupFiles = await window.siralBridge.listFiles('backups');
         return backupFiles
           .filter(file => file.startsWith('data_backup_') && file.endsWith('.json'))
           .sort()
@@ -436,7 +436,7 @@ class BackupManager {
     try {
       console.log(`🔄 Restoring from data.json backup: ${filename}`);
       
-      if (!window.electronAPI || !window.electronAPI.restoreDataJson) {
+      if (!window.siralBridge || !window.siralBridge.restoreDataJson) {
         console.error('❌ Data.json restore API not available');
         return false;
       }
@@ -444,7 +444,7 @@ class BackupManager {
       // Créer une sauvegarde de sécurité avant restauration
       await this.copyDataJsonToBackups();
       
-      const success = await window.electronAPI.restoreDataJson(filename);
+      const success = await window.siralBridge.restoreDataJson(filename);
       
       if (success) {
         console.log(`✅ Successfully restored from: ${filename}`);
@@ -483,7 +483,7 @@ class BackupManager {
       const dataTypes: string[] = [];
       
       for (const key of BackupManager.MAIN_DATA_KEYS) {
-        const data = await ElectronBridge.getData(key, null);
+        const data = await SiralBridge.getData(key, null);
         if (data) {
           dataTypes.push(key);
           totalSize += JSON.stringify(data).length;
@@ -526,8 +526,8 @@ class BackupManager {
   // MÉTHODES EXISTANTES (rotation, export, etc.)
   public async rotateBackups(): Promise<void> {
     try {
-      if (window.electronAPI && window.electronAPI.listFiles && window.electronAPI.deleteFile) {
-        const backupFiles = await window.electronAPI.listFiles('backups');
+      if (window.siralBridge && window.siralBridge.listFiles && window.siralBridge.deleteFile) {
+        const backupFiles = await window.siralBridge.listFiles('backups');
         const selectiveBackups = backupFiles
           .filter(file => file.startsWith('backup_') && file.endsWith('.json') && !file.includes('data_backup_'))
           .sort()
@@ -537,7 +537,7 @@ class BackupManager {
           const filesToRemove = selectiveBackups.slice(BackupManager.BACKUP_COUNT);
           console.log(`🔄 Rotating selective backups: removing ${filesToRemove.length} old files`);
           for (const file of filesToRemove) {
-            await window.electronAPI.deleteFile('backups', file);
+            await window.siralBridge.deleteFile('backups', file);
           }
         }
       }
@@ -548,7 +548,7 @@ class BackupManager {
 
   private async rotateInternalBackups(): Promise<void> {
     try {
-      const allKeys = await ElectronBridge.getAllKeys();
+      const allKeys = await SiralBridge.getAllKeys();
       const backupKeys = allKeys.filter(key => 
         key.startsWith(BackupManager.BACKUP_KEY_PREFIX)
       ).sort().reverse();
@@ -557,7 +557,7 @@ class BackupManager {
         const keysToRemove = backupKeys.slice(BackupManager.BACKUP_COUNT);
         console.log(`🔄 Rotating internal backups: removing ${keysToRemove.length} old backups`);
         for (const key of keysToRemove) {
-          await ElectronBridge.clearData(key);
+          await SiralBridge.clearData(key);
         }
       }
     } catch (error) {
@@ -571,7 +571,7 @@ class BackupManager {
     try {
       console.log(`🔄 Restoring from backup: ${backupIdentifier}`);
       
-      if (isFileBackup && window.electronAPI && typeof window.electronAPI.readFile === 'function') {
+      if (isFileBackup && window.siralBridge && typeof window.siralBridge.readFile === 'function') {
         return await this.restoreFromFileBackup(backupIdentifier);
       } else {
         return await this.restoreFromInternalBackup(backupIdentifier);
@@ -584,7 +584,7 @@ class BackupManager {
 
   private async restoreFromFileBackup(filename: string): Promise<boolean> {
     try {
-      const backupContent = await window.electronAPI.readFile('backups', filename);
+      const backupContent = await window.siralBridge.readFile('backups', filename);
       
       if (!backupContent) {
         console.error(`❌ Backup file ${filename} not found or empty`);
@@ -602,7 +602,7 @@ class BackupManager {
       const restoredKeys: string[] = [];
       
       for (const key of Object.keys(backupData)) {
-        const result = await ElectronBridge.setData(key, backupData[key]);
+        const result = await SiralBridge.setData(key, backupData[key]);
         if (!result) {
           console.error(`❌ Failed to restore data for key: ${key}`);
           success = false;
@@ -624,7 +624,7 @@ class BackupManager {
 
   private async restoreFromInternalBackup(backupKey: string): Promise<boolean> {
     try {
-      const backup = await ElectronBridge.getData(backupKey, null);
+      const backup = await SiralBridge.getData(backupKey, null);
       if (!backup) {
         console.error(`❌ Backup with key ${backupKey} not found`);
         return false;
@@ -634,7 +634,7 @@ class BackupManager {
       const restoredKeys: string[] = [];
       
       for (const key of Object.keys(backup)) {
-        const result = await ElectronBridge.setData(key, backup[key]);
+        const result = await SiralBridge.setData(key, backup[key]);
         if (!result) {
           console.error(`❌ Failed to restore data for key: ${key}`);
           success = false;
@@ -659,9 +659,9 @@ class BackupManager {
     const internalBackups: string[] = [];
     
     try {
-      if (window.electronAPI && window.electronAPI.listFiles) {
+      if (window.siralBridge && window.siralBridge.listFiles) {
         try {
-          const backupFiles = await window.electronAPI.listFiles('backups');
+          const backupFiles = await window.siralBridge.listFiles('backups');
           fileBackups.push(...backupFiles.filter(file => 
             file.startsWith('backup_') && file.endsWith('.json')
           ));
@@ -671,7 +671,7 @@ class BackupManager {
       }
       
       try {
-        const allKeys = await ElectronBridge.getAllKeys();
+        const allKeys = await SiralBridge.getAllKeys();
         internalBackups.push(...allKeys.filter(key => 
           key.startsWith(BackupManager.BACKUP_KEY_PREFIX)
         ));
@@ -733,14 +733,14 @@ class BackupManager {
    */
   private async buildFullExport(): Promise<Record<string, any>> {
     const exportData: Record<string, any> = {};
-    // Énumération via le pont (web : idb.keys('kv') ; Electron : liste réelle).
-    // NB : ElectronBridge.getAllKeys() lit la clé spéciale `__keys__`, maintenue
-    // uniquement côté Electron — inexploitable en web. On passe donc par
-    // window.electronAPI.getAllKeys() (même source que getInstructionKeys).
-    const allKeys = (await window.electronAPI?.getAllKeys?.()) || [];
+    // Énumération via le pont (idb.keys('kv')).
+    // NB : SiralBridge.getAllKeys() lit la clé spéciale `__keys__`, maintenue
+    // uniquement par l'ancienne édition bureau — inexploitable en web. On passe donc par
+    // window.siralBridge.getAllKeys() (même source que getInstructionKeys).
+    const allKeys = (await window.siralBridge?.getAllKeys?.()) || [];
     for (const key of allKeys) {
       if (key.startsWith(BackupManager.BACKUP_KEY_PREFIX)) continue;
-      const data = await ElectronBridge.getData(key, null);
+      const data = await SiralBridge.getData(key, null);
       if (data !== null && data !== undefined) {
         exportData[key] = data;
       }
@@ -764,8 +764,8 @@ class BackupManager {
       const filename = `siral_sauvegarde_complete_${date}.json`;
       const jsonData = JSON.stringify(exportData, null, 2);
       
-      if (window.electronAPI && window.electronAPI.saveFileDialog) {
-        const success = await window.electronAPI.saveFileDialog(filename, jsonData);
+      if (window.siralBridge && window.siralBridge.saveFileDialog) {
+        const success = await window.siralBridge.saveFileDialog(filename, jsonData);
         if (success) {
           console.log(`✅ Export successful: ${filename}`);
         }
@@ -835,7 +835,7 @@ class BackupManager {
       for (const key of Object.keys(data)) {
         if (key.startsWith(BackupManager.BACKUP_KEY_PREFIX)) continue;
         if (BackupManager.isEmptyValue(data[key])) continue; // valeur vide : ne pas écraser
-        const ok = await ElectronBridge.setData(key, data[key]);
+        const ok = await SiralBridge.setData(key, data[key]);
         if (!ok) return { success: false, restoredKeys, error: `Écriture refusée pour « ${key} »` };
         restoredKeys.push(key);
       }
@@ -855,7 +855,7 @@ class BackupManager {
 
   /** Envoie un snapshot complet (tout le local sauf documents) sur le serveur. */
   public async createServerSnapshot(): Promise<boolean> {
-    if (!window.electronAPI?.fullSnapshot_push) {
+    if (!window.siralBridge?.fullSnapshot_push) {
       console.error('❌ Snapshot serveur indisponible (API absente)');
       return false;
     }
@@ -865,16 +865,16 @@ class BackupManager {
       return false;
     }
     const payload = { app: 'siral', kind: 'full-snapshot', v: 1, createdAt: new Date().toISOString(), data };
-    const ok = await window.electronAPI.fullSnapshot_push(payload);
+    const ok = await window.siralBridge.fullSnapshot_push(payload);
     if (ok) console.log(`✅ Snapshot serveur créé (${Object.keys(data).length} types de données)`);
     return ok;
   }
 
   /** Métadonnées du snapshot serveur courant (existence + date). */
   public async getServerSnapshotInfo(): Promise<{ exists: boolean; savedAt?: string | null }> {
-    if (!window.electronAPI?.fullSnapshot_info) return { exists: false };
+    if (!window.siralBridge?.fullSnapshot_info) return { exists: false };
     try {
-      return await window.electronAPI.fullSnapshot_info();
+      return await window.siralBridge.fullSnapshot_info();
     } catch {
       return { exists: false };
     }
@@ -882,9 +882,9 @@ class BackupManager {
 
   /** Liste les versions archivées du snapshot serveur (plus récent en premier). */
   public async listServerSnapshots(): Promise<string[]> {
-    if (!window.electronAPI?.fullSnapshot_listVersions) return [];
+    if (!window.siralBridge?.fullSnapshot_listVersions) return [];
     try {
-      return await window.electronAPI.fullSnapshot_listVersions();
+      return await window.siralBridge.fullSnapshot_listVersions();
     } catch {
       return [];
     }
@@ -898,8 +898,8 @@ class BackupManager {
   public async restoreServerSnapshot(filename: string | null): Promise<{ success: boolean; restoredKeys: string[]; error?: string }> {
     try {
       const payload = filename
-        ? await window.electronAPI?.fullSnapshot_readVersion?.(filename)
-        : await window.electronAPI?.fullSnapshot_readCurrent?.();
+        ? await window.siralBridge?.fullSnapshot_readVersion?.(filename)
+        : await window.siralBridge?.fullSnapshot_readCurrent?.();
       if (!payload) {
         return { success: false, restoredKeys: [], error: 'Snapshot introuvable ou serveur injoignable' };
       }
@@ -917,7 +917,7 @@ class BackupManager {
       const checkedKeys: string[] = [];
       
       for (const key of BackupManager.MAIN_DATA_KEYS) {
-        const data = await ElectronBridge.getData(key, null);
+        const data = await SiralBridge.getData(key, null);
         
         if (!data) {
           console.warn(`⚠️ Data integrity check: No data found for key ${key}`);

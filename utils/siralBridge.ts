@@ -1,11 +1,13 @@
-// utils/electronBridge.ts
+// utils/siralBridge.ts — enveloppe applicative du pont de données (cache mémoire,
+// sauvegarde temporisée, migrations, invalidation multi-onglets) au-dessus de
+// window.siralBridge (lib/web/bridge.ts).
 import { APP_CONFIG } from '../config/constants';
 import { MigrationManager, CURRENT_VERSION } from '../migrations/migrationManager';
 import { StorageValidator } from './storage/validator';
 
-class ElectronBridgeService {
-  private static instance: ElectronBridgeService;
-  private isElectronAvailable: boolean;
+class SiralBridgeService {
+  private static instance: SiralBridgeService;
+  private isBridgeAvailable: boolean;
   private migrationManager: MigrationManager;
   
   // Cache en mémoire pour minimiser les lectures/écritures
@@ -22,7 +24,7 @@ class ElectronBridgeService {
   private readonly SAVE_DELAY = 2500; // 2.5 secondes
 
   private constructor() {
-    this.isElectronAvailable = typeof window !== 'undefined' && !!window.electronAPI;
+    this.isBridgeAvailable = typeof window !== 'undefined' && !!window.siralBridge;
     this.migrationManager = new MigrationManager();
     
     // Capture les événements de fermeture/mise en veille pour sauvegarder :
@@ -49,11 +51,11 @@ class ElectronBridgeService {
 
   private crossTab: BroadcastChannel | null = null;
 
-  public static getInstance(): ElectronBridgeService {
-    if (!ElectronBridgeService.instance) {
-      ElectronBridgeService.instance = new ElectronBridgeService();
+  public static getInstance(): SiralBridgeService {
+    if (!SiralBridgeService.instance) {
+      SiralBridgeService.instance = new SiralBridgeService();
     }
-    return ElectronBridgeService.instance;
+    return SiralBridgeService.instance;
   }
 
   public async getData<T>(key: string, defaultValue: T): Promise<T> {
@@ -62,13 +64,13 @@ class ElectronBridgeService {
       return this.dataCache.get(key);
     }
     
-    if (!this.isElectronAvailable) {
-      console.warn('Electron API not available, returning default value');
+    if (!this.isBridgeAvailable) {
+      console.warn('Pont SIRAL indisponible : valeur par défaut renvoyée');
       return defaultValue;
     }
 
     try {
-      const result = await window.electronAPI.getData<{
+      const result = await window.siralBridge.getData<{
         version: number;
         data: T;
       }>(key);
@@ -165,8 +167,8 @@ class ElectronBridgeService {
 
   // Méthode interne qui effectue la sauvegarde réelle
   private async setDataInternal<T>(key: string, value: T): Promise<boolean> {
-    if (!this.isElectronAvailable) {
-      console.warn('Electron API not available, data not saved');
+    if (!this.isBridgeAvailable) {
+      console.warn('Pont SIRAL indisponible : donnée non sauvegardée');
       return false;
     }
 
@@ -186,7 +188,7 @@ class ElectronBridgeService {
         data: value
       };
 
-      const success = await window.electronAPI.setData(key, dataWithVersion);
+      const success = await window.siralBridge.setData(key, dataWithVersion);
       
       if (success) {
         this.lastSaveTime.set(key, Date.now());
@@ -240,8 +242,8 @@ class ElectronBridgeService {
       this.pendingSaves.delete(key);
     }
 
-    if (!this.isElectronAvailable) {
-      console.warn('Electron API not available, data not cleared');
+    if (!this.isBridgeAvailable) {
+      console.warn('Pont SIRAL indisponible : donnée non supprimée');
       return false;
     }
 
@@ -249,7 +251,7 @@ class ElectronBridgeService {
       // Suppression intentionnelle via le handler dédié (supprime la clé du
       // fichier). On n'utilise plus setData(key, null) : ce dernier est désormais
       // refusé par le garde-fou anti-écrasement côté main process.
-      return await window.electronAPI.clearData(key);
+      return await window.siralBridge.clearData(key);
     } catch (error) {
       console.error(`Error clearing data for key ${key}:`, error);
       return false;
@@ -257,12 +259,12 @@ class ElectronBridgeService {
   }
 
   public async getAllKeys(): Promise<string[]> {
-    if (!this.isElectronAvailable) {
+    if (!this.isBridgeAvailable) {
       return [];
     }
 
     try {
-      const keys = await window.electronAPI.getData<string[]>('__keys__');
+      const keys = await window.siralBridge.getData<string[]>('__keys__');
       return keys || [];
     } catch (error) {
       console.error('Error getting all keys:', error);
@@ -336,8 +338,8 @@ class ElectronBridgeService {
   }
 
   public isAvailable(): boolean {
-    return this.isElectronAvailable;
+    return this.isBridgeAvailable;
   }
 }
 
-export const ElectronBridge = ElectronBridgeService.getInstance();
+export const SiralBridge = SiralBridgeService.getInstance();

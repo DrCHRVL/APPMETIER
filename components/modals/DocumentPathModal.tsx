@@ -61,15 +61,15 @@ export const DocumentPathModal = ({
       return;
     }
 
-    if (!window.electronAPI) {
+    if (!window.siralBridge) {
       setPathStatus('invalid');
-      setErrorMessage('API Electron non disponible');
+      setErrorMessage('Pont de données indisponible');
       return;
     }
 
     setIsValidating(true);
     try {
-      const isValid = await window.electronAPI.validatePath(path);
+      const isValid = await window.siralBridge.validatePath(path);
       setPathStatus(isValid ? 'valid' : 'invalid');
       setErrorMessage(isValid ? '' : 'Chemin inaccessible ou en lecture seule');
     } catch (error) {
@@ -81,13 +81,13 @@ export const DocumentPathModal = ({
   };
 
   const handleBrowseFolder = async () => {
-    if (!window.electronAPI) {
-      showToast('API Electron non disponible', 'error');
+    if (!window.siralBridge) {
+      showToast('Pont de données indisponible', 'error');
       return;
     }
 
     try {
-      const selectedFolder = await window.electronAPI.selectFolder();
+      const selectedFolder = await window.siralBridge.selectFolder();
       if (selectedFolder) {
         setSelectedPath(selectedFolder);
         validatePath(selectedFolder);

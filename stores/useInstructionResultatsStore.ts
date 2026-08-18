@@ -13,7 +13,7 @@
 
 import { create } from '@/lib/zustand';
 import type { ResultatAudience } from '@/types/audienceTypes';
-import { electronStorage } from '@/services/storage/electronStorage';
+import { siralStorage } from '@/services/storage/siralStorage';
 import { APP_CONFIG } from '@/config/constants';
 
 const STORAGE_PREFIX = APP_CONFIG.STORAGE_KEYS.INSTRUCTION_RESULTATS;
@@ -39,7 +39,7 @@ const readFreshFromStorage = async (
   storageKey: string,
 ): Promise<Record<string, ResultatAudience>> => {
   try {
-    const data = await electronStorage.read<Record<string, ResultatAudience>>(storageKey);
+    const data = await siralStorage.read<Record<string, ResultatAudience>>(storageKey);
     return data || {};
   } catch {
     return {};
@@ -104,7 +104,7 @@ export const useInstructionResultatsStore = create<InstructionResultatsState>((s
       ...fresh,
       [key]: { ...resultat, contentieuxId: ctxId, modifiedAt: new Date().toISOString() },
     };
-    const ok = await electronStorage.createOrUpdate(storageKey, next);
+    const ok = await siralStorage.createOrUpdate(storageKey, next);
     if (ok) {
       set({ resultats: next });
       return true;
@@ -122,7 +122,7 @@ export const useInstructionResultatsStore = create<InstructionResultatsState>((s
     const fresh = await readFreshFromStorage(storageKey);
     const next = { ...fresh };
     delete next[key];
-    const ok = await electronStorage.createOrUpdate(storageKey, next);
+    const ok = await siralStorage.createOrUpdate(storageKey, next);
     if (ok) {
       set({ resultats: next });
       return true;

@@ -5,7 +5,7 @@
 // savoir qui est en ligne.
 
 import { UserHeartbeat } from '@/types/userTypes';
-import { ElectronBridge } from './electronBridge';
+import { SiralBridge } from './siralBridge';
 
 const HEARTBEAT_INTERVAL = 30_000; // 30 secondes
 const ONLINE_THRESHOLD = 120_000;  // 2 minutes sans heartbeat = hors ligne
@@ -77,7 +77,7 @@ export class HeartbeatManager {
     };
 
     try {
-      await window.electronAPI?.writeHeartbeat?.(this.username, heartbeat);
+      await window.siralBridge?.writeHeartbeat?.(this.username, heartbeat);
     } catch {
       // Silencieux si le serveur est inaccessible
     }
@@ -86,7 +86,7 @@ export class HeartbeatManager {
   /** Supprime le fichier heartbeat */
   private async removeHeartbeat(): Promise<void> {
     try {
-      await window.electronAPI?.removeHeartbeat?.(this.username);
+      await window.siralBridge?.removeHeartbeat?.(this.username);
     } catch {
       // Silencieux
     }
@@ -95,7 +95,7 @@ export class HeartbeatManager {
   /** Lit tous les heartbeats actifs depuis le serveur */
   static async getOnlineUsers(): Promise<(UserHeartbeat & { isOnline: boolean })[]> {
     try {
-      const heartbeats: UserHeartbeat[] = await window.electronAPI?.readAllHeartbeats?.() || [];
+      const heartbeats: UserHeartbeat[] = await window.siralBridge?.readAllHeartbeats?.() || [];
       const now = Date.now();
       return heartbeats.map(hb => ({
         ...hb,

@@ -11,7 +11,7 @@
 //
 // La migration est idempotente : si déjà effectuée, elle ne fait rien.
 
-import { ElectronBridge } from '../electronBridge';
+import { SiralBridge } from '../siralBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { ContentieuxId } from '@/types/userTypes';
 
@@ -38,7 +38,7 @@ function newKey(contentieuxId: ContentieuxId, suffix: string): string {
  * Vérifie si la migration a déjà été effectuée.
  */
 export async function isMigrationDone(): Promise<boolean> {
-  const flag = await ElectronBridge.getData<boolean>(MIGRATION_FLAG_KEY, false);
+  const flag = await SiralBridge.getData<boolean>(MIGRATION_FLAG_KEY, false);
   return flag === true;
 }
 
@@ -74,14 +74,14 @@ export async function recoverDefaultContentieuxFromLegacy(): Promise<number> {
   for (const { legacyKey, suffix } of RECOVERABLE) {
     try {
       const ctxKey = newKey(DEFAULT_CONTENTIEUX, suffix);
-      const ctxData = await ElectronBridge.getData<unknown>(ctxKey, null);
+      const ctxData = await SiralBridge.getData<unknown>(ctxKey, null);
       const ctxIsEmpty = ctxData === null || (Array.isArray(ctxData) && ctxData.length === 0);
       if (!ctxIsEmpty) continue; // la clé ctx_ contient déjà des données → ne pas toucher
 
-      const legacyData = await ElectronBridge.getData<unknown>(legacyKey, null);
+      const legacyData = await SiralBridge.getData<unknown>(legacyKey, null);
       if (!Array.isArray(legacyData) || legacyData.length === 0) continue; // rien à récupérer
 
-      await ElectronBridge.setData(ctxKey, legacyData);
+      await SiralBridge.setData(ctxKey, legacyData);
       recovered++;
       console.warn(
         `🛟 Récupération : ${legacyData.length} élément(s) restauré(s) ${legacyKey} → ${ctxKey}`
@@ -121,21 +121,21 @@ export async function migrateToMultiContentieux(): Promise<boolean> {
   for (const { oldKey, suffix } of KEY_MAPPING) {
     try {
       // Vérifier si la nouvelle clé existe déjà (reprise après crash)
-      const existingNew = await ElectronBridge.getData(newKey(DEFAULT_CONTENTIEUX, suffix), null);
+      const existingNew = await SiralBridge.getData(newKey(DEFAULT_CONTENTIEUX, suffix), null);
       if (existingNew !== null) {
         console.log(`⏭️ Migration : ${newKey(DEFAULT_CONTENTIEUX, suffix)} existe déjà, skip`);
         continue;
       }
 
       // Lire l'ancienne clé
-      const oldData = await ElectronBridge.getData(oldKey, null);
+      const oldData = await SiralBridge.getData(oldKey, null);
       if (oldData === null) {
         console.log(`⏭️ Migration : ${oldKey} est vide, skip`);
         continue;
       }
 
       // Écrire sous la nouvelle clé
-      await ElectronBridge.setData(newKey(DEFAULT_CONTENTIEUX, suffix), oldData);
+      await SiralBridge.setData(newKey(DEFAULT_CONTENTIEUX, suffix), oldData);
       migratedCount++;
       console.log(`✅ Migration : ${oldKey} → ${newKey(DEFAULT_CONTENTIEUX, suffix)}`);
     } catch (error) {
@@ -154,9 +154,9 @@ export async function migrateToMultiContentieux(): Promise<boolean> {
 
   for (const { old, suffix } of deletedKeys) {
     try {
-      const data = await ElectronBridge.getData(old, null);
+      const data = await SiralBridge.getData(old, null);
       if (data !== null) {
-        await ElectronBridge.setData(newKey(DEFAULT_CONTENTIEUX, suffix), data);
+        await SiralBridge.setData(newKey(DEFAULT_CONTENTIEUX, suffix), data);
         console.log(`✅ Migration : ${old} → ${newKey(DEFAULT_CONTENTIEUX, suffix)}`);
       }
     } catch (error) {
@@ -165,7 +165,7 @@ export async function migrateToMultiContentieux(): Promise<boolean> {
   }
 
   // Marquer la migration comme effectuée
-  await ElectronBridge.setData(MIGRATION_FLAG_KEY, true);
+  await SiralBridge.setData(MIGRATION_FLAG_KEY, true);
   console.log(`✅ Migration multi-contentieux terminée : ${migratedCount} clé(s) migrée(s)`);
 
   return true;
@@ -183,7 +183,7 @@ export async function verifyMigration(): Promise<{
 
   for (const { suffix } of KEY_MAPPING) {
     const key = newKey(DEFAULT_CONTENTIEUX, suffix);
-    const data = await ElectronBridge.getData(key, null);
+    const data = await SiralBridge.getData(key, null);
     const hasData = data !== null;
     details.push({ key, hasData });
     // enquetes doit exister (même si tableau vide), les autres sont optionnels

@@ -7,7 +7,7 @@ import { WeeklyPopupConfig, VisualAlertRule, VisualAlertTrigger, VisualAlertMode
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Select } from '../ui/select';
 import { Edit2, Save, X, Plus, Clock, RefreshCw, Eye, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 import { VISUAL_ALERT_COLOR_PALETTE, VISUAL_ALERT_COLOR_KEYS, VISUAL_ALERT_TRIGGER_LABELS } from '@/config/constants';
 import { useUser } from '@/contexts/UserContext';
 import { isPushSupported, isPushEnabled, enablePushReminders, disablePushReminders } from '@/lib/web/pushReminders';
@@ -477,14 +477,14 @@ export const AlertsPage = ({ onShowWeeklyPopup, visualAlertRules = [], onUpdateV
   });
 
   useEffect(() => {
-    ElectronBridge.getData<WeeklyPopupConfig>(WEEKLY_POPUP_KEY, {
+    SiralBridge.getData<WeeklyPopupConfig>(WEEKLY_POPUP_KEY, {
       enabled: false, dayOfWeek: 1, hour: 9
     }).then(cfg => setWeeklyConfig(cfg));
   }, []);
 
   const saveWeeklyConfig = (cfg: WeeklyPopupConfig) => {
     setWeeklyConfig(cfg);
-    ElectronBridge.setData(WEEKLY_POPUP_KEY, cfg);
+    SiralBridge.setData(WEEKLY_POPUP_KEY, cfg);
   };
 
 

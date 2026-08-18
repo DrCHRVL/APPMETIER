@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useUserPreferences } from './useUserPreferences';
 import { useTags } from './useTags';
-import { ElectronBridge } from '@/utils/electronBridge';
+import { SiralBridge } from '@/utils/siralBridge';
 
 const LEGACY_GLOBAL_SECTIONS_KEY = 'sectionsOrder';
 
@@ -44,7 +44,7 @@ export function useUserServiceOrganization(): UseUserServiceOrganizationReturn {
 
     (async () => {
       try {
-        const globalSections = await ElectronBridge.getData<string[]>(
+        const globalSections = await SiralBridge.getData<string[]>(
           LEGACY_GLOBAL_SECTIONS_KEY,
           [],
         );

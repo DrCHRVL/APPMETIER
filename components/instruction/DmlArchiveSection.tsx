@@ -19,7 +19,7 @@ import { FileArchive, UploadCloud, Trash2, ExternalLink, Loader2 } from 'lucide-
 type AnyFn = (...args: unknown[]) => Promise<any>;
 
 function bridgeFn(name: string): AnyFn {
-  const api = (window as unknown as { electronAPI?: Record<string, AnyFn> }).electronAPI;
+  const api = (window as unknown as { siralBridge?: Record<string, AnyFn> }).siralBridge;
   const fn = api?.[name];
   if (typeof fn !== 'function') {
     throw new Error(`fonction « ${name} » indisponible — rechargez l'application (Ctrl+Maj+R) après mise à jour`);

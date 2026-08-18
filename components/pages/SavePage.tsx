@@ -344,10 +344,10 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRestoreFromServerBa
   };
 
   const loadAdminBackups = async () => {
-    if (!window.electronAPI?.dataSync_listAdminBackups) return;
+    if (!window.siralBridge?.dataSync_listAdminBackups) return;
     setIsLoadingAdminBackups(true);
     try {
-      const list = await window.electronAPI.dataSync_listAdminBackups();
+      const list = await window.siralBridge.dataSync_listAdminBackups();
       setAdminBackups(list);
     } catch (error) {
       console.error('Erreur chargement admin backups:', error);
@@ -358,10 +358,10 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRestoreFromServerBa
 
   const handleRestoreAdminBackup = async () => {
     setShowAdminRestoreConfirm(false);
-    if (!window.electronAPI?.dataSync_restoreAdminBackup || !selectedAdminBackup) return;
+    if (!window.siralBridge?.dataSync_restoreAdminBackup || !selectedAdminBackup) return;
     setIsRestoringAdmin(true);
     try {
-      const ok = await window.electronAPI.dataSync_restoreAdminBackup(selectedAdminBackup.filename);
+      const ok = await window.siralBridge.dataSync_restoreAdminBackup(selectedAdminBackup.filename);
       if (ok) {
         showToast('✅ Backup restauré. Rechargement…', 'success');
         setTimeout(() => window.location.reload(), 1500);
