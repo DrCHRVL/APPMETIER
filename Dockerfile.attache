@@ -6,8 +6,12 @@
 #
 # Authentification Claude (une fois, après le premier démarrage) :
 #   docker compose exec -it attache claude
-#   (ou : claude setup-token sur une machine de confiance, puis coller le token)
-# L'état de connexion persiste dans le volume claude-auth.
+#   (ou : claude setup-token sur une machine de confiance, puis coller le jeton
+#    dans SIRAL → Paramètres → Attaché IA → « Connexion Claude Code » — il y est
+#    chiffré par la clé-maître et injecté dans l'environnement de chaque run)
+# L'état de connexion persiste dans le volume claude-auth ; il EXPIRE, et le
+# panneau signale alors la panne au lieu de laisser passer le « Not logged in »
+# du CLI pour une réponse de l'attaché.
 FROM node:20-bookworm-slim
 
 # OCR de secours pour les PDF scannés (PV de motivation illisibles par

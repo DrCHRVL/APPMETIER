@@ -21,6 +21,7 @@ import { readInstructions } from './instructions.mjs'
 import { extractUsage, recordUsage } from './usage.mjs'
 import { skillsPromptSection } from './skills.mjs'
 import { kbPromptSection } from './kb.mjs'
+import { claudeAuthEnv, claudeAuthStatus, looksLikeAuthFailure, noteAuthFailure, clearAuthFailure, AUTH_FAILURE_MESSAGE } from './claudeAuth.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const MCP_SERVER = path.join(HERE, '..', 'attache-mcp.mjs')
@@ -428,6 +429,10 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
       cwd,
       env: {
         ...process.env,
+        // Connexion à l'abonnement : jeton saisi dans l'app (chiffré au repos)
+        // ou variable d'environnement. Absent, le CLI retombe sur la session
+        // du volume claude-auth — qui, elle, expire.
+        ...claudeAuthEnv(),
         SIRAL_ATTACHE_RUN: runLabel,
         // sous_agents peut travailler plusieurs minutes (lot de PDF, routine) :
         // le timeout d'outil MCP du CLI doit couvrir le lot entier.
@@ -451,6 +456,22 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
       settled = true
       clearTimeout(timer)
       try { fs.unlinkSync(mcpConfig) } catch { /* déjà retiré */ }
+      // Refus d'authentification : le CLI ne RÉPOND pas, il refuse — sa ligne
+      // « Not logged in · Please run /login » arrivait telle quelle dans le fil
+      // comme si l'attaché avait parlé, et le magistrat, croyant dialoguer,
+      // tapait « /login » (indisponible en headless). On la requalifie en
+      // panne, avec le remède, et on n'archive pas la fausse réponse.
+      const stderrCourt = stderrTail.split('\n').filter(Boolean).slice(-3).join(' ').slice(0, 300)
+      let authEchec = false
+      if (looksLikeAuthFailure(assistantText) || looksLikeAuthFailure(stderrCourt) || looksLikeAuthFailure(error)) {
+        await noteAuthFailure(assistantText || stderrCourt || String(error || ''))
+        authEchec = true
+        ok = false
+        error = AUTH_FAILURE_MESSAGE
+        assistantText = ''
+      } else if (ok) {
+        await clearAuthFailure()
+      }
       // Correction du magistrat repérée (heuristique, coût nul) : signal
       // pointant CETTE conversation — la consolidation relira l'échange
       // (conversation_lire) pour en tirer la règle générale, sans que le
@@ -478,8 +499,10 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
       conv.resumable = ok || conv.resumable // une session entamée reste reprenable
       conv.updatedAt = new Date().toISOString()
       try { await saveConversation(keys, conv) } catch {}
-      onEvent({ type: 'done', convId: id, ok, error })
-      resolve({ convId: id, text: assistantText, ok, error })
+      // `replace` : la ligne déjà streamée au panneau n'est pas une réponse
+      // (refus d'authentification) — le client doit l'effacer, pas la garder.
+      onEvent({ type: 'done', convId: id, ok, error, replace: authEchec })
+      resolve({ convId: id, text: assistantText, ok, error, replace: authEchec })
     }
 
     let buffer = ''
@@ -556,17 +579,73 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
   })
 }
 
-/** Test de santé du CLI (authentification abonnement comprise). */
+/**
+ * Test de santé du CLI. `claude --version` répond même NON CONNECTÉ : le
+ * panneau annonçait donc « Claude Code OK » pendant que chaque échange était
+ * refusé. On y joint l'état de l'authentification (jeton in-app, variable
+ * d'environnement, session du volume claude-auth, dernier refus constaté) —
+ * `ok` ne vaut vrai que si le binaire répond ET que la connexion tient.
+ */
 export function checkClaudeCli() {
   return new Promise((resolve) => {
+    const auth = claudeAuthStatus()
     const child = spawn(CLAUDE_BIN, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
-    const timer = setTimeout(() => { try { child.kill() } catch {}; resolve({ ok: false, error: 'timeout' }) }, 15_000)
+    const done = (binaire) => resolve({
+      ok: binaire.ok && auth.connecte,
+      binaire: binaire.ok,
+      version: binaire.version,
+      error: binaire.ok ? (auth.connecte ? undefined : auth.raison) : binaire.error,
+      auth,
+    })
+    const timer = setTimeout(() => { try { child.kill() } catch {}; done({ ok: false, error: 'timeout' }) }, 15_000)
     child.stdout.on('data', (c) => { out += c.toString() })
-    child.on('error', (e) => { clearTimeout(timer); resolve({ ok: false, error: e.message }) })
+    child.on('error', (e) => { clearTimeout(timer); done({ ok: false, error: e.message }) })
     child.on('close', (code) => {
       clearTimeout(timer)
-      resolve(code === 0 ? { ok: true, version: out.trim() } : { ok: false, error: 'code ' + code })
+      done(code === 0 ? { ok: true, version: out.trim() } : { ok: false, error: 'code ' + code })
+    })
+  })
+}
+
+/**
+ * Test RÉEL de la connexion à l'abonnement : un tour minuscule, sans MCP ni
+ * outils (« ping »). Le seul moyen sûr de distinguer « le CLI répond » de
+ * « le CLI est connecté » — l'heuristique de claudeAuthStatus ne voit pas un
+ * jeton révoqué côté serveur.
+ */
+export function testClaudeAuth() {
+  ensureDir(attacheDir('workdir'))
+  return new Promise((resolve) => {
+    const child = spawn(CLAUDE_BIN, [
+      '-p', 'ping',
+      '--max-turns', '1',
+      // aucune capacité : la liste blanche ne désigne rien d'existant
+      '--allowedTools', 'mcp__aucun__*',
+      '--disallowedTools', DISALLOWED_TOOLS,
+    ], {
+      cwd: attacheDir('workdir'),
+      env: { ...process.env, ...claudeAuthEnv() },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let out = ''
+    let err = ''
+    const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch {}; resolve({ ok: false, error: 'délai dépassé (60 s)' }) }, 60_000)
+    child.stdout.on('data', (c) => { out += c.toString('utf8').slice(0, 2000) })
+    child.stderr.on('data', (c) => { err += c.toString('utf8').slice(0, 2000) })
+    child.on('error', (e) => { clearTimeout(timer); resolve({ ok: false, error: `CLI claude introuvable : ${e.message}` }) })
+    child.on('close', async (code) => {
+      clearTimeout(timer)
+      const texte = `${out} ${err}`.trim().slice(0, 400)
+      if (looksLikeAuthFailure(out.trim()) || looksLikeAuthFailure(err.trim())) {
+        await noteAuthFailure(texte)
+        return resolve({ ok: false, auth: false, error: AUTH_FAILURE_MESSAGE, detail: texte })
+      }
+      if (code === 0) {
+        await clearAuthFailure()
+        return resolve({ ok: true, auth: true, reponse: out.trim().slice(0, 200) })
+      }
+      resolve({ ok: false, error: `claude s'est arrêté (code ${code})${texte ? ' — ' + texte : ''}` })
     })
   })
 }

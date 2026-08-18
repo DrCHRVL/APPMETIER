@@ -22,7 +22,8 @@ import { handleConnectorMessage } from './attache-mcp.mjs'
 import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride } from './attache/mail.mjs'
-import { runAgent, checkClaudeCli, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
+import { writeClaudeToken, clearClaudeToken, clearAuthFailure } from './attache/claudeAuth.mjs'
+import { runAgent, checkClaudeCli, testClaudeAuth, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
 import { usageSummary } from './attache/usage.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { genererGraphique } from './attache/statsGraphiques.mjs'
@@ -1007,6 +1008,42 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, mail: describeMailConfig() })
     }
 
+    if (route === 'PUT /claude-token') {
+      // Connexion du CLI à l'abonnement, SANS docker exec : le magistrat colle
+      // ici le jeton rendu par « claude setup-token » (machine de confiance).
+      // Chiffré au repos par la clé-maître, il est injecté dans l'environnement
+      // de chaque run — la session du volume claude-auth n'est plus un point
+      // de panne muet.
+      const body = await readBody(req)
+      try {
+        writeClaudeToken(String(body.token || ''), String(body.par || 'admin'))
+      } catch (e) {
+        return json(res, 400, { ok: false, error: String(e?.message || e) })
+      }
+      // Un jeton neuf périme le refus mémorisé : sans cela l'état serait resté
+      // « non connecté » jusqu'au premier échange réussi.
+      await clearAuthFailure()
+      const keys = loadKeyring()
+      if (keys) await audit(keys, 'claude_token_enregistre', { par: String(body.par || 'admin') })
+      return json(res, 200, { ok: true, claude: await checkClaudeCli() })
+    }
+
+    if (route === 'DELETE /claude-token') {
+      const removed = clearClaudeToken()
+      const keys = loadKeyring()
+      if (keys) await audit(keys, 'claude_token_efface', { removed })
+      return json(res, 200, { ok: true, removed, claude: await checkClaudeCli() })
+    }
+
+    if (route === 'POST /claude-test') {
+      // Diagnostic : un tour minuscule chez Claude (« ping »), sans outils.
+      // Dit si la connexion à l'abonnement tient VRAIMENT.
+      const out = await testClaudeAuth()
+      const keys = loadKeyring()
+      if (keys) await audit(keys, 'claude_test', { ok: out.ok, erreur: out.error || null })
+      return json(res, 200, out)
+    }
+
     if (route === 'DELETE /mail-config') {
       const removed = clearMailOverride()
       const keys = loadKeyring()
@@ -1454,7 +1491,7 @@ const server = http.createServer(async (req, res) => {
         ...(body.carto ? { timeoutMs: CARTO_CHAT_TIMEOUT_MS, mcpToolTimeoutMs: CARTO_CHAT_TIMEOUT_MS - 120_000 } : {}),
       })
       clearInterval(heartbeat)
-      send({ type: 'final', convId: result.convId, ok: result.ok, error: result.error })
+      send({ type: 'final', convId: result.convId, ok: result.ok, error: result.error, replace: result.replace })
       return res.end()
     }
 
