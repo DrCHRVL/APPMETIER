@@ -855,6 +855,26 @@ l'usage).
    # suivre le login OAuth avec le compte de l'abonnement, puis quitter
    ```
 
+   **Quand cette connexion tombe** (elle expire), l'attaché ne répond plus
+   rien d'utile : chaque échange est refusé par le CLI. Le panneau le dit
+   maintenant explicitement — Paramètres → Attaché IA → **Connexion Claude
+   Code** : pastille rouge, motif du refus, bouton *Tester* (un « ping »
+   minuscule chez Claude, sans outils). Deux façons de rebrancher :
+
+   - depuis le serveur, comme ci-dessus (`docker compose exec -it attache
+     claude`) ;
+   - **sans toucher au serveur** : sur une machine de confiance connectée à
+     Claude, `claude setup-token`, puis coller la ligne `sk-ant-…` dans
+     *Coller un jeton*. Le jeton est confié au service attaché qui le chiffre
+     avec sa clé-maître (l'app ne le stocke jamais) et l'injecte dans
+     l'environnement de chaque run ; *Effacer* revient à la session du
+     serveur. Les conversations en cours ne sont pas perdues.
+
+   Tant que la connexion est rompue, le fil de conversation affiche une panne
+   nommée (avec le remède) et non plus la ligne brute du CLI « Not logged in ·
+   Please run /login » — qui se lisait comme une réponse de l'attaché, alors
+   que `/login` n'existe pas dans ce mode.
+
 5. **Remettre les clés** : dans SIRAL, connecté en admin sur le TJ confié →
    Paramètres → **Attaché IA** → *Remettre les clés*. Le panneau affiche
    l'état complet (clé-maître, trousseau, Claude, IMAP/SMTP).
@@ -912,4 +932,9 @@ SIRAL_ATTACHE_URL=http://localhost:8787 npm run dev
 ```
 
 Le CLI `claude` doit être installé (`npm i -g @anthropic-ai/claude-code`) et
-connecté (`claude login`) sur la machine qui exécute le service.
+connecté (`claude login`) sur la machine qui exécute le service — ou recevoir
+un jeton d'abonnement (`CLAUDE_CODE_OAUTH_TOKEN`, ou saisi dans Paramètres →
+Attaché IA → Connexion Claude Code).
+
+Tests ciblés : `node scripts/attache-auth.test.mjs` (connexion du CLI :
+requalification des refus, rangement chiffré du jeton, état rendu au panneau).

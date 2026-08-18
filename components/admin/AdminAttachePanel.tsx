@@ -212,6 +212,11 @@ export function AdminAttachePanel() {
   const [mailTesting, setMailTesting] = useState(false);
   const [mailForm, setMailForm] = useState<{ open: boolean; imapHost: string; imapPort: string; imapSecure: boolean; imapUser: string; imapPassword: string }>({ open: false, imapHost: '', imapPort: '993', imapSecure: true, imapUser: '', imapPassword: '' });
   const [mailSaving, setMailSaving] = useState(false);
+  // Connexion du CLI Claude Code à l'abonnement (jeton « claude setup-token »)
+  const [claudeForm, setClaudeForm] = useState<{ open: boolean; token: string }>({ open: false, token: '' });
+  const [claudeSaving, setClaudeSaving] = useState(false);
+  const [claudeTest, setClaudeTest] = useState<any>(null);
+  const [claudeTesting, setClaudeTesting] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
   const [instructions, setInstructions] = useState('');
   const [instructionsSaving, setInstructionsSaving] = useState(false);
@@ -1028,6 +1033,64 @@ export function AdminAttachePanel() {
     }
   }, [refresh]);
 
+  // ── Connexion Claude Code ──
+  // La session du CLI (volume claude-auth) expire : quand elle tombe, l'attaché
+  // ne répond plus qu'un « Not logged in » dans le fil. Le magistrat rebranche
+  // ici l'abonnement sans toucher au serveur : « claude setup-token » sur une
+  // machine de confiance, le jeton se colle dans ce champ (chiffré au repos).
+  const saveClaudeToken = useCallback(async () => {
+    const token = claudeForm.token.trim();
+    if (!token) return;
+    setClaudeSaving(true);
+    try {
+      const res = await fetch('/api/attache/claude-token', {
+        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token }),
+      });
+      const data = await res.json().catch(() => ({ ok: false } as { ok?: boolean; error?: string }));
+      if (data.ok) {
+        setClaudeForm({ open: false, token: '' });
+        setClaudeTest(null);
+        setNotice('Jeton enregistré — l\'attaché reprend la main sur l\'abonnement.');
+        await refresh();
+      } else {
+        setNotice(`Jeton refusé : ${data.error || res.status}`);
+      }
+    } catch (e) {
+      setNotice(`Enregistrement impossible : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setClaudeSaving(false);
+    }
+  }, [claudeForm, refresh]);
+
+  const clearClaudeTokenApp = useCallback(async () => {
+    if (!window.confirm('Effacer le jeton enregistré dans l\'app et revenir à la session du serveur ?')) return;
+    setClaudeSaving(true);
+    try {
+      const res = await fetch('/api/attache/claude-token', { method: 'DELETE' });
+      const data = await res.json().catch(() => ({ ok: false } as { ok?: boolean; error?: string }));
+      setNotice(data.ok ? 'Jeton effacé — retour à la session du serveur.' : `Échec : ${data.error || res.status}`);
+      await refresh();
+    } finally {
+      setClaudeSaving(false);
+    }
+  }, [refresh]);
+
+  /** Un tour minuscule chez Claude (« ping ») : dit si l'abonnement répond vraiment. */
+  const testClaude = useCallback(async () => {
+    setClaudeTesting(true);
+    setClaudeTest(null);
+    try {
+      const res = await fetch('/api/attache/claude-test', { method: 'POST' });
+      const data = await res.json().catch(() => ({ ok: false, error: 'réponse illisible du service' }));
+      setClaudeTest(data);
+      await refresh();
+    } catch (e) {
+      setClaudeTest({ ok: false, error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setClaudeTesting(false);
+    }
+  }, [refresh]);
+
   const loadAudit = useCallback(async () => {
     setShowAudit(true);
     try {
@@ -1184,6 +1247,118 @@ export function AdminAttachePanel() {
           Pour les périmètres confiés, le serveur de l'attaché peut déchiffrer — révoquez au moindre doute.
         </p>
       )}
+
+      {/* Connexion Claude Code — le « cerveau » de l'attaché tient à cette
+          session d'abonnement, qui expire. Sans ce bloc, la panne se lisait
+          seulement comme un « Not logged in » dans le fil de conversation. */}
+      <div className={`rounded-xl border ${status?.claude?.ok === false ? 'border-amber-300' : 'border-gray-200'}`}>
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <Sparkles className="h-4 w-4 text-[#2B5746]" />
+          <span className="text-sm font-semibold text-gray-800">Connexion Claude Code</span>
+          <span className="hidden text-[11px] text-gray-400 sm:inline">l'abonnement qui fait tourner l'attaché</span>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setClaudeForm((f) => ({ ...f, open: !f.open }))}
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+              title="Coller le jeton rendu par « claude setup-token » — il est chiffré au repos par la clé-maître"
+            >
+              <PenLine className="h-3 w-3" />{claudeForm.open ? 'Fermer' : 'Coller un jeton'}
+            </button>
+            <button
+              onClick={testClaude}
+              disabled={claudeTesting}
+              className="inline-flex items-center gap-1 rounded-lg bg-[#2B5746] px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+              title="Envoie un « ping » minuscule à Claude, sans outils : dit si l'abonnement répond vraiment"
+            >
+              {claudeTesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wifi className="h-3 w-3" />}Tester
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-2 px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <Dot
+              ok={status?.claude?.ok}
+              label={status?.claude?.ok
+                ? `Connecté${status?.claude?.version ? ` · ${status.claude.version}` : ''}`
+                : 'Non connecté'}
+            />
+            {status?.claude?.auth?.source && (
+              <span className="text-[11px] text-gray-500">
+                Source : {status.claude.auth.source === 'jeton-app' ? 'jeton saisi dans l\'app'
+                  : status.claude.auth.source === 'variable-env' ? 'variable d\'environnement du serveur'
+                  : status.claude.auth.source === 'cle-api' ? 'clé API du serveur'
+                  : status.claude.auth.source === 'passerelle' ? 'passerelle (Bedrock/Vertex)'
+                  : status.claude.auth.source}
+              </span>
+            )}
+            {!status?.claude?.auth?.source && status?.claude?.auth?.session && (
+              <span className="text-[11px] text-gray-500">Source : session du serveur (volume claude-auth)</span>
+            )}
+          </div>
+
+          {status?.claude?.ok === false && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11.5px] text-amber-800">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+              <span>
+                {status?.claude?.auth?.raison || status?.claude?.error || 'Claude Code ne répond pas.'}
+                {' '}Les échanges de l'attaché sont refusés tant que la connexion n'est pas rétablie.
+              </span>
+            </div>
+          )}
+
+          {claudeTest && (
+            <div className={`rounded-lg border px-2.5 py-2 text-[11.5px] ${claudeTest.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+              {claudeTest.ok ? 'Claude répond — l\'abonnement est bien branché.' : (claudeTest.error || 'Échec du test.')}
+            </div>
+          )}
+
+          {status?.claude?.auth?.jetonApp && (
+            <div className="flex items-center gap-2 text-[10.5px] text-gray-400">
+              <span>
+                Jeton enregistré dans l'app
+                {status.claude.auth.jetonAppLe ? ` le ${new Date(status.claude.auth.jetonAppLe).toLocaleString('fr-FR')}` : ''}
+                {' '}(chiffré par la clé-maître).
+              </span>
+              <button onClick={clearClaudeTokenApp} disabled={claudeSaving} className="underline hover:text-gray-600 disabled:opacity-50">Effacer</button>
+            </div>
+          )}
+
+          {claudeForm.open && (
+            <div className="space-y-2 rounded-lg border border-[#2B5746]/25 bg-emerald-50/30 p-3">
+              <div className="text-[11px] font-semibold text-gray-700">Nouveau jeton d'abonnement</div>
+              <p className="text-[11px] leading-relaxed text-gray-500">
+                Sur une machine de confiance où vous êtes connecté à Claude : <code className="rounded bg-gray-100 px-1">claude setup-token</code>,
+                puis collez ici la ligne <code className="rounded bg-gray-100 px-1">sk-ant-…</code> obtenue. Elle est chiffrée au repos par la
+                clé-maître et n'est jamais renvoyée au navigateur.
+              </p>
+              <input
+                type="password"
+                value={claudeForm.token}
+                onChange={(e) => setClaudeForm({ ...claudeForm, token: e.target.value })}
+                placeholder="sk-ant-…"
+                autoComplete="off"
+                className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={saveClaudeToken}
+                  disabled={claudeSaving || !claudeForm.token.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#2B5746] px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40"
+                >
+                  {claudeSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <KeyRound className="h-3 w-3" />}Enregistrer
+                </button>
+                <button
+                  onClick={() => setClaudeForm({ open: false, token: '' })}
+                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Boîte mail — diagnostic : vérifier que la boîte dédiée fonctionne */}
       <div className="rounded-xl border border-gray-200">

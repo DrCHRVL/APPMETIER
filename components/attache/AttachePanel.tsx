@@ -261,10 +261,15 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
             setMessages((prev) => {
               const next = [...prev];
               const last = next[next.length - 1];
+              // ev.replace : ce qui a été streamé n'est pas une réponse de
+              // l'attaché (refus d'authentification du CLI) — on l'efface au
+              // profit de l'erreur, sinon le magistrat croit lui parler.
               next[next.length - 1] = {
                 ...last,
                 streaming: false,
-                text: last.text || (ev.ok ? '' : `⚠️ ${ev.error || 'Run interrompu.'}`),
+                text: ev.replace
+                  ? `⚠️ ${ev.error || 'Run interrompu.'}`
+                  : last.text || (ev.ok ? '' : `⚠️ ${ev.error || 'Run interrompu.'}`),
               };
               return next;
             });
@@ -537,7 +542,14 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
           <span>
             {!keyringOk && 'Le trousseau n\'a pas été remis : Paramètres → Attaché IA → « Remettre les clés ». '}
-            {!claudeOk && 'Claude Code n\'est pas authentifié sur le serveur (claude login).'}
+            {!claudeOk && (
+              <>
+                {status?.claude?.auth?.raison
+                  ? `Claude Code n'est plus connecté : ${status.claude.auth.raison}. `
+                  : 'Claude Code n\'est pas authentifié sur le serveur. '}
+                Paramètres → Attaché IA → « Connexion Claude Code » pour coller un nouveau jeton.
+              </>
+            )}
           </span>
         </div>
       )}

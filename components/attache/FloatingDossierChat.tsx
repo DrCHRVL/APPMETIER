@@ -202,7 +202,7 @@ export function FloatingDossierChat({
           const line = buf.slice(0, idx).split('\n').find((l) => l.startsWith('data: '));
           buf = buf.slice(idx + 2);
           if (!line) continue;
-          let ev: { type?: string; text?: string; name?: string; convId?: string; ok?: boolean; error?: string };
+          let ev: { type?: string; text?: string; name?: string; convId?: string; ok?: boolean; error?: string; replace?: boolean };
           try { ev = JSON.parse(line.slice(6)); } catch { continue; }
           if (ev.type === 'delta' && ev.text) {
             setMsgs((p) => { const n = [...p]; const l = n[n.length - 1]; n[n.length - 1] = { ...l, text: (l.text || '') + ev.text }; return n; });
@@ -212,7 +212,14 @@ export function FloatingDossierChat({
             setMsgs((p) => { const n = [...p]; const l = n[n.length - 1]; n[n.length - 1] = { ...l, tools: [...(l.tools || []), String(ev.name).replace(/^mcp__siral__/, '')] }; return n; });
           } else if (ev.type === 'final') {
             if (ev.convId) { setConvId(ev.convId); try { localStorage.setItem(convKey, ev.convId); } catch { /* */ } }
-            setMsgs((p) => { const n = [...p]; const l = n[n.length - 1]; n[n.length - 1] = { ...l, streaming: false, text: l.text || (ev.ok ? '' : `⚠️ ${ev.error || 'Interrompu'}`) }; return n; });
+            // ev.replace : la ligne streamée est un refus du CLI (« Not logged
+            // in »), pas une réponse — on la remplace par l'erreur et son remède.
+            setMsgs((p) => {
+              const n = [...p]; const l = n[n.length - 1];
+              const erreur = `⚠️ ${ev.error || 'Interrompu'}`;
+              n[n.length - 1] = { ...l, streaming: false, text: ev.replace ? erreur : (l.text || (ev.ok ? '' : erreur)) };
+              return n;
+            });
           }
         }
       }
