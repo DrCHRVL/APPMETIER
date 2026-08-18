@@ -95,6 +95,10 @@ const EnqueteDetailModalImpl = ({
 }: EnqueteDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [descriptionRefreshing, setDescriptionRefreshing] = useState(false);
+  const [mecRefreshing, setMecRefreshing] = useState(false);
+  // Incrémenté après chaque passe de l'attaché : force le bandeau des
+  // propositions à se recharger pour montrer les noms qu'elle vient de déposer.
+  const [propositionsToken, setPropositionsToken] = useState(0);
   const [showClotureSummary, setShowClotureSummary] = useState(false);
   const [showSasSummary, setShowSasSummary] = useState(false);
   const [showSuiviAlert, setShowSuiviAlert] = useState(false);
@@ -157,7 +161,16 @@ const EnqueteDetailModalImpl = ({
         showToast('Une actualisation est déjà en cours — réessayez dans un instant.', 'info');
       } else if (res.ok && data.ok) {
         await useEnquetesStore.getState().syncAndRefresh().catch(() => {});
-        showToast('Description actualisée', 'success');
+        // La même passe tient la section « Mis en cause » en cohérence : tout
+        // nom relevé au passage et absent du dossier est déposé en proposition.
+        setPropositionsToken((t) => t + 1);
+        const n = Number(data.proposees) || 0;
+        showToast(
+          n > 0
+            ? `Description actualisée — ${n} mis en cause proposé${n > 1 ? 's' : ''} à valider`
+            : 'Description actualisée',
+          'success'
+        );
       } else {
         showToast(data.error || 'Actualisation impossible pour le moment', 'error');
       }
@@ -167,6 +180,42 @@ const EnqueteDetailModalImpl = ({
       setDescriptionRefreshing(false);
     }
   }, [descriptionRefreshing, enquete.numero, showToast]);
+
+  // Recherche « à la demande » des mis en cause manquants (icône à côté du + de
+  // la section Mis en cause). L'attaché relit les CR, actes et documents et
+  // DÉPOSE des propositions ✓/✗ en tête du dossier — il n'écrit jamais un nom
+  // d'office. Les noms proches d'un mis en cause existant, ou identiques à celui
+  // d'une autre enquête, sont déposés AVEC leur avertissement.
+  const handleRefreshMec = useCallback(async () => {
+    if (mecRefreshing) return;
+    setMecRefreshing(true);
+    try {
+      const res = await fetch('/api/attache/actualiser-mec', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ numero: enquete.numero }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 202 || data.running) {
+        showToast('Une recherche est déjà en cours — réessayez dans un instant.', 'info');
+      } else if (res.ok && data.ok) {
+        setPropositionsToken((t) => t + 1);
+        const n = Number(data.proposees) || 0;
+        showToast(
+          n > 0
+            ? `${n} mis en cause proposé${n > 1 ? 's' : ''} — à valider en tête du dossier`
+            : 'Aucun mis en cause nouveau détecté',
+          n > 0 ? 'success' : 'info'
+        );
+      } else {
+        showToast(data.error || 'Recherche impossible pour le moment', 'error');
+      }
+    } catch {
+      showToast('Service de l\'attaché indisponible', 'error');
+    } finally {
+      setMecRefreshing(false);
+    }
+  }, [mecRefreshing, enquete.numero, showToast]);
 
   // Met à jour les phases d'OP (et synchronise `dateOP` legacy avec la 1re phase
   // pour que les consommateurs non encore migrés continuent de fonctionner).
@@ -356,7 +405,7 @@ const EnqueteDetailModalImpl = ({
 
             {/* Propositions de l'attaché en attente (✓/✗) + chronologie
                 probatoire — admin uniquement, auto-masquées sinon. */}
-            {isAdmin() && <PropositionsBar numero={enquete.numero} />}
+            {isAdmin() && <PropositionsBar numero={enquete.numero} reloadToken={propositionsToken} />}
             {isAdmin() && (
               <ProductionsSection
                 numero={enquete.numero}
@@ -384,6 +433,8 @@ const EnqueteDetailModalImpl = ({
                   onUpdate={handleUpdateWithToast}
                   isEditing={isEditing}
                   allKnownMec={allKnownMec}
+                  onRefreshMec={attacheAvailable && isAdmin() && !isEditing ? handleRefreshMec : undefined}
+                  mecRefreshing={mecRefreshing}
                 />
               </div>
 

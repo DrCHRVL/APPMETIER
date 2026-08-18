@@ -883,6 +883,119 @@ export function getMecNoms(keys, numero) {
   return (e?.misEnCause || []).map((m) => m.nom)
 }
 
+/**
+ * Mots d'un nom (accents, casse et ponctuation retirés) — « ABAZ YOUSSEF Selim »
+ * → ['abaz', 'youssef', 'selim']. Les particules et initiales (≤ 2 lettres)
+ * sont écartées : elles ne distinguent personne.
+ */
+export function tokensNom(nom) {
+  return String(nom).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .split(/[^a-z]+/).filter((t) => t.length > 2)
+}
+
+/**
+ * Distance d'édition entre deux noms normalisés (Damerau-Levenshtein restreint) :
+ * ajout, retrait, remplacement ET INVERSION de deux lettres voisines — la faute
+ * de frappe la plus fréquente sur un prénom (« Medhi » / « Mehdi ») compte pour
+ * une seule. Noms courts : coût négligeable.
+ */
+function distanceNom(a, b) {
+  if (a === b) return 0
+  const m = a.length
+  const n = b.length
+  if (!m) return n
+  if (!n) return m
+  const d = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)])
+  for (let j = 0; j <= n; j++) d[0][j] = j
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cout = a[i - 1] === b[j - 1] ? 0 : 1
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cout)
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1)
+      }
+    }
+  }
+  return d[m][n]
+}
+
+/**
+ * Deux écritures désignent-elles TRÈS PROBABLEMENT la même personne ? Rend le
+ * motif du rapprochement (lisible par le magistrat), ou null. Trois cas, tous
+ * rencontrés dans les PV :
+ *   - mêmes mots dans un autre ordre (« ABAZ YOUSSEF Selim » / « Selim ABAZ YOUSSEF ») ;
+ *   - un nom contenu dans l'autre (« KADER » / « KADER Marco Paulo ») ;
+ *   - orthographe voisine (« LAACHIRA Medhi » / « LAACHIRRA Mehdi »).
+ * Sert à AVERTIR — jamais à refuser : c'est le magistrat qui tranche.
+ */
+export function proximiteNoms(a, b) {
+  const na = normalizeNom(a)
+  const nb = normalizeNom(b)
+  if (!na || !nb) return null
+  if (na === nb) return 'nom identique'
+  const ta = [...new Set(tokensNom(a))].sort()
+  const tb = [...new Set(tokensNom(b))].sort()
+  if (ta.length && tb.length && ta.join(' ') === tb.join(' ')) return 'mêmes mots dans un autre ordre'
+  const communs = ta.filter((t) => tb.includes(t))
+  if (communs.length && (ta.every((t) => tb.includes(t)) || tb.every((t) => ta.includes(t)))) {
+    return 'nom contenu dans l\'autre (prénom ou patronyme en moins)'
+  }
+  const court = Math.min(na.length, nb.length)
+  const d = distanceNom(na, nb)
+  if (court >= 5 && d <= (court >= 9 ? 2 : 1)) {
+    return `orthographe voisine (${d} lettre${d > 1 ? 's' : ''} d'écart)`
+  }
+  // Mot à mot : « LAACHIRA Medhi » / « LAACHIRRA Mehdi » — chaque mot du nom le
+  // plus court trouve son voisin à une ou deux lettres près, aucun mot en trop.
+  if (motsVoisins(ta, tb)) return 'orthographe voisine mot à mot'
+  // Deux mots distinctifs en commun (patronyme + prénom) alors que les
+  // écritures diffèrent : rapprochement à signaler malgré tout.
+  if (communs.length >= 2) return 'plusieurs mots en commun'
+  return null
+}
+
+/** Chaque mot du nom le plus court a-t-il son voisin (≤ 1-2 lettres) en face ? */
+function motsVoisins(ta, tb) {
+  const [courts, longs] = ta.length <= tb.length ? [ta, tb] : [tb, ta]
+  if (!courts.length || longs.length - courts.length > 1) return false
+  const pris = new Set()
+  let distinctif = false
+  for (const t of courts) {
+    const i = longs.findIndex((u, k) => !pris.has(k) && distanceNom(t, u) <= (Math.min(t.length, u.length) >= 8 ? 2 : 1))
+    if (i < 0) return false
+    pris.add(i)
+    if (t.length >= 5) distinctif = true
+  }
+  return distinctif
+}
+
+/**
+ * Tous les mis en cause du contentieux regroupés par nom :
+ * [{ nom, dossiers: [numéro…] }]. Sert au contrôle de doublon ÉLARGI d'une
+ * proposition de mis en cause : un nom identique — ou très proche — déjà connu
+ * d'une AUTRE enquête doit être signalé au magistrat, pas ignoré.
+ * `exclureNumero` : le dossier visé (son propre dédoublonnage est fait à part).
+ */
+export function mecParNom(keys, { exclureNumero } = {}) {
+  let data
+  try { ({ data } = loadContentieux(keys)) } catch { return [] }
+  const exclu = exclureNumero ? String(numeroCanonique(keys, exclureNumero)).trim() : ''
+  const parNom = new Map()
+  for (const e of data.enquetes || []) {
+    const num = String(e.numero || '').trim()
+    if (exclu && num === exclu) continue
+    for (const m of e.misEnCause || []) {
+      const nom = String(m?.nom || '').trim()
+      const key = normalizeNom(nom)
+      if (!nom || !key) continue
+      if (!parNom.has(key)) parNom.set(key, { nom, dossiers: [] })
+      const entree = parNom.get(key)
+      if (num && !entree.dossiers.includes(num)) entree.dossiers.push(num)
+    }
+  }
+  return [...parNom.values()]
+}
+
 /** Ajoute un mis en cause — REFUSE tout doublon (nom normalisé identique).
  *  Statut par défaut « actif » : la MÊME valeur que la saisie manuelle
  *  (MisEnCauseSection.handleAddMec) — l'ancien défaut « mis en cause »

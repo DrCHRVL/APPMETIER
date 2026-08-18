@@ -970,7 +970,7 @@ const TOOLS = [
   },
   {
     name: 'proposer_mec',
-    description: 'Propose un NOUVEAU mis en cause détecté dans un document/PV/mail — n\'écrit PAS directement : la proposition apparaît dans le dossier avec ✓/✗ pour l\'administrateur. Dédoublonnage automatique (nom déjà présent ou déjà proposé ⇒ refus). Toujours citer la source.',
+    description: 'Propose un NOUVEAU mis en cause détecté dans un document/PV/mail — n\'écrit PAS directement : la proposition apparaît dans le dossier avec ✓/✗ pour l\'administrateur. Dédoublonnage automatique (nom déjà présent au dossier ou déjà proposé ⇒ refus, rien n\'est déposé). Un nom seulement VOISIN (orthographe, mots inversés, prénom en moins) ou IDENTIQUE dans une AUTRE enquête ne bloque pas : la proposition part avec ses `avertissements` (rendus dans la réponse et affichés sous elle) — REPRENDS-LES au magistrat quand tu lui rends compte. Toujours citer la source.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -10,11 +10,16 @@
  * À la validation, l'écriture est signée DU NOM DE L'ADMINISTRATEUR —
  * l'assistant ne laisse aucune trace dans les données partagées. Le
  * dédoublonnage MEC est vérifié deux fois : au dépôt ET à l'application.
+ *
+ * Un nom simplement VOISIN (« LAACHIRA Medhi » / « LAACHIRRA Mehdi »), ou
+ * identique mais connu d'une AUTRE enquête, ne fait pas refuser la proposition :
+ * elle est déposée AVEC ses avertissements, affichés sous elle — le magistrat
+ * voit le rapprochement et tranche lui-même.
  */
 import crypto from 'node:crypto'
 import { attacheDir, ensureDir, atomicWrite, readJson, withFileLock } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
-import { ajouterMec, enregistrerActe, classerNote, getMecNoms, normalizeNom, creerDossier, dossierExiste } from './dossier.mjs'
+import { ajouterMec, enregistrerActe, classerNote, getMecNoms, normalizeNom, proximiteNoms, mecParNom, creerDossier, dossierExiste } from './dossier.mjs'
 import { appendLien, appendDossierExNihilo, dossierExNihiloExiste, appendMecExNihilo, mecExNihiloExiste } from './carto.mjs'
 import { saveTrame, readTrame, safeTrameName, MODELE_PREFIX } from './trames.mjs'
 import { saveSkill, readSkill, safeSkillName, AUTO_SKILL_PREFIX } from './skills.mjs'
@@ -71,6 +76,9 @@ export async function addProposition(keys, { numero, type, payload, source, titr
   numero = String(numero || '').trim()
   if (TYPES_DOSSIER.includes(type) && !numero) throw new Error('Numéro de dossier requis')
   const propositions = load(keys)
+  // Mises en garde portées par la proposition (rapprochements de noms) :
+  // renseignées pour un mis en cause, vides ailleurs.
+  let avertissements = []
 
   // Création d'un NOUVEAU dossier réel : le numéro EST celui à créer.
   if (type === 'dossier') {
@@ -145,6 +153,11 @@ export async function addProposition(keys, { numero, type, payload, source, titr
     const pendante = propositions.find((p) => p.statut === 'en_attente' && p.type === 'mec'
       && String(p.numero).trim() === String(numero).trim() && normalizeNom(p.payload.nom) === norm)
     if (pendante) return { doublon: true, existant: pendante.payload.nom, message: 'Proposition identique déjà en attente' }
+    // Rien d'identique ICI : la proposition part — mais elle EMPORTE ses
+    // avertissements de rapprochement, affichés sous elle (nom très proche
+    // d'un mis en cause du dossier, nom identique ou voisin connu d'une AUTRE
+    // enquête). Signaler, jamais refuser : c'est le magistrat qui tranche.
+    avertissements = avertissementsMec(keys, { numero, nom, propositions })
   }
 
   const prop = {
@@ -156,11 +169,45 @@ export async function addProposition(keys, { numero, type, payload, source, titr
     source: String(source || '').slice(0, 300),
     statut: 'en_attente',
     creeLe: new Date().toISOString(),
+    // Hors payload : ce sont des mises en garde d'affichage, elles ne doivent
+    // pas se retrouver écrites dans la fiche du mis en cause à la validation.
+    ...(avertissements.length ? { avertissements } : {}),
   }
   propositions.push(prop)
   await save(keys, propositions)
-  await audit(keys, 'proposition_deposee', { id: prop.id, numero: prop.numero, type, titre: prop.titre, source: prop.source })
-  return { id: prop.id }
+  await audit(keys, 'proposition_deposee', { id: prop.id, numero: prop.numero, type, titre: prop.titre, source: prop.source, avertissements: avertissements.length || undefined })
+  return { id: prop.id, ...(avertissements.length ? { avertissements } : {}) }
+}
+
+/**
+ * Mises en garde de rapprochement pour un nom proposé, dans l'ordre d'urgence :
+ * nom TRÈS PROCHE d'un mis en cause du dossier (risque de doublon immédiat),
+ * nom IDENTIQUE connu d'une autre enquête (même personne, à recouper), nom très
+ * proche ailleurs, proposition voisine déjà en attente. Six au plus — au-delà,
+ * le nom est trop commun pour que la liste éclaire quoi que ce soit.
+ */
+function avertissementsMec(keys, { numero, nom, propositions }) {
+  const norm = normalizeNom(nom)
+  const out = []
+  for (const existant of getMecNoms(keys, numero)) {
+    const motif = proximiteNoms(nom, existant)
+    if (motif) out.push(`Nom très proche de « ${existant} », DÉJÀ aux mis en cause de ce dossier (${motif}) — même personne ?`)
+  }
+  for (const { nom: connu, dossiers } of mecParNom(keys, { exclureNumero: numero })) {
+    const ou = dossiers.length ? ` (enquête${dossiers.length > 1 ? 's' : ''} n° ${dossiers.join(', ')})` : ''
+    if (normalizeNom(connu) === norm) out.push(`« ${connu} » figure déjà aux mis en cause d'un AUTRE dossier${ou} — même personne ?`)
+    else {
+      const motif = proximiteNoms(nom, connu)
+      if (motif) out.push(`Nom très proche de « ${connu} », mis en cause d'un autre dossier${ou} — ${motif}`)
+    }
+  }
+  for (const p of propositions) {
+    if (p.statut !== 'en_attente' || p.type !== 'mec') continue
+    if (String(p.numero).trim() !== String(numero).trim()) continue
+    const motif = proximiteNoms(nom, String(p.payload?.nom || ''))
+    if (motif) out.push(`Nom très proche de « ${p.payload.nom} », proposition déjà en attente sur ce dossier (${motif})`)
+  }
+  return [...new Set(out)].slice(0, 6)
 }
 
 function defaultTitre(type, payload) {
