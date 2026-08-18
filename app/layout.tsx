@@ -34,7 +34,16 @@ const EARLY_STUB = `(function(){
   window.__SIRAL_WEB__ = true;
   var resolveBridge;
   var ready = new Promise(function(res){ resolveBridge = res; });
-  window.__SIRAL_BRIDGE_SET__ = function(bridge){ window.__SIRAL_BRIDGE__ = bridge; resolveBridge(bridge); };
+  window.__SIRAL_BRIDGE_SET__ = function(bridge){
+    window.__SIRAL_BRIDGE__ = bridge;
+    // Auto-complétion : toute méthode du pont oubliée dans la liste ci-dessous
+    // est ajoutée à la surface au moment de l'installation — une méthode neuve
+    // ne peut plus disparaître silencieusement (« … is not a function »).
+    Object.keys(bridge).forEach(function(name){
+      if (!api[name]) api[name] = function(){ return bridge[name].apply(null, arguments); };
+    });
+    resolveBridge(bridge);
+  };
   var names = ${JSON.stringify(SIRAL_BRIDGE_API_NAMES)};
   var api = {};
   names.forEach(function(name){
