@@ -483,7 +483,40 @@ function descriptionPrompt(numero) {
     '   inutiles/verbes de liaison retirés, mais clair) :',
     '     SYNTHÈSE — vision globale des faits (qualification, mode opératoire, LIEUX, période, mesures, échéances) ;',
     '     MIS EN CAUSE — un par un les mis en cause enregistrés du dossier, chacun suivi des ÉLÉMENTS À CHARGE relevés.',
+    '4. COHÉRENCE DES MIS EN CAUSE — la partie MIS EN CAUSE que tu viens d\'écrire ne porte que les mis en cause',
+    '   ENREGISTRÉS. Si, en lisant, tu as relevé une personne MISE EN CAUSE (auteur, complice, fournisseur, logisticien,',
+    '   guetteur…) qui ne figure PAS à la section « Mis en cause » du dossier : recouper_personnes sur ces noms, puis',
+    '   proposer_mec (nom, role, source) pour chacun — proposition ✓/✗, JAMAIS ajouter_mec. Écarte victimes, témoins,',
+    '   enquêteurs, magistrats et avocats, ainsi que les simples alias d\'une personne déjà enregistrée (l\'alias se dit',
+    '   dans le rôle). Le dédoublonnage est automatique ; un nom voisin ou déjà connu ailleurs part avec un avertissement.',
     'Si RIEN de neuf n\'est à intégrer, n\'écris pas : termine sans appeler actualiser_description.',
+    'Ne signale rien, ne publie rien, ne pose aucune question : cette tâche ne doit laisser aucune carte au magistrat.',
+  ].join('\n')
+}
+
+// ── Actualisation « à la demande » des MIS EN CAUSE ──
+// Icône « Actualiser » à côté du + de la section Mis en cause : l'attaché relit
+// les CR, actes et documents du dossier et PROPOSE (✓/✗) les personnes mises en
+// cause qui n'y figurent pas encore. Aucune écriture directe : le magistrat
+// valide. Le dédoublonnage (nom déjà présent, nom voisin, nom identique connu
+// d'une autre enquête) est fait au dépôt de la proposition.
+function mecPrompt(numero) {
+  return [
+    `ACTUALISATION DES MIS EN CAUSE du dossier « ${numero} » — tâche de fond, silencieuse et économe en jetons.`,
+    'But : repérer les personnes MISES EN CAUSE qui apparaissent dans les CR, actes et documents du dossier mais ne',
+    'figurent PAS encore à sa section « Mis en cause », et les PROPOSER au magistrat (✓/✗). Aucune écriture directe.',
+    'MÉTHODE (3 lectures au plus, puis les propositions — va au neuf, ne relis pas tout) :',
+    `1. lire_dossier numero:"${numero}" — mis en cause DÉJÀ enregistrés, description, index des CR, actes, documents.`,
+    `2. Lis ce qui n'est pas encore reflété : section:"cr" pour le texte des derniers CR ; pour un acte ou un document`,
+    '   téléversé, dossier_arborescence puis lire_document (copie markdown servie d\'office). Relève les personnes mises',
+    '   en cause : auteurs, complices, fournisseurs, logisticiens, guetteurs, prête-noms. ÉCARTE les victimes, témoins,',
+    '   enquêteurs, magistrats, avocats et experts — et les simples alias/pseudonymes d\'une personne déjà enregistrée.',
+    '3. recouper_personnes noms:[…] sur TOUS les noms relevés — dit lesquels sont déjà connus (dossier réel, carte) et où.',
+    '4. proposer_mec pour chaque personne réellement absente du dossier : nom (tel qu\'il est écrit dans la pièce), role',
+    '   (rôle supposé, alias compris) et source (la pièce, ex. « CR du 12/07 », « PV D8092 »). Le dédoublonnage est',
+    '   automatique : un nom déjà aux mis en cause est refusé ; un nom VOISIN, ou identique dans une AUTRE enquête, est',
+    '   déposé AVEC son avertissement — dépose-le quand même, c\'est au magistrat de trancher.',
+    'Si personne de nouveau n\'apparaît, ne propose RIEN : termine sans appeler proposer_mec.',
     'Ne signale rien, ne publie rien, ne pose aucune question : cette tâche ne doit laisser aucune carte au magistrat.',
   ].join('\n')
 }
@@ -500,6 +533,11 @@ async function runActualiserDescription(numero, trigger = 'auto') {
   descriptionRunning = true
   try {
     console.log(`[attache] actualisation description « ${num} » (${trigger})`)
+    // Le run tient AUSSI la section « Mis en cause » en cohérence : la partie
+    // MIS EN CAUSE de la description ne parle que des personnes enregistrées,
+    // donc tout nom relevé au passage et absent du dossier part en proposition
+    // ✓/✗. On compte avant/après (coût nul) pour le dire au magistrat.
+    const avantMec = countPropositionsMec(keys, num)
     const result = await runAgent({
       keys,
       prompt: descriptionPrompt(num),
@@ -512,7 +550,8 @@ async function runActualiserDescription(numero, trigger = 'auto') {
       maxTurns: 8,
       timeoutMs: 8 * 60 * 1000,
     })
-    await audit(keys, 'description_actualisee', { numero: num, trigger, ok: result.ok, convId: result.convId, erreur: result.error })
+    const proposees = Math.max(0, countPropositionsMec(keys, num) - avantMec)
+    await audit(keys, 'description_actualisee', { numero: num, trigger, ok: result.ok, proposees, convId: result.convId, erreur: result.error })
     // Recale le point de référence sur l'état COURANT (la signature exclut la
     // description, donc l'écriture ne l'a pas fait bouger) : l'auto ne se
     // redéclenche pas immédiatement, l'anti-rafale part de maintenant.
@@ -522,10 +561,55 @@ async function runActualiserDescription(numero, trigger = 'auto') {
       descs[num] = { sig: sig ?? descs[num]?.sig ?? '', lastRefreshedAt: new Date().toISOString(), pendingSig: null, pendingSince: null }
       await writeState({ descriptions: descs })
     } catch { /* recalage best-effort */ }
-    return { ok: result.ok, convId: result.convId, error: result.error }
+    return { ok: result.ok, proposees, convId: result.convId, error: result.error }
   } finally {
     descriptionRunning = false
   }
+}
+
+let mecRunning = false
+/**
+ * Run COURT de détection des mis en cause manquants d'un dossier. Rend le NOMBRE
+ * de propositions déposées (comptage avant/après, coût nul) pour que le
+ * navigateur dise au magistrat ce qui l'attend — ou qu'il n'y avait rien.
+ */
+async function runActualiserMec(numero, trigger = 'manuel') {
+  const num = String(numero || '').trim()
+  if (!num) return { ok: false, error: 'numéro requis' }
+  // Un seul run de détection à la fois : deux runs concurrents reliraient les
+  // mêmes pièces et déposeraient deux fois le même nom (le dédoublonnage ne
+  // joue qu'entre propositions DÉJÀ enregistrées).
+  if (mecRunning) return { ok: false, running: true, error: 'détection déjà en cours' }
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  mecRunning = true
+  try {
+    console.log(`[attache] actualisation mis en cause « ${num} » (${trigger})`)
+    const avant = countPropositionsMec(keys, num)
+    const result = await runAgent({
+      keys,
+      prompt: mecPrompt(num),
+      runLabel: 'mec',
+      title: `Mis en cause ${num} ${new Date().toISOString().slice(0, 10)}`,
+      // Même régime que la description : modèle économe, effort faible, peu de tours.
+      model: economicalModel(agentConfig()),
+      effort: 'low',
+      maxTurns: 8,
+      timeoutMs: 8 * 60 * 1000,
+    })
+    const proposees = Math.max(0, countPropositionsMec(keys, num) - avant)
+    await audit(keys, 'mec_actualises', { numero: num, trigger, ok: result.ok, proposees, convId: result.convId, erreur: result.error })
+    return { ok: result.ok, proposees, convId: result.convId, error: result.error }
+  } finally {
+    mecRunning = false
+  }
+}
+
+/** Propositions de mis en cause EN ATTENTE sur un dossier (comptage déterministe). */
+function countPropositionsMec(keys, numero) {
+  try {
+    return listPropositions(keys, { numero, enAttente: true }).filter((p) => p.type === 'mec').length
+  } catch { return 0 }
 }
 
 /**
@@ -1060,6 +1144,19 @@ const server = http.createServer(async (req, res) => {
       if (!numero) return json(res, 400, { ok: false, error: 'Numéro requis' })
       if (!loadKeyring()) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
       const out = await runActualiserDescription(numero, 'manuel')
+      if (out.running) return json(res, 202, { ok: true, running: true })
+      return json(res, out.ok ? 200 : 502, out)
+    }
+
+    if (route === 'POST /actualiser-mec') {
+      // Détection À LA DEMANDE des mis en cause manquants (icône « Actualiser »
+      // de la section Mis en cause) : run court, AWAITÉ ici pour que le
+      // navigateur affiche les propositions déposées tout de suite.
+      const body = await readBody(req)
+      const numero = String(body.numero || '').trim()
+      if (!numero) return json(res, 400, { ok: false, error: 'Numéro requis' })
+      if (!loadKeyring()) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      const out = await runActualiserMec(numero, 'manuel')
       if (out.running) return json(res, 202, { ok: true, running: true })
       return json(res, out.ok ? 200 : 502, out)
     }

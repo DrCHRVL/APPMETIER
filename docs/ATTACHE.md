@@ -451,6 +451,30 @@ l'usage).
   dossier, admin seul) force la mise à jour **de suite** — en plus de
   l'automatique. L'ancienne description est archivée (`descriptionHistory`),
   rien n'est jamais perdu (en plus du versionnage du coffre).
+- **Tient la section « Mis en cause » en cohérence** : la partie *MIS EN CAUSE*
+  de la description ne parle que des personnes **enregistrées** — une passe qui
+  relève un nom mis en cause absent du dossier le **propose** aussitôt (✓/✗),
+  sans jamais l'écrire d'office. C'est le même geste dans les deux sens :
+  - **icône « Actualiser » à côté du + de la section *Mis en cause*** (détail du
+    dossier, admin seul) : l'attaché relit les CR, actes et documents et dépose
+    les noms manquants en propositions — victimes, témoins, enquêteurs,
+    magistrats, avocats et simples alias écartés ;
+  - **actualisation de la description** : la même passe fait le travail, et le
+    message de retour dit combien de mis en cause ont été proposés.
+  Les deux runs sont **courts et économes** (modèle rapide, effort faible,
+  ≤ 8 tours) et apparaissent sous le poste **« Mis en cause (détection) »** de
+  « Consommation IA ». Le **dédoublonnage** est vérifié au dépôt :
+  - nom **déjà** aux mis en cause du dossier (ou déjà proposé) ⇒ **rien n'est
+    déposé** ;
+  - nom **très proche** — orthographe voisine (« LAACHIRA Medhi » /
+    « LAACHIRRA Mehdi », inversions de lettres comprises), mêmes mots dans un
+    autre ordre (« ABAZ YOUSSEF Selim » / « Selim ABAZ YOUSSEF »), prénom ou
+    patronyme en moins (« KADER » / « KADER Marco Paulo ») ⇒ **déposé quand
+    même, AVEC son avertissement** affiché sous la proposition ;
+  - nom **identique (ou voisin) connu d'une AUTRE enquête** ⇒ déposé, avec le
+    **numéro du dossier** où il figure déjà.
+  Rien n'est bloqué sur un simple rapprochement : le magistrat voit le doublon
+  possible et tranche lui-même d'un ✓ ou d'un ✗.
 - **Relance les dossiers dormants** : `lister_dossiers` marque `dormant:true`
   tout dossier sans mouvement depuis plus de 2 mois — une routine de veille en
   tire un projet de mail de relance au directeur d'enquête, prêt à coller.

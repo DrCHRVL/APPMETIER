@@ -10,9 +10,14 @@
  *   ✗ = refusée, sans trace.
  * Après validation, on tire le coffre serveur et on rafraîchit le dossier
  * immédiatement (syncAndRefresh) : l'ajout apparaît sans attendre le cycle.
+ *
+ * Une proposition de mis en cause peut porter des AVERTISSEMENTS de
+ * rapprochement (nom très proche d'un mis en cause déjà enregistré, nom
+ * identique connu d'une autre enquête) : ils s'affichent sous elle, en ambre.
+ * Rien n'est bloqué — le magistrat voit le risque de doublon et tranche.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Check, X, UserPlus, Gavel, FileText, Loader2, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import { Check, X, UserPlus, Gavel, FileText, Loader2, ChevronDown, ChevronUp, Sparkles, AlertTriangle } from 'lucide-react';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
 
 interface Proposition {
@@ -23,6 +28,9 @@ interface Proposition {
   payload: Record<string, unknown>;
   source?: string;
   creeLe: string;
+  /** Mises en garde de rapprochement (mis en cause) : nom très proche d'un nom
+   *  déjà présent, ou identique à celui d'une autre enquête. */
+  avertissements?: string[];
 }
 
 const TYPE_META = {
@@ -31,7 +39,7 @@ const TYPE_META = {
   cr:   { icon: FileText, label: 'CR',           tint: 'text-blue-700 bg-blue-50' },
 } as const;
 
-export function PropositionsBar({ numero }: { numero: string }) {
+export function PropositionsBar({ numero, reloadToken = 0 }: { numero: string; reloadToken?: number }) {
   const [props, setProps] = useState<Proposition[]>([]);
   const [available, setAvailable] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -54,7 +62,10 @@ export function PropositionsBar({ numero }: { numero: string }) {
     } catch {
       setAvailable(false);
     }
-  }, [numero]);
+    // `reloadToken` change quand une passe de l'attaché vient de tourner
+    // (description ou mis en cause) : on relit pour montrer ce qu'elle a déposé.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [numero, reloadToken]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -162,6 +173,14 @@ export function PropositionsBar({ numero }: { numero: string }) {
                 </div>
               )}
               {p.source && <div className="mt-0.5 pl-1 text-[10.5px] text-gray-400">Source : {p.source}</div>}
+              {/* Rapprochements de noms : la proposition n'est PAS bloquée, mais
+                  le doublon possible est dit — c'est le magistrat qui tranche. */}
+              {(p.avertissements || []).map((a, i) => (
+                <div key={i} className="mt-0.5 flex items-start gap-1 pl-1 text-[10.5px] text-amber-700">
+                  <AlertTriangle className="mt-[1px] h-2.5 w-2.5 flex-shrink-0" />
+                  <span>{a}</span>
+                </div>
+              ))}
               {isOpen && (
                 <pre className="mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border border-amber-100 bg-white p-2 font-sans text-[11.5px] leading-relaxed text-gray-700">
                   {p.type === 'cr'
