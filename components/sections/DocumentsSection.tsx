@@ -457,7 +457,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   };
 
   const isValidFileType = (file: File): boolean => {
-    const valid = ['.pdf','.doc','.docx','.odt','.txt','.xlsx','.xlsm','.xls','.ods','.csv','.jpg','.jpeg','.png','.gif','.bmp','.webp','.html','.htm','.msg'];
+    const valid = ['.pdf','.doc','.docx','.odt','.txt','.md','.rtf','.eml','.xlsx','.xlsm','.xls','.ods','.csv','.jpg','.jpeg','.png','.gif','.bmp','.webp','.html','.htm','.msg'];
     return valid.some(ext => file.name.toLowerCase().endsWith(ext));
   };
 
@@ -655,7 +655,8 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     };
     const zone = categoryMapping[category];
     const valid = incoming.filter(({ file }) => isValidFileType(file));
-    const nonPrisEnCharge = incoming.length - valid.length;
+    const ecartes = incoming.filter(({ file }) => !isValidFileType(file));
+    const nonPrisEnCharge = ecartes.length;
     if (!valid.length) {
       showToast('Aucun fichier pris en charge dans ce dossier', 'warning');
       return;
@@ -685,6 +686,11 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
       const plan: PlanItem[] = [];
       const echecs: string[] = [];
       const avertissements: string[] = [];
+      // fichiers écartés : nommés dans le bilan (le compte seul ne dit rien)
+      for (const { path } of ecartes.slice(0, 30)) {
+        avertissements.push(`${path} — format non pris en charge, fichier non versé`);
+      }
+      if (ecartes.length > 30) avertissements.push(`… et ${ecartes.length - 30} autre(s) fichier(s) non pris en charge`);
       for (const { file, path } of valid) {
         const relIdeal = serverRelPath(zone, path);
         if (!relIdeal) { echecs.push(`${path} — chemin invalide après nettoyage`); continue; }
@@ -825,8 +831,9 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
             try {
               cleanRel = String(await window.siralBridge.depositDocument(enquete.numero, rel, buf, zone, file.name));
             } catch (e1) {
-              // un seul rejeu, pour les aléas réseau — jamais sur une session expirée
-              if (e1 instanceof Error && /session expirée/i.test(e1.message)) throw e1;
+              // un seul rejeu, pour les aléas réseau — jamais sur une session
+              // expirée ni une erreur de programmation (TypeError), où rejouer ne peut rien
+              if (e1 instanceof TypeError || (e1 instanceof Error && /session expirée/i.test(e1.message))) throw e1;
               await new Promise(r => setTimeout(r, 2000));
               cleanRel = String(await window.siralBridge.depositDocument(enquete.numero, rel, buf, zone, file.name));
             }
@@ -842,14 +849,18 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         setUploadProgress((p) => (p ? { ...p, done: p.done + 1, errors: echecs.length } : p));
       };
 
+      let panneGenerale = false;
       for (const group of groups) {
         if (cancelUploadRef.current || sessionPerdue) break;
+        // panne générale (serveur KO, bug…) : rien ne passe et tout échoue —
+        // on s'arrête au lieu de mouliner des centaines de dépôts perdus d'avance
+        if (echecs.length >= 8 && ok === 0 && dejaLa === 0) { panneGenerale = true; break; }
         await Promise.all(group.map(traiterUn));
         if (added.length - flushed >= FLUSH_EVERY) flushState();
       }
       flushState();
 
-      const interrompu = cancelUploadRef.current || sessionPerdue;
+      const interrompu = cancelUploadRef.current || sessionPerdue || panneGenerale;
       await suggererAnalyse(convertis, category);
       setUploadReport({
         zone: DOCUMENT_ZONES.find(z => z.category === category)?.title || zone,
@@ -858,7 +869,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
       });
       showToast(
         interrompu
-          ? `Versement ${sessionPerdue ? 'interrompu (session expirée — reconnectez-vous)' : 'arrêté'} : ${ok} pièce(s) versée(s). Re-déposez le même dossier pour terminer, rien ne sera dupliqué.`
+          ? `Versement ${sessionPerdue ? 'interrompu (session expirée — reconnectez-vous)' : panneGenerale ? 'arrêté : les premiers dépôts ont tous échoué (voir le détail des échecs)' : 'arrêté'} : ${ok} pièce(s) versée(s). Re-déposez le même dossier pour terminer, rien ne sera dupliqué.`
           : `${ok} pièce(s) versée(s) dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title}` +
             `${dejaLa ? ` · ${dejaLa} déjà présente(s) (reprise)` : ''}` +
             `${nonPrisEnCharge ? ` · ${nonPrisEnCharge} non pris en charge` : ''}` +
