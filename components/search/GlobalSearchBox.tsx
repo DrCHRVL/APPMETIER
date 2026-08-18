@@ -21,11 +21,13 @@ import {
 } from 'react';
 import {
   Search, FileText, Scale, Activity, Network, ArrowUpRight, Zap, History,
-  CornerDownLeft, SearchX,
+  CornerDownLeft, SearchX, FileSearch, Loader2,
 } from 'lucide-react';
 import type { GlobalSearchDoc, GlobalHit, GlobalHitGroup } from '@/utils/globalSearch';
 import type { GlobalSearchApi } from '@/hooks/useGlobalSearch';
+import { useGlobalDocumentSearch, DocumentContentHit } from '@/hooks/useGlobalDocumentSearch';
 import type { ContentieuxDefinition } from '@/types/userTypes';
+import type { Enquete } from '@/types/interfaces';
 
 // ── Récents (localStorage) ─────────────────────
 
@@ -57,7 +59,23 @@ const KIND_ICONS: Record<GlobalSearchDoc['kind'], typeof FileText> = {
   personne: Network,
   page: ArrowUpRight,
   action: Zap,
+  document: FileSearch,
 };
+
+/** Un résultat « contenu de document » devient une ligne exécutable :
+ *  l'ouverture mène à l'enquête qui porte le document. */
+function docHitToDoc(h: DocumentContentHit): GlobalSearchDoc {
+  return {
+    key: h.key,
+    kind: 'document',
+    title: h.docNom,
+    subtitle: `${h.numero} · ${h.excerpt}`,
+    ctxId: h.ctxId,
+    archived: h.archived,
+    fields: [],
+    data: { ctxId: h.ctxId, id: h.enqueteId, numero: h.numero },
+  };
+}
 
 /** Surligne les plages correspondantes du titre. */
 function HighlightedTitle({ title, ranges }: { title: string; ranges: Array<[number, number]> }) {
@@ -93,6 +111,9 @@ interface GlobalSearchBoxProps {
   contentieuxDefs: ContentieuxDefinition[];
   /** Exécute un résultat (ouvrir l'enquête, naviguer, lancer l'action…). */
   onExecute: (doc: GlobalSearchDoc | RecentDoc) => void;
+  /** Enquêtes par contentieux — active la recherche dans le CONTENU des
+   *  documents (groupe « Documents », analyse asynchrone avec cache). */
+  docSources?: Map<string, Enquete[]>;
 }
 
 const VISIBLE_PER_GROUP = 5;
@@ -104,6 +125,7 @@ export const GlobalSearchBox = ({
   api,
   contentieuxDefs,
   onExecute,
+  docSources,
 }: GlobalSearchBoxProps) => {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(0);
@@ -125,6 +147,12 @@ export const GlobalSearchBox = ({
 
   const hasQuery = deferredTerm.trim().length >= 2;
 
+  // Contenu des documents (asynchrone, tous contentieux). Automatiquement :
+  // cache seulement (coût nul). L'extraction des documents jamais lus part du
+  // bouton « Analyser » — jamais en silence.
+  const { docHits, docScan, startFullScan } = useGlobalDocumentSearch(open && hasQuery, effectiveTerm, docSources);
+  const docRows = useMemo<GlobalSearchDoc[]>(() => docHits.map(docHitToDoc), [docHits]);
+
   // Lignes affichées, aplaties dans l'ordre pour la navigation clavier.
   const rows = useMemo<Row[]>(() => {
     if (hasQuery) {
@@ -133,6 +161,8 @@ export const GlobalSearchBox = ({
         const visible = expandedKinds.has(g.kind) ? g.hits : g.hits.slice(0, VISIBLE_PER_GROUP);
         for (const hit of visible) out.push({ doc: hit.doc, hit });
       }
+      const visibleDocs = expandedKinds.has('document') ? docRows : docRows.slice(0, VISIBLE_PER_GROUP);
+      for (const doc of visibleDocs) out.push({ doc });
       return out;
     }
     const out: Row[] = recents.map(doc => ({ doc, origin: 'recent' as const }));
@@ -140,7 +170,7 @@ export const GlobalSearchBox = ({
       if (!recents.some(r => r.key === doc.key)) out.push({ doc, origin: 'quick' });
     }
     return out;
-  }, [hasQuery, groups, expandedKinds, recents, api.quickLinks]);
+  }, [hasQuery, groups, expandedKinds, recents, api.quickLinks, docRows]);
 
   // Sélection remise en tête à chaque nouvelle requête.
   useEffect(() => {
@@ -345,14 +375,15 @@ export const GlobalSearchBox = ({
               l'input au clic d'une ligne, sans casser la barre de défilement. */}
           <div className="pb-1" onMouseDown={(e) => e.preventDefault()}>
             {hasQuery ? (
-              groups.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 py-8 text-gray-400">
-                  <SearchX className="h-6 w-6" />
-                  <p className="text-sm">Aucun résultat pour « {deferredTerm.trim()} »</p>
-                  <p className="text-[11px]">Les fautes de frappe légères sont tolérées — essayez un nom, un numéro, un service…</p>
-                </div>
-              ) : (
-                groups.map(g => (
+              <>
+                {groups.length === 0 && docRows.length === 0 && !docScan.scanning && (
+                  <div className="flex flex-col items-center gap-2 py-8 text-gray-400">
+                    <SearchX className="h-6 w-6" />
+                    <p className="text-sm">Aucun résultat pour « {deferredTerm.trim()} »</p>
+                    <p className="text-[11px]">Les fautes de frappe légères sont tolérées — essayez un nom, un numéro, un service…</p>
+                  </div>
+                )}
+                {groups.map(g => (
                   <div key={g.kind}>
                     {groupHeader(g.label, g.total > VISIBLE_PER_GROUP && (
                       <span className="text-[10px] text-gray-300 font-medium">{g.total}</span>
@@ -370,8 +401,48 @@ export const GlobalSearchBox = ({
                       </button>
                     )}
                   </div>
-                ))
-              )
+                ))}
+                {/* Contenu des documents — résultats au fil de l'analyse */}
+                {(docRows.length > 0 || docScan.scanning || docScan.pending > 0) && (
+                  <div>
+                    {groupHeader('Documents', docScan.scanning ? (
+                      <span className="flex items-center gap-1 text-[10px] text-gray-300 font-medium">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        {docScan.done}/{docScan.total}
+                      </span>
+                    ) : (
+                      docRows.length > VISIBLE_PER_GROUP && (
+                        <span className="text-[10px] text-gray-300 font-medium">{docRows.length}</span>
+                      )
+                    ))}
+                    {(expandedKinds.has('document') ? docRows : docRows.slice(0, VISIBLE_PER_GROUP)).map(doc =>
+                      renderRow({ doc })
+                    )}
+                    {!expandedKinds.has('document') && docRows.length > VISIBLE_PER_GROUP && (
+                      <button
+                        type="button"
+                        className="w-full px-10 py-1.5 text-left text-[11.5px] font-medium text-emerald-600 hover:bg-emerald-50/60"
+                        onClick={() => setExpandedKinds(prev => new Set(prev).add('document'))}
+                      >
+                        Afficher {docRows.length - VISIBLE_PER_GROUP} de plus…
+                      </button>
+                    )}
+                    {/* Documents jamais analysés : l'extraction (téléchargement +
+                        déchiffrement locaux) ne part que d'un geste volontaire. */}
+                    {!docScan.scanning && docScan.pending > 0 && (
+                      <button
+                        type="button"
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[11.5px] font-medium text-emerald-700 hover:bg-emerald-50/60"
+                        onClick={startFullScan}
+                        title="Télécharge et lit ces documents dans votre navigateur (une seule fois : le texte est mémorisé pour les prochaines recherches)."
+                      >
+                        <FileSearch className="h-3.5 w-3.5" />
+                        Chercher aussi dans {docScan.pending} document{docScan.pending > 1 ? 's' : ''} jamais analysé{docScan.pending > 1 ? 's' : ''}…
+                      </button>
+                    )}
+                  </div>
+                )}
+              </>
             ) : (
               <>
                 {recents.length > 0 && (
@@ -392,6 +463,18 @@ export const GlobalSearchBox = ({
                   {groupHeader('Navigation rapide')}
                   {rows.filter(r => r.origin === 'quick').map(renderRow)}
                 </div>
+                {/* Opérateurs de ciblage, façon Slack/Gmail */}
+                <div className="px-3 pt-2 pb-1.5 mt-1 border-t border-gray-50">
+                  <p className="text-[10.5px] text-gray-400 leading-relaxed">
+                    <span className="font-semibold text-gray-500">Astuce :</span> ciblez avec{' '}
+                    <code className="bg-gray-100 rounded px-1">mec:dupont</code>{' '}
+                    <code className="bg-gray-100 rounded px-1">service:bsu</code>{' '}
+                    <code className="bg-gray-100 rounded px-1">tag:armes</code>{' '}
+                    <code className="bg-gray-100 rounded px-1">no:85103</code>{' '}
+                    <code className="bg-gray-100 rounded px-1">doc:pv</code>{' '}
+                    <code className="bg-gray-100 rounded px-1">contenu:drone</code>
+                  </p>
+                </div>
               </>
             )}
           </div>
@@ -404,9 +487,14 @@ export const GlobalSearchBox = ({
               <span><kbd className="font-sans">↵</kbd> ouvrir</span>
               <span><kbd className="font-sans">échap</kbd> fermer</span>
             </span>
-            {hasQuery && totalHits > 0 && (
-              <span>{totalHits} résultat{totalHits > 1 ? 's' : ''}</span>
-            )}
+            {hasQuery && docScan.scanning ? (
+              <span className="flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Analyse des documents {docScan.done}/{docScan.total}…
+              </span>
+            ) : hasQuery && (totalHits > 0 || docRows.length > 0) ? (
+              <span>{totalHits + docRows.length} résultat{totalHits + docRows.length > 1 ? 's' : ''}</span>
+            ) : null}
           </div>
         </div>
       )}

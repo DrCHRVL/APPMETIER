@@ -15,12 +15,15 @@ import { GlobalSearchBox } from './search/GlobalSearchBox';
 import type { GlobalSearchApi } from '@/hooks/useGlobalSearch';
 import type { GlobalSearchDoc } from '@/utils/globalSearch';
 import type { ContentieuxDefinition } from '@/types/userTypes';
+import type { Enquete } from '@/types/interfaces';
 
 /** Recherche globale (omnibox) : fournie par la page racine. */
 export interface HeaderGlobalSearch {
   api: GlobalSearchApi;
   contentieuxDefs: ContentieuxDefinition[];
   onExecute: (doc: Pick<GlobalSearchDoc, 'kind' | 'data'>) => void;
+  /** Enquêtes par contentieux — recherche dans le contenu des documents. */
+  docSources?: Map<string, Enquete[]>;
 }
 
 interface HeaderProps {
@@ -159,6 +162,7 @@ export const Header = ({
               api={globalSearch.api}
               contentieuxDefs={globalSearch.contentieuxDefs}
               onExecute={globalSearch.onExecute}
+              docSources={globalSearch.docSources}
             />
           ) : (
           <div className="relative flex-1 min-w-0 sm:flex-none">

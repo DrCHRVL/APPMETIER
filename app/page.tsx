@@ -1390,6 +1390,9 @@ function AppContent() {
   const handleGlobalSearchExecute = async (doc: Pick<GlobalSearchDoc, 'kind' | 'data'>) => {
     const data = doc.data as Record<string, unknown>;
     switch (doc.kind) {
+      // Un résultat « contenu de document » ouvre l'enquête qui porte le
+      // document — même chemin que les enquêtes.
+      case 'document':
       case 'enquete': {
         const ctxId = String(data.ctxId || '') as ContentieuxId;
         const numero = String(data.numero || '');
@@ -1583,6 +1586,7 @@ return (
               api: globalSearchApi,
               contentieuxDefs: accessibleContentieux,
               onExecute: handleGlobalSearchExecute,
+              docSources: enquetesForSearch,
             } : undefined}
           />
           </div>

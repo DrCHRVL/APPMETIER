@@ -49,35 +49,42 @@ function buildEnqueteDoc(e: Enquete, ctxId: ContentieuxId): GlobalSearchDoc {
   const fields: DocField[] = [];
   const acc: Array<DocField | null> = fields as Array<DocField | null>;
 
-  push(acc, makeField(e.numero, 3, { fuzzy: true }));
+  push(acc, makeField(e.numero, 3, { fuzzy: true, ops: ['no', 'num', 'numero'] }));
   // Alias « écrasé » des identifiants : retrouve « 85103/843/2026 » même tapé
   // sans les barres, et couvre n° parquet / IDJ.
   push(acc, makeField(
     [squashAlnum(e.numero), squashAlnum(e.numeroParquet || ''), squashAlnum(e.numeroIDJ || '')]
       .filter(Boolean).join(' '),
-    2.6
+    2.6,
+    { ops: ['no', 'num', 'numero'] }
   ));
   push(acc, makeField(
     (e.misEnCause || []).map(m => m.role ? `${m.nom} (${m.role})` : m.nom).join(' · '),
     2.4,
-    { label: 'Mis en cause', fuzzy: true }
+    { label: 'Mis en cause', fuzzy: true, ops: ['mec', 'nom', 'personne'] }
   ));
-  push(acc, makeField((e.services || []).filter(Boolean).join(' · '), 2, { label: 'Service', fuzzy: true }));
-  push(acc, makeField((e.tags || []).map(t => t.value).join(' · '), 1.8, { label: 'Tag', fuzzy: true }));
-  push(acc, makeField(e.directeurEnquete, 1.8, { label: 'Directeur d’enquête', fuzzy: true }));
-  push(acc, makeField(e.description, 1.2, { label: 'Description', maxLength: 4000 }));
+  push(acc, makeField((e.services || []).filter(Boolean).join(' · '), 2, { label: 'Service', fuzzy: true, ops: ['service', 'sce'] }));
+  push(acc, makeField((e.tags || []).map(t => t.value).join(' · '), 1.8, { label: 'Tag', fuzzy: true, ops: ['tag'] }));
+  push(acc, makeField(e.directeurEnquete, 1.8, { label: 'Directeur d’enquête', fuzzy: true, ops: ['dir', 'directeur'] }));
+  push(acc, makeField(e.description, 1.2, { label: 'Description', maxLength: 4000, ops: ['desc', 'description'] }));
 
-  // Contenu « profond » : CR, écoutes, géolocalisations, actes, notes, noms de
-  // documents. Sous-chaîne exacte uniquement (pas de tolérance de frappe sur du
-  // texte long) — c'est ce qui garde la recherche instantanée.
+  // Noms des documents versés (le CONTENU, lui, est fouillé en asynchrone).
+  push(acc, makeField(
+    (e.documents || []).flatMap(d => [d.nom, d.nomOriginal]).filter(Boolean).join(' • '),
+    1.1,
+    { label: 'Document', maxLength: 8000, ops: ['doc', 'document', 'fichier'] }
+  ));
+
+  // Contenu « profond » : CR, écoutes, géolocalisations, actes, notes.
+  // Sous-chaîne exacte uniquement (pas de tolérance de frappe sur du texte
+  // long) — c'est ce qui garde la recherche instantanée.
   const deep: string[] = [];
   for (const cr of e.comptesRendus || []) deep.push(cr.enqueteur, cr.description);
   for (const ec of e.ecoutes || []) deep.push(ec.numero, ec.cible || '', ec.description || '');
   for (const g of e.geolocalisations || []) deep.push(g.objet, g.description || '');
   for (const a of e.actes || []) deep.push(a.type, a.description);
-  for (const d of e.documents || []) deep.push(d.nom, d.nomOriginal);
   if (e.notes) deep.push(e.notes);
-  push(acc, makeField(deep.filter(Boolean).join(' • '), 0.9, { label: 'Contenu', maxLength: 20000 }));
+  push(acc, makeField(deep.filter(Boolean).join(' • '), 0.9, { label: 'Contenu', maxLength: 20000, ops: ['contenu', 'cr'] }));
 
   const mecList = (e.misEnCause || []).map(m => m.nom).filter(Boolean).join(', ');
   return {
@@ -98,21 +105,22 @@ function buildInstructionDoc(d: DossierInstruction): GlobalSearchDoc {
   const fields: DocField[] = [];
   const acc: Array<DocField | null> = fields as Array<DocField | null>;
 
-  push(acc, makeField(d.numeroInstruction, 3, { fuzzy: true }));
+  push(acc, makeField(d.numeroInstruction, 3, { fuzzy: true, ops: ['no', 'num', 'numero'] }));
   push(acc, makeField(
     [squashAlnum(d.numeroInstruction), squashAlnum(d.numeroParquet || ''), squashAlnum(d.enquetePreliminaireNumero || '')]
       .filter(Boolean).join(' '),
-    2.6
+    2.6,
+    { ops: ['no', 'num', 'numero'] }
   ));
   push(acc, makeField(
     (d.misEnExamen || []).map(m => m.nom).join(' · '),
     2.4,
-    { label: 'Mis en examen', fuzzy: true }
+    { label: 'Mis en examen', fuzzy: true, ops: ['mex', 'mec', 'nom', 'personne'] }
   ));
-  push(acc, makeField(d.magistratInstructeur, 2, { label: 'Magistrat instructeur', fuzzy: true }));
-  push(acc, makeField(d.serviceEnqueteur, 1.8, { label: 'Service', fuzzy: true }));
-  push(acc, makeField((d.tags || []).map(t => t.value).join(' · '), 1.8, { label: 'Tag', fuzzy: true }));
-  push(acc, makeField(d.description, 1.2, { label: 'Description', maxLength: 4000 }));
+  push(acc, makeField(d.magistratInstructeur, 2, { label: 'Magistrat instructeur', fuzzy: true, ops: ['magistrat', 'juge'] }));
+  push(acc, makeField(d.serviceEnqueteur, 1.8, { label: 'Service', fuzzy: true, ops: ['service', 'sce'] }));
+  push(acc, makeField((d.tags || []).map(t => t.value).join(' · '), 1.8, { label: 'Tag', fuzzy: true, ops: ['tag'] }));
+  push(acc, makeField(d.description, 1.2, { label: 'Description', maxLength: 4000, ops: ['desc', 'description'] }));
 
   const deep: string[] = [];
   for (const s of d.saisine || []) deep.push((s as { qualification?: string }).qualification || '');
@@ -121,7 +129,7 @@ function buildInstructionDoc(d: DossierInstruction): GlobalSearchDoc {
       deep.push(inf.qualification || '');
     }
   }
-  push(acc, makeField(deep.filter(Boolean).join(' • '), 0.9, { label: 'Saisine', maxLength: 8000 }));
+  push(acc, makeField(deep.filter(Boolean).join(' • '), 0.9, { label: 'Saisine', maxLength: 8000, ops: ['saisine', 'qualification', 'contenu'] }));
 
   return {
     key: `inst_${d.id}`,
@@ -145,12 +153,12 @@ function buildAIRDoc(m: AIRMesure, idx: number): GlobalSearchDoc | null {
   const fields: DocField[] = [];
   const acc: Array<DocField | null> = fields as Array<DocField | null>;
 
-  push(acc, makeField(m.nomPrenom, 3, { fuzzy: true }));
-  push(acc, makeField(squashAlnum(m.refAEM || ''), 2.4));
-  push(acc, makeField(m.referent, 1.8, { label: 'Référent', fuzzy: true }));
-  push(acc, makeField(m.secteurGeographique, 1.4, { label: 'Secteur', fuzzy: true }));
-  push(acc, makeField(m.faits, 1.1, { label: 'Faits', maxLength: 2000 }));
-  push(acc, makeField(m.commentaires, 0.9, { label: 'Commentaires', maxLength: 2000 }));
+  push(acc, makeField(m.nomPrenom, 3, { fuzzy: true, ops: ['nom', 'personne', 'mec'] }));
+  push(acc, makeField(squashAlnum(m.refAEM || ''), 2.4, { ops: ['aem', 'ref', 'no', 'num'] }));
+  push(acc, makeField(m.referent, 1.8, { label: 'Référent', fuzzy: true, ops: ['referent'] }));
+  push(acc, makeField(m.secteurGeographique, 1.4, { label: 'Secteur', fuzzy: true, ops: ['secteur'] }));
+  push(acc, makeField(m.faits, 1.1, { label: 'Faits', maxLength: 2000, ops: ['faits', 'desc', 'description'] }));
+  push(acc, makeField(m.commentaires, 0.9, { label: 'Commentaires', maxLength: 2000, ops: ['contenu'] }));
 
   return {
     key: `air_${m.refAEM || idx}`,
@@ -185,7 +193,7 @@ function buildPersonneDocs(
 
   const docs: GlobalSearchDoc[] = [];
   byName.forEach(({ display, count }, key) => {
-    const nameField = makeField(display, 3, { fuzzy: true });
+    const nameField = makeField(display, 3, { fuzzy: true, ops: ['nom', 'personne', 'mec', 'mex'] });
     if (!nameField) return;
     docs.push({
       key: `pers_${key}`,

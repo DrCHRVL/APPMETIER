@@ -126,7 +126,10 @@ export type GlobalDocKind =
   | 'air'
   | 'personne'
   | 'page'
-  | 'action';
+  | 'action'
+  /** Correspondance dans le CONTENU d'un document (résultats asynchrones,
+   *  injectés par le panneau — jamais présents dans l'index synchrone). */
+  | 'document';
 
 /** Un champ interrogeable d'un document indexé. */
 export interface DocField {
@@ -140,6 +143,10 @@ export interface DocField {
   weight: number;
   /** Autoriser la tolérance aux fautes de frappe (réservé aux champs courts). */
   fuzzy: boolean;
+  /** Alias d'OPÉRATEUR ciblant ce champ (« mec » pour `mec:dupont`…). Un terme
+   *  avec opérateur ne matche QUE les champs qui le déclarent — les documents
+   *  sans un tel champ sont exclus (l'opérateur agit comme un filtre). */
+  ops?: string[];
   /** Cache paresseux de la variante alphanumérique (rempli à la première requête). */
   squashCache?: string;
 }
@@ -182,7 +189,7 @@ export interface GlobalHitGroup {
 export function makeField(
   raw: string | undefined | null,
   weight: number,
-  opts?: { label?: string; fuzzy?: boolean; maxLength?: number }
+  opts?: { label?: string; fuzzy?: boolean; maxLength?: number; ops?: string[] }
 ): DocField | null {
   if (!raw) return null;
   let text = String(raw);
@@ -195,6 +202,7 @@ export function makeField(
     label: opts?.label,
     weight,
     fuzzy: opts?.fuzzy ?? false,
+    ops: opts?.ops,
   };
 }
 
@@ -244,12 +252,13 @@ function matchTokenInField(
   }
   if (best) return best;
 
-  // 2) Variante « écrasée » (numéros : « 85103843 » ⊂ « 85103/843/2026 »).
-  if (squashedToken.length >= 4 && squashedToken !== token) {
+  // 2) Variante « écrasée » (numéros : « 85103843 » ⊂ « 85103/843/2026 »,
+  //    que le terme tapé porte des séparateurs ou non).
+  if (squashedToken.length >= 4) {
     if (field.squashCache === undefined) {
       field.squashCache = norm.replace(/[^a-z0-9]/g, '');
     }
-    if (field.squashCache.includes(squashedToken)) {
+    if (field.squashCache !== norm && field.squashCache.includes(squashedToken)) {
       return { score: SCORE_INFIX, start: 0, end: 0 };
     }
   }
@@ -293,17 +302,47 @@ function matchTokenInField(
 // RECHERCHE
 // ──────────────────────────────────────────────
 
-interface ParsedToken {
+export interface ParsedToken {
+  /** Valeur normalisée du terme (sans l'opérateur). */
   t: string;
   squashed: string;
+  /** Opérateur de ciblage (`mec:dupont` → op='mec', t='dupont'). */
+  op?: string;
 }
+
+/**
+ * Vocabulaire des opérateurs reconnus (façon Slack `from:` / Gmail `in:`).
+ * Tout autre préfixe `xxx:` reste du texte ordinaire — « 14:30 », « https://… »
+ * ou un opérateur mal orthographié ne vident jamais les résultats.
+ */
+export const KNOWN_OPS = new Set([
+  'no', 'num', 'numero',                 // numéro de dossier / parquet / IDJ
+  'mec', 'mex', 'nom', 'personne',       // mis en cause / mis en examen / personnes
+  'service', 'sce',                      // service enquêteur
+  'tag',                                 // tags
+  'dir', 'directeur',                    // directeur d'enquête
+  'magistrat', 'juge',                   // magistrat instructeur
+  'desc', 'description',                 // description
+  'contenu', 'cr',                       // contenu profond (CR, écoutes, actes…)
+  'doc', 'document', 'fichier',          // noms et contenu des documents
+  'saisine', 'qualification',            // saisine / qualifications (instruction)
+  'aem', 'ref', 'referent', 'secteur', 'faits', // module AIR
+]);
+
+const OP_RE = /^([a-z]{2,15}):(.+)$/;
 
 export function parseQuery(query: string): ParsedToken[] {
   return normalizeText(query)
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 6)
-    .map(t => ({ t, squashed: t.replace(/[^a-z0-9]/g, '') }));
+    .map(part => {
+      const m = OP_RE.exec(part);
+      if (m && KNOWN_OPS.has(m[1])) {
+        return { t: m[2], squashed: m[2].replace(/[^a-z0-9]/g, ''), op: m[1] };
+      }
+      return { t: part, squashed: part.replace(/[^a-z0-9]/g, '') };
+    });
 }
 
 function fuseRanges(ranges: Array<[number, number]>): Array<[number, number]> {
@@ -356,6 +395,9 @@ export function searchDocs(
 
       for (let fi = 0; fi < doc.fields.length; fi++) {
         const field = doc.fields[fi];
+        // Terme opéré (`mec:dupont`) : seuls les champs déclarant l'opérateur
+        // sont interrogés — les autres documents sortent du résultat.
+        if (token.op && (!field.ops || !field.ops.includes(token.op))) continue;
         const m = matchTokenInField(token.t, token.squashed, field, distMemos[ti]);
         if (!m) continue;
         const weighted = m.score * field.weight;
@@ -400,6 +442,7 @@ export const GROUP_LABELS: Array<{ kind: GlobalDocKind; label: string }> = [
   { kind: 'personne', label: 'Personnes' },
   { kind: 'page', label: 'Navigation' },
   { kind: 'action', label: 'Actions' },
+  { kind: 'document', label: 'Documents' },
 ];
 
 /**

@@ -260,6 +260,11 @@ interface ElectronAPI {
   // Extraction de texte PDF par chemin relatif (utilisé pour la recherche dans les documents)
   extractPdfText?: (cheminRelatif: string) => Promise<string | null>;
 
+  // Édition web (lib/web/bridge.ts) : octets d'un document déchiffré (base64)
+  // et texte extrait d'un PDF — utilisés par la recherche dans les documents.
+  readDocumentData?: (enqueteNumero: string, cheminRelatif: string) => Promise<string | null>;
+  readDocumentText?: (enqueteNumero: string, cheminRelatif: string) => Promise<string>;
+
   // API pour le scan et analyse des PDFs du chemin externe
   scanExternalPDFs?: (
     externalPath: string,
