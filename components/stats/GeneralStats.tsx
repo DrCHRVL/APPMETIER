@@ -1,5 +1,6 @@
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Enquete } from '@/types/interfaces';
+import { ResultatAudience } from '@/types/audienceTypes';
 import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
 import { useAudience } from '@/hooks/useAudience';
 import { useMemo } from 'react';
@@ -8,9 +9,23 @@ import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearSca
 import { Line } from 'react-chartjs-2';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { useTags } from '@/hooks/useTags';
-import { useActeStats, computeActeStats } from '@/hooks/useActeStats';
+import { computeActeStats } from '@/hooks/useActeStats';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { getYearlyStats } from '@/utils/audienceStats';
+// Procédures terminées, durées, défèrements, comparatif N-1, répartition par
+// service et suivi JIRS/PG : les règles vivent dans le module PARTAGÉ
+// lib/stats/ecranCore.mjs — même source que le connecteur Claude web
+// (outil `stats_ecran`), pour que l'agent lise EXACTEMENT ces nombres.
+import {
+  proceduresTerminees,
+  dureesMoyennes,
+  deferementsAnnee,
+  ouverturesAnnee,
+  actesAnnee,
+  comparatifAnneePrecedente,
+  repartitionServices,
+  suiviParquetExterieur,
+} from '@/lib/stats/ecranCore.mjs';
 import { detectActesAberrants } from '@/utils/acteAnomalies';
 import { Flag, AlertTriangle } from 'lucide-react';
 
@@ -27,6 +42,8 @@ ChartJS.register(
 );
 
 import { getServiceColor } from '@/utils/chartColors';
+
+const EURO = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 
 interface GeneralStatsProps {
   enquetes: Enquete[];
@@ -62,69 +79,29 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
     );
   }, [audienceState?.resultats, enqueteIds, contentieuxId]);
 
-  const directResults = Object.values(scopedResultats)
-    .filter(r => r.isDirectResult && new Date(r.dateAudience).getFullYear() === selectedYear);
-
-  const enquetesForYear = enquetes.filter(e =>
-    new Date(e.dateCreation).getFullYear() === selectedYear
+  // Procédures terminées de l'année (règles dans ecranCore) : enquêtes
+  // archivées jugées dans l'année + procédures directes de permanence, le
+  // chiffre-phare excluant classements sans suite et ouvertures d'information.
+  const termineesAnnee = useMemo(
+    () => proceduresTerminees(scopedResultats, enquetes, selectedYear),
+    [scopedResultats, enquetes, selectedYear],
   );
+  const enquetesTerminees: Enquete[] = termineesAnnee.enquetesTerminees;
+  const enquetesTermineesFiltered: Enquete[] = termineesAnnee.termineesHorsClOi;
+  const directResults: ResultatAudience[] = termineesAnnee.directes;
+  const directResultsFiltered: ResultatAudience[] = termineesAnnee.directesHorsClOi;
+  const classementsCount = termineesAnnee.classements;
+  const oiCount = termineesAnnee.ouverturesInformation;
+
   // Stock actuel d'enquêtes en cours (tous millésimes) — même population pour
   // la carte « Nombre d'enquêtes en cours » et la durée moyenne « en cours ».
   const allEnquetesEnCours = enquetes.filter(e => e.statut === 'en_cours');
 
-  const enquetesTerminees = enquetes.filter(e => {
-    if (e.statut !== 'archive') return false;
-    const audienceResult = Object.values(scopedResultats)
-      .find(r => r.enqueteId === e.id);
-    if (!audienceResult?.dateAudience) return false;
-    return new Date(audienceResult.dateAudience).getFullYear() === selectedYear;
-  });
-
-  // Procédures terminées hors classements sans suite et OI
-  const enquetesTermineesFiltered = enquetesTerminees.filter(e => {
-    const audienceResult = Object.values(scopedResultats)
-      .find(r => r.enqueteId === e.id);
-    return audienceResult && !audienceResult.isClassement && !audienceResult.isOI;
-  });
-  const directResultsFiltered = directResults.filter(r => !r.isClassement && !r.isOI);
-
-  // Comptage classements et OI pour l'affichage
-  const classementsCount = enquetesTerminees.filter(e => {
-    const audienceResult = Object.values(scopedResultats)
-      .find(r => r.enqueteId === e.id);
-    return audienceResult?.isClassement;
-  }).length + directResults.filter(r => r.isClassement).length;
-
-  const oiCount = enquetesTerminees.filter(e => {
-    const audienceResult = Object.values(scopedResultats)
-      .find(r => r.enqueteId === e.id);
-    return audienceResult?.isOI;
-  }).length + directResults.filter(r => r.isOI).length;
-
-  // Stats suivi JIRS / PG — enquêtes actives pendant l'année sélectionnée
-  const suiviStats = useMemo(() => {
-    // Enquêtes pertinentes pour l'année : créées avant ou pendant l'année,
-    // et soit encore en cours, soit archivées pendant cette année
-    const relevant = enquetes.filter(e => {
-      const created = new Date(e.dateCreation).getFullYear();
-      if (created > selectedYear) return false;
-      if (e.statut === 'en_cours' || e.statut === 'instruction') return true;
-      if (e.statut === 'archive') {
-        const ar = Object.values(scopedResultats).find(r => r.enqueteId === e.id);
-        if (ar?.dateAudience) return new Date(ar.dateAudience).getFullYear() === selectedYear;
-        return new Date(e.dateMiseAJour).getFullYear() === selectedYear;
-      }
-      return false;
-    });
-
-    const jirs = relevant.filter(e => e.tags.some(t => t.category === 'suivi' && t.value === 'JIRS'));
-    const pg = relevant.filter(e => e.tags.some(t => t.category === 'suivi' && t.value === 'PG'));
-    const both = relevant.filter(e =>
-      e.tags.some(t => t.category === 'suivi' && t.value === 'JIRS') &&
-      e.tags.some(t => t.category === 'suivi' && t.value === 'PG')
-    );
-    return { jirs, pg, both, total: new Set([...jirs, ...pg].map(e => e.id)).size };
-  }, [enquetes, selectedYear, scopedResultats]);
+  // Suivi JIRS / PG — enquêtes actives pendant l'année sélectionnée
+  const suiviStats: { total: number; jirs: Enquete[]; pg: Enquete[]; lesDeux: Enquete[] } = useMemo(
+    () => suiviParquetExterieur(scopedResultats, enquetes, selectedYear),
+    [scopedResultats, enquetes, selectedYear],
+  );
 
   const getMonthsToShow = () => {
     const lastMonth = selectedYear === currentDate.getFullYear() ?
@@ -132,138 +109,41 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
     return Array.from({ length: lastMonth + 1 }, (_, i) => i);
   };
 
-  // Durées moyennes (avec protection contre dateDebut invalide)
-  const durationTerminees = enquetesTerminees.reduce((result, e) => {
-    const audienceResult = Object.values(scopedResultats).find(r => r.enqueteId === e.id);
-    if (!audienceResult?.dateAudience || !e.dateDebut) return result;
-    const start = new Date(e.dateDebut);
-    const end = new Date(audienceResult.dateAudience);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) return result;
-    const duree = Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-    if (duree < 0) return result;
-    return { total: result.total + duree, count: result.count + 1 };
-  }, { total: 0, count: 0 });
-  const averageDurationTerminees = durationTerminees.count > 0 ? durationTerminees.total / durationTerminees.count : 0;
-
-  // Ancienneté moyenne du stock d'enquêtes en cours (tous millésimes, comme la
-  // carte « Nombre d'enquêtes en cours » — photo du stock actuel).
-  const durationEnCours = allEnquetesEnCours.reduce((result, e) => {
-    if (!e.dateDebut) return result;
-    const start = new Date(e.dateDebut);
-    if (isNaN(start.getTime())) return result;
-    const now = new Date();
-    const duree = Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-    if (duree < 0) return result;
-    return { total: result.total + duree, count: result.count + 1 };
-  }, { total: 0, count: 0 });
-  const averageDurationEnCours = durationEnCours.count > 0 ? durationEnCours.total / durationEnCours.count : 0;
+  // Durées moyennes : enquêtes terminées dans l'année, et ancienneté du stock
+  // d'enquêtes en cours (tous millésimes) — règles dans ecranCore.
+  const durees = useMemo(
+    () => dureesMoyennes(scopedResultats, enquetes, selectedYear),
+    [scopedResultats, enquetes, selectedYear],
+  );
+  const averageDurationTerminees = durees.termineesJours;
+  const averageDurationEnCours = durees.enCoursJours;
 
   // Actes rattachés à leur année réelle (date de l'acte / de la prolongation),
   // toutes enquêtes confondues — pas à l'année d'ouverture de l'enquête.
-  const acteStats = useActeStats(enquetes, selectedYear);
+  const acteStats = useMemo(() => actesAnnee(enquetes, selectedYear), [enquetes, selectedYear]);
 
   // Actes à date aberrante (sur tout le périmètre, pour aider à les localiser
   // et corriger — indépendamment de l'année sélectionnée).
   const actesAberrants = useMemo(() => detectActesAberrants(enquetes), [enquetes]);
 
-  // Comparatif N-1
+  // Comparatif N-1 (règles dans ecranCore)
   const prevYear = selectedYear - 1;
-  const comparison = useMemo(() => {
-    // Procédures terminées N-1 (hors OI et classements, raccord avec la carte)
-    const prevEnquetesTerminees = enquetes.filter(e => {
-      if (e.statut !== 'archive') return false;
-      const ar = Object.values(scopedResultats).find(r => r.enqueteId === e.id);
-      if (!ar?.dateAudience) return false;
-      if (ar.isClassement || ar.isOI) return false;
-      return new Date(ar.dateAudience).getFullYear() === prevYear;
-    });
-    const prevDirectResults = Object.values(scopedResultats)
-      .filter(r => r.isDirectResult && !r.isClassement && !r.isOI && new Date(r.dateAudience).getFullYear() === prevYear);
+  const comparison = useMemo(
+    () => comparatifAnneePrecedente(scopedResultats, enquetes, selectedYear),
+    [scopedResultats, enquetes, selectedYear],
+  );
 
-    const prevTotalTerminees = prevEnquetesTerminees.length + prevDirectResults.length;
-    const currentTotalTerminees = enquetesTermineesFiltered.length + directResultsFiltered.length;
-
-    const prevYearlyStats = getYearlyStats(scopedResultats, enquetes, prevYear);
-    const currentYearlyStats = getYearlyStats(scopedResultats, enquetes, selectedYear);
-
-    // Déférements : même logique que la carte (scopedResultats directement)
-    const countDeferementsForYear = (year: number) => {
-      return Object.values(scopedResultats).reduce((acc, r) => {
-        if (r.nombreDeferes && r.dateDefere) {
-          const date = new Date(r.dateDefere);
-          if (date.getFullYear() === year) return acc + r.nombreDeferes;
-        } else {
-          return acc + (r.condamnations || []).filter(c => {
-            if (!c.defere) return false;
-            const dateRef = c.dateDefere || r.dateAudience;
-            const date = new Date(dateRef);
-            return date.getFullYear() === year;
-          }).length;
-        }
-        return acc;
-      }, 0);
-    };
-    const prevDeferements = countDeferementsForYear(prevYear);
-    const currentDeferements = countDeferementsForYear(selectedYear);
-
-    return {
-      prevTotalTerminees,
-      currentTotalTerminees,
-      diffTerminees: currentTotalTerminees - prevTotalTerminees,
-      prevCondamnations: prevYearlyStats?.nombreCondamnations || 0,
-      currentCondamnations: currentYearlyStats?.nombreCondamnations || 0,
-      diffCondamnations: (currentYearlyStats?.nombreCondamnations || 0) - (prevYearlyStats?.nombreCondamnations || 0),
-      prevPrison: prevYearlyStats?.totalPeinePrison || 0,
-      currentPrison: currentYearlyStats?.totalPeinePrison || 0,
-      diffPrison: (currentYearlyStats?.totalPeinePrison || 0) - (prevYearlyStats?.totalPeinePrison || 0),
-      prevAmendes: prevYearlyStats?.montantTotalAmendes || 0,
-      currentAmendes: currentYearlyStats?.montantTotalAmendes || 0,
-      diffAmendes: (currentYearlyStats?.montantTotalAmendes || 0) - (prevYearlyStats?.montantTotalAmendes || 0),
-      prevDeferements,
-      currentDeferements,
-      diffDeferements: currentDeferements - prevDeferements,
-      hasPrevData: prevTotalTerminees > 0 || (prevYearlyStats?.nombreCondamnations || 0) > 0,
-    };
-  }, [scopedResultats, enquetes, selectedYear, prevYear]);
-
-  // Services — population « globale » = enquêtes CRÉÉES dans l'année ∪ enquêtes
-  // JUGÉES dans l'année (dédupliquées) + procédures directes de l'année. Sans
-  // l'union, une enquête ouverte en N-1 et jugée en N apparaissait dans la
-  // carte « terminées » mais pas dans la carte « globale ».
-  const combinedServiceStats: Record<string, number> = {};
-  const enquetesGlobalesVues = new Set<number>();
-  [...enquetesForYear, ...enquetesTerminees].forEach(e => {
-    if (enquetesGlobalesVues.has(e.id)) return;
-    enquetesGlobalesVues.add(e.id);
-    getServicesFromTags(e.tags).forEach(service => {
-      if (service) combinedServiceStats[service] = (combinedServiceStats[service] || 0) + 1;
-    });
-  });
-  Object.values(scopedResultats)
-    .filter(r => r.isDirectResult && new Date(r.dateAudience).getFullYear() === selectedYear)
-    .forEach(r => {
-      if (r.service) combinedServiceStats[r.service] = (combinedServiceStats[r.service] || 0) + 1;
-    });
-
-  const sortedCombinedServiceStats = Object.entries(combinedServiceStats)
-    .sort(([, a], [, b]) => b - a)
-    .reduce((acc, [service, count]) => { acc[service] = count; return acc; }, {} as Record<string, number>);
-
-  const terminatedServiceStats: Record<string, number> = {};
-  enquetesTerminees.forEach(e => {
-    getServicesFromTags(e.tags).forEach(service => {
-      if (service) terminatedServiceStats[service] = (terminatedServiceStats[service] || 0) + 1;
-    });
-  });
-  Object.values(scopedResultats)
-    .filter(r => r.isDirectResult && new Date(r.dateAudience).getFullYear() === selectedYear)
-    .forEach(r => {
-      if (r.service) terminatedServiceStats[r.service] = (terminatedServiceStats[r.service] || 0) + 1;
-    });
-
-  const sortedTerminatedServiceStats = Object.entries(terminatedServiceStats)
-    .sort(([, a], [, b]) => b - a)
-    .reduce((acc, [service, count]) => { acc[service] = count; return acc; }, {} as Record<string, number>);
+  // Répartition par service (règles dans ecranCore) : population « globale » =
+  // enquêtes créées dans l'année ∪ enquêtes jugées dans l'année, plus les
+  // procédures directes ; population « terminées » = les seules jugées.
+  const services = useMemo(
+    () => repartitionServices(scopedResultats, enquetes, selectedYear, (e: Enquete) => getServicesFromTags(e.tags)),
+    [scopedResultats, enquetes, selectedYear, getServicesFromTags],
+  );
+  const toRecord = (liste: { service: string; count: number }[]) =>
+    liste.reduce((acc, { service, count }) => { acc[service] = count; return acc; }, {} as Record<string, number>);
+  const sortedCombinedServiceStats = toRecord(services.global);
+  const sortedTerminatedServiceStats = toRecord(services.terminees);
 
   const serviceEntries = Object.entries(sortedCombinedServiceStats);
   const serviceColors: Record<string, string> = {};
@@ -271,49 +151,32 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
     serviceColors[service] = getServiceColor(service, index);
   });
 
-  // Estimation temps actes : chiffre brut et assumé (35 min par acte ou
-  // prolongation), sans coefficient d'ajustement — plus simple à défendre
-  // dans un rapport. Moyennes calculées sur la période réellement écoulée.
-  const tempsPourUnActe = 35;
-  const tempsEstimeMinutes = acteStats.totalAvecProlongations * tempsPourUnActe;
-  const tempsEstimeHeures = Math.floor(tempsEstimeMinutes / 60);
-  const tempsEstimeMinutesRestantes = tempsEstimeMinutes % 60;
-
-  const debutAnnee = new Date(selectedYear, 0, 1);
-  const finAnnee = selectedYear === new Date().getFullYear() ? new Date() : new Date(selectedYear, 11, 31);
-  const millisecondesParSemaine = 7 * 24 * 60 * 60 * 1000;
-  const nombreSemaines = Math.max(1, Math.ceil((finAnnee.getTime() - debutAnnee.getTime()) / millisecondesParSemaine));
-  const nombreMois = selectedYear === new Date().getFullYear() ? new Date().getMonth() + 1 : 12;
-
+  // Estimation de charge : chiffre brut et assumé (35 min par acte ou
+  // prolongation), moyennes calculées sur la période réellement écoulée —
+  // tout vient d'ecranCore.actesAnnee.
   const round1 = (nombre: number) => Math.round(nombre * 10) / 10;
-  const moyenneActesParSemaine = round1(acteStats.totalAvecProlongations / nombreSemaines);
-  const moyenneActesParMois = round1(acteStats.totalAvecProlongations / nombreMois);
-  const moyenneTempsParSemaine = round1((tempsEstimeMinutes / nombreSemaines) / 60);
-  const moyenneTempsParMois = round1((tempsEstimeMinutes / nombreMois) / 60);
+  const tempsEstimeHeures = acteStats.tempsEstimeHeures;
+  const tempsEstimeMinutesRestantes = acteStats.tempsEstimeMinutesRestantes;
+  const moyenneActesParSemaine = acteStats.moyenneActesParSemaine;
+  const moyenneActesParMois = acteStats.moyenneActesParMois;
+  const moyenneTempsParSemaine = acteStats.moyenneTempsParSemaineHeures;
+  const moyenneTempsParMois = acteStats.moyenneTempsParMoisHeures;
 
-  // Total déférements pour l'année sélectionnée
-  const totalDeferementsYear = Object.values(scopedResultats)
-    .reduce((acc, r) => {
-      if (r.nombreDeferes && r.dateDefere) {
-        const date = new Date(r.dateDefere);
-        if (date.getFullYear() === selectedYear) {
-          return acc + r.nombreDeferes;
-        }
-      } else {
-        return acc + r.condamnations.filter(c => {
-          if (!c.defere) return false;
-          const dateRef = c.dateDefere || r.dateAudience;
-          const date = new Date(dateRef);
-          return date.getFullYear() === selectedYear;
-        }).length;
-      }
-      return acc;
-    }, 0);
+  // Défèrements de l'année, à leur date réelle (règles dans ecranCore) :
+  // `detailParMois` alimente l'infobulle nominative de la courbe.
+  const deferements = useMemo(
+    () => deferementsAnnee(scopedResultats, selectedYear, { enquetes }),
+    [scopedResultats, selectedYear, enquetes],
+  );
+  const totalDeferementsYear = deferements.total;
 
   // Ouvertures de l'année : toutes les enquêtes CRÉÉES dans l'année, quel que
   // soit leur statut actuel (une enquête ouverte en mars et déjà jugée en juin
   // reste une ouverture de l'année — c'est un flux, pas un stock).
-  const enquetesOuvertesAnnee = enquetesForYear;
+  const ouvertures = useMemo(
+    () => ouverturesAnnee(enquetes, selectedYear),
+    [enquetes, selectedYear],
+  );
 
   // === Statistiques par contentieux (uniquement pour la vue globale) ===
   const isGlobal = contentieuxId === 'global' && enquetesByContentieux && contentieuxDefs;
@@ -436,27 +299,12 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
               {enquetesTermineesFiltered.length + directResultsFiltered.length}
             </div>
             <div className="mt-4 pt-4 border-t space-y-1">
-              {getMonthsToShow().map(month => {
-                const prelimCount = enquetesTermineesFiltered.filter(e => {
-                  const audienceResult = Object.values(scopedResultats)
-                    .find(r => r.enqueteId === e.id);
-                  if (!audienceResult) return false;
-                  const audienceDate = new Date(audienceResult.dateAudience);
-                  return audienceDate.getMonth() === month &&
-                         audienceDate.getFullYear() === selectedYear;
-                }).length;
-                const directCount = directResultsFiltered.filter(r => {
-                  const audienceDate = new Date(r.dateAudience);
-                  return audienceDate.getMonth() === month &&
-                         audienceDate.getFullYear() === selectedYear;
-                }).length;
-                return (
-                  <div key={month} className="flex justify-between text-sm">
-                    <span>{new Date(selectedYear, month).toLocaleString('default', { month: 'long' })}:</span>
-                    <span className="font-medium">{prelimCount + directCount}</span>
-                  </div>
-                );
-              })}
+              {getMonthsToShow().map(month => (
+                <div key={month} className="flex justify-between text-sm">
+                  <span>{new Date(selectedYear, month).toLocaleString('default', { month: 'long' })}:</span>
+                  <span className="font-medium">{termineesAnnee.parMois[month] || 0}</span>
+                </div>
+              ))}
             </div>
             {/* Subdivision par contentieux */}
             {isGlobal && contentieuxStats && contentieuxStats.length > 0 && (
@@ -518,7 +366,7 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
           </CardContent>
         </Card>
 
-        {/* Carte Actes d'enquête (utilise le hook useActeStats) */}
+        {/* Carte Actes d'enquête (ecranCore.actesAnnee) */}
         <Card>
           <CardHeader>
             <CardTitle>Actes d'enquête en préliminaire</CardTitle>
@@ -687,9 +535,9 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
                   </div>
                   <span className="text-lg font-bold text-purple-700">{suiviStats.pg.length}</span>
                 </div>
-                {suiviStats.both.length > 0 && (
+                {suiviStats.lesDeux.length > 0 && (
                   <div className="text-xs text-gray-500 text-center pt-1 border-t">
-                    dont {suiviStats.both.length} suivi{suiviStats.both.length > 1 ? 's' : ''} par les deux
+                    dont {suiviStats.lesDeux.length} suivi{suiviStats.lesDeux.length > 1 ? 's' : ''} par les deux
                   </div>
                 )}
               </div>
@@ -748,23 +596,18 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
 
             <div className="bg-blue-50 p-3 rounded-md mb-4">
               <div className="text-sm font-medium text-blue-800">Ouvertes depuis le début de l'année {selectedYear}</div>
-              <div className="text-2xl font-bold text-blue-700">{enquetesOuvertesAnnee.length}</div>
+              <div className="text-2xl font-bold text-blue-700">{ouvertures.total}</div>
             </div>
 
             <div className="pt-3 border-t">
               <p className="text-sm font-medium mb-2">Ouvertures par mois ({selectedYear})</p>
               <div className="space-y-1">
-                {getMonthsToShow().map(month => {
-                  const count = enquetesOuvertesAnnee.filter(e =>
-                    new Date(e.dateCreation).getMonth() === month
-                  ).length;
-                  return (
-                    <div key={month} className="flex justify-between text-sm">
-                      <span>{new Date(selectedYear, month).toLocaleString('default', { month: 'long' })}</span>
-                      <span className="font-medium">{count}</span>
-                    </div>
-                  );
-                })}
+                {getMonthsToShow().map(month => (
+                  <div key={month} className="flex justify-between text-sm">
+                    <span>{new Date(selectedYear, month).toLocaleString('default', { month: 'long' })}</span>
+                    <span className="font-medium">{ouvertures.parMois[month] || 0}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </CardContent>
@@ -837,30 +680,11 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
                 );
               }
 
-              // Mode individuel : courbe simple
-              const deferementsDetailParMois = monthsToShow.map(month => {
-                const dossiers: string[] = [];
-                Object.values(scopedResultats).forEach(r => {
-                  const enquete = enquetes.find(e => e.id === r.enqueteId);
-                  const dossierLabel = enquete?.numero || r.numeroAudience || `#${r.enqueteId}`;
-                  if (r.nombreDeferes && r.dateDefere) {
-                    const date = new Date(r.dateDefere);
-                    if (date.getFullYear() === selectedYear && date.getMonth() === month) {
-                      for (let i = 0; i < r.nombreDeferes; i++) dossiers.push(dossierLabel);
-                    }
-                  } else {
-                    r.condamnations.forEach(c => {
-                      if (!c.defere) return;
-                      const dateRef = c.dateDefere || r.dateAudience;
-                      const date = new Date(dateRef);
-                      if (date.getFullYear() === selectedYear && date.getMonth() === month) {
-                        dossiers.push(c.nom ? `${dossierLabel} (${c.nom})` : dossierLabel);
-                      }
-                    });
-                  }
-                });
-                return { count: dossiers.length, dossiers };
-              });
+              // Mode individuel : courbe simple (détail nominatif fourni par ecranCore)
+              const deferementsDetailParMois = monthsToShow.map(month => ({
+                count: deferements.parMois[month] || 0,
+                dossiers: (deferements.detailParMois[month] || []) as string[],
+              }));
 
               return (
                 <div style={{ width: '100%', height: '300px' }}>
@@ -908,44 +732,28 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
         </Card>
       </div>
 
-      {/* Comparatif N/N-1 */}
-      {comparison.hasPrevData && (
+      {/* Comparatif N/N-1 (chiffres calculés dans ecranCore) */}
+      {comparison.donneesAnneePrecedente && (
         <Card>
           <CardHeader>
             <CardTitle>Comparatif {prevYear} / {selectedYear}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              <div className="text-center p-3 bg-gray-50 rounded-lg">
-                <div className="text-xs text-gray-500 mb-1">Procédures terminées</div>
-                <div className="text-sm text-gray-400">{prevYear}: {comparison.prevTotalTerminees}</div>
-                <div className="text-lg font-bold">{selectedYear}: {comparison.currentTotalTerminees}</div>
-                <DiffBadge diff={comparison.diffTerminees} />
-              </div>
-              <div className="text-center p-3 bg-gray-50 rounded-lg">
-                <div className="text-xs text-gray-500 mb-1">Condamnations</div>
-                <div className="text-sm text-gray-400">{prevYear}: {comparison.prevCondamnations}</div>
-                <div className="text-lg font-bold">{selectedYear}: {comparison.currentCondamnations}</div>
-                <DiffBadge diff={comparison.diffCondamnations} />
-              </div>
-              <div className="text-center p-3 bg-gray-50 rounded-lg">
-                <div className="text-xs text-gray-500 mb-1">Prison ferme (mois)</div>
-                <div className="text-sm text-gray-400">{prevYear}: {comparison.prevPrison}</div>
-                <div className="text-lg font-bold">{selectedYear}: {comparison.currentPrison}</div>
-                <DiffBadge diff={comparison.diffPrison} suffix=" mois" />
-              </div>
-              <div className="text-center p-3 bg-gray-50 rounded-lg">
-                <div className="text-xs text-gray-500 mb-1">Amendes totales</div>
-                <div className="text-sm text-gray-400">{prevYear}: {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(comparison.prevAmendes)}</div>
-                <div className="text-lg font-bold">{selectedYear}: {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(comparison.currentAmendes)}</div>
-                <DiffBadge diff={comparison.diffAmendes} money />
-              </div>
-              <div className="text-center p-3 bg-gray-50 rounded-lg">
-                <div className="text-xs text-gray-500 mb-1">Déférements</div>
-                <div className="text-sm text-gray-400">{prevYear}: {comparison.prevDeferements}</div>
-                <div className="text-lg font-bold">{selectedYear}: {comparison.currentDeferements}</div>
-                <DiffBadge diff={comparison.diffDeferements} />
-              </div>
+              {([
+                { libelle: 'Procédures terminées', ligne: comparison.proceduresTerminees },
+                { libelle: 'Condamnations', ligne: comparison.condamnations },
+                { libelle: 'Prison ferme (mois)', ligne: comparison.prisonFermeMois, suffix: ' mois' },
+                { libelle: 'Amendes totales', ligne: comparison.amendes, money: true },
+                { libelle: 'Déférements', ligne: comparison.deferements },
+              ]).map(({ libelle, ligne, suffix, money }) => (
+                <div key={libelle} className="text-center p-3 bg-gray-50 rounded-lg">
+                  <div className="text-xs text-gray-500 mb-1">{libelle}</div>
+                  <div className="text-sm text-gray-400">{prevYear}: {money ? EURO.format(ligne.anneePrecedente) : ligne.anneePrecedente}</div>
+                  <div className="text-lg font-bold">{selectedYear}: {money ? EURO.format(ligne.annee) : ligne.annee}</div>
+                  <DiffBadge diff={ligne.evolution} suffix={suffix} money={money} />
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>

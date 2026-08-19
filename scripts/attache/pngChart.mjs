@@ -394,6 +394,41 @@ export function graphiqueColonnesEmpilees({ labels, series, titre, sousTitre, la
   return t.png()
 }
 
+/**
+ * Histogramme à colonnes GROUPÉES (séries côte à côte par catégorie) — pour
+ * comparer deux ou trois grandeurs sur les mêmes postes : saisies vs
+ * confiscations, peines moyennes par type d'audience…
+ */
+export function graphiqueColonnesGroupees({ labels, series, titre, sousTitre, largeur = 680, hauteur = 300 }) {
+  const t = new Toile(largeur * RATIO, hauteur * RATIO)
+  const hautTrace = entete(t, titre, sousTitre)
+  if (!labels.length || !series.length) { t.texte(t.w / 2, t.h / 2, 'AUCUNE DONNEE', GRIS_TEXTE, RATIO, 'center'); return t.png() }
+
+  const hLegende = (Math.ceil(series.length / 3) + 1) * 15 * RATIO
+  const padL = 34 * RATIO; const padR = 14 * RATIO; const padT = hautTrace + 8 * RATIO; const padB = 22 * RATIO + hLegende
+  const plotW = t.w - padL - padR; const plotH = t.h - padT - padB
+  const maxi = maxArrondi(Math.max(1, ...series.flatMap((ser) => ser.values.map((v) => v || 0))))
+  axesEtGrille(t, padL, padT, plotW, plotH, maxi)
+
+  const slot = plotW / labels.length
+  const bw = Math.min((slot * 0.72) / series.length, 22 * RATIO)
+  const groupe = bw * series.length
+  labels.forEach((lab, i) => {
+    const x0 = padL + slot * i + (slot - groupe) / 2
+    series.forEach((ser, k) => {
+      const v = ser.values[i] || 0
+      if (v <= 0) return
+      const bh = (plotH * v) / maxi
+      const x = x0 + bw * k
+      t.rect(x, padT + plotH - bh, bw, bh, ser.color)
+      t.texte(x + bw / 2, padT + plotH - bh - 10 * RATIO, nombreFr(v), ENCRE, RATIO * 0.9, 'center')
+    })
+  })
+  etiquettesX(t, labels, (i) => padL + slot * i + slot / 2, padT + plotH + 4 * RATIO)
+  legende(t, padT + plotH + 16 * RATIO, series.map((ser) => ({ label: ser.label, color: ser.color })))
+  return t.png()
+}
+
 /** Donut (camembert troué) + total au centre + légende chiffrée — miroir de renderPieChartImg. */
 export function graphiqueDonut({ items, titre, sousTitre, largeur = 560, diametre = 220 }) {
   const data = items.filter((i) => i.value > 0)

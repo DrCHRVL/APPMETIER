@@ -4,7 +4,15 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Enquete } from '@/types/interfaces';
 import { useAudience } from '@/hooks/useAudience';
 import { useInfractionNatinf, type EnqueteInfractionItem } from '@/hooks/useInfractionNatinf';
-import { categoryForEntry, GRAND_TITRES, STAT_CATEGORIES } from '@/lib/natinf/nataff';
+import { categoryForEntry } from '@/lib/natinf/nataff';
+// Le comptage (une enquête = 1 par catégorie touchée) et le repli par grand
+// titre vivent dans le module PARTAGÉ lib/stats/ecranCore.mjs — même source que
+// le connecteur Claude web (outil `stats_ecran`).
+import {
+  repartitionCategoriesInfraction,
+  enquetesEnCoursPourInfractions,
+  enquetesTermineesPourInfractions,
+} from '@/lib/stats/ecranCore.mjs';
 
 /**
  * Répartition des enquêtes par catégorie d'infraction (taxonomie Mémento
@@ -27,37 +35,15 @@ const NataffBreakdownCard = ({
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
 
   const { groups, unclassified } = React.useMemo(() => {
-    const gtSets = new Map<string, Set<number>>(); // code grand titre -> ids d'enquête
-    const catSets = new Map<string, Set<number>>(); // code catégorie -> ids d'enquête
-    const unclassifiedSet = new Set<number>();
-    const add = (map: Map<string, Set<number>>, code: string, id: number) => {
-      let s = map.get(code);
-      if (!s) map.set(code, (s = new Set()));
-      s.add(id);
+    const { groupes, nonClasse } = repartitionCategoriesInfraction(
+      enquetes,
+      infractionsForEnquete,
+      (inf: EnqueteInfractionItem) => categoryForEntry(inf.entry),
+    );
+    return {
+      groups: groupes as { code: string; grandTitre: string; total: number; categories: { code: string; categorie: string; count: number }[] }[],
+      unclassified: nonClasse as number,
     };
-    enquetes.forEach((e) => {
-      infractionsForEnquete(e).forEach((inf) => {
-        const res = categoryForEntry(inf.entry);
-        if (!res) {
-          if (inf.label) unclassifiedSet.add(e.id);
-          return;
-        }
-        add(gtSets, res.grandTitre.code, e.id);
-        add(catSets, res.category.code, e.id);
-      });
-    });
-    const built = GRAND_TITRES.map((gt) => ({
-      gt,
-      total: gtSets.get(gt.code)?.size || 0,
-      children: STAT_CATEGORIES.filter(
-        (c) => c.grandTitre === gt.code && (catSets.get(c.code)?.size || 0) > 0,
-      )
-        .map((c) => ({ category: c, count: catSets.get(c.code)!.size }))
-        .sort((a, b) => b.count - a.count),
-    }))
-      .filter((g) => g.total > 0)
-      .sort((a, b) => b.total - a.total);
-    return { groups: built, unclassified: unclassifiedSet.size };
   }, [enquetes, infractionsForEnquete]);
 
   const toggle = (code: string) =>
@@ -80,18 +66,18 @@ const NataffBreakdownCard = ({
         ) : (
           <div className="space-y-1">
             {groups.map((g) => {
-              const isOpen = expanded.has(g.gt.code);
+              const isOpen = expanded.has(g.code);
               return (
-                <div key={g.gt.code}>
+                <div key={g.code}>
                   <button
-                    onClick={() => toggle(g.gt.code)}
+                    onClick={() => toggle(g.code)}
                     className="flex w-full items-center justify-between gap-2 rounded bg-gray-50 p-2 text-left hover:bg-gray-100 transition-colors"
                   >
                     <span className="flex min-w-0 items-center gap-1.5">
                       <ChevronRight
                         className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}
                       />
-                      <span className="truncate font-medium">{g.gt.label}</span>
+                      <span className="truncate font-medium">{g.grandTitre}</span>
                     </span>
                     <span className="shrink-0 text-sm">
                       <span className="font-semibold">{g.total}</span> enquête{g.total > 1 ? 's' : ''}
@@ -99,9 +85,9 @@ const NataffBreakdownCard = ({
                   </button>
                   {isOpen && (
                     <div className="ml-6 mt-1 space-y-1 border-l border-gray-100 pl-3">
-                      {g.children.map(({ category, count }) => (
-                        <div key={category.code} className="flex items-center justify-between gap-2 text-sm">
-                          <span className="truncate text-gray-700">{category.label}</span>
+                      {g.categories.map(({ code, categorie, count }) => (
+                        <div key={code} className="flex items-center justify-between gap-2 text-sm">
+                          <span className="truncate text-gray-700">{categorie}</span>
                           <span className="shrink-0 font-medium">{count}</span>
                         </div>
                       ))}
@@ -134,29 +120,24 @@ export const InfractionStats = ({ enquetes, selectedYear, contentieuxId }: Infra
   const { infractionsForEnquete } = useInfractionNatinf();
 
   // Listes d'enquêtes (en cours / terminées) servant aux répartitions par
-  // catégorie d'infraction (taxonomie NATAFF / Mémento parquet).
-  const enquetesEnCours = React.useMemo(
-    () => enquetes.filter((e) => {
-      if (e.statut !== 'en_cours') return false;
-      return new Date(e.dateCreation).getFullYear() <= selectedYear;
-    }),
+  // catégorie d'infraction (taxonomie NATAFF / Mémento parquet) — mêmes
+  // populations que le connecteur, via ecranCore.
+  const scopedResultats = React.useMemo(() => {
+    const all = audienceState?.resultats || {};
+    if (!contentieuxId || contentieuxId === 'global') return all;
+    return Object.fromEntries(
+      Object.entries(all).filter(([, r]) => (r.contentieuxId || 'crimorg') === contentieuxId),
+    );
+  }, [audienceState?.resultats, contentieuxId]);
+
+  const enquetesEnCours: Enquete[] = React.useMemo(
+    () => enquetesEnCoursPourInfractions(enquetes, selectedYear),
     [enquetes, selectedYear],
   );
 
-  const enquetesTerminees = React.useMemo(
-    () => enquetes.filter((e) => {
-      if (e.statut !== 'archive') return false;
-      const audienceResult = Object.values(audienceState?.resultats || {}).find((r) => {
-        if (r.enqueteId !== e.id) return false;
-        if (!contentieuxId || contentieuxId === 'global') return true;
-        const ctx = r.contentieuxId || 'crimorg';
-        return ctx === contentieuxId;
-      });
-      if (!audienceResult?.dateAudience) return false;
-      if (audienceResult.isClassement || audienceResult.isOI) return false;
-      return new Date(audienceResult.dateAudience).getFullYear() === selectedYear;
-    }),
-    [enquetes, selectedYear, audienceState?.resultats, contentieuxId],
+  const enquetesTerminees: Enquete[] = React.useMemo(
+    () => enquetesTermineesPourInfractions(scopedResultats, enquetes, selectedYear),
+    [scopedResultats, enquetes, selectedYear],
   );
 
   return (

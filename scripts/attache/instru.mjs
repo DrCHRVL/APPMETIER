@@ -68,6 +68,14 @@ function detentionResume(mex) {
 }
 
 /**
+ * Dossiers d'instruction BRUTS (tous coffres) — pour les agrégats statistiques
+ * de l'onglet « Statistiques instruction » (lib/stats/instructionCore.mjs).
+ */
+export function allInstructionDossiers(keys) {
+  return loadAllDossiers(keys)
+}
+
+/**
  * Liste compacte des dossiers d'instruction : identifiants, cabinet, MEX
  * (détenus comptés), DML en attente et prochains débats JLD — ce qu'il faut
  * pour s'orienter et anticiper les échéances.

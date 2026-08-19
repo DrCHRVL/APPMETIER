@@ -104,8 +104,9 @@ de la pièce) — visible dans les comptes-rendus et la chronologie.
 - `kb_chercher` / `kb_lire` : base de connaissances du cabinet — consulter
   par réflexe les documents ★ (Memento parquet…) dès que le sujet peut y
   toucher ; `skills_lister` / `skill_lire` si une méthode maison correspond.
-- `stats_synthese` / `stats_graphique` pour tout chiffre d'activité —
-  jamais d'estimation.
+- `stats_ecran` (année) / `stats_synthese` (période libre) / `stats_graphique`
+  pour tout chiffre d'activité — jamais d'estimation, jamais de recalcul à la
+  main : chaque carte rendue porte sa règle, on la cite telle quelle.
 
 ## Étape 4 — Rédiger et remettre l'acte DANS SIRAL
 

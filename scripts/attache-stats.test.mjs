@@ -126,6 +126,29 @@ const syncData = { enquetes, audienceResultats, customTags: [], alertRules: [], 
 const envelope = encryptJson(keyCtx, { data: syncData, metadata: { lastModified: new Date().toISOString(), modifiedBy: 'test', version: 3 } })
 fs.writeFileSync(path.join(DATA_DIR, 'vaults', 'ctx-crimorg.json'), JSON.stringify(envelope))
 
+// ── Coffre instruction (module instruction : onglet « Statistiques instruction »)
+const dossiersInstruction = [
+  {
+    id: 1, numeroInstruction: '1/26/8', numeroParquet: '85103/843/2026', cabinetId: 'cab-1',
+    dateOuverture: '2026-01-20', dateMiseAJour: '2026-06-01', cotesTomes: 12, etatReglement: '175_recu',
+    evenements: [{ type: '175_rendu', date: '2026-06-01' }],
+    misEnExamen: [
+      { nom: 'A', mesureSurete: { type: 'detenu', depuis: '2026-01-20', periodes: [{ dateFin: '2026-07-20' }] }, dmls: [{ statut: 'en_attente', dateDepot: '2026-06-10' }] },
+      { nom: 'B', mesureSurete: { type: 'cj', depuis: '2026-02-01' }, dmls: [] },
+      { nom: 'C', dmls: [] },
+    ],
+    debatsJLD: [],
+  },
+  {
+    id: 2, numeroInstruction: '2/26/8', numeroParquet: '85109/700/2026', cabinetId: 'cab-2',
+    dateOuverture: '2025-09-01', dateMiseAJour: '2026-05-01', cotesTomes: 4,
+    misEnExamen: [{ nom: 'D', mesureSurete: { type: 'arse', depuis: '2025-10-01' }, dmls: [] }],
+    debatsJLD: [],
+  },
+]
+const envInstruction = encryptJson(keyGlobal, { dossiers: dossiersInstruction })
+fs.writeFileSync(path.join(DATA_DIR, 'vaults', 'instructions-audran.json'), JSON.stringify(envInstruction))
+
 // ── Lancement du serveur MCP en stdio, comme le CLI
 const child = spawn('node', [path.join(REPO, 'scripts/attache-mcp.mjs')], {
   env: { ...process.env, SIRAL_ATTACHE_RUN: 'chat' },
@@ -217,6 +240,79 @@ attendu('comparatif N-1 : 1 terminée avant, 3 maintenant', bilan.comparatifPeri
 // services : OFAST (dossier 1), BR Amiens (dossier 2), CSP Amiens (directe)
 attendu('répartition services = 4 (OI comprise, comme l\'app)', bilan.repartitionServices.length === 4, JSON.stringify(bilan.repartitionServices))
 
+// ── stats_ecran : LA PAGE STATISTIQUES DU MAGISTRAT, carte par carte (année 2026)
+const ecr = await rpc('tools/call', { name: 'stats_ecran', arguments: { annee: 2026 } })
+attendu('pas d\'erreur stats_ecran', !ecr.result.isError, ecr.result.isError ? ecr.result.content[0].text.slice(0, 300) : '')
+const page = JSON.parse(ecr.result.content[0].text)
+const sections = Object.fromEntries(page.sections.map((sec) => [sec.section, Object.fromEntries(sec.cartes.map((c) => [c.carte, c]))]))
+const generales = sections['Statistiques générales']
+const audienceCartes = sections['Résultats d\'audience']
+const infraCartes = sections['Types d\'infractions']
+const instruCartes = sections['Statistiques instruction']
+
+attendu('les 4 sections de la page', page.sections.length === 4, page.sections.map((x) => x.section).join(' · '))
+attendu('chaque carte porte sa règle', page.sections.every((sec) => sec.cartes.every((c) => typeof c.regle === 'string' && c.regle.length > 20)))
+
+// Mêmes chiffres que l'écran : 3 procédures terminées en 2026 (dont 1 OI listée à part)
+attendu('carte « Total des procédures terminées » = 3', generales['Total des procédures terminées'].valeur === 3, JSON.stringify(generales['Total des procédures terminées'].valeur))
+attendu('dont 1 OI et 0 classement', generales['Total des procédures terminées'].detail.dontOuverturesInformation === 1
+  && generales['Total des procédures terminées'].detail.dontClassementsSansSuite === 0, JSON.stringify(generales['Total des procédures terminées'].detail))
+attendu('carte « Évolution des déférements » = 4 (date réelle)', generales['Évolution des déférements'].valeur === 4, String(generales['Évolution des déférements'].valeur))
+attendu('déférements des dossiers jugés distingués', generales['Évolution des déférements'].detail.deferementsDansLesDossiersJuges === 4,
+  String(generales['Évolution des déférements'].detail.deferementsDansLesDossiersJuges))
+attendu('carte « Nombre d\'enquêtes en cours » = 2', generales['Nombre d\'enquêtes en cours'].valeur === 2, String(generales['Nombre d\'enquêtes en cours'].valeur))
+attendu('carte « Actes d\'enquête » = 5 avec charge estimée', generales['Actes d\'enquête en préliminaire'].valeur === 5
+  && generales['Actes d\'enquête en préliminaire'].detail.estimationCharge.minutesParActe === 35, JSON.stringify(generales['Actes d\'enquête en préliminaire'].valeur))
+attendu('comparatif N-1 présent', generales['Comparatif 2025 / 2026'].detail.proceduresTerminees.anneePrecedente === 1
+  && generales['Comparatif 2025 / 2026'].detail.proceduresTerminees.annee === 3, JSON.stringify(generales['Comparatif 2025 / 2026'].detail.proceduresTerminees))
+attendu('répartition globale par service ≠ terminées', generales['Répartition globale par service (2026)'].detail.length >= generales['Répartition par service des enquêtes terminées (2026)'].detail.length)
+
+// Résultats d'audience : les cartes qui manquaient au connecteur
+attendu('carte « Condamnations » = 4', audienceCartes.Condamnations.valeur === 4, String(audienceCartes.Condamnations.valeur))
+attendu('carte « Total des peines de prison » = 74 mois', audienceCartes['Total des peines de prison'].detail.mois === 74, String(audienceCartes['Total des peines de prison'].detail.mois))
+attendu('carte « Amendes » : moyenne par condamnation', audienceCartes.Amendes.detail.montantTotal === 15800 && audienceCartes.Amendes.detail.moyenneParCondamnation === 3950,
+  JSON.stringify(audienceCartes.Amendes.detail.moyenneParCondamnation))
+attendu('carte « Delta saisies vs confiscations » = -9 000 €', audienceCartes['Delta saisies vs confiscations'].detail.totalAvoirs.delta === -9000,
+  JSON.stringify(audienceCartes['Delta saisies vs confiscations'].detail.totalAvoirs))
+attendu('carte « Peines moyennes par type d\'audience » : CI et CRPC-Def', audienceCartes['Peines moyennes par type d\'audience'].detail.map((x) => x.type).sort().join(',') === 'CI,CRPC-Def',
+  JSON.stringify(audienceCartes['Peines moyennes par type d\'audience'].detail.map((x) => x.type)))
+attendu('carte « Ouvertures d\'information » = 1 avec âge moyen', audienceCartes['Ouvertures d\'information'].valeur === 1
+  && audienceCartes['Ouvertures d\'information'].detail.ageMoyenJours > 0, JSON.stringify(audienceCartes['Ouvertures d\'information'].detail))
+attendu('carte « Classements sans suite » = 0', audienceCartes['Classements sans suite'].valeur === 0, String(audienceCartes['Classements sans suite'].valeur))
+attendu('carte « Interdictions » : 1 interdiction de paraître détaillée', audienceCartes.Interdictions.detail.interdictionsDeParaitre.nombre === 1
+  && audienceCartes.Interdictions.detail.interdictionsDeParaitre.detailParInfraction.length === 1, JSON.stringify(audienceCartes.Interdictions.detail.interdictionsDeParaitre))
+
+// Types d'infractions : hiérarchie par grand titre
+attendu('grands titres d\'infraction rendus', infraCartes["Répartition des enquêtes terminées par catégorie d'infraction (2026)"].detail.grandsTitres.length > 0,
+  JSON.stringify(infraCartes["Répartition des enquêtes terminées par catégorie d'infraction (2026)"].detail.grandsTitres.map((g) => `${g.grandTitre}:${g.total}`)))
+
+// Instruction : mêmes agrégats que l'onglet de l'app
+attendu('instruction : 2 dossiers, 4 MEX (1 détenu, 1 CJ, 1 ARSE, 1 libre)',
+  instruCartes['Dossiers d\'instruction'].valeur === 2 && instruCartes['Mis en examen'].valeur === 4
+  && instruCartes['Mis en examen'].detail.detenus === 1 && instruCartes['Mis en examen'].detail.controleJudiciaire === 1
+  && instruCartes['Mis en examen'].detail.arse === 1 && instruCartes['Mis en examen'].detail.libres === 1,
+  JSON.stringify(instruCartes['Mis en examen']?.detail))
+attendu('instruction : 1 dossier à régler avec détenu (art. 175)', instruCartes['Dossiers à régler (art. 175 CPP)'].valeur === 1
+  && instruCartes['Dossiers à régler (art. 175 CPP)'].detail.avecDetenu === 1, JSON.stringify(instruCartes['Dossiers à régler (art. 175 CPP)']?.detail))
+attendu('instruction : 1 DML en attente', instruCartes['Demandes de mise en liberté'].detail.enAttente === 1, JSON.stringify(instruCartes['Demandes de mise en liberté']?.detail))
+
+// Année sans donnée : la page reste lisible et le dit
+const vide = await rpc('tools/call', { name: 'stats_ecran', arguments: { annee: 2024 } })
+attendu('année sans donnée : réponse propre', !vide.result.isError && JSON.parse(vide.result.content[0].text).annee === 2024)
+
+// Sélecteur d'années
+const ans = await rpc('tools/call', { name: 'stats_annees', arguments: {} })
+attendu('stats_annees liste 2025 et 2026', JSON.parse(ans.result.content[0].text).annees.includes(2026)
+  && JSON.parse(ans.result.content[0].text).annees.includes(2025), ans.result.content[0].text)
+
+// ── Le bilan par période porte lui aussi les cartes détaillées
+attendu('bilan : delta saisies/confiscations', bilan.audience.deltaSaisiesConfiscations?.totalAvoirs?.delta === -9000, JSON.stringify(bilan.audience.deltaSaisiesConfiscations?.totalAvoirs))
+attendu('bilan : peines par type d\'audience', Array.isArray(bilan.peinesParTypeAudience) && bilan.peinesParTypeAudience.length === 2, JSON.stringify(bilan.peinesParTypeAudience?.map((x) => x.type)))
+attendu('bilan : détail des OI (âge moyen)', bilan.orientationsDetail.ouverturesInformation.nombre === 1 && bilan.orientationsDetail.ouverturesInformation.ageMoyenJours > 0, JSON.stringify(bilan.orientationsDetail.ouverturesInformation))
+attendu('bilan : grands titres d\'infraction', bilan.infractions.grandsTitres.terminees.length > 0, JSON.stringify(bilan.infractions.grandsTitres.terminees.map((g) => g.grandTitre)))
+attendu('bilan : instruction complète', bilan.instruction?.misEnExamen === 4 && bilan.instruction?.detenus === 1, JSON.stringify(bilan.instruction))
+attendu('bilan : taux et moyenne d\'amende', bilan.audience.peines.moyenneAmendeParCondamnation === 3950 && typeof bilan.audience.peines.tauxSursisPct === 'number', JSON.stringify(bilan.audience.peines.moyenneAmendeParCondamnation))
+
 // ── stats_graphique : tous les graphiques du catalogue
 const { GRAPHIQUES } = await import(`${REPO}/scripts/attache/statsGraphiques.mjs`)
 for (const g of Object.keys(GRAPHIQUES)) {
@@ -228,6 +324,11 @@ for (const g of Object.keys(GRAPHIQUES)) {
   attendu(`graphique ${g}`, ok, ok ? `${Math.round(image.data.length / 1024)} Ko b64` : JSON.stringify(blocs?.[0])?.slice(0, 200))
   if (image) fs.writeFileSync(path.join(SCRATCH, `mcp-${g}.png`), Buffer.from(image.data, 'base64'))
 }
+
+// planche de plusieurs graphiques d'un coup, en mode ANNÉE (sélecteur de la page)
+const planche = await rpc('tools/call', { name: 'stats_graphique', arguments: { graphiques: ['orientation', 'deferements_par_mois', 'saisies_vs_confiscations'], annee: 2026 } })
+const images = (planche.result.content || []).filter((b) => b.type === 'image')
+attendu('planche : 3 graphiques rendus en une fois', !planche.result.isError && images.length === 3, `${images.length} image(s)`)
 
 // période par défaut (sans arguments) : ne doit pas planter
 const def = await rpc('tools/call', { name: 'stats_synthese', arguments: {} })
