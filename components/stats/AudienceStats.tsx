@@ -8,6 +8,17 @@ import { Enquete } from '@/types/interfaces';
 import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
 import { AudienceStats as AudienceStatsType, ResultatAudience, migrateConfiscations } from '@/types/audienceTypes';
 import { getYearlyStats, getMonthlyStats } from '@/utils/audienceStats';
+// Les règles des cartes « delta », « peines par type d'audience », « classements »,
+// « OI » et « interdictions de gérer » vivent dans le module PARTAGÉ
+// lib/stats/ecranCore.mjs — même source que le connecteur Claude web
+// (outil `stats_ecran`), pour que l'agent lise EXACTEMENT ces nombres.
+import {
+  deltaSaisiesConfiscations,
+  peinesParTypeAudience,
+  orientationDetail,
+  interdictionsGererParInfraction,
+  interdictionsParaitreDetail,
+} from '@/lib/stats/ecranCore.mjs';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, BarElement } from 'chart.js';
 import { Pie, Bar } from 'react-chartjs-2';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
@@ -85,36 +96,12 @@ const InterdictionsDetailButton = ({
   const [isOpen, setIsOpen] = useState(false);
   const { getByCode } = useNatinf();
 
-  const interdictionsData = useMemo(() => {
-    const result: Record<string, { nom: string; lieu?: string; duree?: number; dossier: string; dateAudience: string }[]> = {};
-
-    Object.values(scopedResultats).forEach(r => {
-      if (!r.dateAudience || new Date(r.dateAudience).getFullYear() !== selectedYear) return;
-
-      const enquete = enquetes.find(e => e.id === r.enqueteId);
-      const dossier = enquete?.numero || r.numeroAudience || `#${r.enqueteId}`;
-      // Libellé résolu par NATINF si le résultat est migré, sinon libellé legacy.
-      const code = r.infractionNatinfCodes?.[0];
-      const typeInfraction = (code ? getByCode(code)?.libelle : undefined)
-        || r.typeInfraction || 'Non renseigné';
-
-      r.condamnations?.forEach(c => {
-        if (!c.interdictionParaitre) return;
-        if (!result[typeInfraction]) result[typeInfraction] = [];
-        result[typeInfraction].push({
-          nom: c.nom || 'Inconnu',
-          lieu: c.lieuInterdictionParaitre,
-          duree: c.dureeInterdictionParaitre,
-          dossier,
-          dateAudience: r.dateAudience,
-        });
-      });
-    });
-
-    return result;
-  }, [scopedResultats, enquetes, selectedYear, getByCode]);
-
-  const sortedTypes = Object.entries(interdictionsData).sort(([, a], [, b]) => b.length - a.length);
+  // Regroupement par type d'infraction : règle dans ecranCore (le connecteur
+  // sert la même liste via `stats_ecran`).
+  const sortedTypes = useMemo(
+    () => interdictionsParaitreDetail(scopedResultats, enquetes, selectedYear, (k: string) => getByCode(k)?.libelle ?? k),
+    [scopedResultats, enquetes, selectedYear, getByCode],
+  );
 
   return (
     <>
@@ -142,13 +129,13 @@ const InterdictionsDetailButton = ({
               {sortedTypes.length === 0 ? (
                 <p className="text-gray-500 text-center py-4">Aucune interdiction de paraître</p>
               ) : (
-                sortedTypes.map(([type, items]) => (
-                  <div key={type}>
+                sortedTypes.map(({ typeInfraction, nombre, personnes }) => (
+                  <div key={typeInfraction}>
                     <h4 className="font-medium text-sm text-gray-700 mb-2 bg-gray-50 p-2 rounded">
-                      {type} <span className="text-gray-400">({items.length})</span>
+                      {typeInfraction} <span className="text-gray-400">({nombre})</span>
                     </h4>
                     <div className="space-y-1 pl-2">
-                      {items.map((item, idx) => (
+                      {personnes.map((item, idx) => (
                         <div key={idx} className="flex items-center justify-between text-sm py-1 border-b border-gray-100 last:border-0">
                           <div>
                             <span className="font-medium">{item.nom}</span>
@@ -156,7 +143,7 @@ const InterdictionsDetailButton = ({
                           </div>
                           <div className="flex items-center gap-3 text-xs text-gray-500">
                             {item.lieu && <span>{item.lieu}</span>}
-                            {item.duree && <span>{item.duree} mois</span>}
+                            {item.dureeMois && <span>{item.dureeMois} mois</span>}
                             <span>{new Date(item.dateAudience).toLocaleDateString('fr-FR')}</span>
                           </div>
                         </div>
@@ -188,18 +175,9 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
   const { audienceState } = useAudience();
   const { infractionsForEnquete } = useInfractionNatinf();
   const { getByCode } = useNatinf();
-  // Clé canonique d'une infraction : code NATINF si rattaché, sinon libellé.
-  // Regrouper par cette clé garde des comptes cohérents qu'un dossier soit migré
-  // au NATINF (infractionNatinfCodes) ou encore en tags.
-  const keyOf = (inf: { code?: string; label: string }) => inf.code ?? inf.label;
-  // Clés canoniques d'un RÉSULTAT d'audience : codes NATINF dénormalisés si
-  // présents, sinon libellés legacy. Sert au filtre « Interdictions de gérer »
-  // (évolutif : les options viennent des résultats eux-mêmes, pas des tags).
-  const resultInfractionKeys = (r: ResultatAudience): string[] => {
-    if (r.infractionNatinfCodes?.length) return r.infractionNatinfCodes;
-    if (r.typesInfraction?.length) return r.typesInfraction;
-    return r.typeInfraction ? [r.typeInfraction] : [];
-  };
+  // Clé canonique d'une infraction (code NATINF, sinon libellé) et clés d'un
+  // résultat d'audience : la logique vit désormais dans ecranCore, seul le
+  // libellé d'affichage reste ici (il dépend du référentiel chargé à l'écran).
   const labelForInfractionKey = (k: string) => getByCode(k)?.libelle ?? k;
   const [selectedGererTags, setSelectedGererTags] = useState<string[]>([]);
   const currentDate = new Date();
@@ -285,6 +263,15 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
       </Card>
     );
   }
+
+  // Cartes dont les règles vivent dans le cœur partagé (mêmes nombres que le
+  // connecteur Claude web).
+  const deltaAvoirs = deltaSaisiesConfiscations(yearlyStats);
+  const peinesParAudience = peinesParTypeAudience(scopedResultats, selectedYear);
+  // `statsFenetre` : les orientations déjà calculées pour l'année (dénominateur
+  // des pourcentages) — évite un recalcul complet à chaque rendu.
+  const classementsDetail = orientationDetail(scopedResultats, enquetes, selectedYear, 'isClassement', infractionsForEnquete, { avecParMois: false, statsFenetre: yearlyStats });
+  const oiDetail = orientationDetail(scopedResultats, enquetes, selectedYear, 'isOI', infractionsForEnquete, { avecParMois: false, statsFenetre: yearlyStats });
 
   return (
     <div className="space-y-6">
@@ -780,9 +767,8 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
           </CardContent>
         </Card>
 
-        {/* Carte Delta Saisies vs Confiscations */}
-        {(yearlyStats.totalSaisiesVehicules > 0 || yearlyStats.totalSaisiesArgent > 0 || yearlyStats.totalSaisiesImmeubles > 0 || yearlyStats.totalSaisiesObjets > 0 ||
-          yearlyStats.totalVehicules > 0 || yearlyStats.totalArgent > 0 || yearlyStats.totalImmeubles > 0 || yearlyStats.totalObjets > 0) && (
+        {/* Carte Delta Saisies vs Confiscations — règles dans ecranCore */}
+        {deltaAvoirs?.aDesDonnees && (
           <Card>
             <CardHeader>
               <CardTitle>Delta saisies vs confiscations</CardTitle>
@@ -791,16 +777,8 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
             <CardContent>
               {(() => {
                 const fmt = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
-                const items: { label: string; saisie: number; confiscation: number; isAmount?: boolean }[] = [
-                  { label: 'Véhicules', saisie: yearlyStats.totalSaisiesVehicules, confiscation: yearlyStats.totalVehicules },
-                  { label: 'Immeubles', saisie: yearlyStats.totalSaisiesImmeubles, confiscation: yearlyStats.totalImmeubles },
-                  { label: 'Numéraire', saisie: yearlyStats.totalSaisiesNumeraire, confiscation: yearlyStats.totalNumeraire, isAmount: true },
-                  { label: 'Bancaire', saisie: yearlyStats.totalSaisiesBancaire, confiscation: yearlyStats.totalBancaire, isAmount: true },
-                  { label: 'Crypto', saisie: yearlyStats.totalSaisiesCrypto, confiscation: yearlyStats.totalCrypto, isAmount: true },
-                  { label: 'Objets mobiliers', saisie: yearlyStats.totalSaisiesObjets, confiscation: yearlyStats.totalObjets },
-                ];
-                const totalSaisiesFinancier = yearlyStats.totalSaisiesNumeraire + yearlyStats.totalSaisiesBancaire + yearlyStats.totalSaisiesCrypto;
-                const totalConfiscationsFinancier = yearlyStats.totalNumeraire + yearlyStats.totalBancaire + yearlyStats.totalCrypto;
+                const { lignes, totalAvoirs } = deltaAvoirs;
+                const couleurDelta = (d: number) => (d > 0 ? 'text-orange-600' : d < 0 ? 'text-green-600' : 'text-gray-500');
 
                 return (
                   <div className="space-y-3">
@@ -810,27 +788,22 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                       <span className="text-right">Confisqué</span>
                       <span className="text-right">Delta</span>
                     </div>
-                    {items.map(({ label, saisie, confiscation, isAmount }) => {
-                      const delta = saisie - confiscation;
-                      const hasData = saisie > 0 || confiscation > 0;
-                      if (!hasData) return null;
-                      return (
-                        <div key={label} className="grid grid-cols-4 gap-2 text-sm items-center">
-                          <span>{label}</span>
-                          <span className="text-right font-medium">{isAmount ? fmt.format(saisie) : saisie}</span>
-                          <span className="text-right font-medium">{isAmount ? fmt.format(confiscation) : confiscation}</span>
-                          <span className={`text-right font-bold ${delta > 0 ? 'text-orange-600' : delta < 0 ? 'text-green-600' : 'text-gray-500'}`}>
-                            {delta > 0 ? '+' : ''}{isAmount ? fmt.format(delta) : delta}
-                          </span>
-                        </div>
-                      );
-                    })}
+                    {lignes.map(({ poste, saisi, confisque, delta, montant }) => (
+                      <div key={poste} className="grid grid-cols-4 gap-2 text-sm items-center">
+                        <span>{poste}</span>
+                        <span className="text-right font-medium">{montant ? fmt.format(saisi) : saisi}</span>
+                        <span className="text-right font-medium">{montant ? fmt.format(confisque) : confisque}</span>
+                        <span className={`text-right font-bold ${couleurDelta(delta)}`}>
+                          {delta > 0 ? '+' : ''}{montant ? fmt.format(delta) : delta}
+                        </span>
+                      </div>
+                    ))}
                     <div className="grid grid-cols-4 gap-2 text-sm items-center border-t pt-2 font-medium">
                       <span>Total avoirs</span>
-                      <span className="text-right">{fmt.format(totalSaisiesFinancier)}</span>
-                      <span className="text-right">{fmt.format(totalConfiscationsFinancier)}</span>
-                      <span className={`text-right font-bold ${totalSaisiesFinancier - totalConfiscationsFinancier > 0 ? 'text-orange-600' : totalSaisiesFinancier - totalConfiscationsFinancier < 0 ? 'text-green-600' : 'text-gray-500'}`}>
-                        {totalSaisiesFinancier - totalConfiscationsFinancier > 0 ? '+' : ''}{fmt.format(totalSaisiesFinancier - totalConfiscationsFinancier)}
+                      <span className="text-right">{fmt.format(totalAvoirs.saisi)}</span>
+                      <span className="text-right">{fmt.format(totalAvoirs.confisque)}</span>
+                      <span className={`text-right font-bold ${couleurDelta(totalAvoirs.delta)}`}>
+                        {totalAvoirs.delta > 0 ? '+' : ''}{fmt.format(totalAvoirs.delta)}
                       </span>
                     </div>
                     <p className="text-xs text-gray-400 mt-2">
@@ -843,7 +816,8 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
           </Card>
         )}
 
-        {/* Carte Interdictions de gérer par tag d'infraction */}
+        {/* Carte Interdictions de gérer par tag d'infraction — ratio et détail
+            calculés dans ecranCore (le filtre ne porte que sur le ratio). */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -854,23 +828,12 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
           </CardHeader>
           <CardContent>
             {(() => {
-              // Filtre multi-select — options dérivées des résultats de l'année
-              // (clé NATINF ou libellé legacy), donc évolutif : plus de
-              // dépendance aux tags « type d'infraction » d'avant migration.
-              const allYearResults = Object.values(scopedResultats)
-                .filter(r => r.dateAudience && new Date(r.dateAudience).getFullYear() === selectedYear && !r.isOI && !r.isClassement && !r.isAudiencePending);
-
-              const availableKeys = [...new Set(allYearResults.flatMap(resultInfractionKeys))]
+              const gerer = interdictionsGererParInfraction(scopedResultats, selectedYear, labelForInfractionKey, selectedGererTags);
+              // Options du filtre — dérivées des résultats de l'année (clé NATINF
+              // ou libellé legacy), donc évolutives : plus de dépendance aux tags
+              // « type d'infraction » d'avant migration.
+              const availableKeys = [...gerer.clesDisponibles]
                 .sort((a, b) => labelForInfractionKey(a).localeCompare(labelForInfractionKey(b), 'fr'));
-
-              const filteredResults = selectedGererTags.length > 0
-                ? allYearResults.filter(r => resultInfractionKeys(r).some(k => selectedGererTags.includes(k)))
-                : allYearResults;
-
-              const totalCondFiltered = filteredResults.reduce((acc, r) => acc + (r.condamnations || []).length, 0);
-              const totalGererFiltered = filteredResults.reduce((acc, r) =>
-                acc + (r.condamnations || []).filter(c => c.interdictionGerer).length, 0);
-              const ratioFiltered = totalCondFiltered > 0 ? ((totalGererFiltered / totalCondFiltered) * 100).toFixed(1) : '0';
 
               return (
                 <div className="space-y-4">
@@ -912,11 +875,11 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                   {/* Résultat */}
                   <div>
                     <div className="flex justify-between items-baseline">
-                      <span className="text-2xl font-bold">{totalGererFiltered}</span>
-                      <span className="text-lg font-medium text-purple-600">{ratioFiltered}%</span>
+                      <span className="text-2xl font-bold">{gerer.total}</span>
+                      <span className="text-lg font-medium text-purple-600">{gerer.ratioPct.toFixed(1)}%</span>
                     </div>
                     <p className="text-sm text-gray-500">
-                      {totalGererFiltered} interdiction{totalGererFiltered > 1 ? 's' : ''} de gérer sur {totalCondFiltered} condamnation{totalCondFiltered > 1 ? 's' : ''}
+                      {gerer.total} interdiction{gerer.total > 1 ? 's' : ''} de gérer sur {gerer.condamnations} condamnation{gerer.condamnations > 1 ? 's' : ''}
                       {selectedGererTags.length > 0 && ` (filtré sur ${selectedGererTags.length} tag${selectedGererTags.length > 1 ? 's' : ''})`}
                     </p>
                   </div>
@@ -924,26 +887,12 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                   {/* Détail par infraction si pas de filtre */}
                   {selectedGererTags.length === 0 && (
                     <div className="border-t pt-2 space-y-1">
-                      {Object.entries(
-                        allYearResults.reduce<Record<string, { total: number; gerer: number }>>((acc, r) => {
-                          const keys = resultInfractionKeys(r);
-                          for (const key of keys.length > 0 ? keys : ['Non renseigné']) {
-                            if (!acc[key]) acc[key] = { total: 0, gerer: 0 };
-                            acc[key].total += r.condamnations.length;
-                            acc[key].gerer += r.condamnations.filter(c => c.interdictionGerer).length;
-                          }
-                          return acc;
-                        }, {})
-                      )
-                        .filter(([, v]) => v.gerer > 0)
-                        .sort(([, a], [, b]) => b.gerer - a.gerer)
-                        .map(([key, { total, gerer }]) => (
-                          <div key={key} className="flex justify-between text-sm">
-                            <span>{labelForInfractionKey(key)}</span>
-                            <span className="font-medium">{gerer}/{total} ({total > 0 ? ((gerer / total) * 100).toFixed(0) : 0}%)</span>
-                          </div>
-                        ))
-                      }
+                      {gerer.detail.map(({ infraction, interdictions, condamnations, partPct }) => (
+                        <div key={infraction} className="flex justify-between text-sm">
+                          <span>{infraction}</span>
+                          <span className="font-medium">{interdictions}/{condamnations} ({partPct.toFixed(0)}%)</span>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -1007,7 +956,8 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
           </CardContent>
         </Card>}
 
-        {/* Carte Peines moyennes par type d'audience (masquée en mode global) */}
+        {/* Carte Peines moyennes par type d'audience (masquée en mode global) —
+            ventilation ferme pur / probatoire pur / mixte : règles dans ecranCore */}
         {contentieuxId !== 'global' && <Card>
           <CardHeader>
             <CardTitle>Peines moyennes par type d'audience</CardTitle>
@@ -1015,286 +965,101 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {['CRPC-Def', 'CI', 'COPJ', 'CDD'].map(type => {
-                // Filtré par année d'audience — avant, cette carte agrégeait
-                // toutes les années confondues, insensible au sélecteur.
-                const condamnationsOfType = Object.values(scopedResultats)
-                  .filter(r => r.dateAudience && new Date(r.dateAudience).getFullYear() === selectedYear)
-                  .flatMap(r => r.condamnations || [])
-                  .filter(c => c && c.typeAudience === type);
-                if (condamnationsOfType.length === 0) return null;
-
-                const condamnationsFermePur = condamnationsOfType.filter(c =>
-                  c.peinePrison > 0 && (!c.sursisProbatoire || c.sursisProbatoire === 0) && (!c.sursisSimple || c.sursisSimple === 0)
-                );
-                const moyenneFermePur = condamnationsFermePur.length > 0
-                  ? condamnationsFermePur.reduce((acc, c) => acc + (Number(c.peinePrison) || 0), 0) / condamnationsFermePur.length : 0;
-
-                const condamnationsProbatoire = condamnationsOfType.filter(c =>
-                  (!c.peinePrison || c.peinePrison === 0) && c.sursisProbatoire > 0
-                );
-                const moyenneProbatoire = condamnationsProbatoire.length > 0
-                  ? condamnationsProbatoire.reduce((acc, c) => acc + (Number(c.sursisProbatoire) || 0), 0) / condamnationsProbatoire.length : 0;
-
-                const condamnationsMixtes = condamnationsOfType.filter(c =>
-                  c.peinePrison > 0 && (c.sursisProbatoire > 0 || c.sursisSimple > 0)
-                );
-                let moyenneMixteFerme = 0;
-                let moyenneMixteSursis = 0;
-                if (condamnationsMixtes.length > 0) {
-                  moyenneMixteFerme = condamnationsMixtes.reduce((acc, c) => acc + (Number(c.peinePrison) || 0), 0) / condamnationsMixtes.length;
-                  moyenneMixteSursis = condamnationsMixtes.reduce((acc, c) => acc + (Number(c.sursisProbatoire) || 0) + (Number(c.sursisSimple) || 0), 0) / condamnationsMixtes.length;
-                }
-
-                return (
-                  <div key={type} className="bg-gray-50 p-4 rounded-lg">
-                    <div className="font-medium mb-2">{type}</div>
-                    <div className="space-y-2">
-                      {condamnationsFermePur.length > 0 && (
-                        <div className="flex justify-between">
-                          <span>Ferme pur :</span>
-                          <span className="font-bold">
-                            {moyenneFermePur.toFixed(1)} mois
-                            <span className="text-xs text-gray-500 ml-1">({condamnationsFermePur.length} condamnation{condamnationsFermePur.length > 1 ? 's' : ''})</span>
-                          </span>
-                        </div>
-                      )}
-                      {condamnationsProbatoire.length > 0 && (
-                        <div className="flex justify-between">
-                          <span>Sursis probatoire pur :</span>
-                          <span className="font-bold">
-                            {moyenneProbatoire.toFixed(1)} mois
-                            <span className="text-xs text-gray-500 ml-1">({condamnationsProbatoire.length} condamnation{condamnationsProbatoire.length > 1 ? 's' : ''})</span>
-                          </span>
-                        </div>
-                      )}
-                      {condamnationsMixtes.length > 0 && (
-                        <div className="flex justify-between">
-                          <span>Mixte :</span>
-                          <span className="font-bold">
-                            {(moyenneMixteFerme + moyenneMixteSursis).toFixed(1)} dont {moyenneMixteSursis.toFixed(1)} sursis
-                            <span className="text-xs text-gray-500 ml-1">({condamnationsMixtes.length} condamnation{condamnationsMixtes.length > 1 ? 's' : ''})</span>
-                          </span>
-                        </div>
-                      )}
-                      <div className="text-sm text-gray-500 mt-2">
-                        Total : {condamnationsOfType.length} condamnation{condamnationsOfType.length > 1 ? 's' : ''}
+              {peinesParAudience.map(({ type, total, fermePur, probatoirePur, mixte }) => (
+                <div key={type} className="bg-gray-50 p-4 rounded-lg">
+                  <div className="font-medium mb-2">{type}</div>
+                  <div className="space-y-2">
+                    {fermePur.nombre > 0 && (
+                      <div className="flex justify-between">
+                        <span>Ferme pur :</span>
+                        <span className="font-bold">
+                          {fermePur.moyenneMois.toFixed(1)} mois
+                          <span className="text-xs text-gray-500 ml-1">({fermePur.nombre} condamnation{fermePur.nombre > 1 ? 's' : ''})</span>
+                        </span>
                       </div>
+                    )}
+                    {probatoirePur.nombre > 0 && (
+                      <div className="flex justify-between">
+                        <span>Sursis probatoire pur :</span>
+                        <span className="font-bold">
+                          {probatoirePur.moyenneMois.toFixed(1)} mois
+                          <span className="text-xs text-gray-500 ml-1">({probatoirePur.nombre} condamnation{probatoirePur.nombre > 1 ? 's' : ''})</span>
+                        </span>
+                      </div>
+                    )}
+                    {mixte.nombre > 0 && (
+                      <div className="flex justify-between">
+                        <span>Mixte :</span>
+                        <span className="font-bold">
+                          {mixte.moyenneTotaleMois.toFixed(1)} dont {mixte.dontSursisMois.toFixed(1)} sursis
+                          <span className="text-xs text-gray-500 ml-1">({mixte.nombre} condamnation{mixte.nombre > 1 ? 's' : ''})</span>
+                        </span>
+                      </div>
+                    )}
+                    <div className="text-sm text-gray-500 mt-2">
+                      Total : {total} condamnation{total > 1 ? 's' : ''}
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>}
 
-        {/* Carte Classements sans suite */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Classements sans suite</CardTitle>
-            <p className="text-sm text-gray-500">Toutes enquêtes confondues</p>
-          </CardHeader>
-          <CardContent>
-            {(() => {
-              const nombreClassements = yearlyStats?.nombreClassements || 0;
-              const totalEnquetes = (yearlyStats?.nombreCRPC || 0) +
-                                    (yearlyStats?.nombreCI || 0) +
-                                    (yearlyStats?.nombreCOPJ || 0) +
-                                    (yearlyStats?.nombreOI || 0) +
-                                    (yearlyStats?.nombreCDD || 0) +
-                                    (yearlyStats?.nombreClassements || 0);
-              const pourcentage = totalEnquetes > 0 ? ((nombreClassements / totalEnquetes) * 100).toFixed(1) : '0';
+        {/* Cartes Classements sans suite / Ouvertures d'information —
+            nombre, part des orientations, âge moyen au prononcé et répartition
+            par type de fait : règles dans ecranCore (mêmes chiffres que
+            l'outil `stats_ecran` du connecteur). */}
+        {([
+          { titre: 'Classements sans suite', detail: classementsDetail, cleMois: 'nombreClassements' as const, encadre: 'bg-red-50', titreEncadre: 'text-red-800', valeurEncadre: 'text-red-700', libelleAge: 'Âge moyen des dossiers au classement' },
+          { titre: "Ouvertures d'information", detail: oiDetail, cleMois: 'nombreOI' as const, encadre: 'bg-gray-100', titreEncadre: 'text-gray-700', valeurEncadre: 'text-gray-800', libelleAge: "Âge moyen des dossiers avant ouverture d'info" },
+        ]).map(({ titre, detail, cleMois, encadre, titreEncadre, valeurEncadre, libelleAge }) => (
+          <Card key={titre}>
+            <CardHeader>
+              <CardTitle>{titre}</CardTitle>
+              <p className="text-sm text-gray-500">Toutes enquêtes confondues</p>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center mb-2">
+                <div className="text-3xl font-bold mr-2">{detail.nombre}</div>
+                <div className="text-lg ml-2">({detail.partDesOrientationsPct.toFixed(1)}% des orientations)</div>
+              </div>
 
-              // Calcul de l'âge moyen et répartition par type de fait
-              const classementResults = Object.values(scopedResultats)
-                .filter(r => r.isClassement && r.dateAudience &&
-                  new Date(r.dateAudience).getFullYear() === selectedYear);
+              {detail.dossiersAvecAge > 0 && (
+                <div className={`${encadre} p-3 rounded-md mb-4`}>
+                  <div className={`text-sm font-medium ${titreEncadre}`}>{libelleAge}</div>
+                  <div className={`text-2xl font-bold ${valeurEncadre}`}>{detail.ageMoyenJours} jours</div>
+                </div>
+              )}
 
-              let totalAge = 0;
-              let countAge = 0;
-              const infractionCounts: Record<string, number> = {};
-              // Clé canonique → item représentatif (préférer celui qui a un code)
-              // pour l'affichage (libellé + pastille NATINF).
-              const infractionReps = new Map<string, ReturnType<typeof infractionsForEnquete>[number]>();
-
-              classementResults.forEach(r => {
-                const enquete = enquetes.find(e => e.id === r.enqueteId);
-                if (enquete) {
-                  const dateDebut = new Date(enquete.dateDebut);
-                  const dateFin = new Date(r.dateAudience);
-                  const ageJours = Math.floor((dateFin.getTime() - dateDebut.getTime()) / (1000 * 60 * 60 * 24));
-                  if (ageJours >= 0) { totalAge += ageJours; countAge++; }
-                  infractionsForEnquete(enquete).forEach(inf => {
-                    const k = keyOf(inf);
-                    if (!k) return;
-                    infractionCounts[k] = (infractionCounts[k] || 0) + 1;
-                    const existing = infractionReps.get(k);
-                    if (!existing || (!existing.code && inf.code)) infractionReps.set(k, inf);
-                  });
-                }
-              });
-
-              const ageMoyen = countAge > 0 ? Math.round(totalAge / countAge) : 0;
-              const totalInfractions = Object.values(infractionCounts).reduce((a, b) => a + b, 0);
-              const sortedInfractions = Object.entries(infractionCounts).sort(([, a], [, b]) => b - a);
-
-              const ouverturesMensuelles: Record<string, number> = {};
-              getMonthsToShow().forEach(month => {
-                const monthName = new Date(selectedYear, month).toLocaleString('default', { month: 'long' });
-                ouverturesMensuelles[monthName] = monthlyStats[month]?.nombreClassements || 0;
-              });
-
-              return (
-                <>
-                  <div className="flex items-center mb-2">
-                    <div className="text-3xl font-bold mr-2">{nombreClassements}</div>
-                    <div className="text-lg ml-2">({pourcentage}% des orientations)</div>
-                  </div>
-
-                  {countAge > 0 && (
-                    <div className="bg-red-50 p-3 rounded-md mb-4">
-                      <div className="text-sm font-medium text-red-800">Âge moyen des dossiers au classement</div>
-                      <div className="text-2xl font-bold text-red-700">{ageMoyen} jours</div>
-                    </div>
-                  )}
-
-                  {sortedInfractions.length > 0 && (
-                    <div className="mb-4">
-                      <p className="text-sm font-medium mb-2">Répartition par type de fait</p>
-                      <div className="space-y-1">
-                        {sortedInfractions.map(([key, count]) => {
-                          const rep = infractionReps.get(key);
-                          return (
-                          <div key={key} className="flex justify-between text-sm">
-                            <span className="inline-flex items-center gap-1.5">
-                              {rep?.label ?? key}
-                              {rep?.code ? <NatinfBadge compact code={rep.code} nature={rep.nature} quantumLabel={rep.quantumLabel} /> : null}
-                            </span>
-                            <span className="font-medium">{count} ({totalInfractions > 0 ? ((count / totalInfractions) * 100).toFixed(0) : 0}%)</span>
-                          </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="pt-3 border-t space-y-1">
-                    {Object.entries(ouverturesMensuelles).map(([month, count]) => (
-                      <div key={month} className="flex justify-between text-sm">
-                        <span>{month}:</span>
-                        <span className="font-medium">{count}</span>
+              {detail.repartitionParTypeDeFait.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-sm font-medium mb-2">Répartition par type de fait</p>
+                  <div className="space-y-1">
+                    {detail.repartitionParTypeDeFait.map(({ cle, infraction, rep, count, partPct }) => (
+                      <div key={cle} className="flex justify-between text-sm">
+                        <span className="inline-flex items-center gap-1.5">
+                          {infraction}
+                          {rep?.code ? <NatinfBadge compact code={rep.code} nature={rep.nature} quantumLabel={rep.quantumLabel} /> : null}
+                        </span>
+                        <span className="font-medium">{count} ({partPct.toFixed(0)}%)</span>
                       </div>
                     ))}
                   </div>
-                </>
-              );
-            })()}
-          </CardContent>
-        </Card>
+                </div>
+              )}
 
-        {/* Carte Ouvertures d'information */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Ouvertures d'information</CardTitle>
-            <p className="text-sm text-gray-500">Toutes enquêtes confondues</p>
-          </CardHeader>
-          <CardContent>
-            {(() => {
-              const nombreOI = yearlyStats?.nombreOI || 0;
-              const totalEnquetes = (yearlyStats?.nombreCRPC || 0) +
-                                    (yearlyStats?.nombreCI || 0) +
-                                    (yearlyStats?.nombreCOPJ || 0) +
-                                    (yearlyStats?.nombreOI || 0) +
-                                    (yearlyStats?.nombreCDD || 0) +
-                                    (yearlyStats?.nombreClassements || 0);
-              const pourcentage = totalEnquetes > 0 ? ((nombreOI / totalEnquetes) * 100).toFixed(1) : '0';
-
-              // Calcul de l'âge moyen et répartition par type de fait
-              const oiResults = Object.values(scopedResultats)
-                .filter(r => r.isOI && r.dateAudience &&
-                  new Date(r.dateAudience).getFullYear() === selectedYear);
-
-              let totalAge = 0;
-              let countAge = 0;
-              const infractionCounts: Record<string, number> = {};
-              // Clé canonique → item représentatif (préférer celui qui a un code)
-              // pour l'affichage (libellé + pastille NATINF).
-              const infractionReps = new Map<string, ReturnType<typeof infractionsForEnquete>[number]>();
-
-              oiResults.forEach(r => {
-                const enquete = enquetes.find(e => e.id === r.enqueteId);
-                if (enquete) {
-                  const dateDebut = new Date(enquete.dateDebut);
-                  const dateFin = new Date(r.dateAudience);
-                  const ageJours = Math.floor((dateFin.getTime() - dateDebut.getTime()) / (1000 * 60 * 60 * 24));
-                  if (ageJours >= 0) { totalAge += ageJours; countAge++; }
-                  infractionsForEnquete(enquete).forEach(inf => {
-                    const k = keyOf(inf);
-                    if (!k) return;
-                    infractionCounts[k] = (infractionCounts[k] || 0) + 1;
-                    const existing = infractionReps.get(k);
-                    if (!existing || (!existing.code && inf.code)) infractionReps.set(k, inf);
-                  });
-                }
-              });
-
-              const ageMoyen = countAge > 0 ? Math.round(totalAge / countAge) : 0;
-              const totalInfractions = Object.values(infractionCounts).reduce((a, b) => a + b, 0);
-              const sortedInfractions = Object.entries(infractionCounts).sort(([, a], [, b]) => b - a);
-
-              const ouverturesMensuelles: Record<string, number> = {};
-              getMonthsToShow().forEach(month => {
-                const monthName = new Date(selectedYear, month).toLocaleString('default', { month: 'long' });
-                ouverturesMensuelles[monthName] = monthlyStats[month]?.nombreOI || 0;
-              });
-
-              return (
-                <>
-                  <div className="flex items-center mb-2">
-                    <div className="text-3xl font-bold mr-2">{nombreOI}</div>
-                    <div className="text-lg ml-2">({pourcentage}% des orientations)</div>
+              <div className="pt-3 border-t space-y-1">
+                {getMonthsToShow().map(month => (
+                  <div key={month} className="flex justify-between text-sm">
+                    <span>{new Date(selectedYear, month).toLocaleString('default', { month: 'long' })}:</span>
+                    <span className="font-medium">{monthlyStats[month]?.[cleMois] || 0}</span>
                   </div>
-
-                  {countAge > 0 && (
-                    <div className="bg-gray-100 p-3 rounded-md mb-4">
-                      <div className="text-sm font-medium text-gray-700">Âge moyen des dossiers avant ouverture d'info</div>
-                      <div className="text-2xl font-bold text-gray-800">{ageMoyen} jours</div>
-                    </div>
-                  )}
-
-                  {sortedInfractions.length > 0 && (
-                    <div className="mb-4">
-                      <p className="text-sm font-medium mb-2">Répartition par type de fait</p>
-                      <div className="space-y-1">
-                        {sortedInfractions.map(([key, count]) => {
-                          const rep = infractionReps.get(key);
-                          return (
-                          <div key={key} className="flex justify-between text-sm">
-                            <span className="inline-flex items-center gap-1.5">
-                              {rep?.label ?? key}
-                              {rep?.code ? <NatinfBadge compact code={rep.code} nature={rep.nature} quantumLabel={rep.quantumLabel} /> : null}
-                            </span>
-                            <span className="font-medium">{count} ({totalInfractions > 0 ? ((count / totalInfractions) * 100).toFixed(0) : 0}%)</span>
-                          </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="pt-3 border-t space-y-1">
-                    {Object.entries(ouverturesMensuelles).map(([month, count]) => (
-                      <div key={month} className="flex justify-between text-sm">
-                        <span>{month}:</span>
-                        <span className="font-medium">{count}</span>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              );
-            })()}
-          </CardContent>
-        </Card>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
     </div>
   );

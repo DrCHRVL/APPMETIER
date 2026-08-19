@@ -15,6 +15,8 @@ chronologies, statistiques et graphiques, écritures réversibles (actes, CR,
 
 - « Fais-moi le point sur le dossier 2026/000123 » → `lire_dossier`,
   `chronologie_lire`, `verifier_completude` ;
+- « Mes statistiques 2026, ça donne quoi ? » → `stats_ecran` : **la page
+  Statistiques telle que vous la voyez**, carte par carte (voir plus bas) ;
 - « Sors-moi le bilan du semestre avec les graphiques » → `stats_synthese`,
   `stats_graphique` (Claude VOIT les courbes) ;
 - « Extrais tous les mis en cause liés au réseau X et leurs actes » →
@@ -28,6 +30,41 @@ Deux outils de l'attaché sont volontairement absents du connecteur :
 `sous_agents` (lancerait des runs CLI parallèles sur l'abonnement — Claude
 web orchestre déjà ses lectures) et `poser_question` (vous êtes déjà dans la
 conversation). Les suppressions restent, comme pour l'attaché, manuelles.
+
+## Statistiques : les mêmes chiffres qu'à l'écran
+
+La page Statistiques de l'app raisonne par **année civile** (le sélecteur en
+haut) et applique des règles serrées : procédures terminées **hors**
+classements sans suite et ouvertures d'information, orientations comptées une
+fois par dossier *mais une fois par prévenu en CRPC*, défèrements rattachés à
+leur **date réelle** et non à la date d'audience, saisies d'enquête distinctes
+des confiscations d'audience, année en cours arrêtée au mois courant. Un
+agent qui refait ces calculs « au bon sens » à partir des listes de dossiers
+tombe forcément à côté.
+
+Trois outils, un seul jeu de règles :
+
+| Question | Outil | Ce qu'il rend |
+| --- | --- | --- |
+| « mes stats », un chiffre de la page, une année | `stats_ecran` (`annee`) | Les 4 sections de la page — Générales · Types d'infractions · Résultats d'audience · Instruction — **carte par carte** : titre exact, valeur affichée, détail et **règle de calcul** |
+| un semestre, un trimestre, « depuis mars » | `stats_synthese` (`du`/`au`) | Le même bilan sur période libre, listes de dossiers comprises |
+| « montre-moi mes graphiques » | `stats_graphique` (`graphiques[]`, `annee`) | Les visuels en PNG, mêmes couleurs que l'app, **avec** les nombres exacts en regard |
+| quelles années ont des données | `stats_annees` | Le contenu du sélecteur « Année » |
+
+Les consignes du connecteur interdisent explicitement à Claude de recalculer
+un chiffre déjà rendu ou de le reconstituer en additionnant des listes : il
+cite la carte et sa valeur. Deux nombres voisins qui diffèrent (« déférements »
+de l'orientation vs « Évolution des déférements ») ne sont pas une
+incohérence — chaque carte porte la règle qui l'explique.
+
+Côté code, **aucune règle n'est réécrite pour le connecteur** : les cartes
+sont calculées par les cœurs partagés avec l'écran —
+`lib/stats/ecranCore.mjs` (les cartes), `lib/stats/audienceCore.mjs` (peines,
+orientations, saisies), `lib/stats/actesCore.mjs` (actes TSE),
+`lib/stats/instructionCore.mjs` (onglet instruction) et
+`lib/natinf/nataffRegles.mjs` (catégories d'infraction). La page Statistiques
+de l'app consomme exactement les mêmes fonctions : si une règle évolue, elle
+évolue des deux côtés à la fois.
 
 ## Modèle de sécurité
 

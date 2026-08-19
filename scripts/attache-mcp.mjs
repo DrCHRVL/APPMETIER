@@ -49,7 +49,8 @@ import { controlerProduction } from './attache/qualite.mjs'
 import { listAssociations, setAssociation, removeAssociation } from './attache/associations.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed } from './attache/mail.mjs'
 import { bilanStatistiques } from './attache/statistiques.mjs'
-import { genererGraphique, GRAPHIQUES } from './attache/statsGraphiques.mjs'
+import { genererGraphique, genererGraphiques, GRAPHIQUES } from './attache/statsGraphiques.mjs'
+import { ecranStatistiques, anneesDisponibles } from './attache/statsEcran.mjs'
 
 // `let` : le connecteur (service, longue durée de vie) recharge le trousseau
 // à chaque message — une révocation vaut immédiatement, comme pour les runs
@@ -617,8 +618,29 @@ const TOOLS = [
     handler: async (a) => buildChronologie(keys, a.numero) ?? { erreur: 'Dossier introuvable' },
   },
   {
+    name: 'stats_ecran',
+    description: 'CE QUE LE MAGISTRAT VOIT dans la page « Statistiques » de SIRAL, pour une ANNÉE (défaut : l\'année en cours) — section par section et CARTE PAR CARTE, avec le titre exact de chaque carte, sa valeur affichée, son détail et sa RÈGLE de calcul. '
+      + 'À UTILISER DÈS QUE LA QUESTION PORTE SUR « MES STATISTIQUES », un chiffre de la page, un écart constaté, ou une année civile : c\'est le seul outil qui garantit les MÊMES nombres que l\'écran. '
+      + 'Sections rendues : Statistiques générales (procédures terminées et leur ventilation mensuelle, durée moyenne, actes d\'enquête et charge estimée, enquêtes en cours et ouvertures, évolution des déférements, comparatif N-1, répartition par service, suivi JIRS/PG) · Types d\'infractions (catégories du Mémento, repliées par grand titre, en cours et terminées) · Résultats d\'audience (orientation et orientation par mois, condamnations, total et moyennes de peines, amendes, interdictions, saisies d\'enquête, confiscations d\'audience, delta saisies/confiscations, peines moyennes par infraction et par type d\'audience, classements sans suite et ouvertures d\'information avec âge moyen et répartition par type de fait) · Statistiques instruction (dossiers, mis en examen et mesures de sûreté, âges, DML, cotes, dossiers à régler au 175, délai de clôture par cabinet). '
+      + 'CITER CES NOMBRES TELS QUELS : ne jamais les recalculer, les recouper ou les additionner autrement — chaque carte porte sa règle, qui explique notamment pourquoi deux chiffres voisins diffèrent légitimement (déférements comptés à leur date réelle vs déférements des dossiers jugés, procédures terminées hors classements/OI vs total avec). '
+      + 'Pour une période NON calendaire (semestre, trimestre, « depuis mars ») : stats_synthese. Pour VOIR une courbe ou un camembert : stats_graphique.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        annee: { type: 'integer', description: 'Année du sélecteur de la page (défaut : année en cours). L\'année en cours s\'arrête au mois courant, comme à l\'écran.' },
+      },
+    },
+    handler: async (a) => ecranStatistiques(keys, { annee: a.annee }),
+  },
+  {
+    name: 'stats_annees',
+    description: 'Les années pour lesquelles le contentieux porte des données (enquêtes ouvertes ou audiences) — le contenu du sélecteur « Année » de la page Statistiques. À appeler quand le magistrat parle d\'une année sans la nommer, ou avant un comparatif pluriannuel.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => ({ annees: anneesDisponibles(keys) }),
+  },
+  {
     name: 'stats_synthese',
-    description: 'Le BILAN CHIFFRÉ COMPLET du contentieux sur une période libre (défaut : du 1ᵉʳ janvier de l\'année en cours à aujourd\'hui) — les MÊMES règles de calcul que la page Statistiques et le rapport PDF de SIRAL. Retourne : procédures terminées (total hors classements/OI, par mois, et la LISTE des dossiers avec orientation, services, catégories d\'infraction, durée), défèrements (total, par mois, liste datée), ouvertures et stock en cours, orientations (CRPC/CI/COPJ/OI/CDD/classements), peines (ferme/probation/sursis, moyennes, amendes, interdictions), saisies et confiscations (véhicules, immeubles, avoirs, crypto), actes TSE, répartition par service et par catégorie d\'infraction (tendance mensuelle comprise), suivi JIRS/PG, photographie du module instruction, et COMPARATIF avec la même période un an plus tôt. Point de départ obligé de tout bilan d\'activité, rapport semestriel ou point statistique — chaque chiffre d\'un rapport doit venir d\'ici, jamais d\'une estimation. Les listes de dossiers permettent ensuite de plonger dans chaque affaire (lire_dossier).',
+    description: 'Le BILAN CHIFFRÉ COMPLET du contentieux sur une période libre (défaut : du 1ᵉʳ janvier de l\'année en cours à aujourd\'hui) — les MÊMES règles de calcul que la page Statistiques et le rapport PDF de SIRAL. Retourne : procédures terminées (total hors classements/OI, par mois, et la LISTE des dossiers avec orientation, services, catégories d\'infraction, durée), défèrements (total, par mois, liste datée), ouvertures et stock en cours, orientations (CRPC/CI/COPJ/OI/CDD/classements), peines (ferme/probation/sursis, moyennes, amendes, interdictions), saisies et confiscations (véhicules, immeubles, avoirs, crypto), actes TSE, répartition par service et par catégorie d\'infraction (tendance mensuelle comprise), suivi JIRS/PG, photographie du module instruction, et COMPARATIF avec la même période un an plus tôt. Depuis peu, il rend AUSSI les cartes détaillées de la page : delta saisies/confiscations, peines moyennes par type d\'audience, détail des classements sans suite et des ouvertures d\'information (part des orientations, âge moyen des dossiers, répartition par type de fait), interdictions de paraître et de gérer, catégories d\'infraction repliées par grand titre, et la photographie complète du module instruction. Point de départ obligé de tout bilan d\'activité, rapport semestriel ou point statistique — chaque chiffre d\'un rapport doit venir d\'ici, jamais d\'une estimation, jamais d\'un recalcul à partir des listes. Les listes de dossiers permettent ensuite de plonger dans chaque affaire (lire_dossier). SI LA QUESTION PORTE SUR UNE ANNÉE CIVILE ou sur « ce que j\'ai à l\'écran », préférer stats_ecran : mêmes règles, mais rendu carte par carte comme la page.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -630,25 +652,37 @@ const TOOLS = [
   },
   {
     name: 'stats_graphique',
-    description: `VOIR un graphique statistique : rend l'IMAGE (PNG, mêmes couleurs et mêmes règles que la page Statistiques de SIRAL) accompagnée de ses données chiffrées exactes. Regarde l'image pour décrire les dynamiques (pics, creux, bascules de tendance) et appuie chaque nombre sur les données jointes. Graphiques disponibles : ${Object.entries(GRAPHIQUES).map(([k, v]) => `${k} (${v.split(' — ')[0]})`).join(' · ')}. Même période libre que stats_synthese.`,
+    description: `VOIR les graphiques du magistrat : rend l'IMAGE (PNG, mêmes courbes, mêmes couleurs et mêmes règles que la page Statistiques de SIRAL) accompagnée de ses données chiffrées exactes. Regarde l'image pour décrire les dynamiques (pics, creux, bascules de tendance) et appuie chaque nombre sur les données jointes — jamais sur une lecture approximative de l'image. `
+      + `Demande PLUSIEURS graphiques d'un coup avec \`graphiques\` (« montre-moi mes graphiques » appelle la planche, pas un visuel isolé). Fenêtre : \`annee\` reproduit le sélecteur de la page Statistiques (à préférer pour coller à l'écran) ; \`du\`/\`au\` pour une période libre. `
+      + `Catalogue : ${Object.entries(GRAPHIQUES).map(([k, v]) => `${k} (${v.split(' — ')[0]})`).join(' · ')}.`,
     inputSchema: {
       type: 'object',
       properties: {
-        graphique: { type: 'string', enum: Object.keys(GRAPHIQUES), description: 'Le graphique à produire' },
+        graphique: { type: 'string', enum: Object.keys(GRAPHIQUES), description: 'Le graphique à produire (ou `graphiques` pour en demander plusieurs)' },
+        graphiques: {
+          type: 'array',
+          items: { type: 'string', enum: Object.keys(GRAPHIQUES) },
+          description: 'Plusieurs graphiques d\'un coup, sur la même fenêtre — le bilan n\'est calculé qu\'une fois.',
+        },
+        annee: { type: 'integer', description: 'Année du sélecteur de la page Statistiques (l\'année en cours s\'arrête au mois courant). Prioritaire sur du/au.' },
         du: { type: 'string', description: 'Début de période AAAA-MM-JJ (défaut : 1ᵉʳ janvier de l\'année en cours)' },
         au: { type: 'string', description: 'Fin de période AAAA-MM-JJ incluse (défaut : aujourd\'hui)' },
       },
-      required: ['graphique'],
     },
     handler: async (a) => {
-      const { titre, note, donnees, png } = genererGraphique(keys, { graphique: a.graphique, du: a.du, au: a.au })
-      return {
-        __mcp: 'contenu',
-        content: [
-          { type: 'text', text: JSON.stringify({ titre, note, donnees }, null, 1) },
-          { type: 'image', data: png.toString('base64'), mimeType: 'image/png' },
-        ],
+      const demandes = a.graphiques?.length ? a.graphiques : (a.graphique ? [a.graphique] : [])
+      if (!demandes.length) throw new Error(`Préciser \`graphique\` ou \`graphiques\`. Disponibles : ${Object.keys(GRAPHIQUES).join(', ')}`)
+      const rendus = genererGraphiques(keys, { graphiques: demandes, annee: a.annee, du: a.du, au: a.au })
+      const content = []
+      for (const r of rendus) {
+        if (r.indisponible) {
+          content.push({ type: 'text', text: JSON.stringify({ graphique: r.graphique, indisponible: r.indisponible }, null, 1) })
+          continue
+        }
+        content.push({ type: 'text', text: JSON.stringify({ graphique: r.graphique, titre: r.titre, note: r.note, donnees: r.donnees }, null, 1) })
+        content.push({ type: 'image', data: r.png.toString('base64'), mimeType: 'image/png' })
       }
+      return { __mcp: 'contenu', content }
     },
   },
   {
@@ -1442,7 +1476,12 @@ const OUTILS_HORS_CONNECTEUR = new Set(['sous_agents', 'poser_question'])
 
 const INSTRUCTIONS_CONNECTEUR = [
   `SIRAL — application métier du parquet (contentieux ${attacheContentieux()}). Tu agis pour le compte du magistrat administrateur, authentifié via OAuth.`,
-  'Points d\'entrée : lister_dossiers (enquêtes) · instru_lister (module instruction) · lire_dossier (détail, sections paginées) · dossier_arborescence puis lire_document (pièces) · stats_synthese / stats_graphique (bilans chiffrés).',
+  'Points d\'entrée : lister_dossiers (enquêtes) · instru_lister (module instruction) · lire_dossier (détail, sections paginées) · dossier_arborescence puis lire_document (pièces) · stats_ecran / stats_synthese / stats_graphique (chiffres et graphiques).',
+  'STATISTIQUES — le magistrat lit une PAGE « Statistiques » organisée par ANNÉE (sélecteur en haut) et en quatre sections : Statistiques générales · Types d\'infractions · Résultats d\'audience · Statistiques instruction. Ses chiffres sont ceux de cette page.',
+  '  1. Toute question sur « mes statistiques », un chiffre affiché, un écart, une année civile → stats_ecran (annee) : il rend la page CARTE PAR CARTE, avec le titre exact de chaque carte, sa valeur et sa règle de calcul. Une période non calendaire (semestre, trimestre, « depuis mars ») → stats_synthese (du/au). Les années disponibles → stats_annees.',
+  '  2. NE JAMAIS RECALCULER un chiffre déjà rendu, ni le reconstituer en additionnant des listes de dossiers : les règles de la page sont subtiles (procédures terminées HORS classements et ouvertures d\'information ; orientations comptées 1 par dossier mais 1 par prévenu en CRPC ; déférements comptés à leur date réelle et non à la date d\'audience ; saisies d\'enquête ≠ confiscations d\'audience ; l\'année en cours s\'arrête au mois courant). Un recalcul « de bon sens » donne un autre nombre que l\'écran — c\'est l\'erreur à ne pas commettre. Reprendre la valeur, et citer la carte d\'où elle vient.',
+  '  3. Deux chiffres voisins qui diffèrent ne sont pas une incohérence : chaque carte porte sa `regle`, la lire avant de conclure ou de signaler un écart au magistrat.',
+  '  4. Pour VOIR ce qu\'il voit : stats_graphique, avec `graphiques` (plusieurs d\'un coup) et `annee`. Décrire les dynamiques d\'après l\'image, mais donner les nombres d\'après les données jointes.',
   'Écritures (actes, CR, à-faire, NATINF, dossiers…) : réservées aux instructions explicites du magistrat — en cas de doute, demande-lui dans la conversation avant d\'écrire. Chaque écriture est versionnée (réversible) et journalisée dans son audit ; les données partagées sont signées de son nom, jamais « IA ».',
   'Livrables et actes rédigés se remettent DANS SIRAL : produire_document (atelier « Actes rédigés ») ou remettre_livrable (fil « pendant votre absence »).',
 ].join('\n')

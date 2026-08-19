@@ -34,9 +34,23 @@ import { loadContentieux } from './dossier.mjs'
 import { attacheContentieux } from './store.mjs'
 import { natinfEntry } from './natinf.mjs'
 import { labelCategorie } from './nataff.mjs'
-import { listInstructionDossiers } from './instru.mjs'
+import { allInstructionDossiers } from './instru.mjs'
 import { calculateAudienceStats } from '../../lib/stats/audienceCore.mjs'
 import { computeActeStatsCore } from '../../lib/stats/actesCore.mjs'
+// Les cartes de la page Statistiques (delta saisies/confiscations, peines par
+// type d'audience, détail des classements et des OI, interdictions de gérer,
+// catégories d'infraction par grand titre) sont calculées par le MÊME cœur que
+// l'écran — ici sur la fenêtre libre de la période, via un sélecteur.
+import {
+  deltaSaisiesConfiscations,
+  peinesParTypeAudience,
+  orientationDetail,
+  interdictionsGererParInfraction,
+  interdictionsParaitreDetail,
+  repartitionCategoriesInfraction,
+} from '../../lib/stats/ecranCore.mjs'
+import { computeInstructionStats } from '../../lib/stats/instructionCore.mjs'
+import { infractionsDeEnquete, categorieDeInfraction, libelleNatinf } from './statsReferentiel.mjs'
 
 // ── Dates ──
 
@@ -103,7 +117,7 @@ function joursEntre(debut, fin) {
  * l'écran : résultats du contentieux courant dont l'enquête existe encore,
  * plus les procédures directes (permanence).
  */
-function donnees(keys) {
+export function donneesContentieux(keys) {
   const { data } = loadContentieux(keys)
   const enquetes = data.enquetes || []
   const ctx = attacheContentieux()
@@ -166,15 +180,22 @@ function deferementsDuResultat(r, du, au) {
  * résultats datés dans la fenêtre ; les résultats standards exigent une
  * enquête ARCHIVÉE.
  */
-function statsAudience(resultats, enquetes, du, au) {
-  const valides = resultats.filter((r) => {
+function resultatsDePeriode(resultats, enquetes, du, au) {
+  return resultats.filter((r) => {
     if (!r.dateAudience || !inPeriod(r.dateAudience, du, au)) return false
     if (r.isDirectResult || r.isClassement || r.isOI) return true
     const e = enquetes.find((x) => x.id === r.enqueteId)
     return Boolean(e && e.statut === 'archive')
   })
+}
 
-  const core = calculateAudienceStats(valides, enquetes)
+/** Agrégats bruts d'audience de la période (mêmes champs qu'AudienceStats). */
+function coreDePeriode(resultats, enquetes, du, au) {
+  return calculateAudienceStats(resultatsDePeriode(resultats, enquetes, du, au), enquetes)
+}
+
+function statsAudience(resultats, enquetes, du, au, coreFourni) {
+  const core = coreFourni !== undefined ? coreFourni : coreDePeriode(resultats, enquetes, du, au)
 
   const peinesParInfraction = {}
   for (const [infrKey, p] of Object.entries(core?.peinesParInfraction || {})) {
@@ -200,15 +221,20 @@ function statsAudience(resultats, enquetes, du, au) {
     },
     deferementsDossiersJuges: core?.nombreDeferements || 0,
     peines: {
-      fermes: { nombre: core?.nombrePeinesFermes || 0, moyenneMois: core?.moyennePrison || 0 },
-      probation: { nombre: core?.nombrePeinesProbation || 0, moyenneMois: core?.moyenneProbation || 0 },
-      sursisSimple: { nombre: core?.nombrePeinesSimple || 0, moyenneMois: core?.moyenneSimple || 0 },
-      mixtesFermeProbation: { nombre: core?.nombrePeinesMixtesProbation || 0, moyenneMois: core?.moyenneMixtesProbation || '' },
-      mixtesFermeSimple: { nombre: core?.nombrePeinesMixtesSimple || 0, moyenneMois: core?.moyenneMixtesSimple || '' },
+      // Mêmes libellés et mêmes taux que la carte « Peines moyennes » de l'écran.
+      fermes: { nombre: core?.nombrePeinesFermes || 0, moyenneMois: core?.moyennePrison || 0, tauxPct: core?.tauxPeinesFermes || 0 },
+      probation: { nombre: core?.nombrePeinesProbation || 0, moyenneMois: core?.moyenneProbation || 0, tauxPct: core?.tauxPeinesProbation || 0 },
+      sursisSimple: { nombre: core?.nombrePeinesSimple || 0, moyenneMois: core?.moyenneSimple || 0, tauxPct: core?.tauxPeinesSimple || 0 },
+      mixtesFermeProbation: { nombre: core?.nombrePeinesMixtesProbation || 0, moyenneMois: core?.moyenneMixtesProbation || '', tauxPct: core?.tauxPeinesMixtesProbation || 0 },
+      mixtesFermeSimple: { nombre: core?.nombrePeinesMixtesSimple || 0, moyenneMois: core?.moyenneMixtesSimple || '', tauxPct: core?.tauxPeinesMixtesSimple || 0 },
+      tauxSursisPct: core?.tauxSursis || 0,
       totalPrisonFermeMois: core?.totalPeinePrison || 0,
       montantTotalAmendes: core?.montantTotalAmendes || 0,
+      moyenneAmendeParCondamnation: core?.moyenneAmende || 0,
       interdictionsParaitre: core?.totalInterdictionsParaitre || 0,
+      ratioInterdictionsParaitrePct: Math.round((core?.ratioInterdictionsParaitre || 0) * 10) / 10,
       interdictionsGerer: core?.totalInterdictionsGerer || 0,
+      ratioInterdictionsGererPct: Math.round((core?.ratioInterdictionsGerer || 0) * 10) / 10,
     },
     peinesParInfraction,
     saisiesEnquete: {
@@ -234,7 +260,9 @@ function statsAudience(resultats, enquetes, du, au) {
       remises: core?.nombreRemisesAvantJugement || 0,
       ventes: core?.nombreVentesAvantJugement || 0,
     },
+    deltaSaisiesConfiscations: deltaSaisiesConfiscations(core),
     dureeMoyenneEnqueteJours: core?.dureeMoyenneEnquete || 0,
+    delaiMoyenJugementJours: core?.delaiMoyenJugement || 0,
   }
 }
 
@@ -260,7 +288,7 @@ export function periodeNormalisee(du, au) {
  */
 export function bilanStatistiques(keys, { du: duBrut, au: auBrut } = {}) {
   const { du, au } = periodeNormalisee(duBrut, auBrut)
-  const { enquetes, resultats, customTags } = donnees(keys)
+  const { enquetes, resultats, customTags } = donneesContentieux(keys)
   const mois = moisDePeriode(du, au)
   const zeroParMois = () => Object.fromEntries(mois.map((m) => [m, 0]))
 
@@ -344,7 +372,25 @@ export function bilanStatistiques(keys, { du: duBrut, au: auBrut } = {}) {
   const anciennetes = enCours.map((e) => joursEntre(e.dateDebut, new Date().toISOString())).filter((j) => j != null)
 
   // ── Audience (peines, orientations, avoirs) sur la période
-  const audience = statsAudience(resultats, enquetes, du, au)
+  const coreAudience = coreDePeriode(resultats, enquetes, du, au)
+  const audience = statsAudience(resultats, enquetes, du, au, coreAudience)
+
+  // Cartes détaillées de la page Statistiques, appliquées à la PÉRIODE : le
+  // sélecteur remplace l'année civile de l'écran, les règles sont les mêmes.
+  const dansPeriode = (r) => inPeriod(r?.dateAudience, du, au)
+  const infractionsDe = (e) => infractionsDeEnquete(e, customTags)
+  const libelleDe = libelleNatinf
+  const detailClassements = orientationDetail(resultats, enquetes, dansPeriode, 'isClassement', infractionsDe, { statsFenetre: coreAudience, avecParMois: false })
+  const detailOi = orientationDetail(resultats, enquetes, dansPeriode, 'isOI', infractionsDe, { statsFenetre: coreAudience, avecParMois: false })
+  const gererParInfraction = interdictionsGererParInfraction(resultats, dansPeriode, libelleDe)
+  // Enquêtes (objets) jugées dans la période, hors classements et OI : population
+  // de l'onglet « Types d'infractions ».
+  const enquetesTermineesPeriode = enquetes.filter((e) => {
+    if (e.statut !== 'archive') return false
+    const r = resultatDe(resultats, e.id)
+    return Boolean(r?.dateAudience && inPeriod(r.dateAudience, du, au) && !r.isClassement && !r.isOI)
+  })
+  const paraitreDetail = interdictionsParaitreDetail(resultats, enquetes, dansPeriode, libelleDe)
 
   // Déclinaison mensuelle (condamnations, prison ferme, amendes, orientations)
   // — le pendant du « monthlyData » du rapport PDF, borné à la période.
@@ -365,6 +411,26 @@ export function bilanStatistiques(keys, { du: duBrut, au: auBrut } = {}) {
   // ── Répartitions
   const parService = {}
   for (const t of toutesTerminees) for (const svc of t.services || []) parService[svc] = (parService[svc] || 0) + 1
+
+  // Population « globale » de la carte « Répartition globale par service » :
+  // enquêtes OUVERTES dans la période ∪ enquêtes JUGÉES dans la période
+  // (dédupliquées), plus les procédures directes.
+  const parServiceGlobal = {}
+  const vuesServices = new Set()
+  for (const e of [...ouvertes, ...enquetes.filter((x) => {
+    if (x.statut !== 'archive') return false
+    const r = resultatDe(resultats, x.id)
+    return Boolean(r?.dateAudience && inPeriod(r.dateAudience, du, au))
+  })]) {
+    if (vuesServices.has(e.id)) continue
+    vuesServices.add(e.id)
+    for (const svc of servicesEnquete(e)) parServiceGlobal[svc] = (parServiceGlobal[svc] || 0) + 1
+  }
+  for (const r of resultats) {
+    if (r.isDirectResult && inPeriod(r.dateAudience, du, au) && r.service) {
+      parServiceGlobal[r.service] = (parServiceGlobal[r.service] || 0) + 1
+    }
+  }
 
   const catTerminees = {}
   const dossiersParCategorie = {}
@@ -400,17 +466,31 @@ export function bilanStatistiques(keys, { du: duBrut, au: auBrut } = {}) {
   const pg = suiviPertinent.filter((e) => aTag(e, 'PG'))
 
   // ── Instruction (photographie du stock, indépendante de la période)
+  // Mêmes agrégats que l'onglet « Statistiques instruction » de l'app
+  // (lib/stats/instructionCore.mjs).
   let instruction = null
   try {
-    const dossiers = listInstructionDossiers(keys)
+    const dossiers = allInstructionDossiers(keys)
     if (dossiers.length) {
+      const st = computeInstructionStats(dossiers)
       instruction = {
-        nbDossiers: dossiers.length,
-        misEnExamen: dossiers.reduce((n, d) => n + (d.mex || 0), 0),
-        detenus: dossiers.reduce((n, d) => n + (d.detenus || 0), 0),
-        dmlEnAttente: dossiers.reduce((n, d) => n + (d.dmlEnAttente?.length || 0), 0),
-        debatsJldAVenir: dossiers.reduce((n, d) => n + (d.debatsAVenir?.length || 0), 0),
-        note: 'Photographie du stock actuel — les dossiers suivis à l\'instruction se détaillent avec instru_lister / lire_dossier.',
+        nbDossiers: st.nbDossiers,
+        actifs: st.nbDossiersActifs,
+        archives: st.nbDossiersArchives,
+        auReglement: st.nbDossiersAuReglement,
+        misEnExamen: st.nbMisEnExamen,
+        detenus: st.nbDetenus,
+        controleJudiciaire: st.nbCJ,
+        arse: st.nbARSE,
+        libres: st.nbLibres,
+        ageMoyenDossiersActifsJours: Math.round(st.ageMoyenDossiersActifs),
+        ageMaxDossierActifJours: Math.round(st.ageMaxDossierActif),
+        dmlTotal: st.nbDmlTotal,
+        dmlEnAttente: st.nbDmlEnAttente,
+        cotesTotal: st.cotesTotal,
+        dossiersARegler: st.dossiersARegler,
+        delaiClotureParCabinet: st.ageMoyenClotureParCabinet,
+        note: 'Photographie du stock ACTUEL — mêmes chiffres que l\'onglet « Statistiques instruction » (stats_ecran). Les dossiers se détaillent avec instru_lister / lire_dossier.',
       }
     }
   } catch { /* module instruction absent : section omise */ }
@@ -459,11 +539,37 @@ export function bilanStatistiques(keys, { du: duBrut, au: auBrut } = {}) {
       note: 'Techniques spéciales d\'enquête (écoutes, géolocalisations, autres actes) rattachées à leur date réelle de début / de prolongation — mêmes règles que le tableau de bord (lib/stats/actesCore).',
     },
     repartitionServices: Object.entries(parService).sort((a, b) => b[1] - a[1]).map(([service, count]) => ({ service, count })),
+    repartitionServicesGlobale: Object.entries(parServiceGlobal).sort((a, b) => b[1] - a[1]).map(([service, count]) => ({ service, count })),
+    orientationsDetail: {
+      classementsSansSuite: {
+        nombre: detailClassements.nombre,
+        partDesOrientationsPct: detailClassements.partDesOrientationsPct,
+        ageMoyenJours: detailClassements.ageMoyenJours,
+        repartitionParTypeDeFait: detailClassements.repartitionParTypeDeFait.map(({ infraction, natinf, count, partPct }) => ({ infraction, natinf, count, partPct })),
+      },
+      ouverturesInformation: {
+        nombre: detailOi.nombre,
+        partDesOrientationsPct: detailOi.partDesOrientationsPct,
+        ageMoyenJours: detailOi.ageMoyenJours,
+        repartitionParTypeDeFait: detailOi.repartitionParTypeDeFait.map(({ infraction, natinf, count, partPct }) => ({ infraction, natinf, count, partPct })),
+      },
+      note: 'Cartes « Classements sans suite » et « Ouvertures d\'information » de la page Statistiques : âge moyen = de l\'ouverture de l\'enquête à la décision ; la part se calcule sur le total des orientations.',
+    },
+    peinesParTypeAudience: peinesParTypeAudience(resultats, dansPeriode),
+    interdictions: {
+      gerer: { ...gererParInfraction, clesDisponibles: undefined },
+      paraitre: paraitreDetail,
+      note: 'Cartes « Interdictions » et « Interdictions de gérer » : ratios rapportés au nombre de condamnations de la période.',
+    },
     infractions: {
       terminees: Object.entries(catTerminees).sort((a, b) => b[1] - a[1]).map(([categorie, count]) => ({ categorie, count, dossiers: dossiersParCategorie[categorie] })),
       enCours: Object.entries(catEnCours).sort((a, b) => b[1] - a[1]).map(([categorie, count]) => ({ categorie, count })),
       tendanceParMois: tendance,
-      note: 'Catégories du Mémento parquet (mêmes libellés que la page Statistiques) ; une enquête compte une fois par catégorie qu\'elle touche.',
+      grandsTitres: {
+        terminees: repartitionCategoriesInfraction(enquetesTermineesPeriode, infractionsDe, categorieDeInfraction).groupes,
+        enCours: repartitionCategoriesInfraction(enquetes.filter((e) => e.statut === 'en_cours' && isoDay(e.dateCreation) <= au), infractionsDe, categorieDeInfraction).groupes,
+      },
+      note: 'Catégories du Mémento parquet (mêmes libellés que la page Statistiques) ; une enquête compte une fois par catégorie qu\'elle touche. `grandsTitres` reprend le repli de l\'onglet « Types d\'infractions » (Atteintes aux personnes / aux biens…).',
     },
     suiviParquetExterieur: {
       total: new Set([...jirs, ...pg].map((e) => e.id)).size,

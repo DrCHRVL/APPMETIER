@@ -500,9 +500,20 @@ l'usage).
   trancher ce qu'une analyse a déposé. ✓ trace sur la carte (signé de son
   nom), ✗ refuse. Les propositions sont écrites **au fil de l'eau** : celles
   déjà déposées survivent à un run interrompu. Idéal en routine hebdomadaire.
-- **Statistiques et bilans d'activité — il VOIT les courbes** : deux outils
+- **Statistiques et bilans d'activité — il VOIT les courbes** : quatre outils
   donnent à l'attaché le même regard que le magistrat sur la page
-  Statistiques, sur une **période libre** (semestre, trimestre, année) :
+  Statistiques — **par année civile comme à l'écran** (`stats_ecran`,
+  `stats_annees`) ou sur une **période libre** (`stats_synthese`) :
+  - **`stats_ecran`** — la page Statistiques telle qu'elle s'affiche pour une
+    année, **section par section et carte par carte** : le titre exact de
+    chaque carte, sa valeur, son détail et sa **règle de calcul**. C'est la
+    réponse à « mes statistiques », à un chiffre lu à l'écran ou à un écart
+    constaté : l'attaché cite la carte au lieu de refaire le calcul (et de
+    tomber à côté, les règles de la page étant subtiles — terminées hors
+    classements et OI, CRPC comptées par prévenu, défèrements à leur date
+    réelle, saisies ≠ confiscations, année en cours arrêtée au mois courant).
+    Couvre les quatre sections, instruction comprise (mesures de sûreté,
+    dossiers à régler au 175, délai de clôture par cabinet).
   - **`stats_synthese`** — le bilan chiffré complet du contentieux, avec les
     MÊMES règles de calcul que la page Statistiques et le rapport PDF :
     procédures **terminées** depuis une date (chiffre-phare hors classements
@@ -518,10 +529,14 @@ l'usage).
     (ou un lot de `sous_agents`) pour les dossiers marquants.
   - **`stats_graphique`** — les graphiques eux-mêmes, rendus en **PNG côté
     service** (aucune dépendance, aucun navigateur) et transmis à l'agent en
-    **image** : courbes des procédures terminées et des défèrements,
-    histogrammes des ouvertures/condamnations, donuts d'orientation, de
-    services et de catégories d'infraction, orientation par mois, et
-    **tendance des catégories mois par mois** (la bascule « atteintes aux
+    **image**, un par un ou par **planche entière** (`graphiques[]`) sur une
+    année ou une période : courbes des procédures terminées et des
+    défèrements, histogrammes des ouvertures/condamnations/prison
+    ferme/amendes, donuts d'orientation, de services (terminées ou toutes
+    enquêtes), de catégories et de grands titres d'infraction, colonnes
+    groupées saisies vs confiscations et peines moyennes par type d'audience,
+    classements et OI par mois, mesures de sûreté à l'instruction,
+    orientation par mois, et **tendance des catégories mois par mois** (la bascule « atteintes aux
     biens en début d'année → stupéfiants ensuite » se VOIT). Mêmes couleurs
     que l'app (source unique `lib/stats/chartCouleurs`), données chiffrées
     exactes jointes à chaque image : l'attaché décrit les dynamiques en
