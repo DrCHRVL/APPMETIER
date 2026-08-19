@@ -72,10 +72,11 @@ const TYPE_LABEL: Record<string, string> = {
   note: 'Note',
   livrable: 'Livrable',
   presentation: 'Présentation',
+  fiche: "Fiche d'analyse",
   autre: 'Acte',
 };
 
-export function ProductionsSection({ numero, titre, service, masquerSiVide }: {
+export function ProductionsSection({ numero, titre, service, masquerSiVide, filtreSource }: {
   numero: string;
   /** Titre de la section (défaut : « Actes rédigés »). */
   titre?: string;
@@ -83,6 +84,9 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide }: {
   service?: string;
   /** Ne rien afficher tant qu'aucun acte n'existe (usage tableau de bord). */
   masquerSiVide?: boolean;
+  /** Ne montrer que les productions dont `source` commence par ce préfixe
+   *  (ex. « chantier:<id> » — les fiches et la synthèse d'un chantier). */
+  filtreSource?: string;
 }) {
   const [available, setAvailable] = useState(false);
   const [items, setItems] = useState<Production[]>([]);
@@ -136,13 +140,13 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide }: {
         if (rec) out.push(rec as Production);
       }
       out.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
-      setItems(out);
+      setItems(filtreSource ? out.filter((p) => String(p.source || '').startsWith(filtreSource)) : out);
     } catch {
       setAvailable(false);
     } finally {
       setLoading(false);
     }
-  }, [numero]);
+  }, [numero, filtreSource]);
 
   useEffect(() => { load(); }, [load]);
 

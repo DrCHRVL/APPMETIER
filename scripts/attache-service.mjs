@@ -22,6 +22,7 @@ import { handleConnectorMessage } from './attache-mcp.mjs'
 import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride, purgeInbox } from './attache/mail.mjs'
+import { listChantiers, createChantier, actionChantier, chantierStep, chantierActif } from './attache/chantier.mjs'
 import { writeClaudeToken, clearClaudeToken, clearAuthFailure } from './attache/claudeAuth.mjs'
 import { runAgent, checkClaudeCli, testClaudeAuth, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
 import { usageSummary } from './attache/usage.mjs'
@@ -890,6 +891,39 @@ async function autonomousOnHold(keys, quoi) {
   return true
 }
 
+// ── Chantiers d'analyse profonde : boucle de dépouillement ──
+// Un pas = un lot (~12 pièces → une fiche). La boucle enchaîne les pas tant
+// que le feu est vert — nuit si le chantier l'exige, forfait non saturé —
+// puis rend la main ; le tick suivant la relance. Chaque pas persiste tout :
+// un arrêt (service, forfait, nuit finie) ne coûte jamais plus qu'un lot.
+let chantierLoopRunning = false
+async function maybeChantiers() {
+  if (chantierLoopRunning) return
+  {
+    const keys0 = loadKeyring()
+    if (!keys0 || !chantierActif(keys0)) return
+  }
+  chantierLoopRunning = true
+  try {
+    for (;;) {
+      const keys = loadKeyring() // rechargé à chaque pas : une révocation vaut immédiatement
+      if (!keys) break
+      const verdict = await chantierStep(keys, (ch) => {
+        const gov = consumptionGovernor(agentConfig())
+        if (gov.level === 'stop') return { ok: false, attente: 'forfait' }
+        if (ch.nuitSeulement && !inNightWindow()) return { ok: false, attente: 'nuit' }
+        return { ok: true }
+      })
+      if (verdict !== 'travail') break
+      await new Promise((r) => setTimeout(r, 3_000)) // respiration entre deux lots
+    }
+  } catch (e) {
+    console.error('[attache] chantiers :', e)
+  } finally {
+    chantierLoopRunning = false
+  }
+}
+
 // ── Boucle de relève ──
 let polling = false
 async function pollOnce(trigger = 'planifié') {
@@ -1431,6 +1465,35 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { messages: listInbox(keys) })
     }
 
+    // ── Chantiers d'analyse profonde ──
+    if (route === 'GET /chantiers') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      return json(res, 200, { chantiers: listChantiers(keys) })
+    }
+
+    if (route === 'POST /chantiers') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const body = await readBody(req, 256 * 1024)
+      try {
+        if (body.action) {
+          const out = await actionChantier(keys, { id: String(body.id || ''), action: String(body.action) })
+          // « lancer » : premier lot sans attendre le prochain tick (si le feu est vert)
+          if (body.action === 'lancer') setTimeout(() => { maybeChantiers().catch(() => {}) }, 50)
+          return json(res, 200, out)
+        }
+        const ch = await createChantier(keys, {
+          numero: String(body.numero || ''),
+          consigne: String(body.consigne || ''),
+          nuitSeulement: body.nuitSeulement !== false,
+        })
+        return json(res, 200, ch)
+      } catch (e) {
+        return json(res, 400, { error: String(e?.message || e) })
+      }
+    }
+
     // Vider la boîte : les messages traités (défaut) ou tout (mode=tous).
     if (route === 'DELETE /inbox') {
       const keys = loadKeyring()
@@ -1616,6 +1679,7 @@ setInterval(() => {
   maybeScheduledApprentissage().catch((e) => console.error('[attache] apprentissage planifié :', e))
   maybeScheduledEtude().catch((e) => console.error('[attache] étude planifiée :', e))
   maybeScheduledDescriptions().catch((e) => console.error('[attache] descriptions :', e))
+  maybeChantiers().catch((e) => console.error('[attache] chantiers :', e))
 }, POLL_MINUTES * 60 * 1000)
 // première relève 20 s après le démarrage (laisse le réseau docker s'établir)
 setTimeout(() => { pollOnce('démarrage').catch(() => {}) }, 20_000)

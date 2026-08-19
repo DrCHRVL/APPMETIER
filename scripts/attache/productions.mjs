@@ -22,7 +22,9 @@ import { normNumero, numerosProches } from './numero.mjs'
 import { resolveEnquete } from './dossier.mjs'
 import { diffTexte } from './diff.mjs'
 
-export const PRODUCTION_TYPES = ['requisition', 'reponse_dml', 'prolongation_jld', 'saisine_jld', 'projet_reponse', 'soit_transmis', 'note', 'livrable', 'presentation', 'autre']
+// « fiche » : fiche factuelle produite par un CHANTIER d'analyse profonde
+// (dépouillement des pièces) — le capital de lecture du dossier.
+export const PRODUCTION_TYPES = ['requisition', 'reponse_dml', 'prolongation_jld', 'saisine_jld', 'projet_reponse', 'soit_transmis', 'note', 'livrable', 'presentation', 'fiche', 'autre']
 
 /**
  * Nettoie/valide les métadonnées d'acte fournies par l'agent. Renvoie un objet
