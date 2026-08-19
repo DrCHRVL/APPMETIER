@@ -251,6 +251,27 @@ export interface PeineParInfraction {
   countPeinesMixtesSimple: number;
 }
 
+/**
+ * Totaux de quantités : les unités ne s'additionnent qu'à l'intérieur d'une
+ * même famille (masses en grammes, volumes en millilitres, chaque unité de
+ * comptage pour elle-même).
+ */
+export interface TotauxStupefiants {
+  masseG: number;
+  volumeMl: number;
+  comptages: Record<string, number>;
+}
+
+/** Une ligne « produit » des statistiques de stupéfiants. */
+export interface LigneStupefiantsAgregee {
+  code: string;
+  libelle: string;
+  famille: string;
+  /** Nombre de dossiers où le produit apparaît, chiffré ou non. */
+  nbDossiers: number;
+  totaux: TotauxStupefiants;
+}
+
 export interface AudienceStats {
   moyennePrison: number;
   moyenneProbation: number;
@@ -264,6 +285,10 @@ export interface AudienceStats {
   totalCrypto: number;
   totalObjets: number;
   totalStupefiants: number;
+  /** Quantités saisies en phase enquête, produit par produit (voir audienceCore). */
+  stupefiantsSaisisParProduit: LigneStupefiantsAgregee[];
+  /** Quantités effectivement confisquées à l'audience, produit par produit. */
+  stupefiantsConfisquesParProduit: LigneStupefiantsAgregee[];
   // Saisies (phase enquête)
   totalSaisiesVehicules: number;
   totalSaisiesImmeubles: number;
