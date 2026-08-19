@@ -1,19 +1,25 @@
 /**
- * SIRAL — Attaché de justice · OCR de secours.
+ * SIRAL — Attaché de justice · extraction PDF avec OCR de secours PAGE PAR PAGE.
  *
- * Certaines pièces (PV de motivation scannés, retours de service) arrivent en
- * PDF IMAGE, sans couche texte : pdf-parse renvoie alors du vide. Plutôt que de
- * laisser l'attaché travailler « à l'aveugle » — et rédiger un acte sur un
- * contenu qu'il n'a pas réellement lu — on :
- *   1) détecte l'absence de couche texte (scan) ;
- *   2) tente un OCR de secours LOCAL (poppler `pdftoppm` + `tesseract`, fra)
- *      quand ces binaires sont présents sur le serveur ;
- *   3) sinon (ou si l'OCR ne rend rien), signale clairement la pièce ILLISIBLE —
- *      l'attaché ne doit PAS préparer d'acte dessus (voir prompt), mais demander
- *      une version lisible.
+ * Deux réalités de terrain :
+ *   - des pièces entièrement scannées (PV de motivation, retours de service)
+ *     sans aucune couche texte ;
+ *   - surtout, des pièces MIXTES : un PV tapé de quelques pages suivi
+ *     d'annexes en images (captures de conversations, planches photo de
+ *     perquisition, tapissages, rapports techniques) — le cœur probatoire.
+ *     L'ancienne détection « document entier < 40 caractères » les déclarait
+ *     lisibles et n'océrisait JAMAIS leurs annexes.
+ *
+ * Désormais : couche texte extraite PAGE PAR PAGE ; les pages muettes (< 25
+ * caractères) passent à l'OCR local (poppler `pdftoppm` + `tesseract`, fra)
+ * quand les binaires sont présents, dans la limite d'un plafond par pièce ;
+ * chaque page restée illisible est MARQUÉE dans le texte rendu — jamais de
+ * trou silencieux. Si rien n'est lisible, la pièce est dite ILLISIBLE et
+ * l'attaché ne prépare rien dessus.
  *
  * Tout est borné (pages, résolution, délais) et gardé : la moindre erreur
- * retombe sur « illisible », jamais une exception qui casserait la lecture.
+ * retombe sur « illisible » ou une page marquée, jamais une exception qui
+ * casserait la lecture.
  */
 import { createRequire } from 'node:module'
 import { execFileSync } from 'node:child_process'
@@ -23,13 +29,16 @@ import path from 'node:path'
 
 const require = createRequire(import.meta.url)
 
-// En-dessous de ce nombre de caractères, on considère qu'il n'y a pas de couche
-// texte exploitable (PDF scanné / image).
+// En-dessous de ce nombre de caractères, le DOCUMENT entier est considéré sans
+// couche texte exploitable (PDF scanné / image).
 const MIN_TEXT_CHARS = 40
-// Bornes de l'OCR de secours (une motivation fait quelques pages) :
-const OCR_MAX_PAGES = 6
+// En-dessous, une PAGE est considérée muette (image) → candidate à l'OCR.
+const PAGE_MIN_CHARS = 25
+// Bornes de l'OCR (une lecture d'outil doit tenir dans le délai du connecteur —
+// 180 s : ~30 pages à 2-5 s/page passent, et le résultat est mis en cache) :
+const OCR_MAX_PAGES = 30
 const OCR_DPI = 200
-const PDFTOPPM_TIMEOUT_MS = 90_000
+const PDFTOPPM_TIMEOUT_MS = 120_000
 const TESSERACT_TIMEOUT_MS = 45_000
 
 // Présence d'un binaire sur le PATH — mémoïsé (which/where).
@@ -46,68 +55,147 @@ function hasBinary(name) {
   return ok
 }
 
-/** OCR de secours d'un PDF scanné. Retourne { ok, available, texte }. */
-function ocrPdf(plain) {
+/**
+ * OCR d'une liste de pages précises d'un PDF. Les pages contiguës sont
+ * rastérisées par plages (les numéros de page sont conservés dans les noms de
+ * fichiers pdftoppm : page-05.png = page 5). Retourne { available, textes } où
+ * textes est une Map<numéroDePage, texteOCR>. Ne lève jamais.
+ */
+function ocrPages(plain, pageNums) {
+  if (!pageNums.length) return { available: true, textes: new Map() }
   if (!hasBinary('pdftoppm') || !hasBinary('tesseract')) {
-    return { ok: false, available: false, texte: '' }
+    return { available: false, textes: new Map() }
   }
+  const textes = new Map()
   let dir
   try {
     dir = mkdtempSync(path.join(os.tmpdir(), 'siral-ocr-'))
     const pdfPath = path.join(dir, 'in.pdf')
     writeFileSync(pdfPath, plain)
-    // Rastérise les premières pages en PNG (bornes : pages + résolution).
-    execFileSync(
-      'pdftoppm',
-      ['-png', '-r', String(OCR_DPI), '-f', '1', '-l', String(OCR_MAX_PAGES), pdfPath, path.join(dir, 'page')],
-      { stdio: 'ignore', timeout: PDFTOPPM_TIMEOUT_MS },
-    )
-    const pages = readdirSync(dir).filter((f) => /\.png$/i.test(f)).sort()
-    let out = ''
-    for (const p of pages) {
-      const base = path.join(dir, p.replace(/\.png$/i, ''))
-      // tesseract <image> <base> -l fra → écrit <base>.txt
-      execFileSync('tesseract', [path.join(dir, p), base, '-l', 'fra'], { stdio: 'ignore', timeout: TESSERACT_TIMEOUT_MS })
-      try { out += readFileSync(base + '.txt', 'utf8') + '\n' } catch { /* page sautée */ }
+    // pages triées → plages contiguës → un pdftoppm par plage
+    const ranges = []
+    for (const n of [...pageNums].sort((a, b) => a - b)) {
+      const last = ranges[ranges.length - 1]
+      if (last && n === last[1] + 1) last[1] = n
+      else ranges.push([n, n])
     }
-    return { ok: true, available: true, texte: out }
+    for (const [f, l] of ranges) {
+      try {
+        execFileSync(
+          'pdftoppm',
+          ['-png', '-r', String(OCR_DPI), '-f', String(f), '-l', String(l), pdfPath, path.join(dir, 'page')],
+          { stdio: 'ignore', timeout: PDFTOPPM_TIMEOUT_MS },
+        )
+      } catch { /* plage irrastérisable : ses pages resteront marquées */ }
+    }
+    for (const png of readdirSync(dir).filter((x) => /^page-\d+\.png$/i.test(x))) {
+      const num = Number((png.match(/(\d+)\.png$/i) || [])[1])
+      if (!Number.isFinite(num)) continue
+      const base = path.join(dir, png.replace(/\.png$/i, ''))
+      try {
+        // tesseract <image> <base> -l fra → écrit <base>.txt
+        execFileSync('tesseract', [path.join(dir, png), base, '-l', 'fra'], { stdio: 'ignore', timeout: TESSERACT_TIMEOUT_MS })
+        textes.set(num, readFileSync(base + '.txt', 'utf8'))
+      } catch { /* page sautée : restera marquée */ }
+    }
+    return { available: true, textes }
   } catch {
-    return { ok: false, available: true, texte: '' }
+    return { available: true, textes }
   } finally {
     if (dir) { try { rmSync(dir, { recursive: true, force: true }) } catch { /* */ } }
   }
 }
 
 /**
- * Extrait le texte d'un PDF : couche texte native d'abord, OCR de secours si la
- * pièce est un scan sans texte. Ne lève jamais.
+ * Assemble le texte final page par page : couche texte native quand elle
+ * existe, OCR sinon, et un MARQUEUR explicite pour toute page restée muette —
+ * le lecteur (l'agent surtout) sait exactement ce qui manque et pourquoi.
+ */
+export function assemblePages(pagesTexte, ocrTextes, { ocrAvailable, nonOcrisees = [] } = {}) {
+  const maxOcr = ocrTextes.size ? Math.max(...ocrTextes.keys()) : 0
+  const n = Math.max(pagesTexte.length, maxOcr)
+  const out = []
+  for (let p = 1; p <= n; p++) {
+    const natif = String(pagesTexte[p - 1] || '').trim()
+    if (natif.length >= PAGE_MIN_CHARS) { out.push(natif); continue }
+    const ocr = String(ocrTextes.get(p) || '').trim()
+    if (ocr.length >= PAGE_MIN_CHARS) {
+      out.push(`[page ${p} — texte restitué par OCR]\n${ocr}`)
+    } else if (natif || ocr) {
+      out.push(natif || ocr)
+    } else if (nonOcrisees.includes(p)) {
+      out.push(`[page ${p} : image non océrisée — plafond de ${OCR_MAX_PAGES} pages OCR par pièce atteint]`)
+    } else if (!ocrAvailable) {
+      out.push(`[page ${p} : image sans couche texte — OCR indisponible sur le serveur (installer poppler-utils et tesseract-ocr/fra)]`)
+    } else {
+      out.push(`[page ${p} : image sans texte exploitable, même après OCR]`)
+    }
+  }
+  return out.join('\n\n')
+}
+
+/**
+ * Extrait le texte d'un PDF, PAGE PAR PAGE : couche texte native quand elle
+ * existe, OCR de secours pour les pages images (annexes, captures, planches),
+ * marqueur explicite pour toute page restée illisible. Ne lève jamais.
  * @param {Buffer} plain - PDF déchiffré
- * @returns {Promise<{ok:true,texte:string,source:'texte'|'ocr'} | {ok:false,scanned:true,ocrAvailable:boolean,error:string}>}
+ * @returns {Promise<{ok:true,texte:string,source:'texte'|'ocr'|'texte+ocr'} | {ok:false,scanned:true,ocrAvailable:boolean,error:string}>}
  */
 export async function extractPdfText(plain) {
-  // 1) Couche texte native
-  let text = ''
+  // Un petit Buffer Node (< 4 Ko) vit dans le POOL partagé : pdf.js 1.10 lit
+  // alors l'ArrayBuffer sous-jacent ENTIER (le pool, données étrangères
+  // comprises) et échoue en « bad XRef entry ». Copie dans un ArrayBuffer
+  // propre et exact — coût négligeable, correction indispensable.
+  const data = new Uint8Array(plain)
+
+  // 1) Couche texte native, page par page (l'ordre d'appel de pagerender est
+  //    l'ordre des pages — pdf-parse les traite séquentiellement).
+  const pagesTexte = []
   try {
     const pdfParse = require('pdf-parse/lib/pdf-parse.js')
-    const parsed = await pdfParse(plain)
-    text = String(parsed.text || '').trim()
-  } catch { /* pas de couche texte exploitable → on tente l'OCR */ }
-  if (text.length >= MIN_TEXT_CHARS) {
-    return { ok: true, texte: text, source: 'texte' }
+    await pdfParse(data, {
+      pagerender: async (pageData) => {
+        const tc = await pageData.getTextContent()
+        const txt = tc.items.map((it) => String(it.str || '')).join(' ')
+        pagesTexte.push(txt)
+        return txt
+      },
+    })
+  } catch { /* structure illisible : pagesTexte vide → OCR intégral ci-dessous */ }
+
+  const muettes = []
+  pagesTexte.forEach((t, i) => { if (String(t).trim().length < PAGE_MIN_CHARS) muettes.push(i + 1) })
+
+  // Document entièrement porté par sa couche texte : rien à océriser.
+  if (pagesTexte.length && !muettes.length) {
+    const texte = assemblePages(pagesTexte, new Map(), { ocrAvailable: true })
+    if (texte.trim().length >= MIN_TEXT_CHARS) return { ok: true, texte, source: 'texte' }
   }
 
-  // 2) Scan probable → OCR de secours (si disponible sur le serveur)
-  const ocr = ocrPdf(plain)
-  if (ocr.ok && ocr.texte.trim().length >= MIN_TEXT_CHARS) {
-    return { ok: true, texte: ocr.texte, source: 'ocr' }
+  // 2) OCR des pages muettes (borné). Structure illisible par pdf-parse :
+  //    OCR « à l'aveugle » des premières pages (pdftoppm s'arrête de lui-même
+  //    à la dernière page réelle).
+  const candidates = pagesTexte.length ? muettes : Array.from({ length: OCR_MAX_PAGES }, (_, i) => i + 1)
+  const aOcr = candidates.slice(0, OCR_MAX_PAGES)
+  const nonOcrisees = candidates.slice(OCR_MAX_PAGES)
+  const { available, textes } = ocrPages(plain, aOcr)
+
+  const texte = assemblePages(pagesTexte, textes, { ocrAvailable: available, nonOcrisees })
+  // Lisible si un contenu réel subsiste une fois les marqueurs de pages retirés.
+  const utile = texte.replace(/\[page \d+ : [^\]]*\]/g, '').trim()
+  if (utile.length >= MIN_TEXT_CHARS) {
+    const source = pagesTexte.length && muettes.length < pagesTexte.length
+      ? (textes.size ? 'texte+ocr' : 'texte')
+      : 'ocr'
+    return { ok: true, texte, source }
   }
 
   // 3) Illisible : on le dit franchement (l'attaché ne préparera rien dessus)
   return {
     ok: false,
     scanned: true,
-    ocrAvailable: ocr.available,
-    error: ocr.available
+    ocrAvailable: available,
+    error: available
       ? 'PDF scanné : OCR de secours tenté mais aucun texte exploitable — pièce ILLISIBLE. Ne pas préparer d\'acte dessus ; demander une version lisible au service.'
       : 'PDF scanné sans couche texte, et OCR de secours indisponible sur le serveur — pièce ILLISIBLE. Ne pas préparer d\'acte dessus ; demander une version lisible au service.',
   }

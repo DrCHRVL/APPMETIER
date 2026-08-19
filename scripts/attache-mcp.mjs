@@ -171,7 +171,7 @@ const TOOLS = [
   },
   {
     name: 'lire_document',
-    description: 'Texte intégral d\'un document déposé sous un numéro de dossier — enquête OU instruction (PDF, ODT, DOCX, RTF, TXT/MD/HTML, et classeurs Excel XLSX/XLS/ODS servis en tableaux markdown, une section par feuille). `chemin` = cheminRelatif exact (voir lire_dossier ou dossier_arborescence), y compris les pièces du « Dossier complet » versé (Dossier/…). PAGINÉ pour les pièces longues : servi par pages de 200 000 caractères max — si `offsetSuivant` figure dans la réponse, la pièce continue : rappelle avec offset pour lire la suite (rien n\'est tronqué en silence).',
+    description: 'Texte intégral d\'un document déposé sous un numéro de dossier — enquête OU instruction (PDF, ODT, DOCX, RTF, TXT/MD/HTML, et classeurs Excel XLSX/XLS/ODS servis en tableaux markdown, une section par feuille). `chemin` = cheminRelatif exact (voir lire_dossier ou dossier_arborescence), y compris les pièces du « Dossier complet » versé (Dossier/…). PAGINÉ pour les pièces longues : servi par pages de 200 000 caractères max — si `offsetSuivant` figure dans la réponse, la pièce continue : rappelle avec offset pour lire la suite (rien n\'est tronqué en silence). PAGES IMAGES : si le texte rendu contient des marqueurs « [page N : image sans couche texte] » (annexes en captures d\'écran, planches photo, tapissages — souvent le cœur probatoire), rappelle avec integrale:true — l\'original est alors relu avec OCR de ces pages (première lecture lente, ~30 pages OCR max par pièce, résultat en cache ensuite).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -179,10 +179,11 @@ const TOOLS = [
         chemin: { type: 'string' },
         offset: { type: 'number', description: 'Caractère de départ (défaut 0). Utiliser offsetSuivant de la page précédente.' },
         limite: { type: 'number', description: 'Caractères par page (défaut et max 200 000).' },
+        integrale: { type: 'boolean', description: 'true = ignorer la copie markdown du téléversement et relire l\'ORIGINAL avec OCR des pages images. À utiliser dès que le texte servi signale des pages « image sans couche texte ».' },
       },
       required: ['numero', 'chemin'],
     },
-    handler: async (a) => readDocumentText(keys, a.numero, a.chemin, { offset: a.offset, limite: a.limite }),
+    handler: async (a) => readDocumentText(keys, a.numero, a.chemin, { offset: a.offset, limite: a.limite, integrale: Boolean(a.integrale) }),
   },
   {
     name: 'dossier_arborescence',

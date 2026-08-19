@@ -488,6 +488,7 @@ async function pdfToMarkdown(bytes: Uint8Array): Promise<ConversionResult> {
   pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
   const doc = await pdfjs.getDocument({ data: bytes.slice() }).promise
   const pages: string[] = []
+  let pagesMuettes = 0
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p)
     const content = await page.getTextContent()
@@ -504,17 +505,31 @@ async function pdfToMarkdown(bytes: Uint8Array): Promise<ConversionResult> {
       lastY = y
     }
     if (line.trim()) lines.push(line.trim())
-    pages.push(lines.join('\n'))
+    const contenu = lines.join('\n')
+    // Page image (annexe, capture d'écran, planche photo) : MARQUÉE plutôt que
+    // laissée vide — le lecteur sait exactement ce qui manque, et la lecture
+    // serveur peut alors océriser ces pages depuis l'original.
+    if (contenu.replace(/\s/g, '').length < 25) {
+      pagesMuettes++
+      pages.push(`[page ${p} : image sans couche texte]`)
+    } else {
+      pages.push(contenu)
+    }
   }
   const numPages = doc.numPages
   await doc.destroy()
   // dé-hyphénation des coupures de fin de ligne
   const markdown = pages.join('\n\n').replace(/([a-zà-ÿ])-\n([a-zà-ÿ])/g, '$1$2')
-  const density = markdown.replace(/\s/g, '').length / Math.max(1, numPages)
-  if (density < 40) {
+  if (pagesMuettes >= numPages) {
     return {
       markdown,
       avertissement: 'PDF probablement scanné (image) : presque aucun texte extractible. Passez-le par une reconnaissance de caractères (OCR) avant de le téléverser.',
+    }
+  }
+  if (pagesMuettes > 0) {
+    return {
+      markdown,
+      avertissement: `${pagesMuettes} page(s) sur ${numPages} en image sans couche texte (annexes, captures) — texte incomplet, pages marquées`,
     }
   }
   return { markdown }

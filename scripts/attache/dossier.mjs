@@ -445,7 +445,9 @@ function docCachePath(enqueteKey, cheminRelatif) {
 // v2 : le cache stocke le texte INTÉGRAL (borné à TEXTE_CACHE_MAX) et la
 // lecture pagine au service — un cache v1 (texte déjà tronqué à 200 k) est
 // ignoré et régénéré une fois, pour que la pagination atteigne toute la pièce.
-const DOC_CACHE_V = 2
+// v3 : extraction PAGE PAR PAGE avec OCR des pages images (annexes, captures,
+// planches) — les caches v2, extraits sans OCR par page, sont régénérés une fois.
+const DOC_CACHE_V = 3
 const TEXTE_CACHE_MAX = 2_000_000
 
 function readDocCache(keys, enqueteKey, cheminRelatif, blobHash) {
@@ -503,13 +505,17 @@ function tidyPdfText(text) {
  * (voir ci-dessus) — l'original PDF reste intact sur le serveur.
  * PAGINÉ (`page` = { offset, limite }) : une pièce très longue se lit en
  * plusieurs appels, offsetSuivant en main — jamais de troncature muette.
+ * `page.integrale` : ignorer la copie markdown du téléversement (conversion
+ * navigateur, SANS OCR — ses pages images sont marquées mais vides) et lire
+ * l'ORIGINAL avec OCR des pages images. C'est la voie pour les annexes en
+ * captures d'écran, planches photo, tapissages.
  */
 export async function readDocumentText(keys, numero, cheminRelatif, page = {}) {
   const key = docServerKey(numeroCanonique(keys, numero))
   // Copie markdown déposée AU TÉLÉVERSEMENT (MD/<chemin>.md) : servie en
   // priorité pour les formats non textuels — zéro extraction, texte fidèle
   // (conversion navigateur), tokens et CPU économisés.
-  if (!/\.(txt|html?|md|csv|json|eml)$/i.test(cheminRelatif) && !cheminRelatif.startsWith('MD/')) {
+  if (!page.integrale && !/\.(txt|html?|md|csv|json|eml)$/i.test(cheminRelatif) && !cheminRelatif.startsWith('MD/')) {
     const mdRel = 'MD/' + cheminRelatif.replace(/\.[^./]+$/, '') + '.md'
     const mdBlob = readDocBlob(attacheTj(), key, mdRel)
     if (mdBlob) {
@@ -1171,6 +1177,10 @@ export function arborescenceDocuments(keys, numero, { pochette, offset, limit } 
       offsetSuivant: start + page.length,
       note: `${reste} pièce(s) suivantes : rappelle avec offset:${start + page.length}` +
         (filtre ? '' : ' — ou cible une pochette du panorama avec pochette:"PV/Nom"'),
+    } : total > 0 && start >= total ? {
+      // offset hérité d'une pagination SANS filtre puis réutilisé AVEC filtre :
+      // dire pourquoi la page est vide, sinon la moitié du dossier semble absente
+      note: `offset ${start} au-delà du total (${total} pièce(s)${filtre ? ' dans cette pochette' : ''}) — l'offset se compte DANS le périmètre filtré : reprends à offset:0`,
     } : {}),
     pieces: page,
   }
