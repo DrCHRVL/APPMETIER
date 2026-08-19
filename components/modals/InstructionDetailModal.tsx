@@ -125,13 +125,26 @@ export const InstructionDetailModal = ({
   const [showCassiopeeImport, setShowCassiopeeImport] = useState(false);
 
   const handleCassiopeeImport = (r: CassiopeeImportResult) => {
+    // DML rattachées à des MEX déjà présents (compteur art. 148) : fusionnées
+    // dans la liste existante avant d'y ajouter les MEX nouvellement importés.
+    const dmlsParMex = new Map<number, typeof r.misEnExamen[number]['dmls']>(
+      (r.dmlsExistants ?? []).map(d => [d.mexId, d.dmls]),
+    );
+    const mexFusionnes = dossier.misEnExamen.map(m => {
+      const ajout = dmlsParMex.get(m.id);
+      return ajout && ajout.length > 0 ? { ...m, dmls: [...(m.dmls ?? []), ...ajout] } : m;
+    });
+    const saisineFusionnee = [...(dossier.saisine ?? []), ...r.saisine];
     const updates: Partial<DossierInstruction> = {
-      misEnExamen: [...dossier.misEnExamen, ...r.misEnExamen],
+      misEnExamen: [...mexFusionnes, ...r.misEnExamen],
       suspects: [...(dossier.suspects ?? []), ...r.suspects],
       victimes: [...(dossier.victimes ?? []), ...r.victimes],
-      saisine: [...(dossier.saisine ?? []), ...r.saisine],
+      saisine: saisineFusionnee,
       evenements: [...(dossier.evenements ?? []), ...r.evenements],
     };
+    // Le formulaire d'édition est monté avec l'ancienne saisine : sans cette
+    // synchronisation, « Enregistrer » réécraserait les chefs importés.
+    setEditData(prev => ({ ...prev, saisine: saisineFusionnee }));
     // En-tête (n° parquet / instruction / date RI) : appliqué seulement si
     // l'utilisateur l'a coché dans la modale. On répercute aussi dans le
     // formulaire d'édition (editData) pour que « Enregistrer » ne réécrase pas
@@ -198,6 +211,7 @@ export const InstructionDetailModal = ({
     etatReglement: dossier.etatReglement,
     orientationPrevisible: dossier.orientationPrevisible,
     cotesTomes: dossier.cotesTomes,
+    saisine: dossier.saisine,
   });
 
   const openLienNpp = () => {
@@ -579,6 +593,22 @@ export const InstructionDetailModal = ({
                   )}
                 </div>
 
+                {/* Saisine in rem : les chefs ne s'ajoutent QUE d'ici (ou à la
+                    création du dossier). */}
+                <div>
+                  <Label>Saisine in rem</Label>
+                  <div className="mt-1 rounded-lg border border-gray-200 bg-white p-2">
+                    <SaisineManager
+                      value={editData.saisine ?? []}
+                      onChange={(saisine) => setEditData(d => ({ ...d, saisine }))}
+                    />
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Chefs visés par le réquisitoire introductif et les supplétifs.
+                    Enregistrés avec la fiche.
+                  </p>
+                </div>
+
                 {/* Description sur une largeur restreinte pour rester lisible */}
                 <div className="max-w-2xl">
                   <Label>Description</Label>
@@ -671,11 +701,19 @@ export const InstructionDetailModal = ({
                   <div className="flex items-center gap-1.5 mb-2">
                     <Scale className="h-3.5 w-3.5 text-gray-500" />
                     <span className="text-xs font-semibold text-gray-500 uppercase">Saisine in rem</span>
+                    <span className="text-[11px] text-gray-400">
+                      {(dossier.saisine || []).length} chef(s)
+                    </span>
+                    {/* La saisine ne se modifie qu'en édition : l'aperçu reste une
+                        photo de ce dont le juge est saisi, jamais un formulaire. */}
+                    <button
+                      onClick={onEdit}
+                      className="ml-auto inline-flex items-center gap-1 text-[11px] text-[#2B5746] hover:underline"
+                    >
+                      <Edit className="h-3 w-3" /> Modifier
+                    </button>
                   </div>
-                  <SaisineManager
-                    value={dossier.saisine || []}
-                    onChange={(saisine) => onUpdate(dossier.id, { saisine })}
-                  />
+                  <SaisineManager value={dossier.saisine || []} readOnly />
                 </div>
 
                 {/* 3 colonnes : Description / Notes perso / Mis en examen */}

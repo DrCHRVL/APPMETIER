@@ -25,9 +25,10 @@ import type {
   CategorieExpertise,
   PeriodeDetentionProvisoire,
   RegimeDetentionProvisoire,
+  DemandeMiseEnLiberte,
 } from '@/types/instructionTypes';
 import { getCasDPById, type CasDP } from '@/config/dpRegimes';
-import { calculatePeriodeDPEnd } from '@/utils/instructionUtils';
+import { calculatePeriodeDPEnd, calculateDMLEcheance } from '@/utils/instructionUtils';
 
 // ──────────────────────────────────────────────
 // GÉNÉRATEUR D'ID
@@ -658,6 +659,128 @@ export const deriveDpPeriodesForPersonne = (
   });
 };
 
+// ──────────────────────────────────────────────
+// DEMANDES DE MISE EN LIBERTÉ (DML)
+//
+// Cassiopée ne distingue pas les DML des demandes de modification du contrôle
+// judiciaire : les deux portent le même code d'événement DELIBCJ (« demande de
+// mise en liberté ou relative au contrôle judiciaire »). L'objet réel se lit
+// dans l'ordonnance de soit-communiqué (OSC) que le juge prend dans la foulée,
+// dont le motif précise « sur demande de mise en liberté » ou « aux fins de
+// modification du contrôle judiciaire ». On se sert donc de l'OSC la plus
+// proche (fenêtre de 15 jours) pour trancher, avec repli sur la catégorie
+// pénale (une personne en DP qui saisit le juge demande sa liberté).
+//
+// L'issue n'est jamais écrite noir sur blanc : une ORDLIB (ordonnance relative
+// à la mise en liberté) postérieure signale une demande tranchée, sans dire
+// dans quel sens. On déduit alors le sens de l'état actuel de la personne
+// (toujours en DP → rejetée ; libérée → accordée) et on l'indique en note.
+// ──────────────────────────────────────────────
+
+/** Code d'événement Cassiopée d'une demande de mise en liberté / de CJ. */
+const DML_EVENT_CODE = 'DELIBCJ';
+/** Code d'événement d'une ordonnance statuant sur la liberté. */
+const ORD_LIBERTE_CODE = 'ORDLIB';
+/** Fenêtre (en jours) de rattachement d'une OSC à la demande qui la motive. */
+const OSC_WINDOW_JOURS = 15;
+
+const daysBetween = (isoA: string, isoB: string): number =>
+  Math.round((new Date(`${isoB}T00:00:00Z`).getTime() - new Date(`${isoA}T00:00:00Z`).getTime()) / 86_400_000);
+
+/** L'événement concerne-t-il cette personne (émetteur ou personne concernée) ? */
+const eventConcerne = (ev: ParsedEvenement, key: string): boolean =>
+  normalizeNom(ev.emetteur) === key || ev.auteurs.some(a => normalizeNom(a) === key);
+
+/**
+ * Objet réel d'un DELIBCJ : « dml », « cj » (modification du contrôle
+ * judiciaire) ou `undefined` si les événements ne permettent pas de trancher.
+ */
+const objetDemande = (
+  ev: ParsedEvenement,
+  key: string,
+  allEvents: ParsedEvenement[],
+): 'dml' | 'cj' | undefined => {
+  const osc = allEvents
+    .filter(
+      o =>
+        normalizeText(o.code) === 'osc' &&
+        eventConcerne(o, key) &&
+        daysBetween(ev.date, o.date) >= 0 &&
+        daysBetween(ev.date, o.date) <= OSC_WINDOW_JOURS,
+    )
+    .sort((a, b) => a.date.localeCompare(b.date))[0];
+  const motif = normalizeText(osc?.motif);
+  if (motif.includes('mise en liberte')) return 'dml';
+  if (motif.includes('controle judiciaire')) return 'cj';
+  return undefined;
+};
+
+export interface DmlDeriveOptions {
+  newId: () => number;
+  /** Catégorie pénale Cassiopée de la personne (« DP », « CJ », « ARSE »…). */
+  categoriePenale?: string;
+}
+
+/**
+ * Reconstitue les DML d'une personne depuis les événements Cassiopée. Les
+ * demandes portant sur le seul contrôle judiciaire sont écartées. L'échéance
+ * légale (10 jours ouvrables, art. 148) est recalculée depuis la date de dépôt.
+ */
+export const deriveDMLsForPersonne = (
+  nom: string,
+  parsedEvents: ParsedEvenement[],
+  opts: DmlDeriveOptions,
+): DemandeMiseEnLiberte[] => {
+  const key = normalizeNom(nom);
+  const enDP = opts.categoriePenale === 'DP';
+
+  const demandes = parsedEvents
+    .filter(
+      ev =>
+        ev.date &&
+        normalizeText(ev.code) === normalizeText(DML_EVENT_CODE) &&
+        eventConcerne(ev, key),
+    )
+    .filter(ev => {
+      const objet = objetDemande(ev, key, parsedEvents);
+      // Sans OSC exploitable : on ne retient la demande que pour une personne
+      // détenue (une demande de CJ n'a pas d'échéance des 10 jours à suivre).
+      return objet ? objet === 'dml' : enDP;
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Dédoublonnage par date de dépôt (une demande peut apparaître deux fois si
+  // elle est annoncée par la personne puis enregistrée par le cabinet).
+  const parDate = new Map<string, ParsedEvenement>();
+  demandes.forEach(ev => { if (!parDate.has(ev.date)) parDate.set(ev.date, ev); });
+  const dates = Array.from(parDate.keys()).sort();
+
+  const ordonnances = parsedEvents
+    .filter(ev => ev.date && normalizeText(ev.code) === normalizeText(ORD_LIBERTE_CODE) && eventConcerne(ev, key))
+    .map(ev => ev.date)
+    .sort();
+
+  return dates.map((date, i) => {
+    const suivante = dates[i + 1];
+    // Demande tranchée : une ordonnance sur la liberté est intervenue après le
+    // dépôt (avant la demande suivante s'il y en a une).
+    const tranchee = ordonnances.some(o => o >= date && (!suivante || o < suivante));
+    const statut: DemandeMiseEnLiberte['statut'] = tranchee
+      ? (enDP ? 'rejetee' : 'accordee')
+      : 'en_attente';
+    const notes = tranchee
+      ? `Importée de Cassiopée (DELIBCJ du ${date.split('-').reverse().join('/')}) — issue déduite d'une ordonnance postérieure (${enDP ? 'personne toujours en DP → rejet' : 'personne libérée → mise en liberté'}) : à vérifier.`
+      : `Importée de Cassiopée (DELIBCJ du ${date.split('-').reverse().join('/')}) — aucune ordonnance postérieure trouvée : réputée en attente, à vérifier.`;
+    return {
+      id: opts.newId(),
+      dateDepot: date,
+      dateEcheance: calculateDMLEcheance(date),
+      statut,
+      notes,
+    };
+  });
+};
+
 /** Mesure de sûreté déduite de la catégorie pénale Cassiopée (repli sans DP
  *  reconstituée). On pose la bonne *nature* de mesure avec des périodes vides
  *  et une note d'invite : les dates de DP proviennent des ordonnances JLD. */
@@ -698,6 +821,8 @@ export interface MexBuildOptions {
   regime?: RegimeDetentionProvisoire;
   /** Cas légal déduit de la saisine in rem. */
   casDPId?: string;
+  /** DML reconstituées depuis les événements (compteur art. 148). */
+  dmls?: DemandeMiseEnLiberte[];
 }
 
 /** Convertit un mis en examen parsé vers le modèle. Si la personne est en DP et
@@ -736,7 +861,7 @@ export const buildMisEnExamen = (
     infractions: [],
     elementsPersonnalite: [],
     mesureSurete: mesure,
-    dmls: [],
+    dmls: opts?.dmls ?? [],
     notes: buildNote(p, note),
   };
 };
