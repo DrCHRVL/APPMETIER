@@ -188,15 +188,20 @@ const TOOLS = [
   },
   {
     name: 'chantiers_etat',
-    description: 'État des CHANTIERS d\'analyse profonde (dépouillements massifs : chaque pièce lue une fois → fiches factuelles + synthèse) : progression, attente (nuit / forfait), fiches produites. Lecture seule — le lancement et le pilotage se font depuis la page « Assistant de justice ». Les fiches d\'un chantier se lisent avec productions_lister / production_lire (type « fiche », source « chantier:<id> »).',
+    description: 'État des CHANTIERS d\'analyse profonde : type « dossier » (chaque pièce lue une fois → fiches factuelles + synthèse), type « liens » (croisement des fiches de plusieurs dossiers → rapport de recoupements), type « carto » (propositions carto tirées des fiches, à valider). Progression, attente (nuit / forfait), productions. Lecture seule — le lancement et le pilotage se font depuis la page « Assistant de justice ». Les productions d\'un chantier se lisent avec productions_lister / production_lire (source « chantier:<id> » ; fiches de dépouillement = type « fiche »).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string', description: 'Limiter à un dossier (optionnel)' } } },
     handler: async (a) => {
       const { listChantiers } = await import('./attache/chantier.mjs')
       const all = listChantiers(keys)
-      const filt = a?.numero ? all.filter((c) => String(c.numero).toLowerCase().includes(String(a.numero).toLowerCase())) : all
+      const q = String(a?.numero || '').toLowerCase()
+      const filt = q
+        ? all.filter((c) => [c.numero, ...(c.numeros || [])].some((n) => String(n).toLowerCase().includes(q)))
+        : all
       return {
         chantiers: filt.map((c) => ({
-          id: c.id, numero: c.numero, etat: c.etat, attente: c.attente, consigne: c.consigne,
+          id: c.id, type: c.type, numero: c.numero, numeros: c.numeros || undefined,
+          sansFiches: (c.sansFiches || []).length ? c.sansFiches : undefined,
+          etat: c.etat, attente: c.attente, consigne: c.consigne,
           piecesFaites: c.piecesFaites, totalPieces: c.totalPieces, lotsFaits: c.lotsFaits, totalLots: c.totalLots,
           pochettes: c.pochettes.length, fiches: c.fiches.length, syntheseProdId: c.syntheseProdId,
         })),

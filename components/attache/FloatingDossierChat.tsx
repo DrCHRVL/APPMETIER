@@ -17,6 +17,7 @@ import { Scale, X, Send, Loader2, Minus, Stethoscope, GripHorizontal, Wrench, Bo
 import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig, loadAttacheConfig } from './modelOptions';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { toolTouchesDossierData } from '@/lib/web/attacheWriteTools';
+import { ChantierDot } from './ChantierDot';
 
 interface Msg { role: 'user' | 'assistant'; text: string; streaming?: boolean; tools?: string[] }
 
@@ -267,6 +268,8 @@ export function FloatingDossierChat({
       >
         <Scale className="h-4 w-4" />
         <span className="text-xs font-semibold">Attaché</span>
+        {/* point : un chantier d'analyse profonde tourne sur CE dossier */}
+        {!carto && <ChantierDot numero={numero} className="absolute -top-1 -right-0.5 h-2.5 w-2.5 rounded-full bg-blue-400 ring-2 ring-white animate-pulse" />}
       </button>
     );
   }

@@ -26,6 +26,7 @@ import {
   X,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Search
 } from 'lucide-react';
 import { Enquete, DocumentEnquete } from '@/types/interfaces';
@@ -63,6 +64,40 @@ interface ConflictItem {
   file: File;
   category: DocumentCategory;
   existingDoc: DocumentEnquete;
+}
+
+// ── Vue en arborescence des zones ──
+// Dès qu'une zone contient des pièces versées en arborescence (sous-
+// pochettes), la liste plate devient illisible (un dossier d'enquête entier
+// = des centaines de pièces en vrac) : la zone s'affiche alors en arbre
+// repliable par pochette — pochettes FERMÉES par défaut, l'organisation
+// d'origine du dossier redevient visible d'un coup d'œil.
+interface ZoneTreeNode { folders: Map<string, ZoneTreeNode>; docs: DocumentEnquete[] }
+
+function buildZoneTree(docs: DocumentEnquete[]): ZoneTreeNode {
+  const root: ZoneTreeNode = { folders: new Map(), docs: [] };
+  for (const d of docs) {
+    const segs = d.cheminRelatif.split('/');
+    let node = root;
+    for (const seg of segs.slice(1, -1)) { // sans le préfixe de zone ni le nom de fichier
+      if (!node.folders.has(seg)) node.folders.set(seg, { folders: new Map(), docs: [] });
+      node = node.folders.get(seg)!;
+    }
+    node.docs.push(d);
+  }
+  return root;
+}
+
+function countZoneDocs(node: ZoneTreeNode): number {
+  let n = node.docs.length;
+  for (const child of node.folders.values()) n += countZoneDocs(child);
+  return n;
+}
+
+function collectZoneDocs(node: ZoneTreeNode): DocumentEnquete[] {
+  const out = [...node.docs];
+  for (const child of node.folders.values()) out.push(...collectZoneDocs(child));
+  return out;
 }
 
 // Libellés lisibles par type de document (pour le tooltip)
@@ -227,6 +262,8 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
 
   // Vue expandable par catégorie
   const [expandedCategories, setExpandedCategories] = useState<Set<DocumentCategory>>(new Set());
+  // Pochettes dépliées dans les zones en arborescence (fermées par défaut)
+  const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
 
   const fileInputRefs = useRef<Record<DocumentCategory, HTMLInputElement | null>>({
     geoloc: null,
@@ -276,6 +313,17 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     }
     return result;
   }, [enquete.documents]);
+
+  // Arbre par zone — uniquement pour les zones où au moins une pièce porte
+  // une sous-pochette (versement d'arborescence) ; null = liste plate.
+  const zoneTrees = useMemo(() => {
+    const out: Partial<Record<DocumentCategory, ZoneTreeNode | null>> = {};
+    for (const cat of Object.keys(documentsByCategory) as DocumentCategory[]) {
+      const docs = documentsByCategory[cat];
+      out[cat] = docs.some(d => d.cheminRelatif.split('/').length > 2) ? buildZoneTree(docs) : null;
+    }
+    return out;
+  }, [documentsByCategory]);
 
   // Ref toujours à jour vers scanForNewDocuments pour que l'interval appelle
   // la dernière version (et lise la liste de documents actuelle, pas celle du 1er render).
@@ -1016,6 +1064,33 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     } catch { showToast('Erreur lors de la suppression du document', 'error'); }
   };
 
+  // Suppression d'une POCHETTE entière (vue en arborescence) : une seule
+  // confirmation, puis pièce par pièce — ce qui a réussi est retiré de la
+  // liste même si le reste échoue (re-cliquer termine le ménage).
+  const handleDeleteFolder = async (docs: DocumentEnquete[], label: string) => {
+    if (!window.siralBridge) { showToast('Pont de données indisponible', 'error'); return; }
+    if (!confirm(`Supprimer ${label} (${docs.length} pièce(s)) ?`)) return;
+    const okIds = new Set<number>();
+    for (const doc of docs) {
+      try {
+        const ok = await window.siralBridge.deleteDocument(
+          enquete.numero, doc.cheminRelatif,
+          enquete.cheminExterne, enquete.useSubfolderForExternal ?? true
+        );
+        if (ok) okIds.add(doc.id);
+      } catch { /* comptée dans le bilan ci-dessous */ }
+    }
+    if (okIds.size) {
+      onUpdate(enquete.id, { documents: (docsRef.current || []).filter(d => !okIds.has(d.id)) });
+    }
+    showToast(
+      okIds.size === docs.length
+        ? `${okIds.size} pièce(s) supprimée(s)`
+        : `${okIds.size}/${docs.length} pièce(s) supprimée(s) — recommencez pour le reste`,
+      okIds.size === docs.length ? 'success' : 'warning'
+    );
+  };
+
   const handleSaveExternalPath = (newPath: string, useSubfolder: boolean) => {
     const oldPath = enquete.cheminExterne;
     const oldSub = enquete.useSubfolderForExternal ?? true;
@@ -1042,6 +1117,131 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     if (!lastScanTime) return null;
     try { return format(lastScanTime, 'dd/MM/yyyy HH:mm:ss', { locale: fr }); }
     catch { return lastScanTime.toLocaleString(); }
+  };
+
+  const toggleFolder = (key: string) => {
+    setOpenFolders(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+
+  // Ligne de document — la MÊME dans la liste plate et dans l'arbre
+  // (tooltip de survol, ouverture au clic, suppression en édition).
+  // nameOnly : dans l'arbre, la pochette donne déjà le contexte — on
+  // n'affiche que le nom du fichier.
+  const renderDocRow = (doc: DocumentEnquete, opts?: { indent?: number; nameOnly?: boolean }) => (
+    <div
+      key={doc.id}
+      className="flex items-center justify-between px-2 py-1.5 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors"
+      style={opts?.indent ? { marginLeft: opts.indent } : undefined}
+    >
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        {getFileIcon(doc.type, 'h-3 w-3')}
+
+        {/* Zone cliquable avec tooltip au survol */}
+        <TooltipRoot delayDuration={400}>
+          <TooltipTrigger asChild>
+            <div
+              className="flex-1 min-w-0 cursor-pointer"
+              onClick={() => handleOpenDocument(doc)}
+            >
+              <p className="text-xs font-medium text-gray-900 truncate">
+                {opts?.nameOnly
+                  ? (doc.cheminRelatif.split('/').pop() || doc.nomOriginal)
+                  : (doc.cheminRelatif.split('/').length > 2
+                    ? doc.cheminRelatif.split('/').slice(1).join(' / ')
+                    : doc.nomOriginal)}
+              </p>
+              <div className="flex items-center gap-1 text-xs text-gray-500">
+                <span>{formatFileSize(doc.taille)}</span>
+                <ExternalLink className="h-2 w-2" />
+                {doc.copieCommun === 'ok' && (
+                  <span className="text-green-600 font-medium" title="Copié dans le dossier commun">✓ commun</span>
+                )}
+                {doc.copieCommun === 'attente' && (
+                  <span className="text-amber-600 font-medium" title="Copie vers le dossier commun en attente (dossier injoignable)">⏳ commun</span>
+                )}
+                {doc.copieCommun === 'absent' && (
+                  <span className="text-red-600 font-medium" title="Introuvable sur le dossier commun (non copié lors de la dernière synchronisation)">✗ commun</span>
+                )}
+              </div>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent
+            side="right"
+            className="bg-white text-gray-800 border border-gray-200 shadow-lg p-0 max-w-xs"
+          >
+            <div className="p-2.5 space-y-1">
+              {doc.type === 'pdf' && (
+                <DocHoverPreview enquete={String(enquete.numero)} rel={doc.cheminRelatif} />
+              )}
+              <p className="font-semibold text-xs leading-tight break-all">
+                {doc.nomOriginal}
+              </p>
+              <p className="text-xs text-gray-500">
+                {TYPE_LABELS[doc.type] ?? 'Fichier'} · {formatFileSize(doc.taille)}
+              </p>
+              {doc.dateAjout && (
+                <p className="text-xs text-gray-400">
+                  Ajouté le{' '}
+                  {format(new Date(doc.dateAjout), 'dd/MM/yyyy', { locale: fr })}
+                </p>
+              )}
+              <p className="text-xs text-blue-500 mt-0.5">Cliquer pour ouvrir</p>
+            </div>
+          </TooltipContent>
+        </TooltipRoot>
+      </div>
+
+      {isEditing && (
+        <Button
+          variant="ghost" size="sm"
+          className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
+          onClick={() => handleDeleteDocument(doc)}
+          title="Supprimer le document"
+        >
+          <Trash2 className="h-3 w-3" />
+        </Button>
+      )}
+    </div>
+  );
+
+  // Arbre d'une zone : pochettes repliables (fermées par défaut), puis les
+  // pièces — mêmes lignes que la liste plate, indentées.
+  const renderZoneNode = (node: ZoneTreeNode, prefix: string, depth: number): JSX.Element[] => {
+    const rows: JSX.Element[] = [];
+    for (const [name, child] of [...node.folders.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      const key = prefix + name + '/';
+      const isOpen = openFolders.has(key);
+      const count = countZoneDocs(child);
+      rows.push(
+        <div key={key} className="flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-gray-100" style={{ marginLeft: depth * 14 }}>
+          <button type="button" onClick={() => toggleFolder(key)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+            {isOpen ? <ChevronDown className="h-3 w-3 flex-shrink-0 text-gray-400" /> : <ChevronRight className="h-3 w-3 flex-shrink-0 text-gray-400" />}
+            <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 text-amber-500" />
+            <span className="truncate text-xs font-medium text-gray-700">{name}</span>
+            <span className="text-[10px] text-gray-400">({count})</span>
+          </button>
+          {isEditing && (
+            <Button
+              variant="ghost" size="sm"
+              className="h-5 w-5 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
+              onClick={() => handleDeleteFolder(collectZoneDocs(child), `la pochette « ${name} »`)}
+              title="Supprimer la pochette entière"
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
+      );
+      if (isOpen) rows.push(...renderZoneNode(child, key, depth + 1));
+    }
+    for (const doc of [...node.docs].sort((a, b) => a.cheminRelatif.localeCompare(b.cheminRelatif))) {
+      rows.push(renderDocRow(doc, { indent: depth * 14 + 14, nameOnly: true }));
+    }
+    return rows;
   };
 
   // ─────────────────────────────── JSX ───────────────────────────────
@@ -1365,84 +1565,20 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                     />
                   </div>
 
-                  {/* Liste des documents (expandable) */}
-                  {docsInZone.length > 0 && (
+                  {/* Liste des documents : ARBRE par pochette dès qu'une
+                      arborescence a été versée (sous-dossiers respectés,
+                      fermés par défaut — fini le vrac), liste plate avec
+                      aperçu sinon. Mêmes lignes dans les deux cas. */}
+                  {docsInZone.length > 0 && (zoneTrees[zone.category] ? (
+                    <div className="max-h-96 space-y-0.5 overflow-y-auto rounded-lg border border-gray-100 py-1 pr-1">
+                      <TooltipProvider>
+                        {renderZoneNode(zoneTrees[zone.category]!, zone.category + ':', 0)}
+                      </TooltipProvider>
+                    </div>
+                  ) : (
                     <div className="space-y-1.5">
                       <TooltipProvider>
-                        {visibleDocs.map((doc) => (
-                          <div
-                            key={doc.id}
-                            className="flex items-center justify-between px-2 py-1.5 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors"
-                          >
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              {getFileIcon(doc.type, 'h-3 w-3')}
-
-                              {/* Zone cliquable avec tooltip au survol */}
-                              <TooltipRoot delayDuration={400}>
-                                <TooltipTrigger asChild>
-                                  <div
-                                    className="flex-1 min-w-0 cursor-pointer"
-                                    onClick={() => handleOpenDocument(doc)}
-                                  >
-                                    <p className="text-xs font-medium text-gray-900 truncate">
-                                      {/* fichier versé en arborescence : montrer la sous-pochette */}
-                                      {doc.cheminRelatif.split('/').length > 2
-                                        ? doc.cheminRelatif.split('/').slice(1).join(' / ')
-                                        : doc.nomOriginal}
-                                    </p>
-                                    <div className="flex items-center gap-1 text-xs text-gray-500">
-                                      <span>{formatFileSize(doc.taille)}</span>
-                                      <ExternalLink className="h-2 w-2" />
-                                      {doc.copieCommun === 'ok' && (
-                                        <span className="text-green-600 font-medium" title="Copié dans le dossier commun">✓ commun</span>
-                                      )}
-                                      {doc.copieCommun === 'attente' && (
-                                        <span className="text-amber-600 font-medium" title="Copie vers le dossier commun en attente (dossier injoignable)">⏳ commun</span>
-                                      )}
-                                      {doc.copieCommun === 'absent' && (
-                                        <span className="text-red-600 font-medium" title="Introuvable sur le dossier commun (non copié lors de la dernière synchronisation)">✗ commun</span>
-                                      )}
-                                    </div>
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent
-                                  side="right"
-                                  className="bg-white text-gray-800 border border-gray-200 shadow-lg p-0 max-w-xs"
-                                >
-                                  <div className="p-2.5 space-y-1">
-                                    {doc.type === 'pdf' && (
-                                      <DocHoverPreview enquete={String(enquete.numero)} rel={doc.cheminRelatif} />
-                                    )}
-                                    <p className="font-semibold text-xs leading-tight break-all">
-                                      {doc.nomOriginal}
-                                    </p>
-                                    <p className="text-xs text-gray-500">
-                                      {TYPE_LABELS[doc.type] ?? 'Fichier'} · {formatFileSize(doc.taille)}
-                                    </p>
-                                    {doc.dateAjout && (
-                                      <p className="text-xs text-gray-400">
-                                        Ajouté le{' '}
-                                        {format(new Date(doc.dateAjout), 'dd/MM/yyyy', { locale: fr })}
-                                      </p>
-                                    )}
-                                    <p className="text-xs text-blue-500 mt-0.5">Cliquer pour ouvrir</p>
-                                  </div>
-                                </TooltipContent>
-                              </TooltipRoot>
-                            </div>
-
-                            {isEditing && (
-                              <Button
-                                variant="ghost" size="sm"
-                                className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
-                                onClick={() => handleDeleteDocument(doc)}
-                                title="Supprimer le document"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            )}
-                          </div>
-                        ))}
+                        {visibleDocs.map((doc) => renderDocRow(doc))}
                       </TooltipProvider>
 
                       {/* Bouton expand / réduire */}
@@ -1459,7 +1595,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                         </button>
                       )}
                     </div>
-                  )}
+                  ))}
                 </div>
               );
             })}
@@ -1525,7 +1661,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           <div className="text-xs text-gray-500 space-y-1">
             <p><strong>Formats supportés :</strong> PDF, DOC, DOCX, ODT, TXT, Images, HTML, MSG</p>
             <p><strong>Organisation :</strong> Classement automatique dans des dossiers par catégorie</p>
-            <p><strong>Dossiers entiers :</strong> Déposez une ou plusieurs arborescences complètes (sous-pochettes préservées, texte converti au passage{estAdmin ? <> pour l&apos;IA</> : null}). Limite : 50 Mo par pièce — au-delà, le texte intégral est versé à la place. Un versement interrompu se reprend en re-déposant le même dossier, sans doublon.</p>
+            <p><strong>Dossiers entiers :</strong> Déposez une ou plusieurs arborescences complètes (sous-pochettes préservées, texte converti au passage{estAdmin ? <> pour l&apos;IA</> : null}). La zone s&apos;affiche alors en arborescence repliable, pochette par pochette. Limite : 50 Mo par pièce — au-delà, le texte intégral est versé à la place. Un versement interrompu se reprend en re-déposant le même dossier, sans doublon.</p>
             {enquete.cheminExterne && (
               <p><strong>Sauvegarde double :</strong> Documents sauvegardés en interne + copie externe</p>
             )}
