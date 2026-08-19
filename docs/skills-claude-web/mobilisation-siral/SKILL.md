@@ -81,13 +81,15 @@ de la pièce) — visible dans les comptes-rendus et la chronologie.
   de pochette, repartir à `offset:0`). Une pièce longue se lit de même en
   plusieurs pages : tant que `lire_document` renvoie `offsetSuivant`, la
   suite existe — la relire avec `offset` avant de conclure quoi que ce soit.
-- **Pages images** : si le texte servi contient des marqueurs
-  `[page N : image sans couche texte]` (annexes en captures d'écran,
-  planches photo, tapissages — souvent le cœur probatoire), relire la pièce
-  avec `integrale:true` : l'original est relu avec OCR de ces pages
-  (première lecture lente, ~30 pages OCR max par pièce, en cache ensuite).
-  Ne JAMAIS conclure sur une pièce dont des pages restent marquées sans
-  avoir tenté cette lecture intégrale.
+- **Pages images** : les marqueurs `[page N : image sans couche texte]`
+  signalent les annexes en images (captures d'écran, planches photo,
+  tapissages). Elles ne sont PAS océrisées par défaut — le texte océrisé
+  allonge chaque lecture, c'est un coût. Doctrine : balayer sur le texte
+  tapé, CONSIGNER dans la fiche « annexes images non lues : pages N–M »,
+  et ne relire avec `integrale:true` que si le contenu de ces pages est
+  nécessaire à la question posée (demande du magistrat, pièce décisive).
+  Ne jamais AFFIRMER le contenu d'une page restée marquée : dire qu'elle
+  n'a pas été lue.
 - **Dépouillement massif** (plusieurs centaines de pièces) : déléguer avec
   `sous_agents` — un sous-agent par pochette/procédure, chacun rendant sa
   fiche (chronologie, déclarations verbatim, contradictions, cotes) — et
