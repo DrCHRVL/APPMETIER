@@ -14,16 +14,20 @@
  * les différents générateurs de rapport.
  */
 
-// Charte « Prestige ». Palette : bleu nuit #0C1740 (masthead), Bleu France
-// #16307A (accent), tirets tricolores institutionnels, vert #067647 / rouge
-// #C01427 pour les signaux, gris #667085 (texte secondaire), lignes #E6E8F0.
+// Charte « Prestige ». Registre institutionnel sobre, inspiré des documents
+// officiels du ministère : fond clair, filet tricolore, titres en romain
+// (Georgia), texte en linéale, aplats de couleur réduits au minimum. Palette :
+// bleu nuit #0C1740 (titres), Bleu France #16307A (accent), rouge #C01427 et
+// vert #067647 pour les signaux, gris #667085 (texte secondaire), filets
+// #E2E6F0. Les corps de texte sont calibrés pour l'impression A4 (le document
+// est rendu sur 794 px de large, soit 210 mm à 96 ppp : 1 px ≈ 0,75 pt).
 // Couleurs en dur et polices système uniquement : le rendu passe par
 // html2canvas (rasterisation), donc pas de var() ni de police web.
 export const CSS_STYLES = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    font-size: 10.5px;
+    font-size: 12px;
     color: #1A1C2A;
     line-height: 1.5;
     padding: 0;
@@ -32,62 +36,67 @@ export const CSS_STYLES = `
     -webkit-font-smoothing: antialiased;
   }
 
-  /* ── Masthead (page de garde en tête) ─────────────────────── */
+  /* ── Masthead (en-tête institutionnel) ────────────────────── */
   .page-header {
     position: relative;
     overflow: hidden;
-    background: linear-gradient(120deg, #0A1230 0%, #0C1740 45%, #16307A 100%);
-    border-radius: 14px;
-    color: #fff;
-    padding: 22px 26px 20px 30px;
-    margin-bottom: 18px;
+    background: #FFFFFF;
+    border: 1px solid #E2E6F0;
+    border-radius: 3px;
+    color: #1A1C2A;
+    text-align: center;
+    padding: 26px 30px 22px;
+    margin-bottom: 20px;
   }
+  /* Filet tricolore en tête de bloc (bleu | blanc | rouge). */
   .page-header .tricolore {
-    position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
-    background: linear-gradient(to bottom, #16307A 33%, #ffffff 33% 66%, #C01427 66%);
-  }
-  .page-header .monogram {
-    position: absolute; right: -30px; top: -40px;
-    width: 190px; height: 190px; border-radius: 50%;
-    background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.10), rgba(255,255,255,0) 70%);
+    position: absolute; left: 0; right: 0; top: 0; height: 4px;
+    background: linear-gradient(to right, #16307A 0 33.34%, #F4F6FC 33.34% 66.67%, #C01427 66.67% 100%);
   }
   .page-header .overline {
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 2.4px;
+    letter-spacing: 2.2px;
     text-transform: uppercase;
-    color: #9DB0E6;
-    margin-bottom: 8px;
+    color: #5A6480;
+    margin-bottom: 10px;
   }
   .page-header h1 {
-    font-size: 23px;
-    font-weight: 800;
-    letter-spacing: -0.3px;
-    color: #fff;
-    margin-bottom: 4px;
+    font-family: Georgia, 'Times New Roman', Cambria, serif;
+    font-size: 27px;
+    font-weight: 400;
+    letter-spacing: -0.2px;
+    color: #0C1740;
+    margin-bottom: 10px;
+  }
+  /* Filet court sous le titre, en rappel de l'accent Bleu France. */
+  .page-header .rule {
+    width: 54px; height: 2px; background: #16307A;
+    margin: 0 auto 10px;
   }
   .page-header .subtitle {
-    font-size: 10px;
-    color: rgba(233,238,252,0.72);
+    font-size: 11.5px;
+    color: #667085;
   }
-  .chips { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 12px; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; justify-content: center; }
   .chip {
-    font-size: 8.5px; font-weight: 700; letter-spacing: 0.4px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.7px;
     text-transform: uppercase;
-    color: #DEE6FA;
-    background: rgba(255,255,255,0.10);
-    border: 1px solid rgba(255,255,255,0.16);
-    border-radius: 20px;
-    padding: 3px 10px;
+    color: #16307A;
+    background: #F4F6FC;
+    border: 1px solid #DCE3F5;
+    border-radius: 3px;
+    padding: 4px 12px;
   }
-  .chip.alert { color: #FFE0E0; background: rgba(192,20,39,0.28); border-color: rgba(255,255,255,0.20); }
+  .chip.alert { color: #B42318; background: #FEF3F2; border-color: #FBD5D2; }
 
   .redige-par {
-    font-size: 10px;
+    font-size: 11px;
     color: #667085;
-    margin: 0 0 18px 2px;
+    text-align: center;
+    margin: 0 0 20px;
   }
-  .redige-par b { color: #16307A; font-weight: 700; }
+  .redige-par b { color: #16307A; font-weight: 600; }
 
   /* ── Bandeau KPI (chiffres clés) ──────────────────────────── */
   .kpi-band {
@@ -98,16 +107,15 @@ export const CSS_STYLES = `
   .kpi {
     flex: 1;
     background: #fff;
-    border: 1px solid #E6E8F0;
-    border-top: 3px solid #16307A;
-    border-radius: 12px;
-    padding: 13px 14px 12px;
-    box-shadow: 0 1px 2px rgba(16,24,64,0.05);
+    border: 1px solid #E2E6F0;
+    border-top: 2px solid #16307A;
+    border-radius: 3px;
+    padding: 14px 15px 13px;
   }
-  .kpi-value { font-size: 27px; font-weight: 800; color: #0C1740; line-height: 1.05; letter-spacing: -0.5px; }
-  .kpi-value .unit { font-size: 13px; font-weight: 700; color: #667085; margin-left: 2px; }
-  .kpi-label { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #16307A; margin-top: 4px; }
-  .kpi-sub { font-size: 8.5px; color: #667085; margin-top: 3px; line-height: 1.35; }
+  .kpi-value { font-size: 30px; font-weight: 600; color: #0C1740; line-height: 1.05; letter-spacing: -0.4px; }
+  .kpi-value .unit { font-size: 15px; font-weight: 400; color: #667085; margin-left: 2px; }
+  .kpi-label { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: #16307A; margin-top: 5px; }
+  .kpi-sub { font-size: 9.5px; color: #667085; margin-top: 3px; line-height: 1.35; }
   .kpi.pos { border-top-color: #067647; }
   .kpi.pos .kpi-value, .kpi.pos .kpi-label { color: #067647; }
   .kpi.neg { border-top-color: #C01427; }
@@ -116,42 +124,42 @@ export const CSS_STYLES = `
   /* ── Sections ─────────────────────────────────────────────── */
   .section, .section-nobreak {
     background: #fff;
-    border: 1px solid #E6E8F0;
-    border-radius: 12px;
-    padding: 14px 16px 15px;
+    border: 1px solid #E2E6F0;
+    border-radius: 3px;
+    padding: 15px 17px 16px;
     margin-bottom: 14px;
-    box-shadow: 0 1px 2px rgba(16,24,64,0.04);
   }
   .section-nobreak { page-break-inside: avoid; }
   .section-title {
-    font-size: 12px;
-    font-weight: 700;
+    font-family: Georgia, 'Times New Roman', Cambria, serif;
+    font-size: 15px;
+    font-weight: 400;
     color: #0C1740;
-    letter-spacing: 0.2px;
-    padding: 0 0 9px 10px;
-    border-left: 3px solid #16307A;
-    border-bottom: 1px solid #ECEEF4;
+    letter-spacing: 0.1px;
+    padding: 0 0 8px 0;
+    border-bottom: 1px solid #E2E6F0;
+    box-shadow: inset 0 -1px 0 0 #ffffff;
     margin-bottom: 12px;
-    line-height: 1.2;
+    line-height: 1.25;
   }
-  .section-note { font-size: 9px; color: #7A8296; margin: -4px 0 10px; line-height: 1.4; }
+  .section-note { font-size: 10px; color: #7A8296; margin: -4px 0 10px; line-height: 1.45; }
 
   .cards-row { display: flex; gap: 12px; margin-bottom: 4px; flex-wrap: wrap; }
   .card {
     flex: 1;
-    min-width: 140px;
+    min-width: 145px;
     background: #F8F9FC;
-    border: 1px solid #EAECF3;
-    border-radius: 10px;
-    padding: 11px 13px;
+    border: 1px solid #E6E9F2;
+    border-radius: 3px;
+    padding: 12px 14px;
   }
   .card-label {
-    font-size: 8px; color: #667085;
-    text-transform: uppercase; letter-spacing: 0.6px;
-    font-weight: 700; margin-bottom: 4px;
+    font-size: 9px; color: #667085;
+    text-transform: uppercase; letter-spacing: 0.7px;
+    font-weight: 700; margin-bottom: 5px;
   }
-  .card-value { font-size: 22px; font-weight: 800; color: #16307A; line-height: 1.1; letter-spacing: -0.3px; }
-  .card-detail { font-size: 8.5px; color: #667085; margin-top: 3px; line-height: 1.35; }
+  .card-value { font-size: 24px; font-weight: 600; color: #16307A; line-height: 1.1; letter-spacing: -0.3px; }
+  .card-detail { font-size: 9.5px; color: #667085; margin-top: 4px; line-height: 1.4; }
   .card.warn { background: #FFF7ED; border-color: #FDDCAB; }
   .card.warn .card-value { color: #B54708; }
   .card.danger { background: #FEF3F2; border-color: #FDA29B; }
@@ -160,44 +168,51 @@ export const CSS_STYLES = `
   .card.ok .card-value { color: #067647; }
 
   .stat-inline {
-    display: flex; align-items: center; gap: 16px;
-    background: linear-gradient(120deg, #F4F7FE 0%, #F8F9FC 100%);
-    border: 1px solid #E4E9F5;
-    border-radius: 10px;
-    padding: 13px 16px;
+    display: flex; align-items: center; gap: 18px;
+    background: #F8F9FC;
+    border: 1px solid #E6E9F2;
+    border-left: 2px solid #16307A;
+    border-radius: 3px;
+    padding: 14px 17px;
   }
-  .stat-inline-value { font-size: 32px; font-weight: 800; color: #16307A; line-height: 1; flex-shrink: 0; letter-spacing: -0.5px; }
-  .stat-inline-note { font-size: 9.5px; color: #667085; line-height: 1.5; }
-  .stat-inline-note b { color: #1A1C2A; }
+  .stat-inline-value { font-size: 34px; font-weight: 600; color: #16307A; line-height: 1; flex-shrink: 0; letter-spacing: -0.5px; }
+  .stat-inline-note { font-size: 11px; color: #667085; line-height: 1.5; }
+  .stat-inline-note b { color: #1A1C2A; font-weight: 600; }
 
   /* ── Tableaux ─────────────────────────────────────────────── */
   table {
     width: 100%; border-collapse: collapse;
-    font-size: 10px; margin-bottom: 4px;
+    font-size: 11.5px; margin-bottom: 4px;
     table-layout: fixed; word-wrap: break-word;
   }
   th {
     background: #F4F6FC; color: #0C1740;
-    padding: 6px 9px; text-align: left;
-    font-weight: 700; font-size: 8px;
-    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 7px 10px; text-align: left;
+    font-weight: 700; font-size: 9px;
+    text-transform: uppercase; letter-spacing: 0.6px;
     border-bottom: 1.5px solid #16307A;
   }
-  td { padding: 5.5px 9px; border-bottom: 1px solid #EEF0F6; }
+  td { padding: 6.5px 10px; border-bottom: 1px solid #EEF0F6; }
   tr:nth-child(even) td { background: #FBFCFE; }
   tr:last-child td { border-bottom: none; }
-  .row-total td { background: #EAF0FE !important; font-weight: 800; color: #0C1740; border-top: 1.5px solid #C9D6F5; }
+  /* Précision de périmètre sous un intitulé de colonne (ex. « année complète »). */
+  .th-note {
+    display: block; margin-top: 2px;
+    font-size: 8.5px; font-weight: 400; letter-spacing: 0;
+    text-transform: none; color: #667085;
+  }
+  .row-total td { background: #EAF0FE !important; font-weight: 700; color: #0C1740; border-top: 1.5px solid #C9D6F5; }
   .text-right { text-align: right; }
   .text-center { text-align: center; }
-  .font-bold { font-weight: 700; }
-  .pos { color: #067647; font-weight: 700; }
-  .neg { color: #C01427; font-weight: 700; }
+  .font-bold { font-weight: 600; }
+  .pos { color: #067647; font-weight: 600; }
+  .neg { color: #C01427; font-weight: 600; }
   .flat { color: #667085; }
 
   .badge {
-    display: inline-block; font-size: 7.5px; font-weight: 700;
+    display: inline-block; font-size: 8.5px; font-weight: 700;
     text-transform: uppercase; letter-spacing: 0.4px;
-    padding: 1.5px 6px; border-radius: 10px; margin-left: 4px;
+    padding: 2px 7px; border-radius: 3px; margin-left: 4px;
     vertical-align: middle;
   }
   .badge.warn { background: #FEF0C7; color: #B54708; }
@@ -208,24 +223,24 @@ export const CSS_STYLES = `
 
   /* ── Barres ───────────────────────────────────────────────── */
   .bar-container { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
-  .bar-label { width: 135px; font-size: 9px; text-align: right; line-height: 1.15; word-break: break-word; color: #475069; }
-  .bar-track { flex: 1; height: 15px; background: #EEF1F8; border-radius: 20px; overflow: hidden; }
+  .bar-label { width: 140px; font-size: 10px; text-align: right; line-height: 1.2; word-break: break-word; color: #475069; }
+  .bar-track { flex: 1; height: 16px; background: #EEF1F8; border-radius: 3px; overflow: hidden; }
   .bar-fill {
-    height: 100%; border-radius: 20px;
+    height: 100%; border-radius: 3px;
     display: flex; align-items: center; padding-left: 7px;
-    font-size: 8px; color: white; font-weight: 700; min-width: 3px;
+    font-size: 9px; color: white; font-weight: 700; min-width: 3px;
   }
-  .bar-value { width: 30px; font-size: 10px; font-weight: 800; color: #0C1740; }
+  .bar-value { width: 32px; font-size: 11px; font-weight: 700; color: #0C1740; }
 
   .page-break { page-break-before: always; }
 
   /* ── Encarts d'alerte (signaux) ───────────────────────────── */
   .alert-box {
-    border: 1px solid #E6E8F0; border-left-width: 3px;
-    border-radius: 8px; padding: 9px 12px; margin-bottom: 8px;
+    border: 1px solid #E2E6F0; border-left-width: 2px;
+    border-radius: 3px; padding: 10px 13px; margin-bottom: 8px;
   }
-  .alert-box .a-title { font-size: 10px; font-weight: 700; margin-bottom: 2px; }
-  .alert-box .a-msg { font-size: 9px; color: #475069; line-height: 1.4; }
+  .alert-box .a-title { font-size: 11px; font-weight: 700; margin-bottom: 3px; }
+  .alert-box .a-msg { font-size: 10px; color: #475069; line-height: 1.45; }
   .alert-box.danger { border-left-color: #C01427; background: #FEF3F2; }
   .alert-box.danger .a-title { color: #B42318; }
   .alert-box.warning { border-left-color: #F79009; background: #FFFAEB; }
@@ -237,9 +252,9 @@ export const CSS_STYLES = `
 
   .footer {
     display: flex; align-items: center; justify-content: center; gap: 8px;
-    text-align: center; font-size: 8px; color: #98A0B4;
+    text-align: center; font-size: 9px; color: #8B93A7;
     padding: 14px 5px 5px; margin-top: 24px;
-    border-top: 1px solid #E6E8F0;
+    border-top: 1px solid #E2E6F0;
   }
   .footer .tri { display: inline-flex; gap: 2px; }
   .footer .tri i { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
@@ -251,15 +266,15 @@ export const CSS_STYLES = `
     .section-nobreak { page-break-inside: avoid; }
   }
 
-  .legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 6px 0; font-size: 9px; justify-content: center; }
-  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend { display: flex; gap: 13px; flex-wrap: wrap; margin: 6px 0; font-size: 10px; justify-content: center; }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
   .legend-dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 
   .pie-substitute { display: flex; flex-wrap: wrap; gap: 6px; }
   .pie-item {
-    display: flex; align-items: center; gap: 6px;
-    background: #F6F8FD; padding: 5px 11px;
-    border-radius: 20px; border: 1px solid #E6E8F0;
+    display: flex; align-items: center; gap: 7px;
+    background: #F8F9FC; padding: 5px 12px;
+    border-radius: 3px; border: 1px solid #E6E9F2;
   }
   .pie-dot {
     width: 12px;
@@ -267,18 +282,18 @@ export const CSS_STYLES = `
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .pie-label { font-size: 10px; }
-  .pie-value { font-weight: bold; font-size: 11px; margin-left: auto; }
-  .pie-pct { font-size: 9px; color: #56565E; margin-left: 4px; }
+  .pie-label { font-size: 11px; }
+  .pie-value { font-weight: 700; font-size: 12px; margin-left: auto; }
+  .pie-pct { font-size: 10px; color: #667085; margin-left: 4px; }
 
   /* Légende verticale à gauche d'un camembert (rendu identique à l'app) */
   .legend-col .pie-substitute { flex-direction: column; }
   .svc-dot {
     display: inline-block;
-    width: 8px;
-    height: 8px;
+    width: 9px;
+    height: 9px;
     border-radius: 50%;
-    margin-right: 5px;
+    margin-right: 6px;
     vertical-align: middle;
   }
 `;
@@ -399,7 +414,7 @@ export function renderPieChartImg(
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold ${10 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+  ctx.font = `bold ${11.5 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
   const rMid = (r + rInner) / 2;
   for (const item of data) {
     const slice = (item.value / total) * Math.PI * 2;
@@ -415,11 +430,11 @@ export function renderPieChartImg(
   ctx.fillStyle = '#0C1740';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `800 ${19 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
-  ctx.fillText(String(total), cx, cy - 5 * ratio);
+  ctx.font = `600 ${22 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+  ctx.fillText(String(total), cx, cy - 6 * ratio);
   ctx.fillStyle = '#667085';
-  ctx.font = `${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
-  ctx.fillText(labelMode === 'valuePct' ? 'dossiers' : 'total', cx, cy + 11 * ratio);
+  ctx.font = `${9.5 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+  ctx.fillText(labelMode === 'valuePct' ? 'dossiers' : 'total', cx, cy + 13 * ratio);
 
   return `<img src="${canvas.toDataURL('image/png')}" width="${displaySize}" height="${displaySize}" style="width:${displaySize}px;height:${displaySize}px">`;
 }
@@ -463,7 +478,7 @@ export function renderColumnChartImg(
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
   const ySteps = 5;
   ctx.strokeStyle = '#EEF0F6'; ctx.lineWidth = 1 * ratio; ctx.fillStyle = '#98A0B4';
-  ctx.font = `${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+  ctx.font = `${9.5 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
   ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
   for (let i = 0; i <= ySteps; i++) {
     const y = padT + plotH - (plotH * i) / ySteps;
@@ -482,12 +497,12 @@ export function renderColumnChartImg(
     if (bh > 0) roundedTopRect(ctx, x, y, bw, bh, 3 * ratio);
     if (p.value > 0) {
       ctx.fillStyle = '#0C1740';
-      ctx.font = `bold ${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+      ctx.font = `bold ${9.5 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       ctx.fillText(String(p.value), x + bw / 2, y - 2 * ratio);
     }
     ctx.fillStyle = '#98A0B4';
-    ctx.font = `${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+    ctx.font = `${9.5 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillText(shortMonth(p.label), x + bw / 2, padT + plotH + 4 * ratio);
   });
@@ -520,7 +535,7 @@ export function renderStackedColumnChartImg(
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
   const ySteps = 5;
   ctx.strokeStyle = '#EEF0F6'; ctx.lineWidth = 1 * ratio; ctx.fillStyle = '#98A0B4';
-  ctx.font = `${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+  ctx.font = `${9.5 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
   ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
   for (let i = 0; i <= ySteps; i++) {
     const y = padT + plotH - (plotH * i) / ySteps;
@@ -544,12 +559,12 @@ export function renderStackedColumnChartImg(
     }
     if (colTotals[i] > 0) {
       ctx.fillStyle = '#0C1740';
-      ctx.font = `bold ${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+      ctx.font = `bold ${9.5 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       ctx.fillText(String(colTotals[i]), x + bw / 2, yBase - 2 * ratio);
     }
     ctx.fillStyle = '#98A0B4';
-    ctx.font = `${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+    ctx.font = `${9.5 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillText(shortMonth(lab), x + bw / 2, padT + plotH + 4 * ratio);
   });
@@ -585,7 +600,7 @@ export function renderGroupedBarsWithLineImg(
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
   const ySteps = 5;
   ctx.strokeStyle = '#EEF0F6'; ctx.lineWidth = 1 * ratio;
-  ctx.font = `${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+  ctx.font = `${9.5 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
   ctx.textBaseline = 'middle';
   for (let i = 0; i <= ySteps; i++) {
     const y = padT + plotH - (plotH * i) / ySteps;
@@ -613,13 +628,13 @@ export function renderGroupedBarsWithLineImg(
       if (bh > 0) roundedTopRect(ctx, x + 1 * ratio, y, bw - 2 * ratio, bh, 2 * ratio);
       if (v > 0) {
         ctx.fillStyle = '#0C1740';
-        ctx.font = `bold ${7.5 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+        ctx.font = `bold ${9 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
         ctx.fillText(String(v), x + bw / 2, y - 2 * ratio);
       }
     });
     ctx.fillStyle = '#667085';
-    ctx.font = `bold ${8.5 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+    ctx.font = `bold ${10 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillText(lab, padL + slot * i + slot / 2, padT + plotH + 4 * ratio);
   });
@@ -636,7 +651,7 @@ export function renderGroupedBarsWithLineImg(
       ctx.fillStyle = line.color;
       ctx.beginPath(); ctx.arc(xFor(i), yFor(v), 3 * ratio, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = line.color;
-      ctx.font = `bold ${8 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
+      ctx.font = `bold ${9.5 * ratio}px -apple-system, 'Segoe UI', Arial, sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       ctx.fillText(`${v}${line.suffix || ''}`, xFor(i), yFor(v) - 5 * ratio);
     });
@@ -715,7 +730,7 @@ export function renderLineChartImg(
   ctx.strokeStyle = '#EEEEF0';
   ctx.lineWidth = 1 * ratio;
   ctx.fillStyle = '#92929C';
-  ctx.font = `${8 * ratio}px 'Segoe UI', Arial, sans-serif`;
+  ctx.font = `${9.5 * ratio}px 'Segoe UI', Arial, sans-serif`;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
   for (let i = 0; i <= ySteps; i++) {
@@ -771,7 +786,7 @@ export function renderLineChartImg(
   // Valeurs au-dessus des points (série unique, peu de points)
   if (showValues && series.length === 1 && n <= 14) {
     ctx.fillStyle = '#161616';
-    ctx.font = `bold ${8 * ratio}px 'Segoe UI', Arial, sans-serif`;
+    ctx.font = `bold ${9.5 * ratio}px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     series[0].values.forEach((v, i) => {
@@ -781,7 +796,7 @@ export function renderLineChartImg(
 
   // Étiquettes d'abscisse (allégées)
   ctx.fillStyle = '#92929C';
-  ctx.font = `${8 * ratio}px 'Segoe UI', Arial, sans-serif`;
+  ctx.font = `${9.5 * ratio}px 'Segoe UI', Arial, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   labels.forEach((lab, i) => {
