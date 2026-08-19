@@ -77,9 +77,22 @@ de la pièce) — visible dans les comptes-rendus et la chronologie.
   volumineux (plusieurs procédures versées en arborescence, milliers de
   pièces) : partir du panorama `pochettes` de la réponse, dépouiller pochette
   par pochette (`pochette:"PV/Nom"`, puis `offset`/`offsetSuivant` pour
-  paginer). Une pièce longue se lit de même en plusieurs pages : tant que
-  `lire_document` renvoie `offsetSuivant`, la suite existe — la relire avec
-  `offset` avant de conclure quoi que ce soit sur son contenu.
+  paginer — l'offset se compte DANS le périmètre filtré : à chaque changement
+  de pochette, repartir à `offset:0`). Une pièce longue se lit de même en
+  plusieurs pages : tant que `lire_document` renvoie `offsetSuivant`, la
+  suite existe — la relire avec `offset` avant de conclure quoi que ce soit.
+- **Pages images** : si le texte servi contient des marqueurs
+  `[page N : image sans couche texte]` (annexes en captures d'écran,
+  planches photo, tapissages — souvent le cœur probatoire), relire la pièce
+  avec `integrale:true` : l'original est relu avec OCR de ces pages
+  (première lecture lente, ~30 pages OCR max par pièce, en cache ensuite).
+  Ne JAMAIS conclure sur une pièce dont des pages restent marquées sans
+  avoir tenté cette lecture intégrale.
+- **Dépouillement massif** (plusieurs centaines de pièces) : déléguer avec
+  `sous_agents` — un sous-agent par pochette/procédure, chacun rendant sa
+  fiche (chronologie, déclarations verbatim, contradictions, cotes) — et
+  consigner chaque fiche dans la mémoire du dossier
+  (`memoire_dossier_noter`) pour que rien ne se perde entre les passes.
 - `productions_lister` / `production_lire` : les actes déjà rédigés —
   cohérence des motivations, reprise des formules validées, pas de doublon.
 - `verifier_completude` / `diagnostic_dossier` : échéances, actes expirants,

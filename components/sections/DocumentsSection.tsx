@@ -565,13 +565,13 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           const spec = savedSpecs[i];
           if (!rel || !spec) continue;
           setUploadProgress((p) => (p ? { ...p, current: `Conversion texte : ${spec.file.name}` } : p));
-          const markdown = await deposerCopieMarkdown(spec.file, rel);
-          if (markdown && markdown.trim().length >= 40 && suivrePourAnalyse && convertis.length < 40) {
+          const conv = await deposerCopieMarkdown(spec.file, rel);
+          if (conv && conv.markdown.trim().length >= 40 && suivrePourAnalyse && convertis.length < 40) {
             convertis.push({
               filePath: rel,
               fileName: spec.renamedTo || spec.file.name,
               sourceFolder: serverCategory,
-              textContent: markdown,
+              textContent: conv.markdown,
             });
           }
         }
@@ -605,10 +605,12 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
    * lue en priorité par l'attaché (zéro ré-extraction, tokens économisés).
    * Best-effort : un échec de conversion n'empêche jamais le dépôt du fichier.
    */
-  const deposerCopieMarkdown = async (file: File, relOriginal: string): Promise<string | null> => {
+  const deposerCopieMarkdown = async (
+    file: File, relOriginal: string
+  ): Promise<{ markdown: string; avertissement?: string } | null> => {
     if (/\.(jpg|jpeg|png|gif|bmp|webp|msg)$/i.test(file.name)) return null;
     try {
-      const { markdown } = await fileToMarkdown(file);
+      const { markdown, avertissement } = await fileToMarkdown(file);
       if (!markdown.trim()) return null;
       const mdRel = 'MD/' + relOriginal.replace(/\.[^./]+$/, '') + '.md';
       const bytes = new TextEncoder().encode(markdown);
@@ -617,7 +619,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
         'MD', file.name
       );
-      return markdown;
+      return { markdown, avertissement };
     } catch { return null; /* conversion impossible (scan, format exotique) : l'original suffit */ }
   };
 
@@ -783,11 +785,13 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           avertissements.push(`${relCourt(rel)} — trop volumineux pour la conversion texte dans le navigateur${estAdmin ? " (l'attaché fera l'extraction côté serveur, OCR si besoin)" : ''}`);
           return;
         }
-        const markdown = await deposerCopieMarkdown(file, rel);
-        if (markdown) {
+        const conv = await deposerCopieMarkdown(file, rel);
+        if (conv) {
           md++;
-          if (suivrePourAnalyse && markdown.trim().length >= 40 && convertis.length < 40) {
-            convertis.push({ filePath: rel, fileName: file.name, sourceFolder: zone, textContent: markdown });
+          // pièce mixte (PV tapé + annexes en images) : dire ce qui manque
+          if (conv.avertissement) avertissements.push(`${relCourt(rel)} — ${conv.avertissement}`);
+          if (suivrePourAnalyse && conv.markdown.trim().length >= 40 && convertis.length < 40) {
+            convertis.push({ filePath: rel, fileName: file.name, sourceFolder: zone, textContent: conv.markdown });
           }
         } else {
           avertissements.push(`${relCourt(rel)} — conversion texte impossible (scan sans couche texte ?)${estAdmin ? " — l'attaché fera l'extraction côté serveur, OCR si besoin" : ''}`);
