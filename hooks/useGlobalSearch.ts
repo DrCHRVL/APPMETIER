@@ -68,6 +68,25 @@ function buildEnqueteDoc(e: Enquete, ctxId: ContentieuxId): GlobalSearchDoc {
   push(acc, makeField(e.directeurEnquete, 1.8, { label: 'Directeur d’enquête', fuzzy: true, ops: ['dir', 'directeur'] }));
   push(acc, makeField(e.description, 1.2, { label: 'Description', maxLength: 4000, ops: ['desc', 'description'] }));
 
+  // Numéros de téléphone (lignes d'écoute + cible quand elle contient elle-même
+  // un numéro). Le moteur retrouve un numéro même partiel — ex. « 47.11 » pour
+  // les deux derniers groupes — grâce à la variante alphanumérique écrasée qui
+  // ignore les points/espaces/tirets de formatage.
+  const phones: string[] = [];
+  for (const ec of e.ecoutes || []) {
+    if (ec.numero) phones.push(ec.numero);
+    if (ec.cible && ec.cible.replace(/\D/g, '').length >= 4) phones.push(ec.cible);
+  }
+  push(acc, makeField(phones.join(' • '), 1.6, { label: 'Téléphone', ops: ['tel', 'telephone', 'gsm', 'ligne'] }));
+
+  // Cibles de géolocalisation (véhicule, immatriculation, individu suivi…).
+  const geolocs: string[] = [];
+  for (const g of e.geolocalisations || []) {
+    if (g.objet) geolocs.push(g.objet);
+    if (g.description) geolocs.push(g.description);
+  }
+  push(acc, makeField(geolocs.join(' • '), 1.6, { label: 'Géolocalisation', fuzzy: true, ops: ['geoloc', 'cible', 'immat', 'plaque', 'vtam'] }));
+
   // Noms des documents versés (le CONTENU, lui, est fouillé en asynchrone).
   push(acc, makeField(
     (e.documents || []).flatMap(d => [d.nom, d.nomOriginal]).filter(Boolean).join(' • '),
@@ -75,13 +94,13 @@ function buildEnqueteDoc(e: Enquete, ctxId: ContentieuxId): GlobalSearchDoc {
     { label: 'Document', maxLength: 8000, ops: ['doc', 'document', 'fichier'] }
   ));
 
-  // Contenu « profond » : CR, écoutes, géolocalisations, actes, notes.
-  // Sous-chaîne exacte uniquement (pas de tolérance de frappe sur du texte
-  // long) — c'est ce qui garde la recherche instantanée.
+  // Contenu « profond » restant : CR et actes. Sous-chaîne exacte uniquement
+  // (pas de tolérance de frappe sur du texte long) — c'est ce qui garde la
+  // recherche instantanée. Téléphones et géolocalisations sont déjà couverts
+  // par leurs champs dédiés ci-dessus (avec un poids plus élevé).
   const deep: string[] = [];
   for (const cr of e.comptesRendus || []) deep.push(cr.enqueteur, cr.description);
-  for (const ec of e.ecoutes || []) deep.push(ec.numero, ec.cible || '', ec.description || '');
-  for (const g of e.geolocalisations || []) deep.push(g.objet, g.description || '');
+  for (const ec of e.ecoutes || []) deep.push(ec.description || '');
   for (const a of e.actes || []) deep.push(a.type, a.description);
   if (e.notes) deep.push(e.notes);
   push(acc, makeField(deep.filter(Boolean).join(' • '), 0.9, { label: 'Contenu', maxLength: 20000, ops: ['contenu', 'cr'] }));
@@ -155,6 +174,7 @@ function buildAIRDoc(m: AIRMesure, idx: number): GlobalSearchDoc | null {
 
   push(acc, makeField(m.nomPrenom, 3, { fuzzy: true, ops: ['nom', 'personne', 'mec'] }));
   push(acc, makeField(squashAlnum(m.refAEM || ''), 2.4, { ops: ['aem', 'ref', 'no', 'num'] }));
+  push(acc, makeField(m.telephone, 1.6, { label: 'Téléphone', ops: ['tel', 'telephone', 'gsm', 'ligne'] }));
   push(acc, makeField(m.referent, 1.8, { label: 'Référent', fuzzy: true, ops: ['referent'] }));
   push(acc, makeField(m.secteurGeographique, 1.4, { label: 'Secteur', fuzzy: true, ops: ['secteur'] }));
   push(acc, makeField(m.faits, 1.1, { label: 'Faits', maxLength: 2000, ops: ['faits', 'desc', 'description'] }));
