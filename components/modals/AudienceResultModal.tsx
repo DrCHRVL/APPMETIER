@@ -4,7 +4,8 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { MecAutocompleteInput } from '../ui/MecAutocompleteInput';
-import { CondamnationData, Confiscations, ResultatAudience, VehiculeSaisi, ImmeubleSaisi, SaisieBancaire, CryptoSaisie, ObjetMobilier, TypeVehicule, TypeImmeuble, CategorieObjet, TypeStupefiant, StupefiantSaisi, emptyConfiscations, migrateConfiscations, mergeConfiscations, countConfiscations, hasAnySaisies } from '@/types/audienceTypes';
+import { CondamnationData, Confiscations, ResultatAudience, VehiculeSaisi, ImmeubleSaisi, SaisieBancaire, CryptoSaisie, ObjetMobilier, TypeVehicule, TypeImmeuble, CategorieObjet, emptyConfiscations, migrateConfiscations, mergeConfiscations, countConfiscations, hasAnySaisies } from '@/types/audienceTypes';
+import { StupefiantsEditor } from '../sections/StupefiantsEditor';
 import { useToast } from '@/contexts/ToastContext';
 import { useAudience } from '@/hooks/useAudience';
 import { useTags } from '@/hooks/useTags';
@@ -131,7 +132,7 @@ export const AudienceResultModal = ({
       const isEmpty = migrated.vehicules.length === 0 && migrated.immeubles.length === 0 &&
         migrated.numeraire === 0 && migrated.saisiesBancaires.length === 0 &&
         migrated.cryptomonnaies.length === 0 && migrated.objetsMobiliers.length === 0 &&
-        !migrated.stupefiants?.types?.length;
+        !migrated.stupefiants?.types?.length && !migrated.stupefiants?.produits?.length;
       // Si confiscations déjà renseignées, les utiliser (copie : l'état local
       // ne doit jamais partager ses tableaux avec l'enregistrement du store)
       if (!isEmpty) return JSON.parse(JSON.stringify(migrated));
@@ -150,7 +151,7 @@ export const AudienceResultModal = ({
       const isEmpty = migrated.vehicules.length === 0 && migrated.immeubles.length === 0 &&
         migrated.numeraire === 0 && migrated.saisiesBancaires.length === 0 &&
         migrated.cryptomonnaies.length === 0 && migrated.objetsMobiliers.length === 0 &&
-        !migrated.stupefiants?.types?.length;
+        !migrated.stupefiants?.types?.length && !migrated.stupefiants?.produits?.length;
       return isEmpty;
     }
     return true;
@@ -1025,61 +1026,16 @@ export const AudienceResultModal = ({
             {/* --- Stupéfiants --- */}
             <details className="mb-4 border rounded-lg">
               <summary className="cursor-pointer p-3 font-medium bg-gray-50 rounded-t-lg">
-                Stupéfiants {confiscations.stupefiants?.types?.length ? `(${confiscations.stupefiants.types.length} type(s))` : ''}
+                Stupéfiants{' '}
+                {confiscations.stupefiants?.produits?.length
+                  ? `(${confiscations.stupefiants.produits.length} produit(s))`
+                  : ''}
               </summary>
-              <div className="p-3 space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  {([
-                    ['cocaine', 'Cocaïne'],
-                    ['heroine', 'Héroïne'],
-                    ['cannabis', 'Cannabis'],
-                    ['synthese', 'Drogues de synthèse'],
-                    ['autre', 'Autre'],
-                  ] as [TypeStupefiant, string][]).map(([val, label]) => (
-                    <label key={val} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-gray-300"
-                        checked={confiscations.stupefiants?.types?.includes(val) || false}
-                        onChange={(e) => {
-                          const current = confiscations.stupefiants?.types || [];
-                          const newTypes = e.target.checked
-                            ? [...current, val]
-                            : current.filter(t => t !== val);
-                          setConfiscations(prev => ({
-                            ...prev,
-                            stupefiants: newTypes.length > 0
-                              ? { ...prev.stupefiants, types: newTypes, quantite: prev.stupefiants?.quantite, description: prev.stupefiants?.description }
-                              : undefined
-                          }));
-                        }}
-                      />
-                      <span className="text-sm">{label}</span>
-                    </label>
-                  ))}
-                </div>
-                {confiscations.stupefiants?.types?.length ? (
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <div>
-                      <Label className="text-xs">Quantité</Label>
-                      <Input className="text-sm" placeholder="Ex: 5 kg" value={confiscations.stupefiants?.quantite || ''} onChange={(e) => {
-                        setConfiscations(prev => ({
-                          ...prev,
-                          stupefiants: { ...prev.stupefiants!, quantite: e.target.value }
-                        }));
-                      }} />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Description</Label>
-                      <Input className="text-sm" placeholder="Détails..." value={confiscations.stupefiants?.description || ''} onChange={(e) => {
-                        setConfiscations(prev => ({
-                          ...prev,
-                          stupefiants: { ...prev.stupefiants!, description: e.target.value }
-                        }));
-                      }} />
-                    </div>
-                  </div>
-                ) : null}
+              <div className="p-3">
+                <StupefiantsEditor
+                  value={confiscations.stupefiants}
+                  onChange={(next) => setConfiscations(prev => ({ ...prev, stupefiants: next }))}
+                />
               </div>
             </details>
           </div>

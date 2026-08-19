@@ -128,7 +128,7 @@ export const SaisiesSection = React.memo(
       crypto: storedSaisies?.cryptomonnaies?.length || 0,
       objets: storedSaisies?.objetsMobiliers?.length || 0,
       numeraire: storedSaisies?.numeraire || 0,
-      stups: storedSaisies?.stupefiants?.types?.length || 0,
+      stups: storedSaisies?.stupefiants?.produits?.length || 0,
     };
     const totalCount =
       counts.vehicules +

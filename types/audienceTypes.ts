@@ -74,11 +74,35 @@ export interface ObjetMobilier extends SaisieFlags {
   valeurEstimee?: number;
 }
 
+/**
+ * Cases historiques (avant le référentiel produits). Toujours alimentées, mais
+ * DÉRIVÉES de `StupefiantSaisi.produits` — ne rien y écrire à la main.
+ */
 export type TypeStupefiant = 'cocaine' | 'heroine' | 'cannabis' | 'synthese' | 'autre';
 
+export type UniteStupefiant = 'g' | 'kg' | 'comprime' | 'unite' | 'plant' | 'dose' | 'ml' | 'l';
+
+/** Un produit stupéfiant saisi, avec sa quantité propre (facultative). */
+export interface ProduitStupefiantSaisi {
+  /** Code du référentiel (lib/stupefiants/catalogue.mjs) ou `libre:<libellé>`. */
+  code: string;
+  /** Libellé dénormalisé, pour les seuls produits saisis en texte libre. */
+  libelle?: string;
+  /** Quantité — facultative : on peut ne rien mentionner. */
+  quantite?: number;
+  unite?: UniteStupefiant;
+  /** Précision libre (conditionnement, degré de pureté, lieu de découverte…). */
+  precision?: string;
+}
+
 export interface StupefiantSaisi {
+  /** Dérivé de `produits` — conservé pour les lectures et stats historiques. */
   types: TypeStupefiant[];
+  /** Source de vérité : un produit par ligne, chacun avec sa quantité. */
+  produits?: ProduitStupefiantSaisi[];
+  /** @deprecated ancienne quantité globale en texte libre (« 5 kg »). */
   quantite?: string;
+  /** Note libre commune à la saisie de stupéfiants. */
   description?: string;
 }
 
@@ -102,6 +126,7 @@ import {
   mergeConfiscations as mergeConfiscationsCore,
   countConfiscations as countConfiscationsCore,
 } from '@/lib/stats/audienceCore.mjs';
+import { normaliserStupefiants as normaliserStupefiantsCore } from '@/lib/stupefiants/catalogue.mjs';
 
 /** Crée un objet Confiscations vide */
 export function emptyConfiscations(): Confiscations {
@@ -148,6 +173,16 @@ export function mergeConfiscations(
 /** Nombre d'éléments décrits par un objet Confiscations/Saisies. */
 export function countConfiscations(c: Confiscations | undefined | null): number {
   return countConfiscationsCore(c) as number;
+}
+
+/**
+ * Normalise un bloc stupéfiants : reconstruit `produits` depuis l'ancien format
+ * (cases à cocher) et redérive `types`. Renvoie undefined si le bloc est vide.
+ */
+export function normaliserStupefiants(
+  brut: StupefiantSaisi | undefined | null,
+): StupefiantSaisi | undefined {
+  return normaliserStupefiantsCore(brut) as StupefiantSaisi | undefined;
 }
 
 

@@ -8,8 +8,8 @@ import {
   TypeImmeuble,
   TypeAvoir,
   CategorieObjet,
-  TypeStupefiant,
 } from '@/types/audienceTypes';
+import { StupefiantsEditor } from './StupefiantsEditor';
 
 interface SaisiesFormProps {
   saisies: Confiscations;
@@ -747,84 +747,17 @@ export const SaisiesForm = ({ saisies, onChange }: SaisiesFormProps) => {
       {/* Stupéfiants */}
       <details className="mb-3 border rounded-lg">
         <summary className="cursor-pointer p-2 text-sm font-medium bg-gray-50 rounded-t-lg">
-          Stupéfiants {saisies.stupefiants?.types?.length ? `(${saisies.stupefiants.types.length} type(s))` : ''}
+          Stupéfiants{' '}
+          {saisies.stupefiants?.produits?.length
+            ? `(${saisies.stupefiants.produits.length} produit(s))`
+            : ''}
         </summary>
-        <div className="p-2 space-y-2">
-          <div className="grid grid-cols-2 gap-1">
-            {(
-              [
-                ['cocaine', 'Cocaïne'],
-                ['heroine', 'Héroïne'],
-                ['cannabis', 'Cannabis'],
-                ['synthese', 'Drogues de synthèse'],
-                ['autre', 'Autre'],
-              ] as [TypeStupefiant, string][]
-            ).map(([val, label]) => (
-              <label key={val} className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-gray-300"
-                  checked={saisies.stupefiants?.types?.includes(val) || false}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    onChange((prev) => {
-                      const current = prev.stupefiants?.types || [];
-                      const newTypes = checked
-                        ? [...current, val]
-                        : current.filter((t) => t !== val);
-                      return {
-                        ...prev,
-                        stupefiants:
-                          newTypes.length > 0
-                            ? {
-                                ...prev.stupefiants,
-                                types: newTypes,
-                                quantite: prev.stupefiants?.quantite,
-                                description: prev.stupefiants?.description,
-                              }
-                            : undefined,
-                      };
-                    });
-                  }}
-                />
-                <span className="text-sm">{label}</span>
-              </label>
-            ))}
-          </div>
-          {saisies.stupefiants?.types?.length ? (
-            <div className="grid grid-cols-2 gap-1 mt-1">
-              <div>
-                <Label className="text-xs">Quantité</Label>
-                <Input
-                  className="text-sm"
-                  placeholder="Ex: 5 kg"
-                  value={saisies.stupefiants?.quantite || ''}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    onChange((prev) => ({
-                      ...prev,
-                      stupefiants: { ...prev.stupefiants!, quantite: value },
-                    }));
-                  }}
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Description</Label>
-                <Input
-                  className="text-sm"
-                  placeholder="Détails..."
-                  value={saisies.stupefiants?.description || ''}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    onChange((prev) => ({
-                      ...prev,
-                      stupefiants: { ...prev.stupefiants!, description: value },
-                    }));
-                  }}
-                />
-              </div>
-            </div>
-          ) : null}
+        <div className="p-2">
+          <StupefiantsEditor
+            compact
+            value={saisies.stupefiants}
+            onChange={(next) => onChange((prev) => ({ ...prev, stupefiants: next }))}
+          />
         </div>
       </details>
     </>
