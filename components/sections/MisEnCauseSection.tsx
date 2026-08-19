@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { MecAutocompleteInput } from '../ui/MecAutocompleteInput';
-import { Edit, X, Plus, RefreshCw } from 'lucide-react';
+import { Edit, X, Plus } from 'lucide-react';
+import { RefreshIconButton, RefreshStatus } from '../ui/RefreshIconButton';
 import { Enquete } from '@/types/interfaces';
 import { trackDeletedMECId } from '@/utils/acteUtils';
 import { useToast } from '@/contexts/ToastContext';
@@ -16,11 +17,11 @@ interface MisEnCauseSectionProps {
   /** Admin (attaché) : cherche dans les CR/actes/documents les mis en cause
    *  absents de la liste et les propose (✓/✗). */
   onRefreshMec?: () => void;
-  /** Recherche en cours (spinner de l'icône). */
-  mecRefreshing?: boolean;
+  /** État de la recherche (spinner pendant, ✓/⚠ transitoire après). */
+  mecRefreshStatus?: RefreshStatus;
 }
 
-export const MisEnCauseSection = React.memo(({ enquete, onUpdate, isEditing, allKnownMec = [], onRefreshMec, mecRefreshing = false }: MisEnCauseSectionProps) => {
+export const MisEnCauseSection = React.memo(({ enquete, onUpdate, isEditing, allKnownMec = [], onRefreshMec, mecRefreshStatus = 'idle' }: MisEnCauseSectionProps) => {
   const { showToast } = useToast();
   const [editingMecId, setEditingMecId] = useState<number | null>(null);
   const [editingData, setEditingData] = useState({ nom: '', role: '' });
@@ -78,16 +79,12 @@ export const MisEnCauseSection = React.memo(({ enquete, onUpdate, isEditing, all
           {/* Recherche des mis en cause manquants — les noms trouvés arrivent en
               propositions ✓/✗ en tête du dossier, jamais écrits d'office. */}
           {onRefreshMec && (
-            <button
-              type="button"
+            <RefreshIconButton
+              status={mecRefreshStatus}
               onClick={onRefreshMec}
-              disabled={mecRefreshing}
               title="Chercher les mis en cause manquants — l'assistant relit les CR, actes et documents et propose les noms absents de la liste (à valider ✓/✗). Les noms proches ou déjà connus d'une autre enquête sont signalés."
-              aria-label="Actualiser les mis en cause"
-              className="text-gray-400 transition-colors hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${mecRefreshing ? 'animate-spin' : ''}`} />
-            </button>
+              ariaLabel="Actualiser les mis en cause"
+            />
           )}
           {!showAddForm && (
             <Button

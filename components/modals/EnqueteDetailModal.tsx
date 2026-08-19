@@ -31,6 +31,7 @@ import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { ProductionsSection } from '../attache/ProductionsSection';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
+import { RefreshStatus } from '../ui/RefreshIconButton';
 import { SuiviAlertModal } from './SuiviAlertModal';
 import { ToDoItem } from '@/types/interfaces';
 
@@ -94,8 +95,10 @@ const EnqueteDetailModalImpl = ({
   attacheAvailable = false,
 }: EnqueteDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [descriptionRefreshing, setDescriptionRefreshing] = useState(false);
-  const [mecRefreshing, setMecRefreshing] = useState(false);
+  const [descriptionRefreshStatus, setDescriptionRefreshStatus] = useState<RefreshStatus>('idle');
+  const [mecRefreshStatus, setMecRefreshStatus] = useState<RefreshStatus>('idle');
+  const descStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mecStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Incrémenté après chaque passe de l'attaché : force le bandeau des
   // propositions à se recharger pour montrer les noms qu'elle vient de déposer.
   const [propositionsToken, setPropositionsToken] = useState(0);
@@ -129,6 +132,24 @@ const EnqueteDetailModalImpl = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enquete.id]);
 
+  // Après un run d'actualisation, l'icône affiche le résultat (✓/⚠) quelques
+  // secondes avant de revenir au repos — l'utilisateur voit l'issue même s'il
+  // a raté le toast, et sait qu'il peut recliquer.
+  const settleRefreshStatus = useCallback((
+    setStatus: (s: RefreshStatus) => void,
+    timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
+    result: 'success' | 'error'
+  ) => {
+    setStatus(result);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setStatus('idle'), result === 'error' ? 5000 : 2500);
+  }, []);
+
+  useEffect(() => () => {
+    if (descStatusTimer.current) clearTimeout(descStatusTimer.current);
+    if (mecStatusTimer.current) clearTimeout(mecStatusTimer.current);
+  }, []);
+
   const hasSuiviRef = useRef(enquete.tags.some(t => t.category === 'suivi'));
   hasSuiviRef.current = enquete.tags.some(t => t.category === 'suivi');
 
@@ -148,8 +169,9 @@ const EnqueteDetailModalImpl = ({
   // synthèse tout de suite. Elle se rafraîchit aussi TOUTE SEULE en arrière-plan
   // à chaque CR/acte téléversé — ce bouton ne fait qu'accélérer.
   const handleRefreshDescription = useCallback(async () => {
-    if (descriptionRefreshing) return;
-    setDescriptionRefreshing(true);
+    if (descriptionRefreshStatus === 'running') return;
+    if (descStatusTimer.current) clearTimeout(descStatusTimer.current);
+    setDescriptionRefreshStatus('running');
     try {
       const res = await fetch('/api/attache/actualiser-description', {
         method: 'POST',
@@ -159,6 +181,7 @@ const EnqueteDetailModalImpl = ({
       const data = await res.json().catch(() => ({}));
       if (res.status === 202 || data.running) {
         showToast('Une actualisation est déjà en cours — réessayez dans un instant.', 'info');
+        setDescriptionRefreshStatus('idle');
       } else if (res.ok && data.ok) {
         await useEnquetesStore.getState().syncAndRefresh().catch(() => {});
         // La même passe tient la section « Mis en cause » en cohérence : tout
@@ -171,15 +194,16 @@ const EnqueteDetailModalImpl = ({
             : 'Description actualisée',
           'success'
         );
+        settleRefreshStatus(setDescriptionRefreshStatus, descStatusTimer, 'success');
       } else {
         showToast(data.error || 'Actualisation impossible pour le moment', 'error');
+        settleRefreshStatus(setDescriptionRefreshStatus, descStatusTimer, 'error');
       }
     } catch {
       showToast('Service de l\'attaché indisponible', 'error');
-    } finally {
-      setDescriptionRefreshing(false);
+      settleRefreshStatus(setDescriptionRefreshStatus, descStatusTimer, 'error');
     }
-  }, [descriptionRefreshing, enquete.numero, showToast]);
+  }, [descriptionRefreshStatus, enquete.numero, showToast, settleRefreshStatus]);
 
   // Recherche « à la demande » des mis en cause manquants (icône à côté du + de
   // la section Mis en cause). L'attaché relit les CR, actes et documents et
@@ -187,8 +211,9 @@ const EnqueteDetailModalImpl = ({
   // d'office. Les noms proches d'un mis en cause existant, ou identiques à celui
   // d'une autre enquête, sont déposés AVEC leur avertissement.
   const handleRefreshMec = useCallback(async () => {
-    if (mecRefreshing) return;
-    setMecRefreshing(true);
+    if (mecRefreshStatus === 'running') return;
+    if (mecStatusTimer.current) clearTimeout(mecStatusTimer.current);
+    setMecRefreshStatus('running');
     try {
       const res = await fetch('/api/attache/actualiser-mec', {
         method: 'POST',
@@ -198,24 +223,26 @@ const EnqueteDetailModalImpl = ({
       const data = await res.json().catch(() => ({}));
       if (res.status === 202 || data.running) {
         showToast('Une recherche est déjà en cours — réessayez dans un instant.', 'info');
+        setMecRefreshStatus('idle');
       } else if (res.ok && data.ok) {
         setPropositionsToken((t) => t + 1);
         const n = Number(data.proposees) || 0;
         showToast(
           n > 0
             ? `${n} mis en cause proposé${n > 1 ? 's' : ''} — à valider en tête du dossier`
-            : 'Aucun mis en cause nouveau détecté',
+            : 'Recherche terminée — aucun mis en cause nouveau détecté',
           n > 0 ? 'success' : 'info'
         );
+        settleRefreshStatus(setMecRefreshStatus, mecStatusTimer, 'success');
       } else {
         showToast(data.error || 'Recherche impossible pour le moment', 'error');
+        settleRefreshStatus(setMecRefreshStatus, mecStatusTimer, 'error');
       }
     } catch {
       showToast('Service de l\'attaché indisponible', 'error');
-    } finally {
-      setMecRefreshing(false);
+      settleRefreshStatus(setMecRefreshStatus, mecStatusTimer, 'error');
     }
-  }, [mecRefreshing, enquete.numero, showToast]);
+  }, [mecRefreshStatus, enquete.numero, showToast, settleRefreshStatus]);
 
   // Met à jour les phases d'OP (et synchronise `dateOP` legacy avec la 1re phase
   // pour que les consommateurs non encore migrés continuent de fonctionner).
@@ -400,7 +427,7 @@ const EnqueteDetailModalImpl = ({
               onUpdate={isEditing ? (updates) => debouncedOnUpdate(enquete.id, updates) : undefined}
               onUpdateImmediate={isEditing ? (updates) => handleUpdateImmediate(enquete.id, updates) : undefined}
               onRefreshDescription={attacheAvailable && isAdmin() && !isEditing ? handleRefreshDescription : undefined}
-              descriptionRefreshing={descriptionRefreshing}
+              descriptionRefreshStatus={descriptionRefreshStatus}
             />
 
             {/* Propositions de l'attaché en attente (✓/✗) + chronologie
@@ -434,7 +461,7 @@ const EnqueteDetailModalImpl = ({
                   isEditing={isEditing}
                   allKnownMec={allKnownMec}
                   onRefreshMec={attacheAvailable && isAdmin() && !isEditing ? handleRefreshMec : undefined}
-                  mecRefreshing={mecRefreshing}
+                  mecRefreshStatus={mecRefreshStatus}
                 />
               </div>
 
