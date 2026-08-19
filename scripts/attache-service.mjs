@@ -40,6 +40,7 @@ import { corpusActesValides, etudeDue, etudePrompt, etudeState, etudeStatus } fr
 import { MEMORY_BUDGET } from './attache/memory.mjs'
 import { economicalModel } from './attache/subagents.mjs'
 import { consumptionGovernor } from './attache/budget.mjs'
+import { prompt as promptConsigne, catalogueAvecSocles } from './attache/consignes.mjs'
 
 const PORT = Number(process.env.SIRAL_ATTACHE_PORT || 8787)
 const POLL_MINUTES = Math.max(1, Number(process.env.SIRAL_ATTACHE_POLL_MIN || 5))
@@ -470,29 +471,13 @@ function descriptionState() {
   return st.descriptions && typeof st.descriptions === 'object' ? st.descriptions : {}
 }
 
-function descriptionPrompt(numero) {
-  return [
-    `ACTUALISATION DE LA DESCRIPTION du dossier « ${numero} » — tâche de fond, silencieuse et économe en jetons.`,
-    'But : tenir « l\'objet » du dossier à jour au fil des CR et des actes/documents téléversés.',
-    'MÉTHODE (2-3 lectures au plus, puis UNE écriture — va au neuf, ne relis pas tout) :',
-    `1. lire_dossier numero:"${numero}" — aperçu compact : faits, mis en cause ENREGISTRÉS, actes, index des CR, documents.`,
-    '2. Si des CR ou des actes/documents récents ne sont pas encore reflétés dans la description, lis SEULEMENT les plus',
-    `   récents utiles (section:"cr" pour le texte des derniers CR ; pour un acte téléversé, dossier_arborescence puis`,
-    '   lire_document, qui sert d\'office la copie markdown — jamais de ré-extraction).',
-    '3. actualiser_description — reprends la description existante et fais-la PROGRESSER (elle s\'enrichit et se reformule',
-    '   au fil du temps), au FORMAT IMPOSÉ en DEUX PARTIES titrées EN MAJUSCULES, en PRISE DE NOTES (~80 %, mots',
-    '   inutiles/verbes de liaison retirés, mais clair) :',
-    '     SYNTHÈSE — vision globale des faits (qualification, mode opératoire, LIEUX, période, mesures, échéances) ;',
-    '     MIS EN CAUSE — un par un les mis en cause enregistrés du dossier, chacun suivi des ÉLÉMENTS À CHARGE relevés.',
-    '4. COHÉRENCE DES MIS EN CAUSE — la partie MIS EN CAUSE que tu viens d\'écrire ne porte que les mis en cause',
-    '   ENREGISTRÉS. Si, en lisant, tu as relevé une personne MISE EN CAUSE (auteur, complice, fournisseur, logisticien,',
-    '   guetteur…) qui ne figure PAS à la section « Mis en cause » du dossier : recouper_personnes sur ces noms, puis',
-    '   proposer_mec (nom, role, source) pour chacun — proposition ✓/✗, JAMAIS ajouter_mec. Écarte victimes, témoins,',
-    '   enquêteurs, magistrats et avocats, ainsi que les simples alias d\'une personne déjà enregistrée (l\'alias se dit',
-    '   dans le rôle). Le dédoublonnage est automatique ; un nom voisin ou déjà connu ailleurs part avec un avertissement.',
-    'Si RIEN de neuf n\'est à intégrer, n\'écris pas : termine sans appeler actualiser_description.',
-    'Ne signale rien, ne publie rien, ne pose aucune question : cette tâche ne doit laisser aucune carte au magistrat.',
-  ].join('\n')
+// Le TEXTE du prompt vit dans attache/consignes.mjs (socle « description ») :
+// le magistrat le lit, le complète ou le remplace depuis Paramètres → Attaché IA.
+function descriptionPrompt(keys, numero) {
+  return promptConsigne(keys, 'description', {
+    entete: `ACTUALISATION DE LA DESCRIPTION du dossier « ${numero} » — tâche de fond, silencieuse et économe en jetons.`,
+    vars: { dossier: numero },
+  })
 }
 
 // ── Actualisation « à la demande » des MIS EN CAUSE ──
@@ -501,25 +486,12 @@ function descriptionPrompt(numero) {
 // cause qui n'y figurent pas encore. Aucune écriture directe : le magistrat
 // valide. Le dédoublonnage (nom déjà présent, nom voisin, nom identique connu
 // d'une autre enquête) est fait au dépôt de la proposition.
-function mecPrompt(numero) {
-  return [
-    `ACTUALISATION DES MIS EN CAUSE du dossier « ${numero} » — tâche de fond, silencieuse et économe en jetons.`,
-    'But : repérer les personnes MISES EN CAUSE qui apparaissent dans les CR, actes et documents du dossier mais ne',
-    'figurent PAS encore à sa section « Mis en cause », et les PROPOSER au magistrat (✓/✗). Aucune écriture directe.',
-    'MÉTHODE (3 lectures au plus, puis les propositions — va au neuf, ne relis pas tout) :',
-    `1. lire_dossier numero:"${numero}" — mis en cause DÉJÀ enregistrés, description, index des CR, actes, documents.`,
-    `2. Lis ce qui n'est pas encore reflété : section:"cr" pour le texte des derniers CR ; pour un acte ou un document`,
-    '   téléversé, dossier_arborescence puis lire_document (copie markdown servie d\'office). Relève les personnes mises',
-    '   en cause : auteurs, complices, fournisseurs, logisticiens, guetteurs, prête-noms. ÉCARTE les victimes, témoins,',
-    '   enquêteurs, magistrats, avocats et experts — et les simples alias/pseudonymes d\'une personne déjà enregistrée.',
-    '3. recouper_personnes noms:[…] sur TOUS les noms relevés — dit lesquels sont déjà connus (dossier réel, carte) et où.',
-    '4. proposer_mec pour chaque personne réellement absente du dossier : nom (tel qu\'il est écrit dans la pièce), role',
-    '   (rôle supposé, alias compris) et source (la pièce, ex. « CR du 12/07 », « PV D8092 »). Le dédoublonnage est',
-    '   automatique : un nom déjà aux mis en cause est refusé ; un nom VOISIN, ou identique dans une AUTRE enquête, est',
-    '   déposé AVEC son avertissement — dépose-le quand même, c\'est au magistrat de trancher.',
-    'Si personne de nouveau n\'apparaît, ne propose RIEN : termine sans appeler proposer_mec.',
-    'Ne signale rien, ne publie rien, ne pose aucune question : cette tâche ne doit laisser aucune carte au magistrat.',
-  ].join('\n')
+// Texte du prompt : socle « mec » d'attache/consignes.mjs (réglable par le magistrat).
+function mecPrompt(keys, numero) {
+  return promptConsigne(keys, 'mec', {
+    entete: `ACTUALISATION DES MIS EN CAUSE du dossier « ${numero} » — tâche de fond, silencieuse et économe en jetons.`,
+    vars: { dossier: numero },
+  })
 }
 
 let descriptionRunning = false
@@ -541,7 +513,7 @@ async function runActualiserDescription(numero, trigger = 'auto') {
     const avantMec = countPropositionsMec(keys, num)
     const result = await runAgent({
       keys,
-      prompt: descriptionPrompt(num),
+      prompt: descriptionPrompt(keys, num),
       runLabel: 'description',
       title: `Description ${num} ${new Date().toISOString().slice(0, 10)}`,
       // Travail de fond léger : modèle économe, effort faible, peu de tours —
@@ -589,7 +561,7 @@ async function runActualiserMec(numero, trigger = 'manuel') {
     const avant = countPropositionsMec(keys, num)
     const result = await runAgent({
       keys,
-      prompt: mecPrompt(num),
+      prompt: mecPrompt(keys, num),
       runLabel: 'mec',
       title: `Mis en cause ${num} ${new Date().toISOString().slice(0, 10)}`,
       // Même régime que la description : modèle économe, effort faible, peu de tours.
@@ -1465,6 +1437,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { messages: listInbox(keys) })
     }
 
+    // Le catalogue des prompts métier (socles intégrés) — servi au panneau
+    // d'administration pour que le magistrat voie ce qu'il complète ou remplace.
+    if (route === 'GET /consignes-catalogue') {
+      return json(res, 200, { catalogue: catalogueAvecSocles() })
+    }
+
     // ── Chantiers d'analyse profonde ──
     if (route === 'GET /chantiers') {
       const keys = loadKeyring()
@@ -1591,15 +1569,10 @@ const server = http.createServer(async (req, res) => {
       // sans le répéter à chaque tour.
       let prompt = message
       if (body.carto && !body.convId) {
-        prompt = [
-          'CONTEXTE : le magistrat te consulte depuis le module CARTOGRAPHIE (vue réseau des personnes et affaires du contentieux).',
-          'S\'il te colle un PV / un résumé / une synthèse pour en cartographier l\'affaire : RECOUPE d\'abord les noms (recouper_personnes), puis dépose une proposition de dossier EX NIHILO (proposer_dossier_carto — label, misEnCause, source). Les personnes connues seront rattachées, les inconnues créées en « MEC lié ex nihilo ». Le dossier n\'est créé qu\'à la validation ✓.',
-          'Sinon, commence par carto_analyser (figures centrales, ponts entre affaires, co-occurrences, liens de renseignement tracés). Objectif : l\'aider à VOIR LES CONNEXIONS et améliorer la visibilité.',
-          'S\'il te demande une ANALYSE TRANSVERSALE (« analyse TOUS les dossiers », « trouve les liens cachés », « quelle architecture derrière ces affaires ») : suis la MÉTHODE D\'ANALYSE TRANSVERSALE DE RENSEIGNEMENT de ton prompt système — carto_corpus (enquêtes archivées + instruction, avec pièces), puis sous_agents qui LISENT les pièces pour remonter surnoms, personnes au 2nd plan, adresses, plaques, téléphones, puis proposer_lien / proposer_mec_carto / proposer_dossier_carto. Les signaux faibles sont dans les PV, pas dans les listes de mis en cause.',
-          'Tu peux aussi : identifier les figures pivots et les ponts entre affaires, repérer les cloisonnements, et SUGGÉRER les liens de renseignement manquants — que tu déposes en propositions (proposer_lien, avec la pièce source), jamais tracés d\'office. Réponses concises et structurées.',
-          '',
-          `Question du magistrat : ${message}`,
-        ].join('\n')
+        prompt = promptConsigne(keys, 'carto_chat', {
+          entete: 'CONTEXTE : le magistrat te consulte depuis le module CARTOGRAPHIE (vue réseau des personnes et affaires du contentieux).',
+          donnees: ['', `Question du magistrat : ${message}`],
+        })
       } else if (body.dossier && !body.convId) {
         const cadre = body.cadre === 'instruction' ? 'à l\'instruction' : 'en enquête préliminaire'
         const memoire = readDossierMemory(keys, String(body.dossier))

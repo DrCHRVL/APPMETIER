@@ -172,6 +172,15 @@ export async function writeInstructionsEnvelope(envelope: AttacheEnvelope): Prom
 }
 
 /** Table « type d'acte → trame(s)/skill(s) » — même modèle d'enveloppe unique. */
+/** Consignes PAR DOMAINE : les prompts métier (description, carto, chantiers). */
+export function readConsignesEnvelope(): AttacheEnvelope | null {
+  return readJson<AttacheEnvelope | null>(attacheDir('consignes.json'), null)
+}
+
+export async function writeConsignesEnvelope(envelope: AttacheEnvelope): Promise<void> {
+  await writeVersionedEnvelope('consignes', envelope)
+}
+
 export function readAssociationsEnvelope(): AttacheEnvelope | null {
   return readJson<AttacheEnvelope | null>(attacheDir('associations.json'), null)
 }
@@ -258,7 +267,7 @@ export const writeSkillEnvelope = (id: string, envelope: AttacheEnvelope) => wri
 export const deleteSkillEnvelope = (id: string) => deleteCollectionEnvelope('skills', id)
 
 /** Écrit une enveloppe d'attaché en archivant la version précédente (jamais d'écrasement sec). */
-async function writeVersionedEnvelope(name: 'memory' | 'instructions' | 'associations', envelope: AttacheEnvelope): Promise<void> {
+async function writeVersionedEnvelope(name: 'memory' | 'instructions' | 'consignes' | 'associations', envelope: AttacheEnvelope): Promise<void> {
   const p = attacheDir(name + '.json')
   try {
     await withFileLock('attache-' + name, async () => {

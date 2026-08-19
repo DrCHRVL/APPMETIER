@@ -125,9 +125,16 @@ manque des fiches, ils déclenchent d'abord un chantier de type 1.
 
 ### L'interface
 
-- Panneau **« Chantiers »** (dans l'espace attaché, admin) : lancement,
-  progression (pochette X/Y, pièces N/M, jetons consommés), pause/reprise,
-  fiches consultables au fil de l'eau, synthèse à la fin.
+- **Bande « Analyses profondes »** en page Assistant de justice (admin) :
+  l'état du parc en une ligne — devis à valider, chantiers en cours, terminés —
+  puis une ligne par chantier avec sa jauge et ses actions immédiates
+  (lancer, reprendre, mettre en pause).
+- **Atelier plein écran** (« Ouvrir l'atelier ») : liste filtrable à gauche
+  (tous / en cours / devis / terminés, plus une recherche), détail complet à
+  droite — avancement chiffré, devis (pièces, lots, jetons, nuits), pochette
+  par pochette avec sa propre jauge, journal des pas, et les productions
+  (fiches, synthèse, rapport) lisibles, éditables et exportables sur place.
+  Le moteur tourne côté service : fermer l'atelier n'interrompt rien.
 - **Déclencheurs** là où le besoin naît : le chat de dossier (étage 4) propose
   « lancer le dépouillement complet » ; la cartographie propose « remplir
   depuis les dossiers » ; la fiche d'enquête montre l'état du chantier.
