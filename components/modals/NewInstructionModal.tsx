@@ -81,7 +81,23 @@ export const NewInstructionModal = ({
       if (r.header.dateRI) setDateRI(r.header.dateRI);
     }
     // Personnes / saisine / événements : mis en attente pour la création.
-    setImportedMex(prev => [...prev, ...r.misEnExamen]);
+    // Un second collage peut compléter une personne déjà mise en attente
+    // (DML, chefs de mise en examen) : on fusionne alors sur son id.
+    const complements = new Map((r.complementsMexExistants ?? []).map(c => [c.mexId, c] as const));
+    setImportedMex(prev => [
+      ...prev.map(m => {
+        const ajout = complements.get(m.id);
+        if (!ajout) return m;
+        return {
+          ...m,
+          dmls: ajout.dmls.length ? [...(m.dmls ?? []), ...ajout.dmls] : m.dmls,
+          infractions: ajout.infractions.length
+            ? [...(m.infractions ?? []), ...ajout.infractions]
+            : m.infractions,
+        };
+      }),
+      ...r.misEnExamen,
+    ]);
     setImportedSuspects(prev => [...prev, ...r.suspects]);
     setImportedVictimes(prev => [...prev, ...r.victimes]);
     setSaisine(prev => [...prev, ...r.saisine]);

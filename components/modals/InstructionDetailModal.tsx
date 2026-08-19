@@ -125,14 +125,22 @@ export const InstructionDetailModal = ({
   const [showCassiopeeImport, setShowCassiopeeImport] = useState(false);
 
   const handleCassiopeeImport = (r: CassiopeeImportResult) => {
-    // DML rattachées à des MEX déjà présents (compteur art. 148) : fusionnées
-    // dans la liste existante avant d'y ajouter les MEX nouvellement importés.
-    const dmlsParMex = new Map<number, typeof r.misEnExamen[number]['dmls']>(
-      (r.dmlsExistants ?? []).map(d => [d.mexId, d.dmls]),
+    // Compléments rattachés à des MEX déjà présents (DML du compteur art. 148,
+    // chefs issus du tableau des infractions) : fusionnés dans la liste
+    // existante avant d'y ajouter les MEX nouvellement importés.
+    const complementsParMex = new Map(
+      (r.complementsMexExistants ?? []).map(c => [c.mexId, c] as const),
     );
     const mexFusionnes = dossier.misEnExamen.map(m => {
-      const ajout = dmlsParMex.get(m.id);
-      return ajout && ajout.length > 0 ? { ...m, dmls: [...(m.dmls ?? []), ...ajout] } : m;
+      const ajout = complementsParMex.get(m.id);
+      if (!ajout) return m;
+      return {
+        ...m,
+        dmls: ajout.dmls.length ? [...(m.dmls ?? []), ...ajout.dmls] : m.dmls,
+        infractions: ajout.infractions.length
+          ? [...(m.infractions ?? []), ...ajout.infractions]
+          : m.infractions,
+      };
     });
     const saisineFusionnee = [...(dossier.saisine ?? []), ...r.saisine];
     const updates: Partial<DossierInstruction> = {

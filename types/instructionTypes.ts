@@ -169,7 +169,7 @@ export interface PeriodeDetentionProvisoire {
 /** État courant des mesures de sûreté (discriminated union) */
 export type MesureSurete =
   | { type: 'libre'; depuis?: string; notes?: string }
-  | { type: 'cj'; depuis: string; obligations?: string[]; notes?: string }
+  | { type: 'cj'; depuis: string; notes?: string }
   | { type: 'arse'; depuis: string; lieu?: string; notes?: string }
   | {
       type: 'detenu';

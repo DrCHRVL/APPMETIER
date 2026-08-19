@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, ClipboardPaste, Users, Scale, ListChecks, AlertTriangle, Download, Lock, FileText, Unlock } from 'lucide-react';
+import { X, ClipboardPaste, Users, Scale, ListChecks, AlertTriangle, Download, Lock, FileText, Unlock, Gavel } from 'lucide-react';
 import { Button } from '../ui/button';
 import { useToast } from '@/contexts/ToastContext';
 import { useNatinf } from '@/hooks/useNatinf';
 import {
   parsePersonnesTable,
   parseAllInfractions,
+  parseInfractionRows,
   parseEvenementsTable,
   parseResumeHeader,
   findRIDateFromEvenements,
@@ -22,6 +23,7 @@ import {
   suggestCasDPFromNatinfRefs,
   deriveDpPeriodesForPersonne,
   deriveDMLsForPersonne,
+  buildInfractionsForPersonne,
   type ParsedPersonne,
   type CassiopeeRole,
 } from '@/utils/cassiopeeImportUtils';
@@ -34,6 +36,7 @@ import type {
   SaisineItem,
   EvenementInstruction,
   DemandeMiseEnLiberte,
+  InfractionReproche,
 } from '@/types/instructionTypes';
 
 /** En-tête déduit du bloc « Résumé Dossier » (à appliquer à la fiche). */
@@ -52,12 +55,16 @@ export interface CassiopeeImportResult {
   saisine: SaisineItem[];
   evenements: EvenementInstruction[];
   /**
-   * DML à rattacher à des mis en examen DÉJÀ présents dans le dossier (la
-   * personne n'est pas réimportée, mais ses demandes viennent alimenter le
-   * compteur art. 148). Les DML des MEX créés par l'import sont, elles, déjà
-   * portées par `misEnExamen[].dmls`.
+   * Compléments à rattacher à des mis en examen DÉJÀ présents dans le dossier
+   * (la personne n'est pas réimportée, mais ses DML alimentent le compteur
+   * art. 148 et ses chefs viennent du tableau des infractions). Pour les MEX
+   * créés par l'import, ces données sont déjà portées par `misEnExamen[]`.
    */
-  dmlsExistants?: { mexId: number; dmls: DemandeMiseEnLiberte[] }[];
+  complementsMexExistants?: {
+    mexId: number;
+    dmls: DemandeMiseEnLiberte[];
+    infractions: InfractionReproche[];
+  }[];
   /** En-tête à appliquer (présent seulement si détecté ET coché par l'utilisateur). */
   header?: CassiopeeImportHeader;
 }
@@ -169,6 +176,10 @@ export const CassiopeeImportModal = ({
   // ── Parsing (mémoïsé) ────────────────────────────────────────────
   const personnes = useMemo(() => parsePersonnesTable(rawText), [rawText]);
   const infractions = useMemo(() => parseAllInfractions(rawText), [rawText]);
+  // Lignes brutes du tableau des infractions : elles portent « qui est mis en
+  // cause pour quoi » (la liste `infractions` ci-dessus est dédupliquée par
+  // code pour la saisine in rem).
+  const infractionRows = useMemo(() => parseInfractionRows(rawText), [rawText]);
   const evenements = useMemo(() => parseEvenementsTable(rawText), [rawText]);
   const resume = useMemo(() => parseResumeHeader(rawText), [rawText]);
   const dateRI = useMemo(() => findRIDateFromEvenements(evenements), [evenements]);
@@ -224,7 +235,7 @@ export const CassiopeeImportModal = ({
 
   // DML reconstituées par personne (aperçu, id jetables). Une DML peut
   // concerner une personne déjà présente au dossier : le rattachement se fait
-  // alors sur le MEX existant (cf. `dmlsExistants`).
+  // alors sur le MEX existant (cf. `complementsMexExistants`).
   const previewDml = useMemo(() => {
     const gen = makeIdGen();
     const map = new Map<string, DemandeMiseEnLiberte[]>();
@@ -238,6 +249,30 @@ export const CassiopeeImportModal = ({
     });
     return map;
   }, [personnes, evenements]);
+
+  // Chefs de mise en examen par personne (aperçu, id jetables).
+  const previewChefs = useMemo(() => {
+    const gen = makeIdGen();
+    const map = new Map<string, InfractionReproche[]>();
+    personnes.forEach(p => {
+      if (targetForRole(p.role) !== 'mex') return;
+      const chefs = buildInfractionsForPersonne(p.nom, infractionRows, {
+        newId: gen,
+        resolveNatinf: getByCode,
+      });
+      if (chefs.length > 0) map.set(p.nom, chefs);
+    });
+    return map;
+  }, [personnes, infractionRows, getByCode]);
+
+  /** Liste à plat des chefs détectés, pour l'affichage et la sélection. */
+  const chefRows = useMemo(
+    () =>
+      Array.from(previewChefs.entries()).flatMap(([nom, chefs]) =>
+        chefs.map(c => ({ nom, chef: c, key: `x:${normalizeNom(nom)}:${c.natinfCode}` })),
+      ),
+    [previewChefs],
+  );
 
   /** Liste à plat des DML détectées, pour l'affichage et la sélection. */
   const dmlRows = useMemo(
@@ -259,6 +294,11 @@ export const CassiopeeImportModal = ({
   const dmlIsDup = (nom: string, dateDepot: string) =>
     (existingMexByName.get(normalizeNom(nom))?.dmls ?? []).some(d => d.dateDepot === dateDepot);
 
+  /** Chef déjà retenu contre un MEX existant (même NATINF) ? */
+  const chefIsDup = (nom: string, natinfCode?: string) =>
+    !!natinfCode &&
+    (existingMexByName.get(normalizeNom(nom))?.infractions ?? []).some(i => i.natinfCode === natinfCode);
+
   // Doublons : mêmes noms / mêmes codes déjà dans le dossier.
   const personneIsDup = (p: ParsedPersonne) => nameExists(p.nom, existingPersons);
   const infractionIsDup = (code: string) => existingNatinfCodes.has(code);
@@ -275,9 +315,12 @@ export const CassiopeeImportModal = ({
     dmlRows.forEach(r => {
       if (dmlIsDup(r.nom, r.dml.dateDepot)) next.add(r.key);
     });
+    chefRows.forEach(r => {
+      if (chefIsDup(r.nom, r.chef.natinfCode)) next.add(r.key);
+    });
     setDeselected(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [personnes, infractions, evenements, dmlRows]);
+  }, [personnes, infractions, evenements, dmlRows, chefRows]);
 
   // Ré-aligne la case « appliquer l'en-tête » sur le contexte (create/edit) à
   // chaque ouverture.
@@ -302,7 +345,7 @@ export const CassiopeeImportModal = ({
 
   // ── Compteurs de ce qui sera importé ─────────────────────────────
   const counts = useMemo(() => {
-    const c = { mex: 0, suspect: 0, victime: 0, saisine: 0, evt: 0, dml: 0 };
+    const c = { mex: 0, suspect: 0, victime: 0, saisine: 0, evt: 0, dml: 0, chef: 0 };
     personnes.forEach((p, i) => {
       if (!isSel(`p:${i}`)) return;
       const t = targetForRole(p.role);
@@ -319,12 +362,15 @@ export const CassiopeeImportModal = ({
     dmlRows.forEach(r => {
       if (isSel(r.key)) c.dml++;
     });
+    chefRows.forEach(r => {
+      if (isSel(r.key)) c.chef++;
+    });
     return c;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [personnes, infractions, evenements, dmlRows, deselected]);
+  }, [personnes, infractions, evenements, dmlRows, chefRows, deselected]);
 
   const totalToImport =
-    counts.mex + counts.suspect + counts.victime + counts.saisine + counts.evt + counts.dml;
+    counts.mex + counts.suspect + counts.victime + counts.saisine + counts.evt + counts.dml + counts.chef;
   const headerToApply = applyHeader && hasHeader;
 
   const handleImport = () => {
@@ -334,7 +380,11 @@ export const CassiopeeImportModal = ({
     const misEnExamen: MisEnExamen[] = [];
     const suspects: Suspect[] = [];
     const victimes: Victime[] = [];
-    const dmlsExistants: { mexId: number; dmls: DemandeMiseEnLiberte[] }[] = [];
+    const complementsMexExistants: {
+      mexId: number;
+      dmls: DemandeMiseEnLiberte[];
+      infractions: InfractionReproche[];
+    }[] = [];
 
     /** DML cochées d'une personne, ré-identifiées pour l'import définitif. */
     const selectedDmlsFor = (nom: string): DemandeMiseEnLiberte[] =>
@@ -342,14 +392,23 @@ export const CassiopeeImportModal = ({
         .filter(d => isSel(`d:${normalizeNom(nom)}:${d.dateDepot}`))
         .map(d => ({ ...d, id: newId() }));
 
-    // Personnes non réimportées (déjà au dossier) : leurs DML cochées viennent
-    // alimenter le compteur du MEX existant.
+    /** Chefs cochés d'une personne, ré-identifiés pour l'import définitif. */
+    const selectedChefsFor = (nom: string): InfractionReproche[] =>
+      (previewChefs.get(nom) ?? [])
+        .filter(c => isSel(`x:${normalizeNom(nom)}:${c.natinfCode}`))
+        .map(c => ({ ...c, id: newId() }));
+
+    // Personnes non réimportées (déjà au dossier) : leurs DML et leurs chefs
+    // cochés viennent compléter le mis en examen existant.
     personnes.forEach((p, i) => {
       if (isSel(`p:${i}`) || targetForRole(p.role) !== 'mex') return;
       const existant = existingMisEnExamen.find(m => normalizeNom(m.nom) === normalizeNom(p.nom));
       if (!existant) return;
       const dmls = selectedDmlsFor(p.nom);
-      if (dmls.length > 0) dmlsExistants.push({ mexId: existant.id, dmls });
+      const chefs = selectedChefsFor(p.nom);
+      if (dmls.length > 0 || chefs.length > 0) {
+        complementsMexExistants.push({ mexId: existant.id, dmls, infractions: chefs });
+      }
     });
 
     personnes.forEach((p, i) => {
@@ -370,6 +429,7 @@ export const CassiopeeImportModal = ({
             regime: dpSuggestion?.regime,
             casDPId: dpSuggestion?.casDPId,
             dmls: selectedDmlsFor(p.nom),
+            infractions: selectedChefsFor(p.nom),
           }),
         );
       } else if (t === 'suspect') suspects.push(buildSuspect(p, ctx));
@@ -401,12 +461,12 @@ export const CassiopeeImportModal = ({
       victimes,
       saisine,
       evenements: evts,
-      dmlsExistants: dmlsExistants.length ? dmlsExistants : undefined,
+      complementsMexExistants: complementsMexExistants.length ? complementsMexExistants : undefined,
       header: headerToApply ? header : undefined,
     });
     const headerNote = headerToApply ? ', en-tête appliqué' : '';
     showToast(
-      `Import Cassiopée : ${misEnExamen.length} MEX, ${suspects.length} suspect(s), ${victimes.length} victime(s), ${saisine.length} chef(s) de saisine, ${counts.dml} DML, ${evts.length} événement(s)${headerNote}`,
+      `Import Cassiopée : ${misEnExamen.length} MEX, ${suspects.length} suspect(s), ${victimes.length} victime(s), ${saisine.length} chef(s) de saisine, ${counts.chef} chef(s) de mise en examen, ${counts.dml} DML, ${evts.length} événement(s)${headerNote}`,
       'success',
     );
     // Réinitialise pour un éventuel second import.
@@ -420,6 +480,7 @@ export const CassiopeeImportModal = ({
   const infractionKeys = infractions.map(inf => `i:${inf.natinfCode}`);
   const evtKeys = evenements.map((_, i) => `e:${i}`);
   const dmlKeys = dmlRows.map(r => r.key);
+  const chefKeys = chefRows.map(r => r.key);
   const nothingParsed = personnes.length + infractions.length + evenements.length === 0 && !hasHeader;
 
   return (
@@ -605,6 +666,61 @@ export const CassiopeeImportModal = ({
             </div>
           )}
 
+          {/* CHEFS DE MISE EN EXAMEN */}
+          {chefRows.length > 0 && (
+            <div className="space-y-2">
+              <SectionHeader
+                icon={Gavel}
+                title="Infractions reprochées → chefs de mise en examen"
+                count={chefRows.length}
+              >
+                <div className="flex gap-1">
+                  <button className="text-[11px] text-gray-500 hover:text-gray-800" onClick={() => setSectionAll(chefKeys, true)}>Tout cocher</button>
+                  <span className="text-gray-300">·</span>
+                  <button className="text-[11px] text-gray-500 hover:text-gray-800" onClick={() => setSectionAll(chefKeys, false)}>Tout décocher</button>
+                </div>
+              </SectionHeader>
+              <div className="text-[11px] text-gray-500">
+                Colonne « Personnes concernées » du tableau des infractions : un chef par
+                qualification et par personne. Les faits multiples d'une même NATINF (dates,
+                lieux, victimes, mentions) sont repris dans le détail du chef.
+              </div>
+              <div className="max-h-56 overflow-y-auto border border-gray-100 rounded divide-y divide-gray-50">
+                {chefRows.map(({ nom, chef, key }) => {
+                  const dup = chefIsDup(nom, chef.natinfCode);
+                  const rattache = existingMexByName.has(normalizeNom(nom));
+                  const nbFaits = (chef.explication?.match(/^•/gm) || []).length;
+                  return (
+                    <label key={key} className="block px-2 py-1 text-xs hover:bg-gray-50 cursor-pointer">
+                      <span className="flex items-center gap-2">
+                        <input type="checkbox" checked={isSel(key)} onChange={() => toggle(key)} className="shrink-0" />
+                        <span className="shrink-0 truncate max-w-[30%] font-medium text-gray-800">{nom}</span>
+                        <span className="shrink-0 rounded bg-blue-50 px-1 font-mono text-[10px] text-blue-700">{chef.natinfCode}</span>
+                        <span className="truncate text-gray-700">{chef.qualification}</span>
+                        {nbFaits > 1 && (
+                          <span className="shrink-0 rounded bg-slate-100 px-1 text-[10px] text-slate-600">{nbFaits} faits</span>
+                        )}
+                        {dup ? (
+                          <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 text-[10px] text-orange-600">
+                            <AlertTriangle className="h-3 w-3" /> déjà retenu
+                          </span>
+                        ) : rattache ? (
+                          <span className="ml-auto shrink-0 text-[10px] text-gray-400">→ MEX existant</span>
+                        ) : null}
+                      </span>
+                      {chef.dateInfraction && (
+                        <span className="block pl-7 pt-0.5 text-[10px] text-gray-400">
+                          à partir du {isoToFr(chef.dateInfraction)}
+                          {chef.lieuInfraction ? ` · ${chef.lieuInfraction}` : ''}
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* DML */}
           {dmlRows.length > 0 && (
             <div className="space-y-2">
@@ -690,7 +806,7 @@ export const CassiopeeImportModal = ({
         {/* Pied */}
         <div className="flex items-center justify-between px-5 py-3 border-t border-gray-200 bg-gray-50 rounded-b-xl">
           <div className="text-xs text-gray-600">
-            À importer : <b>{counts.mex}</b> MEX · <b>{counts.suspect}</b> suspect(s) · <b>{counts.victime}</b> victime(s) · <b>{counts.saisine}</b> chef(s) de saisine · <b>{counts.dml}</b> DML · <b>{counts.evt}</b> événement(s)
+            À importer : <b>{counts.mex}</b> MEX · <b>{counts.suspect}</b> suspect(s) · <b>{counts.victime}</b> victime(s) · <b>{counts.saisine}</b> chef(s) de saisine · <b>{counts.chef}</b> chef(s) MEX · <b>{counts.dml}</b> DML · <b>{counts.evt}</b> événement(s)
             {headerToApply && <span className="text-[#2B5746]"> · en-tête</span>}
           </div>
           <div className="flex gap-2">
