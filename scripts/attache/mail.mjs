@@ -376,6 +376,29 @@ export async function sendToOwner(keys, { sujet, corps }) {
   return { ok: true, messageId: info.messageId }
 }
 
+/**
+ * Vide la boîte : supprime les messages TRAITÉS (mode 'traites') ou TOUS
+ * (mode 'tous'). Suppression du magasin local chiffré uniquement — l'audit
+ * garde trace, et les originaux restent dans la messagerie (déjà marqués lus
+ * côté IMAP, jamais re-relevés).
+ */
+export async function purgeInbox(keys, { mode = 'traites' } = {}) {
+  const files = listFiles('inbox')
+  let supprimes = 0
+  for (const f of files) {
+    if (mode !== 'tous') {
+      const env = readJson(attacheDir('inbox', f.name), null)
+      if (!env) continue
+      let rec = null
+      try { rec = decryptJson(keys.global, env) } catch { continue }
+      if (!rec || !(rec.traite || rec.statut === 'traite')) continue
+    }
+    try { fs.unlinkSync(attacheDir('inbox', f.name)); supprimes++ } catch { /* fichier disputé : ignoré */ }
+  }
+  await audit(keys, 'boite_videe', { mode, supprimes })
+  return { ok: true, supprimes }
+}
+
 /** Nombre de messages en attente + état de santé pour le statut. */
 export function inboxStats(keys) {
   try {

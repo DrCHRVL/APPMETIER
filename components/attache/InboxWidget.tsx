@@ -104,6 +104,22 @@ export function InboxWidget() {
     return () => clearInterval(t);
   }, [load]);
 
+  const viderBoite = useCallback(async (mode: 'traites' | 'tous') => {
+    const q = mode === 'tous'
+      ? 'Vider TOUTE la boîte, y compris les messages non traités ?'
+      : 'Retirer de la boîte tous les messages déjà traités ?';
+    if (!window.confirm(q)) return;
+    try {
+      const res = await fetch(`/api/attache/inbox?mode=${mode}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({} as { ok?: boolean; supprimes?: number }));
+      if (data.ok) showToast(`${data.supprimes ?? 0} message(s) retiré(s) de la boîte`, 'success');
+      else showToast('Impossible de vider la boîte', 'error');
+      await load(true);
+    } catch {
+      showToast('Impossible de vider la boîte', 'error');
+    }
+  }, [load, showToast]);
+
   const releverBoite = useCallback(async () => {
     setChecking(true);
     try {
@@ -148,6 +164,24 @@ export function InboxWidget() {
 
       {open && (
         <div className="border-t border-gray-100 px-4 py-3">
+          {messages.length > 0 && (
+            <div className="mb-2 flex items-center justify-end gap-2">
+              <button
+                onClick={() => viderBoite('traites')}
+                className="rounded-md border border-gray-200 px-2 py-0.5 text-[10.5px] font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                title="Retirer de la liste tous les messages déjà traités"
+              >
+                Vider les traités
+              </button>
+              <button
+                onClick={() => viderBoite('tous')}
+                className="rounded-md border border-red-200 px-2 py-0.5 text-[10.5px] font-medium text-red-500 hover:bg-red-50 hover:text-red-700"
+                title="Vider entièrement la boîte, y compris les messages non traités"
+              >
+                Tout vider
+              </button>
+            </div>
+          )}
           {messages.length === 0 ? (
             <p className="py-3 text-center text-xs text-gray-400">
               Boîte vide. Transférez un mail à la boîte dédiée de l&apos;attaché : il apparaîtra ici avec son statut
