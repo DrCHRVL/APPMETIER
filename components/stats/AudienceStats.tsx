@@ -18,7 +18,10 @@ import {
   orientationDetail,
   interdictionsGererParInfraction,
   interdictionsParaitreDetail,
+  stupefiantsSaisisParService,
 } from '@/lib/stats/ecranCore.mjs';
+import { formatTotaux } from '@/lib/stupefiants/catalogue.mjs';
+import { useTags } from '@/hooks/useTags';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, BarElement } from 'chart.js';
 import { Pie, Bar } from 'react-chartjs-2';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
@@ -175,6 +178,7 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
   const { audienceState } = useAudience();
   const { infractionsForEnquete } = useInfractionNatinf();
   const { getByCode } = useNatinf();
+  const { getServicesFromTags } = useTags();
   // Clé canonique d'une infraction (code NATINF, sinon libellé) et clés d'un
   // résultat d'audience : la logique vit désormais dans ecranCore, seul le
   // libellé d'affichage reste ici (il dépend du référentiel chargé à l'écran).
@@ -272,6 +276,12 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
   // des pourcentages) — évite un recalcul complet à chaque rendu.
   const classementsDetail = orientationDetail(scopedResultats, enquetes, selectedYear, 'isClassement', infractionsForEnquete, { avecParMois: false, statsFenetre: yearlyStats });
   const oiDetail = orientationDetail(scopedResultats, enquetes, selectedYear, 'isOI', infractionsForEnquete, { avecParMois: false, statsFenetre: yearlyStats });
+  const stupsParService = stupefiantsSaisisParService(
+    scopedResultats,
+    enquetes,
+    selectedYear,
+    (e: Enquete) => getServicesFromTags(e?.tags || []),
+  );
 
   return (
     <div className="space-y-6">
@@ -809,6 +819,110 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                     <p className="text-xs text-gray-400 mt-2">
                       Orange = saisi non confisqué par le juge. Vert = confiscation {'>'} saisie.
                     </p>
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Carte Stupéfiants : quantités saisies par produit, puis par unité
+            d'enquête. Règles dans ecranCore/audienceCore (mêmes nombres que le
+            connecteur Claude web). */}
+        {stupsParService.aDesDonnees && (
+          <Card className="md:col-span-2">
+            <CardHeader>
+              <CardTitle>Stupéfiants saisis</CardTitle>
+              <p className="text-sm text-gray-500">
+                Quantités sorties du circuit en {selectedYear} — {stupsParService.nbDossiers} dossier
+                {stupsParService.nbDossiers > 1 ? 's' : ''} concerné
+                {stupsParService.nbDossiers > 1 ? 's' : ''}
+              </p>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                const saisis = yearlyStats.stupefiantsSaisisParProduit || [];
+                const confisques = yearlyStats.stupefiantsConfisquesParProduit || [];
+                const confisqueParCode = new Map(confisques.map(l => [l.code, l]));
+                // Un produit confisqué sans saisie renseignée doit tout de même
+                // apparaître : on unionne les deux listes.
+                const codesSaisis = new Set(saisis.map(l => l.code));
+                const lignes = [
+                  ...saisis,
+                  ...confisques.filter(l => !codesSaisis.has(l.code)),
+                ];
+
+                return (
+                  <div className="space-y-5">
+                    {/* Par produit */}
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 border-b pb-1">
+                        <span className="col-span-5">Produit</span>
+                        <span className="col-span-2 text-right">Dossiers</span>
+                        <span className="col-span-3 text-right">Saisi (enquête)</span>
+                        <span className="col-span-2 text-right">Confisqué</span>
+                      </div>
+                      {lignes.map(ligne => {
+                        const saisi = formatTotaux(ligne.totaux);
+                        const conf = confisqueParCode.get(ligne.code);
+                        const confisque = conf ? formatTotaux(conf.totaux) : '';
+                        return (
+                          <div key={ligne.code} className="grid grid-cols-12 gap-2 text-sm items-center">
+                            <span className="col-span-5 truncate" title={ligne.libelle}>{ligne.libelle}</span>
+                            <span className="col-span-2 text-right text-gray-500">{ligne.nbDossiers}</span>
+                            <span className="col-span-3 text-right font-bold">{saisi || '—'}</span>
+                            <span className="col-span-2 text-right font-medium text-gray-600">{confisque || '—'}</span>
+                          </div>
+                        );
+                      })}
+                      {stupsParService.general.libelle && (
+                        <div className="grid grid-cols-12 gap-2 text-sm items-center border-t pt-2 font-medium">
+                          <span className="col-span-7">Total saisi</span>
+                          <span className="col-span-5 text-right font-bold">{stupsParService.general.libelle}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Par unité d'enquête */}
+                    {stupsParService.lignes.length > 0 && (
+                      <div className="border-t pt-3 space-y-2">
+                        <p className="text-xs text-gray-500 font-medium uppercase">Par unité d'enquête</p>
+                        {stupsParService.lignes.map(l => (
+                          <div key={l.service} className="grid grid-cols-12 gap-2 text-sm items-center">
+                            <span className="col-span-6 truncate" title={l.service}>{l.service}</span>
+                            <span className="col-span-2 text-right text-gray-500">
+                              {l.nbDossiers} doss.
+                            </span>
+                            <span className="col-span-4 text-right font-bold">{l.libelle || '—'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="text-xs text-gray-400 space-y-0.5">
+                      {!stupsParService.aDesQuantites && (
+                        <p className="text-amber-600">
+                          Aucune quantité chiffrée : les produits ont été retenus sans pesée.
+                        </p>
+                      )}
+                      {stupsParService.coSaisines > 0 && (
+                        <p>
+                          {stupsParService.coSaisines} dossier{stupsParService.coSaisines > 1 ? 's' : ''} co-saisi
+                          {stupsParService.coSaisines > 1 ? 's' : ''} : la quantité est portée au crédit de chaque
+                          service, la somme des lignes dépasse donc le total.
+                        </p>
+                      )}
+                      {stupsParService.sansService > 0 && (
+                        <p>
+                          {stupsParService.sansService} dossier{stupsParService.sansService > 1 ? 's' : ''} sans
+                          service renseigné, absent{stupsParService.sansService > 1 ? 's' : ''} de la ventilation.
+                        </p>
+                      )}
+                      <p>
+                        Masses et volumes additionnés par famille d'unité ; comprimés, plants, doses et unités
+                        restent comptés à part.
+                      </p>
+                    </div>
                   </div>
                 );
               })()}

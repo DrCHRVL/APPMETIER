@@ -4,7 +4,8 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { MecAutocompleteInput } from '../ui/MecAutocompleteInput';
-import { CondamnationData, Confiscations, ResultatAudience, VehiculeSaisi, ImmeubleSaisi, SaisieBancaire, CryptoSaisie, ObjetMobilier, TypeVehicule, TypeImmeuble, CategorieObjet, TypeStupefiant, StupefiantSaisi, emptyConfiscations, migrateConfiscations } from '@/types/audienceTypes';
+import { CondamnationData, Confiscations, ResultatAudience, VehiculeSaisi, ImmeubleSaisi, SaisieBancaire, CryptoSaisie, ObjetMobilier, TypeVehicule, TypeImmeuble, CategorieObjet, emptyConfiscations, migrateConfiscations, mergeConfiscations, countConfiscations, hasAnySaisies } from '@/types/audienceTypes';
+import { StupefiantsEditor } from '../sections/StupefiantsEditor';
 import { useToast } from '@/contexts/ToastContext';
 import { useAudience } from '@/hooks/useAudience';
 import { useTags } from '@/hooks/useTags';
@@ -131,13 +132,14 @@ export const AudienceResultModal = ({
       const isEmpty = migrated.vehicules.length === 0 && migrated.immeubles.length === 0 &&
         migrated.numeraire === 0 && migrated.saisiesBancaires.length === 0 &&
         migrated.cryptomonnaies.length === 0 && migrated.objetsMobiliers.length === 0 &&
-        !migrated.stupefiants?.types?.length;
-      // Si confiscations déjà renseignées, les utiliser
-      if (!isEmpty) return migrated;
+        !migrated.stupefiants?.types?.length && !migrated.stupefiants?.produits?.length;
+      // Si confiscations déjà renseignées, les utiliser (copie : l'état local
+      // ne doit jamais partager ses tableaux avec l'enregistrement du store)
+      if (!isEmpty) return JSON.parse(JSON.stringify(migrated));
     }
     // Sinon, pré-remplir depuis les saisies si disponibles
     if (initialData?.saisies) {
-      return JSON.parse(JSON.stringify(initialData.saisies));
+      return migrateConfiscations(JSON.parse(JSON.stringify(initialData.saisies)));
     }
     return emptyConfiscations();
   };
@@ -149,13 +151,43 @@ export const AudienceResultModal = ({
       const isEmpty = migrated.vehicules.length === 0 && migrated.immeubles.length === 0 &&
         migrated.numeraire === 0 && migrated.saisiesBancaires.length === 0 &&
         migrated.cryptomonnaies.length === 0 && migrated.objetsMobiliers.length === 0 &&
-        !migrated.stupefiants?.types?.length;
+        !migrated.stupefiants?.types?.length && !migrated.stupefiants?.produits?.length;
       return isEmpty;
     }
     return true;
   });
 
   const { showToast } = useToast();
+
+  // Saisies d'enquête disponibles pour un report manuel dans les confiscations.
+  // Cas typique : reprise d'un dossier archivé dont les confiscations avaient
+  // été renseignées avant que les saisies ne soient documentées — le
+  // pré-remplissage automatique ne joue pas (confiscations non vides), il faut
+  // pouvoir reporter à la demande plutôt que tout retaper.
+  const saisiesEnquete = initialData?.saisies;
+  const nbSaisiesEnquete = hasAnySaisies(saisiesEnquete) ? countConfiscations(saisiesEnquete) : 0;
+
+  const handleReporterSaisies = () => {
+    if (!saisiesEnquete) return;
+    const { merged, totalAdded } = mergeConfiscations(confiscations, saisiesEnquete);
+    if (totalAdded === 0) {
+      showToast('Les saisies sont déjà toutes reportées dans les confiscations', 'info');
+      return;
+    }
+    setConfiscations(merged);
+    showToast(
+      `${totalAdded} élément(s) repris depuis les saisies — vérifiez avant d'enregistrer`,
+      'success'
+    );
+  };
+
+  const handleRemplacerParSaisies = () => {
+    if (!saisiesEnquete) return;
+    if (!confirm('Remplacer toutes les confiscations par les saisies d\'enquête ? Les lignes actuelles seront perdues.')) return;
+    setConfiscations(migrateConfiscations(JSON.parse(JSON.stringify(saisiesEnquete))));
+    showToast('Confiscations remplacées par les saisies d\'enquête', 'success');
+  };
+
   const { audienceState } = useAudience();
   const [service, setService] = useState(initialData?.service || '');
   const [showSuiviAlert, setShowSuiviAlert] = useState(false);
@@ -283,6 +315,14 @@ export const AudienceResultModal = ({
           dateAudiencePending: c.dateAudiencePending || ''
         })),
         isPartiallyPending: hasPartialResults,
+        // Champs que ce modal n'édite pas : ils doivent survivre à une
+        // ré-édition du résultat. Sans cette reprise explicite, enregistrer
+        // les confiscations d'un dossier archivé effaçait les saisies
+        // renseignées depuis le détail de l'enquête (et déclassait une OI en
+        // audience ordinaire dans les statistiques).
+        saisies: initialData?.saisies,
+        numeroAudience: initialData?.numeroAudience,
+        isOI: initialData?.isOI,
         // Supprimer nombreDeferes et dateDefere car maintenant dans les condamnations
         nombreDeferes: undefined,
         dateDefere: undefined
@@ -672,6 +712,39 @@ export const AudienceResultModal = ({
               </div>
             )}
 
+            {!prefilledFromSaisies && nbSaisiesEnquete > 0 && (
+              <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-lg mb-4 space-y-2">
+                <p className="text-sm text-emerald-800 font-medium">
+                  {nbSaisiesEnquete} élément(s) saisis en phase d'enquête sont enregistrés sur ce dossier.
+                </p>
+                <p className="text-xs text-emerald-700">
+                  « Reporter » n'ajoute que ce qui manque ici : aucune ligne déjà présente n'est
+                  modifiée ni dupliquée. « Remplacer » écrase les confiscations par les saisies.
+                  Rien n'est enregistré tant que vous n'avez pas validé le formulaire.
+                </p>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="bg-white"
+                    onClick={handleReporterSaisies}
+                  >
+                    Reporter les saisies
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="bg-white text-amber-700 border-amber-300 hover:bg-amber-50"
+                    onClick={handleRemplacerParSaisies}
+                  >
+                    Remplacer par les saisies
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* --- Véhicules --- */}
             <details className="mb-4 border rounded-lg">
               <summary className="cursor-pointer p-3 font-medium bg-gray-50 rounded-t-lg flex justify-between items-center">
@@ -953,61 +1026,16 @@ export const AudienceResultModal = ({
             {/* --- Stupéfiants --- */}
             <details className="mb-4 border rounded-lg">
               <summary className="cursor-pointer p-3 font-medium bg-gray-50 rounded-t-lg">
-                Stupéfiants {confiscations.stupefiants?.types?.length ? `(${confiscations.stupefiants.types.length} type(s))` : ''}
+                Stupéfiants{' '}
+                {confiscations.stupefiants?.produits?.length
+                  ? `(${confiscations.stupefiants.produits.length} produit(s))`
+                  : ''}
               </summary>
-              <div className="p-3 space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  {([
-                    ['cocaine', 'Cocaïne'],
-                    ['heroine', 'Héroïne'],
-                    ['cannabis', 'Cannabis'],
-                    ['synthese', 'Drogues de synthèse'],
-                    ['autre', 'Autre'],
-                  ] as [TypeStupefiant, string][]).map(([val, label]) => (
-                    <label key={val} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-gray-300"
-                        checked={confiscations.stupefiants?.types?.includes(val) || false}
-                        onChange={(e) => {
-                          const current = confiscations.stupefiants?.types || [];
-                          const newTypes = e.target.checked
-                            ? [...current, val]
-                            : current.filter(t => t !== val);
-                          setConfiscations(prev => ({
-                            ...prev,
-                            stupefiants: newTypes.length > 0
-                              ? { ...prev.stupefiants, types: newTypes, quantite: prev.stupefiants?.quantite, description: prev.stupefiants?.description }
-                              : undefined
-                          }));
-                        }}
-                      />
-                      <span className="text-sm">{label}</span>
-                    </label>
-                  ))}
-                </div>
-                {confiscations.stupefiants?.types?.length ? (
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <div>
-                      <Label className="text-xs">Quantité</Label>
-                      <Input className="text-sm" placeholder="Ex: 5 kg" value={confiscations.stupefiants?.quantite || ''} onChange={(e) => {
-                        setConfiscations(prev => ({
-                          ...prev,
-                          stupefiants: { ...prev.stupefiants!, quantite: e.target.value }
-                        }));
-                      }} />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Description</Label>
-                      <Input className="text-sm" placeholder="Détails..." value={confiscations.stupefiants?.description || ''} onChange={(e) => {
-                        setConfiscations(prev => ({
-                          ...prev,
-                          stupefiants: { ...prev.stupefiants!, description: e.target.value }
-                        }));
-                      }} />
-                    </div>
-                  </div>
-                ) : null}
+              <div className="p-3">
+                <StupefiantsEditor
+                  value={confiscations.stupefiants}
+                  onChange={(next) => setConfiscations(prev => ({ ...prev, stupefiants: next }))}
+                />
               </div>
             </details>
           </div>

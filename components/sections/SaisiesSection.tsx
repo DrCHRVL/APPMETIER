@@ -7,6 +7,7 @@ import {
   Confiscations,
   emptyConfiscations,
   hasAnySaisies,
+  migrateConfiscations,
   ResultatAudience,
 } from '@/types/audienceTypes';
 import { SaisiesForm } from './SaisiesForm';
@@ -44,7 +45,14 @@ export const SaisiesSection = React.memo(
     useEffect(() => {
       if (!expanded) return;
       const resultat = getResultat(contentieuxId, enqueteId);
-      setSaisies(resultat?.saisies || emptyConfiscations());
+      // Copie + normalisation : le formulaire ne doit ni partager ses tableaux
+      // avec l'enregistrement du store, ni tomber sur une catégorie absente
+      // (records écrits par une version antérieure).
+      setSaisies(
+        resultat?.saisies
+          ? migrateConfiscations(JSON.parse(JSON.stringify(resultat.saisies)))
+          : emptyConfiscations()
+      );
       setDirty(false);
     }, [expanded, enqueteId, contentieuxId, getResultat]);
 
@@ -112,7 +120,7 @@ export const SaisiesSection = React.memo(
 
     // Compteur affiché dans l'entête (depuis le store, pas l'état local non sauvegardé)
     const stored = getResultat(contentieuxId, enqueteId);
-    const storedSaisies = stored?.saisies;
+    const storedSaisies = stored?.saisies ? migrateConfiscations(stored.saisies) : undefined;
     const counts = {
       vehicules: storedSaisies?.vehicules?.length || 0,
       immeubles: storedSaisies?.immeubles?.length || 0,
@@ -120,7 +128,7 @@ export const SaisiesSection = React.memo(
       crypto: storedSaisies?.cryptomonnaies?.length || 0,
       objets: storedSaisies?.objetsMobiliers?.length || 0,
       numeraire: storedSaisies?.numeraire || 0,
-      stups: storedSaisies?.stupefiants?.types?.length || 0,
+      stups: storedSaisies?.stupefiants?.produits?.length || 0,
     };
     const totalCount =
       counts.vehicules +

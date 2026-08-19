@@ -55,7 +55,9 @@ import {
   enquetesEnCoursPourInfractions,
   enquetesTermineesPourInfractions,
   repartitionCategoriesInfraction,
+  stupefiantsSaisisParService,
 } from '../../lib/stats/ecranCore.mjs'
+import { formatTotaux } from '../../lib/stupefiants/catalogue.mjs'
 import { computeInstructionStats } from '../../lib/stats/instructionCore.mjs'
 import { ORIENTATION_DATASETS } from '../../lib/stats/chartCouleurs.mjs'
 
@@ -254,6 +256,7 @@ export function ecranStatistiques(keys, { annee: anneeBrute } = {}) {
   const gerer = interdictionsGererParInfraction(resultats, annee, libelleNatinf)
   const paraitre = interdictionsParaitreDetail(resultats, enquetes, annee, libelleNatinf)
   const delta = deltaSaisiesConfiscations(audience)
+  const stups = stupefiantsSaisisParService(resultats, enquetes, annee, servicesDeEnquete)
   const parTypeAudience = peinesParTypeAudience(resultats, annee)
 
   const peinesParInfraction = Object.fromEntries(
@@ -351,6 +354,32 @@ export function ecranStatistiques(keys, { annee: anneeBrute } = {}) {
       sousTitre: 'Écart, poste par poste, entre saisies d\'enquête et confiscations d\'audience (€ pour les avoirs)',
       detail: delta,
       regle: 'Delta = saisi − confisqué. Positif = saisi non confisqué par le juge ; négatif = confiscation supérieure à la saisie renseignée.',
+    }),
+    carte('Stupéfiants saisis', stups.general.libelle || `${stups.nbDossiers} dossier(s)`, {
+      sousTitre: 'Quantités saisies en phase enquête, par produit puis par unité d\'enquête',
+      detail: {
+        totalSaisi: stups.general.libelle || null,
+        nbDossiers: stups.nbDossiers,
+        parProduit: (audience.stupefiantsSaisisParProduit || []).map((l) => ({
+          produit: l.libelle,
+          famille: l.famille,
+          dossiers: l.nbDossiers,
+          saisi: formatTotaux(l.totaux) || null,
+        })),
+        confisqueParProduit: (audience.stupefiantsConfisquesParProduit || []).map((l) => ({
+          produit: l.libelle,
+          dossiers: l.nbDossiers,
+          confisque: formatTotaux(l.totaux) || null,
+        })),
+        parUniteEnquete: stups.lignes.map((l) => ({
+          service: l.service,
+          dossiers: l.nbDossiers,
+          saisi: l.libelle || null,
+        })),
+        dossiersCoSaisis: stups.coSaisines,
+        dossiersSansService: stups.sansService,
+      },
+      regle: 'Saisies d\'enquête uniquement (les confiscations d\'audience sont données à part, sans les additionner : ce sont souvent les mêmes produits). Masses additionnées entre elles, volumes entre eux, comprimés/plants/doses/unités comptés séparément. Un produit sans quantité chiffrée compte quand même comme dossier. Un dossier co-saisi porte sa quantité au crédit de CHAQUE service : la somme des unités peut dépasser le total.',
     }),
     carte('Interdictions de gérer', gerer.total, {
       sousTitre: 'Pourcentage filtrable par type d\'infraction',
