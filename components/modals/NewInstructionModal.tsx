@@ -9,6 +9,7 @@ import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
 import { CassiopeeImportModal, type CassiopeeImportResult } from './CassiopeeImportModal';
+import { SaisineManager } from '../instruction/SaisineManager';
 import type {
   NewDossierInstructionData,
   OrigineDossier,
@@ -55,7 +56,10 @@ export const NewInstructionModal = ({
   const [importedMex, setImportedMex] = useState<MisEnExamen[]>([]);
   const [importedSuspects, setImportedSuspects] = useState<Suspect[]>([]);
   const [importedVictimes, setImportedVictimes] = useState<Victime[]>([]);
-  const [importedSaisine, setImportedSaisine] = useState<SaisineItem[]>([]);
+  const [saisine, setSaisine] = useState<SaisineItem[]>([]);
+  // Nombre de chefs venus de Cassiopée (le récapitulatif d'import ne doit pas
+  // compter ceux saisis à la main dans le formulaire).
+  const [nbSaisineImportee, setNbSaisineImportee] = useState(0);
   const [importedEvenements, setImportedEvenements] = useState<EvenementInstruction[]>([]);
 
   const hasImported = useMemo(
@@ -63,10 +67,10 @@ export const NewInstructionModal = ({
       importedMex.length +
         importedSuspects.length +
         importedVictimes.length +
-        importedSaisine.length +
+        nbSaisineImportee +
         importedEvenements.length >
       0,
-    [importedMex, importedSuspects, importedVictimes, importedSaisine, importedEvenements],
+    [importedMex, importedSuspects, importedVictimes, nbSaisineImportee, importedEvenements],
   );
 
   const handleCassiopeeImport = (r: CassiopeeImportResult) => {
@@ -77,10 +81,27 @@ export const NewInstructionModal = ({
       if (r.header.dateRI) setDateRI(r.header.dateRI);
     }
     // Personnes / saisine / événements : mis en attente pour la création.
-    setImportedMex(prev => [...prev, ...r.misEnExamen]);
+    // Un second collage peut compléter une personne déjà mise en attente
+    // (DML, chefs de mise en examen) : on fusionne alors sur son id.
+    const complements = new Map((r.complementsMexExistants ?? []).map(c => [c.mexId, c] as const));
+    setImportedMex(prev => [
+      ...prev.map(m => {
+        const ajout = complements.get(m.id);
+        if (!ajout) return m;
+        return {
+          ...m,
+          dmls: ajout.dmls.length ? [...(m.dmls ?? []), ...ajout.dmls] : m.dmls,
+          infractions: ajout.infractions.length
+            ? [...(m.infractions ?? []), ...ajout.infractions]
+            : m.infractions,
+        };
+      }),
+      ...r.misEnExamen,
+    ]);
     setImportedSuspects(prev => [...prev, ...r.suspects]);
     setImportedVictimes(prev => [...prev, ...r.victimes]);
-    setImportedSaisine(prev => [...prev, ...r.saisine]);
+    setSaisine(prev => [...prev, ...r.saisine]);
+    setNbSaisineImportee(n => n + r.saisine.length);
     setImportedEvenements(prev => [...prev, ...r.evenements]);
   };
 
@@ -88,7 +109,8 @@ export const NewInstructionModal = ({
     setImportedMex([]);
     setImportedSuspects([]);
     setImportedVictimes([]);
-    setImportedSaisine([]);
+    setSaisine([]);
+    setNbSaisineImportee(0);
     setImportedEvenements([]);
   };
 
@@ -167,7 +189,7 @@ export const NewInstructionModal = ({
       misEnExamen: importedMex,
       suspects: importedSuspects.length ? importedSuspects : undefined,
       victimes: importedVictimes,
-      saisine: importedSaisine.length ? importedSaisine : undefined,
+      saisine: saisine.length ? saisine : undefined,
       ops: [],
       debatsJLD: [],
       notesPerso: [],
@@ -180,7 +202,7 @@ export const NewInstructionModal = ({
     onSubmit(data);
     showToast(
       hasImported
-        ? `Dossier créé avec ${importedMex.length} MEX, ${importedSaisine.length} chef(s) de saisine, ${importedEvenements.length} événement(s)`
+        ? `Dossier créé avec ${importedMex.length} MEX, ${saisine.length} chef(s) de saisine, ${importedEvenements.length} événement(s)`
         : 'Dossier d\'instruction créé',
       'success',
     );
@@ -238,8 +260,8 @@ export const NewInstructionModal = ({
                 {importedVictimes.length > 0 && (
                   <span className="inline-flex items-center gap-1"><Users className="h-3 w-3" />{importedVictimes.length} victime(s)</span>
                 )}
-                {importedSaisine.length > 0 && (
-                  <span className="inline-flex items-center gap-1"><Scale className="h-3 w-3" />{importedSaisine.length} chef(s) de saisine</span>
+                {nbSaisineImportee > 0 && (
+                  <span className="inline-flex items-center gap-1"><Scale className="h-3 w-3" />{nbSaisineImportee} chef(s) de saisine</span>
                 )}
                 {importedEvenements.length > 0 && (
                   <span className="inline-flex items-center gap-1"><ListChecks className="h-3 w-3" />{importedEvenements.length} événement(s)</span>
@@ -349,6 +371,19 @@ export const NewInstructionModal = ({
             </div>
           )}
 
+          {/* Saisine in rem : seul endroit, avec l'écran de modification du
+              dossier, où les chefs s'ajoutent (l'aperçu reste en lecture). */}
+          <div>
+            <Label>Saisine in rem (optionnel)</Label>
+            <div className="mt-1 rounded-md border border-gray-200 bg-white p-2">
+              <SaisineManager value={saisine} onChange={setSaisine} />
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1">
+              Chefs visés par le réquisitoire introductif. Complétables ensuite depuis
+              la modification du dossier.
+            </p>
+          </div>
+
           <div>
             <Label htmlFor="description">Description / synthèse (optionnel)</Label>
             <textarea
@@ -390,7 +425,7 @@ export const NewInstructionModal = ({
         existingMisEnExamen={importedMex}
         existingSuspects={importedSuspects}
         existingVictimes={importedVictimes}
-        existingSaisine={importedSaisine}
+        existingSaisine={saisine}
         applyHeaderDefault
       />
     </div>

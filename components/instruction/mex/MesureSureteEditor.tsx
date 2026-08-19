@@ -78,7 +78,7 @@ export const MesureSureteEditor = ({ mex, saisine = [], onChange, readOnly }: Pr
         onChange({ type: 'libre', depuis: today });
         break;
       case 'cj':
-        onChange({ type: 'cj', depuis: today, obligations: [] });
+        onChange({ type: 'cj', depuis: today });
         break;
       case 'arse':
         onChange({ type: 'arse', depuis: today });
@@ -98,20 +98,6 @@ export const MesureSureteEditor = ({ mex, saisine = [], onChange, readOnly }: Pr
         });
         break;
     }
-  };
-
-  // ──────────────────────────────────────────────
-  // CJ
-  // ──────────────────────────────────────────────
-  const [newObligation, setNewObligation] = useState('');
-  const addObligation = () => {
-    if (m.type !== 'cj' || !newObligation.trim()) return;
-    onChange({ ...m, obligations: [...(m.obligations || []), newObligation.trim()] });
-    setNewObligation('');
-  };
-  const removeObligation = (i: number) => {
-    if (m.type !== 'cj') return;
-    onChange({ ...m, obligations: (m.obligations || []).filter((_, idx) => idx !== i) });
   };
 
   // ──────────────────────────────────────────────
@@ -260,39 +246,6 @@ export const MesureSureteEditor = ({ mex, saisine = [], onChange, readOnly }: Pr
               className="h-6 text-xs w-36"
               disabled={readOnly}
             />
-          </div>
-          <div>
-            <Label className="text-xs">Obligations</Label>
-            {(m.obligations && m.obligations.length > 0) ? (
-              <div className="space-y-1 mb-1">
-                {m.obligations.map((o, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs bg-white border border-amber-200 rounded px-2 py-1">
-                    <span className="flex-1">{o}</span>
-                    {!readOnly && (
-                      <button onClick={() => removeObligation(i)} className="text-gray-400 hover:text-red-600">
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-xs text-gray-400 italic mb-1">Aucune obligation enregistrée.</div>
-            )}
-            {!readOnly && (
-              <div className="flex items-center gap-1.5">
-                <Input
-                  value={newObligation}
-                  onChange={(e) => setNewObligation(e.target.value)}
-                  placeholder="Nouvelle obligation"
-                  className="h-7 text-xs"
-                  onKeyDown={(e) => e.key === 'Enter' && addObligation()}
-                />
-                <Button size="sm" onClick={addObligation} disabled={!newObligation.trim()} className="h-7 bg-amber-600 hover:bg-amber-700">
-                  <Plus className="h-3 w-3" />
-                </Button>
-              </div>
-            )}
           </div>
         </div>
       )}

@@ -20,14 +20,16 @@ import type {
   Suspect,
   Victime,
   SaisineItem,
+  InfractionReproche,
   EvenementInstruction,
   MesureSurete,
   CategorieExpertise,
   PeriodeDetentionProvisoire,
   RegimeDetentionProvisoire,
+  DemandeMiseEnLiberte,
 } from '@/types/instructionTypes';
 import { getCasDPById, type CasDP } from '@/config/dpRegimes';
-import { calculatePeriodeDPEnd } from '@/utils/instructionUtils';
+import { calculatePeriodeDPEnd, calculateDMLEcheance } from '@/utils/instructionUtils';
 
 // ──────────────────────────────────────────────
 // GÉNÉRATEUR D'ID
@@ -272,37 +274,148 @@ export interface ParsedInfraction {
   libelle: string; // QS Cassiopée (repli si non trouvé au référentiel)
 }
 
-export const parseInfractionsTable = (text: string): ParsedInfraction[] => {
-  const byCode = new Map<string, ParsedInfraction>();
+/** Personne visée par une ligne d'infraction, avec sa mention Cassiopée. */
+export interface ParsedInfractionPersonne {
+  nom: string;
+  /** Mention entre parenthèses telle qu'écrite par Cassiopée (« R », « T », « TR »…). */
+  mention?: string;
+}
+
+/**
+ * Une LIGNE du tableau des infractions : la même NATINF y revient autant de
+ * fois qu'il y a de faits distincts (dates, lieux, victimes, auteurs
+ * différents). C'est cette granularité qui porte « qui est mis en cause pour
+ * quoi » — la saisine in rem, elle, reste dédupliquée par code.
+ */
+export interface ParsedInfractionRow {
+  rang?: string;
+  natinfCode: string;
+  /** Type Cassiopée : K (crime), D (délit), C (contravention). */
+  typeCode?: string;
+  libelle: string;
+  /** Date ou période brute (« le 07/12/2025 », « du 01/10/2025 au 30/11/2025 »). */
+  dateRaw?: string;
+  /** 1re date de la cellule (ISO) — début de la période de prévention. */
+  dateDebut?: string;
+  /** Dernière date de la cellule (ISO) si la cellule en porte plusieurs. */
+  dateFin?: string;
+  lieu?: string;
+  auteurs: ParsedInfractionPersonne[];
+  victimes: ParsedInfractionPersonne[];
+}
+
+/** Découpe « NOM Prénom (R); AUTRE Nom ; » en noms + mentions. */
+const splitPersonnesAvecMention = (segment: string): ParsedInfractionPersonne[] =>
+  segment
+    .split(';')
+    .map(part => {
+      const nom = part.split('(')[0].replace(/\s+/g, ' ').trim();
+      const mention = part.match(/\(([^)]*)\)/)?.[1]?.trim();
+      return { nom, mention: mention || undefined };
+    })
+    .filter(p => p.nom.length > 0 && normalizeText(p.nom) !== 'x' && p.nom !== '...');
+
+/** Cellule « AUT : … ; VIC : … ; » d'une ligne d'infraction. */
+const parseInfractionPersonnes = (
+  raw: string | undefined,
+): { auteurs: ParsedInfractionPersonne[]; victimes: ParsedInfractionPersonne[] } => {
+  if (!raw) return { auteurs: [], victimes: [] };
+  const aut = raw.match(/AUT\s*:\s*([^]*?)(?=VIC\s*:|$)/i);
+  const vic = raw.match(/VIC\s*:\s*([^]*)$/i);
+  return {
+    auteurs: aut ? splitPersonnesAvecMention(aut[1]) : [],
+    victimes: vic ? splitPersonnesAvecMention(vic[1]) : [],
+  };
+};
+
+/**
+ * Parse le tableau « Infractions » ligne à ligne.
+ * Colonnes : Rang | NATINF | Type | QS | Date et heure | Commune et lieu |
+ * Personnes concernées | Info | Prescription courte.
+ * Les positions ne sont pas prises pour acquises : le code NATINF, la cellule
+ * de date et la cellule des personnes sont repérés par leur forme, ce qui
+ * absorbe les colonnes en plus ou en moins d'un export à l'autre.
+ */
+export const parseInfractionRows = (text: string): ParsedInfractionRow[] => {
+  const out: ParsedInfractionRow[] = [];
   for (const cells of toRows(text)) {
     if (isHeaderRow(cells) || isNoiseRow(cells)) continue;
 
-    // Le code NATINF est un entier (4 à 6 chiffres en général). On prend la
-    // 1re cellule purement numérique qui n'est pas le rang (petit nombre).
-    let natinfCode = '';
+    // Rang (1re cellule numérique) puis code NATINF : quand les deux premières
+    // cellules sont numériques, la 1re est le rang — sinon le 1er entier de
+    // 3 à 6 chiffres est le code.
+    const hasRang = /^\d+$/.test(cells[0] || '') && /^\d{3,6}$/.test(cells[1] || '');
+    const rang = hasRang ? cells[0] : undefined;
+    let natinfIdx = -1;
+    for (let i = hasRang ? 1 : 0; i < cells.length; i++) {
+      if (/^\d{3,6}$/.test(cells[i].trim())) { natinfIdx = i; break; }
+    }
+    if (natinfIdx === -1) continue;
+    const natinfCode = cells[natinfIdx].trim();
+
+    // Type = cellule d'une seule lettre juste après le code (K/D/C).
+    const typeCandidate = (cells[natinfIdx + 1] || '').trim();
+    const typeCode = /^[A-Za-z]$/.test(typeCandidate) ? typeCandidate.toUpperCase() : undefined;
+
+    // Libellé (QS) = 1re cellule alphabétique après le code, colonne « Type »
+    // sautée.
     let libelle = '';
-    for (let i = 0; i < cells.length; i++) {
-      const c = cells[i].trim();
-      if (/^\d{3,6}$/.test(c)) {
-        natinfCode = c;
-        // Le libellé (QS) est la 1re cellule alphabétique après le code,
-        // en sautant la colonne « Type » (une seule lettre, ex : « K »).
-        for (let j = i + 1; j < cells.length; j++) {
-          const cand = cells[j].trim();
-          if (cand.length > 3 && /[a-zàâäéèêëïîôöùûüç]/i.test(cand)) {
-            libelle = cand;
-            break;
-          }
-        }
+    let libelleIdx = -1;
+    for (let j = natinfIdx + 1; j < cells.length; j++) {
+      const cand = cells[j].trim();
+      if (cand.length > 3 && /[a-zàâäéèêëïîôöùûüç]/i.test(cand)) {
+        libelle = cand;
+        libelleIdx = j;
         break;
       }
     }
-    if (!natinfCode) continue;
-    if (!byCode.has(natinfCode)) {
-      byCode.set(natinfCode, { natinfCode, libelle });
-    } else if (libelle && !byCode.get(natinfCode)!.libelle) {
-      byCode.get(natinfCode)!.libelle = libelle;
+
+    // Personnes concernées = 1re cellule portant « AUT : » ou « VIC : ».
+    const personnesIdx = cells.findIndex(c => /AUT\s*:|VIC\s*:/i.test(c));
+    const { auteurs, victimes } = parseInfractionPersonnes(
+      personnesIdx >= 0 ? cells[personnesIdx] : undefined,
+    );
+
+    // Date / période = 1re cellule postérieure au libellé portant une date
+    // (« le 07/12/2025 », « du … au … », « entre le … et le … »).
+    let dateRaw: string | undefined;
+    let dateIdx = -1;
+    for (let j = Math.max(libelleIdx, natinfIdx) + 1; j < cells.length; j++) {
+      if (personnesIdx >= 0 && j >= personnesIdx) break;
+      if (/\d{1,2}\/\d{1,2}\/\d{4}/.test(cells[j])) { dateRaw = cells[j].trim(); dateIdx = j; break; }
     }
+    const dates = (dateRaw?.match(/\d{1,2}\/\d{1,2}\/\d{4}/g) || []).map(d => parseFrDate(d)).filter(Boolean);
+
+    // Lieu = cellule suivant la date (avant les personnes).
+    let lieu: string | undefined;
+    if (dateIdx >= 0) {
+      const cand = (cells[dateIdx + 1] || '').trim();
+      if (cand && (personnesIdx < 0 || dateIdx + 1 < personnesIdx)) lieu = cand.replace(/\s+/g, ' ');
+    }
+
+    out.push({
+      rang,
+      natinfCode,
+      typeCode,
+      libelle,
+      dateRaw,
+      dateDebut: dates[0] || undefined,
+      dateFin: dates.length > 1 ? dates[dates.length - 1] : undefined,
+      lieu,
+      auteurs,
+      victimes,
+    });
+  }
+  return out;
+};
+
+/** Infractions dédupliquées par code (alimente la saisine in rem). */
+export const parseInfractionsTable = (text: string): ParsedInfraction[] => {
+  const byCode = new Map<string, ParsedInfraction>();
+  for (const row of parseInfractionRows(text)) {
+    const existing = byCode.get(row.natinfCode);
+    if (!existing) byCode.set(row.natinfCode, { natinfCode: row.natinfCode, libelle: row.libelle });
+    else if (row.libelle && !existing.libelle) existing.libelle = row.libelle;
   }
   return Array.from(byCode.values());
 };
@@ -658,6 +771,128 @@ export const deriveDpPeriodesForPersonne = (
   });
 };
 
+// ──────────────────────────────────────────────
+// DEMANDES DE MISE EN LIBERTÉ (DML)
+//
+// Cassiopée ne distingue pas les DML des demandes de modification du contrôle
+// judiciaire : les deux portent le même code d'événement DELIBCJ (« demande de
+// mise en liberté ou relative au contrôle judiciaire »). L'objet réel se lit
+// dans l'ordonnance de soit-communiqué (OSC) que le juge prend dans la foulée,
+// dont le motif précise « sur demande de mise en liberté » ou « aux fins de
+// modification du contrôle judiciaire ». On se sert donc de l'OSC la plus
+// proche (fenêtre de 15 jours) pour trancher, avec repli sur la catégorie
+// pénale (une personne en DP qui saisit le juge demande sa liberté).
+//
+// L'issue n'est jamais écrite noir sur blanc : une ORDLIB (ordonnance relative
+// à la mise en liberté) postérieure signale une demande tranchée, sans dire
+// dans quel sens. On déduit alors le sens de l'état actuel de la personne
+// (toujours en DP → rejetée ; libérée → accordée) et on l'indique en note.
+// ──────────────────────────────────────────────
+
+/** Code d'événement Cassiopée d'une demande de mise en liberté / de CJ. */
+const DML_EVENT_CODE = 'DELIBCJ';
+/** Code d'événement d'une ordonnance statuant sur la liberté. */
+const ORD_LIBERTE_CODE = 'ORDLIB';
+/** Fenêtre (en jours) de rattachement d'une OSC à la demande qui la motive. */
+const OSC_WINDOW_JOURS = 15;
+
+const daysBetween = (isoA: string, isoB: string): number =>
+  Math.round((new Date(`${isoB}T00:00:00Z`).getTime() - new Date(`${isoA}T00:00:00Z`).getTime()) / 86_400_000);
+
+/** L'événement concerne-t-il cette personne (émetteur ou personne concernée) ? */
+const eventConcerne = (ev: ParsedEvenement, key: string): boolean =>
+  normalizeNom(ev.emetteur) === key || ev.auteurs.some(a => normalizeNom(a) === key);
+
+/**
+ * Objet réel d'un DELIBCJ : « dml », « cj » (modification du contrôle
+ * judiciaire) ou `undefined` si les événements ne permettent pas de trancher.
+ */
+const objetDemande = (
+  ev: ParsedEvenement,
+  key: string,
+  allEvents: ParsedEvenement[],
+): 'dml' | 'cj' | undefined => {
+  const osc = allEvents
+    .filter(
+      o =>
+        normalizeText(o.code) === 'osc' &&
+        eventConcerne(o, key) &&
+        daysBetween(ev.date, o.date) >= 0 &&
+        daysBetween(ev.date, o.date) <= OSC_WINDOW_JOURS,
+    )
+    .sort((a, b) => a.date.localeCompare(b.date))[0];
+  const motif = normalizeText(osc?.motif);
+  if (motif.includes('mise en liberte')) return 'dml';
+  if (motif.includes('controle judiciaire')) return 'cj';
+  return undefined;
+};
+
+export interface DmlDeriveOptions {
+  newId: () => number;
+  /** Catégorie pénale Cassiopée de la personne (« DP », « CJ », « ARSE »…). */
+  categoriePenale?: string;
+}
+
+/**
+ * Reconstitue les DML d'une personne depuis les événements Cassiopée. Les
+ * demandes portant sur le seul contrôle judiciaire sont écartées. L'échéance
+ * légale (10 jours ouvrables, art. 148) est recalculée depuis la date de dépôt.
+ */
+export const deriveDMLsForPersonne = (
+  nom: string,
+  parsedEvents: ParsedEvenement[],
+  opts: DmlDeriveOptions,
+): DemandeMiseEnLiberte[] => {
+  const key = normalizeNom(nom);
+  const enDP = opts.categoriePenale === 'DP';
+
+  const demandes = parsedEvents
+    .filter(
+      ev =>
+        ev.date &&
+        normalizeText(ev.code) === normalizeText(DML_EVENT_CODE) &&
+        eventConcerne(ev, key),
+    )
+    .filter(ev => {
+      const objet = objetDemande(ev, key, parsedEvents);
+      // Sans OSC exploitable : on ne retient la demande que pour une personne
+      // détenue (une demande de CJ n'a pas d'échéance des 10 jours à suivre).
+      return objet ? objet === 'dml' : enDP;
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Dédoublonnage par date de dépôt (une demande peut apparaître deux fois si
+  // elle est annoncée par la personne puis enregistrée par le cabinet).
+  const parDate = new Map<string, ParsedEvenement>();
+  demandes.forEach(ev => { if (!parDate.has(ev.date)) parDate.set(ev.date, ev); });
+  const dates = Array.from(parDate.keys()).sort();
+
+  const ordonnances = parsedEvents
+    .filter(ev => ev.date && normalizeText(ev.code) === normalizeText(ORD_LIBERTE_CODE) && eventConcerne(ev, key))
+    .map(ev => ev.date)
+    .sort();
+
+  return dates.map((date, i) => {
+    const suivante = dates[i + 1];
+    // Demande tranchée : une ordonnance sur la liberté est intervenue après le
+    // dépôt (avant la demande suivante s'il y en a une).
+    const tranchee = ordonnances.some(o => o >= date && (!suivante || o < suivante));
+    const statut: DemandeMiseEnLiberte['statut'] = tranchee
+      ? (enDP ? 'rejetee' : 'accordee')
+      : 'en_attente';
+    const notes = tranchee
+      ? `Importée de Cassiopée (DELIBCJ du ${date.split('-').reverse().join('/')}) — issue déduite d'une ordonnance postérieure (${enDP ? 'personne toujours en DP → rejet' : 'personne libérée → mise en liberté'}) : à vérifier.`
+      : `Importée de Cassiopée (DELIBCJ du ${date.split('-').reverse().join('/')}) — aucune ordonnance postérieure trouvée : réputée en attente, à vérifier.`;
+    return {
+      id: opts.newId(),
+      dateDepot: date,
+      dateEcheance: calculateDMLEcheance(date),
+      statut,
+      notes,
+    };
+  });
+};
+
 /** Mesure de sûreté déduite de la catégorie pénale Cassiopée (repli sans DP
  *  reconstituée). On pose la bonne *nature* de mesure avec des périodes vides
  *  et une note d'invite : les dates de DP proviennent des ordonnances JLD. */
@@ -671,7 +906,7 @@ const mesureFromCategorie = (cat?: string): { mesure: MesureSurete; note?: strin
     case 'CJ':
       return {
         mesure: { type: 'cj', depuis: '' },
-        note: '⚠ Cassiopée : contrôle judiciaire (CJ) — préciser la date et les obligations.',
+        note: '⚠ Cassiopée : contrôle judiciaire (CJ) — préciser la date de placement.',
       };
     case 'ARSE':
       return {
@@ -698,6 +933,10 @@ export interface MexBuildOptions {
   regime?: RegimeDetentionProvisoire;
   /** Cas légal déduit de la saisine in rem. */
   casDPId?: string;
+  /** DML reconstituées depuis les événements (compteur art. 148). */
+  dmls?: DemandeMiseEnLiberte[];
+  /** Chefs de mise en examen déduits du tableau des infractions. */
+  infractions?: InfractionReproche[];
 }
 
 /** Convertit un mis en examen parsé vers le modèle. Si la personne est en DP et
@@ -733,10 +972,10 @@ export const buildMisEnExamen = (
     nom: p.nom,
     dateNaissance: p.dateNaissance,
     dateMiseEnExamen: '', // inconnue depuis le résumé — à compléter
-    infractions: [],
+    infractions: opts?.infractions ?? [],
     elementsPersonnalite: [],
     mesureSurete: mesure,
-    dmls: [],
+    dmls: opts?.dmls ?? [],
     notes: buildNote(p, note),
   };
 };
@@ -764,6 +1003,75 @@ export const buildSaisineItem = (inf: ParsedInfraction, ctx: BuildContext): Sais
     natinfRef: entry ? toRef(entry) : undefined,
     acte: 'introductif',
   };
+};
+
+// ──────────────────────────────────────────────
+// CHEFS DE MISE EN EXAMEN (saisine in personam)
+//
+// Le tableau des infractions dit, ligne par ligne, qui est mis en cause pour
+// quels faits. Une même NATINF revient autant de fois qu'il y a de faits
+// distincts (4 extorsions = 4 lignes) : on regroupe par code, car un chef de
+// mise en examen se compte par qualification, et on porte le détail des faits
+// (période, lieu, victimes, mention Cassiopée) dans l'explication.
+// ──────────────────────────────────────────────
+
+/** Rend une date ISO au format français court (pour les explications). */
+const isoToFr = (iso?: string): string => (iso ? iso.split('-').reverse().join('/') : '');
+
+/** Résumé d'une ligne d'infraction, tel qu'écrit dans l'explication du chef. */
+const describeInfractionRow = (row: ParsedInfractionRow, mention?: string): string => {
+  const parts: string[] = [];
+  if (row.dateRaw) parts.push(row.dateRaw);
+  else if (row.dateDebut) parts.push(`le ${isoToFr(row.dateDebut)}`);
+  if (row.lieu) parts.push(row.lieu);
+  if (mention) parts.push(`mention Cassiopée « ${mention} »`);
+  if (row.victimes.length > 0) parts.push(`victime(s) : ${row.victimes.map(v => v.nom).join(', ')}`);
+  const prefix = row.rang ? `rang ${row.rang} — ` : '';
+  return `• ${prefix}${parts.join(' · ')}`;
+};
+
+/**
+ * Chefs de mise en examen d'une personne, déduits du tableau des infractions.
+ * Un chef par code NATINF ; les faits multiples sont listés en explication.
+ */
+export const buildInfractionsForPersonne = (
+  nom: string,
+  rows: ParsedInfractionRow[],
+  ctx: BuildContext,
+): InfractionReproche[] => {
+  const key = normalizeNom(nom);
+  const parCode = new Map<string, ParsedInfractionRow[]>();
+  for (const row of rows) {
+    if (!row.auteurs.some(a => normalizeNom(a.nom) === key)) continue;
+    const list = parCode.get(row.natinfCode);
+    if (list) list.push(row);
+    else parCode.set(row.natinfCode, [row]);
+  }
+
+  return Array.from(parCode.entries()).map(([code, faits]) => {
+    const entry = ctx.resolveNatinf?.(code);
+    const debuts = faits.map(f => f.dateDebut).filter(Boolean).sort() as string[];
+    const lieux = Array.from(new Set(faits.map(f => f.lieu).filter(Boolean))) as string[];
+    const lignes = faits.map(f =>
+      describeInfractionRow(f, f.auteurs.find(a => normalizeNom(a.nom) === key)?.mention),
+    );
+    const entete =
+      faits.length > 1
+        ? `Importé de Cassiopée — ${faits.length} faits :`
+        : 'Importé de Cassiopée :';
+    return {
+      id: ctx.newId(),
+      qualification: entry?.libelle || faits[0].libelle || `NATINF ${code}`,
+      natinfCode: code,
+      natinfRef: entry ? toRef(entry) : undefined,
+      // Date retenue = début du fait le plus ancien ; le détail complet des
+      // périodes reste lisible dans l'explication.
+      dateInfraction: debuts[0] || undefined,
+      // Un seul lieu → champ dédié ; plusieurs → laissé vide, détail en dessous.
+      lieuInfraction: lieux.length === 1 ? lieux[0] : undefined,
+      explication: [entete, ...lignes].join('\n'),
+    };
+  });
 };
 
 /** Type d'événement timeline générique pour les imports Cassiopée non spécialisés. */

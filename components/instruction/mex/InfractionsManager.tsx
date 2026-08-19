@@ -232,7 +232,7 @@ export const InfractionsManager = ({ value, onChange, saisine = [], readOnly }: 
           {saisineOptions.length === 0 ? (
             <div className="text-xs text-gray-400 italic">
               Aucune qualification dans la saisine in rem. Renseignez d'abord la saisine
-              (onglet Aperçu) pour pouvoir mettre en examen.
+              en modifiant le dossier (bouton « Modifier ») pour pouvoir mettre en examen.
             </div>
           ) : (
             <div className="flex flex-wrap gap-1.5">

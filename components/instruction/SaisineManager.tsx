@@ -14,7 +14,8 @@ import type { SaisineItem, ActeSaisine } from '@/types/instructionTypes';
 
 interface Props {
   value: SaisineItem[];
-  onChange: (next: SaisineItem[]) => void;
+  /** Requis en écriture ; inutile en lecture seule (aperçu du dossier). */
+  onChange?: (next: SaisineItem[]) => void;
   readOnly?: boolean;
 }
 
@@ -23,7 +24,10 @@ const ACTE_BADGE: Record<ActeSaisine, { short: string; full: string; color: stri
   suppletif: { short: 'Supplétif', full: 'Réquisitoire supplétif', color: 'bg-purple-100 text-purple-800 border-purple-300' },
 };
 
-export const SaisineManager = ({ value, onChange, readOnly }: Props) => {
+export const SaisineManager = ({ value, onChange: onChangeProp, readOnly }: Props) => {
+  // En lecture seule aucune mutation n'est déclenchée : le no-op évite d'avoir
+  // à rendre `onChange` optionnel dans chaque appelant.
+  const onChange = onChangeProp ?? (() => {});
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const { getByCode } = useNatinf();
 
@@ -89,20 +93,29 @@ export const SaisineManager = ({ value, onChange, readOnly }: Props) => {
           Aucune qualification de saisine. {!readOnly && 'Ajoutez les faits dont le juge est saisi (RI, supplétifs).'}
         </div>
       ) : (
-        <div className="space-y-1.5">
+        // Deux colonnes dès qu'il y a la place : la saisine in rem compte
+        // souvent 8-15 chefs, une liste pleine largeur mangeait tout l'aperçu.
+        // Un chef déplié reprend la largeur entière (formulaire lisible).
+        <div className="grid gap-1 md:grid-cols-2">
           {value.map(item => {
             const isExpanded = expandedId === item.id;
             const acte = ACTE_BADGE[item.acte];
             return (
-              <div key={item.id} className="border border-gray-200 rounded bg-white text-sm">
-                <div className="flex items-center gap-2 p-2">
+              <div
+                key={item.id}
+                className={`border border-gray-200 rounded bg-white text-sm min-w-0 ${isExpanded ? 'md:col-span-2' : ''}`}
+              >
+                <div className="flex items-center gap-1.5 px-1.5 py-1">
                   <span
                     className={`shrink-0 inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${acte.color}`}
                     title={acte.full}
                   >
                     {acte.short}
                   </span>
-                  <span className="font-medium text-gray-800 truncate min-w-0 flex-1">
+                  <span
+                    className="text-xs font-medium text-gray-800 truncate min-w-0 flex-1"
+                    title={item.qualification || undefined}
+                  >
                     {item.qualification || <span className="text-gray-400 italic">Qualification à préciser</span>}
                   </span>
                   {item.natinfRef && (
@@ -114,7 +127,7 @@ export const SaisineManager = ({ value, onChange, readOnly }: Props) => {
                     />
                   )}
                   {item.dateActe && (
-                    <span className="shrink-0 text-[11px] text-gray-500">
+                    <span className="shrink-0 text-[10px] text-gray-500">
                       {new Date(item.dateActe).toLocaleDateString()}
                     </span>
                   )}
