@@ -110,8 +110,10 @@ function ocrPages(plain, pageNums) {
  * Assemble le texte final page par page : couche texte native quand elle
  * existe, OCR sinon, et un MARQUEUR explicite pour toute page restée muette —
  * le lecteur (l'agent surtout) sait exactement ce qui manque et pourquoi.
+ * `differees` : pages images volontairement NON océrisées (lecture par défaut,
+ * économe) — le marqueur indique comment obtenir leur contenu à la demande.
  */
-export function assemblePages(pagesTexte, ocrTextes, { ocrAvailable, nonOcrisees = [] } = {}) {
+export function assemblePages(pagesTexte, ocrTextes, { ocrAvailable, nonOcrisees = [], differees = [] } = {}) {
   const maxOcr = ocrTextes.size ? Math.max(...ocrTextes.keys()) : 0
   const n = Math.max(pagesTexte.length, maxOcr)
   const out = []
@@ -123,6 +125,8 @@ export function assemblePages(pagesTexte, ocrTextes, { ocrAvailable, nonOcrisees
       out.push(`[page ${p} — texte restitué par OCR]\n${ocr}`)
     } else if (natif || ocr) {
       out.push(natif || ocr)
+    } else if (differees.includes(p)) {
+      out.push(`[page ${p} : image sans couche texte — non océrisée par défaut ; relire avec integrale:true si son contenu est nécessaire]`)
     } else if (nonOcrisees.includes(p)) {
       out.push(`[page ${p} : image non océrisée — plafond de ${OCR_MAX_PAGES} pages OCR par pièce atteint]`)
     } else if (!ocrAvailable) {
@@ -136,12 +140,17 @@ export function assemblePages(pagesTexte, ocrTextes, { ocrAvailable, nonOcrisees
 
 /**
  * Extrait le texte d'un PDF, PAGE PAR PAGE : couche texte native quand elle
- * existe, OCR de secours pour les pages images (annexes, captures, planches),
- * marqueur explicite pour toute page restée illisible. Ne lève jamais.
+ * existe, marqueur explicite pour toute page image. L'OCR des pages images
+ * d'une pièce MIXTE (PV tapé + annexes) n'a lieu qu'À LA DEMANDE
+ * (`ocrImages: true`) : le texte océrisé allonge chaque lecture faite ensuite
+ * par l'agent — c'est un choix pièce par pièce, pas un réflexe. Un document
+ * ENTIÈREMENT muet garde l'OCR de secours automatique (sinon rien n'est
+ * lisible du tout). Ne lève jamais.
  * @param {Buffer} plain - PDF déchiffré
- * @returns {Promise<{ok:true,texte:string,source:'texte'|'ocr'|'texte+ocr'} | {ok:false,scanned:true,ocrAvailable:boolean,error:string}>}
+ * @param {{ocrImages?: boolean}} [opts]
+ * @returns {Promise<{ok:true,texte:string,source:'texte'|'ocr'|'texte+ocr',pagesImagesNonLues?:number} | {ok:false,scanned:true,ocrAvailable:boolean,error:string}>}
  */
-export async function extractPdfText(plain) {
+export async function extractPdfText(plain, { ocrImages = false } = {}) {
   // Un petit Buffer Node (< 4 Ko) vit dans le POOL partagé : pdf.js 1.10 lit
   // alors l'ArrayBuffer sous-jacent ENTIER (le pool, données étrangères
   // comprises) et échoue en « bad XRef entry ». Copie dans un ArrayBuffer
@@ -172,22 +181,26 @@ export async function extractPdfText(plain) {
     if (texte.trim().length >= MIN_TEXT_CHARS) return { ok: true, texte, source: 'texte' }
   }
 
-  // 2) OCR des pages muettes (borné). Structure illisible par pdf-parse :
-  //    OCR « à l'aveugle » des premières pages (pdftoppm s'arrête de lui-même
-  //    à la dernière page réelle).
+  // 2) Pages muettes. OCR seulement si demandé (ocrImages) OU si le document
+  //    est ENTIÈREMENT muet — dans ce dernier cas il n'y a rien d'autre à lire.
+  //    Structure illisible par pdf-parse : OCR « à l'aveugle » des premières
+  //    pages (pdftoppm s'arrête de lui-même à la dernière page réelle).
+  const documentEntierMuet = !pagesTexte.length || muettes.length >= pagesTexte.length
+  const doOcr = ocrImages || documentEntierMuet
   const candidates = pagesTexte.length ? muettes : Array.from({ length: OCR_MAX_PAGES }, (_, i) => i + 1)
-  const aOcr = candidates.slice(0, OCR_MAX_PAGES)
-  const nonOcrisees = candidates.slice(OCR_MAX_PAGES)
+  const aOcr = doOcr ? candidates.slice(0, OCR_MAX_PAGES) : []
+  const nonOcrisees = doOcr ? candidates.slice(OCR_MAX_PAGES) : []
+  const differees = doOcr ? [] : candidates
   const { available, textes } = ocrPages(plain, aOcr)
 
-  const texte = assemblePages(pagesTexte, textes, { ocrAvailable: available, nonOcrisees })
+  const texte = assemblePages(pagesTexte, textes, { ocrAvailable: available, nonOcrisees, differees })
   // Lisible si un contenu réel subsiste une fois les marqueurs de pages retirés.
   const utile = texte.replace(/\[page \d+ : [^\]]*\]/g, '').trim()
   if (utile.length >= MIN_TEXT_CHARS) {
     const source = pagesTexte.length && muettes.length < pagesTexte.length
       ? (textes.size ? 'texte+ocr' : 'texte')
       : 'ocr'
-    return { ok: true, texte, source }
+    return { ok: true, texte, source, ...(differees.length ? { pagesImagesNonLues: differees.length } : {}) }
   }
 
   // 3) Illisible : on le dit franchement (l'attaché ne préparera rien dessus)

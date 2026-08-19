@@ -437,8 +437,11 @@ export function dossierMarkdown(keys, numero, opts = {}) {
 // est régénéré ; le répertoire des documents, synchronisé avec le commun,
 // n'est pas touché.
 
-function docCachePath(enqueteKey, cheminRelatif) {
-  const h = crypto.createHash('sha256').update(enqueteKey + '\n' + cheminRelatif).digest('hex').slice(0, 32)
+function docCachePath(enqueteKey, cheminRelatif, variante = '') {
+  // `variante` : '' = lecture par défaut (économe, pages images marquées mais
+  // non océrisées) ; 'integrale' = original relu avec OCR des pages images.
+  // Deux caches distincts — chaque mode n'est extrait qu'une fois.
+  const h = crypto.createHash('sha256').update(enqueteKey + '\n' + cheminRelatif + (variante ? '\n' + variante : '')).digest('hex').slice(0, 32)
   return attacheDir('doccache', h + '.json')
 }
 
@@ -450,8 +453,8 @@ function docCachePath(enqueteKey, cheminRelatif) {
 const DOC_CACHE_V = 3
 const TEXTE_CACHE_MAX = 2_000_000
 
-function readDocCache(keys, enqueteKey, cheminRelatif, blobHash) {
-  const env = readJson(docCachePath(enqueteKey, cheminRelatif), null)
+function readDocCache(keys, enqueteKey, cheminRelatif, blobHash, variante = '') {
+  const env = readJson(docCachePath(enqueteKey, cheminRelatif, variante), null)
   if (!env) return null
   try {
     const c = decryptJson(keys.global, env)
@@ -459,9 +462,9 @@ function readDocCache(keys, enqueteKey, cheminRelatif, blobHash) {
   } catch { return null }
 }
 
-function writeDocCache(keys, enqueteKey, cheminRelatif, blobHash, texte) {
+function writeDocCache(keys, enqueteKey, cheminRelatif, blobHash, texte, variante = '') {
   const record = { v: DOC_CACHE_V, chemin: cheminRelatif, blobHash, texte: String(texte).slice(0, TEXTE_CACHE_MAX), extraitLe: new Date().toISOString() }
-  atomicWrite(docCachePath(enqueteKey, cheminRelatif), JSON.stringify(encryptJson(keys.global, record)))
+  atomicWrite(docCachePath(enqueteKey, cheminRelatif, variante), JSON.stringify(encryptJson(keys.global, record)))
 }
 
 // ── Pagination du texte servi ──
@@ -531,16 +534,25 @@ export async function readDocumentText(keys, numero, cheminRelatif, page = {}) {
   const lower = cheminRelatif.toLowerCase()
   if (lower.endsWith('.pdf')) {
     const blobHash = crypto.createHash('sha256').update(blob).digest('hex')
-    const cached = readDocCache(keys, key, cheminRelatif, blobHash)
+    const variante = page.integrale ? 'integrale' : ''
+    const cached = readDocCache(keys, key, cheminRelatif, blobHash, variante)
     if (cached) return pageTexte(cached.texte, page, { cache: true })
     const plain = decryptDocBlob(keys.global, blob)
     if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }
-    // Couche texte native, avec OCR de secours si la pièce est un scan image.
-    const res = await extractPdfText(plain)
+    // Couche texte native ; OCR automatique seulement si la pièce est un scan
+    // ENTIÈREMENT muet. Les pages images d'une pièce mixte ne sont océrisées
+    // qu'en lecture intégrale (integrale:true) — à la demande, jamais d'office.
+    const res = await extractPdfText(plain, { ocrImages: Boolean(page.integrale) })
     if (!res.ok) return { ok: false, error: res.error, scanned: res.scanned }
     const texte = tidyPdfText(res.texte)
-    try { writeDocCache(keys, key, cheminRelatif, blobHash, texte) } catch { /* cache facultatif */ }
-    return pageTexte(texte, page, { source: res.source })
+    try { writeDocCache(keys, key, cheminRelatif, blobHash, texte, variante) } catch { /* cache facultatif */ }
+    return pageTexte(texte, page, {
+      source: res.source,
+      ...(res.pagesImagesNonLues ? {
+        pagesImagesNonLues: res.pagesImagesNonLues,
+        noteImages: `${res.pagesImagesNonLues} page(s) image non océrisée(s) dans cette pièce — relire avec integrale:true UNIQUEMENT si leur contenu est nécessaire à la question posée`,
+      } : {}),
+    })
   }
   const plain = decryptDocBlob(keys.global, blob)
   if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }
