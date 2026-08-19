@@ -135,6 +135,13 @@ manque des fiches, ils déclenchent d'abord un chantier de type 1.
   par pochette avec sa propre jauge, journal des pas, et les productions
   (fiches, synthèse, rapport) lisibles, éditables et exportables sur place.
   Le moteur tourne côté service : fermer l'atelier n'interrompt rien.
+- **Le pas en cours** : le moteur pose un marqueur avant chaque run (lot,
+  pochette, nombre de pièces, numéro de tentative — ou rédaction de la
+  synthèse) et le retire après. La bande et l'atelier affichent « En ce
+  moment … depuis 6 min », et le sondage passe de 60 s à 20 s tant qu'un
+  chantier tourne. Un marqueur qui survivrait à un redémarrage du service est
+  périmé (au-delà du timeout de lot) et n'est plus servi : jamais de faux
+  « en cours ».
 - **Déclencheurs** là où le besoin naît : le chat de dossier (étage 4) propose
   « lancer le dépouillement complet » ; la cartographie propose « remplir
   depuis les dossiers » ; la fiche d'enquête montre l'état du chantier.

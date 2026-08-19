@@ -19,7 +19,8 @@ import {
 } from 'lucide-react';
 import { ChantiersAtelier } from './ChantiersAtelier';
 import {
-  useChantiers, etatBadge, uniteChantier, titreChantier, pourcentage, type Chantier,
+  useChantiers, etatBadge, uniteChantier, titreChantier, pourcentage, dureeDepuis,
+  libelleEnCours, type Chantier,
 } from './useChantiers';
 
 function IconeEtat({ icone }: { icone?: 'nuit' | 'forfait' | 'fini' }) {
@@ -33,7 +34,7 @@ function IconeEtat({ icone }: { icone?: 'nuit' | 'forfait' | 'fini' }) {
 const RANG: Record<Chantier['etat'], number> = { devis: 0, en_cours: 1, synthese: 1, pause: 2, termine: 3 };
 
 export function ChantiersSection() {
-  const { available, chantiers, busy, action, load } = useChantiers();
+  const { available, chantiers, busy, action, load, now } = useChantiers();
   const [atelier, setAtelier] = useState<{ selection: string | null; formulaire: boolean } | null>(null);
 
   if (!available) return null;
@@ -88,6 +89,7 @@ export function ChantiersSection() {
               {ordonnes.map((ch) => {
                 const badge = etatBadge(ch);
                 const pct = pourcentage(ch);
+                const enCours = libelleEnCours(ch);
                 return (
                   <div key={ch.id} className="flex items-center gap-2 rounded-lg px-1.5 py-1.5 hover:bg-gray-50">
                     <button
@@ -119,6 +121,14 @@ export function ChantiersSection() {
                           ? `${ch.totalPieces} ${uniteChantier(ch)} · ${ch.totalLots} lots`
                           : `${pct} % · ${ch.piecesFaites}/${ch.totalPieces} ${uniteChantier(ch)}`}
                       </span>
+                      {/* Le pas qui tourne : la seule chose qui bouge toute seule dans la bande */}
+                      {enCours && (
+                        <span className="hidden max-w-[220px] flex-shrink-0 items-center gap-1 text-[10px] text-blue-700 lg:flex" title={enCours}>
+                          <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-blue-500" />
+                          <span className="truncate">{enCours}</span>
+                          <span className="flex-shrink-0 tabular-nums text-blue-500">· {dureeDepuis(ch.enCours?.depuis || '', now)}</span>
+                        </span>
+                      )}
                     </button>
                     <div className="flex flex-shrink-0 items-center gap-1">
                       {(ch.etat === 'devis' || ch.etat === 'pause') && (

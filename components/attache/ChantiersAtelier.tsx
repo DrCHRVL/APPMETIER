@@ -20,7 +20,7 @@ import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { ProductionsSection } from './ProductionsSection';
 import {
   useChantiers, etatBadge, uniteChantier, titreChantier, pourcentage, echecsChantier,
-  fmtJetons, TYPE_LABEL, type Chantier, type TypeChantier,
+  fmtJetons, dureeDepuis, libelleEnCours, TYPE_LABEL, type Chantier, type TypeChantier,
 } from './useChantiers';
 
 type Filtre = 'tous' | 'actifs' | 'devis' | 'termines';
@@ -67,7 +67,7 @@ export function ChantiersAtelier({
   onSelection: (id: string | null) => void;
   ouvrirFormulaire?: boolean;
 }) {
-  const { chantiers, busy, creating, creer, action } = useChantiers();
+  const { chantiers, busy, creating, creer, action, now } = useChantiers();
   const enquetes = useEnquetesStore((s) => s.enquetes);
 
   const [filtre, setFiltre] = useState<Filtre>('tous');
@@ -202,6 +202,12 @@ export function ChantiersAtelier({
                       : `${pct} % · ${ch.piecesFaites}/${ch.totalPieces} ${uniteChantier(ch)}`}
                   </p>
                   {ch.etat !== 'devis' && <div className="mt-1"><Jauge pct={pct} termine={ch.etat === 'termine'} /></div>}
+                  {libelleEnCours(ch) && (
+                    <p className="mt-1 flex items-center gap-1 text-[9.5px] text-blue-700">
+                      <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-blue-500" />
+                      <span className="min-w-0 truncate">{libelleEnCours(ch)}</span>
+                    </p>
+                  )}
                 </button>
               );
             })}
@@ -240,7 +246,7 @@ export function ChantiersAtelier({
             </div>
           )}
 
-          {courant && <DetailChantier ch={courant} busy={busy === courant.id} onAction={action} />}
+          {courant && <DetailChantier ch={courant} busy={busy === courant.id} onAction={action} now={now} />}
         </main>
       </div>
     </div>
@@ -249,14 +255,15 @@ export function ChantiersAtelier({
 
 // ── Détail d'un chantier ────────────────────────────────────────────────
 
-function DetailChantier({ ch, busy, onAction }: {
-  ch: Chantier; busy: boolean; onAction: (ch: Chantier, act: 'lancer' | 'pause' | 'supprimer') => void;
+function DetailChantier({ ch, busy, onAction, now }: {
+  ch: Chantier; busy: boolean; onAction: (ch: Chantier, act: 'lancer' | 'pause' | 'supprimer') => void; now: number;
 }) {
   const badge = etatBadge(ch);
   const unite = uniteChantier(ch);
   const pct = pourcentage(ch);
   const echecs = echecsChantier(ch);
   const lotsRestants = Math.max(0, ch.totalLots - ch.lotsFaits);
+  const enCours = libelleEnCours(ch);
 
   return (
     <div className="space-y-3">
@@ -322,6 +329,20 @@ function DetailChantier({ ch, busy, onAction }: {
           </div>
         )}
       </div>
+
+      {/* Ce que l'attaché fait EN CE MOMENT — le seul endroit qui bouge tout seul */}
+      {enCours && (
+        <div className="flex items-center gap-2.5 rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2.5">
+          <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-blue-600" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-blue-700">En ce moment</p>
+            <p className="truncate text-[12px] font-semibold text-gray-800" title={enCours}>{enCours}</p>
+          </div>
+          <span className="flex-shrink-0 text-[11px] tabular-nums text-blue-700">
+            depuis {dureeDepuis(ch.enCours?.depuis || '', now)}
+          </span>
+        </div>
+      )}
 
       {/* Chiffres clés */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

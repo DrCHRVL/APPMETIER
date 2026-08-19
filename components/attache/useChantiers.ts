@@ -16,6 +16,18 @@ import { useToastStore } from '@/stores/useToastStore';
 
 export interface PochetteResume { nom: string; pieces: number; lots: number; faits: number; echecs: number }
 
+/** Le pas qui tourne EN CE MOMENT côté service (marqueur posé avant le run, retiré après). */
+export interface PasEnCours {
+  etape: 'lot' | 'synthese';
+  pochette?: string;
+  lot?: number;
+  pieces?: number;
+  /** Numéro de tentative sur ce lot (2 ou 3 = le lot a déjà échoué). */
+  tentative?: number;
+  fiches?: number;
+  depuis: string;
+}
+
 export interface Chantier {
   id: string; type: string; numero: string; consigne?: string;
   numeros?: string[] | null; sansFiches?: string[];
@@ -27,6 +39,7 @@ export interface Chantier {
   pochettes: PochetteResume[];
   fiches: Array<{ prodId: string; titre: string; pochette: string }>;
   syntheseProdId?: string | null;
+  enCours?: PasEnCours | null;
   estimation?: { pieces: number; lots: number; jetonsMin: number; jetonsMax: number; nuits: number };
   journal?: Array<{ date: string; evenement: string }>;
 }
@@ -35,6 +48,9 @@ export type TypeChantier = 'dossier' | 'liens' | 'carto';
 export type ActionChantier = 'lancer' | 'pause' | 'supprimer';
 
 const POLL_MS = 60_000;
+// Quand un chantier tourne, on sonde plus vite : le magistrat doit voir le pas
+// courant avancer, pas un compteur figé une minute durant.
+const POLL_ACTIF_MS = 20_000;
 
 /** Libellé, couleur et icône d'état — une seule table pour toutes les vues. */
 export function etatBadge(ch: Chantier): { label: string; cls: string; icone?: 'nuit' | 'forfait' | 'fini' } {
@@ -57,6 +73,34 @@ export const titreChantier = (ch: Chantier) => (ch.numeros?.length ? ch.numeros.
 export const pourcentage = (ch: Chantier) => (ch.totalPieces ? Math.round((ch.piecesFaites / ch.totalPieces) * 100) : 0);
 
 export const echecsChantier = (ch: Chantier) => ch.pochettes.reduce((n, p) => n + p.echecs, 0);
+
+/** « 6 min », « 1 h 12 » — depuis quand le pas courant tourne. */
+export function dureeDepuis(iso: string, now: number): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '';
+  const min = Math.max(0, Math.round((now - t) / 60_000));
+  if (min < 1) return "à l'instant";
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')}`;
+}
+
+/** Ce que fait l'attaché en ce moment, dit en clair. */
+export function libelleEnCours(ch: Chantier): string | null {
+  const p = ch.enCours;
+  if (!p) return null;
+  if (p.etape === 'synthese') {
+    const quoi = ch.type === 'liens' ? 'Rapport de recoupements' : ch.type === 'carto' ? 'Note de bilan' : 'Note de synthèse';
+    return `${quoi} en cours de rédaction${p.fiches ? ` — ${p.fiches} ${ch.type === 'dossier' ? 'fiches' : 'lots'} en main` : ''}`;
+  }
+  const conteneur = ch.type === 'dossier' ? 'pochette' : 'dossier';
+  const matiere = ch.type === 'dossier' ? 'pièces' : 'fiches';
+  return [
+    `Lot ${p.lot}`,
+    p.pochette ? `${conteneur} « ${p.pochette} »` : '',
+    p.pieces ? `${p.pieces} ${matiere}` : '',
+    (p.tentative || 1) > 1 ? `tentative ${p.tentative}` : '',
+  ].filter(Boolean).join(' · ');
+}
 
 export const fmtJetons = (n: number) => (n >= 1_000_000 ? (n / 1_000_000).toFixed(1).replace('.', ',') + ' M' : Math.round(n / 1000) + ' k');
 
@@ -82,11 +126,21 @@ export function useChantiers() {
     }
   }, []);
 
+  const actif = chantiers.some((c) => ['en_cours', 'synthese'].includes(c.etat));
+
   useEffect(() => {
     load();
-    const t = setInterval(() => load(true), POLL_MS);
+    const t = setInterval(() => load(true), actif ? POLL_ACTIF_MS : POLL_MS);
     return () => clearInterval(t);
-  }, [load]);
+  }, [load, actif]);
+
+  // Horloge locale : le « depuis 6 min » avance sans attendre le prochain sondage.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!actif) return;
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, [actif]);
 
   /** Crée le chantier (état « devis ») — rien ne se lance sans validation. */
   const creer = useCallback(async (params: {
@@ -142,5 +196,5 @@ export function useChantiers() {
     }
   }, [showToast, load]);
 
-  return { available, chantiers, busy, creating, load, creer, action };
+  return { available, chantiers, busy, creating, load, creer, action, now };
 }

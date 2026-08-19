@@ -100,8 +100,24 @@ function resumeChantier(ch) {
     fiches: (ch.fiches || []).map((f) => ({ prodId: f.prodId, titre: f.titre, pochette: f.pochette })),
     syntheseProdId: ch.syntheseProdId || null,
     estimation: ch.estimation,
+    enCours: pasEnCours(ch),
     journal: (ch.journal || []).slice(-12),
   }
+}
+
+/**
+ * Le pas EN TRAIN de tourner (lot dépouillé, synthèse en cours) — pour que le
+ * magistrat voie l'attaché travailler, pas seulement un compteur figé.
+ * Le marqueur est posé avant le run et retiré après ; s'il survit à un
+ * redémarrage du service, il est PÉRIMÉ (aucun run ne peut durer plus qu'un
+ * timeout de lot) et on ne le sert pas — mieux vaut rien qu'un faux « en cours ».
+ */
+function pasEnCours(ch) {
+  const p = ch.enCours
+  if (!p || !['en_cours', 'synthese'].includes(ch.etat)) return null
+  const depuis = Date.parse(p.depuis || '')
+  if (!Number.isFinite(depuis) || Date.now() - depuis > LOT_TIMEOUT_MS + 5 * 60_000) return null
+  return p
 }
 
 /**
@@ -273,6 +289,7 @@ export async function actionChantier(keys, { id, action }) {
     if (!['en_cours', 'synthese'].includes(ch.etat)) throw new Error(`Ce chantier est « ${ch.etat} » — rien à mettre en pause`)
     ch.etat = 'pause'
     ch.attente = null
+    ch.enCours = null
     journal(ch, 'Mis en pause par le magistrat (reprise sans perte : re-cliquer « Reprendre »).')
     writeChantier(keys, ch)
     return resumeChantier(ch)
@@ -442,11 +459,34 @@ export async function chantierStep(keys, autorise) {
         writeChantier(keys, ch)
         return 'travail'
       }
-      await runLot(keys, ch, next)
+      // Marqueur du pas en cours : posé AVANT le run (le panneau le lit tout de
+      // suite), retiré quoi qu'il arrive — succès, échec ou timeout.
+      ch.enCours = {
+        etape: 'lot',
+        pochette: next.pochette.nom,
+        lot: next.lot.n,
+        pieces: next.lot.pieces.length,
+        tentative: (next.lot.echecs || 0) + 1,
+        depuis: new Date().toISOString(),
+      }
+      writeChantier(keys, ch)
+      try {
+        await runLot(keys, ch, next)
+      } finally {
+        ch.enCours = null
+        writeChantier(keys, ch)
+      }
       return 'travail'
     }
     if (ch.etat === 'synthese') {
-      await runSynthese(keys, ch)
+      ch.enCours = { etape: 'synthese', fiches: (ch.fiches || []).length, depuis: new Date().toISOString() }
+      writeChantier(keys, ch)
+      try {
+        await runSynthese(keys, ch)
+      } finally {
+        ch.enCours = null
+        writeChantier(keys, ch)
+      }
       return 'travail'
     }
     return 'rien'
