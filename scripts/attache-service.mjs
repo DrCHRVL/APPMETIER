@@ -1484,7 +1484,9 @@ const server = http.createServer(async (req, res) => {
           return json(res, 200, out)
         }
         const ch = await createChantier(keys, {
+          type: ['dossier', 'liens', 'carto'].includes(body.type) ? body.type : 'dossier',
           numero: String(body.numero || ''),
+          numeros: Array.isArray(body.numeros) ? body.numeros.map((n) => String(n)).filter(Boolean).slice(0, 12) : undefined,
           consigne: String(body.consigne || ''),
           nuitSeulement: body.nuitSeulement !== false,
         })
@@ -1606,7 +1608,9 @@ const server = http.createServer(async (req, res) => {
           'Sauf mention contraire, TOUTES ses questions portent sur ce dossier. Commence par lire_dossier (aperçu compact : objet, parties, actes + échéances, index des CR). Pour une donnée PRÉCISE (un propriétaire, une date, une échéance, une ligne), NE relis pas tout : cible-la — lire_dossier section:"fiche" cible:"<nom/ligne>", section:"cr" offset/limit pour un CR entier, ou lire_document sur une pièce. diagnostic_dossier, chronologie_lire, verifier_completude selon le besoin.',
           'RÔLE — aide au contrôle et à la maîtrise : surveiller la direction d\'enquête (éparpillement des enquêteurs : partent-ils dans tous les sens ?), la cohérence entre actes demandés et réalisés, et LES DÉLAIS (en préliminaire, les TSE sont enserrés dans des délais courts — 2 mois typiquement — qui contraignent l\'action ; signale tout risque de dépassement et son incidence).',
           'Réponses concises, factuelles, chiffrées, orientées décision. Tu peux déposer des propositions (proposer_mec/acte/cr) mais tu n\'écris jamais directement au dossier sans instruction explicite.',
-          'MÉMOIRE DU DOSSIER : ci-dessous l\'essentiel retenu des échanges passés sur ce dossier. Tiens-la à jour — dès qu\'un échange apporte du neuf (une décision, une orientation, un élément découvert), ajoute UNE ligne télégraphique avec memoire_dossier_noter. Reste bref : cette mémoire est volontairement petite.',
+          'CANTONNEMENT : tu es l\'attaché de CE dossier et tu deviens progressivement SON expert. Les outils transversaux (carto_*, lister_dossiers, recoupements hors dossier) ne servent que sur demande EXPLICITE du magistrat. S\'il veut comparer ou relier ce dossier à d\'autres, propose-lui de lancer un chantier « liens entre dossiers » (page Assistant de justice) — vérifie d\'abord chantiers_etat pour ne pas proposer ce qui tourne déjà.',
+          'FICHES D\'ABORD : si un chantier d\'analyse profonde est passé, le dossier a des FICHES (productions_lister → type « fiche » ; production_lire) et souvent une synthèse. Pour toute question de fond, appuie-toi dessus AVANT de relire des pièces — elles portent les cotes. Sans fiches, ne te lance JAMAIS dans une relecture massive : réponds sur pièces ciblées et, si la demande exige un vrai dépouillement, propose au magistrat de lancer un chantier (état courant : chantiers_etat).',
+          'MÉMOIRE DU DOSSIER : ci-dessous l\'essentiel retenu. Deux registres, à respecter strictement — « [fait] … (cote) » : un élément du dossier, TOUJOURS coté ; « [échange] JJ/MM/AAAA — … » : une position, décision ou orientation exprimée par le magistrat, datée. Ne sers JAMAIS un [échange] comme un fait établi : c\'est un souvenir de conversation, à rappeler comme tel (« on en avait parlé : … »). Quand un échange apporte du neuf, ajoute UNE ligne télégraphique du bon registre avec memoire_dossier_noter. Reste bref : cette mémoire est volontairement petite.',
           memoire ? `--- mémoire du dossier ---\n${memoire}\n--- fin ---` : '(mémoire du dossier vide pour l\'instant)',
           '',
           `Question du magistrat : ${message}`,

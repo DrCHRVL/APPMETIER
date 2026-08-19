@@ -23,6 +23,7 @@ import { ProductionsSection } from './ProductionsSection';
 interface PochetteResume { nom: string; pieces: number; lots: number; faits: number; echecs: number }
 interface Chantier {
   id: string; type: string; numero: string; consigne?: string;
+  numeros?: string[] | null; sansFiches?: string[];
   etat: 'devis' | 'en_cours' | 'pause' | 'synthese' | 'termine';
   attente?: 'nuit' | 'forfait' | null;
   nuitSeulement?: boolean;
@@ -57,7 +58,9 @@ export function ChantiersSection() {
   const [busy, setBusy] = useState<string | null>(null);
   // formulaire de lancement
   const [showForm, setShowForm] = useState(false);
+  const [typeChantier, setTypeChantier] = useState<'dossier' | 'liens' | 'carto'>('dossier');
   const [numero, setNumero] = useState('');
+  const [numeros, setNumeros] = useState<string[]>([]); // liens/carto : plusieurs dossiers
   const [consigne, setConsigne] = useState('');
   const [nuitSeulement, setNuitSeulement] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -85,33 +88,50 @@ export function ChantiersSection() {
     return () => clearInterval(t);
   }, [load]);
 
+  const ajouterNumero = useCallback(() => {
+    const n = numero.trim();
+    if (!n) return;
+    setNumeros((prev) => (prev.includes(n) ? prev : [...prev, n]));
+    setNumero('');
+  }, [numero]);
+
   const creer = useCallback(async () => {
-    if (!numero.trim()) { showToast('Indiquez le dossier à dépouiller', 'warning'); return; }
+    const multi = typeChantier !== 'dossier';
+    // un numéro tapé mais pas encore « Ajouté » compte quand même : un oubli
+    // ne doit pas coûter un aller-retour au magistrat
+    const liste = multi
+      ? [...numeros, ...(numero.trim() && !numeros.includes(numero.trim()) ? [numero.trim()] : [])]
+      : [];
+    if (!multi && !numero.trim()) { showToast('Indiquez le dossier à dépouiller', 'warning'); return; }
+    if (typeChantier === 'liens' && liste.length < 2) { showToast('Un chantier « liens » croise au moins deux dossiers', 'warning'); return; }
+    if (typeChantier === 'carto' && liste.length < 1) { showToast('Indiquez au moins un dossier', 'warning'); return; }
     setCreating(true);
     try {
       const res = await fetch('/api/attache/chantiers', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ numero: numero.trim(), consigne: consigne.trim(), nuitSeulement }),
+        body: JSON.stringify(multi
+          ? { type: typeChantier, numeros: liste, consigne: consigne.trim(), nuitSeulement }
+          : { numero: numero.trim(), consigne: consigne.trim(), nuitSeulement }),
       });
       const data = await res.json().catch(() => ({} as { error?: string; id?: string }));
       if (!res.ok || data.error) {
         showToast(`Création impossible : ${data.error || 'service injoignable'}`, 'error');
         return;
       }
-      showToast('Devis établi — validez-le pour lancer le dépouillement', 'success');
-      setShowForm(false); setNumero(''); setConsigne('');
+      showToast('Devis établi — validez-le pour lancer le chantier', 'success');
+      setShowForm(false); setNumero(''); setNumeros([]); setConsigne('');
       setExpanded(String(data.id || ''));
       await load();
     } finally {
       setCreating(false);
     }
-  }, [numero, consigne, nuitSeulement, showToast, load]);
+  }, [typeChantier, numero, numeros, consigne, nuitSeulement, showToast, load]);
 
   const action = useCallback(async (ch: Chantier, act: 'lancer' | 'pause' | 'supprimer') => {
     if (act === 'supprimer' && !window.confirm(
       ch.fiches.length
-        ? `Supprimer ce chantier ? Les ${ch.fiches.length} fiche(s) déjà produites RESTENT dans « Actes rédigés » du dossier.`
+        ? `Supprimer ce chantier ? Les ${ch.fiches.length} production(s) déjà rangées RESTENT dans « Actes rédigés » du dossier.`
         : 'Supprimer ce chantier ?'
     )) return;
     setBusy(ch.id);
@@ -163,19 +183,75 @@ export function ChantiersSection() {
           {showForm && (
             <div className="space-y-2 rounded-lg border border-[#2B5746]/20 bg-emerald-50/30 p-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-gray-700">Nouveau chantier — dossier en détail</p>
+                <p className="text-xs font-semibold text-gray-700">
+                  Nouveau chantier — {typeChantier === 'dossier' ? 'dossier en détail' : typeChantier === 'liens' ? 'liens entre dossiers' : 'cartographie'}
+                </p>
                 <button onClick={() => setShowForm(false)} className="rounded p-0.5 text-gray-400 hover:bg-gray-100"><X className="h-3.5 w-3.5" /></button>
               </div>
-              <input
-                list="chantier-dossiers"
-                value={numero}
-                onChange={(e) => setNumero(e.target.value)}
-                placeholder="Numéro du dossier (ex. 00387/00068/2026 - PRISON BREAK 2)"
-                className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:border-[#2B5746] focus:outline-none"
-              />
+              {/* Les trois consommateurs du même capital : dépouiller (produit
+                  les fiches), croiser (rapport de recoupements), cartographier
+                  (propositions à valider). */}
+              <div className="flex flex-wrap gap-1.5">
+                {([
+                  { t: 'dossier', label: 'Dossier en détail', desc: 'Dépouille les pièces en fiches factuelles, puis synthèse' },
+                  { t: 'liens', label: 'Liens entre dossiers', desc: 'Croise les fiches de plusieurs dossiers — rapport de recoupements coté des deux côtés' },
+                  { t: 'carto', label: 'Cartographie', desc: 'Depuis les fiches : propositions de personnes et de liens, à valider une à une' },
+                ] as const).map(({ t, label, desc }) => (
+                  <button
+                    key={t}
+                    onClick={() => setTypeChantier(t)}
+                    title={desc}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                      typeChantier === t
+                        ? 'border-[#2B5746] bg-[#2B5746] text-white'
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-[#2B5746]/40'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {typeChantier !== 'dossier' && numeros.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {numeros.map((n) => (
+                    <span key={n} className="inline-flex items-center gap-1 rounded-full bg-[#2B5746]/10 px-2 py-0.5 text-[10.5px] font-medium text-[#2B5746]">
+                      {n}
+                      <button onClick={() => setNumeros((prev) => prev.filter((x) => x !== n))} className="rounded-full p-0.5 hover:bg-[#2B5746]/15">
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-1.5">
+                <input
+                  list="chantier-dossiers"
+                  value={numero}
+                  onChange={(e) => setNumero(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && typeChantier !== 'dossier') { e.preventDefault(); ajouterNumero(); } }}
+                  placeholder={typeChantier === 'dossier'
+                    ? 'Numéro du dossier (ex. 00387/00068/2026 - PRISON BREAK 2)'
+                    : 'Numéro de dossier — Entrée ou « Ajouter » pour chacun'}
+                  className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:border-[#2B5746] focus:outline-none"
+                />
+                {typeChantier !== 'dossier' && (
+                  <button
+                    onClick={ajouterNumero}
+                    className="flex-shrink-0 rounded-lg border border-[#2B5746]/30 px-2.5 py-1.5 text-[11px] font-semibold text-[#2B5746] hover:bg-emerald-50"
+                  >
+                    Ajouter
+                  </button>
+                )}
+              </div>
               <datalist id="chantier-dossiers">
                 {enquetes.map((e) => <option key={e.id} value={String(e.numero)} />)}
               </datalist>
+              {typeChantier !== 'dossier' && (
+                <p className="text-[10.5px] text-amber-700/90">
+                  Ces chantiers lisent les FICHES produites par un chantier « dossier en détail » — jamais les pièces.
+                  Dépouillez d&apos;abord chaque dossier concerné.
+                </p>
+              )}
               <textarea
                 value={consigne}
                 onChange={(e) => setConsigne(e.target.value)}
@@ -205,8 +281,9 @@ export function ChantiersSection() {
 
           {chantiers.length === 0 && !showForm && (
             <p className="py-3 text-center text-xs text-gray-400">
-              Aucun chantier. Un chantier dépouille un dossier entier en fiches factuelles (la nuit, par lots, interruptible),
-              puis en tire une synthèse — le tout reste exploitable indéfiniment.
+              Aucun chantier. Trois types : « dossier en détail » dépouille un dossier entier en fiches factuelles
+              (la nuit, par lots, interruptible) puis en tire une synthèse ; « liens entre dossiers » croise les fiches
+              de plusieurs dossiers en un rapport de recoupements ; « cartographie » en tire des propositions à valider.
             </p>
           )}
 
@@ -215,6 +292,10 @@ export function ChantiersSection() {
             const badge = etatBadge(ch);
             const pct = ch.totalPieces ? Math.round((ch.piecesFaites / ch.totalPieces) * 100) : 0;
             const isExpanded = expanded === ch.id;
+            // liens/carto : l'unité de compte est la FICHE (le plan se bâtit
+            // sur le capital, jamais sur les pièces)
+            const unite = ch.type === 'dossier' ? 'pièces' : 'fiches';
+            const titreCh = ch.numeros?.length ? ch.numeros.join('  ×  ') : ch.numero;
             return (
               <div key={ch.id} className="rounded-lg border border-gray-200">
                 <div className="flex items-center gap-2 px-3 py-2">
@@ -222,11 +303,16 @@ export function ChantiersSection() {
                     <span className={`inline-flex flex-shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${badge.cls}`}>
                       {badge.Icon && <badge.Icon className="h-3 w-3" />}{badge.label}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-xs font-semibold text-gray-800" title={ch.numero}>{ch.numero}</span>
+                    {ch.type !== 'dossier' && (
+                      <span className="flex-shrink-0 rounded bg-indigo-50 px-1 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-indigo-600">
+                        {ch.type === 'liens' ? 'Liens' : 'Carto'}
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-xs font-semibold text-gray-800" title={titreCh}>{titreCh}</span>
                     <span className="flex-shrink-0 text-[10.5px] text-gray-400">
                       {ch.etat === 'devis'
-                        ? `${ch.totalPieces} pièces · ${ch.totalLots} lots`
-                        : `${ch.piecesFaites}/${ch.totalPieces} pièces · ${ch.lotsFaits}/${ch.totalLots} lots`}
+                        ? `${ch.totalPieces} ${unite} · ${ch.totalLots} lots`
+                        : `${ch.piecesFaites}/${ch.totalPieces} ${unite} · ${ch.lotsFaits}/${ch.totalLots} lots`}
                     </span>
                     {isExpanded ? <ChevronUp className="h-3.5 w-3.5 text-gray-400" /> : <ChevronDown className="h-3.5 w-3.5 text-gray-400" />}
                   </button>
@@ -274,25 +360,39 @@ export function ChantiersSection() {
                     {/* DEVIS */}
                     {ch.etat === 'devis' && ch.estimation && (
                       <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-2.5 text-[11px] text-gray-700">
-                        <p className="font-semibold text-amber-800">Devis — à valider avant tout dépouillement</p>
+                        <p className="font-semibold text-amber-800">Devis — à valider avant tout lancement</p>
                         <p className="mt-1">
-                          {ch.estimation.pieces} pièces · {ch.estimation.lots} lots (~12 pièces/lot) ·
+                          {ch.estimation.pieces} {unite} · {ch.estimation.lots} lots (~{ch.type === 'dossier' ? '12 pièces' : '8 fiches'}/lot) ·
                           jetons ≈ {fmtJetons(ch.estimation.jetonsMin)}–{fmtJetons(ch.estimation.jetonsMax)} ·
                           ≈ {ch.estimation.nuits} nuit(s) de travail{ch.nuitSeulement ? '' : ' (jour autorisé)'}
                         </p>
-                        <p className="mt-0.5 text-[10px] text-amber-700/80">Estimation grossière — le journal du chantier donne le réel au fil de l&apos;eau. Chaque pièce n&apos;est lue qu&apos;une fois : les fiches restent exploitables indéfiniment.</p>
+                        <p className="mt-0.5 text-[10px] text-amber-700/80">
+                          {ch.type === 'dossier'
+                            ? 'Estimation grossière — le journal du chantier donne le réel au fil de l’eau. Chaque pièce n’est lue qu’une fois : les fiches restent exploitables indéfiniment.'
+                            : 'Estimation grossière. Aucune pièce n’est relue : seules les fiches déjà produites sont lues, le chantier est bien plus court qu’un dépouillement.'}
+                        </p>
                       </div>
                     )}
 
-                    {/* Pochettes */}
+                    {/* Dossiers écartés faute de fiches (liens/carto) */}
+                    {(ch.sansFiches || []).length > 0 && (
+                      <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10.5px] text-amber-800">
+                        Écartés faute de fiches : {(ch.sansFiches || []).join(' · ')} — lancez d&apos;abord un chantier
+                        « dossier en détail » dessus, puis recréez ce chantier pour les inclure.
+                      </p>
+                    )}
+
+                    {/* Pochettes (type dossier) / dossiers croisés (liens, carto) */}
                     <div className="space-y-1">
-                      <p className="text-[11px] font-semibold text-gray-700">Pochettes ({ch.pochettes.length})</p>
+                      <p className="text-[11px] font-semibold text-gray-700">
+                        {ch.type === 'dossier' ? 'Pochettes' : 'Dossiers croisés'} ({ch.pochettes.length})
+                      </p>
                       <div className="max-h-44 space-y-0.5 overflow-y-auto">
                         {ch.pochettes.map((p) => (
                           <div key={p.nom} className="flex items-center gap-2 text-[11px]">
                             <span className="min-w-0 flex-1 truncate text-gray-600" title={p.nom}>{p.nom}</span>
                             <span className="flex-shrink-0 tabular-nums text-gray-400">
-                              {ch.etat === 'devis' ? `${p.pieces} pièces` : `${p.faits}/${p.lots} lots`}
+                              {ch.etat === 'devis' ? `${p.pieces} ${unite}` : `${p.faits}/${p.lots} lots`}
                               {p.echecs > 0 && <span className="ml-1 text-red-500">· {p.echecs} échec(s)</span>}
                             </span>
                             {ch.etat !== 'devis' && p.faits >= p.lots && p.echecs === 0 && <CheckCircle2 className="h-3 w-3 flex-shrink-0 text-emerald-500" />}
@@ -313,13 +413,21 @@ export function ChantiersSection() {
                       </details>
                     )}
 
-                    {/* Fiches + synthèse — les productions du chantier, lisibles ici même */}
+                    {/* Productions du chantier, lisibles ici même : fiches +
+                        synthèse (dossier), tables + rapport (liens), comptes
+                        rendus + bilan (carto) — rangées sous le dossier porteur. */}
                     {ch.fiches.length > 0 && (
                       <div>
                         <p className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-gray-700">
-                          <FileText className="h-3 w-3" />Fiches et synthèse ({ch.fiches.length}{ch.syntheseProdId ? ' + synthèse' : ''})
+                          <FileText className="h-3 w-3" />
+                          {ch.type === 'dossier' ? 'Fiches et synthèse' : ch.type === 'liens' ? 'Tables de signalements et rapport' : 'Comptes rendus et bilan'}
+                          {' '}({ch.fiches.length}{ch.syntheseProdId ? ' + 1' : ''})
                         </p>
-                        <ProductionsSection numero={ch.numero} titre="Fiches et synthèse du chantier" filtreSource={`chantier:${ch.id}`} />
+                        <ProductionsSection
+                          numero={ch.numero}
+                          titre={ch.type === 'dossier' ? 'Fiches et synthèse du chantier' : ch.type === 'liens' ? 'Tables et rapport du chantier' : 'Comptes rendus et bilan du chantier'}
+                          filtreSource={`chantier:${ch.id}`}
+                        />
                       </div>
                     )}
                   </div>

@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef } from 'react';
 
 import { DataSyncIndicator } from './sync/DataSyncIndicator';
 import { NetworkStatusIndicator } from './NetworkStatusIndicator';
+import { ChantierDot } from './attache/ChantierDot';
 import { SyncStatus } from '@/types/dataSyncTypes';
 import { GlobalSearchBox } from './search/GlobalSearchBox';
 import type { GlobalSearchApi } from '@/hooks/useGlobalSearch';
@@ -234,6 +235,8 @@ export const Header = ({
                     onClick={onShowAttache}
                   >
                     <Scale className="h-4 w-4" />
+                    {/* point bleu : un chantier d'analyse profonde tourne */}
+                    <ChantierDot />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
