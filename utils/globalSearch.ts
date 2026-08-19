@@ -327,6 +327,8 @@ export const KNOWN_OPS = new Set([
   'doc', 'document', 'fichier',          // noms et contenu des documents
   'saisine', 'qualification',            // saisine / qualifications (instruction)
   'aem', 'ref', 'referent', 'secteur', 'faits', // module AIR
+  'tel', 'telephone', 'gsm', 'ligne',    // numéros de téléphone (écoutes, AIR)
+  'geoloc', 'cible', 'immat', 'plaque', 'vtam', // cibles de géolocalisation
 ]);
 
 const OP_RE = /^([a-z]{2,15}):(.+)$/;
