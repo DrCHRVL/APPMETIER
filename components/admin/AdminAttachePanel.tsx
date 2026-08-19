@@ -18,6 +18,7 @@ import { skillFromArchive } from '@/lib/web/skillImport';
 import { entrySlug } from '@/lib/web/slug';
 import { AttacheKbSection } from './AttacheKbSection';
 import { TramesFormePanel } from './TramesFormePanel';
+import { AttacheConsignesSection } from './AttacheConsignesSection';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { siralBridge?: Record<string, AnyFn> }).siralBridge;
@@ -2172,6 +2173,9 @@ export function AdminAttachePanel() {
           </p>
         )}
       </div>
+
+      {/* Consignes PAR DOMAINE — les prompts métier, jusqu'ici figés dans le code */}
+      <AttacheConsignesSection onNotice={setNotice} />
 
       {/* Skills — méthodes réutilisables, comme les skills Claude web */}
       <div className="rounded-xl border border-gray-200">

@@ -386,6 +386,18 @@ l'usage).
   de vos instructions Claude web : style, méthode, réflexes), relu au début de
   chaque intervention. Chiffré, versionné, modifiable à tout moment. Il
   complète la persona et les règles de gouvernance, il ne les remplace pas.
+- **Et vous réglez ses prompts métier** : Paramètres → Attaché IA →
+  « Consignes par domaine ». Chaque tâche automatique a un prompt (jusqu'ici
+  figé dans le code) que vous LISEZ tel quel — le « socle » — et que vous
+  **complétez** ou **remplacez** : rédaction de la description d'un dossier,
+  détection des mis en cause, recherche profonde dans la cartographie
+  (méthode de l'analyse transversale et cadrage du chat carto), et chacun des
+  six étages des chantiers d'analyse profonde (fiche de lot, synthèse, table
+  de signalements, rapport de recoupements, propositions carto, bilan carto).
+  L'entête (dossier, lot, angle demandé) et les données jointes (liste des
+  pièces, corpus de fiches) restent bâties par le moteur : une consigne change
+  la méthode et le format, jamais l'acheminement du contexte. Chiffré,
+  versionné ; une case vidée rend la tâche à son socle.
 - **Skills, comme Claude web** : des méthodes réutilisables (nom +
   description + contenu markdown), gérées dans Paramètres → Attaché IA →
   « Skills ». Le dépôt fournit des **skills prêtes à téléverser** dans

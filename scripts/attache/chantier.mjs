@@ -34,6 +34,7 @@ import { numeroCanonique } from './dossier.mjs'
 import { appendDossierMemory } from './dossierMemory.mjs'
 import { saveProduction, readProduction, listProductions } from './productions.mjs'
 import { runAgent, agentConfig } from './agent.mjs'
+import { prompt as promptConsigne } from './consignes.mjs'
 
 const LOT_PIECES = 12          // pièces par run — tient largement dans un contexte
 const LOT_FICHES = 8           // fiches par run (chantiers « liens » et « carto »)
@@ -99,8 +100,24 @@ function resumeChantier(ch) {
     fiches: (ch.fiches || []).map((f) => ({ prodId: f.prodId, titre: f.titre, pochette: f.pochette })),
     syntheseProdId: ch.syntheseProdId || null,
     estimation: ch.estimation,
+    enCours: pasEnCours(ch),
     journal: (ch.journal || []).slice(-12),
   }
+}
+
+/**
+ * Le pas EN TRAIN de tourner (lot dépouillé, synthèse en cours) — pour que le
+ * magistrat voie l'attaché travailler, pas seulement un compteur figé.
+ * Le marqueur est posé avant le run et retiré après ; s'il survit à un
+ * redémarrage du service, il est PÉRIMÉ (aucun run ne peut durer plus qu'un
+ * timeout de lot) et on ne le sert pas — mieux vaut rien qu'un faux « en cours ».
+ */
+function pasEnCours(ch) {
+  const p = ch.enCours
+  if (!p || !['en_cours', 'synthese'].includes(ch.etat)) return null
+  const depuis = Date.parse(p.depuis || '')
+  if (!Number.isFinite(depuis) || Date.now() - depuis > LOT_TIMEOUT_MS + 5 * 60_000) return null
+  return p
 }
 
 /**
@@ -272,6 +289,7 @@ export async function actionChantier(keys, { id, action }) {
     if (!['en_cours', 'synthese'].includes(ch.etat)) throw new Error(`Ce chantier est « ${ch.etat} » — rien à mettre en pause`)
     ch.etat = 'pause'
     ch.attente = null
+    ch.enCours = null
     journal(ch, 'Mis en pause par le magistrat (reprise sans perte : re-cliquer « Reprendre »).')
     writeChantier(keys, ch)
     return resumeChantier(ch)
@@ -297,57 +315,31 @@ function prochainLot(ch) {
 // Le format de fiche est LE contrat : factuel, sourcé, sans opinion. La
 // sortie finale du run EST la fiche — le moteur l'enregistre lui-même
 // (aucune porte de qualité d'acte : une fiche n'est pas un acte).
-function promptLot(ch, pochette, lot) {
-  const pieces = lot.pieces.map((r) => `- ${r}`).join('\n')
-  return [
-    `CHANTIER D'ANALYSE PROFONDE — dossier « ${ch.numero} », pochette « ${pochette.nom} », lot ${lot.n} (${lot.pieces.length} pièces).`,
-    ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT (à garder en tête, sans exclure le reste) : ${ch.consigne}` : '',
-    '',
-    'TRAVAIL : lis INTÉGRALEMENT chacune des pièces ci-dessous (lire_document, chemin exact ; si offsetSuivant apparaît, lis la suite avant de conclure), puis rends UNE FICHE FACTUELLE unique couvrant tout le lot.',
-    'PAGES IMAGES : ne les lis PAS (pas de integrale:true) — recense-les simplement dans la section dédiée de la fiche.',
-    'LECTURE SEULE ABSOLUE : tu n\'appelles AUCUN outil d\'écriture (ni produire_document, ni proposer_*, ni classer_note, ni memoire) — le moteur du chantier range ta fiche lui-même.',
-    '',
-    'PIÈCES DU LOT :',
-    pieces,
-    '',
-    'FORMAT IMPOSÉ DE LA FICHE (markdown, sections exactes ; chaque fait porte sa COTE = le chemin de la pièce ; verbatims entre guillemets, JAMAIS reformulés) :',
-    '## Chronologie',
-    '(faits datés, un par ligne : date — fait — cote)',
-    '## Personnes',
-    '(par personne : identité, alias, téléphones, véhicules/plaques, adresses, comptes, rôle apparent — avec cotes)',
-    '## Déclarations utiles (verbatim)',
-    '(citations exactes entre guillemets, qui parle, cote)',
-    '## À charge / À décharge',
-    '(éléments factuels, cotes — pas d\'appréciation)',
-    '## Contradictions et points à vérifier',
-    '## Actes manquants ou à envisager',
-    '## Annexes images non lues',
-    '(pièce — pages concernées)',
-    '## Pièces sans intérêt d\'enquête',
-    '(procédure pure : notifications, réquisitions type — une ligne par pièce)',
-    '',
-    'TA RÉPONSE FINALE EST LA FICHE, ET RIEN D\'AUTRE : aucun préambule, aucun commentaire, aucune conclusion hors fiche. Si une pièce est illisible, note-le dans la fiche (section Contradictions/à vérifier) et poursuis.',
-  ].filter(Boolean).join('\n')
+// Le TEXTE des instructions vit dans consignes.mjs (socles « chantier_* ») :
+// le magistrat le lit, le complète ou le remplace depuis Paramètres → Attaché
+// IA. Ici on ne bâtit plus que l'ENTÊTE (dossier, pochette, lot, angle) et les
+// DONNÉES jointes (pièces, corpus de fiches) — jamais réglables, sous peine de
+// couper le contexte du run.
+function promptLot(keys, ch, pochette, lot) {
+  return promptConsigne(keys, 'chantier_fiche', {
+    entete: [
+      `CHANTIER D'ANALYSE PROFONDE — dossier « ${ch.numero} », pochette « ${pochette.nom} », lot ${lot.n} (${lot.pieces.length} pièces).`,
+      ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT (à garder en tête, sans exclure le reste) : ${ch.consigne}` : '',
+    ].filter(Boolean),
+    vars: { dossier: ch.numero, pochette: pochette.nom, lot: lot.n },
+    donnees: ['', '───── PIÈCES DU LOT ─────', lot.pieces.map((r) => `- ${r}`).join('\n')],
+  })
 }
 
-function promptSynthese(ch, fichesTexte) {
-  return [
-    `SYNTHÈSE D'ANALYSE PROFONDE — dossier « ${ch.numero} ». Le dépouillement est terminé : ${ch.fiches.length} fiches factuelles couvrant ${piecesFaites(ch)} pièces, jointes ci-dessous.`,
-    ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT : ${ch.consigne}` : '',
-    '',
-    'TRAVAIL : à partir des SEULES fiches (ne relis aucune pièce), rends une NOTE DE SYNTHÈSE d\'ensemble pour le magistrat :',
-    '1. Vue générale (faits, période, organisation apparente).',
-    '2. Par personne mise en cause : rôle, éléments à charge et à décharge (cotes).',
-    '3. Recoupements transversaux (mêmes numéros, plaques, adresses, lieux à travers les pochettes).',
-    '4. Contradictions majeures et points à trancher.',
-    '5. Actes manquants / investigations à envisager.',
-    '6. Angles morts : pochettes en échec, annexes images non lues — ce que la synthèse NE couvre PAS.',
-    'Chaque affirmation porte ses cotes. Prose dense de magistrat, pas de remplissage.',
-    'LECTURE SEULE ABSOLUE : aucun outil d\'écriture. TA RÉPONSE FINALE EST LA NOTE, RIEN D\'AUTRE.',
-    '',
-    '───── FICHES ─────',
-    fichesTexte,
-  ].filter(Boolean).join('\n')
+function promptSynthese(keys, ch, fichesTexte) {
+  return promptConsigne(keys, 'chantier_synthese', {
+    entete: [
+      `SYNTHÈSE D'ANALYSE PROFONDE — dossier « ${ch.numero} ». Le dépouillement est terminé : ${ch.fiches.length} fiches factuelles couvrant ${piecesFaites(ch)} pièces, jointes ci-dessous.`,
+      ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT : ${ch.consigne}` : '',
+    ].filter(Boolean),
+    vars: { dossier: ch.numero },
+    donnees: ['', '───── FICHES ─────', fichesTexte],
+  })
 }
 
 /**
@@ -370,79 +362,61 @@ function corpusFiches(keys, dossier, prodIds, budget = LOT_INJECT_BUDGET) {
 
 // Lot « liens » : depuis les fiches d'UN dossier, une table de signalements
 // normalisée — la matière première du rapport de recoupements final.
-function promptLotLiens(ch, dossier, lot, corpus) {
-  return [
-    `CHANTIER « LIENS ENTRE DOSSIERS » — croisement de ${ch.numeros.length} dossiers : ${ch.numeros.join(' · ')}.`,
-    `Ce run traite le lot ${lot.n} du dossier « ${dossier} » : ses fiches d'analyse sont jointes ci-dessous.`,
-    ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT : ${ch.consigne}` : '',
-    '',
-    'TRAVAIL : dresse la TABLE DE SIGNALEMENTS de ce lot — tout ce qui peut se recouper avec un autre dossier. Une ligne par signalement, format exact :',
-    '- <catégorie> | <valeur normalisée> | <contexte en une phrase> | <cote(s)>',
-    'Catégories : personne (identité + alias), surnom, téléphone, plaque/véhicule, adresse/lieu, compte/moyen de paiement, date-événement marquante, mode opératoire.',
-    'NORMALISE les valeurs (téléphones sans espaces, NOM Prénom, plaques sans tirets) pour permettre le rapprochement mécanique. Rien sans sa cote — la cote est le chemin de pièce que porte la fiche.',
-    'LECTURE SEULE ABSOLUE : aucun outil (ni lecture de pièce, ni écriture) — les fiches jointes suffisent.',
-    '',
-    `TA RÉPONSE FINALE EST LA TABLE, RIEN D'AUTRE. Elle commence par « ## Signalements — ${dossier} — lot ${lot.n} ».`,
-    '',
-    '───── FICHES DU LOT ─────',
-    corpus,
-  ].filter(Boolean).join('\n')
+function promptLotLiens(keys, ch, dossier, lot, corpus) {
+  return promptConsigne(keys, 'chantier_liens_lot', {
+    entete: [
+      `CHANTIER « LIENS ENTRE DOSSIERS » — croisement de ${ch.numeros.length} dossiers : ${ch.numeros.join(' · ')}.`,
+      `Ce run traite le lot ${lot.n} du dossier « ${dossier} » : ses fiches d'analyse sont jointes ci-dessous.`,
+      ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT : ${ch.consigne}` : '',
+    ].filter(Boolean),
+    vars: { dossier, lot: lot.n },
+    donnees: [
+      '',
+      `TITRE EXACT DE TA TABLE (première ligne de ta réponse) : « ## Signalements — ${dossier} — lot ${lot.n} ».`,
+      '',
+      '───── FICHES DU LOT ─────',
+      corpus,
+    ],
+  })
 }
 
 // Lot « carto » : depuis les fiches, des PROPOSITIONS (jamais d'écriture
 // directe) — le magistrat valide une à une depuis l'app.
-function promptLotCarto(ch, dossier, lot, corpus) {
-  return [
-    `CHANTIER « CARTOGRAPHIE » — alimenter la cartographie du contentieux depuis les fiches d'analyse du dossier « ${dossier} » (lot ${lot.n}).`,
-    ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT : ${ch.consigne}` : '',
-    '',
-    'TRAVAIL, en trois temps :',
-    '1. Repère dans les fiches jointes ce qui mérite la cartographie : personnes au rôle structurant, ponts entre affaires, fournisseurs/logisticiens récurrents — pas les seconds couteaux sans relief.',
-    '2. Confronte à l\'existant : recouper_personnes sur chaque nom retenu (carto_lister_liens au besoin) pour ne proposer QUE du nouveau.',
-    '3. Dépose tes PROPOSITIONS : proposer_mec_carto pour une personne absente de la carto qui le mérite, proposer_lien pour un lien de renseignement sourcé (pièce = la cote portée par la fiche). Le magistrat validera ou refusera chacune.',
-    'SEULS outils d\'écriture autorisés : proposer_mec_carto et proposer_lien. Aucune lecture de pièce — les fiches jointes suffisent.',
-    '',
-    `TA RÉPONSE FINALE : un compte rendu bref commençant par « ## Carto — ${dossier} — lot ${lot.n} » — une ligne par proposition déposée (qui/quoi, pourquoi, cote), puis ce que tu n'as PAS proposé et pourquoi.`,
-    '',
-    '───── FICHES DU LOT ─────',
-    corpus,
-  ].filter(Boolean).join('\n')
+function promptLotCarto(keys, ch, dossier, lot, corpus) {
+  return promptConsigne(keys, 'chantier_carto_lot', {
+    entete: [
+      `CHANTIER « CARTOGRAPHIE » — alimenter la cartographie du contentieux depuis les fiches d'analyse du dossier « ${dossier} » (lot ${lot.n}).`,
+      ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT : ${ch.consigne}` : '',
+    ].filter(Boolean),
+    vars: { dossier, lot: lot.n },
+    donnees: [
+      '',
+      `TITRE EXACT DE TON COMPTE RENDU (première ligne de ta réponse) : « ## Carto — ${dossier} — lot ${lot.n} ».`,
+      '',
+      '───── FICHES DU LOT ─────',
+      corpus,
+    ],
+  })
 }
 
-function promptSyntheseLiens(ch, corpus) {
-  return [
-    `RAPPORT DE RECOUPEMENTS — croisement des dossiers ${ch.numeros.join(' · ')}. Les tables de signalements dressées lot par lot depuis les fiches de chaque dossier sont jointes ci-dessous.`,
-    ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT : ${ch.consigne}` : '',
-    '',
-    'TRAVAIL : à partir des SEULES tables jointes, rends le RAPPORT DE RECOUPEMENTS :',
-    '1. Recoupements FORTS (même téléphone, même plaque, même personne ou alias, même adresse, même compte dans PLUSIEURS dossiers) : pour chacun — la valeur, les dossiers concernés, LES COTES DE PART ET D\'AUTRE, ce que cela implique.',
-    '2. Recoupements PROBABLES (graphies proches, surnoms, co-occurrences de lieux et de dates) : mêmes exigences, incertitude dite.',
-    '3. Architecture d\'ensemble si elle se dessine (filière commune, logistique partagée, donneurs d\'ordre).',
-    '4. Vérifications concrètes pour transformer un probable en certain (actes précis à envisager).',
-    '5. Ce que le rapport NE couvre PAS (dossiers écartés faute de fiches, lots en échec).',
-    'JAMAIS un recoupement sans ses cotes des deux côtés. Prose dense de magistrat, pas de remplissage.',
-    'LECTURE SEULE ABSOLUE : aucun outil. TA RÉPONSE FINALE EST LE RAPPORT, RIEN D\'AUTRE.',
-    '',
-    '───── TABLES DE SIGNALEMENTS ─────',
-    corpus,
-  ].filter(Boolean).join('\n')
+function promptSyntheseLiens(keys, ch, corpus) {
+  return promptConsigne(keys, 'chantier_liens_rapport', {
+    entete: [
+      `RAPPORT DE RECOUPEMENTS — croisement des dossiers ${ch.numeros.join(' · ')}. Les tables de signalements dressées lot par lot depuis les fiches de chaque dossier sont jointes ci-dessous.`,
+      ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT : ${ch.consigne}` : '',
+    ].filter(Boolean),
+    donnees: ['', '───── TABLES DE SIGNALEMENTS ─────', corpus],
+  })
 }
 
-function promptSyntheseCarto(ch, corpus) {
-  return [
-    `BILAN DE CARTOGRAPHIE — dossier(s) ${ch.numeros.join(' · ')}. Les comptes rendus des lots (propositions déposées) sont joints ci-dessous.`,
-    ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT : ${ch.consigne}` : '',
-    '',
-    'TRAVAIL : rends une NOTE DE BILAN pour le magistrat :',
-    '1. Les propositions déposées (personnes, liens), regroupées par affaire — pour chacune : pourquoi elle mérite validation, sa cote.',
-    '2. Les figures centrales et les ponts entre affaires qui se dégagent.',
-    '3. Ce qui n\'a PAS été proposé et pourquoi (déjà en carto, trop faible).',
-    '4. Rappel : les propositions se valident page Assistant de justice (« Proposition à valider ») et au bas de la Cartographie.',
-    'LECTURE SEULE ABSOLUE : aucun outil. TA RÉPONSE FINALE EST LA NOTE, RIEN D\'AUTRE.',
-    '',
-    '───── COMPTES RENDUS DES LOTS ─────',
-    corpus,
-  ].filter(Boolean).join('\n')
+function promptSyntheseCarto(keys, ch, corpus) {
+  return promptConsigne(keys, 'chantier_carto_bilan', {
+    entete: [
+      `BILAN DE CARTOGRAPHIE — dossier(s) ${ch.numeros.join(' · ')}. Les comptes rendus des lots (propositions déposées) sont joints ci-dessous.`,
+      ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT : ${ch.consigne}` : '',
+    ].filter(Boolean),
+    donnees: ['', '───── COMPTES RENDUS DES LOTS ─────', corpus],
+  })
 }
 
 // ── Exécution ──
@@ -485,11 +459,34 @@ export async function chantierStep(keys, autorise) {
         writeChantier(keys, ch)
         return 'travail'
       }
-      await runLot(keys, ch, next)
+      // Marqueur du pas en cours : posé AVANT le run (le panneau le lit tout de
+      // suite), retiré quoi qu'il arrive — succès, échec ou timeout.
+      ch.enCours = {
+        etape: 'lot',
+        pochette: next.pochette.nom,
+        lot: next.lot.n,
+        pieces: next.lot.pieces.length,
+        tentative: (next.lot.echecs || 0) + 1,
+        depuis: new Date().toISOString(),
+      }
+      writeChantier(keys, ch)
+      try {
+        await runLot(keys, ch, next)
+      } finally {
+        ch.enCours = null
+        writeChantier(keys, ch)
+      }
       return 'travail'
     }
     if (ch.etat === 'synthese') {
-      await runSynthese(keys, ch)
+      ch.enCours = { etape: 'synthese', fiches: (ch.fiches || []).length, depuis: new Date().toISOString() }
+      writeChantier(keys, ch)
+      try {
+        await runSynthese(keys, ch)
+      } finally {
+        ch.enCours = null
+        writeChantier(keys, ch)
+      }
       return 'travail'
     }
     return 'rien'
@@ -504,7 +501,7 @@ async function runLot(keys, ch, { pochette, lot }) {
   const titre = `Fiche — ${pochette.nom} — lot ${lot.n} (${lot.pieces.length} pièces)`
   const res = await runAgent({
     keys,
-    prompt: promptLot(ch, pochette, lot),
+    prompt: promptLot(keys, ch, pochette, lot),
     runLabel: 'chantier',
     title: `Chantier ${ch.numero} · ${titre}`,
     // fiches = extraction : le modèle des sous-agents (souvent plus économe) s'il est réglé
@@ -572,7 +569,7 @@ async function runLotFiches(keys, ch, { pochette, lot }) {
     : `Carto — ${dossier} — lot ${lot.n}`
   const res = await runAgent({
     keys,
-    prompt: ch.type === 'liens' ? promptLotLiens(ch, dossier, lot, corpus) : promptLotCarto(ch, dossier, lot, corpus),
+    prompt: ch.type === 'liens' ? promptLotLiens(keys, ch, dossier, lot, corpus) : promptLotCarto(keys, ch, dossier, lot, corpus),
     runLabel: 'chantier',
     title: `Chantier ${ch.type} · ${titre}`,
     model: cfg.subModel || undefined,
@@ -619,7 +616,7 @@ async function runSynthese(keys, ch) {
 
   const res = await runAgent({
     keys,
-    prompt: promptSynthese(ch, corpus),
+    prompt: promptSynthese(keys, ch, corpus),
     runLabel: 'chantier',
     title: `Chantier ${ch.numero} · synthèse`,
     effort: 'high', // modèle principal (réglage du panneau) : c'est ici que la qualité paie
@@ -677,7 +674,7 @@ async function runSyntheseFiches(keys, ch) {
 
   const res = await runAgent({
     keys,
-    prompt: ch.type === 'liens' ? promptSyntheseLiens(ch, corpus) : promptSyntheseCarto(ch, corpus),
+    prompt: ch.type === 'liens' ? promptSyntheseLiens(keys, ch, corpus) : promptSyntheseCarto(keys, ch, corpus),
     runLabel: 'chantier',
     title: `Chantier ${ch.type} · ${ch.type === 'liens' ? 'rapport de recoupements' : 'bilan carto'}`,
     effort: 'high', // modèle principal : c'est ici que la qualité paie

@@ -19,6 +19,7 @@ import { attacheTj, readVault, writeVault, listDocsMeta, docServerKey } from './
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { loadContentieux, normalizeNom } from './dossier.mjs'
 import { instructionCorpus } from './instru.mjs'
+import { bloc as blocConsigne } from './consignes.mjs'
 
 const OVERLAY = 'cartographie'
 
@@ -279,7 +280,7 @@ export function cartoCorpus(keys, { includeArchived = true } = {}) {
     mecsExNihiloExistants: (ov?.mecsExNihilo || []).map((m) => m.displayName || m.id).slice(0, 300),
     dossiersExNihiloExistants: (ov?.dossiersExNihilo || []).map((d) => d.label).slice(0, 200),
     liensRenseignementTraces: (ov?.liensRenseignement || []).length,
-    note: 'Corpus COMPLET pour une analyse transversale de renseignement : toutes les enquêtes (archivées comprises) et tous les dossiers d\'instruction, avec leurs mis en cause DÉCLARÉS et le nombre de pièces. Les signaux faibles (surnoms, personnes au 2nd plan jamais mises en cause, adresses, plaques, téléphones, comptes) sont dans les PIÈCES — pas dans la liste des mis en cause. MÉTHODE : pour chaque dossier, dossier_arborescence(numero) puis lire_document sur les PV et pièces ; DÉLÈGUE à des sous_agents (un par dossier ou petit groupe, consigne autonome : « relève toute personne — nom, surnom, alias —, adresse, plaque, téléphone, compte, et ce qui la relie à une autre ; format : liste »). Recoupe (recouper_personnes) puis PROPOSE (jamais tracé d\'office) : proposer_lien entre personnes reliées, proposer_mec_carto pour un suspect/surnom absent des dossiers, proposer_dossier_carto pour une architecture cachée (grappe autour d\'une même figure — ex. un détenu qui pilote plusieurs affaires).',
+    note: blocConsigne(keys, 'carto_profonde'),
   }
 }
 

@@ -96,7 +96,7 @@ export async function writeCollectionEnvelopeRaw(collection, id, envelope) {
 // clair (questions-status, journal-status) : mêmes relais
 // que les collections — l'app web délègue quand son accès disque est refusé.
 
-const SINGLE_ENVELOPE_RE = /^(memory|instructions|associations)$/
+const SINGLE_ENVELOPE_RE = /^(memory|instructions|consignes|associations)$/
 const STATUS_MAP_RE = /^(questions-status|journal-status)$/
 
 export async function writeSingleEnvelopeRaw(name, envelope) {
