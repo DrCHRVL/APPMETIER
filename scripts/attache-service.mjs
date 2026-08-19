@@ -21,7 +21,7 @@ import { loadKeyring, grantKeyring, revokeKeyring, keyringStatus, allowedScopes 
 import { handleConnectorMessage } from './attache-mcp.mjs'
 import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
-import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride } from './attache/mail.mjs'
+import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride, purgeInbox } from './attache/mail.mjs'
 import { writeClaudeToken, clearClaudeToken, clearAuthFailure } from './attache/claudeAuth.mjs'
 import { runAgent, checkClaudeCli, testClaudeAuth, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
 import { usageSummary } from './attache/usage.mjs'
@@ -823,49 +823,26 @@ function inNightWindow(now = new Date()) {
   return NIGHT_START < NIGHT_END ? (h >= NIGHT_START && h < NIGHT_END) : (h >= NIGHT_START || h < NIGHT_END)
 }
 
-/** Détail de la carte de mise en pause — écrit pour être LU : ce que sont les
- * « runs automatiques », pourquoi ils coûtent, quand ça repart, quoi faire.
- * L'ancienne version tenait en une phrase et annonçait toujours un retour
- * « dès que la fenêtre de 5 h sera redescendue », même quand c'était le
- * plafond HEBDOMADAIRE qui était atteint (des jours d'attente, pas des heures). */
-function deferNoteResume(gov) {
+/** Carte de mise en pause — CONCISE par exigence du magistrat : ce qui est
+ * différé, les jauges, la reprise. Rien d'autre (la pédagogie vit dans la
+ * documentation des Paramètres, pas dans le fil). */
+function deferNoteResume(gov, quoi) {
   const par7j = gov.cause === '7j'
   const jauges = [
-    gov.cap5h ? `fenêtre de 5 h : ${Math.round(gov.pct5h * 100)} % du forfait` : null,
+    gov.cap5h ? `fenêtre 5 h : ${Math.round(gov.pct5h * 100)} %` : null,
     gov.capHebdo ? `7 jours : ${Math.round(gov.pct7d * 100)} %` : null,
   ].filter(Boolean).join(' · ')
   return [
-    `Cause : ${gov.raison}. Consommation mesurée — ${jauges}.`,
-    '',
-    'CE QUI EST SUSPENDU. Les « runs automatiques » sont les travaux que',
-    "l'attaché lance de lui-même, sans que vous les demandiez :",
-    '· vos routines planifiées (scan de la cartographie, veilles…) ;',
-    "· l'étude du corpus d'actes et la consolidation de l'apprentissage.",
-    "Ils coûtent cher parce qu'un balayage délègue un SOUS-AGENT PAR DOSSIER : un seul",
-    'balayage peut lancer des dizaines de runs en parallèle et vider le forfait',
-    'avant votre première question de la journée.',
-    '',
-    "CE QUI CONTINUE : vos conversations et le traitement des mails que vous",
-    "transférez — la demande directe du magistrat n'est jamais mise en pause.",
-    '',
-    par7j
-      ? 'REPRISE : automatique, mais le plafond hebdomadaire ne se vide que sur 7 jours'
-        + ' glissants — comptez plusieurs jours, pas quelques heures. Rien n\'est perdu :'
-        + ' chaque travail différé repart seul dès que la consommation redescend.'
-      : 'REPRISE : automatique dès que la fenêtre de 5 h redescend — quelques heures.'
-        + " Rien n'est perdu : chaque travail différé repart seul.",
-    '',
-    'QUOI FAIRE. Voir où passent les jetons et ajuster : Paramètres → Attaché IA →',
-    '« Consommation IA » (répartition par poste, volet « Derniers runs »). Pour',
-    'dépenser moins : espacer les routines qui balayent tous les dossiers ou les',
-    'planifier de nuit, cocher le mode économe. Le forfait n\'est qu\'un repère que',
-    "vous réglez vous-même : si les plafonds saisis sont trop bas, l'attaché se met",
-    'en pause pour rien.',
-    '',
-    'Cette carte ne paraît qu\'UNE FOIS par mise en pause : elle ne se répétera pas',
-    'tant que la consommation ne sera pas redescendue puis remontée.',
+    `Différé : ${quoi || 'travaux de fond'} — et tout autre travail de fond tant que le forfait est plein.`,
+    `${jauges}. ${par7j ? 'Reprise automatique (plafond 7 jours : comptez plusieurs jours).' : 'Reprise automatique dès que la fenêtre redescend.'}`,
+    'Conversations et mails : jamais mis en pause.',
   ].join('\n')
 }
+
+// Anti-rafale : au plus UNE carte de mise en pause par période de 12 h, même
+// si plusieurs épisodes se succèdent (saturé → redescend → re-saturé) — une
+// journée chargée en produisait cinq identiques.
+const DEFER_CARD_COOLDOWN_MS = 12 * 3600 * 1000
 
 // Une SEULE carte par épisode de mise en pause — et non une par heure. Le
 // gouverneur reste « stop » tant que la consommation ne redescend pas : avec un
@@ -892,19 +869,21 @@ async function autonomousOnHold(keys, quoi) {
   // readState() est SYNCHRONE : le test et l'affectation du repère mémoire
   // n'encadrent aucun await — plusieurs runs de fond gated dans le même tick ne
   // peuvent donc pas publier deux cartes.
-  const shouldNote = Boolean(keys) && !deferEpisodeNoted && !st.autoDeferNotedAt
+  const lastCardMs = Date.parse(st.autoDeferLastCardAt || 0) || 0
+  const cooldownOk = Date.now() - lastCardMs > DEFER_CARD_COOLDOWN_MS
+  const shouldNote = Boolean(keys) && !deferEpisodeNoted && !st.autoDeferNotedAt && cooldownOk
   if (shouldNote) deferEpisodeNoted = true
   try {
     await writeState({
       autoDeferredAt: st.autoDeferredAt || nowIso,
       autoDeferReason: gov.raison || null,
-      ...(shouldNote ? { autoDeferNotedAt: nowIso } : {}),
+      ...(shouldNote ? { autoDeferNotedAt: nowIso, autoDeferLastCardAt: nowIso } : {}),
     })
     if (shouldNote) {
       await publishFeed(keys, {
         type: 'note',
-        titre: 'Runs automatiques en pause — forfait saturé',
-        resume: deferNoteResume(gov),
+        titre: 'Travaux de fond en pause — forfait saturé',
+        resume: deferNoteResume(gov, quoi),
       })
     }
   } catch { /* la mise en pause ne doit jamais gêner le service */ }
@@ -1450,6 +1429,14 @@ const server = http.createServer(async (req, res) => {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
       return json(res, 200, { messages: listInbox(keys) })
+    }
+
+    // Vider la boîte : les messages traités (défaut) ou tout (mode=tous).
+    if (route === 'DELETE /inbox') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const mode = url.searchParams.get('mode') === 'tous' ? 'tous' : 'traites'
+      return json(res, 200, await purgeInbox(keys, { mode }))
     }
 
     // ── Relais d'écriture des collections (trames, skills, kb) ──

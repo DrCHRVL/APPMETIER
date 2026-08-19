@@ -23,3 +23,13 @@ export async function POST(req: Request) {
     return jsonResponse(await res.json().catch(() => ({ ok: false })), { status: res.status })
   })
 }
+
+/** Vider la boîte : messages traités (défaut) ou tout (?mode=tous). */
+export async function DELETE(req: Request) {
+  return handle(async () => {
+    requireAttacheAdmin(req)
+    const mode = new URL(req.url).searchParams.get('mode') === 'tous' ? 'tous' : 'traites'
+    const res = await attacheFetch(`/inbox?mode=${mode}`, { method: 'DELETE' })
+    return jsonResponse(await res.json().catch(() => ({ ok: false })), { status: res.status })
+  })
+}
