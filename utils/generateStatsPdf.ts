@@ -179,10 +179,38 @@ export const PDF_SECTIONS: PdfSectionDef[] = [
 export interface PdfExportOptions {
   /** Sections activées (clé → booléen). Absent = tout activé. */
   sections?: Record<string, boolean>;
+  /** Ordre d'apparition des sections (clés de PDF_SECTIONS). Absent = ordre par défaut. */
+  order?: string[];
   /** Remplace le nom du rédacteur en en-tête. */
   redacteur?: string;
   /** Remplace le destinataire (« à destination de … »). */
   destinataire?: string;
+}
+
+/** Ordre effectif des sections : celui demandé (clés connues, sans doublon),
+ *  complété par les sections absentes de la demande, dans l'ordre par défaut.
+ *  Ainsi une section ajoutée après la mémorisation d'un ordre reste rendue. */
+export function resolveSectionOrder(order?: string[]): string[] {
+  const known = new Set(PDF_SECTIONS.map(s => s.key));
+  const kept: string[] = [];
+  const seen = new Set<string>();
+  for (const key of order || []) {
+    if (known.has(key) && !seen.has(key)) {
+      seen.add(key);
+      kept.push(key);
+    }
+  }
+  for (const s of PDF_SECTIONS) if (!seen.has(s.key)) kept.push(s.key);
+  return kept;
+}
+
+/** Libellé du contentieux tel qu'il apparaît en couverture : on retire le
+ *  raccourci « / Stup » et on normalise la casse (« Criminalité organisée »). */
+function formatContentieuxLabel(raw?: string): string {
+  const label = (raw || 'Criminalité organisée')
+    .replace(/\s*[/·,—-]\s*stup(?:s|[ée]fiants?)?\s*$/i, '')
+    .trim();
+  return label.replace(/criminalit[ée]\s+organis[ée]e/i, 'Criminalité organisée');
 }
 
 export function generateStatsPdfHtml(data: PdfExportData, options: PdfExportOptions = {}): string {
@@ -194,35 +222,16 @@ export function generateStatsPdfHtml(data: PdfExportData, options: PdfExportOpti
   const on = (k: string): boolean => (options.sections ? options.sections[k] !== false : true);
   const redacteur = options.redacteur || data.redacteur || 'Audran CHEVALIER';
   const destinataire = options.destinataire || 'Procureur de la République';
-  const endDate = (selectedYear === new Date().getFullYear() ? new Date() : new Date(selectedYear, 11, 31))
+  const contentieuxLabel = formatContentieuxLabel(data.contentieuxLabel);
+  const isAnneeEnCours = selectedYear === new Date().getFullYear();
+  const endDate = (isAnneeEnCours ? new Date() : new Date(selectedYear, 11, 31))
     .toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <title>Rapport Statistiques ${selectedYear}</title>
-  <style>${CSS_STYLES}</style>
-</head>
-<body>
+  // Chaque section est composée séparément puis assemblée dans l'ordre demandé
+  // (le modal d'export permet de monter/descendre les sections).
+  const blocks: Record<string, string> = {};
 
-<!-- Masthead identitaire -->
-<div class="page-header">
-  <div class="tricolore"></div>
-  <div class="monogram"></div>
-  <div class="overline">Tribunal judiciaire d'Amiens &mdash; Parquet d'Amiens</div>
-  <h1>Rapport d'activité — ${data.contentieuxLabel || 'Criminalité organisée'}</h1>
-  <div class="subtitle">Du 1er janvier ${selectedYear} au ${endDate}</div>
-  <div class="chips">
-    <span class="chip">Année ${selectedYear}</span>
-    <span class="chip">${data.contentieuxLabel || 'Criminalité organisée'}</span>
-    <span class="chip alert">Confidentiel — ne pas diffuser</span>
-  </div>
-</div>
-
-<div class="redige-par">Rédigé par <b>${redacteur}</b>, à destination du ${destinataire}.</div>
-
-${on('synthese') ? `
+  blocks.synthese = !on('synthese') ? '' : `
 <div class="kpi-band">
   <div class="kpi">
     <div class="kpi-value">${data.enquetesTerminees}</div>
@@ -244,40 +253,55 @@ ${on('synthese') ? `
     <div class="kpi-label">Durée moy. en cours</div>
     <div class="kpi-sub">Ancienneté moyenne</div>
   </div>
-</div>` : ''}
+</div>`;
 
-${on('suivi') && data.suivi ? `
+  blocks.suivi = !(on('suivi') && data.suivi) ? '' : `
 <div class="section-nobreak">
   <div class="section-title">Suivi parquet extérieur</div>
   <div class="cards-row">
     <div class="card">
       <div class="card-label">Dossiers suivis</div>
-      <div class="card-value">${data.suivi.total}</div>
-      <div class="card-detail">${data.suivi.both > 0 ? `dont ${data.suivi.both} par les deux` : 'JIRS et/ou Parquet Général'}</div>
+      <div class="card-value">${data.suivi!.total}</div>
+      <div class="card-detail">${data.suivi!.both > 0 ? `dont ${data.suivi!.both} par les deux` : 'JIRS et/ou Parquet Général'}</div>
     </div>
     <div class="card">
       <div class="card-label">JIRS</div>
-      <div class="card-value">${data.suivi.jirs}</div>
+      <div class="card-value">${data.suivi!.jirs}</div>
     </div>
     <div class="card">
       <div class="card-label">Parquet Général</div>
-      <div class="card-value">${data.suivi.pg}</div>
+      <div class="card-value">${data.suivi!.pg}</div>
     </div>
   </div>
-</div>
-` : ''}
+</div>`;
 
-${on('comparatif') && data.comparatif ? `
+  // Comparatif N-1 / N : l'année précédente est toujours l'année civile
+  // complète, tandis que l'année courante s'arrête à la date d'édition. La
+  // précision figure en en-tête de colonne et en note, pour éviter la lecture
+  // erronée d'une comparaison « à période égale ».
+  blocks.comparatif = !(on('comparatif') && data.comparatif) ? '' : (() => {
+    const c = data.comparatif!;
+    const currentPeriode = isAnneeEnCours ? `au ${endDate}` : 'année complète';
+    return `
 <div class="section-nobreak">
-  <div class="section-title">Comparatif ${data.comparatif.prevYear} / ${selectedYear}</div>
+  <div class="section-title">Comparatif ${c.prevYear} / ${selectedYear}</div>
+  <p class="section-note">${c.prevYear} porte sur l'année civile complète (1<sup>er</sup> janvier – 31 décembre ${c.prevYear}).
+    ${isAnneeEnCours
+      ? `${selectedYear} s'arrête au ${endDate} : la comparaison n'est donc pas faite à durée égale.`
+      : `${selectedYear} porte également sur l'année civile complète.`}</p>
   <table>
-    <tr><th>Indicateur</th><th class="text-right">${data.comparatif.prevYear}</th><th class="text-right">${selectedYear}</th><th class="text-right">Évolution</th></tr>
+    <tr>
+      <th>Indicateur</th>
+      <th class="text-right">${c.prevYear}<span class="th-note">année complète</span></th>
+      <th class="text-right">${selectedYear}<span class="th-note">${currentPeriode}</span></th>
+      <th class="text-right">Évolution</th>
+    </tr>
     ${[
-      { label: 'Procédures terminées', prev: data.comparatif.prevTotalTerminees, cur: data.comparatif.currentTotalTerminees, money: false },
-      { label: 'Condamnations', prev: data.comparatif.prevCondamnations, cur: data.comparatif.currentCondamnations, money: false },
-      { label: 'Prison ferme (mois)', prev: data.comparatif.prevPrison, cur: data.comparatif.currentPrison, money: false },
-      { label: 'Amendes totales', prev: data.comparatif.prevAmendes, cur: data.comparatif.currentAmendes, money: true },
-      { label: 'Déférements', prev: data.comparatif.prevDeferements, cur: data.comparatif.currentDeferements, money: false },
+      { label: 'Procédures terminées', prev: c.prevTotalTerminees, cur: c.currentTotalTerminees, money: false },
+      { label: 'Condamnations', prev: c.prevCondamnations, cur: c.currentCondamnations, money: false },
+      { label: 'Prison ferme (mois)', prev: c.prevPrison, cur: c.currentPrison, money: false },
+      { label: 'Amendes totales', prev: c.prevAmendes, cur: c.currentAmendes, money: true },
+      { label: 'Déférements', prev: c.prevDeferements, cur: c.currentDeferements, money: false },
     ].map(r => {
       const diff = r.cur - r.prev;
       const fmt = (v: number) => r.money ? formatCurrency(v) : String(v);
@@ -286,11 +310,11 @@ ${on('comparatif') && data.comparatif ? `
       return `<tr><td>${r.label}</td><td class="text-right">${fmt(r.prev)}</td><td class="text-right font-bold">${fmt(r.cur)}</td><td class="text-right ${cls}">${diffStr}</td></tr>`;
     }).join('')}
   </table>
-</div>
-` : ''}
+</div>`;
+  })();
 
-${on('procedures_mois') ? `
-<!-- Procédures terminées par mois : tableau + courbe d'évolution -->
+  // Procédures terminées par mois : tableau + courbe d'évolution
+  blocks.procedures_mois = !on('procedures_mois') ? '' : `
 <div class="section-nobreak">
   <div class="section-title">Procédures terminées par mois</div>
   <p class="section-note">Hors classements sans suite et ouvertures d'information</p>
@@ -307,10 +331,10 @@ ${on('procedures_mois') ? `
         || renderMonthTable(data.proceduremoisData, 'Nombre')}
     </div>
   </div>
-</div>` : ''}
+</div>`;
 
-<!-- Déférements par mois : placé juste sous les procédures terminées -->
-${on('deferements_mois') && data.deferementsParMois.some(d => d.count > 0) ? `
+  // Déférements par mois : placé par défaut juste sous les procédures terminées
+  blocks.deferements_mois = !(on('deferements_mois') && data.deferementsParMois.some(d => d.count > 0)) ? '' : `
 <div class="section-nobreak">
   <div class="section-title">Déférements par mois</div>
   <p class="section-note">Déférements rattachés à leur date réelle (date de déférement), toutes enquêtes confondues. Peut différer du « Dont … déférements » de l'orientation, calculé à la date d'audience sur les seuls dossiers jugés dans l'année.</p>
@@ -318,11 +342,9 @@ ${on('deferements_mois') && data.deferementsParMois.some(d => d.count > 0) ? `
     ${renderLineChartImg(data.deferementsParMois.map(d => ({ label: d.mois, value: d.count })), 680, 220, '#C01427')
       || renderMonthTable(data.deferementsParMois, 'Déférements')}
   </div>
-</div>
-` : ''}
+</div>`;
 
-${on('enquetes_encours') ? `
-<!-- Enquêtes en cours -->
+  blocks.enquetes_encours = !on('enquetes_encours') ? '' : `
 <div class="section-nobreak">
   <div class="section-title">Enquêtes en cours</div>
   <div class="two-cols" style="align-items:flex-start">
@@ -346,27 +368,27 @@ ${on('enquetes_encours') ? `
       </table>`}
     </div>
   </div>
-</div>` : ''}
+</div>`;
 
-${on('actes') ? `
-<!-- Actes d'enquête : techniques spéciales d'enquête -->
+  // Actes d'enquête : techniques spéciales d'enquête
+  blocks.actes = !on('actes') ? '' : `
 <div class="section-nobreak">
   <div class="section-title">Actes d'enquête en préliminaire</div>
   <div class="stat-inline">
     <span class="stat-inline-value">${totalAvecProlongations}</span>
     <span class="stat-inline-note">Nombre total d'actes relatifs aux <b>techniques spéciales d'enquête</b> (écoutes, géolocalisation, sonorisation et autres) autorisés par le procureur ou sollicités auprès du juge des libertés et de la détention.</span>
   </div>
-</div>` : ''}
+</div>`;
 
-${on('services') ? `
-<!-- Répartition par service : enquêtes terminées uniquement -->
+  // Répartition par service : enquêtes terminées uniquement
+  blocks.services = !on('services') ? '' : `
 <div class="section-nobreak">
   <div class="section-title">Répartition par service</div>
   <p class="section-note">Enquêtes terminées</p>
   ${renderServiceBlock(data.serviceStatsTerminees)}
-</div>` : ''}
+</div>`;
 
-${on('orientation') ? `
+  blocks.orientation = !on('orientation') ? '' : `
 <div class="section-nobreak">
   <div class="section-title">Orientation des procédures</div>
   <p class="section-note">(Soit 1 fois par dossier pour une CI, une OI, une CDD ou un classement. Soit pour chaque prévenu pour une CRPC)</p>
@@ -381,16 +403,16 @@ ${on('orientation') ? `
     return `<div class="two-cols" style="align-items:center">
       <div class="legend-col">
         ${renderPieSubstitute(items)}
-        <div style="margin-top:8px;font-size:10px;color:#56565E">Dont ${stats.nombreDeferements} déférement${stats.nombreDeferements > 1 ? 's' : ''}</div>
-        <div style="margin-top:4px;font-size:8px;color:#9A9AAF;line-height:1.3">Déférés dans les dossiers jugés en ${selectedYear} (rattachés à la date d'audience). Peut différer de « Déférements par mois », qui les compte à leur date réelle de déférement, toutes enquêtes confondues.</div>
+        <div style="margin-top:8px;font-size:10.5px;color:#56565E">Dont ${stats.nombreDeferements} déférement${stats.nombreDeferements > 1 ? 's' : ''}</div>
+        <div style="margin-top:4px;font-size:9px;color:#8B93A7;line-height:1.4">Déférés dans les dossiers jugés en ${selectedYear} (rattachés à la date d'audience). Peut différer de « Déférements par mois », qui les compte à leur date réelle de déférement, toutes enquêtes confondues.</div>
       </div>
       ${pie ? `<div style="text-align:center">${pie}</div>` : ''}
     </div>`;
   })() : '<p>Aucune donnée</p>'}
-</div>` : ''}
+</div>`;
 
-${on('orientation_mois') ? `
-<!-- Orientation par mois : histogramme empilé + tableau détaillé -->
+  // Orientation par mois : histogramme empilé + tableau détaillé
+  blocks.orientation_mois = !on('orientation_mois') ? '' : `
 <div class="section-nobreak">
   <div class="section-title">Orientation par mois</div>
   ${(() => {
@@ -449,46 +471,47 @@ ${on('orientation_mois') ? `
       </tr>`;
     })()}
   </table>
-</div>` : ''}
+</div>`;
 
-<!-- Ouvertures d'information & classements sans suite -->
-${on('oi_css') && stats ? (() => {
-  const totalOrientations = (stats.nombreCRPC || 0) + (stats.nombreCI || 0) + (stats.nombreCOPJ || 0)
-    + (stats.nombreOI || 0) + (stats.nombreCDD || 0) + (stats.nombreClassements || 0);
-  const oiPct = totalOrientations > 0 ? ((stats.nombreOI / totalOrientations) * 100).toFixed(1) : '0';
-  const clPct = totalOrientations > 0 ? ((stats.nombreClassements / totalOrientations) * 100).toFixed(1) : '0';
-  return `<div class="section-nobreak">
+  // Ouvertures d'information & classements sans suite
+  blocks.oi_css = !(on('oi_css') && stats) ? '' : (() => {
+    const totalOrientations = (stats!.nombreCRPC || 0) + (stats!.nombreCI || 0) + (stats!.nombreCOPJ || 0)
+      + (stats!.nombreOI || 0) + (stats!.nombreCDD || 0) + (stats!.nombreClassements || 0);
+    const oiPct = totalOrientations > 0 ? ((stats!.nombreOI / totalOrientations) * 100).toFixed(1) : '0';
+    const clPct = totalOrientations > 0 ? ((stats!.nombreClassements / totalOrientations) * 100).toFixed(1) : '0';
+    return `
+<div class="section-nobreak">
   <div class="section-title">Ouvertures d'information &amp; classements sans suite</div>
   <div class="cards-row">
     <div class="card">
       <div class="card-label">Ouvertures d'information</div>
-      <div class="card-value">${stats.nombreOI || 0}</div>
+      <div class="card-value">${stats!.nombreOI || 0}</div>
       <div class="card-detail">${oiPct}% des orientations${data.ouvertureInfoAgeMoyen > 0 ? ` · âge moyen avant ouverture : ${data.ouvertureInfoAgeMoyen} jours` : ''}</div>
     </div>
     <div class="card">
       <div class="card-label">Classements sans suite</div>
-      <div class="card-value">${stats.nombreClassements || 0}</div>
+      <div class="card-value">${stats!.nombreClassements || 0}</div>
       <div class="card-detail">${clPct}% des orientations${data.classementAgeMoyen > 0 ? ` · âge moyen avant classement : ${data.classementAgeMoyen} jours` : ''}</div>
     </div>
   </div>
 </div>`;
-})() : ''}
+  })();
 
-${on('condamnations_mois') ? `
-<!-- Condamnations par mois : histogramme en colonnes -->
+  // Condamnations par mois : histogramme en colonnes
+  blocks.condamnations_mois = !on('condamnations_mois') ? '' : `
 <div class="section-nobreak">
   <div class="section-title">Condamnations par mois</div>
   <div style="text-align:center">
     ${renderColumnChartImg(data.monthlyData.map(m => ({ label: m.mois, value: m.condamnations })), 680, 240, '#16307A')
       || renderBarChart(data.monthlyData.map(m => ({ label: m.mois, value: m.condamnations, color: '#16307A' })))}
   </div>
-  <div style="margin-top:8px;font-size:10px;color:#667085;text-align:center">
+  <div style="margin-top:8px;font-size:10.5px;color:#667085;text-align:center">
     Total : <b style="color:#16307A">${data.monthlyData.reduce((s, m) => s + m.condamnations, 0)}</b> condamnations sur l'année
   </div>
-</div>` : ''}
+</div>`;
 
-${on('peines') ? `
-<!-- Peines & mesures : chiffres clés uniquement, pas de détail par type de peine -->
+  // Peines & mesures : chiffres clés uniquement, pas de détail par type de peine
+  blocks.peines = !on('peines') ? '' : `
 <div class="section-nobreak">
   <div class="section-title">Peines &amp; mesures prononcées</div>
   <div class="cards-row">
@@ -503,10 +526,10 @@ ${on('peines') ? `
       <div class="card-detail">${stats?.totalInterdictionsParaitre || 0} interdiction${(stats?.totalInterdictionsParaitre || 0) > 1 ? 's' : ''} sur ${stats?.nombreCondamnations || 0} condamnation${(stats?.nombreCondamnations || 0) > 1 ? 's' : ''}</div>
     </div>
   </div>
-</div>` : ''}
+</div>`;
 
-<!-- Saisies vs confiscations : le delta, sans détail superflu -->
-${on('saisies') && ((stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalVehicules || 0) > 0 || (stats?.totalSaisiesImmeubles || 0) > 0 || (stats?.totalImmeubles || 0) > 0) ? `
+  // Saisies vs confiscations : le delta, sans détail superflu
+  blocks.saisies = !(on('saisies') && ((stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalArgent || 0) > 0 || (stats?.totalSaisiesVehicules || 0) > 0 || (stats?.totalVehicules || 0) > 0 || (stats?.totalSaisiesImmeubles || 0) > 0 || (stats?.totalImmeubles || 0) > 0)) ? '' : `
 <div class="section-nobreak">
   <div class="section-title">Saisies &amp; confiscations</div>
   <table>
@@ -516,11 +539,15 @@ ${on('saisies') && ((stats?.totalSaisiesArgent || 0) > 0 || (stats?.totalArgent 
     <tr class="row-total"><td>Total avoirs</td><td class="text-right">${formatCurrency(stats?.totalSaisiesArgent || 0)}</td><td class="text-right">${formatCurrency(stats?.totalArgent || 0)}</td><td class="text-right">${formatCurrency((stats?.totalSaisiesArgent || 0) - (stats?.totalArgent || 0))}</td></tr>
   </table>
   <p class="section-note" style="font-style:italic;margin-top:8px">Ces données sont en cours de consolidation. Les saisies n'étaient initialement pas renseignées, d'où le delta négatif constaté.</p>
-</div>
-` : ''}
+</div>`;
 
-${on('infractions') ? `
-<div class="section">
+  // Répartition par catégorie d'infraction : bloc insécable, pour que les deux
+  // camemberts et leurs légendes restent sur la même page. Au-delà d'une
+  // vingtaine de catégories le bloc dépasserait la hauteur d'une page A4 :
+  // html2pdf rognerait alors le contenu, donc on le laisse sécable.
+  const infractionsTient = Math.max(data.infractionsEnCours.length, data.infractionsTerminees.length) <= 20;
+  blocks.infractions = !on('infractions') ? '' : `
+<div class="${infractionsTient ? 'section-nobreak' : 'section'}">
   <div class="section-title">Répartition par catégorie d'infraction</div>
   <div class="two-cols">
     <div>
@@ -532,18 +559,18 @@ ${on('infractions') ? `
       ${renderInfractionBlock(data.infractionsTerminees)}
     </div>
   </div>
-</div>` : ''}
+</div>`;
 
-${on('instruction') ? (() => {
-  const s = data.instructionStats;
-  if (!s || s.nbDossiers <= 0) return '';
-  const fmtDays = (j: number) => {
-    const r = Math.round(j);
-    if (r < 60) return `${r} j`;
-    return `${Math.round(r / 30)} mois`;
-  };
-  return `
-<div class="section">
+  blocks.instruction = !on('instruction') ? '' : (() => {
+    const s = data.instructionStats;
+    if (!s || s.nbDossiers <= 0) return '';
+    const fmtDays = (j: number) => {
+      const r = Math.round(j);
+      if (r < 60) return `${r} j`;
+      return `${Math.round(r / 30)} mois`;
+    };
+    return `
+<div class="section-nobreak">
   <div class="section-title">Statistiques du module instruction</div>
   <p class="section-note">Photographie du stock actuel des dossiers d'instruction — indépendante de l'année sélectionnée.</p>
   <div class="cards-row">
@@ -569,11 +596,42 @@ ${on('instruction') ? (() => {
     </div>
   </div>
 </div>`;
-})() : ''}
+  })();
+
+  const corps = resolveSectionOrder(options.order)
+    .map(key => blocks[key] || '')
+    .filter(Boolean)
+    .join('\n');
+
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Rapport Statistiques ${selectedYear}</title>
+  <style>${CSS_STYLES}</style>
+</head>
+<body>
+
+<!-- Masthead institutionnel : filet tricolore, titre centré, mentions sobres -->
+<div class="page-header">
+  <div class="tricolore"></div>
+  <div class="overline">Cour d'appel d'Amiens &middot; Tribunal judiciaire d'Amiens</div>
+  <h1>Rapport d'activité</h1>
+  <div class="rule"></div>
+  <div class="subtitle">Parquet du procureur de la République &middot; du 1<sup>er</sup> janvier ${selectedYear} au ${endDate}</div>
+  <div class="chips">
+    <span class="chip">Année ${selectedYear}</span>
+    <span class="chip">${contentieuxLabel}</span>
+  </div>
+</div>
+
+<div class="redige-par">Rédigé par <b>${redacteur}</b>, à destination du ${destinataire}.</div>
+
+${corps}
 
 <div class="footer">
   <span class="tri"><i style="background:#16307A"></i><i style="background:#ffffff;border:1px solid #D5DAE6"></i><i style="background:#C01427"></i></span>
-  <span>Tribunal judiciaire d'Amiens — Parquet d'Amiens · Édité le ${new Date().toLocaleDateString('fr-FR')} · Usage interne, ne pas diffuser</span>
+  <span>Tribunal judiciaire d'Amiens — Parquet d'Amiens · Édité le ${new Date().toLocaleDateString('fr-FR')} · Document interne</span>
 </div>
 
 </body>

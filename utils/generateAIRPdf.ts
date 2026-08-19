@@ -251,18 +251,17 @@ export function generateAIRPdfHtml(data: AIRPdfData, options: AIRPdfOptions = {}
 </head>
 <body>
 
-<!-- Masthead identitaire -->
+<!-- Masthead institutionnel : filet tricolore, titre centré, mentions sobres -->
 <div class="page-header">
   <div class="tricolore"></div>
-  <div class="monogram"></div>
-  <div class="overline">Tribunal judiciaire d'Amiens &mdash; Parquet d'Amiens</div>
+  <div class="overline">Cour d'appel d'Amiens &middot; Tribunal judiciaire d'Amiens</div>
   <h1>Rapport d'activité — Mesures AIR / AEM</h1>
-  <div class="subtitle">Suivi intégré des mesures — situation arrêtée au ${dateEdition}</div>
+  <div class="rule"></div>
+  <div class="subtitle">Parquet du procureur de la République &middot; suivi intégré des mesures, situation arrêtée au ${dateEdition}</div>
   <div class="chips">
     <span class="chip">${data.total} mesures</span>
     <span class="chip">${data.enCours} en cours</span>
     <span class="chip">Taux de réussite ${data.tauxReussite}%</span>
-    <span class="chip alert">Confidentiel — ne pas diffuser</span>
   </div>
 </div>
 
@@ -512,7 +511,7 @@ ${on('projections') ? `
 
 <div class="footer">
   <span class="tri"><i style="background:#16307A"></i><i style="background:#ffffff;border:1px solid #D5DAE6"></i><i style="background:#C01427"></i></span>
-  <span>Tribunal judiciaire d'Amiens — Parquet d'Amiens · Rapport AEM édité le ${new Date().toLocaleDateString('fr-FR')} · Usage interne, ne pas diffuser</span>
+  <span>Tribunal judiciaire d'Amiens — Parquet d'Amiens · Rapport AEM édité le ${new Date().toLocaleDateString('fr-FR')} · Document interne</span>
 </div>
 
 </body>
