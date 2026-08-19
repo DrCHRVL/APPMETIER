@@ -24,6 +24,7 @@ import { AbsenceJournal } from '@/components/attache/AbsenceJournal';
 import { InboxWidget } from '@/components/attache/InboxWidget';
 import { ProductionsSection } from '@/components/attache/ProductionsSection';
 import { NouveauxDossiersPropositions } from '@/components/attache/NouveauxDossiersPropositions';
+import { ChantiersSection } from '@/components/attache/ChantiersSection';
 
 /** Types de propositions tranchables ici (constante stable : évite un
  * rechargement en boucle du bandeau, qui compare `kinds` par valeur). */
@@ -57,6 +58,11 @@ export const AssistantJusticePage = ({ onOpenDossier }: { onOpenDossier?: (numer
           où trancher ce qui avait malgré tout été déposé. Elles sont donc aussi
           ici, sur la page où les cartes de l'attaché atterrissent. */}
       <NouveauxDossiersPropositions kinds={A_VALIDER_KINDS} title="Proposition à valider" />
+
+      {/* Chantiers d'analyse profonde : dépouillement massif d'un dossier en
+          fiches factuelles (la nuit, par lots, interruptible) puis synthèse.
+          Le poste de pilotage vit ICI — le moteur tourne côté service. */}
+      <ChantiersSection />
 
       {/* Journal « pendant votre absence » — actions préparées, documents rédigés */}
       <AbsenceJournal onOpenDossier={onOpenDossier} />

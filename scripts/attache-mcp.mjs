@@ -187,6 +187,23 @@ const TOOLS = [
     handler: async (a) => readDocumentText(keys, a.numero, a.chemin, { offset: a.offset, limite: a.limite, integrale: Boolean(a.integrale) }),
   },
   {
+    name: 'chantiers_etat',
+    description: 'État des CHANTIERS d\'analyse profonde (dépouillements massifs : chaque pièce lue une fois → fiches factuelles + synthèse) : progression, attente (nuit / forfait), fiches produites. Lecture seule — le lancement et le pilotage se font depuis la page « Assistant de justice ». Les fiches d\'un chantier se lisent avec productions_lister / production_lire (type « fiche », source « chantier:<id> »).',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string', description: 'Limiter à un dossier (optionnel)' } } },
+    handler: async (a) => {
+      const { listChantiers } = await import('./attache/chantier.mjs')
+      const all = listChantiers(keys)
+      const filt = a?.numero ? all.filter((c) => String(c.numero).toLowerCase().includes(String(a.numero).toLowerCase())) : all
+      return {
+        chantiers: filt.map((c) => ({
+          id: c.id, numero: c.numero, etat: c.etat, attente: c.attente, consigne: c.consigne,
+          piecesFaites: c.piecesFaites, totalPieces: c.totalPieces, lotsFaits: c.lotsFaits, totalLots: c.totalLots,
+          pochettes: c.pochettes.length, fiches: c.fiches.length, syntheseProdId: c.syntheseProdId,
+        })),
+      }
+    },
+  },
+  {
     name: 'dossier_arborescence',
     description: 'Table des matières de TOUTES les pièces déposées sous un numéro (enquête ou instruction) : zones Geoloc/Ecoutes/Actes/PV/DML et « Dossier complet » versé (Dossier/… — les sous-pochettes reflètent l\'organisation du dossier réel, en texte). Chemins exacts pour lire_document. Point de départ de tout dépouillement. Rend TOUJOURS le panorama `pochettes` (nombre de pièces par pochette) puis le détail paginé — sur un dossier volumineux (plusieurs procédures versées, milliers de pièces), dépouille pochette par pochette : pochette:"PV/Nom" pour cibler, offset pour la suite (offsetSuivant est fourni tant qu\'il reste des pièces).',
     inputSchema: {
