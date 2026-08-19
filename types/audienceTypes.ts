@@ -99,6 +99,8 @@ import {
   emptyConfiscations as emptyConfiscationsCore,
   hasAnySaisies as hasAnySaisiesCore,
   migrateConfiscations as migrateConfiscationsCore,
+  mergeConfiscations as mergeConfiscationsCore,
+  countConfiscations as countConfiscationsCore,
 } from '@/lib/stats/audienceCore.mjs';
 
 /** Crée un objet Confiscations vide */
@@ -114,6 +116,38 @@ export function hasAnySaisies(s: Confiscations | undefined | null): boolean {
 /** Migre l'ancien format (compteurs simples) vers le nouveau format détaillé */
 export function migrateConfiscations(raw: any): Confiscations {
   return migrateConfiscationsCore(raw) as Confiscations;
+}
+
+/** Détail de ce qu'un report de saisies a réellement ajouté aux confiscations. */
+export interface MergeConfiscationsResult {
+  merged: Confiscations;
+  added: {
+    vehicules: number;
+    immeubles: number;
+    saisiesBancaires: number;
+    cryptomonnaies: number;
+    objetsMobiliers: number;
+    /** Montant repris (0 si les confiscations en portaient déjà un). */
+    numeraire: number;
+    stupefiants: number;
+  };
+  totalAdded: number;
+}
+
+/**
+ * Reporte des saisies dans des confiscations existantes sans rien écraser :
+ * seules les lignes absentes sont ajoutées. Voir lib/stats/audienceCore.mjs.
+ */
+export function mergeConfiscations(
+  base: Confiscations | undefined | null,
+  incoming: Confiscations | undefined | null,
+): MergeConfiscationsResult {
+  return mergeConfiscationsCore(base, incoming) as MergeConfiscationsResult;
+}
+
+/** Nombre d'éléments décrits par un objet Confiscations/Saisies. */
+export function countConfiscations(c: Confiscations | undefined | null): number {
+  return countConfiscationsCore(c) as number;
 }
 
 

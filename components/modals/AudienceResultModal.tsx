@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { MecAutocompleteInput } from '../ui/MecAutocompleteInput';
-import { CondamnationData, Confiscations, ResultatAudience, VehiculeSaisi, ImmeubleSaisi, SaisieBancaire, CryptoSaisie, ObjetMobilier, TypeVehicule, TypeImmeuble, CategorieObjet, TypeStupefiant, StupefiantSaisi, emptyConfiscations, migrateConfiscations } from '@/types/audienceTypes';
+import { CondamnationData, Confiscations, ResultatAudience, VehiculeSaisi, ImmeubleSaisi, SaisieBancaire, CryptoSaisie, ObjetMobilier, TypeVehicule, TypeImmeuble, CategorieObjet, TypeStupefiant, StupefiantSaisi, emptyConfiscations, migrateConfiscations, mergeConfiscations, countConfiscations, hasAnySaisies } from '@/types/audienceTypes';
 import { useToast } from '@/contexts/ToastContext';
 import { useAudience } from '@/hooks/useAudience';
 import { useTags } from '@/hooks/useTags';
@@ -132,12 +132,13 @@ export const AudienceResultModal = ({
         migrated.numeraire === 0 && migrated.saisiesBancaires.length === 0 &&
         migrated.cryptomonnaies.length === 0 && migrated.objetsMobiliers.length === 0 &&
         !migrated.stupefiants?.types?.length;
-      // Si confiscations déjà renseignées, les utiliser
-      if (!isEmpty) return migrated;
+      // Si confiscations déjà renseignées, les utiliser (copie : l'état local
+      // ne doit jamais partager ses tableaux avec l'enregistrement du store)
+      if (!isEmpty) return JSON.parse(JSON.stringify(migrated));
     }
     // Sinon, pré-remplir depuis les saisies si disponibles
     if (initialData?.saisies) {
-      return JSON.parse(JSON.stringify(initialData.saisies));
+      return migrateConfiscations(JSON.parse(JSON.stringify(initialData.saisies)));
     }
     return emptyConfiscations();
   };
@@ -156,6 +157,36 @@ export const AudienceResultModal = ({
   });
 
   const { showToast } = useToast();
+
+  // Saisies d'enquête disponibles pour un report manuel dans les confiscations.
+  // Cas typique : reprise d'un dossier archivé dont les confiscations avaient
+  // été renseignées avant que les saisies ne soient documentées — le
+  // pré-remplissage automatique ne joue pas (confiscations non vides), il faut
+  // pouvoir reporter à la demande plutôt que tout retaper.
+  const saisiesEnquete = initialData?.saisies;
+  const nbSaisiesEnquete = hasAnySaisies(saisiesEnquete) ? countConfiscations(saisiesEnquete) : 0;
+
+  const handleReporterSaisies = () => {
+    if (!saisiesEnquete) return;
+    const { merged, totalAdded } = mergeConfiscations(confiscations, saisiesEnquete);
+    if (totalAdded === 0) {
+      showToast('Les saisies sont déjà toutes reportées dans les confiscations', 'info');
+      return;
+    }
+    setConfiscations(merged);
+    showToast(
+      `${totalAdded} élément(s) repris depuis les saisies — vérifiez avant d'enregistrer`,
+      'success'
+    );
+  };
+
+  const handleRemplacerParSaisies = () => {
+    if (!saisiesEnquete) return;
+    if (!confirm('Remplacer toutes les confiscations par les saisies d\'enquête ? Les lignes actuelles seront perdues.')) return;
+    setConfiscations(migrateConfiscations(JSON.parse(JSON.stringify(saisiesEnquete))));
+    showToast('Confiscations remplacées par les saisies d\'enquête', 'success');
+  };
+
   const { audienceState } = useAudience();
   const [service, setService] = useState(initialData?.service || '');
   const [showSuiviAlert, setShowSuiviAlert] = useState(false);
@@ -283,6 +314,14 @@ export const AudienceResultModal = ({
           dateAudiencePending: c.dateAudiencePending || ''
         })),
         isPartiallyPending: hasPartialResults,
+        // Champs que ce modal n'édite pas : ils doivent survivre à une
+        // ré-édition du résultat. Sans cette reprise explicite, enregistrer
+        // les confiscations d'un dossier archivé effaçait les saisies
+        // renseignées depuis le détail de l'enquête (et déclassait une OI en
+        // audience ordinaire dans les statistiques).
+        saisies: initialData?.saisies,
+        numeroAudience: initialData?.numeroAudience,
+        isOI: initialData?.isOI,
         // Supprimer nombreDeferes et dateDefere car maintenant dans les condamnations
         nombreDeferes: undefined,
         dateDefere: undefined
@@ -669,6 +708,39 @@ export const AudienceResultModal = ({
                 <p className="text-xs text-green-600 mt-1">
                   Vous pouvez valider tel quel ou modifier les valeurs si le juge a confisqué différemment.
                 </p>
+              </div>
+            )}
+
+            {!prefilledFromSaisies && nbSaisiesEnquete > 0 && (
+              <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-lg mb-4 space-y-2">
+                <p className="text-sm text-emerald-800 font-medium">
+                  {nbSaisiesEnquete} élément(s) saisis en phase d'enquête sont enregistrés sur ce dossier.
+                </p>
+                <p className="text-xs text-emerald-700">
+                  « Reporter » n'ajoute que ce qui manque ici : aucune ligne déjà présente n'est
+                  modifiée ni dupliquée. « Remplacer » écrase les confiscations par les saisies.
+                  Rien n'est enregistré tant que vous n'avez pas validé le formulaire.
+                </p>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="bg-white"
+                    onClick={handleReporterSaisies}
+                  >
+                    Reporter les saisies
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="bg-white text-amber-700 border-amber-300 hover:bg-amber-50"
+                    onClick={handleRemplacerParSaisies}
+                  >
+                    Remplacer par les saisies
+                  </Button>
+                </div>
               </div>
             )}
 
