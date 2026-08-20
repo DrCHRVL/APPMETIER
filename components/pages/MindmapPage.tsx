@@ -29,6 +29,7 @@ import {
   type LienRenseignement,
   type MecExNihilo,
 } from '@/stores/useCartographieOverlayStore';
+import { squashAlnum } from '@/utils/globalSearch';
 import { cartographieOverlaySyncService } from '@/utils/dataSync/CartographieOverlaySyncService';
 import { cartographieContributionsSyncService } from '@/utils/dataSync/CartographieContributionsSyncService';
 import { useCartographieContributionsStore } from '@/stores/useCartographieContributionsStore';
@@ -56,6 +57,27 @@ const CARTO_REVIEW_KINDS = ['dossier_carto', 'mec_carto', 'lien'] as const;
 // PROPS
 // ──────────────────────────────────────────────
 
+/** Cible d'un recentrage demandé depuis la recherche globale du header : une
+ *  personne (par son nom) ou un dossier (par son identifiant source, avec son
+ *  numéro en repli). `seq` permet de rejouer une même demande. */
+export interface MindmapFocusRequest {
+  seq: number;
+  /** Personne choisie dans la barre globale (résultat « Personnes »). */
+  nom?: string;
+  /** Dossier choisi dans la barre globale (enquête ou dossier d'instruction). */
+  dossier?: {
+    /** Id de l'enquête ou du dossier d'instruction source. */
+    id: number;
+    /** Contentieux du dossier quand la recherche le connaît : donne l'id de
+     *  nœud exact, sans rapprochement. */
+    ctxId?: ContentieuxId;
+    numero?: string;
+    numeroParquet?: string;
+    /** Vrai pour un dossier d'instruction (nœud projeté, statut 'instruction'). */
+    instruction?: boolean;
+  };
+}
+
 interface MindmapPageProps {
   /** Sources d'enquêtes (toutes confondues) avec leur contentieux d'origine */
   sources: EnqueteWithContext[];
@@ -68,9 +90,13 @@ interface MindmapPageProps {
    *  interne de refreshKey relance le layout dans tous les cas. */
   onRefresh?: () => void;
   /** Recentrage demandé depuis la recherche globale : la carte s'ouvre
-   *  DIRECTEMENT sur la personne choisie, sans second clic dans une liste.
-   *  `seq` permet de rejouer la demande sur un même nom. */
-  focusRequest?: { nom: string; seq: number };
+   *  DIRECTEMENT sur la personne ou le dossier choisi, sans second clic dans
+   *  une liste. */
+  focusRequest?: MindmapFocusRequest;
+  /** Appelé quand une demande de recentrage reste introuvable sur la carte : au
+   *  parent de retomber sur le comportement habituel (ouvrir la fiche) plutôt
+   *  que de laisser l'utilisateur devant une carte inchangée. */
+  onFocusUnresolved?: (request: MindmapFocusRequest) => void;
   /** Fichier des personnes de l'application : propositions à la création d'une
    *  fiche manuelle, pour ne pas doubler une personne déjà au fichier. */
   knownNames?: string[];
@@ -87,6 +113,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   onOpenEnquete,
   onRefresh,
   focusRequest,
+  onFocusUnresolved,
   knownNames = [],
   knownNameHints,
 }) => {
@@ -520,18 +547,23 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
 
   // ── Accès direct depuis la recherche globale ──────────────────
   //
-  // Seule porte d'entrée de la recherche sur la carte : le header envoie le nom
-  // choisi, on le résout sur le graphe et on recentre tout de suite. Tant que
-  // le graphe n'est pas prêt (sources encore en cours de chargement), la
-  // demande reste en attente et sera rejouée au prochain rebuild ; si elle
-  // reste sans réponse une fois la carte posée, on le dit plutôt que d'échouer
-  // en silence — il n'y a plus de liste de repli sur la page.
+  // Seule porte d'entrée de la recherche sur la carte : le header envoie la
+  // personne ou le dossier choisi, on le résout sur le graphe et on recentre
+  // tout de suite. Tant que le graphe n'est pas prêt (sources encore en cours
+  // de chargement), la demande reste en attente et sera rejouée au prochain
+  // rebuild ; si elle reste sans réponse une fois la carte posée, on le signale
+  // au parent (`onFocusUnresolved`, qui retombe sur la fiche) plutôt que
+  // d'échouer en silence — il n'y a plus de liste de repli sur la page.
   const handledFocusSeq = useRef<number>(-1);
+  // Le parent redéfinit ce callback à chaque rendu : on le lit par référence
+  // pour qu'il ne fasse pas redémarrer le délai de grâce ci-dessous.
+  const focusUnresolvedRef = useRef(onFocusUnresolved);
+  focusUnresolvedRef.current = onFocusUnresolved;
 
-  // Résolution tolérante, du plus strict au plus souple : clé de nom
-  // normalisée (insensible aux accents, à la casse et à l'ordre prénom/nom) sur
-  // le nom affiché puis sur les variantes, rapprochement de personne, et enfin
-  // correspondance par mots — un nœud matche si CHAQUE mot du nom demandé
+  // Résolution tolérante d'une PERSONNE, du plus strict au plus souple : clé de
+  // nom normalisée (insensible aux accents, à la casse et à l'ordre prénom/nom)
+  // sur le nom affiché puis sur les variantes, rapprochement de personne, et
+  // enfin correspondance par mots — un nœud matche si CHAQUE mot du nom demandé
   // apparaît dans son texte normalisé. Ce dernier repli couvre les noms
   // partiels ou enrichis (surnom, second prénom) que la clé stricte rate.
   const findNodeByName = React.useCallback((nom: string): GraphNode | undefined => {
@@ -552,21 +584,55 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     return personFallback || tokenFallback;
   }, [graph]);
 
+  // Résolution tolérante d'un DOSSIER : identifiant de nœud exact quand le
+  // contentieux est connu, sinon rapprochement par identifiant source (un
+  // dossier d'instruction et une enquête peuvent porter le même id numérique,
+  // d'où le tri sur le statut), et en dernier recours le numéro d'affaire ou de
+  // parquet comparé sans ponctuation ni casse.
+  const findDossierNode = React.useCallback(
+    (target: NonNullable<MindmapFocusRequest['dossier']>): DossierNode | undefined => {
+      if (target.ctxId) {
+        const direct = graph.dossierById.get(`${target.ctxId}_${target.id}`);
+        if (direct) return direct;
+      }
+      const wantedNums = [target.numero, target.numeroParquet]
+        .map(v => squashAlnum(v || ''))
+        .filter(Boolean);
+      let numeroFallback: DossierNode | undefined;
+      for (const d of graph.dossierById.values()) {
+        const isInstruction = d.statut === 'instruction';
+        if (d.enqueteId === target.id && isInstruction === (target.instruction === true)) return d;
+        if (!numeroFallback && wantedNums.length > 0) {
+          const nums = [squashAlnum(d.numero), squashAlnum(d.numeroParquet || '')].filter(Boolean);
+          if (nums.some(n => wantedNums.includes(n))) numeroFallback = d;
+        }
+      }
+      return numeroFallback;
+    },
+    [graph],
+  );
+
   useEffect(() => {
-    if (!focusRequest?.nom) return;
+    if (!focusRequest) return;
     if (handledFocusSeq.current === focusRequest.seq) return;
-    const node = findNodeByName(focusRequest.nom);
+    const node = focusRequest.dossier
+      ? findDossierNode(focusRequest.dossier)
+      : focusRequest.nom
+        ? findNodeByName(focusRequest.nom)
+        : undefined;
     if (!node) {
       // Carte pas encore posée (réglages/overlay en cours, graphe vide) : on
       // attend simplement le prochain rebuild, qui rejouera la demande.
-      if (mapPending || graph.mecById.size === 0) return;
-      // Carte posée mais nom introuvable : délai de grâce le temps qu'une
-      // source arrive encore, puis on le dit. Tout rebuild du graphe annule ce
-      // minuteur et relance une tentative de résolution.
-      const nom = focusRequest.nom;
+      if (mapPending || (graph.mecById.size === 0 && graph.dossierById.size === 0)) return;
+      // Carte posée mais cible introuvable : délai de grâce le temps qu'une
+      // source arrive encore, puis on rend la main. Tout rebuild du graphe
+      // annule ce minuteur et relance une tentative de résolution.
+      const request = focusRequest;
       const timer = setTimeout(() => {
-        handledFocusSeq.current = focusRequest.seq;
-        showToast(`« ${nom} » n'apparaît pas sur la cartographie`, 'info');
+        handledFocusSeq.current = request.seq;
+        const handled = focusUnresolvedRef.current;
+        if (handled) handled(request);
+        else showToast(`« ${request.nom || request.dossier?.numero || ''} » n'apparaît pas sur la cartographie`, 'info');
       }, 2500);
       return () => clearTimeout(timer);
     }
@@ -574,7 +640,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     setSelectedId(node.id);
     setCenterRequest(prev => ({ id: node.id, seq: (prev?.seq ?? 0) + 1 }));
     if (node.type === 'mec') setSidePanelMecId(node.id);
-  }, [focusRequest, findNodeByName, mapPending, graph, showToast]);
+  }, [focusRequest, findNodeByName, findDossierNode, mapPending, graph, showToast]);
 
   const handleDossierFromPanel = (dossier: DossierNode) => {
     focusOnNode(dossier);

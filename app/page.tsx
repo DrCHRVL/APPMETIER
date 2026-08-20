@@ -90,6 +90,8 @@ const InstructionArchivesPage = dynamic(
   () => import('@/components/pages/InstructionArchivesPage').then(m => ({ default: m.InstructionArchivesPage })),
   { ssr: false }
 );
+// Type seul : n'entraîne aucun import runtime, le module reste chargé à la demande.
+import type { MindmapFocusRequest } from '@/components/pages/MindmapPage';
 const MindmapPage = dynamic(
   () => import('@/components/pages/MindmapPage').then(m => ({ default: m.MindmapPage })),
   {
@@ -932,9 +934,23 @@ function AppContent() {
     return merged;
   }, [overboardData, enquetes, currentContentieuxId]);
 
-  // Recentrage demandé à la cartographie (depuis la recherche globale) : le nom
-  // visé + un compteur pour rejouer la demande sur un même nom.
-  const [mindmapFocus, setMindmapFocus] = useState<{ nom: string; seq: number } | undefined>();
+  // Recentrage demandé à la cartographie (depuis la recherche globale) : la
+  // cible visée + un compteur pour rejouer la demande sur une même cible.
+  const [mindmapFocus, setMindmapFocus] = useState<MindmapFocusRequest | undefined>();
+  const mindmapFocusSeq = useRef(0);
+  // Résultat de recherche à l'origine du recentrage en cours : si la carte ne
+  // trouve pas la cible, on rejoue ce résultat par le chemin normal (ouverture
+  // de la fiche) au lieu de laisser l'utilisateur devant une carte inchangée.
+  const mindmapFocusFallback = useRef<{ seq: number; doc: Pick<GlobalSearchDoc, 'kind' | 'data'> } | null>(null);
+
+  const requestMindmapFocus = (
+    target: Omit<MindmapFocusRequest, 'seq'>,
+    fallbackDoc?: Pick<GlobalSearchDoc, 'kind' | 'data'>,
+  ) => {
+    const seq = ++mindmapFocusSeq.current;
+    mindmapFocusFallback.current = fallbackDoc ? { seq, doc: fallbackDoc } : null;
+    setMindmapFocus({ ...target, seq });
+  };
 
   // Condamnés des résultats d'audience : ils ont eux aussi un nœud sur la
   // cartographie, donc leur nom fait partie du fichier des personnes (une
@@ -1428,8 +1444,16 @@ function AppContent() {
   // Exécute un résultat de la recherche globale (clic ou Entrée) : ouverture de
   // la fiche VIVE, navigation ou action — même règle de rattachement tolérant
   // des numéros que l'assistant de justice.
-  const handleGlobalSearchExecute = async (doc: Pick<GlobalSearchDoc, 'kind' | 'data'>) => {
+  const handleGlobalSearchExecute = async (
+    doc: Pick<GlobalSearchDoc, 'kind' | 'data'>,
+    opts?: { skipMindmapFocus?: boolean },
+  ) => {
     const data = doc.data as Record<string, unknown>;
+    // Depuis la cartographie, choisir un dossier ou une personne recentre la
+    // carte sur son nœud : on reste sur la carte plutôt que d'en sortir pour
+    // ouvrir une fiche. `skipMindmapFocus` sert au repli quand la carte ne
+    // connaît pas la cible — on repasse alors par le chemin normal.
+    const focusOnMap = baseView === 'mindmap' && !opts?.skipMindmapFocus;
     switch (doc.kind) {
       // Un résultat « contenu de document » ouvre l'enquête qui porte le
       // document — même chemin que les enquêtes.
@@ -1438,6 +1462,12 @@ function AppContent() {
         const ctxId = String(data.ctxId || '') as ContentieuxId;
         const numero = String(data.numero || '');
         const wantedId = typeof data.id === 'number' ? data.id : Number(data.id);
+        // Un résultat « document » vise le document, pas le dossier : il ouvre
+        // la fiche même depuis la carte.
+        if (focusOnMap && doc.kind === 'enquete') {
+          requestMindmapFocus({ dossier: { id: wantedId, ctxId: ctxId || undefined, numero } }, doc);
+          return;
+        }
         const list = ctxId === currentContentieuxId
           ? enquetesLookupRef.current
           : (overboardData.get(ctxId) || []);
@@ -1456,6 +1486,17 @@ function AppContent() {
       }
       case 'instruction': {
         const wantedId = typeof data.id === 'number' ? data.id : Number(data.id);
+        if (focusOnMap) {
+          requestMindmapFocus({
+            dossier: {
+              id: wantedId,
+              numero: String(data.numero || ''),
+              numeroParquet: String(data.numeroParquet || ''),
+              instruction: true,
+            },
+          }, doc);
+          return;
+        }
         const inst = instructions.find(d => d.id === wantedId)
           || instructions.find(d =>
             numerosProches(d.numeroInstruction, String(data.numero || '')) ||
@@ -1480,7 +1521,7 @@ function AppContent() {
         // recherche de la page (la carte n'a pas de barre à elle).
         const nom = String(data.nom || '');
         await handleViewChange('mindmap');
-        setMindmapFocus(prev => ({ nom, seq: (prev?.seq ?? 0) + 1 }));
+        requestMindmapFocus({ nom });
         return;
       }
       case 'page': {
@@ -1890,6 +1931,22 @@ return (
             <MindmapPage
               sources={mindmapSources}
               focusRequest={mindmapFocus}
+              onFocusUnresolved={request => {
+                // La carte n'a pas trouvé la cible (dossier hors périmètre
+                // affiché, enquête préliminaire absorbée par son instruction,
+                // personne sans nœud…). Pour un dossier, on rejoue le résultat
+                // de recherche par le chemin normal — la fiche s'ouvre.
+                const fallback = mindmapFocusFallback.current;
+                if (fallback && fallback.seq === request.seq) {
+                  mindmapFocusFallback.current = null;
+                  void handleGlobalSearchExecute(fallback.doc, { skipMindmapFocus: true });
+                  return;
+                }
+                showToast(
+                  `« ${request.nom || request.dossier?.numero || ''} » n’apparaît pas sur la cartographie`,
+                  'info',
+                );
+              }}
               knownNames={allKnownMec}
               knownNameHints={knownNameHints}
               onRefresh={() => {
