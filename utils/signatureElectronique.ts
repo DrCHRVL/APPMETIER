@@ -14,6 +14,7 @@
 
 import { SiralBridge } from '@/utils/siralBridge';
 import { APP_CONFIG } from '@/config/constants';
+import { CHAMP_SIGNATURE_DEFAUT, ChampSignature, mergeChampSignature } from '@/utils/pdfSignatureField';
 
 /** Ce que porte le bas de l'acte, sous le bloc « Fait à …, le … ». */
 export interface SignatureElectronique {
@@ -25,17 +26,30 @@ export interface SignatureElectronique {
   cachet?: string;
   /** Largeur du cachet dans le document, en pixels (≈ 0,26 mm par pixel). */
   largeurPx: number;
+  /**
+   * Poser un champ de signature vide au bas du PDF, pour le faire signer
+   * ensuite par la carte agent : l'application ne signe pas, elle prépare.
+   */
+  champActif: boolean;
+  /** Emplacement de ce champ sur la dernière page. */
+  champ: ChampSignature;
 }
 
 export const DEFAULT_SIGNATURE: SignatureElectronique = {
   mode: 'aucune',
   mention: 'Signé électroniquement :',
   largeurPx: 150,
+  champActif: false,
+  champ: CHAMP_SIGNATURE_DEFAUT,
 };
 
 export const mergeSignature = (
   saved: Partial<SignatureElectronique> | null | undefined,
-): SignatureElectronique => ({ ...DEFAULT_SIGNATURE, ...(saved || {}) });
+): SignatureElectronique => ({
+  ...DEFAULT_SIGNATURE,
+  ...(saved || {}),
+  champ: mergeChampSignature(saved?.champ),
+});
 
 export const loadSignature = async (): Promise<SignatureElectronique> =>
   mergeSignature(

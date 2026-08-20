@@ -926,6 +926,50 @@ l'usage).
   TJ, ou si la fonctionnalité est désactivée — indistinguable d'une route
   inexistante.
 
+### Endpoint à ajouter au sidecar : `/motivation-saisine`
+
+Le générateur de soit-transmis de saisine (bouton « Générer le soit-transmis de
+saisine » d'une enquête) propose, pour les dossiers **composites**, de faire
+rédiger par l'attaché les circonstances de la motivation de criminalité grave —
+celles que la bibliothèque intégrée (`utils/saisine/motivations.ts`) rend mal
+quand plusieurs matières doivent tenir dans une seule phrase.
+
+La route applicative `/api/attache/motivation-saisine` existe et est gardée
+comme les autres (admin du TJ confié, 404 sinon). Le bouton reste **invisible**
+tant que le sidecar n'expose pas l'endpoint correspondant : la sonde `GET`
+échoue, et le générateur fonctionne sans lui.
+
+Contrat attendu côté sidecar, `POST /motivation-saisine` :
+
+```jsonc
+// requête
+{
+  "qualifications": ["CORRUPTION PASSIVE : …", "RÉVÉLATION D'INFORMATION …"], // 8 max
+  "quantum": "dix ans",          // peine encourue, en toutes lettres
+  "famille": "Corruption et atteintes à l'autorité",
+  "contexte": "…",               // écrit par le magistrat, 600 caractères max
+  "maxCaracteres": 900
+}
+// réponse
+{ "ok": true, "motivation": "de l'organisation criminelle à l'œuvre impliquant …" }
+```
+
+Deux exigences de rédaction, qui font tout l'intérêt du contrat :
+
+1. La réponse est le **seul membre de phrase** qui s'intercale entre
+   « qu'en considération » et « cette enquête relève de la criminalité grave ».
+   Elle commence donc par « de », « du », « des » ou « de l' », ne porte ni
+   majuscule initiale ni point final, et enchaîne les circonstances par des
+   virgules, la dernière introduite par « ainsi que ».
+2. Le modèle ne rédige **ni la qualification, ni le quantum, ni la formule de
+   nécessité et de proportionnalité** : l'application les compose elle-même à
+   partir du référentiel NATINF. Un article ou une peine inventés dans un acte
+   de saisine se paieraient en nullité ; ils ne sont donc jamais délégués.
+
+Le dossier n'est pas transmis : ni description d'enquête, ni mis en cause, ni
+pièces. La proposition arrive dans le champ éditable du modal et n'est écrite
+nulle part tant que le magistrat ne l'a pas reprise.
+
 ## Installation (serveur OVH, docker compose)
 
 1. **Boîte dédiée** : créer `ia@votre-domaine` chez OVH (IMAP + SMTP).

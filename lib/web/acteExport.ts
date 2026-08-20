@@ -560,12 +560,43 @@ export async function actePdfDataUri(p: ActeExportable): Promise<string> {
   }).from(el).outputPdf('datauristring')
 }
 
-export async function downloadActePdf(p: ActeExportable): Promise<void> {
+/** Octets du PDF, décodés depuis le data-URI rendu par html2pdf. */
+async function actePdfBytes(p: ActeExportable): Promise<Uint8Array> {
   const uri = await actePdfDataUri(p)
+  const base64 = uri.slice(uri.indexOf(',') + 1)
+  const binaire = atob(base64)
+  const octets = new Uint8Array(binaire.length)
+  for (let i = 0; i < binaire.length; i++) octets[i] = binaire.charCodeAt(i)
+  return octets
+}
+
+/**
+ * Télécharge l'acte en PDF. Avec `champSignature`, le PDF porte en outre un
+ * champ de signature vide au bas de sa dernière page : l'outil de signature du
+ * magistrat (carte agent, parapheur) n'a plus qu'à le remplir — voir
+ * utils/pdfSignatureField.ts.
+ */
+export async function downloadActePdf(
+  p: ActeExportable,
+  opts: { champSignature?: import('@/utils/pdfSignatureField').ChampSignature } = {},
+): Promise<void> {
+  if (!opts.champSignature) {
+    const uri = await actePdfDataUri(p)
+    const a = document.createElement('a')
+    a.href = uri
+    a.download = acteFileBase(p) + '.pdf'
+    a.click()
+    return
+  }
+  const { ajouterChampSignature } = await import('@/utils/pdfSignatureField')
+  const octets = await ajouterChampSignature(await actePdfBytes(p), opts.champSignature)
+  const blob = new Blob([octets], { type: 'application/pdf' })
+  const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = uri
+  a.href = url
   a.download = acteFileBase(p) + '.pdf'
   a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
 
 /** Déclenche le téléchargement d'un Blob .docx. */

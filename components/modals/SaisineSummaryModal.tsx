@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Enquete } from '@/types/interfaces';
-import { AlertTriangle, Check, Copy, FileDown, FileText, Pencil, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Check, Copy, FileDown, FileText, Pencil, PenLine, RotateCcw, Sparkles } from 'lucide-react';
 import { SiralBridge } from '@/utils/siralBridge';
 import { copyPlainToClipboard } from '@/utils/richTextExport';
 import { APP_CONFIG } from '@/config/constants';
@@ -45,6 +45,9 @@ import {
   saveSignature,
   signatureActive,
 } from '@/utils/signatureElectronique';
+
+/** Route de proposition de motivation (404 pour tout compte non administrateur). */
+const ROUTE_MOTIVATION = '/api/attache/motivation-saisine';
 
 interface SaisineSummaryModalProps {
   isOpen: boolean;
@@ -130,7 +133,7 @@ export const SaisineSummaryModal = ({ isOpen, onClose, enquete }: SaisineSummary
   const [editingTemplate, setEditingTemplate] = useState<SaisineTemplate | null>(null);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [busy, setBusy] = useState<'docx' | 'pdf' | null>(null);
+  const [busy, setBusy] = useState<'docx' | 'pdf' | 'pdfSigne' | null>(null);
 
   // ── Données du dossier, préremplies puis corrigées par le magistrat ──
   const [destinatairesTxt, setDestinatairesTxt] = useState('');
@@ -153,6 +156,12 @@ export const SaisineSummaryModal = ({ isOpen, onClose, enquete }: SaisineSummary
   const [suiviParSection, setSuiviParSection] = useState(false);
   const [signature, setSignature] = useState<SignatureElectronique>(DEFAULT_SIGNATURE);
   const [signatureErreur, setSignatureErreur] = useState('');
+  // Proposition de motivation par l'attaché : réservée à l'administrateur du TJ
+  // confié, donc masquée tant que la route ne répond pas (404 pour les autres).
+  const [attacheDispo, setAttacheDispo] = useState(false);
+  const [contexteIA, setContexteIA] = useState('');
+  const [iaEnCours, setIaEnCours] = useState(false);
+  const [iaErreur, setIaErreur] = useState('');
 
   // Infractions du dossier, réduites à ce dont le rattachement a besoin.
   const infractions = useMemo<InfractionSaisine[]>(
@@ -186,6 +195,10 @@ export const SaisineSummaryModal = ({ isOpen, onClose, enquete }: SaisineSummary
       setTemplateLoaded(true);
     });
     loadSignature().then(setSignature);
+    fetch(ROUTE_MOTIVATION, { method: 'GET', cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setAttacheDispo(Boolean(d?.available)))
+      .catch(() => setAttacheDispo(false));
 
     const infs: InfractionSaisine[] = infractionsForEnquete(enquete).map((i) => ({
       label: i.label,
@@ -217,6 +230,8 @@ export const SaisineSummaryModal = ({ isOpen, onClose, enquete }: SaisineSummary
     setEcheance('');
     setSuiviParSection(false);
     setSignatureErreur('');
+    setContexteIA('');
+    setIaErreur('');
     setCopied(false);
     setEditingTemplate(null);
   }, [isOpen, enquete, infractionsForEnquete]);
@@ -354,6 +369,17 @@ export const SaisineSummaryModal = ({ isOpen, onClose, enquete }: SaisineSummary
     try { await downloadActePdf(acte); } finally { setBusy(null); }
   };
 
+  // PDF portant un champ de signature vide : l'app ne signe pas (la clé d'une
+  // carte agent ne s'exporte pas), elle prépare l'acte pour l'outil signataire.
+  const handlePdfPretASigner = async () => {
+    setBusy('pdfSigne');
+    try {
+      await downloadActePdf(acte, { champSignature: signature.champ });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const handleSaveTemplate = useCallback(async () => {
     if (!editingTemplate) return;
     await SiralBridge.setData(APP_CONFIG.STORAGE_KEYS.SAISINE_TEMPLATE, editingTemplate);
@@ -374,6 +400,48 @@ export const SaisineSummaryModal = ({ isOpen, onClose, enquete }: SaisineSummary
       await majSignature({ ...signature, cachet: dataUri, mode: 'mention_cachet' });
     } catch (e) {
       setSignatureErreur(e instanceof Error ? e.message : 'Image illisible.');
+    }
+  };
+
+  /**
+   * Demande une motivation à l'attaché pour les dossiers composites, que la
+   * bibliothèque rend mal. Ne partent que les qualifications, la peine encourue
+   * et le contexte que le magistrat a lui-même écrit — jamais le dossier.
+   */
+  const handleProposerMotivation = async () => {
+    setIaEnCours(true);
+    setIaErreur('');
+    try {
+      const res = await fetch(ROUTE_MOTIVATION, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          qualifications: infractions.map((i) => i.label),
+          quantum,
+          famille: famille?.libelle || '',
+          contexte: contexteIA,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.motivation) {
+        throw new Error(data?.error || 'Aucune proposition reçue');
+      }
+      // La proposition ne remplit que les CIRCONSTANCES : le reste du
+      // paragraphe (qualification, quantum, nécessité et proportionnalité)
+      // reste calculé, pour qu'aucun de ces éléments ne soit rédigé par le modèle.
+      setMotivationManuelle(
+        buildMotivation({
+          qualification: qualificationPour(famille, bandeOrganisee),
+          quantum,
+          circonstances: [String(data.motivation).trim()],
+          complement: famille ? MOTIFS_PAR_FAMILLE[famille.id]?.complement : undefined,
+        }),
+      );
+    } catch (e) {
+      setIaErreur(e instanceof Error ? e.message : 'Proposition indisponible');
+    } finally {
+      setIaEnCours(false);
     }
   };
 
@@ -658,6 +726,37 @@ export const SaisineSummaryModal = ({ isOpen, onClose, enquete }: SaisineSummary
                   className={`${champ} h-32 resize-none`}
                 />
               </div>
+
+              {attacheDispo && (
+                <div className="p-3 border border-gray-200 rounded-lg bg-gray-50 space-y-2">
+                  <p className="text-[11px] text-gray-500">
+                    Dossier composite, que les circonstances ci-dessus rendent mal ?
+                    L'attaché peut proposer les circonstances en une phrase. Ne partent
+                    que les qualifications, la peine encourue et les quelques lignes de
+                    contexte que vous écrivez ici — pas le dossier.
+                  </p>
+                  <textarea
+                    value={contexteIA}
+                    onChange={(e) => setContexteIA(e.target.value)}
+                    maxLength={600}
+                    placeholder="Contexte en deux ou trois lignes (facultatif) : réseau structuré, dimension transdépartementale, communications chiffrées…"
+                    className={`${champ} h-16 resize-none bg-white`}
+                  />
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      disabled={iaEnCours || !infractions.length}
+                      onClick={handleProposerMotivation}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {iaEnCours ? 'Rédaction…' : 'Proposer une motivation'}
+                    </Button>
+                    {iaErreur && <span className="text-xs text-red-600">{iaErreur}</span>}
+                  </div>
+                </div>
+              )}
             </section>
 
             {/* ── Autorisations et diligences ── */}
@@ -769,6 +868,49 @@ export const SaisineSummaryModal = ({ isOpen, onClose, enquete }: SaisineSummary
                 cryptographique n'est calculée. Le cachet reste sur ce poste. Il n'apparaît
                 pas dans un export Word passant par une trame de forme (le texte, si).
               </p>
+
+              <label className="flex items-center gap-2 text-xs text-gray-600 pt-1">
+                <input
+                  type="checkbox"
+                  checked={signature.champActif}
+                  onChange={(e) => majSignature({ ...signature, champActif: e.target.checked })}
+                />
+                Poser un champ de signature dans le PDF (à signer par la carte agent)
+              </label>
+              {signature.champActif && (
+                <div className="flex flex-wrap gap-2 pl-6">
+                  {([
+                    ['droiteMm', 'Droite (mm)'],
+                    ['basMm', 'Bas (mm)'],
+                    ['largeurMm', 'Largeur (mm)'],
+                    ['hauteurMm', 'Hauteur (mm)'],
+                  ] as [keyof typeof signature.champ, string][]).map(([cle, libelle]) => (
+                    <div key={String(cle)} className="w-28">
+                      <label className="block text-[11px] text-gray-500 mb-1">{libelle}</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={signature.champ[cle] as number}
+                        onChange={(e) =>
+                          majSignature({
+                            ...signature,
+                            champ: { ...signature.champ, [cle]: Number(e.target.value) || 0 },
+                          })
+                        }
+                        className={champ}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {signature.champActif && (
+                <p className="text-[11px] text-gray-400">
+                  L'application ne signe pas : la clé d'une carte agent ne s'exporte pas.
+                  Elle pose l'emplacement, en bas de la dernière page ; le sceau et la
+                  mention sont ensuite dessinés par votre outil de signature, qui seul
+                  les rend vérifiables.
+                </p>
+              )}
             </section>
 
             {/* ── Aperçu ── */}
@@ -796,10 +938,27 @@ export const SaisineSummaryModal = ({ isOpen, onClose, enquete }: SaisineSummary
                 <FileText className="h-4 w-4" />
                 {busy === 'docx' ? 'Génération…' : 'Word'}
               </Button>
-              <Button size="sm" className="gap-2" disabled={busy !== null} onClick={handlePdf}>
+              <Button
+                variant={signature.champActif ? 'outline' : 'default'}
+                size="sm"
+                className="gap-2"
+                disabled={busy !== null}
+                onClick={handlePdf}
+              >
                 <FileDown className="h-4 w-4" />
                 {busy === 'pdf' ? 'Génération…' : 'PDF'}
               </Button>
+              {signature.champActif && (
+                <Button
+                  size="sm"
+                  className="gap-2"
+                  disabled={busy !== null}
+                  onClick={handlePdfPretASigner}
+                >
+                  <PenLine className="h-4 w-4" />
+                  {busy === 'pdfSigne' ? 'Génération…' : 'PDF prêt à signer'}
+                </Button>
+              )}
             </div>
           </div>
         )}
