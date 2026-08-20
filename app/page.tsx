@@ -144,6 +144,7 @@ import { useGlobalSearch } from '@/hooks/useGlobalSearch';
 import { useKnownPersons } from '@/hooks/useKnownPersons';
 import type { PersonEntry } from '@/utils/knownPersons';
 import type { GlobalSearchDoc } from '@/utils/globalSearch';
+import { useCartographieOverlayStore } from '@/stores/useCartographieOverlayStore';
 const AdminUsersPanel = dynamic(() => import('@/components/AdminUsersPanel').then(m => ({ default: m.AdminUsersPanel })), { ssr: false });
 import { UserManager } from '@/utils/userManager';
 const AdminContentieuxPanel = dynamic(() => import('@/components/admin/AdminContentieuxPanel').then(m => ({ default: m.AdminContentieuxPanel })), { ssr: false });
@@ -934,7 +935,7 @@ function AppContent() {
 
   // Recentrage demandé à la cartographie (depuis la recherche globale) : le nom
   // visé + un compteur pour rejouer la demande sur un même nom.
-  const [mindmapFocus, setMindmapFocus] = useState<{ nom: string; seq: number } | undefined>();
+  const [mindmapFocus, setMindmapFocus] = useState<{ nom?: string; dossierId?: string; seq: number } | undefined>();
 
   // Condamnés des résultats d'audience : ils ont eux aussi un nœud sur la
   // cartographie, donc leur nom fait partie du fichier des personnes (une
@@ -972,6 +973,10 @@ function AppContent() {
     extra: condamnesEntries,
   });
   const allKnownMec = knownPersons.names;
+  // Dossiers créés « ex nihilo » directement sur la cartographie (sans
+  // enquête ni instruction source) : doivent être trouvables dans la
+  // recherche globale au même titre que les autres dossiers.
+  const dossiersExNihilo = useCartographieOverlayStore(s => s.dossiersExNihilo);
   const knownNameHints = knownPersons.hints;
 
   // Sources pour le module Mindmap : toutes enquêtes accessibles + instructions
@@ -1423,6 +1428,7 @@ function AppContent() {
     hasOverboard: hasOverboard(),
     showAssistant: attacheAvailable && isAdmin(),
     knownPersons: knownPersons.persons,
+    dossiersExNihilo,
   });
 
   // Exécute un résultat de la recherche globale (clic ou Entrée) : ouverture de
@@ -1481,6 +1487,15 @@ function AppContent() {
         await handleViewChange('mindmap');
         handleSearchChange(nom);
         setMindmapFocus(prev => ({ nom, seq: (prev?.seq ?? 0) + 1 }));
+        return;
+      }
+      case 'dossier_carto': {
+        // Même logique que les personnes : accès direct sur la cartographie,
+        // mais recentrage par identifiant (le libellé n'est pas garanti unique).
+        const dossierId = String(data.dossierId || '');
+        await handleViewChange('mindmap');
+        handleSearchChange(String(data.label || ''));
+        setMindmapFocus(prev => ({ dossierId, seq: (prev?.seq ?? 0) + 1 }));
         return;
       }
       case 'page': {

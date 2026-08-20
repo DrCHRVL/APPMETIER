@@ -57,6 +57,7 @@ const KIND_ICONS: Record<GlobalSearchDoc['kind'], typeof FileText> = {
   instruction: Scale,
   air: Activity,
   personne: Network,
+  dossier_carto: Network,
   page: ArrowUpRight,
   action: Zap,
   document: FileSearch,

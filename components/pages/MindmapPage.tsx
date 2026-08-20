@@ -70,9 +70,9 @@ interface MindmapPageProps {
   searchTerm?: string;
   onSearchChange?: (term: string) => void;
   /** Recentrage demandé depuis la recherche globale : la carte s'ouvre
-   *  DIRECTEMENT sur la personne choisie, sans second clic dans une liste.
-   *  `seq` permet de rejouer la demande sur un même nom. */
-  focusRequest?: { nom: string; seq: number };
+   *  DIRECTEMENT sur la personne ou le dossier choisi, sans second clic dans
+   *  une liste. `seq` permet de rejouer la demande sur un même nom/id. */
+  focusRequest?: { nom?: string; dossierId?: string; seq: number };
   /** Fichier des personnes de l'application : propositions à la création d'une
    *  fiche manuelle, pour ne pas doubler une personne déjà au fichier. */
   knownNames?: string[];
@@ -581,16 +581,19 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   }, [graph]);
 
   useEffect(() => {
-    if (!focusRequest?.nom) return;
-    if (handledFocusSeq.current === focusRequest.seq) return;
-    const node = findNodeByName(focusRequest.nom);
+    if (!focusRequest || handledFocusSeq.current === focusRequest.seq) return;
+    const node = focusRequest.dossierId
+      ? graph.dossierById.get(focusRequest.dossierId)
+      : focusRequest.nom
+        ? findNodeByName(focusRequest.nom)
+        : undefined;
     if (!node) return;
     handledFocusSeq.current = focusRequest.seq;
     setSelectedId(node.id);
     setCenterRequest(prev => ({ id: node.id, seq: (prev?.seq ?? 0) + 1 }));
     if (node.type === 'mec') setSidePanelMecId(node.id);
-    setResolvedTerm(focusRequest.nom);
-  }, [focusRequest, findNodeByName]);
+    setResolvedTerm(focusRequest.nom ?? null);
+  }, [focusRequest, findNodeByName, graph]);
 
   const handleDossierFromPanel = (dossier: DossierNode) => {
     focusOnNode(dossier);
