@@ -8,7 +8,7 @@
 /**
  * Pondérations utilisées par la formule de score MEC. Chaque champ est
  * exprimé en points bruts ; la formule additionne les contributions puis
- * applique le multiplicateur "récent" si activé.
+ * applique la pondération temporelle (cf. CartographieTemporalConfig).
  *
  * Volontairement plat et lisible : l'utilisateur édite directement ces
  * champs depuis l'écran "Paramètres du module Cartographie".
@@ -30,9 +30,44 @@ export interface CartographieScoreWeights {
    *  cause). Permet de récompenser une implication "indirecte" sans la
    *  compter à plein. 0 = ignore, 0.8 = 80 % du bonus, 1 = plein bonus. */
   lienRenseignementInfractionCoef: number;
-  /** Multiplicateur appliqué si au moins un dossier a été touché dans
-   *  la fenêtre "récent" (12 mois). 1.0 = neutralise. */
-  recentMultiplier: number;
+}
+
+/**
+ * Pondération TEMPORELLE du score MEC. Deux effets combinés, appliqués en
+ * multiplicateur sur le total des points bruts (avant le bonus manuel) :
+ *
+ *  1. MALUS D'ANCIENNETÉ — un individu dont la dernière implication connue
+ *     remonte à plusieurs années pèse moins qu'un individu un peu moins
+ *     actif mais présent récemment. Le malus est progressif : neutre en
+ *     deçà de `freshYears`, maximal (`dormantMultiplier`) au-delà de
+ *     `staleYears`, interpolé linéairement entre les deux.
+ *
+ *  2. BONUS DE CONTINUITÉ — un individu impliqué sur plusieurs années
+ *     DISTINCTES (activité continue, et non un pic isolé) reçoit jusqu'à
+ *     `continuityBonus` de bonus, atteint à `continuityYears` années
+ *     d'activité.
+ *
+ * Les années d'implication d'un MEC sont l'union des périodes d'activité
+ * des dossiers qui le concernent (dates judiciaires : début d'enquête, OP,
+ * audience ; date approximative pour les dossiers manuels). Un MEC sans
+ * aucune date exploitable reste neutre (facteur 1) — on ne pénalise jamais
+ * une absence d'information.
+ */
+export interface CartographieTemporalConfig {
+  /** Active la pondération temporelle. Décoché = facteur 1 pour tout le monde. */
+  enabled: boolean;
+  /** Ancienneté (en années) en deçà de laquelle aucun malus ne s'applique. */
+  freshYears: number;
+  /** Ancienneté (en années) à partir de laquelle le malus est maximal. */
+  staleYears: number;
+  /** Multiplicateur appliqué à un MEC totalement dormant (ancienneté ≥
+   *  `staleYears`). 0.5 = score divisé par deux ; 1 = pas de malus. */
+  dormantMultiplier: number;
+  /** Bonus maximal pour une activité continue. 0.3 = +30 % au plafond. */
+  continuityBonus: number;
+  /** Nombre d'années d'activité distinctes à partir duquel le bonus de
+   *  continuité est plein. */
+  continuityYears: number;
 }
 
 /**
@@ -75,6 +110,8 @@ export interface CartographieLayoutConfig {
 
 export interface CartographieModuleConfig {
   weights: CartographieScoreWeights;
+  /** Pondération temporelle (malus d'ancienneté + bonus de continuité). */
+  temporal: CartographieTemporalConfig;
   /** Pondérations par tag d'infraction (clé = Tag.id). LEGACY : conservé pour
    *  rétrocompat le temps de la migration vers NATINF (cf. natinfWeights). */
   tagInfractionWeights: CartographieInfractionWeights;
@@ -102,6 +139,12 @@ export interface CartographieModuleConfig {
   updatedBy?: string;
 }
 
+/** Version courante du schéma de configuration.
+ *  v2 : suppression du multiplicateur « récent » (booléen 12 mois, trop
+ *       binaire) au profit du bloc `temporal` (malus d'ancienneté progressif
+ *       + bonus de continuité). */
+export const CARTO_CONFIG_VERSION = 2;
+
 /** Valeurs par défaut des paramètres d'espacement. Doivent rester alignées
  *  sur les constantes de repli de components/mindmap (INTER_GALAXY_PADDING,
  *  INTER_GALAXY_PADDING_RENS, LINK_DISTANCE). */
@@ -119,16 +162,27 @@ export const DEFAULT_CARTO_WEIGHTS: CartographieScoreWeights = {
   chefDefault: 0.3,
   lienRenseignement: 0,
   lienRenseignementInfractionCoef: 0.8,
-  recentMultiplier: 1.2,
+};
+
+/** Valeurs par défaut de la pondération temporelle. Activée d'office : sans
+ *  elle, un réseau démantelé il y a dix ans continue de dominer le Top. */
+export const DEFAULT_CARTO_TEMPORAL: CartographieTemporalConfig = {
+  enabled: true,
+  freshYears: 2,
+  staleYears: 10,
+  dormantMultiplier: 0.5,
+  continuityBonus: 0.3,
+  continuityYears: 4,
 };
 
 export const DEFAULT_CARTO_CONFIG: CartographieModuleConfig = {
   weights: { ...DEFAULT_CARTO_WEIGHTS },
+  temporal: { ...DEFAULT_CARTO_TEMPORAL },
   tagInfractionWeights: {},
   categoryWeights: {},
   natinfWeights: {},
   groupByService: false,
   layout: { ...DEFAULT_CARTO_LAYOUT },
-  version: 1,
+  version: CARTO_CONFIG_VERSION,
   updatedAt: new Date(0).toISOString(),
 };

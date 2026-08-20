@@ -12,6 +12,7 @@ import {
   type CartographieLayoutConfig,
   type CartographieModuleConfig,
   type CartographieScoreWeights,
+  type CartographieTemporalConfig,
 } from '@/types/cartographieTypes';
 
 export const useCartographieConfig = () => {
@@ -32,6 +33,13 @@ export const useCartographieConfig = () => {
   const updateWeights = useCallback(
     async (patch: Partial<CartographieScoreWeights>) => {
       return CartographieConfigManager.updateWeights(patch);
+    },
+    [],
+  );
+
+  const updateTemporal = useCallback(
+    async (patch: Partial<CartographieTemporalConfig>) => {
+      return CartographieConfigManager.updateTemporal(patch);
     },
     [],
   );
@@ -69,6 +77,7 @@ export const useCartographieConfig = () => {
     config,
     isLoading,
     updateWeights,
+    updateTemporal,
     setCategoryWeight,
     setNatinfWeight,
     setGroupByService,

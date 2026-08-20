@@ -18,12 +18,15 @@ import { SiralBridge } from './siralBridge';
 import { getCurrentUserInfo } from './dataSync/globalSyncCommon';
 import { APP_CONFIG } from '@/config/constants';
 import {
+  CARTO_CONFIG_VERSION,
   DEFAULT_CARTO_CONFIG,
   DEFAULT_CARTO_LAYOUT,
+  DEFAULT_CARTO_TEMPORAL,
   DEFAULT_CARTO_WEIGHTS,
   type CartographieLayoutConfig,
   type CartographieModuleConfig,
   type CartographieScoreWeights,
+  type CartographieTemporalConfig,
 } from '@/types/cartographieTypes';
 
 const CONFIG_KEY = APP_CONFIG.STORAGE_KEYS.CARTOGRAPHIE_CONFIG;
@@ -39,9 +42,19 @@ function isShareAvailable(): boolean {
 /** Reconstruit une config valide à partir d'un blob potentiellement partiel
  *  (rétrocompat : un fichier antérieur peut manquer de champs). */
 function normalize(stored: Partial<CartographieModuleConfig> | null): CartographieModuleConfig {
-  const weights: CartographieScoreWeights = {
-    ...DEFAULT_CARTO_WEIGHTS,
-    ...(stored?.weights || {}),
+  // MIGRATION v1 → v2 : `recentMultiplier` (bonus binaire « touché dans les
+  // 12 mois ») a été remplacé par le bloc `temporal`. On repart des défauts et
+  // on ne recopie que les clés encore connues du schéma — la clé morte ne
+  // survit donc pas à un simple aller-retour de sauvegarde.
+  const storedWeights = (stored?.weights || {}) as Partial<CartographieScoreWeights>;
+  const weights: CartographieScoreWeights = { ...DEFAULT_CARTO_WEIGHTS };
+  for (const key of Object.keys(DEFAULT_CARTO_WEIGHTS) as Array<keyof CartographieScoreWeights>) {
+    const v = storedWeights[key];
+    if (typeof v === 'number' && Number.isFinite(v)) weights[key] = v;
+  }
+  const temporal: CartographieTemporalConfig = {
+    ...DEFAULT_CARTO_TEMPORAL,
+    ...(stored?.temporal || {}),
   };
   const layout: CartographieLayoutConfig = {
     ...DEFAULT_CARTO_LAYOUT,
@@ -49,12 +62,13 @@ function normalize(stored: Partial<CartographieModuleConfig> | null): Cartograph
   };
   return {
     weights,
+    temporal,
     tagInfractionWeights: { ...(stored?.tagInfractionWeights || {}) },
     categoryWeights: { ...(stored?.categoryWeights || {}) },
     natinfWeights: { ...(stored?.natinfWeights || {}) },
     groupByService: stored?.groupByService ?? DEFAULT_CARTO_CONFIG.groupByService,
     layout,
-    version: stored?.version ?? DEFAULT_CARTO_CONFIG.version,
+    version: CARTO_CONFIG_VERSION,
     updatedAt: stored?.updatedAt || new Date().toISOString(),
     updatedBy: stored?.updatedBy,
   };
@@ -63,16 +77,6 @@ function normalize(stored: Partial<CartographieModuleConfig> | null): Cartograph
 /** Compare deux configs par leur `updatedAt`. */
 function ts(c: CartographieModuleConfig | null): number {
   return c ? Date.parse(c.updatedAt || '') || 0 : -1;
-}
-
-/** Renvoie la config la plus récente des deux (last-write-wins). */
-function pickNewest(
-  a: CartographieModuleConfig | null,
-  b: CartographieModuleConfig | null,
-): CartographieModuleConfig | null {
-  if (!a) return b;
-  if (!b) return a;
-  return ts(b) > ts(a) ? b : a;
 }
 
 async function pullServerConfig(): Promise<CartographieModuleConfig | null> {
@@ -120,25 +124,33 @@ class CartographieConfigManagerService {
     }
     const localConfig = stored ? normalize(stored) : null;
 
-    // Tirer la config partagée de l'équipe et garder la plus récente.
+    // Config déjà connue de ce poste → on la sert IMMÉDIATEMENT, et la
+    // réconciliation avec le partage se fait en tâche de fond (elle n'émettra
+    // que si un collègue a poussé plus récent, cas rare).
+    //
+    // C'est ce qui évite l'effet « la carte s'affiche avec les réglages par
+    // défaut puis se réorganise quelques secondes plus tard » : auparavant on
+    // attendait l'aller-retour réseau avant de rendre la vraie config, si bien
+    // que le premier layout était calculé avec les pondérations par défaut.
+    if (localConfig) {
+      this.cache = localConfig;
+      this.sync().catch(err => console.error('CartographieConfigSync.afterLoad', err));
+      return localConfig;
+    }
+
+    // Aucune config locale (premier démarrage de ce poste) : là, il faut bien
+    // attendre le partage, sinon on repartirait des défauts et on écraserait
+    // les réglages de l'équipe à la première sauvegarde.
     let serverConfig: CartographieModuleConfig | null = null;
     try {
       serverConfig = await pullServerConfig();
     } catch {
-      // Partage injoignable : on se contente de la config locale.
+      // Partage injoignable : on se contente des valeurs par défaut.
     }
 
-    const winner = pickNewest(localConfig, serverConfig) || normalize(null);
-
-    // Le serveur a une version plus récente (ou la 1re config connue) → on la
-    // persiste localement pour le hors-ligne et la prochaine comparaison.
-    if (serverConfig && ts(serverConfig) > ts(localConfig)) {
+    const winner = serverConfig ?? normalize(null);
+    if (serverConfig) {
       await SiralBridge.setData(CONFIG_KEY, winner);
-    }
-    // Config présente en local mais pas (ou plus à jour) sur le serveur → on
-    // marque dirty pour qu'elle remonte au partage à la prochaine sync.
-    if (localConfig && ts(localConfig) > ts(serverConfig)) {
-      this.dirty = true;
     }
 
     this.cache = winner;
@@ -196,6 +208,15 @@ class CartographieConfigManagerService {
     return this.save({
       ...current,
       weights: { ...current.weights, ...patch },
+    });
+  }
+
+  /** Mise à jour partielle de la pondération temporelle (ancienneté / continuité). */
+  async updateTemporal(patch: Partial<CartographieTemporalConfig>): Promise<boolean> {
+    const current = await this.loadForWrite();
+    return this.save({
+      ...current,
+      temporal: { ...current.temporal, ...patch },
     });
   }
 

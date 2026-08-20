@@ -102,13 +102,49 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
           {mec.infractionWeight > 0 && (
             <Stat label="Bonus infraction" value={`+${mec.infractionWeight.toFixed(1)}`} />
           )}
+          {mec.activityYears.length > 0 && (
+            <Stat
+              label="Facteur temporel"
+              value={`×${mec.temporalFactor.toFixed(2)}`}
+            />
+          )}
           <Stat label="Score brut" value={mec.rawScore.toFixed(1)} />
         </div>
-        {mec.recent && (
-          <div className="mt-2 inline-block text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
-            Mention récente (12 derniers mois)
+        {/* Lecture de la pondération temporelle : période d'implication connue
+            et sens du facteur appliqué (malus d'ancienneté / bonus continuité). */}
+        {mec.activityYears.length > 0 && (
+          <div className="mt-2 text-[11px] text-slate-500">
+            Implication connue{' '}
+            <span className="font-medium text-slate-700">
+              {mec.firstActivityYear === mec.lastActivityYear
+                ? mec.lastActivityYear
+                : `${mec.firstActivityYear} – ${mec.lastActivityYear}`}
+            </span>
+            {' · '}
+            {mec.activityYears.length} année{mec.activityYears.length > 1 ? 's' : ''} d&apos;activité
           </div>
         )}
+        <div className="mt-2 flex flex-wrap gap-1 empty:mt-0">
+          {/* « Mention récente » (dossier touché dans les 12 mois) est masquée
+              quand le malus d'ancienneté s'applique : les deux étiquettes se
+              contrediraient, le facteur temporel se lisant sur les dates
+              judiciaires et non sur la date de dernière saisie. */}
+          {mec.recent && mec.temporalFactor >= 0.99 && (
+            <span className="text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+              Mention récente (12 derniers mois)
+            </span>
+          )}
+          {mec.temporalFactor < 0.99 && (
+            <span className="text-[11px] font-medium text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+              Dormant — malus d&apos;ancienneté ×{mec.temporalFactor.toFixed(2)}
+            </span>
+          )}
+          {mec.temporalFactor > 1.01 && (
+            <span className="text-[11px] font-medium text-sky-800 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded">
+              Activité continue — bonus ×{mec.temporalFactor.toFixed(2)}
+            </span>
+          )}
+        </div>
         {mec.statuts.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
             {mec.statuts.map(s => (

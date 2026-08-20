@@ -21,8 +21,12 @@
 //         + (nb_chefs × w_chef)
 //         + (nb_liens_renseignement × w_lien)
 //         + bonus_infraction (somme par tag d'infraction associé)
-//   × multiplicateur_recent si au moins un dossier a été touché dans la
-//     fenêtre glissante de 12 mois.
+//   × facteur_temporel (malus d'ancienneté × bonus de continuité)
+//
+// Le facteur temporel remplace l'ancien « multiplicateur récent » binaire :
+// un MEC dont la dernière implication remonte à plusieurs années voit son
+// score décroître progressivement, tandis qu'une activité étalée sur
+// plusieurs années distinctes est bonifiée (cf. computeTemporalFactor).
 //
 // Les valeurs par défaut sont définies dans types/cartographieTypes.ts.
 
@@ -30,8 +34,10 @@ import { Enquete, MisEnCause } from '@/types/interfaces';
 import type { MisEnExamen } from '@/types/instructionTypes';
 import { ContentieuxId } from '@/types/userTypes';
 import {
+  DEFAULT_CARTO_TEMPORAL,
   DEFAULT_CARTO_WEIGHTS,
   type CartographieScoreWeights,
+  type CartographieTemporalConfig,
 } from '@/types/cartographieTypes';
 
 // ──────────────────────────────────────────────
@@ -63,6 +69,18 @@ export interface MecNode {
   infractionWeight: number;
   /** A été mentionné au moins une fois dans les 12 derniers mois */
   recent: boolean;
+  /** Années civiles DISTINCTES d'implication, triées croissant. Union des
+   *  périodes d'activité des dossiers qui le concernent (cf.
+   *  enqueteActivityYears / parseApproxYears). Vide si aucune date
+   *  exploitable — le MEC reste alors temporellement neutre. */
+  activityYears: number[];
+  /** Année de la dernière implication connue (max de `activityYears`). */
+  lastActivityYear?: number;
+  /** Année de la première implication connue (min de `activityYears`). */
+  firstActivityYear?: number;
+  /** Facteur temporel effectivement appliqué au score (malus d'ancienneté ×
+   *  bonus de continuité). 1 = neutre, < 1 = dormant, > 1 = actif en continu. */
+  temporalFactor: number;
   /** Score composite normalisé entre 0 et 1 (max du graphe = 1) */
   score: number;
   /** Score brut avant normalisation */
@@ -320,19 +338,154 @@ export function sameMecPerson(a: string, b: string, opts?: { allowSubset?: boole
 
 const RECENT_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
 
+// Amplitude maximale (en années) retenue pour un seul dossier. Garde-fou
+// contre une date aberrante ("1998" saisi pour 2018) qui gonflerait
+// artificiellement le bonus de continuité.
+const MAX_DOSSIER_SPAN_YEARS = 25;
+// Bornes de plausibilité d'une année judiciaire.
+const MIN_PLAUSIBLE_YEAR = 1950;
+
+/** Année d'une date ISO (ou d'un texte contenant une année). undefined si
+ *  rien d'exploitable ou si l'année sort des bornes de plausibilité. */
+function yearOfDate(value: string | undefined | null): number | undefined {
+  if (!value) return undefined;
+  const parsed = Date.parse(value);
+  let year: number;
+  if (!Number.isNaN(parsed)) {
+    year = new Date(parsed).getFullYear();
+  } else {
+    // Formats non ISO ("31/12/2019", "décembre 2019") : on récupère la
+    // première année à 4 chiffres.
+    const m = /(19|20|21)\d{2}/.exec(value);
+    if (!m) return undefined;
+    year = parseInt(m[0], 10);
+  }
+  if (!Number.isFinite(year) || year < MIN_PLAUSIBLE_YEAR || year > 2200) return undefined;
+  return year;
+}
+
+/** Intervalle d'années [start..end] borné, sous forme de liste. */
+function yearRange(start: number, end: number): number[] {
+  const from = Math.min(start, end);
+  const to = Math.max(start, end);
+  const clampedFrom = Math.max(from, to - MAX_DOSSIER_SPAN_YEARS);
+  const out: number[] = [];
+  for (let y = clampedFrom; y <= to; y++) out.push(y);
+  return out;
+}
+
+/**
+ * Années d'activité d'une ENQUÊTE réelle. On ne retient QUE des dates
+ * judiciaires (début d'enquête, opérations d'interpellation, audience) :
+ * `dateMiseAJour` est volontairement exclue, car une simple correction de
+ * saisie ferait passer un dossier de 2014 pour une affaire de cette année.
+ * À défaut de toute date judiciaire, on retombe sur la date de création.
+ */
+function enqueteActivityYears(enquete: Enquete, nowYear: number): number[] {
+  const marks: number[] = [];
+  const push = (v: string | undefined) => {
+    const y = yearOfDate(v);
+    if (y !== undefined) marks.push(y);
+  };
+  push(enquete.dateDebut);
+  push(enquete.dateOP);
+  for (const phase of enquete.opPhases || []) {
+    push(phase.dateDebut);
+    push(phase.dateFin);
+  }
+  push(enquete.dateAudience);
+  if (marks.length === 0) push(enquete.dateCreation);
+  if (marks.length === 0) return [];
+  // Une audience programmée l'an prochain ne rend pas le dossier « futur » :
+  // on borne au millésime courant.
+  const end = Math.min(nowYear, Math.max(...marks));
+  const start = Math.min(Math.min(...marks), end);
+  return yearRange(start, end);
+}
+
+// Séparateurs qui expriment une PÉRIODE entre deux millésimes ("2018-2020",
+// "2016 à 2019", "de 2015 au 2017").
+const RANGE_SEPARATOR = /^[\s,]*(?:-|–|—|\/|à|a|au|jusqu['’]?\s*à|>)[\s,]*$/i;
+
+/**
+ * Extrait les années d'un champ « date approximative » saisi librement sur un
+ * dossier manuel : "2018-2020", "2019 jugé", "2015 à 2017, appel 2018"…
+ * Les millésimes séparés par un tiret (ou « à ») sont développés en période.
+ */
+export function parseApproxYears(text: string | undefined, nowYear: number): number[] {
+  if (!text) return [];
+  const re = /(19|20|21)\d{2}/g;
+  const found: Array<{ year: number; start: number; end: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    found.push({ year: parseInt(m[0], 10), start: m.index, end: m.index + m[0].length });
+  }
+  if (found.length === 0) return [];
+  const years = new Set<number>();
+  for (let i = 0; i < found.length; i++) {
+    const cur = found[i];
+    if (cur.year >= MIN_PLAUSIBLE_YEAR) years.add(Math.min(cur.year, nowYear));
+    const next = found[i + 1];
+    if (!next) continue;
+    const between = text.slice(cur.end, next.start);
+    if (next.year > cur.year && RANGE_SEPARATOR.test(between)) {
+      for (const y of yearRange(cur.year, Math.min(next.year, nowYear))) {
+        if (y >= MIN_PLAUSIBLE_YEAR) years.add(y);
+      }
+    }
+  }
+  return [...years].sort((a, b) => a - b);
+}
+
+/**
+ * Facteur temporel appliqué au score brut :
+ *
+ *   facteur = malus_ancienneté × bonus_continuité
+ *
+ * `malus_ancienneté` vaut 1 tant que la dernière implication remonte à moins
+ * de `freshYears`, descend linéairement jusqu'à `dormantMultiplier` à
+ * `staleYears`, et y reste au-delà. `bonus_continuité` monte de 1 à
+ * 1 + `continuityBonus` selon le nombre d'années d'activité distinctes.
+ *
+ * Un MEC sans aucune année connue reste à 1 : on ne pénalise pas une absence
+ * d'information (fiche manuelle sans date, dossier sans millésime).
+ */
+export function computeTemporalFactor(
+  years: number[],
+  temporal: CartographieTemporalConfig,
+  nowYear: number,
+): number {
+  if (!temporal.enabled || years.length === 0) return 1;
+
+  const fresh = Math.max(0, temporal.freshYears);
+  const stale = Math.max(fresh + 1, temporal.staleYears);
+  const dormant = Math.max(0, temporal.dormantMultiplier);
+  const age = Math.max(0, nowYear - years[years.length - 1]);
+
+  let recency: number;
+  if (age <= fresh) recency = 1;
+  else if (age >= stale) recency = dormant;
+  else recency = 1 + ((age - fresh) / (stale - fresh)) * (dormant - 1);
+
+  const plateau = Math.max(1, temporal.continuityYears);
+  const ratio = plateau <= 1 ? 1 : Math.min(1, (years.length - 1) / (plateau - 1));
+  const continuity = 1 + Math.max(0, temporal.continuityBonus) * ratio;
+
+  return recency * continuity;
+}
+
 function computeRawScore(
   mec: Omit<MecNode, 'score' | 'rawScore' | 'type'>,
   weights: CartographieScoreWeights,
 ): number {
-  let raw =
+  const raw =
     mec.dossierIds.length * weights.dossier +
     mec.contentieuxIds.length * weights.contentieux +
     mec.nbMisEnExamen * weights.miseEnExamen +
     mec.nbChefs * weights.chefDefault +
     mec.nbLiensRenseignement * weights.lienRenseignement +
     mec.infractionWeight;
-  if (mec.recent) raw *= weights.recentMultiplier;
-  return raw;
+  return raw * mec.temporalFactor;
 }
 
 // ──────────────────────────────────────────────
@@ -345,6 +498,9 @@ function computeRawScore(
  */
 export interface ScoreConfigInput {
   weights?: CartographieScoreWeights;
+  /** Pondération temporelle (malus d'ancienneté + bonus de continuité).
+   *  Omise, les valeurs par défaut s'appliquent. */
+  temporal?: CartographieTemporalConfig;
   /** Pondérations par tag d'infraction (clé = Tag.id). LEGACY. */
   tagInfractionWeights?: Record<string, number>;
   /** Map id → value des tags d'infraction. Sert à matcher les
@@ -377,6 +533,7 @@ export function buildMindmapGraph(
   scoreConfig?: ScoreConfigInput,
 ): MindmapGraph {
   const weights = scoreConfig?.weights ?? DEFAULT_CARTO_WEIGHTS;
+  const temporal = scoreConfig?.temporal ?? DEFAULT_CARTO_TEMPORAL;
   const tagInfractionWeights = scoreConfig?.tagInfractionWeights ?? {};
   const tagInfractionValueById = scoreConfig?.tagInfractionValueById ?? {};
   // Cible : pondération par code NATINF (affinage), prioritaire sur le poids de
@@ -412,6 +569,19 @@ export function buildMindmapGraph(
   // accorder une fraction (coef) de ce bonus aux MEC rattachés au dossier
   // par un simple lien de renseignement.
   const dossierInfractionBonusById = new Map<string, number>();
+  // Années d'activité par dossier (réel ou ex nihilo) et union par MEC :
+  // socle de la pondération temporelle (malus d'ancienneté / bonus continuité).
+  const dossierYearsById = new Map<string, number[]>();
+  const activityYearsByMec = new Map<string, Set<number>>();
+  const addActivityYears = (mecId: string, years: number[]) => {
+    if (years.length === 0) return;
+    let set = activityYearsByMec.get(mecId);
+    if (!set) {
+      set = new Set<number>();
+      activityYearsByMec.set(mecId, set);
+    }
+    for (const y of years) set.add(y);
+  };
   const edges: GraphEdge[] = [];
   const edgeKeys = new Set<string>();
 
@@ -440,6 +610,7 @@ export function buildMindmapGraph(
 
   const variantCounts = new Map<string, Map<string, number>>(); // canonicalId → variant → count
   const now = Date.now();
+  const nowYear = new Date(now).getFullYear();
 
   for (const { enquete, contentieuxId, misEnExamen, condamnes } of sources) {
     const misEnCauseList = enquete.misEnCause || [];
@@ -449,6 +620,10 @@ export function buildMindmapGraph(
     const dossierId = `${contentieuxId}_${enquete.id}`;
     const dossierDate = new Date(enquete.dateMiseAJour || enquete.dateCreation).getTime();
     const isRecent = !Number.isNaN(dossierDate) && now - dossierDate <= RECENT_WINDOW_MS;
+    // Période d'activité JUDICIAIRE du dossier (hors dateMiseAJour, qui ne
+    // reflète qu'une saisie applicative) — cf. enqueteActivityYears.
+    const dossierYears = enqueteActivityYears(enquete, nowYear);
+    if (dossierYears.length > 0) dossierYearsById.set(dossierId, dossierYears);
 
     // Index des chefs d'inculpation par nom canonique (côté MisEnExamen).
     // En parallèle, on calcule le bonus "type d'infraction" pour chaque ME :
@@ -552,6 +727,8 @@ export function buildMindmapGraph(
           nbLiensRenseignement: 0,
           infractionWeight: 0,
           recent: false,
+          activityYears: [],
+          temporalFactor: 1,
           score: 0,
           rawScore: 0,
           manualBonus: 0,
@@ -582,6 +759,7 @@ export function buildMindmapGraph(
         mecNode.statuts.push(mec.statut);
       }
       if (isRecent) mecNode.recent = true;
+      addActivityYears(canonical, dossierYears);
 
       if (examenedCanonical.has(canonical)) {
         mecNode.nbMisEnExamen += 1;
@@ -640,6 +818,8 @@ export function buildMindmapGraph(
             nbLiensRenseignement: 0,
             infractionWeight: 0,
             recent: false,
+            activityYears: [],
+            temporalFactor: 1,
             score: 0,
             rawScore: 0,
             manualBonus: 0,
@@ -652,6 +832,7 @@ export function buildMindmapGraph(
         if (!mecNode.contentieuxIds.includes(contentieuxId)) mecNode.contentieuxIds.push(contentieuxId);
         if (!mecNode.statuts.includes('condamné')) mecNode.statuts.push('condamné');
         if (isRecent) mecNode.recent = true;
+        addActivityYears(canonical, dossierYears);
 
         const edgeKey = `${canonical}__${dossierId}`;
         if (!edgeKeys.has(edgeKey)) {
@@ -683,6 +864,8 @@ export function buildMindmapGraph(
           nbLiensRenseignement: 0,
           infractionWeight: 0,
           recent: false,
+          activityYears: [],
+          temporalFactor: 1,
           score: 0,
           rawScore: 0,
           manualBonus: 0,
@@ -719,6 +902,17 @@ export function buildMindmapGraph(
       };
       dossierById.set(d.id, node);
 
+      // Période d'activité du dossier manuel : millésimes lus dans la date
+      // approximative libre ("2018-2020", "2019 jugé"). À défaut, on retombe
+      // sur l'année de création de la fiche.
+      const dossierYears = (() => {
+        const parsed = parseApproxYears(d.dateApprox, nowYear);
+        if (parsed.length > 0) return parsed;
+        const created = yearOfDate(node.dateCreation);
+        return created !== undefined ? [Math.min(created, nowYear)] : [];
+      })();
+      if (dossierYears.length > 0) dossierYearsById.set(d.id, dossierYears);
+
       // Calcule le bonus infraction du dossier. Appliqué une fois à chaque MEC
       // du dossier. Cible : codes NATINF (poids NATINF ou poids de catégorie) ;
       // legacy : anciens tags d'infraction pour les dossiers d'avant la bascule.
@@ -752,6 +946,8 @@ export function buildMindmapGraph(
             nbLiensRenseignement: 0,
             infractionWeight: 0,
             recent: false,
+            activityYears: [],
+            temporalFactor: 1,
             score: 0,
             rawScore: 0,
             manualBonus: 0,
@@ -763,6 +959,7 @@ export function buildMindmapGraph(
         if (!mec.dossierIds.includes(d.id)) mec.dossierIds.push(d.id);
         // Le fait d'être lié à un dossier (même ex nihilo) annule l'isolement
         mec.isManualOnly = false;
+        addActivityYears(canonical, dossierYears);
         if (dossierInfractionBonus > 0) mec.infractionWeight += dossierInfractionBonus;
 
         const edgeKey = `${canonical}__${d.id}`;
@@ -813,6 +1010,16 @@ export function buildMindmapGraph(
           tgtMec.infractionWeight += dossierInfractionBonusById.get(source)! * lienInfractionCoef;
         }
       }
+
+      // Un MEC rattaché à un dossier par un lien de renseignement est daté par
+      // ce dossier : sans cela, une figure connue uniquement par des liens
+      // échapperait au malus d'ancienneté et coifferait les MEC réels.
+      if (srcMec && dossierYearsById.has(target)) {
+        addActivityYears(source, dossierYearsById.get(target)!);
+      }
+      if (tgtMec && dossierYearsById.has(source)) {
+        addActivityYears(target, dossierYearsById.get(source)!);
+      }
     }
   }
 
@@ -843,9 +1050,19 @@ export function buildMindmapGraph(
       mecNode.displayName = bestName;
       mecNode.variants = Array.from(variants.keys()).filter(v => v !== bestName);
     }
+    // Pondération temporelle : années d'implication → malus d'ancienneté ×
+    // bonus de continuité. Calculé AVANT le score, qui l'applique en facteur.
+    const years = activityYearsByMec.get(canonical);
+    mecNode.activityYears = years ? [...years].sort((a, b) => a - b) : [];
+    mecNode.firstActivityYear = mecNode.activityYears[0];
+    mecNode.lastActivityYear = mecNode.activityYears[mecNode.activityYears.length - 1];
+    mecNode.temporalFactor = computeTemporalFactor(mecNode.activityYears, temporal, nowYear);
+
     const boost = boostByMec.get(canonical);
     mecNode.manualBonus = boost?.bonus ?? 0;
     mecNode.manualBonusReason = boost?.reason;
+    // Le bonus manuel s'ajoute APRÈS le facteur temporel : un arbitrage humain
+    // explicite ne doit pas être rogné par l'ancienneté du dossier.
     mecNode.rawScore = Math.max(0, computeRawScore(mecNode, weights) + mecNode.manualBonus);
     if (mecNode.rawScore > maxRaw) maxRaw = mecNode.rawScore;
   }

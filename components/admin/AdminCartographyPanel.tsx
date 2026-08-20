@@ -10,7 +10,13 @@ import { NatinfBadge } from '../natinf/NatinfBadge';
 import type { NatinfEntry } from '@/types/natinf';
 import { GRAND_TITRES, STAT_CATEGORIES, categoryForEntry } from '@/lib/natinf/nataff';
 import { useToast } from '@/contexts/ToastContext';
-import { DEFAULT_CARTO_LAYOUT, type CartographieLayoutConfig, type CartographieScoreWeights } from '@/types/cartographieTypes';
+import {
+  DEFAULT_CARTO_LAYOUT,
+  DEFAULT_CARTO_TEMPORAL,
+  type CartographieLayoutConfig,
+  type CartographieScoreWeights,
+  type CartographieTemporalConfig,
+} from '@/types/cartographieTypes';
 
 // ──────────────────────────────────────────────
 // PANEL : pondérations du score MEC (catégories d'infraction + NATINF)
@@ -105,17 +111,69 @@ const WEIGHT_FIELDS: WeightFieldDef[] = [
     step: 0.1,
     min: 0,
   },
+];
+
+// ── Pondération temporelle : malus d'ancienneté + bonus de continuité ─────
+interface TemporalFieldDef {
+  key: Exclude<keyof CartographieTemporalConfig, 'enabled'>;
+  label: string;
+  helper: string;
+  step: number;
+  min: number;
+  max?: number;
+  /** Suffixe affiché à droite du champ (unité). */
+  unit?: string;
+}
+
+const TEMPORAL_FIELDS: TemporalFieldDef[] = [
   {
-    key: 'recentMultiplier',
-    label: 'Multiplicateur "récent"',
-    helper: '×1.0 = neutre. Appliqué si au moins un dossier a été touché dans les 12 derniers mois.',
-    step: 0.1,
+    key: 'freshYears',
+    label: 'Tolérance avant malus',
+    helper: 'Ancienneté (en années) de la dernière implication en deçà de laquelle le score reste intact. Défaut : 2 ans.',
+    step: 1,
     min: 0,
+    max: 30,
+    unit: 'ans',
+  },
+  {
+    key: 'staleYears',
+    label: 'Ancienneté « dormant »',
+    helper: 'Ancienneté à partir de laquelle le malus est maximal. Entre les deux seuils, il s\'installe progressivement. Défaut : 10 ans.',
+    step: 1,
+    min: 1,
+    max: 50,
+    unit: 'ans',
+  },
+  {
+    key: 'dormantMultiplier',
+    label: 'Malus au plafond',
+    helper: 'Multiplicateur appliqué à un individu totalement dormant. 0.5 = score divisé par deux ; 1 = aucun malus. Défaut : 0.5.',
+    step: 0.05,
+    min: 0,
+    max: 1,
+    unit: '×',
+  },
+  {
+    key: 'continuityBonus',
+    label: 'Bonus de continuité',
+    helper: 'Bonus maximal pour une activité étalée sur plusieurs années. 0.3 = +30 % au plafond ; 0 = aucun bonus. Défaut : 0.3.',
+    step: 0.05,
+    min: 0,
+    max: 2,
+  },
+  {
+    key: 'continuityYears',
+    label: 'Années pour le bonus plein',
+    helper: 'Nombre d\'années d\'activité DISTINCTES à partir duquel le bonus de continuité est atteint en totalité. Défaut : 4.',
+    step: 1,
+    min: 1,
+    max: 30,
+    unit: 'ans',
   },
 ];
 
 export const AdminCartographyPanel: React.FC = () => {
-  const { config, isLoading, updateWeights, setCategoryWeight, setNatinfWeight, setGroupByService, updateLayout, reset } = useCartographieConfig();
+  const { config, isLoading, updateWeights, updateTemporal, setCategoryWeight, setNatinfWeight, setGroupByService, updateLayout, reset } = useCartographieConfig();
   const { getByCode } = useNatinf();
   const { showToast } = useToast();
   const ownEnquetes = useEnquetesStore(state => state.ownEnquetes);
@@ -185,6 +243,19 @@ export const AdminCartographyPanel: React.FC = () => {
   const handleNatinfWeightChange = async (code: string, value: string) => {
     const n = parseFloat(value);
     await guardSave(() => setNatinfWeight(code, Number.isFinite(n) ? n : 0));
+  };
+
+  const handleTemporalChange = async (key: TemporalFieldDef['key'], value: string) => {
+    const n = parseFloat(value);
+    if (!Number.isFinite(n)) return;
+    const def = TEMPORAL_FIELDS.find(f => f.key === key)!;
+    const clamped = Math.max(def.min, Math.min(def.max ?? Number.MAX_SAFE_INTEGER, n));
+    await guardSave(() => updateTemporal({ [key]: clamped } as Partial<CartographieTemporalConfig>));
+  };
+
+  const handleTemporalReset = async () => {
+    await guardSave(() => updateTemporal({ ...DEFAULT_CARTO_TEMPORAL, enabled: config.temporal.enabled }));
+    showToast('Pondération temporelle réinitialisée', 'success');
   };
 
   const handleLayoutChange = async (key: keyof CartographieLayoutConfig, value: string) => {
@@ -262,8 +333,87 @@ export const AdminCartographyPanel: React.FC = () => {
             Scoring = (dossiers × poids) + (contentieux × poids) + (ME × poids) + (chefs ×
             poids) + (liens × poids) + bonus infraction. Un MEC relié à un dossier par
             un lien de renseignement reçoit en plus le bonus d&apos;infraction de ce
-            dossier × le coef. ci-dessus. Le tout est multiplié par le coefficient
-            «&nbsp;récent&nbsp;» si au moins un dossier date des 12 derniers mois.
+            dossier × le coef. ci-dessus. Le total est ensuite multiplié par le{' '}
+            <strong>facteur temporel</strong> réglé ci-dessous (ancienneté et
+            continuité de l&apos;activité), puis le bonus manuel éventuel s&apos;ajoute.
+          </p>
+        </div>
+      </section>
+
+      {/* Pondération temporelle : ancienneté + continuité */}
+      <section className="bg-white border border-slate-200 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-sm font-semibold text-gray-800">Ancienneté et continuité de l&apos;activité</h3>
+          <button
+            onClick={handleTemporalReset}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800"
+            title="Restaurer les valeurs par défaut de la pondération temporelle"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Réinitialiser
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">
+          À volume d&apos;implication comparable, un individu très actif il y a dix ans
+          pèse moins qu&apos;un individu un peu moins actif mais présent récemment. Le
+          score est donc multiplié par un <strong>malus d&apos;ancienneté</strong> (plus
+          rien depuis quelques années) et par un <strong>bonus de continuité</strong>{' '}
+          (activité étalée sur plusieurs années).
+        </p>
+
+        <label className="flex items-start gap-3 mt-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={config.temporal.enabled}
+            onChange={(e) => guardSave(() => updateTemporal({ enabled: e.target.checked }))}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300"
+          />
+          <span>
+            <span className="text-sm font-medium text-gray-800">Activer la pondération temporelle</span>
+            <span className="block text-xs text-gray-500 mt-0.5">
+              Décoché, tous les mis en cause sont traités à égalité quelle que soit
+              l&apos;ancienneté de leurs dossiers.
+            </span>
+          </span>
+        </label>
+
+        <div className={`space-y-3 mt-4 ${config.temporal.enabled ? '' : 'opacity-50 pointer-events-none'}`}>
+          {TEMPORAL_FIELDS.map(f => (
+            <div key={f.key} className="grid grid-cols-[1fr_120px] items-start gap-3">
+              <div>
+                <label className="text-sm font-medium text-gray-800">{f.label}</label>
+                <p className="text-xs text-gray-500 mt-0.5">{f.helper}</p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  step={f.step}
+                  min={f.min}
+                  max={f.max}
+                  disabled={!config.temporal.enabled}
+                  value={draft[`t:${f.key}`] ?? String(config.temporal[f.key])}
+                  onChange={(e) => setDraft(d => ({ ...d, [`t:${f.key}`]: e.target.value }))}
+                  onBlur={(e) => handleTemporalChange(f.key, e.target.value)}
+                  className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm text-right tabular-nums"
+                />
+                {f.unit && <span className="text-[11px] text-slate-400 w-6 shrink-0">{f.unit}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 flex items-start gap-2 text-xs text-gray-500 bg-slate-50 border border-slate-200 rounded-md p-3">
+          <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <p>
+            Les années d&apos;implication d&apos;un mis en cause sont l&apos;union des
+            périodes d&apos;activité de ses dossiers : dates <em>judiciaires</em> pour
+            les enquêtes (début d&apos;enquête, opération d&apos;interpellation,
+            audience) et date approximative pour les dossiers manuels
+            («&nbsp;2018-2020&nbsp;» est lu comme trois années). La date de dernière
+            modification du dossier est volontairement ignorée : une simple correction
+            de saisie ne doit pas rajeunir une affaire de 2014. Un mis en cause sans
+            aucune date exploitable reste neutre — l&apos;absence d&apos;information
+            n&apos;est jamais pénalisée.
           </p>
         </div>
       </section>
