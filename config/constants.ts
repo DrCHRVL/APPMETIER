@@ -58,7 +58,8 @@ export const APP_CONFIG = {
     VISUAL_ALERT_RULES: 'visualAlertRules',
     CLOTURE_TEMPLATE: 'clotureTemplate',
     SAS_TEMPLATE: 'sasTemplate', // Trame du SAS art. 80-5 CPP (autorisation de poursuite d'actes)
-    TRAMES_FORME: 'tramesForme' // Papeteries Word (.docx à balises) définies par l'utilisateur
+    TRAMES_FORME: 'tramesForme', // Papeteries Word (.docx à balises) définies par l'utilisateur
+    PAPETERIE_ROUTAGE: 'papeterieRoutage' // Aiguillage appris « type d'acte → papeterie »
   },
 
   // 🆕 CONFIGURATION DES SAUVEGARDES

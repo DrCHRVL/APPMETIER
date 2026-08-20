@@ -21,7 +21,8 @@ import {
   X, Save, FileDown, FileText, CheckCircle2, Loader2, Scale, Send, RefreshCw, Wrench, Undo2,
   Presentation, FileSpreadsheet,
 } from 'lucide-react';
-import { downloadActePdf, downloadActeDocx, acteFileBase } from '@/lib/web/acteExport';
+import { downloadActePdf, acteFileBase } from '@/lib/web/acteExport';
+import { usePapeterieExport } from '@/components/modals/PapeterieExportModal';
 import { downloadActePptx, estPresentable } from '@/lib/web/pptxExport';
 import { downloadActeXlsx, contientTableaux } from '@/lib/web/xlsxExport';
 import { AttacheConfig, loadAttacheConfig } from './modelOptions';
@@ -78,6 +79,8 @@ export function ProductionPopup({ numero, prodId, service, onClose, onChanged }:
   const [notFound, setNotFound] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Aiguillage des papeteries pour l'export Word (fenêtre posée au-dessus).
+  const { exporterWord, papeterieModal } = usePapeterieExport({ onError: setNotice });
 
   // Mini-chat de retouche
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
@@ -168,12 +171,14 @@ export function ProductionPopup({ numero, prodId, service, onClose, onChanged }:
     try {
       const p = { ...prod, service, contenu: draft };
       if (fmt === 'pdf') await downloadActePdf(p);
-      else if (fmt === 'docx') await downloadActeDocx(p);
+      // Word : l'aiguillage choisit la papeterie (et n'ouvre sa fenêtre que
+      // la première fois qu'un type d'acte se présente).
+      else if (fmt === 'docx') await exporterWord(p);
       else if (fmt === 'pptx') await downloadActePptx(p);
       else await downloadActeXlsx(p);
     } catch { setNotice(`Génération ${fmt.toUpperCase()} impossible.`); }
     finally { setBusy(null); }
-  }, [prod, draft, service]);
+  }, [prod, draft, service, exporterWord]);
 
   // ── Mini-chat de retouche : même conversation que le chat du dossier ──
   const ask = useCallback(async (text: string) => {
@@ -237,6 +242,7 @@ export function ProductionPopup({ numero, prodId, service, onClose, onChanged }:
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      {papeterieModal}
       <div
         className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}

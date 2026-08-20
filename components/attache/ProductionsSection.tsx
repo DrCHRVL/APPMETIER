@@ -27,7 +27,8 @@ import {
   FileDown, FileText, CheckCircle2, Undo2, Wand2, XCircle, RotateCcw, Mail,
   Presentation, FileSpreadsheet,
 } from 'lucide-react';
-import { downloadActePdf, downloadActeDocx, acteFileBase } from '@/lib/web/acteExport';
+import { downloadActePdf, acteFileBase } from '@/lib/web/acteExport';
+import { usePapeterieExport } from '@/components/modals/PapeterieExportModal';
 import { downloadActePptx, estPresentable } from '@/lib/web/pptxExport';
 import { downloadActeXlsx, contientTableaux } from '@/lib/web/xlsxExport';
 import { useToast } from '@/contexts/ToastContext';
@@ -96,6 +97,9 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Aiguillage des papeteries : l'export Word passe par lui (fenêtre de choix
+  // la première fois qu'un type d'acte se présente, direct ensuite).
+  const { exporterWord, papeterieModal } = usePapeterieExport({ onError: setNotice });
   const [showTraites, setShowTraites] = useState(false);
   // Retouche IA en place : consigne libre par acte + acte en cours de retouche.
   const [aiInput, setAiInput] = useState<Record<string, string>>({});
@@ -276,14 +280,16 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
     } finally { setBusy(null); }
   }, [draft, service]);
 
+  // L'export Word passe par l'aiguillage des papeteries : règle déjà retenue →
+  // téléchargement direct ; type d'acte inédit → fenêtre de choix (une fois).
   const downloadDocx = useCallback(async (p: Production) => {
     setBusy(p.id + ':docx');
     try {
-      await downloadActeDocx({ ...p, service, contenu: draft[p.id] ?? p.contenu });
+      await exporterWord({ ...p, service, contenu: draft[p.id] ?? p.contenu });
     } catch {
       setNotice('Génération Word impossible.');
     } finally { setBusy(null); }
-  }, [draft, service]);
+  }, [draft, service, exporterWord]);
 
   const downloadPptx = useCallback(async (p: Production) => {
     setBusy(p.id + ':pptx');
@@ -466,6 +472,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
 
   return (
     <div className="rounded-xl border border-[#2B5746]/25 bg-white">
+      {papeterieModal}
       <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left">
         <FileSignature className="h-4 w-4 text-[#2B5746]" />
         <span className="flex-1 text-sm font-semibold text-gray-800">

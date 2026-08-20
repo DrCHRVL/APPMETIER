@@ -40,6 +40,7 @@ export const SIGNAL_TYPES = [
   'lecon',                    // leçon explicite notée en cours d'échange
   'garde_qualite',            // une porte de qualité a rejeté une production (inachevé, squelettique…)
   'correction_conversation',  // le magistrat a repris l'attaché en chat (repérage heuristique)
+  'papeterie_corrigee',       // à l'export Word, le magistrat a écarté la papeterie proposée
 ]
 
 /**

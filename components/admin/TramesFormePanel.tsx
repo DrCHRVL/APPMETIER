@@ -9,6 +9,7 @@ import {
 import { trameHasTokens, listTrameTokens, type TrameForme, type TrameFormeType } from '@/lib/web/trameFill';
 import { interpretTrameCommand } from '@/lib/web/trameChat';
 import { applyTrameOps, getTrameParagraphs, setTrameParagraphs } from '@/lib/web/trameOps';
+import { loadRegles, oublierRegle, libelleRegle, type RegleRoutage } from '@/lib/web/papeterieRoutage';
 
 const TYPE_LABELS: Record<TrameFormeType, string> = {
   courrier: 'Courrier',
@@ -59,7 +60,11 @@ export const TramesFormePanel = () => {
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   // Import en attente de nommage / typage
-  const [pending, setPending] = useState<{ docxBase64: string; nom: string; type: TrameFormeType } | null>(null);
+  const [pending, setPending] = useState<{ docxBase64: string; nom: string; type: TrameFormeType; usage: string } | null>(null);
+  // Rédaction du « quand l'utiliser » par l'attaché, à l'import.
+  const [decrit, setDecrit] = useState(false);
+  // Aiguillage appris : « ce type d'acte → cette papeterie ».
+  const [regles, setRegles] = useState<RegleRoutage[]>([]);
   // Assistant : trame dont le chat est ouvert + saisie + journaux par trame
   const [chatOpen, setChatOpen] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
@@ -67,9 +72,11 @@ export const TramesFormePanel = () => {
   // Édition manuelle du texte : trame ouverte + lignes en cours d'édition
   const [editOpen, setEditOpen] = useState<string | null>(null);
   const [editLines, setEditLines] = useState<string[]>([]);
+  const [editUsage, setEditUsage] = useState('');
 
   useEffect(() => {
     loadTramesForme().then((l) => { setList(l); setLoaded(true); });
+    loadRegles().then(setRegles);
   }, []);
 
   const persist = useCallback(async (next: TrameForme[]) => {
@@ -89,7 +96,30 @@ export const TramesFormePanel = () => {
         return;
       }
       const nom = file.name.replace(/\.docx$/i, '');
-      setPending({ docxBase64: b64, nom, type: 'courrier' });
+      setPending({ docxBase64: b64, nom, type: 'courrier', usage: '' });
+      // L'attaché lit le texte VISIBLE du modèle (en-tête, intitulés, mentions —
+      // aucune donnée d'enquête) et propose « quand l'utiliser » : c'est cette
+      // phrase qui guidera l'aiguillage. Best-effort, entièrement corrigeable.
+      setDecrit(true);
+      try {
+        const res = await fetch('/api/attache/papeterie', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            action: 'decrire',
+            nom,
+            texte: getTrameParagraphs(b64).join('\n'),
+            familles: TYPE_ORDER,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data?.ok) {
+          setPending((cur) => (cur && cur.docxBase64 === b64
+            ? { ...cur, usage: cur.usage || String(data.usage || ''), type: (data.famille || cur.type) as TrameFormeType }
+            : cur));
+        }
+      } catch { /* l'attaché peut être arrêté : le magistrat écrit lui-même */ }
+      finally { setDecrit(false); }
     } catch {
       showToast('Lecture du fichier impossible.', 'error');
     }
@@ -103,11 +133,14 @@ export const TramesFormePanel = () => {
         id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `tf_${Date.now()}`,
         nom: pending.nom.trim() || 'Trame',
         type: pending.type,
+        usage: pending.usage.trim() || undefined,
         docxBase64: pending.docxBase64,
         updatedAt: new Date().toISOString(),
       };
-      // Une seule trame par type : remplace l'existante du même type.
-      const next = [...list.filter((t) => t.type !== trame.type), trame];
+      // Bibliothèque LIBRE : plusieurs papeteries peuvent partager une famille
+      // (« Requête JLD » et « Requête opérateur »). C'est l'aiguillage qui
+      // choisit ; seul un même NOM remplace l'existante.
+      const next = [...list.filter((t) => t.nom.trim().toLowerCase() !== trame.nom.toLowerCase()), trame];
       await persist(next);
       setPending(null);
       showToast('Trame de forme enregistrée.', 'success');
@@ -162,6 +195,7 @@ export const TramesFormePanel = () => {
 
   const openEdit = useCallback((trame: TrameForme) => {
     setEditLines(getTrameParagraphs(trame.docxBase64));
+    setEditUsage(trame.usage || '');
     setEditOpen(trame.id);
     setChatOpen(null);
   }, []);
@@ -170,7 +204,12 @@ export const TramesFormePanel = () => {
     setBusy(true);
     try {
       const docxBase64 = setTrameParagraphs(trame.docxBase64, editLines);
-      const updated: TrameForme = { ...trame, docxBase64, updatedAt: new Date().toISOString() };
+      const updated: TrameForme = {
+        ...trame,
+        docxBase64,
+        usage: editUsage.trim() || undefined,
+        updatedAt: new Date().toISOString(),
+      };
       await persist(list.map((t) => (t.id === trame.id ? updated : t)));
       setEditOpen(null);
       showToast('Trame mise à jour.', 'success');
@@ -179,7 +218,7 @@ export const TramesFormePanel = () => {
     } finally {
       setBusy(false);
     }
-  }, [editLines, list, persist, showToast]);
+  }, [editLines, editUsage, list, persist, showToast]);
 
   const appendLog = useCallback((id: string, entry: { role: 'user' | 'bot'; text: string }) => {
     setChatLog((prev) => ({ ...prev, [id]: [...(prev[id] || []), entry] }));
@@ -225,7 +264,48 @@ export const TramesFormePanel = () => {
           pied de page. Placez-y les balises ci-dessous là où le contenu de l'acte doit apparaître.
           À l'export « Word » d'un acte, l'application part de VOTRE trame et n'y injecte que le texte.
         </p>
+        <p className="mt-1.5 text-xs text-gray-500">
+          Vous pouvez en enregistrer autant que vous voulez, y compris plusieurs de la même famille.
+          La première fois qu'un type d'acte se présente, l'application vous demande laquelle appliquer
+          (l'attaché en propose une et repère les parties de l'acte) ; votre réponse est retenue, et les
+          exports suivants partent directement.
+        </p>
       </div>
+
+      {/* Aiguillage appris : ce que le magistrat a retenu à l'export */}
+      {regles.length > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
+          <div className="font-medium">Aiguillage appris</div>
+          <p className="text-xs text-gray-500">
+            Ce que vous avez retenu au moment d'exporter. Tant qu'une règle existe, l'acte part directement
+            dans sa papeterie, sans question ni appel à l'attaché. Oubliez-la pour qu'il vous la repose.
+          </p>
+          <ul className="space-y-1">
+            {[...regles].sort((a, b) => (b.hits || 0) - (a.hits || 0)).map((r) => {
+              const cible = list.find((t) => t.id === r.trameId);
+              return (
+                <li key={r.cle} className="flex items-center gap-2 rounded border border-gray-100 px-2.5 py-1.5">
+                  <span className="min-w-0 flex-1 text-xs text-gray-700">
+                    {libelleRegle(r.cle)} → <span className="font-medium">{cible?.nom || '(papeterie supprimée)'}</span>
+                    <span className="ml-2 text-[10px] text-gray-400">
+                      {r.origine === 'magistrat' ? 'votre choix' : 'proposé par l\'attaché'}
+                      {r.hits > 1 ? ` · ${r.hits} exports` : ''}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    title="Oublier cette règle"
+                    onClick={async () => { await oublierRegle(r.cle); setRegles(await loadRegles()); }}
+                    className="shrink-0 rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {/* Aide balises */}
       <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
@@ -285,6 +365,23 @@ export const TramesFormePanel = () => {
               {TYPE_ORDER.map((t) => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
             </select>
           </label>
+          <label className="block">
+            <span className="text-gray-600 inline-flex items-center gap-1.5">
+              Quand l'utiliser
+              {decrit && <Loader2 className="w-3 h-3 animate-spin text-violet-600" />}
+            </span>
+            <textarea
+              value={pending.usage}
+              onChange={(e) => setPending({ ...pending, usage: e.target.value })}
+              rows={2}
+              placeholder={decrit ? 'L\'attaché lit votre modèle…' : 'Pour les requêtes adressées au JLD…'}
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1"
+            />
+            <span className="mt-1 block text-xs text-gray-500">
+              Une phrase suffit. C'est elle qui permet à l'attaché de reconnaître les actes qui appellent
+              cette papeterie — vous pourrez toujours corriger son choix à l'export.
+            </span>
+          </label>
           <div className="flex gap-2">
             <button type="button" onClick={confirmImport} disabled={busy}
               className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3 py-1.5 text-white hover:bg-green-700 disabled:opacity-50">
@@ -302,7 +399,7 @@ export const TramesFormePanel = () => {
         {!loaded && <div className="text-gray-500">Chargement…</div>}
         {loaded && list.length === 0 && (
           <div className="flex items-center gap-2 text-gray-500">
-            <AlertCircle className="w-4 h-4" /> Aucune trame. Sans trame pour un type, l'export utilise la mise en forme intégrée.
+            <AlertCircle className="w-4 h-4" /> Aucune trame. Sans papeterie, l'export Word utilise la mise en forme intégrée.
           </div>
         )}
         {list.map((t) => (
@@ -314,10 +411,11 @@ export const TramesFormePanel = () => {
                   <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 mr-2">{TYPE_LABELS[t.type]}</span>
                   {new Date(t.updatedAt).toLocaleDateString('fr-FR')}
                 </div>
+                {t.usage && <div className="mt-0.5 text-xs text-gray-500 truncate" title={t.usage}>{t.usage}</div>}
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <button type="button" onClick={() => (editOpen === t.id ? setEditOpen(null) : openEdit(t))}
-                  title="Éditer le texte de la trame"
+                  title="Éditer le texte de la trame et son usage"
                   className={`p-2 rounded hover:bg-gray-100 ${editOpen === t.id ? 'text-blue-700 bg-blue-50' : 'text-gray-600'}`}>
                   <PenLine className="w-4 h-4" />
                 </button>
@@ -353,10 +451,23 @@ export const TramesFormePanel = () => {
                   ))}
                   {editLines.length === 0 && <div className="text-gray-500">Aucune ligne de texte détectée.</div>}
                 </div>
+                <label className="block">
+                  <span className="text-xs text-blue-700">Quand utiliser cette papeterie</span>
+                  <textarea
+                    value={editUsage}
+                    onChange={(e) => setEditUsage(e.target.value)}
+                    rows={2}
+                    placeholder="Pour les requêtes adressées au JLD…"
+                    className="mt-1 w-full rounded border border-blue-200 px-2 py-1"
+                  />
+                  <span className="mt-0.5 block text-[11px] text-gray-500">
+                    Sert à l'aiguillage : c'est ce qui permet de reconnaître les actes qui appellent cette papeterie.
+                  </span>
+                </label>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => saveEdit(t)} disabled={busy}
                     className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3 py-1.5 text-white hover:bg-green-700 disabled:opacity-50">
-                    {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Enregistrer le texte
+                    {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Enregistrer
                   </button>
                   <button type="button" onClick={() => setEditOpen(null)}
                     className="rounded-lg border border-gray-300 px-3 py-1.5 hover:bg-gray-100">Annuler</button>

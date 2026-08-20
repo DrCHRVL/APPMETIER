@@ -24,7 +24,7 @@
  */
 
 import { PAPETERIE } from './papeterie'
-import type { TrameFormeType, TrameVars } from './trameFill'
+import type { TrameForme, TrameFormeType, TrameVars } from './trameFill'
 import { splitRow, isTableDelim, alignOf } from './trameFillCore.mjs'
 import { escapeHtml } from '@/utils/documents/htmlEscape'
 import { parseMarqueur, formatMarqueur } from '@/lib/stats/graphiqueMarqueur.mjs'
@@ -589,57 +589,118 @@ function stripInstitHead(corps: string): string {
   return lines.slice(k).join('\n').trim()
 }
 
+/** Régions d'un acte, telles qu'attendues par les balises d'une papeterie. */
+export interface RegionsActe {
+  titre: string
+  article: string
+  corps: string
+  signature: string
+  objet: string
+  date: string
+  destinataire: string
+}
+
 /**
- * Variables extraites de l'acte pour remplir les balises d'une trame de forme.
- * Toutes les balises reconnues reçoivent une valeur quand l'acte en porte une :
- * une balise laissée vide disparaît du document (cf. `fillPartXml`).
+ * Découpage HEURISTIQUE de l'acte : ce que les expressions régulières savent
+ * isoler à partir du texte lui-même. Il suffit pour un acte de forme
+ * habituelle ; c'est `decoupageDouteux()` (aiguillage) qui juge s'il faut
+ * appeler l'IA en renfort.
  */
-function extractTrameVars(p: ActeExportable, type: TrameFormeType): TrameVars {
-  if (type === 'courrier') {
+export function decoupageHeuristique(p: ActeExportable): {
+  regions: RegionsActe
+  estCourrier: boolean
+  typeDeduit: TrameFormeType
+} {
+  if (isLettre(p.contenu)) {
     const { addressee, objet, dateStr, corps } = parseLettre(p.contenu)
     return {
-      destinataire: addressee,
-      objet,
-      date: dateStr || longDate(p.updatedAt),
-      corps,
-      // Le courrier ne porte pas de « Fait à … » : la signature vient de la
-      // papeterie, comme dans le gabarit intégré.
-      signature: PAPETERIE.signature.join('\n'),
+      estCourrier: true,
+      typeDeduit: 'courrier',
+      regions: {
+        titre: '',
+        article: '',
+        corps,
+        destinataire: addressee,
+        objet,
+        date: dateStr || longDate(p.updatedAt),
+        // Le courrier ne porte pas de « Fait à … » : la signature vient de la
+        // papeterie, comme dans le gabarit intégré.
+        signature: PAPETERIE.signature.join('\n'),
+      },
     }
   }
   const s = parseActe(p.contenu)
   return {
-    titre: s.titre || p.titre || '',
-    // Sans titre reconnu, `parseActe` n'a pas pu isoler le bandeau : on le
-    // retire ici, faute de quoi il ferait doublon avec celui de la trame.
-    corps: s.titre ? s.corps : stripInstitHead(s.corps),
-    signature: s.signature.join('\n'),
-    date: longDate(p.updatedAt),
+    estCourrier: false,
+    typeDeduit: detectTypeForme(p),
+    regions: {
+      titre: s.titre || p.titre || '',
+      article: s.article || '',
+      // Sans titre reconnu, `parseActe` n'a pas pu isoler le bandeau : on le
+      // retire ici, faute de quoi il ferait doublon avec celui de la trame.
+      corps: s.titre ? s.corps : stripInstitHead(s.corps),
+      signature: s.signature.join('\n'),
+      objet: '',
+      date: longDate(p.updatedAt),
+      destinataire: '',
+    },
   }
 }
 
-export async function downloadActeDocx(p: ActeExportable): Promise<void> {
+/**
+ * Variables prêtes à remplir les balises. `regions` prime quand l'aiguillage
+ * en a obtenu de meilleures (découpage désigné par l'IA, appliqué au texte
+ * d'origine) ; sinon on garde le découpage heuristique. Une balise sans
+ * valeur disparaît du document (cf. `fillPartXml`).
+ */
+function extractTrameVars(p: ActeExportable, regions?: Partial<RegionsActe>): TrameVars {
+  const base = decoupageHeuristique(p).regions
+  const r = { ...base, ...Object.fromEntries(
+    Object.entries(regions || {}).filter(([, v]) => typeof v === 'string' && v.trim()),
+  ) } as RegionsActe
+  return {
+    titre: r.titre,
+    corps: r.corps,
+    signature: r.signature,
+    destinataire: r.destinataire,
+    objet: r.objet,
+    date: r.date,
+  }
+}
+
+/** Options d'un export Word : papeterie et découpage arrêtés par l'aiguillage. */
+export interface OptionsExportDocx {
+  /** Papeterie à appliquer. `null` force le gabarit intégré ; absent = repli par type. */
+  trame?: TrameForme | null
+  /** Régions de l'acte retenues (découpage IA validé, appliqué au texte d'origine). */
+  regions?: Partial<RegionsActe>
+}
+
+export async function downloadActeDocx(p: ActeExportable, opts: OptionsExportDocx = {}): Promise<void> {
   const graphiques = await chargerImagesActe(p.contenu)
 
-  // 1) Trame de forme définie par l'utilisateur pour ce type d'acte : on part
-  //    de SON .docx et on remplit les balises. La forme est 100 % la sienne.
-  //    Impossible d'y injecter une image : les marqueurs [GRAPHIQUE : …]
-  //    deviennent une ligne lisible qui renvoie à l'export PDF.
+  // 1) Papeterie du magistrat : on part de SON .docx et on remplit les balises.
+  //    La forme est 100 % la sienne. Impossible d'y injecter une image : les
+  //    marqueurs [GRAPHIQUE : …] deviennent une ligne lisible qui renvoie au PDF.
+  //    La papeterie vient de l'aiguillage (`papeterieRoutage.ts`) ; à défaut
+  //    d'indication, on retombe sur celle du type déduit.
   try {
-    const type = detectTypeForme(p)
-    const { loadTramesForme, pickTrameForme } = await import('./tramesFormeStore')
-    const trame = pickTrameForme(await loadTramesForme(), type)
+    let trame = opts.trame
+    if (trame === undefined) {
+      const { loadTramesForme, pickTrameForme } = await import('./tramesFormeStore')
+      trame = pickTrameForme(await loadTramesForme(), detectTypeForme(p))
+    }
     if (trame?.docxBase64) {
       const { fillTrameDocx } = await import('./trameFill')
-      const vars = extractTrameVars(p, type)
+      const vars = extractTrameVars(p, opts.regions)
       if (vars.corps) vars.corps = remplacerMarqueursParTexte(vars.corps, graphiques)
       const blob = await fillTrameDocx(trame.docxBase64, vars)
       triggerDocxDownload(blob, acteFileBase(p) + '.docx')
       return
     }
   } catch (e) {
-    // Trame absente / invalide : on retombe proprement sur la génération intégrée.
-    console.warn('Trame de forme indisponible, génération intégrée :', e)
+    // Papeterie absente / invalide : on retombe proprement sur le gabarit intégré.
+    console.warn('Papeterie indisponible, génération intégrée :', e)
   }
 
   // 2) Repli : papeterie reconstruite (aucune trame de forme définie). Les

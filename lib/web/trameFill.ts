@@ -43,7 +43,12 @@ export type TrameFormeType = 'courrier' | 'requete' | 'soit-transmis' | 'defaut'
 export interface TrameForme {
   id: string;
   nom: string;
+  /** Famille d'actes visée — indication de départ, plus une clé unique :
+   *  la bibliothèque accepte plusieurs papeteries du même type, l'aiguillage
+   *  (`papeterieRoutage.ts`) choisit celle qui convient à l'acte. */
   type: TrameFormeType;
+  /** « Quand l'utiliser » — une phrase du magistrat, qui guide l'aiguillage. */
+  usage?: string;
   /** Le .docx de l'utilisateur, encodé en base64. */
   docxBase64: string;
   updatedAt: string;

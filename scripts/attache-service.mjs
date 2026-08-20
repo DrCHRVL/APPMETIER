@@ -35,6 +35,7 @@ import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
 import { classerTrames, classerKb, classerSkills, suggererAssociations } from './attache/classer.mjs'
+import { choisirPapeterie, decrirePapeterie } from './attache/papeterie.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
 import { listEnvelopesDossier, writeEnvelope, deleteProduction, readProduction } from './attache/productions.mjs'
 import { recordLearningSignal, consolidationDue, consolidationPrompt, learningStatus, learningState, latestSignalTs } from './attache/apprentissage.mjs'
@@ -1435,6 +1436,69 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 300) })
       }
+    }
+
+    if (route === 'POST /papeterie/choisir') {
+      // Aiguillage d'un export Word : quelle papeterie, et où sont les
+      // frontières de l'acte. UN appel modèle, un tour, aucun outil — et
+      // seulement quand l'application doute (cf. papeterieRoutageCore.mjs).
+      // Le modèle ne reçoit que les lignes NUMÉROTÉES des extrémités de l'acte
+      // et ne rend que des numéros : le texte remis reste celui du magistrat.
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      const body = await readBody(req)
+      try {
+        const out = await choisirPapeterie({
+          acte: body.acte || {},
+          papeteries: body.papeteries,
+          lignes: body.lignes,
+          total: body.total,
+          tronque: body.tronque,
+          regles: body.regles,
+        })
+        return json(res, out.ok ? 200 : 502, out)
+      } catch (e) {
+        return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 300) })
+      }
+    }
+
+    if (route === 'POST /papeterie/decrire') {
+      // « Quand l'utiliser » d'une papeterie fraîchement importée, d'après le
+      // texte visible de son modèle Word. Aucune donnée d'enquête n'y figure.
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      const body = await readBody(req)
+      try {
+        const out = await decrirePapeterie({
+          nom: body.nom,
+          texte: body.texte,
+          familles: Array.isArray(body.familles) ? body.familles : [],
+        })
+        return json(res, out.ok ? 200 : 502, out)
+      } catch (e) {
+        return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 300) })
+      }
+    }
+
+    if (route === 'POST /papeterie/signal') {
+      // Le magistrat a écarté la papeterie proposée : signal d'apprentissage.
+      // La règle, elle, est déjà écrite côté application — ceci ne sert qu'à
+      // la consolidation (l'attaché apprend quel habillage va avec quel acte).
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      const body = await readBody(req)
+      const propose = String(body.propose || '(aucune)').slice(0, 80)
+      const retenu = String(body.retenu || '').slice(0, 80)
+      if (!retenu) return json(res, 400, { ok: false, error: 'Papeterie retenue requise' })
+      const titre = String(body.titre || '').slice(0, 80)
+      const source = String(body.source || '').slice(0, 120)
+      await recordLearningSignal(keys, {
+        type: 'papeterie_corrigee',
+        source: source ? `trame ${source}` : undefined,
+        detail: `export Word${titre ? ` de « ${titre} »` : ''}${source ? ` (trame ${source})` : ''} : `
+          + `papeterie « ${propose} » proposée, le magistrat a retenu « ${retenu} ».`,
+      })
+      return json(res, 200, { ok: true })
     }
 
     if (route === 'GET /chronologie') {
