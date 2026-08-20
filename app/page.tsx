@@ -45,6 +45,13 @@ import { ArchivePage } from '@/components/pages/ArchivePage';
 import type { EnqueteWithContext } from '@/utils/mindmapGraph';
 import { sameMecPerson } from '@/utils/mindmapGraph';
 import { normNumero, numerosProches, findEnqueteParNumero } from '@/utils/numeroDossier';
+import { useRecoupements } from '@/hooks/useRecoupements';
+import {
+  enqueteKey as recoupementEnqueteKey,
+  instructionKey as recoupementInstructionKey,
+} from '@/utils/recoupements/corpus';
+import { RecoupementsModal } from '@/components/recoupements/RecoupementsModal';
+import type { Recoupement } from '@/types/recoupementTypes';
 import { useTags } from '@/hooks/useTags';
 import { useSections } from '@/hooks/useSections';
 import { useUserServiceOrganization } from '@/hooks/useUserServiceOrganization';
@@ -989,6 +996,28 @@ function AppContent() {
     extra: condamnesEntries,
   });
   const allKnownMec = knownPersons.names;
+
+  // Contentieux où l'utilisateur est juriste assistant : les dossiers qui y
+  // sont dissimulés aux JA doivent rester hors de la veille de recoupements
+  // (un signal ne doit jamais laisser entrevoir un dossier masqué).
+  const contentieuxJA = useMemo(() => {
+    if (!user || user.globalRole) return new Set<string>();
+    return new Set(
+      (user.contentieux || []).filter(c => c.role === 'ja').map(c => c.contentieuxId as string)
+    );
+  }, [user]);
+
+  // ── Veille de recoupements ────────────────────────────────────────────
+  // Repère, sans rien interrompre, les valeurs communes à plusieurs dossiers
+  // (même personne, même patronyme, même adresse, même ligne…). Purement
+  // informative : elle n'écrit jamais dans un dossier.
+  const recoupements = useRecoupements({
+    enquetesByContentieux: enquetesForSearch,
+    instructions,
+    enabled: !isJLDUser,
+    contentieuxJA,
+  });
+  const [showRecoupementsModal, setShowRecoupementsModal] = useState(false);
   // Dossiers créés « ex nihilo » directement sur la cartographie (sans
   // enquête ni instruction source) : doivent être trouvables dans la
   // recherche globale au même titre que les autres dossiers.
@@ -1340,6 +1369,50 @@ function AppContent() {
       })
       .catch(() => showToast(`Dossier « ${numero} » introuvable dans vos enquêtes`, 'info'));
   }, [overboardData, activeContentieux, instructions, showToast, setActiveContentieux, setCurrentView, openLiveEnqueteWhenReady, setSelectedInstruction, setIsEditingInstruction]);
+  // Ouvre l'autre dossier d'un recoupement. On referme la fiche courante :
+  // deux fiches superposées désorientent plus qu'elles n'aident.
+  const handleOuvrirDossierRecoupement = useCallback((signal: Recoupement, dossierKey: string) => {
+    const ref = signal.occurrences.find(o => o.dossier.key === dossierKey)?.dossier;
+    if (!ref) return;
+    setSelectedEnquete(null);
+    handleOpenDossierByNumero(ref.numero);
+  }, [handleOpenDossierByNumero, setSelectedEnquete]);
+
+  // Signaux touchant le dossier ouvert — absents s'il n'y a rien à dire.
+  const recoupementsDuDossier = useMemo(() => {
+    if (!selectedEnquete) return undefined;
+    const ctx = selectedEnquete.contentieuxOrigine || currentContentieuxId;
+    if (!ctx) return undefined;
+    const key = recoupementEnqueteKey(ctx, selectedEnquete.id);
+    const signaux = recoupements.parDossier.get(key);
+    if (!signaux || signaux.length === 0) return undefined;
+    return {
+      signaux,
+      nouveaux: recoupements.nouveauxParDossier.get(key) || [],
+      dossierCourant: key,
+      estNouveau: recoupements.estNouveau,
+      onOuvrirDossier: handleOuvrirDossierRecoupement,
+      onEcarter: recoupements.ecarter,
+      onVus: recoupements.marquerVus,
+    };
+  }, [selectedEnquete, currentContentieuxId, recoupements, handleOuvrirDossierRecoupement]);
+
+  const recoupementsDeLInstruction = useMemo(() => {
+    if (!selectedInstruction) return undefined;
+    const key = recoupementInstructionKey(selectedInstruction.id);
+    const signaux = recoupements.parDossier.get(key);
+    if (!signaux || signaux.length === 0) return undefined;
+    return {
+      signaux,
+      nouveaux: recoupements.nouveauxParDossier.get(key) || [],
+      dossierCourant: key,
+      estNouveau: recoupements.estNouveau,
+      onOuvrirDossier: handleOuvrirDossierRecoupement,
+      onEcarter: recoupements.ecarter,
+      onVus: recoupements.marquerVus,
+    };
+  }, [selectedInstruction, recoupements, handleOuvrirDossierRecoupement]);
+
   const handleToggleSuivi = useCallback((enqueteId: number, type: 'JIRS' | 'PG') => {
     const enquete = enquetesLookupRef.current.find(e => e.id === enqueteId);
     if (!enquete) return;
@@ -1689,6 +1762,11 @@ return (
               onExecute: handleGlobalSearchExecute,
               docSources: enquetesForSearch,
             } : undefined}
+            recoupements={{
+              total: recoupements.signaux.length,
+              nouveaux: recoupements.nouveaux.length,
+              onShow: () => setShowRecoupementsModal(true),
+            }}
           />
           </div>
         </div>
@@ -2048,6 +2126,7 @@ return (
           isSharedEnquete={isSharedEnquete(selectedEnquete.id)}
           attacheOpen={showAttache}
           attacheAvailable={attacheAvailable && isAdmin()}
+          recoupements={recoupementsDuDossier}
         />
       )}
 
@@ -2076,6 +2155,7 @@ return (
           allKnownNames={allKnownMec}
           knownNameHints={knownNameHints}
           knownPersons={knownPersons}
+          recoupements={recoupementsDeLInstruction}
           enquetePreliminaireOptions={eligiblePrelimEnquetes}
           onOpenEnquetePreliminaire={(enqueteId, ctxId) => {
             const scoped = ctxId ? overboardData.get(ctxId as ContentieuxId) : undefined;
@@ -2092,6 +2172,24 @@ return (
       )}
 
       {/* Modales communes */}
+      <RecoupementsModal
+        isOpen={showRecoupementsModal}
+        onClose={() => setShowRecoupementsModal(false)}
+        signaux={recoupements.signaux}
+        ecartes={recoupements.ecartes}
+        estNouveau={recoupements.estNouveau}
+        computing={recoupements.computing}
+        docScan={recoupements.docScan}
+        onAnalyserPieces={recoupements.analyserPieces}
+        onOuvrirDossier={(signal, dossierKey) => {
+          setShowRecoupementsModal(false);
+          handleOuvrirDossierRecoupement(signal, dossierKey);
+        }}
+        onEcarter={recoupements.ecarter}
+        onReactiver={recoupements.reactiver}
+        onVus={recoupements.marquerVus}
+      />
+
       <AlertsModal
         isOpen={showAlertsModal}
         onClose={() => setShowAlertsModal(false)}

@@ -49,6 +49,8 @@ import {
   type EnquetePreliminaireOption,
 } from '../instruction/LierEnquetePreliminaireModal';
 import { CassiopeeImportModal, type CassiopeeImportResult } from './CassiopeeImportModal';
+import { RecoupementHint } from '../recoupements/RecoupementHint';
+import type { Recoupement } from '@/types/recoupementTypes';
 import type { KnownPersonsIndex } from '@/utils/knownPersons';
 import { renderFormattedText } from '@/lib/formatCR';
 import type {
@@ -88,6 +90,17 @@ interface InstructionDetailModalProps {
   enquetePreliminaireOptions?: EnquetePreliminaireOption[];
   /** Ouvre la fiche de l'enquête préliminaire liée (CR, actes, notes). */
   onOpenEnquetePreliminaire?: (enqueteId: number, contentieuxId?: string) => void;
+  /** Veille de recoupements : signaux touchant CE dossier (bandeau replié,
+   *  purement informatif — il n'écrit rien et ne bloque rien). */
+  recoupements?: {
+    signaux: Recoupement[];
+    nouveaux: Recoupement[];
+    dossierCourant: string;
+    estNouveau: (signal: Recoupement) => boolean;
+    onOuvrirDossier?: (signal: Recoupement, dossierKey: string) => void;
+    onEcarter: (signal: Recoupement) => void;
+    onVus: (signaux: Recoupement[]) => void;
+  };
 }
 
 type TabKey = 'apercu' | 'mex' | 'victimes' | 'echeances' | 'timeline';
@@ -120,6 +133,7 @@ export const InstructionDetailModal = ({
   knownPersons,
   enquetePreliminaireOptions = [],
   onOpenEnquetePreliminaire,
+  recoupements,
 }: InstructionDetailModalProps) => {
   const { showToast } = useToast();
   const { isAdmin } = useUser();
@@ -448,6 +462,19 @@ export const InstructionDetailModal = ({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Recoupements avec d'autres dossiers — replié, sous les onglets :
+              on le voit sans jamais buter dessus. */}
+          {recoupements && (
+            <RecoupementHint
+              signaux={recoupements.signaux}
+              nouveaux={recoupements.nouveaux}
+              dossierCourant={recoupements.dossierCourant}
+              estNouveau={recoupements.estNouveau}
+              onOuvrirDossier={recoupements.onOuvrirDossier}
+              onEcarter={recoupements.onEcarter}
+              onVus={recoupements.onVus}
+            />
+          )}
           {activeTab === 'apercu' && (
             <>
             {/* Rattachement enquête préliminaire d'origine (résultat OI) :

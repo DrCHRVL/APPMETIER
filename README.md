@@ -32,6 +32,14 @@ docker compose up -d --build
 Le déploiement est décrit dans
 **[docs/TUTO-DEPLOIEMENT.md](docs/TUTO-DEPLOIEMENT.md)**.
 
+### Veille de recoupements
+
+Signale, sans rien interrompre, les valeurs communes à plusieurs dossiers —
+même personne, même patronyme, même adresse, même ligne, même véhicule, même
+compte — y compris lorsqu'elles ne figurent que dans une pièce versée. Un
+signalement, jamais une écriture : le magistrat vérifie et tranche.
+Voir **[docs/RECOUPEMENTS.md](docs/RECOUPEMENTS.md)**.
+
 ### Attaché de justice (IA) — optionnel
 
 Assistant intégré, réservé à l'administrateur (invisible des autres
