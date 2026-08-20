@@ -1,13 +1,14 @@
 // components/pages/MindmapPage.tsx
 // Module Cartographie : graphe biparti MEC ↔ Dossier en vue unique.
-// La barre de recherche et le panneau "Top 10" recentrent la caméra sur
-// le nœud choisi sans changer de graphe — l'utilisateur garde son
+// La recherche est celle de l'application (barre globale du header) : choisir
+// une personne y recentre directement la caméra sur son nœud. Le panneau
+// "Top 10" fait de même sans changer de graphe — l'utilisateur garde son
 // contexte visuel à tout moment.
 
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, FileDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pin, PinOff, Plus, RefreshCw, Save, Search, Shrink, Trophy, User, X } from 'lucide-react';
+import { Check, ChevronDown, FileDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pin, PinOff, Plus, RefreshCw, Save, Shrink, Trophy, User, X } from 'lucide-react';
 import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { Enquete } from '@/types/interfaces';
 import {
@@ -28,6 +29,7 @@ import {
   type LienRenseignement,
   type MecExNihilo,
 } from '@/stores/useCartographieOverlayStore';
+import { squashAlnum } from '@/utils/globalSearch';
 import { cartographieOverlaySyncService } from '@/utils/dataSync/CartographieOverlaySyncService';
 import { cartographieContributionsSyncService } from '@/utils/dataSync/CartographieContributionsSyncService';
 import { useCartographieContributionsStore } from '@/stores/useCartographieContributionsStore';
@@ -55,6 +57,27 @@ const CARTO_REVIEW_KINDS = ['dossier_carto', 'mec_carto', 'lien'] as const;
 // PROPS
 // ──────────────────────────────────────────────
 
+/** Cible d'un recentrage demandé depuis la recherche globale du header : une
+ *  personne (par son nom) ou un dossier (par son identifiant source, avec son
+ *  numéro en repli). `seq` permet de rejouer une même demande. */
+export interface MindmapFocusRequest {
+  seq: number;
+  /** Personne choisie dans la barre globale (résultat « Personnes »). */
+  nom?: string;
+  /** Dossier choisi dans la barre globale (enquête ou dossier d'instruction). */
+  dossier?: {
+    /** Id de l'enquête ou du dossier d'instruction source. */
+    id: number;
+    /** Contentieux du dossier quand la recherche le connaît : donne l'id de
+     *  nœud exact, sans rapprochement. */
+    ctxId?: ContentieuxId;
+    numero?: string;
+    numeroParquet?: string;
+    /** Vrai pour un dossier d'instruction (nœud projeté, statut 'instruction'). */
+    instruction?: boolean;
+  };
+}
+
 interface MindmapPageProps {
   /** Sources d'enquêtes (toutes confondues) avec leur contentieux d'origine */
   sources: EnqueteWithContext[];
@@ -66,13 +89,14 @@ interface MindmapPageProps {
    *  recharger les sources depuis le disque (utile en mode offline). Le bump
    *  interne de refreshKey relance le layout dans tous les cas. */
   onRefresh?: () => void;
-  /** Recherche unifiée : pilotée par la barre globale du header */
-  searchTerm?: string;
-  onSearchChange?: (term: string) => void;
   /** Recentrage demandé depuis la recherche globale : la carte s'ouvre
-   *  DIRECTEMENT sur la personne choisie, sans second clic dans une liste.
-   *  `seq` permet de rejouer la demande sur un même nom. */
-  focusRequest?: { nom: string; seq: number };
+   *  DIRECTEMENT sur la personne ou le dossier choisi, sans second clic dans
+   *  une liste. */
+  focusRequest?: MindmapFocusRequest;
+  /** Appelé quand une demande de recentrage reste introuvable sur la carte : au
+   *  parent de retomber sur le comportement habituel (ouvrir la fiche) plutôt
+   *  que de laisser l'utilisateur devant une carte inchangée. */
+  onFocusUnresolved?: (request: MindmapFocusRequest) => void;
   /** Fichier des personnes de l'application : propositions à la création d'une
    *  fiche manuelle, pour ne pas doubler une personne déjà au fichier. */
   knownNames?: string[];
@@ -88,9 +112,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   contentieuxDefs,
   onOpenEnquete,
   onRefresh,
-  searchTerm = '',
-  onSearchChange,
   focusRequest,
+  onFocusUnresolved,
   knownNames = [],
   knownNameHints,
 }) => {
@@ -99,9 +122,6 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   // Mode ego-network : id du nœud focus, ou undefined pour vue globale.
   // Toggle en single click sur un nœud (re-clic même nœud → désactive).
   const [egoNodeId, setEgoNodeId] = useState<string | undefined>();
-  // recherche unifiée : la barre globale du header alimente la cartographie
-  const search = searchTerm;
-  const setSearch = (v: string) => onSearchChange?.(v);
   const [showTop10, setShowTop10] = useState(false);
   const [showManage, setShowManage] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -351,33 +371,6 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const mapPending = cartoConfigLoading || !overlayLoaded;
   const top10 = useMemo(() => getTopMec(graph, 10), [graph]);
 
-  // Recherche tolérante : insensible aux accents, à la casse et à l'ordre des
-  // mots — un nœud matche si CHAQUE mot de la requête apparaît dans son texte
-  // normalisé. Les dossiers sont cherchés sur leur numéro/nom ET leur n° de
-  // parquet : on retrouve donc un dossier en tapant son nom, pas uniquement
-  // les mis en cause.
-  const searchResults = useMemo(() => {
-    if (search.trim().length < 2) return [] as GraphNode[];
-    const tokens = normalizeMecName(search).split(' ').filter(Boolean);
-    if (tokens.length === 0) return [] as GraphNode[];
-    const matchesTokens = (haystack: string) =>
-      haystack !== '' && tokens.every(t => haystack.includes(t));
-    const out: GraphNode[] = [];
-    for (const m of graph.mecById.values()) {
-      if (matchesTokens(normalizeMecName([m.displayName, ...m.variants].join(' ')))) {
-        out.push(m);
-      }
-      if (out.length >= 20) break;
-    }
-    for (const d of graph.dossierById.values()) {
-      if (matchesTokens(normalizeMecName(`${d.numero} ${d.numeroParquet || ''}`))) {
-        out.push(d);
-      }
-      if (out.length >= 30) break;
-    }
-    return out;
-  }, [search, graph]);
-
   // ────────────────────────────────────────────
   // ACTIONS
   // ────────────────────────────────────────────
@@ -552,45 +545,102 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     if (node) focusOnNode(node);
   };
 
-  const handleSearchSelect = (node: GraphNode) => {
-    setSearch('');
-    focusOnNode(node);
-  };
-
   // ── Accès direct depuis la recherche globale ──────────────────
   //
-  // Le header envoie le nom choisi : on le résout sur le graphe et on recentre
+  // Seule porte d'entrée de la recherche sur la carte : le header envoie la
+  // personne ou le dossier choisi, on le résout sur le graphe et on recentre
   // tout de suite. Tant que le graphe n'est pas prêt (sources encore en cours
   // de chargement), la demande reste en attente et sera rejouée au prochain
-  // rebuild — la liste de résultats sert alors de repli.
+  // rebuild ; si elle reste sans réponse une fois la carte posée, on le signale
+  // au parent (`onFocusUnresolved`, qui retombe sur la fiche) plutôt que
+  // d'échouer en silence — il n'y a plus de liste de repli sur la page.
   const handledFocusSeq = useRef<number>(-1);
-  // Terme déjà « consommé » par un recentrage automatique : sa liste de
-  // résultats n'a plus lieu d'être affichée (le nœud est déjà sous les yeux).
-  const [resolvedTerm, setResolvedTerm] = useState<string | null>(null);
+  // Le parent redéfinit ce callback à chaque rendu : on le lit par référence
+  // pour qu'il ne fasse pas redémarrer le délai de grâce ci-dessous.
+  const focusUnresolvedRef = useRef(onFocusUnresolved);
+  focusUnresolvedRef.current = onFocusUnresolved;
 
+  // Résolution tolérante d'une PERSONNE, du plus strict au plus souple : clé de
+  // nom normalisée (insensible aux accents, à la casse et à l'ordre prénom/nom)
+  // sur le nom affiché puis sur les variantes, rapprochement de personne, et
+  // enfin correspondance par mots — un nœud matche si CHAQUE mot du nom demandé
+  // apparaît dans son texte normalisé. Ce dernier repli couvre les noms
+  // partiels ou enrichis (surnom, second prénom) que la clé stricte rate.
   const findNodeByName = React.useCallback((nom: string): GraphNode | undefined => {
     const target = mecSortedKey(nom);
     if (!target) return undefined;
-    let fallback: GraphNode | undefined;
+    const tokens = normalizeMecName(nom).split(' ').filter(Boolean);
+    let personFallback: GraphNode | undefined;
+    let tokenFallback: GraphNode | undefined;
     for (const mec of graph.mecById.values()) {
       if (mecSortedKey(mec.displayName) === target) return mec;
       if (mec.variants.some(v => mecSortedKey(v) === target)) return mec;
-      if (!fallback && sameMecPerson(mec.displayName, nom)) fallback = mec;
+      if (!personFallback && sameMecPerson(mec.displayName, nom)) personFallback = mec;
+      if (!tokenFallback && tokens.length > 0) {
+        const haystack = normalizeMecName([mec.displayName, ...mec.variants].join(' '));
+        if (haystack !== '' && tokens.every(t => haystack.includes(t))) tokenFallback = mec;
+      }
     }
-    return fallback;
+    return personFallback || tokenFallback;
   }, [graph]);
 
+  // Résolution tolérante d'un DOSSIER : identifiant de nœud exact quand le
+  // contentieux est connu, sinon rapprochement par identifiant source (un
+  // dossier d'instruction et une enquête peuvent porter le même id numérique,
+  // d'où le tri sur le statut), et en dernier recours le numéro d'affaire ou de
+  // parquet comparé sans ponctuation ni casse.
+  const findDossierNode = React.useCallback(
+    (target: NonNullable<MindmapFocusRequest['dossier']>): DossierNode | undefined => {
+      if (target.ctxId) {
+        const direct = graph.dossierById.get(`${target.ctxId}_${target.id}`);
+        if (direct) return direct;
+      }
+      const wantedNums = [target.numero, target.numeroParquet]
+        .map(v => squashAlnum(v || ''))
+        .filter(Boolean);
+      let numeroFallback: DossierNode | undefined;
+      for (const d of graph.dossierById.values()) {
+        const isInstruction = d.statut === 'instruction';
+        if (d.enqueteId === target.id && isInstruction === (target.instruction === true)) return d;
+        if (!numeroFallback && wantedNums.length > 0) {
+          const nums = [squashAlnum(d.numero), squashAlnum(d.numeroParquet || '')].filter(Boolean);
+          if (nums.some(n => wantedNums.includes(n))) numeroFallback = d;
+        }
+      }
+      return numeroFallback;
+    },
+    [graph],
+  );
+
   useEffect(() => {
-    if (!focusRequest?.nom) return;
+    if (!focusRequest) return;
     if (handledFocusSeq.current === focusRequest.seq) return;
-    const node = findNodeByName(focusRequest.nom);
-    if (!node) return;
+    const node = focusRequest.dossier
+      ? findDossierNode(focusRequest.dossier)
+      : focusRequest.nom
+        ? findNodeByName(focusRequest.nom)
+        : undefined;
+    if (!node) {
+      // Carte pas encore posée (réglages/overlay en cours, graphe vide) : on
+      // attend simplement le prochain rebuild, qui rejouera la demande.
+      if (mapPending || (graph.mecById.size === 0 && graph.dossierById.size === 0)) return;
+      // Carte posée mais cible introuvable : délai de grâce le temps qu'une
+      // source arrive encore, puis on rend la main. Tout rebuild du graphe
+      // annule ce minuteur et relance une tentative de résolution.
+      const request = focusRequest;
+      const timer = setTimeout(() => {
+        handledFocusSeq.current = request.seq;
+        const handled = focusUnresolvedRef.current;
+        if (handled) handled(request);
+        else showToast(`« ${request.nom || request.dossier?.numero || ''} » n'apparaît pas sur la cartographie`, 'info');
+      }, 2500);
+      return () => clearTimeout(timer);
+    }
     handledFocusSeq.current = focusRequest.seq;
     setSelectedId(node.id);
     setCenterRequest(prev => ({ id: node.id, seq: (prev?.seq ?? 0) + 1 }));
     if (node.type === 'mec') setSidePanelMecId(node.id);
-    setResolvedTerm(focusRequest.nom);
-  }, [focusRequest, findNodeByName]);
+  }, [focusRequest, findNodeByName, findDossierNode, mapPending, graph, showToast]);
 
   const handleDossierFromPanel = (dossier: DossierNode) => {
     focusOnNode(dossier);
@@ -607,10 +657,6 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     ? graph.mecById.get(sidePanelMecId)
     : undefined;
 
-  // Recherche déjà honorée par un recentrage automatique : on n'affiche pas la
-  // liste de résultats par-dessus le nœud sur lequel on vient d'arriver.
-  const focusResolved = resolvedTerm !== null && resolvedTerm === search;
-
   // ────────────────────────────────────────────
   // RENDU
   // ────────────────────────────────────────────
@@ -624,39 +670,10 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           <h1 className="text-lg font-semibold text-slate-900">Cartographie</h1>
         </div>
 
-        {/* Résultats de la recherche unifiée (saisie dans la barre du header) */}
-        <div className="flex-1 min-w-[240px] relative">
-          {search.trim() !== '' && (
-            <div className="flex items-center gap-2 text-xs text-slate-500 py-2">
-              <Search className="h-3.5 w-3.5" />
-              {focusResolved
-                ? <>Recentré sur « {search} »</>
-                : searchResults.length > 0
-                  ? <>Résultats pour « {search} »</>
-                  : <>Aucun mis en cause ni dossier pour « {search} »</>}
-            </div>
-          )}
-          {!focusResolved && searchResults.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-72 overflow-y-auto z-30">
-              {searchResults.map(r => (
-                <button
-                  key={r.id}
-                  onClick={() => handleSearchSelect(r)}
-                  className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 border-b border-slate-100 last:border-b-0"
-                >
-                  <span className={`text-[10px] uppercase font-semibold rounded px-1.5 py-0.5 ${
-                    r.type === 'mec' ? 'bg-slate-200 text-slate-700' : 'bg-blue-100 text-blue-700'
-                  }`}>
-                    {r.type === 'mec' ? 'MEC' : 'Dossier'}
-                  </span>
-                  <span className="text-sm text-slate-900 truncate">
-                    {r.type === 'mec' ? r.displayName : r.numero}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* La recherche de la carte, c'est la barre globale du header : choisir
+            une personne y recentre directement la caméra. Rien ici — seulement
+            l'espace qui pousse les outils à droite. */}
+        <div className="flex-1" />
 
         {/* Filtre contentieux */}
         <div className="relative">
