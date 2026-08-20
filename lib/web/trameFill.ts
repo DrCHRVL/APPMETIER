@@ -1,5 +1,5 @@
 /**
- * SIRAL — moteur de « trames de forme ».
+ * SIRAL — remplissage des « trames de forme ».
  *
  * Une trame de forme est un document Word (.docx) fourni par le magistrat :
  * SA papeterie (logo, en-tête, police, pied de page…), telle qu'il la veut,
@@ -9,26 +9,34 @@
  * au contenu près. On ne reconstruit RIEN : la forme est 100 % celle du
  * fichier de l'utilisateur.
  *
- * Balises reconnues (à saisir en texte simple dans le .docx) :
+ * Ce module ne fait que l'entrée/sortie du .zip .docx ; toute la logique de
+ * rendu (repérage des balises, markdown → OOXML) vit dans `trameFillCore.mjs`,
+ * pur et testable en Node (`node scripts/trame-forme.test.mjs`).
+ *
+ * Balises reconnues (à saisir en texte simple dans le .docx — la casse, les
+ * espaces intérieurs et le découpage en « runs » par Word sont sans effet) :
  *   {{CORPS}}        — paragraphe seul : le corps de l'acte se déverse ici, en
- *                      héritant de la police/mise en forme de CE paragraphe
- *                      (visas en italique, puces, gras/souligné conservés).
+ *                      héritant de la police/mise en forme de CE paragraphe.
+ *                      Le markdown de l'acte devient de vrais objets Word :
+ *                      titres, listes, TABLEAUX, gras/italique/souligné.
  *   {{TITRE}}        — paragraphe seul : le titre de l'acte.
  *   {{SIGNATURE}}    — paragraphe seul : le bloc signature (multi-lignes).
  *   {{DESTINATAIRE}} — en ligne : le destinataire (courriers).
  *   {{OBJET}}        — en ligne : l'objet (courriers).
  *   {{DATE}}         — en ligne : la date.
  *
- * Robustesse : Word scinde souvent un mot en plusieurs « runs » (métadonnées
- * de révision), ce qui casserait une balise saisie d'un seul tenant. On
- * refusionne d'abord les runs consécutifs de même formatage, ce qui répare la
- * balise sans toucher aux runs réellement distincts (ex. le label « OBJET »
- * en gras reste séparé de la valeur qui le suit).
+ * Les balises EN LIGNE sont aussi remplies dans les en-têtes et pieds de page
+ * (une papeterie y pose souvent la date ou l'objet). Une balise sans valeur
+ * est retirée : le document remis ne porte jamais de `{{…}}` résiduel.
  */
 
 import PizZip from 'pizzip';
+import { fillPartXml, findTokens, TRAME_TOKENS as CORE_TOKENS } from './trameFillCore.mjs';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/** Parties du .docx où des balises peuvent figurer (corps, en-têtes, pieds). */
+const PART_RE = /^word\/(document|header\d*|footer\d*)\.xml$/;
 
 export type TrameFormeType = 'courrier' | 'requete' | 'soit-transmis' | 'defaut';
 
@@ -50,124 +58,12 @@ export interface TrameVars {
   date?: string;
 }
 
-export const TRAME_TOKENS = ['CORPS', 'TITRE', 'SIGNATURE', 'DESTINATAIRE', 'OBJET', 'DATE'] as const;
+export const TRAME_TOKENS = CORE_TOKENS as readonly string[];
 
-function escXml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-// ── Réparation des runs scindés ──────────────────────────────────────────────
-
-/**
- * Normalise les balises `<w:r>`/`<w:t>` (on retire les rsid, informatifs) puis
- * fusionne les runs de texte consécutifs partageant EXACTEMENT le même `<w:rPr>`.
- * Une balise `{{CORPS}}` éclatée par Word en `{{COR` + `PS}}` redevient entière ;
- * un label gras suivi d'un texte normal reste, lui, en deux runs distincts.
- */
-function repairRuns(xml: string): string {
-  let out = xml
-    .replace(/<w:r\b[^>]*>/g, '<w:r>')
-    .replace(/<w:t\b[^>]*>/g, '<w:t xml:space="preserve">');
-  const pair = /<w:r>(<w:rPr>.*?<\/w:rPr>)?<w:t xml:space="preserve">([^<]*)<\/w:t><\/w:r><w:r>(<w:rPr>.*?<\/w:rPr>)?<w:t xml:space="preserve">([^<]*)<\/w:t><\/w:r>/s;
-  let prev = '';
-  while (prev !== out) {
-    prev = out;
-    out = out.replace(pair, (m, rp1, t1, rp2, t2) => (
-      (rp1 || '') === (rp2 || '')
-        ? `<w:r>${rp1 || ''}<w:t xml:space="preserve">${t1}${t2}</w:t></w:r>`
-        : m
-    ));
-  }
-  return out;
-}
-
-// ── Génération du corps (markdown léger → paragraphes OOXML) ─────────────────
-
-/** rPr de base + bascules gras/italique/souligné (ajoutées en fin, Word tolère l'ordre). */
-function rPrWith(baseRPr: string, opt: { b?: boolean; i?: boolean; u?: boolean }): string {
-  const inner = baseRPr ? baseRPr.replace(/^<w:rPr>/, '').replace(/<\/w:rPr>$/, '') : '';
-  const cleaned = inner
-    .replace(/<w:b\/>/g, '').replace(/<w:i\/>/g, '').replace(/<w:u\b[^>]*\/>/g, '');
-  const add = `${opt.b ? '<w:b/>' : ''}${opt.i ? '<w:i/>' : ''}${opt.u ? '<w:u w:val="single"/>' : ''}`;
-  return `<w:rPr>${cleaned}${add}</w:rPr>`;
-}
-
-/** Découpe une ligne en runs, en interprétant **gras** et __souligné__. */
-function inlineRuns(text: string, baseRPr: string, force: { b?: boolean; i?: boolean }): string {
-  const parts: { t: string; b?: boolean; u?: boolean }[] = [];
-  const re = /\*\*(.+?)\*\*|__(.+?)__/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  // eslint-disable-next-line no-cond-assign
-  while ((m = re.exec(text))) {
-    if (m.index > last) parts.push({ t: text.slice(last, m.index) });
-    if (m[1] != null) parts.push({ t: m[1], b: true });
-    else parts.push({ t: m[2], u: true });
-    last = re.lastIndex;
-  }
-  if (last < text.length) parts.push({ t: text.slice(last) });
-  if (parts.length === 0) parts.push({ t: text });
-  return parts.map((p) => (
-    `<w:r>${rPrWith(baseRPr, { b: p.b || force.b, i: force.i, u: p.u })}`
-    + `<w:t xml:space="preserve">${escXml(p.t)}</w:t></w:r>`
-  )).join('');
-}
-
-/** Corps (texte markdown léger) → suite de `<w:p>` clonant pPr/rPr de la balise. */
-function corpsToParagraphs(corps: string, basePPr: string, baseRPr: string): string {
-  const pPr = basePPr || '';
-  const lines = String(corps || '').replace(/\r\n?/g, '\n').split('\n');
-  const out: string[] = [];
-  const emptyPara = () => `<w:p>${pPr}</w:p>`;
-  for (const raw of lines) {
-    const t = raw.trim();
-    if (!t) { out.push(emptyPara()); continue; }
-    const h = t.match(/^(#{1,3})\s+(.+)$/);
-    if (h) {
-      out.push(`<w:p>${pPr}${inlineRuns(h[2], baseRPr, { b: true })}</w:p>`);
-      continue;
-    }
-    const b = t.match(/^[-*•]\s+(.+)$/);
-    if (b) {
-      const bulletRun = `<w:r>${rPrWith(baseRPr, {})}<w:t xml:space="preserve">•  </w:t></w:r>`;
-      out.push(`<w:p>${pPr}${bulletRun}${inlineRuns(b[1], baseRPr, {})}</w:p>`);
-      continue;
-    }
-    const visa = /^Vu\b/i.test(t);
-    out.push(`<w:p>${pPr}${inlineRuns(t, baseRPr, { i: visa })}</w:p>`);
-  }
-  return out.join('') || emptyPara();
-}
-
-/** Signature (multi-lignes) → paragraphes clonant la mise en forme de la balise. */
-function signatureToParagraphs(sig: string, basePPr: string, baseRPr: string): string {
-  const lines = String(sig || '').replace(/\r\n?/g, '\n').split('\n').filter((l) => l.trim());
-  if (!lines.length) return `<w:p>${basePPr || ''}</w:p>`;
-  return lines.map((l) => `<w:p>${basePPr || ''}${inlineRuns(l.trim(), baseRPr, {})}</w:p>`).join('');
-}
-
-// ── Remplacement des balises ─────────────────────────────────────────────────
-
-function paraText(pXml: string): string {
-  return (pXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [])
-    .map((t) => t.replace(/<[^>]+>/g, '')).join('');
-}
-
-/** Remplace le paragraphe dont le texte vaut exactement `{{NAME}}` par du XML généré. */
-function replaceParaToken(xml: string, name: string, gen: (pPr: string, rPr: string) => string): string {
-  const token = `{{${name}}}`;
-  return xml.replace(/<w:p\b[^>]*>.*?<\/w:p>/gs, (p) => {
-    if (paraText(p).trim() !== token) return p;
-    const pPr = (p.match(/<w:pPr>.*?<\/w:pPr>/s) || [''])[0];
-    const rPr = (p.match(/<w:rPr>.*?<\/w:rPr>/s) || [''])[0];
-    return gen(pPr, rPr);
-  });
-}
-
-/** Remplace une balise en ligne `{{NAME}}` par sa valeur (échappée). */
-function replaceInlineToken(xml: string, name: string, value: string | undefined): string {
-  if (value == null) return xml;
-  return xml.split(`{{${name}}}`).join(escXml(value));
+/** Parties du document susceptibles de porter des balises. */
+function partNames(zip: PizZip): string[] {
+  return Object.keys((zip as unknown as { files: Record<string, unknown> }).files)
+    .filter((n) => PART_RE.test(n));
 }
 
 /**
@@ -177,24 +73,18 @@ function replaceInlineToken(xml: string, name: string, value: string | undefined
  */
 export async function fillTrameDocx(docxBase64: string, vars: TrameVars): Promise<Blob> {
   const zip = new PizZip(docxBase64, { base64: true });
-  const docFile = zip.file('word/document.xml');
-  if (!docFile) throw new Error('trame invalide : word/document.xml absent');
-  let xml = docFile.asText();
+  if (!zip.file('word/document.xml')) throw new Error('trame invalide : word/document.xml absent');
 
-  xml = repairRuns(xml);
+  for (const name of partNames(zip)) {
+    const file = zip.file(name);
+    if (!file) continue;
+    // Corps du document : toutes les balises. En-têtes / pieds de page : seules
+    // les balises en ligne (on n'y déverse pas le corps de l'acte).
+    const blocks = name === 'word/document.xml';
+    zip.file(name, fillPartXml(file.asText(), vars, { blocks }));
+  }
 
-  // Paragraphes complets (générés en clonant la mise en forme de la balise).
-  if (vars.corps != null) xml = replaceParaToken(xml, 'CORPS', (pPr, rPr) => corpsToParagraphs(vars.corps || '', pPr, rPr));
-  if (vars.titre != null) xml = replaceParaToken(xml, 'TITRE', (pPr, rPr) => `<w:p>${pPr}${inlineRuns(vars.titre || '', rPr, {})}</w:p>`);
-  if (vars.signature != null) xml = replaceParaToken(xml, 'SIGNATURE', (pPr, rPr) => signatureToParagraphs(vars.signature || '', pPr, rPr));
-
-  // Balises en ligne.
-  xml = replaceInlineToken(xml, 'DESTINATAIRE', vars.destinataire);
-  xml = replaceInlineToken(xml, 'OBJET', vars.objet);
-  xml = replaceInlineToken(xml, 'DATE', vars.date);
-
-  zip.file('word/document.xml', xml);
-  const ab = zip.generate({ type: 'arraybuffer' }) as ArrayBuffer;
+  const ab = zip.generate({ type: 'arraybuffer', compression: 'DEFLATE' }) as ArrayBuffer;
   return new Blob([ab], { type: DOCX_MIME });
 }
 
@@ -202,9 +92,12 @@ export async function fillTrameDocx(docxBase64: string, vars: TrameVars): Promis
 export function listTrameTokens(docxBase64: string): string[] {
   try {
     const zip = new PizZip(docxBase64, { base64: true });
-    const xml = zip.file('word/document.xml')?.asText() || '';
-    const flat = repairRuns(xml);
-    return TRAME_TOKENS.filter((tk) => flat.includes(`{{${tk}}}`));
+    const found = new Set<string>();
+    for (const name of partNames(zip)) {
+      const file = zip.file(name);
+      if (file) for (const t of findTokens(file.asText())) found.add(t);
+    }
+    return CORE_TOKENS.filter((t: string) => found.has(t));
   } catch {
     return [];
   }

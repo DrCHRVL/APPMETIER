@@ -25,6 +25,7 @@
 
 import { PAPETERIE } from './papeterie'
 import type { TrameFormeType, TrameVars } from './trameFill'
+import { splitRow, isTableDelim, alignOf } from './trameFillCore.mjs'
 import { escapeHtml } from '@/utils/documents/htmlEscape'
 import { parseMarqueur, formatMarqueur } from '@/lib/stats/graphiqueMarqueur.mjs'
 import { parseDiagramme, formatDiagramme } from '@/lib/stats/diagrammeMarqueur.mjs'
@@ -406,6 +407,21 @@ ${parts.filter(Boolean).join('\n')}
 </div>`
 }
 
+/** Tableau markdown → tableau HTML bordé (repris tel quel en Word et en PDF). */
+function renderTableHtml(header: string[], aligns: (string | null)[], rows: string[][]): string {
+  const cols = Math.max(header.length, ...rows.map((r) => r.length), 1)
+  const cell = (txt: string, k: number, head: boolean) => {
+    const align = aligns[k] || 'left'
+    const style = `border:1px solid #000;padding:4pt 6pt;text-align:${align};`
+      + (head ? 'font-weight:bold;background:#f2f2f2;' : '')
+    return `<td style="${style}">${inlineMarkup(escapeHtml(txt || ''))}</td>`
+  }
+  const line = (cells: string[], head: boolean) => `<tr>${
+    Array.from({ length: cols }, (_, k) => cell(cells[k], k, head)).join('')}</tr>`
+  return `<table style="width:100%;border-collapse:collapse;border:1px solid #000;margin:0 0 10pt 0;font-size:11pt;">`
+    + `${line(header, true)}${rows.map((r) => line(r, false)).join('')}</table>`
+}
+
 /**
  * Corps de l'acte → HTML fidèle. On respecte la structure du texte : titres
  * markdown (## / ###), listes à puces (- ou *), gras (**…**) et souligné
@@ -432,9 +448,21 @@ function acteBodyHtml(contenu: string, graphiques?: GraphiquesActe): string {
       bullets = []
     }
   }
-  for (const raw of lines) {
-    const t = raw.trim()
+  for (let i = 0; i < lines.length; i += 1) {
+    const t = lines[i].trim()
     if (!t) { flushPara(); flushBullets(); continue }
+    // Tableau markdown : ligne d'en-tête suivie d'une ligne de séparation.
+    // Sans ce cas, les `|` étaient recrachés tels quels dans le document.
+    if (t.includes('|') && isTableDelim(lines[i + 1] || '')) {
+      flushPara(); flushBullets()
+      const aligns = splitRow(lines[i + 1]).map(alignOf)
+      const rows: string[][] = []
+      let k = i + 2
+      while (k < lines.length && lines[k].trim() && lines[k].includes('|')) { rows.push(splitRow(lines[k])); k += 1 }
+      out.push(renderTableHtml(splitRow(t), aligns, rows))
+      i = k - 1
+      continue
+    }
     // Marqueur [GRAPHIQUE : …] ou [DIAGRAMME : …] seul sur sa ligne → l'image
     // (régénérée par le service, ou rendue localement pour un diagramme libre) ;
     // sans résolution, ligne de repli lisible — l'export n'échoue jamais.
@@ -549,16 +577,42 @@ export function detectTypeForme(p: ActeExportable): TrameFormeType {
   return 'defaut'
 }
 
-/** Variables extraites de l'acte pour remplir les balises d'une trame de forme. */
+/**
+ * Retire les lignes d'identité institutionnelle en TÊTE du corps. La papeterie
+ * de l'utilisateur porte déjà son en-tête : les laisser produirait un second
+ * bandeau « COUR D'APPEL… / PARQUET… » sous le premier.
+ */
+function stripInstitHead(corps: string): string {
+  const lines = corps.replace(/\r\n?/g, '\n').split('\n')
+  let k = 0
+  while (k < lines.length && (!lines[k].trim() || RE_INSTIT.test(stripHead(lines[k].trim())))) k += 1
+  return lines.slice(k).join('\n').trim()
+}
+
+/**
+ * Variables extraites de l'acte pour remplir les balises d'une trame de forme.
+ * Toutes les balises reconnues reçoivent une valeur quand l'acte en porte une :
+ * une balise laissée vide disparaît du document (cf. `fillPartXml`).
+ */
 function extractTrameVars(p: ActeExportable, type: TrameFormeType): TrameVars {
   if (type === 'courrier') {
     const { addressee, objet, dateStr, corps } = parseLettre(p.contenu)
-    return { destinataire: addressee, objet, date: dateStr || longDate(p.updatedAt), corps }
+    return {
+      destinataire: addressee,
+      objet,
+      date: dateStr || longDate(p.updatedAt),
+      corps,
+      // Le courrier ne porte pas de « Fait à … » : la signature vient de la
+      // papeterie, comme dans le gabarit intégré.
+      signature: PAPETERIE.signature.join('\n'),
+    }
   }
   const s = parseActe(p.contenu)
   return {
     titre: s.titre || p.titre || '',
-    corps: s.corps,
+    // Sans titre reconnu, `parseActe` n'a pas pu isoler le bandeau : on le
+    // retire ici, faute de quoi il ferait doublon avec celui de la trame.
+    corps: s.titre ? s.corps : stripInstitHead(s.corps),
     signature: s.signature.join('\n'),
     date: longDate(p.updatedAt),
   }

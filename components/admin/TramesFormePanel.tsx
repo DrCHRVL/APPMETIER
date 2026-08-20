@@ -19,13 +19,19 @@ const TYPE_LABELS: Record<TrameFormeType, string> = {
 const TYPE_ORDER: TrameFormeType[] = ['courrier', 'requete', 'soit-transmis', 'defaut'];
 
 const TOKEN_HELP: { token: string; desc: string }[] = [
-  { token: '{{CORPS}}', desc: 'Paragraphe seul — le texte de l\'acte se déverse ici (visas en italique, puces, gras conservés), en héritant de la police de cette ligne.' },
+  { token: '{{CORPS}}', desc: 'Paragraphe seul — le texte de l\'acte se déverse ici, en héritant de la police, de l\'interligne et de l\'alignement de cette ligne. Titres, listes, TABLEAUX, gras et souligné deviennent de vrais objets Word ; les visas restent en italique.' },
   { token: '{{TITRE}}', desc: 'Paragraphe seul — le titre de l\'acte (requêtes / soit-transmis).' },
   { token: '{{SIGNATURE}}', desc: 'Paragraphe seul — le bloc signature (une ligne par ligne du texte).' },
-  { token: '{{DESTINATAIRE}}', desc: 'En ligne — le destinataire (courriers).' },
+  { token: '{{DESTINATAIRE}}', desc: 'En ligne — le destinataire (courriers). Une adresse sur plusieurs lignes est restituée sur plusieurs lignes.' },
   { token: '{{OBJET}}', desc: 'En ligne — l\'objet (courriers).' },
   { token: '{{DATE}}', desc: 'En ligne — la date de l\'acte.' },
-];
+]
+
+/** Rappel des tolérances du moteur, pour éviter les faux problèmes de balises. */
+const TOKEN_NOTE = 'La casse et les espaces intérieurs sont sans effet ({{ corps }} vaut {{CORPS}}), '
+  + 'et une balise que Word a scindée en plusieurs morceaux est reconnue. Les balises en ligne '
+  + 'fonctionnent aussi dans l\'en-tête et le pied de page. Une balise sans valeur pour l\'acte '
+  + 'exporté disparaît du document : elle n\'apparaît jamais telle quelle.';
 
 function abToBase64(ab: ArrayBuffer): string {
   const bytes = new Uint8Array(ab);
@@ -127,11 +133,22 @@ export const TramesFormePanel = () => {
         corps: [
           'Vu les articles visés en objet et la procédure ;',
           '',
-          'Ce paragraphe illustre le rendu du corps injecté dans **votre** trame, avec la police que vous avez choisie sur la ligne {{CORPS}}.',
+          '## Rendu du corps',
+          '',
+          'Ce paragraphe illustre le rendu du corps injecté dans **votre** trame, avec la police,',
+          'l\'interligne et l\'alignement que vous avez choisis sur la ligne {{CORPS}}.',
           '',
           'Les points suivants sont testés :',
           '- une puce ;',
           '- une seconde puce avec un terme __souligné__.',
+          '',
+          '1. une liste numérotée ;',
+          '2. et son second point.',
+          '',
+          '| Colonne | Centrée | À droite |',
+          '| --- | :---: | ---: |',
+          '| un tableau | devient | un vrai |',
+          '| markdown | tableau | Word |',
         ].join('\n'),
         signature: 'P/ Le Procureur de la République\nAudran CHEVALIER\nSubstitut',
       });
@@ -223,6 +240,7 @@ export const TramesFormePanel = () => {
         </ul>
         <p className="mt-2 text-xs text-gray-500">
           Seule {`{{CORPS}}`} est requise. Les balises absentes sont simplement ignorées.
+          {' '}{TOKEN_NOTE}
         </p>
       </div>
 
