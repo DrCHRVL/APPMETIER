@@ -1,4 +1,4 @@
-import { Bell, Search, Save, RefreshCw, Download, Scale } from 'lucide-react';
+import { Bell, Search, Save, RefreshCw, Download, Scale, Link2 } from 'lucide-react';
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { Alert } from '@/types/interfaces';
@@ -52,6 +52,13 @@ interface HeaderProps {
   /** Recherche globale : si fournie, la barre devient une omnibox (résultats
    *  de toute l'application). À défaut, simple filtre de la page courante. */
   globalSearch?: HeaderGlobalSearch;
+  /** Veille de recoupements : bouton discret, présent seulement s'il y a
+   *  quelque chose à montrer. La pastille compte les signaux jamais vus. */
+  recoupements?: {
+    total: number;
+    nouveaux: number;
+    onShow: () => void;
+  };
 }
 
 export const Header = ({
@@ -75,6 +82,7 @@ export const Header = ({
   minimal = false,
   onShowAttache,
   globalSearch,
+  recoupements,
 }: HeaderProps) => {
   // L'icône de mise à jour est réservée à l'admin : la mise à jour du serveur
   // s'applique d'elle-même à tous les utilisateurs.
@@ -298,6 +306,31 @@ export const Header = ({
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   <p>{isUpdating ? 'Application de la mise à jour...' : `${updateCommits} nouvelle${updateCommits > 1 ? 's' : ''} version${updateCommits > 1 ? 's' : ''} disponible${updateCommits > 1 ? 's' : ''}. Cliquer pour voir le détail.`}</p>
+                </TooltipContent>
+              </TooltipRoot>
+            </TooltipProvider>
+          )}
+
+          {/* Recoupements entre dossiers — signalement discret, jamais bloquant */}
+          {!minimal && recoupements && recoupements.total > 0 && (
+            <TooltipProvider>
+              <TooltipRoot>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="relative h-8 w-8 p-0 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                    onClick={recoupements.onShow}
+                  >
+                    <Link2 className="h-4 w-4" />
+                    {recoupements.nouveaux > 0 && <AlertBadge count={recoupements.nouveaux} size="sm" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>
+                    {recoupements.total} recoupement{recoupements.total > 1 ? 's' : ''} entre dossiers
+                    {recoupements.nouveaux > 0 ? ` — dont ${recoupements.nouveaux} jamais consulté${recoupements.nouveaux > 1 ? 's' : ''}` : ''}
+                  </p>
                 </TooltipContent>
               </TooltipRoot>
             </TooltipProvider>

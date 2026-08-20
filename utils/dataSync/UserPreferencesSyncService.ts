@@ -11,6 +11,7 @@
 import { SiralBridge } from '@/utils/siralBridge';
 import { UserPreferencesFile } from '@/types/globalSyncTypes';
 import { AlertValidations, AlertValidation, VisualAlertRule, AlerteInstruction } from '@/types/interfaces';
+import type { RecoupementAck, RecoupementAcks } from '@/types/recoupementTypes';
 import { ContentieuxId } from '@/types/userTypes';
 import {
   AgendaUrls,
@@ -277,6 +278,44 @@ export class UserPreferencesSyncService {
         seeded: true,
         entries,
       },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
+  // ─── Veille de recoupements ──────────────────────────────────────────────
+
+  /**
+   * Mémorise le geste porté sur un signal de recoupement (« vu » ou
+   * « écarté »). Personnel : écarter un signal ne l'éteint que pour soi.
+   */
+  async setRecoupementAck(id: string, ack: RecoupementAck): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const entries = { ...(current.recoupements?.entries || {}) };
+    entries[id] = ack;
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      recoupements: { seeded: true, entries },
+    };
+    await writeLocal(this.currentUsername, next);
+    emitSyncCompleted('userPreferences');
+    this.schedulePush();
+  }
+
+  async setRecoupementAcks(entries: RecoupementAcks): Promise<void> {
+    if (!this.currentUsername) return;
+    const user = await getCurrentUserInfo();
+    const current = (await readLocal(this.currentUsername)) || empty(this.currentUsername);
+    const next: UserPreferencesFile = {
+      ...current,
+      ...buildMetadata(current.version || 0, user),
+      windowsUsername: this.currentUsername,
+      recoupements: { seeded: true, entries: { ...entries } },
     };
     await writeLocal(this.currentUsername, next);
     emitSyncCompleted('userPreferences');

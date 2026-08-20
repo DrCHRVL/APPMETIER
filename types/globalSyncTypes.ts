@@ -14,6 +14,7 @@ import { AlertRule, AlertValidations, VisualAlertRule, AlerteInstruction } from 
 import { ContentieuxId } from './userTypes';
 import type { InstructionAlertRule } from './instructionTypes';
 import type { AgendaUrls, AgendaDisplaySettings } from '@/lib/web/agenda';
+import type { RecoupementAcks } from './recoupementTypes';
 
 export interface GlobalSyncMetadata {
   version: number;
@@ -279,6 +280,16 @@ export interface UserPreferencesFile extends GlobalSyncMetadata {
    * la section « Alertes visuelles personnelles ».
    */
   crDelayHighlight?: boolean;
+  /**
+   * Veille de recoupements : signaux déjà vus ou écartés par cet utilisateur.
+   * Clé = identité du signal (nature + valeur) ; la valeur porte l'empreinte
+   * des dossiers concernés au moment du geste, de sorte que le signal ressorte
+   * si un dossier de plus rejoint la coïncidence.
+   */
+  recoupements?: {
+    seeded?: boolean;
+    entries?: RecoupementAcks;
+  };
   /**
    * Snapshot des alertes d'instruction (DP, DML, délai 175) personnelles —
    * principalement utile pour conserver l'état "snoozed" entre machines.

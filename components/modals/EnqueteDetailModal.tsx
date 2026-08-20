@@ -34,6 +34,8 @@ import { useToast } from '@/contexts/ToastContext';
 import { RefreshStatus } from '../ui/RefreshIconButton';
 import { SuiviAlertModal } from './SuiviAlertModal';
 import { ToDoItem } from '@/types/interfaces';
+import { RecoupementHint } from '../recoupements/RecoupementHint';
+import type { Recoupement } from '@/types/recoupementTypes';
 
 interface EnqueteDetailModalProps {
   enquete: Enquete;
@@ -71,6 +73,17 @@ interface EnqueteDetailModalProps {
   /** Attaché IA disponible (sidecar configuré) : conditionne l'icône
    *  « Actualiser » de la description (admin uniquement). */
   attacheAvailable?: boolean;
+  /** Veille de recoupements : signaux touchant CE dossier. Purement informatif —
+   *  le bandeau est replié, ne bloque rien et n'écrit rien. */
+  recoupements?: {
+    signaux: Recoupement[];
+    nouveaux: Recoupement[];
+    dossierCourant: string;
+    estNouveau: (signal: Recoupement) => boolean;
+    onOuvrirDossier?: (signal: Recoupement, dossierKey: string) => void;
+    onEcarter: (signal: Recoupement) => void;
+    onVus: (signaux: Recoupement[]) => void;
+  };
 }
 
 const EnqueteDetailModalImpl = ({
@@ -96,6 +109,7 @@ const EnqueteDetailModalImpl = ({
   isSharedEnquete = false,
   attacheOpen = false,
   attacheAvailable = false,
+  recoupements,
 }: EnqueteDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [descriptionRefreshStatus, setDescriptionRefreshStatus] = useState<RefreshStatus>('idle');
@@ -433,6 +447,21 @@ const EnqueteDetailModalImpl = ({
               descriptionRefreshStatus={descriptionRefreshStatus}
             />
 
+            {/* Recoupements avec d'autres dossiers — bandeau replié, informatif.
+                Placé sous l'en-tête : visible sans jamais s'interposer entre le
+                magistrat et la saisie. */}
+            {recoupements && (
+              <RecoupementHint
+                signaux={recoupements.signaux}
+                nouveaux={recoupements.nouveaux}
+                dossierCourant={recoupements.dossierCourant}
+                estNouveau={recoupements.estNouveau}
+                onOuvrirDossier={recoupements.onOuvrirDossier}
+                onEcarter={recoupements.onEcarter}
+                onVus={recoupements.onVus}
+              />
+            )}
+
             {/* Propositions de l'attaché en attente (✓/✗) + chronologie
                 probatoire — admin uniquement, auto-masquées sinon. */}
             {isAdmin() && <PropositionsBar numero={enquete.numero} reloadToken={propositionsToken} />}
@@ -708,6 +737,7 @@ export const EnqueteDetailModal = React.memo(EnqueteDetailModalImpl, (a, b) =>
   a.isSharedEnquete === b.isSharedEnquete &&
   a.attacheOpen === b.attacheOpen &&
   a.attacheAvailable === b.attacheAvailable &&
+  a.recoupements === b.recoupements &&
   a.allKnownMec === b.allKnownMec &&
   a.knownNameHints === b.knownNameHints &&
   a.onClose === b.onClose &&

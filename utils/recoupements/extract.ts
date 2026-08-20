@@ -1,0 +1,383 @@
+// utils/recoupements/extract.ts
+//
+// EXTRACTION DES VALEURS COMPARABLES d'un texte de procédure.
+//
+// Un PV ne dit jamais deux fois la même chose de la même façon : « 06.79.55.13.84 »
+// et « +33 6 79 55 13 84 », « 16 rue Balzac » et « 16 rue balzac appt 7 à AMIENS ».
+// Ce module ramène chaque valeur à une forme CANONIQUE, seule comparable.
+//
+// Les formes canoniques des téléphones, plaques, IBAN et adresses sont alignées
+// sur celles de l'attaché de justice (`scripts/attache/carto.mjs`, normEntite) :
+// ce que l'application rapproche, l'attaché le rapproche aussi.
+//
+// Module PUR (aucun import de valeur) : testable hors navigateur.
+
+import type { RecoupementKind } from '@/types/recoupementTypes';
+
+/** Une valeur trouvée dans un texte. */
+export interface ExtractedValue {
+  kind: RecoupementKind;
+  /** Forme canonique (clé de rapprochement). */
+  canon: string;
+  /** Forme affichable, plus lisible que la canonique. */
+  valeur: string;
+  /** Extrait tel qu'écrit dans le texte. */
+  brut: string;
+  /** Position dans le texte source (pour la citation). */
+  index: number;
+}
+
+// ──────────────────────────────────────────────
+// NORMALISATION
+// ──────────────────────────────────────────────
+
+/**
+ * Minuscules sans accents, MÊME LONGUEUR que la chaîne d'origine : les index
+ * restent alignés, ce qui permet de citer le passage exact du document où la
+ * valeur a été trouvée. Un caractère dont la translittération ne fait pas
+ * exactement un caractère (œ, ß…) est laissé tel quel — l'alignement prime.
+ */
+export function normalizeAligned(text: string): string {
+  const plat = (c: string): string => {
+    const sans = c.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    return sans.length === c.length ? sans : c;
+  };
+  const bas = text.toLowerCase();
+  // Chemin normal : le passage en minuscules conserve la longueur (toujours
+  // vrai en français) — seuls les caractères non ASCII sont translittérés.
+  if (bas.length === text.length) return bas.replace(/[^\x00-\x7F]/g, plat);
+  let out = '';
+  for (const c of text) {
+    const b = c.toLowerCase();
+    out += plat(b.length === c.length ? b : c);
+  }
+  return out;
+}
+
+/** Mots (≥ 3 caractères) d'un texte déjà normalisé — prétri des recherches. */
+export function motsDe(normalise: string): Set<string> {
+  const set = new Set<string>();
+  for (const mot of normalise.split(/[^a-z0-9]+/)) {
+    if (mot.length >= 3) set.add(mot);
+  }
+  return set;
+}
+
+/** Minuscules sans accents, ponctuation réduite à l'espace. */
+export function normalizeLoose(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Numéro français ramené à 10 chiffres commençant par 0. Accepte 0X…, +33X…,
+ * 0033X…, 33X… et le format à 9 chiffres sans le zéro initial.
+ * Renvoie null si ce n'est pas un numéro français plausible.
+ */
+export function canonPhone(raw: string): string | null {
+  let d = String(raw).replace(/\D/g, '');
+  if (d.startsWith('0033')) d = d.slice(4);
+  else if (d.startsWith('33') && d.length >= 11) d = d.slice(2);
+  else if (d.startsWith('0') && d.length === 10) return /^0[1-9]\d{8}$/.test(d) ? d : null;
+  if (d.length === 9) d = '0' + d;
+  if (d.length !== 10) return null;
+  return /^0[1-9]\d{8}$/.test(d) ? d : null;
+}
+
+/** Affichage d'un numéro canonique : 06 79 55 13 84. */
+export function formatPhone(canon: string): string {
+  return canon.replace(/(\d{2})(?=\d)/g, '$1 ').trim();
+}
+
+/** Plaque sans séparateurs, en majuscules. */
+export function canonPlate(raw: string): string {
+  return String(raw).toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+/** IBAN sans espaces, en majuscules. */
+export function canonIban(raw: string): string {
+  return String(raw).toUpperCase().replace(/[^0-9A-Z]/g, '');
+}
+
+// ──────────────────────────────────────────────
+// ADRESSES
+// ──────────────────────────────────────────────
+
+/** Type de voie → forme canonique (les abréviations sont ramenées au mot plein). */
+const VOIE_CANON: Record<string, string> = {
+  rue: 'rue', r: 'rue',
+  avenue: 'avenue', av: 'avenue',
+  boulevard: 'boulevard', bd: 'boulevard', blvd: 'boulevard',
+  allee: 'allee', allees: 'allee',
+  impasse: 'impasse', imp: 'impasse',
+  chemin: 'chemin', ch: 'chemin',
+  place: 'place', pl: 'place',
+  route: 'route', rte: 'route',
+  cite: 'cite',
+  quai: 'quai',
+  passage: 'passage',
+  square: 'square',
+  villa: 'villa',
+  hameau: 'hameau',
+  residence: 'residence', res: 'residence',
+  lotissement: 'lotissement',
+  faubourg: 'faubourg',
+  esplanade: 'esplanade',
+  cours: 'cours',
+  sentier: 'sentier',
+};
+
+/** Voies qui se passent d'un numéro (on nomme le lieu, pas le porche). */
+const VOIE_SANS_NUMERO = new Set(['residence', 'cite', 'hameau', 'lotissement']);
+
+/**
+ * Mots qui terminent le nom de la voie : ce qui suit est un complément
+ * (étage, appartement, commune…) et non le nom de la rue. Sans cette coupe,
+ * « 16 rue Balzac » et « 16 rue Balzac appt 7 à Amiens » ne se rejoindraient
+ * jamais.
+ */
+const FIN_DE_VOIE = new Set([
+  'appt', 'apt', 'appartement', 'appartements', 'bat', 'batiment', 'bat1', 'esc', 'escalier',
+  'etage', 'porte', 'chez', 'cage', 'entree', 'boite', 'bp', 'cs', 'a', 'au', 'aux', 'to',
+]);
+
+const MAX_MOTS_VOIE = 4;
+
+const RE_ADRESSE = new RegExp(
+  String.raw`(\d{1,4})?\s*(?:bis|ter|quater)?\s*\b(` +
+  Object.keys(VOIE_CANON).join('|') +
+  String.raw`)\b\.?\s+([A-Za-zÀ-ÿ0-9'’\-]+(?:\s+[A-Za-zÀ-ÿ0-9'’\-]+){0,6})`,
+  'gi'
+);
+
+/** Forme canonique d'une adresse, ou null si elle n'est pas exploitable. */
+export function canonAdresse(numero: string | undefined, voie: string, nom: string): string | null {
+  const type = VOIE_CANON[normalizeLoose(voie).replace(/\s/g, '')];
+  if (!type) return null;
+  const num = (numero || '').replace(/^0+/, '');
+  if (!num && !VOIE_SANS_NUMERO.has(type)) return null;
+
+  const mots: string[] = [];
+  for (const mot of normalizeLoose(nom).split(' ')) {
+    if (!mot) continue;
+    if (FIN_DE_VOIE.has(mot)) break;
+    // Code postal / numéro de bâtiment : le nom de la voie est fini.
+    if (/^\d{3,}$/.test(mot)) break;
+    // Articles : conservés (« rue de l eglise ») mais ils ne comptent pas
+    // comme mots signifiants.
+    mots.push(mot);
+    if (mots.filter(m => !['de', 'du', 'des', 'la', 'le', 'les', 'l', 'd'].includes(m)).length >= MAX_MOTS_VOIE) break;
+  }
+  const signifiants = mots.filter(m => !['de', 'du', 'des', 'la', 'le', 'les', 'l', 'd'].includes(m));
+  if (signifiants.length === 0) return null;
+  // Un nom de voie d'une seule lettre ou d'un seul chiffre n'identifie rien.
+  if (signifiants.join('').length < 3) return null;
+
+  return `${num ? num + ' ' : ''}${type} ${mots.join(' ')}`.trim();
+}
+
+// ──────────────────────────────────────────────
+// COMPTES / PSEUDOS
+// ──────────────────────────────────────────────
+
+const RESEAUX = 'snapchat|snap|instagram|insta|tiktok|telegram|whatsapp|signal|facebook|messenger|discord|wickr|threema';
+const RE_COMPTE_RESEAU = new RegExp(
+  String.raw`\b(?:${RESEAUX})\b[^\n«"'’]{0,20}[«"'’]?\s*([A-Za-z][A-Za-z0-9._\-]{4,29})`,
+  'gi'
+);
+const RE_ARROBASE = /(?:^|[\s(])@([A-Za-z][A-Za-z0-9._\-]{3,29})\b/g;
+
+/** Mots qui suivent souvent « snapchat » sans être un pseudo. */
+const NON_PSEUDO = new Set([
+  'compte', 'comptes', 'account', 'utilise', 'utilisee', 'utilisation', 'application',
+  'reponse', 'requisition', 'donnees', 'story', 'stories', 'snap', 'nommee', 'intitule',
+  'dénomme', 'denomme', 'creation', 'connexion', 'connection', 'profil', 'pseudo', 'suivant',
+  'nomme', 'appele', 'appelee', 'ouvert', 'ouverte', 'active', 'inactif', 'depuis', 'entre',
+]);
+
+// ──────────────────────────────────────────────
+// NOMS DE PERSONNES DANS LE TEXTE LIBRE
+// ──────────────────────────────────────────────
+
+// « MEON Louan », « ROUSSEAU Jean Pierre » (patronyme en capitales d'abord).
+const RE_NOM_MAJ_PRENOM = /\b([A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ'’-]{2,})(?:\s+([A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ'’-]{2,}))?\s+([A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ'’-]{1,}(?:\s+[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ'’-]+)?)/g;
+// « Louan MEHON » (prénom d'abord).
+const RE_PRENOM_NOM_MAJ = /\b([A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ'’-]{1,})\s+([A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ'’-]{2,})\b/g;
+
+/** Mots en capitales qui ne sont pas des patronymes (en-têtes, grades, institutions). */
+export const MOTS_NON_PATRONYMES = new Set([
+  'gendarmerie', 'nationale', 'police', 'judiciaire', 'brigade', 'compagnie', 'departementale',
+  'officier', 'adjudant', 'major', 'capitaine', 'lieutenant', 'commandant', 'colonel', 'general',
+  'marechal', 'gardien', 'brigadier', 'agent', 'commissaire', 'procureur', 'republique',
+  'substitut', 'magistrat', 'juge', 'greffier', 'avocat', 'batonnier', 'tribunal', 'cour',
+  'parquet', 'chambre', 'instruction', 'enquete', 'flagrance', 'preliminaire', 'proces',
+  'verbal', 'natinf', 'article', 'articles', 'code', 'procedure', 'penale', 'ministere',
+  'justice', 'france', 'francaise', 'monsieur', 'madame', 'mademoiselle',
+  'nous', 'vous', 'ils', 'elles', 'cette', 'renseignements', 'investigations',
+  'environnements', 'verifications', 'demande', 'interception', 'telephonique', 'objet',
+  'destinataire', 'annexe', 'piece', 'feuillet', 'dossier', 'unite', 'residence', 'batiment',
+  'appartement', 'commune', 'voie', 'publique', 'secteur', 'service', 'section', 'groupe',
+  'operateur', 'bouygues', 'orange', 'free', 'sfr', 'telecom', 'snapchat', 'tiktok',
+  'instagram', 'facebook', 'telegram', 'whatsapp', 'iphone', 'samsung', 'android',
+  'stupefiants', 'cannabis', 'heroine', 'cocaine', 'trafic', 'vente', 'ventes', 'usage',
+]);
+
+/** Prénoms fantômes : le second mot capitalisé n'est pas un prénom. */
+const MOTS_NON_PRENOMS = new Set([
+  'nous', 'vous', 'ils', 'elles', 'cette', 'ces', 'les', 'des', 'une', 'son', 'sa', 'ses',
+  'lors', 'dans', 'pour', 'avec', 'sans', 'sous', 'chez', 'apres', 'avant', 'depuis', 'selon',
+  'monsieur', 'madame', 'mademoiselle', 'france', 'paris', 'amiens', 'doullens', 'lille',
+  'nord', 'sud', 'est', 'ouest', 'saint', 'sainte', 'rue', 'avenue', 'place', 'route',
+]);
+
+/** Un nom trouvé dans un texte, avec sa position. */
+export interface ExtractedName {
+  /** Nom complet tel qu'écrit (« MEON Louan »). */
+  brut: string;
+  /** Patronyme normalisé (« meon »). */
+  patronyme: string;
+  index: number;
+}
+
+/** Vrai si le mot peut être un patronyme (ni institution, ni grade, ni ville). */
+export function estPatronymePlausible(mot: string): boolean {
+  const n = normalizeLoose(mot);
+  return n.length >= 3 && !MOTS_NON_PATRONYMES.has(n) && !MOTS_NON_PRENOMS.has(n);
+}
+
+/**
+ * Noms « NOM Prénom » ou « Prénom NOM » repérés dans un texte de procédure.
+ * On s'appuie sur la convention typographique des PV (patronyme en capitales) :
+ * c'est faillible, mais le moteur n'ouvre un signal que si le nom rejoint une
+ * personne DÉCLARÉE quelque part — une mauvaise détection reste sans effet.
+ */
+export function extractNames(texte: string): ExtractedName[] {
+  const out: ExtractedName[] = [];
+  const vus = new Set<string>();
+
+  const pousser = (brut: string, patronyme: string, index: number) => {
+    const nom = brut.replace(/\s+/g, ' ').trim();
+    const cle = `${normalizeLoose(nom)}@${index}`;
+    if (vus.has(cle)) return;
+    vus.add(cle);
+    out.push({ brut: nom, patronyme, index });
+  };
+
+  RE_NOM_MAJ_PRENOM.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = RE_NOM_MAJ_PRENOM.exec(texte)) !== null) {
+    const patronyme = normalizeLoose(m[1]);
+    if (!estPatronymePlausible(m[1])) continue;
+    // « NOM COMPOSE Prénom » : le second mot en capitales fait partie du nom.
+    const second = m[2] && estPatronymePlausible(m[2]) ? m[2] : '';
+    const prenom = m[3];
+    if (MOTS_NON_PRENOMS.has(normalizeLoose(prenom.split(' ')[0]))) continue;
+    pousser(`${m[1]}${second ? ' ' + second : ''} ${prenom}`, patronyme, m.index);
+  }
+
+  RE_PRENOM_NOM_MAJ.lastIndex = 0;
+  while ((m = RE_PRENOM_NOM_MAJ.exec(texte)) !== null) {
+    const patronyme = normalizeLoose(m[2]);
+    if (!estPatronymePlausible(m[2])) continue;
+    if (MOTS_NON_PRENOMS.has(normalizeLoose(m[1]))) continue;
+    pousser(`${m[2]} ${m[1]}`, patronyme, m.index);
+  }
+
+  return out;
+}
+
+// ──────────────────────────────────────────────
+// EXTRACTION GÉNÉRALE
+// ──────────────────────────────────────────────
+
+// Suite de chiffres et de séparateurs assez longue pour être un numéro.
+const RE_SUITE_CHIFFRES = /(?:\+|00)?\d[\d\s.\-/()]{7,22}\d/g;
+const RE_PLAQUE = /\b[A-Z]{2}[\s-]?\d{3}[\s-]?[A-Z]{2}\b/g;
+const RE_IBAN = /\bFR\d{2}(?:\s?[0-9A-Z]{4}){5,7}\b/gi;
+const RE_IMEI = /\bimei\b\D{0,12}(\d{15})\b/gi;
+
+/**
+ * Toutes les valeurs comparables d'un texte : téléphones, plaques, adresses,
+ * comptes, IBAN, IMEI. Les noms de personnes passent par `extractNames`
+ * (traitement séparé, car ils demandent un rapprochement approximatif).
+ */
+export function extractValues(texte: string): ExtractedValue[] {
+  const out: ExtractedValue[] = [];
+  const vus = new Set<string>();
+
+  const pousser = (v: ExtractedValue) => {
+    const cle = `${v.kind}:${v.canon}`;
+    if (vus.has(cle)) return;
+    vus.add(cle);
+    out.push(v);
+  };
+
+  let m: RegExpExecArray | null;
+
+  RE_SUITE_CHIFFRES.lastIndex = 0;
+  while ((m = RE_SUITE_CHIFFRES.exec(texte)) !== null) {
+    // Une suite contenant « / » est une référence de procédure, pas un numéro.
+    if (m[0].includes('/')) continue;
+    const canon = canonPhone(m[0]);
+    if (!canon) continue;
+    pousser({ kind: 'telephone', canon, valeur: formatPhone(canon), brut: m[0].trim(), index: m.index });
+  }
+
+  RE_PLAQUE.lastIndex = 0;
+  while ((m = RE_PLAQUE.exec(texte)) !== null) {
+    const canon = canonPlate(m[0]);
+    if (canon.length !== 7) continue;
+    pousser({ kind: 'plaque', canon, valeur: `${canon.slice(0, 2)}-${canon.slice(2, 5)}-${canon.slice(5)}`, brut: m[0].trim(), index: m.index });
+  }
+
+  RE_IBAN.lastIndex = 0;
+  while ((m = RE_IBAN.exec(texte)) !== null) {
+    const canon = canonIban(m[0]);
+    if (canon.length < 20) continue;
+    pousser({ kind: 'iban', canon, valeur: canon, brut: m[0].trim(), index: m.index });
+  }
+
+  RE_IMEI.lastIndex = 0;
+  while ((m = RE_IMEI.exec(texte)) !== null) {
+    pousser({ kind: 'imei', canon: m[1], valeur: m[1], brut: m[0].trim(), index: m.index });
+  }
+
+  RE_ADRESSE.lastIndex = 0;
+  while ((m = RE_ADRESSE.exec(texte)) !== null) {
+    const canon = canonAdresse(m[1], m[2], m[3]);
+    if (!canon) continue;
+    pousser({ kind: 'adresse', canon, valeur: canon, brut: m[0].replace(/\s+/g, ' ').trim(), index: m.index });
+  }
+
+  RE_COMPTE_RESEAU.lastIndex = 0;
+  while ((m = RE_COMPTE_RESEAU.exec(texte)) !== null) {
+    const pseudo = m[1];
+    const canon = pseudo.toLowerCase();
+    if (NON_PSEUDO.has(normalizeLoose(pseudo))) continue;
+    pousser({ kind: 'compte', canon, valeur: pseudo, brut: pseudo, index: m.index });
+  }
+
+  RE_ARROBASE.lastIndex = 0;
+  while ((m = RE_ARROBASE.exec(texte)) !== null) {
+    // Une adresse mail n'est pas un pseudo de réseau social.
+    if (texte[m.index] === '@' && m.index > 0 && /[A-Za-z0-9._-]/.test(texte[m.index - 1])) continue;
+    const canon = m[1].toLowerCase();
+    if (NON_PSEUDO.has(normalizeLoose(m[1]))) continue;
+    pousser({ kind: 'compte', canon, valeur: `@${m[1]}`, brut: `@${m[1]}`, index: m.index });
+  }
+
+  return out;
+}
+
+/** Courte citation autour d'une position, pour montrer le contexte. */
+export function extrait(texte: string, index: number, largeur = 110): string {
+  const debut = Math.max(0, index - Math.floor(largeur / 3));
+  const fin = Math.min(texte.length, index + largeur);
+  const morceau = texte.slice(debut, fin).replace(/\s+/g, ' ').trim();
+  return `${debut > 0 ? '…' : ''}${morceau}${fin < texte.length ? '…' : ''}`;
+}
