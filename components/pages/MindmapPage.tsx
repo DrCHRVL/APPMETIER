@@ -58,8 +58,9 @@ const CARTO_REVIEW_KINDS = ['dossier_carto', 'mec_carto', 'lien'] as const;
 // ──────────────────────────────────────────────
 
 /** Cible d'un recentrage demandé depuis la recherche globale du header : une
- *  personne (par son nom) ou un dossier (par son identifiant source, avec son
- *  numéro en repli). `seq` permet de rejouer une même demande. */
+ *  personne (par son nom), un dossier (par son identifiant source, avec son
+ *  numéro en repli) ou un dossier créé ex nihilo sur la carte (par son
+ *  identifiant, unique et exact). `seq` permet de rejouer une même demande. */
 export interface MindmapFocusRequest {
   seq: number;
   /** Personne choisie dans la barre globale (résultat « Personnes »). */
@@ -76,6 +77,9 @@ export interface MindmapFocusRequest {
     /** Vrai pour un dossier d'instruction (nœud projeté, statut 'instruction'). */
     instruction?: boolean;
   };
+  /** Dossier créé ex nihilo sur la carte (résultat « Dossiers (cartographie) »),
+   *  par son identifiant — déjà unique, aucun rapprochement nécessaire. */
+  dossierExNihilo?: string;
 }
 
 interface MindmapPageProps {
@@ -617,9 +621,11 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     if (handledFocusSeq.current === focusRequest.seq) return;
     const node = focusRequest.dossier
       ? findDossierNode(focusRequest.dossier)
-      : focusRequest.nom
-        ? findNodeByName(focusRequest.nom)
-        : undefined;
+      : focusRequest.dossierExNihilo
+        ? graph.dossierById.get(focusRequest.dossierExNihilo)
+        : focusRequest.nom
+          ? findNodeByName(focusRequest.nom)
+          : undefined;
     if (!node) {
       // Carte pas encore posée (réglages/overlay en cours, graphe vide) : on
       // attend simplement le prochain rebuild, qui rejouera la demande.

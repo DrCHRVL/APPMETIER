@@ -125,6 +125,7 @@ export type GlobalDocKind =
   | 'instruction'
   | 'air'
   | 'personne'
+  | 'dossier_carto'
   | 'page'
   | 'action'
   /** Correspondance dans le CONTENU d'un document (résultats asynchrones,
@@ -442,6 +443,7 @@ export const GROUP_LABELS: Array<{ kind: GlobalDocKind; label: string }> = [
   { kind: 'instruction', label: 'Instructions' },
   { kind: 'air', label: 'Suivi AIR' },
   { kind: 'personne', label: 'Personnes' },
+  { kind: 'dossier_carto', label: 'Dossiers (cartographie)' },
   { kind: 'page', label: 'Navigation' },
   { kind: 'action', label: 'Actions' },
   { kind: 'document', label: 'Documents' },

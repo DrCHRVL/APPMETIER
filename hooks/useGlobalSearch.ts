@@ -12,6 +12,7 @@ import { Enquete, AIRMesure } from '@/types/interfaces';
 import { DossierInstruction } from '@/types/instructionTypes';
 import { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { KnownPerson } from '@/utils/knownPersons';
+import type { DossierExNihilo } from '@/stores/useCartographieOverlayStore';
 import {
   GlobalSearchDoc,
   GlobalHitGroup,
@@ -39,6 +40,10 @@ export interface GlobalSearchSources {
    *  fiches manuelles de la cartographie) déjà dédupliqué par `useKnownPersons`.
    *  Alimente le groupe « Personnes » de l'omnibox. */
   knownPersons?: KnownPerson[];
+  /** Dossiers créés « ex nihilo » directement sur la cartographie (sans
+   *  enquête ni instruction source). Alimente le groupe « Dossiers
+   *  (cartographie) » de l'omnibox. */
+  dossiersExNihilo?: DossierExNihilo[];
   hasOverboard: boolean;
   showAssistant: boolean;
 }
@@ -244,6 +249,32 @@ function buildPersonneDocs(knownPersons: KnownPerson[]): GlobalSearchDoc[] {
   return docs;
 }
 
+// ── Dossiers ex nihilo (cartographie) ──────────
+
+/**
+ * Groupe « Dossiers (cartographie) » : les dossiers créés manuellement sur la
+ * carte (sans enquête ni instruction source) doivent être trouvables comme
+ * n'importe quel autre dossier. L'exécution recentre la cartographie dessus.
+ */
+function buildDossierExNihiloDoc(d: DossierExNihilo): GlobalSearchDoc | null {
+  const fields: DocField[] = [];
+  const acc: Array<DocField | null> = fields as Array<DocField | null>;
+
+  const labelField = makeField(d.label, 3, { fuzzy: true, ops: ['no', 'num', 'numero'] });
+  if (!labelField) return null;
+  acc.push(labelField);
+  push(acc, makeField(d.notes, 1.2, { label: 'Notes', maxLength: 4000, ops: ['desc', 'description', 'contenu'] }));
+
+  return {
+    key: `dossier_carto_${d.id}`,
+    kind: 'dossier_carto',
+    title: d.label,
+    subtitle: 'Dossier créé sur la cartographie',
+    fields,
+    data: { dossierId: d.id, label: d.label },
+  };
+}
+
 // ── Pages & actions ─────────────────────────────
 
 function pageDoc(
@@ -353,6 +384,7 @@ export const useGlobalSearch = (sources: GlobalSearchSources): GlobalSearchApi =
     hasOverboard,
     showAssistant,
     knownPersons,
+    dossiersExNihilo,
   } = sources;
 
   // Signatures stables pour ne pas reconstruire l'index à chaque rendu.
@@ -384,9 +416,16 @@ export const useGlobalSearch = (sources: GlobalSearchSources): GlobalSearchApi =
       out.push(...buildPersonneDocs(knownPersons));
     }
 
+    if (modules.mindmap && dossiersExNihilo) {
+      for (const d of dossiersExNihilo) {
+        const doc = buildDossierExNihiloDoc(d);
+        if (doc) out.push(doc);
+      }
+    }
+
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enquetesByContentieux, instructions, mesuresAIR, contentieux, modules.instructions, modules.air, modules.mindmap, knownPersons]);
+  }, [enquetesByContentieux, instructions, mesuresAIR, contentieux, modules.instructions, modules.air, modules.mindmap, knownPersons, dossiersExNihilo]);
 
   const nav = useMemo(
     () => buildNavigationDocs({
