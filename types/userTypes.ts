@@ -65,20 +65,10 @@ export interface UserProfile {
 // FICHIER USERS.JSON (structure serveur)
 // ──────────────────────────────────────────────
 
-/** Configuration des chemins réseau */
-export interface ServerPathsConfig {
-  /** Chemin racine général (heartbeats, events, users.json, audit) */
-  general: string;
-  /** Chemins par contentieux (données, backups) */
-  contentieux: Record<ContentieuxId, string>;
-}
-
 export interface UsersConfig {
   version: number;
   contentieux: ContentieuxDefinition[];
   users: UserProfile[];
-  /** Chemins réseau configurés par l'admin */
-  serverPaths?: ServerPathsConfig;
   updatedAt: string;          // ISO date
   updatedBy: string;          // windowsUsername de l'admin
 }
