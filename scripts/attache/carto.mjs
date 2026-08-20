@@ -149,7 +149,11 @@ function texteEnquete(e) {
   return parts.join('\n')
 }
 
-const RE = {
+// Partagées avec le REGISTRE des pièces (registre.mjs) : les mêmes entités,
+// normalisées à l'identique, y sont extraites du TEXTE DES PIÈCES VERSÉES —
+// les liens entre dossiers se cachent souvent dans cette masse, pas dans les
+// données structurées.
+export const RE_ENTITES = {
   // tél. FR : 0X XX XX XX XX ou +33X… (mobiles et fixes)
   tel: /(?:\+33|0033|0)\s?[1-9](?:[\s.-]?\d{2}){4}/g,
   // plaque SIV : AA-123-BC
@@ -159,8 +163,9 @@ const RE = {
   // adresse : « 12 rue de la Paix », « 950 route de Lyon »…
   adresse: /\b\d{1,4}\s+(?:rue|avenue|av\.?|bd|boulevard|allée|allee|impasse|chemin|place|route|cité|cite|quai|passage)\s+[A-Za-zÀ-ÿ'’ \-]{3,40}/gi,
 }
+const RE = RE_ENTITES
 
-function normEntite(type, raw) {
+export function normEntite(type, raw) {
   const s = String(raw).trim()
   if (type === 'tel') {
     let d = s.replace(/\D/g, '')

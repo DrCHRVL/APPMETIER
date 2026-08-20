@@ -260,8 +260,8 @@ cache d'extraction) et l'attaché détient les clés.
 |---|---|---|---|---|---|
 | 1 | **Empreintes + doublons** (B1) | sha256 du clair dans DocMeta au versement, remplissage du stock par l'attaché, signalement UI + arborescence annotée + copies exactes écartées des lots de chantier | Faible | 🔴 | ✅ Fait |
 | 2 | **Recherche dans les pièces** (C) | outil MCP `pieces_chercher` : fiches d'abord, puis pièces (MD/ + caches + extraction bornée progressive), doublons sautés | Faible-moyen | 🔴 | ✅ Fait |
-| 3 | **Explorateur** (A) | vue 2 panneaux, tri/filtre, badges, `moveDoc` | Moyen | 🟠 | À faire |
-| 4 | **Registre + mini-fiches** (B2) | run fil de l'eau par pièce nouvelle, `registre_lire`, description branchée dessus | Moyen | 🟠 | À faire |
+| 3 | **Explorateur** (A) | deux panneaux (pochettes / liste triable-filtrable), badges T (copie texte) et ≡ (doublon), renommer/déplacer (`moveDoc` : original renommé sur place, jumeau MD suivi), multi-sélection, suppression | Moyen | 🟠 | ✅ Fait |
+| 4 | **Registre + mini-fiches** (B2) | entités déterministes (tél/plaques/IBAN/adresses, regex carto) à l'ingestion + mini-fiche IA par pièce (type, date, PERSONNES, résumé) au fil de l'eau ; `registre_lire` + `registre_recouper` (recoupement inter-dossiers, pièces citées) | Moyen | 🟠 | ✅ Fait |
 | 5 | Niveau pochette | note de pochette dans la pyramide (pièce→pochette→dossier) quand 1-4 sont en place | Faible | 🟢 | À faire |
 
 Choix actés à l'implémentation de 1 et 2 (2026-08-20) :
@@ -280,6 +280,17 @@ Choix actés à l'implémentation de 1 et 2 (2026-08-20) :
   le texte de toute pièce qui n'en a pas encore (majordome, mail, scans,
   stock ancien) — CPU local, zéro jeton, échecs mémorisés sans re-tentative.
   La couverture n'attend donc plus ni une recherche ni un devis de chantier.
+- **Le registre au service de la cartographie** (chantiers 3-4, 2026-08-20) :
+  les entités sensibles — noms, adresses, téléphones, plaques, IBAN — sont le
+  fil rouge. Les entités « dures » sont extraites par les mêmes regex que la
+  carto (normalisation identique : un numéro trouvé dans une pièce et un
+  numéro de la carte se recoupent à l'identique) ; les PERSONNES viennent des
+  mini-fiches, avec la clé canonique de la carto (insensible à l'ordre des
+  mots). `registre_recouper` rend, à coût nul, les entités présentes dans au
+  moins deux dossiers avec les pièces exactes de chaque côté — c'est la
+  matière première des liens de renseignement, extraite de la masse versée
+  et non plus des seules données structurées. Un recoupement reste un
+  signalement à vérifier dans les pièces avant tout `proposer_lien`.
 - Tests : `scripts/attache-docs-empreintes.test.mjs`.
 
 Ordre recommandé : **1 → 2** (déterministes, gratuits, débloquent le reste),

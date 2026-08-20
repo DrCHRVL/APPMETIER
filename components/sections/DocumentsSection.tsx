@@ -35,6 +35,7 @@ import { collectDropEntries, incomingFromFileList, serverRelPath, type Incoming 
 import { fileToMarkdown } from '@/lib/web/fileToMarkdown';
 import { DocumentPathModal } from '../modals/DocumentPathModal';
 import { AnalyseDocumentsModal } from '../modals/AnalyseDocumentsModal';
+import { DocumentExplorerModal } from '../modals/DocumentExplorerModal';
 import { ServerDocumentScanner, type ScannedDocument } from '@/utils/documents/ServerDocumentScanner';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { useUserStore } from '@/stores/useUserStore';
@@ -208,6 +209,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   const [uploadReport, setUploadReport] = useState<UploadReport | null>(null);
   const cancelUploadRef = useRef(false);
   const [showPathModal, setShowPathModal] = useState(false);
+  const [showExplorer, setShowExplorer] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null);
   const [pendingCommun, setPendingCommun] = useState(0);
   // Analyse IA des pièces téléversées (admin + attaché actif) : après un
@@ -1310,6 +1312,16 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
             </CardTitle>
 
             <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline" size="sm"
+                onClick={() => setShowExplorer(true)}
+                className="flex items-center gap-2"
+                title="Explorer, trier, renommer et déplacer les pièces (deux panneaux)"
+              >
+                <FolderOpen className="h-4 w-4" />
+                Explorateur
+              </Button>
+
               {enquete.cheminExterne && (
                 <Button
                   variant="outline" size="sm"
@@ -1700,6 +1712,13 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           </div>
         </CardContent>
       </Card>
+
+      <DocumentExplorerModal
+        isOpen={showExplorer}
+        onClose={() => setShowExplorer(false)}
+        enquete={enquete}
+        onUpdate={onUpdate}
+      />
 
       <DocumentPathModal
         isOpen={showPathModal}

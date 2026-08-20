@@ -41,8 +41,12 @@ grantKeyring({ global: keyGlobal.toString('base64'), 'ctx-crimorg': keyCtx.toStr
 const keys = loadKeyring()
 
 const NUM = '500/100/2026 - TESTDOC'
+const NUM2 = '600/200/2026 - TESTDOC2'
 const enquetes = [{
   id: 1, numero: NUM, dateDebut: '2026-03-01', statut: 'en_cours',
+  tags: [], actes: [], comptesRendus: [], ecoutes: [], geolocalisations: [], misEnCause: [],
+}, {
+  id: 2, numero: NUM2, dateDebut: '2026-04-01', statut: 'en_cours',
   tags: [], actes: [], comptesRendus: [], ecoutes: [], geolocalisations: [], misEnCause: [],
 }]
 const syncData = { enquetes, audienceResultats: {}, customTags: [], alertRules: [], version: 1 }
@@ -58,6 +62,8 @@ const { ensureDocShas, groupesDoublons, arborescenceDocuments, chercherDansPiece
 const KEY = docServerKey(NUM)
 const verse = (rel, texte, meta = {}) =>
   writeDocBlob(attacheTj(), KEY, rel, encryptDocBlob(keyGlobal, Buffer.from(texte, 'utf8')), { savedBy: 'test', ...meta })
+const verse2 = (rel, texte) =>
+  writeDocBlob(attacheTj(), docServerKey(NUM2), rel, encryptDocBlob(keyGlobal, Buffer.from(texte, 'utf8')), { savedBy: 'test' })
 
 // ── Corpus : 4 pièces + 1 copie exacte + 1 version voisine + 1 copie MD/
 const AUDITION = 'Audition de M. DURAND Kévin, demeurant à Péronne.\nIl reconnaît les transports de résine vers Amiens à bord de la Clio grise immatriculée FG-527-XZ.'
@@ -152,6 +158,54 @@ attendu('dossier à jour : passage no-op', i2.dossiers === 0 && i2.echecs === 0 
 verse('Ecoutes/retranscription_0613.txt', 'Retranscription : « il arrive avec la Clio »')
 const i3 = await ingestPass(keys)
 attendu('nouveau dépôt : ré-ingestion, sans re-tenter l\'échec connu', i3.dossiers === 1 && i3.echecs === 0, JSON.stringify(i3))
+
+// ── registre : entités déterministes extraites à l'ingestion
+const { extraireEntites, lireRegistre, recouperRegistres, readRegistre, writeRegistre } =
+  await import(`${REPO}/scripts/attache/registre.mjs`)
+
+const ent = extraireEntites('Appel du +33 6 12 34 56 78 depuis le 12 Rue de la Paix ; véhicule FG-527-XZ ; compte FR76 3000 6000 0112 3456 7890 189.')
+attendu('téléphone normalisé (+33 → 0)', ent.tel.includes('0612345678'), JSON.stringify(ent.tel))
+attendu('plaque normalisée', ent.plaque.includes('FG527XZ'), JSON.stringify(ent.plaque))
+attendu('adresse extraite', ent.adresse.some((a) => a.includes('rue de la paix')), JSON.stringify(ent.adresse))
+attendu('IBAN extrait', ent.iban.length === 1, JSON.stringify(ent.iban))
+
+const r6 = lireRegistre(keys, NUM)
+const entreeOrd = r6.pieces.find((p) => p.chemin === 'Actes/ordonnance_ecoutes.md')
+const entreeAud = r6.pieces.find((p) => p.chemin === 'PV/Proc1/D12_audition_DURAND.txt')
+attendu('registre : le téléphone de l\'ordonnance est là', entreeOrd?.entites?.tel?.includes('0612345678'), JSON.stringify(entreeOrd?.entites))
+attendu('registre : la plaque de l\'audition est là', entreeAud?.entites?.plaque?.includes('FG527XZ'), JSON.stringify(entreeAud?.entites))
+const r7 = lireRegistre(keys, NUM, { filtre: 'FG-527-XZ' })
+attendu('registre : filtre insensible au formatage', r7.pieces.length >= 1 && r7.pieces.some((p) => p.chemin === entreeAud.chemin), JSON.stringify(r7.pieces?.map((p) => p.chemin)))
+
+// ── recoupement inter-dossiers : le lien caché dans la masse
+verse2('PV/D4_surveillance.txt', 'Surveillance : l\'individu joint le 06 12 34 56 78 et repart à bord du véhicule FG-527-XZ.')
+const i4 = await ingestPass(keys)
+attendu('ingestion du second dossier', i4.dossiers === 1 && i4.entites === 1, JSON.stringify(i4))
+
+const rec1 = recouperRegistres(keys)
+const telRec = rec1.recoupements.find((r) => r.entite === 'tel:0612345678')
+const plaqueRec = rec1.recoupements.find((r) => r.entite === 'plaque:FG527XZ')
+attendu('téléphone partagé entre les deux dossiers', telRec?.dossiers.length === 2, JSON.stringify(telRec))
+attendu('plaque partagée entre les deux dossiers', plaqueRec?.dossiers.length === 2, JSON.stringify(plaqueRec))
+attendu('chaque côté cite ses pièces', telRec?.dossiers.every((d) => d.pieces.length >= 1), JSON.stringify(telRec?.dossiers))
+attendu('numéros lisibles des dossiers', telRec?.dossiers.some((d) => d.dossier === NUM) && telRec?.dossiers.some((d) => d.dossier === NUM2), JSON.stringify(telRec?.dossiers.map((d) => d.dossier)))
+
+// personnes des mini-fiches : clé canonique insensible à l'ordre des mots
+const KEY2 = docServerKey(NUM2)
+const regA = readRegistre(keys, KEY)
+regA.pieces['PV/Proc1/D12_audition_DURAND.txt'].fiche = { type: 'PV audition', personnes: [{ nom: 'DURAND Kévin' }], resume: 'Reconnaît les transports.', majLe: new Date().toISOString() }
+writeRegistre(keys, KEY, regA)
+const regB = readRegistre(keys, KEY2)
+regB.pieces['PV/D4_surveillance.txt'].fiche = { type: 'PV constatations', personnes: [{ nom: 'Kévin DURAND' }], resume: 'Surveillance.', majLe: new Date().toISOString() }
+writeRegistre(keys, KEY2, regB)
+const rec2 = recouperRegistres(keys)
+const persRec = rec2.recoupements.find((r) => r.entite === 'personne:durand kevin')
+attendu('personne recoupée malgré l\'ordre des mots', persRec?.dossiers.length === 2, JSON.stringify(rec2.recoupements.filter((r) => r.entite.startsWith('personne:'))))
+
+const rec3 = recouperRegistres(keys, { entite: '06 12 34 56 78' })
+attendu('recherche d\'une valeur formatée', rec3.recoupements.some((r) => r.entite === 'tel:0612345678'), JSON.stringify(rec3.recoupements.map((r) => r.entite)))
+const rec4 = recouperRegistres(keys, { numero: NUM2 })
+attendu('filtre par dossier', rec4.recoupements.every((r) => r.dossiers.some((d) => d.dossier === NUM2)), JSON.stringify(rec4.recoupements.map((r) => r.entite)))
 
 fs.rmSync(SCRATCH, { recursive: true, force: true })
 if (echecs.length) {

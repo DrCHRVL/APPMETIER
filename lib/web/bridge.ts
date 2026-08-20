@@ -563,6 +563,34 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     /** Index serveur des documents d'un dossier (rel, taille, dates) — zone DML instruction notamment. */
     listServerDocuments: async (enqueteNumero: unknown) => docList(String(enqueteNumero)),
     /**
+     * Déplace / renomme une pièce sur le serveur (explorateur) : l'original
+     * chiffré est renommé sur place, le jumeau markdown suit, l'index est mis
+     * à jour. Chaque segment du chemin cible est nettoyé comme au dépôt.
+     * Rend le chemin final. Refuse d'écraser une pièce existante.
+     */
+    moveDocument: async (enqueteNumero: unknown, from: unknown, to: unknown) => {
+      const cleanTo = String(to).split('/')
+        .map((seg) => encodeDocName(seg))
+        .filter((seg) => seg && !seg.startsWith('.'))
+        .join('/')
+      if (!cleanTo || cleanTo.length > 580) throw new Error('Chemin cible invalide')
+      const res = await api(`/api/docs/${encodeURIComponent(serverKey(String(enqueteNumero)))}/move`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ from: String(from), to: cleanTo }),
+        timeoutMs: 30000,
+      })
+      if (!res.ok) {
+        let msg = 'Déplacement refusé (' + res.status + ')'
+        try {
+          const d = await res.json() as { error?: string }
+          if (d?.error) msg = d.error
+        } catch { /* réponse sans corps JSON */ }
+        throw new NetworkError(msg)
+      }
+      return cleanTo
+    },
+    /**
      * Dépose un document sous un chemin relatif COMPLET (sous-pochettes
      * permises) — versement « dossier complet » du module instruction :
      * le markdown converti part chiffré, l'arborescence d'origine est

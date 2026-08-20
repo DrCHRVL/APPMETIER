@@ -336,6 +336,23 @@ l'usage).
   pièce n'est pas re-versée. Résultat : `pieces_chercher` couvre tout le
   dossier dès la première recherche, `lire_document` est instantané, le
   devis d'un chantier n'attend plus rien.
+- **Registre des pièces — le sommaire vivant** : une entrée par pièce
+  versée, constituée automatiquement, en deux étages. (1) **Entités
+  déterministes** — téléphones, plaques, IBAN, adresses — extraites du texte
+  pendant l'ingestion, par les MÊMES regex que la cartographie : zéro jeton,
+  couverture totale de la masse. (2) **Mini-fiche IA** — type de pièce,
+  date, PERSONNES (noms, alias, rôle — verbatim de la pièce), résumé de 2-3
+  lignes — par lots courts (modèle économe, un seul tour, aucun outil), au
+  fil de l'eau, même gouvernance de forfait que les descriptions ; les
+  copies exactes héritent de la fiche du porteur. Chiffré (clé globale),
+  consigné dans « Consommation IA », prompt réglable (socle « Registre des
+  pièces » des consignes). Outils : `registre_lire` (sommaire filtrable —
+  « où est l'audition de X ? » sans rien relire) et **`registre_recouper`**,
+  le recoupement INTER-DOSSIERS par entité : numéros, plaques, IBAN,
+  adresses et personnes présents dans au moins deux dossiers, chaque côté
+  cité avec ses pièces exactes — les liens souvent cachés dans la masse des
+  documents versés, servis à la cartographie à coût nul (la recherche
+  profonde de la carto commence désormais par là).
 - **Retrouve une information dans les pièces (`pieces_chercher`)** :
   recherche plein texte côté serveur — fiches de dépouillement d'abord (déjà
   synthétiques et cotées), puis le texte des pièces (copies markdown du

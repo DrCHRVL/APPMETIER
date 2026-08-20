@@ -29,6 +29,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { attacheTj, tjDataDir, attacheDir, ensureDir, listDocsMeta, readJson, atomicWrite } from './store.mjs'
 import { ensureDocShas, texteDocumentIntegral } from './dossier.mjs'
+import { extraireEntites, majEntitesRegistre } from './registre.mjs'
+
+// v2 : l'ingestion alimente aussi le REGISTRE (entités déterministes par
+// pièce — téléphones, plaques, IBAN, adresses). Un état v1 est repris une
+// fois, même à signature identique, pour doter le stock déjà ingéré.
+const INGEST_V = 2
 
 // Extractions fraîches par passage, tous dossiers confondus : un scan OCR
 // peut coûter des minutes de CPU — on avance par petits pas, le tick suivant
@@ -41,7 +47,7 @@ function statePath(docKey) {
 }
 
 function readIngestState(docKey) {
-  return readJson(statePath(docKey), { sig: null, echecs: {} })
+  return readJson(statePath(docKey), { v: 0, sig: null, echecs: {} })
 }
 
 function writeIngestState(docKey, state) {
@@ -65,7 +71,7 @@ function docSig(metas) {
 export async function ingestPass(keys, { maxDossiers = INGEST_DOSSIERS_MAX, maxExtractions = INGEST_EXTRACTIONS_MAX } = {}) {
   const tj = attacheTj()
   const docsDir = tjDataDir(tj, 'docs')
-  const bilan = { dossiers: 0, empreintes: 0, extraites: 0, echecs: 0, enAttente: 0 }
+  const bilan = { dossiers: 0, empreintes: 0, extraites: 0, entites: 0, echecs: 0, enAttente: 0 }
   if (!fs.existsSync(docsDir)) return bilan
 
   // Pseudo-dossiers (_depot, _casiers…) exclus : transitoires ou hors dossier.
@@ -80,19 +86,27 @@ export async function ingestPass(keys, { maxDossiers = INGEST_DOSSIERS_MAX, maxE
       // du travail restait possible ailleurs : le signaler sans le mesurer
       break
     }
-    const metas = listDocsMeta(tj, docKey)
+    let metas = listDocsMeta(tj, docKey)
     if (!metas.length) continue
     const sig = docSig(metas)
     const state = readIngestState(docKey)
-    if (state.sig === sig) continue // à jour — no-op
+    if (state.sig === sig && state.v === INGEST_V) continue // à jour — no-op
 
     bilan.dossiers++
     // 1) Empreintes du clair (dédoublonnage strict) — local, rapide
-    try { bilan.empreintes += ensureDocShas(keys, docKey).calculees } catch { /* jamais bloquant */ }
+    try {
+      const e = ensureDocShas(keys, docKey)
+      bilan.empreintes += e.calculees
+      if (e.calculees) metas = listDocsMeta(tj, docKey) // relire les sha posés
+    } catch { /* jamais bloquant */ }
 
     // 2) Texte de chaque pièce : probe (MD/, cache, format brut) puis
-    //    extraction bornée pour ce qui manque
+    //    extraction bornée pour ce qui manque. 3) au passage, les ENTITÉS
+    //    (téléphones, plaques, IBAN, adresses) partent au REGISTRE — c'est là
+    //    que se cachent les liens entre dossiers ; on n'accumule jamais les
+    //    textes en mémoire, seulement leurs entités.
     const echecs = { ...(state.echecs || {}) }
+    const entiteItems = []
     let enAttente = 0
     for (const d of metas) {
       const rel = String(d.rel)
@@ -102,20 +116,27 @@ export async function ingestPass(keys, { maxDossiers = INGEST_DOSSIERS_MAX, maxE
       try {
         res = await texteDocumentIntegral(keys, docKey, rel, { extraire: false })
       } catch { res = { ok: false } }
-      if (res.ok) { delete echecs[rel]; continue }
-      if (!res.nonExtrait) { echecs[rel] = String(d.savedAt); bilan.echecs++; continue }
-      if (budget <= 0) { enAttente++; continue }
-      budget--
-      try {
-        res = await texteDocumentIntegral(keys, docKey, rel)
-      } catch { res = { ok: false } }
-      if (res.ok) { bilan.extraites++; delete echecs[rel] }
-      else { echecs[rel] = String(d.savedAt); bilan.echecs++ }
+      if (!res.ok && res.nonExtrait) {
+        if (budget <= 0) { enAttente++; continue }
+        budget--
+        try {
+          res = await texteDocumentIntegral(keys, docKey, rel)
+        } catch { res = { ok: false } }
+        if (res.ok) bilan.extraites++
+      }
+      if (res.ok) {
+        delete echecs[rel]
+        entiteItems.push({ rel, sha: d.sha, entites: extraireEntites(res.texte) })
+      } else {
+        echecs[rel] = String(d.savedAt)
+        bilan.echecs++
+      }
     }
+    try { bilan.entites += majEntitesRegistre(keys, docKey, entiteItems) } catch { /* registre jamais bloquant */ }
     bilan.enAttente += enAttente
     // Complet (tout est servi, en cache, ou en échec mémorisé) : la signature
     // est actée — les passages suivants sont des no-ops jusqu'au prochain dépôt.
-    writeIngestState(docKey, { sig: enAttente ? state.sig || null : sig, echecs })
+    writeIngestState(docKey, { v: INGEST_V, sig: enAttente ? null : sig, echecs })
   }
   return bilan
 }

@@ -39,6 +39,7 @@ import { runSubagents } from './attache/subagents.mjs'
 import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
 import { listDepot, readDepotText, readMailPieceText, rangerDocument, rangerPieceDansKb, ecarterDepot, ZONES } from './attache/depot.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
+import { lireRegistre, recouperRegistres } from './attache/registre.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
 import { analyserReseau, listerLiens, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
 import { saveProduction, listProductions, readProduction, deleteProduction, diffProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
@@ -237,6 +238,33 @@ const TOOLS = [
       required: ['numero', 'requete'],
     },
     handler: async (a) => chercherDansPieces(keys, a.numero, { requete: a.requete, pochette: a.pochette, limite: a.limite }),
+  },
+  {
+    name: 'registre_lire',
+    description: 'Le REGISTRE d\'un dossier — sommaire pièce par pièce, constitué automatiquement au fil de l\'eau : pour chaque pièce versée, son type, sa date, ses PERSONNES (noms, alias, rôle — mini-fiche IA), ses ENTITÉS extraites du texte (téléphones, plaques, IBAN, adresses — déterministe, couverture totale) et un résumé de 2-3 lignes. L\'outil pour répondre « où est l\'audition de X ? », « quelles pièces citent ce numéro ? » sans rien relire — plus précis que pieces_chercher quand la question porte sur une personne ou une entité. `filtre` restreint aux entrées dont le chemin, une personne, une entité ou le résumé contient le terme (insensible casse/accents). Une pièce « sans mini-fiche » a déjà ses entités (la fiche arrive au fil de l\'eau). Enchaîne avec lire_document pour le texte complet d\'une pièce.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        filtre: { type: 'string', description: 'Terme à trouver (nom, alias, numéro, plaque, adresse, mot du résumé). Vide = tout le sommaire.' },
+        offset: { type: 'number', description: 'Première entrée à afficher (défaut 0). Utiliser offsetSuivant.' },
+        limit: { type: 'number', description: 'Entrées par page (défaut 50, max 200).' },
+      },
+      required: ['numero'],
+    },
+    handler: async (a) => lireRegistre(keys, a.numero, { filtre: a.filtre, offset: a.offset, limit: a.limit }),
+  },
+  {
+    name: 'registre_recouper',
+    description: 'RECOUPEMENT INTER-DOSSIERS par entité, depuis les registres de TOUS les dossiers : téléphones, plaques, IBAN et adresses extraits automatiquement du texte de toutes les pièces versées, plus les PERSONNES des mini-fiches (nom normalisé comme la cartographie). Rend les entités présentes dans AU MOINS DEUX dossiers, chaque côté cité avec ses pièces exactes — les liens cachés dans la masse des documents, introuvables depuis les seules données structurées. Zéro coût modèle. `numero` : recoupements impliquant ce dossier seulement ; `entite` : chercher UNE valeur précise (un numéro, une plaque, un nom) dans tous les registres, même présente dans un seul dossier. Un recoupement est un SIGNALEMENT à VÉRIFIER dans les pièces citées (lire_document) avant tout proposer_lien — une entité partagée peut être anodine.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string', description: 'Limiter aux recoupements impliquant ce dossier.' },
+        entite: { type: 'string', description: 'Une valeur à chercher partout (numéro, plaque, IBAN, adresse, nom).' },
+      },
+    },
+    handler: async (a) => recouperRegistres(keys, { numero: a.numero, entite: a.entite }),
   },
   {
     name: 'verifier_completude',
@@ -1513,7 +1541,7 @@ const OUTILS_HORS_CONNECTEUR = new Set(['sous_agents', 'poser_question'])
 
 const INSTRUCTIONS_CONNECTEUR = [
   `SIRAL — application métier du parquet (contentieux ${attacheContentieux()}). Tu agis pour le compte du magistrat administrateur, authentifié via OAuth.`,
-  'Points d\'entrée : lister_dossiers (enquêtes) · instru_lister (module instruction) · lire_dossier (détail, sections paginées) · dossier_arborescence puis lire_document (pièces) · pieces_chercher (LOCALISER une information dans les pièces et les fiches sans tout relire) · stats_ecran / stats_synthese / stats_graphique (chiffres et graphiques).',
+  'Points d\'entrée : lister_dossiers (enquêtes) · instru_lister (module instruction) · lire_dossier (détail, sections paginées) · dossier_arborescence puis lire_document (pièces) · pieces_chercher (LOCALISER une information dans les pièces et les fiches sans tout relire) · registre_lire (sommaire pièce par pièce : type, date, personnes, entités, résumé) · registre_recouper (entités partagées entre dossiers, pièces citées) · stats_ecran / stats_synthese / stats_graphique (chiffres et graphiques).',
   'STATISTIQUES — le magistrat lit une PAGE « Statistiques » organisée par ANNÉE (sélecteur en haut) et en quatre sections : Statistiques générales · Types d\'infractions · Résultats d\'audience · Statistiques instruction. Ses chiffres sont ceux de cette page.',
   '  1. Toute question sur « mes statistiques », un chiffre affiché, un écart, une année civile → stats_ecran (annee) : il rend la page CARTE PAR CARTE, avec le titre exact de chaque carte, sa valeur et sa règle de calcul. Une période non calendaire (semestre, trimestre, « depuis mars ») → stats_synthese (du/au). Les années disponibles → stats_annees.',
   '  2. NE JAMAIS RECALCULER un chiffre déjà rendu, ni le reconstituer en additionnant des listes de dossiers : les règles de la page sont subtiles (procédures terminées HORS classements et ouvertures d\'information ; orientations comptées 1 par dossier mais 1 par prévenu en CRPC ; déférements comptés à leur date réelle et non à la date d\'audience ; saisies d\'enquête ≠ confiscations d\'audience ; l\'année en cours s\'arrête au mois courant). Un recalcul « de bon sens » donne un autre nombre que l\'écran — c\'est l\'erreur à ne pas commettre. Reprendre la valeur, et citer la carte d\'où elle vient.',
