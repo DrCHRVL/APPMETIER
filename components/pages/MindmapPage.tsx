@@ -217,7 +217,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   // Configuration de scoring (pondérations éditables NATINF/catégories, plus
   // le poids des anciens tags d'infraction — HÉRITAGE : ne sert qu'aux
   // dossiers ex nihilo créés avant la bascule NATINF encore présents en data).
-  const { config: cartoConfig } = useCartographieConfig();
+  const { config: cartoConfig, isLoading: cartoConfigLoading } = useCartographieConfig();
   const { getTagsByCategory } = useTags();
   // Résolveur code NATINF → code de catégorie d'infraction (Mémento parquet),
   // mémoïsé : le score hérite du poids de la catégorie, affinable par NATINF.
@@ -237,6 +237,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     }
     return {
       weights: cartoConfig.weights,
+      temporal: cartoConfig.temporal,
       tagInfractionWeights: cartoConfig.tagInfractionWeights,
       tagInfractionValueById: valueById,
       categoryWeights: cartoConfig.categoryWeights,
@@ -330,6 +331,11 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     () => buildMindmapGraph(filteredSources, overlayInput, scoreConfig),
     [filteredSources, overlayInput, scoreConfig],
   );
+
+  // Vrai tant que la carte ne peut pas encore être peinte dans sa forme
+  // définitive : réglages du module non chargés, ou données manuelles pas
+  // encore relues. Cf. le rendu plus bas.
+  const mapPending = cartoConfigLoading || !overlayLoaded;
   const top10 = useMemo(() => getTopMec(graph, 10), [graph]);
 
   // Recherche tolérante : insensible aux accents, à la casse et à l'ordre des
@@ -813,7 +819,20 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
 
       {/* CONTENU */}
       <div className="flex-1 relative overflow-hidden">
-        {graph.nodes.length === 0 && (
+        {/* Les pondérations, les réglages de disposition et les données
+            manuelles (dossiers/MEC ex nihilo, liens de renseignement) arrivent
+            de façon asynchrone. Tant qu'ils ne sont pas là, on NE rend PAS la
+            carte : sinon le premier layout serait calculé avec les valeurs par
+            défaut et sur un graphe incomplet, et l'utilisateur verrait la carte
+            se réorganiser sous ses yeux quelques secondes plus tard. */}
+        {mapPending && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 gap-2 z-10 bg-white">
+            <Loader2 className="h-6 w-6 animate-spin" />
+            <div className="text-sm">Application de vos paramètres de cartographie…</div>
+          </div>
+        )}
+
+        {!mapPending && graph.nodes.length === 0 && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 gap-2">
             <Network className="h-10 w-10" />
             <div className="text-sm">Aucun mis en cause à afficher pour le moment.</div>
@@ -825,7 +844,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           </div>
         )}
 
-        {graph.nodes.length > 0 && (
+        {!mapPending && graph.nodes.length > 0 && (
           <MindmapCanvas
             nodes={graph.nodes}
             edges={graph.edges}
@@ -1034,9 +1053,19 @@ const Top10Panel: React.FC<{
                     >
                       {mec.displayName}
                     </span>
-                    {mec.recent && (
+                    {mec.recent && mec.temporalFactor >= 0.99 && (
                       <span className="text-[9px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 rounded flex-shrink-0">
                         récent
+                      </span>
+                    )}
+                    {/* Malus d'ancienneté effectif : on affiche l'année de la
+                        dernière implication connue, qui explique le déclassement. */}
+                    {mec.temporalFactor < 0.99 && mec.lastActivityYear !== undefined && (
+                      <span
+                        className="text-[9px] font-medium text-amber-800 bg-amber-50 border border-amber-200 px-1 rounded flex-shrink-0"
+                        title={`Dernière implication connue en ${mec.lastActivityYear} — score pondéré ×${mec.temporalFactor.toFixed(2)}`}
+                      >
+                        {mec.lastActivityYear}
                       </span>
                     )}
                   </div>

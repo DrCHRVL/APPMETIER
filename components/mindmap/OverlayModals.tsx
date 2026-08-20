@@ -72,7 +72,7 @@ export const AddMecModal: React.FC<AddMecModalProps> = ({ isOpen, onClose, initi
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{initial ? 'Modifier la fiche manuelle' : 'Ajouter un mis en cause'}</DialogTitle>
         </DialogHeader>
@@ -278,7 +278,7 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{initial ? 'Modifier le dossier manuel' : 'Ajouter un dossier'}</DialogTitle>
         </DialogHeader>
@@ -305,9 +305,9 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
             {selectedMecs.length > 0 && (
               <div className="flex flex-wrap gap-1 mb-2">
                 {selectedMecs.map(m => (
-                  <span key={m.id} className="inline-flex items-center gap-1 text-xs bg-slate-100 border border-slate-200 rounded px-2 py-0.5">
-                    {m.displayName}
-                    <button onClick={() => toggleMec(m.id)} className="text-slate-400 hover:text-slate-700">
+                  <span key={m.id} className="inline-flex min-w-0 max-w-full items-center gap-1 text-xs bg-slate-100 border border-slate-200 rounded px-2 py-0.5">
+                    <span className="min-w-0 truncate" title={m.displayName}>{m.displayName}</span>
+                    <button onClick={() => toggleMec(m.id)} className="shrink-0 text-slate-400 hover:text-slate-700">
                       <X className="h-3 w-3" />
                     </button>
                   </span>
@@ -336,8 +336,8 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
                         sel ? 'bg-slate-100' : 'hover:bg-slate-50'
                       }`}
                     >
-                      <span>{m.displayName}</span>
-                      <span className="text-[10px] text-slate-400">
+                      <span className="min-w-0 truncate">{m.displayName}</span>
+                      <span className="text-[10px] text-slate-400 shrink-0 ml-2">
                         {m.dossierIds.length} dossier{m.dossierIds.length > 1 ? 's' : ''}
                       </span>
                     </button>
@@ -449,11 +449,11 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
                   return (
                     <span
                       key={code}
-                      className="inline-flex items-center gap-1.5 text-xs bg-emerald-50 border border-emerald-200 text-emerald-900 rounded px-2 py-0.5 max-w-full"
+                      className="inline-flex min-w-0 max-w-full items-center gap-1.5 text-xs bg-emerald-50 border border-emerald-200 text-emerald-900 rounded px-2 py-0.5"
                       title={entry?.libelle || code}
                     >
                       <span className="font-mono text-[10px] text-emerald-700 shrink-0">{code}</span>
-                      <span className="truncate">{entry?.libelle || 'NATINF inconnu'}</span>
+                      <span className="min-w-0 truncate">{entry?.libelle || 'NATINF inconnu'}</span>
                       {cat && (
                         <span className="text-[9px] uppercase tracking-wide text-emerald-600 shrink-0">
                           · {cat.category.label}
@@ -538,7 +538,7 @@ export const AddLienModal: React.FC<AddLienModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{initial ? 'Modifier le lien renseignement' : 'Ajouter un lien renseignement'}</DialogTitle>
         </DialogHeader>
