@@ -21,10 +21,14 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { MecAutocompleteInput } from '../ui/MecAutocompleteInput';
 import type { GraphNode, MindmapGraph } from '@/utils/mindmapGraph';
-import type { MecExNihilo, DossierExNihilo, LienRenseignement, MecExNihiloStatut, ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
+import type { MecExNihilo, DossierExNihilo, LienRenseignement, ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
 import { NatinfPicker } from '../natinf/NatinfPicker';
 import { useNatinf } from '@/hooks/useNatinf';
 import { categoryForEntry } from '@/lib/natinf/nataff';
+
+/** Nombre de caractères tapés avant de proposer des noms dans les champs de
+ *  recherche MEC (aligné sur MecAutocompleteInput). */
+const MEC_SEARCH_MIN_CHARS = 2;
 
 // ─────────────────────────────────────────────────
 // AddMecModal
@@ -34,7 +38,7 @@ interface AddMecModalProps {
   isOpen: boolean;
   onClose: () => void;
   initial?: MecExNihilo;
-  onSubmit: (data: { displayName: string; alias: string[]; statut?: MecExNihiloStatut; notes?: string }) => void;
+  onSubmit: (data: { displayName: string; alias: string[]; notes?: string }) => void;
   /** Personnes déjà connues de l'application (tous modules) : la fiche manuelle
    *  ne doit pas dupliquer quelqu'un déjà au fichier. */
   knownNames?: string[];
@@ -45,14 +49,12 @@ export const AddMecModal: React.FC<AddMecModalProps> = ({ isOpen, onClose, initi
   const [displayName, setDisplayName] = useState(initial?.displayName || '');
   const [aliasInput, setAliasInput] = useState('');
   const [alias, setAlias] = useState<string[]>(initial?.alias || []);
-  const [statut, setStatut] = useState<MecExNihiloStatut | ''>(initial?.statut || '');
   const [notes, setNotes] = useState(initial?.notes || '');
 
   React.useEffect(() => {
     if (isOpen) {
       setDisplayName(initial?.displayName || '');
       setAlias(initial?.alias || []);
-      setStatut(initial?.statut || '');
       setNotes(initial?.notes || '');
       setAliasInput('');
     }
@@ -69,7 +71,6 @@ export const AddMecModal: React.FC<AddMecModalProps> = ({ isOpen, onClose, initi
     onSubmit({
       displayName: displayName.trim(),
       alias,
-      statut: statut || undefined,
       notes: notes.trim() || undefined,
     });
     onClose();
@@ -118,20 +119,6 @@ export const AddMecModal: React.FC<AddMecModalProps> = ({ isOpen, onClose, initi
             )}
           </div>
           <div>
-            <Label>Statut</Label>
-            <select
-              value={statut}
-              onChange={e => setStatut(e.target.value as MecExNihiloStatut | '')}
-              className="w-full text-sm border border-slate-200 rounded-md px-3 py-2"
-            >
-              <option value="">— non précisé —</option>
-              <option value="actif">Actif</option>
-              <option value="dormant">Dormant</option>
-              <option value="libere">Sorti / libéré</option>
-              <option value="decede">Décédé</option>
-            </select>
-          </div>
-          <div>
             <Label>Notes</Label>
             <Textarea
               value={notes}
@@ -163,7 +150,7 @@ interface AddDossierModalProps {
   initial?: DossierExNihilo;
   onSubmit: (data: { label: string; dateApprox?: string; mecIds: string[]; natinfCodes?: string[]; notes?: string }) => void;
   /** Crée un MEC ex nihilo et renvoie son id canonique (à ajouter aux mecIds liés). */
-  onCreateMec?: (data: { displayName: string; alias: string[]; statut?: MecExNihiloStatut; notes?: string }) => string;
+  onCreateMec?: (data: { displayName: string; alias: string[]; notes?: string }) => string;
 }
 
 interface InlineCreatedMec {
@@ -188,7 +175,6 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
   const [newName, setNewName] = useState('');
   const [newAliasInput, setNewAliasInput] = useState('');
   const [newAlias, setNewAlias] = useState<string[]>([]);
-  const [newStatut, setNewStatut] = useState<MecExNihiloStatut | ''>('');
   const [newNotes, setNewNotes] = useState('');
   /** Filet de sécurité : si le graphe ne s'est pas encore mis à jour, on
    *  garde les MEC fraîchement créés en local pour les afficher en pastille. */
@@ -198,7 +184,6 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
     setNewName('');
     setNewAliasInput('');
     setNewAlias([]);
-    setNewStatut('');
     setNewNotes('');
   };
 
@@ -229,7 +214,6 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
     const id = onCreateMec({
       displayName: name,
       alias: newAlias,
-      statut: newStatut || undefined,
       notes: newNotes.trim() || undefined,
     });
     if (!id) return;
@@ -240,9 +224,11 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
   };
 
   const allMecs = useMemo(() => Array.from(graph.mecById.values()), [graph]);
+  /** Pas de liste par défaut : les propositions n'apparaissent qu'à partir de
+   *  MEC_SEARCH_MIN_CHARS caractères tapés (même seuil que MecAutocompleteInput). */
   const matchingMecs = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return allMecs.slice(0, 10);
+    if (q.length < MEC_SEARCH_MIN_CHARS) return [];
     return allMecs.filter(m =>
       m.displayName.toLowerCase().includes(q) ||
       m.variants.some(v => v.toLowerCase().includes(q)),
@@ -326,10 +312,15 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
               <Input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Rechercher un MEC à ajouter…"
+                placeholder="Taper un nom pour chercher un MEC à lier…"
                 className="pl-9"
               />
             </div>
+            {search.trim().length >= MEC_SEARCH_MIN_CHARS && matchingMecs.length === 0 && (
+              <p className="text-[11px] text-slate-400 mt-1">
+                Aucun MEC connu ne correspond — utilise « Créer un nouveau mis en cause ».
+              </p>
+            )}
             {matchingMecs.length > 0 && (
               <div className="mt-1 border border-slate-200 rounded-md max-h-40 overflow-y-auto">
                 {matchingMecs.map(m => {
@@ -397,20 +388,6 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
                           ))}
                         </div>
                       )}
-                    </div>
-                    <div>
-                      <Label>Statut</Label>
-                      <select
-                        value={newStatut}
-                        onChange={e => setNewStatut(e.target.value as MecExNihiloStatut | '')}
-                        className="w-full text-sm border border-slate-200 rounded-md px-3 py-2 bg-white"
-                      >
-                        <option value="">— non précisé —</option>
-                        <option value="actif">Actif</option>
-                        <option value="dormant">Dormant</option>
-                        <option value="libere">Sorti / libéré</option>
-                        <option value="decede">Décédé</option>
-                      </select>
                     </div>
                     <div>
                       <Label>Notes</Label>

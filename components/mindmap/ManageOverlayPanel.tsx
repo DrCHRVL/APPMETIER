@@ -70,10 +70,8 @@ export const ManageOverlayPanel: React.FC<Props> = ({
                 <Row
                   key={m.id}
                   title={m.displayName}
-                  subtitle={[
-                    m.statut && labelStatut(m.statut),
-                    m.alias.length > 0 && `${m.alias.length} alias`,
-                  ].filter(Boolean).join(' · ') || (m.notes ? 'Notes renseignées' : 'Aucune info')}
+                  subtitle={(m.alias.length > 0 ? `${m.alias.length} alias` : '')
+                    || (m.notes ? 'Notes renseignées' : 'Aucune info')}
                   onCenter={() => onCenterNode(m.id)}
                   onEdit={() => onEditMec(m)}
                   onDelete={() => onDeleteMec(m.id)}
@@ -185,12 +183,3 @@ const Empty: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="text-xs text-slate-400 px-2 py-6 text-center">{children}</div>
 );
 
-function labelStatut(s: string): string {
-  switch (s) {
-    case 'actif': return 'Actif';
-    case 'dormant': return 'Dormant';
-    case 'libere': return 'Sorti / libéré';
-    case 'decede': return 'Décédé';
-    default: return s;
-  }
-}
