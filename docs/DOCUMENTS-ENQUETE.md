@@ -274,6 +274,12 @@ Choix actés à l'implémentation de 1 et 2 (2026-08-20) :
   accélère la localisation ; les pièces jamais extraites le sont par lots
   bornés au fil des recherches — l'« index » plein texte se construit
   progressivement dans le cache existant, sans infrastructure nouvelle.
+- **Ingestion d'office au fil de l'eau** (validée « extraction + empreinte à
+  l'ingestion », patron eDiscovery) : un passage borné à chaque tick du
+  service attaché (`scripts/attache/ingest.mjs`) pose l'empreinte et extrait
+  le texte de toute pièce qui n'en a pas encore (majordome, mail, scans,
+  stock ancien) — CPU local, zéro jeton, échecs mémorisés sans re-tentative.
+  La couverture n'attend donc plus ni une recherche ni un devis de chantier.
 - Tests : `scripts/attache-docs-empreintes.test.mjs`.
 
 Ordre recommandé : **1 → 2** (déterministes, gratuits, débloquent le reste),

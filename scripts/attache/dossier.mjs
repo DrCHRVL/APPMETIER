@@ -529,9 +529,10 @@ export async function readDocumentText(keys, numero, cheminRelatif, page = {}) {
  * { ok:false, nonExtrait:true } sinon ; la recherche plein texte borne ainsi
  * son travail et complète l'extraction au fil de ses appels.
  * Rend { ok, texte, extra } — `extra.extraction = true` quand une extraction
- * fraîche a réellement eu lieu (comptabilité du budget de la recherche).
+ * fraîche a réellement eu lieu (comptabilité des budgets recherche/ingestion).
+ * Exporté pour la recherche (pieces_chercher) et l'ingestion (ingest.mjs).
  */
-async function texteDocumentIntegral(keys, key, cheminRelatif, { integrale = false, extraire = true } = {}) {
+export async function texteDocumentIntegral(keys, key, cheminRelatif, { integrale = false, extraire = true } = {}) {
   // Copie markdown déposée AU TÉLÉVERSEMENT (MD/<chemin>.md) : servie en
   // priorité pour les formats non textuels — zéro extraction, texte fidèle
   // (conversion navigateur), tokens et CPU économisés.

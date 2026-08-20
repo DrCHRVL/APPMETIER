@@ -29,6 +29,7 @@ import { usageSummary } from './attache/usage.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { genererGraphique } from './attache/statsGraphiques.mjs'
 import { dossierSyntheseSignals } from './attache/dossier.mjs'
+import { ingestPass } from './attache/ingest.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
@@ -592,6 +593,25 @@ function countPropositionsMec(keys, numero) {
  * attend une courte période de calme (fusion des rafales), puis on n'en tire
  * qu'UN seul par tick — la mise à jour se fait donc lentement, en arrière-plan.
  */
+// ── Ingestion des pièces (extraction + empreinte, fil de l'eau) ──
+// CPU local uniquement, zéro jeton : hors gouverneur (ni nuit ni cap 5 h).
+// Garde anti-chevauchement : un passage OCR peut dépasser un tick.
+let ingestRunning = false
+async function maybeIngest() {
+  if (ingestRunning) return
+  ingestRunning = true
+  try {
+    const keys = loadKeyring()
+    if (!keys) return
+    const b = await ingestPass(keys)
+    if (b.empreintes || b.extraites || b.echecs) {
+      console.log(`[attache] ingestion : ${b.dossiers} dossier(s) — ${b.empreintes} empreinte(s), ${b.extraites} texte(s) extraits, ${b.echecs} échec(s) mémorisé(s)${b.enAttente ? `, ${b.enAttente} pièce(s) au prochain tick` : ''}`)
+    }
+  } finally {
+    ingestRunning = false
+  }
+}
+
 async function maybeScheduledDescriptions() {
   if (descriptionRunning) return
   const keys = loadKeyring()
@@ -1656,6 +1676,7 @@ setInterval(() => {
   maybeScheduledApprentissage().catch((e) => console.error('[attache] apprentissage planifié :', e))
   maybeScheduledEtude().catch((e) => console.error('[attache] étude planifiée :', e))
   maybeScheduledDescriptions().catch((e) => console.error('[attache] descriptions :', e))
+  maybeIngest().catch((e) => console.error('[attache] ingestion :', e))
   maybeChantiers().catch((e) => console.error('[attache] chantiers :', e))
 }, POLL_MINUTES * 60 * 1000)
 // première relève 20 s après le démarrage (laisse le réseau docker s'établir)

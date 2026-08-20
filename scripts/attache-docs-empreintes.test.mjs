@@ -139,6 +139,20 @@ attendu('la copie exacte absente des lots', !lotsRels.includes('PV/Proc2/D340_au
 attendu('le porteur présent dans les lots', lotsRels.includes('PV/Proc1/D12_audition_DURAND.txt'))
 attendu('la version voisine présente dans les lots', lotsRels.includes('PV/Proc1/D13_audition_DURAND_suite.txt'))
 
+// ── ingestion de fond : extraction + empreinte d'office, échecs mémorisés
+const { ingestPass } = await import(`${REPO}/scripts/attache/ingest.mjs`)
+verse('PV/Proc1/D200_scan_illisible.pdf', '%PDF-faux-scan-sans-couche-texte')
+const i1 = await ingestPass(keys)
+attendu('ingestion visite le dossier modifié', i1.dossiers === 1, JSON.stringify(i1))
+attendu('ingestion pose l\'empreinte de la pièce nouvelle',
+  /^[a-f0-9]{64}$/.test(String(listDocsMeta(attacheTj(), KEY).find((d) => d.rel === 'PV/Proc1/D200_scan_illisible.pdf')?.sha || '')))
+attendu('échec d\'extraction mémorisé (pas de moulinette)', i1.echecs === 1 && i1.enAttente === 0, JSON.stringify(i1))
+const i2 = await ingestPass(keys)
+attendu('dossier à jour : passage no-op', i2.dossiers === 0 && i2.echecs === 0 && i2.extraites === 0, JSON.stringify(i2))
+verse('Ecoutes/retranscription_0613.txt', 'Retranscription : « il arrive avec la Clio »')
+const i3 = await ingestPass(keys)
+attendu('nouveau dépôt : ré-ingestion, sans re-tenter l\'échec connu', i3.dossiers === 1 && i3.echecs === 0, JSON.stringify(i3))
+
 fs.rmSync(SCRATCH, { recursive: true, force: true })
 if (echecs.length) {
   console.error(`\n${echecs.length} échec(s) : ${echecs.join(' · ')}`)

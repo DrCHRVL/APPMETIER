@@ -324,6 +324,18 @@ l'usage).
   copies exactes des lots au devis (chaque contenu lu UNE fois — sur une
   jonction de procédures, une part substantielle des nuits et des jetons) en
   les nommant dans le devis et la synthèse.
+- **Ingestion de fond (extraction + empreinte d'office)** : à chaque tick du
+  service, les dossiers dont l'index a bougé passent à l'ingestion — patron
+  eDiscovery : empreinte sha256 posée, texte extrait et mis en cache pour
+  chaque pièce qui n'a ni copie MD/ du téléversement ni cache (pièces rangées
+  par le majordome, reçues par mail, scans, stock ancien — OCR compris pour
+  les scans entièrement muets, dans les bornes habituelles). CPU local
+  uniquement, **zéro jeton**, hors gouverneur (ni nuit ni cap 5 h), par
+  petits pas bornés (~15 extractions par passage) avec reprise au tick
+  suivant. Un échec d'extraction est mémorisé et jamais re-tenté tant que la
+  pièce n'est pas re-versée. Résultat : `pieces_chercher` couvre tout le
+  dossier dès la première recherche, `lire_document` est instantané, le
+  devis d'un chantier n'attend plus rien.
 - **Retrouve une information dans les pièces (`pieces_chercher`)** :
   recherche plein texte côté serveur — fiches de dépouillement d'abord (déjà
   synthétiques et cotées), puis le texte des pièces (copies markdown du
