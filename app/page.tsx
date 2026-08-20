@@ -141,6 +141,8 @@ const GlobalStatsPage = dynamic(() => import('@/components/pages/GlobalStatsPage
 import { ContentieuxId } from '@/types/userTypes';
 import { useCrossSearch } from '@/hooks/useCrossSearch';
 import { useGlobalSearch } from '@/hooks/useGlobalSearch';
+import { useKnownPersons } from '@/hooks/useKnownPersons';
+import type { PersonEntry } from '@/utils/knownPersons';
 import type { GlobalSearchDoc } from '@/utils/globalSearch';
 const AdminUsersPanel = dynamic(() => import('@/components/AdminUsersPanel').then(m => ({ default: m.AdminUsersPanel })), { ssr: false });
 import { UserManager } from '@/utils/userManager';
@@ -922,11 +924,56 @@ function AppContent() {
 
   const filteredAndSortedEnquetes = useFilterSort(enquetes, debouncedSearchTerm, selectedTags, sortOrder, resolveInfractionKeys);
 
-  // Liste dédupliquée de tous les noms de MEC connus (cross-dossiers)
-  const allKnownMec = useMemo(
-    () => [...new Set(enquetes.flatMap(e => e.misEnCause.map(m => m.nom)))].sort(),
-    [enquetes]
-  );
+  // Enquêtes de tous les contentieux accessibles : snapshot Overboard, remplacé
+  // par les données VIVES pour le contentieux actif. Sert à la fois au fichier
+  // des personnes et à l'index de la recherche globale.
+  const enquetesForSearch = useMemo(() => {
+    const merged = new Map(overboardData);
+    if (currentContentieuxId && enquetes.length > 0) merged.set(currentContentieuxId, enquetes);
+    return merged;
+  }, [overboardData, enquetes, currentContentieuxId]);
+
+  // Recentrage demandé à la cartographie (depuis la recherche globale) : le nom
+  // visé + un compteur pour rejouer la demande sur un même nom.
+  const [mindmapFocus, setMindmapFocus] = useState<{ nom: string; seq: number } | undefined>();
+
+  // Condamnés des résultats d'audience : ils ont eux aussi un nœud sur la
+  // cartographie, donc leur nom fait partie du fichier des personnes (une
+  // ressaisie sous une autre orthographe créerait un doublon).
+  const condamnesEntries = useMemo<PersonEntry[]>(() => {
+    const out: PersonEntry[] = [];
+    const collect = (res: ResultatAudience | undefined | null, dossier?: string) => {
+      if (!res || res.isPreArchiveSaisies) return;
+      for (const c of res.condamnations || []) {
+        const nom = (c.nom || '').trim();
+        if (!nom || c.isPending) continue;
+        out.push({ nom, role: 'condamne', dossier, carto: true });
+      }
+    };
+    for (const [ctxId, list] of overboardData) {
+      for (const e of list) collect(audienceState.resultats[buildResultatKey(ctxId, e.id)], e.numero);
+    }
+    for (const inst of instructions) {
+      collect(
+        instructionResultats[buildInstructionResultatKey(inst.contentieuxId || 'instructions', inst.id)]
+        || instructionResultats[buildInstructionResultatKey('instructions', inst.id)],
+        inst.numeroInstruction || inst.numeroParquet,
+      );
+    }
+    return out;
+  }, [overboardData, instructions, audienceState.resultats, instructionResultats]);
+
+  // Fichier des personnes : mis en cause, mis en examen, suspects, victimes et
+  // fiches manuelles de la cartographie, dédupliqués entre eux (ordre
+  // Nom/Prénom indifférent, coquille tolérée). Alimente toutes les
+  // propositions de noms de l'application — c'est ce qui évite les doublons.
+  const knownPersons = useKnownPersons({
+    enquetesByContentieux: enquetesForSearch,
+    instructions,
+    extra: condamnesEntries,
+  });
+  const allKnownMec = knownPersons.names;
+  const knownNameHints = knownPersons.hints;
 
   // Sources pour le module Mindmap : toutes enquêtes accessibles + instructions
   // Les dossiers d'instruction (nouveau modèle) sont enveloppés dans une
@@ -1353,12 +1400,6 @@ function AppContent() {
   // enquêtes de tous les contentieux accessibles (snapshot Overboard, remplacé
   // par les données VIVES pour le contentieux actif), instructions, mesures
   // AIR, personnes, pages et actions.
-  const enquetesForSearch = useMemo(() => {
-    const merged = new Map(overboardData);
-    if (currentContentieuxId && enquetes.length > 0) merged.set(currentContentieuxId, enquetes);
-    return merged;
-  }, [overboardData, enquetes, currentContentieuxId]);
-
   const statsContentieuxIds = useMemo(
     () => accessibleContentieux.filter(c => canDo(c.id, 'view_stats')).map(c => c.id),
     [accessibleContentieux, canDo]
@@ -1382,6 +1423,7 @@ function AppContent() {
     },
     hasOverboard: hasOverboard(),
     showAssistant: attacheAvailable && isAdmin(),
+    knownPersons: knownPersons.persons,
   });
 
   // Exécute un résultat de la recherche globale (clic ou Entrée) : ouverture de
@@ -1433,8 +1475,13 @@ function AppContent() {
         return;
       }
       case 'personne': {
+        // Accès DIRECT : on bascule sur la cartographie et on demande le
+        // recentrage sur la personne. Plus de second clic dans une liste de
+        // résultats — la carte s'ouvre déjà sur le bon nœud.
+        const nom = String(data.nom || '');
         await handleViewChange('mindmap');
-        handleSearchChange(String(data.nom || ''));
+        handleSearchChange(nom);
+        setMindmapFocus(prev => ({ nom, seq: (prev?.seq ?? 0) + 1 }));
         return;
       }
       case 'page': {
@@ -1800,6 +1847,8 @@ return (
           {baseView === 'archives' && (
             <ArchivePage
               enquetes={enquetes}
+              allKnownMec={allKnownMec}
+              knownNameHints={knownNameHints}
               searchTerm={searchTerm}
               contentieuxId={currentContentieuxId}
               onUpdateEnquete={handleUpdateEnquete}
@@ -1843,6 +1892,9 @@ return (
               sources={mindmapSources}
               searchTerm={debouncedSearchTerm}
               onSearchChange={handleSearchChange}
+              focusRequest={mindmapFocus}
+              knownNames={allKnownMec}
+              knownNameHints={knownNameHints}
               onRefresh={() => {
                 void refreshOverboard();
                 void refreshInstructions();
@@ -1901,6 +1953,7 @@ return (
         onSubmit={handleAddEnquete}
         cheminBase={CHEMIN_BASE}
         allKnownMec={allKnownMec}
+        knownNameHints={knownNameHints}
       />
 
       {selectedEnquete && (
@@ -1917,6 +1970,7 @@ return (
           setEditingCR={setEditingCR}
           onDelete={handleDeleteEnquete}
           allKnownMec={allKnownMec}
+          knownNameHints={knownNameHints}
           onCreateGlobalTodo={(todo) => handleGlobalTodosChange([...globalTodos, todo])}
           readOnly={effectiveContentieux ? !canDo(effectiveContentieux, 'edit') : true}
           contentieuxId={currentContentieuxId}
@@ -1936,6 +1990,7 @@ return (
         onSubmit={handleAddInstruction}
         contentieuxDefs={contentieuxDefs}
         defaultContentieuxId={effectiveContentieux || undefined}
+        knownPersons={knownPersons}
       />
 
       {selectedInstruction && (
@@ -1950,12 +2005,9 @@ return (
           }}
           onDelete={handleDeleteInstruction}
           contentieuxDefs={contentieuxDefs}
-          allKnownNames={Array.from(new Set(
-            instructions.flatMap(inst => [
-              ...inst.misEnExamen.map(m => m.nom),
-              ...(inst.suspects || []).map(s => s.nom),
-            ]).filter(Boolean)
-          ))}
+          allKnownNames={allKnownMec}
+          knownNameHints={knownNameHints}
+          knownPersons={knownPersons}
           enquetePreliminaireOptions={eligiblePrelimEnquetes}
           onOpenEnquetePreliminaire={(enqueteId, ctxId) => {
             const scoped = ctxId ? overboardData.get(ctxId as ContentieuxId) : undefined;

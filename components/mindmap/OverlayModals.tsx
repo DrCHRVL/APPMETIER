@@ -19,6 +19,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
+import { MecAutocompleteInput } from '../ui/MecAutocompleteInput';
 import type { GraphNode, MindmapGraph } from '@/utils/mindmapGraph';
 import type { MecExNihilo, DossierExNihilo, LienRenseignement, MecExNihiloStatut, ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
 import { NatinfPicker } from '../natinf/NatinfPicker';
@@ -34,9 +35,13 @@ interface AddMecModalProps {
   onClose: () => void;
   initial?: MecExNihilo;
   onSubmit: (data: { displayName: string; alias: string[]; statut?: MecExNihiloStatut; notes?: string }) => void;
+  /** Personnes déjà connues de l'application (tous modules) : la fiche manuelle
+   *  ne doit pas dupliquer quelqu'un déjà au fichier. */
+  knownNames?: string[];
+  knownNameHints?: Record<string, string>;
 }
 
-export const AddMecModal: React.FC<AddMecModalProps> = ({ isOpen, onClose, initial, onSubmit }) => {
+export const AddMecModal: React.FC<AddMecModalProps> = ({ isOpen, onClose, initial, onSubmit, knownNames = [], knownNameHints }) => {
   const [displayName, setDisplayName] = useState(initial?.displayName || '');
   const [aliasInput, setAliasInput] = useState('');
   const [alias, setAlias] = useState<string[]>(initial?.alias || []);
@@ -79,9 +84,11 @@ export const AddMecModal: React.FC<AddMecModalProps> = ({ isOpen, onClose, initi
         <div className="space-y-3">
           <div>
             <Label>Nom affiché *</Label>
-            <Input
+            <MecAutocompleteInput
               value={displayName}
-              onChange={e => setDisplayName(e.target.value)}
+              onChange={setDisplayName}
+              suggestions={knownNames}
+              hints={knownNameHints}
               placeholder="ex. ZOUAOUI Fadel"
               autoFocus
             />

@@ -20,6 +20,7 @@ import type {
   EvenementInstruction,
 } from '@/types/instructionTypes';
 import type { ContentieuxDefinition } from '@/types/userTypes';
+import type { KnownPersonsIndex } from '@/utils/knownPersons';
 
 interface NewInstructionModalProps {
   isOpen: boolean;
@@ -29,6 +30,9 @@ interface NewInstructionModalProps {
   contentieuxDefs?: ContentieuxDefinition[];
   /** Pré-sélection éventuelle (ex. contentieux courant de l'utilisateur). */
   defaultContentieuxId?: string;
+  /** Fichier des personnes de l'application : rapprochement anti-doublon à
+   *  l'import Cassiopée. */
+  knownPersons?: KnownPersonsIndex;
 }
 
 export const NewInstructionModal = ({
@@ -37,6 +41,7 @@ export const NewInstructionModal = ({
   onSubmit,
   contentieuxDefs = [],
   defaultContentieuxId,
+  knownPersons,
 }: NewInstructionModalProps) => {
   const { showToast } = useToast();
   const { cabinets, getCabinetById } = useInstructionCabinets();
@@ -98,7 +103,10 @@ export const NewInstructionModal = ({
       }),
       ...r.misEnExamen,
     ]);
-    setImportedSuspects(prev => [...prev, ...r.suspects]);
+    // Un suspect mis en attente puis retrouvé mis en examen dans un second
+    // collage est promu : on retire sa fiche suspect au lieu de la doubler.
+    const promus = new Set(r.suspectsPromusIds ?? []);
+    setImportedSuspects(prev => [...prev.filter(s => !promus.has(s.id)), ...r.suspects]);
     setImportedVictimes(prev => [...prev, ...r.victimes]);
     setSaisine(prev => [...prev, ...r.saisine]);
     setNbSaisineImportee(n => n + r.saisine.length);
@@ -427,6 +435,7 @@ export const NewInstructionModal = ({
         existingVictimes={importedVictimes}
         existingSaisine={saisine}
         applyHeaderDefault
+        knownPersons={knownPersons}
       />
     </div>
   );
