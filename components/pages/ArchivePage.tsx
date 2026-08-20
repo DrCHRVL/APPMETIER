@@ -17,6 +17,10 @@ import { buildResultatKey } from '@/stores/useAudienceStore';
 
 interface ArchivePageProps {
   enquetes: Enquete[];
+  /** Fichier des personnes de l'application (suggestions anti-doublon). */
+  allKnownMec?: string[];
+  /** Précision affichée sous chaque nom proposé. */
+  knownNameHints?: Record<string, string>;
   searchTerm: string;
   contentieuxId?: string;
   onUpdateEnquete: (id: number, data: Partial<Enquete>) => void;
@@ -31,6 +35,8 @@ interface ArchivePageProps {
 
 export const ArchivePage = ({
   enquetes,
+  allKnownMec: knownNamesProp,
+  knownNameHints,
   searchTerm,
   contentieuxId,
   onUpdateEnquete,
@@ -71,11 +77,14 @@ export const ArchivePage = ({
   }, [enquetes, selectedEnquete]);
   
   // Filtrer les enquêtes archivées et appliquer la recherche
-  // Liste dédupliquée de tous les noms de MEC connus (cross-dossiers)
-  const allKnownMec = useMemo(
+  // Fichier des personnes fourni par la page principale (mis en cause, mis en
+  // examen, suspects, victimes, fiches cartographie — déjà dédupliqué). Repli
+  // sur les seuls MEC de la liste courante si la prop n'est pas fournie.
+  const localKnownMec = useMemo(
     () => [...new Set(enquetes.flatMap(e => e.misEnCause.map(m => m.nom)))].sort(),
     [enquetes]
   );
+  const allKnownMec = knownNamesProp?.length ? knownNamesProp : localKnownMec;
 
   const archivedEnquetes = useMemo(() => {
     const archived = enquetes.filter(e => e.statut === 'archive');
@@ -790,6 +799,7 @@ export const ArchivePage = ({
           setEditingCR={setEditingCR}
           onDelete={() => onDeleteEnquete(selectedEnquete.id)}
           allKnownMec={allKnownMec}
+          knownNameHints={knownNameHints}
           attacheOpen={attacheOpen}
         />
       )}

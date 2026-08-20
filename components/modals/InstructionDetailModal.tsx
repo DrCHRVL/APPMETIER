@@ -35,6 +35,7 @@ import {
 } from '@/utils/instructionUtils';
 import { useInstructionAlertRules } from '@/hooks/useInstructionAlertRules';
 import { Input } from '../ui/input';
+import { MecAutocompleteInput } from '../ui/MecAutocompleteInput';
 import { Label } from '../ui/label';
 import { MisEnExamenSection } from '../instruction/mex/MisEnExamenSection';
 import { SaisineManager } from '../instruction/SaisineManager';
@@ -48,6 +49,7 @@ import {
   type EnquetePreliminaireOption,
 } from '../instruction/LierEnquetePreliminaireModal';
 import { CassiopeeImportModal, type CassiopeeImportResult } from './CassiopeeImportModal';
+import type { KnownPersonsIndex } from '@/utils/knownPersons';
 import { renderFormattedText } from '@/lib/formatCR';
 import type {
   DossierInstruction,
@@ -71,8 +73,13 @@ interface InstructionDetailModalProps {
   onDelete: (id: number) => void;
   /** Liste des contentieux pour le sélecteur en mode édition. */
   contentieuxDefs?: import('@/types/userTypes').ContentieuxDefinition[];
-  /** Tous les noms MEX + suspects connus (cross-dossiers) pour l'autocomplete */
+  /** Fichier des personnes de l'application pour l'autocomplete (mis en cause,
+   *  mis en examen, suspects, victimes, fiches cartographie) */
   allKnownNames?: string[];
+  /** Précision affichée sous chaque nom proposé (« mis en cause · 2 dossiers ») */
+  knownNameHints?: Record<string, string>;
+  /** Registre interrogeable : sert au rapprochement anti-doublon à l'import. */
+  knownPersons?: KnownPersonsIndex;
   /**
    * Enquêtes préliminaires éligibles au rattachement (résultat = OI). Permet
    * de lier ce dossier à sa préliminaire d'origine pour lever le doublon de
@@ -109,6 +116,8 @@ export const InstructionDetailModal = ({
   onDelete,
   contentieuxDefs = [],
   allKnownNames = [],
+  knownNameHints,
+  knownPersons,
   enquetePreliminaireOptions = [],
   onOpenEnquetePreliminaire,
 }: InstructionDetailModalProps) => {
@@ -143,9 +152,14 @@ export const InstructionDetailModal = ({
       };
     });
     const saisineFusionnee = [...(dossier.saisine ?? []), ...r.saisine];
+    // Suspects promus mis en examen par l'import : leur fiche suspect est
+    // retirée, sinon la personne figurerait deux fois au dossier (et deux fois
+    // sur la cartographie).
+    const promus = new Set(r.suspectsPromusIds ?? []);
+    const suspectsRestants = (dossier.suspects ?? []).filter(s => !promus.has(s.id));
     const updates: Partial<DossierInstruction> = {
       misEnExamen: [...mexFusionnes, ...r.misEnExamen],
-      suspects: [...(dossier.suspects ?? []), ...r.suspects],
+      suspects: [...suspectsRestants, ...r.suspects],
       victimes: [...(dossier.victimes ?? []), ...r.victimes],
       saisine: saisineFusionnee,
       evenements: [...(dossier.evenements ?? []), ...r.evenements],
@@ -770,6 +784,7 @@ export const InstructionDetailModal = ({
               }
               onSuspectsChange={(suspects) => onUpdate(dossier.id, { suspects })}
               allKnownNames={allKnownNames}
+              knownNameHints={knownNameHints}
             />
           )}
 
@@ -777,6 +792,8 @@ export const InstructionDetailModal = ({
             <VictimesSection
               victimes={dossier.victimes || []}
               onChange={(victimes: Victime[]) => onUpdate(dossier.id, { victimes })}
+              allKnownNames={allKnownNames}
+              knownNameHints={knownNameHints}
             />
           )}
 
@@ -857,6 +874,7 @@ export const InstructionDetailModal = ({
         existingSuspects={dossier.suspects ?? []}
         existingVictimes={dossier.victimes ?? []}
         existingSaisine={dossier.saisine ?? []}
+        knownPersons={knownPersons}
       />
 
       {/* Chat flottant de l'attaché sur ce dossier d'instruction — admin only. */}
@@ -917,7 +935,9 @@ const Stat = ({
 const VictimesSection: React.FC<{
   victimes: Victime[];
   onChange: (next: Victime[]) => void;
-}> = ({ victimes, onChange }) => {
+  allKnownNames?: string[];
+  knownNameHints?: Record<string, string>;
+}> = ({ victimes, onChange, allKnownNames = [], knownNameHints }) => {
   const [draft, setDraft] = useState('');
 
   const handleAdd = () => {
@@ -945,15 +965,21 @@ const VictimesSection: React.FC<{
         </h3>
       </div>
 
-      {/* Ajout */}
+      {/* Ajout — mêmes propositions de noms que les mis en cause / mis en
+          examen : une victime déjà connue ailleurs ne doit pas être ressaisie
+          sous une autre orthographe (doublon sur la cartographie). */}
       <div className="flex gap-2">
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
-          placeholder="Nom et prénom (ex : MARTIN Sophie)"
-          className="h-8 text-sm flex-1"
-        />
+        <div className="flex-1">
+          <MecAutocompleteInput
+            value={draft}
+            onChange={setDraft}
+            suggestions={allKnownNames}
+            hints={knownNameHints}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
+            placeholder="Nom et prénom (ex : MARTIN Sophie)"
+            className="h-8 text-sm"
+          />
+        </div>
         <Button
           size="sm"
           onClick={handleAdd}
@@ -977,11 +1003,15 @@ const VictimesSection: React.FC<{
             key={v.id}
             className="flex items-center gap-3 border border-gray-200 rounded-lg px-2.5 py-2 bg-white"
           >
-            <Input
-              value={v.nom}
-              onChange={(e) => handlePatch(v.id, { nom: e.target.value })}
-              className="h-8 text-sm flex-1"
-            />
+            <div className="flex-1">
+              <MecAutocompleteInput
+                value={v.nom}
+                onChange={(nom) => handlePatch(v.id, { nom })}
+                suggestions={allKnownNames}
+                hints={knownNameHints}
+                className="h-8 text-sm"
+              />
+            </div>
             <label
               className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none shrink-0"
               title="Afficher cette victime sur le module cartographie (rattachée au dossier)"

@@ -47,8 +47,10 @@ interface EnqueteDetailModalProps {
   onDeleteCR: (id: number) => void;
   setEditingCR: (cr: CompteRendu | null) => void;
   onDelete?: (id: number) => void;
-  /** Noms de tous les MEC connus (cross-dossiers) pour suggestions */
+  /** Noms de toutes les personnes connues de l'application, pour suggestions */
   allKnownMec?: string[];
+  /** Précision affichée sous chaque nom proposé (« mis en examen · 2 dossiers ») */
+  knownNameHints?: Record<string, string>;
   /** Callback pour créer un todo général (suivi JIRS/PG) */
   onCreateGlobalTodo?: (todo: ToDoItem) => void;
   /** Si true, masque les boutons Modifier/Supprimer (mode consultation) */
@@ -84,6 +86,7 @@ const EnqueteDetailModalImpl = ({
   setEditingCR,
   onDelete,
   allKnownMec = [],
+  knownNameHints,
   onCreateGlobalTodo,
   readOnly = false,
   contentieuxId,
@@ -460,6 +463,7 @@ const EnqueteDetailModalImpl = ({
                   onUpdate={handleUpdateWithToast}
                   isEditing={isEditing}
                   allKnownMec={allKnownMec}
+                  knownNameHints={knownNameHints}
                   onRefreshMec={attacheAvailable && isAdmin() && !isEditing ? handleRefreshMec : undefined}
                   mecRefreshStatus={mecRefreshStatus}
                 />
@@ -705,6 +709,7 @@ export const EnqueteDetailModal = React.memo(EnqueteDetailModalImpl, (a, b) =>
   a.attacheOpen === b.attacheOpen &&
   a.attacheAvailable === b.attacheAvailable &&
   a.allKnownMec === b.allKnownMec &&
+  a.knownNameHints === b.knownNameHints &&
   a.onClose === b.onClose &&
   a.onEdit === b.onEdit &&
   a.onUpdate === b.onUpdate &&

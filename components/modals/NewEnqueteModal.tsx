@@ -21,6 +21,7 @@ interface NewEnqueteModalProps {
   cheminBase: string;
   /** Noms de tous les MEC connus (cross-dossiers) pour suggestions */
   allKnownMec?: string[];
+  knownNameHints?: Record<string, string>;
 }
 
 export const NewEnqueteModal = ({
@@ -28,7 +29,8 @@ export const NewEnqueteModal = ({
   onClose,
   onSubmit,
   cheminBase,
-  allKnownMec = []
+  allKnownMec = [],
+  knownNameHints
 }: NewEnqueteModalProps) => {
   const { getTagsByCategory, isLoading } = useTags();
   const { getByCode } = useNatinf();
@@ -394,6 +396,7 @@ export const NewEnqueteModal = ({
                   value={newMecName}
                   onChange={setNewMecName}
                   suggestions={allKnownMec}
+                  hints={knownNameHints}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddMec(); } }}
                 />
                 <Input
