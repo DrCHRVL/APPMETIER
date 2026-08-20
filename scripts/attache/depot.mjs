@@ -19,6 +19,7 @@
  * Un dépôt supprimé part en Corbeille/ du dépôt — rien n'est jamais détruit à
  * sec.
  */
+import crypto from 'node:crypto'
 import { attacheTj, listDocsMeta, readDocBlob, writeDocBlob, deleteDocBlob, docServerKey } from './store.mjs'
 import { encryptDocBlob, decryptDocBlob } from './crypto.mjs'
 import { extractPdfText } from './ocr.mjs'
@@ -163,7 +164,10 @@ export async function rangerDocument(keys, { source, rel, mailId, piece, numero,
   // GRIVESNES 2 » — le rangement suit la clé de l'enquête, pas la variante.
   if (enqueteExiste(keys, numero)) numero = numeroCanonique(keys, numero)
 
-  const { blob, originalName, depotRel } = await resolvePiece(keys, { source, rel, mailId, piece })
+  const { blob, plain, originalName, depotRel } = await resolvePiece(keys, { source, rel, mailId, piece })
+  // Empreinte du clair — même contrat que le téléversement navigateur : base
+  // du dédoublonnage STRICT (contenu identique octet à octet, rien d'autre).
+  const sha = plain ? crypto.createHash('sha256').update(plain).digest('hex') : undefined
 
   // Nom final : celui proposé par l'attaché, extension d'origine préservée.
   const extMatch = /\.[a-zA-Z0-9]{1,8}$/.exec(originalName || '')
@@ -172,7 +176,11 @@ export async function rangerDocument(keys, { source, rel, mailId, piece, numero,
   if (ext && !base.toLowerCase().endsWith(ext)) base += ext
 
   const dossierKey = docServerKey(numero)
-  const existing = new Set(listDocsMeta(attacheTj(), dossierKey).map((d) => d.rel))
+  const metasDossier = listDocsMeta(attacheTj(), dossierKey)
+  // Copie exacte déjà au dossier ? On SIGNALE (une jonction duplique
+  // légitimement), on ne bloque jamais — le magistrat décide.
+  const dejaLa = sha ? metasDossier.find((d) => d.sha === sha && !String(d.rel).startsWith('MD/')) : null
+  const existing = new Set(metasDossier.map((d) => d.rel))
   let finalRel = `${prefix}/${base}`
   for (let n = 2; existing.has(finalRel); n++) {
     const dot = base.lastIndexOf('.')
@@ -183,10 +191,15 @@ export async function rangerDocument(keys, { source, rel, mailId, piece, numero,
     savedBy: authorOf(keys),
     category: prefix,
     originalName,
+    ...(sha ? { sha } : {}),
   })
   if (source !== 'mail' && depotRel) deleteDocBlob(attacheTj(), DEPOT_KEY, depotRel)
 
-  return { ok: true, dossier: numero, chemin: finalRel, note: 'Pièce rangée — lis-la (lire_document) et déclenche tes détections (proposer_mec / proposer_acte / proposer_cr) si elle apporte du neuf.' }
+  return {
+    ok: true, dossier: numero, chemin: finalRel,
+    ...(dejaLa ? { doublonExact: dejaLa.rel, noteDoublon: `Ce dossier contient DÉJÀ une pièce au contenu strictement identique : « ${dejaLa.rel} » (empreinte sha256 égale). Rangée quand même — signale-le au magistrat s'il n'attendait pas de copie.` } : {}),
+    note: 'Pièce rangée — lis-la (lire_document) et déclenche tes détections (proposer_mec / proposer_acte / proposer_cr) si elle apporte du neuf.',
+  }
 }
 
 /**

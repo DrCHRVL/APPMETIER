@@ -29,6 +29,8 @@ import { usageSummary } from './attache/usage.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { genererGraphique } from './attache/statsGraphiques.mjs'
 import { dossierSyntheseSignals } from './attache/dossier.mjs'
+import { ingestPass } from './attache/ingest.mjs'
+import { registreFichesStep } from './attache/registre.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
@@ -592,6 +594,45 @@ function countPropositionsMec(keys, numero) {
  * attend une courte période de calme (fusion des rafales), puis on n'en tire
  * qu'UN seul par tick — la mise à jour se fait donc lentement, en arrière-plan.
  */
+// ── Ingestion des pièces (extraction + empreinte, fil de l'eau) ──
+// CPU local uniquement, zéro jeton : hors gouverneur (ni nuit ni cap 5 h).
+// Garde anti-chevauchement : un passage OCR peut dépasser un tick.
+let ingestRunning = false
+async function maybeIngest() {
+  if (ingestRunning) return
+  ingestRunning = true
+  try {
+    const keys = loadKeyring()
+    if (!keys) return
+    const b = await ingestPass(keys)
+    if (b.empreintes || b.extraites || b.entites || b.echecs) {
+      console.log(`[attache] ingestion : ${b.dossiers} dossier(s) — ${b.empreintes} empreinte(s), ${b.extraites} texte(s) extraits, ${b.entites} entrée(s) de registre, ${b.echecs} échec(s) mémorisé(s)${b.enAttente ? `, ${b.enAttente} pièce(s) au prochain tick` : ''}`)
+    }
+  } finally {
+    ingestRunning = false
+  }
+}
+
+// ── Mini-fiches du registre (fil de l'eau, modèle économe) ──
+// Un lot court par tick, APRÈS l'ingestion (texte + entités déjà là).
+// Consomme des jetons → même gouvernance de forfait que les descriptions.
+let registreRunning = false
+async function maybeRegistreFiches() {
+  if (registreRunning) return
+  registreRunning = true
+  try {
+    const keys = loadKeyring()
+    if (!keys) return
+    if (await autonomousOnHold(keys, 'mini-fiches du registre')) return
+    const b = await registreFichesStep(keys)
+    if (b) {
+      console.log(`[attache] registre : « ${b.dossier} » — ${b.faites} mini-fiche(s), ${b.copies} copie(s) héritée(s), ${b.echecs} échec(s), ${b.restantes} restante(s)${b.erreur ? ` — ${b.erreur}` : ''}`)
+    }
+  } finally {
+    registreRunning = false
+  }
+}
+
 async function maybeScheduledDescriptions() {
   if (descriptionRunning) return
   const keys = loadKeyring()
@@ -1578,7 +1619,7 @@ const server = http.createServer(async (req, res) => {
         const memoire = readDossierMemory(keys, String(body.dossier))
         prompt = [
           `CONTEXTE : le magistrat te consulte sur le dossier « ${String(body.dossier).slice(0, 80)} » (${cadre}), depuis le chat flottant ouvert sur ce dossier.`,
-          'Sauf mention contraire, TOUTES ses questions portent sur ce dossier. Commence par lire_dossier (aperçu compact : objet, parties, actes + échéances, index des CR). Pour une donnée PRÉCISE (un propriétaire, une date, une échéance, une ligne), NE relis pas tout : cible-la — lire_dossier section:"fiche" cible:"<nom/ligne>", section:"cr" offset/limit pour un CR entier, ou lire_document sur une pièce. diagnostic_dossier, chronologie_lire, verifier_completude selon le besoin.',
+          'Sauf mention contraire, TOUTES ses questions portent sur ce dossier. Commence par lire_dossier (aperçu compact : objet, parties, actes + échéances, index des CR). Pour une donnée PRÉCISE (un propriétaire, une date, une échéance, une ligne), NE relis pas tout : cible-la — lire_dossier section:"fiche" cible:"<nom/ligne>", section:"cr" offset/limit pour un CR entier, ou lire_document sur une pièce. Pour LOCALISER une information dans les PIÈCES (« où parle-t-on de… », un nom, un numéro, une plaque) : registre_lire numero filtre:"…" (sommaire pièce par pièce — type, date, personnes, entités, résumé) puis pieces_chercher pour le texte intégral — les deux à coût nul, chemins + extraits en main ; relance pieces_chercher si des pièces restent nonExtraites. diagnostic_dossier, chronologie_lire, verifier_completude selon le besoin.',
           'RÔLE — aide au contrôle et à la maîtrise : surveiller la direction d\'enquête (éparpillement des enquêteurs : partent-ils dans tous les sens ?), la cohérence entre actes demandés et réalisés, et LES DÉLAIS (en préliminaire, les TSE sont enserrés dans des délais courts — 2 mois typiquement — qui contraignent l\'action ; signale tout risque de dépassement et son incidence).',
           'Réponses concises, factuelles, chiffrées, orientées décision. Tu peux déposer des propositions (proposer_mec/acte/cr) mais tu n\'écris jamais directement au dossier sans instruction explicite.',
           'CANTONNEMENT : tu es l\'attaché de CE dossier et tu deviens progressivement SON expert. Les outils transversaux (carto_*, lister_dossiers, recoupements hors dossier) ne servent que sur demande EXPLICITE du magistrat. S\'il veut comparer ou relier ce dossier à d\'autres, propose-lui de lancer un chantier « liens entre dossiers » (page Assistant de justice) — vérifie d\'abord chantiers_etat pour ne pas proposer ce qui tourne déjà.',
@@ -1656,6 +1697,8 @@ setInterval(() => {
   maybeScheduledApprentissage().catch((e) => console.error('[attache] apprentissage planifié :', e))
   maybeScheduledEtude().catch((e) => console.error('[attache] étude planifiée :', e))
   maybeScheduledDescriptions().catch((e) => console.error('[attache] descriptions :', e))
+  maybeIngest().catch((e) => console.error('[attache] ingestion :', e))
+  maybeRegistreFiches().catch((e) => console.error('[attache] registre :', e))
   maybeChantiers().catch((e) => console.error('[attache] chantiers :', e))
 }, POLL_MINUTES * 60 * 1000)
 // première relève 20 s après le démarrage (laisse le réseau docker s'établir)

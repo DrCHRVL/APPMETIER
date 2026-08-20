@@ -257,8 +257,13 @@ interface SiralBridgeApi {
    *  base de la déduplication/reprise des versements d'arborescences et de la
    *  zone DML du module instruction. */
   listServerDocuments: (enqueteNumero: string) => Promise<Array<{
-    rel: string; size: number; savedAt: string; category?: string; originalName?: string;
+    rel: string; size: number; savedAt: string; category?: string; originalName?: string; sha?: string;
   }>>;
+
+  /** Déplace/renomme une pièce sur le serveur (explorateur) — l'original
+   *  chiffré est renommé sur place, le jumeau markdown suit. Rend le chemin
+   *  final (segments nettoyés). Refuse d'écraser une pièce existante. */
+  moveDocument: (enqueteNumero: string, from: string, to: string) => Promise<string>;
 
   // Documents : octets déchiffrés (base64) et texte extrait d'un PDF —
   // utilisés par la recherche dans les documents et les aperçus.

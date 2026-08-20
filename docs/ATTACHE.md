@@ -311,6 +311,57 @@ l'usage).
   n'usent plus ni CPU ni tokens ; si le PDF change, le cache se régénère
   tout seul. Le répertoire des documents, synchronisé avec le commun
   Windows, n'est pas touché.
+- **Ne lit jamais deux fois le même contenu (doublons exacts)** : chaque
+  pièce porte l'**empreinte sha256 de son clair** — calculée dans le
+  navigateur au téléversement, complétée par l'attaché pour le stock ancien
+  (déchiffrement + hash en local, zéro jeton). Détection **STRICTE**
+  uniquement : deux pièces ne sont dites « doublon » que sur contenu
+  identique octet à octet — une version voisine reste une pièce à lire, rien
+  n'est jamais écarté par approximation. Effets : le versement signale
+  « contenu identique à … » dans son bilan (versée quand même — une jonction
+  duplique légitimement), `dossier_arborescence` annote les copies
+  (`copieExacteDe`), et les **chantiers d'analyse profonde** écartent les
+  copies exactes des lots au devis (chaque contenu lu UNE fois — sur une
+  jonction de procédures, une part substantielle des nuits et des jetons) en
+  les nommant dans le devis et la synthèse.
+- **Ingestion de fond (extraction + empreinte d'office)** : à chaque tick du
+  service, les dossiers dont l'index a bougé passent à l'ingestion — patron
+  eDiscovery : empreinte sha256 posée, texte extrait et mis en cache pour
+  chaque pièce qui n'a ni copie MD/ du téléversement ni cache (pièces rangées
+  par le majordome, reçues par mail, scans, stock ancien — OCR compris pour
+  les scans entièrement muets, dans les bornes habituelles). CPU local
+  uniquement, **zéro jeton**, hors gouverneur (ni nuit ni cap 5 h), par
+  petits pas bornés (~15 extractions par passage) avec reprise au tick
+  suivant. Un échec d'extraction est mémorisé et jamais re-tenté tant que la
+  pièce n'est pas re-versée. Résultat : `pieces_chercher` couvre tout le
+  dossier dès la première recherche, `lire_document` est instantané, le
+  devis d'un chantier n'attend plus rien.
+- **Registre des pièces — le sommaire vivant** : une entrée par pièce
+  versée, constituée automatiquement, en deux étages. (1) **Entités
+  déterministes** — téléphones, plaques, IBAN, adresses — extraites du texte
+  pendant l'ingestion, par les MÊMES regex que la cartographie : zéro jeton,
+  couverture totale de la masse. (2) **Mini-fiche IA** — type de pièce,
+  date, PERSONNES (noms, alias, rôle — verbatim de la pièce), résumé de 2-3
+  lignes — par lots courts (modèle économe, un seul tour, aucun outil), au
+  fil de l'eau, même gouvernance de forfait que les descriptions ; les
+  copies exactes héritent de la fiche du porteur. Chiffré (clé globale),
+  consigné dans « Consommation IA », prompt réglable (socle « Registre des
+  pièces » des consignes). Outils : `registre_lire` (sommaire filtrable —
+  « où est l'audition de X ? » sans rien relire) et **`registre_recouper`**,
+  le recoupement INTER-DOSSIERS par entité : numéros, plaques, IBAN,
+  adresses et personnes présents dans au moins deux dossiers, chaque côté
+  cité avec ses pièces exactes — les liens souvent cachés dans la masse des
+  documents versés, servis à la cartographie à coût nul (la recherche
+  profonde de la carto commence désormais par là).
+- **Retrouve une information dans les pièces (`pieces_chercher`)** :
+  recherche plein texte côté serveur — fiches de dépouillement d'abord (déjà
+  synthétiques et cotées), puis le texte des pièces (copies markdown du
+  téléversement, caches d'extraction ; les pièces jamais extraites le sont
+  au passage, par lots bornés — chaque recherche étend la couverture,
+  définitivement). Insensible casse/accents, mots exigés ensemble, doublons
+  exacts fouillés une seule fois, extraits avec le chemin exact pour
+  enchaîner sur `lire_document`. **Zéro jeton** : scan local, pas d'index
+  vectoriel — cohérent avec la doctrine « recherche agentique ».
 - **Montre où passent les jetons** : chaque run du CLI émet, en fin
   d'exécution, un bilan `usage` (jetons entrée/sortie/cache) et un
   `total_cost_usd` (équivalent au tarif API). Le service les consigne dans

@@ -27,6 +27,8 @@ export function runCategory(run) {
   if (r === 'trames-analyse' || r === 'kb-analyse' || r === 'skills-analyse' || r === 'associations-suggest') return 'classements'
   if (r === 'apprentissage' || r === 'etude') return 'apprentissage'
   if (r === 'description') return 'descriptions'
+  // mini-fiches du registre : même poste que les descriptions (fil de l'eau)
+  if (r === 'registre') return 'descriptions'
   if (r === 'mec') return 'mis-en-cause'
   if (r.startsWith('routine:')) return 'routines'
   if (r === 'chat' || r === 'chat-carto' || r === 'chat-dossier') return 'conversations'

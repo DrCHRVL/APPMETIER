@@ -74,8 +74,22 @@ export const SOCLES = {
 
   carto_profonde: [
     'Corpus COMPLET pour une recherche profonde de renseignement : toutes les enquêtes (archivées comprises) et tous les dossiers d\'instruction, avec leurs mis en cause DÉCLARÉS et le nombre de pièces. Les signaux faibles (surnoms, personnes au 2nd plan jamais mises en cause, adresses, plaques, téléphones, comptes) sont dans les PIÈCES — pas dans la liste des mis en cause.',
-    'MÉTHODE : pour chaque dossier, dossier_arborescence(numero) puis lire_document sur les PV et pièces ; DÉLÈGUE à des sous_agents (un par dossier ou petit groupe, consigne autonome : « relève toute personne — nom, surnom, alias —, adresse, plaque, téléphone, compte, et ce qui la relie à une autre ; format : liste »).',
+    'COMMENCE PAR LE REGISTRE : registre_recouper rend d\'un coup, à coût nul, les téléphones, plaques, IBAN, adresses et personnes présents dans AU MOINS DEUX dossiers — extraits automatiquement du texte de TOUTES les pièces versées — avec les pièces exactes de chaque côté. C\'est la carte des liens cachés dans la masse ; registre_lire(numero) donne le sommaire pièce par pièce d\'un dossier. VÉRIFIE ensuite chaque recoupement dans les pièces citées (lire_document) : une entité partagée peut être anodine (taxi, avocat, service public).',
+    'MÉTHODE pour aller au-delà du registre : pieces_chercher pour localiser une personne ou une valeur précise ; dossier_arborescence(numero) puis lire_document sur les PV et pièces ; DÉLÈGUE à des sous_agents (un par dossier ou petit groupe, consigne autonome : « relève toute personne — nom, surnom, alias —, adresse, plaque, téléphone, compte, et ce qui la relie à une autre ; format : liste »).',
     'Recoupe (recouper_personnes) puis PROPOSE (jamais tracé d\'office) : proposer_lien entre personnes reliées, proposer_mec_carto pour un suspect/surnom absent des dossiers, proposer_dossier_carto pour une architecture cachée (grappe autour d\'une même figure — ex. un détenu qui pilote plusieurs affaires).',
+  ].join('\n'),
+
+  registre_fiche: [
+    'But : le SOMMAIRE du dossier — une mini-fiche par pièce jointe, pour retrouver sans relire et recouper entre dossiers.',
+    'SORTIE : un TABLEAU JSON STRICT, un objet par pièce jointe, AUCUN texte autour, AUCUNE balise markdown :',
+    '[{ "chemin": "<chemin exact de la pièce, repris tel quel de son entête ═══ PIÈCE … ═══>",',
+    '   "type": "<PV audition | PV synthèse | PV constatations | ordonnance | réquisition | rapport | retranscription | expertise | courrier | autre>",',
+    '   "datePiece": "AAAA-MM-JJ — la date de l\'acte lui-même, pas celle du versement ; omets le champ si introuvable",',
+    '   "personnes": [ { "nom": "NOM Prénom — VERBATIM de la pièce, orthographe conservée", "alias": "surnom éventuel", "role": "mis en cause | victime | témoin | enquêteur | tiers cité (un ou deux mots)" } ],',
+    '   "resume": "2 à 3 phrases denses : qui fait quoi, où, quand — le fait utile, pas la forme" }]',
+    'PERSONNES — le champ qui compte : EXHAUSTIF et FIDÈLE. Chaque personne nommée dans la pièce, surnoms et alias compris (« dit Momo »), orthographe de la pièce conservée — ce sont ces noms qui permettent les recoupements entre dossiers. N\'invente rien : une donnée absente s\'omet.',
+    'Téléphones, plaques, IBAN et adresses sont déjà extraits automatiquement par ailleurs : ne les recopie dans le résumé que s\'ils PORTENT le fait (ex. « la ligne 06… est attribuée à X »).',
+    'Pièce illisible ou vide : type "autre", resume "pièce illisible ou vide", personnes [].',
   ].join('\n'),
 
   chantier_fiche: [
@@ -169,6 +183,13 @@ export const CATALOGUE = [
     resume: 'Le prompt qui relit le dossier pour PROPOSER (✓/✗) les personnes mises en cause manquantes.',
     quand: 'Icône « Actualiser » de la section Mis en cause, et en fin d\'actualisation de description.',
     variables: ['{{dossier}}'],
+  },
+  {
+    id: 'registre_fiche', groupe: 'Rédaction automatique', label: 'Registre des pièces (mini-fiches)',
+    resume: 'Le prompt des mini-fiches du registre : type, date, PERSONNES (noms, alias) et résumé de chaque pièce versée.',
+    quand: 'Au fil de l\'eau, par lots courts, une fois la pièce ingérée (texte + entités déjà extraits).',
+    variables: ['{{dossier}}'],
+    avertissement: 'Le moteur attend un TABLEAU JSON strict : un remplacement qui change la sortie met les mini-fiches en échec.',
   },
   {
     id: 'carto_profonde', groupe: 'Cartographie', label: 'Recherche profonde (corpus transversal)',

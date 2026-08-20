@@ -254,7 +254,14 @@ export function docMetaPath(tj: string, enquete: string): string {
   return tjDataDir(tj, 'docs', enquete, '.index.json')
 }
 
-export interface DocMeta { rel: string, size: number, savedAt: string, savedBy: string, category?: string, originalName?: string }
+// `sha` : empreinte sha256 (hex) du contenu EN CLAIR, calculée côté client
+// avant chiffrement — le blob chiffré ne peut pas servir d'empreinte (IV
+// aléatoire : le même fichier versé deux fois donne deux blobs différents).
+// Base du dédoublonnage STRICT (contenu identique octet à octet, jamais de
+// rapprochement flou) : signalement au versement, pièces comptées une seule
+// fois dans les chantiers d'analyse. Absente sur le stock ancien — l'attaché
+// la complète en tâche de fond (il détient les clés).
+export interface DocMeta { rel: string, size: number, savedAt: string, savedBy: string, category?: string, originalName?: string, sha?: string }
 
 export async function saveDoc(tj: string, enquete: string, rel: string, content: Buffer, meta: Omit<DocMeta, 'rel' | 'size' | 'savedAt'>): Promise<DocMeta> {
   const p = docPath(tj, enquete, rel)
@@ -271,6 +278,56 @@ export async function saveDoc(tj: string, enquete: string, rel: string, content:
 export function readDoc(tj: string, enquete: string, rel: string): Buffer | null {
   const p = docPath(tj, enquete, rel)
   return fs.existsSync(p) ? fs.readFileSync(p) : null
+}
+
+/**
+ * Déplace / renomme une pièce SANS toucher à son contenu (l'original chiffré
+ * est renommé sur place, jamais réécrit) : chemin et catégorie (= premier
+ * segment du chemin) changent, tout le reste de l'entrée d'index (empreinte
+ * sha comprise) est conservé. Le jumeau markdown `MD/<chemin>.md` suit, s'il
+ * existe et que sa place est libre. Refuse d'écraser une pièce existante.
+ */
+export async function moveDoc(tj: string, enquete: string, from: string, to: string): Promise<DocMeta> {
+  const src = docPath(tj, enquete, from)
+  const dst = docPath(tj, enquete, to) // valide aussi `to` (anti-traversal)
+  return withFileLock(`docs:${tj}:${enquete}`, async () => {
+    if (from === to) throw new Error('Chemin inchangé')
+    if (!fs.existsSync(src)) throw new Error('Pièce introuvable')
+    if (fs.existsSync(dst)) throw new Error('Une pièce existe déjà sous ce chemin')
+    fs.mkdirSync(path.dirname(dst), { recursive: true })
+    fs.renameSync(src, dst)
+    const index = readJson<DocMeta[]>(docMetaPath(tj, enquete), [])
+    const entry = index.find((d) => d.rel === from)
+    const moved: DocMeta = {
+      ...(entry || { size: fs.statSync(dst).size, savedAt: new Date().toISOString(), savedBy: '' }),
+      rel: to,
+      category: to.split('/')[0],
+    }
+    let next = index.filter((d) => d.rel !== from && d.rel !== to).concat(moved)
+    // jumeau markdown : même déplacement, même règle (jamais d'écrasement)
+    const mdFrom = 'MD/' + from.replace(/\.[^./]+$/, '') + '.md'
+    const mdTo = 'MD/' + to.replace(/\.[^./]+$/, '') + '.md'
+    try {
+      const mdSrc = docPath(tj, enquete, mdFrom)
+      const mdDst = docPath(tj, enquete, mdTo)
+      if (mdFrom !== mdTo && fs.existsSync(mdSrc) && !fs.existsSync(mdDst)) {
+        fs.mkdirSync(path.dirname(mdDst), { recursive: true })
+        fs.renameSync(mdSrc, mdDst)
+        next = next.map((d) => (d.rel === mdFrom ? { ...d, rel: mdTo } : d))
+      }
+    } catch { /* le jumeau est un confort : l'original a bougé, c'est l'essentiel */ }
+    writeJson(docMetaPath(tj, enquete), next)
+    // pochette d'origine devenue vide : ménage silencieux (jamais la racine)
+    try {
+      let dir = path.dirname(src)
+      const racine = tjDataDir(tj, 'docs', enquete)
+      while (dir !== racine && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
+        fs.rmdirSync(dir)
+        dir = path.dirname(dir)
+      }
+    } catch { /* best-effort */ }
+    return moved
+  })
 }
 
 export async function deleteDoc(tj: string, enquete: string, rel: string): Promise<boolean> {

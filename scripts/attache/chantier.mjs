@@ -30,7 +30,7 @@ import fs from 'node:fs'
 import { attacheDir, ensureDir, atomicWrite, readJson, listFiles, listDocsMeta, docServerKey, attacheTj } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { audit, publishFeed } from './journal.mjs'
-import { numeroCanonique } from './dossier.mjs'
+import { numeroCanonique, ensureDocShas } from './dossier.mjs'
 import { appendDossierMemory } from './dossierMemory.mjs'
 import { saveProduction, readProduction, listProductions } from './productions.mjs'
 import { runAgent, agentConfig } from './agent.mjs'
@@ -92,6 +92,9 @@ function resumeChantier(ch) {
     etat: ch.etat, attente: ch.attente || null, nuitSeulement: Boolean(ch.nuitSeulement),
     creeLe: ch.creeLe, majLe: ch.majLe,
     totalPieces: ch.totalPieces, totalLots: totalLots(ch), lotsFaits: lotsFaits(ch), piecesFaites: piecesFaites(ch),
+    // dédoublonnage strict au devis : pièces déposées vs pièces à lire
+    piecesDeposees: ch.piecesDeposees || ch.totalPieces,
+    doublonsExclus: (ch.doublons || []).length,
     pochettes: (ch.plan || []).map((p) => ({
       nom: p.nom, pieces: p.lots.reduce((n, l) => n + l.pieces.length, 0),
       lots: p.lots.length, faits: p.lots.filter((l) => l.etat === 'fait' || l.etat === 'echec').length,
@@ -134,12 +137,36 @@ export async function createChantier(keys, { type = 'dossier', numero, numeros, 
   }
   const canon = numeroCanonique(keys, numero)
   if (!canon) throw new Error(`Dossier « ${numero} » introuvable`)
-  const metas = listDocsMeta(attacheTj(), docServerKey(canon)).filter((d) => !String(d.rel).startsWith('MD/'))
+  const dossierKey = docServerKey(canon)
+  // Empreintes sha256 du clair : complétées ICI pour tout le stock (une fois
+  // par pièce, déchiffrement + hash en local, zéro jeton — quelques secondes
+  // sur un très gros dossier, au moment du devis uniquement). C'est ce qui
+  // permet le dédoublonnage STRICT ci-dessous.
+  try { ensureDocShas(keys, dossierKey) } catch { /* sans empreintes : pas de dédoublonnage, jamais bloquant */ }
+  const metas = listDocsMeta(attacheTj(), dossierKey).filter((d) => !String(d.rel).startsWith('MD/'))
   if (!metas.length) throw new Error('Aucune pièce déposée sous ce dossier — versez le dossier avant de lancer un chantier')
+
+  // Doublons EXACTS (même empreinte — typique d'une jonction de procédures :
+  // la même pièce versée dans plusieurs pochettes) : chaque contenu n'est LU
+  // qu'une fois — la première pièce par ordre de chemin porte la lecture, les
+  // copies sont écartées des lots et NOMMÉES (devis, synthèse). Strictement
+  // identiques seulement : deux versions voisines restent deux pièces à lire.
+  const porteurParSha = new Map()
+  const doublons = []
+  const uniques = []
+  for (const d of [...metas].sort((a, b) => String(a.rel).localeCompare(String(b.rel)))) {
+    const sha = String(d.sha || '')
+    if (/^[a-f0-9]{64}$/.test(sha)) {
+      const porteur = porteurParSha.get(sha)
+      if (porteur) { doublons.push({ chemin: String(d.rel), copieDe: porteur }); continue }
+      porteurParSha.set(sha, String(d.rel))
+    }
+    uniques.push(d)
+  }
 
   // pochette = zone/premier-niveau (même règle que l'arborescence servie à l'IA)
   const parPochette = new Map()
-  for (const d of metas) {
+  for (const d of uniques) {
     const segs = String(d.rel).split('/')
     const nom = segs.length > 2 ? segs[0] + '/' + segs[1] : segs[0]
     if (!parPochette.has(nom)) parPochette.set(nom, [])
@@ -152,7 +179,7 @@ export async function createChantier(keys, { type = 'dossier', numero, numeros, 
       lots: chunk(rels.sort(), LOT_PIECES).map((pieces, i) => ({ n: i + 1, pieces, etat: 'a_faire', echecs: 0 })),
     }))
 
-  const totalPieces = metas.length
+  const totalPieces = uniques.length
   const nbLots = plan.reduce((n, p) => n + p.lots.length, 0)
   const ch = {
     id: crypto.randomBytes(8).toString('hex'),
@@ -166,8 +193,12 @@ export async function createChantier(keys, { type = 'dossier', numero, numeros, 
     curseur: { pochette: 0, lot: 0 },
     fiches: [],
     totalPieces,
+    piecesDeposees: metas.length,
+    // bornée : la liste sert au devis et à la synthèse, pas d'inventaire infini
+    doublons: doublons.slice(0, 1000),
     estimation: {
       pieces: totalPieces,
+      ...(doublons.length ? { doublonsExclus: doublons.length } : {}),
       lots: nbLots,
       // fourchette grossière : ~30-60 k jetons lus/écrits par lot
       jetonsMin: nbLots * 30_000,
@@ -177,7 +208,7 @@ export async function createChantier(keys, { type = 'dossier', numero, numeros, 
     },
     journal: [],
   }
-  journal(ch, `Chantier créé — ${totalPieces} pièces, ${plan.length} pochettes, ${nbLots} lots. En attente de validation du devis.`)
+  journal(ch, `Chantier créé — ${metas.length} pièces déposées${doublons.length ? `, dont ${doublons.length} copie(s) exacte(s) écartée(s) de la lecture (empreinte identique — chaque contenu lu une fois)` : ''} : ${totalPieces} pièces à lire, ${plan.length} pochettes, ${nbLots} lots. En attente de validation du devis.`)
   writeChantier(keys, ch)
   await audit(keys, 'chantier_cree', { id: ch.id, numero: canon, pieces: totalPieces, lots: nbLots })
   return resumeChantier(ch)
@@ -332,13 +363,24 @@ function promptLot(keys, ch, pochette, lot) {
 }
 
 function promptSynthese(keys, ch, fichesTexte) {
+  const doublons = ch.doublons || []
   return promptConsigne(keys, 'chantier_synthese', {
     entete: [
       `SYNTHÈSE D'ANALYSE PROFONDE — dossier « ${ch.numero} ». Le dépouillement est terminé : ${ch.fiches.length} fiches factuelles couvrant ${piecesFaites(ch)} pièces, jointes ci-dessous.`,
+      doublons.length ? `${doublons.length} pièce(s) au contenu STRICTEMENT identique à une pièce lue (empreinte sha256 égale) n'ont pas été relues — leur liste est jointe : mentionne-les en fin de synthèse (« copies exactes ») pour que la couverture soit claire.` : '',
       ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT : ${ch.consigne}` : '',
     ].filter(Boolean),
     vars: { dossier: ch.numero },
-    donnees: ['', '───── FICHES ─────', fichesTexte],
+    donnees: [
+      '',
+      ...(doublons.length ? [
+        '───── COPIES EXACTES NON RELUES ─────',
+        doublons.slice(0, 200).map((d) => `- ${d.chemin} = copie exacte de ${d.copieDe}`).join('\n'),
+        ...(doublons.length > 200 ? [`… et ${doublons.length - 200} autre(s) copie(s)`] : []),
+        '',
+      ] : []),
+      '───── FICHES ─────', fichesTexte,
+    ],
   })
 }
 

@@ -230,6 +230,27 @@ export function writeDocBlob(tj, enqueteKey, rel, blob, meta = {}) {
   return entry
 }
 
+/**
+ * Complète des entrées de l'index documents SANS toucher aux blobs — une
+ * seule réécriture atomique. Usage : les empreintes sha256 du clair calculées
+ * en tâche de fond par l'attaché (le stock versé avant l'empreinte au
+ * téléversement n'en a pas). `patchByRel` : Map rel → objet fusionné.
+ */
+export function patchDocIndex(tj, enqueteKey, patchByRel) {
+  if (!patchByRel || !patchByRel.size) return 0
+  const indexPath = path.join(tjDataDir(tj, 'docs', enqueteKey), '.index.json')
+  const index = readJson(indexPath, [])
+  let n = 0
+  const next = index.map((d) => {
+    const patch = patchByRel.get(d.rel)
+    if (!patch) return d
+    n++
+    return { ...d, ...patch }
+  })
+  if (n) atomicWrite(indexPath, JSON.stringify(next, null, 2))
+  return n
+}
+
 /** Retire un blob document et son entrée d'index. */
 export function deleteDocBlob(tj, enqueteKey, rel) {
   safeRel(rel)

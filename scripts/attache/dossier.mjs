@@ -13,7 +13,7 @@
 import crypto from 'node:crypto'
 import {
   attacheTj, attacheContentieux, readVault, writeVault,
-  listDocsMeta, readDocBlob, docServerKey,
+  listDocsMeta, readDocBlob, docServerKey, patchDocIndex,
   attacheDir, readJson, atomicWrite, readState,
 } from './store.mjs'
 import { encryptJson, decryptJson, decryptDocBlob } from './crypto.mjs'
@@ -515,15 +515,33 @@ function tidyPdfText(text) {
  */
 export async function readDocumentText(keys, numero, cheminRelatif, page = {}) {
   const key = docServerKey(numeroCanonique(keys, numero))
+  const res = await texteDocumentIntegral(keys, key, cheminRelatif, { integrale: Boolean(page.integrale) })
+  if (!res.ok) return res
+  return pageTexte(res.texte, page, res.extra || {})
+}
+
+/**
+ * Texte INTÉGRAL d'une pièce (clé serveur déjà résolue) — cœur commun de
+ * lire_document et de pieces_chercher. Ordre : copie MD/ du téléversement →
+ * cache d'extraction (hash du blob) → extraction (PDF/Office/tableur, OCR
+ * seulement si `integrale`). `extraire:false` : ne JAMAIS extraire — servir
+ * seulement ce qui existe déjà (MD/, cache, formats bruts) et rendre
+ * { ok:false, nonExtrait:true } sinon ; la recherche plein texte borne ainsi
+ * son travail et complète l'extraction au fil de ses appels.
+ * Rend { ok, texte, extra } — `extra.extraction = true` quand une extraction
+ * fraîche a réellement eu lieu (comptabilité des budgets recherche/ingestion).
+ * Exporté pour la recherche (pieces_chercher) et l'ingestion (ingest.mjs).
+ */
+export async function texteDocumentIntegral(keys, key, cheminRelatif, { integrale = false, extraire = true } = {}) {
   // Copie markdown déposée AU TÉLÉVERSEMENT (MD/<chemin>.md) : servie en
   // priorité pour les formats non textuels — zéro extraction, texte fidèle
   // (conversion navigateur), tokens et CPU économisés.
-  if (!page.integrale && !/\.(txt|html?|md|csv|json|eml)$/i.test(cheminRelatif) && !cheminRelatif.startsWith('MD/')) {
+  if (!integrale && !/\.(txt|html?|md|csv|json|eml)$/i.test(cheminRelatif) && !cheminRelatif.startsWith('MD/')) {
     const mdRel = 'MD/' + cheminRelatif.replace(/\.[^./]+$/, '') + '.md'
     const mdBlob = readDocBlob(attacheTj(), key, mdRel)
     if (mdBlob) {
       const plain = decryptDocBlob(keys.global, mdBlob)
-      if (plain) return pageTexte(plain.toString('utf8'), page, { source: 'copie markdown du téléversement' })
+      if (plain) return { ok: true, texte: plain.toString('utf8'), extra: { source: 'copie markdown du téléversement' } }
     }
   }
   const blob = readDocBlob(attacheTj(), key, cheminRelatif)
@@ -534,30 +552,34 @@ export async function readDocumentText(keys, numero, cheminRelatif, page = {}) {
   const lower = cheminRelatif.toLowerCase()
   if (lower.endsWith('.pdf')) {
     const blobHash = crypto.createHash('sha256').update(blob).digest('hex')
-    const variante = page.integrale ? 'integrale' : ''
+    const variante = integrale ? 'integrale' : ''
     const cached = readDocCache(keys, key, cheminRelatif, blobHash, variante)
-    if (cached) return pageTexte(cached.texte, page, { cache: true })
+    if (cached) return { ok: true, texte: cached.texte, extra: { cache: true } }
+    if (!extraire) return { ok: false, nonExtrait: true, error: 'Texte non encore extrait' }
     const plain = decryptDocBlob(keys.global, blob)
     if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }
     // Couche texte native ; OCR automatique seulement si la pièce est un scan
     // ENTIÈREMENT muet. Les pages images d'une pièce mixte ne sont océrisées
     // qu'en lecture intégrale (integrale:true) — à la demande, jamais d'office.
-    const res = await extractPdfText(plain, { ocrImages: Boolean(page.integrale) })
+    const res = await extractPdfText(plain, { ocrImages: Boolean(integrale) })
     if (!res.ok) return { ok: false, error: res.error, scanned: res.scanned }
     const texte = tidyPdfText(res.texte)
     try { writeDocCache(keys, key, cheminRelatif, blobHash, texte, variante) } catch { /* cache facultatif */ }
-    return pageTexte(texte, page, {
-      source: res.source,
-      ...(res.pagesImagesNonLues ? {
-        pagesImagesNonLues: res.pagesImagesNonLues,
-        noteImages: `${res.pagesImagesNonLues} page(s) image non océrisée(s) dans cette pièce — relire avec integrale:true UNIQUEMENT si leur contenu est nécessaire à la question posée`,
-      } : {}),
-    })
+    return {
+      ok: true, texte, extra: {
+        source: res.source,
+        extraction: true,
+        ...(res.pagesImagesNonLues ? {
+          pagesImagesNonLues: res.pagesImagesNonLues,
+          noteImages: `${res.pagesImagesNonLues} page(s) image non océrisée(s) dans cette pièce — relire avec integrale:true UNIQUEMENT si leur contenu est nécessaire à la question posée`,
+        } : {}),
+      },
+    }
   }
   const plain = decryptDocBlob(keys.global, blob)
   if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }
   if (/\.(txt|html?|md|csv|json|eml)$/.test(lower)) {
-    return pageTexte(stripHtml(plain.toString('utf8')), page)
+    return { ok: true, texte: stripHtml(plain.toString('utf8')), extra: {} }
   }
   if (isOfficeExt(lower) || isSpreadsheetExt(lower)) {
     // ODT/DOCX/RTF et classeurs Excel/ODS versés par mail (pas de copie
@@ -566,13 +588,244 @@ export async function readDocumentText(keys, numero, cheminRelatif, page = {}) {
     // section), prêt à être exploité comme des données.
     const blobHash = crypto.createHash('sha256').update(blob).digest('hex')
     const cached = readDocCache(keys, key, cheminRelatif, blobHash)
-    if (cached) return pageTexte(cached.texte, page, { cache: true })
+    if (cached) return { ok: true, texte: cached.texte, extra: { cache: true } }
+    if (!extraire) return { ok: false, nonExtrait: true, error: 'Texte non encore extrait' }
     const res = isSpreadsheetExt(lower) ? await extractSpreadsheetText(plain, lower) : extractOfficeText(plain, lower)
     if (!res.ok) return { ok: false, error: res.error }
     try { writeDocCache(keys, key, cheminRelatif, blobHash, res.texte) } catch { /* cache facultatif */ }
-    return pageTexte(res.texte, page, { source: res.source })
+    return { ok: true, texte: res.texte, extra: { source: res.source, extraction: true } }
   }
   return { ok: false, error: `Type non textuel (${cheminRelatif.split('.').pop()}) — ${plain.length} octets` }
+}
+
+// ── Empreintes de contenu (dédoublonnage STRICT) ──
+// Le téléversement calcule désormais le sha256 du CLAIR côté navigateur
+// (bridge.ts/docUpload) ; le stock versé avant n'en a pas. L'attaché — seul à
+// détenir les clés — complète l'index en local : déchiffrement + hash, zéro
+// jeton. Deux pièces ne sont dites « doublon » que sur empreinte ÉGALE
+// (contenu identique octet à octet) : jamais de rapprochement approximatif,
+// pour ne JAMAIS écarter une pièce simplement voisine.
+
+/**
+ * Complète les empreintes manquantes de l'index documents d'un dossier
+ * (clé serveur déjà résolue). Les copies MD/ sont ignorées (dérivées, jamais
+ * dédupliquées). `max` borne le travail d'un appel — les suivants continuent.
+ * Rend { total, calculees, restantes, illisibles }.
+ */
+export function ensureDocShas(keys, key, { max = Infinity } = {}) {
+  const metas = listDocsMeta(attacheTj(), key).filter((d) => !String(d.rel).startsWith('MD/'))
+  const manquantes = metas.filter((d) => !/^[a-f0-9]{64}$/.test(String(d.sha || '')))
+  const patches = new Map()
+  let illisibles = 0
+  for (const d of manquantes) {
+    if (patches.size >= max) break
+    const blob = readDocBlob(attacheTj(), key, d.rel)
+    const plain = blob ? decryptDocBlob(keys.global, blob) : null
+    if (!plain) { illisibles++; continue }
+    patches.set(d.rel, { sha: crypto.createHash('sha256').update(plain).digest('hex') })
+  }
+  if (patches.size) patchDocIndex(attacheTj(), key, patches)
+  return {
+    total: metas.length,
+    calculees: patches.size,
+    restantes: Math.max(0, manquantes.length - patches.size - illisibles),
+    illisibles,
+  }
+}
+
+/**
+ * Groupes de doublons EXACTS d'une liste d'entrées d'index : empreinte →
+ * chemins (triés), seuls les groupes d'au moins deux pièces sont rendus. Le
+ * premier chemin du groupe est le « porteur » ; les autres sont des copies.
+ */
+export function groupesDoublons(metas) {
+  const parSha = new Map()
+  for (const d of metas) {
+    if (String(d.rel).startsWith('MD/')) continue
+    const sha = String(d.sha || '')
+    if (!/^[a-f0-9]{64}$/.test(sha)) continue
+    if (!parSha.has(sha)) parSha.set(sha, [])
+    parSha.get(sha).push(String(d.rel))
+  }
+  const groupes = []
+  for (const [sha, rels] of parSha) {
+    if (rels.length < 2) continue
+    groupes.push({ sha, pieces: rels.sort((a, b) => a.localeCompare(b)) })
+  }
+  return groupes.sort((a, b) => a.pieces[0].localeCompare(b.pieces[0]))
+}
+
+// ── Recherche plein texte dans les PIÈCES (et les fiches) ──
+// Il manquait à l'agent un moyen de LOCALISER une information dans les pièces
+// sans les relire une à une. Même philosophie que kb_chercher : recherche
+// agentique, scan linéaire normalisé, AUCUN index vectoriel — le corpus est
+// déjà là (copies MD/ du téléversement, caches d'extraction) et l'attaché
+// détient les clés. Zéro jeton : tout se passe en local.
+
+// Extractions FRAÎCHES par appel (pièces sans copie MD/ ni cache — PDF à
+// parser) : bornées pour que la recherche réponde vite ; les pièces restantes
+// sont comptées et les appels suivants complètent — l'« index » se construit
+// au fil des recherches, puis tout est servi depuis le cache.
+const RECHERCHE_EXTRACTIONS_MAX = 25
+const RECHERCHE_PIECES_MAX = 20     // résultats pièces servis au plus
+const RECHERCHE_FICHES_MAX = 6      // résultats fiches servis au plus
+const RECHERCHE_EXTRAITS_PAR_PIECE = 3
+
+/**
+ * Normalisation ALIGNÉE 1:1 (même longueur que l'original) : minuscules,
+ * accents ramenés au caractère de base — les index trouvés dans le texte
+ * normalisé désignent les mêmes positions dans l'original, d'où des extraits
+ * fidèles (accents et casse d'origine).
+ */
+export function normAligne(s) {
+  const src = String(s || '')
+  let out = ''
+  for (let i = 0; i < src.length; i++) {
+    const n = src[i].normalize('NFKD')
+    out += (n[0] || src[i]).toLowerCase()
+  }
+  return out
+}
+
+/** Mots de recherche (≥ 2 caractères, normalisés). */
+function motsRequete(requete) {
+  return [...new Set(normAligne(requete).split(/[^a-z0-9]+/).filter((w) => w.length >= 2))]
+}
+
+/**
+ * Cherche TOUS les mots dans un texte (ET logique — l'outil sert à localiser
+ * une information précise, pas à classer par pertinence vague). Rend null si
+ * un mot manque, sinon { occurrences, extraits } — extraits pris autour des
+ * premières positions, espaces compactés, dans le texte ORIGINAL.
+ */
+function chercherDansTexte(texte, mots, maxExtraits = RECHERCHE_EXTRAITS_PAR_PIECE) {
+  const norm = normAligne(texte)
+  let occurrences = 0
+  const positions = []
+  for (const mot of mots) {
+    let from = 0, n = 0
+    for (;;) {
+      const i = norm.indexOf(mot, from)
+      if (i < 0) break
+      n++
+      positions.push(i)
+      from = i + mot.length
+      if (n >= 200) break
+    }
+    if (!n) return null
+    occurrences += n
+  }
+  positions.sort((a, b) => a - b)
+  const extraits = []
+  let dernierFin = -1
+  for (const pos of positions) {
+    if (extraits.length >= maxExtraits) break
+    if (pos < dernierFin) continue // déjà couvert par l'extrait précédent
+    const debut = Math.max(0, pos - 160)
+    const fin = Math.min(texte.length, pos + 240)
+    dernierFin = fin
+    extraits.push('…' + texte.slice(debut, fin).replace(/\s+/g, ' ').trim() + '…')
+  }
+  return { occurrences, extraits }
+}
+
+/**
+ * RECHERCHE PLEIN TEXTE dans un dossier : fiches de dépouillement D'ABORD
+ * (déjà synthétiques et cotées — la voie rapide), puis le texte des pièces
+ * (copies MD/, caches, extraction bornée pour le reste). Les doublons exacts
+ * (même empreinte) ne sont fouillés qu'une fois — les copies sont nommées.
+ */
+export async function chercherDansPieces(keys, numero, { requete, pochette, limite } = {}) {
+  const canon = numeroCanonique(keys, numero)
+  const key = docServerKey(canon)
+  const mots = motsRequete(requete)
+  if (!mots.length) return { ok: false, error: 'Requête vide (mots de 2 caractères minimum)' }
+
+  // 1) Les FICHES de dépouillement — le capital de lecture, fouillé en premier
+  const fiches = []
+  try {
+    const { listProductions, readProduction } = await import('./productions.mjs')
+    for (const p of listProductions(keys, canon).filter((p) => p.type === 'fiche')) {
+      const prod = readProduction(keys, canon, p.id)
+      if (!prod?.contenu) continue
+      const hit = chercherDansTexte(String(prod.contenu), mots, 2)
+      if (hit) fiches.push({ id: p.id, titre: p.titre || p.id, occurrences: hit.occurrences, extraits: hit.extraits })
+    }
+  } catch { /* pas de productions : dossier sans chantier */ }
+  fiches.sort((a, b) => b.occurrences - a.occurrences)
+
+  // 2) Les PIÈCES — un exemplaire par empreinte (doublons exacts sautés)
+  const metas = listDocsMeta(attacheTj(), key).filter((d) => !String(d.rel).startsWith('MD/'))
+  const filtre = String(pochette || '').replace(/\/+$/, '')
+  const ciblees = filtre
+    ? metas.filter((d) => d.rel === filtre || String(d.rel).startsWith(filtre + '/'))
+    : metas
+  const copiesDe = new Map() // sha → chemin porteur (le premier par ordre de chemin)
+  const aFouiller = []
+  let doublonsSautes = 0
+  for (const d of [...ciblees].sort((a, b) => String(a.rel).localeCompare(String(b.rel)))) {
+    const sha = String(d.sha || '')
+    if (/^[a-f0-9]{64}$/.test(sha)) {
+      if (copiesDe.has(sha)) { doublonsSautes++; continue }
+      copiesDe.set(sha, String(d.rel))
+    }
+    aFouiller.push(d)
+  }
+
+  const pieces = []
+  const nonExtraites = []
+  const retenir = (d, res) => {
+    const hit = chercherDansTexte(res.texte, mots)
+    if (!hit) return
+    pieces.push({
+      chemin: d.rel,
+      occurrences: hit.occurrences,
+      extraits: hit.extraits,
+      ...(res.extra?.pagesImagesNonLues ? { pagesImagesNonLues: res.extra.pagesImagesNonLues } : {}),
+    })
+  }
+  // Premier passage : uniquement ce qui est DÉJÀ disponible (MD/, cache,
+  // formats bruts) — rapide quel que soit le volume du dossier.
+  const aExtraire = []
+  for (const d of aFouiller) {
+    const res = await texteDocumentIntegral(keys, key, d.rel, { extraire: false }).catch(() => ({ ok: false }))
+    if (res.ok) retenir(d, res)
+    else if (res.nonExtrait) aExtraire.push(d)
+  }
+  // Second passage : extraction fraîche, BORNÉE par appel — chaque tentative
+  // consomme le budget (même un scan muet : sinon il serait re-parsé sans fin).
+  let extractions = 0
+  for (const d of aExtraire) {
+    if (extractions >= RECHERCHE_EXTRACTIONS_MAX) { nonExtraites.push(d.rel); continue }
+    extractions++
+    const res = await texteDocumentIntegral(keys, key, d.rel).catch(() => ({ ok: false }))
+    if (res.ok) retenir(d, res)
+  }
+  pieces.sort((a, b) => b.occurrences - a.occurrences)
+  const lim = Math.max(1, Math.min(RECHERCHE_PIECES_MAX, Number(limite) || 12))
+
+  const notes = []
+  if (nonExtraites.length) {
+    notes.push(`${nonExtraites.length} pièce(s) sans texte disponible n'ont pas été fouillées (extraction bornée à ${RECHERCHE_EXTRACTIONS_MAX} pièces par appel) — RELANCE la même recherche pour continuer : chaque passage étend le cache, jusqu'à couverture complète.`)
+  }
+  if (!pieces.length && !fiches.length) {
+    notes.push('Aucun résultat : les mots sont cherchés TOUS ensemble (ET) — réessaie avec moins de mots, une variante d\'orthographe, ou pochette:"…" pour cibler.')
+  }
+  return {
+    dossier: canon,
+    mots,
+    ...(filtre ? { pochette: filtre } : {}),
+    fiches: fiches.slice(0, RECHERCHE_FICHES_MAX),
+    pieces: pieces.slice(0, lim),
+    couverture: {
+      pieces: ciblees.length,
+      fouillees: aFouiller.length - nonExtraites.length,
+      doublonsExactsSautes: doublonsSautes,
+      nonExtraites: nonExtraites.length,
+    },
+    ...(pieces.length > lim ? { tronque: `${pieces.length - lim} résultat(s) de moindre poids non affichés — augmente limite ou précise la requête` } : {}),
+    ...(notes.length ? { note: notes.join(' ') } : {}),
+  }
 }
 
 /**
@@ -1157,11 +1410,29 @@ export async function ajouterNatinfs(keys, { numero, codes, source }) {
  */
 export function arborescenceDocuments(keys, numero, { pochette, offset, limit } = {}) {
   const metas = listDocsMeta(attacheTj(), docServerKey(numeroCanonique(keys, numero)))
+  // Doublons EXACTS (même empreinte sha256 du clair — jonctions, pièces
+  // versées dans plusieurs pochettes) : la première par ordre de chemin est
+  // le porteur, les copies sont ANNOTÉES — ne pas les relire, citer le porteur.
+  const porteurParSha = new Map()
+  for (const d of [...metas].sort((a, b) => String(a.rel).localeCompare(String(b.rel)))) {
+    if (String(d.rel).startsWith('MD/')) continue
+    const sha = String(d.sha || '')
+    if (/^[a-f0-9]{64}$/.test(sha) && !porteurParSha.has(sha)) porteurParSha.set(sha, String(d.rel))
+  }
+  let doublonsExacts = 0
   let pieces = metas
     // MD/ = copies markdown des originaux : lire_document les sert déjà de
     // lui-même quand on demande l'original — les lister doublerait tout.
     .filter((d) => !String(d.rel).startsWith('MD/'))
-    .map((d) => ({ chemin: d.rel, taille: d.size, deposeLe: d.savedAt, nomOriginal: d.originalName }))
+    .map((d) => {
+      const porteur = /^[a-f0-9]{64}$/.test(String(d.sha || '')) ? porteurParSha.get(String(d.sha)) : undefined
+      const copie = porteur && porteur !== String(d.rel)
+      if (copie) doublonsExacts++
+      return {
+        chemin: d.rel, taille: d.size, deposeLe: d.savedAt, nomOriginal: d.originalName,
+        ...(copie ? { copieExacteDe: porteur } : {}),
+      }
+    })
     .sort((a, b) => a.chemin.localeCompare(b.chemin))
   const totalDossier = pieces.length
   // Panorama : zone seule pour les pièces à plat (PV/x.pdf), zone/pochette
@@ -1181,6 +1452,10 @@ export function arborescenceDocuments(keys, numero, { pochette, offset, limit } 
   const reste = total - start - page.length
   return {
     totalDossier,
+    ...(doublonsExacts ? {
+      doublonsExacts,
+      noteDoublons: `${doublonsExacts} pièce(s) marquées copieExacteDe (contenu strictement identique, empreinte sha256) — ne pas les relire : citer le porteur`,
+    } : {}),
     ...(filtre ? { pochette: filtre, totalPochette: total } : {}),
     pochettes: Object.fromEntries([...parPochette.entries()].sort((a, b) => a[0].localeCompare(b[0]))),
     affichees: page.length,
