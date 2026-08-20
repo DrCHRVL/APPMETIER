@@ -20,6 +20,7 @@ import { SaisiesSection } from '../sections/SaisiesSection';
 import { DeleteEnqueteModal } from './DeleteEnqueteModal';
 import { ClotureSummaryModal } from './ClotureSummaryModal';
 import { SasSummaryModal } from './SasSummaryModal';
+import { SaisineSummaryModal } from './SaisineSummaryModal';
 import { Trash2, Siren, FileText, Plus, Star, ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { EnqueteHeader } from '../sections/EnqueteHeader';
@@ -107,6 +108,7 @@ const EnqueteDetailModalImpl = ({
   const [propositionsToken, setPropositionsToken] = useState(0);
   const [showClotureSummary, setShowClotureSummary] = useState(false);
   const [showSasSummary, setShowSasSummary] = useState(false);
+  const [showSaisine, setShowSaisine] = useState(false);
   const [showSuiviAlert, setShowSuiviAlert] = useState(false);
   const [suiviAlertContext, setSuiviAlertContext] = useState<'dateOP' | 'archive' | 'audience'>('dateOP');
   const [localNumero, setLocalNumero] = useState(enquete.numero);
@@ -626,6 +628,16 @@ const EnqueteDetailModalImpl = ({
                   <FileText className="h-4 w-4" />
                   Générer le SAS (article 80-5 CPP)
                 </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-2 text-gray-600 border-gray-300 hover:bg-gray-50"
+                  onClick={() => setShowSaisine(true)}
+                >
+                  <FileText className="h-4 w-4" />
+                  Générer le soit-transmis de saisine
+                </Button>
               </div>
             </div>
           </div>
@@ -669,6 +681,12 @@ const EnqueteDetailModalImpl = ({
       <SasSummaryModal
         isOpen={showSasSummary}
         onClose={() => setShowSasSummary(false)}
+        enquete={enquete}
+      />
+
+      <SaisineSummaryModal
+        isOpen={showSaisine}
+        onClose={() => setShowSaisine(false)}
         enquete={enquete}
       />
 

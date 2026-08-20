@@ -92,6 +92,22 @@ export interface ActeExportable {
   /** Objet de l'acte (n° de ligne interceptée, objet géolocalisé…) — dernier segment, si présent. */
   objet?: string
   updatedAt?: string
+  /** Signature apposée sous le bloc « Fait à …, le … » (cf. utils/signatureElectronique.ts). */
+  signature?: SignatureActe
+}
+
+/**
+ * Signature reproduite au bas de l'acte exporté : la mention que le magistrat
+ * appose habituellement, et son cachet. Rien de cryptographique — la forme
+ * signée d'un acte qui, sans cela, devrait être imprimé pour être signé.
+ */
+export interface SignatureActe {
+  /** Mention (« Signé électroniquement : Nom Prénom L0000000 »), multi-lignes. */
+  mention?: string
+  /** Cachet en data-URI (PNG/JPEG). Absent des exports passant par une trame de forme. */
+  cachet?: string
+  /** Largeur du cachet dans le document, en pixels. */
+  largeurPx?: number
 }
 
 /** Mise en forme légère héritée des trames (déjà échappée en amont). */
@@ -290,6 +306,26 @@ function renderSignature(signature: string[]): string {
   return `<div style="margin-top:20pt;">${lignes}</div>`
 }
 
+/**
+ * Mention et cachet du magistrat, sous le bloc « Fait à …, le … ». Rendus dans
+ * le même alignement que la signature pour rester dans la colonne de droite.
+ * Le cachet est un data-URI : il survit à l'export Word comme au PDF, y compris
+ * sur un poste hors ligne.
+ */
+function renderSignatureElectronique(sig: SignatureActe | undefined): string {
+  if (!sig) return ''
+  const mention = (sig.mention || '').trim()
+  const lignes = mention
+    ? mention.split(/\n/).map((l) => `<div style="text-align:right;">${escapeHtml(l)}</div>`).join('')
+    : ''
+  const largeur = sig.largeurPx && sig.largeurPx > 0 ? Math.round(sig.largeurPx) : 150
+  const cachet = sig.cachet
+    ? `<div style="text-align:right;"><img src="${sig.cachet}" alt="" style="width:${largeur}px;height:auto;" /></div>`
+    : ''
+  if (!lignes && !cachet) return ''
+  return `<div style="margin-top:10pt;">${lignes}${cachet}</div>`
+}
+
 // ── Gabarit COURRIER (lettre) — 3ᵉ face de la papeterie ──────────────────────
 //
 // Distinct des actes (requête / soit-transmis) : en-tête à deux colonnes
@@ -486,6 +522,8 @@ export function acteHtml(p: ActeExportable, opts: { logo?: string, graphiques?: 
   if (s.titre) parts.push(renderTitleBox(s.titre, s.article))
   parts.push(`<div>${acteBodyHtml(aStructure ? s.corps : p.contenu, opts.graphiques)}</div>`)
   if (s.signature.length) parts.push(renderSignature(s.signature))
+  const signatureHtml = renderSignatureElectronique(p.signature)
+  if (signatureHtml) parts.push(signatureHtml)
   return `<div style="font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.5;color:#000;">
 ${parts.join('\n')}
 </div>`
@@ -556,10 +594,13 @@ function extractTrameVars(p: ActeExportable, type: TrameFormeType): TrameVars {
     return { destinataire: addressee, objet, date: dateStr || longDate(p.updatedAt), corps }
   }
   const s = parseActe(p.contenu)
+  // La balise {{SIGNATURE}} d'une trame de forme est du texte : la mention y
+  // trouve sa place, le cachet non (fillTrameDocx n'injecte pas d'image).
+  const mention = (p.signature?.mention || '').trim()
   return {
     titre: s.titre || p.titre || '',
     corps: s.corps,
-    signature: s.signature.join('\n'),
+    signature: [s.signature.join('\n'), mention].filter(Boolean).join('\n'),
     date: longDate(p.updatedAt),
   }
 }

@@ -58,7 +58,9 @@ export const APP_CONFIG = {
     VISUAL_ALERT_RULES: 'visualAlertRules',
     CLOTURE_TEMPLATE: 'clotureTemplate',
     SAS_TEMPLATE: 'sasTemplate', // Trame du SAS art. 80-5 CPP (autorisation de poursuite d'actes)
-    TRAMES_FORME: 'tramesForme' // Papeteries Word (.docx à balises) définies par l'utilisateur
+    TRAMES_FORME: 'tramesForme', // Papeteries Word (.docx à balises) définies par l'utilisateur
+    SAISINE_TEMPLATE: 'saisineTemplate', // Trame du soit-transmis de saisine d'un service d'enquête
+    SIGNATURE_ELECTRONIQUE: 'signatureElectronique' // Mention et cachet apposés au bas des actes exportés
   },
 
   // 🆕 CONFIGURATION DES SAUVEGARDES
