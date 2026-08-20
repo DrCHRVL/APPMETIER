@@ -1476,10 +1476,10 @@ function AppContent() {
       case 'personne': {
         // Accès DIRECT : on bascule sur la cartographie et on demande le
         // recentrage sur la personne. Plus de second clic dans une liste de
-        // résultats — la carte s'ouvre déjà sur le bon nœud.
+        // résultats — la carte s'ouvre déjà sur le bon nœud, et c'est la seule
+        // recherche de la page (la carte n'a pas de barre à elle).
         const nom = String(data.nom || '');
         await handleViewChange('mindmap');
-        handleSearchChange(nom);
         setMindmapFocus(prev => ({ nom, seq: (prev?.seq ?? 0) + 1 }));
         return;
       }
@@ -1889,8 +1889,6 @@ return (
           {baseView === 'mindmap' && (
             <MindmapPage
               sources={mindmapSources}
-              searchTerm={debouncedSearchTerm}
-              onSearchChange={handleSearchChange}
               focusRequest={mindmapFocus}
               knownNames={allKnownMec}
               knownNameHints={knownNameHints}
