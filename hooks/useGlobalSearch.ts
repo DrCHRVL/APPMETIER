@@ -11,6 +11,7 @@ import { useMemo } from 'react';
 import { Enquete, AIRMesure } from '@/types/interfaces';
 import { DossierInstruction } from '@/types/instructionTypes';
 import { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
+import type { KnownPerson } from '@/utils/knownPersons';
 import {
   GlobalSearchDoc,
   GlobalHitGroup,
@@ -20,7 +21,6 @@ import {
   searchDocs,
   groupHits,
   squashAlnum,
-  normalizeText,
 } from '@/utils/globalSearch';
 
 export interface GlobalSearchSources {
@@ -35,6 +35,10 @@ export interface GlobalSearchSources {
   /** Contentieux où l'utilisateur peut créer une enquête. */
   createContentieuxIds: ContentieuxId[];
   modules: { instructions: boolean; air: boolean; mindmap: boolean };
+  /** Fichier des personnes (mis en cause, mis en examen, suspects, victimes,
+   *  fiches manuelles de la cartographie) déjà dédupliqué par `useKnownPersons`.
+   *  Alimente le groupe « Personnes » de l'omnibox. */
+  knownPersons?: KnownPerson[];
   hasOverboard: boolean;
   showAssistant: boolean;
 }
@@ -136,6 +140,18 @@ function buildInstructionDoc(d: DossierInstruction): GlobalSearchDoc {
     2.4,
     { label: 'Mis en examen', fuzzy: true, ops: ['mex', 'mec', 'nom', 'personne'] }
   ));
+  // Suspects et victimes sont saisis dans le module instruction et projetés sur
+  // la cartographie : ils doivent être trouvables comme les mis en examen.
+  push(acc, makeField(
+    (d.suspects || []).map(s => s.nom).filter(Boolean).join(' · '),
+    2.2,
+    { label: 'Suspect', fuzzy: true, ops: ['suspect', 'nom', 'personne'] }
+  ));
+  push(acc, makeField(
+    (d.victimes || []).map(v => v.nom).filter(Boolean).join(' · '),
+    2,
+    { label: 'Victime', fuzzy: true, ops: ['victime', 'partiecivile', 'nom', 'personne'] }
+  ));
   push(acc, makeField(d.magistratInstructeur, 2, { label: 'Magistrat instructeur', fuzzy: true, ops: ['magistrat', 'juge'] }));
   push(acc, makeField(d.serviceEnqueteur, 1.8, { label: 'Service', fuzzy: true, ops: ['service', 'sce'] }));
   push(acc, makeField((d.tags || []).map(t => t.value).join(' · '), 1.8, { label: 'Tag', fuzzy: true, ops: ['tag'] }));
@@ -193,37 +209,38 @@ function buildAIRDoc(m: AIRMesure, idx: number): GlobalSearchDoc | null {
 
 // ── Personnes (→ cartographie) ─────────────────
 
-function buildPersonneDocs(
-  enquetesByContentieux: Map<ContentieuxId, Enquete[]>,
-  instructions: DossierInstruction[]
-): GlobalSearchDoc[] {
-  const byName = new Map<string, { display: string; count: number }>();
-  const add = (nom?: string) => {
-    const display = (nom || '').trim();
-    if (display.length < 3) return;
-    const key = normalizeText(display).replace(/\s+/g, ' ');
-    const cur = byName.get(key);
-    if (cur) cur.count++;
-    else byName.set(key, { display, count: 1 });
-  };
-  enquetesByContentieux.forEach(list => {
-    for (const e of list) for (const m of e.misEnCause || []) add(m.nom);
-  });
-  for (const d of instructions) for (const m of d.misEnExamen || []) add(m.nom);
-
+/**
+ * Groupe « Personnes » : une ligne par personne du fichier applicatif (mis en
+ * cause, mis en examen, suspects, victimes, fiches manuelles de la
+ * cartographie), déjà dédupliquée par `useKnownPersons` — les variantes
+ * d'orthographe d'une même personne ne produisent donc qu'un seul résultat.
+ * L'exécution recentre la cartographie sur la personne.
+ */
+function buildPersonneDocs(knownPersons: KnownPerson[]): GlobalSearchDoc[] {
   const docs: GlobalSearchDoc[] = [];
-  byName.forEach(({ display, count }, key) => {
-    const nameField = makeField(display, 3, { fuzzy: true, ops: ['nom', 'personne', 'mec', 'mex'] });
-    if (!nameField) return;
+  for (const person of knownPersons) {
+    // Une personne sans nœud sur la carte (victime non cochée « sur la
+    // cartographie ») n'a rien à ouvrir : elle reste trouvable via son dossier.
+    if (!person.onCarto) continue;
+    const nameField = makeField(person.nom, 3, { fuzzy: true, ops: ['nom', 'personne', 'mec', 'mex'] });
+    if (!nameField) continue;
+    const fields: DocField[] = [nameField];
+    // Les autres orthographes rencontrées restent interrogeables : on trouve la
+    // personne en tapant le nom tel qu'il figure dans SON dossier.
+    const autresVariantes = person.variants.filter(v => v !== person.nom);
+    push(
+      fields as Array<DocField | null>,
+      makeField(autresVariantes.join(' · '), 1.6, { label: 'Aussi saisi', fuzzy: true, ops: ['nom', 'personne'] }),
+    );
     docs.push({
-      key: `pers_${key}`,
+      key: `pers_${person.key}`,
       kind: 'personne',
-      title: display,
-      subtitle: `${count} dossier${count > 1 ? 's' : ''} · voir sur la cartographie`,
-      fields: [nameField],
-      data: { nom: display },
+      title: person.nom,
+      subtitle: `${person.hint} · voir sur la cartographie`,
+      fields,
+      data: { nom: person.nom },
     });
-  });
+  }
   return docs;
 }
 
@@ -335,6 +352,7 @@ export const useGlobalSearch = (sources: GlobalSearchSources): GlobalSearchApi =
     modules,
     hasOverboard,
     showAssistant,
+    knownPersons,
   } = sources;
 
   // Signatures stables pour ne pas reconstruire l'index à chaque rendu.
@@ -362,16 +380,13 @@ export const useGlobalSearch = (sources: GlobalSearchSources): GlobalSearchApi =
       });
     }
 
-    if (modules.mindmap) {
-      out.push(...buildPersonneDocs(
-        new Map([...enquetesByContentieux].filter(([id]) => contentieux.some(c => c.id === id))),
-        modules.instructions ? instructions : []
-      ));
+    if (modules.mindmap && knownPersons) {
+      out.push(...buildPersonneDocs(knownPersons));
     }
 
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enquetesByContentieux, instructions, mesuresAIR, contentieux, modules.instructions, modules.air, modules.mindmap]);
+  }, [enquetesByContentieux, instructions, mesuresAIR, contentieux, modules.instructions, modules.air, modules.mindmap, knownPersons]);
 
   const nav = useMemo(
     () => buildNavigationDocs({

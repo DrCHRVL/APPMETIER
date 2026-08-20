@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, ClipboardPaste, Users, Scale, ListChecks, AlertTriangle, Download, Lock, FileText, Unlock, Gavel } from 'lucide-react';
+import { X, ClipboardPaste, Users, Scale, ListChecks, AlertTriangle, Download, Lock, FileText, Unlock, Gavel, Link2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { useToast } from '@/contexts/ToastContext';
 import { useNatinf } from '@/hooks/useNatinf';
@@ -19,7 +19,6 @@ import {
   buildEvenement,
   makeIdGen,
   normalizeNom,
-  nameExists,
   suggestCasDPFromNatinfRefs,
   deriveDpPeriodesForPersonne,
   deriveDMLsForPersonne,
@@ -27,6 +26,8 @@ import {
   type ParsedPersonne,
   type CassiopeeRole,
 } from '@/utils/cassiopeeImportUtils';
+import { sameMecPerson } from '@/utils/mindmapGraph';
+import type { KnownPerson, KnownPersonsIndex } from '@/utils/knownPersons';
 import { toRef } from '@/lib/natinf/natinfData';
 import type { NatinfRef } from '@/types/natinf';
 import type {
@@ -52,6 +53,12 @@ export interface CassiopeeImportResult {
   misEnExamen: MisEnExamen[];
   suspects: Suspect[];
   victimes: Victime[];
+  /**
+   * Suspects du dossier promus mis en examen par cet import : la personne
+   * revient de Cassiopée avec la qualité de mis en examen, sa fiche suspect
+   * doit disparaître au lieu de coexister avec la nouvelle (doublon).
+   */
+  suspectsPromusIds?: number[];
   saisine: SaisineItem[];
   evenements: EvenementInstruction[];
   /**
@@ -80,9 +87,31 @@ interface Props {
   existingSaisine: SaisineItem[];
   /** Coche « appliquer l'en-tête » par défaut (vrai à la création d'un dossier). */
   applyHeaderDefault?: boolean;
+  /**
+   * Fichier des personnes de TOUTE l'application (autres dossiers, enquêtes,
+   * fiches cartographie). Une personne déjà connue ailleurs n'est pas un
+   * doublon à écarter — mais elle doit être importée sous l'orthographe déjà
+   * enregistrée, sans quoi la cartographie affichera deux nœuds pour elle.
+   */
+  knownPersons?: KnownPersonsIndex;
 }
 
 type PersonneTarget = 'mex' | 'suspect' | 'victime' | 'ignore';
+
+/**
+ * Deux libellés désignent-ils la même personne ? Cassiopée écrit « NOM Prénom
+ * (R) », l'application a pu enregistrer « Prénom NOM » ou une coquille : la
+ * comparaison stricte laisserait passer un doublon. On retire la mention entre
+ * parenthèses (normalizeNom) puis on applique la tolérance de la cartographie
+ * (ordre des mots, une coquille par mot, composé recollé) — exactement ce qui
+ * regroupe deux fiches en un seul nœud sur la carte.
+ */
+const samePersonne = (a: string, b: string): boolean => {
+  const na = normalizeNom(a);
+  const nb = normalizeNom(b);
+  if (!na || !nb) return false;
+  return na === nb || sameMecPerson(na, nb);
+};
 
 const targetForRole = (role: CassiopeeRole): PersonneTarget => {
   switch (role) {
@@ -157,6 +186,7 @@ export const CassiopeeImportModal = ({
   existingVictimes,
   existingSaisine,
   applyHeaderDefault = false,
+  knownPersons,
 }: Props) => {
   const { showToast } = useToast();
   const { getByCode } = useNatinf();
@@ -193,7 +223,11 @@ export const CassiopeeImportModal = ({
   );
 
   const existingPersons = useMemo(
-    () => [...existingMisEnExamen, ...existingSuspects, ...existingVictimes],
+    () => [
+      ...existingMisEnExamen.map(p => ({ ...p, target: 'mex' as PersonneTarget })),
+      ...existingSuspects.map(p => ({ ...p, target: 'suspect' as PersonneTarget })),
+      ...existingVictimes.map(p => ({ ...p, target: 'victime' as PersonneTarget })),
+    ],
     [existingMisEnExamen, existingSuspects, existingVictimes],
   );
   const existingNatinfCodes = useMemo(
@@ -283,31 +317,74 @@ export const CassiopeeImportModal = ({
     [previewDml],
   );
 
-  /** MEX déjà au dossier, par nom normalisé (rattachement des DML). */
-  const existingMexByName = useMemo(() => {
-    const m = new Map<string, MisEnExamen>();
-    existingMisEnExamen.forEach(x => m.set(normalizeNom(x.nom), x));
-    return m;
-  }, [existingMisEnExamen]);
+  /** MEX déjà au dossier retrouvé à partir d'un nom Cassiopée (rattachement
+   *  des DML et des chefs), orthographes voisines comprises. */
+  const findExistingMex = (nom: string): MisEnExamen | undefined =>
+    existingMisEnExamen.find(x => samePersonne(x.nom, nom));
 
   /** DML déjà enregistrée sur un MEX existant (même date de dépôt) ? */
   const dmlIsDup = (nom: string, dateDepot: string) =>
-    (existingMexByName.get(normalizeNom(nom))?.dmls ?? []).some(d => d.dateDepot === dateDepot);
+    (findExistingMex(nom)?.dmls ?? []).some(d => d.dateDepot === dateDepot);
 
   /** Chef déjà retenu contre un MEX existant (même NATINF) ? */
   const chefIsDup = (nom: string, natinfCode?: string) =>
     !!natinfCode &&
-    (existingMexByName.get(normalizeNom(nom))?.infractions ?? []).some(i => i.natinfCode === natinfCode);
+    (findExistingMex(nom)?.infractions ?? []).some(i => i.natinfCode === natinfCode);
 
-  // Doublons : mêmes noms / mêmes codes déjà dans le dossier.
-  const personneIsDup = (p: ParsedPersonne) => nameExists(p.nom, existingPersons);
   const infractionIsDup = (code: string) => existingNatinfCodes.has(code);
 
+  // ── Rapprochement des personnes ──────────────────────────────────
+  //
+  // Trois cas, calculés une fois par personne collée :
+  //   · « dossier »   : la personne est déjà au dossier avec la MÊME qualité →
+  //                     doublon, décoché par défaut (ses DML et ses chefs
+  //                     viennent quand même compléter la fiche existante) ;
+  //   · « promotion » : elle y est comme suspect et revient mise en examen →
+  //                     on importe le MEX ET on retire la fiche suspect, sinon
+  //                     la personne existerait deux fois ;
+  //   · « fichier »   : elle est connue AILLEURS dans l'application (autre
+  //                     dossier, enquête, fiche cartographie) → on l'importe
+  //                     sous l'orthographe déjà enregistrée pour qu'elle ne
+  //                     forme qu'un seul nœud sur la cartographie.
+  type Rapprochement =
+    | { kind: 'dossier'; nom: string; target: PersonneTarget }
+    | { kind: 'promotion'; nom: string; suspectId: number }
+    | { kind: 'fichier'; nom: string; person: KnownPerson };
+
+  const rapprochements = useMemo(() => {
+    const map = new Map<number, Rapprochement>();
+    personnes.forEach((p, i) => {
+      const target = targetForRole(p.role);
+      if (target === 'ignore') return;
+      const auDossier = existingPersons.find(e => samePersonne(e.nom, p.nom));
+      if (auDossier) {
+        if (target === 'mex' && auDossier.target === 'suspect') {
+          map.set(i, { kind: 'promotion', nom: auDossier.nom, suspectId: auDossier.id });
+        } else {
+          map.set(i, { kind: 'dossier', nom: auDossier.nom, target: auDossier.target });
+        }
+        return;
+      }
+      const connue = knownPersons?.find(p.nom);
+      if (connue) map.set(i, { kind: 'fichier', nom: connue.nom, person: connue });
+    });
+    return map;
+  }, [personnes, existingPersons, knownPersons]);
+
+  /** Doublon strict : la personne est déjà au dossier, rien à créer. */
+  const personneIsDup = (i: number) => rapprochements.get(i)?.kind === 'dossier';
+
+  /** Orthographe sous laquelle importer : celle déjà enregistrée si la
+   *  personne est connue, la saisie Cassiopée sinon. */
+  const nomARetenir = (i: number, p: ParsedPersonne) => rapprochements.get(i)?.nom || p.nom;
+
   // Par défaut : on décoche les doublons et les personnes « non importées ».
+  // Une promotion suspect → mis en examen reste cochée : c'est un changement
+  // de qualité à enregistrer, pas un doublon.
   useEffect(() => {
     const next = new Set<string>();
     personnes.forEach((p, i) => {
-      if (targetForRole(p.role) === 'ignore' || personneIsDup(p)) next.add(`p:${i}`);
+      if (targetForRole(p.role) === 'ignore' || personneIsDup(i)) next.add(`p:${i}`);
     });
     infractions.forEach(inf => {
       if (infractionIsDup(inf.natinfCode)) next.add(`i:${inf.natinfCode}`);
@@ -320,7 +397,7 @@ export const CassiopeeImportModal = ({
     });
     setDeselected(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [personnes, infractions, evenements, dmlRows, chefRows]);
+  }, [personnes, infractions, evenements, dmlRows, chefRows, rapprochements]);
 
   // Ré-aligne la case « appliquer l'en-tête » sur le contexte (create/edit) à
   // chaque ouverture.
@@ -380,6 +457,9 @@ export const CassiopeeImportModal = ({
     const misEnExamen: MisEnExamen[] = [];
     const suspects: Suspect[] = [];
     const victimes: Victime[] = [];
+    // Suspects du dossier promus mis en examen par cet import : leur fiche
+    // suspect disparaît, la personne ne doit pas figurer deux fois.
+    const suspectsPromusIds: number[] = [];
     const complementsMexExistants: {
       mexId: number;
       dmls: DemandeMiseEnLiberte[];
@@ -402,7 +482,7 @@ export const CassiopeeImportModal = ({
     // cochés viennent compléter le mis en examen existant.
     personnes.forEach((p, i) => {
       if (isSel(`p:${i}`) || targetForRole(p.role) !== 'mex') return;
-      const existant = existingMisEnExamen.find(m => normalizeNom(m.nom) === normalizeNom(p.nom));
+      const existant = findExistingMex(p.nom);
       if (!existant) return;
       const dmls = selectedDmlsFor(p.nom);
       const chefs = selectedChefsFor(p.nom);
@@ -414,6 +494,12 @@ export const CassiopeeImportModal = ({
     personnes.forEach((p, i) => {
       if (!isSel(`p:${i}`)) return;
       const t = targetForRole(p.role);
+      // La personne est peut-être déjà au fichier sous une autre orthographe :
+      // on l'enregistre sous celle-là (les DML, chefs et événements continuent
+      // d'être rapprochés sur le libellé Cassiopée d'origine).
+      const nom = nomARetenir(i, p);
+      const rapprochement = rapprochements.get(i);
+      if (rapprochement?.kind === 'promotion') suspectsPromusIds.push(rapprochement.suspectId);
       if (t === 'mex') {
         const dpPeriodes =
           p.categoriePenale === 'DP'
@@ -423,28 +509,48 @@ export const CassiopeeImportModal = ({
                 newId,
               })
             : undefined;
-        misEnExamen.push(
-          buildMisEnExamen(p, ctx, {
+        misEnExamen.push({
+          ...buildMisEnExamen(p, ctx, {
             dpPeriodes,
             regime: dpSuggestion?.regime,
             casDPId: dpSuggestion?.casDPId,
             dmls: selectedDmlsFor(p.nom),
             infractions: selectedChefsFor(p.nom),
           }),
-        );
-      } else if (t === 'suspect') suspects.push(buildSuspect(p, ctx));
-      else if (t === 'victime') victimes.push(buildVictime(p, ctx));
+          nom,
+        });
+      } else if (t === 'suspect') suspects.push({ ...buildSuspect(p, ctx), nom });
+      else if (t === 'victime') victimes.push({ ...buildVictime(p, ctx), nom });
     });
 
     const saisine: SaisineItem[] = infractions
       .filter(inf => isSel(`i:${inf.natinfCode}`))
       .map(inf => buildSaisineItem(inf, ctx));
 
-    // Rattachement des événements aux personnes (nouvelles + existantes).
-    const mexByName = new Map<string, number>();
-    [...existingMisEnExamen, ...misEnExamen].forEach(m => mexByName.set(normalizeNom(m.nom), m.id));
-    const victimeByName = new Map<string, number>();
-    [...existingVictimes, ...victimes].forEach(v => victimeByName.set(normalizeNom(v.nom), v.id));
+    // Rattachement des événements aux personnes (nouvelles + existantes). Les
+    // événements portent l'orthographe Cassiopée : on indexe donc AUSSI les
+    // personnes sous le nom collé quand il diffère du nom retenu, sinon les
+    // événements d'une personne rapprochée ne trouveraient plus leur fiche.
+    const nomsCassiopeeParIndex = new Map<string, string[]>();
+    personnes.forEach((p, i) => {
+      const retenu = normalizeNom(nomARetenir(i, p));
+      const arr = nomsCassiopeeParIndex.get(retenu) || [];
+      arr.push(p.nom);
+      nomsCassiopeeParIndex.set(retenu, arr);
+    });
+    const indexPersonne = <T extends { nom: string; id: number }>(list: T[]) => {
+      const map = new Map<string, number>();
+      for (const item of list) {
+        const cle = normalizeNom(item.nom);
+        map.set(cle, item.id);
+        for (const alias of nomsCassiopeeParIndex.get(cle) || []) {
+          if (!map.has(normalizeNom(alias))) map.set(normalizeNom(alias), item.id);
+        }
+      }
+      return map;
+    };
+    const mexByName = indexPersonne([...existingMisEnExamen, ...misEnExamen]);
+    const victimeByName = indexPersonne([...existingVictimes, ...victimes]);
 
     const evts: EvenementInstruction[] = evenements
       .filter((_, i) => isSel(`e:${i}`))
@@ -459,14 +565,18 @@ export const CassiopeeImportModal = ({
       misEnExamen,
       suspects,
       victimes,
+      suspectsPromusIds: suspectsPromusIds.length ? suspectsPromusIds : undefined,
       saisine,
       evenements: evts,
       complementsMexExistants: complementsMexExistants.length ? complementsMexExistants : undefined,
       header: headerToApply ? header : undefined,
     });
     const headerNote = headerToApply ? ', en-tête appliqué' : '';
+    const promoNote = suspectsPromusIds.length
+      ? `, ${suspectsPromusIds.length} suspect(s) promu(s) mis en examen`
+      : '';
     showToast(
-      `Import Cassiopée : ${misEnExamen.length} MEX, ${suspects.length} suspect(s), ${victimes.length} victime(s), ${saisine.length} chef(s) de saisine, ${counts.chef} chef(s) de mise en examen, ${counts.dml} DML, ${evts.length} événement(s)${headerNote}`,
+      `Import Cassiopée : ${misEnExamen.length} MEX, ${suspects.length} suspect(s), ${victimes.length} victime(s), ${saisine.length} chef(s) de saisine, ${counts.chef} chef(s) de mise en examen, ${counts.dml} DML, ${evts.length} événement(s)${promoNote}${headerNote}`,
       'success',
     );
     // Réinitialise pour un éventuel second import.
@@ -598,7 +708,7 @@ export const CassiopeeImportModal = ({
               <div className="max-h-48 overflow-y-auto border border-gray-100 rounded divide-y divide-gray-50">
                 {personnes.map((p, i) => {
                   const target = targetForRole(p.role);
-                  const dup = personneIsDup(p);
+                  const rapprochement = rapprochements.get(i);
                   const dp = target === 'mex' && p.categoriePenale === 'DP' ? previewDp.get(p.nom) : undefined;
                   return (
                     <label key={i} className="block px-2 py-1 text-xs hover:bg-gray-50 cursor-pointer">
@@ -610,12 +720,39 @@ export const CassiopeeImportModal = ({
                         {p.categoriePenale && (
                           <span className="shrink-0 rounded bg-slate-100 px-1 text-[10px] text-slate-600">{p.categoriePenale}</span>
                         )}
-                        {dup && (
+                        {rapprochement?.kind === 'dossier' && (
                           <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 text-[10px] text-orange-600">
-                            <AlertTriangle className="h-3 w-3" /> déjà présent
+                            <AlertTriangle className="h-3 w-3" />
+                            déjà au dossier{
+                              rapprochement.target !== target
+                                ? ` (${TARGET_LABEL[rapprochement.target].toLowerCase()})`
+                                : ''
+                            }
+                          </span>
+                        )}
+                        {rapprochement?.kind === 'promotion' && (
+                          <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 text-[10px] text-emerald-700">
+                            <Users className="h-3 w-3" /> suspect promu — sa fiche suspect est retirée
+                          </span>
+                        )}
+                        {rapprochement?.kind === 'fichier' && (
+                          <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 text-[10px] text-blue-600">
+                            <Link2 className="h-3 w-3" /> déjà au fichier
                           </span>
                         )}
                       </span>
+                      {rapprochement && rapprochement.kind !== 'dossier' && normalizeNom(rapprochement.nom) !== normalizeNom(p.nom) && (
+                        <span className="block pl-7 pt-0.5 text-[10px] text-blue-700">
+                          Rapproché de « {rapprochement.nom} »
+                          {rapprochement.kind === 'fichier' ? ` — ${rapprochement.person.hint}` : ''} :
+                          importé sous cette orthographe pour ne pas créer un second nœud sur la cartographie.
+                        </span>
+                      )}
+                      {rapprochement?.kind === 'fichier' && normalizeNom(rapprochement.nom) === normalizeNom(p.nom) && (
+                        <span className="block pl-7 pt-0.5 text-[10px] text-gray-500">
+                          Déjà au fichier : {rapprochement.person.hint} — la fiche de ce dossier sera rattachée à la même personne.
+                        </span>
+                      )}
                       {dp && dp.length > 0 && (
                         <span className="block pl-7 pt-0.5 text-[10px] text-red-700">
                           DP reconstituée : placement {new Date(dp[0].dateDebut).toLocaleDateString()}
@@ -688,7 +825,7 @@ export const CassiopeeImportModal = ({
               <div className="max-h-56 overflow-y-auto border border-gray-100 rounded divide-y divide-gray-50">
                 {chefRows.map(({ nom, chef, key }) => {
                   const dup = chefIsDup(nom, chef.natinfCode);
-                  const rattache = existingMexByName.has(normalizeNom(nom));
+                  const rattache = !!findExistingMex(nom);
                   const nbFaits = (chef.explication?.match(/^•/gm) || []).length;
                   return (
                     <label key={key} className="block px-2 py-1 text-xs hover:bg-gray-50 cursor-pointer">
@@ -743,7 +880,7 @@ export const CassiopeeImportModal = ({
               <div className="max-h-44 overflow-y-auto border border-gray-100 rounded divide-y divide-gray-50">
                 {dmlRows.map(({ nom, dml, key }) => {
                   const dup = dmlIsDup(nom, dml.dateDepot);
-                  const rattachee = existingMexByName.has(normalizeNom(nom));
+                  const rattachee = !!findExistingMex(nom);
                   const statutLabel =
                     dml.statut === 'en_attente' ? 'en attente'
                     : dml.statut === 'accordee' ? 'accordée (déduite)'

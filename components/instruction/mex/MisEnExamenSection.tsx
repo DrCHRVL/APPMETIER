@@ -18,8 +18,11 @@ interface Props {
   onChange: (next: MisEnExamen[]) => void;
   onSuspectsChange?: (next: Suspect[]) => void;
   readOnly?: boolean;
-  /** Noms connus cross-dossiers pour l'autocomplete (MEX + suspects) */
+  /** Fichier des personnes de l'application pour l'autocomplete (mis en cause,
+   *  mis en examen, suspects, victimes, fiches cartographie) */
   allKnownNames?: string[];
+  /** Précision affichée sous chaque nom proposé (« mis en cause · 2 dossiers ») */
+  knownNameHints?: Record<string, string>;
 }
 
 // ── Composant interne : carte suspect ─────────────────────────────────────────
@@ -31,9 +34,10 @@ interface SuspectCardProps {
   onConvert: (dateMex: string) => void;
   readOnly?: boolean;
   allKnownNames?: string[];
+  knownNameHints?: Record<string, string>;
 }
 
-const SuspectCard = ({ suspect, onDelete, onEdit, onConvert, readOnly, allKnownNames = [] }: SuspectCardProps) => {
+const SuspectCard = ({ suspect, onDelete, onEdit, onConvert, readOnly, allKnownNames = [], knownNameHints }: SuspectCardProps) => {
   const [editing, setEditing] = useState(false);
   const [draftNom, setDraftNom] = useState(suspect.nom);
   const [draftRole, setDraftRole] = useState(suspect.role ?? '');
@@ -62,7 +66,8 @@ const SuspectCard = ({ suspect, onDelete, onEdit, onConvert, readOnly, allKnownN
               value={draftNom}
               onChange={setDraftNom}
               suggestions={allKnownNames}
-              minTriggerLength={4}
+              hints={knownNameHints}
+              minTriggerLength={2}
               className="h-7 text-sm"
               autoFocus
             />
@@ -171,7 +176,7 @@ const SuspectCard = ({ suspect, onDelete, onEdit, onConvert, readOnly, allKnownN
 
 // ── Section principale ─────────────────────────────────────────────────────────
 
-export const MisEnExamenSection = ({ misEnExamen, suspects = [], saisine = [], onChange, onSuspectsChange, readOnly, allKnownNames = [] }: Props) => {
+export const MisEnExamenSection = ({ misEnExamen, suspects = [], saisine = [], onChange, onSuspectsChange, readOnly, allKnownNames = [], knownNameHints }: Props) => {
   const [showAddMexForm, setShowAddMexForm] = useState(false);
   const [draftNom, setDraftNom] = useState('');
   const [draftDate, setDraftDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -301,6 +306,7 @@ export const MisEnExamenSection = ({ misEnExamen, suspects = [], saisine = [], o
                 onEdit={(updated) => handleEditSuspect(s.id, updated)}
                 onConvert={(date) => handleConvertSuspect(s, date)}
                 allKnownNames={allKnownNames}
+                knownNameHints={knownNameHints}
               />
             ))}
           </div>
@@ -317,7 +323,8 @@ export const MisEnExamenSection = ({ misEnExamen, suspects = [], saisine = [], o
                     value={draftSuspectNom}
                     onChange={setDraftSuspectNom}
                     suggestions={allKnownNames}
-                    minTriggerLength={4}
+                    hints={knownNameHints}
+                    minTriggerLength={2}
                     placeholder="Ex: MARTIN Paul"
                     autoFocus
                     className="h-8 text-sm"
@@ -429,7 +436,8 @@ export const MisEnExamenSection = ({ misEnExamen, suspects = [], saisine = [], o
                     value={draftNom}
                     onChange={setDraftNom}
                     suggestions={allKnownNames}
-                    minTriggerLength={4}
+                    hints={knownNameHints}
+                    minTriggerLength={2}
                     placeholder="Ex: DUPONT Jean"
                     autoFocus
                     className="h-8 text-sm"

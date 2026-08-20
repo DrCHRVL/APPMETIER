@@ -13,7 +13,9 @@ import type { Enquete } from '@/types/interfaces';
 import {
   buildMindmapGraph,
   getTopMec,
+  mecSortedKey,
   normalizeMecName,
+  sameMecPerson,
   type DossierNode,
   type EnqueteWithContext,
   type GraphNode,
@@ -67,6 +69,14 @@ interface MindmapPageProps {
   /** Recherche unifiée : pilotée par la barre globale du header */
   searchTerm?: string;
   onSearchChange?: (term: string) => void;
+  /** Recentrage demandé depuis la recherche globale : la carte s'ouvre
+   *  DIRECTEMENT sur la personne choisie, sans second clic dans une liste.
+   *  `seq` permet de rejouer la demande sur un même nom. */
+  focusRequest?: { nom: string; seq: number };
+  /** Fichier des personnes de l'application : propositions à la création d'une
+   *  fiche manuelle, pour ne pas doubler une personne déjà au fichier. */
+  knownNames?: string[];
+  knownNameHints?: Record<string, string>;
 }
 
 // ──────────────────────────────────────────────
@@ -80,6 +90,9 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   onRefresh,
   searchTerm = '',
   onSearchChange,
+  focusRequest,
+  knownNames = [],
+  knownNameHints,
 }) => {
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [sidePanelMecId, setSidePanelMecId] = useState<string | undefined>();
@@ -538,6 +551,41 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     focusOnNode(node);
   };
 
+  // ── Accès direct depuis la recherche globale ──────────────────
+  //
+  // Le header envoie le nom choisi : on le résout sur le graphe et on recentre
+  // tout de suite. Tant que le graphe n'est pas prêt (sources encore en cours
+  // de chargement), la demande reste en attente et sera rejouée au prochain
+  // rebuild — la liste de résultats sert alors de repli.
+  const handledFocusSeq = useRef<number>(-1);
+  // Terme déjà « consommé » par un recentrage automatique : sa liste de
+  // résultats n'a plus lieu d'être affichée (le nœud est déjà sous les yeux).
+  const [resolvedTerm, setResolvedTerm] = useState<string | null>(null);
+
+  const findNodeByName = React.useCallback((nom: string): GraphNode | undefined => {
+    const target = mecSortedKey(nom);
+    if (!target) return undefined;
+    let fallback: GraphNode | undefined;
+    for (const mec of graph.mecById.values()) {
+      if (mecSortedKey(mec.displayName) === target) return mec;
+      if (mec.variants.some(v => mecSortedKey(v) === target)) return mec;
+      if (!fallback && sameMecPerson(mec.displayName, nom)) fallback = mec;
+    }
+    return fallback;
+  }, [graph]);
+
+  useEffect(() => {
+    if (!focusRequest?.nom) return;
+    if (handledFocusSeq.current === focusRequest.seq) return;
+    const node = findNodeByName(focusRequest.nom);
+    if (!node) return;
+    handledFocusSeq.current = focusRequest.seq;
+    setSelectedId(node.id);
+    setCenterRequest(prev => ({ id: node.id, seq: (prev?.seq ?? 0) + 1 }));
+    if (node.type === 'mec') setSidePanelMecId(node.id);
+    setResolvedTerm(focusRequest.nom);
+  }, [focusRequest, findNodeByName]);
+
   const handleDossierFromPanel = (dossier: DossierNode) => {
     focusOnNode(dossier);
   };
@@ -552,6 +600,10 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const sidePanelMec: MecNode | undefined = sidePanelMecId
     ? graph.mecById.get(sidePanelMecId)
     : undefined;
+
+  // Recherche déjà honorée par un recentrage automatique : on n'affiche pas la
+  // liste de résultats par-dessus le nœud sur lequel on vient d'arriver.
+  const focusResolved = resolvedTerm !== null && resolvedTerm === search;
 
   // ────────────────────────────────────────────
   // RENDU
@@ -571,12 +623,14 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           {search.trim() !== '' && (
             <div className="flex items-center gap-2 text-xs text-slate-500 py-2">
               <Search className="h-3.5 w-3.5" />
-              {searchResults.length > 0
-                ? <>Résultats pour « {search} »</>
-                : <>Aucun mis en cause ni dossier pour « {search} »</>}
+              {focusResolved
+                ? <>Recentré sur « {search} »</>
+                : searchResults.length > 0
+                  ? <>Résultats pour « {search} »</>
+                  : <>Aucun mis en cause ni dossier pour « {search} »</>}
             </div>
           )}
-          {searchResults.length > 0 && (
+          {!focusResolved && searchResults.length > 0 && (
             <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-72 overflow-y-auto z-30">
               {searchResults.map(r => (
                 <button
@@ -891,6 +945,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         isOpen={editingMec !== undefined}
         onClose={() => setEditingMec(undefined)}
         initial={editingMec || undefined}
+        knownNames={knownNames}
+        knownNameHints={knownNameHints}
         onSubmit={(data) => {
           if (editingMec) {
             updateMec(editingMec.id, data);

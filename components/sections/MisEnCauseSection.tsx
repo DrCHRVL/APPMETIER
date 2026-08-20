@@ -12,8 +12,11 @@ interface MisEnCauseSectionProps {
   enquete: Enquete;
   onUpdate?: (id: number, updates: Partial<Enquete>) => void;
   isEditing: boolean;
-  /** Noms de tous les MEC connus (cross-dossiers) pour suggestions */
+  /** Noms de toutes les personnes connues de l'application (mis en cause, mis
+   *  en examen, suspects, victimes, fiches cartographie) pour suggestions */
   allKnownMec?: string[];
+  /** Précision affichée sous chaque nom proposé (« mis en examen · 2 dossiers ») */
+  knownNameHints?: Record<string, string>;
   /** Admin (attaché) : cherche dans les CR/actes/documents les mis en cause
    *  absents de la liste et les propose (✓/✗). */
   onRefreshMec?: () => void;
@@ -21,7 +24,7 @@ interface MisEnCauseSectionProps {
   mecRefreshStatus?: RefreshStatus;
 }
 
-export const MisEnCauseSection = React.memo(({ enquete, onUpdate, isEditing, allKnownMec = [], onRefreshMec, mecRefreshStatus = 'idle' }: MisEnCauseSectionProps) => {
+export const MisEnCauseSection = React.memo(({ enquete, onUpdate, isEditing, allKnownMec = [], knownNameHints, onRefreshMec, mecRefreshStatus = 'idle' }: MisEnCauseSectionProps) => {
   const { showToast } = useToast();
   const [editingMecId, setEditingMecId] = useState<number | null>(null);
   const [editingData, setEditingData] = useState({ nom: '', role: '' });
@@ -108,6 +111,7 @@ export const MisEnCauseSection = React.memo(({ enquete, onUpdate, isEditing, all
             value={newMecData.nom}
             onChange={(val) => setNewMecData(prev => ({ ...prev, nom: val }))}
             suggestions={allKnownMec}
+            hints={knownNameHints}
             className="text-sm"
             autoFocus
             onKeyDown={(e) => {
@@ -150,6 +154,7 @@ export const MisEnCauseSection = React.memo(({ enquete, onUpdate, isEditing, all
                   value={editingData.nom}
                   onChange={(val) => setEditingData(prev => ({ ...prev, nom: val }))}
                   suggestions={allKnownMec}
+                  hints={knownNameHints}
                   className="text-sm"
                   placeholder="Nom"
                   autoFocus
