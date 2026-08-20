@@ -187,7 +187,19 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
   // de doublon — un fichier déjà présent des deux côtés.
   const canonDoc = (s: string) => encodeDocName(s).replace(/[-_]+/g, '_').toLowerCase()
 
+  // Empreinte sha256 du CLAIR — calculée AVANT chiffrement (l'IV aléatoire
+  // rend le blob chiffré impropre à toute comparaison de contenu). C'est la
+  // base du dédoublonnage STRICT : deux pièces ne sont dites identiques que
+  // sur empreinte égale, octet à octet — jamais de rapprochement approximatif.
+  async function sha256Hex(bytes: Uint8Array): Promise<string | undefined> {
+    try {
+      const d = await crypto.subtle.digest('SHA-256', bytes as BufferSource)
+      return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, '0')).join('')
+    } catch { return undefined /* contexte non sécurisé : l'attaché complétera */ }
+  }
+
   async function docUpload(enquete: string, rel: string, bytes: Uint8Array, category?: string, originalName?: string) {
+    const sha = await sha256Hex(bytes)
     const { iv, ct } = await encryptBytes(key, bytes)
     const ivBytes = b64.decode(iv)
     const blob = new Uint8Array(4 + 12 + ct.length)
@@ -197,7 +209,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     const res = await api(`/api/docs/${encodeURIComponent(serverKey(enquete))}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ rel, b64: b64.encode(blob), category, originalName }),
+      body: JSON.stringify({ rel, b64: b64.encode(blob), category, originalName, sha }),
       timeoutMs: 120000,
     })
     if (!res.ok) {
@@ -221,7 +233,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     return decryptBytes(key, iv, buf.subarray(16))
   }
 
-  async function docList(enquete: string): Promise<Array<{ rel: string, size: number, savedAt: string, category?: string, originalName?: string }>> {
+  async function docList(enquete: string): Promise<Array<{ rel: string, size: number, savedAt: string, category?: string, originalName?: string, sha?: string }>> {
     try {
       const res = await api(`/api/docs/${encodeURIComponent(serverKey(enquete))}`)
       if (!res.ok) return []

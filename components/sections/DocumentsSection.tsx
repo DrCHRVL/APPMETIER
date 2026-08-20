@@ -728,10 +728,25 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
       // Index serveur : base de la déduplication ET de la reprise. Une pièce
       // déjà déposée à l'identique (même chemin, même taille) est sautée.
       let serverIndex = new Map<string, number>();
+      // Empreintes sha256 du clair déjà connues (rel par sha) : détection des
+      // DOUBLONS DE CONTENU stricts — même fichier octet à octet sous un autre
+      // chemin (jonction, pièce déjà versée ailleurs). On SIGNALE, on ne
+      // bloque jamais : une copie peut être voulue.
+      const shaConnues = new Map<string, string>();
       try {
-        const metas = await window.siralBridge.listServerDocuments(enquete.numero) as Array<{ rel: string; size: number }>;
+        const metas = await window.siralBridge.listServerDocuments(enquete.numero) as Array<{ rel: string; size: number; sha?: string }>;
         serverIndex = new Map((metas || []).map((m) => [String(m.rel), Number(m.size) || 0]));
+        for (const m of metas || []) {
+          if (m.sha && !String(m.rel).startsWith('MD/') && !shaConnues.has(m.sha)) shaConnues.set(m.sha, String(m.rel));
+        }
       } catch { /* index injoignable : les dépôts échoueront de toute façon avec un motif clair */ }
+      let doublonsContenu = 0;
+      const sha256Hex = async (buf: ArrayBuffer): Promise<string | null> => {
+        try {
+          const d = await crypto.subtle.digest('SHA-256', buf);
+          return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, '0')).join('');
+        } catch { return null; /* contexte non sécurisé : l'attaché complétera les empreintes */ }
+      };
 
       // taille stockée = taille réelle + 32 octets (magic + IV + tag GCM)
       const ENC_OVERHEAD = 32;
@@ -886,6 +901,18 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
             }
           } else {
             const buf = await file.arrayBuffer();
+            // Doublon de contenu STRICT (empreinte égale) sous un autre chemin :
+            // versé quand même, mais nommé dans le bilan — le magistrat tranche.
+            const sha = await sha256Hex(buf);
+            if (sha) {
+              const deja = shaConnues.get(sha);
+              if (deja && deja !== rel) {
+                doublonsContenu++;
+                if (avertissements.length < 60) avertissements.push(`${relCourt(rel)} — contenu strictement identique à « ${deja} » (déjà au dossier) ; versée quand même`);
+              } else if (!deja) {
+                shaConnues.set(sha, rel);
+              }
+            }
             let cleanRel: string;
             try {
               cleanRel = String(await window.siralBridge.depositDocument(enquete.numero, rel, buf, zone, file.name));
@@ -931,6 +958,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           ? `Versement ${sessionPerdue ? 'interrompu (session expirée — reconnectez-vous)' : panneGenerale ? 'arrêté : les premiers dépôts ont tous échoué (voir le détail des échecs)' : 'arrêté'} : ${ok} pièce(s) versée(s). Re-déposez le même dossier pour terminer, rien ne sera dupliqué.`
           : `${ok} pièce(s) versée(s) dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title}` +
             `${dejaLa ? ` · ${dejaLa} déjà présente(s) (reprise)` : ''}` +
+            `${doublonsContenu ? ` · ${doublonsContenu} doublon(s) de contenu signalé(s) (détail sous les zones)` : ''}` +
             `${nonPrisEnCharge ? ` · ${nonPrisEnCharge} non pris en charge` : ''}` +
             `${echecs.length ? ` · ${echecs.length} échec(s) — détail sous les zones` : ''}`,
         interrompu || echecs.length ? 'warning' : 'success'

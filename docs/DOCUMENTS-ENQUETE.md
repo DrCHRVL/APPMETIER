@@ -256,13 +256,25 @@ cache d'extraction) et l'attaché détient les clés.
 
 ## 6. Feuille de route
 
-| # | Chantier | Contenu | Effort | Priorité |
-|---|---|---|---|---|
-| 1 | **Empreintes + doublons** (B1) | `sha`/`shaTexte` dans DocMeta au versement, remplissage du stock par l'attaché, signalement UI + devis de chantier | Faible | 🔴 |
-| 2 | **Recherche dans les pièces** (C) | `pieces_chercher` MCP + barre de recherche | Faible-moyen | 🔴 |
-| 3 | **Explorateur** (A) | vue 2 panneaux, tri/filtre, badges, `moveDoc` | Moyen | 🟠 |
-| 4 | **Registre + mini-fiches** (B2) | run fil de l'eau par pièce nouvelle, `registre_lire`, description branchée dessus | Moyen | 🟠 |
-| 5 | Niveau pochette | note de pochette dans la pyramide (pièce→pochette→dossier) quand 1-4 sont en place | Faible | 🟢 |
+| # | Chantier | Contenu | Effort | Priorité | État |
+|---|---|---|---|---|---|
+| 1 | **Empreintes + doublons** (B1) | sha256 du clair dans DocMeta au versement, remplissage du stock par l'attaché, signalement UI + arborescence annotée + copies exactes écartées des lots de chantier | Faible | 🔴 | ✅ Fait |
+| 2 | **Recherche dans les pièces** (C) | outil MCP `pieces_chercher` : fiches d'abord, puis pièces (MD/ + caches + extraction bornée progressive), doublons sautés | Faible-moyen | 🔴 | ✅ Fait |
+| 3 | **Explorateur** (A) | vue 2 panneaux, tri/filtre, badges, `moveDoc` | Moyen | 🟠 | À faire |
+| 4 | **Registre + mini-fiches** (B2) | run fil de l'eau par pièce nouvelle, `registre_lire`, description branchée dessus | Moyen | 🟠 | À faire |
+| 5 | Niveau pochette | note de pochette dans la pyramide (pièce→pochette→dossier) quand 1-4 sont en place | Faible | 🟢 | À faire |
+
+Choix actés à l'implémentation de 1 et 2 (2026-08-20) :
+
+- **Strict uniquement** : pas de `shaTexte` (near-dup) pour l'instant — le
+  magistrat ne veut JAMAIS perdre une pièce simplement voisine ; seul le
+  contenu identique octet à octet est traité en doublon, et toujours en
+  SIGNALANT, jamais en bloquant ni en supprimant.
+- **La recherche fouille les fiches d'abord** : le capital de dépouillement
+  accélère la localisation ; les pièces jamais extraites le sont par lots
+  bornés au fil des recherches — l'« index » plein texte se construit
+  progressivement dans le cache existant, sans infrastructure nouvelle.
+- Tests : `scripts/attache-docs-empreintes.test.mjs`.
 
 Ordre recommandé : **1 → 2** (déterministes, gratuits, débloquent le reste),
 puis 3 et 4 en parallèle. Tout reste dans le modèle actuel : E2EE, originaux

@@ -311,6 +311,28 @@ l'usage).
   n'usent plus ni CPU ni tokens ; si le PDF change, le cache se régénère
   tout seul. Le répertoire des documents, synchronisé avec le commun
   Windows, n'est pas touché.
+- **Ne lit jamais deux fois le même contenu (doublons exacts)** : chaque
+  pièce porte l'**empreinte sha256 de son clair** — calculée dans le
+  navigateur au téléversement, complétée par l'attaché pour le stock ancien
+  (déchiffrement + hash en local, zéro jeton). Détection **STRICTE**
+  uniquement : deux pièces ne sont dites « doublon » que sur contenu
+  identique octet à octet — une version voisine reste une pièce à lire, rien
+  n'est jamais écarté par approximation. Effets : le versement signale
+  « contenu identique à … » dans son bilan (versée quand même — une jonction
+  duplique légitimement), `dossier_arborescence` annote les copies
+  (`copieExacteDe`), et les **chantiers d'analyse profonde** écartent les
+  copies exactes des lots au devis (chaque contenu lu UNE fois — sur une
+  jonction de procédures, une part substantielle des nuits et des jetons) en
+  les nommant dans le devis et la synthèse.
+- **Retrouve une information dans les pièces (`pieces_chercher`)** :
+  recherche plein texte côté serveur — fiches de dépouillement d'abord (déjà
+  synthétiques et cotées), puis le texte des pièces (copies markdown du
+  téléversement, caches d'extraction ; les pièces jamais extraites le sont
+  au passage, par lots bornés — chaque recherche étend la couverture,
+  définitivement). Insensible casse/accents, mots exigés ensemble, doublons
+  exacts fouillés une seule fois, extraits avec le chemin exact pour
+  enchaîner sur `lire_document`. **Zéro jeton** : scan local, pas d'index
+  vectoriel — cohérent avec la doctrine « recherche agentique ».
 - **Montre où passent les jetons** : chaque run du CLI émet, en fin
   d'exécution, un bilan `usage` (jetons entrée/sortie/cache) et un
   `total_cost_usd` (équivalent au tarif API). Le service les consigne dans

@@ -20,15 +20,17 @@ export async function POST(req: Request, { params }: { params: { enquete: string
   return handle(async () => {
     const session = requireTjSession(req)
     if (!isSafeName(params.enquete)) return jsonResponse({ error: 'Nom invalide' }, { status: 400 })
-    const { rel, b64, category, originalName } = await req.json()
+    const { rel, b64, category, originalName, sha } = await req.json()
     if (typeof rel !== 'string' || typeof b64 !== 'string') {
       return jsonResponse({ error: 'rel et b64 requis' }, { status: 400 })
     }
+    // Empreinte du clair (dédoublonnage strict) : optionnelle, format vérifié
+    const shaOk = typeof sha === 'string' && /^[a-f0-9]{64}$/.test(sha) ? sha : undefined
     // Borne sur la taille réelle du document (le base64 pèse ~+33 %) pour que
     // la limite corresponde au message affiché.
     if (Buffer.byteLength(b64, 'base64') > 50 * 1024 * 1024) return jsonResponse({ error: 'Document trop volumineux (50 Mo max)' }, { status: 413 })
     const content = Buffer.from(b64, 'base64')
-    const meta = await saveDoc(session.tj, params.enquete, rel, content, { savedBy: session.u, category, originalName })
+    const meta = await saveDoc(session.tj, params.enquete, rel, content, { savedBy: session.u, category, originalName, sha: shaOk })
     await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: session.u, action: 'doc.save', details: { tj: session.tj, enquete: params.enquete, rel } })
     return jsonResponse({ ok: true, meta })
   })

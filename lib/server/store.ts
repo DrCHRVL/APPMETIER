@@ -254,7 +254,14 @@ export function docMetaPath(tj: string, enquete: string): string {
   return tjDataDir(tj, 'docs', enquete, '.index.json')
 }
 
-export interface DocMeta { rel: string, size: number, savedAt: string, savedBy: string, category?: string, originalName?: string }
+// `sha` : empreinte sha256 (hex) du contenu EN CLAIR, calculée côté client
+// avant chiffrement — le blob chiffré ne peut pas servir d'empreinte (IV
+// aléatoire : le même fichier versé deux fois donne deux blobs différents).
+// Base du dédoublonnage STRICT (contenu identique octet à octet, jamais de
+// rapprochement flou) : signalement au versement, pièces comptées une seule
+// fois dans les chantiers d'analyse. Absente sur le stock ancien — l'attaché
+// la complète en tâche de fond (il détient les clés).
+export interface DocMeta { rel: string, size: number, savedAt: string, savedBy: string, category?: string, originalName?: string, sha?: string }
 
 export async function saveDoc(tj: string, enquete: string, rel: string, content: Buffer, meta: Omit<DocMeta, 'rel' | 'size' | 'savedAt'>): Promise<DocMeta> {
   const p = docPath(tj, enquete, rel)
