@@ -25,6 +25,7 @@
  * exotique) est mémorisé avec la date de dépôt de la pièce : jamais re-tenté
  * tant que la pièce n'est pas re-versée — pas de moulinette sans fin.
  */
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { attacheTj, tjDataDir, attacheDir, ensureDir, listDocsMeta, readJson, atomicWrite } from './store.mjs'
@@ -55,11 +56,21 @@ function writeIngestState(docKey, state) {
   atomicWrite(statePath(docKey), JSON.stringify(state, null, 2))
 }
 
-/** Signature bon marché de l'index d'un dossier : bouge à chaque dépôt/retrait. */
+/**
+ * Signature bon marché de l'index d'un dossier : bouge à chaque dépôt,
+ * retrait ET déplacement/renommage — moveDoc préserve la date de dépôt
+ * (l'original n'est pas réécrit), seule l'empreinte des CHEMINS trahit un
+ * déplacement ; sans elle, le registre ne suivrait pas la pièce déplacée.
+ */
 function docSig(metas) {
   let max = ''
-  for (const d of metas) if (String(d.savedAt || '') > max) max = String(d.savedAt || '')
-  return `${metas.length}|${max}`
+  const rels = []
+  for (const d of metas) {
+    if (String(d.savedAt || '') > max) max = String(d.savedAt || '')
+    rels.push(String(d.rel))
+  }
+  const relsHash = crypto.createHash('sha256').update(rels.sort().join('\n')).digest('hex').slice(0, 12)
+  return `${metas.length}|${max}|${relsHash}`
 }
 
 /**
@@ -134,6 +145,12 @@ export async function ingestPass(keys, { maxDossiers = INGEST_DOSSIERS_MAX, maxE
     }
     try { bilan.entites += majEntitesRegistre(keys, docKey, entiteItems) } catch { /* registre jamais bloquant */ }
     bilan.enAttente += enAttente
+    // Échecs orphelins (pièce retirée ou déplacée) : purgés, sinon la carte
+    // des échecs grossirait à chaque réorganisation du dossier.
+    const relsActuels = new Set(metas.map((d) => String(d.rel)))
+    for (const rel of Object.keys(echecs)) {
+      if (!relsActuels.has(rel)) delete echecs[rel]
+    }
     // Complet (tout est servi, en cache, ou en échec mémorisé) : la signature
     // est actée — les passages suivants sont des no-ops jusqu'au prochain dépôt.
     writeIngestState(docKey, { v: INGEST_V, sig: enAttente ? null : sig, echecs })

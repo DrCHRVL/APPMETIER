@@ -207,6 +207,22 @@ attendu('recherche d\'une valeur formatée', rec3.recoupements.some((r) => r.ent
 const rec4 = recouperRegistres(keys, { numero: NUM2 })
 attendu('filtre par dossier', rec4.recoupements.every((r) => r.dossiers.some((d) => d.dossier === NUM2)), JSON.stringify(rec4.recoupements.map((r) => r.entite)))
 
+// ── déplacement d'une pièce (moveDoc préserve savedAt) : la signature
+// d'ingestion doit bouger quand même (empreinte des chemins) et le registre
+// doit suivre le nouveau chemin
+const dossierDir2 = path.join(DATA_DIR, 'docs', KEY2)
+fs.renameSync(path.join(dossierDir2, 'PV/D4_surveillance.txt.enc'), path.join(dossierDir2, 'PV/D4bis_surveillance.txt.enc'))
+const idx2Path = path.join(dossierDir2, '.index.json')
+const idx2 = JSON.parse(fs.readFileSync(idx2Path, 'utf8'))
+  .map((d) => (d.rel === 'PV/D4_surveillance.txt' ? { ...d, rel: 'PV/D4bis_surveillance.txt' } : d))
+fs.writeFileSync(idx2Path, JSON.stringify(idx2))
+const i5 = await ingestPass(keys)
+attendu('déplacement détecté malgré savedAt inchangé', i5.dossiers === 1 && i5.entites === 1, JSON.stringify(i5))
+const regApres = readRegistre(keys, KEY2)
+attendu('le registre suit le nouveau chemin',
+  Boolean(regApres.pieces['PV/D4bis_surveillance.txt']?.entites?.tel?.includes('0612345678')),
+  JSON.stringify(Object.keys(regApres.pieces)))
+
 fs.rmSync(SCRATCH, { recursive: true, force: true })
 if (echecs.length) {
   console.error(`\n${echecs.length} échec(s) : ${echecs.join(' · ')}`)
