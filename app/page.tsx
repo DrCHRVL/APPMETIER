@@ -152,7 +152,6 @@ const AdminInstructionPanel = dynamic(() => import('@/components/admin/AdminInst
 const AdminAIRPanel = dynamic(() => import('@/components/admin/AdminAIRPanel').then(m => ({ default: m.AdminAIRPanel })), { ssr: false });
 const AdminCartographyPanel = dynamic(() => import('@/components/admin/AdminCartographyPanel').then(m => ({ default: m.AdminCartographyPanel })), { ssr: false });
 const OfflineModePanel = dynamic(() => import('@/components/admin/OfflineModePanel').then(m => ({ default: m.OfflineModePanel })), { ssr: false });
-const AdminPathsPanel = dynamic(() => import('@/components/admin/AdminPathsPanel').then(m => ({ default: m.AdminPathsPanel })), { ssr: false });
 const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashboardPanel').then(m => ({ default: m.AdminDashboardPanel })), { ssr: false });
 // Attaché de justice IA — chargé uniquement en session admin quand le serveur l'active
 const AttachePanel = dynamic(() => import('@/components/attache/AttachePanel').then(m => ({ default: m.AttachePanel })), { ssr: false });
@@ -2325,7 +2324,6 @@ return (
         moduleInstructionContent={hasModule('instructions') ? <AdminInstructionPanel /> : null}
         moduleAIRContent={hasModule('air') ? <AdminAIRPanel /> : null}
         moduleCartographieContent={hasModule('mindmap') ? <AdminCartographyPanel /> : null}
-        adminPathsContent={<AdminPathsPanel />}
         agendaContent={<AgendaPanel />}
         adminDashboardContent={<AdminDashboardPanel />}
         adminTagHistoryContent={<AdminTagHistoryPanel />}

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Network, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark, Scale, WifiOff } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark, Scale, WifiOff } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId, ModuleId } from '@/types/userTypes';
 
@@ -12,7 +12,7 @@ import { ContentieuxId, ModuleId } from '@/types/userTypes';
 type SettingsTab =
   | 'alertes' | 'tags' | 'sauvegardes' | 'mode_hors_ligne' | 'mon_profil' | 'agenda' | 'a_propos'
   | 'module_instruction' | 'module_cartographie' | 'module_air'
-  | 'admin_users' | 'admin_tjs' | 'admin_contentieux' | 'admin_paths' | 'admin_dashboard' | 'admin_tag_history' | 'admin_natinf' | 'admin_update' | 'admin_attache';
+  | 'admin_users' | 'admin_tjs' | 'admin_contentieux' | 'admin_dashboard' | 'admin_tag_history' | 'admin_natinf' | 'admin_update' | 'admin_attache';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -33,7 +33,6 @@ interface SettingsModalProps {
   /** Panneau multi-TJ : création de tribunaux, codes d'accès, rattachements */
   adminTJContent?: React.ReactNode;
   adminContentieuxContent?: React.ReactNode;
-  adminPathsContent?: React.ReactNode;
   adminDashboardContent?: React.ReactNode;
   adminTagHistoryContent?: React.ReactNode;
   adminNatinfContent?: React.ReactNode;
@@ -85,7 +84,6 @@ const TABS: TabDef[] = [
   { id: 'admin_users',       label: 'Utilisateurs & accès', icon: Users,     section: 'admin', isAdmin: true },
   { id: 'admin_tjs',         label: 'Tribunaux',        icon: Landmark,      section: 'admin', isAdmin: true },
   { id: 'admin_contentieux', label: 'Contentieux',      icon: Layers,        section: 'admin', isAdmin: true },
-  { id: 'admin_paths',       label: 'Chemins réseau',   icon: Network,       section: 'admin', isAdmin: true },
   { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      section: 'admin', isAdmin: true },
   { id: 'admin_tag_history', label: 'Historique tags',  icon: ClipboardList, section: 'admin', isAdmin: true },
   { id: 'admin_natinf',      label: 'Référentiel NATINF', icon: Gavel,       section: 'admin', isAdmin: true },
@@ -125,7 +123,6 @@ export const SettingsModal = ({
   adminUsersContent,
   adminTJContent,
   adminContentieuxContent,
-  adminPathsContent,
   adminDashboardContent,
   adminTagHistoryContent,
   adminNatinfContent,
@@ -175,7 +172,6 @@ export const SettingsModal = ({
       case 'admin_users':        return adminUsersContent;
       case 'admin_tjs':          return adminTJContent;
       case 'admin_contentieux':  return adminContentieuxContent;
-      case 'admin_paths':        return adminPathsContent;
       case 'admin_dashboard':    return adminDashboardContent;
       case 'admin_tag_history':  return adminTagHistoryContent;
       case 'admin_natinf':       return adminNatinfContent;
