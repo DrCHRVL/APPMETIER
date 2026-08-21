@@ -74,8 +74,23 @@ const emptyParas = (xml) => (xml.match(/<w:p>(?:(?!<\/w:p>).)*<\/w:p>/gs) || [])
   const out = fillPartXml(doc, { corps: 'Texte.' })
   checkThat('balise de bloc sans valeur : paragraphe retiré', !out.includes('{{TITRE}}'))
   checkThat('balise en ligne sans valeur : retirée', !out.includes('{{OBJET}}'))
-  checkThat('balise en ligne sans valeur : le libellé reste', out.includes('Objet :'))
-  check('un seul paragraphe retiré, pas les autres', count(out, /<w:p>/g) >= 2, true)
+  // « Objet : » suivi de rien, c'est le document à moitié rempli que le
+  // magistrat devrait nettoyer à la main : la ligne entière s'en va.
+  checkThat('étiquette restée sans valeur : toute la ligne s\'en va', !out.includes('Objet'))
+  checkThat('le corps, lui, est bien là', out.includes('Texte.'))
+  check('les paragraphes utiles ne sont pas emportés', count(out, /<w:p>/g), 1)
+
+  // Garde-fou : une PHRASE de la trame qui cite une balise n'est pas une
+  // étiquette — elle reste, amputée de la seule balise.
+  const phrase = P(R('Le présent acte est notifié à {{DESTINATAIRE}} conformément aux dispositions applicables.'))
+  checkThat('une phrase de la trame n\'est pas prise pour une étiquette',
+    fillPartXml(phrase, {}).includes('conformément aux dispositions applicables'))
+
+  // Étiquette posée en cellule de tableau (en-tête de courrier) : la cellule
+  // doit garder un paragraphe, sinon Word refuse d'ouvrir le document.
+  const cellule = `<w:tbl><w:tr><w:tc><w:tcPr/>${P(R('Objet : {{OBJET}}'))}</w:tc></w:tr></w:tbl>`
+  checkThat('cellule vidée : un paragraphe y est reposé',
+    /<w:tc><w:tcPr\/><w:p\/><\/w:tc>/.test(fillPartXml(cellule, {})))
 }
 
 // ── 3. Valeurs multi-lignes en ligne (adresse du destinataire) ──────────────
