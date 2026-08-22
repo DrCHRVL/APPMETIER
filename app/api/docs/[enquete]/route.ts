@@ -20,7 +20,7 @@ export async function POST(req: Request, { params }: { params: { enquete: string
   return handle(async () => {
     const session = requireTjSession(req)
     if (!isSafeName(params.enquete)) return jsonResponse({ error: 'Nom invalide' }, { status: 400 })
-    const { rel, b64, category, originalName, sha } = await req.json()
+    const { rel, b64, category, originalName, sha } = await req.json().catch(() => ({}))
     if (typeof rel !== 'string' || typeof b64 !== 'string') {
       return jsonResponse({ error: 'rel et b64 requis' }, { status: 400 })
     }

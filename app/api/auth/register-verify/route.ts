@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
   return handle(async () => {
-    const { username, displayName, response, label } = await req.json()
+    const { username, displayName, response, label } = await req.json().catch(() => ({}))
     try {
       const account = await registrationVerify(req, String(username || ''), String(displayName || ''), response, label)
       await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: account.username, action: 'auth.register', details: { role: account.role, tj: account.tjs?.[0] } })

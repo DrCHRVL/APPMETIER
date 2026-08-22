@@ -162,7 +162,9 @@ export const formatDossierAge = (jours: number): string => {
   if (jours < 30) return `${jours} j`;
   if (jours < 365) return `${Math.floor(jours / 30)} mois`;
   const annees = Math.floor(jours / 365);
-  const moisRestants = Math.floor((jours % 365) / 30);
+  // Le reliquat en mois est plafonné à 11 : (jours % 365) peut atteindre 364,
+  // soit 12 après division par 30, ce qui afficherait « 1 an 12 mois ».
+  const moisRestants = Math.min(11, Math.floor((jours % 365) / 30));
   return moisRestants > 0 ? `${annees} an${annees > 1 ? 's' : ''} ${moisRestants} mois` : `${annees} an${annees > 1 ? 's' : ''}`;
 };
 

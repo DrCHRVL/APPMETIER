@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   return handle(async () => {
     const session = requireSession(req)
     if (session.r !== 'admin') return jsonResponse({ error: 'Réservé aux administrateurs' }, { status: 403 })
-    const { username, tjs } = await req.json()
+    const { username, tjs } = await req.json().catch(() => ({}))
     if (typeof username !== 'string' || !Array.isArray(tjs) || tjs.length === 0) {
       return jsonResponse({ error: 'username et tjs (liste non vide) requis' }, { status: 400 })
     }

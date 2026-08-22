@@ -12,7 +12,7 @@ export async function POST(req: Request, { params }: { params: { enquete: string
   return handle(async () => {
     const session = requireTjSession(req)
     if (!isSafeName(params.enquete)) return jsonResponse({ error: 'Nom invalide' }, { status: 400 })
-    const { from, to } = await req.json()
+    const { from, to } = await req.json().catch(() => ({}))
     if (typeof from !== 'string' || typeof to !== 'string' || !from || !to) {
       return jsonResponse({ error: 'from et to requis' }, { status: 400 })
     }

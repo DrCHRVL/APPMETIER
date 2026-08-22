@@ -59,7 +59,7 @@ function parseIcsDate(v: string): { iso: string, allDay: boolean } | null {
 export async function POST(req: Request) {
   return handle(async () => {
     requireSession(req)
-    const { url } = await req.json()
+    const { url } = await req.json().catch(() => ({}))
     const safe = isAllowed(String(url || ''))
     if (!safe) return jsonResponse({ error: 'URL iCal invalide (Google Agenda, Outlook ou iCloud attendu, en https:// ou webcal://)' }, { status: 400 })
 

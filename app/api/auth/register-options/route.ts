@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
   return handle(async () => {
-    const { username, displayName, setupCode } = await req.json()
+    const { username, displayName, setupCode } = await req.json().catch(() => ({}))
     try {
       const options = await registrationOptions(req, String(username || ''), String(displayName || ''), String(setupCode || ''))
       return jsonResponse(options)

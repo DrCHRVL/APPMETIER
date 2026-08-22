@@ -21,7 +21,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(req: Request) {
   return handle(async () => {
     rateLimit('pwreg:' + clientIp(req), 10, 15 * 60 * 1000)
-    const body = await req.json()
+    const body = await req.json().catch(() => ({}))
     const username = String(body.username || '').trim()
     const displayName = String(body.displayName || '').trim() || username
     const password = String(body.password || '')
