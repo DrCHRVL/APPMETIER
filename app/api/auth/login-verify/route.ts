@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
   return handle(async () => {
-    const { response, username } = await req.json()
+    const { response, username } = await req.json().catch(() => ({}))
     try {
       const account = await authenticationVerify(req, response, username ? String(username) : undefined)
       await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: account.username, action: 'auth.login', details: {} })

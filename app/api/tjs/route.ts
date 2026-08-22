@@ -50,7 +50,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   return handle(async () => {
     const session = requireAdmin(req)
-    const { name } = await req.json()
+    const { name } = await req.json().catch(() => ({}))
     if (typeof name !== 'string' || name.trim().length < 2) {
       return jsonResponse({ error: 'Nom de tribunal requis' }, { status: 400 })
     }
@@ -69,7 +69,7 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   return handle(async () => {
     const session = requireAdmin(req)
-    const { id, name, regenerateCode } = await req.json()
+    const { id, name, regenerateCode } = await req.json().catch(() => ({}))
     if (typeof id !== 'string' || !findTj(id)) return jsonResponse({ error: 'Tribunal introuvable' }, { status: 404 })
     if (regenerateCode === true) {
       const { entry, code } = await regenerateTjCode(id)

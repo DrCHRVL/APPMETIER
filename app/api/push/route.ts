@@ -36,7 +36,7 @@ export async function PUT(req: Request) {
   return handle(async () => {
     const session = requireSession(req)
     ensurePushLoop()
-    const { times } = await req.json()
+    const { times } = await req.json().catch(() => ({}))
     if (!Array.isArray(times) || times.length > 1000) return jsonResponse({ error: 'times invalide' }, { status: 400 })
     const kept = await saveSchedule(session.u, times.map(Number))
     return jsonResponse({ ok: true, kept })

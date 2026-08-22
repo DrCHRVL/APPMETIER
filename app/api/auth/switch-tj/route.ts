@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(req: Request) {
   return handle(async () => {
     const session = requireSession(req)
-    const { tj } = await req.json()
+    const { tj } = await req.json().catch(() => ({}))
     if (typeof tj !== 'string' || !findTj(tj)) return jsonResponse({ error: 'Tribunal inconnu' }, { status: 400 })
     const account = findAccount(session.u)
     if (!account || !accountTjs(account).includes(tj)) {

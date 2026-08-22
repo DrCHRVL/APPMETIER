@@ -42,7 +42,7 @@ export async function PUT(req: Request, { params }: { params: { name: string } }
         return jsonResponse({ error: 'Écriture non autorisée sur ce coffre d’accès' }, { status: 403 })
       }
     }
-    const envelope = await req.json()
+    const envelope = await req.json().catch(() => ({}))
     if (!envelope || envelope.encrypted !== true || typeof envelope.ct !== 'string' || typeof envelope.iv !== 'string') {
       return jsonResponse({ error: 'Enveloppe chiffrée requise (E2EE obligatoire)' }, { status: 400 })
     }

@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   return handle(async () => {
     // anti force brute : par IP et par identifiant ciblé
     rateLimit('pwlogin:ip:' + clientIp(req), 20, 15 * 60 * 1000)
-    const body = await req.json()
+    const body = await req.json().catch(() => ({}))
     const username = String(body.username || '').trim()
     const password = String(body.password || '')
     rateLimit('pwlogin:u:' + username.toLowerCase(), 10, 15 * 60 * 1000)

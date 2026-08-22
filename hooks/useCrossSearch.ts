@@ -27,6 +27,7 @@ function matchesSearch(e: Enquete, term: string): boolean {
       m.role?.toLowerCase().includes(term)
     ) ||
     e.dateDebut?.includes(term) ||
+    e.dateCreation?.includes(term) ||
     e.comptesRendus?.some(cr =>
       cr.enqueteur.toLowerCase().includes(term) ||
       cr.description.toLowerCase().includes(term)

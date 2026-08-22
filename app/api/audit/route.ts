@@ -20,7 +20,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   return handle(async () => {
     const session = requireTjSession(req)
-    const { ct, iv } = await req.json()
+    const { ct, iv } = await req.json().catch(() => ({}))
     if (typeof ct !== 'string' || typeof iv !== 'string') return jsonResponse({ error: 'ct/iv requis' }, { status: 400 })
     if (ct.length > 256 * 1024 || iv.length > 64) return jsonResponse({ error: 'Entrée trop volumineuse' }, { status: 413 })
     await appendLog(tjFile(session.tj, 'audit-app.jsonl'), { username: session.u, ct, iv, timestamp: Date.now() })
