@@ -102,6 +102,12 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
           {mec.infractionWeight > 0 && (
             <Stat label="Bonus infraction" value={`+${mec.infractionWeight.toFixed(1)}`} />
           )}
+          {mec.propagatedWeight > 0 && (
+            <Stat
+              label="Contamination latente"
+              value={`+${mec.propagatedWeight.toFixed(1)}`}
+            />
+          )}
           {mec.activityYears.length > 0 && (
             <Stat
               label="Facteur temporel"
@@ -142,6 +148,19 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
           {mec.temporalFactor > 1.01 && (
             <span className="text-[11px] font-medium text-sky-800 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded">
               Activité continue — bonus ×{mec.temporalFactor.toFixed(2)}
+            </span>
+          )}
+          {/* Entourage : ce que la personne doit à ses liens personne ↔ personne.
+              Signalé à part car c'est la seule part du score qui ne vient pas de
+              ses propres dossiers — utile pour ne pas surinterpréter un Top. */}
+          {mec.propagatedWeight > 0 && (
+            <span
+              className="text-[11px] font-medium text-violet-800 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded"
+              title={`Poids reçu des ${mec.nbMecVoisins} personne(s) reliée(s) par un lien de renseignement, et de leur entourage (atténué à chaque saut).`}
+            >
+              Entourage impliqué — +{mec.propagatedWeight.toFixed(1)} pt
+              {mec.propagatedWeight >= 2 ? 's' : ''}
+              {mec.dossierIds.length === 0 ? ' (aucun dossier propre)' : ''}
             </span>
           )}
         </div>

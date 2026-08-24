@@ -22,6 +22,16 @@
 //         + (nb_liens_renseignement × w_lien)
 //         + bonus_infraction (somme par tag d'infraction associé)
 //   × facteur_temporel (malus d'ancienneté × bonus de continuité)
+//   + contamination_latente (poids reçu des MEC voisins, cf. infra)
+//
+// CONTAMINATION LATENTE — un lien de renseignement entre DEUX PERSONNES ne
+// rapportait rien : un individu connu uniquement pour graviter autour de
+// figures lourdement impliquées pesait zéro. Chaque MEC transmet donc
+// désormais à ses voisins de renseignement une fraction de son propre poids
+// (`lienMecPropagationCoef`), qui décroît à chaque saut (coef^distance) et
+// s'arrête à `lienMecPropagationHops`. La diffusion part des poids DIRECTS
+// (ceux tirés des dossiers) : elle ne se ré-alimente pas d'elle-même, donc
+// pas d'emballement en cercle. Cf. propagateLatentScore.
 //
 // Le facteur temporel remplace l'ancien « multiplicateur récent » binaire :
 // un MEC dont la dernière implication remonte à plusieurs années voit son
@@ -81,6 +91,15 @@ export interface MecNode {
   /** Facteur temporel effectivement appliqué au score (malus d'ancienneté ×
    *  bonus de continuité). 1 = neutre, < 1 = dormant, > 1 = actif en continu. */
   temporalFactor: number;
+  /** CONTAMINATION LATENTE — points reçus des MEC auxquels celui-ci est relié
+   *  par un lien de renseignement personne ↔ personne (et de leurs propres
+   *  voisins, avec décroissance par saut). Déjà pondéré temporellement à la
+   *  source ; s'ajoute au score APRÈS le facteur temporel du receveur.
+   *  0 = aucun voisin porteur, ou propagation désactivée. */
+  propagatedWeight: number;
+  /** Nombre de MEC voisins (1er saut) reliés par un lien de renseignement.
+   *  Sert à expliquer la contamination latente dans le panneau latéral. */
+  nbMecVoisins: number;
   /** Score composite normalisé entre 0 et 1 (max du graphe = 1) */
   score: number;
   /** Score brut avant normalisation */
@@ -474,18 +493,113 @@ export function computeTemporalFactor(
   return recency * continuity;
 }
 
+/**
+ * Poids DIRECT d'un MEC : ce qu'il tire de ses propres dossiers (dossiers,
+ * transversalité, mises en examen, chefs, bonus d'infraction), hors points de
+ * liens et hors bonus manuel.
+ *
+ * C'est la seule quantité qui se propage aux voisins (cf.
+ * propagateLatentScore). On en exclut volontairement :
+ *  - les points « par lien renseignement » — sinon deux personnes reliées se
+ *    renverraient mutuellement des points tirés de leur seul lien ;
+ *  - le bonus manuel — un arbitrage humain vaut pour la personne visée, il
+ *    n'a pas à déteindre sur son entourage ;
+ *  - la contamination déjà reçue — la diffusion part toujours des poids
+ *    directs, ce qui la borne et la rend indépendante de l'ordre de calcul.
+ */
+function computeDirectWeight(
+  mec: Omit<MecNode, 'score' | 'rawScore' | 'type'>,
+  weights: CartographieScoreWeights,
+): number {
+  return (
+    mec.dossierIds.length * weights.dossier +
+    mec.contentieuxIds.length * weights.contentieux +
+    mec.nbMisEnExamen * weights.miseEnExamen +
+    mec.nbChefs * weights.chefDefault +
+    mec.infractionWeight
+  );
+}
+
 function computeRawScore(
   mec: Omit<MecNode, 'score' | 'rawScore' | 'type'>,
   weights: CartographieScoreWeights,
 ): number {
   const raw =
-    mec.dossierIds.length * weights.dossier +
-    mec.contentieuxIds.length * weights.contentieux +
-    mec.nbMisEnExamen * weights.miseEnExamen +
-    mec.nbChefs * weights.chefDefault +
-    mec.nbLiensRenseignement * weights.lienRenseignement +
-    mec.infractionWeight;
-  return raw * mec.temporalFactor;
+    computeDirectWeight(mec, weights) +
+    mec.nbLiensRenseignement * weights.lienRenseignement;
+  // La contamination latente s'ajoute APRÈS le facteur temporel : elle est
+  // déjà pondérée à la source (par l'ancienneté du voisin qui l'émet), la
+  // repasser par l'ancienneté du receveur la pénaliserait deux fois — et un
+  // individu sans dossier n'a de toute façon aucune date à lui.
+  return raw * mec.temporalFactor + mec.propagatedWeight;
+}
+
+/**
+ * CONTAMINATION LATENTE — diffuse le poids des MEC le long des liens de
+ * renseignement PERSONNE ↔ PERSONNE.
+ *
+ * Motif : sans elle, relier un individu à un autre individu ne rapporte rien.
+ * Une figure connue uniquement par son entourage (le « type qui gravite »)
+ * reste à zéro alors que la carte dit exactement le contraire. Avec elle,
+ * A → B → dossier fait remonter A, à hauteur d'une fraction de ce que pèse B.
+ *
+ * Mécanique : pour chaque MEC on parcourt en largeur ses voisins de
+ * renseignement jusqu'à `hops` sauts, et on lui ajoute, pour chaque voisin
+ * atteint à la distance d, `poids_direct(voisin) × facteur_temporel(voisin)
+ * × coef^d`. Trois propriétés à garder en tête :
+ *  - la source est le poids DIRECT du voisin (jamais ce qu'il a lui-même
+ *    reçu) : la diffusion ne boucle pas et ne s'auto-amplifie pas ;
+ *  - c'est la distance la PLUS COURTE qui compte (un même voisin n'est
+ *    compté qu'une fois, au meilleur chemin) ;
+ *  - les contributions de voisins distincts s'additionnent : un individu au
+ *    centre d'une nébuleuse de gens impliqués monte, et c'est voulu.
+ */
+function propagateLatentScore(
+  mecById: Map<string, MecNode>,
+  voisinsByMec: Map<string, Set<string>>,
+  weights: CartographieScoreWeights,
+): void {
+  const coef = weights.lienMecPropagationCoef ?? DEFAULT_CARTO_WEIGHTS.lienMecPropagationCoef;
+  const hops = Math.floor(
+    weights.lienMecPropagationHops ?? DEFAULT_CARTO_WEIGHTS.lienMecPropagationHops,
+  );
+  if (!(coef > 0) || hops < 1 || voisinsByMec.size === 0) return;
+
+  // Poids émis par chaque MEC, figé AVANT toute diffusion.
+  const emis = new Map<string, number>();
+  for (const [id, mec] of mecById) {
+    const direct = computeDirectWeight(mec, weights) * mec.temporalFactor;
+    if (direct > 0) emis.set(id, direct);
+  }
+  if (emis.size === 0) return;
+
+  for (const [id, voisins] of voisinsByMec) {
+    const cible = mecById.get(id);
+    if (!cible) continue;
+    cible.nbMecVoisins = voisins.size;
+
+    // Parcours en largeur : chaque voisin n'est retenu qu'à sa distance
+    // minimale, l'origine étant exclue de son propre calcul.
+    let recu = 0;
+    const vus = new Set<string>([id]);
+    let frontiere = [...voisins].filter(v => !vus.has(v));
+    for (const v of frontiere) vus.add(v);
+    for (let d = 1; d <= hops && frontiere.length > 0; d++) {
+      const attenuation = Math.pow(coef, d);
+      const suivante: string[] = [];
+      for (const v of frontiere) {
+        recu += (emis.get(v) ?? 0) * attenuation;
+        if (d === hops) continue;
+        for (const w of voisinsByMec.get(v) ?? []) {
+          if (vus.has(w)) continue;
+          vus.add(w);
+          suivante.push(w);
+        }
+      }
+      frontiere = suivante;
+    }
+    cible.propagatedWeight = recu;
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -581,6 +695,17 @@ export function buildMindmapGraph(
       activityYearsByMec.set(mecId, set);
     }
     for (const y of years) set.add(y);
+  };
+  // Voisinage PERSONNE ↔ PERSONNE issu des liens de renseignement : support de
+  // la contamination latente (cf. propagateLatentScore).
+  const voisinsByMec = new Map<string, Set<string>>();
+  const addVoisin = (a: string, b: string) => {
+    let set = voisinsByMec.get(a);
+    if (!set) {
+      set = new Set<string>();
+      voisinsByMec.set(a, set);
+    }
+    set.add(b);
   };
   const edges: GraphEdge[] = [];
   const edgeKeys = new Set<string>();
@@ -729,6 +854,8 @@ export function buildMindmapGraph(
           recent: false,
           activityYears: [],
           temporalFactor: 1,
+          propagatedWeight: 0,
+          nbMecVoisins: 0,
           score: 0,
           rawScore: 0,
           manualBonus: 0,
@@ -820,6 +947,8 @@ export function buildMindmapGraph(
             recent: false,
             activityYears: [],
             temporalFactor: 1,
+            propagatedWeight: 0,
+            nbMecVoisins: 0,
             score: 0,
             rawScore: 0,
             manualBonus: 0,
@@ -866,6 +995,8 @@ export function buildMindmapGraph(
           recent: false,
           activityYears: [],
           temporalFactor: 1,
+          propagatedWeight: 0,
+          nbMecVoisins: 0,
           score: 0,
           rawScore: 0,
           manualBonus: 0,
@@ -948,6 +1079,8 @@ export function buildMindmapGraph(
             recent: false,
             activityYears: [],
             temporalFactor: 1,
+            propagatedWeight: 0,
+            nbMecVoisins: 0,
             score: 0,
             rawScore: 0,
             manualBonus: 0,
@@ -1000,6 +1133,14 @@ export function buildMindmapGraph(
       if (srcMec) srcMec.nbLiensRenseignement += 1;
       const tgtMec = mecById.get(target);
       if (tgtMec) tgtMec.nbLiensRenseignement += 1;
+
+      // Lien MEC ↔ MEC : mémorisé pour la contamination latente. Un tel lien
+      // ne rapportait aucun point ; il en transmettra désormais une fraction
+      // du poids de chaque extrémité vers l'autre.
+      if (srcMec && tgtMec && source !== target) {
+        addVoisin(source, target);
+        addVoisin(target, source);
+      }
 
       // Lien MEC ↔ dossier : on accorde au MEC une fraction (coef) du bonus
       // d'infraction du dossier — implication "indirecte", non comptée à plein.
@@ -1057,7 +1198,13 @@ export function buildMindmapGraph(
     mecNode.firstActivityYear = mecNode.activityYears[0];
     mecNode.lastActivityYear = mecNode.activityYears[mecNode.activityYears.length - 1];
     mecNode.temporalFactor = computeTemporalFactor(mecNode.activityYears, temporal, nowYear);
+  }
 
+  // Contamination latente : APRÈS les facteurs temporels (le poids émis en
+  // dépend) et AVANT le score (qui l'additionne).
+  propagateLatentScore(mecById, voisinsByMec, weights);
+
+  for (const [canonical, mecNode] of mecById) {
     const boost = boostByMec.get(canonical);
     mecNode.manualBonus = boost?.bonus ?? 0;
     mecNode.manualBonusReason = boost?.reason;
