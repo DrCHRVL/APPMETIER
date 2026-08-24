@@ -136,6 +136,11 @@ export class CartographieOverlaySyncService {
   private serverVersion = 0;
   private dirty = false;
   private initialized = false;
+  /** Incrémenté à chaque mutation du store. Permet de savoir si une
+   *  modification est arrivée pendant un cycle de sync (donc absente du
+   *  snapshot poussé) : dans ce cas on garde `dirty` pour la pousser au
+   *  cycle suivant au lieu de la perdre. */
+  private mutationSeq = 0;
 
   static getInstance(): CartographieOverlaySyncService {
     if (!CartographieOverlaySyncService.instance) {
@@ -174,7 +179,14 @@ export class CartographieOverlaySyncService {
     }
   }
 
+  /** N'éteint le drapeau `dirty` que si aucune mutation n'est arrivée depuis
+   *  la constitution du snapshot poussé. */
+  private clearDirtyIfUntouched(seqAtMerge: number): void {
+    if (this.mutationSeq === seqAtMerge) this.dirty = false;
+  }
+
   schedulePush(): void {
+    this.mutationSeq++;
     this.dirty = true;
     if (!isCartographieSyncAvailable()) return;
     if (this.pushTimer) clearTimeout(this.pushTimer);
@@ -197,8 +209,13 @@ export class CartographieOverlaySyncService {
   async sync(): Promise<void> {
     if (!isCartographieSyncAvailable()) return;
     if (this.inFlight) {
+      // Une sync est déjà en vol : elle a lu l'état local AVANT notre mutation
+      // et ne la poussera donc pas. On attend qu'elle finisse, puis on relance
+      // un cycle complet si le store est encore sale — sinon la modification
+      // restait en local jusqu'à la sync périodique (60 s).
       await this.inFlight;
-      return;
+      if (!this.dirty) return;
+      if (this.inFlight) { await this.inFlight; return; }
     }
     this.inFlight = this.performSync().finally(() => {
       this.inFlight = null;
@@ -218,15 +235,21 @@ export class CartographieOverlaySyncService {
       //    faire grossir le fichier serveur indéfiniment.
       pruneCartographieTombstones();
 
-      // 2. Pull serveur en parallèle de la lecture du store local.
-      const [serverFile, local] = await Promise.all([
-        this.pullServer(),
-        Promise.resolve(this.snapshotLocal()),
-      ]);
+      // 2. Pull serveur. ATTENTION : l'état local doit être lu APRÈS le pull,
+      //    jamais avant. Lu avant, une modification faite pendant le pull
+      //    n'était pas dans le snapshot mergé, et applyServerSnapshot la
+      //    remplaçait par la valeur serveur — l'utilisateur voyait sa saisie
+      //    revenir à la valeur précédente une à deux secondes après avoir
+      //    cliqué « Enregistrer », et rien n'était poussé.
+      const serverFile = await this.pullServer();
 
       this.serverVersion = serverFile?.version ?? 0;
 
-      // 3. Merge intelligent côté entités + tombstones.
+      // 3. Merge intelligent côté entités + tombstones. Le snapshot local, le
+      //    merge et son application au store sont synchrones : aucune mutation
+      //    ne peut s'y intercaler.
+      const local = this.snapshotLocal();
+      const mutationsAtMerge = this.mutationSeq;
       const merged = this.merge(local, serverFile);
 
       // 4. Si le merge change l'état local, on l'applique au store et on
@@ -272,10 +295,10 @@ export class CartographieOverlaySyncService {
         const ok = await this.pushServer(payload);
         if (ok) {
           this.serverVersion = payload.version;
-          this.dirty = false;
+          this.clearDirtyIfUntouched(mutationsAtMerge);
         }
       } else {
-        this.dirty = false;
+        this.clearDirtyIfUntouched(mutationsAtMerge);
       }
 
       this.initialized = true;

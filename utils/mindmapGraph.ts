@@ -236,6 +236,8 @@ export interface OverlayInput {
     mecId: string;
     bonus: number;
     reason?: string;
+    /** Départage deux entrées visant le même MEC (cf. boostByMec). */
+    updatedAt?: number;
   }>;
 }
 
@@ -1357,12 +1359,19 @@ export function buildMindmapGraph(
 
   // Index des boosts manuels par mecId canonique (pré-finalisation : on les
   // applique après la formule mais avant la normalisation max).
-  const boostByMec = new Map<string, { bonus: number; reason?: string }>();
+  // Deux entrées peuvent viser la même personne quand l'id stocké et l'id du
+  // nœud diffèrent par l'ordre nom/prénom (« clement debus » vs « debus
+  // clement ») : on garde la plus récente, sinon la valeur affichée dépendait
+  // de l'ordre de la liste — qui change à chaque fusion serveur.
+  const boostByMec = new Map<string, { bonus: number; reason?: string; updatedAt: number }>();
   if (overlay?.mecScoreBoosts) {
     for (const b of overlay.mecScoreBoosts) {
       const id = lookupCanonical(b.mecId) || b.mecId;
       if (!id) continue;
-      boostByMec.set(id, { bonus: b.bonus, reason: b.reason });
+      const updatedAt = b.updatedAt || 0;
+      const existing = boostByMec.get(id);
+      if (existing && existing.updatedAt > updatedAt) continue;
+      boostByMec.set(id, { bonus: b.bonus, reason: b.reason, updatedAt });
     }
   }
 

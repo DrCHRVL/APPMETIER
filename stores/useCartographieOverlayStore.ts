@@ -632,19 +632,29 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
     const list = get().mecScoreBoosts;
     const idx = list.findIndex(b => b.mecId === id);
     // Bonus = 0 (et pas de raison) → on retire l'entrée pour rester clean.
+    // Tombstone OBLIGATOIRE : sans lui, le serveur avait encore l'entrée et
+    // le prochain pull ressuscitait l'ancien bonus deux secondes plus tard —
+    // la remise à zéro semblait « ne pas tenir ».
     if (bonus === 0 && !reason) {
       if (idx < 0) return;
-      set({ mecScoreBoosts: list.filter(b => b.mecId !== id) });
+      set({
+        mecScoreBoosts: list.filter(b => b.mecId !== id),
+        deletedMecScoreBoostIds: appendTombstone(get().deletedMecScoreBoostIds, id),
+      });
       markDirty();
       return;
     }
     const next: MecScoreBoost = { mecId: id, bonus, reason, updatedAt: Date.now() };
+    // Nouvelle valeur après une remise à zéro : retirer le tombstone, sinon le
+    // merge ré-évincerait aussitôt le bonus qu'on vient de saisir.
+    const tombs = get().deletedMecScoreBoostIds || [];
+    const nextTombs = tombs.some(t => t.id === id) ? tombs.filter(t => t.id !== id) : tombs;
     if (idx < 0) {
-      set({ mecScoreBoosts: [...list, next] });
+      set({ mecScoreBoosts: [...list, next], deletedMecScoreBoostIds: nextTombs });
     } else {
       const updated = [...list];
       updated[idx] = next;
-      set({ mecScoreBoosts: updated });
+      set({ mecScoreBoosts: updated, deletedMecScoreBoostIds: nextTombs });
     }
     markDirty();
   },
