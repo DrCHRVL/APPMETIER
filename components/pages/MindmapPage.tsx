@@ -22,6 +22,7 @@ import {
   type GraphNode,
   type MecNode,
 } from '@/utils/mindmapGraph';
+import { cleanForKeywordUse, splitByNameLikeness } from '@/utils/nameHeuristics';
 import {
   useCartographieOverlayStore,
   type ClusterAnnotation,
@@ -414,6 +415,13 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   // (drapeau isVictime).
   // On exporte ce qui est réellement affiché : le filtre contentieux actif est
   // donc respecté.
+  //
+  // Repérage « ce n'est pas un nom/prénom » (cf. utils/nameHeuristics.ts) :
+  // l'export vise à être réemployé tel quel (ex. mots-clés d'une règle
+  // d'alerte messagerie), donc les entrées qui ne sont pas des noms de
+  // personne physique exploitables (placeholder « X », description « Femme
+  // blonde », personne morale, date accolée…) sont sorties dans une seconde
+  // section « À VÉRIFIER » plutôt que mélangées aux vrais noms.
   const handleExportNames = async () => {
     // Tri par score décroissant (même rawScore que le Top), pour sortir les
     // profils les plus saillants en tête ; le nom départage à score égal.
@@ -436,8 +444,24 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       showToast('Aucun nom à exporter', 'info');
       return;
     }
+    const { valid, flagged } = splitByNameLikeness(sorted);
+    const cleanNames = valid.map(cleanForKeywordUse);
+    // Chaque section ne s'écrit que si elle a du contenu — sinon, sur une vue
+    // filtrée où tout est signalé (ex. uniquement des personnes morales), le
+    // fichier s'ouvrirait sur un "# NOMS (0)" vide avant la vraie liste.
+    const sections: string[] = [];
+    if (cleanNames.length > 0) {
+      sections.push(`# NOMS (${cleanNames.length}) — un par ligne, prêts à réutiliser tels quels`, ...cleanNames);
+    }
+    if (flagged.length > 0) {
+      if (sections.length > 0) sections.push('');
+      sections.push(
+        `# À VÉRIFIER (${flagged.length}) — ne ressemble pas à un nom/prénom exploitable, à relire avant réutilisation`,
+        ...flagged.map(f => `${f.name}  [${f.reason}]`),
+      );
+    }
     const filename = `mis-en-cause_${new Date().toISOString().split('T')[0]}.txt`;
-    const content = sorted.join('\n') + '\n';
+    const content = sections.join('\n') + '\n';
     try {
       if (window.siralBridge?.saveFileDialog) {
         await window.siralBridge.saveFileDialog(filename, content);
@@ -451,7 +475,9 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         setTimeout(() => URL.revokeObjectURL(a.href), 30000);
       }
       showToast(
-        `${sorted.length} nom${sorted.length > 1 ? 's' : ''} exporté${sorted.length > 1 ? 's' : ''}`,
+        flagged.length > 0
+          ? `${cleanNames.length} nom${cleanNames.length > 1 ? 's' : ''} exporté${cleanNames.length > 1 ? 's' : ''}, ${flagged.length} à vérifier`
+          : `${cleanNames.length} nom${cleanNames.length > 1 ? 's' : ''} exporté${cleanNames.length > 1 ? 's' : ''}`,
         'success',
       );
     } catch (e) {
@@ -772,10 +798,12 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         </button>
 
         {/* Exporter : liste des noms (mis en cause, mis en examen, suspects,
-            condamnés et ajouts manuels — hors victimes) en .txt brut, un nom par ligne. */}
+            condamnés et ajouts manuels — hors victimes) en .txt brut, un nom par
+            ligne, avec une seconde section listant les entrées qui ne
+            ressemblent pas à un nom/prénom exploitable (cf. nameHeuristics). */}
         <button
           onClick={handleExportNames}
-          title="Exporter la liste des noms (mis en cause, mis en examen, suspects, condamnés… hors victimes) au format texte"
+          title="Exporter la liste des noms (mis en cause, mis en examen, suspects, condamnés… hors victimes) au format texte — sépare les entrées qui ne ressemblent pas à un nom/prénom"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 transition-colors"
         >
           <FileDown className="h-3.5 w-3.5" />
