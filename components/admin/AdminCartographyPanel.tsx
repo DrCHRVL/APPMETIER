@@ -32,6 +32,7 @@ interface WeightFieldDef {
   helper: string;
   step?: number;
   min?: number;
+  max?: number;
 }
 
 interface LayoutFieldDef {
@@ -110,6 +111,22 @@ const WEIGHT_FIELDS: WeightFieldDef[] = [
     helper: 'Quand un MEC est rattaché à un dossier (réel ou ex nihilo) par un simple lien de renseignement, il reçoit ce pourcentage du bonus d\'infraction du dossier. 0.8 = 80 %, 0 = ignore.',
     step: 0.1,
     min: 0,
+  },
+  {
+    key: 'lienMecPropagationCoef',
+    label: 'Contamination latente',
+    helper: 'Lien entre DEUX PERSONNES : chacune transmet à l\'autre ce pourcentage de son propre poids (dossiers, mises en examen, infractions). Relier un MEC à un MEC lui-même relié à un dossier fait donc monter le premier. 0.3 = 30 %, 0 = les liens personne ↔ personne ne rapportent rien.',
+    step: 0.05,
+    min: 0,
+    max: 1,
+  },
+  {
+    key: 'lienMecPropagationHops',
+    label: 'Portée de la contamination',
+    helper: 'Nombre de sauts personne ↔ personne sur lesquels la contamination se propage, en s\'affaiblissant à chaque saut (30 % puis 9 % avec un coef. de 0.3). 1 = voisins directs seulement ; 2 = « l\'ami de mon ami » (défaut) ; 0 = désactive.',
+    step: 1,
+    min: 0,
+    max: 4,
   },
 ];
 
@@ -318,6 +335,7 @@ export const AdminCartographyPanel: React.FC = () => {
                 type="number"
                 step={f.step ?? 1}
                 min={f.min}
+                max={f.max}
                 value={draft[`w:${f.key}`] ?? String(config.weights[f.key])}
                 onChange={(e) => setDraft(d => ({ ...d, [`w:${f.key}`]: e.target.value }))}
                 onBlur={(e) => handleWeightChange(f.key, e.target.value)}
@@ -335,7 +353,20 @@ export const AdminCartographyPanel: React.FC = () => {
             un lien de renseignement reçoit en plus le bonus d&apos;infraction de ce
             dossier × le coef. ci-dessus. Le total est ensuite multiplié par le{' '}
             <strong>facteur temporel</strong> réglé ci-dessous (ancienneté et
-            continuité de l&apos;activité), puis le bonus manuel éventuel s&apos;ajoute.
+            continuité de l&apos;activité).
+          </p>
+        </div>
+        <div className="mt-2 flex items-start gap-2 text-xs text-gray-500 bg-slate-50 border border-slate-200 rounded-md p-3">
+          <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <p>
+            <strong>Contamination latente</strong> — un lien entre deux personnes ne
+            valait aucun point : quelqu&apos;un connu uniquement par son entourage
+            pesait zéro. Chaque MEC transmet désormais à ses voisins de renseignement
+            une fraction de son propre poids, atténuée à chaque saut. Le poids reçu
+            s&apos;ajoute en fin de formule (il est déjà pondéré par l&apos;ancienneté
+            de celui qui l&apos;émet), avant le bonus manuel éventuel. La diffusion
+            part toujours des poids <em>directs</em> : elle ne se ré-alimente pas
+            d&apos;elle-même et ne peut pas s&apos;emballer en boucle.
           </p>
         </div>
       </section>
