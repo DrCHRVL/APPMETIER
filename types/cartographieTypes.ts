@@ -30,6 +30,16 @@ export interface CartographieScoreWeights {
    *  cause). Permet de récompenser une implication "indirecte" sans la
    *  compter à plein. 0 = ignore, 0.8 = 80 % du bonus, 1 = plein bonus. */
   lienRenseignementInfractionCoef: number;
+  /** CONTAMINATION LATENTE — fraction du poids d'un MEC transmise à un autre
+   *  MEC auquel il est relié par un lien de renseignement (lien personne ↔
+   *  personne). Un individu qui n'est dans aucun dossier mais qui gravite
+   *  autour de gens lourdement impliqués cesse ainsi de peser zéro. La
+   *  transmission décroît à chaque saut (coef^distance). 0 = désactive. */
+  lienMecPropagationCoef: number;
+  /** Nombre maximal de sauts personne ↔ personne sur lesquels la contamination
+   *  latente se propage. 1 = voisins directs seulement ; 2 = « l'ami de mon
+   *  ami » (recommandé) ; 0 = désactive. */
+  lienMecPropagationHops: number;
 }
 
 /**
@@ -142,8 +152,12 @@ export interface CartographieModuleConfig {
 /** Version courante du schéma de configuration.
  *  v2 : suppression du multiplicateur « récent » (booléen 12 mois, trop
  *       binaire) au profit du bloc `temporal` (malus d'ancienneté progressif
- *       + bonus de continuité). */
-export const CARTO_CONFIG_VERSION = 2;
+ *       + bonus de continuité).
+ *  v3 : ajout de la CONTAMINATION LATENTE (lienMecPropagationCoef /
+ *       lienMecPropagationHops) — les liens personne ↔ personne ne rapportent
+ *       plus zéro. Les configs v2 héritent des valeurs par défaut (0.3 / 2)
+ *       via `normalize`, sans migration explicite. */
+export const CARTO_CONFIG_VERSION = 3;
 
 /** Valeurs par défaut des paramètres d'espacement. Doivent rester alignées
  *  sur les constantes de repli de components/mindmap (INTER_GALAXY_PADDING,
@@ -162,6 +176,8 @@ export const DEFAULT_CARTO_WEIGHTS: CartographieScoreWeights = {
   chefDefault: 0.3,
   lienRenseignement: 0,
   lienRenseignementInfractionCoef: 0.8,
+  lienMecPropagationCoef: 0.3,
+  lienMecPropagationHops: 2,
 };
 
 /** Valeurs par défaut de la pondération temporelle. Activée d'office : sans

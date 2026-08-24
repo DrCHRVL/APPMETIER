@@ -101,8 +101,9 @@ export interface CartographieTombstoneEntry {
 /**
  * Bonus de score appliqué manuellement à un MEC. L'utilisateur peut booster
  * (ou minorer) la pondération d'une personne qu'il sait plus importante que
- * ce que la formule automatique calcule. Additionné après la formule
- * (dossier × 2 + contentieux × 3 + ME × 1 + chefs × 0.3) × 1.2 si récent.
+ * ce que la formule automatique calcule. Additionné après la formule de score
+ * et sa pondération temporelle (les pondérations sont paramétrables depuis
+ * Paramètres > Module Cartographie).
  */
 export interface MecScoreBoost {
   /** ID canonique du MEC (cf. normalizeMecName). */

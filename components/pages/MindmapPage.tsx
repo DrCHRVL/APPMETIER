@@ -1207,10 +1207,6 @@ const Top10Panel: React.FC<{
           })
         )}
       </div>
-      <div className="px-3 py-2 border-t border-slate-200 text-[10px] text-slate-400">
-        Score : dossiers × 2 + contentieux × 3 + ME × 1 + chefs × 0.3 (×1.2 si récent).
-        Les MEC marqués sont entourés en rouge sur la carte.
-      </div>
     </div>
   );
 };
