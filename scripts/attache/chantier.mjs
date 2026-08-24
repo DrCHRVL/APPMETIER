@@ -42,6 +42,16 @@ const LOT_INJECT_BUDGET = 240_000 // texte de fiches injecté dans un run liens/
 const MAX_LOT_ECHECS = 3       // au 3e échec, le lot est marqué en échec et on passe
 const LOT_TIMEOUT_MS = 20 * 60_000
 const SYNTHESE_BUDGET_CHARS = 300_000 // fiches concaténées servies à la synthèse
+// Durée observée d'un pas, pour le DEVIS : le magistrat doit pouvoir arbitrer
+// sur un ordre de grandeur en HEURES, pas seulement en jetons et en nuits.
+const MINUTES_PAR_LOT = 3      // un lot de pièces (lecture + fiche)
+const MINUTES_PAR_LOT_FICHES = 1.5 // un lot de fiches déjà écrites (liens/carto)
+const HEURES_PAR_NUIT = 9      // la fenêtre de nuit du service
+
+/** Heures de travail estimées (arrondi au demi) pour un nombre de lots. */
+function heuresEstimees(nbLots, minutesParLot) {
+  return Math.max(0.5, Math.round((nbLots * minutesParLot / 60) * 2) / 2)
+}
 
 // ── Stockage (une enveloppe chiffrée par chantier) ──
 function chantierPath(id) {
@@ -90,6 +100,7 @@ function resumeChantier(ch) {
     id: ch.id, type: ch.type, numero: ch.numero, consigne: ch.consigne,
     numeros: ch.numeros || null, sansFiches: ch.sansFiches || [],
     etat: ch.etat, attente: ch.attente || null, nuitSeulement: Boolean(ch.nuitSeulement),
+    origine: ch.origine || 'magistrat',
     creeLe: ch.creeLe, majLe: ch.majLe,
     totalPieces: ch.totalPieces, totalLots: totalLots(ch), lotsFaits: lotsFaits(ch), piecesFaites: piecesFaites(ch),
     // dédoublonnage strict au devis : pièces déposées vs pièces à lire
@@ -129,11 +140,11 @@ function pasEnCours(ch) {
  * Type « dossier » : plan depuis l'index des PIÈCES (pochettes → lots).
  * Types « liens »/« carto » : plan depuis les FICHES des dossiers visés.
  */
-export async function createChantier(keys, { type = 'dossier', numero, numeros, consigne, nuitSeulement = true }) {
+export async function createChantier(keys, { type = 'dossier', numero, numeros, consigne, nuitSeulement = true, origine = 'magistrat' }) {
   if (!['dossier', 'liens', 'carto'].includes(type)) throw new Error(`Type de chantier inconnu : ${type}`)
   if (type !== 'dossier') {
     const liste = (Array.isArray(numeros) && numeros.length ? numeros : [numero]).filter(Boolean)
-    return createChantierFiches(keys, { type, numeros: liste, consigne, nuitSeulement })
+    return createChantierFiches(keys, { type, numeros: liste, consigne, nuitSeulement, origine })
   }
   const canon = numeroCanonique(keys, numero)
   if (!canon) throw new Error(`Dossier « ${numero} » introuvable`)
@@ -187,6 +198,7 @@ export async function createChantier(keys, { type = 'dossier', numero, numeros, 
     numero: canon,
     consigne: String(consigne || '').slice(0, 2000),
     nuitSeulement: Boolean(nuitSeulement),
+    origine: origine === 'attache' ? 'attache' : 'magistrat',
     etat: 'devis',
     creeLe: new Date().toISOString(),
     plan,
@@ -203,12 +215,13 @@ export async function createChantier(keys, { type = 'dossier', numero, numeros, 
       // fourchette grossière : ~30-60 k jetons lus/écrits par lot
       jetonsMin: nbLots * 30_000,
       jetonsMax: nbLots * 60_000,
-      // ~3 min par lot, nuit de ~9 h ≈ 150 lots par nuit au mieux
-      nuits: Math.max(1, Math.ceil(nbLots / 120)),
+      // ~3 min par lot, nuit de ~9 h ≈ 180 lots par nuit au mieux
+      heures: heuresEstimees(nbLots, MINUTES_PAR_LOT),
+      nuits: Math.max(1, Math.ceil(heuresEstimees(nbLots, MINUTES_PAR_LOT) / HEURES_PAR_NUIT)),
     },
     journal: [],
   }
-  journal(ch, `Chantier créé — ${metas.length} pièces déposées${doublons.length ? `, dont ${doublons.length} copie(s) exacte(s) écartée(s) de la lecture (empreinte identique — chaque contenu lu une fois)` : ''} : ${totalPieces} pièces à lire, ${plan.length} pochettes, ${nbLots} lots. En attente de validation du devis.`)
+  journal(ch, `Chantier ${ch.origine === 'attache' ? 'proposé par l\'attaché (conversation)' : 'créé'} — ${metas.length} pièces déposées${doublons.length ? `, dont ${doublons.length} copie(s) exacte(s) écartée(s) de la lecture (empreinte identique — chaque contenu lu une fois)` : ''} : ${totalPieces} pièces à lire, ${plan.length} pochettes, ${nbLots} lots. En attente de validation du devis.`)
   writeChantier(keys, ch)
   await audit(keys, 'chantier_cree', { id: ch.id, numero: canon, pieces: totalPieces, lots: nbLots })
   return resumeChantier(ch)
@@ -227,7 +240,7 @@ function chunk(arr, size) {
  * identifiants de production). Les dossiers SANS fiches sont écartés du plan
  * et nommés dans le devis : il faut d'abord les dépouiller.
  */
-async function createChantierFiches(keys, { type, numeros, consigne, nuitSeulement }) {
+async function createChantierFiches(keys, { type, numeros, consigne, nuitSeulement, origine = 'magistrat' }) {
   const min = type === 'liens' ? 2 : 1
   const canons = []
   for (const n of numeros) {
@@ -274,6 +287,7 @@ async function createChantierFiches(keys, { type, numeros, consigne, nuitSeuleme
     sansFiches,
     consigne: String(consigne || '').slice(0, 2000),
     nuitSeulement: Boolean(nuitSeulement),
+    origine: origine === 'attache' ? 'attache' : 'magistrat',
     etat: 'devis',
     creeLe: new Date().toISOString(),
     plan,
@@ -286,11 +300,12 @@ async function createChantierFiches(keys, { type, numeros, consigne, nuitSeuleme
       // lecture de fiches injectées (aucune pièce relue) : runs bien plus courts
       jetonsMin: (nbLots + 1) * 15_000,
       jetonsMax: (nbLots + 1) * 35_000,
-      nuits: Math.max(1, Math.ceil((nbLots + 1) / 120)),
+      heures: heuresEstimees(nbLots + 1, MINUTES_PAR_LOT_FICHES),
+      nuits: Math.max(1, Math.ceil(heuresEstimees(nbLots + 1, MINUTES_PAR_LOT_FICHES) / HEURES_PAR_NUIT)),
     },
     journal: [],
   }
-  journal(ch, `Chantier « ${type === 'liens' ? 'liens entre dossiers' : 'cartographie'} » créé — ${plan.length} dossier(s), ${totalFiches} fiches, ${nbLots} lots. En attente de validation du devis.`)
+  journal(ch, `Chantier « ${type === 'liens' ? 'liens entre dossiers' : 'cartographie'} » ${ch.origine === 'attache' ? 'proposé par l\'attaché (conversation)' : 'créé'} — ${plan.length} dossier(s), ${totalFiches} fiches, ${nbLots} lots. En attente de validation du devis.`)
   if (sansFiches.length) {
     journal(ch, `Écartés faute de fiches : ${sansFiches.join(' · ')} — dépouillez-les (chantier « dossier en détail ») puis recréez ce chantier pour les inclure.`)
   }

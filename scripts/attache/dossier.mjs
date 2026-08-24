@@ -155,50 +155,155 @@ export function enqueteExiste(keys, numero) {
 
 // ── Lecture ──
 
+export const DOSSIERS_PAR_PAGE = 60
+export const DOSSIERS_PAR_PAGE_MAX = 300
+const DOSSIERS_BUDGET_CHARS = 40_000
+const OBJET_COMPACT = 140
+
+/** Comparaison tolérante (casse, accents, espaces) pour le filtre. */
+function normTexte(s) {
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+function ficheEnquete(e, { detail, seuilSansCR, now }) {
+  const lastCr = (e.comptesRendus || [])
+    .map((c) => Date.parse(c.date))
+    .filter(Number.isFinite)
+    .sort((x, y) => y - x)[0]
+  const joursSansCR = lastCr ? Math.floor((now - lastCr) / 86_400_000) : null
+  // « dormant » = aucune activité depuis le seuil. À DÉFAUT de CR, on mesure
+  // l'inactivité depuis la dernière mise à jour (ou la création) — surtout
+  // PAS depuis « jamais » : un dossier fraîchement créé, sans encore de CR,
+  // n'est pas dormant. Le marquer tel faussait la relance (mail d'étape sur
+  // un dossier neuf) et brouillait le diagnostic.
+  const lastActivite = lastCr
+    || Date.parse(e.dateMiseAJour || '') || Date.parse(e.dateCreation || '') || null
+  const joursSansActivite = lastActivite ? Math.floor((now - lastActivite) / 86_400_000) : null
+  const dormant = e.statut === 'en_cours' && joursSansActivite !== null && joursSansActivite >= seuilSansCR
+  const objet = stripHtml(e.description || '')
+  if (detail !== 'complet') {
+    // L'orientation, rien de plus : de quoi reconnaître le dossier et décider
+    // lequel ouvrir. Le reste se tire dossier par dossier (lire_dossier).
+    return {
+      numero: e.numero,
+      objet: objet.slice(0, OBJET_COMPACT),
+      statut: e.statut,
+      misEnCause: (e.misEnCause || []).length,
+      documents: (e.documents || []).length,
+      derniereMaj: String(e.dateMiseAJour || '').slice(0, 10) || null,
+      ...(dormant ? { dormant: true } : {}),
+    }
+  }
+  return {
+    numero: e.numero,
+    objet: objet.slice(0, 180),
+    statut: e.statut,
+    services: e.services || [],
+    misEnCause: (e.misEnCause || []).length,
+    ecoutes: (e.ecoutes || []).length,
+    geolocalisations: (e.geolocalisations || []).length,
+    autresActes: (e.actes || []).length,
+    comptesRendus: (e.comptesRendus || []).length,
+    documents: (e.documents || []).length,
+    derniereMaj: e.dateMiseAJour,
+    joursSansCR,
+    seuilSansCR,
+    dormant,
+  }
+}
+
 /**
- * Liste compacte des enquêtes (pour l'orientation de l'agent).
+ * Liste des enquêtes — COMPACTE, FILTRABLE, PAGINÉE et BORNÉE en caractères.
+ *
+ * Motif (le même que le rendu par sections d'un dossier, plus bas) : un
+ * résultat d'outil trop gros dépasse le plafond de sortie du CLI, qui le
+ * déverse alors dans un fichier — que l'attaché (sans outil Read) ne peut PAS
+ * rouvrir : la réponse est PERDUE, pas seulement tronquée. C'est ce qui
+ * rendait le stock ARCHIVÉ inaccessible à l'agent : `archives:true` ajoutait
+ * les archives aux dossiers en cours et la liste complète, servie avec tous
+ * ses champs, dépassait le plafond à chaque appel — l'agent concluait qu'il ne
+ * pouvait « pas passer les archives au crible ».
+ *
+ * Trois leviers, ici : `portee` ('en_cours' | 'toutes' | 'archives' — les
+ * archives SEULES, population bien plus courte), `filtre` (numéro, objet, mis
+ * en cause) et la pagination `offset`/`limit`. Le rendu par défaut ne porte
+ * que ce qui sert à s'orienter ; `detail:"complet"` rend les compteurs
+ * d'actes, de CR et le délai sans CR. Et quoi qu'on demande, la page est
+ * bornée par un budget de caractères : jamais de déversement silencieux.
+ *
  * Le caractère « dormant » suit le SEUIL CONFIGURÉ dans SIRAL pour l'alerte
  * « dossier sans CR » (alertRules, type cr_delay) — jamais une valeur
  * arbitraire. À défaut de règle activée : 60 jours.
  */
-export function listEnquetes(keys, { includeArchived = false } = {}) {
+export function listEnquetes(keys, {
+  includeArchived = false,
+  portee = null,
+  filtre = '',
+  offset = 0,
+  limit = DOSSIERS_PAR_PAGE,
+  detail = 'compact',
+} = {}) {
   const { data } = loadContentieux(keys)
   const crRule = (data.alertRules || []).find((r) => r && r.type === 'cr_delay' && r.enabled)
   const seuilSansCR = Number(crRule?.threshold) > 0 ? Number(crRule.threshold) : 60
   const now = Date.now()
-  return (data.enquetes || [])
-    .filter((e) => includeArchived || e.statut !== 'archive')
-    .map((e) => {
-      const lastCr = (e.comptesRendus || [])
-        .map((c) => Date.parse(c.date))
-        .filter(Number.isFinite)
-        .sort((x, y) => y - x)[0]
-      const joursSansCR = lastCr ? Math.floor((now - lastCr) / 86_400_000) : null
-      // « dormant » = aucune activité depuis le seuil. À DÉFAUT de CR, on mesure
-      // l'inactivité depuis la dernière mise à jour (ou la création) — surtout
-      // PAS depuis « jamais » : un dossier fraîchement créé, sans encore de CR,
-      // n'est pas dormant. Le marquer tel faussait la relance (mail d'étape sur
-      // un dossier neuf) et brouillait le diagnostic.
-      const lastActivite = lastCr
-        || Date.parse(e.dateMiseAJour || '') || Date.parse(e.dateCreation || '') || null
-      const joursSansActivite = lastActivite ? Math.floor((now - lastActivite) / 86_400_000) : null
-      return {
-        numero: e.numero,
-        objet: stripHtml(e.description || '').slice(0, 180),
-        statut: e.statut,
-        services: e.services || [],
-        misEnCause: (e.misEnCause || []).length,
-        ecoutes: (e.ecoutes || []).length,
-        geolocalisations: (e.geolocalisations || []).length,
-        autresActes: (e.actes || []).length,
-        comptesRendus: (e.comptesRendus || []).length,
-        documents: (e.documents || []).length,
-        derniereMaj: e.dateMiseAJour,
-        joursSansCR,
-        seuilSansCR,
-        dormant: e.statut === 'en_cours' && joursSansActivite !== null && joursSansActivite >= seuilSansCR,
-      }
-    })
+  const toutes = data.enquetes || []
+
+  // `archives:true` (écriture historique) = « toutes » ; `portee` tranche
+  // finement, et surtout ouvre le mode ARCHIVES SEULES.
+  const p = ['en_cours', 'toutes', 'archives'].includes(String(portee)) ? String(portee)
+    : includeArchived ? 'toutes' : 'en_cours'
+  const archivees = toutes.filter((e) => e.statut === 'archive')
+  let retenues = p === 'archives' ? archivees
+    : p === 'toutes' ? toutes
+    : toutes.filter((e) => e.statut !== 'archive')
+
+  const q = normTexte(filtre)
+  if (q) {
+    retenues = retenues.filter((e) => normTexte([
+      e.numero, stripHtml(e.description || ''),
+      (e.misEnCause || []).map((m) => m.nom).join(' '),
+      (e.services || []).join(' '),
+    ].join(' ')).includes(q))
+  }
+
+  const total = retenues.length
+  const debut = Math.max(0, Math.floor(Number(offset) || 0))
+  const parPage = Math.min(DOSSIERS_PAR_PAGE_MAX, Math.max(1, Math.floor(Number(limit) || DOSSIERS_PAR_PAGE)))
+  const page = retenues.slice(debut, debut + parPage)
+    .map((e) => ficheEnquete(e, { detail, seuilSansCR, now }))
+
+  // Garde-fou ultime : même une page « autorisée » est coupée si elle dépasse
+  // le budget — on préfère une page plus courte, avec son offsetSuivant, à une
+  // réponse perdue.
+  const dossiers = []
+  let reste = DOSSIERS_BUDGET_CHARS
+  for (const d of page) {
+    const cout = JSON.stringify(d).length + 2
+    if (dossiers.length && cout > reste) break
+    reste -= cout
+    dossiers.push(d)
+  }
+
+  const suivant = debut + dossiers.length
+  const restants = Math.max(0, total - suivant)
+  return {
+    portee: p,
+    filtre: filtre ? String(filtre) : undefined,
+    detail: detail === 'complet' ? 'complet' : 'compact',
+    total,
+    totalArchives: archivees.length,
+    offset: debut,
+    affiches: dossiers.length,
+    restants,
+    ...(restants ? { offsetSuivant: suivant } : {}),
+    dossiers,
+    note: restants
+      ? `${restants} dossier(s) non affiché(s) : rappelle lister_dossiers avec offset:${suivant} (ou affine avec filtre / portee) — rien n'est perdu, la suite se lit page par page.`
+      : (p === 'archives' ? 'Archives SEULES — portee:"toutes" pour y ajouter les dossiers en cours.'
+        : p === 'toutes' ? 'Dossiers en cours ET archivés.'
+          : 'Dossiers en cours seulement — portee:"archives" pour les seules archives, portee:"toutes" pour l\'ensemble.'),
+  }
 }
 
 function acteLine(kind, a) {

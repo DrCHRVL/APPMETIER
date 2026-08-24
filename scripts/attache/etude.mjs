@@ -117,7 +117,7 @@ export function etudePrompt(trigger) {
     'C\'est ta meilleure source de MODÈLES : mieux qu\'une correction, un acte validé montre ce qui est attendu.',
     '',
     'MÉTHODE :',
-    '1. lister_dossiers (archives comprises) et instru_lister, puis DÉLÈGUE le dépouillement (sous_agents, un lot',
+    '1. lister_dossiers portee:"toutes" (paginé : déroule offset/offsetSuivant jusqu\'au bout) et instru_lister, puis DÉLÈGUE le dépouillement (sous_agents, un lot',
     '   par dossier ayant des pièces en zone Actes ou DML) : chaque sous-agent liste les documents du dossier',
     '   (lire_dossier section:"documents"), lit les actes de ces zones (lire_document — la copie markdown est',
     '   servie d\'office, ne relis pas les PDF) et REMONTE, par pièce : type d\'acte précis, structure (plan,',

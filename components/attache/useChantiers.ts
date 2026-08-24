@@ -34,13 +34,15 @@ export interface Chantier {
   etat: 'devis' | 'en_cours' | 'pause' | 'synthese' | 'termine';
   attente?: 'nuit' | 'forfait' | null;
   nuitSeulement?: boolean;
+  /** « attache » : devis déposé par l'assistant depuis une conversation (il attend votre validation). */
+  origine?: 'magistrat' | 'attache';
   creeLe: string; majLe?: string;
   totalPieces: number; totalLots: number; lotsFaits: number; piecesFaites: number;
   pochettes: PochetteResume[];
   fiches: Array<{ prodId: string; titre: string; pochette: string }>;
   syntheseProdId?: string | null;
   enCours?: PasEnCours | null;
-  estimation?: { pieces: number; lots: number; jetonsMin: number; jetonsMax: number; nuits: number };
+  estimation?: { pieces: number; lots: number; jetonsMin: number; jetonsMax: number; heures?: number; nuits: number };
   journal?: Array<{ date: string; evenement: string }>;
 }
 
