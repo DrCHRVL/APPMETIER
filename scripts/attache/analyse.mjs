@@ -151,7 +151,7 @@ function buildUserPrompt({ docs, actesExistants, enquete }) {
 }
 
 /** Isole et parse le premier objet JSON d'une chaîne (tolère les fences). */
-function parseJsonLoose(text) {
+export function parseJsonLoose(text) {
   if (!text || typeof text !== 'string') return null
   let s = text.trim()
   // Retirer un éventuel bloc ```json … ```
@@ -187,22 +187,30 @@ function sanitizeDocs(docs) {
   return out
 }
 
-/** Lance le CLI claude en un tour, capture le JSON de sortie. */
-function runClaudeJson(userPrompt) {
+/**
+ * Lance le CLI claude en UN TOUR, sans aucun outil, et capture le JSON de
+ * sortie. Mutualisé : l'analyse des documents s'en sert avec ses consignes,
+ * l'analyse des trames de forme (`analyseTrame.mjs`) avec les siennes.
+ * @param {string} userPrompt
+ * @param {{ system?: string, model?: string, run?: string, timeoutMs?: number }} [opts]
+ */
+export function runClaudeJson(userPrompt, opts = {}) {
   const cwd = attacheDir('workdir')
   ensureDir(cwd)
+  const modele = opts.model || ANALYSE_MODEL
   const args = [
     '-p', userPrompt,
     '--output-format', 'json',
-    '--append-system-prompt', systemPrompt(),
+    '--append-system-prompt', opts.system || systemPrompt(),
     '--disallowedTools', DISALLOWED_TOOLS,
     '--max-turns', '1',
-    '--model', ANALYSE_MODEL,
+    '--model', modele,
   ]
+  const delai = opts.timeoutMs || RUN_TIMEOUT_MS
   return new Promise((resolve) => {
     let child
     try {
-      child = spawn(CLAUDE_BIN, args, { cwd, env: { ...process.env, SIRAL_ATTACHE_RUN: 'analyse' }, stdio: ['ignore', 'pipe', 'pipe'] })
+      child = spawn(CLAUDE_BIN, args, { cwd, env: { ...process.env, SIRAL_ATTACHE_RUN: opts.run || 'analyse' }, stdio: ['ignore', 'pipe', 'pipe'] })
     } catch (e) {
       return resolve({ ok: false, error: `CLI claude non lançable : ${e.message}` })
     }
@@ -210,7 +218,7 @@ function runClaudeJson(userPrompt) {
     let stderrTail = ''
     let settled = false
     const done = (v) => { if (settled) return; settled = true; clearTimeout(timer); resolve(v) }
-    const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch {}; done({ ok: false, error: 'délai dépassé' }) }, RUN_TIMEOUT_MS)
+    const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch {}; done({ ok: false, error: 'délai dépassé' }) }, delai)
 
     child.stdout.on('data', (c) => { stdout += c.toString('utf8') })
     child.stderr.on('data', (c) => { stderrTail = (stderrTail + c.toString('utf8')).slice(-2000) })

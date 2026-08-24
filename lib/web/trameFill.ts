@@ -27,30 +27,17 @@
  */
 
 import PizZip from 'pizzip';
+import { TRAME_TOKENS } from './trameModele';
+import { zipVersBase64, zipVersArrayBuffer } from './zipSortie';
+import type { ParaInfo, PlanAction, TrameVars } from './trameModele';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-export type TrameFormeType = 'courrier' | 'requete' | 'soit-transmis' | 'defaut';
-
-export interface TrameForme {
-  id: string;
-  nom: string;
-  type: TrameFormeType;
-  /** Le .docx de l'utilisateur, encodé en base64. */
-  docxBase64: string;
-  updatedAt: string;
-}
-
-export interface TrameVars {
-  corps?: string;
-  titre?: string;
-  signature?: string;
-  destinataire?: string;
-  objet?: string;
-  date?: string;
-}
-
-export const TRAME_TOKENS = ['CORPS', 'TITRE', 'SIGNATURE', 'DESTINATAIRE', 'OBJET', 'DATE'] as const;
+// Le modèle (types de trame, variables, balises) est commun aux deux formats :
+// il vit dans `trameModele.ts`. On le ré-exporte ici, où le reste de
+// l'application a l'habitude de le trouver.
+export type { TrameFormeType, TrameFormeFormat, TrameForme, TrameVars, ParaInfo, PlanAction } from './trameModele';
+export { TRAME_TOKENS, TRAME_TYPES, trameTypes, trameFormat } from './trameModele';
 
 function escXml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -156,7 +143,7 @@ function paraText(pXml: string): string {
 /** Remplace le paragraphe dont le texte vaut exactement `{{NAME}}` par du XML généré. */
 function replaceParaToken(xml: string, name: string, gen: (pPr: string, rPr: string) => string): string {
   const token = `{{${name}}}`;
-  return xml.replace(/<w:p\b[^>]*>.*?<\/w:p>/gs, (p) => {
+  return mapParas(xml, (p) => {
     if (paraText(p).trim() !== token) return p;
     const pPr = (p.match(/<w:pPr>.*?<\/w:pPr>/s) || [''])[0];
     const rPr = (p.match(/<w:rPr>.*?<\/w:rPr>/s) || [''])[0];
@@ -194,8 +181,7 @@ export async function fillTrameDocx(docxBase64: string, vars: TrameVars): Promis
   xml = replaceInlineToken(xml, 'DATE', vars.date);
 
   zip.file('word/document.xml', xml);
-  const ab = zip.generate({ type: 'arraybuffer' }) as ArrayBuffer;
-  return new Blob([ab], { type: DOCX_MIME });
+  return new Blob([zipVersArrayBuffer(zip)], { type: DOCX_MIME });
 }
 
 /** Liste des balises reconnues présentes dans le .docx (base64). */
@@ -213,4 +199,166 @@ export function listTrameTokens(docxBase64: string): string[] {
 /** Vrai si le .docx (base64) contient au moins une balise reconnue. */
 export function trameHasTokens(docxBase64: string): boolean {
   return listTrameTokens(docxBase64).length > 0;
+}
+
+// ── Paragraphes du corps : lecture et plan d'écriture (.docx) ────────────────
+//
+// Ces primitives servent à l'édition ligne à ligne de la trame ET à l'analyse
+// d'un acte déjà rédigé (`trameAnalyse.ts`), qui repère les lignes variables
+// et les remplace par des balises. Elles voient TOUS les paragraphes du corps
+// du document — vides compris, dans l'ordre du fichier — pour que le rang d'un
+// paragraphe soit un identifiant stable entre la lecture et l'écriture.
+// L'en-tête et le pied de page (fichiers séparés) sont hors champ : par
+// construction, c'est de la papeterie qu'on ne touche jamais.
+
+/** Fragments porteurs de texte, dans l'ordre : texte, tabulation, saut de ligne. */
+const CHUNK_RE = /<w:t\b[^>]*\/>|<w:t\b[^>]*>[^<]*<\/w:t>|<w:tab\b[^>]*\/>|<w:br\b[^>]*\/>/g;
+
+/**
+ * Plages [début, fin) des paragraphes de PREMIER NIVEAU. Un `<w:p>` imbriqué
+ * (zone de texte d'un en-tête, forme dessinée) appartient à son paragraphe
+ * parent : le compteur de profondeur évite de le compter deux fois, et surtout
+ * de couper le parent au mauvais endroit.
+ */
+function paraRanges(xml: string): Array<[number, number]> {
+  const re = /<w:p\b[^>]*?(\/?)>|<\/w:p>/g;
+  const out: Array<[number, number]> = [];
+  let depth = 0;
+  let start = 0;
+  let m: RegExpExecArray | null;
+  // eslint-disable-next-line no-cond-assign
+  while ((m = re.exec(xml))) {
+    if (m[0].startsWith('</')) {
+      if (depth > 0) { depth -= 1; if (depth === 0) out.push([start, re.lastIndex]); }
+      continue;
+    }
+    if (m[1] === '/') { if (depth === 0) out.push([m.index, re.lastIndex]); continue; }
+    if (depth === 0) start = m.index;
+    depth += 1;
+  }
+  return out;
+}
+
+/** Réécrit chaque paragraphe de premier niveau par `fn` (le reste est intact). */
+function mapParas(xml: string, fn: (p: string, i: number) => string): string {
+  const ranges = paraRanges(xml);
+  let out = '';
+  let cur = 0;
+  ranges.forEach(([a, b], i) => {
+    out += xml.slice(cur, a) + fn(xml.slice(a, b), i);
+    cur = b;
+  });
+  return out + xml.slice(cur);
+}
+
+function unescXml(s: string): string {
+  return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+}
+
+/** Texte porté par un fragment (`<w:t>`, `<w:tab/>`, `<w:br/>`). */
+function chunkText(chunk: string): string {
+  if (chunk.startsWith('<w:tab')) return '\t';
+  if (chunk.startsWith('<w:br')) return '\n';
+  const m = chunk.match(/<w:t\b[^>]*>([^<]*)<\/w:t>/);
+  return m ? unescXml(m[1]) : '';
+}
+
+/** Plages [début, fin) occupées par les tableaux de premier niveau. */
+function tableRanges(xml: string): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  const re = /<w:tbl\b[^>]*>|<\/w:tbl>/g;
+  let depth = 0;
+  let start = 0;
+  let m: RegExpExecArray | null;
+  // eslint-disable-next-line no-cond-assign
+  while ((m = re.exec(xml))) {
+    if (m[0][1] !== '/') { if (depth === 0) start = m.index; depth += 1; }
+    else if (depth > 0) { depth -= 1; if (depth === 0) out.push([start, re.lastIndex]); }
+  }
+  return out;
+}
+
+/** Les paragraphes du corps d'un .docx, avec ce qu'il faut pour les classer. */
+export function docxParagraphes(docxBase64: string): ParaInfo[] {
+  let xml = '';
+  try {
+    const zip = new PizZip(docxBase64, { base64: true });
+    xml = zip.file('word/document.xml')?.asText() || '';
+  } catch { return []; }
+  const tables = tableRanges(xml);
+  const out: ParaInfo[] = [];
+  paraRanges(xml).forEach(([debut, fin], index) => {
+    const p = xml.slice(debut, fin);
+    const texte = (p.match(CHUNK_RE) || []).map(chunkText).join('');
+    out.push({
+      index,
+      texte,
+      gras: /<w:b\s*\/>|<w:b\s+w:val="(?:1|true|on)"/.test(p),
+      italique: /<w:i\s*\/>|<w:i\s+w:val="(?:1|true|on)"/.test(p),
+      centre: /<w:jc\b[^>]*w:val="center"/.test(p),
+      droite: /<w:jc\b[^>]*w:val="(?:right|end)"/.test(p),
+      tableau: tables.some(([a, b]) => debut >= a && debut < b),
+      protege: /<w:drawing\b|<w:pict\b|<w:object\b|<w:sectPr\b/.test(p),
+    });
+  });
+  return out;
+}
+
+/**
+ * Réécrit UN paragraphe : garde les `garde` premiers caractères (avec leur
+ * mise en forme d'origine), pose `suffixe` juste après, efface le reste.
+ * Le suffixe atterrit dans le fragment où tombe la coupe — il hérite donc de
+ * la police de ce qui précède, ce qui est exactement ce qu'on veut pour une
+ * balise posée après un label (« Objet : {{OBJET}} »).
+ */
+function docxRemplacerTexte(pXml: string, garde: number, suffixe: string): string {
+  const estTexte = (chunk: string) => /^<w:t[\s>/]/.test(chunk);
+  let vus = 0;
+  let pose = false;
+  let out = pXml.replace(CHUNK_RE, (chunk) => {
+    const t = chunkText(chunk);
+    if (pose) return estTexte(chunk) ? '<w:t xml:space="preserve"></w:t>' : '';
+    if (garde > 0 && vus + t.length <= garde) {
+      vus += t.length;
+      return chunk;
+    }
+    // La coupe tombe dans ce fragment (ou juste avant).
+    const conserve = Math.max(0, garde - vus);
+    pose = true;
+    vus += t.length;
+    if (estTexte(chunk)) {
+      return `<w:t xml:space="preserve">${escXml(t.slice(0, conserve) + suffixe)}</w:t>`;
+    }
+    // Tabulation / saut de ligne : on garde le fragment s'il est avant la coupe,
+    // et on pose le suffixe dans un run neuf juste après.
+    const avant = conserve > 0 ? chunk : '';
+    return `${avant}<w:r><w:t xml:space="preserve">${escXml(suffixe)}</w:t></w:r>`;
+  });
+  if (!pose) {
+    // Paragraphe sans texte (ou coupe au-delà de la fin) : on ajoute un run.
+    const run = `<w:r><w:t xml:space="preserve">${escXml(suffixe)}</w:t></w:r>`;
+    out = /<\/w:p>$/.test(out)
+      ? out.replace(/<\/w:p>$/, `${run}</w:p>`)
+      : out.replace(/<w:p\b([^>]*)\/>/, `<w:p$1>${run}</w:p>`);
+  }
+  return out;
+}
+
+/** Applique un plan (une action par paragraphe, même ordre) à un .docx base64. */
+export function docxAppliquerPlan(docxBase64: string, plan: PlanAction[]): string {
+  const zip = new PizZip(docxBase64, { base64: true });
+  const f = zip.file('word/document.xml');
+  if (!f) throw new Error('trame invalide : word/document.xml absent');
+  const xml = mapParas(f.asText(), (p, index) => {
+    const a = plan[index];
+    if (!a || a.action === 'garder') return p;
+    if (a.action === 'supprimer') {
+      // Jamais d'image ni de propriétés de section perdues par une suppression.
+      return /<w:drawing\b|<w:pict\b|<w:object\b|<w:sectPr\b/.test(p) ? p : '';
+    }
+    return docxRemplacerTexte(p, Math.max(0, a.garde || 0), a.suffixe || '');
+  });
+  zip.file('word/document.xml', xml);
+  return zipVersBase64(zip);
 }

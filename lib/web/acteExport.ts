@@ -530,7 +530,7 @@ export async function downloadActePdf(p: ActeExportable): Promise<void> {
   a.click()
 }
 
-/** Déclenche le téléchargement d'un Blob .docx. */
+/** Déclenche le téléchargement d'un Blob (Word ou OpenDocument). */
 function triggerDocxDownload(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -568,7 +568,8 @@ export async function downloadActeDocx(p: ActeExportable): Promise<void> {
   const graphiques = await chargerImagesActe(p.contenu)
 
   // 1) Trame de forme définie par l'utilisateur pour ce type d'acte : on part
-  //    de SON .docx et on remplit les balises. La forme est 100 % la sienne.
+  //    de SON fichier (.docx ou .odt) et on remplit les balises. La forme est
+  //    100 % la sienne, et l'acte ressort dans le format de sa trame.
   //    Impossible d'y injecter une image : les marqueurs [GRAPHIQUE : …]
   //    deviennent une ligne lisible qui renvoie à l'export PDF.
   try {
@@ -576,11 +577,13 @@ export async function downloadActeDocx(p: ActeExportable): Promise<void> {
     const { loadTramesForme, pickTrameForme } = await import('./tramesFormeStore')
     const trame = pickTrameForme(await loadTramesForme(), type)
     if (trame?.docxBase64) {
-      const { fillTrameDocx } = await import('./trameFill')
+      const { fillTrame, extensionTrame } = await import('./trameDoc')
+      const { trameFormat } = await import('./trameModele')
+      const format = trameFormat(trame)
       const vars = extractTrameVars(p, type)
       if (vars.corps) vars.corps = remplacerMarqueursParTexte(vars.corps, graphiques)
-      const blob = await fillTrameDocx(trame.docxBase64, vars)
-      triggerDocxDownload(blob, acteFileBase(p) + '.docx')
+      const blob = await fillTrame(trame.docxBase64, format, vars)
+      triggerDocxDownload(blob, `${acteFileBase(p)}.${extensionTrame(format)}`)
       return
     }
   } catch (e) {

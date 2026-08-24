@@ -34,6 +34,7 @@ import { registreFichesStep } from './attache/registre.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
+import { analyserTrame } from './attache/analyseTrame.mjs'
 import { classerTrames, classerKb, classerSkills, suggererAssociations } from './attache/classer.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
 import { listEnvelopesDossier, writeEnvelope, deleteProduction, readProduction } from './attache/productions.mjs'
@@ -1343,6 +1344,22 @@ const server = http.createServer(async (req, res) => {
       if (!docs.length) return json(res, 400, { ok: false, error: 'Aucun document fourni' })
       try {
         const out = await analyseDocuments({ docs, actesExistants: body.actesExistants || [], enquete: body.enquete || null })
+        return json(res, out.ok ? 200 : 502, out)
+      } catch (e) {
+        return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 400) })
+      }
+    }
+
+    if (route === 'POST /analyse-trame') {
+      // Analyse STATELESS de la charpente d'un acte pour en tirer une trame de
+      // forme : aucune donnée chiffrée du coffre n'est touchée, pas de
+      // trousseau requis — seul le CLI claude est sollicité, et le fichier de
+      // l'utilisateur reste dans son navigateur.
+      const body = await readBody(req, 2 * 1024 * 1024)
+      const lignes = Array.isArray(body.lignes) ? body.lignes : []
+      if (!lignes.length) return json(res, 400, { ok: false, error: 'Aucune ligne fournie' })
+      try {
+        const out = await analyserTrame({ nomFichier: body.nomFichier, format: body.format, lignes })
         return json(res, out.ok ? 200 : 502, out)
       } catch (e) {
         return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 400) })
