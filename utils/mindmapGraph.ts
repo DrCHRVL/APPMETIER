@@ -17,21 +17,27 @@
 // Paramètres > Module Cartographie. Formule de base :
 //   score = (nb_dossiers × w_dossier)
 //         + (nb_contentieux × w_contentieux)
-//         + (nb_mises_en_examen × w_me)
-//         + (nb_chefs × w_chef)
+//         + (nb_chefs × w_chef)   — chefs propres ET chefs des dossiers
+//                                   auxquels un lien de renseignement rattache
+//                                   la personne (implication au sens large)
 //         + (nb_liens_renseignement × w_lien)
 //         + bonus_infraction (somme par tag d'infraction associé)
 //   × facteur_temporel (malus d'ancienneté × bonus de continuité)
 //   + contamination_latente (poids reçu des MEC voisins, cf. infra)
 //
-// CONTAMINATION LATENTE — un lien de renseignement entre DEUX PERSONNES ne
-// rapportait rien : un individu connu uniquement pour graviter autour de
-// figures lourdement impliquées pesait zéro. Chaque MEC transmet donc
-// désormais à ses voisins de renseignement une fraction de son propre poids
-// (`lienMecPropagationCoef`), qui décroît à chaque saut (coef^distance) et
-// s'arrête à `lienMecPropagationHops`. La diffusion part des poids DIRECTS
-// (ceux tirés des dossiers) : elle ne se ré-alimente pas d'elle-même, donc
-// pas d'emballement en cercle. Cf. propagateLatentScore.
+// CONTAMINATION LATENTE — être dans l'entourage d'une figure lourde compte,
+// que ce voisinage soit tracé à la main ou lu dans les dossiers. Chaque MEC
+// transmet donc une fraction de son poids à ceux qui gravitent autour de lui,
+// par DEUX routes de portée réglable (cf. propagateLatentScore) :
+//   - lien de renseignement PERSONNE ↔ PERSONNE (`lienMecPropagationCoef`) ;
+//   - CO-PRÉSENCE DANS UN DOSSIER (`dossierPropagationCoef`) : le dossier
+//     relaie le poids de son membre le plus lourd vers les autres, qu'ils y
+//     figurent comme mis en cause ou par un lien de renseignement.
+// Sans la seconde, le lieutenant qu'on relie à la main au chef pesait plus
+// lourd que ceux qui partagent réellement ses dossiers — l'inverse de ce que
+// dit la procédure. La diffusion part des poids DIRECTS (ceux tirés des
+// dossiers) : elle ne se ré-alimente pas d'elle-même, donc pas d'emballement
+// en cercle.
 //
 // Le facteur temporel remplace l'ancien « multiplicateur récent » binaire :
 // un MEC dont la dernière implication remonte à plusieurs années voit son
@@ -66,10 +72,14 @@ export interface MecNode {
   dossierIds: string[];
   /** Contentieux distincts dans lesquels il apparaît (signal de transversalité) */
   contentieuxIds: ContentieuxId[];
-  /** Nombre de mises en examen formelles (via misEnExamen sur les instructions) */
-  nbMisEnExamen: number;
-  /** Total des chefs d'inculpation cumulés */
+  /** Total des chefs d'inculpation cumulés. Comprend les infractions des
+   *  dossiers auxquels la personne est rattachée par un simple LIEN de
+   *  renseignement : y être rattaché est une forme d'implication. */
   nbChefs: number;
+  /** Part de `nbChefs` qui provient de dossiers rattachés par un lien de
+   *  renseignement (et non d'une mise en cause). Affiché à part pour que le
+   *  panneau latéral ne laisse pas croire à des chefs formellement retenus. */
+  nbChefsViaLien: number;
   /** Nombre de liens renseignement (manuels) attachés au MEC. */
   nbLiensRenseignement: number;
   /** Bonus cumulé issu des tags d'infraction (pondéré par config). Pour
@@ -91,15 +101,25 @@ export interface MecNode {
   /** Facteur temporel effectivement appliqué au score (malus d'ancienneté ×
    *  bonus de continuité). 1 = neutre, < 1 = dormant, > 1 = actif en continu. */
   temporalFactor: number;
-  /** CONTAMINATION LATENTE — points reçus des MEC auxquels celui-ci est relié
-   *  par un lien de renseignement personne ↔ personne (et de leurs propres
-   *  voisins, avec décroissance par saut). Déjà pondéré temporellement à la
-   *  source ; s'ajoute au score APRÈS le facteur temporel du receveur.
-   *  0 = aucun voisin porteur, ou propagation désactivée. */
+  /** CONTAMINATION LATENTE — points reçus de l'entourage : MEC reliés par un
+   *  lien de renseignement personne ↔ personne, et MEC les plus lourds des
+   *  dossiers partagés (avec décroissance par saut). Déjà pondéré
+   *  temporellement à la source ; s'ajoute au score APRÈS le facteur temporel
+   *  du receveur. 0 = aucun voisin porteur, ou propagation désactivée. */
   propagatedWeight: number;
   /** Nombre de MEC voisins (1er saut) reliés par un lien de renseignement.
    *  Sert à expliquer la contamination latente dans le panneau latéral. */
   nbMecVoisins: number;
+  /** Principaux contributeurs à la contamination latente (3 au plus, du plus
+   *  gros au plus petit), pour que le panneau latéral puisse dire D'OÙ vient
+   *  le poids reçu — « via dossier » ou « via lien » — plutôt que d'afficher
+   *  un total inexplicable. */
+  propagationTop?: Array<{
+    mecId: string;
+    displayName: string;
+    points: number;
+    via: 'lien' | 'dossier';
+  }>;
   /** Score composite normalisé entre 0 et 1 (max du graphe = 1) */
   score: number;
   /** Score brut avant normalisation */
@@ -511,10 +531,11 @@ function computeDirectWeight(
   mec: Omit<MecNode, 'score' | 'rawScore' | 'type'>,
   weights: CartographieScoreWeights,
 ): number {
+  // Le nombre de MISES EN EXAMEN ne pèse plus : on s'en tient à la mise en
+  // cause au sens large. Le compteur reste tenu et affiché, à titre indicatif.
   return (
     mec.dossierIds.length * weights.dossier +
     mec.contentieuxIds.length * weights.contentieux +
-    mec.nbMisEnExamen * weights.miseEnExamen +
     mec.nbChefs * weights.chefDefault +
     mec.infractionWeight
   );
@@ -535,35 +556,49 @@ function computeRawScore(
 }
 
 /**
- * CONTAMINATION LATENTE — diffuse le poids des MEC le long des liens de
- * renseignement PERSONNE ↔ PERSONNE.
+ * CONTAMINATION LATENTE — diffuse le poids des MEC dans leur entourage.
  *
- * Motif : sans elle, relier un individu à un autre individu ne rapporte rien.
- * Une figure connue uniquement par son entourage (le « type qui gravite »)
- * reste à zéro alors que la carte dit exactement le contraire. Avec elle,
- * A → B → dossier fait remonter A, à hauteur d'une fraction de ce que pèse B.
+ * Motif : peser quelque chose parce qu'on gravite autour d'une figure lourde,
+ * quelle que soit la façon dont ce voisinage est établi. Deux routes, chacune
+ * avec son coefficient de transmission :
  *
- * Mécanique : pour chaque MEC on parcourt en largeur ses voisins de
- * renseignement jusqu'à `hops` sauts, et on lui ajoute, pour chaque voisin
- * atteint à la distance d, `poids_direct(voisin) × facteur_temporel(voisin)
- * × coef^d`. Trois propriétés à garder en tête :
- *  - la source est le poids DIRECT du voisin (jamais ce qu'il a lui-même
- *    reçu) : la diffusion ne boucle pas et ne s'auto-amplifie pas ;
- *  - c'est la distance la PLUS COURTE qui compte (un même voisin n'est
- *    compté qu'une fois, au meilleur chemin) ;
- *  - les contributions de voisins distincts s'additionnent : un individu au
- *    centre d'une nébuleuse de gens impliqués monte, et c'est voulu.
+ *  1. LIEN DE RENSEIGNEMENT personne ↔ personne (`lienMecPropagationCoef`) —
+ *     le voisinage tracé à la main, quand la procédure n'a pas permis mieux.
+ *
+ *  2. CO-PRÉSENCE DANS UN DOSSIER (`dossierPropagationCoef`) — le dossier
+ *     relaie vers chacun de ses membres le poids du membre le PLUS LOURD des
+ *     autres (le chef reçoit donc celui de son meilleur second). Sont membres
+ *     aussi bien les mis en cause que les personnes rattachées au dossier par
+ *     un lien de renseignement.
+ *
+ * Pourquoi le plus lourd, et non la somme des autres membres : sommer ferait
+ * du score une mesure de la TAILLE des dossiers (trente comparses valant plus
+ * qu'un chef), et exploserait sur les grosses procédures. Ce qui compte est
+ * la pointure avec qui on figure, pas le nombre de gens autour.
+ *
+ * Mécanique commune : on remonte, depuis chaque MEC, les chemins d'entourage
+ * jusqu'à `hops` sauts ; un voisin atteint à plusieurs chemins ne compte
+ * qu'une fois, au MEILLEUR chemin (produit des coefficients le plus fort).
+ * La quantité émise est toujours le poids DIRECT du voisin (jamais ce qu'il a
+ * lui-même reçu) : la diffusion ne s'auto-amplifie pas, ne boucle pas, et ne
+ * dépend pas de l'ordre de calcul.
  */
 function propagateLatentScore(
   mecById: Map<string, MecNode>,
   voisinsByMec: Map<string, Set<string>>,
+  mecsByDossier: Map<string, Set<string>>,
   weights: CartographieScoreWeights,
 ): void {
-  const coef = weights.lienMecPropagationCoef ?? DEFAULT_CARTO_WEIGHTS.lienMecPropagationCoef;
+  const coefLien = weights.lienMecPropagationCoef ?? DEFAULT_CARTO_WEIGHTS.lienMecPropagationCoef;
+  const coefDossier = weights.dossierPropagationCoef ?? DEFAULT_CARTO_WEIGHTS.dossierPropagationCoef;
   const hops = Math.floor(
     weights.lienMecPropagationHops ?? DEFAULT_CARTO_WEIGHTS.lienMecPropagationHops,
   );
-  if (!(coef > 0) || hops < 1 || voisinsByMec.size === 0) return;
+  for (const [id, voisins] of voisinsByMec) {
+    const mec = mecById.get(id);
+    if (mec) mec.nbMecVoisins = voisins.size;
+  }
+  if (hops < 1 || (!(coefLien > 0) && !(coefDossier > 0))) return;
 
   // Poids émis par chaque MEC, figé AVANT toute diffusion.
   const emis = new Map<string, number>();
@@ -573,32 +608,91 @@ function propagateLatentScore(
   }
   if (emis.size === 0) return;
 
-  for (const [id, voisins] of voisinsByMec) {
-    const cible = mecById.get(id);
-    if (!cible) continue;
-    cible.nbMecVoisins = voisins.size;
+  // Arêtes d'entourage, orientées « qui reçoit ← qui émet ». Un même émetteur
+  // peut apparaître par les deux routes (co-dossier ET lien) ou par plusieurs
+  // dossiers : la relaxation ne retiendra que son meilleur coefficient, il
+  // n'est donc jamais compté deux fois.
+  type Source = { from: string; coef: number; via: 'lien' | 'dossier' };
+  const sourcesByMec = new Map<string, Source[]>();
+  const addSource = (to: string, source: Source) => {
+    const list = sourcesByMec.get(to);
+    if (list) list.push(source);
+    else sourcesByMec.set(to, [source]);
+  };
 
-    // Parcours en largeur : chaque voisin n'est retenu qu'à sa distance
-    // minimale, l'origine étant exclue de son propre calcul.
-    let recu = 0;
-    const vus = new Set<string>([id]);
-    let frontiere = [...voisins].filter(v => !vus.has(v));
-    for (const v of frontiere) vus.add(v);
-    for (let d = 1; d <= hops && frontiere.length > 0; d++) {
-      const attenuation = Math.pow(coef, d);
-      const suivante: string[] = [];
-      for (const v of frontiere) {
-        recu += (emis.get(v) ?? 0) * attenuation;
-        if (d === hops) continue;
-        for (const w of voisinsByMec.get(v) ?? []) {
-          if (vus.has(w)) continue;
-          vus.add(w);
-          suivante.push(w);
+  if (coefLien > 0) {
+    for (const [id, voisins] of voisinsByMec) {
+      for (const v of voisins) addSource(id, { from: v, coef: coefLien, via: 'lien' });
+    }
+  }
+
+  if (coefDossier > 0) {
+    for (const membres of mecsByDossier.values()) {
+      if (membres.size < 2) continue;
+      // Les deux plus lourds du dossier suffisent : tout le monde reçoit du
+      // premier, sauf le premier lui-même qui reçoit du second.
+      let premier: string | undefined;
+      let second: string | undefined;
+      for (const m of membres) {
+        const poids = emis.get(m) ?? 0;
+        if (poids <= 0) continue;
+        if (premier === undefined || poids > (emis.get(premier) ?? 0)) {
+          second = premier;
+          premier = m;
+        } else if (second === undefined || poids > (emis.get(second) ?? 0)) {
+          second = m;
+        }
+      }
+      if (premier === undefined) continue;
+      for (const m of membres) {
+        const from = m === premier ? second : premier;
+        if (from === undefined) continue;
+        addSource(m, { from, coef: coefDossier, via: 'dossier' });
+      }
+    }
+  }
+  if (sourcesByMec.size === 0) return;
+
+  for (const [id, cible] of mecById) {
+    if (!sourcesByMec.has(id)) continue;
+
+    // Relaxation par couches : `facteur` retient, pour chaque émetteur atteint,
+    // le meilleur produit de coefficients trouvé jusqu'ici (les coefficients
+    // valant ≤ 1, un chemin plus long ne peut que faire moins bien).
+    const facteur = new Map<string, { coef: number; via: 'lien' | 'dossier' }>();
+    let frontiere: Array<[string, number]> = [[id, 1]];
+    for (let d = 0; d < hops && frontiere.length > 0; d++) {
+      const suivante: Array<[string, number]> = [];
+      for (const [noeud, acquis] of frontiere) {
+        for (const src of sourcesByMec.get(noeud) ?? []) {
+          if (src.from === id) continue;
+          const combine = acquis * src.coef;
+          const connu = facteur.get(src.from);
+          if (connu && connu.coef >= combine) continue;
+          facteur.set(src.from, { coef: combine, via: src.via });
+          suivante.push([src.from, combine]);
         }
       }
       frontiere = suivante;
     }
+
+    let recu = 0;
+    const contributeurs: NonNullable<MecNode['propagationTop']> = [];
+    for (const [from, { coef, via }] of facteur) {
+      const points = (emis.get(from) ?? 0) * coef;
+      if (points <= 0) continue;
+      recu += points;
+      contributeurs.push({
+        mecId: from,
+        displayName: mecById.get(from)?.displayName ?? from,
+        points,
+        via,
+      });
+    }
     cible.propagatedWeight = recu;
+    if (contributeurs.length > 0) {
+      cible.propagationTop = contributeurs.sort((a, b) => b.points - a.points).slice(0, 3);
+    }
   }
 }
 
@@ -683,6 +777,10 @@ export function buildMindmapGraph(
   // accorder une fraction (coef) de ce bonus aux MEC rattachés au dossier
   // par un simple lien de renseignement.
   const dossierInfractionBonusById = new Map<string, number>();
+  // Nombre d'infractions DISTINCTES mentionnées au dossier (réel ou ex nihilo).
+  // Sert à créditer de ces chefs les personnes que seul un lien de
+  // renseignement rattache au dossier (implication au sens large).
+  const dossierChefsCountById = new Map<string, number>();
   // Années d'activité par dossier (réel ou ex nihilo) et union par MEC :
   // socle de la pondération temporelle (malus d'ancienneté / bonus continuité).
   const dossierYearsById = new Map<string, number[]>();
@@ -696,9 +794,21 @@ export function buildMindmapGraph(
     }
     for (const y of years) set.add(y);
   };
-  // Voisinage PERSONNE ↔ PERSONNE issu des liens de renseignement : support de
-  // la contamination latente (cf. propagateLatentScore).
+  // Voisinage PERSONNE ↔ PERSONNE issu des liens de renseignement : première
+  // route de la contamination latente (cf. propagateLatentScore).
   const voisinsByMec = new Map<string, Set<string>>();
+  // Membres de chaque dossier : seconde route de la contamination latente. On
+  // y verse les personnes rattachées par un LIEN de renseignement ; les mis en
+  // cause sont ajoutés ensuite depuis `dossierIds` (déjà tenu à jour).
+  const mecsByDossier = new Map<string, Set<string>>();
+  const addMembreDossier = (dossierId: string, mecId: string) => {
+    let set = mecsByDossier.get(dossierId);
+    if (!set) {
+      set = new Set<string>();
+      mecsByDossier.set(dossierId, set);
+    }
+    set.add(mecId);
+  };
   const addVoisin = (a: string, b: string) => {
     let set = voisinsByMec.get(a);
     if (!set) {
@@ -757,6 +867,24 @@ export function buildMindmapGraph(
     const chefsByCanonical = new Map<string, number>();
     const infractionWeightByCanonical = new Map<string, number>();
     const examenedCanonical = new Set<string>();
+    // Clés d'infraction déjà retenues CONTRE UNE PERSONNE (via sa mise en
+    // examen) : servent à ne pas lui recompter, au titre du dossier, un chef
+    // qu'elle porte déjà à titre personnel.
+    const infractionKeysByCanonical = new Map<string, Set<string>>();
+    // Clés d'infraction du DOSSIER, tous mis en examen confondus + celles
+    // saisies sur l'enquête elle-même. C'est ce jeu qui définit « les
+    // infractions mentionnées au dossier ».
+    const dossierInfractionKeys = new Set<string>();
+    const noteInfractionKey = (canonical: string | null, key: string) => {
+      dossierInfractionKeys.add(key);
+      if (!canonical) return;
+      let set = infractionKeysByCanonical.get(canonical);
+      if (!set) {
+        set = new Set<string>();
+        infractionKeysByCanonical.set(canonical, set);
+      }
+      set.add(key);
+    };
     // Tags d'infraction distincts rencontrés dans tout le dossier (chacun
     // compté une fois) → bonus "au niveau dossier" pour les liens renseignement.
     const dossierMatchedTagW = new Map<string, number>();
@@ -775,6 +903,7 @@ export function buildMindmapGraph(
             // 1) Cible : poids NATINF (affinage) ou, à défaut, poids de la
             //    catégorie d'infraction du NATINF (base Mémento parquet).
             const code = inf.natinfCode;
+            if (code) noteInfractionKey(canonical, 'natinf:' + code);
             const wN = weightForNatinf(code);
             if (wN) {
               bonus += wN;
@@ -786,6 +915,7 @@ export function buildMindmapGraph(
             if (tagWeightByValueLc.length === 0) continue;
             const q = (inf.qualification || '').toLowerCase();
             if (!q) continue;
+            if (!code) noteInfractionKey(canonical, 'qual:' + q);
             for (const [tagValueLc, w] of tagWeightByValueLc) {
               if (q.includes(tagValueLc)) {
                 bonus += w;
@@ -818,6 +948,27 @@ export function buildMindmapGraph(
     };
     dossierById.set(dossierId, dossierNode);
 
+    // Infractions saisies sur l'ENQUÊTE (NATINF). Elles valent pour le dossier
+    // entier — c'est la seule source d'infractions d'une préliminaire, qui n'a
+    // pas de mise en examen. Sans cela, pondérer une catégorie d'infraction
+    // depuis l'écran Paramètres ne produisait aucun effet hors instruction.
+    const enqueteInfractionKeys = new Set<string>();
+    const enqueteInfractionWeights = new Map<string, number>();
+    for (const code of enquete.infractionNatinfCodes || []) {
+      if (!code) continue;
+      const key = 'natinf:' + code;
+      dossierInfractionKeys.add(key);
+      enqueteInfractionKeys.add(key);
+      const w = weightForNatinf(code);
+      if (w) {
+        enqueteInfractionWeights.set(key, w);
+        dossierMatchedTagW.set(key, w);
+      }
+    }
+    if (dossierInfractionKeys.size > 0) {
+      dossierChefsCountById.set(dossierId, dossierInfractionKeys.size);
+    }
+
     if (dossierMatchedTagW.size > 0) {
       let dossierBonus = 0;
       for (const w of dossierMatchedTagW.values()) dossierBonus += w;
@@ -847,8 +998,8 @@ export function buildMindmapGraph(
           variants: [],
           dossierIds: [],
           contentieuxIds: [],
-          nbMisEnExamen: 0,
           nbChefs: 0,
+          nbChefsViaLien: 0,
           nbLiensRenseignement: 0,
           infractionWeight: 0,
           recent: false,
@@ -889,10 +1040,20 @@ export function buildMindmapGraph(
       addActivityYears(canonical, dossierYears);
 
       if (examenedCanonical.has(canonical)) {
-        mecNode.nbMisEnExamen += 1;
         mecNode.nbChefs += chefsByCanonical.get(canonical) || 0;
         const w = infractionWeightByCanonical.get(canonical);
         if (w) mecNode.infractionWeight += w;
+      }
+
+      // Infractions de l'enquête : elles s'appliquent à chaque mis en cause du
+      // dossier, sauf celles qu'il porte déjà à titre personnel (mise en examen).
+      if (enqueteInfractionKeys.size > 0) {
+        const siennes = infractionKeysByCanonical.get(canonical);
+        for (const key of enqueteInfractionKeys) {
+          if (siennes?.has(key)) continue;
+          mecNode.nbChefs += 1;
+          mecNode.infractionWeight += enqueteInfractionWeights.get(key) || 0;
+        }
       }
 
       // Arête MEC ↔ Dossier (déduplique si plusieurs MisEnCause portent le même nom dans le dossier)
@@ -940,8 +1101,8 @@ export function buildMindmapGraph(
             variants: [],
             dossierIds: [],
             contentieuxIds: [],
-            nbMisEnExamen: 0,
             nbChefs: 0,
+            nbChefsViaLien: 0,
             nbLiensRenseignement: 0,
             infractionWeight: 0,
             recent: false,
@@ -988,8 +1149,8 @@ export function buildMindmapGraph(
           variants: m.alias ? [...m.alias] : [],
           dossierIds: [],
           contentieuxIds: [],
-          nbMisEnExamen: 0,
           nbChefs: 0,
+          nbChefsViaLien: 0,
           nbLiensRenseignement: 0,
           infractionWeight: 0,
           recent: false,
@@ -1048,16 +1209,22 @@ export function buildMindmapGraph(
       // du dossier. Cible : codes NATINF (poids NATINF ou poids de catégorie) ;
       // legacy : anciens tags d'infraction pour les dossiers d'avant la bascule.
       let dossierInfractionBonus = 0;
+      // Chefs du dossier manuel = ses infractions déclarées. Comptés pour ses
+      // membres comme pour les personnes qu'un lien y rattache.
+      let dossierChefs = 0;
       if (d.natinfCodes && d.natinfCodes.length > 0) {
         for (const code of d.natinfCodes) dossierInfractionBonus += weightForNatinf(code);
+        dossierChefs += d.natinfCodes.length;
       }
       if (d.typeInfractionTagIds && d.typeInfractionTagIds.length > 0) {
         for (const tagId of d.typeInfractionTagIds) {
           const w = tagInfractionWeights[tagId];
           if (w) dossierInfractionBonus += w;
         }
+        dossierChefs += d.typeInfractionTagIds.length;
       }
       if (dossierInfractionBonus > 0) dossierInfractionBonusById.set(d.id, dossierInfractionBonus);
+      if (dossierChefs > 0) dossierChefsCountById.set(d.id, dossierChefs);
 
       for (const rawMecId of d.mecIds) {
         const canonical = resolveCanonical(rawMecId) || rawMecId;
@@ -1072,8 +1239,8 @@ export function buildMindmapGraph(
             variants: [],
             dossierIds: [],
             contentieuxIds: [],
-            nbMisEnExamen: 0,
             nbChefs: 0,
+            nbChefsViaLien: 0,
             nbLiensRenseignement: 0,
             infractionWeight: 0,
             recent: false,
@@ -1094,6 +1261,7 @@ export function buildMindmapGraph(
         mec.isManualOnly = false;
         addActivityYears(canonical, dossierYears);
         if (dossierInfractionBonus > 0) mec.infractionWeight += dossierInfractionBonus;
+        mec.nbChefs += dossierChefs;
 
         const edgeKey = `${canonical}__${d.id}`;
         if (!edgeKeys.has(edgeKey)) {
@@ -1140,6 +1308,29 @@ export function buildMindmapGraph(
       if (srcMec && tgtMec && source !== target) {
         addVoisin(source, target);
         addVoisin(target, source);
+      }
+
+      // Lien MEC ↔ dossier : la personne compte comme membre du dossier pour la
+      // contamination latente (elle gravite autour des mis en cause, et
+      // réciproquement) — c'est le cas de la figure qu'on n'a pas réussi à
+      // impliquer formellement mais qu'on sait derrière la procédure.
+      if (srcMec && dossierById.has(target)) addMembreDossier(target, source);
+      if (tgtMec && dossierById.has(source)) addMembreDossier(source, target);
+
+      // Lien MEC ↔ dossier : les infractions mentionnées au dossier comptent
+      // dans ses chefs cumulés. Être rattaché à une procédure par un lien de
+      // renseignement EST une forme d'implication : la personne qu'on n'a pas
+      // pu mettre en cause formellement ne doit pas peser comme si le dossier
+      // ne reprochait rien.
+      if (srcMec && dossierById.has(target)) {
+        const n = dossierChefsCountById.get(target) || 0;
+        srcMec.nbChefs += n;
+        srcMec.nbChefsViaLien += n;
+      }
+      if (tgtMec && dossierById.has(source)) {
+        const n = dossierChefsCountById.get(source) || 0;
+        tgtMec.nbChefs += n;
+        tgtMec.nbChefsViaLien += n;
       }
 
       // Lien MEC ↔ dossier : on accorde au MEC une fraction (coef) du bonus
@@ -1202,7 +1393,10 @@ export function buildMindmapGraph(
 
   // Contamination latente : APRÈS les facteurs temporels (le poids émis en
   // dépend) et AVANT le score (qui l'additionne).
-  propagateLatentScore(mecById, voisinsByMec, weights);
+  for (const [canonical, mecNode] of mecById) {
+    for (const dossierId of mecNode.dossierIds) addMembreDossier(dossierId, canonical);
+  }
+  propagateLatentScore(mecById, voisinsByMec, mecsByDossier, weights);
 
   for (const [canonical, mecNode] of mecById) {
     const boost = boostByMec.get(canonical);

@@ -87,15 +87,9 @@ const WEIGHT_FIELDS: WeightFieldDef[] = [
     step: 0.5,
   },
   {
-    key: 'miseEnExamen',
-    label: 'Par mise en examen',
-    helper: 'Bonus quand le MEC a été formellement mis en examen dans un dossier d\'instruction.',
-    step: 0.5,
-  },
-  {
     key: 'chefDefault',
     label: 'Par chef d\'inculpation',
-    helper: 'Pondération générique appliquée à chaque chef. Une qualification spécifique listée plus bas s\'ajoute par-dessus.',
+    helper: 'Pondération générique appliquée à chaque chef. Comptent aussi comme chefs les infractions mentionnées aux dossiers qu\'un simple lien de renseignement rattache à la personne — y être rattaché est une forme d\'implication. Une qualification spécifique listée plus bas s\'ajoute par-dessus.',
     step: 0.1,
   },
   {
@@ -121,9 +115,17 @@ const WEIGHT_FIELDS: WeightFieldDef[] = [
     max: 1,
   },
   {
+    key: 'dossierPropagationCoef',
+    label: 'Contamination via dossier',
+    helper: 'Même principe, mais entre personnes d\'un MÊME DOSSIER : chacune reçoit ce pourcentage du poids du membre le plus lourd du dossier (mis en cause comme personnes rattachées par un lien). Sans ce réglage, le comparse relié à la main au chef pèse plus que ceux qui partagent réellement ses procédures. 0.2 = 20 %, 0 = ignore.',
+    step: 0.05,
+    min: 0,
+    max: 1,
+  },
+  {
     key: 'lienMecPropagationHops',
     label: 'Portée de la contamination',
-    helper: 'Nombre de sauts personne ↔ personne sur lesquels la contamination se propage, en s\'affaiblissant à chaque saut (30 % puis 9 % avec un coef. de 0.3). 1 = voisins directs seulement ; 2 = « l\'ami de mon ami » (défaut) ; 0 = désactive.',
+    helper: 'Nombre de sauts sur lesquels la contamination se propage, toutes routes confondues (lien ou dossier partagé), en s\'affaiblissant à chaque saut (30 % puis 9 % avec un coef. de 0.3). 1 = entourage immédiat ; 2 = « l\'ami de mon ami » (défaut) ; 0 = désactive.',
     step: 1,
     min: 0,
     max: 4,
@@ -348,10 +350,12 @@ export const AdminCartographyPanel: React.FC = () => {
         <div className="mt-4 flex items-start gap-2 text-xs text-gray-500 bg-slate-50 border border-slate-200 rounded-md p-3">
           <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
           <p>
-            Scoring = (dossiers × poids) + (contentieux × poids) + (ME × poids) + (chefs ×
-            poids) + (liens × poids) + bonus infraction. Un MEC relié à un dossier par
-            un lien de renseignement reçoit en plus le bonus d&apos;infraction de ce
-            dossier × le coef. ci-dessus. Le total est ensuite multiplié par le{' '}
+            Scoring = (dossiers × poids) + (contentieux × poids) + (chefs × poids) +
+            (liens × poids) + bonus infraction. Un MEC relié à un dossier par un lien
+            de renseignement en reprend les infractions dans ses chefs cumulés, et
+            reçoit le bonus d&apos;infraction de ce dossier × le coef. ci-dessus. Le
+            nombre de mises en examen ne pèse plus : il reste affiché, mais la mise en
+            cause au sens large suffit. Le total est ensuite multiplié par le{' '}
             <strong>facteur temporel</strong> réglé ci-dessous (ancienneté et
             continuité de l&apos;activité).
           </p>
@@ -359,13 +363,17 @@ export const AdminCartographyPanel: React.FC = () => {
         <div className="mt-2 flex items-start gap-2 text-xs text-gray-500 bg-slate-50 border border-slate-200 rounded-md p-3">
           <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
           <p>
-            <strong>Contamination latente</strong> — un lien entre deux personnes ne
-            valait aucun point : quelqu&apos;un connu uniquement par son entourage
-            pesait zéro. Chaque MEC transmet désormais à ses voisins de renseignement
-            une fraction de son propre poids, atténuée à chaque saut. Le poids reçu
-            s&apos;ajoute en fin de formule (il est déjà pondéré par l&apos;ancienneté
-            de celui qui l&apos;émet), avant le bonus manuel éventuel. La diffusion
-            part toujours des poids <em>directs</em> : elle ne se ré-alimente pas
+            <strong>Contamination latente</strong> — graviter autour d&apos;une
+            figure lourde compte, que ce voisinage soit tracé à la main (lien de
+            renseignement) ou lu dans la procédure (même dossier). Chaque MEC
+            transmet une fraction de son poids par ces deux routes, atténuée à
+            chaque saut. Côté dossier, c&apos;est le poids du membre le{' '}
+            <em>plus lourd</em> qui est relayé aux autres — et non la somme de
+            tous : sinon le score mesurerait la taille des dossiers plutôt que la
+            pointure des gens qu&apos;on y côtoie. Le poids reçu s&apos;ajoute en
+            fin de formule (il est déjà pondéré par l&apos;ancienneté de celui qui
+            l&apos;émet), avant le bonus manuel éventuel. La diffusion part
+            toujours des poids <em>directs</em> : elle ne se ré-alimente pas
             d&apos;elle-même et ne peut pas s&apos;emballer en boucle.
           </p>
         </div>

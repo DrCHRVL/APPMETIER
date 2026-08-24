@@ -18,10 +18,10 @@ export interface CartographieScoreWeights {
   dossier: number;
   /** Points par contentieux distinct (transversalité). */
   contentieux: number;
-  /** Points par mise en examen formelle. */
-  miseEnExamen: number;
-  /** Points par chef d'inculpation, quand aucun tag d'infraction spécifique
-   *  ne s'applique (fallback). */
+  /** Points par chef d'inculpation — chefs retenus contre la personne ET
+   *  infractions des dossiers auxquels un lien de renseignement la rattache
+   *  (implication au sens large). Quand aucun tag d'infraction spécifique ne
+   *  s'applique (fallback). */
   chefDefault: number;
   /** Points par lien renseignement attaché au MEC (entrant ou sortant). */
   lienRenseignement: number;
@@ -36,10 +36,17 @@ export interface CartographieScoreWeights {
    *  autour de gens lourdement impliqués cesse ainsi de peser zéro. La
    *  transmission décroît à chaque saut (coef^distance). 0 = désactive. */
   lienMecPropagationCoef: number;
-  /** Nombre maximal de sauts personne ↔ personne sur lesquels la contamination
-   *  latente se propage. 1 = voisins directs seulement ; 2 = « l'ami de mon
-   *  ami » (recommandé) ; 0 = désactive. */
+  /** Nombre maximal de sauts sur lesquels la contamination latente se propage,
+   *  toutes routes confondues (lien de renseignement ou dossier partagé).
+   *  1 = entourage immédiat ; 2 = « l'ami de mon ami » (recommandé) ;
+   *  0 = désactive. */
   lienMecPropagationHops: number;
+  /** CONTAMINATION PAR LE DOSSIER — fraction du poids du membre le plus lourd
+   *  d'un dossier transmise aux autres personnes de ce dossier (mis en cause
+   *  comme personnes rattachées par un lien). Sans elle, le comparse qu'on
+   *  relie à la main au chef pèse plus que ceux qui partagent réellement ses
+   *  procédures. 0 = désactive. */
+  dossierPropagationCoef: number;
 }
 
 /**
@@ -156,8 +163,14 @@ export interface CartographieModuleConfig {
  *  v3 : ajout de la CONTAMINATION LATENTE (lienMecPropagationCoef /
  *       lienMecPropagationHops) — les liens personne ↔ personne ne rapportent
  *       plus zéro. Les configs v2 héritent des valeurs par défaut (0.3 / 2)
- *       via `normalize`, sans migration explicite. */
-export const CARTO_CONFIG_VERSION = 3;
+ *       via `normalize`, sans migration explicite.
+ *  v4 : la contamination passe aussi PAR LE DOSSIER (dossierPropagationCoef),
+ *       sans quoi un simple lien tracé à la main pesait plus lourd qu'une
+ *       co-mise en cause. Défaut 0.2, hérité de la même façon.
+ *  v5 : suppression du poids `miseEnExamen` (on s'en tient à la mise en cause
+ *       au sens large ; le compteur reste affiché). La clé morte ne survit pas
+ *       à une sauvegarde — `normalize` ne recopie que les clés du schéma. */
+export const CARTO_CONFIG_VERSION = 5;
 
 /** Valeurs par défaut des paramètres d'espacement. Doivent rester alignées
  *  sur les constantes de repli de components/mindmap (INTER_GALAXY_PADDING,
@@ -172,12 +185,12 @@ export const DEFAULT_CARTO_LAYOUT: CartographieLayoutConfig = {
 export const DEFAULT_CARTO_WEIGHTS: CartographieScoreWeights = {
   dossier: 2,
   contentieux: 3,
-  miseEnExamen: 1,
   chefDefault: 0.3,
   lienRenseignement: 0,
   lienRenseignementInfractionCoef: 0.8,
   lienMecPropagationCoef: 0.3,
   lienMecPropagationHops: 2,
+  dossierPropagationCoef: 0.2,
 };
 
 /** Valeurs par défaut de la pondération temporelle. Activée d'office : sans

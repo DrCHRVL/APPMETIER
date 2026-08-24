@@ -1187,7 +1187,6 @@ const Top10Panel: React.FC<{
                     {mec.contentieuxIds.length > 1 && (
                       <span>· {mec.contentieuxIds.length} contentieux</span>
                     )}
-                    {mec.nbMisEnExamen > 0 && <span>· {mec.nbMisEnExamen} ME</span>}
                     {mec.nbChefs > 0 && <span>· {mec.nbChefs} chef{mec.nbChefs > 1 ? 's' : ''}</span>}
                   </div>
                 </button>
