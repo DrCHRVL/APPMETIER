@@ -261,6 +261,21 @@ export function rapprochementsInterDossiers(keys, { includeArchived = false } = 
 // sous-agents (un par dossier), qui lisent les documents et remontent les
 // personnes, surnoms, adresses, plaques et téléphones.
 
+// Une ligne de corpus : de quoi reconnaître le dossier et décider s'il faut
+// l'ouvrir — pas son contenu.
+const CORPUS_OBJET = 120
+const CORPUS_MEC = 15
+
+function alleger(d) {
+  const mecs = d.misEnCause || []
+  return {
+    ...d,
+    objet: String(d.objet || '').slice(0, CORPUS_OBJET),
+    misEnCause: mecs.slice(0, CORPUS_MEC),
+    ...(mecs.length > CORPUS_MEC ? { misEnCausePlus: mecs.length - CORPUS_MEC } : {}),
+  }
+}
+
 export function cartoCorpus(keys, { includeArchived = true } = {}) {
   const { data } = loadContentieux(keys)
   const enquetes = (data.enquetes || [])
@@ -281,7 +296,12 @@ export function cartoCorpus(keys, { includeArchived = true } = {}) {
     contentieux: attacheTj(),
     nbEnquetes: enquetes.length,
     nbInstruction: instruction.length,
-    dossiers: [...enquetes, ...instruction],
+    // Le corpus est le PLAN de dépouillement : aucun dossier n'en est retiré
+    // (surtout pas les archivés). C'est chaque LIGNE qu'on allège, pour que la
+    // liste entière tienne dans une réponse d'outil — au-delà du plafond du
+    // CLI, elle serait déversée dans un fichier illisible pour l'agent, donc
+    // perdue. Le détail d'un dossier se tire ensuite un par un (lire_dossier).
+    dossiers: [...enquetes, ...instruction].map(alleger),
     mecsExNihiloExistants: (ov?.mecsExNihilo || []).map((m) => m.displayName || m.id).slice(0, 300),
     dossiersExNihiloExistants: (ov?.dossiersExNihilo || []).map((d) => d.label).slice(0, 200),
     liensRenseignementTraces: (ov?.liensRenseignement || []).length,

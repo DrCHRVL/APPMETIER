@@ -541,6 +541,32 @@ l'usage).
 - **Relance les dossiers dormants** : `lister_dossiers` marque `dormant:true`
   tout dossier sans mouvement depuis plus de 2 mois — une routine de veille en
   tire un projet de mail de relance au directeur d'enquête, prêt à coller.
+- **Voit TOUT le stock, archives comprises** : `lister_dossiers` est
+  **compact, filtrable et paginé** — `portee:"archives"` rend les dossiers
+  archivés **seuls** (la population la plus courte, celle qu'on veut passer au
+  crible), `portee:"toutes"` l'ensemble, `filtre` cherche un numéro, un objet,
+  un mis en cause ou un service, `offset`/`limit` déroulent les pages et la
+  réponse dit toujours **combien il reste et à quel offset reprendre**.
+  Motif : une réponse d'outil trop grosse n'est pas tronquée par le CLI, elle
+  est **déversée dans un fichier** que l'attaché ne peut pas rouvrir (aucun
+  outil de lecture de fichiers) — elle est donc *perdue*. C'est ce qui rendait
+  le stock archivé inaccessible (« la liste n'a pas pu être extraite »).
+  Chaque page est désormais bornée en caractères, quoi qu'on demande, et le
+  plafond de sortie du CLI est relevé pour qu'une page pleine de
+  `lire_document` passe sans déversement.
+- **Dépose lui-même une « analyse profonde » quand le travail déborde de la
+  conversation** : dépouiller un dossier entier, chercher une adresse ou une
+  ligne dans les pièces de tous les dossiers, préparer un règlement. Il épuise
+  d'abord les outils gratuits et exhaustifs (`registre_recouper`,
+  `pieces_chercher`), puis dépose un **chantier en DEVIS**
+  (`chantier_proposer`) dans la bande « Analyses profondes » de la page
+  Assistant de justice : pièces, lots, jetons, **heures**, nuits. Rien ne
+  démarre sans le clic du magistrat (« Valider le devis et lancer ») ; ensuite
+  le moteur travaille **en arrière-plan, la nuit**, par lots, avec reprise
+  automatique — l'app peut être fermée. `chantier_piloter` lance ou met en
+  pause sur instruction explicite. Le devis déposé depuis une conversation est
+  signalé comme tel dans l'atelier. Fini les réponses qui se terminent par une
+  réserve d'exhaustivité sans issue : la réserve devient un devis.
 - **Analyse transversale de renseignement (cartographie)** : sur demande
   (« analyse tous les dossiers et trouve les liens cachés ») ou en routine,
   l'attaché balaie le **corpus complet** — toutes les enquêtes (archivées
@@ -1010,7 +1036,9 @@ auditées — sans attendre que le panneau intégré rattrape chaque nouveauté 
 Claude web. OAuth réservé à l'administrateur (session passkey +
 consentement), désactivé par défaut, activation dans Paramètres → Attaché IA
 → **Connecteur Claude web**, révocation un clic. Deux outils sont exclus du
-connecteur : `sous_agents` et `poser_question`. Guide complet :
+connecteur : `sous_agents` et `poser_question` — pour un travail de masse,
+Claude web dépose un **chantier d'analyse profonde** (`chantier_proposer`),
+exécuté par le serveur, plutôt que de tout lire dans sa conversation. Guide complet :
 **[CONNECTEUR-CLAUDE-WEB.md](CONNECTEUR-CLAUDE-WEB.md)**.
 
 ## Révocation & réversibilité

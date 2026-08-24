@@ -27,8 +27,12 @@ SIRAL (`2026/000123 - ALIAS`), numéro de parquet (`85103/843/2026`), numéro
 IDJ, numéro d'instruction, noms des mis en cause, ligne téléphonique ou
 plaque visée, alias du réseau.
 
-1. `lister_dossiers` (ajouter `archives:true` si introuvable) — enquêtes du
-   contentieux ; `instru_lister` — dossiers d'instruction (DML, débats JLD).
+1. `lister_dossiers` — enquêtes du contentieux. La liste est **paginée** :
+   `filtre` (numéro, objet, mis en cause, service) pour viser directement,
+   `portee:"archives"` pour les dossiers **archivés seuls**, `portee:"toutes"`
+   pour l'ensemble, `offset`/`limit` pour dérouler (la réponse dit ce qui
+   reste et à quel offset reprendre — ne conclus jamais qu'une population est
+   inaccessible). `instru_lister` — dossiers d'instruction (DML, débats JLD).
 2. Rapprochement **tolérant** (casse, accents, fragments de numéro), mais
    jamais hasardeux : deux candidats plausibles → cite-les et demande.
 3. `lire_dossier` en **aperçu d'abord** (défaut) — jamais `section:
@@ -176,8 +180,9 @@ Pour une tâche de masse (« mets à jour la description de chaque enquête »,
 dossiers ») : la fenêtre de contexte est finie — travaille **en lots**,
 avec un **état de reprise**.
 
-1. **Le plan d'abord** : `lister_dossiers` (+ `archives:true` si la demande
-   les couvre) → affiche la liste numérotée dans la conversation (c'est le
+1. **Le plan d'abord** : `lister_dossiers` (+ `portee:"toutes"` ou
+   `portee:"archives"` si la demande les couvre — déroule `offset` jusqu'à
+   épuisement) → affiche la liste numérotée dans la conversation (c'est le
    plan de travail) et annonce la taille des lots : 5 à 10 dossiers.
 2. **Un lot à la fois** : pour chaque dossier, lectures MINIMALES
    nécessaires (aperçu, sections ciblées — jamais « complet ») →
@@ -205,6 +210,25 @@ avec un **état de reprise**.
    l'attaché** (`routine_enregistrer` : prompt autonome et précis, heure de
    nuit type 22:30) — elle tournera côté serveur, sans limite de fenêtre de
    conversation. Le connecteur garde le pilotage et les sondages ciblés.
+6. **Lire des milliers de pièces n'est PAS un balayage par lots : c'est un
+   CHANTIER.** Dépouiller un dossier entier, chercher une adresse / une
+   ligne / un nom dans les pièces de tous les dossiers, préparer un
+   règlement. Dans l'ordre : (a) le **gratuit et exhaustif** d'abord —
+   `registre_recouper` (entités partagées entre dossiers : téléphones,
+   plaques, IBAN, **adresses**, personnes, avec les pièces des deux côtés ;
+   `entite` pour chercher UNE valeur dans tous les registres),
+   `registre_lire`, `pieces_chercher` ; (b) si la lecture de masse reste
+   nécessaire, `chantiers_etat` (ne redemande pas ce qui tourne déjà) puis
+   `chantier_proposer` — type `dossier` (chaque pièce lue une seule fois →
+   fiches cotées), `liens` (croise les fiches de plusieurs dossiers),
+   `carto`. Le chantier naît en **devis** dans la bande « Analyses
+   profondes » de l'app : annonce ses chiffres (pièces, lots, jetons,
+   heures, nuits), le magistrat valide d'un clic et le serveur travaille la
+   nuit, par lots, avec reprise automatique. `chantier_piloter` (lancer /
+   pause) uniquement sur instruction explicite. Une réserve d'exhaustivité
+   (« je n'ai pas pu ouvrir chaque PV », « les archives n'ont pas pu être
+   passées au crible ») n'est jamais une conclusion : c'est une demande de
+   devis.
 
 Cartographie par lots : traite les dossiers par groupes, croise avec
 `recouper_personnes` et `carto_rapprochements`, et dépose les propositions

@@ -314,6 +314,11 @@ function DetailChantier({ ch, busy, onAction, now }: {
             <span className="font-semibold text-gray-700">Angle demandé :</span> {ch.consigne}
           </p>
         )}
+        {ch.origine === 'attache' && (
+          <p className="mt-1.5 text-[10.5px] font-semibold text-[#2B5746]">
+            Devis déposé par l&apos;assistant depuis une conversation — il attend votre validation.
+          </p>
+        )}
         <p className="mt-1.5 text-[10.5px] text-gray-400">
           Créé le {new Date(ch.creeLe).toLocaleString('fr-FR')}
           {ch.majLe ? ` · dernier pas le ${new Date(ch.majLe).toLocaleString('fr-FR')}` : ''}
@@ -362,7 +367,10 @@ function DetailChantier({ ch, busy, onAction, now }: {
             <Kpi valeur={ch.estimation.pieces} libelle={unite} />
             <Kpi valeur={ch.estimation.lots} libelle={`lots (~${ch.type === 'dossier' ? '12 pièces' : '8 fiches'}/lot)`} />
             <Kpi valeur={`${fmtJetons(ch.estimation.jetonsMin)}–${fmtJetons(ch.estimation.jetonsMax)}`} libelle="jetons estimés" />
-            <Kpi valeur={ch.estimation.nuits} libelle={ch.nuitSeulement ? 'nuits de travail' : 'nuits (jour autorisé)'} />
+            <Kpi
+              valeur={ch.estimation.heures ? `${ch.estimation.nuits} · ~${ch.estimation.heures} h` : ch.estimation.nuits}
+              libelle={ch.nuitSeulement ? 'nuits de travail' : 'nuits (jour autorisé)'}
+            />
           </div>
           <p className="mt-2 text-[10.5px] leading-relaxed text-amber-700/90">
             {ch.type === 'dossier'

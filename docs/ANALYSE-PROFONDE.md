@@ -145,6 +145,15 @@ manque des fiches, ils déclenchent d'abord un chantier de type 1.
 - **Déclencheurs** là où le besoin naît : le chat de dossier (étage 4) propose
   « lancer le dépouillement complet » ; la cartographie propose « remplir
   depuis les dossiers » ; la fiche d'enquête montre l'état du chantier.
+- **Depuis la conversation** (fait) : l'attaché — et Claude web par le
+  connecteur — dépose lui-même le chantier avec `chantier_proposer` dès qu'une
+  demande suppose de lire plus de pièces qu'une conversation n'en tient. Le
+  chantier apparaît en DEVIS dans la bande, marqué « déposé par l'assistant » ;
+  le magistrat valide d'un clic. `chantier_piloter` lance ou met en pause sur
+  instruction explicite. Règle donnée à l'agent : une réserve d'exhaustivité
+  (« je n'ai pas pu ouvrir chaque PV ») n'est pas une conclusion, c'est une
+  demande de devis — et le gratuit (`registre_recouper`, `pieces_chercher`)
+  s'épuise AVANT de proposer de dépenser.
 - Le chat de dossier répond ensuite en s'appuyant sur les fiches — questions
   précises à coût minime.
 
@@ -157,7 +166,10 @@ manque des fiches, ils déclenchent d'abord un chantier de type 1.
   gouvernance nuit/5 h, runs bornés, productions, mémoire dossier, usage.
 - **Phase 2** : chantiers « liens » et « carto » sur les fiches.
 - **Phase 3** : exposer au connecteur la lecture des fiches et le lancement
-  d'un chantier (Claude web = télécommande mobile).
+  d'un chantier (Claude web = télécommande mobile) — *fait* :
+  `chantiers_etat`, `chantier_proposer`, `chantier_piloter` et les productions
+  (`productions_lister` / `production_lire`) sont dans le périmètre du
+  connecteur comme dans celui du chat.
 
 ## Ce qui ne change pas
 

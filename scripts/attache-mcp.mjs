@@ -137,15 +137,34 @@ const OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME = new Set([
   'modifier_dossier', 'archiver_dossier', 'ajouter_mec', 'modifier_mec',
   'actualiser_description', 'ranger_document', 'depot_ecarter',
   'routine_enregistrer', 'routine_suspendre', 'routine_supprimer',
+  // le devis (chantier_proposer) reste permis : il attend le magistrat.
+  'chantier_piloter',
 ])
 
 // ── Définition des outils ──
 const TOOLS = [
   {
     name: 'lister_dossiers',
-    description: `Liste compacte des dossiers du contentieux ${attacheContentieux()} (numéro, objet, statut, volumes). Point de départ pour s'orienter.`,
-    inputSchema: { type: 'object', properties: { archives: { type: 'boolean', description: 'Inclure les dossiers archivés' } } },
-    handler: async (a) => listEnquetes(keys, { includeArchived: Boolean(a?.archives) }),
+    description: `Liste compacte des dossiers du contentieux ${attacheContentieux()} (numéro, objet, statut, mis en cause, pièces). Point de départ pour s'orienter. PAGINÉE et BORNÉE : la réponse porte total / affiches / restants et, s'il en reste, offsetSuivant — rappelle avec ce offset pour la page suivante (rien n'est tronqué en silence). ARCHIVES : portee:"archives" rend les dossiers archivés SEULS (population courte — c'est la voie pour les passer au crible), portee:"toutes" les ajoute aux dossiers en cours, portee:"en_cours" (défaut) les exclut. « filtre » cherche dans le numéro, l'objet, les mis en cause et les services (casse et accents indifférents) — préfère-le à une liste complète quand tu cherches UN dossier. detail:"complet" ajoute les compteurs d'actes/CR et le délai sans CR (à réserver aux petites pages).`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        portee: { type: 'string', enum: ['en_cours', 'toutes', 'archives'], description: 'Défaut "en_cours". "archives" = les dossiers ARCHIVÉS SEULS ; "toutes" = en cours + archivés.' },
+        archives: { type: 'boolean', description: 'Écriture historique de portee:"toutes" (inclure les archivés). Ignoré si portee est renseigné.' },
+        filtre: { type: 'string', description: 'Numéro, objet, mis en cause ou service à retrouver (casse/accents indifférents).' },
+        offset: { type: 'number', description: 'Premier dossier de la page (défaut 0) — utiliser offsetSuivant de la réponse précédente.' },
+        limit: { type: 'number', description: 'Dossiers par page (défaut 60, max 300 ; la page est aussi bornée en taille).' },
+        detail: { type: 'string', enum: ['compact', 'complet'], description: 'Défaut "compact" (orientation). "complet" = compteurs d\'actes/CR, services, délai sans CR.' },
+      },
+    },
+    handler: async (a) => listEnquetes(keys, {
+      includeArchived: Boolean(a?.archives),
+      portee: a?.portee,
+      filtre: a?.filtre,
+      offset: a?.offset,
+      limit: a?.limit,
+      detail: a?.detail,
+    }),
   },
   {
     name: 'lire_dossier',
@@ -189,7 +208,7 @@ const TOOLS = [
   },
   {
     name: 'chantiers_etat',
-    description: 'État des CHANTIERS d\'analyse profonde : type « dossier » (chaque pièce lue une fois → fiches factuelles + synthèse), type « liens » (croisement des fiches de plusieurs dossiers → rapport de recoupements), type « carto » (propositions carto tirées des fiches, à valider). Progression, attente (nuit / forfait), productions. Lecture seule — le lancement et le pilotage se font depuis la page « Assistant de justice ». Les productions d\'un chantier se lisent avec productions_lister / production_lire (source « chantier:<id> » ; fiches de dépouillement = type « fiche »).',
+    description: 'État des CHANTIERS d\'analyse profonde : type « dossier » (chaque pièce lue une fois → fiches factuelles + synthèse), type « liens » (croisement des fiches de plusieurs dossiers → rapport de recoupements), type « carto » (propositions carto tirées des fiches, à valider). Progression, attente (nuit / forfait), productions. À CONSULTER AVANT de proposer un chantier (chantier_proposer) : ne redemande jamais un dépouillement déjà en cours ou déjà fait. Les productions d\'un chantier se lisent avec productions_lister / production_lire (source « chantier:<id> » ; fiches de dépouillement = type « fiche »).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string', description: 'Limiter à un dossier (optionnel)' } } },
     handler: async (a) => {
       const { listChantiers } = await import('./attache/chantier.mjs')
@@ -205,9 +224,106 @@ const TOOLS = [
           etat: c.etat, attente: c.attente, consigne: c.consigne,
           piecesFaites: c.piecesFaites, totalPieces: c.totalPieces, lotsFaits: c.lotsFaits, totalLots: c.totalLots,
           pochettes: c.pochettes.length, fiches: c.fiches.length, syntheseProdId: c.syntheseProdId,
+          // devis chiffré : ce que le magistrat doit entendre avant de valider
+          estimation: c.etat === 'devis' ? c.estimation : undefined,
         })),
       }
     },
+  },
+  {
+    name: 'chantier_proposer',
+    description: 'DÉPOSER UN CHANTIER D\'ANALYSE PROFONDE dans la bande « Analyses profondes » de la page Assistant de justice — l\'outil pour tout travail qui NE TIENT PAS dans une conversation : dépouiller un dossier entier (des centaines ou des milliers de pièces), croiser plusieurs dossiers, remplir la cartographie. Le chantier naît en DEVIS (pièces, lots, jetons, heures, nuits) et N\'EST PAS LANCÉ : le magistrat le valide d\'un clic, puis le moteur du service travaille EN ARRIÈRE-PLAN, la nuit par défaut, par lots courts, interruptible et repris tout seul (fermer l\'app ne change rien). Trois types : "dossier" (chaque pièce lue UNE fois → fiches factuelles cotées, puis synthèse — l\'investissement qui rend tout le reste gratuit), "liens" (≥ 2 dossiers : croise leurs FICHES → rapport de recoupements coté des deux côtés), "carto" (depuis les fiches → propositions carto à valider). Les types "liens" et "carto" exigent des fiches : sans elles, dépouille d\'abord (type "dossier"). RÈGLE : quand une demande du magistrat suppose de lire plus de pièces que tu ne peux en lire dans la conversation, ne bricole pas un balayage partiel et n\'annonce pas une réserve d\'exhaustivité — propose le chantier, annonce le devis, et dis ce qu\'il rapportera. `lancer:true` UNIQUEMENT si le magistrat a explicitement dit d\'y aller.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['dossier', 'liens', 'carto'], description: 'Défaut "dossier" (dépouillement des pièces).' },
+        numero: { type: 'string', description: 'Dossier visé (type "dossier"). Pour plusieurs dossiers, utiliser numeros.' },
+        numeros: { type: 'array', items: { type: 'string' }, description: 'Dossiers visés : les dossiers à croiser pour "liens"/"carto" ; pour "dossier", un chantier est créé PAR dossier (12 max).' },
+        consigne: { type: 'string', description: 'L\'angle demandé par le magistrat, en clair (question posée, personnes, période, adresse recherchée). C\'est ce qui oriente chaque lot — reprends ses mots.' },
+        nuitSeulement: { type: 'boolean', description: 'Défaut true : le travail est cantonné à la fenêtre de nuit. false = il peut aussi tourner en journée (consomme le forfait aux heures ouvrées).' },
+        lancer: { type: 'boolean', description: 'Défaut false (devis à valider). true = démarrer sans attendre — seulement sur instruction explicite du magistrat.' },
+      },
+    },
+    handler: async (a) => {
+      const { createChantier, actionChantier } = await import('./attache/chantier.mjs')
+      const type = ['dossier', 'liens', 'carto'].includes(a?.type) ? a.type : 'dossier'
+      const liste = (Array.isArray(a?.numeros) ? a.numeros : []).map((n) => String(n)).filter(Boolean).slice(0, 12)
+      // Un run autonome (apprentissage, étude) PROPOSE mais ne dépense pas :
+      // le devis attend le magistrat, quoi qu'ait demandé le modèle.
+      const lancer = Boolean(a?.lancer) && !IS_RUN_AUTONOME
+      const commun = { consigne: String(a?.consigne || ''), nuitSeulement: a?.nuitSeulement !== false, origine: 'attache' }
+      const cibles = type === 'dossier'
+        ? (liste.length ? liste : [String(a?.numero || '')]).filter(Boolean)
+        : [null]
+      if (type === 'dossier' && !cibles.length) throw new Error('Indique le dossier à dépouiller (numero) — lister_dossiers pour l\'écriture exacte.')
+      // Plusieurs dossiers : un dossier qui refuse (aucune pièce versée) ne doit
+      // pas emporter les autres — on garde ce qui a pu être chiffré et on rend
+      // les refus, dossier par dossier, avec leur motif.
+      const crees = []
+      const echecs = []
+      for (const cible of cibles) {
+        let ch
+        try {
+          ch = await createChantier(keys, {
+            ...commun,
+            type,
+            ...(type === 'dossier' ? { numero: cible } : { numero: String(a?.numero || ''), numeros: liste }),
+          })
+        } catch (e) {
+          echecs.push({ numero: cible || liste.join(' · '), erreur: String(e?.message || e) })
+          continue
+        }
+        if (lancer) {
+          try { crees.push(await actionChantier(keys, { id: ch.id, action: 'lancer' })) } catch { crees.push(ch) }
+        } else crees.push(ch)
+      }
+      if (!crees.length) throw new Error(echecs.map((x) => `${x.numero} : ${x.erreur}`).join(' | ') || 'Aucun chantier créé')
+      const cumul = crees.reduce((acc, c) => ({
+        pieces: acc.pieces + (c.estimation?.pieces || 0),
+        lots: acc.lots + (c.estimation?.lots || 0),
+        jetonsMin: acc.jetonsMin + (c.estimation?.jetonsMin || 0),
+        jetonsMax: acc.jetonsMax + (c.estimation?.jetonsMax || 0),
+        heures: acc.heures + (c.estimation?.heures || 0),
+        nuits: Math.max(acc.nuits, c.estimation?.nuits || 0),
+      }), { pieces: 0, lots: 0, jetonsMin: 0, jetonsMax: 0, heures: 0, nuits: 0 })
+      // Pas de carte dans le fil : le chantier a sa propre place, la bande
+      // « Analyses profondes » (badge « devis à valider ») — une carte de plus
+      // serait un doublon, et le doublon est ce qu'on reproche à l'attaché.
+      return {
+        chantiers: crees.map((c) => ({ id: c.id, type: c.type, numero: c.numero, numeros: c.numeros || undefined, etat: c.etat, sansFiches: c.sansFiches?.length ? c.sansFiches : undefined, estimation: c.estimation })),
+        devis: cumul,
+        ...(echecs.length ? { ecartes: echecs } : {}),
+        note: lancer
+          ? 'Chantier(s) lancé(s) : le service travaille en arrière-plan (nuit par défaut), par lots, avec reprise automatique. Dis au magistrat le devis et où suivre l\'avancement — bande « Analyses profondes » de la page Assistant de justice, bouton « Ouvrir l\'atelier ». Ne relis pas les pièces toi-même en attendant.'
+          : 'Devis déposé, RIEN n\'est lancé : le magistrat valide d\'un clic dans la bande « Analyses profondes » (page Assistant de justice, « Ouvrir l\'atelier » pour le détail). Annonce-lui le devis (pièces, lots, jetons, heures, nuits) et ce que le chantier produira.',
+      }
+    },
+    write: true,
+  },
+  {
+    name: 'chantier_piloter',
+    description: 'Lancer ou mettre en pause un CHANTIER d\'analyse profonde déjà déposé (chantiers_etat pour son id et son état). "lancer" : le devis est validé, le dépouillement démarre en arrière-plan (nuit, par lots, reprise automatique) — SEULEMENT sur instruction explicite du magistrat, jamais de ta propre initiative. "pause" : arrêt propre, sans perte (les fiches déjà écrites restent, la reprise repart du curseur). La suppression et la création se font ailleurs (atelier de la page Assistant de justice / chantier_proposer).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Identifiant du chantier (chantiers_etat).' },
+        action: { type: 'string', enum: ['lancer', 'pause'], description: '"lancer" = valider le devis et démarrer ; "pause" = suspendre.' },
+      },
+      required: ['id', 'action'],
+    },
+    handler: async (a) => {
+      const { actionChantier } = await import('./attache/chantier.mjs')
+      const action = a?.action === 'pause' ? 'pause' : 'lancer'
+      const ch = await actionChantier(keys, { id: String(a?.id || ''), action })
+      return {
+        id: ch.id, type: ch.type, numero: ch.numero, etat: ch.etat,
+        piecesFaites: ch.piecesFaites, totalPieces: ch.totalPieces,
+        note: action === 'lancer'
+          ? 'Lancé : le service enchaîne les lots en arrière-plan (fenêtre de nuit si nuitSeulement, reprise automatique quand le forfait redescend).'
+          : 'En pause : rien n\'est perdu, la reprise repart du curseur.',
+      }
+    },
+    write: true,
   },
   {
     name: 'dossier_arborescence',
@@ -1451,6 +1567,26 @@ const TOOLS = [
   },
 ]
 
+// ── Plafond de sortie d'un outil ──
+// Au-delà du plafond du CLI (MAX_MCP_OUTPUT_TOKENS), une réponse d'outil n'est
+// pas tronquée : elle est DÉVERSÉE dans un fichier que l'attaché ne peut pas
+// rouvrir (aucun outil de lecture de fichiers) — donc PERDUE, sans qu'il
+// sache ce qu'il a manqué. On la borne ICI, avec la marche à suivre, plutôt
+// que de la perdre. Le CLI est lancé avec un plafond relevé (agent.mjs) pour
+// laisser passer une page pleine de lire_document (200 000 caractères) ; le
+// connecteur Claude web, lui, n'a pas cette contrainte.
+const SORTIE_MAX_CLI = 220_000
+const SORTIE_MAX_CONNECTEUR = 400_000
+
+function bornerSortie(text, contexte) {
+  const max = contexte === 'connecteur' ? SORTIE_MAX_CONNECTEUR : SORTIE_MAX_CLI
+  if (text.length <= max) return text
+  return text.slice(0, max)
+    + `\n\n[SORTIE BORNÉE PAR SIRAL — ${max} caractères servis sur ${text.length}.`
+    + ' Au-delà, ta réponse serait déversée dans un fichier que tu ne peux pas rouvrir : elle serait perdue.'
+    + ' Reprends avec les paramètres de cadrage de l\'outil (filtre, portee, offset/limit, pochette, section) pour lire la suite par pages.]'
+}
+
 // ── Répartition JSON-RPC partagée (boucle stdio · connecteur Claude web) ──
 
 /**
@@ -1516,7 +1652,7 @@ export async function dispatchMcp(req, options = {}) {
           return reply({ content: result.content })
         }
         const text = typeof result === 'string' ? result : JSON.stringify(result, null, 1)
-        return reply({ content: [{ type: 'text', text: text.slice(0, 400_000) }] })
+        return reply({ content: [{ type: 'text', text: bornerSortie(text, contexte) }] })
       } catch (e) {
         if (tool.write) {
           await audit(keys, 'outil_erreur', { outil: tool.name, contexte, erreur: String(e?.message || e) }).catch(() => {})
@@ -1547,6 +1683,8 @@ const INSTRUCTIONS_CONNECTEUR = [
   '  2. NE JAMAIS RECALCULER un chiffre déjà rendu, ni le reconstituer en additionnant des listes de dossiers : les règles de la page sont subtiles (procédures terminées HORS classements et ouvertures d\'information ; orientations comptées 1 par dossier mais 1 par prévenu en CRPC ; déférements comptés à leur date réelle et non à la date d\'audience ; saisies d\'enquête ≠ confiscations d\'audience ; l\'année en cours s\'arrête au mois courant). Un recalcul « de bon sens » donne un autre nombre que l\'écran — c\'est l\'erreur à ne pas commettre. Reprendre la valeur, et citer la carte d\'où elle vient.',
   '  3. Deux chiffres voisins qui diffèrent ne sont pas une incohérence : chaque carte porte sa `regle`, la lire avant de conclure ou de signaler un écart au magistrat.',
   '  4. Pour VOIR ce qu\'il voit : stats_graphique, avec `graphiques` (plusieurs d\'un coup) et `annee`. Décrire les dynamiques d\'après l\'image, mais donner les nombres d\'après les données jointes.',
+  'GROS STOCK ET ARCHIVES : lister_dossiers est paginé et filtrable — portee:"archives" (les archivés SEULS), portee:"toutes", `filtre` (numéro, objet, mis en cause), offset/limit ; la réponse dit ce qui reste et à quel offset reprendre. Une population de dossiers n\'est jamais hors de portée : déroule les pages.',
+  'ANALYSE PROFONDE : une demande qui suppose de LIRE des centaines ou des milliers de pièces (dépouiller un dossier entier, chercher une adresse ou une ligne dans les pièces de tous les dossiers, préparer un règlement, croiser des affaires) ne se traite pas dans la conversation. Cherche d\'abord avec les outils GRATUITS et exhaustifs — registre_recouper (entités partagées entre dossiers, `entite` pour une valeur précise), registre_lire, pieces_chercher — puis, si la lecture de masse reste nécessaire, dépose un CHANTIER : chantiers_etat (ce qui existe déjà) puis chantier_proposer. Il naît en DEVIS chiffré (pièces, lots, jetons, heures, nuits) dans la bande « Analyses profondes » de l\'app ; le magistrat valide d\'un clic et le serveur travaille la nuit, par lots, avec reprise automatique. Ne conclus jamais sur une réserve d\'exhaustivité sans proposer le devis qui la lèvera.',
   'Écritures (actes, CR, à-faire, NATINF, dossiers…) : réservées aux instructions explicites du magistrat — en cas de doute, demande-lui dans la conversation avant d\'écrire. Chaque écriture est versionnée (réversible) et journalisée dans son audit ; les données partagées sont signées de son nom, jamais « IA ».',
   'Livrables et actes rédigés se remettent DANS SIRAL : produire_document (atelier « Actes rédigés ») ou remettre_livrable (fil « pendant votre absence »).',
 ].join('\n')
