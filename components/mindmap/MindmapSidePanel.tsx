@@ -97,7 +97,14 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
         <div className="grid grid-cols-2 gap-2 text-sm">
           <Stat label="Dossiers" value={mec.dossierIds.length} />
           <Stat label="Mises en examen" value={mec.nbMisEnExamen} />
-          <Stat label="Chefs cumulés" value={mec.nbChefs} />
+          <Stat
+            label="Chefs cumulés"
+            value={
+              mec.nbChefsViaLien > 0
+                ? `${mec.nbChefs} (dont ${mec.nbChefsViaLien} via lien)`
+                : mec.nbChefs
+            }
+          />
           <Stat label="Liens renseignement" value={mec.nbLiensRenseignement} />
           {mec.infractionWeight > 0 && (
             <Stat label="Bonus infraction" value={`+${mec.infractionWeight.toFixed(1)}`} />
@@ -130,6 +137,24 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
             {mec.activityYears.length} année{mec.activityYears.length > 1 ? 's' : ''} d&apos;activité
           </div>
         )}
+        {/* D'OÙ vient le poids reçu : sans ce détail, la contamination est un
+            total inexplicable au moment de justifier un classement. */}
+        {mec.propagationTop && mec.propagationTop.length > 0 && (
+          <div className="mt-2 text-[11px] text-slate-500">
+            Entourage :{' '}
+            {mec.propagationTop.map((c, i) => (
+              <span key={c.mecId}>
+                {i > 0 ? ', ' : ''}
+                <span className="font-medium text-slate-700">{c.displayName}</span>
+                {' +'}
+                {c.points.toFixed(1)}
+                <span className="text-slate-400">
+                  {c.via === 'dossier' ? ' (dossier)' : ' (lien)'}
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="mt-2 flex flex-wrap gap-1 empty:mt-0">
           {/* « Mention récente » (dossier touché dans les 12 mois) est masquée
               quand le malus d'ancienneté s'applique : les deux étiquettes se
@@ -150,13 +175,14 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
               Activité continue — bonus ×{mec.temporalFactor.toFixed(2)}
             </span>
           )}
-          {/* Entourage : ce que la personne doit à ses liens personne ↔ personne.
-              Signalé à part car c'est la seule part du score qui ne vient pas de
-              ses propres dossiers — utile pour ne pas surinterpréter un Top. */}
+          {/* Entourage : ce que la personne doit à ceux qui l'entourent (liens de
+              renseignement et dossiers partagés). Signalé à part car c'est la
+              seule part du score qui ne vient pas de ses propres dossiers —
+              utile pour ne pas surinterpréter un Top. */}
           {mec.propagatedWeight > 0 && (
             <span
               className="text-[11px] font-medium text-violet-800 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded"
-              title={`Poids reçu des ${mec.nbMecVoisins} personne(s) reliée(s) par un lien de renseignement, et de leur entourage (atténué à chaque saut).`}
+              title="Poids reçu de l'entourage : personnes reliées par un lien de renseignement et membres les plus lourds des dossiers partagés (atténué à chaque saut)."
             >
               Entourage impliqué — +{mec.propagatedWeight.toFixed(1)} pt
               {mec.propagatedWeight >= 2 ? 's' : ''}
