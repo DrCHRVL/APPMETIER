@@ -36,6 +36,9 @@ export interface RecoupementOptions {
   minScore?: number;
   /** Occurrences conservées par signal (une par dossier au minimum). */
   maxOccurrences?: number;
+  /** Occurrences conservées PAR DOSSIER (l'affichage les regroupe par dossier :
+   *  ce qui compte est la diversité des provenances, pas la répétition). */
+  maxOccurrencesParDossier?: number;
   /** Au-delà de ce nombre de dossiers, un patronyme est jugé trop répandu. */
   maxDossiersPatronyme?: number;
   /** Longueur maximale d'un fragment analysé (garde-fou de performance). */
@@ -56,7 +59,8 @@ type Reglages = Required<Omit<RecoupementOptions, 'respirer' | 'annule'>>;
 const DEFAUTS: Reglages = {
   maxSignals: 200,
   minScore: 0.4,
-  maxOccurrences: 8,
+  maxOccurrences: 40,
+  maxOccurrencesParDossier: 6,
   maxDossiersPatronyme: 5,
   maxCharsFragment: 300_000,
 };
@@ -272,17 +276,40 @@ function refDe(d: DossierCorpus): RecoupementDossierRef {
  * Conserve au plus `max` occurrences, en garantissant au moins une par dossier
  * et en privilégiant les occurrences déclarées (une fiche vaut mieux qu'une
  * mention au fil d'une pièce).
+ *
+ * Ce qui compte à l'écran, c'est la DIVERSITÉ DES PROVENANCES d'un même
+ * dossier — « mis en cause + description + interception + pièce X » — et non
+ * la répétition d'une mention dix fois dans le même compte rendu. On ne garde
+ * donc qu'une occurrence par provenance (origine + détail) et par dossier.
  */
-function choisirOccurrences(parDossier: Map<string, RecoupementOccurrence[]>, max: number): RecoupementOccurrence[] {
+function choisirOccurrences(
+  parDossier: Map<string, RecoupementOccurrence[]>,
+  max: number,
+  maxParDossier: number
+): RecoupementOccurrence[] {
   const meilleures: RecoupementOccurrence[] = [];
   const reste: RecoupementOccurrence[] = [];
   parDossier.forEach(list => {
     const triees = list.slice().sort((a, b) => Number(b.declaree) - Number(a.declaree));
-    meilleures.push(triees[0]);
-    reste.push(...triees.slice(1));
+    const vues = new Set<string>();
+    const retenues: RecoupementOccurrence[] = [];
+    for (const occ of triees) {
+      const provenance = `${occ.origine}|${occ.detail || ''}`;
+      if (vues.has(provenance)) continue;
+      vues.add(provenance);
+      retenues.push(occ);
+      if (retenues.length >= maxParDossier) break;
+    }
+    meilleures.push(retenues[0]);
+    reste.push(...retenues.slice(1));
   });
   reste.sort((a, b) => Number(b.declaree) - Number(a.declaree));
   return meilleures.concat(reste).slice(0, Math.max(max, meilleures.length));
+}
+
+/** Clé d'une paire de dossiers, indépendante de l'ordre. */
+export function clePaire(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
 /**
@@ -439,6 +466,22 @@ export async function detecterRecoupements(
   const signaux: Recoupement[] = [];
   const paireCouverteParPersonne = new Set<string>(); // `${patronyme}|${dossierA}|${dossierB}`
 
+  // Pré-passe : les paires de dossiers que la CARTOGRAPHIE relie déjà, parce
+  // qu'une même personne y est déclarée des deux côtés (mis en cause, mis en
+  // examen, suspect, victime). Les groupes viennent d'être formés avec les
+  // tolérances de la carte : deux graphies d'un même nom comptent pour une.
+  const pairesDejaReliees = new Set<string>();
+  for (const groupe of groupes) {
+    const dossiers = Array.from(new Set(
+      groupe.mentions.filter(m => m.declaree).map(m => m.dossierKey)
+    ));
+    for (let i = 0; i < dossiers.length; i++) {
+      for (let j = i + 1; j < dossiers.length; j++) {
+        pairesDejaReliees.add(clePaire(dossiers[i], dossiers[j]));
+      }
+    }
+  }
+
   for (const groupe of groupes) {
     const parDossier = new Map<string, RecoupementOccurrence[]>();
     let ancree = false;
@@ -477,7 +520,7 @@ export async function detecterRecoupements(
       }
     }
 
-    signaux.push(construire('personne', canon, nom, parDossier, dossierKeys, personnesDeclarees, opts, {
+    signaux.push(construire('personne', canon, nom, parDossier, dossierKeys, pairesDejaReliees, opts, {
       bonus: dossiersDeclares >= 2 ? 0.05 : -0.1,
     }));
   }
@@ -529,14 +572,14 @@ export async function detecterRecoupements(
     const affiche = list.find(m => m.declaree)?.nom || list[0].nom;
     const patronymeAffiche = affiche.trim().split(/\s+/).find(mot => normalizeLoose(mot) === patronyme) || patronyme.toUpperCase();
 
-    signaux.push(construire('patronyme', patronyme, patronymeAffiche, parDossier, dossierKeys, personnesDeclarees, opts, {}));
+    signaux.push(construire('patronyme', patronyme, patronymeAffiche, parDossier, dossierKeys, pairesDejaReliees, opts, {}));
   });
 
   // ── Valeurs (téléphones, adresses, plaques, comptes…) ──────────────────
   index.forEach(entree => {
     if (entree.parDossier.size < 2) return;
     const dossierKeys = Array.from(entree.parDossier.keys()).sort();
-    signaux.push(construire(entree.kind, entree.canon, entree.valeur, entree.parDossier, dossierKeys, personnesDeclarees, opts, {}));
+    signaux.push(construire(entree.kind, entree.canon, entree.valeur, entree.parDossier, dossierKeys, pairesDejaReliees, opts, {}));
   });
 
   return signaux
@@ -549,28 +592,37 @@ export async function detecterRecoupements(
     .slice(0, opts.maxSignals);
 }
 
+/** Au-delà, on ne détaille plus les paires : le signal est de toute façon lu
+ *  comme « ces dossiers-là se touchent », pas paire par paire. */
+const MAX_PAIRES = 60;
+
 function construire(
   kind: RecoupementKind,
   canon: string,
   valeur: string,
   parDossier: Map<string, RecoupementOccurrence[]>,
   dossierKeys: string[],
-  personnesDeclarees: Map<string, Set<string>>,
+  pairesDejaReliees: Set<string>,
   opts: Reglages,
   extra: { bonus?: number }
 ): Recoupement {
-  // Pont inédit : les dossiers ne partagent aucun mis en cause déclaré. C'est
-  // le cas intéressant — les autres ne font que confirmer un lien déjà visible.
-  let pontInedit = false;
-  for (let i = 0; i < dossierKeys.length && !pontInedit; i++) {
-    for (let j = i + 1; j < dossierKeys.length && !pontInedit; j++) {
-      const a = personnesDeclarees.get(dossierKeys[i]) || new Set<string>();
-      const b = personnesDeclarees.get(dossierKeys[j]) || new Set<string>();
-      let commun = false;
-      a.forEach(cle => { if (b.has(cle)) commun = true; });
-      if (!commun) pontInedit = true;
+  // Paire inédite : rien ne relie encore ces deux dossiers sur la carte —
+  // aucune personne n'y est DÉCLARÉE des deux côtés. Une paire déjà reliée ne
+  // fait que confirmer un trait qu'on voit déjà : elle ne mérite ni la mention
+  // « inédit », ni une proposition de lien.
+  //
+  // On se cale exactement sur la règle de fusion de la cartographie (mêmes
+  // groupes de personnes, mêmes tolérances d'orthographe et d'ordre des mots) :
+  // sans quoi la veille annoncerait comme inédit un lien déjà tracé.
+  const pairesInedites: Array<[string, string]> = [];
+  for (let i = 0; i < dossierKeys.length; i++) {
+    for (let j = i + 1; j < dossierKeys.length; j++) {
+      if (pairesInedites.length >= MAX_PAIRES) break;
+      if (pairesDejaReliees.has(clePaire(dossierKeys[i], dossierKeys[j]))) continue;
+      pairesInedites.push([dossierKeys[i], dossierKeys[j]]);
     }
   }
+  const pontInedit = pairesInedites.length > 0;
 
   const score = Math.max(
     0,
@@ -585,7 +637,8 @@ function construire(
     score: Math.round(score * 100) / 100,
     stateKey: dossierKeys.join('|'),
     dossierKeys,
-    occurrences: choisirOccurrences(parDossier, opts.maxOccurrences),
+    occurrences: choisirOccurrences(parDossier, opts.maxOccurrences, opts.maxOccurrencesParDossier),
     pontInedit,
+    pairesInedites,
   };
 }

@@ -52,11 +52,19 @@ export const useOverboardData = (contentieuxDefs: ContentieuxDefinition[]) => {
   // tâche « à faire » depuis le tableau de bord ou la fiche enquête) alors que la
   // sauvegarde réelle est throttlée. L'enquête est cherchée dans tous les
   // contentieux par id.
-  const applyEnqueteUpdate = useCallback((id: number, updates: Partial<Enquete>) => {
+  const applyEnqueteUpdate = useCallback((
+    id: number,
+    updates: Partial<Enquete>,
+    /** Contentieux du dossier visé. À préciser dès qu'on le connaît : les id
+     *  d'enquête repartent de 1 par contentieux, si bien qu'une mise à jour
+     *  non ciblée touche aussi les homonymes numériques des autres. */
+    contentieuxId?: ContentieuxId,
+  ) => {
     setEnquetesByContentieux(prev => {
       let changed = false;
       const next = new Map(prev);
       for (const [ctxId, list] of next) {
+        if (contentieuxId && ctxId !== contentieuxId) continue;
         let listChanged = false;
         const newList = list.map(e => {
           if (e.id === id) {

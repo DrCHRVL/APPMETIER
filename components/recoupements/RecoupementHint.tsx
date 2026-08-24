@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Eye } from 'lucide-react';
 import type { Recoupement } from '@/types/recoupementTypes';
+import type { LienExistant, PropositionLien } from '@/utils/recoupements/liens';
 import { RecoupementList } from './RecoupementList';
 
 export interface RecoupementHintProps {
@@ -25,6 +26,10 @@ export interface RecoupementHintProps {
   estNouveau?: (signal: Recoupement) => boolean;
   onOuvrirDossier?: (signal: Recoupement, dossierKey: string) => void;
   onEcarter?: (signal: Recoupement) => void;
+  /** Liens de renseignement déjà tracés (rien n'est proposé deux fois). */
+  liens?: LienExistant[];
+  onCreerLien?: (proposition: PropositionLien) => void;
+  onAjouterMec?: (signal: Recoupement, dossierKey: string, nom: string) => void;
   /** Appelé au dépliage, pour marquer les signaux comme vus. */
   onVus?: (signaux: Recoupement[]) => void;
 }
@@ -36,6 +41,9 @@ export function RecoupementHint({
   estNouveau,
   onOuvrirDossier,
   onEcarter,
+  liens,
+  onCreerLien,
+  onAjouterMec,
   onVus,
 }: RecoupementHintProps) {
   const [ouvert, setOuvert] = useState(false);
@@ -93,6 +101,9 @@ export function RecoupementHint({
           estNouveau={estNouveau}
           onOuvrirDossier={onOuvrirDossier}
           onEcarter={onEcarter}
+          liens={liens}
+          onCreerLien={onCreerLien}
+          onAjouterMec={onAjouterMec}
           deplierPremier
         />
       )}
