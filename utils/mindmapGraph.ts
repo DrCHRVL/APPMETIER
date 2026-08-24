@@ -72,8 +72,6 @@ export interface MecNode {
   dossierIds: string[];
   /** Contentieux distincts dans lesquels il apparaît (signal de transversalité) */
   contentieuxIds: ContentieuxId[];
-  /** Nombre de mises en examen formelles (via misEnExamen sur les instructions) */
-  nbMisEnExamen: number;
   /** Total des chefs d'inculpation cumulés. Comprend les infractions des
    *  dossiers auxquels la personne est rattachée par un simple LIEN de
    *  renseignement : y être rattaché est une forme d'implication. */
@@ -1000,7 +998,6 @@ export function buildMindmapGraph(
           variants: [],
           dossierIds: [],
           contentieuxIds: [],
-          nbMisEnExamen: 0,
           nbChefs: 0,
           nbChefsViaLien: 0,
           nbLiensRenseignement: 0,
@@ -1043,7 +1040,6 @@ export function buildMindmapGraph(
       addActivityYears(canonical, dossierYears);
 
       if (examenedCanonical.has(canonical)) {
-        mecNode.nbMisEnExamen += 1;
         mecNode.nbChefs += chefsByCanonical.get(canonical) || 0;
         const w = infractionWeightByCanonical.get(canonical);
         if (w) mecNode.infractionWeight += w;
@@ -1105,7 +1101,6 @@ export function buildMindmapGraph(
             variants: [],
             dossierIds: [],
             contentieuxIds: [],
-            nbMisEnExamen: 0,
             nbChefs: 0,
             nbChefsViaLien: 0,
             nbLiensRenseignement: 0,
@@ -1154,7 +1149,6 @@ export function buildMindmapGraph(
           variants: m.alias ? [...m.alias] : [],
           dossierIds: [],
           contentieuxIds: [],
-          nbMisEnExamen: 0,
           nbChefs: 0,
           nbChefsViaLien: 0,
           nbLiensRenseignement: 0,
@@ -1245,7 +1239,6 @@ export function buildMindmapGraph(
             variants: [],
             dossierIds: [],
             contentieuxIds: [],
-            nbMisEnExamen: 0,
             nbChefs: 0,
             nbChefsViaLien: 0,
             nbLiensRenseignement: 0,

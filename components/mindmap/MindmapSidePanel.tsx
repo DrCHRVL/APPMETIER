@@ -96,7 +96,6 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
         <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Score composite</div>
         <div className="grid grid-cols-2 gap-2 text-sm">
           <Stat label="Dossiers" value={mec.dossierIds.length} />
-          <Stat label="Mises en examen" value={mec.nbMisEnExamen} />
           <Stat
             label="Chefs cumulés"
             value={
