@@ -446,13 +446,16 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     }
     const { valid, flagged } = splitByNameLikeness(sorted);
     const cleanNames = valid.map(cleanForKeywordUse);
-    const sections = [
-      `# NOMS (${cleanNames.length}) — un par ligne, prêts à réutiliser tels quels`,
-      ...cleanNames,
-    ];
+    // Chaque section ne s'écrit que si elle a du contenu — sinon, sur une vue
+    // filtrée où tout est signalé (ex. uniquement des personnes morales), le
+    // fichier s'ouvrirait sur un "# NOMS (0)" vide avant la vraie liste.
+    const sections: string[] = [];
+    if (cleanNames.length > 0) {
+      sections.push(`# NOMS (${cleanNames.length}) — un par ligne, prêts à réutiliser tels quels`, ...cleanNames);
+    }
     if (flagged.length > 0) {
+      if (sections.length > 0) sections.push('');
       sections.push(
-        '',
         `# À VÉRIFIER (${flagged.length}) — ne ressemble pas à un nom/prénom exploitable, à relire avant réutilisation`,
         ...flagged.map(f => `${f.name}  [${f.reason}]`),
       );

@@ -40,21 +40,26 @@ function check(label, actual, expected) {
 for (const nom of [
   'MEON Jordan',
   'Marouane BEN CHERQUI',
-  'BLONDEL',          // patronyme seul, sans prénom connu : reste accepté
-  'CETIN',
-  'Emilie',           // prénom seul
   "N'DIAYE Almany",
   'ARBONA Y COLOM Aurélien',
-  'ONANGA Peter-Clay', // tiret dans le prénom
-  "BALLOUL M'Barek",   // apostrophe
+  'ONANGA Peter-Clay',   // tiret dans le prénom, mais espace avec le nom
+  "BALLOUL M'Barek",     // apostrophe, mais espace avec le nom
+  'BONHOMME Sandrine',   // "homme" en sous-chaîne : ne doit pas déclencher "description"
+  'LHOMME Julien',
+  'DELHOMME Marc',
+  'GRANDHOMME Marc',
+  'René LEFEBVRE',       // "né le" en sous-chaîne : ne doit pas déclencher "description"
+  'Renée LECLERC',
+  'Earl JOSEPH',         // "EARL" coïncide avec un prénom, mais en casse naturelle
+  'JOSEPH Earl',
 ]) {
   check(`accepté : "${nom}"`, checkLooksLikeName(nom).looksLikeName, true)
 }
 
 // ── Entrées à signaler, avec le motif attendu ──
 const casSignales = [
-  ['X', 'initiale'],
-  ['HX', 'initiale'],
+  ['X', 'homonymes'],                 // désormais capté par la règle "un seul mot"
+  ['HX', 'homonymes'],
   ['Femme blonde', 'description'],
   ['??? (fifi maurice ??)', "point d'interrogation"],
   ['SARL SOMME TP', 'personne morale'],
@@ -63,7 +68,15 @@ const casSignales = [
   ['MATEA Alin né le 03/11/2001', 'chiffre'],
   ['GARA Christophe (tété)', 'parenthèses'],
   ['La Flèche" qu\'elle nomme "BÉBÉ', 'guillemets'],
+  ['« Bébé »', 'guillemets'],         // guillemets français, pas seulement " ou “”
   ['JOSSE Daniel - Rabatteur/complice', 'description'],
+  ['BLONDEL', 'homonymes'],           // patronyme seul : homonymes possibles
+  ['CETIN', 'homonymes'],
+  ['Emilie', 'homonymes'],            // prénom seul
+  ['ffef', 'homonymes'],              // coquille : aussi un seul mot
+  ['Monsieur X', 'civilité'],         // civilité + initiale seule
+  ['Madame Y', 'civilité'],
+  ['M. X', 'civilité'],
 ]
 for (const [nom, attenduDansMotif] of casSignales) {
   const res = checkLooksLikeName(nom)
@@ -74,8 +87,8 @@ for (const [nom, attenduDansMotif] of casSignales) {
 // ── Partition globale ──
 {
   const { valid, flagged } = splitByNameLikeness(['MEON Jordan', 'X', 'SARL SOMME TP', 'BLONDEL'])
-  check('partition : valides', valid, ['MEON Jordan', 'BLONDEL'])
-  check('partition : signalées', flagged.map(f => f.name), ['X', 'SARL SOMME TP'])
+  check('partition : valides', valid, ['MEON Jordan'])
+  check('partition : signalées', flagged.map(f => f.name), ['X', 'SARL SOMME TP', 'BLONDEL'])
 }
 
 // ── Nettoyage pour réemploi (mot-clé de règle) ──
