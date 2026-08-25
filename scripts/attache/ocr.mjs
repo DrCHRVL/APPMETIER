@@ -22,7 +22,16 @@
  * casserait la lecture.
  */
 import { createRequire } from 'node:module'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
+import { promisify } from 'node:util'
+
+// Rastérisation et OCR en ASYNCHRONE : ces commandes durent des dizaines de
+// secondes par document, et en execFileSync elles gelaient l'event loop du
+// service — pendant un OCR, l'attaché ne répondait plus à rien (chat, panneau,
+// chantiers). Le processus externe travaille pareil ; le service, lui, reste
+// disponible. Seul le sondage which/where (5 s max, une fois par binaire)
+// reste synchrone.
+const execFileAsync = promisify(execFile)
 import { mkdtempSync, writeFileSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -61,7 +70,7 @@ function hasBinary(name) {
  * fichiers pdftoppm : page-05.png = page 5). Retourne { available, textes } où
  * textes est une Map<numéroDePage, texteOCR>. Ne lève jamais.
  */
-function ocrPages(plain, pageNums) {
+async function ocrPages(plain, pageNums) {
   if (!pageNums.length) return { available: true, textes: new Map() }
   if (!hasBinary('pdftoppm') || !hasBinary('tesseract')) {
     return { available: false, textes: new Map() }
@@ -81,10 +90,10 @@ function ocrPages(plain, pageNums) {
     }
     for (const [f, l] of ranges) {
       try {
-        execFileSync(
+        await execFileAsync(
           'pdftoppm',
           ['-png', '-r', String(OCR_DPI), '-f', String(f), '-l', String(l), pdfPath, path.join(dir, 'page')],
-          { stdio: 'ignore', timeout: PDFTOPPM_TIMEOUT_MS },
+          { timeout: PDFTOPPM_TIMEOUT_MS },
         )
       } catch { /* plage irrastérisable : ses pages resteront marquées */ }
     }
@@ -94,7 +103,7 @@ function ocrPages(plain, pageNums) {
       const base = path.join(dir, png.replace(/\.png$/i, ''))
       try {
         // tesseract <image> <base> -l fra → écrit <base>.txt
-        execFileSync('tesseract', [path.join(dir, png), base, '-l', 'fra'], { stdio: 'ignore', timeout: TESSERACT_TIMEOUT_MS })
+        await execFileAsync('tesseract', [path.join(dir, png), base, '-l', 'fra'], { timeout: TESSERACT_TIMEOUT_MS })
         textes.set(num, readFileSync(base + '.txt', 'utf8'))
       } catch { /* page sautée : restera marquée */ }
     }
@@ -191,7 +200,7 @@ export async function extractPdfText(plain, { ocrImages = false } = {}) {
   const aOcr = doOcr ? candidates.slice(0, OCR_MAX_PAGES) : []
   const nonOcrisees = doOcr ? candidates.slice(OCR_MAX_PAGES) : []
   const differees = doOcr ? [] : candidates
-  const { available, textes } = ocrPages(plain, aOcr)
+  const { available, textes } = await ocrPages(plain, aOcr)
 
   const texte = assemblePages(pagesTexte, textes, { ocrAvailable: available, nonOcrisees, differees })
   // Lisible si un contenu réel subsiste une fois les marqueurs de pages retirés.

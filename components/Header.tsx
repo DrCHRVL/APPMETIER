@@ -1,4 +1,5 @@
 import { Bell, Search, Save, RefreshCw, Download, Scale, Link2 } from 'lucide-react';
+import { useMultiSyncStatus } from '@/hooks/useMultiSyncStatus';
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { Alert } from '@/types/interfaces';
@@ -11,7 +12,6 @@ import { useEffect, useMemo, useRef } from 'react';
 import { DataSyncIndicator } from './sync/DataSyncIndicator';
 import { NetworkStatusIndicator } from './NetworkStatusIndicator';
 import { ChantierDot } from './attache/ChantierDot';
-import { SyncStatus } from '@/types/dataSyncTypes';
 import { GlobalSearchBox } from './search/GlobalSearchBox';
 import type { GlobalSearchApi } from '@/hooks/useGlobalSearch';
 import type { GlobalSearchDoc } from '@/utils/globalSearch';
@@ -36,9 +36,7 @@ interface HeaderProps {
   onSave: () => void;
   isSaving: boolean;
   lastSaveDate?: string;
-  syncStatus?: SyncStatus | null;
   onSync?: () => void;
-  isSyncing?: boolean;
   isSearchingDocs?: boolean;
   isAdmin?: boolean;
   updateAvailable?: boolean;
@@ -70,9 +68,7 @@ export const Header = ({
   onSave,
   isSaving,
   lastSaveDate,
-  syncStatus,
   onSync,
-  isSyncing,
   isSearchingDocs = false,
   isAdmin = false,
   updateAvailable = false,
@@ -84,6 +80,12 @@ export const Header = ({
   globalSearch,
   recoupements,
 }: HeaderProps) => {
+  // Statut de synchronisation lu ICI, pas dans la page : l'indicateur change
+  // toutes les quelques secondes, et quand il était passé en prop depuis la
+  // racine (~2600 lignes), c'est toute la page qui se re-rendait à chaque
+  // battement. Seul le Header a besoin de cette information.
+  const { syncStatus, isSyncing } = useMultiSyncStatus();
+
   // L'icône de mise à jour est réservée à l'admin : la mise à jour du serveur
   // s'applique d'elle-même à tous les utilisateurs.
   const showUpdateIcon = (updateAvailable || isUpdating) && isAdmin;

@@ -138,7 +138,6 @@ import { PendingPose } from '@/components/PendingPose';
 // 🆕 Imports pour la synchronisation des données
 import { DataSyncConflictModal } from '@/components/modals/DataSyncConflictModal';
 import { ConflictAction, SyncConflict, SyncData } from '@/types/dataSyncTypes';
-import { useMultiSyncStatus } from '@/hooks/useMultiSyncStatus';
 import { DataSyncManager } from '@/utils/dataSync/DataSyncManager';
 import { MultiSyncManager, registerMultiSyncPreFlush } from '@/utils/dataSync/MultiSyncManager';
 import { instructionSyncService } from '@/utils/dataSync/InstructionSyncService';
@@ -328,8 +327,8 @@ function AppContent() {
   // gérée intégralement par MultiSyncManager (clés `ctx_<contentieux>_enquetes`).
   // Ne pas remonter ce hook sans avoir d'abord retiré ses écritures destructrices.
 
-  // 🆕 Statut consolidé de la synchronisation multi-contentieux (bandeau + page Sauvegardes)
-  const { syncStatus, isSyncing } = useMultiSyncStatus();
+  // Statut de synchronisation : lu par Header et SavePage EUX-MÊMES (hook
+  // local) — le poser ici re-rendait toute la page à chaque battement de sync.
 
   // 🆕 État pour le modal de conflits (multi-contentieux)
   const [showConflictModal, setShowConflictModal] = useState(false);
@@ -1858,9 +1857,7 @@ return (
             onSave={handleManualSave}
             isSaving={isSaving}
             lastSaveDate={StorageManager.getLastSave() ?? undefined}
-            syncStatus={syncStatus}
             onSync={handleManualSync}
-            isSyncing={isSyncing}
             isSearchingDocs={isSearchingDocs}
             isAdmin={isAdmin()}
             updateAvailable={updateAvailable}
@@ -2285,7 +2282,7 @@ return (
       )}
 
       {/* Modales communes */}
-      <RecoupementsModal
+      {showRecoupementsModal && <RecoupementsModal
         isOpen={showRecoupementsModal}
         onClose={() => setShowRecoupementsModal(false)}
         signaux={recoupements.signaux}
@@ -2304,7 +2301,7 @@ return (
         onCreerLien={creerLienRecoupement}
         onAjouterMec={handleAjouterMecRecoupement}
         onVus={recoupements.marquerVus}
-      />
+      />}
 
       <AlertsModal
         isOpen={showAlertsModal}
@@ -2596,8 +2593,6 @@ return (
             contentieuxLabel={currentContentieuxId}
             onRestoreFromServerBackup={(filename) => MultiSyncManager.getInstance().restoreFromBackup(currentContentieuxId, filename)}
             onListServerBackups={() => MultiSyncManager.getInstance().listBackups(currentContentieuxId)}
-            isSyncing={isSyncing}
-            syncStatus={syncStatus}
           />
         }
         modeHorsLigneContent={<OfflineModePanel onSync={handleManualSync} />}

@@ -325,16 +325,31 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
           }
         }
       }
-      set(state => ({
-        sharedEnquetes: shared,
-        enquetes: [...state.ownEnquetes, ...shared],
-      }));
+      set(state => {
+        // IDENTITÉ STABLE : ce rechargement suit CHAQUE cycle de sync, changement
+        // ou pas. Reposer une liste reconstruite à l'identique donnait une
+        // nouvelle identité à `enquetes` toutes les ~2 minutes — et tout ce qui
+        // en dépend (index des personnes, veille de recoupements, recherche
+        // globale) recalculait pour rien. Si rien n'a bougé, on ne touche rien.
+        const inchangees = state.sharedEnquetes.length === shared.length
+          && shared.every((e, i) => {
+            const avant = state.sharedEnquetes[i];
+            return avant
+              && avant.id === e.id
+              && avant.contentieuxOrigine === e.contentieuxOrigine
+              && avant.dateMiseAJour === e.dateMiseAJour;
+          });
+        if (inchangees) return {};
+        return {
+          sharedEnquetes: shared,
+          enquetes: [...state.ownEnquetes, ...shared],
+        };
+      });
     } catch (error) {
       console.error(`❌ EnquetesStore[${contentieuxId}]: erreur chargement co-saisines`, error);
-      set(state => ({
-        sharedEnquetes: [],
-        enquetes: [...state.ownEnquetes],
-      }));
+      set(state => (state.sharedEnquetes.length === 0
+        ? {} // déjà vide : on ne casse pas l'identité pour rien
+        : { sharedEnquetes: [], enquetes: [...state.ownEnquetes] }));
     }
   },
 

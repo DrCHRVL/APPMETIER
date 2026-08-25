@@ -11,7 +11,7 @@ import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import { jsonResponse, requireTjSession } from './auth'
-import { tjDataDir, withFileLock, ensureDir, atomicWrite, readJson, DEFAULT_TJ_ID } from './store'
+import { tjDataDir, withFileLock, ensureDir, atomicWrite, readJson, DEFAULT_TJ_ID, readLogTailLines } from './store'
 
 export function attacheEnabled(): boolean {
   return Boolean(process.env.SIRAL_ATTACHE_URL)
@@ -82,7 +82,10 @@ function attacheDir(...segments: string[]): string {
 export function readEncryptedLog(file: 'feed.jsonl' | 'audit.jsonl' | 'outbox.jsonl', max = 500): Array<{ ts: number, id?: string, iv: string, ct: string }> {
   const p = attacheDir(file)
   if (!fs.existsSync(p)) return []
-  const lines = fs.readFileSync(p, 'utf8').split('\n').filter(Boolean)
+  // Queue seulement : ces journaux grossissent sans fin (l'épisode des cartes
+  // de mise en pause répétées a pu enfler feed.jsonl), et ils sont relus à
+  // chaque affichage du fil. Voir readLogTailLines.
+  const lines = readLogTailLines(p)
   const out: Array<{ ts: number, iv: string, ct: string }> = []
   for (const line of lines) {
     try { out.push(JSON.parse(line)) } catch {}
