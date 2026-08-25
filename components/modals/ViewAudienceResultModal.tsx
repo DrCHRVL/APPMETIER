@@ -256,16 +256,45 @@ export const ViewAudienceResultModal = ({
           {!isOI && !isPending && !isClassement && (
             <>
               <div className="space-y-4">
-                <h3 className="font-medium">Condamnations ({resultat.condamnations.length})</h3>
+                <h3 className="font-medium">
+                  Condamnations ({resultat.condamnations.filter(c => !c.isRelaxe).length})
+                  {resultat.condamnations.some(c => c.isRelaxe) && (
+                    <span className="ml-2 text-sm font-normal text-emerald-700">
+                      + {resultat.condamnations.filter(c => c.isRelaxe).length} relaxe
+                      {resultat.condamnations.filter(c => c.isRelaxe).length > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </h3>
                 {resultat.condamnations.map((condamnation, index) => (
-                  <div key={index} className="bg-gray-50 p-4 rounded-lg">
-                    <h4 className="font-medium mb-2">{condamnation.nom ? condamnation.nom : `Condamné ${index + 1}`}</h4>
-                    
+                  <div
+                    key={index}
+                    className={`p-4 rounded-lg ${condamnation.isRelaxe ? 'bg-emerald-50 border border-emerald-200' : 'bg-gray-50'}`}
+                  >
+                    <h4 className="font-medium mb-2">
+                      {condamnation.nom ? condamnation.nom : `${condamnation.isRelaxe ? 'Relaxé' : 'Condamné'} ${index + 1}`}
+                      {condamnation.isRelaxe && (
+                        <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-emerald-700">Relaxe</span>
+                      )}
+                    </h4>
+
                     {/* Type d'audience et déférement pour chaque condamné */}
                     <div className="mb-2 text-sm text-gray-600">
                       <div>Type d'audience: {condamnation.typeAudience}</div>
-                      {condamnation.defere && <div>Défèrement</div>}
+                      {condamnation.defere && (
+                        <div>
+                          Défèrement
+                          {condamnation.dateDefere
+                            ? ` du ${new Date(condamnation.dateDefere).toLocaleDateString('fr-FR')}`
+                            : ' — date non renseignée (rattaché au mois de l\'audience)'}
+                        </div>
+                      )}
                     </div>
+
+                    {condamnation.isRelaxe && (
+                      <p className="text-sm text-emerald-800">
+                        Aucune peine prononcée. Hors condamnations et hors moyennes de peine.
+                      </p>
+                    )}
 
                     <div className="grid grid-cols-2 gap-2 text-sm">
                       {condamnation.peinePrison > 0 && (

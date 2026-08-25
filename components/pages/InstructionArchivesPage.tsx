@@ -396,6 +396,11 @@ const CompletedCard: React.FC<{
 }> = ({ dossier, resultat, cabinetColor, onEdit, onResetResult, onUnarchive, onDelete }) => {
   const audienceDate = resultat?.dateAudience ? new Date(resultat.dateAudience) : null;
 
+  // Les relaxes vivent dans `condamnations` (pour garder nom, type d'audience
+  // et défèrement) mais n'en sont pas : on les affiche à part.
+  const nbCondamnations = (resultat?.condamnations || []).filter(c => !c.isRelaxe).length;
+  const nbRelaxes = (resultat?.condamnations || []).filter(c => c.isRelaxe).length;
+
   const audienceTypes = (resultat?.condamnations || [])
     .map(c => c.typeAudience)
     .filter(Boolean) as string[];
@@ -439,9 +444,14 @@ const CompletedCard: React.FC<{
                 </span>
               )}
               {resultat?.numeroAudience && <span>N° {resultat.numeroAudience}</span>}
-              {resultat?.condamnations && resultat.condamnations.length > 0 && (
+              {nbCondamnations > 0 && (
                 <span>
-                  {resultat.condamnations.length} condamnation{resultat.condamnations.length > 1 ? 's' : ''}
+                  {nbCondamnations} condamnation{nbCondamnations > 1 ? 's' : ''}
+                </span>
+              )}
+              {nbRelaxes > 0 && (
+                <span className="text-emerald-700">
+                  {nbRelaxes} relaxe{nbRelaxes > 1 ? 's' : ''}
                 </span>
               )}
             </div>

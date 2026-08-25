@@ -97,6 +97,8 @@ const audienceResultats = {
     enqueteId: 2, contentieuxId: 'crimorg', dateAudience: '2026-05-12', modifiedAt: '2026-05-12T10:00:00Z',
     condamnations: [
       { nom: 'C', peinePrison: 30, sursisProbatoire: 0, sursisSimple: 0, peineAmende: 10000, interdictionParaitre: false, interdictionGerer: false, typeAudience: 'CRPC-Def', defere: true, dateDefere: '2026-05-12' },
+      // Relaxe : déférée et jugée, mais NI condamnée NI comptée comme CRPC.
+      { nom: 'R', peinePrison: 0, sursisProbatoire: 0, sursisSimple: 0, peineAmende: 0, interdictionParaitre: false, interdictionGerer: false, typeAudience: 'CRPC-Def', defere: true, dateDefere: '2026-05-12', isRelaxe: true },
     ],
     confiscations: { vehicules: [], immeubles: [], numeraire: 4000, saisiesBancaires: [], cryptomonnaies: [{ montantEur: 8000 }], objetsMobiliers: [] },
     infractionNatinfCodes: ['7995'], typeInfraction: 'Trafic de stupéfiants', service: 'BR Amiens',
@@ -205,16 +207,20 @@ attendu('OI listée et marquée', bilan.proceduresTerminees.liste.some((t) => t.
 attendu('dossier 2025 exclu', !bilan.proceduresTerminees.liste.some((t) => String(t.numero || '').includes('VIEUX')))
 attendu('terminées par mois : févr=1 mai=1 mars=1', bilan.proceduresTerminees.parMois['2026-02'] === 1 && bilan.proceduresTerminees.parMois['2026-05'] === 1 && bilan.proceduresTerminees.parMois['2026-03'] === 1, JSON.stringify(bilan.proceduresTerminees.parMois))
 
-// défèrements : 2 (janv, dossier 1) + 1 (mai, dossier 2) + 1 (mars, directe) = 4 ; celui de 2025 exclu
-attendu('défèrements total = 4', bilan.deferements.total === 4, `obtenu ${bilan.deferements.total}`)
+// défèrements : 2 (janv, dossier 1) + 2 (mai, dossier 2 — dont la relaxée) + 1 (mars, directe) = 5 ;
+// celui de 2025 exclu. Une relaxe reste un défèrement : la personne a bien été déférée.
+attendu('défèrements total = 5', bilan.deferements.total === 5, `obtenu ${bilan.deferements.total}`)
+attendu('défèrements mai = 2 (dont la relaxée)', bilan.deferements.parMois['2026-05'] === 2, JSON.stringify(bilan.deferements.parMois))
 attendu('défèrements janvier = 2', bilan.deferements.parMois['2026-01'] === 2, JSON.stringify(bilan.deferements.parMois))
 attendu('défèrements liste datée avec numéros', bilan.deferements.liste.every((d) => d.date && d.numero))
 
 // ouvertures 2026 S1 : enquêtes 2, 3, 4, 5 = 4
 attendu('ouvertures = 4', bilan.ouvertures.total === 4, `obtenu ${bilan.ouvertures.total}`)
 
-// audience : condamnations = 2 + 1 + 1 = 4 ; CRPC=1 ; CI par dossier : dossiers 1 et directe → 2 ; OI=1
-attendu('condamnations = 4', bilan.audience.nombreCondamnations === 4, `obtenu ${bilan.audience.nombreCondamnations}`)
+// audience : condamnations = 2 + 1 + 1 = 4 (la relaxée du dossier 2 est hors comptage) ;
+// CRPC=1 (la relaxe n'en est pas une) ; CI par dossier : dossiers 1 et directe → 2 ; OI=1
+attendu('condamnations = 4 (relaxe exclue)', bilan.audience.nombreCondamnations === 4, `obtenu ${bilan.audience.nombreCondamnations}`)
+attendu('relaxes = 1', bilan.audience.nombreRelaxes === 1, `obtenu ${bilan.audience.nombreRelaxes}`)
 attendu('CRPC = 1 / CI = 2 / OI = 1', bilan.audience.orientations.crpc === 1 && bilan.audience.orientations.ci === 2 && bilan.audience.orientations.oi === 1, JSON.stringify(bilan.audience.orientations))
 // prison ferme : 24 + (12 mixte) + 30 + (8 mixte) = 74 mois
 attendu('prison ferme = 74 mois', bilan.audience.peines.totalPrisonFermeMois === 74, `obtenu ${bilan.audience.peines.totalPrisonFermeMois}`)
@@ -257,8 +263,10 @@ attendu('chaque carte porte sa règle', page.sections.every((sec) => sec.cartes.
 attendu('carte « Total des procédures terminées » = 3', generales['Total des procédures terminées'].valeur === 3, JSON.stringify(generales['Total des procédures terminées'].valeur))
 attendu('dont 1 OI et 0 classement', generales['Total des procédures terminées'].detail.dontOuverturesInformation === 1
   && generales['Total des procédures terminées'].detail.dontClassementsSansSuite === 0, JSON.stringify(generales['Total des procédures terminées'].detail))
-attendu('carte « Évolution des déférements » = 4 (date réelle)', generales['Évolution des déférements'].valeur === 4, String(generales['Évolution des déférements'].valeur))
-attendu('déférements des dossiers jugés distingués', generales['Évolution des déférements'].detail.deferementsDansLesDossiersJuges === 4,
+// 5 défèrements, dont celui de la personne relaxée : être relaxé n'annule pas
+// le défèrement, c'est le travail de permanence qui est compté ici.
+attendu('carte « Évolution des déférements » = 5 (date réelle)', generales['Évolution des déférements'].valeur === 5, String(generales['Évolution des déférements'].valeur))
+attendu('déférements des dossiers jugés distingués', generales['Évolution des déférements'].detail.deferementsDansLesDossiersJuges === 5,
   String(generales['Évolution des déférements'].detail.deferementsDansLesDossiersJuges))
 attendu('carte « Nombre d\'enquêtes en cours » = 2', generales['Nombre d\'enquêtes en cours'].valeur === 2, String(generales['Nombre d\'enquêtes en cours'].valeur))
 attendu('carte « Actes d\'enquête » = 5 avec charge estimée', generales['Actes d\'enquête en préliminaire'].valeur === 5
@@ -269,6 +277,10 @@ attendu('répartition globale par service ≠ terminées', generales['Répartiti
 
 // Résultats d'audience : les cartes qui manquaient au connecteur
 attendu('carte « Condamnations » = 4', audienceCartes.Condamnations.valeur === 4, String(audienceCartes.Condamnations.valeur))
+attendu('carte « Relaxes » = 1, sur 5 personnes jugées', audienceCartes.Relaxes.valeur === 1
+  && audienceCartes.Relaxes.detail.personnesJugees === 5
+  && audienceCartes.Relaxes.detail.condamnees === 4
+  && audienceCartes.Relaxes.detail.personnes[0].nom === 'R', JSON.stringify(audienceCartes.Relaxes.detail))
 attendu('carte « Total des peines de prison » = 74 mois', audienceCartes['Total des peines de prison'].detail.mois === 74, String(audienceCartes['Total des peines de prison'].detail.mois))
 attendu('carte « Amendes » : moyenne par condamnation', audienceCartes.Amendes.detail.montantTotal === 15800 && audienceCartes.Amendes.detail.moyenneParCondamnation === 3950,
   JSON.stringify(audienceCartes.Amendes.detail.moyenneParCondamnation))

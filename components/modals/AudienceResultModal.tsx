@@ -26,6 +26,7 @@ interface ExtendedCondamnationData extends CondamnationData {
   isPending?: boolean;
   dateAudiencePending?: string;
   dateDefere?: string;
+  isRelaxe?: boolean;
 }
 
 // Types
@@ -228,6 +229,7 @@ export const AudienceResultModal = ({
         defere: true,
         dateDefere: pendingDateDefere,
         isPending: false,
+        isRelaxe: false,
         dateAudiencePending: ''
       };
     });
@@ -239,7 +241,7 @@ export const AudienceResultModal = ({
     newCondamnations[index] = {
       ...newCondamnations[index],
       [field]: field === 'nom' || field === 'dateDefere' || field === 'lieuInterdictionParaitre' ? value :
-               field === 'interdictionParaitre' || field === 'interdictionGerer' || field === 'defere' || field === 'isPending' ? Boolean(value) :
+               field === 'interdictionParaitre' || field === 'interdictionGerer' || field === 'defere' || field === 'isPending' || field === 'isRelaxe' ? Boolean(value) :
                field === 'typeAudience' || field === 'dateAudiencePending' ? value :
                (parseInt(value as string) || 0)
     };
@@ -254,6 +256,46 @@ export const AudienceResultModal = ({
       ...newCondamnations[index],
       nom,
       misEnCauseId: matchedMec ? matchedMec.id : undefined
+    };
+    setCondamnations(newCondamnations);
+  };
+
+  // Relaxe : la personne a comparu sans être condamnée. On remet toutes les
+  // peines à zéro (elles ne doivent jamais être ré-agrégées) mais on garde le
+  // nom, le type d'audience et le défèrement — la personne a bien été déférée
+  // et jugée, seule la condamnation manque.
+  const setRelaxe = (index: number, isRelaxe: boolean) => {
+    const newCondamnations = [...condamnations];
+    newCondamnations[index] = isRelaxe
+      ? {
+          ...newCondamnations[index],
+          isRelaxe: true,
+          isPending: false,
+          peinePrison: 0,
+          sursisProbatoire: 0,
+          sursisSimple: 0,
+          peineAmende: 0,
+          interdictionParaitre: false,
+          lieuInterdictionParaitre: undefined,
+          dureeInterdictionParaitre: undefined,
+          interdictionGerer: false,
+          dureeInterdictionGerer: undefined,
+        }
+      : { ...newCondamnations[index], isRelaxe: false };
+    setCondamnations(newCondamnations);
+  };
+
+  // Défèrement : cocher la case sans date perdrait le rattachement au bon mois
+  // (les stats retomberaient sur la date d'audience, souvent très postérieure).
+  // On pré-remplit donc avec la date saisie à l'archivage.
+  const setDefere = (index: number, defere: boolean) => {
+    const newCondamnations = [...condamnations];
+    newCondamnations[index] = {
+      ...newCondamnations[index],
+      defere,
+      dateDefere: defere
+        ? (newCondamnations[index].dateDefere || pendingDateDefere)
+        : newCondamnations[index].dateDefere,
     };
     setCondamnations(newCondamnations);
   };
@@ -279,10 +321,30 @@ export const AudienceResultModal = ({
       // Déterminer si l'enquête a des résultats partiels
       const hasPartialResults = finalizedCondamnations.length > 0 && pendingCondamnations.length > 0;
 
-      // Vérifier si des défèrements étaient attendus (depuis audience en attente)
-      const nbDeferesSaisis = finalizedCondamnations.filter(c => c.defere).length;
+      // Lignes effectivement enregistrées : une ligne n'est conservée que si
+      // elle porte une décision — une peine, ou une relaxe explicite. Sans le
+      // cas `isRelaxe`, un relaxé (toutes peines à 0) disparaîtrait à
+      // l'enregistrement, avec son défèrement.
+      const condamnationsAEnregistrer = finalizedCondamnations
+        .filter(c =>
+          c.isRelaxe ||
+          c.peinePrison > 0 || c.sursisProbatoire > 0 ||
+          c.sursisSimple > 0 || c.peineAmende > 0
+        )
+        .map(c => ({
+          ...c,
+          // Filet de sécurité pour les audiences à date lointaine : un déféré
+          // sans date reprend celle saisie à l'archivage, sinon les stats le
+          // rattacheraient au mois de l'audience et non à celui du défèrement.
+          dateDefere: c.defere ? (c.dateDefere || pendingDateDefere || undefined) : c.dateDefere,
+        }));
+
+      // Vérifier si des défèrements étaient attendus (depuis audience en attente).
+      // Une relaxe compte : la personne a bien été déférée, seule la
+      // condamnation manque.
+      const nbDeferesSaisis = condamnationsAEnregistrer.filter(c => c.defere).length;
       const nbDeferesAttendus = initialData?.nombreDeferes;
-      
+
       if (nbDeferesAttendus && nbDeferesSaisis !== nbDeferesAttendus) {
         showToast(
           `Attention : ${nbDeferesAttendus} déférés attendus, ${nbDeferesSaisis} saisis`,
@@ -294,10 +356,7 @@ export const AudienceResultModal = ({
         enqueteId,
         contentieuxId,
         dateAudience,
-        condamnations: finalizedCondamnations.filter(c => 
-          c.peinePrison > 0 || c.sursisProbatoire > 0 || 
-          c.sursisSimple > 0 || c.peineAmende > 0
-        ),
+        condamnations: condamnationsAEnregistrer,
         confiscations,
         // Source canonique : codes NATINF. Les libellés sont dérivés pour la
         // compat des filtres/interdictions (typeInfraction / typesInfraction).
@@ -323,9 +382,14 @@ export const AudienceResultModal = ({
         saisies: initialData?.saisies,
         numeroAudience: initialData?.numeroAudience,
         isOI: initialData?.isOI,
-        // Supprimer nombreDeferes et dateDefere car maintenant dans les condamnations
-        nombreDeferes: undefined,
-        dateDefere: undefined
+        // Défèrements : dès qu'une personne est marquée déférée, ce sont les
+        // lignes individuelles qui font foi (chacune porte sa propre date) et
+        // le couple de niveau résultat est effacé — le conserver ferait
+        // compter deux fois les mêmes déférés dans les cartes qui lisent
+        // `nombreDeferes` en priorité. S'il n'y en a aucune, en revanche, on
+        // ne jette pas ce qui avait été saisi à l'archivage.
+        dateDefere: nbDeferesSaisis > 0 ? undefined : initialData?.dateDefere,
+        nombreDeferes: nbDeferesSaisis > 0 ? undefined : initialData?.nombreDeferes
       };
       
       await onSave(resultat);
@@ -343,9 +407,10 @@ export const AudienceResultModal = ({
     }
   };
 
-  // Compter les condamnations finalisées et en attente
-  const finalizedCount = condamnations.filter(c => !c.isPending).length;
+  // Compter les condamnations finalisées, les relaxes et les personnes en attente
+  const finalizedCount = condamnations.filter(c => !c.isPending && !c.isRelaxe).length;
   const pendingCount = condamnations.filter(c => c.isPending).length;
+  const relaxeCount = condamnations.filter(c => !c.isPending && c.isRelaxe).length;
 
   // Render
   return (
@@ -358,6 +423,11 @@ export const AudienceResultModal = ({
               <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-200">
                 <Clock className="h-3 w-3 mr-1" />
                 {pendingCount} en attente
+              </Badge>
+            )}
+            {relaxeCount > 0 && (
+              <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-200">
+                {relaxeCount} relaxe{relaxeCount > 1 ? 's' : ''}
               </Badge>
             )}
           </DialogTitle>
@@ -451,9 +521,11 @@ export const AudienceResultModal = ({
               value={nbCondamnes}
               onChange={(e) => handleNbCondamnesChange(parseInt(e.target.value) || 0)}
             />
-            {finalizedCount > 0 && pendingCount > 0 && (
+            {(pendingCount > 0 || relaxeCount > 0) && (
               <p className="text-sm text-blue-600 mt-1">
-                {finalizedCount} finalisé(s) • {pendingCount} en attente
+                {finalizedCount} condamné(s)
+                {relaxeCount > 0 && ` • ${relaxeCount} relaxe(s)`}
+                {pendingCount > 0 && ` • ${pendingCount} en attente`}
               </p>
             )}
           </div>
@@ -468,21 +540,41 @@ export const AudienceResultModal = ({
             >
               <div className="flex items-center justify-between">
                 <h3 className="font-medium">
-                  Condamné {index + 1}
+                  {condamnation.isRelaxe ? `Relaxé ${index + 1}` : `Condamné ${index + 1}`}
                   {condamnation.isPending && (
                     <Badge variant="outline" className="ml-2 bg-blue-100 text-blue-800">
                       En attente
                     </Badge>
                   )}
+                  {condamnation.isRelaxe && (
+                    <Badge variant="outline" className="ml-2 bg-emerald-100 text-emerald-800 border-emerald-200">
+                      Relaxe
+                    </Badge>
+                  )}
                 </h3>
-                
-                {/* Toggle statut pending */}
-                <div className="flex items-center space-x-2">
-                  <Label className="text-sm">En attente d'audience</Label>
-                  <Switch
-                    checked={condamnation.isPending || false}
-                    onCheckedChange={(checked) => updateCondamnation(index, 'isPending', checked)}
-                  />
+
+                <div className="flex items-center gap-4">
+                  {/* Toggle relaxe (exclusif du statut « en attente ») */}
+                  {!condamnation.isPending && (
+                    <div className="flex items-center space-x-2">
+                      <Label className="text-sm">Relaxe</Label>
+                      <Switch
+                        checked={condamnation.isRelaxe || false}
+                        onCheckedChange={(checked) => setRelaxe(index, checked)}
+                      />
+                    </div>
+                  )}
+
+                  {/* Toggle statut pending */}
+                  {!condamnation.isRelaxe && (
+                    <div className="flex items-center space-x-2">
+                      <Label className="text-sm">En attente d'audience</Label>
+                      <Switch
+                        checked={condamnation.isPending || false}
+                        onCheckedChange={(checked) => updateCondamnation(index, 'isPending', checked)}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
               
@@ -562,7 +654,7 @@ export const AudienceResultModal = ({
                       <Label>Déférement</Label>
                       <Switch
                         checked={condamnation.defere}
-                        onCheckedChange={(checked) => updateCondamnation(index, 'defere', checked)}
+                        onCheckedChange={(checked) => setDefere(index, checked)}
                       />
                     </div>
                   </div>
@@ -583,7 +675,16 @@ export const AudienceResultModal = ({
                     </div>
                   )}
 
-                  {/* Peines */}
+                  {/* Peines — sans objet en cas de relaxe */}
+                  {condamnation.isRelaxe ? (
+                    <div className="bg-emerald-50 p-3 rounded border-l-4 border-emerald-400">
+                      <p className="text-sm text-emerald-800">
+                        Relaxe : aucune peine n'est prononcée. La personne reste comptée
+                        parmi les personnes jugées et son défèrement est conservé, mais elle
+                        sort des condamnations et des moyennes de peine.
+                      </p>
+                    </div>
+                  ) : (
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label>Peine de prison ferme (mois)</Label>
@@ -684,6 +785,7 @@ export const AudienceResultModal = ({
                       </div>
                     )}
                   </div>
+                  )}
                 </>
               )}
 

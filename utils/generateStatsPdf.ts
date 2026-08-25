@@ -507,6 +507,9 @@ export function generateStatsPdfHtml(data: PdfExportData, options: PdfExportOpti
   </div>
   <div style="margin-top:8px;font-size:10.5px;color:#667085;text-align:center">
     Total : <b style="color:#16307A">${data.monthlyData.reduce((s, m) => s + m.condamnations, 0)}</b> condamnations sur l'année
+    ${(stats?.nombreRelaxes || 0) > 0
+      ? `— hors <b>${stats?.nombreRelaxes}</b> relaxe${(stats?.nombreRelaxes || 0) > 1 ? 's' : ''}`
+      : ''}
   </div>
 </div>`;
 

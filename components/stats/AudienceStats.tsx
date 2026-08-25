@@ -19,6 +19,7 @@ import {
   interdictionsGererParInfraction,
   interdictionsParaitreDetail,
   stupefiantsSaisisParService,
+  relaxesDetail,
 } from '@/lib/stats/ecranCore.mjs';
 import { formatTotaux } from '@/lib/stupefiants/catalogue.mjs';
 import { useTags } from '@/hooks/useTags';
@@ -250,11 +251,13 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
         })
       );
 
-      // Même définition que la carte (getYearlyStats), pour que la somme des
-      // contentieux colle au total affiché au-dessus.
-      const total = getYearlyStats(cResultats, cEnquetes, selectedYear)?.nombreCondamnations || 0;
+      // Même définition que les cartes (getYearlyStats), pour que la somme des
+      // contentieux colle aux totaux affichés au-dessus.
+      const cStats = getYearlyStats(cResultats, cEnquetes, selectedYear);
+      const total = cStats?.nombreCondamnations || 0;
+      const relaxes = cStats?.nombreRelaxes || 0;
 
-      return { def, total };
+      return { def, total, relaxes };
     });
   }, [isGlobal, enabledDefs, enquetesByContentieux, audienceState?.resultats, selectedYear]);
 
@@ -276,6 +279,7 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
   // des pourcentages) — évite un recalcul complet à chaque rendu.
   const classementsDetail = orientationDetail(scopedResultats, enquetes, selectedYear, 'isClassement', infractionsForEnquete, { avecParMois: false, statsFenetre: yearlyStats });
   const oiDetail = orientationDetail(scopedResultats, enquetes, selectedYear, 'isOI', infractionsForEnquete, { avecParMois: false, statsFenetre: yearlyStats });
+  const relaxes = relaxesDetail(scopedResultats, enquetes, selectedYear, labelForInfractionKey);
   const stupsParService = stupefiantsSaisisParService(
     scopedResultats,
     enquetes,
@@ -406,6 +410,11 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                   <p className="text-sm text-gray-500">
                     Moyenne de {totalAudiences > 0 ? (totalCondamnations / totalAudiences).toFixed(1) : 0} par audience ({totalAudiences} audience{totalAudiences > 1 ? 's' : ''})
                   </p>
+                  {yearlyStats.nombreRelaxes > 0 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Hors {yearlyStats.nombreRelaxes} relaxe{yearlyStats.nombreRelaxes > 1 ? 's' : ''} (carte dédiée)
+                    </p>
+                  )}
                   <div className="mt-4 pt-4 border-t space-y-1">
                     {getMonthsToShow().map(month => {
                       const count = monthlyStats[month]?.nombreCondamnations || 0;
@@ -437,6 +446,85 @@ export const AudienceStats = ({ enquetes, selectedYear, contentieuxId, enquetesB
                 </>
               );
             })()}
+          </CardContent>
+        </Card>
+
+        {/* Carte Relaxes — personnes jugées et NON condamnées. Elles sortent des
+            condamnations, des peines et des moyennes ; seul leur défèrement
+            reste compté. Une relaxe se compte par PRÉVENU. */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Relaxes</CardTitle>
+            <p className="text-sm text-gray-500">Personnes jugées et non condamnées</p>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">{relaxes.total}</div>
+            <p className="text-sm text-gray-500">
+              {relaxes.partDesJugesPct}% des {relaxes.juges} personne{relaxes.juges > 1 ? 's' : ''} jugée{relaxes.juges > 1 ? 's' : ''}
+              {' '}({relaxes.condamnes} condamnée{relaxes.condamnes > 1 ? 's' : ''})
+            </p>
+
+            <div className="mt-4 pt-4 border-t space-y-1">
+              {getMonthsToShow().map(month => (
+                <div key={month} className="flex justify-between text-sm">
+                  <span>{new Date(selectedYear, month).toLocaleString('default', { month: 'long' })}:</span>
+                  <span className="font-medium">{relaxes.parMois[month] || 0}</span>
+                </div>
+              ))}
+            </div>
+
+            {relaxes.repartitionParInfraction.length > 0 && (
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-xs font-medium text-gray-500 mb-2">Par type de fait</p>
+                <div className="space-y-1">
+                  {relaxes.repartitionParInfraction.map((r: { infraction: string; count: number }) => (
+                    <div key={r.infraction} className="flex justify-between text-sm">
+                      <span className="text-gray-700">{r.infraction}</span>
+                      <span className="font-semibold">{r.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {relaxes.personnes.length > 0 && (
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-xs font-medium text-gray-500 mb-2">Détail</p>
+                <div className="space-y-1">
+                  {relaxes.personnes.map((p: { nom: string; dossier: string; dateAudience: string; typeAudience?: string; defere: boolean }, i: number) => (
+                    <div key={`${p.dossier}-${p.nom}-${i}`} className="flex justify-between items-baseline text-sm gap-2">
+                      <span className="text-gray-700 truncate">
+                        {p.nom}
+                        <span className="text-gray-400 ml-1">({p.dossier})</span>
+                      </span>
+                      <span className="text-xs text-gray-500 whitespace-nowrap">
+                        {p.typeAudience ? `${p.typeAudience} · ` : ''}
+                        {new Date(p.dateAudience).toLocaleDateString('fr-FR')}
+                        {p.defere ? ' · déféré' : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Subdivision par contentieux */}
+            {isGlobal && condamnationsParContentieux && condamnationsParContentieux.filter(s => s.relaxes > 0).length > 0 && (
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-xs font-medium text-gray-500 mb-2">Par contentieux</p>
+                <div className="space-y-1">
+                  {condamnationsParContentieux.filter(s => s.relaxes > 0).map(s => (
+                    <div key={s.def.id} className="flex justify-between items-center text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: s.def.color }} />
+                        <span className="text-gray-700">{s.def.label}</span>
+                      </div>
+                      <span className="font-semibold">{s.relaxes}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
