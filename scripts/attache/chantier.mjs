@@ -36,6 +36,7 @@
  */
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import os from 'node:os'
 import { attacheDir, ensureDir, atomicWrite, readJson, listFiles, listDocsMeta, docServerKey, attacheTj } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { audit, publishFeed } from './journal.mjs'
@@ -60,8 +61,17 @@ const SYNTHESE_BUDGET_CHARS = 300_000 // fiches concaténées servies à la synt
 // production. On en lance donc plusieurs de front, borné, et on retombe à un
 // seul quand le forfait chauffe. Chaque lot persiste son résultat dès qu'il
 // tombe : une vague interrompue ne coûte jamais plus que les lots en vol.
+//
+// LA BORNE SUIT LA MACHINE, jamais un chiffre fixe. Un run Claude est un
+// PROCESSUS LOURD, et le service partage son hôte avec l'application du
+// magistrat : trois runs simultanés sur un petit serveur ne rendent pas le
+// dépouillement trois fois plus rapide, ils rendent SIRAL inutilisable (l'app
+// rame, l'écran de chargement s'éternise). On laisse donc deux cœurs à l'app —
+// un de plus que les sous-agents, qui ne tournent qu'en rafales courtes alors
+// qu'un chantier tient la nuit entière.
 const CHANTIER_CONCURRENCE = Math.max(1, Math.min(6,
-  Number(process.env.SIRAL_ATTACHE_CHANTIER_CONCURRENCE || 0) || 3))
+  Number(process.env.SIRAL_ATTACHE_CHANTIER_CONCURRENCE || 0)
+  || Math.min(3, Math.max(1, os.cpus().length - 2))))
 
 // Durée observée d'un pas, pour le DEVIS : le magistrat doit pouvoir arbitrer
 // sur un ordre de grandeur en HEURES, pas seulement en jetons et en nuits.
@@ -73,6 +83,9 @@ const HEURES_PAR_NUIT = 9      // la fenêtre de nuit du service
 // pour une fenêtre courte, puis le régime normal reprend tout seul — on ne
 // laisse jamais une dérogation courir indéfiniment.
 const FORCE_MS = 2 * 3600_000
+
+/** Lots que ce serveur mène de front (borne calculée sur ses cœurs). */
+export function concurrenceChantier() { return CHANTIER_CONCURRENCE }
 
 /** Heures de travail estimées (arrondi au demi) pour un nombre de lots. */
 function heuresEstimees(nbLots, minutesParLot, front = CHANTIER_CONCURRENCE) {

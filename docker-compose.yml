@@ -63,6 +63,15 @@ services:
       - claude-auth:/home/attache
     expose:
       - "8787"
+    # Le travail de fond ne doit JAMAIS rendre l'app inutilisable. Un run Claude
+    # est un processus lourd et le service en mène plusieurs de front la nuit ;
+    # sur un serveur modeste, ils disputaient le CPU au conteneur « siral » et
+    # SIRAL ramait (écran de chargement interminable, interface poussive).
+    # cpu_shares est un POIDS RELATIF, pas un plafond : à l'arrêt de l'app le
+    # service dispose de toute la machine, mais dès que le magistrat s'en sert,
+    # c'est lui qui passe devant. Aucune limite de mémoire n'est posée : elle
+    # ferait tuer un run en cours au lieu de le ralentir.
+    cpu_shares: 512
 
   caddy:
     image: caddy:2-alpine

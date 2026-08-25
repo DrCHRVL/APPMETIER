@@ -73,7 +73,13 @@ export function prochaineNuit(now = new Date(), opts = {}) {
  * @returns {{ok:boolean, attente?:'nuit'|'forfait', detail?:string|null, front?:number}}
  */
 export function feuChantier(ch, { gov, force = false, nuit = inNightWindow() } = {}) {
-  if (force) return { ok: true }
+  // HORS DE LA NUIT, LE MAGISTRAT EST À SON POSTE. Le service partage son hôte
+  // avec l'application : une vague de lots en pleine journée fait ramer SIRAL,
+  // et un dépouillement plus lent vaut toujours mieux qu'une app inutilisable.
+  // Un lot à la fois donc — y compris quand le magistrat force : forcer veut
+  // dire « commence maintenant », pas « prends toute la machine ».
+  const frontDuMoment = nuit ? undefined : 1
+  if (force) return { ok: true, front: frontDuMoment }
   const g = gov || {}
   if (Number(g.cap5h) > 0 && Number(g.pct5h) >= 1) {
     return { ok: false, attente: 'forfait', detail: `fenêtre de 5 h à ${Math.round(g.pct5h * 100)} % du repère` }
@@ -84,5 +90,5 @@ export function feuChantier(ch, { gov, force = false, nuit = inNightWindow() } =
   }
   // Forfait tendu (fenêtre de 5 h qui monte, ou repère hebdomadaire dépassé) :
   // on avance, mais un lot à la fois.
-  return { ok: true, front: g.level && g.level !== 'ok' ? 1 : undefined }
+  return { ok: true, front: g.level && g.level !== 'ok' ? 1 : frontDuMoment }
 }
