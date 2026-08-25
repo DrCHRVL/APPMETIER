@@ -52,16 +52,38 @@ declare global {
   }
 }
 
-async function apiJson(path: string, body?: unknown, method?: string): Promise<{ status: number, json: Record<string, unknown> }> {
-  const res = await fetch(path, {
-    method: method || (body !== undefined ? 'POST' : 'GET'),
-    headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    credentials: 'same-origin',
-  })
-  let json: Record<string, unknown> = {}
-  try { json = await res.json() } catch {}
-  return { status: res.status, json }
+/**
+ * DÉLAI DE GARDE — sans lui, un serveur qui accepte la connexion sans jamais
+ * répondre (surcharge, proxy qui retient la socket) laissait le démarrage
+ * pendu POUR TOUJOURS : « Chargement… » indéfiniment, sans message, sans
+ * bouton, sans rien à faire d'autre que fermer l'onglet. Le pont de données
+ * (lib/web/bridge.ts) posait déjà cette garde ; la porte d'entrée, non — alors
+ * que c'est elle qu'on regarde quand rien ne va.
+ */
+async function apiJson(
+  path: string, body?: unknown, method?: string, timeoutMs = 15000,
+): Promise<{ status: number, json: Record<string, unknown> }> {
+  const ctl = new AbortController()
+  const t = setTimeout(() => ctl.abort(), timeoutMs)
+  try {
+    const res = await fetch(path, {
+      method: method || (body !== undefined ? 'POST' : 'GET'),
+      headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      credentials: 'same-origin',
+      signal: ctl.signal,
+    })
+    let json: Record<string, unknown> = {}
+    try { json = await res.json() } catch {}
+    return { status: res.status, json }
+  } catch (e) {
+    // Un abandon sur délai n'est pas un refus : le dire tel quel, sinon le
+    // magistrat lit « Connexion refusée » et cherche du côté de son mot de passe.
+    if (ctl.signal.aborted) throw new Error('Le serveur ne répond pas (délai dépassé) — réessayez dans un instant.')
+    throw e
+  } finally {
+    clearTimeout(t)
+  }
 }
 
 export function WebGate({ children }: { children: React.ReactNode }) {
@@ -74,6 +96,9 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   const [e2ee, setE2ee] = useState<E2eeState | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // Démarrage : ce qu'on montre quand le serveur tarde, puis quand il renonce.
+  const [bootLent, setBootLent] = useState(false)
+  const [bootErreur, setBootErreur] = useState('')
   // formulaire d'enrôlement
   const [regUsername, setRegUsername] = useState('')
   const [regDisplay, setRegDisplay] = useState('')
@@ -278,12 +303,29 @@ export function WebGate({ children }: { children: React.ReactNode }) {
         if (networkDown && offlineMode.hasOfflineBundle()) { setPhase('offline-unlock'); return }
         setPhase('login'); return
       }
-      // trousseau mémorisé sur cet appareil ? (case « Rester déverrouillé »)
-      if (await tryStoredKeyring(identity)) return
-      if (!cancelled) await loadStateAndRoute()
+      // La suite interroge encore le serveur : une panne ICI laissait la porte
+      // sur « Chargement… » sans fin. Elle se dit maintenant, et se réessaie.
+      try {
+        // trousseau mémorisé sur cet appareil ? (case « Rester déverrouillé »)
+        if (await tryStoredKeyring(identity)) return
+        if (!cancelled) await loadStateAndRoute()
+      } catch {
+        if (cancelled) return
+        if (offlineMode.hasOfflineBundle()) { setPhase('offline-unlock'); return }
+        setBootErreur('Le serveur ne répond pas. Vérifiez votre connexion, puis réessayez.')
+      }
     })()
     return () => { cancelled = true }
   }, [mounted, isWeb, adoptMe, tryStoredKeyring, loadStateAndRoute])
+
+  // Un démarrage qui traîne ne doit pas être un écran muet : au bout de huit
+  // secondes on dit que le serveur tarde — c'est déjà une information (serveur
+  // chargé, réseau lent) plutôt qu'un « Chargement… » qu'on croit figé.
+  useEffect(() => {
+    if (phase !== 'boot' || bootErreur) { setBootLent(false); return }
+    const t = setTimeout(() => setBootLent(true), 8000)
+    return () => clearTimeout(t)
+  }, [phase, bootErreur])
 
   // Session expirée pendant l'utilisation
   useEffect(() => {
@@ -298,7 +340,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     try {
       const { status, json } = await apiJson('/api/auth/password-login', {
         username: loginUsername.trim(), password: loginPassword,
-      })
+      }, undefined, 30000)
       if (status !== 200) throw new Error(String(json.error || 'Connexion refusée'))
       // /api/me apporte le TJ actif (cloisonnement du cache local par TJ)
       const identity = await adoptMe()
@@ -318,7 +360,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       const { status, json } = await apiJson('/api/auth/password-register', {
         username: regUsername.trim(), displayName: regDisplay.trim() || regUsername.trim(),
         password: regPassword, setupCode: regCode.trim(),
-      })
+      }, undefined, 30000)
       if (status !== 200) throw new Error(String(json.error || 'Enrôlement refusé'))
       const identity = await adoptMe()
       if (!identity) throw new Error('Session indisponible — réessayez')
@@ -531,7 +573,25 @@ export function WebGate({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {phase === 'boot' && <div className="siral-text">Chargement…</div>}
+        {phase === 'boot' && !bootErreur && (
+          <>
+            <div className="siral-text">Chargement…</div>
+            {bootLent && (
+              <div className="siral-note">
+                <span>Le serveur met du temps à répondre. Le chargement continue — s&apos;il n&apos;aboutit pas,
+                réessayez dans un instant.</span>
+              </div>
+            )}
+          </>
+        )}
+
+        {phase === 'boot' && bootErreur && (
+          <>
+            <div className="siral-title">Serveur injoignable</div>
+            <div className="siral-text">{bootErreur}</div>
+            <button className="siral-btn" onClick={() => window.location.reload()}>Réessayer</button>
+          </>
+        )}
 
         {phase === 'login' && (
           <>

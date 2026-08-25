@@ -107,7 +107,16 @@ console.log('\nFeu vert d\'un chantier — le faux plafond ne bloque plus')
   // Sans plafond configuré, le gouverneur est inerte : rien ne doit bloquer.
   const inerte = { level: 'ok', pct5h: 0, pct7d: 0, cap5h: 0, capHebdo: 0 }
   ok(ordo.feuChantier(jour, { gov: inerte, nuit: false }).ok, 'aucun plafond posé : aucun blocage inventé')
-  eq(ordo.feuChantier(jour, { gov: inerte, nuit: false }).front, undefined, '… et pleine vague')
+
+  // Le partage de la machine avec l'application du magistrat : pleine vague la
+  // nuit, un seul lot le jour. C'est ce qui a fait ramer SIRAL — une vague
+  // lancée en pleine journée disputait le CPU au conteneur de l'app.
+  eq(ordo.feuChantier(jour, { gov: inerte, nuit: true }).front, undefined, 'la nuit : pleine vague')
+  eq(ordo.feuChantier(jour, { gov: inerte, nuit: false }).front, 1, 'le jour : un seul lot, l\'app passe devant')
+  eq(ordo.feuChantier(nuit, { gov: inerte, nuit: false, force: true }).front, 1,
+    'forcer en journée démarre tout de suite, mais ne prend pas toute la machine')
+  eq(ordo.feuChantier(nuit, { gov: inerte, nuit: true, force: true }).front, undefined,
+    'forcer la nuit garde la pleine vague')
 }
 
 // ── 2. Moteur : vagues, réservations, échecs ────────────────────────────────
@@ -151,12 +160,17 @@ fs.writeFileSync(path.join(BAC, 'dossierMemory.mjs'), 'export async function app
 process.env.SIRAL_DATA_DIR = path.join(TMP, 'data')
 process.env.SIRAL_ATTACHE_TJ = 'default'
 
-const { readChantier, chantierStep, actionChantier, forceActive, estLimiteForfait } = await import(path.join(BAC, 'chantier.mjs'))
+const { readChantier, chantierStep, actionChantier, forceActive, estLimiteForfait, concurrenceChantier } = await import(path.join(BAC, 'chantier.mjs'))
 const { encryptJson } = await import(path.join(BAC, 'crypto.mjs'))
 const { attacheDir, ensureDir } = await import(path.join(BAC, 'store.mjs'))
 const { journalRuns } = await import(path.join(BAC, 'agent.mjs'))
 
 const KEYS = { global: crypto.randomBytes(32) }
+// La largeur d'une vague SUIT LA MACHINE (cœurs disponibles) : le test ne la
+// fige pas, il vérifie qu'elle est respectée et qu'elle reste raisonnable.
+const FRONT = concurrenceChantier()
+ok(FRONT >= 1 && FRONT <= 3, `la vague est bornée par la machine (ici ${FRONT} lot(s) de front)`)
+ok(FRONT <= Math.max(1, os.cpus().length - 2), 'elle laisse au moins deux cœurs à l\'application du magistrat')
 const FICHE_VALIDE = () => ({ ok: true, text: '## Chronologie\n' + 'x'.repeat(400) })
 
 /** Pose un chantier « dossier » prêt à tourner, avec `nbLots` lots à faire. */
@@ -182,38 +196,38 @@ const feuVert = () => ({ ok: true })
 
 {
   viderChantiers()
-  poserChantier({ id: 'a'.repeat(16), nbLots: 5 })
+  poserChantier({ id: 'a'.repeat(16), nbLots: FRONT + 2 })
   journalRuns.total = 0; journalRuns.maxEnVol = 0; journalRuns.reponse = FICHE_VALIDE
 
   const verdict = await chantierStep(KEYS, feuVert)
   const ch = readChantier(KEYS, 'a'.repeat(16))
 
   eq(verdict, 'travail', 'un pas de chantier travaille')
-  eq(journalRuns.total, 3, 'une vague lance 3 lots (défaut)')
-  eq(journalRuns.maxEnVol, 3, 'les 3 lots tournent VRAIMENT de front, pas à la queue leu leu')
-  eq(tousLots(ch).filter((l) => l.etat === 'fait').length, 3, '3 lots faits')
-  eq(tousLots(ch).filter((l) => l.etat === 'a_faire').length, 2, '2 lots restent à faire')
-  eq(ch.fiches.length, 3, '3 fiches rangées')
+  eq(journalRuns.total, FRONT, `une vague lance ${FRONT} lot(s)`)
+  eq(journalRuns.maxEnVol, FRONT, 'ils tournent VRAIMENT de front, pas à la queue leu leu')
+  eq(tousLots(ch).filter((l) => l.etat === 'fait').length, FRONT, 'autant de lots faits')
+  eq(tousLots(ch).filter((l) => l.etat === 'a_faire').length, 2, 'le reste attend le pas suivant')
+  eq(ch.fiches.length, FRONT, 'une fiche par lot')
   ok(!(ch.pas || []).length, 'aucun marqueur de pas ne survit à la vague')
 }
 
 {
   // Vague plus large que le reste à faire : on ne lance pas dans le vide.
   viderChantiers()
-  poserChantier({ id: 'b'.repeat(16), nbLots: 2 })
+  poserChantier({ id: 'b'.repeat(16), nbLots: 1 })
   journalRuns.total = 0; journalRuns.maxEnVol = 0; journalRuns.reponse = FICHE_VALIDE
-  await chantierStep(KEYS, feuVert)
-  eq(journalRuns.total, 2, 'reste 2 lots : on en lance 2, pas 3')
+  await chantierStep(KEYS, () => ({ ok: true, front: 6 }))
+  eq(journalRuns.total, 1, 'un seul lot restant : on en lance un, pas une vague vide')
   eq(readChantier(KEYS, 'b'.repeat(16)).etat, 'en_cours', 'le chantier reste en cours jusqu\'au pas suivant')
 }
 
 {
   // Le feu peut resserrer la vague à un seul lot (forfait tendu).
   viderChantiers()
-  poserChantier({ id: 'c'.repeat(16), nbLots: 5 })
+  poserChantier({ id: 'c'.repeat(16), nbLots: FRONT + 2 })
   journalRuns.total = 0; journalRuns.maxEnVol = 0; journalRuns.reponse = FICHE_VALIDE
   await chantierStep(KEYS, () => ({ ok: true, front: 1 }))
-  eq(journalRuns.total, 1, 'forfait tendu : un seul lot à la fois')
+  eq(journalRuns.total, 1, 'forfait tendu (ou plein jour) : un seul lot à la fois')
 }
 
 console.log('\nMoteur — un chantier bloqué n\'en bloque plus d\'autres')
@@ -231,7 +245,7 @@ console.log('\nMoteur — un chantier bloqué n\'en bloque plus d\'autres')
   const passant = readChantier(KEYS, 'e'.repeat(16))
 
   eq(verdict, 'travail', 'le pas travaille malgré le chantier bloqué en tête de file')
-  eq(tousLots(passant).filter((l) => l.etat === 'fait').length, 3, 'le chantier de jour a bien avancé')
+  eq(tousLots(passant).filter((l) => l.etat === 'fait').length, Math.min(FRONT, 3), 'le chantier de jour a bien avancé')
   eq(tousLots(bloque).filter((l) => l.etat === 'fait').length, 0, 'le chantier de nuit n\'a pas bougé')
   eq(bloque.attente, 'nuit', 'son attente est notée')
   eq(bloque.attenteDetail, 'reprise vers 22 h (Europe/Paris)', 'avec le motif exact, affichable à l\'écran')
@@ -284,7 +298,7 @@ console.log('\nMoteur — un arrêt brutal en pleine vague ne perd rien')
     ],
   })
   journalRuns.total = 0; journalRuns.reponse = FICHE_VALIDE
-  await chantierStep(KEYS, feuVert)
+  for (let i = 0; i < 5 && (await chantierStep(KEYS, feuVert)) === 'travail'; i++) { /* jusqu'à épuisement */ }
   const ch = readChantier(KEYS, '1'.repeat(16))
   const lots = tousLots(ch)
 
@@ -299,7 +313,7 @@ console.log('\nMoteur — pause et suppression pendant une vague')
   // finissent leur course (rien n'est perdu), mais leur enregistrement en fin
   // de run ne doit PAS rouvrir le chantier qu'il vient de fermer.
   viderChantiers()
-  poserChantier({ id: '3'.repeat(16), nbLots: 6 })
+  poserChantier({ id: '3'.repeat(16), nbLots: FRONT + 3 })
   journalRuns.total = 0; journalRuns.reponse = FICHE_VALIDE
 
   const pas = chantierStep(KEYS, feuVert)
@@ -309,7 +323,7 @@ console.log('\nMoteur — pause et suppression pendant une vague')
 
   const ch = readChantier(KEYS, '3'.repeat(16))
   eq(ch.etat, 'pause', 'la pause tient : la vague ne rouvre pas le chantier')
-  eq(tousLots(ch).filter((l) => l.etat === 'fait').length, 3, 'les lots en vol ont bien été menés à terme')
+  eq(tousLots(ch).filter((l) => l.etat === 'fait').length, FRONT, 'les lots en vol ont bien été menés à terme')
   ok(!(ch.pas || []).length, 'aucun pas fantôme ne subsiste')
 }
 
@@ -317,7 +331,7 @@ console.log('\nMoteur — pause et suppression pendant une vague')
   // Même chose pour la suppression : les lots en vol ne doivent pas
   // ressusciter le fichier effacé.
   viderChantiers()
-  poserChantier({ id: '4'.repeat(16), nbLots: 6 })
+  poserChantier({ id: '4'.repeat(16), nbLots: FRONT + 3 })
   journalRuns.reponse = FICHE_VALIDE
 
   const pas = chantierStep(KEYS, feuVert)
