@@ -14,13 +14,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Layers, Plus, Loader2, Play, Pause as PauseIcon, Trash2, Moon, BatteryLow,
-  CheckCircle2, FileText, X, AlertTriangle, Search, ClipboardList, Sparkles,
+  CheckCircle2, FileText, X, AlertTriangle, Search, ClipboardList, Sparkles, Zap,
 } from 'lucide-react';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { ProductionsSection } from './ProductionsSection';
 import {
   useChantiers, etatBadge, uniteChantier, titreChantier, pourcentage, echecsChantier,
-  fmtJetons, dureeDepuis, libelleEnCours, TYPE_LABEL, type Chantier, type TypeChantier,
+  fmtJetons, dureeDepuis, libelleEnCours, pasEnVol, TYPE_LABEL,
+  type Chantier, type TypeChantier, type ActionChantier, type FeuChantiers,
 } from './useChantiers';
 
 type Filtre = 'tous' | 'actifs' | 'devis' | 'termines';
@@ -67,7 +68,7 @@ export function ChantiersAtelier({
   onSelection: (id: string | null) => void;
   ouvrirFormulaire?: boolean;
 }) {
-  const { chantiers, busy, creating, creer, action, now } = useChantiers();
+  const { chantiers, feu, busy, creating, creer, action, now } = useChantiers();
   const enquetes = useEnquetesStore((s) => s.enquetes);
 
   const [filtre, setFiltre] = useState<Filtre>('tous');
@@ -125,7 +126,7 @@ export function ChantiersAtelier({
         <div className="min-w-0">
           <h2 className="truncate text-[15px] font-bold text-gray-900">Analyses profondes</h2>
           <p className="truncate text-[11px] text-gray-500">
-            Dépouillement massif, croisement de dossiers, alimentation de la cartographie — visible de vous seul.
+            Dépouillement massif, croisement de dossiers, alimentation de la cartographie.
           </p>
         </div>
         <button
@@ -246,7 +247,7 @@ export function ChantiersAtelier({
             </div>
           )}
 
-          {courant && <DetailChantier ch={courant} busy={busy === courant.id} onAction={action} now={now} />}
+          {courant && <DetailChantier ch={courant} feu={feu} busy={busy === courant.id} onAction={action} now={now} />}
         </main>
       </div>
     </div>
@@ -255,15 +256,18 @@ export function ChantiersAtelier({
 
 // ── Détail d'un chantier ────────────────────────────────────────────────
 
-function DetailChantier({ ch, busy, onAction, now }: {
-  ch: Chantier; busy: boolean; onAction: (ch: Chantier, act: 'lancer' | 'pause' | 'supprimer') => void; now: number;
+function DetailChantier({ ch, feu, busy, onAction, now }: {
+  ch: Chantier; feu: FeuChantiers | null; busy: boolean; onAction: (ch: Chantier, act: ActionChantier) => void; now: number;
 }) {
   const badge = etatBadge(ch);
   const unite = uniteChantier(ch);
   const pct = pourcentage(ch);
   const echecs = echecsChantier(ch);
   const lotsRestants = Math.max(0, ch.totalLots - ch.lotsFaits);
-  const enCours = libelleEnCours(ch);
+  const enVol = pasEnVol(ch);
+  // « Forcer » n'a de sens que sur un chantier qui a du travail devant lui et
+  // qui ne tourne pas déjà à plein régime.
+  const forcable = ['devis', 'pause', 'en_cours', 'synthese'].includes(ch.etat) && !ch.forceJusqu;
 
   return (
     <div className="space-y-3">
@@ -279,6 +283,11 @@ function DetailChantier({ ch, busy, onAction, now }: {
           {ch.nuitSeulement && (
             <span className="inline-flex items-center gap-1 rounded bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
               <Moon className="h-3 w-3" />Nuit seulement
+            </span>
+          )}
+          {ch.forceJusqu && (
+            <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+              <Zap className="h-3 w-3" />Forcé jusqu&apos;à {new Date(ch.forceJusqu).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
           <div className="ml-auto flex items-center gap-1.5">
@@ -298,6 +307,13 @@ function DetailChantier({ ch, busy, onAction, now }: {
               <button onClick={() => onAction(ch, 'lancer')} disabled={busy}
                 className="inline-flex items-center gap-1 rounded-lg bg-[#2B5746] px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-[#234737] disabled:opacity-50">
                 <Play className="h-3 w-3" />Reprendre
+              </button>
+            )}
+            {forcable && (
+              <button onClick={() => onAction(ch, 'forcer')} disabled={busy}
+                className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                title="Lever la fenêtre de nuit et les plafonds pendant 2 h — le dépouillement démarre tout de suite">
+                <Zap className="h-3 w-3" />Forcer maintenant
               </button>
             )}
             <button onClick={() => onAction(ch, 'supprimer')} disabled={busy}
@@ -335,17 +351,48 @@ function DetailChantier({ ch, busy, onAction, now }: {
         )}
       </div>
 
-      {/* Ce que l'attaché fait EN CE MOMENT — le seul endroit qui bouge tout seul */}
-      {enCours && (
-        <div className="flex items-center gap-2.5 rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2.5">
-          <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-blue-600" />
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-blue-700">En ce moment</p>
-            <p className="truncate text-[12px] font-semibold text-gray-800" title={enCours}>{enCours}</p>
+      {/* Ce que l'attaché fait EN CE MOMENT — le seul endroit qui bouge tout seul.
+          Plusieurs lots tournent de front : on les montre tous, pas seulement le premier. */}
+      {enVol.length > 0 && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-blue-700">
+            En ce moment{enVol.length > 1 ? ` — ${enVol.length} lots de front` : ''}
+          </p>
+          <div className="mt-1 space-y-1">
+            {enVol.map((p, i) => {
+              const libelle = libelleEnCours(ch, p);
+              return (
+                <div key={`${p.etape}-${p.pochette || ''}-${p.lot ?? i}`} className="flex items-center gap-2.5">
+                  <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-blue-600" />
+                  <p className="min-w-0 flex-1 truncate text-[12px] font-semibold text-gray-800" title={libelle || ''}>{libelle}</p>
+                  <span className="flex-shrink-0 text-[11px] tabular-nums text-blue-700">depuis {dureeDepuis(p.depuis, now)}</span>
+                </div>
+              );
+            })}
           </div>
-          <span className="flex-shrink-0 text-[11px] tabular-nums text-blue-700">
-            depuis {dureeDepuis(ch.enCours?.depuis || '', now)}
-          </span>
+        </div>
+      )}
+
+      {/* Pourquoi ça n'avance pas — et quand ça repart. Un chantier resté muet
+          toute une nuit ne doit plus laisser le magistrat sans explication. */}
+      {ch.attente && !enVol.length && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-orange-200 bg-orange-50/70 px-3 py-2.5">
+          {ch.attente === 'nuit' ? <Moon className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-500" /> : <BatteryLow className="mt-0.5 h-4 w-4 flex-shrink-0 text-orange-500" />}
+          <div className="min-w-0 flex-1">
+            <p className="text-[12px] font-semibold text-gray-800">
+              {ch.attente === 'nuit' ? 'En attente de la fenêtre de nuit' : 'En attente — fenêtre de 5 h saturée'}
+              {ch.attenteDetail ? <span className="font-normal text-gray-600"> · {ch.attenteDetail}</span> : null}
+            </p>
+            <p className="mt-0.5 text-[10.5px] leading-relaxed text-gray-600">
+              {ch.attente === 'nuit'
+                ? `Le dépouillement repart seul à l'ouverture de la fenêtre${feu?.fenetreNuit ? ` (${feu.fenetreNuit.debut} h → ${feu.fenetreNuit.fin} h, ${feu.fuseau})` : ''}.`
+                : 'Reprise automatique dès que la fenêtre glissante redescend. Le repère hebdomadaire, lui, n’arrête plus un chantier : il le fait seulement avancer un lot à la fois.'}
+              {' '}« Forcer maintenant » passe outre tout de suite.
+            </p>
+            {ch.attenteDepuis && (
+              <p className="mt-0.5 text-[10px] tabular-nums text-gray-400">Depuis {dureeDepuis(ch.attenteDepuis, now)}</p>
+            )}
+          </div>
         </div>
       )}
 
@@ -376,6 +423,7 @@ function DetailChantier({ ch, busy, onAction, now }: {
             {ch.type === 'dossier'
               ? 'Estimation grossière — le journal donne le réel au fil de l’eau. Chaque pièce n’est lue qu’une fois : les fiches restent exploitables indéfiniment.'
               : 'Estimation grossière. Aucune pièce n’est relue : seules les fiches déjà produites sont lues, le chantier est bien plus court qu’un dépouillement.'}
+            {ch.front && ch.front > 1 ? ` Durée calculée à ${ch.front} lots menés de front.` : ''}
           </p>
         </div>
       )}
@@ -453,7 +501,8 @@ function DetailChantier({ ch, busy, onAction, now }: {
       ) : null}
 
       <p className="pb-2 text-center text-[10px] text-gray-400">
-        Le moteur tourne côté serveur : fermez l&apos;atelier, il continue (la nuit par défaut, dans les limites du forfait).
+        Le moteur tourne côté serveur : fermez l&apos;atelier, il continue — la nuit par défaut, plusieurs lots de front,
+        avec reprise automatique. « Forcer maintenant » lève la nuit et les plafonds pendant 2 h.
         Les productions sont aussi dans « Actes rédigés » du dossier — l&apos;attaché du dossier s&apos;appuie dessus.
       </p>
     </div>

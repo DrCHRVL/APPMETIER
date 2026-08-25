@@ -208,7 +208,7 @@ const TOOLS = [
   },
   {
     name: 'chantiers_etat',
-    description: 'État des CHANTIERS d\'analyse profonde : type « dossier » (chaque pièce lue une fois → fiches factuelles + synthèse), type « liens » (croisement des fiches de plusieurs dossiers → rapport de recoupements), type « carto » (propositions carto tirées des fiches, à valider). Progression, attente (nuit / forfait), productions. À CONSULTER AVANT de proposer un chantier (chantier_proposer) : ne redemande jamais un dépouillement déjà en cours ou déjà fait. Les productions d\'un chantier se lisent avec productions_lister / production_lire (source « chantier:<id> » ; fiches de dépouillement = type « fiche »).',
+    description: 'État des CHANTIERS d\'analyse profonde : type « dossier » (chaque pièce lue une fois → fiches factuelles + synthèse), type « liens » (croisement des fiches de plusieurs dossiers → rapport de recoupements), type « carto » (propositions carto tirées des fiches, à valider). Progression, attente (nuit / forfait, avec son motif exact et depuis quand), productions. À CONSULTER AVANT de proposer un chantier (chantier_proposer) : ne redemande jamais un dépouillement déjà en cours ou déjà fait. Les productions d\'un chantier se lisent avec productions_lister / production_lire (source « chantier:<id> » ; fiches de dépouillement = type « fiche »).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string', description: 'Limiter à un dossier (optionnel)' } } },
     handler: async (a) => {
       const { listChantiers } = await import('./attache/chantier.mjs')
@@ -221,7 +221,9 @@ const TOOLS = [
         chantiers: filt.map((c) => ({
           id: c.id, type: c.type, numero: c.numero, numeros: c.numeros || undefined,
           sansFiches: (c.sansFiches || []).length ? c.sansFiches : undefined,
-          etat: c.etat, attente: c.attente, consigne: c.consigne,
+          etat: c.etat, attente: c.attente, attenteDepuis: c.attenteDepuis || undefined,
+          attenteDetail: c.attenteDetail || undefined, forceJusqu: c.forceJusqu || undefined,
+          consigne: c.consigne,
           piecesFaites: c.piecesFaites, totalPieces: c.totalPieces, lotsFaits: c.lotsFaits, totalLots: c.totalLots,
           pochettes: c.pochettes.length, fiches: c.fiches.length, syntheseProdId: c.syntheseProdId,
           // devis chiffré : ce que le magistrat doit entendre avant de valider

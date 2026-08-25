@@ -15,7 +15,7 @@
 import { useState } from 'react';
 import {
   Layers, Plus, Maximize2, Play, Pause as PauseIcon, Moon, BatteryLow,
-  CheckCircle2, ChevronRight,
+  CheckCircle2, ChevronRight, Zap,
 } from 'lucide-react';
 import { ChantiersAtelier } from './ChantiersAtelier';
 import {
@@ -141,6 +141,15 @@ export function ChantiersSection() {
                         <button onClick={() => action(ch, 'pause')} disabled={busy === ch.id}
                           className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-[10.5px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50">
                           <PauseIcon className="h-3 w-3" />Pause
+                        </button>
+                      )}
+                      {/* Un chantier qui attend doit pouvoir démarrer d'ici même :
+                          c'est le geste qui manquait quand la nuit passait sans rien produire. */}
+                      {ch.attente && !ch.forceJusqu && (
+                        <button onClick={() => action(ch, 'forcer')} disabled={busy === ch.id}
+                          className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[10.5px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                          title="Lever la nuit et les plafonds pendant 2 h — démarrer tout de suite">
+                          <Zap className="h-3 w-3" />Forcer
                         </button>
                       )}
                       <button

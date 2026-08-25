@@ -1767,6 +1767,10 @@ export function AdminAttachePanel() {
                     <b>Runs automatiques en pause</b> — forfait saturé ({governor.raison}). Vos routines, l'étude et les
                     routines de fond sont suspendus et repartiront seuls dès que la fenêtre de 5 h sera redescendue.
                     Vos conversations et le traitement des mails continuent (les sous-agents sont automatiquement bridés).
+                    {governor.cause === '7j' && (
+                      <> Les <b>analyses profondes</b>, elles, ne s'arrêtent pas sur le repère hebdomadaire — un plafond
+                      estimé n'annule pas un dépouillement que vous avez validé : elles avancent seulement un lot à la fois.</>
+                    )}
                   </p>
                 )}
                 {governor && governor.level === 'serrer' && (
@@ -1920,7 +1924,9 @@ export function AdminAttachePanel() {
             <p className="mt-1.5 text-[10.5px] leading-relaxed text-gray-400">
               Repère indicatif : l'abonnement Claude ne publie pas ses plafonds en jetons (limites en messages/heures,
               fenêtre glissante de 5 h + plafond hebdomadaire). Ces valeurs donnent un dénominateur au pourcentage —
-              ajustez-les à votre ressenti. Les jetons mesurés, eux, sont exacts.
+              ajustez-les à votre ressenti. Les jetons mesurés, eux, sont exacts. Comparez de temps en temps avec ce
+              qu'annonce l'abonnement lui-même : l'écart peut être considérable (repère à 112 % quand le forfait réel
+              en affichait 9 %). C'est pourquoi le repère hebdomadaire ne bloque plus les analyses profondes.
             </p>
           </div>
 

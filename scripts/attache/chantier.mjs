@@ -21,9 +21,18 @@
  * Un dossier sans fiches ne peut pas nourrir « liens »/« carto » : le devis
  * l'écarte et renvoie vers un chantier « dossier » préalable.
  *
+ * DÉBIT : un pas traite une VAGUE de lots menés de front (défaut 3) — les
+ * lots n'ont aucune dépendance entre eux et un run passe l'essentiel de son
+ * temps à attendre le modèle. Chaque lot est réservé (« en_vol ») avant de
+ * partir et rendu à faire s'il n'aboutit pas : une vague interrompue ne coûte
+ * jamais plus que les lots en vol, et un arrêt brutal se rattrape au pas
+ * suivant sans compter d'échec.
+ *
  * L'ordonnancement (nuit, forfait) est fourni PAR LE SERVICE via un rappel
  * `autorise(chantier)` : ce module ne connaît ni le gouverneur ni l'heure —
- * il exécute, journalise, persiste (état chiffré, clé globale).
+ * il exécute, journalise, persiste (état chiffré, clé globale). Le magistrat
+ * garde le dernier mot : « forcer » pose une dérogation horodatée qui lève la
+ * nuit et les plafonds le temps d'une fenêtre courte.
  */
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -42,15 +51,49 @@ const LOT_INJECT_BUDGET = 240_000 // texte de fiches injecté dans un run liens/
 const MAX_LOT_ECHECS = 3       // au 3e échec, le lot est marqué en échec et on passe
 const LOT_TIMEOUT_MS = 20 * 60_000
 const SYNTHESE_BUDGET_CHARS = 300_000 // fiches concaténées servies à la synthèse
+
+// ── DÉBIT : plusieurs lots de front ──────────────────────────────────────────
+// Un lot = un run Claude qui passe l'essentiel de son temps à ATTENDRE le
+// modèle. Les traiter un par un laissait la machine inoccupée : un dossier de
+// 1074 pièces (97 lots) demandait ~5 h de nuit pour un travail qui n'a AUCUNE
+// dépendance entre lots — chaque fiche est autonome, rangée dans sa propre
+// production. On en lance donc plusieurs de front, borné, et on retombe à un
+// seul quand le forfait chauffe. Chaque lot persiste son résultat dès qu'il
+// tombe : une vague interrompue ne coûte jamais plus que les lots en vol.
+const CHANTIER_CONCURRENCE = Math.max(1, Math.min(6,
+  Number(process.env.SIRAL_ATTACHE_CHANTIER_CONCURRENCE || 0) || 3))
+
 // Durée observée d'un pas, pour le DEVIS : le magistrat doit pouvoir arbitrer
 // sur un ordre de grandeur en HEURES, pas seulement en jetons et en nuits.
 const MINUTES_PAR_LOT = 3      // un lot de pièces (lecture + fiche)
 const MINUTES_PAR_LOT_FICHES = 1.5 // un lot de fiches déjà écrites (liens/carto)
 const HEURES_PAR_NUIT = 9      // la fenêtre de nuit du service
 
+// Dérogation « Forcer maintenant » : le magistrat lève la nuit et le forfait
+// pour une fenêtre courte, puis le régime normal reprend tout seul — on ne
+// laisse jamais une dérogation courir indéfiniment.
+const FORCE_MS = 2 * 3600_000
+
 /** Heures de travail estimées (arrondi au demi) pour un nombre de lots. */
-function heuresEstimees(nbLots, minutesParLot) {
-  return Math.max(0.5, Math.round((nbLots * minutesParLot / 60) * 2) / 2)
+function heuresEstimees(nbLots, minutesParLot, front = CHANTIER_CONCURRENCE) {
+  return Math.max(0.5, Math.round((nbLots * minutesParLot / 60 / Math.max(1, front)) * 2) / 2)
+}
+
+/** La dérogation du magistrat court-elle encore ? */
+export function forceActive(ch, now = Date.now()) {
+  const t = Date.parse(ch?.forceJusqu || '')
+  return Number.isFinite(t) && t > now
+}
+
+/**
+ * Un run a-t-il échoué sur une LIMITE DE FORFAIT (et non sur son travail) ?
+ * La distinction est décisive : trois refus de quota d'affilée condamnaient un
+ * lot à l'état « échec » — des pièces déclarées non dépouillées alors que
+ * personne ne les avait seulement ouvertes. Une limite se réessaie, elle ne
+ * se compte pas comme une tentative perdue.
+ */
+export function estLimiteForfait(message) {
+  return /rate.?limit|usage limit|quota|too many requests|overloaded|limite d.usage|\b429\b|\b529\b/i.test(String(message || ''))
 }
 
 // ── Stockage (une enveloppe chiffrée par chantier) ──
@@ -65,7 +108,27 @@ export function readChantier(keys, id) {
   try { return decryptJson(keys.global, env) } catch { return null }
 }
 
+// Chantiers supprimés pendant qu'une vague tournait : leurs lots en vol vont
+// encore écrire en fin de course et RESSUSCITERAIENT le fichier effacé.
+const supprimes = new Set()
+
+// Le chantier dont une vague tourne EN CE MOMENT : ses écritures viennent de
+// lots en vol, jamais du magistrat — c'est pour elles seules que l'état du
+// disque fait foi (voir ci-dessous).
+let vagueEnCours = null
+
 function writeChantier(keys, ch) {
+  if (supprimes.has(ch.id)) return
+  // Le magistrat peut mettre en PAUSE pendant qu'une vague tourne : les lots
+  // en vol finissent leur course (rien n'est perdu), mais leur persistance ne
+  // doit pas rouvrir le chantier qu'il vient de fermer. Seules les écritures
+  // de la vague sont concernées : une relance délibérée, elle, doit passer.
+  if (vagueEnCours === ch.id && ['en_cours', 'synthese'].includes(ch.etat)) {
+    const env = readJson(chantierPath(ch.id), null)
+    let disque = null
+    try { disque = env && decryptJson(keys.global, env) } catch { /* enveloppe illisible : on écrit */ }
+    if (disque?.etat === 'pause') { ch.etat = 'pause'; ch.pas = []; ch.enCours = null }
+  }
   ch.majLe = new Date().toISOString()
   ensureDir(attacheDir('chantiers'))
   atomicWrite(chantierPath(ch.id), JSON.stringify(encryptJson(keys.global, ch)))
@@ -100,6 +163,8 @@ function resumeChantier(ch) {
     id: ch.id, type: ch.type, numero: ch.numero, consigne: ch.consigne,
     numeros: ch.numeros || null, sansFiches: ch.sansFiches || [],
     etat: ch.etat, attente: ch.attente || null, nuitSeulement: Boolean(ch.nuitSeulement),
+    attenteDepuis: ch.attenteDepuis || null, attenteDetail: ch.attenteDetail || null,
+    forceJusqu: forceActive(ch) ? ch.forceJusqu : null,
     origine: ch.origine || 'magistrat',
     creeLe: ch.creeLe, majLe: ch.majLe,
     totalPieces: ch.totalPieces, totalLots: totalLots(ch), lotsFaits: lotsFaits(ch), piecesFaites: piecesFaites(ch),
@@ -114,24 +179,41 @@ function resumeChantier(ch) {
     fiches: (ch.fiches || []).map((f) => ({ prodId: f.prodId, titre: f.titre, pochette: f.pochette })),
     syntheseProdId: ch.syntheseProdId || null,
     estimation: ch.estimation,
-    enCours: pasEnCours(ch),
+    // Les pas EN VOL : plusieurs lots tournent de front, le magistrat les voit tous.
+    pas: pasEnCours(ch),
+    enCours: pasEnCours(ch)[0] || null,
+    front: CHANTIER_CONCURRENCE,
     journal: (ch.journal || []).slice(-12),
   }
 }
 
 /**
- * Le pas EN TRAIN de tourner (lot dépouillé, synthèse en cours) — pour que le
- * magistrat voie l'attaché travailler, pas seulement un compteur figé.
- * Le marqueur est posé avant le run et retiré après ; s'il survit à un
- * redémarrage du service, il est PÉRIMÉ (aucun run ne peut durer plus qu'un
- * timeout de lot) et on ne le sert pas — mieux vaut rien qu'un faux « en cours ».
+ * Les pas EN TRAIN de tourner (lots dépouillés de front, synthèse en cours) —
+ * pour que le magistrat voie l'attaché travailler, pas seulement un compteur
+ * figé. Les marqueurs sont posés avant chaque run et retirés après ; ceux qui
+ * survivent à un redémarrage du service sont PÉRIMÉS (aucun run ne peut durer
+ * plus qu'un timeout de lot) et on ne les sert pas — mieux vaut rien qu'un
+ * faux « en cours ».
  */
 function pasEnCours(ch) {
-  const p = ch.enCours
-  if (!p || !['en_cours', 'synthese'].includes(ch.etat)) return null
-  const depuis = Date.parse(p.depuis || '')
-  if (!Number.isFinite(depuis) || Date.now() - depuis > LOT_TIMEOUT_MS + 5 * 60_000) return null
-  return p
+  if (!['en_cours', 'synthese'].includes(ch.etat)) return []
+  const liste = Array.isArray(ch.pas) ? ch.pas : ch.enCours ? [ch.enCours] : []
+  return liste.filter((p) => {
+    const depuis = Date.parse(p?.depuis || '')
+    return Number.isFinite(depuis) && Date.now() - depuis <= LOT_TIMEOUT_MS + 5 * 60_000
+  })
+}
+
+/** Pose / retire le marqueur d'un pas en vol (état partagé par la vague). */
+function marquerPas(keys, ch, pas) {
+  ch.pas = [...(Array.isArray(ch.pas) ? ch.pas : []), pas]
+  ch.enCours = ch.pas[0]
+  writeChantier(keys, ch)
+}
+function retirerPas(keys, ch, pas) {
+  ch.pas = (Array.isArray(ch.pas) ? ch.pas : []).filter((p) => p !== pas)
+  ch.enCours = ch.pas[0] || null
+  writeChantier(keys, ch)
 }
 
 /**
@@ -318,6 +400,7 @@ export async function actionChantier(keys, { id, action }) {
   const ch = readChantier(keys, id)
   if (!ch) throw new Error('Chantier introuvable')
   if (action === 'supprimer') {
+    supprimes.add(String(id))
     try { fs.unlinkSync(chantierPath(id)) } catch {}
     await audit(keys, 'chantier_supprime', { id, numero: ch.numero, etat: ch.etat })
     return { ok: true, supprime: true }
@@ -326,16 +409,40 @@ export async function actionChantier(keys, { id, action }) {
     if (!['devis', 'pause'].includes(ch.etat)) throw new Error(`Ce chantier est « ${ch.etat} » — rien à lancer`)
     ch.etat = lotsRestants(ch) ? 'en_cours' : 'synthese'
     ch.attente = null
+    ch.attenteDepuis = null
+    ch.attenteDetail = null
     journal(ch, ch.etat === 'en_cours' ? 'Devis validé — dépouillement lancé.' : 'Relancé — plus que la synthèse.')
     writeChantier(keys, ch)
     await audit(keys, 'chantier_lance', { id, numero: ch.numero })
+    return resumeChantier(ch)
+  }
+  // « Forcer maintenant » — le geste qui manquait. Un chantier validé pouvait
+  // rester des nuits entières à « en attente » sans que le magistrat ait le
+  // moindre moyen de passer outre : ni la fenêtre de nuit, ni un plafond de
+  // forfait ESTIMÉ ne se laissaient contredire. La dérogation lève les deux,
+  // pour une fenêtre courte et journalisée — après quoi le régime normal
+  // reprend seul. Elle vaut aussi validation du devis : un seul clic suffit.
+  if (action === 'forcer') {
+    if (ch.etat === 'termine') throw new Error('Ce chantier est terminé')
+    if (['devis', 'pause'].includes(ch.etat)) ch.etat = lotsRestants(ch) ? 'en_cours' : 'synthese'
+    ch.forceJusqu = new Date(Date.now() + FORCE_MS).toISOString()
+    ch.attente = null
+    ch.attenteDepuis = null
+    ch.attenteDetail = null
+    journal(ch, `Forcé par le magistrat — nuit et plafonds levés pendant ${Math.round(FORCE_MS / 3600_000)} h, le dépouillement démarre immédiatement.`)
+    writeChantier(keys, ch)
+    await audit(keys, 'chantier_force', { id, numero: ch.numero, jusqu: ch.forceJusqu })
     return resumeChantier(ch)
   }
   if (action === 'pause') {
     if (!['en_cours', 'synthese'].includes(ch.etat)) throw new Error(`Ce chantier est « ${ch.etat} » — rien à mettre en pause`)
     ch.etat = 'pause'
     ch.attente = null
+    ch.attenteDepuis = null
+    ch.attenteDetail = null
+    ch.forceJusqu = null
     ch.enCours = null
+    ch.pas = []
     journal(ch, 'Mis en pause par le magistrat (reprise sans perte : re-cliquer « Reprendre »).')
     writeChantier(keys, ch)
     return resumeChantier(ch)
@@ -344,17 +451,22 @@ export async function actionChantier(keys, { id, action }) {
 }
 
 function lotsRestants(ch) {
-  return (ch.plan || []).some((p) => p.lots.some((l) => l.etat === 'a_faire'))
+  // « en_vol » = réservé par une vague en cours : du travail restant, pas du
+  // travail fait. L'oublier enverrait le chantier en synthèse alors que des
+  // pièces sont encore en train d'être lues.
+  return (ch.plan || []).some((p) => p.lots.some((l) => l.etat === 'a_faire' || l.etat === 'en_vol'))
 }
 
-function prochainLot(ch) {
-  for (let pi = 0; pi < ch.plan.length; pi++) {
+/** Les `n` prochains lots à faire, dans l'ordre du plan (pochette par pochette). */
+function prochainsLots(ch, n = 1) {
+  const out = []
+  for (let pi = 0; pi < ch.plan.length && out.length < n; pi++) {
     const p = ch.plan[pi]
-    for (let li = 0; li < p.lots.length; li++) {
-      if (p.lots[li].etat === 'a_faire') return { pi, li, pochette: p, lot: p.lots[li] }
+    for (let li = 0; li < p.lots.length && out.length < n; li++) {
+      if (p.lots[li].etat === 'a_faire') out.push({ pi, li, pochette: p, lot: p.lots[li] })
     }
   }
-  return null
+  return out
 }
 
 // ── Prompts ──
@@ -494,55 +606,93 @@ export async function chantierStep(keys, autorise) {
       .map((f) => { try { return decryptJson(keys.global, readJson(attacheDir('chantiers', f.name), null)) } catch { return null } })
       .filter((ch) => ch && ['en_cours', 'synthese'].includes(ch.etat))
       .sort((a, b) => String(a.creeLe).localeCompare(String(b.creeLe)))
-    const ch = actifs[0]
-    if (!ch) return 'rien'
+    if (!actifs.length) return 'rien'
 
-    const feu = autorise(ch)
-    if (!feu.ok) {
-      if (ch.attente !== feu.attente) {
-        ch.attente = feu.attente || 'forfait'
-        journal(ch, ch.attente === 'nuit' ? 'En attente de la fenêtre de nuit.' : 'En attente : forfait saturé — reprise automatique.')
-        writeChantier(keys, ch)
-      }
-      return 'bloque'
+    // Un chantier bloqué ne bloque plus les AUTRES. L'ancien code ne regardait
+    // que le plus ancien : un chantier « nuit seulement » gelait en plein jour
+    // tous les chantiers de jour derrière lui. On note l'attente de chacun et
+    // on travaille sur le premier qui a le feu vert.
+    let ch = null
+    let feu = null
+    for (const cand of actifs) {
+      const verdict = autorise(cand) || { ok: false }
+      if (verdict.ok) { ch = cand; feu = verdict; break }
+      noterAttente(keys, cand, verdict)
     }
-    if (ch.attente) { ch.attente = null; writeChantier(keys, ch) }
+    if (!ch) return 'bloque'
+
+    if (ch.attente || ch.attenteDetail) {
+      ch.attente = null
+      ch.attenteDepuis = null
+      ch.attenteDetail = null
+      writeChantier(keys, ch)
+    }
 
     if (ch.etat === 'en_cours') {
-      const next = prochainLot(ch)
-      if (!next) {
+      // Reprise après un arrêt brutal : aucune vague ne tourne à cet instant
+      // (verrou `running`), donc tout lot resté « en_vol » est un orphelin de
+      // redémarrage — il repart à faire, sans compter d'échec.
+      let orphelins = 0
+      for (const p of ch.plan) for (const l of p.lots) if (l.etat === 'en_vol') { l.etat = 'a_faire'; orphelins++ }
+      if (orphelins) {
+        journal(ch, `Reprise après arrêt : ${orphelins} lot(s) interrompu(s) remis à faire (aucune tentative comptée).`)
+        ch.pas = []
+        ch.enCours = null
+        writeChantier(keys, ch)
+      }
+
+      const front = Math.max(1, Math.min(CHANTIER_CONCURRENCE, Number(feu?.front) || CHANTIER_CONCURRENCE))
+      const vague = prochainsLots(ch, front)
+      if (!vague.length) {
         ch.etat = 'synthese'
         journal(ch, 'Dépouillement terminé — synthèse en préparation.')
         writeChantier(keys, ch)
         return 'travail'
       }
-      // Marqueur du pas en cours : posé AVANT le run (le panneau le lit tout de
-      // suite), retiré quoi qu'il arrive — succès, échec ou timeout.
-      ch.enCours = {
-        etape: 'lot',
-        pochette: next.pochette.nom,
-        lot: next.lot.n,
-        pieces: next.lot.pieces.length,
-        tentative: (next.lot.echecs || 0) + 1,
-        depuis: new Date().toISOString(),
-      }
+      // Les lots sont réservés AVANT la vague : deux lots ne peuvent pas partir
+      // sur les mêmes pièces, et un arrêt en cours de vague se rattrape seul.
+      for (const v of vague) v.lot.etat = 'en_vol'
+      if (vague.length > 1) journal(ch, `Vague de ${vague.length} lots lancés de front.`)
       writeChantier(keys, ch)
+
+      vagueEnCours = ch.id
       try {
-        await runLot(keys, ch, next)
+        await Promise.all(vague.map(async (next) => {
+        // Marqueur du pas en cours : posé AVANT le run (le panneau le lit tout
+        // de suite), retiré quoi qu'il arrive — succès, échec ou timeout.
+        const pas = {
+          etape: 'lot',
+          pochette: next.pochette.nom,
+          lot: next.lot.n,
+          pieces: next.lot.pieces.length,
+          tentative: (next.lot.echecs || 0) + 1,
+          depuis: new Date().toISOString(),
+        }
+        marquerPas(keys, ch, pas)
+        try {
+          await runLot(keys, ch, next)
+        } catch (e) {
+          // Un lot qui explose ne doit jamais emporter la vague ni rester réservé.
+          if (next.lot.etat === 'en_vol') next.lot.etat = 'a_faire'
+          journal(ch, `Lot ${next.lot.n} de « ${next.pochette.nom} » : ${String(e?.message || e).slice(0, 120)} — repris au prochain pas.`)
+        } finally {
+          retirerPas(keys, ch, pas)
+        }
+        }))
       } finally {
-        ch.enCours = null
-        writeChantier(keys, ch)
+        vagueEnCours = null
       }
       return 'travail'
     }
     if (ch.etat === 'synthese') {
-      ch.enCours = { etape: 'synthese', fiches: (ch.fiches || []).length, depuis: new Date().toISOString() }
-      writeChantier(keys, ch)
+      const pas = { etape: 'synthese', fiches: (ch.fiches || []).length, depuis: new Date().toISOString() }
+      marquerPas(keys, ch, pas)
+      vagueEnCours = ch.id
       try {
         await runSynthese(keys, ch)
       } finally {
-        ch.enCours = null
-        writeChantier(keys, ch)
+        vagueEnCours = null
+        retirerPas(keys, ch, pas)
       }
       return 'travail'
     }
@@ -550,6 +700,47 @@ export async function chantierStep(keys, autorise) {
   } finally {
     running = false
   }
+}
+
+/**
+ * Journalise POURQUOI un chantier n'avance pas — et ne le réécrit que quand
+ * la raison change. Le magistrat lisait « en attente : forfait saturé » sans
+ * jamais savoir de quel plafond il s'agissait ni quand cela reprendrait ;
+ * le détail (jauges, prochaine fenêtre) est désormais servi à l'écran.
+ */
+function noterAttente(keys, ch, verdict) {
+  const attente = verdict.attente || 'forfait'
+  const detail = verdict.detail || null
+  if (ch.attente === attente && ch.attenteDetail === detail) return
+  // « Depuis » compte l'attente POUR CE MOTIF : passer de la nuit au forfait
+  // ouvre une nouvelle attente, pas la suite de la précédente.
+  const memeMotif = ch.attente === attente
+  ch.attente = attente
+  ch.attenteDetail = detail
+  ch.attenteDepuis = memeMotif && ch.attenteDepuis ? ch.attenteDepuis : new Date().toISOString()
+  journal(ch, attente === 'nuit'
+    ? `En attente de la fenêtre de nuit${detail ? ` — ${detail}` : ''}.`
+    : `En attente : forfait saturé${detail ? ` — ${detail}` : ''} — reprise automatique.`)
+  writeChantier(keys, ch)
+}
+
+/**
+ * Un run refusé par une LIMITE DE FORFAIT n'est pas un lot raté : rien n'a été
+ * lu, rien n'a été jugé. On rend le lot à faire SANS compter de tentative et
+ * on met le chantier en attente — sinon trois refus de quota d'affilée
+ * marquaient douze pièces « non dépouillées » que personne n'avait ouvertes.
+ * @returns {boolean} true si l'échec était une limite (le lot est réarmé).
+ */
+function echecDeForfait(keys, ch, lot, ou, erreur) {
+  if (!estLimiteForfait(erreur)) return false
+  lot.etat = 'a_faire'
+  const motif = `Lot ${lot.n} de « ${ou} » : refusé par une limite du forfait — remis à faire, aucune tentative comptée.`
+  const dernier = (ch.journal || [])[ch.journal.length - 1]
+  if (!dernier || dernier.evenement !== motif) journal(ch, motif)
+  ch.attente = 'forfait'
+  ch.attenteDepuis = ch.attenteDepuis || new Date().toISOString()
+  writeChantier(keys, ch)
+  return true
 }
 
 async function runLot(keys, ch, { pochette, lot }) {
@@ -571,7 +762,9 @@ async function runLot(keys, ch, { pochette, lot }) {
 
   const fiche = String(res?.text || '').trim()
   if (!res?.ok || fiche.length < 200 || !/##/.test(fiche)) {
+    if (echecDeForfait(keys, ch, lot, pochette.nom, res?.error)) return
     lot.echecs = (lot.echecs || 0) + 1
+    lot.etat = 'a_faire'
     if (lot.echecs >= MAX_LOT_ECHECS) {
       lot.etat = 'echec'
       journal(ch, `Lot ${lot.n} de « ${pochette.nom} » en ÉCHEC après ${lot.echecs} tentatives (${res?.error || 'fiche invalide'}) — pièces non dépouillées, signalées dans la synthèse.`)
@@ -639,7 +832,9 @@ async function runLotFiches(keys, ch, { pochette, lot }) {
 
   const texte = String(res?.text || '').trim()
   if (!res?.ok || texte.length < 80 || !/##/.test(texte)) {
+    if (echecDeForfait(keys, ch, lot, dossier, res?.error)) return
     lot.echecs = (lot.echecs || 0) + 1
+    lot.etat = 'a_faire'
     if (lot.echecs >= MAX_LOT_ECHECS) {
       lot.etat = 'echec'
       journal(ch, `Lot ${lot.n} de « ${dossier} » en ÉCHEC après ${lot.echecs} tentatives (${res?.error || 'rendu invalide'}) — signalé dans le rapport final.`)
