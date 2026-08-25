@@ -133,8 +133,21 @@ export function corpusEnquete(
   };
 }
 
-/** Corpus d'un dossier d'instruction. */
-export function corpusInstruction(dossier: DossierInstruction): DossierCorpus {
+/**
+ * Corpus d'un dossier d'instruction.
+ *
+ * Quand une enquête préliminaire lui est rattachée, TOUT ce qu'elle contient
+ * (description, comptes rendus, actes, interceptions, pièces) est versé ici :
+ * c'est le même dossier, et c'est là que dorment les PV du début d'affaire.
+ * Sans cela, une adresse relevée en préliminaire disparaissait le jour de
+ * l'ouverture d'information — la préliminaire étant écartée du corpus pour ne
+ * pas se recouper avec elle-même.
+ */
+export function corpusInstruction(
+  dossier: DossierInstruction,
+  prelim?: { enquete: Enquete; contentieuxId: string },
+  options: CorpusOptions = {}
+): DossierCorpus {
   const fragments: CorpusFragment[] = [];
   const reference = dossier.numeroInstruction || dossier.numeroParquet;
 
@@ -175,6 +188,23 @@ export function corpusInstruction(dossier: DossierInstruction): DossierCorpus {
     ...(dossier.victimes || []).map(v => v.nom),
   ].filter(Boolean);
 
+  // La préliminaire rattachée : ses textes et ses personnes rejoignent le
+  // dossier d'instruction, en gardant sa référence pour que l'affichage dise
+  // d'où sort la mention (« préliminaire 2024/1234 · CR du 12/03 »).
+  if (prelim) {
+    const source = corpusEnquete(prelim.enquete, prelim.contentieuxId, options);
+    const marque = `préliminaire ${prelim.enquete.numero}`;
+    for (const fragment of source.fragments) {
+      fragments.push({
+        ...fragment,
+        detail: fragment.detail ? `${marque} · ${fragment.detail}` : marque,
+      });
+    }
+    for (const nom of source.personnes) {
+      if (nom && !personnes.includes(nom)) personnes.push(nom);
+    }
+  }
+
   return {
     key: instructionKey(dossier.id),
     numero: reference,
@@ -189,9 +219,9 @@ export function corpusInstruction(dossier: DossierInstruction): DossierCorpus {
 
 /**
  * Corpus complet : toutes les enquêtes accessibles + tous les dossiers
- * d'instruction. Une enquête préliminaire rattachée à une instruction est
- * ignorée : c'est le même dossier vu deux fois, et il se recouperait avec
- * lui-même.
+ * d'instruction. Une enquête préliminaire rattachée à une instruction n'est
+ * pas un dossier de plus — ce serait le même vu deux fois, se recoupant avec
+ * lui-même : elle est VERSÉE dans son dossier d'instruction, contenu compris.
  */
 export function buildCorpus(
   enquetesByContentieux: Map<string, Enquete[]>,
@@ -199,12 +229,15 @@ export function buildCorpus(
   options: CorpusOptions = {}
 ): DossierCorpus[] {
   const corpus: DossierCorpus[] = [];
-  const prelimRattachees = new Set<string>();
+  /** Clé de l'enquête préliminaire → dossier d'instruction qui la prolonge. */
+  const prelimRattachees = new Map<string, number>();
+  /** Préliminaire retrouvée, prête à être versée dans son instruction. */
+  const prelimParInstruction = new Map<number, { enquete: Enquete; contentieuxId: string }>();
 
   for (const dossier of instructions) {
     if (dossier.enquetePreliminaireId != null) {
       const ctx = dossier.enquetePreliminaireContentieuxId || dossier.contentieuxId;
-      if (ctx) prelimRattachees.add(enqueteKey(ctx, dossier.enquetePreliminaireId));
+      if (ctx) prelimRattachees.set(enqueteKey(ctx, dossier.enquetePreliminaireId), dossier.id);
     }
   }
 
@@ -214,7 +247,11 @@ export function buildCorpus(
       if (options.includeArchives === false && enquete.statut === 'archive') continue;
       if (enquete.hiddenFromJA && options.contentieuxJA?.has(contentieuxId)) continue;
       const key = enqueteKey(contentieuxId, enquete.id);
-      if (prelimRattachees.has(key)) continue;
+      const instructionId = prelimRattachees.get(key);
+      if (instructionId !== undefined) {
+        prelimParInstruction.set(instructionId, { enquete, contentieuxId });
+        continue; // versée dans son dossier d'instruction, pas comptée à part
+      }
       // Une enquête partagée entre contentieux est stockée par son contentieux
       // d'origine : on ne la compte qu'une fois.
       if (enquete.contentieuxOrigine && enquete.contentieuxOrigine !== contentieuxId) continue;
@@ -224,7 +261,7 @@ export function buildCorpus(
 
   for (const dossier of instructions) {
     if (!dossier) continue;
-    corpus.push(corpusInstruction(dossier));
+    corpus.push(corpusInstruction(dossier, prelimParInstruction.get(dossier.id), options));
   }
 
   return corpus;

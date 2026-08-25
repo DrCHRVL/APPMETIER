@@ -160,8 +160,10 @@ export const RE_ENTITES = {
   plaque: /\b[A-Z]{2}-?\d{3}-?[A-Z]{2}\b/g,
   // IBAN FR
   iban: /\bFR\d{2}(?:[\s]?[0-9A-Z]{4}){5,7}\b/gi,
-  // adresse : « 12 rue de la Paix », « 950 route de Lyon »…
-  adresse: /\b\d{1,4}\s+(?:rue|avenue|av\.?|bd|boulevard|allée|allee|impasse|chemin|place|route|cité|cite|quai|passage)\s+[A-Za-zÀ-ÿ'’ \-]{3,40}/gi,
+  // adresse : « 12 rue de la Paix », « 12, rue Monstrelet », « 950 route de
+  // Lyon »… La virgule postale et le « bis » sont admis entre le numéro et le
+  // type de voie : sans eux, l'écriture majoritaire des PV passait au travers.
+  adresse: /\b\d{1,4}\s*(?:bis|ter|quater)?\s*,?\s*(?:rue|avenue|av\.?|bd|boulevard|allée|allee|impasse|chemin|place|route|cité|cite|quai|passage)\s+[A-Za-zÀ-ÿ'’ \-]{3,40}/gi,
 }
 const RE = RE_ENTITES
 
@@ -176,7 +178,12 @@ export function normEntite(type, raw) {
   }
   if (type === 'plaque') return s.toUpperCase().replace(/[^A-Z0-9]/g, '')
   if (type === 'iban') return s.toUpperCase().replace(/\s/g, '')
-  if (type === 'adresse') return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').replace(/av\./g, 'avenue').trim()
+  // La virgule et le « bis » sont du bruit d'écriture : « 12, rue X », « 12 bis
+  // rue X » et « 12 rue X » doivent tomber sur la MÊME clé, sinon la virgule
+  // ferait deux entités là où il n'y a qu'une adresse.
+  if (type === 'adresse') return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/,/g, ' ').replace(/\b(?:bis|ter|quater)\b/g, ' ')
+    .replace(/\s+/g, ' ').replace(/av\./g, 'avenue').trim()
   return s
 }
 
