@@ -33,6 +33,11 @@ export interface Chantier {
   numeros?: string[] | null; sansFiches?: string[];
   etat: 'devis' | 'en_cours' | 'pause' | 'synthese' | 'termine';
   attente?: 'nuit' | 'forfait' | null;
+  /** Le motif exact de l'attente (« fenêtre de 5 h à 104 % », « reprise vers 22 h »). */
+  attenteDetail?: string | null;
+  attenteDepuis?: string | null;
+  /** Dérogation « Forcer maintenant » en cours : nuit et plafonds levés jusqu'à cette date. */
+  forceJusqu?: string | null;
   nuitSeulement?: boolean;
   /** « attache » : devis déposé par l'assistant depuis une conversation (il attend votre validation). */
   origine?: 'magistrat' | 'attache';
@@ -41,13 +46,29 @@ export interface Chantier {
   pochettes: PochetteResume[];
   fiches: Array<{ prodId: string; titre: string; pochette: string }>;
   syntheseProdId?: string | null;
+  /** Tous les lots menés de front en ce moment (`enCours` = le premier, pour les vues compactes). */
+  pas?: PasEnCours[];
   enCours?: PasEnCours | null;
+  /** Nombre de lots que le moteur mène de front. */
+  front?: number;
   estimation?: { pieces: number; lots: number; jetonsMin: number; jetonsMax: number; heures?: number; nuits: number };
   journal?: Array<{ date: string; evenement: string }>;
 }
 
 export type TypeChantier = 'dossier' | 'liens' | 'carto';
-export type ActionChantier = 'lancer' | 'pause' | 'supprimer';
+export type ActionChantier = 'lancer' | 'pause' | 'supprimer' | 'forcer';
+
+/** L'état du feu, servi par le service : ce qui bloque, et quand ça repart. */
+export interface FeuChantiers {
+  nuit: boolean;
+  prochaineNuit?: { heure: number; dansHeures: number; fuseau: string } | null;
+  fuseau?: string;
+  fenetreNuit?: { debut: number; fin: number } | null;
+  pct5h?: number; pct7d?: number; cap5h?: number; capHebdo?: number;
+  /** Le seul plafond qui arrête encore un chantier (le repère hebdomadaire ne fait que resserrer). */
+  bloquant?: '5h' | null;
+  resserre?: boolean;
+}
 
 const POLL_MS = 60_000;
 // Quand un chantier tourne, on sonde plus vite : le magistrat doit voir le pas
@@ -60,6 +81,7 @@ export function etatBadge(ch: Chantier): { label: string; cls: string; icone?: '
   if (ch.etat === 'pause') return { label: 'En pause', cls: 'bg-gray-100 text-gray-600 border-gray-200' };
   if (ch.etat === 'termine') return { label: 'Terminé', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', icone: 'fini' };
   if (ch.etat === 'synthese') return { label: 'Synthèse en cours', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' };
+  if (ch.forceJusqu) return { label: 'Forcé — en cours', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
   if (ch.attente === 'nuit') return { label: 'Reprend cette nuit', cls: 'bg-slate-50 text-slate-600 border-slate-200', icone: 'nuit' };
   if (ch.attente === 'forfait') return { label: 'Forfait plein — reprise auto', cls: 'bg-orange-50 text-orange-600 border-orange-200', icone: 'forfait' };
   return { label: 'En cours', cls: 'bg-blue-50 text-blue-700 border-blue-200' };
@@ -86,9 +108,12 @@ export function dureeDepuis(iso: string, now: number): string {
   return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')}`;
 }
 
+/** Les lots menés de front à cet instant (vide si le chantier ne tourne pas). */
+export const pasEnVol = (ch: Chantier): PasEnCours[] => ch.pas || (ch.enCours ? [ch.enCours] : []);
+
 /** Ce que fait l'attaché en ce moment, dit en clair. */
-export function libelleEnCours(ch: Chantier): string | null {
-  const p = ch.enCours;
+export function libelleEnCours(ch: Chantier, pas?: PasEnCours): string | null {
+  const p = pas || ch.enCours;
   if (!p) return null;
   if (p.etape === 'synthese') {
     const quoi = ch.type === 'liens' ? 'Rapport de recoupements' : ch.type === 'carto' ? 'Note de bilan' : 'Note de synthèse';
@@ -109,6 +134,7 @@ export const fmtJetons = (n: number) => (n >= 1_000_000 ? (n / 1_000_000).toFixe
 export function useChantiers() {
   const [available, setAvailable] = useState(false);
   const [chantiers, setChantiers] = useState<Chantier[]>([]);
+  const [feu, setFeu] = useState<FeuChantiers | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const showToast = useToastStore((s) => s.showToast);
@@ -121,8 +147,9 @@ export function useChantiers() {
       if (!res.ok) { unavailableRef.current = true; setAvailable(false); return; }
       unavailableRef.current = false;
       setAvailable(true);
-      const data = (await res.json().catch(() => ({}))) as { chantiers?: Chantier[] };
+      const data = (await res.json().catch(() => ({}))) as { chantiers?: Chantier[]; feu?: FeuChantiers };
       setChantiers(data.chantiers || []);
+      setFeu(data.feu || null);
     } catch {
       setAvailable(false);
     }
@@ -177,6 +204,12 @@ export function useChantiers() {
   }, [showToast, load]);
 
   const action = useCallback(async (ch: Chantier, act: ActionChantier) => {
+    if (act === 'forcer' && !window.confirm(
+      'Forcer le dépouillement maintenant ?\n\n'
+      + 'La fenêtre de nuit et les plafonds de forfait sont levés pendant 2 h : '
+      + 'les lots partent tout de suite, en pleine journée s\'il le faut. '
+      + 'Le régime normal reprend ensuite tout seul.'
+    )) return;
     if (act === 'supprimer' && !window.confirm(
       ch.fiches.length
         ? `Supprimer ce chantier ? Les ${ch.fiches.length} production(s) déjà rangées RESTENT dans « Actes rédigés » du dossier.`
@@ -192,11 +225,12 @@ export function useChantiers() {
       const data = await res.json().catch(() => ({} as { error?: string }));
       if (!res.ok || data.error) showToast(`Action impossible : ${data.error || 'service injoignable'}`, 'error');
       else if (act === 'lancer') showToast(ch.etat === 'devis' ? 'Chantier lancé — le dépouillement commence dès que le feu est vert' : 'Chantier relancé', 'success');
+      else if (act === 'forcer') showToast('Forcé — les premiers lots partent dans quelques secondes', 'success');
       await load();
     } finally {
       setBusy(null);
     }
   }, [showToast, load]);
 
-  return { available, chantiers, busy, creating, load, creer, action, now };
+  return { available, chantiers, feu, busy, creating, load, creer, action, now };
 }

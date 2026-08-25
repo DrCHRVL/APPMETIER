@@ -22,7 +22,8 @@ import { handleConnectorMessage } from './attache-mcp.mjs'
 import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride, purgeInbox } from './attache/mail.mjs'
-import { listChantiers, createChantier, actionChantier, chantierStep, chantierActif } from './attache/chantier.mjs'
+import { listChantiers, createChantier, actionChantier, chantierStep, chantierActif, forceActive } from './attache/chantier.mjs'
+import { inNightWindow, prochaineNuit, feuChantier as feuDeChantier, NIGHT_START, NIGHT_END, NIGHT_TZ } from './attache/ordonnancement.mjs'
 import { writeClaudeToken, clearClaudeToken, clearAuthFailure } from './attache/claudeAuth.mjs'
 import { runAgent, checkClaudeCli, testClaudeAuth, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
 import { usageSummary } from './attache/usage.mjs'
@@ -825,18 +826,15 @@ async function runSkillAnalyse(noms) {
 // ni le traitement des mails (sa demande directe) — ceux-là sont seulement
 // resserrés par le gouverneur des sous-agents. Sans plafond configuré, le
 // gouverneur est inerte (aucun run n'est différé).
-// Fenêtre de NUIT (heure serveur) réservée aux travaux de FOND lourds — étude
-// du corpus, consolidation de l'apprentissage. Hors de la journée de travail,
-// ils ne disputent jamais le forfait aux mails et au chat du magistrat (sa
-// priorité : répondre à ses demandes et rédiger les actes). Repli 22 h → 7 h ;
-// réglable, et désactivable (mettre début = fin) pour tout autoriser.
-const NIGHT_START = Math.min(23, Math.max(0, Number(process.env.SIRAL_ATTACHE_NIGHT_START ?? 22)))
-const NIGHT_END = Math.min(23, Math.max(0, Number(process.env.SIRAL_ATTACHE_NIGHT_END ?? 7)))
-function inNightWindow(now = new Date()) {
-  if (NIGHT_START === NIGHT_END) return true // fenêtre neutralisée : nuit = toujours
-  const h = now.getHours()
-  return NIGHT_START < NIGHT_END ? (h >= NIGHT_START && h < NIGHT_END) : (h >= NIGHT_START || h < NIGHT_END)
-}
+// Fenêtre de NUIT réservée aux travaux de FOND lourds — étude du corpus,
+// consolidation de l'apprentissage. Hors de la journée de travail, ils ne
+// disputent jamais le forfait aux mails et au chat du magistrat (sa priorité :
+// répondre à ses demandes et rédiger les actes). Repli 22 h → 7 h, HEURE DU
+// MAGISTRAT (fuseau déclaré, pas celle du conteneur), réglable et
+// désactivable. La fenêtre et le feu des chantiers vivent dans
+// ordonnancement.mjs : règle pure, sans état, testable — c'est elle qui a
+// laissé passer une nuit entière, elle ne doit plus être enfouie dans la
+// boucle du service.
 
 /** Carte de mise en pause — CONCISE par exigence du magistrat : ce qui est
  * différé, les jauges, la reprise. Rien d'autre (la pédagogie vit dans la
@@ -906,10 +904,37 @@ async function autonomousOnHold(keys, quoi) {
 }
 
 // ── Chantiers d'analyse profonde : boucle de dépouillement ──
-// Un pas = un lot (~12 pièces → une fiche). La boucle enchaîne les pas tant
-// que le feu est vert — nuit si le chantier l'exige, forfait non saturé —
-// puis rend la main ; le tick suivant la relance. Chaque pas persiste tout :
-// un arrêt (service, forfait, nuit finie) ne coûte jamais plus qu'un lot.
+// Un pas = une VAGUE de lots (~12 pièces chacun → une fiche chacun) menés de
+// front. La boucle enchaîne les pas tant que le feu est vert — nuit si le
+// chantier l'exige, fenêtre de 5 h non saturée — puis rend la main ; le tick
+// suivant la relance. Chaque lot persiste son résultat dès qu'il tombe : un
+// arrêt (service, forfait, nuit finie) ne coûte jamais plus que la vague.
+
+/**
+ * Feu vert d'un chantier : la règle vit dans ordonnancement.mjs (pourquoi le
+ * repère hebdomadaire ne stoppe plus rien y est expliqué) ; ici on ne fait que
+ * lui fournir l'état du moment.
+ */
+function feuChantier(ch) {
+  return feuDeChantier(ch, { gov: consumptionGovernor(agentConfig()), force: forceActive(ch), nuit: inNightWindow() })
+}
+
+/** Ce que l'écran des chantiers doit pouvoir dire du feu, sans le deviner. */
+function etatFeu() {
+  const gov = consumptionGovernor(agentConfig())
+  return {
+    nuit: inNightWindow(),
+    prochaineNuit: prochaineNuit(),
+    fuseau: NIGHT_TZ,
+    fenetreNuit: NIGHT_START === NIGHT_END ? null : { debut: NIGHT_START, fin: NIGHT_END },
+    pct5h: gov.pct5h, pct7d: gov.pct7d, cap5h: gov.cap5h, capHebdo: gov.capHebdo,
+    // Ce qui arrêterait vraiment un chantier aujourd'hui (le repère
+    // hebdomadaire, lui, ne fait plus que resserrer).
+    bloquant: gov.cap5h > 0 && gov.pct5h >= 1 ? '5h' : null,
+    resserre: gov.level !== 'ok',
+  }
+}
+
 let chantierLoopRunning = false
 async function maybeChantiers() {
   if (chantierLoopRunning) return
@@ -922,14 +947,9 @@ async function maybeChantiers() {
     for (;;) {
       const keys = loadKeyring() // rechargé à chaque pas : une révocation vaut immédiatement
       if (!keys) break
-      const verdict = await chantierStep(keys, (ch) => {
-        const gov = consumptionGovernor(agentConfig())
-        if (gov.level === 'stop') return { ok: false, attente: 'forfait' }
-        if (ch.nuitSeulement && !inNightWindow()) return { ok: false, attente: 'nuit' }
-        return { ok: true }
-      })
+      const verdict = await chantierStep(keys, feuChantier)
       if (verdict !== 'travail') break
-      await new Promise((r) => setTimeout(r, 3_000)) // respiration entre deux lots
+      await new Promise((r) => setTimeout(r, 3_000)) // respiration entre deux vagues
     }
   } catch (e) {
     console.error('[attache] chantiers :', e)
@@ -1505,7 +1525,7 @@ const server = http.createServer(async (req, res) => {
     if (route === 'GET /chantiers') {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      return json(res, 200, { chantiers: listChantiers(keys) })
+      return json(res, 200, { chantiers: listChantiers(keys), feu: etatFeu() })
     }
 
     if (route === 'POST /chantiers') {
@@ -1515,8 +1535,9 @@ const server = http.createServer(async (req, res) => {
       try {
         if (body.action) {
           const out = await actionChantier(keys, { id: String(body.id || ''), action: String(body.action) })
-          // « lancer » : premier lot sans attendre le prochain tick (si le feu est vert)
-          if (body.action === 'lancer') setTimeout(() => { maybeChantiers().catch(() => {}) }, 50)
+          // « lancer » / « forcer » : première vague sans attendre le prochain
+          // tick (« forcer » a le feu vert par construction).
+          if (['lancer', 'forcer'].includes(body.action)) setTimeout(() => { maybeChantiers().catch(() => {}) }, 50)
           return json(res, 200, out)
         }
         const ch = await createChantier(keys, {
@@ -1720,4 +1741,13 @@ setInterval(() => {
 }, POLL_MINUTES * 60 * 1000)
 // première relève 20 s après le démarrage (laisse le réseau docker s'établir)
 setTimeout(() => { pollOnce('démarrage').catch(() => {}) }, 20_000)
+// Les chantiers ont leur propre battement : la relève tourne toutes les
+// SIRAL_ATTACHE_POLL_MIN minutes, ce qui suffit aux mails mais faisait perdre
+// jusqu'à un quart d'heure à l'ouverture de la fenêtre de nuit. Le test est
+// gratuit (lecture de fichiers locaux) et la boucle se garde elle-même.
+setInterval(() => {
+  maybeChantiers().catch((e) => console.error('[attache] chantiers :', e))
+}, 60_000)
+// Un chantier validé avant un redémarrage reprend sans attendre la première relève.
+setTimeout(() => { maybeChantiers().catch(() => {}) }, 25_000)
 writeState({ startedAt: new Date().toISOString() }).catch(() => {})
