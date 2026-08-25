@@ -99,8 +99,17 @@ export interface Recoupement {
   stateKey: string;
   dossierKeys: string[];
   occurrences: RecoupementOccurrence[];
-  /** Aucun mis en cause commun entre ces dossiers : pont réellement inédit. */
+  /** Au moins une paire de dossiers que rien ne relie encore (cf.
+   *  `pairesInedites`). Faux = la cartographie montre déjà le trait. */
   pontInedit: boolean;
+  /**
+   * Paires de dossiers que la cartographie ne relie PAS encore : aucune
+   * personne n'y est déclarée des deux côtés. C'est là — et là seulement —
+   * qu'un lien de renseignement apporte quelque chose. Les liens déjà tracés
+   * à la main sont retranchés à l'affichage (cf. utils/recoupements/liens.ts) :
+   * le moteur ne connaît pas la surcouche de cartographie.
+   */
+  pairesInedites: Array<[string, string]>;
 }
 
 /** Geste de l'utilisateur sur un signal, mémorisé par utilisateur. */

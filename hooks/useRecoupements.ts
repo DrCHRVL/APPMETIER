@@ -32,6 +32,9 @@ export interface DocScanState {
   total: number;
   /** Pièces jamais analysées — matière du bouton « Analyser les pièces ». */
   pending: number;
+  /** Dossiers qui portent ces pièces jamais analysées (numéros). C'est le
+   *  périmètre exact du chantier d'analyse profonde qu'on peut en tirer. */
+  numeros: string[];
 }
 
 export interface RecoupementsApi {
@@ -109,7 +112,7 @@ export function useRecoupements({
   const [signauxBruts, setSignauxBruts] = useState<Recoupement[]>(VIDE);
   const [computing, setComputing] = useState(false);
   const [acks, setAcks] = useState<RecoupementAcks>({});
-  const [docScan, setDocScan] = useState<DocScanState>({ scanning: false, done: 0, total: 0, pending: 0 });
+  const [docScan, setDocScan] = useState<DocScanState>({ scanning: false, done: 0, total: 0, pending: 0, numeros: [] });
   const [docVersion, setDocVersion] = useState(0);
   const [extraire, setExtraire] = useState(false);
 
@@ -183,7 +186,8 @@ export function useRecoupements({
       let done = 0;
       let pending = 0;
       let nouveaux = 0;
-      setDocScan({ scanning: extraire && jobs.length > 0, done: 0, total: jobs.length, pending: 0 });
+      const dossiersEnAttente = new Set<string>();
+      setDocScan({ scanning: extraire && jobs.length > 0, done: 0, total: jobs.length, pending: 0, numeros: [] });
 
       for (const job of jobs) {
         if (annule || scanId !== scanIdRef.current) return;
@@ -204,7 +208,7 @@ export function useRecoupements({
           texte = await getDocumentSearchText(job.numero, job.doc);
         }
         done++;
-        if (texte === undefined) { pending++; continue; } // jamais analysée
+        if (texte === undefined) { pending++; dossiersEnAttente.add(job.numero); continue; } // jamais analysée
         if (texte?.raw) {
           docTexts.current.set(cle, texte.raw);
           nouveaux++;
@@ -212,13 +216,13 @@ export function useRecoupements({
           if (nouveaux % 15 === 0) setDocVersion(v => v + 1);
         }
         if (extraire && done % 5 === 0) {
-          setDocScan({ scanning: done < jobs.length, done, total: jobs.length, pending });
+          setDocScan({ scanning: done < jobs.length, done, total: jobs.length, pending, numeros: Array.from(dossiersEnAttente) });
           await new Promise(r => setTimeout(r, 0)); // respiration : l'app reste fluide
         }
       }
 
       if (annule || scanId !== scanIdRef.current) return;
-      setDocScan({ scanning: false, done, total: jobs.length, pending });
+      setDocScan({ scanning: false, done, total: jobs.length, pending, numeros: Array.from(dossiersEnAttente) });
       if (nouveaux > 0) setDocVersion(v => v + 1);
       if (extraire) setExtraire(false);
     };

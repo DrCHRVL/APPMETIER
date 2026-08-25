@@ -6,16 +6,23 @@
  * Tout ce que la veille a relevé, tous dossiers confondus, le plus solide
  * d'abord. On y arrive par la loupe de l'en-tête ; rien ne s'ouvre tout seul.
  *
- * Le bouton « Analyser les pièces » est le SEUL moment où la veille lit des
- * documents jamais ouverts (téléchargement + déchiffrement local) : c'est un
- * geste explicite, jamais une initiative de l'application.
+ * « Analyser les pièces » est le SEUL moment où l'on touche aux documents
+ * jamais ouverts, et c'est toujours un geste explicite :
+ *   · analyse profonde — un CHANTIER est déposé à l'état DEVIS (volume, lots,
+ *     jetons, nuits) ; rien ne tourne avant que le devis soit validé dans
+ *     « Analyses profondes » ;
+ *   · lecture rapide — extraction du seul texte, sur ce poste, sans jeton :
+ *     elle fait entrer les pièces dans la veille, sans les faire lire à
+ *     personne.
  */
 import { useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { FileSearch, Loader2 } from 'lucide-react';
+import { FileSearch, Loader2, Layers, Check } from 'lucide-react';
 import type { Recoupement } from '@/types/recoupementTypes';
 import type { DocScanState } from '@/hooks/useRecoupements';
+import type { LienExistant, PropositionLien } from '@/utils/recoupements/liens';
+import { useChantiers } from '../attache/useChantiers';
 import { RecoupementList } from './RecoupementList';
 
 export interface RecoupementsModalProps {
@@ -30,6 +37,10 @@ export interface RecoupementsModalProps {
   onOuvrirDossier?: (signal: Recoupement, dossierKey: string) => void;
   onEcarter: (signal: Recoupement) => void;
   onReactiver: (signal: Recoupement) => void;
+  /** Liens de renseignement déjà tracés (rien n'est proposé deux fois). */
+  liens?: LienExistant[];
+  onCreerLien?: (proposition: PropositionLien) => void;
+  onAjouterMec?: (signal: Recoupement, dossierKey: string, nom: string) => void;
   /** Marque comme vus les signaux affichés (appelé à l'ouverture). */
   onVus?: (signaux: Recoupement[]) => void;
 }
@@ -46,6 +57,9 @@ export function RecoupementsModal({
   onOuvrirDossier,
   onEcarter,
   onReactiver,
+  liens,
+  onCreerLien,
+  onAjouterMec,
   onVus,
 }: RecoupementsModalProps) {
   const [onglet, setOnglet] = useState<'actifs' | 'ecartes'>('actifs');
@@ -66,8 +80,10 @@ export function RecoupementsModal({
 
         <p className="flex-shrink-0 text-[11.5px] leading-snug text-gray-500">
           Valeurs identiques ou très proches relevées dans plusieurs dossiers — noms,
-          adresses, lignes, véhicules, comptes. Rien n&apos;est modifié nulle part :
+          adresses, lignes, véhicules, comptes. Aucun dossier n&apos;est modifié :
           c&apos;est un signalement, à vérifier avant d&apos;en tirer quoi que ce soit.
+          Les suites — inscrire un mis en cause, tracer un lien de renseignement —
+          ne partent que de vous.
         </p>
 
         <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-gray-100 pb-2">
@@ -96,23 +112,7 @@ export function RecoupementsModal({
                 <Loader2 className="h-3 w-3 animate-spin" /> analyse…
               </span>
             )}
-            {docScan.scanning ? (
-              <span className="flex items-center gap-1 text-[11px] text-gray-500">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                lecture des pièces {docScan.done}/{docScan.total}
-              </span>
-            ) : docScan.pending > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1.5 text-xs"
-                onClick={onAnalyserPieces}
-                title="Extrait le texte des pièces jamais lues (déchiffrement local, une seule fois)"
-              >
-                <FileSearch className="h-3.5 w-3.5" />
-                Analyser {docScan.pending} pièce{docScan.pending > 1 ? 's' : ''}
-              </Button>
-            )}
+            <AnalysePieces docScan={docScan} onLectureRapide={onAnalyserPieces} />
           </div>
         </div>
 
@@ -124,6 +124,9 @@ export function RecoupementsModal({
                 estNouveau={estNouveau}
                 onOuvrirDossier={onOuvrirDossier}
                 onEcarter={onEcarter}
+                liens={liens}
+                onCreerLien={onCreerLien}
+                onAjouterMec={onAjouterMec}
               />
             ) : (
               <p className="px-3 py-6 text-center text-xs text-gray-400">
@@ -135,12 +138,96 @@ export function RecoupementsModal({
               </p>
             )
           ) : ecartes.length > 0 ? (
-            <RecoupementList signaux={ecartes} onReactiver={onReactiver} />
+            <RecoupementList signaux={ecartes} onReactiver={onReactiver} liens={liens} />
           ) : (
             <p className="px-3 py-6 text-center text-xs text-gray-400">Aucun signal écarté.</p>
           )}
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Les pièces jamais ouvertes — et les deux façons de s'en occuper.
+ *
+ * Monté avec la modale seulement (le portail Radix ne rend rien tant qu'elle
+ * est fermée) : le sondage des chantiers ne tourne donc pas en fond toute la
+ * journée.
+ */
+function AnalysePieces({
+  docScan, onLectureRapide,
+}: {
+  docScan: DocScanState;
+  onLectureRapide: () => void;
+}) {
+  const { available, creating, creer } = useChantiers();
+  const [devisPose, setDevisPose] = useState(false);
+
+  if (docScan.scanning) {
+    return (
+      <span className="flex items-center gap-1 text-[11px] text-gray-500">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        lecture des pièces {docScan.done}/{docScan.total}
+      </span>
+    );
+  }
+  if (docScan.pending <= 0) return null;
+
+  if (devisPose) {
+    return (
+      <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+        <Check className="h-3.5 w-3.5" />
+        Devis déposé — à valider dans « Analyses profondes »
+      </span>
+    );
+  }
+
+  const pieces = `${docScan.pending} pièce${docScan.pending > 1 ? 's' : ''}`;
+
+  const lancerChantier = async () => {
+    const numeros = docScan.numeros;
+    const id = await creer({
+      type: numeros.length >= 2 ? 'liens' : 'dossier',
+      numero: numeros.length >= 2 ? '' : (numeros[0] || ''),
+      numeros,
+      consigne:
+        'Recoupements entre dossiers. Dépouiller les pièces jamais analysées et relever '
+        + 'les personnes, adresses, lignes téléphoniques, véhicules, comptes et IBAN communs '
+        + 'à plusieurs dossiers. Pour chacun : citer la pièce et la cote, dire ce que le '
+        + 'rapprochement établit et ce qu’il n’établit pas, et signaler en priorité ce qui '
+        + 'n’est pas déjà visible sur la cartographie (aucun mis en cause commun).',
+      nuitSeulement: true,
+    });
+    if (id) setDevisPose(true);
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      {available && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1.5 text-xs"
+          disabled={creating}
+          onClick={lancerChantier}
+          title={`Analyse profonde des ${pieces} jamais lues, sur ${docScan.numeros.length} dossier(s) : un devis chiffré est déposé dans « Analyses profondes ». Rien ne tourne avant que vous le validiez.`}
+        >
+          {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers className="h-3.5 w-3.5" />}
+          Analyser {pieces}
+        </Button>
+      )}
+      <button
+        type="button"
+        onClick={onLectureRapide}
+        title="Extraction du seul texte, sur ce poste, sans jeton ni analyse : les pièces entrent dans la veille mais personne ne les lit."
+        className={available
+          ? 'inline-flex items-center gap-1 text-[10.5px] text-gray-400 underline decoration-dotted hover:text-gray-600'
+          : 'inline-flex h-7 items-center gap-1.5 rounded-md border border-gray-200 px-2 text-xs text-gray-700 hover:bg-gray-50'}
+      >
+        <FileSearch className="h-3 w-3" />
+        {available ? 'lecture rapide' : `Analyser ${pieces}`}
+      </button>
+    </div>
   );
 }

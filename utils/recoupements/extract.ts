@@ -148,8 +148,17 @@ const FIN_DE_VOIE = new Set([
 
 const MAX_MOTS_VOIE = 4;
 
+// La virgule entre le numéro et le type de voie est la convention postale
+// française — « 12, rue Monstrelet » — et l'écriture majoritaire des PV et des
+// fiches. Sans elle, ces adresses-là étaient purement et simplement invisibles
+// à la veille : la voie était bien reconnue, mais amputée de son numéro, donc
+// écartée par `canonAdresse`.
+//
+// La virgule SEULEMENT : un point séparerait deux phrases (« … 250 euros.
+// Place de la gare, il a rencontré… ») et fabriquerait une adresse qui n'a
+// jamais été écrite.
 const RE_ADRESSE = new RegExp(
-  String.raw`(\d{1,4})?\s*(?:bis|ter|quater)?\s*\b(` +
+  String.raw`(\d{1,4})?\s*(?:bis|ter|quater)?\s*,?\s*\b(` +
   Object.keys(VOIE_CANON).join('|') +
   String.raw`)\b\.?\s+([A-Za-zÀ-ÿ0-9'’\-]+(?:\s+[A-Za-zÀ-ÿ0-9'’\-]+){0,6})`,
   'gi'

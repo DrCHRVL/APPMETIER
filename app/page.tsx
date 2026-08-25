@@ -51,7 +51,10 @@ import {
   instructionKey as recoupementInstructionKey,
 } from '@/utils/recoupements/corpus';
 import { RecoupementsModal } from '@/components/recoupements/RecoupementsModal';
+import { useRecoupementActions } from '@/hooks/useRecoupementActions';
 import type { Recoupement } from '@/types/recoupementTypes';
+import { ContentieuxManager } from '@/utils/contentieuxManager';
+import { appendModifications, diffEnqueteUpdates } from '@/utils/modificationLogger';
 import { useTags } from '@/hooks/useTags';
 import { useSections } from '@/hooks/useSections';
 import { useUserServiceOrganization } from '@/hooks/useUserServiceOrganization';
@@ -403,8 +406,12 @@ function AppContent() {
   // attendre un rechargement de la page.
   const handleUpdateEnqueteSynced = useCallback((id: number, updates: Partial<Enquete>) => {
     handleUpdateEnquete(id, updates);
-    applyOverboardUpdate(id, updates);
-  }, [handleUpdateEnquete, applyOverboardUpdate]);
+    // Ciblé sur le contentieux du dossier (son contentieux d'origine s'il est
+    // co-saisi) : les id d'enquête repartent de 1 par contentieux, une mise à
+    // jour non ciblée toucherait leurs homonymes numériques.
+    const source = enquetesLookupRef.current.find(e => e.id === id);
+    applyOverboardUpdate(id, updates, source?.contentieuxOrigine || currentContentieuxId);
+  }, [handleUpdateEnquete, applyOverboardUpdate, currentContentieuxId]);
 
   // Hook pour les instructions judiciaires (refonte PR1 — modèle DossierInstruction)
   const {
@@ -1018,6 +1025,9 @@ function AppContent() {
     contentieuxJA,
   });
   const [showRecoupementsModal, setShowRecoupementsModal] = useState(false);
+  // Les suites qu'on peut donner à un signal : tracer sur la cartographie le
+  // lien qui manque. Ce qui existe déjà n'est jamais reproposé.
+  const { liens: liensRenseignementCarto, creerLien: creerLienRecoupement } = useRecoupementActions();
   // Dossiers créés « ex nihilo » directement sur la cartographie (sans
   // enquête ni instruction source) : doivent être trouvables dans la
   // recherche globale au même titre que les autres dossiers.
@@ -1378,6 +1388,97 @@ function AppContent() {
     handleOpenDossierByNumero(ref.numero);
   }, [handleOpenDossierByNumero, setSelectedEnquete]);
 
+  /**
+   * Inscrit aux mis en cause une personne que la procédure cite sans l'y avoir
+   * mise. Écriture réelle dans le dossier — donc la seule de toute la veille,
+   * et toujours à la demande expresse du magistrat.
+   *
+   * Trois chemins, selon où vit le dossier :
+   *   · dossier d'instruction  → la personne rejoint les SUSPECTS (une mise en
+   *     examen ne se décide pas depuis un écran de veille) ;
+   *   · enquête du contentieux ouvert → le store, qui journalise et sauvegarde ;
+   *   · enquête d'un autre contentieux → le ContentieuxManager, qui écrit sur
+   *     la bonne clé et refuse de lui-même les contentieux en lecture seule.
+   * Dans tous les cas on vérifie d'abord que la personne n'y figure pas déjà.
+   */
+  const handleAjouterMecRecoupement = useCallback((signal: Recoupement, dossierKey: string, nom: string) => {
+    const ref = signal.occurrences.find(o => o.dossier.key === dossierKey)?.dossier;
+    const propre = (nom || '').trim();
+    if (!ref || propre.length < 2) return;
+
+    if (ref.nature === 'instruction') {
+      const inst = instructions.find(d => d.id === ref.instructionId);
+      if (!inst) { showToast(`Dossier ${ref.numero} introuvable`, 'info'); return; }
+      const presentes = [
+        ...(inst.misEnExamen || []).map(m => m.nom),
+        ...(inst.suspects || []).map(x => x.nom),
+        ...(inst.victimes || []).map(v => v.nom),
+      ];
+      if (presentes.some(n => sameMecPerson(n || '', propre))) {
+        showToast(`${propre} figure déjà dans ${ref.numero}`, 'info');
+        return;
+      }
+      handleUpdateInstruction(inst.id, {
+        suspects: [
+          ...(inst.suspects || []),
+          { id: Date.now(), nom: propre, role: 'Cité dans la procédure (recoupement)' },
+        ],
+      });
+      showToast(`${propre} ajouté aux suspects de ${ref.numero}`, 'success');
+      return;
+    }
+
+    const ctxId = ref.contentieuxId as ContentieuxId | undefined;
+    if (!ctxId || ref.enqueteId == null) { showToast('Dossier non identifié', 'info'); return; }
+
+    const nouveau = {
+      id: Date.now(),
+      nom: propre,
+      role: 'Cité dans la procédure (recoupement)',
+      statut: 'actif',
+    };
+
+    const store = useEnquetesStore.getState();
+    if (store.contentieuxId === ctxId) {
+      const live = store.ownEnquetes.find(e => e.id === ref.enqueteId);
+      if (live) {
+        if ((live.misEnCause || []).some(m => sameMecPerson(m.nom || '', propre))) {
+          showToast(`${propre} figure déjà parmi les mis en cause de ${ref.numero}`, 'info');
+          return;
+        }
+        store.updateEnquete(live.id, { misEnCause: [...(live.misEnCause || []), nouveau] });
+        applyOverboardUpdate(live.id, { misEnCause: [...(live.misEnCause || []), nouveau] }, ctxId);
+        showToast(`${propre} ajouté aux mis en cause de ${ref.numero}`, 'success');
+        return;
+      }
+    }
+
+    // Autre contentieux (ou enquête co-saisie) : on écrit là où le dossier vit.
+    const manager = ContentieuxManager.getInstance();
+    const liste = manager.getEnquetes(ctxId);
+    const cible = liste.find(e => e.id === ref.enqueteId);
+    if (!cible) {
+      showToast(`${ref.numero} n'est pas chargé — ouvrez-le puis réessayez`, 'info');
+      return;
+    }
+    if ((cible.misEnCause || []).some(m => sameMecPerson(m.nom || '', propre))) {
+      showToast(`${propre} figure déjà parmi les mis en cause de ${ref.numero}`, 'info');
+      return;
+    }
+    const updates = { misEnCause: [...(cible.misEnCause || []), nouveau] };
+    const majee = appendModifications(
+      { ...cible, ...updates, dateMiseAJour: new Date().toISOString() },
+      diffEnqueteUpdates(cible, updates),
+    );
+    manager.setEnquetes(ctxId, liste.map(e => (e.id === cible.id ? majee : e)))
+      .then(ok => {
+        if (!ok) { showToast(`${ref.numero} est en lecture seule pour vous`, 'warning'); return; }
+        applyOverboardUpdate(cible.id, updates, ctxId);
+        showToast(`${propre} ajouté aux mis en cause de ${ref.numero}`, 'success');
+      })
+      .catch(() => showToast('Enregistrement impossible', 'error'));
+  }, [instructions, handleUpdateInstruction, applyOverboardUpdate, showToast]);
+
   // Signaux touchant le dossier ouvert — absents s'il n'y a rien à dire.
   const recoupementsDuDossier = useMemo(() => {
     if (!selectedEnquete) return undefined;
@@ -1393,9 +1494,15 @@ function AppContent() {
       estNouveau: recoupements.estNouveau,
       onOuvrirDossier: handleOuvrirDossierRecoupement,
       onEcarter: recoupements.ecarter,
+      liens: liensRenseignementCarto,
+      onCreerLien: creerLienRecoupement,
+      onAjouterMec: handleAjouterMecRecoupement,
       onVus: recoupements.marquerVus,
     };
-  }, [selectedEnquete, currentContentieuxId, recoupements, handleOuvrirDossierRecoupement]);
+  }, [
+    selectedEnquete, currentContentieuxId, recoupements, handleOuvrirDossierRecoupement,
+    liensRenseignementCarto, creerLienRecoupement, handleAjouterMecRecoupement,
+  ]);
 
   const recoupementsDeLInstruction = useMemo(() => {
     if (!selectedInstruction) return undefined;
@@ -1409,9 +1516,15 @@ function AppContent() {
       estNouveau: recoupements.estNouveau,
       onOuvrirDossier: handleOuvrirDossierRecoupement,
       onEcarter: recoupements.ecarter,
+      liens: liensRenseignementCarto,
+      onCreerLien: creerLienRecoupement,
+      onAjouterMec: handleAjouterMecRecoupement,
       onVus: recoupements.marquerVus,
     };
-  }, [selectedInstruction, recoupements, handleOuvrirDossierRecoupement]);
+  }, [
+    selectedInstruction, recoupements, handleOuvrirDossierRecoupement,
+    liensRenseignementCarto, creerLienRecoupement, handleAjouterMecRecoupement,
+  ]);
 
   const handleToggleSuivi = useCallback((enqueteId: number, type: 'JIRS' | 'PG') => {
     const enquete = enquetesLookupRef.current.find(e => e.id === enqueteId);
@@ -2187,6 +2300,9 @@ return (
         }}
         onEcarter={recoupements.ecarter}
         onReactiver={recoupements.reactiver}
+        liens={liensRenseignementCarto}
+        onCreerLien={creerLienRecoupement}
+        onAjouterMec={handleAjouterMecRecoupement}
         onVus={recoupements.marquerVus}
       />
 
