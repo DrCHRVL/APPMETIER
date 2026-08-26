@@ -93,8 +93,10 @@ export interface Recoupement {
   score: number;
   /**
    * Empreinte de la situation qui justifie le signal : liste des dossiers
-   * concernés. Écarter le signal mémorise cette empreinte ; il ne réapparaît
-   * que si un dossier de plus rejoint la coïncidence.
+   * concernés (triée, jointe par « | »). Écarter le signal mémorise cette
+   * empreinte ; il ne réapparaît que si un dossier de plus rejoint la
+   * coïncidence — un dossier qui s'en va ne réveille rien (la comparaison se
+   * fait par inclusion, cf. utils/recoupements/gestes.ts).
    */
   stateKey: string;
   dossierKeys: string[];
@@ -116,6 +118,13 @@ export interface Recoupement {
 export interface RecoupementAck {
   /** Empreinte au moment du geste (cf. Recoupement.stateKey). */
   stateKey: string;
+  /**
+   * Dossiers concernés au moment du geste. C'est la référence : le signal ne
+   * ressort que si un dossier ABSENT de cette liste rejoint la coïncidence
+   * (cf. utils/recoupements/gestes.ts). Absente des gestes enregistrés avant
+   * cette précision : `stateKey` la porte alors, jointe par « | ».
+   */
+  dossierKeys?: string[];
   /** 'vu' = lu sans suite ; 'ecarte' = sans intérêt, ne plus remonter. */
   action: 'vu' | 'ecarte';
   at: string;

@@ -1496,6 +1496,7 @@ function AppContent() {
       nouveaux: recoupements.nouveauxParDossier.get(key) || [],
       dossierCourant: key,
       estNouveau: recoupements.estNouveau,
+      estRevenu: recoupements.estRevenu,
       onOuvrirDossier: handleOuvrirDossierRecoupement,
       onEcarter: recoupements.ecarter,
       liens: liensRenseignementCarto,
@@ -1518,6 +1519,7 @@ function AppContent() {
       nouveaux: recoupements.nouveauxParDossier.get(key) || [],
       dossierCourant: key,
       estNouveau: recoupements.estNouveau,
+      estRevenu: recoupements.estRevenu,
       onOuvrirDossier: handleOuvrirDossierRecoupement,
       onEcarter: recoupements.ecarter,
       liens: liensRenseignementCarto,
@@ -2293,6 +2295,7 @@ return (
         signaux={recoupements.signaux}
         ecartes={recoupements.ecartes}
         estNouveau={recoupements.estNouveau}
+        estRevenu={recoupements.estRevenu}
         computing={recoupements.computing}
         docScan={recoupements.docScan}
         onAnalyserPieces={recoupements.analyserPieces}

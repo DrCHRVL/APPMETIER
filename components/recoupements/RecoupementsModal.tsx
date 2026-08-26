@@ -31,6 +31,8 @@ export interface RecoupementsModalProps {
   signaux: Recoupement[];
   ecartes: Recoupement[];
   estNouveau: (signal: Recoupement) => boolean;
+  /** Signal écarté autrefois, remonté parce qu'un dossier de plus l'a rejoint. */
+  estRevenu?: (signal: Recoupement) => boolean;
   computing: boolean;
   docScan: DocScanState;
   onAnalyserPieces: () => void;
@@ -51,6 +53,7 @@ export function RecoupementsModal({
   signaux,
   ecartes,
   estNouveau,
+  estRevenu,
   computing,
   docScan,
   onAnalyserPieces,
@@ -122,6 +125,7 @@ export function RecoupementsModal({
               <RecoupementList
                 signaux={signaux}
                 estNouveau={estNouveau}
+                estRevenu={estRevenu}
                 onOuvrirDossier={onOuvrirDossier}
                 onEcarter={onEcarter}
                 liens={liens}
