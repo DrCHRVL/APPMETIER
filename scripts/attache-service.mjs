@@ -22,7 +22,7 @@ import { handleConnectorMessage } from './attache-mcp.mjs'
 import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride, purgeInbox } from './attache/mail.mjs'
-import { listChantiers, createChantier, actionChantier, chantierStep, chantierActif, forceActive } from './attache/chantier.mjs'
+import { listChantiers, createChantier, createChantiersEnMasse, reprendreMasse, actionChantier, detailChantier, chantierStep, chantierActif, forceActive } from './attache/chantier.mjs'
 import { inNightWindow, prochaineNuit, feuChantier as feuDeChantier, NIGHT_START, NIGHT_END, NIGHT_TZ } from './attache/ordonnancement.mjs'
 import { writeClaudeToken, clearClaudeToken, clearAuthFailure } from './attache/claudeAuth.mjs'
 import { runAgent, checkClaudeCli, testClaudeAuth, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
@@ -940,7 +940,11 @@ async function maybeChantiers() {
   if (chantierLoopRunning) return
   {
     const keys0 = loadKeyring()
-    if (!keys0 || !chantierActif(keys0)) return
+    if (!keys0) return
+    // une création en masse interrompue par un redémarrage reprend ici
+    // (une seule vérification par vie du processus, coût nul sinon)
+    try { reprendreMasse(keys0) } catch (e) { console.error('[attache] reprise masse :', e) }
+    if (!chantierActif(keys0)) return
   }
   chantierLoopRunning = true
   try {
@@ -1528,6 +1532,18 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { chantiers: listChantiers(keys), feu: etatFeu() })
     }
 
+    // Le détail d'UN chantier, à la demande (jamais dans le sondage) :
+    // journal complet, pochettes dépliées lot par lot avec leurs fiches.
+    if (route === 'GET /chantiers/detail') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      try {
+        return json(res, 200, detailChantier(keys, String(url.searchParams.get('id') || '')))
+      } catch (e) {
+        return json(res, 400, { error: String(e?.message || e) })
+      }
+    }
+
     if (route === 'POST /chantiers') {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
@@ -1535,9 +1551,24 @@ const server = http.createServer(async (req, res) => {
       try {
         if (body.action) {
           const out = await actionChantier(keys, { id: String(body.id || ''), action: String(body.action) })
-          // « lancer » / « forcer » : première vague sans attendre le prochain
-          // tick (« forcer » a le feu vert par construction).
-          if (['lancer', 'forcer'].includes(body.action)) setTimeout(() => { maybeChantiers().catch(() => {}) }, 50)
+          // Toute action qui remet du travail devant : première vague sans
+          // attendre le prochain tick (« forcer » a le feu vert par construction).
+          if (['lancer', 'forcer', 'relancer_echecs', 'relancer_synthese'].includes(body.action)) {
+            setTimeout(() => { maybeChantiers().catch(() => {}) }, 50)
+          }
+          return json(res, 200, out)
+        }
+        // Portée « tous les dossiers … » : un chantier par dossier, chacun
+        // avec son devis — la réponse part tout de suite, les devis se créent
+        // en arrière-plan et apparaissent dans la liste au fil de l'eau.
+        if (body.portee) {
+          const out = createChantiersEnMasse(keys, {
+            portee: String(body.portee),
+            consigne: String(body.consigne || ''),
+            nuitSeulement: body.nuitSeulement !== false,
+            modeleFiches: body.modeleFiches === 'principal' ? 'principal' : 'sous-agent',
+            budgetJetons: Number(body.budgetJetons) > 0 ? Number(body.budgetJetons) : 0,
+          })
           return json(res, 200, out)
         }
         const ch = await createChantier(keys, {
@@ -1546,6 +1577,9 @@ const server = http.createServer(async (req, res) => {
           numeros: Array.isArray(body.numeros) ? body.numeros.map((n) => String(n)).filter(Boolean).slice(0, 12) : undefined,
           consigne: String(body.consigne || ''),
           nuitSeulement: body.nuitSeulement !== false,
+          relire: body.relire === true,
+          modeleFiches: body.modeleFiches === 'principal' ? 'principal' : 'sous-agent',
+          budgetJetons: Number(body.budgetJetons) > 0 ? Number(body.budgetJetons) : 0,
         })
         return json(res, 200, ch)
       } catch (e) {

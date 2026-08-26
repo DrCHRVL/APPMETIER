@@ -160,7 +160,7 @@ fs.writeFileSync(path.join(BAC, 'dossierMemory.mjs'), 'export async function app
 process.env.SIRAL_DATA_DIR = path.join(TMP, 'data')
 process.env.SIRAL_ATTACHE_TJ = 'default'
 
-const { readChantier, chantierStep, actionChantier, forceActive, estLimiteForfait, concurrenceChantier } = await import(path.join(BAC, 'chantier.mjs'))
+const { readChantier, chantierStep, actionChantier, forceActive, estLimiteForfait, concurrenceChantier, createChantier, createChantiersEnMasse, masseEtat, listChantiers } = await import(path.join(BAC, 'chantier.mjs'))
 const { encryptJson } = await import(path.join(BAC, 'crypto.mjs'))
 const { attacheDir, ensureDir } = await import(path.join(BAC, 'store.mjs'))
 const { journalRuns } = await import(path.join(BAC, 'agent.mjs'))
@@ -174,7 +174,7 @@ ok(FRONT <= Math.max(1, os.cpus().length - 2), 'elle laisse au moins deux cœurs
 const FICHE_VALIDE = () => ({ ok: true, text: '## Chronologie\n' + 'x'.repeat(400) })
 
 /** Pose un chantier « dossier » prêt à tourner, avec `nbLots` lots à faire. */
-function poserChantier({ id, nbLots, nuitSeulement = false, creeLe = '2026-08-24T09:53:20.000Z', lots }) {
+function poserChantier({ id, nbLots, nuitSeulement = false, creeLe = '2026-08-24T09:53:20.000Z', lots, extra }) {
   const ch = {
     id, type: 'dossier', numero: '387/081-2026', consigne: '',
     nuitSeulement, origine: 'magistrat', etat: 'en_cours', creeLe,
@@ -185,6 +185,7 @@ function poserChantier({ id, nbLots, nuitSeulement = false, creeLe = '2026-08-24
       })),
     }],
     fiches: [], totalPieces: nbLots || (lots || []).length, piecesDeposees: nbLots, doublons: [], journal: [],
+    ...(extra || {}),
   }
   ensureDir(attacheDir('chantiers'))
   fs.writeFileSync(path.join(attacheDir('chantiers'), id + '.json'), JSON.stringify(encryptJson(KEYS.global, ch)))
@@ -195,19 +196,23 @@ const tousLots = (ch) => ch.plan.flatMap((p) => p.lots)
 const feuVert = () => ({ ok: true })
 
 {
+  // VAGUE GLISSANTE : un pas traite jusqu'à front × 2 lots, chaque emplacement
+  // reprenant un lot dès qu'il se libère — plus de barrière qui attend le lot
+  // le plus lent. Le parallélisme instantané reste borné au front.
   viderChantiers()
   poserChantier({ id: 'a'.repeat(16), nbLots: FRONT + 2 })
   journalRuns.total = 0; journalRuns.maxEnVol = 0; journalRuns.reponse = FICHE_VALIDE
 
+  const attendu = Math.min(FRONT * 2, FRONT + 2)
   const verdict = await chantierStep(KEYS, feuVert)
   const ch = readChantier(KEYS, 'a'.repeat(16))
 
   eq(verdict, 'travail', 'un pas de chantier travaille')
-  eq(journalRuns.total, FRONT, `une vague lance ${FRONT} lot(s)`)
-  eq(journalRuns.maxEnVol, FRONT, 'ils tournent VRAIMENT de front, pas à la queue leu leu')
-  eq(tousLots(ch).filter((l) => l.etat === 'fait').length, FRONT, 'autant de lots faits')
-  eq(tousLots(ch).filter((l) => l.etat === 'a_faire').length, 2, 'le reste attend le pas suivant')
-  eq(ch.fiches.length, FRONT, 'une fiche par lot')
+  eq(journalRuns.total, attendu, `un pas glisse jusqu'à front × 2 lots (ici ${attendu})`)
+  eq(journalRuns.maxEnVol, Math.min(FRONT, attendu), 'jamais plus de lots en vol que le front')
+  eq(tousLots(ch).filter((l) => l.etat === 'fait').length, attendu, 'autant de lots faits')
+  eq(tousLots(ch).filter((l) => l.etat === 'a_faire').length, FRONT + 2 - attendu, 'le reste attend le pas suivant')
+  eq(ch.fiches.length, attendu, 'une fiche par lot')
   ok(!(ch.pas || []).length, 'aucun marqueur de pas ne survit à la vague')
 }
 
@@ -222,12 +227,13 @@ const feuVert = () => ({ ok: true })
 }
 
 {
-  // Le feu peut resserrer la vague à un seul lot (forfait tendu).
+  // Le feu peut resserrer la vague à un seul lot en vol (forfait tendu).
   viderChantiers()
   poserChantier({ id: 'c'.repeat(16), nbLots: FRONT + 2 })
   journalRuns.total = 0; journalRuns.maxEnVol = 0; journalRuns.reponse = FICHE_VALIDE
   await chantierStep(KEYS, () => ({ ok: true, front: 1 }))
-  eq(journalRuns.total, 1, 'forfait tendu (ou plein jour) : un seul lot à la fois')
+  eq(journalRuns.maxEnVol, 1, 'forfait tendu (ou plein jour) : un seul lot à la fois')
+  eq(journalRuns.total, 2, 'le pas reste borné (front × 2), en série')
 }
 
 console.log('\nMoteur — un chantier bloqué n\'en bloque plus d\'autres')
@@ -245,7 +251,7 @@ console.log('\nMoteur — un chantier bloqué n\'en bloque plus d\'autres')
   const passant = readChantier(KEYS, 'e'.repeat(16))
 
   eq(verdict, 'travail', 'le pas travaille malgré le chantier bloqué en tête de file')
-  eq(tousLots(passant).filter((l) => l.etat === 'fait').length, Math.min(FRONT, 3), 'le chantier de jour a bien avancé')
+  eq(tousLots(passant).filter((l) => l.etat === 'fait').length, Math.min(FRONT * 2, 3), 'le chantier de jour a bien avancé')
   eq(tousLots(bloque).filter((l) => l.etat === 'fait').length, 0, 'le chantier de nuit n\'a pas bougé')
   eq(bloque.attente, 'nuit', 'son attente est notée')
   eq(bloque.attenteDetail, 'reprise vers 22 h (Europe/Paris)', 'avec le motif exact, affichable à l\'écran')
@@ -361,6 +367,163 @@ console.log('\nDérogation « Forcer maintenant »')
 
   const enPause = await actionChantier(KEYS, { id: '2'.repeat(16), action: 'pause' })
   eq(enPause.forceJusqu, null, 'la pause referme la dérogation')
+}
+
+// ── 3. Relances, jetons réels et plafond ────────────────────────────────────
+console.log('\nRelances — les lots en échec et la synthèse ne sont plus perdus')
+{
+  // Un lot en « échec » définitif redevient « à faire », tentatives à zéro.
+  viderChantiers()
+  poserChantier({
+    id: '5'.repeat(16), nbLots: 0,
+    lots: [
+      { n: 1, pieces: ['PV/1.pdf'], etat: 'echec', echecs: 3 },
+      { n: 2, pieces: ['PV/2.pdf'], etat: 'fait', echecs: 0 },
+    ],
+  })
+  const apres = await actionChantier(KEYS, { id: '5'.repeat(16), action: 'relancer_echecs' })
+  const lots = tousLots(readChantier(KEYS, '5'.repeat(16)))
+  eq(lots.find((l) => l.n === 1).etat, 'a_faire', 'le lot en échec repart à faire')
+  eq(lots.find((l) => l.n === 1).echecs, 0, 'ses tentatives repartent de zéro')
+  eq(lots.find((l) => l.n === 2).etat, 'fait', 'les lots faits ne bougent pas')
+  eq(apres.etat, 'en_cours', 'le chantier repart')
+
+  let refus = null
+  try { await actionChantier(KEYS, { id: '5'.repeat(16), action: 'relancer_echecs' }) } catch (e) { refus = String(e?.message || e) }
+  ok(/Aucun lot en échec/.test(refus || ''), 'sans lot en échec : refus explicite')
+}
+{
+  // Une synthèse abandonnée se relance seule, depuis les fiches.
+  viderChantiers()
+  poserChantier({
+    id: '6'.repeat(16), nbLots: 1,
+    extra: { etat: 'termine', syntheseEchecs: 3, fiches: [{ pochette: 'PV', lot: 1, prodId: 'p-1', titre: 'Fiche' }] },
+  })
+  const apres = await actionChantier(KEYS, { id: '6'.repeat(16), action: 'relancer_synthese' })
+  eq(apres.etat, 'synthese', 'le chantier repart en synthèse')
+  eq(readChantier(KEYS, '6'.repeat(16)).syntheseEchecs, 0, 'compteur d\'échecs remis à zéro')
+}
+
+console.log('\nJetons — le réel se compte, le plafond arrête proprement')
+{
+  // Le bilan de jetons de chaque run s'ajoute au chantier (le RÉEL du devis),
+  // et le rythme observé se mesure.
+  viderChantiers()
+  poserChantier({ id: '7'.repeat(16), nbLots: 1 })
+  journalRuns.reponse = () => ({ ok: true, text: '## Chronologie\n' + 'x'.repeat(400), usage: { in: 1000, out: 200, cacheW: 50, cacheR: 10 } })
+  await chantierStep(KEYS, feuVert)
+  const ch = readChantier(KEYS, '7'.repeat(16))
+  eq(ch.jetons?.total, 1260, 'les jetons du run sont comptés au chantier')
+  eq(ch.rythme?.lots, 1, 'le rythme observé se mesure lot par lot')
+
+  // Plafond posé et déjà atteint : le pas suivant met en PAUSE, proprement.
+  viderChantiers()
+  poserChantier({ id: '8'.repeat(16), nbLots: 2, extra: { budgetJetons: 1000, jetons: { in: 900, out: 200, cacheW: 0, cacheR: 0, total: 1100 } } })
+  journalRuns.total = 0; journalRuns.reponse = FICHE_VALIDE
+  await chantierStep(KEYS, feuVert)
+  const plafonne = readChantier(KEYS, '8'.repeat(16))
+  eq(plafonne.etat, 'pause', 'plafond atteint : le chantier se met en pause')
+  eq(journalRuns.total, 0, 'aucun lot ne part au-delà du plafond')
+  ok(plafonne.journal.some((e) => /Plafond de jetons atteint/.test(e.evenement)), 'le motif est au journal')
+}
+
+// ── 4. Création en masse : « tous les dossiers archivés » ───────────────────
+// Le formulaire n'acceptait qu'UN numéro : demander le dépouillement de tout
+// le stock archivé échouait sur « dossier introuvable ». La masse déroule la
+// portée elle-même — un chantier (et un devis) par dossier archivé qui a des
+// pièces, en écartant sans doublon ceux déjà en chantier.
+console.log('\nCréation en masse — « tous les dossiers archivés »')
+{
+  viderChantiers()
+
+  // Sans le moindre dossier archivé, la masse le dit en clair.
+  let refus = null
+  try { createChantiersEnMasse(KEYS, { portee: 'archives' }) } catch (e) { refus = String(e?.message || e) }
+  ok(/Aucun dossier archivé/.test(refus || ''), 'sans archives : refus explicite, pas de silence')
+
+  // Un contentieux : deux archivés dépouillables ou non, un archivé déjà en
+  // chantier, un dossier en cours (hors portée).
+  const ctxKey = crypto.randomBytes(32)
+  KEYS.byScope = new Map([['ctx-crimorg', ctxKey]])
+  const enquetes = [
+    { numero: 'A-1/2020 - VIEUX', statut: 'archive' },
+    { numero: 'A-2/2021 - SANS PIECES', statut: 'archive' },
+    { numero: 'A-3/2022 - DEJA', statut: 'archive' },
+    { numero: 'B-1/2026 - EN COURS', statut: 'en_cours' },
+  ]
+  const { encryptJson: chiffrer } = await import(path.join(BAC, 'crypto.mjs'))
+  const { docServerKey } = await import(path.join(BAC, 'store.mjs'))
+  const dataDir = process.env.SIRAL_DATA_DIR
+  fs.mkdirSync(path.join(dataDir, 'vaults'), { recursive: true })
+  fs.writeFileSync(path.join(dataDir, 'vaults', 'ctx-crimorg.json'),
+    JSON.stringify(chiffrer(ctxKey, { data: { enquetes, version: 1 }, metadata: null })))
+  for (const numero of ['A-1/2020 - VIEUX', 'A-3/2022 - DEJA']) {
+    const dossierDir = path.join(dataDir, 'docs', docServerKey(numero))
+    fs.mkdirSync(dossierDir, { recursive: true })
+    fs.writeFileSync(path.join(dossierDir, '.index.json'),
+      JSON.stringify([{ rel: 'PV/p1.pdf' }, { rel: 'PV/p2.pdf' }]))
+  }
+  // A-3 a déjà son chantier « dossier » : la masse ne doit pas le doubler.
+  const existant = {
+    id: 'f'.repeat(16), type: 'dossier', numero: 'A-3/2022 - DEJA', etat: 'termine',
+    creeLe: '2026-01-01T00:00:00.000Z', plan: [], fiches: [], totalPieces: 2, journal: [],
+  }
+  ensureDir(attacheDir('chantiers'))
+  fs.writeFileSync(path.join(attacheDir('chantiers'), existant.id + '.json'),
+    JSON.stringify(encryptJson(KEYS.global, existant)))
+
+  const out = createChantiersEnMasse(KEYS, { portee: 'archives', consigne: 'angle test', nuitSeulement: true })
+  eq(out.lances, 1, 'un seul dossier archivé reste à dépouiller')
+  ok(out.dejaEnChantier.includes('A-3/2022 - DEJA'), 'déjà en chantier : écarté et nommé (idempotence)')
+  ok(out.sansPieces.includes('A-2/2021 - SANS PIECES'), 'sans pièces : écarté et nommé')
+  ok(!JSON.stringify(out).includes('B-1/2026'), 'les dossiers en cours restent hors de la portée « archives »')
+
+  // Le devis se crée en ARRIÈRE-PLAN : on attend qu'il tombe.
+  let devis = null
+  for (let i = 0; i < 100 && !devis; i++) {
+    await new Promise((r) => setTimeout(r, 25))
+    devis = listChantiers(KEYS).find((c) => c.numero === 'A-1/2020 - VIEUX') || null
+  }
+  ok(devis, 'le devis du dossier archivé apparaît au fil de l\'eau')
+  eq(devis?.etat, 'devis', 'il attend la validation du magistrat — rien ne se lance seul')
+  eq(devis?.totalPieces, 2, 'son plan couvre les pièces du dossier')
+
+  // La masse s'annonce finie (bilan publié, garde levée) avant toute relance.
+  for (let i = 0; i < 100 && masseEtat(); i++) await new Promise((r) => setTimeout(r, 25))
+  ok(!masseEtat(), 'la garde « masse en cours » retombe une fois le bilan publié')
+
+  // Relancer la même masse ne crée AUCUN doublon.
+  const bis = createChantiersEnMasse(KEYS, { portee: 'archives' })
+  eq(bis.lances, 0, 'relancer la masse ne crée aucun doublon')
+  eq(listChantiers(KEYS).filter((c) => c.numero === 'A-1/2020 - VIEUX').length, 1, 'un seul chantier par dossier')
+}
+
+// ── 5. Complément : une pièce lue ne se relit pas d'un chantier à l'autre ───
+console.log('\nComplément — le devis écarte les pièces déjà couvertes par des fiches')
+{
+  // Le chantier de A-1 (créé par la masse ci-dessus) a « lu » ses pièces.
+  const devisA1 = listChantiers(KEYS).find((c) => c.numero === 'A-1/2020 - VIEUX')
+  const chA1 = readChantier(KEYS, devisA1.id)
+  for (const p of chA1.plan) for (const l of p.lots) l.etat = 'fait'
+  fs.writeFileSync(path.join(attacheDir('chantiers'), chA1.id + '.json'), JSON.stringify(encryptJson(KEYS.global, chA1)))
+
+  // Tout est couvert : la re-création refuse et nomme le remède.
+  let refus = null
+  try { await createChantier(KEYS, { numero: 'A-1/2020 - VIEUX' }) } catch (e) { refus = String(e?.message || e) }
+  ok(/déjà couvertes/.test(refus || ''), 'tout couvert : refus explicite, avec le remède « relire »')
+
+  // « relire » force la relecture complète (autre angle voulu).
+  const complet = await createChantier(KEYS, { numero: 'A-1/2020 - VIEUX', relire: true })
+  eq(complet.totalPieces, 2, '« relire » re-planifie toutes les pièces')
+  await actionChantier(KEYS, { id: complet.id, action: 'supprimer' })
+
+  // Une pièce NOUVELLE versée : seul le delta est planifié.
+  const { docServerKey: cleDoc } = await import(path.join(BAC, 'store.mjs'))
+  const idx = path.join(process.env.SIRAL_DATA_DIR, 'docs', cleDoc('A-1/2020 - VIEUX'), '.index.json')
+  fs.writeFileSync(idx, JSON.stringify([{ rel: 'PV/p1.pdf' }, { rel: 'PV/p2.pdf' }, { rel: 'PV/p3.pdf' }]))
+  const delta = await createChantier(KEYS, { numero: 'A-1/2020 - VIEUX' })
+  eq(delta.totalPieces, 1, 'seule la pièce nouvelle est à lire')
+  eq(delta.estimation.dejaCouvertes, 2, 'le devis nomme les pièces déjà couvertes')
 }
 
 console.log(echecs ? `\n${echecs} vérification(s) en échec.\n` : '\nToutes les vérifications passent.\n')

@@ -40,7 +40,7 @@ import os from 'node:os'
 import { attacheDir, ensureDir, atomicWrite, readJson, listFiles, listDocsMeta, docServerKey, attacheTj } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { audit, publishFeed } from './journal.mjs'
-import { numeroCanonique, ensureDocShas } from './dossier.mjs'
+import { numeroCanonique, ensureDocShas, loadContentieux } from './dossier.mjs'
 import { appendDossierMemory } from './dossierMemory.mjs'
 import { saveProduction, readProduction, listProductions } from './productions.mjs'
 import { runAgent, agentConfig } from './agent.mjs'
@@ -121,6 +121,35 @@ export function readChantier(keys, id) {
   try { return decryptJson(keys.global, env) } catch { return null }
 }
 
+// ── Cache des chantiers déchiffrés ──────────────────────────────────────────
+// L'écran sonde toutes les 20 s quand un chantier tourne, et le tick du
+// service relit la même chose : chaque passage relisait et DÉCHIFFRAIT tous
+// les fichiers. Avec des dizaines de chantiers (création en masse), c'est du
+// déchiffrement pour rien. On garde l'objet déchiffré tant que le fichier n'a
+// pas bougé (mtime + taille) ; toute écriture ou suppression d'ici invalide
+// son entrée. Les objets sont PARTAGÉS entre lecteurs — le fil d'exécution est
+// unique et toute mutation passe par writeChantier, qui invalide.
+const cacheDechiffres = new Map() // nom de fichier -> { mtime, size, ch }
+
+function tousChantiers(keys) {
+  const out = []
+  const vivants = new Set()
+  for (const f of listFiles('chantiers')) {
+    vivants.add(f.name)
+    const hit = cacheDechiffres.get(f.name)
+    if (hit && hit.mtime === f.mtime && hit.size === f.size) { out.push(hit.ch); continue }
+    const env = readJson(attacheDir('chantiers', f.name), null)
+    if (!env) continue
+    let ch = null
+    try { ch = decryptJson(keys.global, env) } catch { continue }
+    if (!ch) continue
+    cacheDechiffres.set(f.name, { mtime: f.mtime, size: f.size, ch })
+    out.push(ch)
+  }
+  for (const nom of cacheDechiffres.keys()) if (!vivants.has(nom)) cacheDechiffres.delete(nom)
+  return out
+}
+
 // Chantiers supprimés pendant qu'une vague tournait : leurs lots en vol vont
 // encore écrire en fin de course et RESSUSCITERAIENT le fichier effacé.
 const supprimes = new Set()
@@ -145,6 +174,7 @@ function writeChantier(keys, ch) {
   ch.majLe = new Date().toISOString()
   ensureDir(attacheDir('chantiers'))
   atomicWrite(chantierPath(ch.id), JSON.stringify(encryptJson(keys.global, ch)))
+  cacheDechiffres.delete(ch.id + '.json') // relu (et re-caché) au prochain passage
 }
 
 function journal(ch, evenement) {
@@ -155,16 +185,9 @@ function journal(ch, evenement) {
 
 /** Résumés pour l'écran Chantiers (jamais le plan complet : trop lourd). */
 export function listChantiers(keys) {
-  const out = []
-  for (const f of listFiles('chantiers')) {
-    const env = readJson(attacheDir('chantiers', f.name), null)
-    if (!env) continue
-    let ch = null
-    try { ch = decryptJson(keys.global, env) } catch { continue }
-    if (!ch) continue
-    out.push(resumeChantier(ch))
-  }
-  return out.sort((a, b) => String(b.creeLe).localeCompare(String(a.creeLe)))
+  return tousChantiers(keys)
+    .map((ch) => resumeChantier(ch))
+    .sort((a, b) => String(b.creeLe).localeCompare(String(a.creeLe)))
 }
 
 function totalLots(ch) { return (ch.plan || []).reduce((n, p) => n + p.lots.length, 0) }
@@ -192,11 +215,36 @@ function resumeChantier(ch) {
     fiches: (ch.fiches || []).map((f) => ({ prodId: f.prodId, titre: f.titre, pochette: f.pochette })),
     syntheseProdId: ch.syntheseProdId || null,
     estimation: ch.estimation,
+    // le RÉEL à côté du devis : jetons consommés par CE chantier (cumul des
+    // bilans de runs), plafond posé par le magistrat, rythme observé
+    jetons: ch.jetons ? { ...ch.jetons } : null,
+    budgetJetons: Number(ch.budgetJetons) > 0 ? Number(ch.budgetJetons) : null,
+    rythmeMinParLot: ch.rythme?.lots ? Math.round((ch.rythme.ms / ch.rythme.lots / 60_000) * 10) / 10 : null,
+    modeleFiches: ch.modeleFiches === 'principal' ? 'principal' : 'sous-agent',
     // Les pas EN VOL : plusieurs lots tournent de front, le magistrat les voit tous.
     pas: pasEnCours(ch),
     enCours: pasEnCours(ch)[0] || null,
     front: CHANTIER_CONCURRENCE,
     journal: (ch.journal || []).slice(-12),
+  }
+}
+
+/**
+ * Le DÉTAIL d'un chantier, à la demande (jamais dans le sondage : trop
+ * lourd) : le journal COMPLET (le résumé n'en sert que les 12 dernières
+ * lignes) et chaque pochette dépliée lot par lot, avec ses fiches.
+ */
+export function detailChantier(keys, id) {
+  const ch = readChantier(keys, id)
+  if (!ch) throw new Error('Chantier introuvable')
+  return {
+    id: ch.id,
+    journal: ch.journal || [],
+    pochettes: (ch.plan || []).map((p) => ({
+      nom: p.nom,
+      lots: p.lots.map((l) => ({ n: l.n, etat: l.etat, pieces: l.pieces.length, echecs: l.echecs || 0 })),
+      fiches: (ch.fiches || []).filter((f) => f.pochette === p.nom).map((f) => ({ prodId: f.prodId, titre: f.titre })),
+    })),
   }
 }
 
@@ -235,11 +283,18 @@ function retirerPas(keys, ch, pas) {
  * Type « dossier » : plan depuis l'index des PIÈCES (pochettes → lots).
  * Types « liens »/« carto » : plan depuis les FICHES des dossiers visés.
  */
-export async function createChantier(keys, { type = 'dossier', numero, numeros, consigne, nuitSeulement = true, origine = 'magistrat' }) {
+export async function createChantier(keys, {
+  type = 'dossier', numero, numeros, consigne, nuitSeulement = true, origine = 'magistrat',
+  relire = false, modeleFiches = 'sous-agent', budgetJetons = 0,
+}) {
   if (!['dossier', 'liens', 'carto'].includes(type)) throw new Error(`Type de chantier inconnu : ${type}`)
+  const options = {
+    modeleFiches: modeleFiches === 'principal' ? 'principal' : 'sous-agent',
+    budgetJetons: Number(budgetJetons) > 0 ? Math.floor(Number(budgetJetons)) : 0,
+  }
   if (type !== 'dossier') {
     const liste = (Array.isArray(numeros) && numeros.length ? numeros : [numero]).filter(Boolean)
-    return createChantierFiches(keys, { type, numeros: liste, consigne, nuitSeulement, origine })
+    return createChantierFiches(keys, { type, numeros: liste, consigne, nuitSeulement, origine, ...options })
   }
   const canon = numeroCanonique(keys, numero)
   if (!canon) throw new Error(`Dossier « ${numero} » introuvable`)
@@ -259,7 +314,7 @@ export async function createChantier(keys, { type = 'dossier', numero, numeros, 
   // identiques seulement : deux versions voisines restent deux pièces à lire.
   const porteurParSha = new Map()
   const doublons = []
-  const uniques = []
+  let uniques = []
   for (const d of [...metas].sort((a, b) => String(a.rel).localeCompare(String(b.rel)))) {
     const sha = String(d.sha || '')
     if (/^[a-f0-9]{64}$/.test(sha)) {
@@ -268,6 +323,33 @@ export async function createChantier(keys, { type = 'dossier', numero, numeros, 
       porteurParSha.set(sha, String(d.rel))
     }
     uniques.push(d)
+  }
+
+  // CHANTIER « COMPLÉMENT » : « chaque pièce n'est lue qu'une fois dans la vie
+  // du dossier » n'était garanti qu'à l'intérieur d'UN chantier — re-dépouiller
+  // un dossier qui a reçu de nouvelles pièces relisait tout. On écarte donc les
+  // pièces déjà couvertes par un lot FAIT d'un chantier existant du même
+  // dossier (leurs fiches sont là) : seul le delta est planifié. `relire:true`
+  // désactive l'exclusion (nouvel angle, re-lecture voulue).
+  let dejaCouvertes = 0
+  if (!relire) {
+    const couvertes = new Set()
+    for (const autre of tousChantiers(keys)) {
+      if (autre.type !== 'dossier' || String(autre.numero) !== canon) continue
+      for (const p of autre.plan || []) for (const l of p.lots) {
+        if (l.etat === 'fait') for (const rel of l.pieces) couvertes.add(String(rel))
+      }
+    }
+    if (couvertes.size) {
+      const restantes = uniques.filter((d) => !couvertes.has(String(d.rel)))
+      dejaCouvertes = uniques.length - restantes.length
+      if (!restantes.length) {
+        throw new Error(
+          `Les ${uniques.length} pièces de ce dossier sont déjà couvertes par les fiches d'un chantier existant — rien de nouveau à lire. Pour re-dépouiller malgré tout (autre angle), relancez avec « relire les pièces déjà couvertes ».`
+        )
+      }
+      uniques = restantes
+    }
   }
 
   // pochette = zone/premier-niveau (même règle que l'arborescence servie à l'IA)
@@ -294,6 +376,7 @@ export async function createChantier(keys, { type = 'dossier', numero, numeros, 
     consigne: String(consigne || '').slice(0, 2000),
     nuitSeulement: Boolean(nuitSeulement),
     origine: origine === 'attache' ? 'attache' : 'magistrat',
+    ...options,
     etat: 'devis',
     creeLe: new Date().toISOString(),
     plan,
@@ -306,6 +389,7 @@ export async function createChantier(keys, { type = 'dossier', numero, numeros, 
     estimation: {
       pieces: totalPieces,
       ...(doublons.length ? { doublonsExclus: doublons.length } : {}),
+      ...(dejaCouvertes ? { dejaCouvertes } : {}),
       lots: nbLots,
       // fourchette grossière : ~30-60 k jetons lus/écrits par lot
       jetonsMin: nbLots * 30_000,
@@ -316,7 +400,7 @@ export async function createChantier(keys, { type = 'dossier', numero, numeros, 
     },
     journal: [],
   }
-  journal(ch, `Chantier ${ch.origine === 'attache' ? 'proposé par l\'attaché (conversation)' : 'créé'} — ${metas.length} pièces déposées${doublons.length ? `, dont ${doublons.length} copie(s) exacte(s) écartée(s) de la lecture (empreinte identique — chaque contenu lu une fois)` : ''} : ${totalPieces} pièces à lire, ${plan.length} pochettes, ${nbLots} lots. En attente de validation du devis.`)
+  journal(ch, `Chantier ${ch.origine === 'attache' ? 'proposé par l\'attaché (conversation)' : 'créé'} — ${metas.length} pièces déposées${doublons.length ? `, dont ${doublons.length} copie(s) exacte(s) écartée(s) de la lecture (empreinte identique — chaque contenu lu une fois)` : ''}${dejaCouvertes ? `, ${dejaCouvertes} pièce(s) déjà couverte(s) par les fiches d'un chantier précédent (non relues)` : ''} : ${totalPieces} pièces à lire, ${plan.length} pochettes, ${nbLots} lots. En attente de validation du devis.`)
   writeChantier(keys, ch)
   await audit(keys, 'chantier_cree', { id: ch.id, numero: canon, pieces: totalPieces, lots: nbLots })
   return resumeChantier(ch)
@@ -335,7 +419,7 @@ function chunk(arr, size) {
  * identifiants de production). Les dossiers SANS fiches sont écartés du plan
  * et nommés dans le devis : il faut d'abord les dépouiller.
  */
-async function createChantierFiches(keys, { type, numeros, consigne, nuitSeulement, origine = 'magistrat' }) {
+async function createChantierFiches(keys, { type, numeros, consigne, nuitSeulement, origine = 'magistrat', modeleFiches = 'sous-agent', budgetJetons = 0 }) {
   const min = type === 'liens' ? 2 : 1
   const canons = []
   for (const n of numeros) {
@@ -383,6 +467,8 @@ async function createChantierFiches(keys, { type, numeros, consigne, nuitSeuleme
     consigne: String(consigne || '').slice(0, 2000),
     nuitSeulement: Boolean(nuitSeulement),
     origine: origine === 'attache' ? 'attache' : 'magistrat',
+    modeleFiches: modeleFiches === 'principal' ? 'principal' : 'sous-agent',
+    budgetJetons: Number(budgetJetons) > 0 ? Math.floor(Number(budgetJetons)) : 0,
     etat: 'devis',
     creeLe: new Date().toISOString(),
     plan,
@@ -407,6 +493,140 @@ async function createChantierFiches(keys, { type, numeros, consigne, nuitSeuleme
   writeChantier(keys, ch)
   await audit(keys, 'chantier_cree', { id: ch.id, type, numeros: ch.numeros, fiches: totalFiches, lots: nbLots })
   return resumeChantier(ch)
+}
+
+// ── Création EN MASSE : un chantier par dossier d'une portée ────────────────
+// « Analyser en détail tous les dossiers archivés » ne passait pas : le
+// formulaire n'acceptait qu'UN numéro, et la demande tapée en toutes lettres
+// échouait sur « dossier introuvable ». Ici la portée se déroule côté moteur :
+// un chantier « dossier » par dossier, CHACUN avec son devis — rien ne se
+// lance sans validation, comme toujours. La partie coûteuse du devis (les
+// empreintes sha256 du dédoublonnage) court en ARRIÈRE-PLAN, dossier après
+// dossier : la réponse part tout de suite et les devis apparaissent dans la
+// liste au fil de l'eau. Idempotent : un dossier qui a déjà un chantier
+// « dossier » est écarté — relancer la masse ne crée jamais de doublon.
+let masseEnCours = null
+
+/** La création en masse qui tourne (null sinon) — pour l'écran et les gardes. */
+export function masseEtat() { return masseEnCours ? { ...masseEnCours } : null }
+
+export function createChantiersEnMasse(keys, { portee = 'archives', consigne, nuitSeulement = true, modeleFiches = 'sous-agent', budgetJetons = 0 }) {
+  if (masseEnCours) {
+    throw new Error(`Une création en masse est déjà en cours (${masseEnCours.fait}/${masseEnCours.total} devis établis) — laissez-la finir`)
+  }
+  const p = ['archives', 'toutes', 'en_cours'].includes(String(portee)) ? String(portee) : 'archives'
+  const { data } = loadContentieux(keys)
+  const toutes = data?.enquetes || []
+  const cibles = p === 'archives' ? toutes.filter((e) => e.statut === 'archive')
+    : p === 'toutes' ? toutes
+    : toutes.filter((e) => e.statut !== 'archive')
+  if (!cibles.length) {
+    throw new Error(p === 'archives' ? 'Aucun dossier archivé dans le contentieux' : 'Aucun dossier dans cette portée')
+  }
+
+  const dejaVises = new Set(listChantiers(keys).filter((c) => c.type === 'dossier').map((c) => String(c.numero)))
+  const dejaEnChantier = []
+  const sansPieces = []
+  const aCreer = []
+  for (const e of cibles) {
+    const numero = String(e.numero)
+    if (dejaVises.has(numero)) { dejaEnChantier.push(numero); continue }
+    // comptage local (index des pièces) : aucun jeton, quelques ms par dossier
+    const metas = listDocsMeta(attacheTj(), docServerKey(numero)).filter((d) => !String(d.rel).startsWith('MD/'))
+    if (!metas.length) { sansPieces.push(numero); continue }
+    aCreer.push(numero)
+  }
+
+  if (aCreer.length) {
+    lancerMasseFond(keys, {
+      portee: p, consigne: String(consigne || ''), nuitSeulement: Boolean(nuitSeulement),
+      modeleFiches, budgetJetons,
+      restants: aCreer, dejaEnChantier: dejaEnChantier.length, sansPieces: sansPieces.length,
+    })
+  }
+
+  return {
+    ok: true,
+    portee: p,
+    lances: aCreer.length,
+    dejaEnChantier,
+    sansPieces,
+    note: aCreer.length
+      ? `${aCreer.length} devis en préparation — ils apparaissent dans la liste au fil de l'eau, chacun à valider avant tout dépouillement.`
+      : 'Rien à créer : tous les dossiers de la portée sont déjà en chantier ou sans pièces versées.',
+  }
+}
+
+// L'avancement de la masse est PERSISTÉ (fichier caché à côté des chantiers,
+// jamais listé comme tel) : un redémarrage du service en pleine création ne
+// perd plus le restant en silence — la reprise repart de la liste, et
+// l'idempotence (dossiers déjà en chantier écartés) rend le rejeu sûr.
+function massePath() { return attacheDir('chantiers', '.masse.json') }
+
+function lancerMasseFond(keys, { portee, consigne, nuitSeulement, modeleFiches = 'sous-agent', budgetJetons = 0, restants, dejaEnChantier = 0, sansPieces = 0, reprise = false }) {
+  masseEnCours = { portee, total: restants.length, fait: 0 }
+  ensureDir(attacheDir('chantiers'))
+  atomicWrite(massePath(), JSON.stringify({ portee, consigne, nuitSeulement, modeleFiches, budgetJetons, restants }))
+  ;(async () => {
+    const echecs = []
+    const total = restants.length
+    for (let i = 0; i < total; i++) {
+      const numero = restants[i]
+      try {
+        await createChantier(keys, { type: 'dossier', numero, consigne, nuitSeulement, modeleFiches, budgetJetons })
+      } catch (e) {
+        const motif = String(e?.message || e)
+        // en reprise, retomber sur un dossier déjà couvert n'est pas un échec
+        if (!/déjà couvertes par les fiches/.test(motif)) echecs.push(`${numero} (${motif.slice(0, 80)})`)
+      }
+      masseEnCours = { ...masseEnCours, fait: i + 1 }
+      atomicWrite(massePath(), JSON.stringify({ portee, consigne, nuitSeulement, modeleFiches, budgetJetons, restants: restants.slice(i + 1) }))
+      // les empreintes sha256 sont du CPU synchrone : on laisse respirer
+      // l'application du magistrat entre deux dossiers
+      await new Promise((r) => setTimeout(r, 100))
+    }
+    try { fs.unlinkSync(massePath()) } catch {}
+    await publishFeed(keys, {
+      type: 'note',
+      titre: `Analyses en masse — ${total - echecs.length} devis établis`,
+      resume: `Portée « ${portee} »${reprise ? ' (reprise après redémarrage)' : ''} : ${total - echecs.length} devis prêts à valider dans « Analyses profondes »`
+        + `${echecs.length ? ` · ${echecs.length} échec(s) : ${echecs.join(' · ')}` : ''}`
+        + `${dejaEnChantier ? ` · ${dejaEnChantier} dossier(s) déjà en chantier, écartés` : ''}`
+        + `${sansPieces ? ` · ${sansPieces} dossier(s) sans pièces, écartés` : ''}.`,
+    }).catch(() => {})
+    await audit(keys, 'chantiers_masse', {
+      portee, reprise, crees: total - echecs.length, echecs: echecs.length,
+      dejaEnChantier, sansPieces,
+    }).catch(() => {})
+  })().catch(() => {}).finally(() => { masseEnCours = null })
+}
+
+let masseRepriseFaite = false
+
+/**
+ * Reprend une création en masse interrompue par un redémarrage du service.
+ * Appelée par le tick des chantiers dès que le trousseau est là — une seule
+ * fois par vie du processus, coût nul quand il n'y a rien à reprendre.
+ */
+export function reprendreMasse(keys) {
+  if (masseRepriseFaite || masseEnCours) return
+  masseRepriseFaite = true
+  const pendante = readJson(massePath(), null)
+  if (!pendante || !Array.isArray(pendante.restants)) return
+  if (!pendante.restants.length) { try { fs.unlinkSync(massePath()) } catch {}; return }
+  // les dossiers déjà créés avant l'arrêt sont écartés — rejeu sans doublon
+  const dejaVises = new Set(tousChantiers(keys).filter((c) => c.type === 'dossier').map((c) => String(c.numero)))
+  const restants = pendante.restants.map(String).filter((n) => !dejaVises.has(n))
+  if (!restants.length) { try { fs.unlinkSync(massePath()) } catch {}; return }
+  lancerMasseFond(keys, {
+    portee: String(pendante.portee || 'archives'),
+    consigne: String(pendante.consigne || ''),
+    nuitSeulement: pendante.nuitSeulement !== false,
+    modeleFiches: pendante.modeleFiches === 'principal' ? 'principal' : 'sous-agent',
+    budgetJetons: Number(pendante.budgetJetons) > 0 ? Number(pendante.budgetJetons) : 0,
+    restants,
+    reprise: true,
+  })
 }
 
 export async function actionChantier(keys, { id, action }) {
@@ -445,6 +665,38 @@ export async function actionChantier(keys, { id, action }) {
     journal(ch, `Forcé par le magistrat — nuit et plafonds levés pendant ${Math.round(FORCE_MS / 3600_000)} h, le dépouillement démarre immédiatement.`)
     writeChantier(keys, ch)
     await audit(keys, 'chantier_force', { id, numero: ch.numero, jusqu: ch.forceJusqu })
+    return resumeChantier(ch)
+  }
+  // Un lot passé « échec » après 3 tentatives était PERDU : ses pièces ne
+  // seraient jamais dépouillées sauf à supprimer et recréer tout le chantier.
+  // La relance remet les seuls lots en échec à faire, compteur à zéro.
+  if (action === 'relancer_echecs') {
+    let nb = 0
+    for (const p of ch.plan || []) for (const l of p.lots) {
+      if (l.etat === 'echec') { l.etat = 'a_faire'; l.echecs = 0; nb++ }
+    }
+    if (!nb) throw new Error('Aucun lot en échec sur ce chantier')
+    ch.etat = 'en_cours'
+    ch.attente = null
+    ch.attenteDepuis = null
+    ch.attenteDetail = null
+    journal(ch, `${nb} lot(s) en échec relancé(s) par le magistrat — tentatives remises à zéro.`)
+    writeChantier(keys, ch)
+    await audit(keys, 'chantier_relance_echecs', { id, numero: ch.numero, lots: nb })
+    return resumeChantier(ch)
+  }
+  // Une synthèse abandonnée après 3 échecs terminait le chantier sans note
+  // finale — le journal conseillait de tout recréer. La relance repart de la
+  // seule synthèse : les fiches sont là, rien d'autre à payer.
+  if (action === 'relancer_synthese') {
+    if (ch.etat !== 'termine') throw new Error(`Ce chantier est « ${ch.etat} » — la relance de synthèse vaut pour un chantier terminé`)
+    if (ch.syntheseProdId) throw new Error('La synthèse de ce chantier existe déjà')
+    if (!(ch.fiches || []).length) throw new Error('Aucune fiche produite — rien à synthétiser')
+    ch.etat = 'synthese'
+    ch.syntheseEchecs = 0
+    journal(ch, 'Synthèse relancée par le magistrat.')
+    writeChantier(keys, ch)
+    await audit(keys, 'chantier_relance_synthese', { id, numero: ch.numero })
     return resumeChantier(ch)
   }
   if (action === 'pause') {
@@ -615,10 +867,13 @@ export async function chantierStep(keys, autorise) {
   if (running) return 'rien'
   running = true
   try {
-    const actifs = listFiles('chantiers')
-      .map((f) => { try { return decryptJson(keys.global, readJson(attacheDir('chantiers', f.name), null)) } catch { return null } })
-      .filter((ch) => ch && ['en_cours', 'synthese'].includes(ch.etat))
-      .sort((a, b) => String(a.creeLe).localeCompare(String(b.creeLe)))
+    const actifs = tousChantiers(keys)
+      .filter((ch) => ['en_cours', 'synthese'].includes(ch.etat))
+      // ÉQUITÉ : le chantier travaillé le moins récemment passe devant. Le tri
+      // par date de création laissait le plus ancien monopoliser toutes les
+      // nuits pendant que la file (création en masse) attendait derrière lui.
+      .sort((a, b) => String(a.dernierPasLe || '').localeCompare(String(b.dernierPasLe || ''))
+        || String(a.creeLe).localeCompare(String(b.creeLe)))
     if (!actifs.length) return 'rien'
 
     // Un chantier bloqué ne bloque plus les AUTRES. L'ancien code ne regardait
@@ -634,12 +889,26 @@ export async function chantierStep(keys, autorise) {
     }
     if (!ch) return 'bloque'
 
+    // Plafond de jetons du chantier (posé au devis) : atteint, le chantier se
+    // met en PAUSE proprement — le magistrat relance ou relève le plafond. La
+    // synthèse, elle, va au bout : un run de plus vaut mieux qu'un chantier
+    // payé sans note finale.
+    if (ch.etat === 'en_cours' && ch.budgetJetons && (ch.jetons?.total || 0) >= ch.budgetJetons) {
+      ch.etat = 'pause'
+      ch.pas = []
+      ch.enCours = null
+      journal(ch, `Plafond de jetons atteint (${ch.jetons.total} / ${ch.budgetJetons}) — chantier mis en pause. Reprendre relance ; le plafond se relève en recréant le chantier (les pièces lues ne seront pas relues).`)
+      writeChantier(keys, ch)
+      return 'travail'
+    }
+
+    ch.dernierPasLe = new Date().toISOString()
     if (ch.attente || ch.attenteDetail) {
       ch.attente = null
       ch.attenteDepuis = null
       ch.attenteDetail = null
-      writeChantier(keys, ch)
     }
+    writeChantier(keys, ch)
 
     if (ch.etat === 'en_cours') {
       // Reprise après un arrêt brutal : aucune vague ne tourne à cet instant
@@ -654,48 +923,73 @@ export async function chantierStep(keys, autorise) {
         writeChantier(keys, ch)
       }
 
-      const front = Math.max(1, Math.min(CHANTIER_CONCURRENCE, Number(feu?.front) || CHANTIER_CONCURRENCE))
-      const vague = prochainsLots(ch, front)
-      if (!vague.length) {
+      if (!lotsRestants(ch)) {
         ch.etat = 'synthese'
         journal(ch, 'Dépouillement terminé — synthèse en préparation.')
         writeChantier(keys, ch)
         return 'travail'
       }
-      // Les lots sont réservés AVANT la vague : deux lots ne peuvent pas partir
-      // sur les mêmes pièces, et un arrêt en cours de vague se rattrape seul.
-      for (const v of vague) v.lot.etat = 'en_vol'
-      if (vague.length > 1) journal(ch, `Vague de ${vague.length} lots lancés de front.`)
-      writeChantier(keys, ch)
+
+      // VAGUE GLISSANTE, plus une barrière : l'ancienne vague (Promise.all sur
+      // `front` lots) attendait le lot LE PLUS LENT avant de relancer — avec un
+      // lot à 15 min et deux à 3 min, deux emplacements dormaient 12 min. Ici
+      // chaque emplacement reprend un lot dès qu'il se libère, borné à
+      // front × 2 lots par pas : le feu (nuit, forfait, front) est re-vérifié
+      // à CHAQUE prise, et le pas reste court. Un lot est réservé (« en_vol »)
+      // avant de partir ; un lot déjà tenté DANS CE PAS n'y repart pas (pas de
+      // boucle chaude sur un lot qui échoue).
+      const front = Math.max(1, Math.min(CHANTIER_CONCURRENCE, Number(feu?.front) || CHANTIER_CONCURRENCE))
+      const cap = front * 2
+      let pris = 0
+      const dejaTentes = new Set()
+      const reclamer = () => {
+        if (pris >= cap) return null
+        if (ch.etat !== 'en_cours') return null // pause ou suppression en pleine vague
+        if (ch.attente === 'forfait') return null // un refus de quota arrête la vague
+        if (ch.budgetJetons && (ch.jetons?.total || 0) >= ch.budgetJetons) return null
+        const verdict = autorise(ch) || { ok: false }
+        if (!verdict.ok) return null
+        const next = prochainsLots(ch, cap).find((c) => !dejaTentes.has(c.lot)) || null
+        if (!next) return null
+        dejaTentes.add(next.lot)
+        next.lot.etat = 'en_vol'
+        pris++
+        writeChantier(keys, ch)
+        return next
+      }
 
       vagueEnCours = ch.id
       try {
-        await Promise.all(vague.map(async (next) => {
-        // Marqueur du pas en cours : posé AVANT le run (le panneau le lit tout
-        // de suite), retiré quoi qu'il arrive — succès, échec ou timeout.
-        const pas = {
-          etape: 'lot',
-          pochette: next.pochette.nom,
-          lot: next.lot.n,
-          pieces: next.lot.pieces.length,
-          tentative: (next.lot.echecs || 0) + 1,
-          depuis: new Date().toISOString(),
-        }
-        marquerPas(keys, ch, pas)
-        try {
-          await runLot(keys, ch, next)
-        } catch (e) {
-          // Un lot qui explose ne doit jamais emporter la vague ni rester réservé.
-          if (next.lot.etat === 'en_vol') next.lot.etat = 'a_faire'
-          journal(ch, `Lot ${next.lot.n} de « ${next.pochette.nom} » : ${String(e?.message || e).slice(0, 120)} — repris au prochain pas.`)
-        } finally {
-          retirerPas(keys, ch, pas)
-        }
+        await Promise.all(Array.from({ length: front }, async () => {
+          for (;;) {
+            const next = reclamer()
+            if (!next) break
+            // Marqueur du pas en cours : posé AVANT le run (le panneau le lit
+            // tout de suite), retiré quoi qu'il arrive — succès, échec, timeout.
+            const pas = {
+              etape: 'lot',
+              pochette: next.pochette.nom,
+              lot: next.lot.n,
+              pieces: next.lot.pieces.length,
+              tentative: (next.lot.echecs || 0) + 1,
+              depuis: new Date().toISOString(),
+            }
+            marquerPas(keys, ch, pas)
+            try {
+              await runLot(keys, ch, next)
+            } catch (e) {
+              // Un lot qui explose ne doit jamais emporter la vague ni rester réservé.
+              if (next.lot.etat === 'en_vol') next.lot.etat = 'a_faire'
+              journal(ch, `Lot ${next.lot.n} de « ${next.pochette.nom} » : ${String(e?.message || e).slice(0, 120)} — repris au prochain pas.`)
+            } finally {
+              retirerPas(keys, ch, pas)
+            }
+          }
         }))
       } finally {
         vagueEnCours = null
       }
-      return 'travail'
+      return pris ? 'travail' : 'bloque'
     }
     if (ch.etat === 'synthese') {
       const pas = { etape: 'synthese', fiches: (ch.fiches || []).length, depuis: new Date().toISOString() }
@@ -756,22 +1050,55 @@ function echecDeForfait(keys, ch, lot, ou, erreur) {
   return true
 }
 
+/**
+ * Cumule le bilan de jetons d'un run dans le chantier — le RÉEL à côté du
+ * devis, et l'assiette du plafond `budgetJetons`. Les jetons se comptent que
+ * le run réussisse ou non : ils ont été dépensés.
+ */
+function comptabiliserJetons(ch, res) {
+  const u = res?.usage
+  if (!u) return
+  const j = ch.jetons || (ch.jetons = { in: 0, out: 0, cacheW: 0, cacheR: 0, total: 0 })
+  j.in += u.in || 0
+  j.out += u.out || 0
+  j.cacheW += u.cacheW || 0
+  j.cacheR += u.cacheR || 0
+  j.total = j.in + j.out + j.cacheW + j.cacheR
+}
+
+/** Le rythme OBSERVÉ (lots aboutis, durée cumulée) — l'estimation de temps
+ *  restant s'appuie dessus plutôt que sur 3 min/lot théoriques. */
+function comptabiliserRythme(ch, t0) {
+  const r = ch.rythme || (ch.rythme = { lots: 0, ms: 0 })
+  r.lots++
+  r.ms += Math.max(0, Date.now() - t0)
+}
+
+/** Le modèle d'un run de fiche : celui des sous-agents (économe) par défaut,
+ *  le modèle principal si le magistrat l'a demandé pour ce chantier. */
+function modeleLot(ch, cfg) {
+  return ch.modeleFiches === 'principal' ? undefined : (cfg.subModel || undefined)
+}
+
 async function runLot(keys, ch, { pochette, lot }) {
   if (ch.type === 'liens' || ch.type === 'carto') return runLotFiches(keys, ch, { pochette, lot })
   const cfg = agentConfig()
   const titre = `Fiche — ${pochette.nom} — lot ${lot.n} (${lot.pieces.length} pièces)`
+  const t0 = Date.now()
   const res = await runAgent({
     keys,
     prompt: promptLot(keys, ch, pochette, lot),
     runLabel: 'chantier',
     title: `Chantier ${ch.numero} · ${titre}`,
-    // fiches = extraction : le modèle des sous-agents (souvent plus économe) s'il est réglé
-    model: cfg.subModel || undefined,
+    // fiches = extraction : le modèle des sous-agents (souvent plus économe),
+    // sauf demande explicite du magistrat pour ce chantier
+    model: modeleLot(ch, cfg),
     effort: 'high',
     maxTurns: Math.max(30, lot.pieces.length * 3 + 6),
     timeoutMs: LOT_TIMEOUT_MS,
     mcpToolTimeoutMs: LOT_TIMEOUT_MS - 120_000,
   }).catch((e) => ({ ok: false, error: String(e?.message || e), text: '' }))
+  comptabiliserJetons(ch, res)
 
   const fiche = String(res?.text || '').trim()
   if (!res?.ok || fiche.length < 200 || !/##/.test(fiche)) {
@@ -793,6 +1120,7 @@ async function runLot(keys, ch, { pochette, lot }) {
     contenu: fiche, source: `chantier:${ch.id}`,
   })
   lot.etat = 'fait'
+  comptabiliserRythme(ch, t0)
   ch.fiches.push({ pochette: pochette.nom, lot: lot.n, prodId: prod.id, titre })
   journal(ch, `${titre} — produite.`)
 
@@ -830,18 +1158,20 @@ async function runLotFiches(keys, ch, { pochette, lot }) {
   const titre = ch.type === 'liens'
     ? `Signalements — ${dossier} — lot ${lot.n}`
     : `Carto — ${dossier} — lot ${lot.n}`
+  const t0 = Date.now()
   const res = await runAgent({
     keys,
     prompt: ch.type === 'liens' ? promptLotLiens(keys, ch, dossier, lot, corpus) : promptLotCarto(keys, ch, dossier, lot, corpus),
     runLabel: 'chantier',
     title: `Chantier ${ch.type} · ${titre}`,
-    model: cfg.subModel || undefined,
+    model: modeleLot(ch, cfg),
     effort: 'high',
     // liens : zéro outil ; carto : quelques recoupements + dépôts de propositions
     maxTurns: ch.type === 'carto' ? 40 : 6,
     timeoutMs: LOT_TIMEOUT_MS,
     mcpToolTimeoutMs: LOT_TIMEOUT_MS - 120_000,
   }).catch((e) => ({ ok: false, error: String(e?.message || e), text: '' }))
+  comptabiliserJetons(ch, res)
 
   const texte = String(res?.text || '').trim()
   if (!res?.ok || texte.length < 80 || !/##/.test(texte)) {
@@ -863,21 +1193,108 @@ async function runLotFiches(keys, ch, { pochette, lot }) {
     contenu: texte, source: `chantier:${ch.id}`,
   })
   lot.etat = 'fait'
+  comptabiliserRythme(ch, t0)
   ch.fiches.push({ pochette: dossier, lot: lot.n, prodId: prod.id, titre })
   journal(ch, `${titre} — produit.`)
   writeChantier(keys, ch)
 }
 
+// Une pochette dont les fiches pèsent plus que ce seuil passe par une
+// synthèse INTERMÉDIAIRE avant la note finale (mode hiérarchique ci-dessous).
+const SYNTHESE_POCHETTE_SEUIL = 60_000
+
+/**
+ * SYNTHÈSE HIÉRARCHIQUE : sur un très gros dossier (97 fiches), la troncature
+ * équitable ne laissait que ~3 000 caractères par fiche — la note finale
+ * lisait des fiches amputées aux deux tiers. Quand le corpus déborde le
+ * budget, chaque grosse pochette reçoit d'abord SA synthèse (un run borné par
+ * pas, même mécanique que les lots, reprise comprise) ; la note finale lit
+ * les synthèses de pochettes et les fiches des petites pochettes — du texte
+ * entier, jamais des moignons. Une synthèse de pochette qui échoue 3 fois
+ * retombe sur les fiches brutes tronquées : jamais bloquant.
+ * @returns {boolean} true si un run intermédiaire a tourné (le pas s'arrête là).
+ */
+async function syntheseHierarchique(keys, ch, parPochette) {
+  const totalChars = [...parPochette.values()].reduce((n, textes) => n + textes.reduce((m, t) => m + t.texte.length, 0), 0)
+  if (totalChars <= SYNTHESE_BUDGET_CHARS) return false
+  ch.synthesesPochettes = ch.synthesesPochettes || {}
+  const candidates = [...parPochette.entries()].filter(([nom, textes]) =>
+    textes.length >= 2
+    && textes.reduce((n, t) => n + t.texte.length, 0) > SYNTHESE_POCHETTE_SEUIL
+    && !(nom in ch.synthesesPochettes))
+  if (!candidates.length) return false
+
+  const [nom, textes] = candidates[0]
+  const corpus = textes.map((t) => `\n\n═══ ${t.titre} ═══\n${t.texte}`).join('').slice(0, SYNTHESE_BUDGET_CHARS)
+  const res = await runAgent({
+    keys,
+    prompt: promptConsigne(keys, 'chantier_synthese', {
+      entete: [
+        `SYNTHÈSE INTERMÉDIAIRE DE POCHETTE — dossier « ${ch.numero} », pochette « ${nom} » (${textes.length} fiches jointes). Le dossier est trop volumineux pour une synthèse en un passage : produis la synthèse de CETTE pochette seulement — elle nourrira la note d'ensemble.`,
+        ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT : ${ch.consigne}` : '',
+      ].filter(Boolean),
+      vars: { dossier: ch.numero },
+      donnees: ['', '───── FICHES DE LA POCHETTE ─────', corpus],
+    }),
+    runLabel: 'chantier',
+    title: `Chantier ${ch.numero} · synthèse de pochette « ${nom} »`,
+    effort: 'high',
+    maxTurns: 8,
+    timeoutMs: LOT_TIMEOUT_MS,
+    mcpToolTimeoutMs: LOT_TIMEOUT_MS - 120_000,
+  }).catch((e) => ({ ok: false, error: String(e?.message || e), text: '' }))
+  comptabiliserJetons(ch, res)
+
+  const note = String(res?.text || '').trim()
+  if (!res?.ok || note.length < 300) {
+    ch.synthesePochetteEchecs = ch.synthesePochetteEchecs || {}
+    const n = (ch.synthesePochetteEchecs[nom] = (ch.synthesePochetteEchecs[nom] || 0) + 1)
+    if (n >= MAX_LOT_ECHECS) {
+      ch.synthesesPochettes[nom] = null // repli : fiches brutes tronquées
+      journal(ch, `Synthèse de pochette « ${nom} » abandonnée après ${n} échecs — la note finale lira ses fiches tronquées.`)
+    } else {
+      journal(ch, `Synthèse de pochette « ${nom} » : tentative ${n} échouée (${res?.error || 'rendu trop court'}).`)
+    }
+    writeChantier(keys, ch)
+    return true
+  }
+  const prod = await saveProduction(keys, {
+    numero: ch.numero, type: 'note',
+    titre: `Synthèse de pochette — ${nom}`,
+    contenu: note, source: `chantier:${ch.id}`,
+  })
+  ch.synthesesPochettes[nom] = prod.id
+  journal(ch, `Synthèse de pochette « ${nom} » — produite (${textes.length} fiches).`)
+  writeChantier(keys, ch)
+  return true
+}
+
 async function runSynthese(keys, ch) {
   if (ch.type === 'liens' || ch.type === 'carto') return runSyntheseFiches(keys, ch)
-  // les fiches, bornées : si trop volumineuses, on tronque équitablement par fiche
-  const textes = []
+  // les fiches, entières, groupées par pochette
+  const parPochette = new Map()
   for (const f of ch.fiches) {
     const p = readProduction(keys, ch.numero, f.prodId)
-    if (p?.contenu) textes.push(`\n\n═══ ${f.titre} ═══\n${p.contenu}`)
+    if (!p?.contenu) continue
+    if (!parPochette.has(f.pochette)) parPochette.set(f.pochette, [])
+    parPochette.get(f.pochette).push({ titre: f.titre, texte: String(p.contenu) })
   }
-  const parFiche = Math.max(4_000, Math.floor(SYNTHESE_BUDGET_CHARS / Math.max(1, textes.length)))
-  const corpus = textes.map((t) => t.slice(0, parFiche)).join('')
+
+  // Dossier trop gros pour un passage : une synthèse de pochette par pas,
+  // jusqu'à ce que la note finale puisse lire du texte entier.
+  if (await syntheseHierarchique(keys, ch, parPochette)) return
+
+  // Corpus de la note finale : la synthèse de pochette quand elle existe,
+  // les fiches sinon — le tout borné équitablement par bloc.
+  const textes = []
+  for (const [nom, fiches] of parPochette) {
+    const prodId = (ch.synthesesPochettes || {})[nom]
+    const synthese = prodId ? readProduction(keys, ch.numero, prodId) : null
+    if (synthese?.contenu) textes.push(`\n\n═══ Synthèse de pochette — ${nom} ═══\n${synthese.contenu}`)
+    else for (const f of fiches) textes.push(`\n\n═══ ${f.titre} ═══\n${f.texte}`)
+  }
+  const parBloc = Math.max(4_000, Math.floor(SYNTHESE_BUDGET_CHARS / Math.max(1, textes.length)))
+  const corpus = textes.map((t) => t.slice(0, parBloc)).join('')
 
   const res = await runAgent({
     keys,
@@ -889,6 +1306,7 @@ async function runSynthese(keys, ch) {
     timeoutMs: LOT_TIMEOUT_MS,
     mcpToolTimeoutMs: LOT_TIMEOUT_MS - 120_000,
   }).catch((e) => ({ ok: false, error: String(e?.message || e), text: '' }))
+  comptabiliserJetons(ch, res)
 
   const note = String(res?.text || '').trim()
   if (!res?.ok || note.length < 400) {
@@ -947,6 +1365,7 @@ async function runSyntheseFiches(keys, ch) {
     timeoutMs: LOT_TIMEOUT_MS,
     mcpToolTimeoutMs: LOT_TIMEOUT_MS - 120_000,
   }).catch((e) => ({ ok: false, error: String(e?.message || e), text: '' }))
+  comptabiliserJetons(ch, res)
 
   const note = String(res?.text || '').trim()
   if (!res?.ok || note.length < 300) {
@@ -986,10 +1405,5 @@ async function runSyntheseFiches(keys, ch) {
 
 /** Un chantier actif existe-t-il ? (pour la boucle du service — comptage gratuit) */
 export function chantierActif(keys) {
-  return listFiles('chantiers').some((f) => {
-    try {
-      const ch = decryptJson(keys.global, readJson(attacheDir('chantiers', f.name), null))
-      return ch && ['en_cours', 'synthese'].includes(ch.etat)
-    } catch { return false }
-  })
+  return tousChantiers(keys).some((ch) => ['en_cours', 'synthese'].includes(ch.etat))
 }
