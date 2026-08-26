@@ -19,6 +19,14 @@ import type { Recoupement, RecoupementAcks } from '@/types/recoupementTypes';
 import { buildCorpus, docTextKey } from '@/utils/recoupements/corpus';
 import { detecterRecoupements } from '@/utils/recoupements/engine';
 import {
+  ackPour,
+  estNouveau as signalEstNouveau,
+  estRevenuApresEcart,
+  fusionnerAcks,
+  patchVus,
+  trierSelonGestes,
+} from '@/utils/recoupements/gestes';
+import {
   getCachedDocumentSearchText,
   getDocumentSearchText,
   isExtractableDocument,
@@ -40,7 +48,7 @@ export interface DocScanState {
 export interface RecoupementsApi {
   /** Signaux retenus (les signaux écartés en sont exclus). */
   signaux: Recoupement[];
-  /** Signaux jamais vus, ou dont l'empreinte a changé depuis le dernier geste. */
+  /** Signaux jamais traités, ou qu'un dossier de plus a rejoints depuis le geste. */
   nouveaux: Recoupement[];
   /** Signaux par dossier concerné (clé de corpus). */
   parDossier: Map<string, Recoupement[]>;
@@ -54,6 +62,8 @@ export interface RecoupementsApi {
   /** Lance l'extraction des pièces jamais analysées. */
   analyserPieces: () => void;
   estNouveau: (signal: Recoupement) => boolean;
+  /** Signal écarté autrefois, remonté parce qu'un dossier de plus l'a rejoint. */
+  estRevenu: (signal: Recoupement) => boolean;
   marquerVu: (signal: Recoupement) => void;
   /** Marque une série de signaux comme vus (une seule écriture). */
   marquerVus: (signaux: Recoupement[]) => void;
@@ -148,47 +158,92 @@ export function useRecoupements({
   const budgetAutoRef = useRef(AUTO_EXTRACTIONS_MAX);
 
   // ── Gestes de l'utilisateur (préférences personnelles, synchronisées) ──
+  //
+  // Miroir hors rendu de `acks` : les écritures se calculent sur l'état
+  // courant, sans attendre le prochain rendu ni dépendre de l'ordre des
+  // rafraîchissements.
+  const acksRef = useRef<RecoupementAcks>({});
+  /**
+   * Signaux remis en circulation à l'instant. Une relecture partie AVANT que
+   * l'oubli ne soit écrit les rapporterait — et le signal retomberait dans les
+   * écartés sous les yeux de l'utilisateur. On les tient à l'écart jusqu'à ce
+   * que les préférences relues ne les portent plus.
+   */
+  const oubliesRef = useRef<Set<string>>(new Set());
+
+  /**
+   * (Re)lecture des gestes enregistrés, FUSIONNÉE avec ce qui est déjà là.
+   *
+   * Elle ne se contente pas du montage : au premier rendu, l'utilisateur
+   * connecté n'est pas toujours résolu et les préférences reviennent vides.
+   * La veille tournait alors sur une table de gestes vide — tout paraissait
+   * neuf, et la première écriture écrasait les écartements de la veille.
+   * On rejoue donc la lecture à chaque synchronisation de préférences.
+   */
+  const chargerAcks = useCallback(async () => {
+    try {
+      const prefs = await userPreferencesSyncService.getPreferences();
+      const enregistres = prefs?.recoupements?.entries;
+      if (!enregistres || Object.keys(enregistres).length === 0) return;
+      const retenus: RecoupementAcks = { ...enregistres };
+      for (const id of oubliesRef.current) {
+        // Encore présent : l'oubli n'est pas retombé, on l'écarte de la relecture.
+        // Absent : l'écriture a bien atterri, plus rien à surveiller.
+        if (id in retenus) delete retenus[id];
+        else oubliesRef.current.delete(id);
+      }
+      const suite = fusionnerAcks(acksRef.current, retenus);
+      acksRef.current = suite;
+      setAcks(suite);
+    } catch {
+      /* préférences indisponibles : la veille reste muette sur les gestes */
+    }
+  }, []);
+
   useEffect(() => {
-    let vivant = true;
-    userPreferencesSyncService.getPreferences()
-      .then(prefs => { if (vivant) setAcks(prefs?.recoupements?.entries || {}); })
-      .catch(() => { /* préférences indisponibles : la veille reste muette sur les gestes */ });
-    return () => { vivant = false; };
+    void chargerAcks();
+    const onSync = (event: Event) => {
+      const scope = (event as CustomEvent<{ scope?: string }>).detail?.scope;
+      if (scope && scope !== 'userPreferences') return;
+      void chargerAcks();
+    };
+    window.addEventListener('global-sync-completed', onSync);
+    return () => window.removeEventListener('global-sync-completed', onSync);
+  }, [chargerAcks]);
+
+  /** Applique un lot de gestes : état local, puis écriture FUSIONNÉE. */
+  const appliquer = useCallback((patch: RecoupementAcks) => {
+    if (Object.keys(patch).length === 0) return;
+    const suite = { ...acksRef.current, ...patch };
+    for (const id of Object.keys(patch)) oubliesRef.current.delete(id);
+    acksRef.current = suite;
+    setAcks(suite);
+    void userPreferencesSyncService.mergeRecoupementAcks(patch);
   }, []);
 
   const noter = useCallback((signal: Recoupement, action: 'vu' | 'ecarte') => {
-    const ack = { stateKey: signal.stateKey, action, at: new Date().toISOString() };
-    setAcks(prev => ({ ...prev, [signal.id]: ack }));
-    void userPreferencesSyncService.setRecoupementAck(signal.id, ack);
-  }, []);
+    appliquer({ [signal.id]: ackPour(signal, action, new Date().toISOString()) });
+  }, [appliquer]);
 
   const marquerVu = useCallback((signal: Recoupement) => noter(signal, 'vu'), [noter]);
 
+  // Un seul lot pour toute une liste : déplier un bandeau ne doit pas
+  // déclencher vingt allers-retours de préférences. Les signaux écartés en
+  // sont exclus (cf. patchVus) : un regard ne défait pas une décision.
   const marquerVus = useCallback((liste: Recoupement[]) => {
     if (liste.length === 0) return;
-    const at = new Date().toISOString();
-    setAcks(prev => {
-      const suite = { ...prev };
-      let change = false;
-      for (const signal of liste) {
-        if (suite[signal.id]?.stateKey === signal.stateKey) continue;
-        suite[signal.id] = { stateKey: signal.stateKey, action: 'vu', at };
-        change = true;
-      }
-      // Une seule écriture pour tout le lot : déplier un bandeau ne doit pas
-      // déclencher vingt allers-retours de préférences.
-      if (change) void userPreferencesSyncService.setRecoupementAcks(suite);
-      return change ? suite : prev;
-    });
-  }, []);
+    appliquer(patchVus(liste, acksRef.current, new Date().toISOString()));
+  }, [appliquer]);
+
   const ecarter = useCallback((signal: Recoupement) => noter(signal, 'ecarte'), [noter]);
+
   const reactiver = useCallback((signal: Recoupement) => {
-    setAcks(prev => {
-      const suite = { ...prev };
-      delete suite[signal.id];
-      void userPreferencesSyncService.setRecoupementAcks(suite);
-      return suite;
-    });
+    const suite = { ...acksRef.current };
+    delete suite[signal.id];
+    oubliesRef.current.add(signal.id);
+    acksRef.current = suite;
+    setAcks(suite);
+    void userPreferencesSyncService.removeRecoupementAck(signal.id);
   }, []);
 
   // ── Lecture des pièces ────────────────────────────────────────────────
@@ -333,22 +388,20 @@ export function useRecoupements({
   }, [enabled, enquetesByContentieux, instructions, contentieuxJA, docVersion]);
 
   // ── Tri selon les gestes de l'utilisateur ─────────────────────────────
-  const estNouveau = useCallback((signal: Recoupement) => {
-    const ack = acks[signal.id];
-    // Jamais vu, ou vu dans une autre configuration de dossiers : c'est neuf.
-    return !ack || ack.stateKey !== signal.stateKey;
-  }, [acks]);
+  // Jamais traité, ou un dossier de PLUS depuis le geste : c'est neuf. Un
+  // dossier qui s'en va ne réveille rien (cf. utils/recoupements/gestes.ts).
+  const estNouveau = useCallback(
+    (signal: Recoupement) => signalEstNouveau(acks, signal),
+    [acks],
+  );
+
+  const estRevenu = useCallback(
+    (signal: Recoupement) => estRevenuApresEcart(acks, signal),
+    [acks],
+  );
 
   const { signaux, nouveaux, ecartes } = useMemo(() => {
-    const retenus: Recoupement[] = [];
-    const neufs: Recoupement[] = [];
-    const rejetes: Recoupement[] = [];
-    for (const signal of signauxBruts) {
-      const ack = acks[signal.id];
-      if (ack?.action === 'ecarte' && ack.stateKey === signal.stateKey) { rejetes.push(signal); continue; }
-      retenus.push(signal);
-      if (!ack || ack.stateKey !== signal.stateKey) neufs.push(signal);
-    }
+    const { retenus, nouveaux: neufs, ecartes: rejetes } = trierSelonGestes(signauxBruts, acks);
     return { signaux: retenus, nouveaux: neufs, ecartes: rejetes };
   }, [signauxBruts, acks]);
 
@@ -378,12 +431,13 @@ export function useRecoupements({
     docScan,
     analyserPieces,
     estNouveau,
+    estRevenu,
     marquerVu,
     marquerVus,
     ecarter,
     reactiver,
   }), [
     signaux, nouveaux, parDossier, nouveauxParDossier, ecartes, computing, docScan,
-    analyserPieces, estNouveau, marquerVu, marquerVus, ecarter, reactiver,
+    analyserPieces, estNouveau, estRevenu, marquerVu, marquerVus, ecarter, reactiver,
   ]);
 }

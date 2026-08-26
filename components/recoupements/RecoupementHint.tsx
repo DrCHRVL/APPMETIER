@@ -24,6 +24,8 @@ export interface RecoupementHintProps {
   /** Clé de corpus du dossier affiché. */
   dossierCourant: string;
   estNouveau?: (signal: Recoupement) => boolean;
+  /** Signal écarté autrefois, remonté parce qu'un dossier de plus l'a rejoint. */
+  estRevenu?: (signal: Recoupement) => boolean;
   onOuvrirDossier?: (signal: Recoupement, dossierKey: string) => void;
   onEcarter?: (signal: Recoupement) => void;
   /** Liens de renseignement déjà tracés (rien n'est proposé deux fois). */
@@ -39,6 +41,7 @@ export function RecoupementHint({
   nouveaux = [],
   dossierCourant,
   estNouveau,
+  estRevenu,
   onOuvrirDossier,
   onEcarter,
   liens,
@@ -99,6 +102,7 @@ export function RecoupementHint({
           signaux={signaux}
           dossierCourant={dossierCourant}
           estNouveau={estNouveau}
+          estRevenu={estRevenu}
           onOuvrirDossier={onOuvrirDossier}
           onEcarter={onEcarter}
           liens={liens}

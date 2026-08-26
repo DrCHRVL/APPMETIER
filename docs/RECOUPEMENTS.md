@@ -90,9 +90,18 @@ dossier.
 
 Chaque signal porte une **empreinte** : la liste des dossiers où la valeur
 apparaît. « Écarter » mémorise cette empreinte, personnellement (écarter chez
-soi n'éteint rien chez les collègues). Le signal reste muet tant que
-l'empreinte ne bouge pas — et ressort dès qu'un dossier de plus rejoint la
-coïncidence, parce que la question n'est alors plus la même.
+soi n'éteint rien chez les collègues). Le signal reste muet — et ressort dès
+qu'un dossier de PLUS rejoint la coïncidence, parce que la question n'est
+alors plus la même. Il ressort alors marqué « déjà écarté » : l'écartement n'a
+pas lâché, c'est la situation qui a changé.
+
+La comparaison se fait **par inclusion**, pas caractère à caractère : tant que
+les dossiers du jour étaient déjà connus au moment du geste, silence. Un
+dossier qui QUITTE la coïncidence — une pièce pas encore relue au démarrage,
+une enquête archivée, une préliminaire versée dans son instruction — ne
+réveille rien. Et un « j'ai vu » passif (déplier un bandeau, fermer la vue
+d'ensemble) ne défait jamais un écartement : seul un geste explicite le fait,
+depuis l'onglet « Écartés ».
 
 ## Performance
 
@@ -111,9 +120,11 @@ les données changent.
 | `utils/recoupements/extract.ts` | formes canoniques (téléphone, adresse, plaque…) et détection des noms dans un texte |
 | `utils/recoupements/engine.ts` | rapprochement, ancrage déclaré, notation, empreintes |
 | `utils/recoupements/corpus.ts` | ce que la veille a le droit de lire, par dossier |
+| `utils/recoupements/gestes.ts` | doctrine des gestes : ce qui ressort, ce qui reste muet, ce qui s'écrit |
 | `hooks/useRecoupements.ts` | lecture des pièces (cache / pièces récentes / à la demande), calcul au repos, gestes |
 | `components/recoupements/` | la ligne repliée, la liste, la vue d'ensemble |
 | `scripts/recoupements.test.mjs` | scénario complet + non-régression sur le bruit (`node scripts/recoupements.test.mjs`) |
+| `scripts/recoupements-gestes.test.mjs` | non-régression sur les écartements (`node scripts/recoupements-gestes.test.mjs`) |
 
 Les formes canoniques sont alignées sur celles de l'attaché de justice
 (`scripts/attache/carto.mjs`, `normEntite`) : ce que l'application rapproche,

@@ -80,6 +80,7 @@ interface EnqueteDetailModalProps {
     nouveaux: Recoupement[];
     dossierCourant: string;
     estNouveau: (signal: Recoupement) => boolean;
+    estRevenu?: (signal: Recoupement) => boolean;
     onOuvrirDossier?: (signal: Recoupement, dossierKey: string) => void;
     onEcarter: (signal: Recoupement) => void;
     onVus: (signaux: Recoupement[]) => void;
@@ -456,6 +457,7 @@ const EnqueteDetailModalImpl = ({
                 nouveaux={recoupements.nouveaux}
                 dossierCourant={recoupements.dossierCourant}
                 estNouveau={recoupements.estNouveau}
+                estRevenu={recoupements.estRevenu}
                 onOuvrirDossier={recoupements.onOuvrirDossier}
                 onEcarter={recoupements.onEcarter}
                 onVus={recoupements.onVus}

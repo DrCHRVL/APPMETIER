@@ -52,6 +52,8 @@ export interface RecoupementListProps {
   /** Dossier depuis lequel on regarde : il n'est pas proposé à l'ouverture. */
   dossierCourant?: string;
   estNouveau?: (signal: Recoupement) => boolean;
+  /** Signal écarté autrefois, remonté parce qu'un dossier de plus l'a rejoint. */
+  estRevenu?: (signal: Recoupement) => boolean;
   onOuvrirDossier?: (signal: Recoupement, dossierKey: string) => void;
   onEcarter?: (signal: Recoupement) => void;
   onReactiver?: (signal: Recoupement) => void;
@@ -71,6 +73,7 @@ export function RecoupementList({
   signaux,
   dossierCourant,
   estNouveau,
+  estRevenu,
   onOuvrirDossier,
   onEcarter,
   onReactiver,
@@ -95,6 +98,7 @@ export function RecoupementList({
           onBasculer={() => setOuvert(ouvert === signal.id ? null : signal.id)}
           dossierCourant={dossierCourant}
           neuf={estNouveau?.(signal) ?? false}
+          revenu={estRevenu?.(signal) ?? false}
           liens={liens}
           onOuvrirDossier={onOuvrirDossier}
           onEcarter={onEcarter}
@@ -108,7 +112,7 @@ export function RecoupementList({
 }
 
 function SignalLigne({
-  signal, ouvert, onBasculer, dossierCourant, neuf, liens,
+  signal, ouvert, onBasculer, dossierCourant, neuf, revenu, liens,
   onOuvrirDossier, onEcarter, onReactiver, onCreerLien, onAjouterMec,
 }: {
   signal: Recoupement;
@@ -116,6 +120,7 @@ function SignalLigne({
   onBasculer: () => void;
   dossierCourant?: string;
   neuf: boolean;
+  revenu: boolean;
   liens: LienExistant[];
   onOuvrirDossier?: (signal: Recoupement, dossierKey: string) => void;
   onEcarter?: (signal: Recoupement) => void;
@@ -156,6 +161,16 @@ function SignalLigne({
           {neuf && (
             <span className="ml-1.5 rounded bg-amber-100 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700">
               nouveau
+            </span>
+          )}
+          {/* Un signal écarté ne remonte que pour une raison : un dossier de
+              plus. Le dire, sinon l'écartement a l'air de n'avoir pas tenu. */}
+          {revenu && (
+            <span
+              className="ml-1.5 rounded bg-gray-100 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-gray-500"
+              title="Vous aviez écarté ce signal : un dossier de plus a rejoint la coïncidence, il ressort une fois. L'écarter à nouveau le remettra au silence."
+            >
+              déjà écarté
             </span>
           )}
           {analyse.inedit ? (
