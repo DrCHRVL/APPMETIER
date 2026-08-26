@@ -194,20 +194,114 @@ export function canonAdresse(numero: string | undefined, voie: string, nom: stri
 // COMPTES / PSEUDOS
 // ──────────────────────────────────────────────
 
-const RESEAUX = 'snapchat|snap|instagram|insta|tiktok|telegram|whatsapp|signal|facebook|messenger|discord|wickr|threema';
-const RE_COMPTE_RESEAU = new RegExp(
-  String.raw`\b(?:${RESEAUX})\b[^\n«"'’]{0,20}[«"'’]?\s*([A-Za-z][A-Za-z0-9._\-]{4,29})`,
-  'gi'
-);
+// Un pseudo ne se ramasse pas au fil de la phrase. L'ancienne règle prenait le
+// nom du réseau, sautait jusqu'à vingt caractères et retenait ce qui suivait :
+// elle rendait « comme », « avait », « Ainsi » — le mot de la phrase, tout
+// simplement — et jusqu'à des morceaux de mots (« ement », pris au milieu de
+// « signalement »), faute d'exiger un début de mot. Elle MANQUAIT en prime le
+// vrai pseudo : le saut étant gourmand, « Compte Instagram : katsu80 exploité »
+// rendait « ploit ».
+//
+// Un pseudo se PRÉSENTE. Trois façons, et rien d'autre :
+//   · entre guillemets — « jul.62 » ;
+//   · annoncé par le mot qui le nomme — « sous le pseudonyme Kaiser » ;
+//   · par sa forme même — un identifiant porte un chiffre ou un séparateur au
+//     milieu (« jul.62 », « kayzer_80 »), ce qu'aucun mot de la langue ne fait.
+// Un deux-points ou la simple juxtaposition ne suffisent pas seuls : ils
+// n'ouvrent la porte qu'à ce qui a DÉJÀ la forme d'un identifiant.
+
+/** Réseaux dont le nom ne veut rien dire d'autre en français. */
+const RESEAUX_NETS = 'snapchat|instagram|insta|tiktok|telegram|whatsapp|facebook|messenger|discord|wickr|threema';
+/** Réseaux dont le nom est aussi un mot courant : exigés avec une capitale. */
+const RESEAUX_AMBIGUS = 'signal|snap';
+const AMBIGUS = new Set(RESEAUX_AMBIGUS.split('|'));
+
+const RE_RESEAU = new RegExp(String.raw`\b(?:${RESEAUX_NETS}|${RESEAUX_AMBIGUS})\b`, 'gi');
 const RE_ARROBASE = /(?:^|[\s(])@([A-Za-z][A-Za-z0-9._\-]{3,29})\b/g;
 
-/** Mots qui suivent souvent « snapchat » sans être un pseudo. */
+/** Fenêtre, après le nom du réseau, où un pseudo peut se présenter. */
+const FENETRE_PSEUDO = 40;
+/** Forme d'un identifiant : un début de mot, une lettre d'abord, 4 signes au moins. */
+const RE_CANDIDAT_PSEUDO = /\b([A-Za-z][A-Za-z0-9._\-]{3,29})\b/g;
+/** Mots qui NOMMENT un pseudo : ce qui suit en est un, même sans chiffre. */
+const RE_ANNONCE = /(?:pseudos?|pseudonymes?|alias|surnoms?|identifiants?|logins?|nom d(?:e |'|’)utilisateur)\W*$/i;
+/** Guillemet ouvrant. L'apostrophe droite et la courbe en sont exclues : le
+ *  français les sème à chaque élision (« l'application »). */
+const RE_OUVRE_CITATION = /[«"“‘]\s*$/;
+
+/** Mots qui suivent souvent un nom de réseau sans être un pseudo. */
 const NON_PSEUDO = new Set([
   'compte', 'comptes', 'account', 'utilise', 'utilisee', 'utilisation', 'application',
   'reponse', 'requisition', 'donnees', 'story', 'stories', 'snap', 'nommee', 'intitule',
-  'dénomme', 'denomme', 'creation', 'connexion', 'connection', 'profil', 'pseudo', 'suivant',
+  'denomme', 'creation', 'connexion', 'connection', 'profil', 'pseudo', 'suivant',
   'nomme', 'appele', 'appelee', 'ouvert', 'ouverte', 'active', 'inactif', 'depuis', 'entre',
+  // Mots de la langue qu'un deux-points peut mettre en tête de proposition.
+  'aucun', 'aucune', 'ainsi', 'avait', 'etait', 'etaient', 'comme', 'cette', 'celui',
+  'celle', 'plusieurs', 'notamment', 'egalement', 'ensuite', 'toutefois', 'cependant',
+  'lequel', 'laquelle', 'exploitation', 'exploite', 'exploitee', 'extraction', 'analyse',
+  'analysee', 'message', 'messages', 'conversation', 'conversations', 'groupe', 'groupes',
+  'photo', 'photos', 'video', 'videos', 'audio', 'capture', 'captures', 'contact',
+  'contacts', 'numero', 'numeros', 'telephone', 'portable', 'ligne', 'lignes', 'adresse',
+  'identifiant', 'pseudonyme', 'utilisateur', 'installee', 'installe', 'presente',
+  'trouve', 'trouvee', 'retrouve', 'retrouvee', 'indique', 'indiquee', 'declare',
+  'declaree', 'confirme', 'confirmee', 'precise', 'precisee',
 ]);
+/** Un nom de réseau n'est pas un pseudo (« Snapchat et Instagram »). */
+const NOMS_RESEAUX = new Set(`${RESEAUX_NETS}|${RESEAUX_AMBIGUS}`.split('|'));
+
+/**
+ * Forme d'un identifiant : un chiffre, ou un séparateur au milieu. Aucun mot
+ * de la langue n'en porte — c'est ce qui distingue « kayzer_80 » de « comme ».
+ */
+function formeIdentifiant(candidat: string): boolean {
+  return /\d/.test(candidat) || /[A-Za-z0-9][._-][A-Za-z0-9]/.test(candidat);
+}
+
+/** Ce qui reste d'un texte jusqu'à la fin de la phrase en cours. */
+function jusquaFinDePhrase(texte: string): string {
+  const coupe = texte.search(/[;!?\n]|\.(?:\s|$)/);
+  return coupe === -1 ? texte : texte.slice(0, coupe);
+}
+
+/** Pseudos présentés à côté d'un nom de réseau social. */
+function pseudosDeReseaux(texte: string): Array<{ pseudo: string; index: number }> {
+  const trouves: Array<{ pseudo: string; index: number }> = [];
+  RE_RESEAU.lastIndex = 0;
+  let reseau: RegExpExecArray | null;
+
+  while ((reseau = RE_RESEAU.exec(texte)) !== null) {
+    const nom = reseau[0];
+    // « Signal », « Snap » : mots courants du français. Sans capitale, c'est la
+    // phrase qui parle — « le signal du téléphone », « un snap envoyé ».
+    if (AMBIGUS.has(nom.toLowerCase()) && nom[0] !== nom[0].toUpperCase()) continue;
+
+    const finReseau = reseau.index + nom.length;
+    // Un pseudo ne se présente jamais de l'autre côté d'un point : au-delà, la
+    // phrase parle d'autre chose.
+    const fenetre = jusquaFinDePhrase(texte.slice(finReseau, finReseau + FENETRE_PSEUDO));
+    const avant = texte.slice(Math.max(0, reseau.index - 32), reseau.index);
+
+    RE_CANDIDAT_PSEUDO.lastIndex = 0;
+    let candidat: RegExpExecArray | null;
+    while ((candidat = RE_CANDIDAT_PSEUDO.exec(fenetre)) !== null) {
+      const mot = candidat[1];
+      const plat = normalizeLoose(mot);
+      if (NON_PSEUDO.has(plat) || NOMS_RESEAUX.has(plat)) continue;
+
+      const separateur = fenetre.slice(0, candidat.index);
+      const suite = fenetre.slice(candidat.index + mot.length);
+      // Annonce placée avant le réseau (« sous le pseudo Snapchat Kaiser ») :
+      // elle ne vaut que si rien ne s'est glissé entre le réseau et le mot.
+      const annonce = RE_ANNONCE.test(separateur)
+        || (!/[A-Za-z]/.test(separateur) && RE_ANNONCE.test(avant));
+      const cite = RE_OUVRE_CITATION.test(separateur) && /^\s*[»"”’']/.test(suite);
+
+      if (!annonce && !cite && !formeIdentifiant(mot)) continue;
+      trouves.push({ pseudo: mot, index: finReseau + candidat.index });
+    }
+  }
+  return trouves;
+}
 
 // ──────────────────────────────────────────────
 // NOMS DE PERSONNES DANS LE TEXTE LIBRE
@@ -363,12 +457,8 @@ export function extractValues(texte: string): ExtractedValue[] {
     pousser({ kind: 'adresse', canon, valeur: canon, brut: m[0].replace(/\s+/g, ' ').trim(), index: m.index });
   }
 
-  RE_COMPTE_RESEAU.lastIndex = 0;
-  while ((m = RE_COMPTE_RESEAU.exec(texte)) !== null) {
-    const pseudo = m[1];
-    const canon = pseudo.toLowerCase();
-    if (NON_PSEUDO.has(normalizeLoose(pseudo))) continue;
-    pousser({ kind: 'compte', canon, valeur: pseudo, brut: pseudo, index: m.index });
+  for (const { pseudo, index } of pseudosDeReseaux(texte)) {
+    pousser({ kind: 'compte', canon: pseudo.toLowerCase(), valeur: pseudo, brut: pseudo, index });
   }
 
   RE_ARROBASE.lastIndex = 0;

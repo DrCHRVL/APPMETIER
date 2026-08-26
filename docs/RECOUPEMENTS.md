@@ -29,7 +29,7 @@ Trois règles, dans cet ordre :
 | `telephone` | « 06.79.55.13.84 » ↔ « +33 6 79 55 13 84 » | ramené à 10 chiffres |
 | `adresse` | « 16 rue Balzac » ↔ « 16 rue balzac appt 7 à AMIENS » | numéro + type de voie + nom, complément coupé |
 | `plaque` | « GM-970-AY » ↔ « GM970AY » | sans séparateurs |
-| `compte` | compte snapchat « pepitocroco2024 » | pseudo cité près du nom d'un réseau, ou `@pseudo` |
+| `compte` | compte snapchat « pepitocroco2024 » | pseudo **présenté** près du nom d'un réseau — entre guillemets, annoncé (« sous le pseudonyme… »), ou reconnaissable à sa forme (un chiffre, un séparateur) — ou `@pseudo` |
 | `iban`, `imei` | | à l'identique |
 
 Un signal ne sort **que si la valeur est présente dans au moins deux
