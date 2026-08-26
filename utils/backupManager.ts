@@ -3,6 +3,7 @@ import { SiralBridge } from './siralBridge';
 import { APP_CONFIG } from '../config/constants';
 import { StorageValidator } from './storage/validator';
 import { UserManager } from './userManager';
+import { activiteDebut } from '@/lib/monitor/clientMonitor';
 
 class BackupManager {
   // Configuration des sauvegardes
@@ -79,9 +80,11 @@ class BackupManager {
       this.startAutomaticBackup();
       this.startAutomaticDataJsonCopy();
       // Rattrapage : les timers exigeraient 24 h d'onglet ouvert en continu
-      // avant la première copie — on vérifie l'âge du dernier instantané et
-      // on copie tout de suite s'il date de plus de 24 h (ou n'existe pas).
-      this.catchUpDataJsonCopy();
+      // avant la première copie — on vérifie l'âge du dernier instantané et on
+      // copie s'il date de plus de 24 h (ou n'existe pas). DIFFÉRÉ de 90 s :
+      // cette copie sérialise tout le magasin local (plusieurs secondes de gel
+      // possibles) et tombait pile pendant le démarrage, déjà chargé.
+      setTimeout(() => this.catchUpDataJsonCopy(), 90 * 1000);
       
       // Vérification d'intégrité hebdomadaire
       this.scheduleIntegrityCheck();
@@ -212,37 +215,41 @@ class BackupManager {
     }
     
     this.isDataJsonCopyInProgress = true;
-    
+    const moniteur = activiteDebut('Copie de sauvegarde des données', 'sauvegarde');
+
     try {
       console.log('📁 Starting direct copy of data.json...');
-      
+
       if (!window.siralBridge || !window.siralBridge.copyDataJson) {
         console.error('❌ Data.json copy API not available');
         this.isDataJsonCopyInProgress = false;
+        moniteur.echec('API de copie indisponible');
         return false;
       }
-      
+
       const timestamp = new Date().toISOString().replace(/:/g, '-');
       const backupFileName = `data_backup_${timestamp}.json`;
-      
+
       const success = await window.siralBridge.copyDataJson(backupFileName);
-      
+
       if (success) {
         console.log(`✅ Data.json copied successfully: ${backupFileName}`);
-        
+
         // Nettoyer les anciennes copies
         await this.rotateDataJsonBackups();
-        
+
         this.lastDataJsonCopyTime = now;
       } else {
         console.error('❌ Failed to copy data.json');
       }
-      
+
       this.isDataJsonCopyInProgress = false;
+      if (success) moniteur.fin(backupFileName); else moniteur.echec('copie refusée');
       return success;
     } catch (error) {
       console.error('❌ Error copying data.json:', error);
       this.isDataJsonCopyInProgress = false;
+      moniteur.echec(String((error as Error)?.message || error));
       return false;
     }
   }

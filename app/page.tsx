@@ -22,7 +22,7 @@ import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
 import { useInfractionFilter } from '@/hooks/useInfractionFilter';
 import { useDocumentSearch } from '@/hooks/useDocumentSearch';
-import { Enquete, NewEnqueteData, Tag, ToDoItem } from '@/types/interfaces';
+import { CompteRendu, Enquete, NewEnqueteData, Tag, ToDoItem } from '@/types/interfaces';
 import { StorageManager } from '@/utils/storage';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ToastProvider, useToast } from '@/contexts/ToastContext';
@@ -411,6 +411,23 @@ function AppContent() {
     const source = enquetesLookupRef.current.find(e => e.id === id);
     applyOverboardUpdate(id, updates, source?.contentieuxOrigine || currentContentieuxId);
   }, [handleUpdateEnquete, applyOverboardUpdate, currentContentieuxId]);
+
+  // Callbacks STABLES pour la fiche de dossier : le React.memo de
+  // EnqueteDetailModal compare leurs identités — six closures inline le
+  // neutralisaient, et la fiche entière (tous les CR, toutes les sections)
+  // se re-rendait à chaque rendu de la page racine.
+  const selectedEnqueteId = selectedEnquete?.id ?? null;
+  const handleCloseEnqueteModal = useCallback(() => setSelectedEnquete(null), [setSelectedEnquete]);
+  const handleToggleEditEnquete = useCallback(() => setIsEditing(!isEditing), [setIsEditing, isEditing]);
+  const handleAddCRSelected = useCallback((cr: Omit<CompteRendu, 'id'>) => {
+    if (selectedEnqueteId != null) handleAjoutCR(selectedEnqueteId, cr);
+  }, [handleAjoutCR, selectedEnqueteId]);
+  const handleUpdateCRSelected = useCallback((crId: number, updates: Partial<CompteRendu>) => {
+    if (selectedEnqueteId != null) handleUpdateCR(selectedEnqueteId, crId, updates);
+  }, [handleUpdateCR, selectedEnqueteId]);
+  const handleDeleteCRSelected = useCallback((crId: number) => {
+    if (selectedEnqueteId != null) handleDeleteCR(selectedEnqueteId, crId);
+  }, [handleDeleteCR, selectedEnqueteId]);
 
   // Hook pour les instructions judiciaires (refonte PR1 — modèle DossierInstruction)
   const {
@@ -2224,17 +2241,17 @@ return (
           enquete={selectedEnquete}
           isEditing={isEditing}
           editingCR={editingCR}
-          onClose={() => setSelectedEnquete(null)}
-          onEdit={() => setIsEditing(!isEditing)}
+          onClose={handleCloseEnqueteModal}
+          onEdit={handleToggleEditEnquete}
           onUpdate={handleUpdateEnqueteSynced}
-          onAddCR={(cr) => handleAjoutCR(selectedEnquete.id, cr)}
-          onUpdateCR={(crId, updates) => handleUpdateCR(selectedEnquete.id, crId, updates)}
-          onDeleteCR={(crId) => handleDeleteCR(selectedEnquete.id, crId)}
+          onAddCR={handleAddCRSelected}
+          onUpdateCR={handleUpdateCRSelected}
+          onDeleteCR={handleDeleteCRSelected}
           setEditingCR={setEditingCR}
           onDelete={handleDeleteEnquete}
           allKnownMec={allKnownMec}
           knownNameHints={knownNameHints}
-          onCreateGlobalTodo={(todo) => handleGlobalTodosChange([...globalTodos, todo])}
+          onCreateGlobalTodo={handleCreateGlobalTodo}
           readOnly={effectiveContentieux ? !canDo(effectiveContentieux, 'edit') : true}
           contentieuxId={currentContentieuxId}
           onShareEnquete={handleShareEnquete}

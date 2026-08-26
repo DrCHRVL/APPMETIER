@@ -32,6 +32,7 @@ import {
   isExtractableDocument,
 } from '@/utils/documents/documentTextSearch';
 import { userPreferencesSyncService } from '@/utils/dataSync/UserPreferencesSyncService';
+import { activiteDebut } from '@/lib/monitor/clientMonitor';
 
 export interface DocScanState {
   /** Extraction en cours. */
@@ -90,6 +91,16 @@ const DEBOUNCE_MS = 1200;
 // petites quantités : le reste du fonds ne s'ouvre que sur demande explicite.
 const JOURS_PIECE_RECENTE = 45;
 const AUTO_EXTRACTIONS_MAX = 8;
+
+// Budget mémoire des textes de pièces retenus pour la veille. Au-delà, les
+// pièces suivantes ne sont plus gardées en mémoire (elles restent dans le
+// cache IndexedDB et reviendront si de la place se libère au prochain
+// démarrage). Sans cette borne, un fonds très analysé accumulait des centaines
+// de Mo de texte — trois copies comprises — jusqu'au « la page ne répond pas ».
+const DOC_TEXTS_MAX_CHARS = 24_000_000; // ~48 Mo de chaînes JS
+// Un texte de pièce n'est utile à la veille qu'à hauteur de ce que le moteur
+// lit (maxCharsFragment) : inutile d'en retenir davantage en mémoire.
+const DOC_TEXT_MAX_PAR_PIECE = 300_000;
 
 /** Pièce versée récemment — donc susceptible de n'avoir jamais été lue. */
 function estRecente(dateAjout: string | undefined): boolean {
@@ -153,9 +164,15 @@ export function useRecoupements({
   // Texte des pièces, accumulé hors du cycle de rendu (une Map mutée + un
   // compteur de version : on ne rend pas un composant par document lu).
   const docTexts = useRef<Map<string, string>>(new Map());
+  /** Volume total (caractères) retenu dans docTexts — borné par DOC_TEXTS_MAX_CHARS. */
+  const docTextsCharsRef = useRef(0);
   const scanIdRef = useRef(0);
   /** Budget d'extractions automatiques (pièces récentes) pour cette session. */
   const budgetAutoRef = useRef(AUTO_EXTRACTIONS_MAX);
+  /** Empreinte du dernier scan de pièces mené à terme : un changement
+   *  d'identité des enquêtes (frappe, ouverture de fiche, sync) qui ne touche
+   *  pas au fond documentaire ne relance plus la boucle sur toutes les pièces. */
+  const scanEmpreinteRef = useRef('');
 
   // ── Gestes de l'utilisateur (préférences personnelles, synchronisées) ──
   //
@@ -252,6 +269,19 @@ export function useRecoupements({
     const scanId = ++scanIdRef.current;
     let annule = false;
 
+    // Poser un état de scan SEULEMENT s'il change : deux setDocScan
+    // inconditionnels par passage re-rendaient deux fois toute la page.
+    const majDocScan = (suivant: DocScanState) => {
+      setDocScan(prev => (
+        prev.scanning === suivant.scanning
+        && prev.done === suivant.done
+        && prev.total === suivant.total
+        && prev.pending === suivant.pending
+        && prev.numeros.length === suivant.numeros.length
+        && prev.numeros.every((n, i) => n === suivant.numeros[i])
+      ) ? prev : suivant);
+    };
+
     const travail = async () => {
       const jobs: Array<{ numero: string; doc: Enquete['documents'][number] }> = [];
       enquetesByContentieux.forEach(list => {
@@ -262,14 +292,30 @@ export function useRecoupements({
         }
       });
 
+      // Empreinte du fond documentaire (métadonnées seulement) : si rien n'a
+      // bougé depuis le dernier passage complet, on ne reparcourt pas les
+      // pièces — ouvrir une fiche ou corriger un CR ne relit plus le fonds.
+      const empreinte = [
+        extraire ? 'x' : '-',
+        `b${budgetAutoRef.current}`,
+        ...jobs.map(j => `${j.numero}|${j.doc.cheminRelatif}|${j.doc.taille || 0}|${j.doc.dateAjout || ''}`),
+      ].join('\n');
+      if (!extraire && empreinte === scanEmpreinteRef.current) return;
+
+      const moniteur = activiteDebut(
+        extraire ? 'Analyse des pièces (veille)' : 'Lecture des pièces en cache (veille)',
+        'veille',
+        `${jobs.length} pièce(s) à parcourir`,
+      );
+
       let done = 0;
       let pending = 0;
       let nouveaux = 0;
       const dossiersEnAttente = new Set<string>();
-      setDocScan({ scanning: extraire && jobs.length > 0, done: 0, total: jobs.length, pending: 0, numeros: [] });
+      majDocScan({ scanning: extraire && jobs.length > 0, done: 0, total: jobs.length, pending: 0, numeros: [] });
 
       for (const job of jobs) {
-        if (annule || scanId !== scanIdRef.current) return;
+        if (annule || scanId !== scanIdRef.current) { moniteur.fin('interrompu (données modifiées)'); return; }
         const cle = docTextKey(job.numero, job.doc.cheminRelatif);
         if (docTexts.current.has(cle)) { done++; continue; }
 
@@ -289,19 +335,32 @@ export function useRecoupements({
         done++;
         if (texte === undefined) { pending++; dossiersEnAttente.add(job.numero); continue; } // jamais analysée
         if (texte?.raw) {
-          docTexts.current.set(cle, texte.raw);
-          nouveaux++;
-          // Recalcul par paliers : une pièce lue ne relance pas tout le moteur.
-          if (nouveaux % 15 === 0) setDocVersion(v => v + 1);
+          // Borne mémoire : on ne retient que ce que le moteur lira, et jamais
+          // au-delà du budget global — le reste demeure dans IndexedDB.
+          const retenu = texte.raw.length > DOC_TEXT_MAX_PAR_PIECE
+            ? texte.raw.slice(0, DOC_TEXT_MAX_PAR_PIECE)
+            : texte.raw;
+          if (docTextsCharsRef.current + retenu.length <= DOC_TEXTS_MAX_CHARS) {
+            docTexts.current.set(cle, retenu);
+            docTextsCharsRef.current += retenu.length;
+            nouveaux++;
+          }
         }
         if (extraire && done % 5 === 0) {
-          setDocScan({ scanning: done < jobs.length, done, total: jobs.length, pending, numeros: Array.from(dossiersEnAttente) });
+          majDocScan({ scanning: done < jobs.length, done, total: jobs.length, pending, numeros: Array.from(dossiersEnAttente) });
+          moniteur.progression(done, jobs.length);
+          // Recalcul par paliers pendant une analyse explicite : les premiers
+          // signaux arrivent sans attendre la fin — mais plus jamais toutes
+          // les 15 pièces (chaque palier relance TOUT le moteur).
+          if (nouveaux > 0 && done % 60 === 0) setDocVersion(v => v + 1);
           await new Promise(r => setTimeout(r, 0)); // respiration : l'app reste fluide
         }
       }
 
-      if (annule || scanId !== scanIdRef.current) return;
-      setDocScan({ scanning: false, done, total: jobs.length, pending, numeros: Array.from(dossiersEnAttente) });
+      if (annule || scanId !== scanIdRef.current) { moniteur.fin('interrompu (données modifiées)'); return; }
+      scanEmpreinteRef.current = empreinte;
+      majDocScan({ scanning: false, done, total: jobs.length, pending, numeros: Array.from(dossiersEnAttente) });
+      moniteur.fin(`${done} lue(s), ${nouveaux} nouvelle(s), ${pending} en attente d'analyse`);
       if (nouveaux > 0) setDocVersion(v => v + 1);
       if (extraire) setExtraire(false);
     };
@@ -350,29 +409,39 @@ export function useRecoupements({
         const empreinte = empreinteVeille(enquetesByContentieux, instructions || [], docVersion, contentieuxJA);
         if (empreinte === empreinteRef.current) return; // rien n'a bougé sur le fond
         setComputing(true);
+        const moniteur = activiteDebut('Détection des recoupements', 'veille');
         const corpus = buildCorpus(enquetesByContentieux, instructions || [], {
           documentTexts: docTexts.current,
           contentieuxJA,
         });
-        if (annule) return;
+        if (annule) { moniteur.fin('interrompu'); return; }
         if (corpus.length < 2) {
           empreinteRef.current = empreinte;
           setSignauxBruts(VIDE);
           setComputing(false);
+          moniteur.fin('corpus insuffisant');
           return;
         }
+        moniteur.progression(0, corpus.length);
         detecterRecoupements(corpus, {
           respirer: () => new Promise<void>(r => { setTimeout(r, 0); }),
           annule: () => annule,
         })
           .then(signaux => {
-            if (annule) return;
+            if (annule) { moniteur.fin('interrompu (données modifiées)'); return; }
             // L'empreinte n'est retenue qu'au terme d'un calcul complet : un
             // run annulé en route sera refait, jamais considéré comme acquis.
-            if (signaux) { empreinteRef.current = empreinte; setSignauxBruts(signaux); }
+            if (signaux) {
+              empreinteRef.current = empreinte;
+              setSignauxBruts(signaux);
+              moniteur.fin(`${corpus.length} dossiers comparés — ${signaux.length} signal(aux)`);
+            } else {
+              moniteur.fin('interrompu (données modifiées)');
+            }
           })
           .catch(err => {
             console.error('Veille de recoupements', err);
+            moniteur.echec(String((err as Error)?.message || err));
             if (!annule) setSignauxBruts(VIDE);
           })
           .finally(() => { if (!annule) setComputing(false); });

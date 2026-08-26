@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef } from 'react';
 
 import { DataSyncIndicator } from './sync/DataSyncIndicator';
 import { NetworkStatusIndicator } from './NetworkStatusIndicator';
+import { MoniteurActivite } from './monitor/MoniteurActivite';
 import { ChantierDot } from './attache/ChantierDot';
 import { GlobalSearchBox } from './search/GlobalSearchBox';
 import type { GlobalSearchApi } from '@/hooks/useGlobalSearch';
@@ -232,6 +233,10 @@ export const Header = ({
 
           {/* État de la cible de synchro : partage P:\ (bureau) ou serveur SIRAL (web) */}
           <NetworkStatusIndicator />
+
+          {/* Moniteur d'activité — processus en cours, charge, lag (le
+              « gestionnaire des tâches » de SIRAL) */}
+          <MoniteurActivite isAdmin={isAdmin} />
 
           {/* Attaché de justice IA — admin uniquement, fonctionnalité activée */}
           {onShowAttache && (

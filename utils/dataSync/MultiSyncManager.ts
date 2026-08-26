@@ -23,6 +23,7 @@ import {
 } from '@/types/dataSyncTypes';
 import { ContentieuxId, ContentieuxDefinition } from '@/types/userTypes';
 import { APP_CONFIG } from '@/config/constants';
+import { activiteDebut } from '@/lib/monitor/clientMonitor';
 
 // ──────────────────────────────────────────────
 // INSTANCE DE SYNC PAR CONTENTIEUX
@@ -174,6 +175,7 @@ class ContentieuxSyncInstance {
     this.isSync = true;
     this.lastSyncAttempt = new Date().toISOString();
     this.notifyStatus();
+    const moniteur = activiteDebut(`Synchronisation ${this.definition?.label || this.contentieuxId}`, 'sync');
 
     try {
       // Persister les modifications locales en attente (throttle du store)
@@ -272,6 +274,7 @@ class ContentieuxSyncInstance {
     } finally {
       this.isSync = false;
       this.notifyStatus();
+      moniteur.fin();
     }
   }
 
@@ -358,6 +361,16 @@ class ContentieuxSyncInstance {
       alertValidations: data.alertValidations || {},
       audienceResultats: data.audienceResultats,
     });
+
+    // Depuis que la première sync ne bloque plus le démarrage, le store
+    // d'enquêtes peut être initialisé AVANT l'arrivée du premier pull : on le
+    // prévient explicitement (le listener du ContentieuxManager ignore, à
+    // dessein, les changements du contentieux actif).
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('siral-pull-applied', {
+        detail: { contentieuxId: this.contentieuxId },
+      }));
+    }
   }
 
   /** Union locale + IDs fournis par le merge, en conservant la date la plus
