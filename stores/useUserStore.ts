@@ -103,17 +103,24 @@ export const useUserStore = create<UserState>((set, get) => ({
           console.error('UserStore: hydratation ContentieuxManager échouée', mgrErr);
         }
 
-        // Initialiser la synchronisation multi-contentieux
+        // Initialiser la synchronisation multi-contentieux — SANS l'attendre.
+        // Elle était sur le chemin critique du premier rendu : une sync
+        // complète (santé serveur + pull + déchiffrement + fusion + push) PAR
+        // contentieux, en série, avec 1,5 s de pause entre chaque — c'était
+        // l'essentiel des 30-45 s de « Chargement… ». L'application s'affiche
+        // désormais sur les données locales (IndexedDB) ; le premier cycle de
+        // sync se déroule en arrière-plan et rafraîchit les stores à l'arrivée
+        // (événement `siral-pull-applied`, écouté par useEnquetesStore).
         const syncModes = new Map<ContentieuxId, 'read_write' | 'read_only'>();
         for (const cId of ctx.accessibleContentieux) {
           const m = syncModesAll.get(cId);
           if (m && m !== 'none') syncModes.set(cId, m);
         }
-        try {
-          await MultiSyncManager.getInstance().initialize(defs, ctx.accessibleContentieux, syncModes);
-        } catch (syncErr) {
-          console.warn('UserStore: sync multi-contentieux non démarrée', syncErr);
-        }
+        void MultiSyncManager.getInstance()
+          .initialize(defs, ctx.accessibleContentieux, syncModes)
+          .catch(syncErr => {
+            console.warn('UserStore: sync multi-contentieux non démarrée', syncErr);
+          });
       } else {
         set({
           error: "Impossible d'identifier l'utilisateur Windows. Vérifiez votre session.",

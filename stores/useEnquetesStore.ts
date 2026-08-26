@@ -87,6 +87,36 @@ function ensureManagerSubscription(): void {
     if (changedCtxId === contentieuxId) return;
     useEnquetesStore.getState().loadSharedEnquetes();
   });
+
+  // Un pull de sync appliqué au CONTENTIEUX ACTIF (le listener ci-dessus
+  // l'ignore à dessein) : depuis que la première sync ne bloque plus le
+  // démarrage, le store peut être hydraté AVANT son arrivée — on recharge
+  // alors en douceur, identités préservées si rien n'a changé.
+  if (typeof window !== 'undefined') {
+    window.addEventListener('siral-pull-applied', (event: Event) => {
+      const detail = (event as CustomEvent<{ contentieuxId?: string }>).detail;
+      const state = useEnquetesStore.getState();
+      if (!detail?.contentieuxId || detail.contentieuxId !== state.contentieuxId) return;
+      // Des modifications locales non sauvegardées : ne pas les écraser — le
+      // prochain cycle de sync (post-save ou périodique) refera le point.
+      if (_isDirty) return;
+      const fraiches = ContentieuxManager.getInstance()
+        .getEnquetes(state.contentieuxId)
+        .filter(e => e.statut !== 'instruction')
+        .map(migrateEnqueteDocuments);
+      const identiques = fraiches.length === state.ownEnquetes.length
+        && fraiches.every((e, i) => {
+          const avant = state.ownEnquetes[i];
+          return avant && avant.id === e.id && avant.dateMiseAJour === e.dateMiseAJour;
+        });
+      if (identiques) return;
+      _enquetesRef = fraiches;
+      useEnquetesStore.setState(s => ({
+        ownEnquetes: fraiches,
+        enquetes: [...fraiches, ...s.sharedEnquetes],
+      }));
+    });
+  }
 }
 
 // ── Interface du store ──

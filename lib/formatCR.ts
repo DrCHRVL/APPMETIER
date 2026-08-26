@@ -72,8 +72,32 @@ const decodeMsoEntities = (text: string): string => {
  *   on échappe les caractères HTML puis on applique les règles **gras**,
  *   __souligné__, ==surligné==, listes et sauts de ligne.
  */
+// Cache du rendu : la conversion passe par DOMParser (sanitizeHtml) — un
+// dossier à 80 comptes rendus refaisait 80 parses DOM à CHAQUE rendu de la
+// fiche (le gel à l'ouverture d'un gros dossier). Le contenu d'un CR change
+// rarement : on mémorise le résultat par texte source, avec une borne simple.
+const RENDER_CACHE_MAX = 600;
+const renderCache = new Map<string, string>();
+
 export const renderFormattedText = (text: string): string => {
   if (!text) return '';
+  const cached = renderCache.get(text);
+  if (cached !== undefined) {
+    // LRU : les CR affichés restent en tête, les anciens sortent en premier.
+    renderCache.delete(text);
+    renderCache.set(text, cached);
+    return cached;
+  }
+  const rendered = renderFormattedTextUncached(text);
+  if (renderCache.size >= RENDER_CACHE_MAX) {
+    const oldest = renderCache.keys().next().value;
+    if (oldest !== undefined) renderCache.delete(oldest);
+  }
+  renderCache.set(text, rendered);
+  return rendered;
+};
+
+const renderFormattedTextUncached = (text: string): string => {
   // Nettoyage entités-échappées en amont (CR historiques).
   const pre = decodeMsoEntities(text);
   if (looksLikeHtml(pre)) {

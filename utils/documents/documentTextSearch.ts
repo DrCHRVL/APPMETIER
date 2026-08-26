@@ -174,6 +174,54 @@ async function extractText(
 const inFlight = new Map<string, Promise<DocumentText | null>>();
 const sessionCache = new Map<string, DocumentText | null>();
 
+// Le cache de session gardait raw + norm de CHAQUE pièce lue, sans jamais rien
+// libérer : jusqu'à ~1,6 Mo par pièce, plusieurs centaines de Mo sur un fonds
+// analysé — c'est ce qui finissait par tuer l'onglet (« la page ne répond
+// pas »). On borne donc le nombre d'entrées AVEC texte (les entrées null,
+// minuscules, ne comptent pas) : au-delà, la plus anciennement utilisée est
+// libérée — IndexedDB la resservira à la demande.
+const MAX_SESSION_TEXTS = 120;
+let sessionTextCount = 0;
+
+function sessionRemember(key: string, value: DocumentText | null): void {
+  const previous = sessionCache.get(key);
+  if (previous !== undefined) {
+    sessionCache.delete(key);
+    if (previous !== null) sessionTextCount--;
+  }
+  if (value !== null) {
+    while (sessionTextCount >= MAX_SESSION_TEXTS) {
+      let evicted = false;
+      for (const [k, v] of sessionCache) {
+        if (v === null) continue;
+        sessionCache.delete(k);
+        sessionTextCount--;
+        evicted = true;
+        break;
+      }
+      if (!evicted) break;
+    }
+    sessionTextCount++;
+  }
+  sessionCache.set(key, value);
+}
+
+/** Recence une entrée lue (LRU : les plus consultées restent en mémoire). */
+function sessionTouch(key: string, value: DocumentText | null): void {
+  if (value === null) return;
+  sessionCache.delete(key);
+  sessionCache.set(key, value);
+}
+
+/** État du cache de session — affiché par le moniteur d'activité. */
+export function getDocTextCacheStats(): { textes: number; caracteres: number } {
+  let caracteres = 0;
+  for (const v of sessionCache.values()) {
+    if (v) caracteres += v.raw.length + v.norm.length;
+  }
+  return { textes: sessionTextCount, caracteres };
+}
+
 // Mémoire de session des clés ABSENTES d'IndexedDB : évite de refaire un
 // aller-retour IDB par document jamais analysé à chaque frappe. Une extraction
 // réussie retire sa clé (getDocumentSearchText ci-dessous).
@@ -189,7 +237,7 @@ export async function getCachedDocumentSearchText(
 ): Promise<DocumentText | null | undefined> {
   const key = cacheKey(enqueteNumero, doc);
   const cached = sessionCache.get(key);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) { sessionTouch(key, cached); return cached; }
   if (notCached.has(key)) return undefined;
   const db = await openDb();
   if (!db) return undefined;
@@ -199,7 +247,7 @@ export async function getCachedDocumentSearchText(
     return undefined;
   }
   const value = stored.text ? { raw: stored.text, norm: normalizeText(stored.text) } : null;
-  sessionCache.set(key, value);
+  sessionRemember(key, value);
   return value;
 }
 
@@ -229,7 +277,7 @@ export async function getDocumentSearchText(
   const key = cacheKey(enqueteNumero, doc);
 
   const cached = sessionCache.get(key);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) { sessionTouch(key, cached); return cached; }
   const pending = inFlight.get(key);
   if (pending) return pending;
 
@@ -240,7 +288,7 @@ export async function getDocumentSearchText(
       const stored = await idbGet<{ text: string | null }>(db, STORE_TEXTS, key);
       if (stored !== undefined) {
         const value = stored.text ? { raw: stored.text, norm: normalizeText(stored.text) } : null;
-        sessionCache.set(key, value);
+        sessionRemember(key, value);
         return value;
       }
     }
@@ -261,7 +309,7 @@ export async function getDocumentSearchText(
     }
 
     const value = raw ? { raw, norm: normalizeText(raw) } : null;
-    sessionCache.set(key, value);
+    sessionRemember(key, value);
     notCached.delete(key);
     return value;
   })();

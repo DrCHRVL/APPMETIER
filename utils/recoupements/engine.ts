@@ -483,6 +483,7 @@ export async function detecterRecoupements(
   }
 
   for (const groupe of groupes) {
+    if (!await souffler()) return null;
     const parDossier = new Map<string, RecoupementOccurrence[]>();
     let ancree = false;
     let dossiersDeclares = 0;
@@ -534,17 +535,18 @@ export async function detecterRecoupements(
     else parPatronyme.set(m.patronyme, [m]);
   }
 
-  parPatronyme.forEach((list, patronyme) => {
+  for (const [patronyme, list] of parPatronyme) {
+    if (!await souffler()) return null;
     const parDossierMentions = new Map<string, Mention[]>();
     for (const m of list) {
       const arr = parDossierMentions.get(m.dossierKey);
       if (arr) arr.push(m);
       else parDossierMentions.set(m.dossierKey, [m]);
     }
-    if (parDossierMentions.size < 2) return;
+    if (parDossierMentions.size < 2) continue;
     // Patronyme trop répandu : il n'indique plus rien.
-    if (parDossierMentions.size > opts.maxDossiersPatronyme) return;
-    if (!list.some(m => m.declaree)) return;
+    if (parDossierMentions.size > opts.maxDossiersPatronyme) continue;
+    if (!list.some(m => m.declaree)) continue;
 
     const dossierKeys = Array.from(parDossierMentions.keys()).sort();
     // Si toutes les paires sont déjà expliquées par un signal « même personne »,
@@ -555,7 +557,7 @@ export async function detecterRecoupements(
         if (!paireCouverteParPersonne.has(`${patronyme}|${dossierKeys[i]}|${dossierKeys[j]}`)) inedit = true;
       }
     }
-    if (!inedit) return;
+    if (!inedit) continue;
 
     const parDossier = new Map<string, RecoupementOccurrence[]>();
     parDossierMentions.forEach((mens, dossierKey) => {
@@ -573,14 +575,15 @@ export async function detecterRecoupements(
     const patronymeAffiche = affiche.trim().split(/\s+/).find(mot => normalizeLoose(mot) === patronyme) || patronyme.toUpperCase();
 
     signaux.push(construire('patronyme', patronyme, patronymeAffiche, parDossier, dossierKeys, pairesDejaReliees, opts, {}));
-  });
+  }
 
   // ── Valeurs (téléphones, adresses, plaques, comptes…) ──────────────────
-  index.forEach(entree => {
-    if (entree.parDossier.size < 2) return;
+  for (const entree of index.values()) {
+    if (!await souffler()) return null;
+    if (entree.parDossier.size < 2) continue;
     const dossierKeys = Array.from(entree.parDossier.keys()).sort();
     signaux.push(construire(entree.kind, entree.canon, entree.valeur, entree.parDossier, dossierKeys, pairesDejaReliees, opts, {}));
-  });
+  }
 
   return signaux
     .filter(s => s.score >= opts.minScore)

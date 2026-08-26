@@ -39,9 +39,18 @@ const INGEST_V = 2
 
 // Extractions fraîches par passage, tous dossiers confondus : un scan OCR
 // peut coûter des minutes de CPU — on avance par petits pas, le tick suivant
-// continue. Les probes (MD/ ou cache déjà là ?) ne comptent pas.
+// continue.
 const INGEST_EXTRACTIONS_MAX = 15
 const INGEST_DOSSIERS_MAX = 2
+// Empreintes sha256 par passage : chacune lit ET déchiffre la pièce entière.
+// Sans borne, le premier passage sur un dossier de 1 000+ pièces gelait
+// l'event loop du service (et le volume partagé avec l'app) pendant toute la
+// durée — le tick suivant continue là où on s'est arrêté.
+const INGEST_SHAS_MAX = 120
+// Probes par passage : un probe PDF sans cache lit et hache le blob entier —
+// « gratuit » en jetons, pas en E/S. Même règle : bornés, repris au tick
+// suivant.
+const INGEST_PROBES_MAX = 300
 
 function statePath(docKey) {
   return attacheDir('ingest', String(docKey).replace(/[^a-zA-Z0-9._@-]/g, '_') + '.json')
@@ -79,7 +88,12 @@ function docSig(metas) {
  * { dossiers, empreintes, extraites, echecs, enAttente } — `enAttente` > 0 :
  * il reste du travail, le prochain tick continuera.
  */
-export async function ingestPass(keys, { maxDossiers = INGEST_DOSSIERS_MAX, maxExtractions = INGEST_EXTRACTIONS_MAX } = {}) {
+export async function ingestPass(keys, {
+  maxDossiers = INGEST_DOSSIERS_MAX,
+  maxExtractions = INGEST_EXTRACTIONS_MAX,
+  maxShas = INGEST_SHAS_MAX,
+  maxProbes = INGEST_PROBES_MAX,
+} = {}) {
   const tj = attacheTj()
   const docsDir = tjDataDir(tj, 'docs')
   const bilan = { dossiers: 0, empreintes: 0, extraites: 0, entites: 0, echecs: 0, enAttente: 0 }
@@ -92,8 +106,10 @@ export async function ingestPass(keys, { maxDossiers = INGEST_DOSSIERS_MAX, maxE
     .sort()
 
   let budget = maxExtractions
+  let budgetShas = maxShas
+  let budgetProbes = maxProbes
   for (const docKey of dirs) {
-    if (bilan.dossiers >= maxDossiers || budget <= 0) {
+    if (bilan.dossiers >= maxDossiers || budget <= 0 || budgetShas <= 0 || budgetProbes <= 0) {
       // du travail restait possible ailleurs : le signaler sans le mesurer
       break
     }
@@ -104,10 +120,14 @@ export async function ingestPass(keys, { maxDossiers = INGEST_DOSSIERS_MAX, maxE
     if (state.sig === sig && state.v === INGEST_V) continue // à jour — no-op
 
     bilan.dossiers++
-    // 1) Empreintes du clair (dédoublonnage strict) — local, rapide
+    // 1) Empreintes du clair (dédoublonnage strict) — local mais coûteux en
+    //    E/S + déchiffrement : borné par passage, le tick suivant continue.
+    let empreintesRestantes = 0
     try {
-      const e = ensureDocShas(keys, docKey)
+      const e = ensureDocShas(keys, docKey, { max: budgetShas })
       bilan.empreintes += e.calculees
+      budgetShas -= e.calculees
+      empreintesRestantes = e.restantes
       if (e.calculees) metas = listDocsMeta(tj, docKey) // relire les sha posés
     } catch { /* jamais bloquant */ }
 
@@ -123,6 +143,8 @@ export async function ingestPass(keys, { maxDossiers = INGEST_DOSSIERS_MAX, maxE
       const rel = String(d.rel)
       if (rel.startsWith('MD/')) continue
       if (echecs[rel] === String(d.savedAt)) continue // échec connu, pièce inchangée
+      if (budgetProbes <= 0) { enAttente++; continue } // repris au prochain tick
+      budgetProbes--
       let res
       try {
         res = await texteDocumentIntegral(keys, docKey, rel, { extraire: false })
@@ -151,9 +173,11 @@ export async function ingestPass(keys, { maxDossiers = INGEST_DOSSIERS_MAX, maxE
     for (const rel of Object.keys(echecs)) {
       if (!relsActuels.has(rel)) delete echecs[rel]
     }
-    // Complet (tout est servi, en cache, ou en échec mémorisé) : la signature
-    // est actée — les passages suivants sont des no-ops jusqu'au prochain dépôt.
-    writeIngestState(docKey, { v: INGEST_V, sig: enAttente ? null : sig, echecs })
+    // Complet (tout est servi, en cache, ou en échec mémorisé — empreintes
+    // comprises) : la signature est actée — les passages suivants sont des
+    // no-ops jusqu'au prochain dépôt.
+    bilan.enAttente += empreintesRestantes
+    writeIngestState(docKey, { v: INGEST_V, sig: (enAttente || empreintesRestantes) ? null : sig, echecs })
   }
   return bilan
 }

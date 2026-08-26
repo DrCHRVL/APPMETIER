@@ -279,11 +279,12 @@ export const useTags = (): UseTagsReturn => {
           }
         }
 
-        // Pull/push serveur via le service dédié (tag-data.json)
-        // Non bloquant pour l'UX : on affiche d'abord ce qu'on a en local,
-        // puis on hydrate à nouveau au retour de la sync.
-        await tagSyncService.sync();
-
+        // Afficher d'abord ce qu'on a en local — la sync serveur part en
+        // arrière-plan. Elle était attendue ici (`await`), or `tagsLoading`
+        // retient le PREMIER RENDU de toute l'application : un serveur lent
+        // ajoutait jusqu'à 15 s d'écran « Chargement… » pour de simples tags.
+        // Au retour de la sync, l'événement `global-sync-completed` (écouté
+        // ci-dessous) ré-hydrate automatiquement.
         const tagsData = await SiralBridge.getData<TagDefinition[] | { data?: TagDefinition[] }>(
           APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS,
           [],
@@ -293,6 +294,8 @@ export const useTags = (): UseTagsReturn => {
           : (tagsData?.data || []);
         lastPersistedRef.current = JSON.stringify(normalized);
         setTags(normalized);
+
+        void tagSyncService.sync().catch(() => { /* la sync périodique reprendra */ });
       } catch (error) {
         console.error('Error initializing tags:', error);
         setTags([]);
