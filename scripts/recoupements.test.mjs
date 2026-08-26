@@ -49,6 +49,7 @@ compile('utils/recoupements/extract.ts')
 compile('utils/recoupements/engine.ts')
 
 const { detecterRecoupements } = await import(path.join(TMP, 'engine.mjs'))
+const { extractValues } = await import(path.join(TMP, 'extract.mjs'))
 
 // ──────────────────────────────────────────────
 // DOSSIER 1 — enquête d'Amiens (existant dans l'application)
@@ -238,6 +239,50 @@ const interrompu = await detecterRecoupements([amiens, doullens], {
   annule: () => true,
 })
 ok(interrompu === null, 'le calcul s’interrompt sur demande, sans rendre de signal partiel')
+
+// ──────────────────────────────────────────────
+// PSEUDOS DE RÉSEAUX SOCIAUX
+//
+// Un pseudo se présente : entre guillemets, annoncé par le mot qui le nomme,
+// ou par sa forme même (un chiffre, un séparateur). Ce qui suit un nom de
+// réseau au fil de la phrase n'est que du texte — la veille remontait des
+// « comme », « avait », « Ainsi », et jusqu'à des morceaux de mots (« ement »,
+// pris au milieu de « signalement »).
+// ──────────────────────────────────────────────
+
+const comptes = (texte) => extractValues(texte).filter(v => v.kind === 'compte').map(v => v.valeur)
+
+console.log('\nPseudos — ce que la veille ne doit PAS inventer :')
+
+const riens = [
+  'Le signal du téléphone a été perdu. Ainsi, les investigations se poursuivent.',
+  'Aucun signal n’a été capté, il avait quitté les lieux.',
+  'Le signal GSM se comporte comme celui d’une borne relais.',
+  'L’exploitation Snapchat confirme un signalement anonyme également reçu.',
+  'Les applications Snapchat et Instagram étaient installées sur l’appareil.',
+  'Un snap envoyé le matin, puis plus rien.',
+  'Le compte Snapchat : aucune donnée exploitable n’a été transmise.',
+  'Réquisition Snapchat adressée le 12 mars, réponse en attente.',
+]
+for (const phrase of riens) {
+  const trouves = comptes(phrase)
+  ok(trouves.length === 0, `rien dans « ${phrase.slice(0, 54)}… »`, JSON.stringify(trouves))
+}
+
+console.log('\nPseudos — ce que la veille doit voir :')
+
+const vrais = [
+  ['Il utilise Snapchat sous le pseudo « jul.62 » depuis 2023.', 'jul.62'],
+  ['Compte Instagram : katsu80 exploité par l’intéressé.', 'katsu80'],
+  ['SNAPCHAT : kayzer_80', 'kayzer_80'],
+  ['connu sous le pseudonyme Snapchat Kaiser par ses proches', 'Kaiser'],
+  ['son compte Telegram durand.michel a servi aux commandes', 'durand.michel'],
+  ['contacté sur @jul_62 hier soir', '@jul_62'],
+]
+for (const [phrase, attendu] of vrais) {
+  const trouves = comptes(phrase)
+  ok(trouves.includes(attendu), `« ${attendu} » relevé`, JSON.stringify(trouves))
+}
 
 console.log('')
 fs.rmSync(TMP, { recursive: true, force: true })
