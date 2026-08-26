@@ -975,7 +975,9 @@ function AppContent() {
       if (!res || res.isPreArchiveSaisies) return;
       for (const c of res.condamnations || []) {
         const nom = (c.nom || '').trim();
-        if (!nom || c.isPending) continue;
+        // Même règle que `condamnesOf` : un relaxé n'est pas un condamné et
+        // n'a pas de nœud « condamné » sur la cartographie.
+        if (!nom || c.isPending || c.isRelaxe) continue;
         out.push({ nom, role: 'condamne', dossier, carto: true });
       }
     };
@@ -1059,7 +1061,10 @@ function AppContent() {
       const noms: Array<{ nom: string }> = [];
       for (const c of res.condamnations || []) {
         const nom = (c.nom || '').trim();
-        if (!nom || c.isPending) continue;
+        // Les relaxés sont écartés : la cartographie étiquette ces nœuds
+        // « condamné ». Ils restent projetés par le dossier lui-même quand
+        // ils y figurent comme mis en cause, avec leur vrai statut.
+        if (!nom || c.isPending || c.isRelaxe) continue;
         noms.push({ nom });
       }
       return noms.length > 0 ? noms : undefined;

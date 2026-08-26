@@ -170,7 +170,7 @@ export const ArchivePage = ({
         id: idx,
         nom: c.nom || 'Inconnu',
         role: '',
-        statut: 'condamne'
+        statut: c.isRelaxe ? 'relaxe' : 'condamne'
       })),
       tags: [{ id: 'flagrance', value: r.typeInfraction || 'Flagrance', category: 'infractions' as const }],
       infractionNatinfCodes: r.infractionNatinfCodes,

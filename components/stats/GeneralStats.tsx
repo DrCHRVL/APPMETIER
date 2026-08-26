@@ -253,10 +253,11 @@ export const GeneralStats = ({ enquetes, selectedYear, contentieuxId, enquetesBy
       });
       const totalDeferements = Object.values(deferementsParMois).reduce((a, b) => a + b, 0);
 
-      // Condamnations
+      // Condamnations — les relaxes en sont exclues (même population que la
+      // carte « Condamnations » de la page Résultats d'audience).
       const totalCondamnations = Object.values(cResultats)
         .filter(r => new Date(r.dateAudience).getFullYear() === selectedYear)
-        .reduce((acc, r) => acc + r.condamnations.length, 0);
+        .reduce((acc, r) => acc + r.condamnations.filter(c => !c.isRelaxe).length, 0);
 
       return {
         def,

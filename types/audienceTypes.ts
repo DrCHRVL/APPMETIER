@@ -16,6 +16,14 @@ export interface CondamnationData {
   typeAudience: TypeAudience;
   defere: boolean;
   dateDefere?: string;
+  /**
+   * Relaxe : la personne a comparu mais n'a pas été condamnée. Elle reste dans
+   * `condamnations` (c'est la liste des personnes jugées au dossier) pour que
+   * son défèrement, son type d'audience et son nom soient conservés, mais les
+   * statistiques la sortent des condamnations, des peines et des moyennes —
+   * elle n'alimente que la carte « Relaxes ». Toutes les peines valent 0.
+   */
+  isRelaxe?: boolean;
   // Nouveaux champs pour les résultats partiels
   isPending?: boolean;
   dateAudiencePending?: string;
@@ -302,7 +310,10 @@ export interface AudienceStats {
   /** Nombre de biens/avoirs marqués "vente avant jugement" (toutes catégories). */
   nombreVentesAvantJugement: number;
   nombreAudiences: number;
+  /** Personnes condamnées. Les relaxes en sont EXCLUES (cf. nombreRelaxes). */
   nombreCondamnations: number;
+  /** Personnes relaxées (une par prévenu relaxé, pas par dossier). */
+  nombreRelaxes: number;
   totalPeinePrison: number;
   tauxSursis: number;
   montantTotalAmendes: number;

@@ -210,6 +210,9 @@ function statsAudience(resultats, enquetes, du, au, coreFourni) {
   return {
     nombreAudiences: core?.nombreAudiences || 0,
     nombreCondamnations: core?.nombreCondamnations || 0,
+    // Relaxes : personnes jugées et non condamnées. Exclues des condamnations,
+    // des peines et des moyennes ; leur défèrement reste compté.
+    nombreRelaxes: core?.nombreRelaxes || 0,
     orientations: {
       crpc: core?.nombreCRPC || 0,
       ci: core?.nombreCI || 0,
@@ -306,7 +309,8 @@ export function bilanStatistiques(keys, { du: duBrut, au: auBrut } = {}) {
         : r.isAudiencePending ? 'en attente d\'audience'
           : [...new Set((r.condamnations || []).map((c) => c?.typeAudience).filter(Boolean))].join(' + ') || 'jugée',
       classementOuOI: Boolean(r.isClassement || r.isOI),
-      condamnations: (r.condamnations || []).length || undefined,
+      condamnations: (r.condamnations || []).filter((c) => c && !c.isRelaxe).length || undefined,
+      relaxes: (r.condamnations || []).filter((c) => c && c.isRelaxe).length || undefined,
       deferes: defs.reduce((n, d) => n + d.nombre, 0) || undefined,
       services: servicesEnquete(e),
       categories: categoriesEnquete(e, customTags),
@@ -331,7 +335,8 @@ export function bilanStatistiques(keys, { du: duBrut, au: auBrut } = {}) {
         orientation: r.isClassement ? 'classement sans suite' : r.isOI ? "ouverture d'information"
           : [...new Set((r.condamnations || []).map((c) => c?.typeAudience).filter(Boolean))].join(' + ') || 'jugée',
         classementOuOI: Boolean(r.isClassement || r.isOI),
-        condamnations: (r.condamnations || []).length || undefined,
+        condamnations: (r.condamnations || []).filter((c) => c && !c.isRelaxe).length || undefined,
+        relaxes: (r.condamnations || []).filter((c) => c && c.isRelaxe).length || undefined,
         deferes: deferementsDuResultat(r, '0000-01-01', '9999-12-31').reduce((n, d) => n + d.nombre, 0) || undefined,
         services: r.service ? [r.service] : [],
         categories: [...cats],

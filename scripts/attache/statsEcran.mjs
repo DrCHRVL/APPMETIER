@@ -52,6 +52,7 @@ import {
   orientationDetail,
   interdictionsGererParInfraction,
   interdictionsParaitreDetail,
+  relaxesDetail,
   enquetesEnCoursPourInfractions,
   enquetesTermineesPourInfractions,
   repartitionCategoriesInfraction,
@@ -258,6 +259,7 @@ export function ecranStatistiques(keys, { annee: anneeBrute } = {}) {
   const delta = deltaSaisiesConfiscations(audience)
   const stups = stupefiantsSaisisParService(resultats, enquetes, annee, servicesDeEnquete)
   const parTypeAudience = peinesParTypeAudience(resultats, annee)
+  const relaxes = relaxesDetail(resultats, enquetes, annee, libelleNatinf, { maintenant })
 
   const peinesParInfraction = Object.fromEntries(
     Object.entries(audience?.peinesParInfraction || {}).map(([cle, p]) => [libelleNatinf(cle), p]),
@@ -281,7 +283,19 @@ export function ecranStatistiques(keys, { annee: anneeBrute } = {}) {
     carte('Condamnations', audience.nombreCondamnations || 0, {
       sousTitre: 'Toutes enquêtes confondues',
       detail: { parMois: serie(parMoisDe('nombreCondamnations'), mois) },
-      regle: 'Chaque personne condamnée compte une fois, dans le dossier où elle est jugée.',
+      regle: 'Chaque personne condamnée compte une fois, dans le dossier où elle est jugée. Les RELAXES en sont exclues — voir la carte « Relaxes ».',
+    }),
+    carte('Relaxes', relaxes.total, {
+      sousTitre: 'Personnes jugées et non condamnées',
+      detail: {
+        personnesJugees: relaxes.juges,
+        condamnees: relaxes.condamnes,
+        partDesJugeesPct: relaxes.partDesJugesPct,
+        parMois: serie(relaxes.parMois, mois),
+        parTypeDeFait: Object.fromEntries(relaxes.repartitionParInfraction.map((r) => [r.infraction, r.count])),
+        personnes: relaxes.personnes,
+      },
+      regle: 'Une relaxe se compte par PRÉVENU (un dossier peut mêler relaxés et condamnés), au mois de son audience. Elle est EXCLUE des condamnations, des peines et des moyennes ; son défèrement, lui, reste compté.',
     }),
     carte('Total des peines de prison', `${audience.totalPeinePrison || 0} mois`, {
       sousTitre: 'Emprisonnement FERME uniquement (part ferme des peines mixtes comprise)',

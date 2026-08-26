@@ -99,7 +99,9 @@ export const PermanencePage = () => {
                             {new Date(resultat.dateAudience).toLocaleDateString()}
                           </div>
                           <div className="text-sm text-gray-500">
-                            {resultat.typeInfraction} - {resultat.condamnations.length} condamnation(s)
+                            {resultat.typeInfraction} - {resultat.condamnations.filter(c => !c.isRelaxe).length} condamnation(s)
+                            {resultat.condamnations.some(c => c.isRelaxe) &&
+                              ` - ${resultat.condamnations.filter(c => c.isRelaxe).length} relaxe(s)`}
                           </div>
                         </div>
                         <div className="flex gap-2">
