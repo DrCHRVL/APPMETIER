@@ -465,6 +465,7 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
     let stderrTail = ''
     let settled = false
     let timedOut = false
+    let runUsage = null
 
     const timer = setTimeout(() => {
       timedOut = true
@@ -522,7 +523,10 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
       // `replace` : la ligne déjà streamée au panneau n'est pas une réponse
       // (refus d'authentification) — le client doit l'effacer, pas la garder.
       onEvent({ type: 'done', convId: id, ok, error, replace: authEchec })
-      resolve({ convId: id, text: assistantText, ok, error, replace: authEchec })
+      // `usage` : le bilan de jetons du run, pour les appelants qui tiennent
+      // un compteur par objet (les chantiers) — le relevé global par catégorie
+      // (recordUsage) reste inchangé.
+      resolve({ convId: id, text: assistantText, ok, error, replace: authEchec, usage: runUsage })
     }
 
     let buffer = ''
@@ -564,7 +568,7 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
         if (ev.type === 'result') {
           // Bilan de jetons du run (consommés que le run réussisse ou non).
           const usage = extractUsage(ev)
-          if (usage) recordUsage({ run: runLabel, model: useModel, usage })
+          if (usage) { recordUsage({ run: runLabel, model: useModel, usage }); runUsage = usage }
           if (ev.subtype === 'success') {
             if (!assistantText && typeof ev.result === 'string') {
               assistantText = ev.result

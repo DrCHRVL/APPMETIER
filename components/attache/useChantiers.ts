@@ -43,6 +43,9 @@ export interface Chantier {
   origine?: 'magistrat' | 'attache';
   creeLe: string; majLe?: string;
   totalPieces: number; totalLots: number; lotsFaits: number; piecesFaites: number;
+  /** Pièces déposées vs pièces à lire (copies exactes écartées au devis). */
+  piecesDeposees?: number;
+  doublonsExclus?: number;
   pochettes: PochetteResume[];
   fiches: Array<{ prodId: string; titre: string; pochette: string }>;
   syntheseProdId?: string | null;
@@ -51,12 +54,46 @@ export interface Chantier {
   enCours?: PasEnCours | null;
   /** Nombre de lots que le moteur mène de front. */
   front?: number;
-  estimation?: { pieces: number; lots: number; jetonsMin: number; jetonsMax: number; heures?: number; nuits: number };
+  estimation?: {
+    pieces: number; lots: number; jetonsMin: number; jetonsMax: number; heures?: number; nuits: number;
+    doublonsExclus?: number; dejaCouvertes?: number;
+  };
+  /** Le RÉEL à côté du devis : jetons consommés par ce chantier. */
+  jetons?: { in: number; out: number; cacheW: number; cacheR: number; total: number } | null;
+  /** Plafond de jetons posé au devis (le chantier se met en pause une fois atteint). */
+  budgetJetons?: number | null;
+  /** Minutes par lot OBSERVÉES — l'estimation de temps restant s'appuie dessus. */
+  rythmeMinParLot?: number | null;
+  /** Modèle des runs de fiches : celui des sous-agents (défaut) ou le principal. */
+  modeleFiches?: 'sous-agent' | 'principal';
   journal?: Array<{ date: string; evenement: string }>;
 }
 
+/** Le détail à la demande (jamais dans le sondage) : journal complet, lots. */
+export interface ChantierDetail {
+  id: string;
+  journal: Array<{ date: string; evenement: string }>;
+  pochettes: Array<{
+    nom: string;
+    lots: Array<{ n: number; etat: string; pieces: number; echecs: number }>;
+    fiches: Array<{ prodId: string; titre: string }>;
+  }>;
+}
+
+/** Charge le détail d'un chantier (null si le service ne répond pas). */
+export async function chargerDetailChantier(id: string): Promise<ChantierDetail | null> {
+  try {
+    const res = await fetch('/api/attache/chantiers/detail?id=' + encodeURIComponent(id));
+    if (!res.ok) return null;
+    const data = (await res.json().catch(() => null)) as ChantierDetail | null;
+    return data && Array.isArray(data.pochettes) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
 export type TypeChantier = 'dossier' | 'liens' | 'carto';
-export type ActionChantier = 'lancer' | 'pause' | 'supprimer' | 'forcer';
+export type ActionChantier = 'lancer' | 'pause' | 'supprimer' | 'forcer' | 'relancer_echecs' | 'relancer_synthese';
 
 /** L'état du feu, servi par le service : ce qui bloque, et quand ça repart. */
 export interface FeuChantiers {
@@ -178,8 +215,13 @@ export function useChantiers() {
    */
   const creer = useCallback(async (params: {
     type: TypeChantier; numero: string; numeros: string[]; consigne: string; nuitSeulement: boolean;
-    cibleArchives?: boolean;
+    cibleArchives?: boolean; relire?: boolean; modelePrincipal?: boolean; budgetJetons?: number;
   }): Promise<string | null> => {
+    const options = {
+      ...(params.relire ? { relire: true } : {}),
+      ...(params.modelePrincipal ? { modeleFiches: 'principal' } : {}),
+      ...(params.budgetJetons && params.budgetJetons > 0 ? { budgetJetons: Math.floor(params.budgetJetons) } : {}),
+    };
     // « Tous les dossiers archivés » : un chantier par dossier, chacun avec
     // son devis — le service répond tout de suite et crée en arrière-plan.
     if (params.type === 'dossier' && params.cibleArchives) {
@@ -188,7 +230,7 @@ export function useChantiers() {
         const res = await fetch('/api/attache/chantiers', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ type: 'dossier', portee: 'archives', consigne: params.consigne.trim(), nuitSeulement: params.nuitSeulement }),
+          body: JSON.stringify({ type: 'dossier', portee: 'archives', consigne: params.consigne.trim(), nuitSeulement: params.nuitSeulement, ...options }),
         });
         const data = await res.json().catch(() => ({} as { error?: string; lances?: number; dejaEnChantier?: string[]; sansPieces?: string[]; note?: string }));
         if (!res.ok || data.error) {
@@ -223,8 +265,8 @@ export function useChantiers() {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(multi
-          ? { type: params.type, numeros: liste, consigne: params.consigne.trim(), nuitSeulement: params.nuitSeulement }
-          : { numero: tape, consigne: params.consigne.trim(), nuitSeulement: params.nuitSeulement }),
+          ? { type: params.type, numeros: liste, consigne: params.consigne.trim(), nuitSeulement: params.nuitSeulement, ...options }
+          : { numero: tape, consigne: params.consigne.trim(), nuitSeulement: params.nuitSeulement, ...options }),
       });
       const data = await res.json().catch(() => ({} as { error?: string; id?: string }));
       if (!res.ok || data.error) {
@@ -262,6 +304,8 @@ export function useChantiers() {
       if (!res.ok || data.error) showToast(`Action impossible : ${data.error || 'service injoignable'}`, 'error');
       else if (act === 'lancer') showToast(ch.etat === 'devis' ? 'Chantier lancé — le dépouillement commence dès que le feu est vert' : 'Chantier relancé', 'success');
       else if (act === 'forcer') showToast('Forcé — les premiers lots partent dans quelques secondes', 'success');
+      else if (act === 'relancer_echecs') showToast('Lots en échec relancés — tentatives remises à zéro', 'success');
+      else if (act === 'relancer_synthese') showToast('Synthèse relancée — elle repart des fiches déjà produites', 'success');
       await load();
     } finally {
       setBusy(null);
