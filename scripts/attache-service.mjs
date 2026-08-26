@@ -49,6 +49,37 @@ import { prompt as promptConsigne, catalogueAvecSocles } from './attache/consign
 const PORT = Number(process.env.SIRAL_ATTACHE_PORT || 8787)
 const POLL_MINUTES = Math.max(1, Number(process.env.SIRAL_ATTACHE_POLL_MIN || 5))
 
+// ── Suivi d'activité (le « gestionnaire des tâches » côté service) ──
+// Chaque travail de fond consigne ici son état : en cours / dernière durée /
+// dernier bilan. Exposé par GET /activite ; sans clé ni contenu d'enquête —
+// seulement des noms de travaux, des durées et des compteurs.
+const activites = {}
+const SERVICE_DEMARRE_A = new Date().toISOString()
+
+async function traque(nom, libelle, fn) {
+  const a = activites[nom] || (activites[nom] = { nom, libelle })
+  if (a.enCours) { await fn(); return } // déjà suivi par l'appel en cours
+  a.enCours = true
+  a.debutAt = new Date().toISOString()
+  a.erreur = null
+  try {
+    await fn()
+  } catch (e) {
+    a.erreur = String(e?.message || e)
+    throw e
+  } finally {
+    a.enCours = false
+    a.finAt = new Date().toISOString()
+    a.dureeMs = Date.parse(a.finAt) - Date.parse(a.debutAt)
+  }
+}
+
+// Retard de l'event loop : la mesure de santé du service — un retard élevé
+// signifie que quelque chose (extraction, hash, gros JSON) le bloque.
+import { monitorEventLoopDelay } from 'node:perf_hooks'
+const bouclePerf = monitorEventLoopDelay({ resolution: 20 })
+bouclePerf.enable()
+
 function bridgeSecret() {
   if (process.env.SIRAL_ATTACHE_BRIDGE_SECRET) return process.env.SIRAL_ATTACHE_BRIDGE_SECRET
   if (process.env.SIRAL_SECRET) {
@@ -607,6 +638,7 @@ async function maybeIngest() {
     const keys = loadKeyring()
     if (!keys) return
     const b = await ingestPass(keys)
+    if (activites.ingestion) activites.ingestion.dernierBilan = b
     if (b.empreintes || b.extraites || b.entites || b.echecs) {
       console.log(`[attache] ingestion : ${b.dossiers} dossier(s) — ${b.empreintes} empreinte(s), ${b.extraites} texte(s) extraits, ${b.entites} entrée(s) de registre, ${b.echecs} échec(s) mémorisé(s)${b.enAttente ? `, ${b.enAttente} pièce(s) au prochain tick` : ''}`)
     }
@@ -1035,6 +1067,27 @@ const server = http.createServer(async (req, res) => {
 
     if (route === 'GET /config') {
       return json(res, 200, { config: agentConfig() })
+    }
+
+    if (route === 'GET /activite') {
+      // Le « gestionnaire des tâches » du service : travaux de fond (état,
+      // durées, bilans chiffrés), santé de l'event loop et mémoire. Aucune clé,
+      // aucun contenu d'enquête.
+      const mem = process.memoryUsage()
+      const eventLoop = {
+        moyenMs: Math.round(bouclePerf.mean / 1e6),
+        maxMs: Math.round(bouclePerf.max / 1e6),
+        p99Ms: Math.round(bouclePerf.percentile(99) / 1e6),
+      }
+      bouclePerf.reset() // fenêtre glissante : chaque lecture repart à neuf
+      return json(res, 200, {
+        demarreA: SERVICE_DEMARRE_A,
+        activites: Object.values(activites),
+        runsEnCours: running,
+        chantierActif: (() => { try { return Boolean(chantierActif()) } catch { return false } })(),
+        eventLoop,
+        memoire: { rssMB: Math.round(mem.rss / (1024 * 1024)), heapMB: Math.round(mem.heapUsed / (1024 * 1024)) },
+      })
     }
 
     if (route === 'POST /mcp') {
@@ -1729,15 +1782,24 @@ server.listen(PORT, () => {
   console.log(`[attache] relève boîte toutes les ${POLL_MINUTES} min`)
 })
 
+// Les travaux du tick sont ÉTALÉS dans la fenêtre (au lieu de partir tous en
+// rafale à la même seconde) : l'ingestion, le registre, les descriptions et
+// les chantiers se partageaient le même event loop au même instant — et le
+// volume partagé avec l'app en payait le prix toutes les 5 minutes.
+const decale = (ms, nom, libelle, fn) => {
+  setTimeout(() => {
+    traque(nom, libelle, fn).catch((e) => console.error(`[attache] ${libelle} :`, e))
+  }, ms)
+}
 setInterval(() => {
-  pollOnce().catch((e) => console.error('[attache] relève :', e))
-  maybeDueRoutines().catch((e) => console.error('[attache] routines :', e))
-  maybeScheduledApprentissage().catch((e) => console.error('[attache] apprentissage planifié :', e))
-  maybeScheduledEtude().catch((e) => console.error('[attache] étude planifiée :', e))
-  maybeScheduledDescriptions().catch((e) => console.error('[attache] descriptions :', e))
-  maybeIngest().catch((e) => console.error('[attache] ingestion :', e))
-  maybeRegistreFiches().catch((e) => console.error('[attache] registre :', e))
-  maybeChantiers().catch((e) => console.error('[attache] chantiers :', e))
+  decale(0, 'releve', 'relève boîte mail', () => pollOnce())
+  decale(5_000, 'routines', 'routines planifiées', () => maybeDueRoutines())
+  decale(10_000, 'apprentissage', 'apprentissage planifié', () => maybeScheduledApprentissage())
+  decale(15_000, 'etude', 'étude planifiée', () => maybeScheduledEtude())
+  decale(20_000, 'descriptions', 'descriptions de dossiers', () => maybeScheduledDescriptions())
+  decale(30_000, 'ingestion', 'ingestion des pièces', () => maybeIngest())
+  decale(45_000, 'chantiers', 'chantiers d\'analyse', () => maybeChantiers())
+  decale(90_000, 'registre', 'mini-fiches du registre', () => maybeRegistreFiches())
 }, POLL_MINUTES * 60 * 1000)
 // première relève 20 s après le démarrage (laisse le réseau docker s'établir)
 setTimeout(() => { pollOnce('démarrage').catch(() => {}) }, 20_000)
@@ -1746,7 +1808,8 @@ setTimeout(() => { pollOnce('démarrage').catch(() => {}) }, 20_000)
 // jusqu'à un quart d'heure à l'ouverture de la fenêtre de nuit. Le test est
 // gratuit (lecture de fichiers locaux) et la boucle se garde elle-même.
 setInterval(() => {
-  maybeChantiers().catch((e) => console.error('[attache] chantiers :', e))
+  traque('chantiers', 'chantiers d\'analyse', () => maybeChantiers())
+    .catch((e) => console.error('[attache] chantiers :', e))
 }, 60_000)
 // Un chantier validé avant un redémarrage reprend sans attendre la première relève.
 setTimeout(() => { maybeChantiers().catch(() => {}) }, 25_000)
