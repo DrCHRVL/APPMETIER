@@ -40,7 +40,7 @@ import os from 'node:os'
 import { attacheDir, ensureDir, atomicWrite, readJson, listFiles, listDocsMeta, docServerKey, attacheTj } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { audit, publishFeed } from './journal.mjs'
-import { numeroCanonique, ensureDocShas } from './dossier.mjs'
+import { numeroCanonique, ensureDocShas, loadContentieux } from './dossier.mjs'
 import { appendDossierMemory } from './dossierMemory.mjs'
 import { saveProduction, readProduction, listProductions } from './productions.mjs'
 import { runAgent, agentConfig } from './agent.mjs'
@@ -407,6 +407,90 @@ async function createChantierFiches(keys, { type, numeros, consigne, nuitSeuleme
   writeChantier(keys, ch)
   await audit(keys, 'chantier_cree', { id: ch.id, type, numeros: ch.numeros, fiches: totalFiches, lots: nbLots })
   return resumeChantier(ch)
+}
+
+// ── Création EN MASSE : un chantier par dossier d'une portée ────────────────
+// « Analyser en détail tous les dossiers archivés » ne passait pas : le
+// formulaire n'acceptait qu'UN numéro, et la demande tapée en toutes lettres
+// échouait sur « dossier introuvable ». Ici la portée se déroule côté moteur :
+// un chantier « dossier » par dossier, CHACUN avec son devis — rien ne se
+// lance sans validation, comme toujours. La partie coûteuse du devis (les
+// empreintes sha256 du dédoublonnage) court en ARRIÈRE-PLAN, dossier après
+// dossier : la réponse part tout de suite et les devis apparaissent dans la
+// liste au fil de l'eau. Idempotent : un dossier qui a déjà un chantier
+// « dossier » est écarté — relancer la masse ne crée jamais de doublon.
+let masseEnCours = null
+
+/** La création en masse qui tourne (null sinon) — pour l'écran et les gardes. */
+export function masseEtat() { return masseEnCours ? { ...masseEnCours } : null }
+
+export function createChantiersEnMasse(keys, { portee = 'archives', consigne, nuitSeulement = true }) {
+  if (masseEnCours) {
+    throw new Error(`Une création en masse est déjà en cours (${masseEnCours.fait}/${masseEnCours.total} devis établis) — laissez-la finir`)
+  }
+  const p = ['archives', 'toutes', 'en_cours'].includes(String(portee)) ? String(portee) : 'archives'
+  const { data } = loadContentieux(keys)
+  const toutes = data?.enquetes || []
+  const cibles = p === 'archives' ? toutes.filter((e) => e.statut === 'archive')
+    : p === 'toutes' ? toutes
+    : toutes.filter((e) => e.statut !== 'archive')
+  if (!cibles.length) {
+    throw new Error(p === 'archives' ? 'Aucun dossier archivé dans le contentieux' : 'Aucun dossier dans cette portée')
+  }
+
+  const dejaVises = new Set(listChantiers(keys).filter((c) => c.type === 'dossier').map((c) => String(c.numero)))
+  const dejaEnChantier = []
+  const sansPieces = []
+  const aCreer = []
+  for (const e of cibles) {
+    const numero = String(e.numero)
+    if (dejaVises.has(numero)) { dejaEnChantier.push(numero); continue }
+    // comptage local (index des pièces) : aucun jeton, quelques ms par dossier
+    const metas = listDocsMeta(attacheTj(), docServerKey(numero)).filter((d) => !String(d.rel).startsWith('MD/'))
+    if (!metas.length) { sansPieces.push(numero); continue }
+    aCreer.push(numero)
+  }
+
+  if (aCreer.length) {
+    masseEnCours = { portee: p, total: aCreer.length, fait: 0 }
+    ;(async () => {
+      const echecs = []
+      for (const numero of aCreer) {
+        try {
+          await createChantier(keys, { type: 'dossier', numero, consigne, nuitSeulement })
+        } catch (e) {
+          echecs.push(`${numero} (${String(e?.message || e).slice(0, 80)})`)
+        }
+        masseEnCours = { ...masseEnCours, fait: (masseEnCours?.fait || 0) + 1 }
+        // les empreintes sha256 sont du CPU synchrone : on laisse respirer
+        // l'application du magistrat entre deux dossiers
+        await new Promise((r) => setTimeout(r, 100))
+      }
+      await publishFeed(keys, {
+        type: 'note',
+        titre: `Analyses en masse — ${aCreer.length - echecs.length} devis établis`,
+        resume: `Portée « ${p} » : ${aCreer.length - echecs.length} devis prêts à valider dans « Analyses profondes »`
+          + `${echecs.length ? ` · ${echecs.length} échec(s) : ${echecs.join(' · ')}` : ''}`
+          + `${dejaEnChantier.length ? ` · ${dejaEnChantier.length} dossier(s) déjà en chantier, écartés` : ''}`
+          + `${sansPieces.length ? ` · ${sansPieces.length} dossier(s) sans pièces, écartés` : ''}.`,
+      }).catch(() => {})
+      await audit(keys, 'chantiers_masse', {
+        portee: p, crees: aCreer.length - echecs.length, echecs: echecs.length,
+        dejaEnChantier: dejaEnChantier.length, sansPieces: sansPieces.length,
+      }).catch(() => {})
+    })().catch(() => {}).finally(() => { masseEnCours = null })
+  }
+
+  return {
+    ok: true,
+    portee: p,
+    lances: aCreer.length,
+    dejaEnChantier,
+    sansPieces,
+    note: aCreer.length
+      ? `${aCreer.length} devis en préparation — ils apparaissent dans la liste au fil de l'eau, chacun à valider avant tout dépouillement.`
+      : 'Rien à créer : tous les dossiers de la portée sont déjà en chantier ou sans pièces versées.',
+  }
 }
 
 export async function actionChantier(keys, { id, action }) {

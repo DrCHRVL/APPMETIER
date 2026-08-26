@@ -160,7 +160,7 @@ fs.writeFileSync(path.join(BAC, 'dossierMemory.mjs'), 'export async function app
 process.env.SIRAL_DATA_DIR = path.join(TMP, 'data')
 process.env.SIRAL_ATTACHE_TJ = 'default'
 
-const { readChantier, chantierStep, actionChantier, forceActive, estLimiteForfait, concurrenceChantier } = await import(path.join(BAC, 'chantier.mjs'))
+const { readChantier, chantierStep, actionChantier, forceActive, estLimiteForfait, concurrenceChantier, createChantiersEnMasse, masseEtat, listChantiers } = await import(path.join(BAC, 'chantier.mjs'))
 const { encryptJson } = await import(path.join(BAC, 'crypto.mjs'))
 const { attacheDir, ensureDir } = await import(path.join(BAC, 'store.mjs'))
 const { journalRuns } = await import(path.join(BAC, 'agent.mjs'))
@@ -361,6 +361,77 @@ console.log('\nDérogation « Forcer maintenant »')
 
   const enPause = await actionChantier(KEYS, { id: '2'.repeat(16), action: 'pause' })
   eq(enPause.forceJusqu, null, 'la pause referme la dérogation')
+}
+
+// ── 3. Création en masse : « tous les dossiers archivés » ───────────────────
+// Le formulaire n'acceptait qu'UN numéro : demander le dépouillement de tout
+// le stock archivé échouait sur « dossier introuvable ». La masse déroule la
+// portée elle-même — un chantier (et un devis) par dossier archivé qui a des
+// pièces, en écartant sans doublon ceux déjà en chantier.
+console.log('\nCréation en masse — « tous les dossiers archivés »')
+{
+  viderChantiers()
+
+  // Sans le moindre dossier archivé, la masse le dit en clair.
+  let refus = null
+  try { createChantiersEnMasse(KEYS, { portee: 'archives' }) } catch (e) { refus = String(e?.message || e) }
+  ok(/Aucun dossier archivé/.test(refus || ''), 'sans archives : refus explicite, pas de silence')
+
+  // Un contentieux : deux archivés dépouillables ou non, un archivé déjà en
+  // chantier, un dossier en cours (hors portée).
+  const ctxKey = crypto.randomBytes(32)
+  KEYS.byScope = new Map([['ctx-crimorg', ctxKey]])
+  const enquetes = [
+    { numero: 'A-1/2020 - VIEUX', statut: 'archive' },
+    { numero: 'A-2/2021 - SANS PIECES', statut: 'archive' },
+    { numero: 'A-3/2022 - DEJA', statut: 'archive' },
+    { numero: 'B-1/2026 - EN COURS', statut: 'en_cours' },
+  ]
+  const { encryptJson: chiffrer } = await import(path.join(BAC, 'crypto.mjs'))
+  const { docServerKey } = await import(path.join(BAC, 'store.mjs'))
+  const dataDir = process.env.SIRAL_DATA_DIR
+  fs.mkdirSync(path.join(dataDir, 'vaults'), { recursive: true })
+  fs.writeFileSync(path.join(dataDir, 'vaults', 'ctx-crimorg.json'),
+    JSON.stringify(chiffrer(ctxKey, { data: { enquetes, version: 1 }, metadata: null })))
+  for (const numero of ['A-1/2020 - VIEUX', 'A-3/2022 - DEJA']) {
+    const dossierDir = path.join(dataDir, 'docs', docServerKey(numero))
+    fs.mkdirSync(dossierDir, { recursive: true })
+    fs.writeFileSync(path.join(dossierDir, '.index.json'),
+      JSON.stringify([{ rel: 'PV/p1.pdf' }, { rel: 'PV/p2.pdf' }]))
+  }
+  // A-3 a déjà son chantier « dossier » : la masse ne doit pas le doubler.
+  const existant = {
+    id: 'f'.repeat(16), type: 'dossier', numero: 'A-3/2022 - DEJA', etat: 'termine',
+    creeLe: '2026-01-01T00:00:00.000Z', plan: [], fiches: [], totalPieces: 2, journal: [],
+  }
+  ensureDir(attacheDir('chantiers'))
+  fs.writeFileSync(path.join(attacheDir('chantiers'), existant.id + '.json'),
+    JSON.stringify(encryptJson(KEYS.global, existant)))
+
+  const out = createChantiersEnMasse(KEYS, { portee: 'archives', consigne: 'angle test', nuitSeulement: true })
+  eq(out.lances, 1, 'un seul dossier archivé reste à dépouiller')
+  ok(out.dejaEnChantier.includes('A-3/2022 - DEJA'), 'déjà en chantier : écarté et nommé (idempotence)')
+  ok(out.sansPieces.includes('A-2/2021 - SANS PIECES'), 'sans pièces : écarté et nommé')
+  ok(!JSON.stringify(out).includes('B-1/2026'), 'les dossiers en cours restent hors de la portée « archives »')
+
+  // Le devis se crée en ARRIÈRE-PLAN : on attend qu'il tombe.
+  let devis = null
+  for (let i = 0; i < 100 && !devis; i++) {
+    await new Promise((r) => setTimeout(r, 25))
+    devis = listChantiers(KEYS).find((c) => c.numero === 'A-1/2020 - VIEUX') || null
+  }
+  ok(devis, 'le devis du dossier archivé apparaît au fil de l\'eau')
+  eq(devis?.etat, 'devis', 'il attend la validation du magistrat — rien ne se lance seul')
+  eq(devis?.totalPieces, 2, 'son plan couvre les pièces du dossier')
+
+  // La masse s'annonce finie (bilan publié, garde levée) avant toute relance.
+  for (let i = 0; i < 100 && masseEtat(); i++) await new Promise((r) => setTimeout(r, 25))
+  ok(!masseEtat(), 'la garde « masse en cours » retombe une fois le bilan publié')
+
+  // Relancer la même masse ne crée AUCUN doublon.
+  const bis = createChantiersEnMasse(KEYS, { portee: 'archives' })
+  eq(bis.lances, 0, 'relancer la masse ne crée aucun doublon')
+  eq(listChantiers(KEYS).filter((c) => c.numero === 'A-1/2020 - VIEUX').length, 1, 'un seul chantier par dossier')
 }
 
 console.log(echecs ? `\n${echecs} vérification(s) en échec.\n` : '\nToutes les vérifications passent.\n')

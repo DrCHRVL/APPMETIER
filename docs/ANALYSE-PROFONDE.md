@@ -135,6 +135,15 @@ manque des fiches, ils déclenchent d'abord un chantier de type 1.
   par pochette avec sa propre jauge, journal des pas, et les productions
   (fiches, synthèse, rapport) lisibles, éditables et exportables sur place.
   Le moteur tourne côté service : fermer l'atelier n'interrompt rien.
+  Le formulaire « Nouvelle analyse » s'ouvre en SURIMPRESSION (voile +
+  fenêtre), jamais dans la colonne du détail : fondu dans la page, il se
+  lisait comme la suite du chantier affiché derrière.
+- **Dépouillement en masse** (fait) : la cible « tous les dossiers archivés »
+  du formulaire crée UN chantier par dossier archivé, chacun avec son devis à
+  valider — idempotent (dossiers déjà en chantier ou sans pièces écartés et
+  nommés), création en arrière-plan, devis au fil de l'eau, bilan publié au
+  fil de l'assistant (`createChantiersEnMasse`, portées `archives` / `toutes`
+  / `en_cours` côté moteur).
 - **Le pas en cours** : le moteur pose un marqueur avant chaque run (lot,
   pochette, nombre de pièces, numéro de tentative — ou rédaction de la
   synthèse) et le retire après. La bande et l'atelier affichent « En ce

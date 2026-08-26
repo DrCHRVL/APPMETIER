@@ -22,7 +22,7 @@ import { handleConnectorMessage } from './attache-mcp.mjs'
 import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride, purgeInbox } from './attache/mail.mjs'
-import { listChantiers, createChantier, actionChantier, chantierStep, chantierActif, forceActive } from './attache/chantier.mjs'
+import { listChantiers, createChantier, createChantiersEnMasse, actionChantier, chantierStep, chantierActif, forceActive } from './attache/chantier.mjs'
 import { inNightWindow, prochaineNuit, feuChantier as feuDeChantier, NIGHT_START, NIGHT_END, NIGHT_TZ } from './attache/ordonnancement.mjs'
 import { writeClaudeToken, clearClaudeToken, clearAuthFailure } from './attache/claudeAuth.mjs'
 import { runAgent, checkClaudeCli, testClaudeAuth, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
@@ -1538,6 +1538,17 @@ const server = http.createServer(async (req, res) => {
           // « lancer » / « forcer » : première vague sans attendre le prochain
           // tick (« forcer » a le feu vert par construction).
           if (['lancer', 'forcer'].includes(body.action)) setTimeout(() => { maybeChantiers().catch(() => {}) }, 50)
+          return json(res, 200, out)
+        }
+        // Portée « tous les dossiers … » : un chantier par dossier, chacun
+        // avec son devis — la réponse part tout de suite, les devis se créent
+        // en arrière-plan et apparaissent dans la liste au fil de l'eau.
+        if (body.portee) {
+          const out = createChantiersEnMasse(keys, {
+            portee: String(body.portee),
+            consigne: String(body.consigne || ''),
+            nuitSeulement: body.nuitSeulement !== false,
+          })
           return json(res, 200, out)
         }
         const ch = await createChantier(keys, {

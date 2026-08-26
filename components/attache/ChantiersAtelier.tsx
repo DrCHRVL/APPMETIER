@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Layers, Plus, Loader2, Play, Pause as PauseIcon, Trash2, Moon, BatteryLow,
-  CheckCircle2, FileText, X, AlertTriangle, Search, ClipboardList, Sparkles, Zap,
+  CheckCircle2, FileText, X, AlertTriangle, Search, ClipboardList, Sparkles, Zap, Archive,
 } from 'lucide-react';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { ProductionsSection } from './ProductionsSection';
@@ -77,14 +77,20 @@ export function ChantiersAtelier({
   const [typeChantier, setTypeChantier] = useState<TypeChantier>('dossier');
   const [numero, setNumero] = useState('');
   const [numeros, setNumeros] = useState<string[]>([]);
+  const [cibleArchives, setCibleArchives] = useState(false);
   const [consigne, setConsigne] = useState('');
   const [nuitSeulement, setNuitSeulement] = useState(true);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    // Échap referme d'abord le formulaire (en surimpression), puis l'atelier.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (showForm) setShowForm(false);
+      else onClose();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, showForm]);
 
   const listeFiltree = useMemo(() => {
     const q = recherche.trim().toLowerCase();
@@ -107,12 +113,14 @@ export function ChantiersAtelier({
   }, [numero]);
 
   const lancerCreation = useCallback(async () => {
-    const id = await creer({ type: typeChantier, numero, numeros, consigne, nuitSeulement });
-    if (id) {
-      setShowForm(false); setNumero(''); setNumeros([]); setConsigne('');
-      onSelection(id);
+    // id = chantier créé ; '' = création en masse acceptée (devis au fil de
+    // l'eau) ; null = rien créé (le formulaire reste ouvert pour corriger).
+    const id = await creer({ type: typeChantier, numero, numeros, consigne, nuitSeulement, cibleArchives });
+    if (id !== null) {
+      setShowForm(false); setNumero(''); setNumeros([]); setConsigne(''); setCibleArchives(false);
+      if (id) onSelection(id);
     }
-  }, [creer, typeChantier, numero, numeros, consigne, nuitSeulement, onSelection]);
+  }, [creer, typeChantier, numero, numeros, consigne, nuitSeulement, cibleArchives, onSelection]);
 
   const compte = (f: Filtre) => chantiers.filter((FILTRES.find((x) => x.id === f) || FILTRES[0]).test).length;
 
@@ -215,21 +223,9 @@ export function ChantiersAtelier({
           </div>
         </aside>
 
-        {/* Colonne de droite : le détail, ou le formulaire */}
+        {/* Colonne de droite : le détail du chantier regardé */}
         <main className="min-w-0 flex-1 overflow-y-auto p-4">
-          {showForm && (
-            <FormulaireChantier
-              typeChantier={typeChantier} setTypeChantier={setTypeChantier}
-              numero={numero} setNumero={setNumero}
-              numeros={numeros} setNumeros={setNumeros} ajouterNumero={ajouterNumero}
-              consigne={consigne} setConsigne={setConsigne}
-              nuitSeulement={nuitSeulement} setNuitSeulement={setNuitSeulement}
-              creating={creating} onCreer={lancerCreation} onFermer={() => setShowForm(false)}
-              enquetes={enquetes.map((e) => String(e.numero))}
-            />
-          )}
-
-          {!courant && !showForm && (
+          {!courant && (
             <div className="grid h-full place-items-center">
               <div className="max-w-md text-center">
                 <Layers className="mx-auto h-8 w-8 text-gray-300" />
@@ -250,6 +246,29 @@ export function ChantiersAtelier({
           {courant && <DetailChantier ch={courant} feu={feu} busy={busy === courant.id} onAction={action} now={now} />}
         </main>
       </div>
+
+      {/* Le formulaire vit EN SURIMPRESSION, jamais dans la colonne du détail :
+          fondu dans la page, il se lisait comme la suite du chantier en cours.
+          Le voile tranche — clic à côté ou Échap pour refermer. */}
+      {showForm && (
+        <div
+          className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-gray-900/40 p-4 backdrop-blur-[2px]"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setShowForm(false); }}
+        >
+          <div className="mt-[6vh] w-full max-w-2xl pb-8">
+            <FormulaireChantier
+              typeChantier={typeChantier} setTypeChantier={setTypeChantier}
+              numero={numero} setNumero={setNumero}
+              numeros={numeros} setNumeros={setNumeros} ajouterNumero={ajouterNumero}
+              cibleArchives={cibleArchives} setCibleArchives={setCibleArchives}
+              consigne={consigne} setConsigne={setConsigne}
+              nuitSeulement={nuitSeulement} setNuitSeulement={setNuitSeulement}
+              creating={creating} onCreer={lancerCreation} onFermer={() => setShowForm(false)}
+              enquetes={enquetes.map((e) => String(e.numero))}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -509,12 +528,13 @@ function DetailChantier({ ch, feu, busy, onAction, now }: {
   );
 }
 
-// ── Formulaire de lancement (→ devis) ───────────────────────────────────
+// ── Formulaire de lancement (→ devis) — en surimpression ────────────────
 
 function FormulaireChantier(props: {
   typeChantier: TypeChantier; setTypeChantier: (t: TypeChantier) => void;
   numero: string; setNumero: (v: string) => void;
   numeros: string[]; setNumeros: (f: (prev: string[]) => string[]) => void; ajouterNumero: () => void;
+  cibleArchives: boolean; setCibleArchives: (v: boolean) => void;
   consigne: string; setConsigne: (v: string) => void;
   nuitSeulement: boolean; setNuitSeulement: (v: boolean) => void;
   creating: boolean; onCreer: () => void; onFermer: () => void;
@@ -522,17 +542,30 @@ function FormulaireChantier(props: {
 }) {
   const {
     typeChantier, setTypeChantier, numero, setNumero, numeros, setNumeros, ajouterNumero,
+    cibleArchives, setCibleArchives,
     consigne, setConsigne, nuitSeulement, setNuitSeulement, creating, onCreer, onFermer, enquetes,
   } = props;
   const multi = typeChantier !== 'dossier';
+  const masse = typeChantier === 'dossier' && cibleArchives;
 
   return (
-    <div className="mb-4 space-y-2.5 rounded-xl border border-[#2B5746]/25 bg-emerald-50/30 p-3.5">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-bold text-gray-700">Nouvelle analyse profonde</p>
-        <button onClick={onFermer} className="rounded p-0.5 text-gray-400 hover:bg-gray-100"><X className="h-3.5 w-3.5" /></button>
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+      {/* En-tête plein : le formulaire est un geste à part, pas la suite du
+          chantier affiché derrière. */}
+      <div className="flex items-center gap-2.5 bg-gradient-to-r from-[#2B5746] to-[#3c7a5f] px-4 py-3">
+        <div className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-lg bg-white/15 text-white">
+          <Plus className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-bold text-white">Nouvelle analyse profonde</p>
+          <p className="truncate text-[10.5px] text-white/75">Le devis s&apos;affiche avant tout dépouillement — rien ne se lance sans votre validation.</p>
+        </div>
+        <button onClick={onFermer} className="flex-shrink-0 rounded-lg p-1.5 text-white/70 hover:bg-white/10 hover:text-white" title="Fermer (Échap)">
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
+      <div className="space-y-2.5 p-4">
       {/* Les trois consommateurs du même capital : dépouiller (produit les
           fiches), croiser (rapport de recoupements), cartographier (propositions). */}
       <div className="grid gap-1.5 sm:grid-cols-3">
@@ -554,6 +587,37 @@ function FormulaireChantier(props: {
         ))}
       </div>
 
+      {/* Cible d'un dépouillement : un dossier désigné, ou TOUT le stock
+          archivé d'un coup — un chantier (et un devis) par dossier. */}
+      {!multi && (
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            onClick={() => setCibleArchives(false)}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
+              !cibleArchives ? 'border-[#2B5746] bg-[#2B5746] text-white' : 'border-gray-200 bg-white text-gray-600 hover:border-[#2B5746]/40'
+            }`}
+          >
+            Un dossier
+          </button>
+          <button
+            onClick={() => setCibleArchives(true)}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
+              cibleArchives ? 'border-[#2B5746] bg-[#2B5746] text-white' : 'border-gray-200 bg-white text-gray-600 hover:border-[#2B5746]/40'
+            }`}
+          >
+            <Archive className="h-3 w-3" />Tous les dossiers archivés
+          </button>
+        </div>
+      )}
+
+      {masse && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50/70 px-2.5 py-2 text-[10.5px] leading-relaxed text-amber-800">
+          Un chantier par dossier archivé, chacun avec son propre devis à valider — rien ne se lance sans vous.
+          Les dossiers déjà en chantier ou sans pièce versée sont écartés d&apos;office : relancer plus tard ne crée
+          jamais de doublon. Les devis apparaissent dans la liste au fil de l&apos;eau.
+        </p>
+      )}
+
       {multi && numeros.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {numeros.map((n) => (
@@ -567,21 +631,23 @@ function FormulaireChantier(props: {
         </div>
       )}
 
-      <div className="flex gap-1.5">
-        <input
-          list="atelier-dossiers"
-          value={numero}
-          onChange={(e) => setNumero(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && multi) { e.preventDefault(); ajouterNumero(); } }}
-          placeholder={multi ? 'Numéro de dossier — Entrée ou « Ajouter » pour chacun' : 'Numéro du dossier (ex. 00387/00068/2026 - PRISON BREAK 2)'}
-          className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:border-[#2B5746] focus:outline-none"
-        />
-        {multi && (
-          <button onClick={ajouterNumero} className="flex-shrink-0 rounded-lg border border-[#2B5746]/30 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#2B5746] hover:bg-emerald-50">
-            Ajouter
-          </button>
-        )}
-      </div>
+      {!masse && (
+        <div className="flex gap-1.5">
+          <input
+            list="atelier-dossiers"
+            value={numero}
+            onChange={(e) => setNumero(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && multi) { e.preventDefault(); ajouterNumero(); } }}
+            placeholder={multi ? 'Numéro de dossier — Entrée ou « Ajouter » pour chacun' : 'Numéro du dossier (ex. 00387/00068/2026 - PRISON BREAK 2)'}
+            className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:border-[#2B5746] focus:outline-none"
+          />
+          {multi && (
+            <button onClick={ajouterNumero} className="flex-shrink-0 rounded-lg border border-[#2B5746]/30 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#2B5746] hover:bg-emerald-50">
+              Ajouter
+            </button>
+          )}
+        </div>
+      )}
       <datalist id="atelier-dossiers">
         {enquetes.map((n) => <option key={n} value={n} />)}
       </datalist>
@@ -606,7 +672,9 @@ function FormulaireChantier(props: {
       </label>
       <div className="flex items-center gap-2">
         <p className="mr-auto text-[10.5px] text-gray-400">
-          Le devis (pochettes, pièces, estimation) s&apos;affiche AVANT tout dépouillement — rien ne se lance sans votre validation.
+          {masse
+            ? 'Un devis par dossier archivé — chacun se valide (ou se supprime) individuellement.'
+            : 'Le devis (pochettes, pièces, estimation) s’affiche AVANT tout dépouillement — rien ne se lance sans votre validation.'}
         </p>
         <button
           onClick={onCreer}
@@ -614,8 +682,9 @@ function FormulaireChantier(props: {
           className="inline-flex items-center gap-1.5 rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#234737] disabled:opacity-50"
         >
           {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          Établir le devis
+          {masse ? 'Établir les devis' : 'Établir le devis'}
         </button>
+      </div>
       </div>
     </div>
   );

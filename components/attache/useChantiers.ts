@@ -171,10 +171,46 @@ export function useChantiers() {
     return () => clearInterval(t);
   }, [actif]);
 
-  /** Crée le chantier (état « devis ») — rien ne se lance sans validation. */
+  /**
+   * Crée le chantier (état « devis ») — rien ne se lance sans validation.
+   * Rend l'id du chantier créé, '' pour une création en masse acceptée
+   * (les devis se créent en arrière-plan), null si rien n'a été créé.
+   */
   const creer = useCallback(async (params: {
     type: TypeChantier; numero: string; numeros: string[]; consigne: string; nuitSeulement: boolean;
+    cibleArchives?: boolean;
   }): Promise<string | null> => {
+    // « Tous les dossiers archivés » : un chantier par dossier, chacun avec
+    // son devis — le service répond tout de suite et crée en arrière-plan.
+    if (params.type === 'dossier' && params.cibleArchives) {
+      setCreating(true);
+      try {
+        const res = await fetch('/api/attache/chantiers', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ type: 'dossier', portee: 'archives', consigne: params.consigne.trim(), nuitSeulement: params.nuitSeulement }),
+        });
+        const data = await res.json().catch(() => ({} as { error?: string; lances?: number; dejaEnChantier?: string[]; sansPieces?: string[]; note?: string }));
+        if (!res.ok || data.error) {
+          showToast(`Création impossible : ${data.error || 'service injoignable'}`, 'error');
+          return null;
+        }
+        const ecartes = (data.dejaEnChantier?.length || 0) + (data.sansPieces?.length || 0);
+        if (!data.lances) {
+          showToast(data.note || 'Rien à créer : tous les dossiers archivés sont déjà en chantier ou sans pièces', 'warning');
+          return null;
+        }
+        showToast(
+          `${data.lances} devis en préparation — ils apparaissent au fil de l'eau, chacun à valider`
+          + (ecartes ? ` · ${ecartes} dossier(s) écarté(s) (déjà en chantier ou sans pièces)` : ''),
+          'success',
+        );
+        await load();
+        return '';
+      } finally {
+        setCreating(false);
+      }
+    }
     const multi = params.type !== 'dossier';
     const tape = params.numero.trim();
     const liste = multi ? [...params.numeros, ...(tape && !params.numeros.includes(tape) ? [tape] : [])] : [];
