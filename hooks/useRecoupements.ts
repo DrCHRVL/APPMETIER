@@ -89,6 +89,30 @@ function estRecente(dateAjout: string | undefined): boolean {
   return Date.now() - t < JOURS_PIECE_RECENTE * 24 * 60 * 60 * 1000;
 }
 
+/**
+ * Empreinte légère du fond documentaire : identifiants et dates de mise à
+ * jour, jamais le texte. Elle change quand un dossier change VRAIMENT — pas
+ * quand la liste est simplement reconstruite à l'identique par une sync.
+ */
+function empreinteVeille(
+  enquetesByContentieux: Map<string, Enquete[]>,
+  instructions: DossierInstruction[],
+  docVersion: number,
+  contentieuxJA: Set<string> | undefined,
+): string {
+  // Le périmètre JA fait partie de l'empreinte : il filtre ce que le corpus a
+  // le droit de contenir — deux périmètres différents ne sont jamais « le même
+  // fond » même à dossiers identiques.
+  const parts: string[] = [`v${docVersion}`, `ja:${[...(contentieuxJA || [])].sort().join(',')}`];
+  for (const [ctx, enquetes] of enquetesByContentieux) {
+    parts.push(`${ctx}#${enquetes.length}`);
+    for (const e of enquetes) parts.push(`${e.id}.${e.dateMiseAJour || ''}`);
+  }
+  parts.push(`i#${instructions.length}`);
+  for (const d of instructions) parts.push(`${d.id}.${d.dateMiseAJour || ''}`);
+  return parts.join('|');
+}
+
 /** Repousse un travail à un temps mort du navigateur (repli : minuterie). */
 function auRepos(fn: () => void): () => void {
   const w = typeof window !== 'undefined' ? (window as unknown as {
@@ -241,36 +265,57 @@ export function useRecoupements({
 
   const analyserPieces = useCallback(() => setExtraire(true), []);
 
-  // ── Corpus puis détection, au repos ───────────────────────────────────
-  const corpus = useMemo(() => {
-    if (!enabled) return [];
-    return buildCorpus(enquetesByContentieux, instructions || [], {
-      documentTexts: docTexts.current,
-      contentieuxJA,
-    });
-    // docVersion : le corpus doit être rebâti quand de nouvelles pièces ont été lues.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, enquetesByContentieux, instructions, contentieuxJA, docVersion]);
+  // ── Corpus puis détection : TOUT au repos, RIEN pendant le rendu ──────
+  //
+  // Le corpus était un useMemo — donc construit PENDANT le rendu. Or la liste
+  // des enquêtes change d'identité à chaque frappe et à chaque cycle de
+  // synchronisation : l'application relisait tous les comptes rendus, toutes
+  // les notes et tout le texte des pièces au beau milieu d'un clic ou d'une
+  // saisie. C'était le lag — celui de la saisie comme celui du défilement.
+  //
+  // Désormais l'effet débouncé fait tout : il attend que la saisie se pose
+  // (1,2 s), attend un temps mort du navigateur, prend une EMPREINTE LÉGÈRE
+  // des données (identifiants + dates de mise à jour — quelques microsecondes)
+  // et ne construit le corpus puis ne lance la détection QUE si l'empreinte a
+  // changé. Une sync qui n'apporte rien, un simple changement d'identité
+  // d'objets : zéro octet relu, zéro calcul.
+  const empreinteRef = useRef('');
 
   useEffect(() => {
-    if (!enabled || corpus.length < 2) {
+    if (!enabled) {
       setSignauxBruts(VIDE);
       setComputing(false);
       return;
     }
-    setComputing(true);
     let annule = false;
     let cleanupIdle: (() => void) | null = null;
-    // Débounce puis temps mort : la veille passe TOUJOURS après l'utilisateur.
-    // Et pendant le calcul, elle rend la main toutes les 25 ms.
     const timer = setTimeout(() => {
       cleanupIdle = auRepos(() => {
         if (annule) return;
+        const empreinte = empreinteVeille(enquetesByContentieux, instructions || [], docVersion, contentieuxJA);
+        if (empreinte === empreinteRef.current) return; // rien n'a bougé sur le fond
+        setComputing(true);
+        const corpus = buildCorpus(enquetesByContentieux, instructions || [], {
+          documentTexts: docTexts.current,
+          contentieuxJA,
+        });
+        if (annule) return;
+        if (corpus.length < 2) {
+          empreinteRef.current = empreinte;
+          setSignauxBruts(VIDE);
+          setComputing(false);
+          return;
+        }
         detecterRecoupements(corpus, {
           respirer: () => new Promise<void>(r => { setTimeout(r, 0); }),
           annule: () => annule,
         })
-          .then(signaux => { if (!annule && signaux) setSignauxBruts(signaux); })
+          .then(signaux => {
+            if (annule) return;
+            // L'empreinte n'est retenue qu'au terme d'un calcul complet : un
+            // run annulé en route sera refait, jamais considéré comme acquis.
+            if (signaux) { empreinteRef.current = empreinte; setSignauxBruts(signaux); }
+          })
           .catch(err => {
             console.error('Veille de recoupements', err);
             if (!annule) setSignauxBruts(VIDE);
@@ -284,7 +329,8 @@ export function useRecoupements({
       clearTimeout(timer);
       cleanupIdle?.();
     };
-  }, [enabled, corpus]);
+    // docVersion : nouvelles pièces lues → corpus à rebâtir.
+  }, [enabled, enquetesByContentieux, instructions, contentieuxJA, docVersion]);
 
   // ── Tri selon les gestes de l'utilisateur ─────────────────────────────
   const estNouveau = useCallback((signal: Recoupement) => {

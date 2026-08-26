@@ -358,10 +358,39 @@ export async function appendLog(file: string, entry: unknown) {
   })
 }
 
+/**
+ * Queue d'un journal append-only, SANS relire le fichier entier.
+ *
+ * Ces journaux ne tournent jamais : ils grossissent indéfiniment, et ils sont
+ * relus à chaque requête — `/api/events` est sondé toutes les 20 s par chaque
+ * onglet ouvert. Relire et parser tout le fichier faisait payer à CHAQUE
+ * sondage un coût qui montait avec l'âge de l'installation, en bloquant le
+ * serveur pendant ce temps : un ralentissement qui s'aggrave semaine après
+ * semaine, sans qu'aucun changement récent ne l'explique. On ne lit plus que
+ * les derniers octets — largement de quoi couvrir les fenêtres servies
+ * (24 h / 500 entrées), pour un coût désormais constant.
+ */
+const LOG_TAIL_BYTES = 2 * 1024 * 1024
+
+export function readLogTailLines(p: string, maxBytes = LOG_TAIL_BYTES): string[] {
+  const size = fs.statSync(p).size
+  if (size <= maxBytes) return fs.readFileSync(p, 'utf8').split('\n').filter(Boolean)
+  const fd = fs.openSync(p, 'r')
+  try {
+    const buf = Buffer.allocUnsafe(maxBytes)
+    fs.readSync(fd, buf, 0, maxBytes, size - maxBytes)
+    const lines = buf.toString('utf8').split('\n')
+    lines.shift() // la première ligne est presque sûrement coupée en deux
+    return lines.filter(Boolean)
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
 export function readLog<T>(file: string, opts?: { sinceMs?: number, max?: number }): T[] {
   const p = dataDir(file)
   if (!fs.existsSync(p)) return []
-  const lines = fs.readFileSync(p, 'utf8').split('\n').filter(Boolean)
+  const lines = readLogTailLines(p)
   let entries: T[] = []
   for (const line of lines) {
     try { entries.push(JSON.parse(line)) } catch {}

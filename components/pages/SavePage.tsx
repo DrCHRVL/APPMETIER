@@ -1,5 +1,6 @@
 // components/pages/SavePage.tsx
 import React, { useState, useEffect } from 'react';
+import { useMultiSyncStatus } from '@/hooks/useMultiSyncStatus';
 import { Button } from '../ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Download, Upload, Save, RotateCcw, Shield, AlertTriangle, CheckCircle, FileText, Wrench, HardDriveDownload, Lock } from 'lucide-react';
@@ -29,11 +30,12 @@ interface SavePageProps {
   contentieuxLabel?: string;
   onRestoreFromServerBackup?: (filename: string) => Promise<boolean>;
   onListServerBackups?: () => Promise<string[]>;
-  isSyncing?: boolean;
-  syncStatus?: { isOnline: boolean } | null;
 }
 
-export const SavePage = ({ lastSaveDate, contentieuxLabel, onRestoreFromServerBackup, onListServerBackups, isSyncing, syncStatus }: SavePageProps) => {
+export const SavePage = ({ lastSaveDate, contentieuxLabel, onRestoreFromServerBackup, onListServerBackups }: SavePageProps) => {
+  // Statut de sync lu localement (voir Header) : la page racine n'a plus à se
+  // re-rendre au rythme de la synchronisation.
+  const { syncStatus, isSyncing } = useMultiSyncStatus();
   const [backups, setBackups] = useState<string[]>([]);
   const [backupStats, setBackupStats] = useState<BackupStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
