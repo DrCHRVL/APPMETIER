@@ -262,126 +262,44 @@ export interface EnqueteWithContext {
 // ──────────────────────────────────────────────
 // NORMALISATION
 // ──────────────────────────────────────────────
+//
+// Les règles d'identité des personnes — normalisation, clé insensible à
+// l'ordre des mots, rapprochement tolérant aux coquilles — vivent désormais
+// dans le module PARTAGÉ lib/recoupements/nomsCore.mjs : la cartographie, le
+// moteur de recoupements et le service attaché doivent fusionner EXACTEMENT
+// les mêmes identités, sinon la veille annonce comme inédit un lien que la
+// carte trace déjà. Elles sont ré-exportées ici avec leur typage historique.
 
-/**
- * Normalise un nom pour matching cross-dossiers.
- * Volontairement simple pour le MVP — on pourra raffiner avec Levenshtein
- * et une UI de fusion manuelle en V2 si on observe des faux négatifs.
- */
+import {
+  normalizeMecName as normalizeMecNameCore,
+  mecSortedKey as mecSortedKeyCore,
+  sameMecPerson as sameMecPersonCore,
+  sameMecPersonTokens as sameMecPersonTokensCore,
+} from '@/lib/recoupements/nomsCore.mjs';
+
+/** Nom réduit à sa forme comparable : minuscules, sans accents, ponctuation
+ *  ramenée à l'espace. */
 export function normalizeMecName(name: string): string {
-  return name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return normalizeMecNameCore(name);
 }
 
-/**
- * Cl\u00e9 d'identit\u00e9 insensible \u00e0 l'ordre des mots : "VANHOVE K\u00e9vin" et
- * "K\u00e9vin VANHOVE" partagent la m\u00eame cl\u00e9. Sert \u00e0 fusionner les n\u0153uds MEC
- * saisis avec des conventions Nom/Pr\u00e9nom diff\u00e9rentes selon les dossiers.
- */
+/** Clé d'identité insensible à l'ordre des mots : « VANHOVE Kévin » et
+ *  « Kévin VANHOVE » partagent la même clé. */
 export function mecSortedKey(name: string): string {
-  const canonical = normalizeMecName(name);
-  if (!canonical) return '';
-  return canonical.split(' ').sort().join(' ');
+  return mecSortedKeyCore(name);
 }
 
-/** Distance d'\u00e9dition \u2264 1 entre deux mots ("miky"/"micky", "carol"/"carole").
- *  R\u00e9serv\u00e9e aux mots d'au moins 4 caract\u00e8res pour ne pas confondre des
- *  particules ou initiales courtes ("de"/"le", "j"/"p"). */
-function tokensAlmostEqual(a: string, b: string): boolean {
-  if (a === b) return true;
-  if (Math.min(a.length, b.length) < 4) return false;
-  if (Math.abs(a.length - b.length) > 1) return false;
-  let i = 0;
-  while (i < a.length && i < b.length && a[i] === b[i]) i++;
-  if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1); // substitution
-  const [long, short] = a.length > b.length ? [a, b] : [b, a];
-  return long.slice(i + 1) === short.slice(i); // insertion / suppression
-}
-
-/**
- * Apparie chaque mot de `a` \u00e0 un mot (ou deux mots adjacents recoll\u00e9s) de `b`,
- * sans r\u00e9utilisation. `mustCoverB` exige que tous les mots de `b` soient
- * consomm\u00e9s (comparaison compl\u00e8te) ; sinon `a` peut \u00eatre un sous-ensemble.
- * Backtracking \u2014 les noms font au plus 5-6 mots, co\u00fbt n\u00e9gligeable.
- */
-function coverTokens(a: string[], b: string[], mustCoverB: boolean): boolean {
-  const used = new Array<boolean>(b.length).fill(false);
-  const step = (i: number): boolean => {
-    if (i >= a.length) return !mustCoverB || used.every(Boolean);
-    for (let j = 0; j < b.length; j++) {
-      if (used[j]) continue;
-      // mot \u2194 mot (tol\u00e9rance d'une coquille)
-      if (tokensAlmostEqual(a[i], b[j])) {
-        used[j] = true;
-        if (step(i + 1)) return true;
-        used[j] = false;
-      }
-      // compos\u00e9 recoll\u00e9 c\u00f4t\u00e9 a : "rosemarie" \u2194 "rose"+"marie"
-      if (j + 1 < b.length && !used[j + 1] && a[i] === b[j] + b[j + 1]) {
-        used[j] = used[j + 1] = true;
-        if (step(i + 1)) return true;
-        used[j] = used[j + 1] = false;
-      }
-    }
-    // compos\u00e9 recoll\u00e9 c\u00f4t\u00e9 b : "rose"+"marie" \u2194 "rosemarie"
-    if (i + 1 < a.length) {
-      const merged = a[i] + a[i + 1];
-      for (let j = 0; j < b.length; j++) {
-        if (used[j]) continue;
-        if (merged === b[j]) {
-          used[j] = true;
-          if (step(i + 2)) return true;
-          used[j] = false;
-        }
-      }
-    }
-    return false;
-  };
-  return step(0);
-}
-
-/**
- * Vrai si deux noms d\u00e9signent tr\u00e8s probablement la m\u00eame personne :
- *   - m\u00eames mots dans un ordre diff\u00e9rent ("VANHOVE K\u00e9vin" / "K\u00e9vin VANHOVE")
- *   - une coquille par mot tol\u00e9r\u00e9e ("Micky"/"Miky", "Carole"/"Carol")
- *   - mots compos\u00e9s recoll\u00e9s ("Rose-Marie" / "Rosemarie")
- *   - avec `allowSubset` : nom partiel inclus dans le nom complet
- *     ("Shannon" \u2282 "MELLAH MAGREZ Shannon") \u2014 \u00e0 r\u00e9server aux contextes o\u00f9
- *     l'appelant l\u00e8ve l'ambigu\u00eft\u00e9 (un seul candidat possible).
- * Utilis\u00e9 pour d\u00e9dupliquer les protagonistes d'un m\u00eame dossier (fusion
- * enqu\u00eate pr\u00e9liminaire \u2192 dossier d'instruction), o\u00f9 les m\u00eames personnes ont
- * \u00e9t\u00e9 saisies deux fois avec des conventions diff\u00e9rentes.
- */
+/** Vrai si deux noms désignent très probablement la même personne (ordre des
+ *  mots, une coquille par mot, composés recollés ; `allowSubset` autorise le
+ *  nom partiel — à réserver aux contextes sans ambiguïté). */
 export function sameMecPerson(a: string, b: string, opts?: { allowSubset?: boolean }): boolean {
-  const na = normalizeMecName(a);
-  const nb = normalizeMecName(b);
-  if (!na || !nb) return false;
-  return sameMecPersonTokens(na.split(' '), nb.split(' '), opts);
+  return sameMecPersonCore(a, b, opts);
 }
 
-/**
- * Même règle que `sameMecPerson`, pour des noms DÉJÀ normalisés et découpés
- * (`normalizeMecName(nom).split(' ')`).
- *
- * La veille de recoupements compare des dizaines de milliers de paires de
- * noms : renormaliser les deux côtés à chaque comparaison coûtait plus cher
- * que la comparaison elle-même, et bloquait le thread principal plusieurs
- * secondes d'affilée. L'appelant normalise une fois par nom, puis compare.
- */
-export function sameMecPersonTokens(
-  ta: string[],
-  tb: string[],
-  opts?: { allowSubset?: boolean }
-): boolean {
-  if (ta.length === 0 || tb.length === 0 || !ta[0] || !tb[0]) return false;
-  if (ta.length === tb.length && ta.every((t, i) => t === tb[i])) return true;
-  const [shortT, longT] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
-  return coverTokens(shortT, longT, !opts?.allowSubset);
+/** Même règle, pour des noms DÉJÀ normalisés et découpés — le moteur de
+ *  recoupements compare des dizaines de milliers de paires. */
+export function sameMecPersonTokens(ta: string[], tb: string[], opts?: { allowSubset?: boolean }): boolean {
+  return sameMecPersonTokensCore(ta, tb, opts);
 }
 
 // ──────────────────────────────────────────────

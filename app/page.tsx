@@ -46,7 +46,6 @@ import type { EnqueteWithContext } from '@/utils/mindmapGraph';
 import { sameMecPerson } from '@/utils/mindmapGraph';
 import { normNumero, numerosProches, findEnqueteParNumero } from '@/utils/numeroDossier';
 import { useRecoupements } from '@/hooks/useRecoupements';
-import { useVeillePause } from '@/hooks/useVeillePause';
 import {
   enqueteKey as recoupementEnqueteKey,
   instructionKey as recoupementInstructionKey,
@@ -1037,13 +1036,12 @@ function AppContent() {
   // Repère, sans rien interrompre, les valeurs communes à plusieurs dossiers
   // (même personne, même patronyme, même adresse, même ligne…). Purement
   // informative : elle n'écrit jamais dans un dossier.
-  // Suspendue depuis le moniteur d'activité : la veille ne calcule plus rien
-  // tant que le magistrat ne la relance pas (cf. lib/monitor/veillePause).
-  const veillePause = useVeillePause();
+  // Le calcul vit sur le SERVEUR (service attaché, chantier hebdomadaire) :
+  // l'application ne fait que lire le coffre qu'il dépose. Les enquêtes ne lui
+  // servent qu'à retrancher les dossiers dissimulés aux juristes assistants.
   const recoupements = useRecoupements({
     enquetesByContentieux: enquetesForSearch,
-    instructions,
-    enabled: !isJLDUser && !veillePause,
+    enabled: !isJLDUser,
     contentieuxJA,
   });
   const [showRecoupementsModal, setShowRecoupementsModal] = useState(false);
@@ -2317,9 +2315,10 @@ return (
         ecartes={recoupements.ecartes}
         estNouveau={recoupements.estNouveau}
         estRevenu={recoupements.estRevenu}
-        computing={recoupements.computing}
-        docScan={recoupements.docScan}
-        onAnalyserPieces={recoupements.analyserPieces}
+        chargement={recoupements.chargement}
+        chantier={recoupements.chantier}
+        detectionEnCours={recoupements.detectionEnCours}
+        onLancerDetection={recoupements.lancerDetection}
         onOuvrirDossier={(signal, dossierKey) => {
           setShowRecoupementsModal(false);
           handleOuvrirDossierRecoupement(signal, dossierKey);

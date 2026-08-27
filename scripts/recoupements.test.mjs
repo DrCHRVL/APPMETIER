@@ -18,38 +18,13 @@
  *
  *   node scripts/recoupements.test.mjs
  */
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import ts from 'typescript'
-
-const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'siral-recoup-'))
-
-// ── Transpilation à la volée : le moteur est du TypeScript pur (aucune
-//    dépendance navigateur), on le compile en ESM dans un dossier temporaire.
-function compile(rel) {
-  const nom = path.basename(rel).replace(/\.ts$/, '')
-  const src = fs.readFileSync(path.join(REPO, rel), 'utf8')
-  const { outputText } = ts.transpileModule(src, {
-    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
-  })
-  const js = outputText
-    // Les imports de TYPES restants (@/types/…) n'ont pas d'équivalent runtime.
-    .replace(/^\s*import\s[^;]*?from\s*['"]@\/types\/[^'"]+['"];?\s*$/gm, '')
-    .replace(/from\s*['"]\.\/([^'"]+)['"]/g, (_, m) => `from './${m}.mjs'`)
-    .replace(/from\s*['"]@\/utils\/([^'"]+)['"]/g, (_, m) => `from './${m.split('/').pop()}.mjs'`)
-  fs.writeFileSync(path.join(TMP, `${nom}.mjs`), js)
-  return nom
-}
-
-compile('utils/mindmapGraph.ts')
-compile('utils/recoupements/extract.ts')
-compile('utils/recoupements/engine.ts')
-
-const { detecterRecoupements } = await import(path.join(TMP, 'engine.mjs'))
-const { extractValues } = await import(path.join(TMP, 'extract.mjs'))
+//
+// Le moteur est un module PARTAGÉ (lib/recoupements/*.mjs), exécuté tel quel
+// par le service attaché : ce test lit EXACTEMENT le code qui tourne en
+// production, sans transpilation ni copie.
+import { detecterRecoupements } from '../lib/recoupements/moteurCore.mjs'
+import { extractValues } from '../lib/recoupements/valeursCore.mjs'
+import { buildCorpus } from '../lib/recoupements/corpusCore.mjs'
 
 // ──────────────────────────────────────────────
 // DOSSIER 1 — enquête d'Amiens (existant dans l'application)
@@ -285,10 +260,71 @@ for (const [phrase, attendu] of vrais) {
 }
 
 console.log('')
-fs.rmSync(TMP, { recursive: true, force: true })
+
+// ──────────────────────────────────────────────
+// LE CORPUS DU CHANTIER — plusieurs contentieux, pièces comprises
+// ──────────────────────────────────────────────
+//
+// C'est l'intérêt même du dispositif : le pont qui compte est celui qui
+// TRAVERSE les contentieux — le même homme mis en cause au stup et cité dans
+// une procédure financière. Tant que le calcul vivait dans le navigateur, ce
+// corpus-là n'était jamais complet ; il l'est côté serveur.
+
+console.log('Corpus du chantier (plusieurs contentieux, pièces comprises) :')
+
+const enquetesParContentieux = new Map([
+  ['crimorg', [{
+    id: 9026, numero: '2026/9026', statut: 'en_cours',
+    misEnCause: [{ nom: 'DOMONT Sherazed', role: 'stup' }],
+    comptesRendus: [{
+      id: 1, date: '2026-03-12', enqueteur: 'OPJ MARTIN',
+      description: '<p>Ligne <b>06.79.55.13.84</b> active au 16 rue Balzac.</p>',
+    }],
+    documents: [{ cheminRelatif: 'PV/pv1.pdf', nom: 'pv1.pdf' }],
+  }]],
+  ['ecofi', [{
+    id: 12, numero: '2026/0012', statut: 'en_cours',
+    misEnCause: [{ nom: 'BERTIN Paul', role: 'gérant' }],
+    documents: [{ cheminRelatif: 'PV/audition.pdf', nom: 'audition.pdf' }],
+  }]],
+])
+
+const textesDesPieces = new Map([
+  ['2026/9026::PV/pv1.pdf', 'Surveillance du 16 rue Balzac. Contact au +33 6 79 55 13 84.'],
+  ['2026/0012::PV/audition.pdf', 'Le gérant déclare connaître DOMONT Sherazed, jointe au 06 79 55 13 84.'],
+])
+
+const corpusChantier = await buildCorpus(enquetesParContentieux, [], { documentTexts: textesDesPieces })
+ok(corpusChantier.length === 2, 'les deux contentieux entrent dans le même corpus',
+  JSON.stringify(corpusChantier.map((d) => d.key)))
+
+const avancement = []
+const transversaux = await detecterRecoupements(corpusChantier, {
+  avancement: (lus, total) => avancement.push(`${lus}/${total}`),
+})
+const kindsTransversaux = transversaux.map((s) => s.kind)
+ok(kindsTransversaux.includes('telephone'),
+  'la ligne écrite « 06.79.55.13.84 » d\'un côté et « +33 6 79… » de l\'autre est rapprochée')
+ok(kindsTransversaux.includes('personne'),
+  'la personne DÉCLARÉE au stup et CITÉE dans une pièce ECOFI est rapprochée')
+ok(transversaux.every((s) => s.pontInedit),
+  'aucun mis en cause commun : ces ponts sont bien annoncés inédits')
+ok(avancement.length > 0 && avancement[avancement.length - 1] === '2/2',
+  'l\'avancement va jusqu\'au bout (le moniteur ne reste plus à zéro)', avancement.join(' '))
+
+// Un dossier inchangé ne doit pas être rebâti : la mémoire de corpus sert d'un
+// chantier à l'autre, et rendre un objet DIFFÉRENT à contenu identique
+// suffirait à refaire tout le dé-balisage des comptes rendus.
+const memoire = new Map()
+const premier = await buildCorpus(enquetesParContentieux, [], { documentTexts: textesDesPieces }, { memo: memoire })
+const second = await buildCorpus(enquetesParContentieux, [], { documentTexts: textesDesPieces }, { memo: memoire })
+ok(premier[0] === second[0] && premier[1] === second[1],
+  'à fonds inchangé, le corpus mémoïsé est rendu tel quel')
+
+console.log('')
 
 if (echecs > 0) {
   console.error(`${echecs} vérification(s) en échec.`)
   process.exit(1)
 }
-console.log('Veille de recoupements : toutes les vérifications passent.\n')
+console.log('Recoupements entre dossiers : toutes les vérifications passent.\n')

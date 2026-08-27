@@ -11,15 +11,17 @@
  * instantanément, sans toucher aux données.
  */
 import fs from 'node:fs'
-import { attacheDir, ensureDir, atomicWrite, readJson } from './store.mjs'
+import { attacheDir, ensureDir, atomicWrite, readJson, attacheContentieuxListe } from './store.mjs'
 import { loadMasterKey, wrapWithMaster, unwrapWithMaster, b64 } from './crypto.mjs'
 
 const KEYRING_FILE = () => attacheDir('keyring.enc.json')
 
-/** Périmètres autorisés : la clé globale + le contentieux confié, rien d'autre. */
+/**
+ * Périmètres autorisés : la clé globale et les contentieux confiés, rien
+ * d'autre. Une clé hors de cette liste est REFUSÉE, même remise par erreur.
+ */
 export function allowedScopes() {
-  const ctx = process.env.SIRAL_ATTACHE_CONTENTIEUX || 'crimorg'
-  return ['global', `ctx-${ctx}`]
+  return ['global', ...attacheContentieuxListe().map((ctx) => `ctx-${ctx}`)]
 }
 
 /**
@@ -39,6 +41,9 @@ export function grantKeyring(rawKeys, grantedBy) {
     if (raw.length !== 32) throw new Error(`Clé invalide pour ${s}`)
   }
   if (!scopes.includes('global')) throw new Error('La clé « global » est requise (journaux, mémoire, documents)')
+  // Une remise PARTIELLE des contentieux est légitime : l'administrateur peut
+  // n'être déverrouillé que sur une partie d'entre eux. Les recoupements
+  // porteront alors sur ce qui a été confié, et le diront.
   const payload = { v: 1, keys: rawKeys, grantedBy, grantedAt: new Date().toISOString() }
   const envelope = wrapWithMaster(master, payload)
   ensureDir(attacheDir())

@@ -1,10 +1,36 @@
-# Veille de recoupements
+# Recoupements entre dossiers
 
 > Deux dossiers parlent parfois de la même personne, de la même adresse ou de
 > la même ligne sans que personne ne s'en aperçoive. La pièce arrive d'une
 > autre unité, elle est classée, et le nom qui la relie à une affaire en cours
-> dort dans un PDF. La veille lit ce qui est **déjà** dans l'application et
-> signale ces coïncidences — sans rien interrompre.
+> dort dans un PDF. Un **chantier hebdomadaire**, sur le serveur, relit tout le
+> fonds et signale ces coïncidences.
+
+## Un chantier, pas une veille
+
+Le rapprochement a d'abord été tenté **dans le navigateur du magistrat**. C'était
+une erreur de principe, et elle s'est payée cher : comparer deux cents dossiers
+et leurs pièces demande de tout tenir en mémoire, ce qu'un onglet ne peut pas
+faire. Il a donc fallu brider le calcul — pièces tronquées à 300 000
+caractères, pièces abandonnées au-delà d'un budget mémoire, huit extractions
+par session, plafond de 200 signaux. Résultat : une détection **incomplète**
+(près de deux mille pièces jamais analysées) et une application qui **gelait**
+plusieurs secondes d'affilée, jusqu'au plantage de l'onglet.
+
+Le calcul vit désormais dans le **service attaché** — le seul composant qui
+détienne les clés, le serveur web ne voyant que des enveloppes chiffrées. Il
+tourne :
+
+- **une fois par semaine, la nuit du samedi au dimanche**, quand personne ne
+  travaille ;
+- **à la demande**, par le bouton « Lancer maintenant » de la vue d'ensemble.
+
+C'est du **calcul pur** : aucune IA, aucun jeton consommé. Il ne dépend donc
+pas de l'authentification Claude (qui, elle, expire) et le gouverneur du
+forfait ne peut pas le mettre en attente.
+
+Plus aucune bride : le fonds entier, toutes les pièces, tous les contentieux
+confiés. L'application, elle, ne fait plus que **lire le résultat**.
 
 ## Le principe
 
@@ -57,22 +83,39 @@ Enfin, la veille ne rend que les **200 signaux les mieux notés** (et au plus
 huit occurrences par signal, dont une par dossier au minimum) : au-delà, une
 liste cesse d'être lisible.
 
-## Ce qu'elle lit — et ce qu'elle ne lit pas
+## Ce qu'il lit
 
-Elle relit ce qui est déjà déchiffré pour l'affichage : mis en cause,
-description, notes, comptes rendus, actes (lignes d'écoute, objets géolocalisés,
-autres actes), et — côté instruction — saisine, mis en examen, notes et
-événements. **Rien ne sort du poste** : tout est calculé en mémoire, dans le
-navigateur.
+Mis en cause, description, notes, comptes rendus, actes (lignes d'écoute,
+objets géolocalisés, autres actes), et — côté instruction — saisine, mis en
+examen, notes et événements. Plus le **texte intégral de toutes les pièces**,
+océrisation comprise pour les PV scannés.
 
-Les **pièces** suivent le régime de la recherche documentaire :
+**Rien ne sort du serveur** : le chantier lit des coffres qu'il déchiffre avec
+les clés que l'administrateur lui a remises, calcule en mémoire, et redépose un
+coffre chiffré. Le serveur web qui l'héberge ne voit à aucun moment de clair.
 
-- les pièces déjà analysées (cache local) sont couvertes, à coût nul ;
-- une pièce **versée depuis moins de 45 jours** et jamais lue est analysée
-  d'office, dans la limite de 8 par session — c'est précisément le PV qui
-  vient d'arriver qu'il faut lire ;
-- tout le reste du fonds attend le bouton **« Analyser N pièces »** de la vue
-  d'ensemble. Aucune extraction massive n'est lancée en silence.
+### Périmètre
+
+L'attaché ne lit que les contentieux qui lui ont été **explicitement confiés** :
+`SIRAL_ATTACHE_CONTENTIEUX` en liste (`crimorg,environnement,ecofi`), et pour
+chacun une clé remise depuis le navigateur déverrouillé de l'administrateur
+(Paramètres → Attaché IA → « Remettre les clés »). Un contentieux dont la clé
+manque **sort du corpus**, et la vue d'ensemble le dit — un périmètre incomplet
+doit se voir, jamais se deviner.
+
+C'est le point qui décide de l'intérêt du dispositif : les recoupements qui
+valent quelque chose sont ceux qui **traversent** les contentieux, un même
+homme se retrouvant mis en cause au stup et cité dans une procédure financière.
+
+### Les pièces jamais lues
+
+Chaque chantier extrait le texte des pièces encore inconnues, dans la limite
+d'un temps imparti (`SIRAL_ATTACHE_RECOUP_EXTRACTION_MIN`, deux heures par
+défaut) — un premier passage sur un fonds de dix mille pièces jamais ouvertes
+prendrait des jours. Ce n'est **pas** une limite sur la détection : tout ce qui
+est en cache entre dans le corpus, et ce qui n'a pas pu être lu cette nuit le
+sera la suivante, le cache étant persistant. La vue d'ensemble affiche toujours
+le compte exact : « 2 700/2 700 pièces lues », ou ce qu'il en reste.
 
 ## Où ça se voit
 
@@ -80,11 +123,20 @@ Les **pièces** suivent le régime de la recherche documentaire :
 |---|---|
 | Fiche d'enquête / d'instruction | une ligne repliée sous l'en-tête : « N recoupements avec d'autres dossiers ». La déplier vaut « j'ai vu ». |
 | En-tête de l'application | une icône de chaînon, avec une pastille comptant les signaux jamais consultés. Absente s'il n'y a rien. |
-| Vue d'ensemble (clic sur l'icône) | tous les signaux, le plus solide d'abord, l'onglet « Écartés » et le bouton d'analyse des pièces. |
+| Vue d'ensemble (clic sur l'icône) | tous les signaux, le plus solide d'abord, l'onglet « Écartés », la **date du dernier chantier** et ce qu'il a pu lire. L'administrateur y trouve « Lancer maintenant ». |
 
 Chaque signal se déplie sur ses occurrences : le dossier, l'endroit (fiche,
 compte rendu, pièce…) et la citation exacte du passage. Un bouton ouvre l'autre
 dossier.
+
+## Les dossiers dissimulés aux juristes assistants
+
+Le chantier tourne sur le fonds entier : il ignore qui lira ses signaux. Un
+dossier marqué `hiddenFromJA` est donc retranché **à l'affichage**, dans le
+navigateur de l'utilisateur concerné — exactement comme il l'était du temps où
+le corpus se construisait là (la donnée y était déjà ; seule la construction du
+corpus l'écartait). Un signal qui ne touche QUE des dossiers interdits
+disparaît ; s'il en touche d'autres, il reste, amputé de ceux-là.
 
 ## Silence jusqu'à changement réel
 
@@ -103,28 +155,39 @@ réveille rien. Et un « j'ai vu » passif (déplier un bandeau, fermer la vue
 d'ensemble) ne défait jamais un écartement : seul un geste explicite le fait,
 depuis l'onglet « Écartés ».
 
-## Performance
+## Coût pour l'application
 
-La veille passe toujours après l'utilisateur : le calcul est repoussé d'une
-seconde après la dernière modification, puis exécuté dans un temps mort du
-navigateur, en **rendant la main toutes les 25 ms**. Sur un fonds de 300
-dossiers et 5 Mo de texte, le calcul complet prend environ 0,7 s réparti sur
-l'ensemble, sans qu'aucune tranche ne dépasse 30 ms. Il s'interrompt dès que
-les données changent.
+Une lecture de coffre. Rien d'autre, jamais — l'onglet ne calcule plus rien.
+
+Côté serveur, le chantier rend la main entre deux dossiers (`setImmediate`)
+pour que le service continue de répondre au panneau d'administration et de
+relever les mails pendant qu'il travaille. Le conteneur de l'attaché porte par
+ailleurs un `cpu_shares` réduit : dès que le magistrat se sert de SIRAL, c'est
+l'application qui passe devant.
 
 ## Où c'est implémenté
 
 | Fichier | Rôle |
 |---|---|
 | `types/recoupementTypes.ts` | signaux, occurrences, corpus, gestes de l'utilisateur |
-| `utils/recoupements/extract.ts` | formes canoniques (téléphone, adresse, plaque…) et détection des noms dans un texte |
-| `utils/recoupements/engine.ts` | rapprochement, ancrage déclaré, notation, empreintes |
-| `utils/recoupements/corpus.ts` | ce que la veille a le droit de lire, par dossier |
+| `lib/recoupements/nomsCore.mjs` | identité des personnes : normalisation, clé insensible à l'ordre des mots, rapprochement tolérant |
+| `lib/recoupements/valeursCore.mjs` | formes canoniques (téléphone, adresse, plaque…) et détection des noms dans un texte |
+| `lib/recoupements/moteurCore.mjs` | rapprochement, ancrage déclaré, notation, empreintes |
+| `lib/recoupements/corpusCore.mjs` | ce que le chantier a le droit de lire, par dossier |
+| `scripts/attache/recoupements.mjs` | le chantier : corpus complet, texte des pièces, écriture du coffre |
+| `scripts/attache/ordonnancement.mjs` | quand le chantier part (nuit du samedi au dimanche, une fois par semaine) |
+| `app/api/attache/recoupements/route.ts` | déclenchement manuel — administrateur du TJ confié uniquement |
 | `utils/recoupements/gestes.ts` | doctrine des gestes : ce qui ressort, ce qui reste muet, ce qui s'écrit |
-| `hooks/useRecoupements.ts` | lecture des pièces (cache / pièces récentes / à la demande), calcul au repos, gestes |
+| `hooks/useRecoupements.ts` | lecture du coffre, retrait des dossiers interdits, gestes |
 | `components/recoupements/` | la ligne repliée, la liste, la vue d'ensemble |
 | `scripts/recoupements.test.mjs` | scénario complet + non-régression sur le bruit (`node scripts/recoupements.test.mjs`) |
+| `scripts/recoupements-chantier.test.mjs` | quand le chantier part (`node scripts/recoupements-chantier.test.mjs`) |
 | `scripts/recoupements-gestes.test.mjs` | non-régression sur les écartements (`node scripts/recoupements-gestes.test.mjs`) |
+
+Les modules `lib/recoupements/*.mjs` sont du JavaScript **partagé** app ↔
+attaché, selon le motif déjà en place pour les statistiques (`lib/stats/*.mjs`)
+: il n'existe qu'une seule implémentation des règles, et c'est celle que la
+suite de tests exécute — pas une copie.
 
 Les formes canoniques sont alignées sur celles de l'attaché de justice
 (`scripts/attache/carto.mjs`, `normEntite`) : ce que l'application rapproche,

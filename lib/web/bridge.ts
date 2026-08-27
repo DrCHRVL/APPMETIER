@@ -864,6 +864,10 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     globalSync_pushAlerts: async (payload: unknown) => { try { await vaultPush('alerts', payload); return true } catch { return false } },
     globalSync_pullDeletedIds: async () => vaultPullSoft('deleted-ids'),
     globalSync_pushDeletedIds: async (payload: unknown) => { try { await vaultPush('deleted-ids', payload); return true } catch { return false } },
+    // Recoupements : le calcul appartient au SERVICE ATTACHÉ (seul à pouvoir
+    // lire le fonds entier). L'application ne fait que lire son résultat —
+    // aucune écriture, il n'y a rien à y pousser.
+    globalSync_pullRecoupements: async () => vaultPullSoft('recoupements'),
     globalSync_pullCartographie: async () => vaultPullSoft('cartographie'),
     globalSync_pushCartographie: async (payload: unknown) => { try { await vaultPush('cartographie', payload); return true } catch { return false } },
     globalSync_pullCartographieConfig: async () => vaultPullSoft('cartographie-config'),

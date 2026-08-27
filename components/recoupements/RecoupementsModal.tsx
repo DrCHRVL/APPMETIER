@@ -1,28 +1,24 @@
 'use client';
 
 /**
- * SIRAL — veille de recoupements · vue d'ensemble.
+ * SIRAL — recoupements entre dossiers · vue d'ensemble.
  *
- * Tout ce que la veille a relevé, tous dossiers confondus, le plus solide
- * d'abord. On y arrive par la loupe de l'en-tête ; rien ne s'ouvre tout seul.
+ * Tout ce que le dernier chantier a relevé, tous dossiers confondus, le plus
+ * solide d'abord. On y arrive par la loupe de l'en-tête ; rien ne s'ouvre tout
+ * seul.
  *
- * « Analyser les pièces » est le SEUL moment où l'on touche aux documents
- * jamais ouverts, et c'est toujours un geste explicite :
- *   · analyse profonde — un CHANTIER est déposé à l'état DEVIS (volume, lots,
- *     jetons, nuits) ; rien ne tourne avant que le devis soit validé dans
- *     « Analyses profondes » ;
- *   · lecture rapide — extraction du seul texte, sur ce poste, sans jeton :
- *     elle fait entrer les pièces dans la veille, sans les faire lire à
- *     personne.
+ * Le calcul n'a pas lieu ici : il tourne sur le SERVEUR, une fois par semaine
+ * dans la nuit du samedi au dimanche, sur le fonds entier. Cette fenêtre en
+ * lit le résultat — et dit toujours DE QUAND il date et CE QU'IL A PU LIRE :
+ * un périmètre incomplet doit se voir, jamais se deviner.
  */
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { FileSearch, Loader2, Layers, Check } from 'lucide-react';
+import { Loader2, RefreshCw, ServerCog } from 'lucide-react';
 import type { Recoupement } from '@/types/recoupementTypes';
-import type { DocScanState } from '@/hooks/useRecoupements';
+import type { RecoupementsChantier } from '@/hooks/useRecoupements';
 import type { LienExistant, PropositionLien } from '@/utils/recoupements/liens';
-import { useChantiers } from '../attache/useChantiers';
 import { RecoupementList } from './RecoupementList';
 
 export interface RecoupementsModalProps {
@@ -33,9 +29,14 @@ export interface RecoupementsModalProps {
   estNouveau: (signal: Recoupement) => boolean;
   /** Signal écarté autrefois, remonté parce qu'un dossier de plus l'a rejoint. */
   estRevenu?: (signal: Recoupement) => boolean;
-  computing: boolean;
-  docScan: DocScanState;
-  onAnalyserPieces: () => void;
+  /** Première lecture du coffre en cours. */
+  chargement: boolean;
+  /** Le dernier chantier du serveur — null : aucun n'a encore tourné. */
+  chantier: RecoupementsChantier | null;
+  /** Un chantier tourne en ce moment. */
+  detectionEnCours: boolean;
+  /** Relance le chantier sur le serveur (administrateur seulement). */
+  onLancerDetection: () => Promise<{ ok: boolean; error?: string }>;
   onOuvrirDossier?: (signal: Recoupement, dossierKey: string) => void;
   onEcarter: (signal: Recoupement) => void;
   onReactiver: (signal: Recoupement) => void;
@@ -54,9 +55,10 @@ export function RecoupementsModal({
   ecartes,
   estNouveau,
   estRevenu,
-  computing,
-  docScan,
-  onAnalyserPieces,
+  chargement,
+  chantier,
+  detectionEnCours,
+  onLancerDetection,
   onOuvrirDossier,
   onEcarter,
   onReactiver,
@@ -110,12 +112,12 @@ export function RecoupementsModal({
           </button>
 
           <div className="ml-auto flex items-center gap-2">
-            {computing && (
-              <span className="flex items-center gap-1 text-[11px] text-gray-400">
-                <Loader2 className="h-3 w-3 animate-spin" /> analyse…
-              </span>
-            )}
-            <AnalysePieces docScan={docScan} onLectureRapide={onAnalyserPieces} />
+            <EtatChantier
+              chargement={chargement}
+              chantier={chantier}
+              enCours={detectionEnCours}
+              onLancer={onLancerDetection}
+            />
           </div>
         </div>
 
@@ -134,11 +136,13 @@ export function RecoupementsModal({
               />
             ) : (
               <p className="px-3 py-6 text-center text-xs text-gray-400">
-                {computing
-                  ? 'Analyse en cours…'
-                  : docScan.pending > 0
-                    ? 'Rien pour l’instant sur ce qui a été lu. Les pièces jamais analysées ne sont pas encore couvertes.'
-                    : 'Aucun recoupement relevé.'}
+                {chargement
+                  ? 'Lecture du dernier chantier…'
+                  : !chantier
+                    ? 'Aucun chantier n’a encore tourné. Le prochain part dans la nuit du samedi au dimanche.'
+                    : chantier.perimetre.piecesNonLues > 0
+                      ? `Rien relevé sur ce qui a été lu. ${chantier.perimetre.piecesNonLues} pièce(s) restent à analyser — le prochain chantier les prendra.`
+                      : 'Aucun recoupement relevé.'}
               </p>
             )
           ) : ecartes.length > 0 ? (
@@ -153,85 +157,91 @@ export function RecoupementsModal({
 }
 
 /**
- * Les pièces jamais ouvertes — et les deux façons de s'en occuper.
+ * D'où viennent ces signaux, et de quand.
  *
- * Monté avec la modale seulement (le portail Radix ne rend rien tant qu'elle
- * est fermée) : le sondage des chantiers ne tourne donc pas en fond toute la
- * journée.
+ * Un tableau de rapprochements sans date est un piège : le magistrat ne peut
+ * pas savoir si le dossier versé ce matin y est pour quelque chose. On affiche
+ * donc toujours la date du dernier chantier et le nombre de pièces qu'il a
+ * réellement lues — et l'on dit franchement ce qui lui a échappé.
+ *
+ * Le bouton de relance n'est proposé qu'à l'administrateur du TJ confié : pour
+ * tout autre utilisateur la route du service attaché répond comme si elle
+ * n'existait pas, et le bouton disparaît.
  */
-function AnalysePieces({
-  docScan, onLectureRapide,
+function EtatChantier({
+  chargement, chantier, enCours, onLancer,
 }: {
-  docScan: DocScanState;
-  onLectureRapide: () => void;
+  chargement: boolean;
+  chantier: RecoupementsChantier | null;
+  enCours: boolean;
+  onLancer: () => Promise<{ ok: boolean; error?: string }>;
 }) {
-  const { available, creating, creer } = useChantiers();
-  const [devisPose, setDevisPose] = useState(false);
+  const [peutLancer, setPeutLancer] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
 
-  if (docScan.scanning) {
+  // Sondage à l'ouverture seulement (le portail Radix ne monte rien tant que
+  // la fenêtre est fermée) : aucun appel en fond toute la journée.
+  useEffect(() => {
+    let vivant = true;
+    fetch('/api/attache/recoupements', { credentials: 'include' })
+      .then((r) => { if (vivant) setPeutLancer(r.ok); })
+      .catch(() => { if (vivant) setPeutLancer(false); });
+    return () => { vivant = false; };
+  }, []);
+
+  const lancer = useCallback(async () => {
+    setErreur(null);
+    const res = await onLancer();
+    if (!res.ok) setErreur(res.error || 'Le chantier n’a pas pu partir.');
+  }, [onLancer]);
+
+  if (chargement) {
     return (
-      <span className="flex items-center gap-1 text-[11px] text-gray-500">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        lecture des pièces {docScan.done}/{docScan.total}
+      <span className="flex items-center gap-1 text-[11px] text-gray-400">
+        <Loader2 className="h-3 w-3 animate-spin" /> lecture…
       </span>
     );
   }
-  if (docScan.pending <= 0) return null;
 
-  if (devisPose) {
-    return (
-      <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-700">
-        <Check className="h-3.5 w-3.5" />
-        Devis déposé — à valider dans « Analyses profondes »
-      </span>
-    );
-  }
+  const dateChantier = chantier
+    ? new Date(chantier.calculeAt).toLocaleString('fr-FR', {
+      weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    })
+    : null;
 
-  const pieces = `${docScan.pending} pièce${docScan.pending > 1 ? 's' : ''}`;
-
-  const lancerChantier = async () => {
-    const numeros = docScan.numeros;
-    const id = await creer({
-      type: numeros.length >= 2 ? 'liens' : 'dossier',
-      numero: numeros.length >= 2 ? '' : (numeros[0] || ''),
-      numeros,
-      consigne:
-        'Recoupements entre dossiers. Dépouiller les pièces jamais analysées et relever '
-        + 'les personnes, adresses, lignes téléphoniques, véhicules, comptes et IBAN communs '
-        + 'à plusieurs dossiers. Pour chacun : citer la pièce et la cote, dire ce que le '
-        + 'rapprochement établit et ce qu’il n’établit pas, et signaler en priorité ce qui '
-        + 'n’est pas déjà visible sur la cartographie (aucun mis en cause commun).',
-      nuitSeulement: true,
-    });
-    if (id) setDevisPose(true);
-  };
+  const perimetre = chantier?.perimetre;
+  const detail = perimetre
+    ? `${perimetre.dossiers} dossier(s) comparé(s), ${perimetre.piecesLues}/${perimetre.pieces} pièce(s) lues`
+      + (perimetre.piecesNonLues > 0 ? ` · ${perimetre.piecesNonLues} à analyser au prochain passage` : '')
+      + (perimetre.contentieuxSansCle.length > 0
+        ? ` · hors périmètre faute de clé : ${perimetre.contentieuxSansCle.join(', ')}`
+        : '')
+    : undefined;
 
   return (
     <div className="flex items-center gap-2">
-      {available && (
+      <span className="flex items-center gap-1 text-[11px] text-gray-400" title={detail}>
+        <ServerCog className="h-3 w-3" />
+        {enCours
+          ? 'chantier en cours sur le serveur…'
+          : dateChantier
+            ? `chantier du ${dateChantier}`
+            : 'aucun chantier encore passé'}
+      </span>
+      {peutLancer && (
         <Button
           variant="outline"
           size="sm"
           className="h-7 gap-1.5 text-xs"
-          disabled={creating}
-          onClick={lancerChantier}
-          title={`Analyse profonde des ${pieces} jamais lues, sur ${docScan.numeros.length} dossier(s) : un devis chiffré est déposé dans « Analyses profondes ». Rien ne tourne avant que vous le validiez.`}
+          disabled={enCours}
+          onClick={lancer}
+          title="Relance la détection sur le serveur, sur le fonds entier. Le prochain passage automatique est la nuit du samedi au dimanche."
         >
-          {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers className="h-3.5 w-3.5" />}
-          Analyser {pieces}
+          {enCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          Lancer maintenant
         </Button>
       )}
-      <button
-        type="button"
-        onClick={onLectureRapide}
-        title="Extraction du seul texte, sur ce poste, sans jeton ni analyse : les pièces entrent dans la veille mais personne ne les lit."
-        className={available
-          ? 'inline-flex items-center gap-1 text-[10.5px] text-gray-400 underline decoration-dotted hover:text-gray-600'
-          : 'inline-flex h-7 items-center gap-1.5 rounded-md border border-gray-200 px-2 text-xs text-gray-700 hover:bg-gray-50'}
-      >
-        <FileSearch className="h-3 w-3" />
-        {available ? 'lecture rapide' : `Analyser ${pieces}`}
-      </button>
+      {erreur && <span className="text-[11px] text-red-600">{erreur}</span>}
     </div>
   );
 }

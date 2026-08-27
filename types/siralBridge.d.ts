@@ -117,6 +117,9 @@ interface SiralBridgeApi {
   globalSync_pushAlerts?: (payload: import('./globalSyncTypes').AlertSyncFile) => Promise<boolean>;
   globalSync_pullDeletedIds?: () => Promise<import('./globalSyncTypes').DeletedIdsSyncFile | null>;
   globalSync_pushDeletedIds?: (payload: import('./globalSyncTypes').DeletedIdsSyncFile) => Promise<boolean>;
+  /** Résultat du chantier de recoupements produit par le service attaché.
+   *  Lecture seule : l'application ne calcule ni n'écrit plus de signaux. */
+  globalSync_pullRecoupements?: () => Promise<import('./recoupementTypes').RecoupementsSyncFile | null>;
   globalSync_pullCartographie?: () => Promise<import('./globalSyncTypes').CartographieOverlaySyncFile | null>;
   globalSync_pushCartographie?: (payload: import('./globalSyncTypes').CartographieOverlaySyncFile) => Promise<boolean>;
   globalSync_pullCartographieConfig?: () => Promise<import('./globalSyncTypes').CartographieConfigSyncFile | null>;
