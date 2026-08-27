@@ -638,12 +638,6 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
         </div>
       )}
 
-      {!collapsed && (
-        <div className="border-t border-gray-100 px-5 py-1.5 text-center text-[10px] text-gray-400">
-          Documents éditables et exportables ici comme dans le dossier · décisions dans le panneau Attaché · visible de vous seul
-        </div>
-      )}
-
       {popup && (
         <ProductionPopup
           numero={popup.numero}
