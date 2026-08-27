@@ -23,7 +23,7 @@ import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissi
 import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride, purgeInbox } from './attache/mail.mjs'
 import { listChantiers, createChantier, createChantiersEnMasse, reprendreMasse, actionChantier, detailChantier, chantierStep, chantierActif, forceActive } from './attache/chantier.mjs'
-import { inNightWindow, prochaineNuit, feuChantier as feuDeChantier, NIGHT_START, NIGHT_END, NIGHT_TZ } from './attache/ordonnancement.mjs'
+import { inNightWindow, prochaineNuit, feuChantier as feuDeChantier, NIGHT_START, NIGHT_END, NIGHT_TZ, feuRecoupements, RECOUP_JOUR } from './attache/ordonnancement.mjs'
 import { writeClaudeToken, clearClaudeToken, clearAuthFailure } from './attache/claudeAuth.mjs'
 import { runAgent, checkClaudeCli, testClaudeAuth, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
 import { usageSummary } from './attache/usage.mjs'
@@ -31,6 +31,7 @@ import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { genererGraphique } from './attache/statsGraphiques.mjs'
 import { dossierSyntheseSignals } from './attache/dossier.mjs'
 import { ingestPass } from './attache/ingest.mjs'
+import { passeRecoupements, dernierResultat } from './attache/recoupements.mjs'
 import { registreFichesStep } from './attache/registre.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
@@ -994,6 +995,60 @@ async function maybeChantiers() {
   }
 }
 
+// ── Chantier de recoupements ──
+//
+// Calcul PUR (aucune IA, aucun jeton) : il ne passe donc ni par le gouverneur
+// du forfait, ni par la file des runs Claude. Une fois par semaine dans la nuit
+// du samedi au dimanche, et à la demande du magistrat à toute heure.
+let recoupementsEnCours = false
+let recoupementsEtape = null
+
+function recoupementsEtat(keys) {
+  const state = readState()
+  return {
+    enCours: recoupementsEnCours,
+    etape: recoupementsEtape,
+    dernierAt: state.recoupementsAt || null,
+    dernierErreur: state.recoupementsErreur || null,
+    jour: RECOUP_JOUR,
+    dernier: keys ? dernierResultat(keys) : null,
+  }
+}
+
+async function lancerRecoupements(origine = 'planifié') {
+  if (recoupementsEnCours) return { ok: false, error: 'chantier déjà en cours' }
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  recoupementsEnCours = true
+  recoupementsEtape = { etape: 'démarrage' }
+  try {
+    const resultat = await passeRecoupements(keys, {
+      progression: (p) => { recoupementsEtape = p },
+    })
+    await writeState({ recoupementsAt: resultat.calculeAt, recoupementsErreur: null })
+    console.log(`[attache] recoupements (${origine}) : ${resultat.perimetre.dossiers} dossiers, `
+      + `${resultat.perimetre.piecesLues}/${resultat.perimetre.pieces} pièces lues, `
+      + `${resultat.signaux.length} signal(aux) en ${Math.round(resultat.dureeMs / 1000)} s`)
+    return { ok: true, resultat: { ...resultat, signaux: resultat.signaux.length } }
+  } catch (e) {
+    const message = String(e?.message || e)
+    await writeState({ recoupementsErreur: message }).catch(() => {})
+    console.error('[attache] recoupements :', message)
+    return { ok: false, error: message }
+  } finally {
+    recoupementsEnCours = false
+    recoupementsEtape = null
+  }
+}
+
+async function maybeRecoupements() {
+  if (recoupementsEnCours) return
+  if (!loadKeyring()) return
+  const feu = feuRecoupements({ dernierAt: readState().recoupementsAt || null })
+  if (!feu.ok) return
+  await lancerRecoupements('nuit hebdomadaire')
+}
+
 // ── Boucle de relève ──
 let polling = false
 async function pollOnce(trigger = 'planifié') {
@@ -1067,6 +1122,18 @@ const server = http.createServer(async (req, res) => {
         config: agentConfig(),
         governor: consumptionGovernor(agentConfig()),
       })
+    }
+
+    if (route === 'GET /recoupements') {
+      const master = loadMasterKey()
+      return json(res, 200, recoupementsEtat(master ? loadKeyring() : null))
+    }
+
+    if (route === 'POST /recoupements') {
+      // Déclenchement manuel : à toute heure, la nuit n'a pas à être attendue
+      // quand c'est le magistrat lui-même qui demande.
+      const out = await lancerRecoupements('demande du magistrat')
+      return json(res, out.ok ? 200 : 409, out)
     }
 
     if (route === 'GET /config') {
@@ -1834,6 +1901,7 @@ setInterval(() => {
   decale(30_000, 'ingestion', 'ingestion des pièces', () => maybeIngest())
   decale(45_000, 'chantiers', 'chantiers d\'analyse', () => maybeChantiers())
   decale(90_000, 'registre', 'mini-fiches du registre', () => maybeRegistreFiches())
+  decale(120_000, 'recoupements', 'recoupements entre dossiers', () => maybeRecoupements())
 }, POLL_MINUTES * 60 * 1000)
 // première relève 20 s après le démarrage (laisse le réseau docker s'établir)
 setTimeout(() => { pollOnce('démarrage').catch(() => {}) }, 20_000)

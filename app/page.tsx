@@ -1036,9 +1036,11 @@ function AppContent() {
   // Repère, sans rien interrompre, les valeurs communes à plusieurs dossiers
   // (même personne, même patronyme, même adresse, même ligne…). Purement
   // informative : elle n'écrit jamais dans un dossier.
+  // Le calcul vit sur le SERVEUR (service attaché, chantier hebdomadaire) :
+  // l'application ne fait que lire le coffre qu'il dépose. Les enquêtes ne lui
+  // servent qu'à retrancher les dossiers dissimulés aux juristes assistants.
   const recoupements = useRecoupements({
     enquetesByContentieux: enquetesForSearch,
-    instructions,
     enabled: !isJLDUser,
     contentieuxJA,
   });
@@ -2313,9 +2315,10 @@ return (
         ecartes={recoupements.ecartes}
         estNouveau={recoupements.estNouveau}
         estRevenu={recoupements.estRevenu}
-        computing={recoupements.computing}
-        docScan={recoupements.docScan}
-        onAnalyserPieces={recoupements.analyserPieces}
+        chargement={recoupements.chargement}
+        chantier={recoupements.chantier}
+        detectionEnCours={recoupements.detectionEnCours}
+        onLancerDetection={recoupements.lancerDetection}
         onOuvrirDossier={(signal, dossierKey) => {
           setShowRecoupementsModal(false);
           handleOuvrirDossierRecoupement(signal, dossierKey);

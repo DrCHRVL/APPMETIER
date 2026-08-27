@@ -233,6 +233,36 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     return decryptBytes(key, iv, buf.subarray(16))
   }
 
+  /**
+   * Texte d'une pièce DÉJÀ EXTRAIT par le service attaché.
+   *
+   * Le serveur ne rend qu'une enveloppe chiffrée — c'est ici, dans le
+   * navigateur, qu'elle s'ouvre, avec la clé « global ». L'extraction locale
+   * (téléchargement du PDF, analyse pdfjs) demeure, mais en REPLI : elle ne
+   * sert plus que pour les pièces que le serveur n'a pas encore lues.
+   *
+   * `null` = rien de disponible, ou texte périmé (pièce re-téléversée depuis) :
+   * dans les deux cas l'appelant extrait lui-même, comme avant.
+   */
+  async function docTexteDuServeur(enquete: string, rel: string): Promise<string | null> {
+    try {
+      const res = await api(`/api/doc-texte/${encodeURIComponent(serverKey(enquete))}/${rel.split('/').map(encodeURIComponent).join('/')}`)
+      if (!res.ok) return null
+      const { envelope, blobHash } = await res.json()
+      if (!envelope || !blobHash) return null
+      const record = await decryptJson<{ texte?: string, blobHash?: string }>(
+        keys.byScope.get(SCOPE_GLOBAL) as CryptoKey,
+        envelope as CipherEnvelope,
+      )
+      // La pièce a-t-elle changé depuis l'extraction ? Chercher dans la
+      // version périmée d'un procès-verbal serait pire que ne pas chercher.
+      if (!record?.texte || record.blobHash !== blobHash) return null
+      return record.texte
+    } catch {
+      return null // serveur muet, clé absente, enveloppe illisible : on extraira
+    }
+  }
+
   async function docList(enquete: string): Promise<Array<{ rel: string, size: number, savedAt: string, category?: string, originalName?: string, sha?: string }>> {
     try {
       const res = await api(`/api/docs/${encodeURIComponent(serverKey(enquete))}`)
@@ -864,6 +894,11 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     globalSync_pushAlerts: async (payload: unknown) => { try { await vaultPush('alerts', payload); return true } catch { return false } },
     globalSync_pullDeletedIds: async () => vaultPullSoft('deleted-ids'),
     globalSync_pushDeletedIds: async (payload: unknown) => { try { await vaultPush('deleted-ids', payload); return true } catch { return false } },
+    // Recoupements : le calcul appartient au SERVICE ATTACHÉ (seul à pouvoir
+    // lire le fonds entier). L'application ne fait que lire son résultat —
+    // aucune écriture, il n'y a rien à y pousser.
+    docTexte_serveur: async (enquete: unknown, cheminRelatif: unknown) => docTexteDuServeur(String(enquete), String(cheminRelatif)),
+    globalSync_pullRecoupements: async () => vaultPullSoft('recoupements'),
     globalSync_pullCartographie: async () => vaultPullSoft('cartographie'),
     globalSync_pushCartographie: async (payload: unknown) => { try { await vaultPush('cartographie', payload); return true } catch { return false } },
     globalSync_pullCartographieConfig: async () => vaultPullSoft('cartographie-config'),

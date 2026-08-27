@@ -131,3 +131,34 @@ export interface RecoupementAck {
 }
 
 export type RecoupementAcks = Record<string, RecoupementAck>;
+
+/**
+ * Ce que le SERVICE ATTACHÉ dépose dans le coffre `recoupements` à chaque
+ * chantier — et donc tout ce dont l'application a besoin pour afficher les
+ * signaux. Elle n'en calcule plus aucun : le fonds entier ne se lit pas dans
+ * un onglet.
+ */
+export interface RecoupementsSyncFile {
+  v: number;
+  /** Fin du dernier chantier (ISO). */
+  calculeAt: string;
+  dureeMs: number;
+  /** Ce que le chantier a réellement pu lire — à afficher tel quel : un
+   *  périmètre incomplet doit se voir, jamais se deviner. */
+  perimetre: {
+    /** Contentieux effectivement lus (clé remise à l'attaché). */
+    contentieux: string[];
+    /** Contentieux confiés dont la clé manque — donc absents des signaux. */
+    contentieuxSansCle: string[];
+    dossiers: number;
+    instructions: number;
+    pieces: number;
+    piecesLues: number;
+    piecesExtraitesCeTour: number;
+    piecesIllisibles: number;
+    /** Pièces jamais analysées faute de temps — reprises au chantier suivant. */
+    piecesNonLues: number;
+    caracteresLus: number;
+  };
+  signaux: Recoupement[];
+}

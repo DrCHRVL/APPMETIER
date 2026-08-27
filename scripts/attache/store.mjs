@@ -18,8 +18,25 @@ export function attacheTj() {
   return process.env.SIRAL_ATTACHE_TJ || DEFAULT_TJ_ID
 }
 
+/**
+ * Contentieux confiés à l'attaché — SIRAL_ATTACHE_CONTENTIEUX, un ou plusieurs
+ * séparés par des virgules (« crimorg,environnement,ecofi »).
+ *
+ * Le PREMIER est le contentieux de TRAVAIL : c'est dans celui-là que l'attaché
+ * écrit (dossiers, actes, comptes rendus, mails). Les suivants ne sont confiés
+ * que pour la LECTURE transversale — les recoupements entre affaires n'ont
+ * d'intérêt que s'ils traversent les contentieux, un même homme se retrouvant
+ * mis en cause au stup et cité dans une procédure financière.
+ */
+export function attacheContentieuxListe() {
+  const brut = String(process.env.SIRAL_ATTACHE_CONTENTIEUX || 'crimorg')
+  const ids = brut.split(',').map((s) => s.trim()).filter(Boolean)
+  return ids.length ? ids : ['crimorg']
+}
+
+/** Contentieux de travail de l'attaché (le premier de la liste confiée). */
 export function attacheContentieux() {
-  return process.env.SIRAL_ATTACHE_CONTENTIEUX || 'crimorg'
+  return attacheContentieuxListe()[0]
 }
 
 export function tjDataDir(tj, ...segments) {

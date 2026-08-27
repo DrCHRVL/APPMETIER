@@ -375,17 +375,12 @@ export const CompteRenduSection = memo(({
     [enquete.comptesRendus]
   );
 
-  // Pagination du rendu : un dossier ancien porte parfois 60-100 CR — les
-  // rendre tous d'un bloc (avec leur HTML) gelait l'ouverture de la fiche.
-  // Les plus récents s'affichent immédiatement, le reste à la demande.
-  const CRS_PAGE = 25;
-  const [crsVisibles, setCrsVisibles] = useState(CRS_PAGE);
-  useEffect(() => { setCrsVisibles(CRS_PAGE); }, [enquete.id]);
-  const crsAffiches = useMemo(
-    () => (sortedCRs.length <= crsVisibles ? sortedCRs : sortedCRs.slice(0, crsVisibles)),
-    [sortedCRs, crsVisibles]
-  );
-
+  // TOUS les comptes rendus s'affichent. Ils ont été paginés à 25 le temps
+  // d'une mise à jour, pour un gel à l'ouverture des grosses fiches : la cause
+  // en était la veille de recoupements qui tournait dans l'onglet, pas leur
+  // nombre. Le calcul est parti sur le serveur, et le rendu de chaque CR est
+  // mis en cache (cf. lib/formatCR) — un dossier n'a plus à cacher son propre
+  // dossier au magistrat.
   const handleNewCR = () => {
     setError(null);
 
@@ -692,7 +687,7 @@ export const CompteRenduSection = memo(({
 
 
       <div className="space-y-4">
-        {crsAffiches.map(cr => (
+        {sortedCRs.map(cr => (
           <CompteRenduItem
             key={cr.id}
             cr={cr}
@@ -704,16 +699,6 @@ export const CompteRenduSection = memo(({
             onDelete={handleDeleteItem}
           />
         ))}
-        {sortedCRs.length > crsVisibles && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full text-gray-500"
-            onClick={() => setCrsVisibles(v => v + CRS_PAGE)}
-          >
-            Afficher les CR plus anciens ({sortedCRs.length - crsVisibles} restant{sortedCRs.length - crsVisibles > 1 ? 's' : ''})
-          </Button>
-        )}
       </div>
 
       {/* Modal de choix du type (Instructions uniquement) */}

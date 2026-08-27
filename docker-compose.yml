@@ -58,6 +58,12 @@ services:
       - SIRAL_ATTACHE_POLL_MIN=${SIRAL_ATTACHE_POLL_MIN:-5}
       - SIRAL_ATTACHE_MODEL=${SIRAL_ATTACHE_MODEL:-}
       - SIRAL_ATTACHE_ROUTINE_TIMEOUT_MIN=${SIRAL_ATTACHE_ROUTINE_TIMEOUT_MIN:-60}
+      # Chantier de recoupements : calcul pur, aucune IA, aucun jeton — il ne
+      # dépend donc pas de l'authentification Claude et ne peut pas être mis en
+      # attente par le gouverneur du forfait.
+      - SIRAL_ATTACHE_RECOUP_JOUR=${SIRAL_ATTACHE_RECOUP_JOUR:-0}
+      - SIRAL_ATTACHE_RECOUP_AUTO=${SIRAL_ATTACHE_RECOUP_AUTO:-1}
+      - SIRAL_ATTACHE_RECOUP_EXTRACTION_MIN=${SIRAL_ATTACHE_RECOUP_EXTRACTION_MIN:-120}
     volumes:
       - siral-data:/data
       - claude-auth:/home/attache

@@ -40,6 +40,9 @@ function compile(rel) {
     compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
   })
   const js = outputText
+    // Modules PARTAGÉS app ↔ attaché (lib/**/*.mjs) : déjà du JavaScript, on
+    // les importe tels quels par leur chemin réel — rien à transpiler.
+    .replace(/from\s*['"]@\/(lib\/[^'"]+\.mjs)['"]/g, (_, m) => `from '${path.join(REPO, m)}'`)
     .replace(/from\s*['"]@\/types\/cartographieTypes['"]/g, "from './cartographieTypes.mjs'")
     // Les autres imports de TYPES n'ont pas d'équivalent runtime.
     .replace(/^\s*import\s[^;]*?from\s*['"]@\/types\/[^'"]+['"];?\s*$/gm, '')

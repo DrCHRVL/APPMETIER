@@ -36,6 +36,9 @@ function compile(rel) {
     compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
   })
   const js = outputText
+    // Modules PARTAGÉS app ↔ attaché (lib/**/*.mjs) : déjà du JavaScript, on
+    // les importe tels quels par leur chemin réel — rien à transpiler.
+    .replace(/from\s*['"]@\/(lib\/[^'"]+\.mjs)['"]/g, (_, m) => `from '${path.join(REPO, m)}'`)
     .replace(/from\s*['"]@\/lib\/zustand['"]/g, "from './zustand-shim.mjs'")
     .replace(/from\s*['"]@\/utils\/siralBridge['"]/g, "from './siral-stub.mjs'")
     .replace(/from\s*['"]@\/utils\/mindmapGraph['"]/g, "from './mindmapGraph.mjs'")

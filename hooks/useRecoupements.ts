@@ -1,23 +1,29 @@
 // hooks/useRecoupements.ts
 //
-// VEILLE DE RECOUPEMENTS — branchement sur les données de l'application.
+// RECOUPEMENTS ENTRE DOSSIERS — côté application : LECTURE SEULE.
 //
-// Deux régimes, calqués sur la recherche documentaire (cf.
-// useGlobalDocumentSearch) : rien ne part sur le réseau en silence.
-//   - automatique : les fiches, les comptes rendus, les actes et les pièces
-//     DÉJÀ analysées pour la recherche. Coût nul, aucun téléchargement.
-//   - à la demande : « Analyser les pièces » extrait le texte des documents
-//     jamais lus, une fois pour toutes (le cache resservira partout ailleurs).
+// L'application ne calcule plus aucun rapprochement. Elle l'a fait un temps,
+// dans l'onglet du magistrat, et c'était une erreur de principe : comparer deux
+// cents dossiers et leurs pièces demande de tout tenir en mémoire, et un
+// navigateur ne le peut pas. Il fallait donc brider le calcul — pièces
+// tronquées, pièces abandonnées au-delà d'un budget, huit extractions par
+// session — de sorte que la détection était à la fois INCOMPLÈTE et
+// responsable des gels de l'interface.
 //
-// Le calcul lui-même est repoussé dans un temps mort du navigateur : la veille
-// ne doit jamais retarder une saisie ni la rédaction d'un acte.
+// Le calcul appartient désormais au SERVICE ATTACHÉ, seul composant qui
+// détienne les clés (le serveur web, lui, ne voit que des enveloppes
+// chiffrées). Il tourne sur le fonds ENTIER, une fois par semaine dans la nuit
+// du samedi au dimanche, et à la demande. Ce hook ne fait plus que :
+//   · lire le coffre `recoupements` qu'il dépose ;
+//   · retrancher ce que cet utilisateur n'a pas le droit de voir ;
+//   · tenir les gestes du magistrat (signal vu, signal écarté).
+//
+// Coût pour l'interface : une lecture de coffre. Rien d'autre, jamais.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Enquete } from '@/types/interfaces';
-import type { DossierInstruction } from '@/types/instructionTypes';
-import type { Recoupement, RecoupementAcks } from '@/types/recoupementTypes';
-import { buildCorpus, docTextKey } from '@/utils/recoupements/corpus';
-import { detecterRecoupements } from '@/utils/recoupements/engine';
+import type { Recoupement, RecoupementAcks, RecoupementsSyncFile } from '@/types/recoupementTypes';
+import { enqueteKey } from '@/utils/recoupements/corpus';
 import {
   ackPour,
   estNouveau as signalEstNouveau,
@@ -26,24 +32,14 @@ import {
   patchVus,
   trierSelonGestes,
 } from '@/utils/recoupements/gestes';
-import {
-  getCachedDocumentSearchText,
-  getDocumentSearchText,
-  isExtractableDocument,
-} from '@/utils/documents/documentTextSearch';
 import { userPreferencesSyncService } from '@/utils/dataSync/UserPreferencesSyncService';
-import { activiteDebut } from '@/lib/monitor/clientMonitor';
+import { activiteNote } from '@/lib/monitor/clientMonitor';
 
-export interface DocScanState {
-  /** Extraction en cours. */
-  scanning: boolean;
-  done: number;
-  total: number;
-  /** Pièces jamais analysées — matière du bouton « Analyser les pièces ». */
-  pending: number;
-  /** Dossiers qui portent ces pièces jamais analysées (numéros). C'est le
-   *  périmètre exact du chantier d'analyse profonde qu'on peut en tirer. */
-  numeros: string[];
+/** Ce que le dernier chantier du serveur a produit — et ce qu'il n'a pas pu lire. */
+export interface RecoupementsChantier {
+  calculeAt: string;
+  dureeMs: number;
+  perimetre: RecoupementsSyncFile['perimetre'];
 }
 
 export interface RecoupementsApi {
@@ -57,11 +53,14 @@ export interface RecoupementsApi {
   nouveauxParDossier: Map<string, Recoupement[]>;
   /** Signaux écartés par l'utilisateur (consultables, réactivables). */
   ecartes: Recoupement[];
-  /** Un premier calcul est en cours. */
-  computing: boolean;
-  docScan: DocScanState;
-  /** Lance l'extraction des pièces jamais analysées. */
-  analyserPieces: () => void;
+  /** Première lecture du coffre en cours. */
+  chargement: boolean;
+  /** Le dernier chantier du serveur. `null` : aucun n'a encore tourné. */
+  chantier: RecoupementsChantier | null;
+  /** Un chantier lancé depuis cette fenêtre tourne en ce moment. */
+  detectionEnCours: boolean;
+  /** Relance le chantier sur le serveur (administrateur du TJ confié). */
+  lancerDetection: () => Promise<{ ok: boolean; error?: string }>;
   estNouveau: (signal: Recoupement) => boolean;
   /** Signal écarté autrefois, remonté parce qu'un dossier de plus l'a rejoint. */
   estRevenu: (signal: Recoupement) => boolean;
@@ -73,106 +72,127 @@ export interface RecoupementsApi {
 }
 
 export interface UseRecoupementsOptions {
+  /** Sert UNIQUEMENT à retrancher les dossiers dissimulés aux JA (cf. plus bas). */
   enquetesByContentieux: Map<string, Enquete[]>;
-  instructions: DossierInstruction[];
-  /** Coupe la veille (profil épuré, module désactivé). */
+  /** Coupe la lecture (profil épuré, module désactivé). */
   enabled?: boolean;
-  /** Contentieux où l'utilisateur est JA : les dossiers dissimulés aux JA
-   *  sortent du corpus (cf. buildCorpus). */
+  /** Contentieux où l'utilisateur est juriste assistant. */
   contentieuxJA?: Set<string>;
 }
 
 const VIDE: Recoupement[] = [];
-const DEBOUNCE_MS = 1200;
-
-// Une pièce qui vient d'arriver est précisément celle qu'il faut lire : un PV
-// transmis par une autre unité, versé ce matin, porte les noms qui relient deux
-// affaires. On l'analyse donc sans attendre — mais uniquement elle, et par
-// petites quantités : le reste du fonds ne s'ouvre que sur demande explicite.
-const JOURS_PIECE_RECENTE = 45;
-const AUTO_EXTRACTIONS_MAX = 8;
-
-// Budget mémoire des textes de pièces retenus pour la veille. Au-delà, les
-// pièces suivantes ne sont plus gardées en mémoire (elles restent dans le
-// cache IndexedDB et reviendront si de la place se libère au prochain
-// démarrage). Sans cette borne, un fonds très analysé accumulait des centaines
-// de Mo de texte — trois copies comprises — jusqu'au « la page ne répond pas ».
-const DOC_TEXTS_MAX_CHARS = 24_000_000; // ~48 Mo de chaînes JS
-// Un texte de pièce n'est utile à la veille qu'à hauteur de ce que le moteur
-// lit (maxCharsFragment) : inutile d'en retenir davantage en mémoire.
-const DOC_TEXT_MAX_PAR_PIECE = 300_000;
-
-/** Pièce versée récemment — donc susceptible de n'avoir jamais été lue. */
-function estRecente(dateAjout: string | undefined): boolean {
-  if (!dateAjout) return false;
-  const t = Date.parse(dateAjout);
-  if (Number.isNaN(t)) return false;
-  return Date.now() - t < JOURS_PIECE_RECENTE * 24 * 60 * 60 * 1000;
-}
-
-/**
- * Empreinte légère du fond documentaire : identifiants et dates de mise à
- * jour, jamais le texte. Elle change quand un dossier change VRAIMENT — pas
- * quand la liste est simplement reconstruite à l'identique par une sync.
- */
-function empreinteVeille(
-  enquetesByContentieux: Map<string, Enquete[]>,
-  instructions: DossierInstruction[],
-  docVersion: number,
-  contentieuxJA: Set<string> | undefined,
-): string {
-  // Le périmètre JA fait partie de l'empreinte : il filtre ce que le corpus a
-  // le droit de contenir — deux périmètres différents ne sont jamais « le même
-  // fond » même à dossiers identiques.
-  const parts: string[] = [`v${docVersion}`, `ja:${[...(contentieuxJA || [])].sort().join(',')}`];
-  for (const [ctx, enquetes] of enquetesByContentieux) {
-    parts.push(`${ctx}#${enquetes.length}`);
-    for (const e of enquetes) parts.push(`${e.id}.${e.dateMiseAJour || ''}`);
-  }
-  parts.push(`i#${instructions.length}`);
-  for (const d of instructions) parts.push(`${d.id}.${d.dateMiseAJour || ''}`);
-  return parts.join('|');
-}
-
-/** Repousse un travail à un temps mort du navigateur (repli : minuterie). */
-function auRepos(fn: () => void): () => void {
-  const w = typeof window !== 'undefined' ? (window as unknown as {
-    requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number;
-    cancelIdleCallback?: (id: number) => void;
-  }) : undefined;
-  if (w?.requestIdleCallback) {
-    const id = w.requestIdleCallback(fn, { timeout: 3000 });
-    return () => w.cancelIdleCallback?.(id);
-  }
-  const id = setTimeout(fn, 300);
-  return () => clearTimeout(id);
-}
 
 export function useRecoupements({
   enquetesByContentieux,
-  instructions,
   enabled = true,
   contentieuxJA,
 }: UseRecoupementsOptions): RecoupementsApi {
-  const [signauxBruts, setSignauxBruts] = useState<Recoupement[]>(VIDE);
-  const [computing, setComputing] = useState(false);
+  const [fichier, setFichier] = useState<RecoupementsSyncFile | null>(null);
+  const [chargement, setChargement] = useState(true);
+  const [detectionEnCours, setDetectionEnCours] = useState(false);
   const [acks, setAcks] = useState<RecoupementAcks>({});
-  const [docScan, setDocScan] = useState<DocScanState>({ scanning: false, done: 0, total: 0, pending: 0, numeros: [] });
-  const [docVersion, setDocVersion] = useState(0);
-  const [extraire, setExtraire] = useState(false);
 
-  // Texte des pièces, accumulé hors du cycle de rendu (une Map mutée + un
-  // compteur de version : on ne rend pas un composant par document lu).
-  const docTexts = useRef<Map<string, string>>(new Map());
-  /** Volume total (caractères) retenu dans docTexts — borné par DOC_TEXTS_MAX_CHARS. */
-  const docTextsCharsRef = useRef(0);
-  const scanIdRef = useRef(0);
-  /** Budget d'extractions automatiques (pièces récentes) pour cette session. */
-  const budgetAutoRef = useRef(AUTO_EXTRACTIONS_MAX);
-  /** Empreinte du dernier scan de pièces mené à terme : un changement
-   *  d'identité des enquêtes (frappe, ouverture de fiche, sync) qui ne touche
-   *  pas au fond documentaire ne relance plus la boucle sur toutes les pièces. */
-  const scanEmpreinteRef = useRef('');
+  // ── Lecture du coffre déposé par le service attaché ───────────────────
+  const lire = useCallback(async () => {
+    if (!enabled) { setFichier(null); setChargement(false); return; }
+    const debut = Date.now();
+    try {
+      const pull = window.siralBridge?.globalSync_pullRecoupements;
+      if (!pull) { setFichier(null); return; }
+      const payload = await pull();
+      setFichier(payload || null);
+      if (payload) {
+        activiteNote(
+          'Lecture des recoupements',
+          'sync',
+          Date.now() - debut,
+          `${payload.signaux?.length || 0} signal(aux) · chantier du ${new Date(payload.calculeAt).toLocaleDateString('fr-FR')}`,
+        );
+      }
+    } catch {
+      /* coffre indisponible : on garde ce qu'on avait, sans rien inventer */
+    } finally {
+      setChargement(false);
+    }
+  }, [enabled]);
+
+  useEffect(() => {
+    void lire();
+    // Une synchronisation vient de passer : le chantier de la nuit a pu déposer
+    // son coffre depuis la dernière lecture.
+    const onSync = () => { void lire(); };
+    window.addEventListener('global-sync-completed', onSync);
+    return () => window.removeEventListener('global-sync-completed', onSync);
+  }, [lire]);
+
+  /**
+   * Déclenchement manuel. La route est réservée à l'administrateur du TJ
+   * confié — pour tout autre utilisateur elle répond 404, comme une route
+   * inexistante : l'existence même de l'attaché ne doit rien laisser paraître.
+   */
+  const lancerDetection = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    if (detectionEnCours) return { ok: false, error: 'Un chantier est déjà en cours.' };
+    setDetectionEnCours(true);
+    const debut = Date.now();
+    try {
+      const res = await fetch('/api/attache/recoupements', { method: 'POST', credentials: 'include' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const erreur = String(data.error || (res.status === 404
+          ? 'Détection sur serveur indisponible (service attaché non configuré).'
+          : `Erreur ${res.status}`));
+        activiteNote('Chantier de recoupements', 'veille', Date.now() - debut, erreur);
+        return { ok: false, error: erreur };
+      }
+      activiteNote('Chantier de recoupements', 'veille', Date.now() - debut, 'terminé');
+      await lire();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      setDetectionEnCours(false);
+    }
+  }, [detectionEnCours, lire]);
+
+  // ── Ce que cet utilisateur n'a pas le droit de voir ───────────────────
+  //
+  // Le chantier tourne sur le fonds entier : il ignore qui lira ses signaux.
+  // Un dossier dissimulé aux juristes assistants est donc retranché ICI, à
+  // l'affichage — exactement comme il l'était du temps où le corpus se
+  // construisait dans le navigateur (la donnée y était déjà ; seule la
+  // construction du corpus l'écartait). Un signal qui ne touche QUE des
+  // dossiers interdits disparaît ; s'il en touche d'autres, il reste, amputé
+  // de ceux-là.
+  const clesInterdites = useMemo(() => {
+    const out = new Set<string>();
+    if (!contentieuxJA?.size || !enquetesByContentieux) return out;
+    enquetesByContentieux.forEach((liste, ctx) => {
+      if (!contentieuxJA.has(ctx)) return;
+      for (const enquete of liste || []) {
+        if (enquete?.hiddenFromJA) out.add(enqueteKey(ctx, enquete.id));
+      }
+    });
+    return out;
+  }, [enquetesByContentieux, contentieuxJA]);
+
+  const signauxBruts = useMemo<Recoupement[]>(() => {
+    const bruts = fichier?.signaux || VIDE;
+    if (clesInterdites.size === 0) return bruts;
+    const out: Recoupement[] = [];
+    for (const signal of bruts) {
+      const dossierKeys = signal.dossierKeys.filter(k => !clesInterdites.has(k));
+      if (dossierKeys.length < 2) continue; // un recoupement demande deux dossiers
+      if (dossierKeys.length === signal.dossierKeys.length) { out.push(signal); continue; }
+      out.push({
+        ...signal,
+        dossierKeys,
+        stateKey: dossierKeys.join('|'),
+        occurrences: signal.occurrences.filter(o => !clesInterdites.has(o.dossier.key)),
+        pairesInedites: signal.pairesInedites.filter(([a, b]) => !clesInterdites.has(a) && !clesInterdites.has(b)),
+      });
+    }
+    return out;
+  }, [fichier, clesInterdites]);
 
   // ── Gestes de l'utilisateur (préférences personnelles, synchronisées) ──
   //
@@ -192,10 +212,10 @@ export function useRecoupements({
    * (Re)lecture des gestes enregistrés, FUSIONNÉE avec ce qui est déjà là.
    *
    * Elle ne se contente pas du montage : au premier rendu, l'utilisateur
-   * connecté n'est pas toujours résolu et les préférences reviennent vides.
-   * La veille tournait alors sur une table de gestes vide — tout paraissait
-   * neuf, et la première écriture écrasait les écartements de la veille.
-   * On rejoue donc la lecture à chaque synchronisation de préférences.
+   * connecté n'est pas toujours résolu et les préférences reviennent vides. Le
+   * tri tournait alors sur une table de gestes vide — tout paraissait neuf, et
+   * la première écriture écrasait les écartements de la veille. On rejoue donc
+   * la lecture à chaque synchronisation de préférences.
    */
   const chargerAcks = useCallback(async () => {
     try {
@@ -213,7 +233,7 @@ export function useRecoupements({
       acksRef.current = suite;
       setAcks(suite);
     } catch {
-      /* préférences indisponibles : la veille reste muette sur les gestes */
+      /* préférences indisponibles : les gestes restent muets */
     }
   }, []);
 
@@ -263,199 +283,6 @@ export function useRecoupements({
     void userPreferencesSyncService.removeRecoupementAck(signal.id);
   }, []);
 
-  // ── Lecture des pièces ────────────────────────────────────────────────
-  useEffect(() => {
-    if (!enabled || !enquetesByContentieux) return;
-    const scanId = ++scanIdRef.current;
-    let annule = false;
-
-    // Poser un état de scan SEULEMENT s'il change : deux setDocScan
-    // inconditionnels par passage re-rendaient deux fois toute la page.
-    const majDocScan = (suivant: DocScanState) => {
-      setDocScan(prev => (
-        prev.scanning === suivant.scanning
-        && prev.done === suivant.done
-        && prev.total === suivant.total
-        && prev.pending === suivant.pending
-        && prev.numeros.length === suivant.numeros.length
-        && prev.numeros.every((n, i) => n === suivant.numeros[i])
-      ) ? prev : suivant);
-    };
-
-    const travail = async () => {
-      const jobs: Array<{ numero: string; doc: Enquete['documents'][number] }> = [];
-      enquetesByContentieux.forEach(list => {
-        for (const enquete of list || []) {
-          for (const doc of enquete.documents || []) {
-            if (isExtractableDocument(doc)) jobs.push({ numero: enquete.numero, doc });
-          }
-        }
-      });
-
-      // Empreinte du fond documentaire (métadonnées seulement) : si rien n'a
-      // bougé depuis le dernier passage complet, on ne reparcourt pas les
-      // pièces — ouvrir une fiche ou corriger un CR ne relit plus le fonds.
-      const empreinte = [
-        extraire ? 'x' : '-',
-        `b${budgetAutoRef.current}`,
-        ...jobs.map(j => `${j.numero}|${j.doc.cheminRelatif}|${j.doc.taille || 0}|${j.doc.dateAjout || ''}`),
-      ].join('\n');
-      if (!extraire && empreinte === scanEmpreinteRef.current) return;
-
-      const moniteur = activiteDebut(
-        extraire ? 'Analyse des pièces (veille)' : 'Lecture des pièces en cache (veille)',
-        'veille',
-        `${jobs.length} pièce(s) à parcourir`,
-      );
-
-      let done = 0;
-      let pending = 0;
-      let nouveaux = 0;
-      const dossiersEnAttente = new Set<string>();
-      majDocScan({ scanning: extraire && jobs.length > 0, done: 0, total: jobs.length, pending: 0, numeros: [] });
-
-      for (const job of jobs) {
-        if (annule || scanId !== scanIdRef.current) { moniteur.fin('interrompu (données modifiées)'); return; }
-        const cle = docTextKey(job.numero, job.doc.cheminRelatif);
-        if (docTexts.current.has(cle)) { done++; continue; }
-
-        // Pièce récente jamais lue : on l'analyse d'office, dans la limite du
-        // budget de la session. Tout le reste attend une demande explicite.
-        const cache = extraire ? undefined : await getCachedDocumentSearchText(job.numero, job.doc);
-        const auto = !extraire
-          && cache === undefined
-          && estRecente(job.doc.dateAjout)
-          && budgetAutoRef.current > 0;
-
-        let texte = cache;
-        if (extraire || auto) {
-          if (auto) budgetAutoRef.current--;
-          texte = await getDocumentSearchText(job.numero, job.doc);
-        }
-        done++;
-        if (texte === undefined) { pending++; dossiersEnAttente.add(job.numero); continue; } // jamais analysée
-        if (texte?.raw) {
-          // Borne mémoire : on ne retient que ce que le moteur lira, et jamais
-          // au-delà du budget global — le reste demeure dans IndexedDB.
-          const retenu = texte.raw.length > DOC_TEXT_MAX_PAR_PIECE
-            ? texte.raw.slice(0, DOC_TEXT_MAX_PAR_PIECE)
-            : texte.raw;
-          if (docTextsCharsRef.current + retenu.length <= DOC_TEXTS_MAX_CHARS) {
-            docTexts.current.set(cle, retenu);
-            docTextsCharsRef.current += retenu.length;
-            nouveaux++;
-          }
-        }
-        if (extraire && done % 5 === 0) {
-          majDocScan({ scanning: done < jobs.length, done, total: jobs.length, pending, numeros: Array.from(dossiersEnAttente) });
-          moniteur.progression(done, jobs.length);
-          // Recalcul par paliers pendant une analyse explicite : les premiers
-          // signaux arrivent sans attendre la fin — mais plus jamais toutes
-          // les 15 pièces (chaque palier relance TOUT le moteur).
-          if (nouveaux > 0 && done % 60 === 0) setDocVersion(v => v + 1);
-          await new Promise(r => setTimeout(r, 0)); // respiration : l'app reste fluide
-        }
-      }
-
-      if (annule || scanId !== scanIdRef.current) { moniteur.fin('interrompu (données modifiées)'); return; }
-      scanEmpreinteRef.current = empreinte;
-      majDocScan({ scanning: false, done, total: jobs.length, pending, numeros: Array.from(dossiersEnAttente) });
-      moniteur.fin(`${done} lue(s), ${nouveaux} nouvelle(s), ${pending} en attente d'analyse`);
-      if (nouveaux > 0) setDocVersion(v => v + 1);
-      if (extraire) setExtraire(false);
-    };
-
-    // Les enquêtes changent d'identité à chaque frappe : on laisse la saisie
-    // se poser avant de repasser sur les pièces.
-    let annulerRepos: (() => void) | null = null;
-    const timer = setTimeout(() => { annulerRepos = auRepos(() => { void travail(); }); }, DEBOUNCE_MS);
-
-    return () => {
-      annule = true;
-      clearTimeout(timer);
-      annulerRepos?.();
-    };
-  }, [enabled, enquetesByContentieux, extraire]);
-
-  const analyserPieces = useCallback(() => setExtraire(true), []);
-
-  // ── Corpus puis détection : TOUT au repos, RIEN pendant le rendu ──────
-  //
-  // Le corpus était un useMemo — donc construit PENDANT le rendu. Or la liste
-  // des enquêtes change d'identité à chaque frappe et à chaque cycle de
-  // synchronisation : l'application relisait tous les comptes rendus, toutes
-  // les notes et tout le texte des pièces au beau milieu d'un clic ou d'une
-  // saisie. C'était le lag — celui de la saisie comme celui du défilement.
-  //
-  // Désormais l'effet débouncé fait tout : il attend que la saisie se pose
-  // (1,2 s), attend un temps mort du navigateur, prend une EMPREINTE LÉGÈRE
-  // des données (identifiants + dates de mise à jour — quelques microsecondes)
-  // et ne construit le corpus puis ne lance la détection QUE si l'empreinte a
-  // changé. Une sync qui n'apporte rien, un simple changement d'identité
-  // d'objets : zéro octet relu, zéro calcul.
-  const empreinteRef = useRef('');
-
-  useEffect(() => {
-    if (!enabled) {
-      setSignauxBruts(VIDE);
-      setComputing(false);
-      return;
-    }
-    let annule = false;
-    let cleanupIdle: (() => void) | null = null;
-    const timer = setTimeout(() => {
-      cleanupIdle = auRepos(() => {
-        if (annule) return;
-        const empreinte = empreinteVeille(enquetesByContentieux, instructions || [], docVersion, contentieuxJA);
-        if (empreinte === empreinteRef.current) return; // rien n'a bougé sur le fond
-        setComputing(true);
-        const moniteur = activiteDebut('Détection des recoupements', 'veille');
-        const corpus = buildCorpus(enquetesByContentieux, instructions || [], {
-          documentTexts: docTexts.current,
-          contentieuxJA,
-        });
-        if (annule) { moniteur.fin('interrompu'); return; }
-        if (corpus.length < 2) {
-          empreinteRef.current = empreinte;
-          setSignauxBruts(VIDE);
-          setComputing(false);
-          moniteur.fin('corpus insuffisant');
-          return;
-        }
-        moniteur.progression(0, corpus.length);
-        detecterRecoupements(corpus, {
-          respirer: () => new Promise<void>(r => { setTimeout(r, 0); }),
-          annule: () => annule,
-        })
-          .then(signaux => {
-            if (annule) { moniteur.fin('interrompu (données modifiées)'); return; }
-            // L'empreinte n'est retenue qu'au terme d'un calcul complet : un
-            // run annulé en route sera refait, jamais considéré comme acquis.
-            if (signaux) {
-              empreinteRef.current = empreinte;
-              setSignauxBruts(signaux);
-              moniteur.fin(`${corpus.length} dossiers comparés — ${signaux.length} signal(aux)`);
-            } else {
-              moniteur.fin('interrompu (données modifiées)');
-            }
-          })
-          .catch(err => {
-            console.error('Veille de recoupements', err);
-            moniteur.echec(String((err as Error)?.message || err));
-            if (!annule) setSignauxBruts(VIDE);
-          })
-          .finally(() => { if (!annule) setComputing(false); });
-      });
-    }, DEBOUNCE_MS);
-
-    return () => {
-      annule = true;
-      clearTimeout(timer);
-      cleanupIdle?.();
-    };
-    // docVersion : nouvelles pièces lues → corpus à rebâtir.
-  }, [enabled, enquetesByContentieux, instructions, contentieuxJA, docVersion]);
-
   // ── Tri selon les gestes de l'utilisateur ─────────────────────────────
   // Jamais traité, ou un dossier de PLUS depuis le geste : c'est neuf. Un
   // dossier qui s'en va ne réveille rien (cf. utils/recoupements/gestes.ts).
@@ -489,6 +316,13 @@ export function useRecoupements({
     return { parDossier: tous, nouveauxParDossier: neufs };
   }, [signaux, nouveaux]);
 
+  const chantier = useMemo<RecoupementsChantier | null>(
+    () => (fichier
+      ? { calculeAt: fichier.calculeAt, dureeMs: fichier.dureeMs, perimetre: fichier.perimetre }
+      : null),
+    [fichier],
+  );
+
   // Identité stable : la fiche de dossier est mémoïsée sur cet objet.
   return useMemo(() => ({
     signaux,
@@ -496,9 +330,10 @@ export function useRecoupements({
     parDossier,
     nouveauxParDossier,
     ecartes,
-    computing,
-    docScan,
-    analyserPieces,
+    chargement,
+    chantier,
+    detectionEnCours,
+    lancerDetection,
     estNouveau,
     estRevenu,
     marquerVu,
@@ -506,7 +341,7 @@ export function useRecoupements({
     ecarter,
     reactiver,
   }), [
-    signaux, nouveaux, parDossier, nouveauxParDossier, ecartes, computing, docScan,
-    analyserPieces, estNouveau, estRevenu, marquerVu, marquerVus, ecarter, reactiver,
+    signaux, nouveaux, parDossier, nouveauxParDossier, ecartes, chargement, chantier,
+    detectionEnCours, lancerDetection, estNouveau, estRevenu, marquerVu, marquerVus, ecarter, reactiver,
   ]);
 }
