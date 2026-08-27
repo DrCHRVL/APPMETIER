@@ -66,6 +66,15 @@ interface BaseActe {
   autorisationRequestedAt?: string;
   prolongationsHistory?: ProlongationHistoryEntry[];
   /**
+   * Demande de prolongation déclenchée par la VALIDATION d'un acte rédigé
+   * (production « prolongation JLD »). Une prolongation ne crée JAMAIS d'acte :
+   * elle marque l'acte EXISTANT « prolongation en attente JLD », exactement
+   * comme le bouton « Demander la prolongation » du détail d'enquête.
+   * `prevStatut` mémorise l'état d'avant pour que la réouverture de la
+   * production le rende (tant que le JLD n'a pas statué).
+   */
+  prolongationRequest?: { prodId: string; prevStatut: ActeStatus };
+  /**
    * Lien vers la production (acte rédigé par l'attaché de justice) dont la
    * validation a créé cet acte. Sert à l'idempotence (ne pas recréer l'acte à
    * chaque validation) et à la réversibilité (retirer l'acte auto-créé si la
@@ -94,6 +103,13 @@ export interface ActeMeta {
   objet?: string;          // géoloc : objet suivi
   /** Mesure soumise au JLD et encore en attente d'autorisation. */
   pendingJld?: boolean;
+  /**
+   * PROLONGATION uniquement : id de l'acte EXISTANT que la requête prolonge
+   * (visible dans lire_dossier). Une prolongation ne crée jamais d'acte — à
+   * la validation, l'acte visé passe « prolongation en attente JLD ». À
+   * défaut d'id, l'acte est retrouvé par sa rubrique et sa cible/objet.
+   */
+  acteId?: number;
 }
 
 // Interface pour les données de géolocalisation

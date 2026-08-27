@@ -887,7 +887,7 @@ const TOOLS = [
         objet: { type: 'string', description: 'Objet de l\'acte pour le nom de fichier : n° de ligne interceptée / objet géolocalisé (écoutes, géoloc, interceptions). Omettre pour un acte sans objet (perquisition, saisine…).' },
         acteMeta: {
           type: 'object',
-          description: 'STRUCTURE de l\'acte, pour qu\'à la validation par le magistrat l\'app crée un acte IDENTIQUE à une saisie manuelle (rubrique + catégorie + statut). À renseigner dès que le document est un acte d\'enquête à suivre (autorisation/prolongation de mesure). OBLIGATOIRE pour une requête ou autorisation d\'INTERCEPTION TÉLÉPHONIQUE (kind=ecoute + cible=n° de ligne + pendingJld=true tant que le JLD n\'a pas statué) et de GÉOLOCALISATION (kind=geolocalisation + objet) : sans ces métadonnées l\'acte ne serait pas rangé dans la bonne rubrique de l\'enquête. Inutile pour note/livrable/projet de réponse.',
+          description: 'STRUCTURE de l\'acte, pour qu\'à la validation par le magistrat l\'app crée un acte IDENTIQUE à une saisie manuelle (rubrique + catégorie + statut). À renseigner dès que le document demande une mesure NOUVELLE. OBLIGATOIRE pour une requête ou autorisation d\'INTERCEPTION TÉLÉPHONIQUE (kind=ecoute + cible=n° de ligne + pendingJld=true tant que le JLD n\'a pas statué) et de GÉOLOCALISATION (kind=geolocalisation + objet) : sans ces métadonnées l\'acte ne serait pas rangé dans la bonne rubrique de l\'enquête. PROLONGATION (type prolongation_jld) : la mesure prolongée EXISTE DÉJÀ dans l\'enquête — la validation ne crée jamais un second acte, elle fait passer l\'acte visé « prolongation en attente JLD ». Renseigne alors acteId (id de l\'acte prolongé, visible dans lire_dossier) et, à défaut, la même cible/objet que l\'acte d\'origine, pour qu\'il soit retrouvé. Inutile pour note/fiche/livrable/réponse DML/projet de réponse.',
           properties: {
             kind: { type: 'string', enum: ['ecoute', 'geolocalisation', 'autre'], description: 'Rubrique : interception téléphonique = ecoute ; balise/suivi de véhicule ou objet = geolocalisation ; toute autre TSE = autre.' },
             categorie: { type: 'string', description: 'Pour kind=autre : CLÉ de catégorie si applicable (art76 · imsi_donnees · imsi_interceptions · captation_images_public · captation_images_prive · sonorisation_prive · drone_public · drone_prive · captation_donnees_informatiques · activation_fixe · activation_mobile · infiltration) — durée/autorisation/date de fin sont alors pré-remplies. Sinon libellé libre (ex. « Comparution forcée (art. 78 CPP) »).' },
@@ -897,6 +897,7 @@ const TOOLS = [
             cible: { type: 'string', description: 'Écoute : ligne/personne visée.' },
             objet: { type: 'string', description: 'Géoloc : objet suivi (véhicule, plaque…).' },
             pendingJld: { type: 'boolean', description: 'true si la mesure est soumise au JLD et encore EN ATTENTE d\'autorisation (statut « en attente JLD »).' },
+            acteId: { type: 'number', description: 'PROLONGATION uniquement : id de l\'acte EXISTANT prolongé (lire_dossier l\'affiche). Aucun acte n\'est créé — l\'acte visé passe « prolongation en attente JLD », puis le magistrat valide la prolongation quand le JLD a signé.' },
           },
         },
       },

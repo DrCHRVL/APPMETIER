@@ -38,7 +38,7 @@ import { downloadActePptx, estPresentable } from '@/lib/web/pptxExport';
 import { downloadActeXlsx, contientTableaux } from '@/lib/web/xlsxExport';
 import { useToast } from '@/contexts/ToastContext';
 import { useActeRunsStore, runKey, acteDoneToastMessage } from '@/stores/useActeRunsStore';
-import { useEnquetesStore } from '@/stores/useEnquetesStore';
+import { messageProductionActe, useEnquetesStore } from '@/stores/useEnquetesStore';
 import type { ActeMeta } from '@/types/interfaces';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
@@ -206,10 +206,11 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
       if (await persist(rec)) {
         setItems((prev) => prev.map((x) => (x.id === p.id ? rec : x)));
         setExpanded(null);
-        // Crée l'acte correspondant dans l'enquête, identique à une saisie
-        // manuelle. Idempotent : ne recrée rien si l'acte existe déjà.
-        syncProductionActe(p.numero, { id: p.id, type: p.type, titre: p.titre, meta: p.acteMeta, objet: p.objet }, true);
-        setNotice(`« ${p.titre} » validé — acte créé dans l'enquête.`);
+        // Répercute la validation dans l'enquête : acte créé (identique à une
+        // saisie manuelle), prolongation demandée sur l'acte EXISTANT, ou rien
+        // du tout. On dit au magistrat ce qui a réellement été fait.
+        const r = syncProductionActe(p.numero, { id: p.id, type: p.type, titre: p.titre, meta: p.acteMeta, objet: p.objet }, true);
+        setNotice(`« ${p.titre} » validé — ${messageProductionActe(r)}`);
       } else {
         setNotice('Validation impossible (service injoignable ?).');
       }
@@ -260,9 +261,11 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
       const rec = { ...p, traite: false, traiteLe: undefined, refuse: false, refuseLe: undefined, refuseMotif: undefined, updatedAt: new Date().toISOString() };
       if (await persist(rec)) {
         setItems((prev) => prev.map((x) => (x.id === p.id ? rec : x)));
-        // Retire l'acte auto-créé dans l'enquête s'il est resté intact.
-        syncProductionActe(p.numero, { id: p.id, type: p.type, titre: p.titre, meta: p.acteMeta, objet: p.objet }, false);
-        setNotice(`« ${p.titre} » remis dans les actes en attente.`);
+        // Défait ce que la validation avait fait (acte créé, prolongation
+        // demandée), tant que le magistrat n'a pas repris l'acte en main.
+        const r = syncProductionActe(p.numero, { id: p.id, type: p.type, titre: p.titre, meta: p.acteMeta, objet: p.objet }, false);
+        const suite = r.action === 'rien' ? '' : ` — ${messageProductionActe(r)}`;
+        setNotice(`« ${p.titre} » remis dans les actes en attente${suite}`);
       }
     } finally {
       setBusy(null);

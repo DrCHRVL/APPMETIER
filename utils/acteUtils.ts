@@ -206,6 +206,9 @@ interface ProlongationResult {
   statut: ActeStatus;
   warning?: string;
   prolongationData?: any;
+  /** Le JLD a statué : le marqueur de demande (posé par la validation d'un
+   *  acte rédigé de prolongation) n'a plus lieu d'être. */
+  prolongationRequest?: undefined;
 }
 
 export const ActeUtils = {
@@ -268,7 +271,8 @@ export const ActeUtils = {
       duree: dureeInitiale, // Ne plus accumuler : garder la durée initiale
       statut: 'en_cours',
       warning,
-      prolongationData: undefined
+      prolongationData: undefined,
+      prolongationRequest: undefined
     };
 
   } catch (error) {

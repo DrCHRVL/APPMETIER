@@ -16,6 +16,26 @@
  * « Requête d'interception de correspondances téléphoniques » est une écoute
  * (rubrique Écoutes), pas un acte libre dans « Autres actes » — puis on tente
  * une résolution de catégorie, sinon acte libre.
+ *
+ * TROIS RÈGLES DE COHÉRENCE, appliquées par `planProductionActe` AVANT toute
+ * création (une validation ne doit jamais fabriquer un acte de plus) :
+ *
+ *  1. PROLONGATION : une requête de prolongation ne crée RIEN. La mesure
+ *     prolongée existe déjà dans l'enquête — la validation la fait entrer dans
+ *     le chemin de prolongation DÉJÀ EN PLACE : statut « prolongation en
+ *     attente JLD » (colonne « Prolongations » de l'encart Attente JLD), puis
+ *     validation par la fenêtre « Validation de la prolongation » qui étend la
+ *     date de fin et historise. Exactement ce que fait le bouton « Demander la
+ *     prolongation » du détail d'enquête, et l'outil `acter_prolongation`
+ *     (mode « demande ») côté attaché. Aucun acte cible retrouvé → on ne crée
+ *     rien et on le DIT au magistrat.
+ *  2. DOUBLON : si la mesure est déjà suivie dans l'enquête (même rubrique,
+ *     même ligne interceptée / objet géolocalisé / catégorie, acte encore
+ *     vivant), la validation ne crée pas un second acte — que l'acte vienne
+ *     d'une saisie manuelle, de `enregistrer_acte` ou d'une proposition ✓.
+ *  3. ÉCRIT SANS MESURE : une fiche d'analyse, une réponse à DML, un projet de
+ *     réponse ne sont pas des mesures à suivre avec échéance — ils ne créent
+ *     un acte que si l'attaché a explicitement décrit une structure d'acte.
  */
 
 import { AUTRE_ACTE_TYPES, AutreActeTypeKey } from '@/config/acteTypes';
@@ -23,7 +43,7 @@ import { DateUtils } from '@/utils/dateUtils';
 import { ActeMeta, ActeStatus, AutreActe, EcouteData, GeolocData } from '@/types/interfaces';
 
 /** Normalisation robuste : sans accents, minuscules, séparateurs → espaces. */
-function norm(s: string): string {
+function norm(s?: string): string {
   return String(s || '')
     .normalize('NFKD').replace(/[̀-ͯ]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -77,14 +97,14 @@ export function resolveAutreActeTypeKey(input?: string): AutreActeTypeKey | null
  * libre, quand l'attaché n'a pas fourni de métadonnées. Conservateur : ne
  * renvoie une rubrique que sur correspondance fiable, sinon null.
  *  - IMSI-catcher (« interceptions » 706-95-4) reste hors rubrique : c'est une
- *    catégorie d'« autre » acte, pas une écoute ;
- *  - une prolongation ne crée jamais de rubrique : l'écoute/géoloc prolongée
- *    existe déjà dans l'enquête, il ne faut pas la dupliquer.
+ *    catégorie d'« autre » acte, pas une écoute.
+ * Le titre d'une PROLONGATION est lu comme celui de la mesure prolongée : la
+ * rubrique sert alors à retrouver l'acte existant, jamais à en créer un
+ * (cf. `planProductionActe`).
  */
 export function inferActeKind(titre?: string): 'ecoute' | 'geolocalisation' | null {
   const t = norm(titre || '');
   if (!t) return null;
-  if (t.includes('prolongation')) return null;
   if (t.includes('imsi') || t.includes('706 95 4')) return null;
   if (t.includes('ecoute') || t.includes('706 95') ||
       (t.includes('interception') &&
@@ -169,19 +189,35 @@ const PRODUCTION_TYPE_LABEL: Record<string, string> = {
 };
 
 /** Types de production qui ne correspondent à AUCUN acte de procédure. */
-const NON_ACTE_PRODUCTION_TYPES = new Set(['note', 'livrable', 'presentation']);
+const NON_ACTE_PRODUCTION_TYPES = new Set(['note', 'livrable', 'presentation', 'fiche']);
+
+/**
+ * Types de production qui ne sont pas, par eux-mêmes, une mesure à suivre :
+ * une réponse à demande de mise en liberté ou un projet de réponse est un
+ * ÉCRIT, pas un acte d'enquête avec cible, durée et échéance. Ils ne créent un
+ * acte que si l'attaché a explicitement décrit une structure d'acte
+ * (`acteMeta.kind` ou `acteMeta.categorie`) — sinon la validation les laisse
+ * où ils sont, dans « Actes rédigés ».
+ */
+const ECRIT_SANS_MESURE_TYPES = new Set(['reponse_dml', 'projet_reponse']);
+
+/** Une production est-elle une PROLONGATION de mesure existante ? */
+export function isProlongation(type?: string, titre?: string, categorie?: string): boolean {
+  if (String(type || '') === 'prolongation_jld') return true;
+  return norm(titre).includes('prolongation') || norm(categorie).includes('prolongation');
+}
+
+/** Collection d'actes d'une enquête. */
+export type ActeCollection = 'actes' | 'geolocalisations' | 'ecoutes';
 
 export interface BuiltActe {
   /** Collection de l'enquête à mettre à jour. */
-  collection: 'actes' | 'geolocalisations' | 'ecoutes';
+  collection: ActeCollection;
   acte: AutreActe | GeolocData | EcouteData;
 }
 
-/**
- * Construit l'acte à créer dans l'enquête depuis une production validée.
- * Renvoie null si la production ne correspond à aucun acte (note, livrable).
- */
-export function buildProductionActe(params: {
+/** La production validée, telle que la porte « Actes rédigés ». */
+export interface ProductionRef {
   prodId: string;
   type: string;
   titre: string;
@@ -189,8 +225,20 @@ export function buildProductionActe(params: {
   /** Objet porté par la production elle-même (n° de ligne interceptée, objet
    *  géolocalisé — cf. produire_document) : secours quand ActeMeta est absent. */
   objet?: string;
-}): BuiltActe | null {
+}
+
+/**
+ * Construit l'acte à créer dans l'enquête depuis une production validée.
+ * Renvoie null si la production ne crée aucun acte (note, fiche, livrable,
+ * écrit sans mesure, PROLONGATION). Passer par `planProductionActe` : c'est
+ * lui qui tranche entre créer, prolonger l'acte existant et ne rien faire.
+ */
+export function buildProductionActe(params: ProductionRef): BuiltActe | null {
   if (NON_ACTE_PRODUCTION_TYPES.has(params.type)) return null;
+  if (ECRIT_SANS_MESURE_TYPES.has(params.type) && !params.meta?.kind && !params.meta?.categorie) return null;
+  // Garde-fou : une prolongation ne crée JAMAIS d'acte, elle prolonge celui qui
+  // existe (planProductionActe). Rien ici ne doit pouvoir la dupliquer.
+  if (isProlongation(params.type, params.titre, params.meta?.categorie)) return null;
 
   const meta = params.meta || {};
   // Rubrique : celle des métadonnées quand l'attaché l'a fournie ; sinon,
@@ -301,4 +349,199 @@ export function buildProductionActe(params: {
     ...(pending ? { autorisationRequestedAt: new Date().toISOString() } : {}),
   };
   return { collection: 'actes', acte };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Rapprochement avec les actes DÉJÀ SUIVIS dans l'enquête
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Vue minimale d'un acte de l'enquête, toutes rubriques confondues. */
+export interface ActeExistant {
+  id: number;
+  statut: ActeStatus;
+  prodId?: string;
+  prolongationRequest?: { prodId: string; prevStatut: ActeStatus };
+  /** Écoute : ligne interceptée. */
+  numero?: string;
+  cible?: string;
+  /** Géoloc : objet suivi. */
+  objet?: string;
+  /** Autre acte : clé de catégorie ou libellé libre. */
+  type?: string;
+  description?: string;
+}
+
+/** Les trois collections d'actes d'une enquête. */
+export type ActesEnquete = Partial<Record<ActeCollection, ActeExistant[]>>;
+
+const COLLECTIONS: ActeCollection[] = ['ecoutes', 'geolocalisations', 'actes'];
+
+/** Rubrique portée par une collection. */
+function kindOf(c: ActeCollection): 'ecoute' | 'geolocalisation' | 'autre' {
+  return c === 'ecoutes' ? 'ecoute' : c === 'geolocalisations' ? 'geolocalisation' : 'autre';
+}
+
+/** Actes encore SUIVIS : un acte refusé par le JLD ou avorté ne fait doublon avec rien. */
+const STATUTS_VIVANTS = new Set<ActeStatus>(['autorisation_pending', 'pose_pending', 'en_cours', 'prolongation_pending', 'a_renouveler']);
+
+/** Actes PROLONGEABLES : la mesure a été autorisée (une demande d'autorisation
+ *  encore pendante ne se prolonge pas — elle n'a pas commencé). Un acte échu
+ *  reste prolongeable : l'app le permet, à charge d'antidater l'autorisation. */
+const STATUTS_PROLONGEABLES = new Set<ActeStatus>(['en_cours', 'termine', 'a_renouveler', 'prolongation_pending']);
+
+/** Suite de chiffres d'une chaîne (n° de ligne, plaque) — 6 chiffres au moins. */
+function digitsOf(s?: string): string {
+  const d = String(s || '').replace(/\D/g, '');
+  return d.length >= 6 ? d : '';
+}
+
+/**
+ * Clé d'IDENTITÉ d'une mesure dans sa rubrique : ce qui fait que deux actes
+ * désignent la même chose. Écoute → la ligne (comparée sur ses chiffres, pour
+ * que « 07 64 45 45 16 » et « 0764454516 » se rejoignent) ; géoloc → l'objet
+ * suivi ; autre acte → sa catégorie légale (ou son libellé). '' si inconnue.
+ */
+function acteIdentite(kind: 'ecoute' | 'geolocalisation' | 'autre', a: ActeExistant): string {
+  if (kind === 'ecoute') return digitsOf(a.numero || a.cible) || norm(a.cible || a.numero);
+  if (kind === 'geolocalisation') return digitsOf(a.objet) || norm(a.objet);
+  return resolveAutreActeTypeKey(a.type) || norm(a.type);
+}
+
+/** Même clé d'identité, mais lue sur la PRODUCTION (métadonnées, objet, titre). */
+function productionIdentite(kind: 'ecoute' | 'geolocalisation' | 'autre', p: ProductionRef): string {
+  const meta = p.meta || {};
+  if (kind === 'ecoute') {
+    const brut = meta.cible || meta.objet || p.objet || '';
+    return digitsOf(brut) || digitsOf(p.titre) || norm(brut);
+  }
+  if (kind === 'geolocalisation') {
+    const brut = meta.objet || meta.cible || p.objet || '';
+    return digitsOf(brut) || norm(brut);
+  }
+  return resolveAutreActeTypeKey(meta.categorie || p.titre) || norm(meta.categorie);
+}
+
+/** Rubrique visée par une production (métadonnées d'abord, titre ensuite). */
+function rubriqueDe(p: ProductionRef): 'ecoute' | 'geolocalisation' | 'autre' {
+  const meta = p.meta || {};
+  return meta.kind || (!meta.categorie ? inferActeKind(p.titre) : null) || 'autre';
+}
+
+/** Libellé lisible d'un acte de l'enquête (pour le message rendu au magistrat). */
+export function libelleActe(collection: ActeCollection, a: ActeExistant): string {
+  if (collection === 'ecoutes') return `écoute ${a.numero || a.cible || ''}`.trim();
+  if (collection === 'geolocalisations') return `géolocalisation ${a.objet || ''}`.trim();
+  const key = resolveAutreActeTypeKey(a.type);
+  return key ? AUTRE_ACTE_TYPES[key].label : (a.type || 'acte');
+}
+
+/** Premier acte de `actes` satisfaisant le prédicat, avec sa collection. */
+function chercher(
+  actes: ActesEnquete,
+  pred: (c: ActeCollection, a: ActeExistant) => boolean,
+): { collection: ActeCollection; acte: ActeExistant } | null {
+  for (const c of COLLECTIONS) {
+    const found = (actes[c] || []).find((a) => pred(c, a));
+    if (found) return { collection: c, acte: found };
+  }
+  return null;
+}
+
+/**
+ * Retrouve l'acte EXISTANT que prolonge une production de prolongation.
+ *  1. l'id désigné par l'attaché (`acteMeta.acteId`) — le chemin sûr ;
+ *  2. sinon, même rubrique + même identité (ligne, objet, catégorie) ;
+ *  3. sinon, si la rubrique est certaine (écoute / géoloc) et qu'un SEUL acte
+ *     prolongeable y figure, c'est celui-là — le cas courant d'un dossier qui
+ *     ne suit qu'une ligne. Au-delà, on préfère ne rien faire.
+ */
+function chercherActeAProlonger(
+  actes: ActesEnquete,
+  p: ProductionRef,
+): { collection: ActeCollection; acte: ActeExistant } | null {
+  const acteId = p.meta?.acteId;
+  if (acteId != null) {
+    const parId = chercher(actes, (_c, a) => Number(a.id) === Number(acteId));
+    if (parId) return parId;
+  }
+  const kind = rubriqueDe(p);
+  const identite = productionIdentite(kind, p);
+  if (identite) {
+    const parIdentite = chercher(
+      actes,
+      (c, a) => kindOf(c) === kind && STATUTS_PROLONGEABLES.has(a.statut) && acteIdentite(kind, a) === identite,
+    );
+    if (parIdentite) return parIdentite;
+  }
+  if (kind === 'autre') return null;
+  const collection: ActeCollection = kind === 'ecoute' ? 'ecoutes' : 'geolocalisations';
+  const candidats = (actes[collection] || []).filter((a) => STATUTS_PROLONGEABLES.has(a.statut));
+  return candidats.length === 1 ? { collection, acte: candidats[0] } : null;
+}
+
+/** Acte déjà suivi qui désigne la MÊME mesure que la production (anti-doublon). */
+function chercherActeEquivalent(
+  actes: ActesEnquete,
+  p: ProductionRef,
+  built: BuiltActe,
+): { collection: ActeCollection; acte: ActeExistant } | null {
+  const kind = kindOf(built.collection);
+  const identite = productionIdentite(kind, p) || acteIdentite(kind, built.acte as ActeExistant);
+  if (!identite) return null;
+  const found = (actes[built.collection] || []).find(
+    (a) => STATUTS_VIVANTS.has(a.statut) && acteIdentite(kind, a) === identite,
+  );
+  return found ? { collection: built.collection, acte: found } : null;
+}
+
+/**
+ * Ce que la validation d'un acte rédigé doit faire dans l'enquête. Une seule
+ * décision, prise ici, appliquée par le store (useEnquetesStore).
+ *  - `creer`     : la mesure n'est pas encore suivie → acte créé, identique à
+ *                  une saisie manuelle ;
+ *  - `prolonger` : requête de prolongation → l'acte EXISTANT passe
+ *                  « prolongation en attente JLD » (rien n'est créé) ;
+ *  - `existant`  : la mesure est déjà suivie → on ne touche à rien ;
+ *  - `aucun`     : la production ne porte aucune mesure, ou la mesure
+ *                  prolongée est introuvable (le magistrat en est averti).
+ */
+export type ProductionActePlan =
+  | { action: 'creer'; collection: ActeCollection; acte: AutreActe | GeolocData | EcouteData }
+  | { action: 'prolonger'; collection: ActeCollection; acteId: number; libelle: string }
+  | { action: 'existant'; collection: ActeCollection; acteId: number; libelle: string }
+  | { action: 'aucun'; raison: 'deja_fait' | 'sans_mesure' | 'prolongation_orpheline' };
+
+export function planProductionActe(p: ProductionRef, actes: ActesEnquete): ProductionActePlan {
+  // Déjà appliqué (acte créé, ou prolongation demandée) : rien à refaire.
+  const dejaFait = chercher(
+    actes,
+    (_c, a) => a.prodId === p.prodId || a.prolongationRequest?.prodId === p.prodId,
+  );
+  if (dejaFait) return { action: 'aucun', raison: 'deja_fait' };
+
+  // PROLONGATION : jamais de création — on rejoint le chemin de prolongation.
+  if (isProlongation(p.type, p.titre, p.meta?.categorie)) {
+    const cible = chercherActeAProlonger(actes, p);
+    if (!cible) return { action: 'aucun', raison: 'prolongation_orpheline' };
+    return {
+      action: 'prolonger',
+      collection: cible.collection,
+      acteId: cible.acte.id,
+      libelle: libelleActe(cible.collection, cible.acte),
+    };
+  }
+
+  const built = buildProductionActe(p);
+  if (!built) return { action: 'aucun', raison: 'sans_mesure' };
+
+  const equivalent = chercherActeEquivalent(actes, p, built);
+  if (equivalent) {
+    return {
+      action: 'existant',
+      collection: equivalent.collection,
+      acteId: equivalent.acte.id,
+      libelle: libelleActe(equivalent.collection, equivalent.acte),
+    };
+  }
+  return { action: 'creer', collection: built.collection, acte: built.acte };
 }
