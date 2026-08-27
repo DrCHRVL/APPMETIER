@@ -8,7 +8,7 @@
 // chaque frappe ne fait qu'interroger des chaînes prénormalisées.
 
 import { useMemo } from 'react';
-import { Enquete, AIRMesure } from '@/types/interfaces';
+import { Enquete, AIRMesure, CompteRendu } from '@/types/interfaces';
 import { DossierInstruction } from '@/types/instructionTypes';
 import { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { KnownPerson } from '@/utils/knownPersons';
@@ -103,12 +103,13 @@ function buildEnqueteDoc(e: Enquete, ctxId: ContentieuxId): GlobalSearchDoc {
     { label: 'Document', maxLength: 8000, ops: ['doc', 'document', 'fichier'] }
   ));
 
-  // Contenu « profond » restant : CR et actes. Sous-chaîne exacte uniquement
-  // (pas de tolérance de frappe sur du texte long) — c'est ce qui garde la
-  // recherche instantanée. Téléphones et géolocalisations sont déjà couverts
-  // par leurs champs dédiés ci-dessus (avec un poids plus élevé).
+  // Contenu « profond » restant : écoutes et actes. Sous-chaîne exacte
+  // uniquement (pas de tolérance de frappe sur du texte long) — c'est ce qui
+  // garde la recherche instantanée. Téléphones et géolocalisations sont déjà
+  // couverts par leurs champs dédiés ci-dessus (avec un poids plus élevé).
+  // Les comptes rendus, eux, ont leur propre document indexé (groupe
+  // « Comptes rendus » ci-dessous) — inutile de les dupliquer ici.
   const deep: string[] = [];
-  for (const cr of e.comptesRendus || []) deep.push(cr.enqueteur, cr.description);
   for (const ec of e.ecoutes || []) deep.push(ec.description || '');
   for (const a of e.actes || []) deep.push(a.type, a.description);
   if (e.notes) deep.push(e.notes);
@@ -120,6 +121,40 @@ function buildEnqueteDoc(e: Enquete, ctxId: ContentieuxId): GlobalSearchDoc {
     kind: 'enquete',
     title: e.numero,
     subtitle: e.description?.trim() || mecList || undefined,
+    ctxId,
+    archived: e.statut !== 'en_cours',
+    fields,
+    data: { ctxId, id: e.id, numero: e.numero, statut: e.statut },
+  };
+}
+
+// ── Comptes rendus ──────────────────────────────
+
+/**
+ * Un compte rendu = un document indexé à part entière (et non un simple
+ * champ noyé dans l'enquête) : le fonds de CR d'un dossier reste d'une
+ * taille modeste (à la différence des PDF/DOCX versés), rien n'empêche donc
+ * de l'interroger en direct, sans extraction ni bouton « Analyser ».
+ * L'exécution ouvre l'enquête qui porte le CR — même chemin qu'un résultat
+ * « Enquêtes » ou « Documents ».
+ */
+function buildCompteRenduDoc(cr: CompteRendu, e: Enquete, ctxId: ContentieuxId): GlobalSearchDoc | null {
+  const fields: DocField[] = [];
+  const acc: Array<DocField | null> = fields as Array<DocField | null>;
+
+  const numeroField = makeField(e.numero, 1, { ops: ['no', 'num', 'numero'] });
+  if (!numeroField) return null;
+  acc.push(numeroField);
+  push(acc, makeField(cr.description, 2.4, { label: 'Compte rendu', maxLength: 8000, ops: ['contenu', 'cr'] }));
+  push(acc, makeField(cr.enqueteur, 1.6, { label: 'Rédacteur', fuzzy: true, ops: ['nom', 'personne', 'cr'] }));
+
+  const dateLabel = cr.date ? new Date(cr.date).toLocaleDateString('fr-FR') : '';
+
+  return {
+    key: `cr_${ctxId}_${e.id}_${cr.id}`,
+    kind: 'compte_rendu',
+    title: e.numero,
+    subtitle: [dateLabel, cr.enqueteur].filter(Boolean).join(' · ') || undefined,
     ctxId,
     archived: e.statut !== 'en_cours',
     fields,
@@ -398,7 +433,13 @@ export const useGlobalSearch = (sources: GlobalSearchSources): GlobalSearchApi =
     for (const ctx of contentieux) {
       const list = enquetesByContentieux.get(ctx.id);
       if (!Array.isArray(list)) continue;
-      for (const e of list) out.push(buildEnqueteDoc(e, ctx.id));
+      for (const e of list) {
+        out.push(buildEnqueteDoc(e, ctx.id));
+        for (const cr of e.comptesRendus || []) {
+          const crDoc = buildCompteRenduDoc(cr, e, ctx.id);
+          if (crDoc) out.push(crDoc);
+        }
+      }
     }
 
     if (modules.instructions) {
