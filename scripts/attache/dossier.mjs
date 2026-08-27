@@ -20,6 +20,7 @@ import { encryptJson, decryptJson, decryptDocBlob } from './crypto.mjs'
 import { normNumero, numerosProches } from './numero.mjs'
 import { AUTRE_ACTE_TYPES, resolveAutreActeTypeKey, deriveAutreActeFields } from './acteTypes.mjs'
 import { natinfEntry, natinfLabel } from './natinf.mjs'
+import { docCacheBasename } from '../../lib/documents/docCacheCore.mjs'
 import { extractPdfText } from './ocr.mjs'
 import { extractOfficeText, isOfficeExt, extractSpreadsheetText, isSpreadsheetExt } from './officeText.mjs'
 
@@ -543,11 +544,10 @@ export function dossierMarkdown(keys, numero, opts = {}) {
 // n'est pas touché.
 
 function docCachePath(enqueteKey, cheminRelatif, variante = '') {
-  // `variante` : '' = lecture par défaut (économe, pages images marquées mais
-  // non océrisées) ; 'integrale' = original relu avec OCR des pages images.
-  // Deux caches distincts — chaque mode n'est extrait qu'une fois.
-  const h = crypto.createHash('sha256').update(enqueteKey + '\n' + cheminRelatif + (variante ? '\n' + variante : '')).digest('hex').slice(0, 32)
-  return attacheDir('doccache', h + '.json')
+  // La formule vit dans lib/documents/docCacheCore.mjs : le serveur web relit
+  // ce même cache pour le servir aux navigateurs, et deux copies qui
+  // divergeraient rendraient le cache muet sans la moindre erreur.
+  return attacheDir('doccache', docCacheBasename(enqueteKey, cheminRelatif, variante) + '.json')
 }
 
 // v2 : le cache stocke le texte INTÉGRAL (borné à TEXTE_CACHE_MAX) et la

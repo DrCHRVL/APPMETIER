@@ -117,6 +117,9 @@ interface SiralBridgeApi {
   globalSync_pushAlerts?: (payload: import('./globalSyncTypes').AlertSyncFile) => Promise<boolean>;
   globalSync_pullDeletedIds?: () => Promise<import('./globalSyncTypes').DeletedIdsSyncFile | null>;
   globalSync_pushDeletedIds?: (payload: import('./globalSyncTypes').DeletedIdsSyncFile) => Promise<boolean>;
+  /** Texte d'une pièce déjà extrait par le service attaché (océrisation
+   *  comprise), déchiffré ici. `null` : à extraire localement, comme avant. */
+  docTexte_serveur?: (enquete: string, cheminRelatif: string) => Promise<string | null>;
   /** Résultat du chantier de recoupements produit par le service attaché.
    *  Lecture seule : l'application ne calcule ni n'écrit plus de signaux. */
   globalSync_pullRecoupements?: () => Promise<import('./recoupementTypes').RecoupementsSyncFile | null>;

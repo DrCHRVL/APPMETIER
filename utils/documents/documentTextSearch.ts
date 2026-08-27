@@ -2,16 +2,28 @@
 //
 // Texte des documents d'enquête pour la RECHERCHE.
 //
-// Le document est téléchargé via le pont (déchiffrement local) puis converti
-// DANS le navigateur avec lib/web/fileToMarkdown (PDF, DOCX, DOC, ODT,
-// tableurs, TXT/HTML/RTF/EML — aucune dépendance nouvelle). Côté serveur rien
-// ne change : les documents restent chiffrés de bout en bout, l'extraction et
-// le cache vivent sur le poste — au même titre que les données métier déjà
-// présentes dans IndexedDB.
+// DEUX SOURCES, dans cet ordre.
 //
-// Chaque document n'est extrait qu'UNE fois : cache persistant IndexedDB
-// (clé numéro + chemin + taille, invalidée par re-téléversement), doublé d'un
-// cache de session portant la forme normalisée prête à chercher.
+// 1. LE SERVICE ATTACHÉ, quand il est là. Il a déjà lu la pièce — et lui sait
+//    OCÉRISER un procès-verbal scanné, ce que le navigateur ne sait pas faire.
+//    Son texte dort dans un cache CHIFFRÉ avec la clé « global » : le pont le
+//    récupère et l'ouvre ici. Une enveloppe à déchiffrer, là où il fallait
+//    télécharger un PDF entier puis l'analyser page à page.
+// 2. LE NAVIGATEUR, en repli. Téléchargement via le pont (déchiffrement local)
+//    puis conversion avec lib/web/fileToMarkdown (PDF, DOCX, DOC, ODT,
+//    tableurs, TXT/HTML/RTF/EML). C'est ce qui se passait toujours avant, et
+//    ce qui continue de se passer pour les pièces que le serveur n'a pas
+//    encore lues — ou quand il n'y a pas d'attaché du tout.
+//
+// La recherche documentaire ne DÉPEND donc jamais du serveur : elle est
+// seulement bien plus rapide, et bien plus complète, quand il répond.
+//
+// Le serveur web, lui, reste aveugle de bout en bout : il transmet une
+// enveloppe qu'il ne peut pas ouvrir.
+//
+// Chaque document n'est lu qu'UNE fois : cache persistant IndexedDB (clé
+// numéro + chemin + taille, invalidée par re-téléversement), doublé d'un cache
+// de session portant la forme normalisée prête à chercher.
 
 import type { DocumentEnquete } from '@/types/interfaces';
 import { normalizeText } from '@/utils/globalSearch';
@@ -27,7 +39,14 @@ export interface DocumentText {
 const EXTRACTABLE_RE = /\.(pdf|docx?|odt|ott|txt|md|markdown|csv|tsv|eml|log|rtf|html?|xlsx|xlsm|xltx|xls|ods)$/i;
 /** Au-delà : on ne télécharge pas (scan de recherche ≠ rapatrier un scellé). */
 const MAX_DOC_BYTES = 25 * 1024 * 1024;
-const MAX_TEXT_CHARS = 400_000;
+// Plafond du texte retenu par pièce — environ cinq cents pages.
+//
+// Il était à 400 000 caractères, ce qui coupait en deux une procédure scannée
+// que l'attaché, lui, garde entière : la fin du procès-verbal devenait
+// introuvable à la recherche, sans que rien ne le signale. Le relever n'est
+// tenable que parce que le cache de session est désormais borné en MÉMOIRE et
+// non en nombre de pièces (cf. MAX_SESSION_CHARS).
+const MAX_TEXT_CHARS = 1_000_000;
 
 const DB_NAME = 'siral-doc-text-v1';
 const STORE_TEXTS = 'texts';
@@ -175,33 +194,43 @@ const inFlight = new Map<string, Promise<DocumentText | null>>();
 const sessionCache = new Map<string, DocumentText | null>();
 
 // Le cache de session gardait raw + norm de CHAQUE pièce lue, sans jamais rien
-// libérer : jusqu'à ~1,6 Mo par pièce, plusieurs centaines de Mo sur un fonds
-// analysé — c'est ce qui finissait par tuer l'onglet (« la page ne répond
-// pas »). On borne donc le nombre d'entrées AVEC texte (les entrées null,
-// minuscules, ne comptent pas) : au-delà, la plus anciennement utilisée est
-// libérée — IndexedDB la resservira à la demande.
-const MAX_SESSION_TEXTS = 120;
+// libérer : plusieurs centaines de Mo sur un fonds analysé — c'est ce qui
+// finissait par tuer l'onglet (« la page ne répond pas »).
+//
+// La borne porte sur les CARACTÈRES, non sur le nombre d'entrées. C'est de la
+// mémoire qu'il s'agit, et depuis que le serveur sert des pièces entières —
+// une procédure scannée océrisée fait un million de caractères là où une note
+// en fait mille — compter les pièces ne dit plus rien de ce qu'on occupe.
+// Au-delà du budget, la pièce la plus anciennement consultée est libérée ;
+// IndexedDB la resservira à la demande.
+const MAX_SESSION_CHARS = 24_000_000; // ~48 Mo de chaînes JS (raw + norm)
 let sessionTextCount = 0;
+let sessionChars = 0;
+
+const poidsDe = (v: DocumentText | null): number => (v ? v.raw.length + v.norm.length : 0);
 
 function sessionRemember(key: string, value: DocumentText | null): void {
   const previous = sessionCache.get(key);
   if (previous !== undefined) {
     sessionCache.delete(key);
-    if (previous !== null) sessionTextCount--;
+    if (previous !== null) { sessionTextCount--; sessionChars -= poidsDe(previous); }
   }
   if (value !== null) {
-    while (sessionTextCount >= MAX_SESSION_TEXTS) {
-      let evicted = false;
+    const poids = poidsDe(value);
+    while (sessionChars + poids > MAX_SESSION_CHARS) {
+      let libere = false;
       for (const [k, v] of sessionCache) {
-        if (v === null) continue;
+        if (v === null) continue; // les entrées « illisible » ne pèsent rien
         sessionCache.delete(k);
         sessionTextCount--;
-        evicted = true;
+        sessionChars -= poidsDe(v);
+        libere = true;
         break;
       }
-      if (!evicted) break;
+      if (!libere) break; // une seule pièce plus grosse que le budget : on la garde
     }
     sessionTextCount++;
+    sessionChars += poids;
   }
   sessionCache.set(key, value);
 }
@@ -215,11 +244,7 @@ function sessionTouch(key: string, value: DocumentText | null): void {
 
 /** État du cache de session — affiché par le moniteur d'activité. */
 export function getDocTextCacheStats(): { textes: number; caracteres: number } {
-  let caracteres = 0;
-  for (const v of sessionCache.values()) {
-    if (v) caracteres += v.raw.length + v.norm.length;
-  }
-  return { textes: sessionTextCount, caracteres };
+  return { textes: sessionTextCount, caracteres: sessionChars };
 }
 
 // Mémoire de session des clés ABSENTES d'IndexedDB : évite de refaire un
@@ -293,12 +318,26 @@ export async function getDocumentSearchText(
       }
     }
 
-    await acquire();
+    // Le service attaché a peut-être DÉJÀ lu cette pièce — et lui sait
+    // océriser un procès-verbal scanné, ce que le navigateur ne sait pas
+    // faire. On le lui demande avant de se lancer : une enveloppe à
+    // déchiffrer plutôt qu'un PDF à télécharger puis à analyser page à page.
+    // Son texte est ensuite rangé dans IndexedDB comme n'importe quel autre :
+    // la recherche automatique en profite dès le passage suivant.
     let raw: string | null = null;
     try {
-      raw = await extractText(enqueteNumero, doc);
-    } finally {
-      release();
+      raw = (await window.siralBridge?.docTexte_serveur?.(enqueteNumero, doc.cheminRelatif)) ?? null;
+    } catch {
+      raw = null; // serveur muet : on extrait localement, comme avant
+    }
+
+    if (raw === null) {
+      await acquire();
+      try {
+        raw = await extractText(enqueteNumero, doc);
+      } finally {
+        release();
+      }
     }
     if (raw && raw.length > MAX_TEXT_CHARS) raw = raw.slice(0, MAX_TEXT_CHARS);
 

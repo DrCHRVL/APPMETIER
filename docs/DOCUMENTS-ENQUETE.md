@@ -252,6 +252,37 @@ cache d'extraction) et l'attaché détient les clés.
   `pieces_chercher` (localisation exacte) → `lire_document` page ciblée.
   Trois sauts, coût minime, toujours cité.
 
+### C0 — FAIT : le texte vient du serveur, l'extraction locale devient un repli
+
+Le principe « via l'attaché quand il est là, sinon repli navigateur » est en
+place pour la matière première elle-même — le texte des pièces.
+
+Le navigateur ré-extrayait avec pdfjs, pour son propre compte, un texte que
+l'attaché avait déjà extrait **et océrisé**, et rangé dans un cache chiffré avec
+la clé « global » — celle que tout navigateur détient. Trois conséquences, toutes
+mauvaises : les procès-verbaux SCANNÉS restaient introuvables (le navigateur n'a
+pas d'OCR), chaque poste refaisait le travail, et il fallait tronquer les textes
+pour que l'onglet survive.
+
+| | Avant | Maintenant |
+|---|---|---|
+| Source du texte | pdfjs, dans chaque navigateur | cache de l'attaché, servi tel quel |
+| PV scannés | invisibles | océrisés côté serveur, cherchables |
+| Texte retenu par pièce | 400 000 caractères | 1 000 000 |
+| Borne du cache de session | 120 pièces | 24 M caractères (~48 Mo) — la mémoire, pas le compte |
+
+Sans attaché, rien ne change : le navigateur extrait comme avant. La recherche
+ne dépend jamais du serveur ; elle est seulement plus rapide et plus complète
+quand il répond.
+
+| Fichier | Rôle |
+|---|---|
+| `lib/documents/docCacheCore.mjs` | où se range le texte d'une pièce — formule PARTAGÉE app ↔ attaché (deux copies divergentes rendraient le cache muet sans erreur) |
+| `lib/server/docTexte.ts` | retrouve l'enveloppe, vérifie qu'elle correspond à la pièce EN PLACE, la rend sans l'ouvrir |
+| `app/api/doc-texte/[enquete]/[...path]` | route de lecture, tout utilisateur authentifié |
+| `utils/documents/documentTextSearch.ts` | serveur d'abord, extraction locale en repli |
+| `scripts/doc-texte.test.mjs` | la chaîne complète : écriture attaché → lecture serveur → ouverture navigateur, fraîcheur comprise |
+
 ---
 
 ## 6. Feuille de route

@@ -22,6 +22,7 @@ export const SIRAL_BRIDGE_API_NAMES = [
   'globalSync_pullAudience', 'globalSync_pushAudience',
   'globalSync_pullAlerts', 'globalSync_pushAlerts',
   'globalSync_pullDeletedIds', 'globalSync_pushDeletedIds',
+  'docTexte_serveur',
   'globalSync_pullRecoupements',
   'globalSync_pullCartographie', 'globalSync_pushCartographie',
   'globalSync_pullCartographieConfig', 'globalSync_pushCartographieConfig',
