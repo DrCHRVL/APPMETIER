@@ -12,6 +12,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Mail, Wifi, Gauge, Leaf, GraduationCap, Link2, Copy } from 'lucide-react';
+import { AttacheSante } from './AttacheSante';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, SUBMODEL_OPTIONS, PLAN_PRESETS, AttacheConfig, saveAttacheConfig, formatTokens, formatCostEur } from '../attache/modelOptions';
 import { fileToMarkdown, titreDepuisFichier, decodeText } from '@/lib/web/fileToMarkdown';
 import { skillFromArchive } from '@/lib/web/skillImport';
@@ -1193,6 +1194,12 @@ export function AdminAttachePanel() {
         ses livrables et réponses s'affichent <b>dans l'application</b> (fil « pendant votre absence », actes rédigés) —
         aucun mail sortant.
       </p>
+
+      {/* L'ENDROIT UNIQUE — vivant ? voit-il quelque chose ? que fournit-il ?
+          Il vient AVANT le détail technique : trois des cinq façons dont
+          l'attaché tombe en panne le laissent vivant en apparence, et une
+          fonction qui a disparu ne se signale jamais d'elle-même. */}
+      <AttacheSante />
 
       {/* État */}
       <div className="grid grid-cols-2 gap-2 rounded-xl border border-gray-200 bg-gray-50/60 p-3">
