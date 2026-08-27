@@ -710,6 +710,12 @@ export const CassiopeeImportModal = ({
                   const target = targetForRole(p.role);
                   const rapprochement = rapprochements.get(i);
                   const dp = target === 'mex' && p.categoriePenale === 'DP' ? previewDp.get(p.nom) : undefined;
+                  // « depuis » = le dernier PLACEMENT (pas forcément le tout 1er :
+                  // une remise en liberté suivie d'un nouveau placement rouvre un
+                  // épisode distinct, cf. deriveDpPeriodesForPersonne).
+                  const dpPlacements = dp?.filter(per => per.type === 'placement') ?? [];
+                  const dpDepuis = dpPlacements[dpPlacements.length - 1]?.dateDebut ?? dp?.[0]?.dateDebut;
+                  const dpProlongations = dp ? dp.length - dpPlacements.length : 0;
                   return (
                     <label key={i} className="block px-2 py-1 text-xs hover:bg-gray-50 cursor-pointer">
                       <span className="flex items-center gap-2">
@@ -753,10 +759,12 @@ export const CassiopeeImportModal = ({
                           Déjà au fichier : {rapprochement.person.hint} — la fiche de ce dossier sera rattachée à la même personne.
                         </span>
                       )}
-                      {dp && dp.length > 0 && (
+                      {dp && dp.length > 0 && dpDepuis && (
                         <span className="block pl-7 pt-0.5 text-[10px] text-red-700">
-                          DP reconstituée : placement {new Date(dp[0].dateDebut).toLocaleDateString()}
-                          {dp.length > 1 ? ` + ${dp.length - 1} prolongation(s)` : ''} · fin actuelle {new Date(dp[dp.length - 1].dateFin).toLocaleDateString()}
+                          DP reconstituée : placement {new Date(dpDepuis).toLocaleDateString()}
+                          {dpProlongations > 0 ? ` + ${dpProlongations} prolongation(s)` : ''}
+                          {dpPlacements.length > 1 ? ` (${dpPlacements.length} placements distincts — remise en liberté puis nouveau placement)` : ''}
+                          {' '}· fin actuelle {new Date(dp[dp.length - 1].dateFin).toLocaleDateString()}
                         </span>
                       )}
                       {target === 'mex' && p.categoriePenale === 'DP' && (!dp || dp.length === 0) && (
